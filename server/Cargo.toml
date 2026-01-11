@@ -1,0 +1,76 @@
+[package]
+name = "elidune-server"
+version = "0.6.0"
+edition = "2021"
+authors = ["Jean Collonville <cjean@elidune.org>"]
+description = "Elidune - Library Management System Server"
+license = "GPL-2.0"
+repository = "https://github.com/elidune/elidune-server"
+
+[dependencies]
+# Web framework
+axum = { version = "0.7", features = ["macros"] }
+axum-extra = { version = "0.9", features = ["typed-header"] }
+tower = { version = "0.4", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors", "trace", "compression-gzip"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio", "tls-rustls", "postgres", "chrono", "uuid"] }
+
+# Redis
+redis = { version = "0.25", features = ["tokio-comp", "connection-manager"] }
+
+# Authentication
+jsonwebtoken = "9"
+argon2 = "0.5"
+totp-lite = "2.0"
+lettre = "0.11"
+rand = "0.8"
+base32 = "0.4"
+base64 = "0.21"
+sha1 = "0.10"
+
+# Validation
+validator = { version = "0.18", features = ["derive"] }
+
+# Configuration
+config = "0.14"
+dotenvy = "0.15"
+
+# Logging & Tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Date/Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID
+uuid = { version = "1", features = ["v4", "serde"] }
+
+# Error handling
+thiserror = "1"
+anyhow = "1"
+
+# OpenAPI documentation
+utoipa = { version = "4", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { version = "7", features = ["axum"] }
+
+# MARC parsing (for Z39.50 records)
+encoding_rs = "0.8"
+
+[dev-dependencies]
+tokio-test = "0.4"
+reqwest = { version = "0.12", features = ["json"] }
+sqlx = { version = "0.7", features = ["runtime-tokio", "tls-rustls", "postgres", "chrono", "uuid"] }
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

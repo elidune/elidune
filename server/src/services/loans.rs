@@ -1,0 +1,56 @@
+//! Loan management service
+
+use chrono::{DateTime, Utc};
+
+use crate::{
+    error::AppResult,
+    models::loan::{CreateLoan, LoanDetails},
+    repository::Repository,
+};
+
+#[derive(Clone)]
+pub struct LoansService {
+    repository: Repository,
+}
+
+impl LoansService {
+    pub fn new(repository: Repository) -> Self {
+        Self { repository }
+    }
+
+    /// Get loans for a user
+    pub async fn get_user_loans(&self, user_id: i32) -> AppResult<Vec<LoanDetails>> {
+        // Verify user exists
+        self.repository.users.get_by_id(user_id).await?;
+        self.repository.loans.get_user_loans(user_id).await
+    }
+
+    /// Create a new loan (borrow an item)
+    pub async fn create_loan(&self, loan: CreateLoan) -> AppResult<(i32, DateTime<Utc>)> {
+        // Verify user exists
+        self.repository.users.get_by_id(loan.user_id).await?;
+        self.repository.loans.create(&loan).await
+    }
+
+    /// Return a borrowed item
+    pub async fn return_loan(&self, loan_id: i32) -> AppResult<LoanDetails> {
+        self.repository.loans.return_loan(loan_id).await
+    }
+
+    /// Renew a loan
+    pub async fn renew_loan(&self, loan_id: i32) -> AppResult<(DateTime<Utc>, i16)> {
+        self.repository.loans.renew_loan(loan_id).await
+    }
+
+    /// Count active loans
+    pub async fn count_active(&self) -> AppResult<i64> {
+        self.repository.loans.count_active().await
+    }
+
+    /// Count overdue loans
+    pub async fn count_overdue(&self) -> AppResult<i64> {
+        self.repository.loans.count_overdue().await
+    }
+}
+
+

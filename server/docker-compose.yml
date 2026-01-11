@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - DATABASE_URL=postgres://elidune:elidune@db:5432/elidune
+      - JWT_SECRET=${JWT_SECRET:-change-this-secret-in-production}
+      - RUST_LOG=elidune_server=info,tower_http=info
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - elidune-network
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=elidune
+      - POSTGRES_PASSWORD=elidune
+      - POSTGRES_DB=elidune
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U elidune -d elidune"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - elidune-network
+
+  # Optional: pgAdmin for database management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@elidune.org
+      - PGADMIN_DEFAULT_PASSWORD=admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+    restart: unless-stopped
+    networks:
+      - elidune-network
+    profiles:
+      - tools
+
+volumes:
+  postgres_data:
+
+networks:
+  elidune-network:
+    driver: bridge
+
+
