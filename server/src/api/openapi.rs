@@ -56,6 +56,7 @@ use crate::api::{auth, health, items, loans, settings, stats, users, z3950};
         z3950::import_record,
         // Stats
         stats::get_stats,
+        stats::get_loan_stats,
         // Settings
         settings::get_settings,
         settings::update_settings,
@@ -106,6 +107,10 @@ use crate::api::{auth, health, items, loans, settings, stats, users, z3950};
             stats::UserStats,
             stats::LoanStats,
             stats::StatEntry,
+            stats::Interval,
+            stats::LoanStatsQuery,
+            stats::LoanStatsResponse,
+            stats::TimeSeriesEntry,
             // Settings
             settings::SettingsResponse,
             settings::LoanSettings,

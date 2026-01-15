@@ -144,6 +144,7 @@ fn create_router(state: AppState) -> Router {
         .route("/z3950/import", post(api::z3950::import_record))
         // Statistics
         .route("/stats", get(api::stats::get_stats))
+        .route("/stats/loans", get(api::stats::get_loan_stats))
         // Settings
         .route("/settings", get(api::settings::get_settings))
         .route("/settings", put(api::settings::update_settings))
