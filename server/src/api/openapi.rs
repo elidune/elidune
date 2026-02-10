@@ -1,7 +1,8 @@
 //! OpenAPI documentation
 
 use axum::Router;
-use utoipa::OpenApi;
+use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
+use utoipa::{Modify, OpenApi};
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::api::{auth, health, items, loans, settings, stats, users, z3950};
@@ -57,6 +58,7 @@ use crate::api::{auth, health, items, loans, settings, stats, users, z3950};
         // Stats
         stats::get_stats,
         stats::get_loan_stats,
+        stats::get_user_stats,
         // Settings
         settings::get_settings,
         settings::update_settings,
@@ -82,6 +84,9 @@ use crate::api::{auth, health, items, loans, settings, stats, users, z3950};
             crate::models::specimen::Specimen,
             crate::models::specimen::CreateSpecimen,
             crate::models::author::AuthorWithFunction,
+            // Pagination
+            items::PaginatedResponse<crate::models::item::ItemShort>,
+            items::PaginatedResponse<crate::models::user::UserShort>,
             // Users
             crate::models::user::User,
             crate::models::user::UserShort,
@@ -101,14 +106,13 @@ use crate::api::{auth, health, items, loans, settings, stats, users, z3950};
             z3950::Z3950ImportRequest,
             // Stats
             stats::StatsResponse,
-            stats::ItemStats,
-            stats::UserStats,
-            stats::LoanStats,
-            stats::StatEntry,
+            stats::LoanStatsResponse,
+            stats::UserLoanStats,
             stats::Interval,
             stats::LoanStatsQuery,
-            stats::LoanStatsResponse,
             stats::TimeSeriesEntry,
+            stats::UserStatsSortBy,
+            stats::UserStatsQuery,
             // Settings
             settings::SettingsResponse,
             settings::LoanSettings,
@@ -129,9 +133,32 @@ use crate::api::{auth, health, items, loans, settings, stats, users, z3950};
         (name = "z3950", description = "Z39.50 catalog search"),
         (name = "stats", description = "Statistics"),
         (name = "settings", description = "System settings")
-    )
+    ),
+    modifiers(&SecurityAddon)
 )]
 pub struct ApiDoc;
+
+struct SecurityAddon;
+
+impl Modify for SecurityAddon {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        if let Some(components) = openapi.components.as_mut() {
+            components.add_security_scheme(
+                "bearer_auth",
+                SecurityScheme::Http(
+                    HttpBuilder::new()
+                        .scheme(HttpAuthScheme::Bearer)
+                        .bearer_format("JWT")
+                        .description(Some(
+                            "Bearer authentication using JWT. Use 'Authorization: Bearer <token>'"
+                                .to_string(),
+                        ))
+                        .build(),
+                ),
+            );
+        }
+    }
+}
 
 /// Create the OpenAPI documentation router
 pub fn create_openapi_router() -> Router {

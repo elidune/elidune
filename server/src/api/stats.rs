@@ -60,6 +60,45 @@ pub struct StatEntry {
     pub value: i64,
 }
 
+/// Sorting options for user loan statistics
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum UserStatsSortBy {
+    /// Sort by total number of loans (active + historical)
+    TotalLoans,
+    /// Sort by number of active loans
+    ActiveLoans,
+    /// Sort by number of overdue loans
+    OverdueLoans,
+}
+
+/// Query parameters for user loan statistics
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
+pub struct UserStatsQuery {
+    /// Field to sort by (total_loans, active_loans, overdue_loans)
+    #[serde(default)]
+    pub sort_by: Option<UserStatsSortBy>,
+    /// Maximum number of users to return (default: 50, max: 1000)
+    pub limit: Option<i64>,
+}
+
+/// User loan statistics entry
+#[derive(Serialize, ToSchema)]
+pub struct UserLoanStats {
+    /// User ID
+    pub user_id: i32,
+    /// First name
+    pub firstname: Option<String>,
+    /// Last name
+    pub lastname: Option<String>,
+    /// Total number of loans (active + archived)
+    pub total_loans: i64,
+    /// Number of active loans
+    pub active_loans: i64,
+    /// Number of overdue loans
+    pub overdue_loans: i64,
+}
+
 /// Time interval for grouping statistics
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -191,6 +230,46 @@ pub async fn get_loan_stats(
         query.media_type.as_ref(),
         user_id,
     ).await?;
+
+    Ok(Json(stats))
+}
+
+/// Get user loan statistics (leaderboard-style)
+#[utoipa::path(
+    get,
+    path = "/stats/users",
+    tag = "stats",
+    security(("bearer_auth" = [])),
+    params(UserStatsQuery),
+    responses(
+        (status = 200, description = "User loan statistics", body = [UserLoanStats]),
+        (status = 403, description = "Insufficient permissions")
+    )
+)]
+pub async fn get_user_stats(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Query(query): Query<UserStatsQuery>,
+) -> AppResult<Json<Vec<UserLoanStats>>> {
+    // Reading this requires loan statistics access
+    claims.require_read_loans()?;
+
+    let sort_by = query.sort_by.unwrap_or(UserStatsSortBy::TotalLoans);
+
+    // Apply sane defaults and bounds for limit
+    let mut limit = query.limit.unwrap_or(50);
+    if limit < 1 {
+        limit = 1;
+    }
+    if limit > 1000 {
+        limit = 1000;
+    }
+
+    let stats = state
+        .services
+        .stats
+        .get_user_stats(sort_by, limit)
+        .await?;
 
     Ok(Json(stats))
 }

@@ -4,7 +4,13 @@ use chrono::{DateTime, Utc};
 use sqlx::Row;
 
 use crate::{
-    api::stats::{Interval, ItemStats, LoanStats, LoanStatsResponse, StatEntry, StatsResponse, TimeSeriesEntry, UserStats}, error::AppResult, models::item::MediaType, repository::Repository
+    api::stats::{
+        Interval, ItemStats, LoanStats, LoanStatsResponse, StatEntry, StatsResponse,
+        TimeSeriesEntry, UserLoanStats, UserStats, UserStatsSortBy,
+    },
+    error::AppResult,
+    models::item::MediaType,
+    repository::Repository,
 };
 
 #[derive(Clone)]
@@ -154,6 +160,74 @@ impl StatsService {
                 by_media_type: loans_by_media_type,
             },
         })
+    }
+
+    /// Get per-user loan statistics (total, active, overdue)
+    pub async fn get_user_stats(
+        &self,
+        sort_by: UserStatsSortBy,
+        limit: i64,
+    ) -> AppResult<Vec<UserLoanStats>> {
+        let pool = &self.repository.pool;
+
+        let order_by = match sort_by {
+            UserStatsSortBy::TotalLoans => "total_loans",
+            UserStatsSortBy::ActiveLoans => "active_loans",
+            UserStatsSortBy::OverdueLoans => "overdue_loans",
+        };
+
+        let query = format!(
+            r#"
+            SELECT 
+                u.id as user_id,
+                u.firstname,
+                u.lastname,
+                COALESCE(t.total_loans, 0) as total_loans,
+                COALESCE(a.active_loans, 0) as active_loans,
+                COALESCE(o.overdue_loans, 0) as overdue_loans
+            FROM users u
+            LEFT JOIN (
+                SELECT user_id, COUNT(*) as total_loans
+                FROM (
+                    SELECT user_id FROM loans
+                    UNION ALL
+                    SELECT user_id FROM loans_archives
+                ) l
+                GROUP BY user_id
+            ) t ON t.user_id = u.id
+            LEFT JOIN (
+                SELECT user_id, COUNT(*) as active_loans
+                FROM loans
+                WHERE returned_date IS NULL
+                GROUP BY user_id
+            ) a ON a.user_id = u.id
+            LEFT JOIN (
+                SELECT user_id, COUNT(*) as overdue_loans
+                FROM loans
+                WHERE returned_date IS NULL AND issue_date < NOW()
+                GROUP BY user_id
+            ) o ON o.user_id = u.id
+            WHERE (u.status IS NULL OR u.status != 2)
+            ORDER BY {order_by} DESC, u.id ASC
+            LIMIT $1
+            "#
+        );
+
+        let rows = sqlx::query(&query).bind(limit).fetch_all(pool).await?;
+
+        let stats = rows
+            .into_iter()
+            .map(|row| UserLoanStats {
+                user_id: row.get("user_id"),
+                firstname: row.get("firstname"),
+                lastname: row.get("lastname"),
+                total_loans: row.get("total_loans"),
+                active_loans: row.get("active_loans"),
+                overdue_loans: row.get("overdue_loans"),
+            })
+            .collect();
+
+        Ok(stats)
     }
 
     /// Get advanced loan statistics with time series

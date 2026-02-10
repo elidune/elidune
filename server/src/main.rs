@@ -155,6 +155,7 @@ fn create_router(state: AppState) -> Router {
         // Statistics
         .route("/stats", get(api::stats::get_stats))
         .route("/stats/loans", get(api::stats::get_loan_stats))
+        .route("/stats/users", get(api::stats::get_user_stats))
         // Settings
         .route("/settings", get(api::settings::get_settings))
         .route("/settings", put(api::settings::update_settings))

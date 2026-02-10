@@ -35,12 +35,16 @@ impl Default for ItemStatus {
 }
 
 /// Media type codes (matching original C implementation)
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub enum MediaType {
+    #[serde(rename = "")]
+    All,
     #[serde(rename = "u")]
     Unknown,
     #[serde(rename = "b")]
     PrintedText,
+    #[serde(rename = "m")]
+    Multimedia,
     #[serde(rename = "bc")]
     Comics,
     #[serde(rename = "p")]
@@ -61,18 +65,48 @@ pub enum MediaType {
     AudioMusicCd,
     #[serde(rename = "an")]
     AudioNonMusic,
+    #[serde(rename = "ant")]
+    AudioNonMusicTape,
+    #[serde(rename = "anc")]
+    AudioNonMusicCd,
     #[serde(rename = "c")]
     CdRom,
     #[serde(rename = "i")]
     Images,
-    #[serde(rename = "m")]
-    Multimedia,
+}
+
+impl MediaType {
+    /// Return the legacy string code for this media type
+    pub fn as_code(&self) -> &'static str {
+        match self {
+            MediaType::All => "",
+            MediaType::Unknown => "u",
+            MediaType::PrintedText => "b",
+            MediaType::Multimedia => "m",
+            MediaType::Comics => "bc",
+            MediaType::Periodic => "p",
+            MediaType::Video => "v",
+            MediaType::VideoTape => "vt",
+            MediaType::VideoDvd => "vd",
+            MediaType::Audio => "a",
+            MediaType::AudioMusic => "am",
+            MediaType::AudioMusicTape => "amt",
+            MediaType::AudioMusicCd => "amc",
+            MediaType::AudioNonMusic => "an",
+            MediaType::AudioNonMusicTape => "ant",
+            MediaType::AudioNonMusicCd => "anc",
+            MediaType::CdRom => "c",
+            MediaType::Images => "i",
+        }
+    }
 }
 
 impl From<&str> for MediaType {
     fn from(s: &str) -> Self {
         match s {
+            "" => MediaType::All,
             "b" => MediaType::PrintedText,
+            "m" => MediaType::Multimedia,
             "bc" => MediaType::Comics,
             "p" => MediaType::Periodic,
             "v" => MediaType::Video,
@@ -83,9 +117,10 @@ impl From<&str> for MediaType {
             "amt" => MediaType::AudioMusicTape,
             "amc" => MediaType::AudioMusicCd,
             "an" => MediaType::AudioNonMusic,
+            "ant" => MediaType::AudioNonMusicTape,
+            "anc" => MediaType::AudioNonMusicCd,
             "c" => MediaType::CdRom,
             "i" => MediaType::Images,
-            "m" => MediaType::Multimedia,
             _ => MediaType::Unknown,
         }
     }
@@ -93,7 +128,7 @@ impl From<&str> for MediaType {
 
 impl std::fmt::Display for MediaType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.to_string())
+        write!(f, "{}", self.as_code())
     }
 }
 

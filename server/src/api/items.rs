@@ -6,6 +6,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::{
     error::AppResult,
@@ -18,8 +19,11 @@ use crate::{
 use super::AuthenticatedUser;
 
 /// Paginated response wrapper
-#[derive(Serialize)]
-pub struct PaginatedResponse<T> {
+#[derive(Serialize, ToSchema)]
+pub struct PaginatedResponse<T>
+where
+    T: ToSchema,
+{
     /// List of items
     pub items: Vec<T>,
     /// Total number of items
