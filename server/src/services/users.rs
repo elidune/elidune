@@ -10,21 +10,21 @@ use std::collections::HashSet;
 use totp_lite::totp_custom;
 
 use crate::{
-    config::AuthConfig,
+    config::UsersConfig,
     error::{AppError, AppResult},
-    models::user::{CreateUser, UpdateProfile, UpdateUser, User, UserClaims, UserQuery, UserShort},
+    models::user::{AccountTypeSlug, CreateUser, UpdateProfile, UpdateUser, User, UserClaims, UserQuery, UserShort},
     repository::Repository,
 };
 
 #[derive(Clone)]
-pub struct AuthService {
+pub struct UsersService {
     repository: Repository,
-    config: AuthConfig,
+    config: UsersConfig,
     redis: crate::services::redis::RedisService,
 }
 
-impl AuthService {
-    pub fn new(repository: Repository, config: AuthConfig, redis: crate::services::redis::RedisService) -> Self {
+impl UsersService {
+    pub fn new(repository: Repository, config: UsersConfig, redis: crate::services::redis::RedisService) -> Self {
         Self { repository, config, redis }
     }
 
@@ -70,11 +70,10 @@ impl AuthService {
         }
 
         // Get user rights
-        let account_type_id = user.account_type_id.unwrap_or(1);
         let rights = self
             .repository
             .users
-            .get_user_rights(account_type_id)
+            .get_user_rights(&user.account_type)
             .await?;
 
         // Create JWT token
@@ -84,7 +83,7 @@ impl AuthService {
         let claims = UserClaims {
             sub: user.login.clone().unwrap_or_default(),
             user_id: user.id,
-            account_type_id,
+            account_type: user.account_type.clone(),
             rights,
             exp,
             iat: now,
@@ -190,11 +189,10 @@ impl AuthService {
 
     /// Create JWT token for a user
     async fn create_token_for_user(&self, user: &User) -> AppResult<String> {
-        let account_type_id = user.account_type_id.unwrap_or(1);
         let rights = self
             .repository
             .users
-            .get_user_rights(account_type_id)
+            .get_user_rights(&user.account_type)
             .await?;
 
         let now = Utc::now().timestamp();
@@ -203,7 +201,7 @@ impl AuthService {
         let claims = UserClaims {
             sub: user.login.clone().unwrap_or_default(),
             user_id: user.id,
-            account_type_id,
+            account_type: user.account_type.clone(),
             rights,
             exp,
             iat: now,
@@ -416,16 +414,13 @@ impl AuthService {
     }
 
     /// Update user's account type (admin only)
-    pub async fn update_account_type(&self, user_id: i32, account_type_id: i16) -> AppResult<User> {
+    pub async fn update_account_type(&self, user_id: i32, account_type: &AccountTypeSlug) -> AppResult<User> {
         // Check if user exists
         self.repository.users.get_by_id(user_id).await?;
 
-        // Validate account type (1-4, 8)
-        if ![1, 2, 3, 4, 8].contains(&account_type_id) {
-            return Err(AppError::Validation("Invalid account type ID".to_string()));
-        }
+        // Account type is already validated by the enum type
 
-        self.repository.users.update_account_type(user_id, account_type_id).await
+        self.repository.users.update_account_type(user_id, account_type).await
     }
 }
 

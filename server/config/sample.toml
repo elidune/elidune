@@ -9,7 +9,7 @@ url = "postgres://elidune:elidune@localhost:5432/elidune"
 max_connections = 10
 min_connections = 2
 
-[auth]
+[users]
 jwt_secret = "change-this-secret-in-production"
 jwt_expiration_hours = 24
 

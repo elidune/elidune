@@ -76,8 +76,6 @@ use crate::api::{auth, health, items, loans, settings, stats, users, z3950};
             crate::models::item::Item,
             crate::models::item::ItemShort,
             crate::models::item::ItemQuery,
-            crate::models::item::CreateItem,
-            crate::models::item::UpdateItem,
             crate::models::item::Serie,
             crate::models::item::Collection,
             crate::models::item::Edition,

@@ -10,7 +10,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::{
     error::AppResult,
-    models::item::{Item, ItemShort},
+    models::{item::Item, remote_item::ItemRemoteShort},
 };
 
 use super::AuthenticatedUser;
@@ -40,7 +40,7 @@ pub struct Z3950SearchResponse {
     /// Total results found
     pub total: i32,
     /// List of found items
-    pub items: Vec<ItemShort>,
+    pub items: Vec<ItemRemoteShort>,
     /// Source server name
     pub source: String,
 }

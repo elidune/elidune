@@ -121,4 +121,12 @@ impl RedisService {
         
         Ok(exists)
     }
+
+    /// Get a Redis connection (for advanced operations)
+    pub async fn get_connection(&self) -> AppResult<redis::aio::MultiplexedConnection> {
+        self.client
+            .get_multiplexed_async_connection()
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to get Redis connection: {}", e)))
+    }
 }

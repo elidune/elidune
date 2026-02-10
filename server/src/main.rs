@@ -67,15 +67,25 @@ async fn main() -> anyhow::Result<()> {
     
     tracing::info!("Connected to Redis");
 
+    // Save server address before moving config
+    let server_host = config.server.host.clone();
+    let server_port = config.server.port;
+
     // Create repository and services
     let repository = Repository::new(pool);
-    let services = Services::new(repository, config.auth.clone(), config.email.clone(), redis_service)
-        .await
-        .expect("Failed to create services");
+    let services = Services::new(
+        repository,
+        config.users.clone(),
+        config.email.clone(),
+        config.redis.clone(),
+        redis_service,
+    )
+    .await
+    .expect("Failed to create services");
 
     // Create application state
     let state = AppState {
-        config: Arc::new(config.clone()),
+        config: Arc::new(config),
         services: Arc::new(services),
     };
 
@@ -84,8 +94,8 @@ async fn main() -> anyhow::Result<()> {
 
     // Start server
     let addr = SocketAddr::new(
-        config.server.host.parse().expect("Invalid host address"),
-        config.server.port,
+        server_host.parse().expect("Invalid host address"),
+        server_port,
     );
     
     tracing::info!("Server listening on http://{}", addr);

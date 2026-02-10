@@ -3,7 +3,7 @@
 use crate::{
     error::AppResult,
     models::{
-        item::{CreateItem, Item, ItemQuery, ItemShort, UpdateItem},
+        item::{Item, ItemQuery, ItemShort},
         specimen::{CreateSpecimen, Specimen},
     },
     repository::Repository,
@@ -30,7 +30,7 @@ impl CatalogService {
     }
 
     /// Create a new item
-    pub async fn create_item(&self, item: CreateItem) -> AppResult<Item> {
+    pub async fn create_item(&self, item: Item) -> AppResult<Item> {
         // Check for duplicate identification
         if let Some(ref identification) = item.identification {
             if self
@@ -49,7 +49,7 @@ impl CatalogService {
     }
 
     /// Update an existing item
-    pub async fn update_item(&self, id: i32, item: UpdateItem) -> AppResult<Item> {
+    pub async fn update_item(&self, id: i32, item: Item) -> AppResult<Item> {
         // Check if item exists
         self.repository.items.get_by_id(id).await?;
 

@@ -207,6 +207,6 @@ pub async fn update_account_type(
 ) -> AppResult<Json<User>> {
     claims.require_admin()?;
 
-    let updated = state.services.users.update_account_type(id, request.account_type_id).await?;
+    let updated = state.services.users.update_account_type(id, &request.account_type).await?;
     Ok(Json(updated))
 }

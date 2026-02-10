@@ -5,7 +5,7 @@ use sqlx::{Pool, Postgres, Row};
 
 use crate::{
     error::{AppError, AppResult},
-    models::user::{CreateUser, Occupation, Rights, UpdateProfile, UpdateUser, User, UserQuery, UserRights, UserShort, UserStatus},
+    models::user::{AccountTypeSlug, CreateUser, Rights, UpdateProfile, UpdateUser, User, UserQuery, UserRights, UserShort, UserStatus},
 };
 
 #[derive(Clone)]
@@ -20,12 +20,10 @@ impl UsersRepository {
 
     /// Get user by ID
     pub async fn get_by_id(&self, id: i32) -> AppResult<User> {
-        let mut user = sqlx::query_as::<_, User>(
+        use crate::models::user::UserRow;
+        let user_row = sqlx::query_as::<_, UserRow>(
             r#"
-            SELECT u.*, at.name as account_type
-            FROM users u
-            LEFT JOIN account_types at ON u.account_type_id = at.id
-            WHERE u.id = $1
+            SELECT * FROM users WHERE id = $1
             "#,
         )
         .bind(id)
@@ -33,23 +31,13 @@ impl UsersRepository {
         .await?
         .ok_or_else(|| AppError::NotFound(format!("User with id {} not found", id)))?;
 
-        // Fetch account type name separately due to sqlx limitations
-        if let Some(account_type_id) = user.account_type_id {
-            let account_type: Option<String> = sqlx::query_scalar(
-                "SELECT name FROM account_types WHERE id = $1"
-            )
-            .bind(account_type_id)
-            .fetch_optional(&self.pool)
-            .await?;
-            user.account_type = account_type;
-        }
-
-        Ok(user)
+        Ok(user_row.into())
     }
 
     /// Get user by login (primary authentication method)
     pub async fn get_by_login(&self, login: &str) -> AppResult<Option<User>> {
-        let user = sqlx::query_as::<_, User>(
+        use crate::models::user::UserRow;
+        let user_row = sqlx::query_as::<_, UserRow>(
             r#"
             SELECT * FROM users WHERE LOWER(login) = LOWER($1) AND (status IS NULL OR status != 2)
             "#,
@@ -58,12 +46,13 @@ impl UsersRepository {
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(user)
+        Ok(user_row.map(|r| r.into()))
     }
 
     /// Get user by email (primary authentication method)
     pub async fn get_by_email(&self, email: &str) -> AppResult<Option<User>> {
-        let user = sqlx::query_as::<_, User>(
+        use crate::models::user::UserRow;
+        let user_row = sqlx::query_as::<_, UserRow>(
             r#"
             SELECT * FROM users WHERE LOWER(email) = LOWER($1) AND (status IS NULL OR status != 2)
             "#,
@@ -72,7 +61,7 @@ impl UsersRepository {
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(user)
+        Ok(user_row.map(|r| r.into()))
     }
 
     /// Check if email already exists
@@ -110,19 +99,19 @@ impl UsersRepository {
     }
 
     /// Get user rights from account type
-    pub async fn get_user_rights(&self, account_type_id: i16) -> AppResult<UserRights> {
+    pub async fn get_user_rights(&self, account_type: &AccountTypeSlug) -> AppResult<UserRights> {
         let row = sqlx::query(
             r#"
             SELECT items_rights, users_rights, loans_rights, 
                    borrows_rights, settings_rights, items_archive_rights
             FROM account_types 
-            WHERE id = $1
+            WHERE code = $1
             "#,
         )
-        .bind(account_type_id)
+        .bind(account_type.as_str())
         .fetch_optional(&self.pool)
         .await?
-        .ok_or_else(|| AppError::NotFound("Account type not found".to_string()))?;
+        .ok_or_else(|| AppError::NotFound(format!("Account type '{}' not found", account_type.as_str())))?;
 
         Ok(UserRights {
             items_rights: Rights::from(row.get::<Option<String>, _>("items_rights")),
@@ -184,13 +173,13 @@ impl UsersRepository {
             " AND (u.status IS NULL OR u.status != 2)".to_string()
         };
         
+        use crate::models::user::UserShortRow;
         let select_query = format!(
             r#"
-            SELECT u.id, u.firstname, u.lastname, at.name as account_type,
+            SELECT u.id, u.firstname, u.lastname, u.account_type,
                    (SELECT COUNT(*) FROM loans l WHERE l.user_id = u.id AND l.returned_date IS NULL) as nb_loans,
                    (SELECT COUNT(*) FROM loans l WHERE l.user_id = u.id AND l.returned_date IS NULL AND l.issue_date < NOW()) as nb_late_loans
             FROM users u
-            LEFT JOIN account_types at ON u.account_type_id = at.id
             {}{}
             ORDER BY u.lastname, u.firstname
             LIMIT {} OFFSET {}
@@ -198,11 +187,12 @@ impl UsersRepository {
             where_clause, status_filter, per_page, offset
         );
 
-        let mut select_builder = sqlx::query_as::<_, UserShort>(&select_query);
+        let mut select_builder = sqlx::query_as::<_, UserShortRow>(&select_query);
         for param in &params {
             select_builder = select_builder.bind(param);
         }
-        let users = select_builder.fetch_all(&self.pool).await?;
+        let user_rows = select_builder.fetch_all(&self.pool).await?;
+        let users: Vec<UserShort> = user_rows.into_iter().map(|r| r.into()).collect();
 
         Ok((users, total))
     }
@@ -211,16 +201,19 @@ impl UsersRepository {
     pub async fn create(&self, user: &CreateUser, password: Option<String>) -> AppResult<User> {
         let now = Utc::now();
 
+        let account_type = user.account_type.as_ref().map(|at| at.as_str()).unwrap_or("guest");
+        let fee = user.fee.as_ref().map(|f| f.as_str());
+        
         let id = sqlx::query_scalar::<_, i32>(
             r#"
             INSERT INTO users (
                 login, password, firstname, lastname, email,
                 addr_street, addr_zip_code, addr_city, phone,
-                occupation, occupation_id, birthdate, account_type_id, subscription_type_id,
-                public_type, notes, group_id, barcode, status, crea_date, modif_date
+                birthdate, account_type,
+                fee, public_type, notes, group_id, barcode, status, crea_date, modif_date
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                $14, $15, $16, $17, $18, $19, $20, $21, $22
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+                $13, $14, $15, $16, $17, $18, $19, $20
             ) RETURNING id
             "#,
         )
@@ -233,11 +226,9 @@ impl UsersRepository {
         .bind(&user.addr_zip_code)
         .bind(&user.addr_city)
         .bind(&user.phone)
-        .bind(&user.occupation)
-        .bind(&user.occupation_id)
         .bind(&user.birthdate)
-        .bind(&user.account_type_id)
-        .bind(&user.subscription_type_id)
+        .bind(account_type)
+        .bind(fee)
         .bind(&user.public_type)
         .bind(&user.notes)
         .bind(&user.group_id)
@@ -266,6 +257,15 @@ impl UsersRepository {
                 }
             };
         }
+        
+        macro_rules! add_field_enum {
+            ($field:expr, $name:expr) => {
+                if $field.is_some() {
+                    sets.push(format!("{} = ${}", $name, param_idx));
+                    param_idx += 1;
+                }
+            };
+        }
 
         add_field!(user.login, "login");
         add_field!(user.firstname, "firstname");
@@ -275,11 +275,9 @@ impl UsersRepository {
         add_field!(user.addr_zip_code, "addr_zip_code");
         add_field!(user.addr_city, "addr_city");
         add_field!(user.phone, "phone");
-        add_field!(user.occupation, "occupation");
-        add_field!(user.occupation_id, "occupation_id");
         add_field!(user.birthdate, "birthdate");
-        add_field!(user.account_type_id, "account_type_id");
-        add_field!(user.subscription_type_id, "subscription_type_id");
+        add_field_enum!(user.account_type, "account_type");
+        add_field_enum!(user.fee, "fee");
         add_field!(user.public_type, "public_type");
         add_field!(user.notes, "notes");
         add_field!(user.group_id, "group_id");
@@ -305,6 +303,14 @@ impl UsersRepository {
                 }
             };
         }
+        
+        macro_rules! bind_field_enum {
+            ($field:expr) => {
+                if let Some(ref val) = $field {
+                    builder = builder.bind(val.as_str());
+                }
+            };
+        }
 
         bind_field!(user.login);
         bind_field!(user.firstname);
@@ -314,11 +320,9 @@ impl UsersRepository {
         bind_field!(user.addr_zip_code);
         bind_field!(user.addr_city);
         bind_field!(user.phone);
-        bind_field!(user.occupation);
-        bind_field!(user.occupation_id);
         bind_field!(user.birthdate);
-        bind_field!(user.account_type_id);
-        bind_field!(user.subscription_type_id);
+        bind_field_enum!(user.account_type);
+        bind_field_enum!(user.fee);
         bind_field!(user.public_type);
         bind_field!(user.notes);
         bind_field!(user.group_id);
@@ -430,7 +434,6 @@ impl UsersRepository {
         add_field!(profile.addr_zip_code, "addr_zip_code");
         add_field!(profile.addr_city, "addr_city");
         add_field!(profile.phone, "phone");
-        add_field!(profile.occupation_id, "occupation_id");
         add_field!(profile.birthdate, "birthdate");
         add_field!(profile.language, "language");
         
@@ -463,7 +466,6 @@ impl UsersRepository {
         bind_field!(builder, profile.addr_zip_code);
         bind_field!(builder, profile.addr_city);
         bind_field!(builder, profile.phone);
-        bind_field!(builder, profile.occupation_id);
         bind_field!(builder, profile.birthdate);
         bind_field!(builder, profile.language);
         
@@ -477,11 +479,11 @@ impl UsersRepository {
     }
 
     /// Update user's account type (admin only)
-    pub async fn update_account_type(&self, id: i32, account_type_id: i16) -> AppResult<User> {
+    pub async fn update_account_type(&self, id: i32, account_type: &AccountTypeSlug) -> AppResult<User> {
         let now = Utc::now();
 
-        sqlx::query("UPDATE users SET account_type_id = $1, modif_date = $2 WHERE id = $3")
-            .bind(account_type_id)
+        sqlx::query("UPDATE users SET account_type = $1, modif_date = $2 WHERE id = $3")
+            .bind(account_type.as_str())
             .bind(now)
             .bind(id)
             .execute(&self.pool)
@@ -490,30 +492,6 @@ impl UsersRepository {
         self.get_by_id(id).await
     }
     
-    /// Get all occupation codes
-    pub async fn get_occupations(&self) -> AppResult<Vec<Occupation>> {
-        let occupations = sqlx::query_as::<_, Occupation>(
-            "SELECT id, code, label, description, is_active, sort_order FROM occupations WHERE is_active = true ORDER BY sort_order, label"
-        )
-        .fetch_all(&self.pool)
-        .await?;
-
-        Ok(occupations)
-    }
-    
-    /// Get occupation by ID
-    pub async fn get_occupation_by_id(&self, id: i32) -> AppResult<Occupation> {
-        let occupation = sqlx::query_as::<_, Occupation>(
-            "SELECT id, code, label, description, is_active, sort_order FROM occupations WHERE id = $1"
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Occupation with id {} not found", id)))?;
-
-        Ok(occupation)
-    }
-
     /// Update 2FA settings for a user
     pub async fn update_2fa_settings(
         &self,

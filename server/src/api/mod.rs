@@ -40,7 +40,7 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
         let token = &auth_header[7..];
 
         // Validate JWT token using the secret from configuration
-        let claims = UserClaims::from_token(token, &state.config.auth.jwt_secret)
+        let claims = UserClaims::from_token(token, &state.config.users.jwt_secret)
             .map_err(|e| AppError::Authentication(e.to_string()))?;
 
         Ok(AuthenticatedUser(claims))

@@ -18,7 +18,7 @@ pub struct DatabaseConfig {
 }
 
 #[derive(Debug, Deserialize, Clone)]
-pub struct AuthConfig {
+pub struct UsersConfig {
     pub jwt_secret: String,
     pub jwt_expiration_hours: u64,
 }
@@ -43,13 +43,19 @@ pub struct EmailConfig {
 #[derive(Debug, Deserialize, Clone)]
 pub struct RedisConfig {
     pub url: String,
+    #[serde(default = "default_z3950_cache_ttl")]
+    pub z3950_cache_ttl_seconds: u64,
+}
+
+fn default_z3950_cache_ttl() -> u64 {
+    7 * 24 * 3600 // 7 days in seconds
 }
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct AppConfig {
     pub server: ServerConfig,
     pub database: DatabaseConfig,
-    pub auth: AuthConfig,
+    pub users: UsersConfig,
     pub logging: LoggingConfig,
     #[serde(default)]
     pub email: EmailConfig,
@@ -113,7 +119,7 @@ impl Default for DatabaseConfig {
     }
 }
 
-impl Default for AuthConfig {
+impl Default for UsersConfig {
     fn default() -> Self {
         Self {
             jwt_secret: "change-this-secret-in-production".to_string(),
@@ -149,6 +155,7 @@ impl Default for RedisConfig {
     fn default() -> Self {
         Self {
             url: "redis://127.0.0.1:6379".to_string(),
+            z3950_cache_ttl_seconds: default_z3950_cache_ttl(),
         }
     }
 }

@@ -443,7 +443,8 @@ CREATE TABLE z3950servers (
     login VARCHAR,
     password VARCHAR,
     database VARCHAR,
-    format VARCHAR
+    format VARCHAR,
+    encoding VARCHAR DEFAULT 'utf-8'
 );
 
 INSERT INTO z3950servers (id, name, address, port, database, format, activated, description) VALUES

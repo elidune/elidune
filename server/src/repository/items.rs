@@ -7,7 +7,7 @@ use crate::{
     error::{AppError, AppResult},
     models::{
         author::AuthorWithFunction,
-        item::{Collection, CreateItem, Edition, Item, ItemQuery, ItemShort, Serie, UpdateItem},
+        item::{Collection, Edition, Item, ItemQuery, ItemShort, Serie},
         specimen::{CreateSpecimen, Specimen},
     },
 };
@@ -222,7 +222,7 @@ impl ItemsRepository {
     }
 
     /// Create a new item
-    pub async fn create(&self, item: &CreateItem) -> AppResult<Item> {
+    pub async fn create(&self, item: &Item) -> AppResult<Item> {
         let now = Utc::now();
 
         // Handle authors
@@ -292,31 +292,24 @@ impl ItemsRepository {
         .fetch_one(&self.pool)
         .await?;
 
-        // Create specimens if provided
-        if let Some(ref specimens) = item.specimens {
-            for specimen in specimens {
-                self.create_specimen(id, specimen).await?;
-            }
-        }
-
         self.get_by_id(id).await
     }
 
     /// Process authors and return IDs and functions
     async fn process_authors(
         &self,
-        authors: &Option<Vec<crate::models::item::CreateItemAuthor>>,
+        authors: &Vec<AuthorWithFunction>,
     ) -> AppResult<(Option<Vec<i32>>, Option<String>)> {
-        let Some(authors) = authors else {
+        if authors.is_empty() {
             return Ok((None, None));
-        };
+        }
 
         let mut ids = Vec::new();
         let mut functions = Vec::new();
 
         for author in authors {
-            let id = if let Some(id) = author.id {
-                id
+            let id = if author.id != 0 {
+                author.id
             } else if let Some(ref lastname) = author.lastname {
                 // Insert or get existing author
                 let existing: Option<i32> = sqlx::query_scalar(
@@ -354,7 +347,7 @@ impl ItemsRepository {
     }
 
     /// Process serie and return ID
-    async fn process_serie(&self, serie: &Option<crate::models::item::CreateSerie>) -> AppResult<Option<i32>> {
+    async fn process_serie(&self, serie: &Option<Serie>) -> AppResult<Option<i32>> {
         let Some(serie) = serie else {
             return Ok(None);
         };
@@ -387,7 +380,7 @@ impl ItemsRepository {
     }
 
     /// Process collection and return ID
-    async fn process_collection(&self, collection: &Option<crate::models::item::CreateCollection>) -> AppResult<Option<i32>> {
+    async fn process_collection(&self, collection: &Option<Collection>) -> AppResult<Option<i32>> {
         let Some(collection) = collection else {
             return Ok(None);
         };
@@ -423,7 +416,7 @@ impl ItemsRepository {
     }
 
     /// Process edition and return ID
-    async fn process_edition(&self, edition: &Option<crate::models::item::CreateEdition>) -> AppResult<Option<i32>> {
+    async fn process_edition(&self, edition: &Option<Edition>) -> AppResult<Option<i32>> {
         let Some(edition) = edition else {
             return Ok(None);
         };
@@ -457,7 +450,7 @@ impl ItemsRepository {
     }
 
     /// Update an existing item
-    pub async fn update(&self, id: i32, item: &UpdateItem) -> AppResult<Item> {
+    pub async fn update(&self, id: i32, item: &Item) -> AppResult<Item> {
         let now = Utc::now();
 
         // Simple update for now - can be expanded with dynamic query building

@@ -55,7 +55,7 @@ pub struct LoanSettings {
     pub nb_renews: Option<i16>,
     pub duration: Option<i16>,
     pub notes: Option<String>,
-    pub account_type_id: Option<i16>,
+    pub account_type: Option<String>,
 }
 
 /// Archived loan for statistics
@@ -70,8 +70,7 @@ pub struct LoanArchive {
     pub returned_date: Option<DateTime<Utc>>,
     pub notes: Option<String>,
     pub borrower_public_type: Option<i32>,
-    pub occupation: Option<String>,
     pub addr_city: Option<String>,
-    pub account_type_id: Option<i16>,
+    pub account_type: Option<String>,
 }
 

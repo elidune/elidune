@@ -83,11 +83,10 @@ impl StatsService {
 
         let users_by_account_type = sqlx::query(
             r#"
-            SELECT COALESCE(at.name, 'unknown') as label, COUNT(*) as value
+            SELECT COALESCE(u.account_type, 'unknown') as label, COUNT(*) as value
             FROM users u
-            LEFT JOIN account_types at ON u.account_type_id = at.id
             WHERE (u.status IS NULL OR u.status != 2)
-            GROUP BY at.name
+            GROUP BY u.account_type
             ORDER BY value DESC
             "#,
         )
@@ -203,7 +202,7 @@ impl StatsService {
 
         let where_clause = where_clauses.join(" AND ");
 
-        // Query for loans (active loans from loans table)
+        // Query for loans (from active loans table)
         let loans_query = format!(
             r#"
             SELECT 
@@ -220,6 +219,48 @@ impl StatsService {
         );
 
         let loans_data: Vec<(String, i64)> = sqlx::query(&loans_query)
+            .fetch_all(pool)
+            .await?
+            .into_iter()
+            .map(|row| {
+                let period: String = row.get("period");
+                let count: i64 = row.get("count");
+                (period, count)
+            })
+            .collect();
+
+        // Query for loans from archives table (historical loans)
+        let mut archived_loans_where = vec![
+            format!("la.date >= '{}'", start.format("%Y-%m-%d %H:%M:%S")),
+            format!("la.date <= '{}'", end.format("%Y-%m-%d %H:%M:%S")),
+        ];
+
+        if let Some(mt) = media_type {
+            archived_loans_where.push(format!("i.media_type = '{}'", mt));
+        }
+
+        if let Some(uid) = user_id {
+            archived_loans_where.push(format!("la.user_id = {}", uid));
+        }
+
+        let archived_loans_where_clause = archived_loans_where.join(" AND ");
+        let archived_loans_date_trunc = date_trunc.replace("date", "la.date");
+
+        let archived_loans_query = format!(
+            r#"
+            SELECT 
+                TO_CHAR({}, '{}') as period,
+                COUNT(*) as count
+            FROM loans_archives la
+            JOIN items i ON la.item_id = i.id
+            WHERE {}
+            GROUP BY {}
+            ORDER BY period
+            "#,
+            archived_loans_date_trunc, date_format, archived_loans_where_clause, archived_loans_date_trunc
+        );
+
+        let archived_loans_data: Vec<(String, i64)> = sqlx::query(&archived_loans_query)
             .fetch_all(pool)
             .await?
             .into_iter()
@@ -278,11 +319,15 @@ impl StatsService {
         let mut period_map: HashMap<String, (i64, i64)> = HashMap::new();
 
         for (period, count) in loans_data {
-            period_map.entry(period).or_insert((0, 0)).0 = count;
+            period_map.entry(period).or_insert((0, 0)).0 += count;
+        }
+
+        for (period, count) in archived_loans_data {
+            period_map.entry(period).or_insert((0, 0)).0 += count;
         }
 
         for (period, count) in returns_data {
-            period_map.entry(period).or_insert((0, 0)).1 = count;
+            period_map.entry(period).or_insert((0, 0)).1 += count;
         }
 
         let mut time_series: Vec<TimeSeriesEntry> = period_map

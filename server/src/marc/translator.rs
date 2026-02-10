@@ -2,99 +2,93 @@
 //!
 //! Translates MARC records (UNIMARC or MARC21) into the internal Item structure.
 
-use super::parser::{MarcRecord, MarcFormat};
-use crate::models::item::{CreateItem, CreateItemAuthor, CreateCollection, CreateEdition, CreateSerie};
+use marc_rs::{Record as MarcRecord, DataField};
+use crate::models::{
+    author::AuthorWithFunction,
+    item::{Collection, Edition, Item, Serie},
+};
 
-/// MARC record translator
-pub struct MarcTranslator;
+fn has_tag(record: &MarcRecord, tag: &str) -> bool {
+    record.data_fields.iter().any(|f| f.tag == tag)
+}
 
-impl MarcTranslator {
-    /// Create a new translator
-    pub fn new() -> Self {
-        Self
-    }
-
-    /// Translate a MARC record into a CreateItem structure
-    /// Uses the format stored in the record
-    pub fn translate(&self, record: &MarcRecord) -> CreateItem {
-        match record.format {
-            MarcFormat::Unimarc => self.translate_unimarc(record),
-            MarcFormat::Marc21 => self.translate_marc21(record),
-        }
-    }
-
-    /// Translate UNIMARC record
-    fn translate_unimarc(&self, record: &MarcRecord) -> CreateItem {
-        // UNIMARC field mappings
-        // 010$a - ISBN
-        // 200$a - Title proper
-        // 200$e - Other title information
-        // 200$f - First statement of responsibility
-        // 700$a - Author surname
-        // 700$b - Author forename
-        // 210$a - Place of publication
-        // 210$c - Publisher name
-        // 210$d - Date of publication
-        // 225$a - Series title
-        // 215$a - Pagination
-
-        let isbn = record.get_subfield("010", 'a').map(normalize_isbn);
-        let title1 = record.get_subfield("200", 'a').map(String::from);
-        let title2 = record.get_subfield("200", 'e').map(String::from);
-        let publication_date = record.get_subfield("210", 'd').map(String::from);
-        let nb_pages = record.get_subfield("215", 'a').map(String::from);
+/// Translate UNIMARC record
+fn translate_unimarc(record: &MarcRecord) -> Item {
+        // Extract all ISBNs from 010$a (UNIMARC) - concatenate all valid ISBNs
+        let isbn = {
+            let isbns: Vec<String> = get_all_subfields(record, "010", 'a')
+                .iter()
+                .filter_map(|isbn_str| {
+                    let normalized = normalize_isbn(isbn_str);
+                    if !normalized.is_empty() {
+                        Some(normalized)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            if isbns.is_empty() {
+                None
+            } else {
+                Some(isbns.join(", "))
+            }
+        };
+        let title1 = get_subfield(record, "200", 'a').map(String::from);
+        let title2 = get_subfield(record, "200", 'e').map(String::from);
+        let publication_date = get_subfield(record, "210", 'd').map(String::from);
+        let nb_pages = get_subfield(record, "215", 'a').map(String::from);
 
         // Authors from 700, 701, 702 fields
         let mut authors1 = Vec::new();
         for tag in ["700", "701", "702"] {
-            for field in record.get_fields(tag) {
+            for field in get_fields(record, tag) {
                 if let (Some(lastname), Some(firstname)) = (
-                    field.get_subfield('a'),
-                    field.get_subfield('b'),
+                    get_datafield_subfield(field, 'a'),
+                    get_datafield_subfield(field, 'b'),
                 ) {
-                    authors1.push(CreateItemAuthor {
-                        id: None,
+                    authors1.push(AuthorWithFunction {
+                        id: 0,
                         lastname: Some(lastname.to_string()),
                         firstname: Some(firstname.to_string()),
-                        function: field.get_subfield('4').map(String::from),
+                        bio: None,
+                        notes: None,
+                        function: get_datafield_subfield(field, '4').map(String::from),
                     });
                 }
             }
         }
 
         // Edition from 210
-        let edition = if let Some(publisher) = record.get_subfield("210", 'c') {
-            Some(CreateEdition {
+        let edition = if let Some(publisher) = get_subfield(record, "210", 'c') {
+            Some(Edition {
                 id: None,
                 name: Some(publisher.to_string()),
-                place: record.get_subfield("210", 'a').map(String::from),
-                date: record.get_subfield("210", 'd').map(String::from),
+                place: get_subfield(record, "210", 'a').map(String::from),
+                date: get_subfield(record, "210", 'd').map(String::from),
             })
         } else {
             None
         };
 
         // Series from 225
-        let serie = if let Some(series_title) = record.get_subfield("225", 'a') {
-            Some(CreateSerie {
+        let serie = if let Some(series_title) = get_subfield(record, "225", 'a') {
+            Some(Serie {
                 id: None,
                 name: Some(series_title.to_string()),
-                volume_number: record
-                    .get_subfield("225", 'v')
-                    .and_then(|v| v.parse().ok()),
+                volume_number: get_subfield(record, "225", 'v').and_then(|v| v.parse().ok()),
             })
         } else {
             None
         };
 
         // Collection from 410
-        let collection = if let Some(coll_title) = record.get_subfield("410", 't') {
-            Some(CreateCollection {
+        let collection = if let Some(coll_title) = get_subfield(record, "410", 't') {
+            Some(Collection {
                 id: None,
                 title1: Some(coll_title.to_string()),
                 title2: None,
                 title3: None,
-                issn: record.get_subfield("410", 'x').map(String::from),
+                issn: get_subfield(record, "410", 'x').map(String::from),
                 number_sub: None,
                 volume_number: None,
             })
@@ -103,122 +97,137 @@ impl MarcTranslator {
         };
 
         // Media type from leader position 6
-        let media_type = self.determine_media_type_unimarc(record);
+        let media_type = determine_media_type_unimarc(record);
 
         // Language from 101$a
-        let lang = record
-            .get_subfield("101", 'a')
+        let lang = get_subfield(record, "101", 'a')
             .and_then(|l| language_code_to_id(l));
 
-        CreateItem {
+        Item {
+            id: None,
             media_type: Some(media_type),
             identification: isbn,
             price: None,
             barcode: None,
-            dewey: record.get_subfield("676", 'a').map(String::from),
+            dewey: get_subfield(record, "676", 'a').map(String::from),
             publication_date,
             lang,
             lang_orig: None,
-            title1: title1.unwrap_or_default(),
+            title1: Some(title1.unwrap_or_default()),
             title2,
             title3: None,
             title4: None,
             genre: None,
-            subject: record.get_subfield("606", 'a').map(String::from),
-            public_type: self.determine_audience_unimarc(record),
+            subject: get_subfield(record, "606", 'a').map(String::from),
+            public_type: determine_audience_unimarc(record),
             nb_pages,
-            format: record.get_subfield("215", 'd').map(String::from),
+            format: get_subfield(record, "215", 'd').map(String::from),
             content: None,
-            addon: record.get_subfield("215", 'e').map(String::from),
-            abstract_: record.get_subfield("330", 'a').map(String::from),
-            notes: record.get_subfield("300", 'a').map(String::from),
-            keywords: record.get_subfield("610", 'a').map(String::from),
+            addon: get_subfield(record, "215", 'e').map(String::from),
+            abstract_: get_subfield(record, "330", 'a').map(String::from),
+            notes: get_subfield(record, "300", 'a').map(String::from),
+            keywords: get_subfield(record, "610", 'a').map(String::from),
+            nb_specimens: None,
+            state: None,
+            is_archive: None,
             is_valid: Some(1),
-            authors1: if authors1.is_empty() { None } else { Some(authors1) },
-            authors2: None,
-            authors3: None,
+            lifecycle_status: 0,
+            crea_date: None,
+            modif_date: None,
+            archived_date: None,
+            authors1,
+            authors2: Vec::new(),
+            authors3: Vec::new(),
             serie,
             collection,
             edition,
-            specimens: None,
+            specimens: Vec::new(),
         }
-    }
+}
 
-    /// Translate MARC21 record
-    fn translate_marc21(&self, record: &MarcRecord) -> CreateItem {
-        // MARC21 field mappings
-        // 020$a - ISBN
-        // 245$a - Title
-        // 245$b - Subtitle
-        // 100$a - Main author
-        // 260$a - Place of publication
-        // 260$b - Publisher name
-        // 260$c - Date of publication
-        // 300$a - Pagination
-        // 490$a - Series
-
-        let isbn = record.get_subfield("020", 'a').map(normalize_isbn);
-        let title1 = record.get_subfield("245", 'a').map(clean_title);
-        let title2 = record.get_subfield("245", 'b').map(clean_title);
-        let publication_date = record.get_subfield("260", 'c').map(String::from);
-        let nb_pages = record.get_subfield("300", 'a').map(String::from);
+/// Translate MARC21 record
+fn translate_marc21(record: &MarcRecord) -> Item {
+        // Extract all ISBNs from 020$a (MARC21) - concatenate all valid ISBNs
+        let isbn = {
+            let isbns: Vec<String> = get_all_subfields(record, "020", 'a')
+                .iter()
+                .filter_map(|isbn_str| {
+                    let normalized = normalize_isbn(isbn_str);
+                    if !normalized.is_empty() {
+                        Some(normalized)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            if isbns.is_empty() {
+                None
+            } else {
+                Some(isbns.join(", "))
+            }
+        };
+        let title1 = get_subfield(record, "245", 'a').map(clean_title);
+        let title2 = get_subfield(record, "245", 'b').map(clean_title);
+        let publication_date = get_subfield(record, "260", 'c').map(String::from);
+        let nb_pages = get_subfield(record, "300", 'a').map(String::from);
 
         // Main author from 100
         let mut authors1 = Vec::new();
-        if let Some(author_name) = record.get_subfield("100", 'a') {
+        if let Some(author_name) = get_subfield(record, "100", 'a') {
             let (lastname, firstname) = parse_author_name(author_name);
-            authors1.push(CreateItemAuthor {
-                id: None,
+            authors1.push(AuthorWithFunction {
+                id: 0,
                 lastname: Some(lastname),
                 firstname,
+                bio: None,
+                notes: None,
                 function: Some("70".to_string()), // Author
             });
         }
 
         // Additional authors from 700
-        for field in record.get_fields("700") {
-            if let Some(author_name) = field.get_subfield('a') {
+        for field in get_fields(record, "700") {
+            if let Some(author_name) = get_datafield_subfield(field, 'a') {
                 let (lastname, firstname) = parse_author_name(author_name);
-                authors1.push(CreateItemAuthor {
-                    id: None,
+                authors1.push(AuthorWithFunction {
+                    id: 0,
                     lastname: Some(lastname),
                     firstname,
-                    function: field.get_subfield('e').map(String::from),
+                    bio: None,
+                    notes: None,
+                    function: get_datafield_subfield(field, 'e').map(String::from),
                 });
             }
         }
 
         // Edition from 260
-        let edition = if let Some(publisher) = record.get_subfield("260", 'b') {
-            Some(CreateEdition {
+        let edition = if let Some(publisher) = get_subfield(record, "260", 'b') {
+            Some(Edition {
                 id: None,
                 name: Some(clean_publisher(publisher)),
-                place: record.get_subfield("260", 'a').map(|p| clean_place(p)),
-                date: record.get_subfield("260", 'c').map(String::from),
+                place: get_subfield(record, "260", 'a').map(|p| clean_place(p)),
+                date: get_subfield(record, "260", 'c').map(String::from),
             })
         } else {
             None
         };
 
         // Series from 490
-        let serie = if let Some(series_title) = record.get_subfield("490", 'a') {
-            Some(CreateSerie {
+        let serie = if let Some(series_title) = get_subfield(record, "490", 'a') {
+            Some(Serie {
                 id: None,
                 name: Some(series_title.to_string()),
-                volume_number: record
-                    .get_subfield("490", 'v')
-                    .and_then(|v| extract_volume_number(v)),
+                volume_number: get_subfield(record, "490", 'v').and_then(|v| extract_volume_number(v)),
             })
         } else {
             None
         };
 
         // Media type from leader
-        let media_type = self.determine_media_type_marc21(record);
+        let media_type = determine_media_type_marc21(record);
 
         // Language from 008 positions 35-37
-        let lang = record
-            .get_control_field("008")
+        let lang = get_control_field(record, "008")
             .and_then(|cf| {
                 if cf.len() >= 38 {
                     Some(&cf[35..38])
@@ -228,51 +237,53 @@ impl MarcTranslator {
             })
             .and_then(language_code_to_id);
 
-        CreateItem {
+        Item {
+            id: None,
             media_type: Some(media_type),
             identification: isbn,
             price: None,
             barcode: None,
-            dewey: record.get_subfield("082", 'a').map(String::from),
+            dewey: get_subfield(record, "082", 'a').map(String::from),
             publication_date,
             lang,
             lang_orig: None,
-            title1: title1.unwrap_or_default(),
+            title1: Some(title1.unwrap_or_default()),
             title2,
             title3: None,
             title4: None,
             genre: None,
-            subject: record.get_subfield("650", 'a').map(String::from),
-            public_type: self.determine_audience_marc21(record),
+            subject: get_subfield(record, "650", 'a').map(String::from),
+            public_type: determine_audience_marc21(record),
             nb_pages,
-            format: record.get_subfield("300", 'c').map(String::from),
+            format: get_subfield(record, "300", 'c').map(String::from),
             content: None,
-            addon: record.get_subfield("300", 'e').map(String::from),
-            abstract_: record.get_subfield("520", 'a').map(String::from),
-            notes: record.get_subfield("500", 'a').map(String::from),
-            keywords: record
-                .get_all_subfields("653", 'a')
+            addon: get_subfield(record, "300", 'e').map(String::from),
+            abstract_: get_subfield(record, "520", 'a').map(String::from),
+            notes: get_subfield(record, "500", 'a').map(String::from),
+            keywords: get_all_subfields(record, "653", 'a')
                 .join(", ")
                 .into(),
+            nb_specimens: None,
+            state: None,
+            is_archive: None,
             is_valid: Some(1),
-            authors1: if authors1.is_empty() { None } else { Some(authors1) },
-            authors2: None,
-            authors3: None,
+            lifecycle_status: 0,
+            crea_date: None,
+            modif_date: None,
+            archived_date: None,
+            authors1,
+            authors2: Vec::new(),
+            authors3: Vec::new(),
             serie,
             collection: None,
             edition,
-            specimens: None,
+            specimens: Vec::new(),
         }
-    }
+}
 
-    /// Determine media type from UNIMARC leader
-    fn determine_media_type_unimarc(&self, record: &MarcRecord) -> String {
-        let leader = &record.leader;
-        if leader.len() < 7 {
-            return "u".to_string();
-        }
-
-        let type_code = leader.chars().nth(6).unwrap_or('a');
+/// Determine media type from UNIMARC leader
+fn determine_media_type_unimarc(record: &MarcRecord) -> String {
+        let type_code = record.leader.record_type;
         match type_code {
             'a' | 'b' => "b".to_string(),  // Printed text
             'c' | 'd' => "bc".to_string(), // Comics (scores)
@@ -282,16 +293,11 @@ impl MarcTranslator {
             'k' => "i".to_string(),         // Images
             _ => "u".to_string(),           // Unknown
         }
-    }
+}
 
-    /// Determine media type from MARC21 leader
-    fn determine_media_type_marc21(&self, record: &MarcRecord) -> String {
-        let leader = &record.leader;
-        if leader.len() < 7 {
-            return "u".to_string();
-        }
-
-        let type_code = leader.chars().nth(6).unwrap_or('a');
+/// Determine media type from MARC21 leader
+fn determine_media_type_marc21(record: &MarcRecord) -> String {
+        let type_code = record.leader.record_type;
         match type_code {
             'a' | 't' => "b".to_string(),  // Language material
             'c' | 'd' => "bc".to_string(), // Notated music
@@ -301,12 +307,11 @@ impl MarcTranslator {
             'k' => "i".to_string(),         // Still image
             _ => "u".to_string(),           // Unknown
         }
-    }
+}
 
-    /// Determine audience from UNIMARC 100$a position 17-19
-    fn determine_audience_unimarc(&self, record: &MarcRecord) -> Option<i16> {
-        record
-            .get_subfield("100", 'a')
+/// Determine audience from UNIMARC 100$a position 17-19
+fn determine_audience_unimarc(record: &MarcRecord) -> Option<i16> {
+        get_subfield(record, "100", 'a')
             .and_then(|cf| {
                 if cf.len() >= 18 {
                     cf.chars().nth(17)
@@ -318,12 +323,11 @@ impl MarcTranslator {
                 'a' | 'b' | 'c' | 'd' | 'e' => 106, // Children/Youth
                 _ => 97, // Adult
             })
-    }
+}
 
-    /// Determine audience from MARC21 008 position 22
-    fn determine_audience_marc21(&self, record: &MarcRecord) -> Option<i16> {
-        record
-            .get_control_field("008")
+/// Determine audience from MARC21 008 position 22
+fn determine_audience_marc21(record: &MarcRecord) -> Option<i16> {
+        get_control_field(record, "008")
             .and_then(|cf| {
                 if cf.len() >= 23 {
                     cf.chars().nth(22)
@@ -335,7 +339,61 @@ impl MarcTranslator {
                 'a' | 'b' | 'c' | 'd' | 'j' => 106, // Juvenile
                 _ => 97, // General/Adult
             })
+}
+
+impl From<MarcRecord> for Item {
+    fn from(record: MarcRecord) -> Self {
+        // Heuristic: UNIMARC records usually have 200, MARC21 usually has 245.
+        // Default to MARC21 if ambiguous.
+        if has_tag(&record, "200") && !has_tag(&record, "245") {
+            translate_unimarc(&record)
+        } else {
+            translate_marc21(&record)
+        }
     }
+}
+
+/// Get a subfield value by tag and subfield code
+fn get_subfield<'a>(record: &'a MarcRecord, tag: &str, code: char) -> Option<&'a str> {
+    record.data_fields
+        .iter()
+        .find(|f| f.tag == tag)
+        .and_then(|f| get_datafield_subfield(f, code))
+}
+
+/// Get all subfield values for a tag and code
+fn get_all_subfields<'a>(record: &'a MarcRecord, tag: &str, code: char) -> Vec<&'a str> {
+    record.data_fields
+        .iter()
+        .filter(|f| f.tag == tag)
+        .flat_map(|f| f.subfields.iter()
+            .filter(|sf| sf.code == code)
+            .map(|sf| sf.value.as_str()))
+        .collect()
+}
+
+/// Get all data fields with a specific tag
+fn get_fields<'a>(record: &'a MarcRecord, tag: &str) -> Vec<&'a DataField> {
+    record.data_fields
+        .iter()
+        .filter(|f| f.tag == tag)
+        .collect()
+}
+
+/// Get a subfield value from a data field
+fn get_datafield_subfield(field: &DataField, code: char) -> Option<&str> {
+    field.subfields
+        .iter()
+        .find(|sf| sf.code == code)
+        .map(|sf| sf.value.as_str())
+}
+
+/// Get a control field value
+fn get_control_field<'a>(record: &'a MarcRecord, tag: &str) -> Option<&'a str> {
+    record.control_fields
+        .iter()
+        .find(|f| f.tag == tag)
+        .map(|f| f.value.as_str())
 }
 
 /// Normalize ISBN by removing hyphens and spaces
@@ -422,5 +480,3 @@ mod tests {
         assert_eq!(language_code_to_id("xxx"), Some(0));
     }
 }
-
-

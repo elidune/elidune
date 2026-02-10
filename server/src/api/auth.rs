@@ -61,10 +61,6 @@ pub struct UserInfo {
     pub addr_city: Option<String>,
     /// Phone number
     pub phone: Option<String>,
-    /// Occupation ID
-    pub occupation_id: Option<i32>,
-    /// Occupation name
-    pub occupation: Option<String>,
     /// Birth date
     pub birthdate: Option<String>,
     /// Account type name
@@ -90,7 +86,7 @@ pub async fn login(
 ) -> AppResult<Json<LoginResponse>> {
     let (token, user) = state
         .services
-        .auth
+        .users
         .authenticate(&request.username, &request.password, request.device_id.as_deref())
         .await?;
 
@@ -136,7 +132,7 @@ pub async fn login(
     Ok(Json(LoginResponse {
         token,
         token_type: "Bearer".to_string(),
-        expires_in: state.config.auth.jwt_expiration_hours * 3600,
+        expires_in: state.config.users.jwt_expiration_hours * 3600,
         user: UserInfo {
             id: user.id,
             login: user.login.unwrap_or_default(),
@@ -147,10 +143,8 @@ pub async fn login(
             addr_zip_code: user.addr_zip_code,
             addr_city: user.addr_city,
             phone: user.phone,
-            occupation_id: user.occupation_id,
-            occupation: user.occupation,
             birthdate: user.birthdate,
-            account_type: user.account_type.unwrap_or_else(|| "guest".to_string()),
+            account_type: user.account_type.to_string(),
             language: user.language.unwrap_or_else(|| "fr".to_string()),
         },
         requires_2fa,
@@ -186,10 +180,8 @@ pub async fn me(
         addr_zip_code: user.addr_zip_code,
         addr_city: user.addr_city,
         phone: user.phone,
-        occupation_id: user.occupation_id,
-        occupation: user.occupation,
         birthdate: user.birthdate,
-        account_type: user.account_type.unwrap_or_else(|| "guest".to_string()),
+        account_type: user.account_type.to_string(),
         language: user.language.unwrap_or_else(|| "fr".to_string()),
     }))
 }
@@ -236,14 +228,14 @@ pub async fn verify_2fa(
     let trust_device = request.trust_device.unwrap_or(false);
     let token = state
         .services
-        .auth
+        .users
         .verify_2fa(request.user_id, &request.code, request.device_id.as_deref(), trust_device)
         .await?;
 
     Ok(Json(Verify2FAResponse {
         token,
         token_type: "Bearer".to_string(),
-        expires_in: state.config.auth.jwt_expiration_hours * 3600,
+        expires_in: state.config.users.jwt_expiration_hours * 3600,
     }))
 }
 
@@ -273,14 +265,14 @@ pub async fn verify_recovery(
 ) -> AppResult<Json<Verify2FAResponse>> {
     let token = state
         .services
-        .auth
+        .users
         .verify_recovery_code(request.user_id, &request.code)
         .await?;
 
     Ok(Json(Verify2FAResponse {
         token,
         token_type: "Bearer".to_string(),
-        expires_in: state.config.auth.jwt_expiration_hours * 3600,
+        expires_in: state.config.users.jwt_expiration_hours * 3600,
     }))
 }
 
@@ -320,7 +312,7 @@ pub async fn setup_2fa(
     let user = state.services.users.get_by_id(claims.user_id).await?;
 
     let (totp_secret, provisioning_uri) = if request.method == "totp" {
-        let (secret, uri) = state.services.auth.setup_totp(&user)?;
+        let (secret, uri) = state.services.users.setup_totp(&user)?;
         (Some(secret), Some(uri))
     } else {
         (None, None)
@@ -328,7 +320,7 @@ pub async fn setup_2fa(
 
     let recovery_codes = state
         .services
-        .auth
+        .users
         .enable_2fa(claims.user_id, &request.method, totp_secret)
         .await?;
 
@@ -353,7 +345,7 @@ pub async fn disable_2fa(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
 ) -> AppResult<Json<serde_json::Value>> {
-    state.services.auth.disable_2fa(claims.user_id).await?;
+    state.services.users.disable_2fa(claims.user_id).await?;
 
     Ok(Json(serde_json::json!({"message": "2FA disabled successfully"})))
 }

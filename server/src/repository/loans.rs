@@ -8,7 +8,7 @@ use crate::{
     models::{
         item::ItemShort,
         loan::{CreateLoan, Loan, LoanDetails, LoanSettings},
-        user::UserShort,
+        user::{UserShort, UserShortRow},
     },
 };
 
@@ -204,21 +204,23 @@ impl LoansRepository {
 
         // Get user info for archiving
         let user_row = sqlx::query(
-            "SELECT occupation, addr_city, account_type_id, public_type FROM users WHERE id = $1"
+            "SELECT addr_city, account_type, public_type FROM users WHERE id = $1"
         )
         .bind(loan.user_id)
         .fetch_optional(&self.pool)
         .await?;
+
+        let account_type: Option<String> = user_row.as_ref().and_then(|r| r.get("account_type"));
 
         // Archive the loan
         sqlx::query(
             r#"
             INSERT INTO loans_archives (
                 user_id, item_id, specimen_id, date, nb_renews, issue_date, 
-                returned_date, notes, borrower_public_type, occupation, 
-                addr_city, account_type_id
+                returned_date, notes, borrower_public_type,
+                addr_city, account_type
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             "#
         )
         .bind(loan.user_id)
@@ -230,9 +232,8 @@ impl LoansRepository {
         .bind(now)
         .bind(&loan.notes)
         .bind(user_row.as_ref().and_then(|r| r.get::<Option<i32>, _>("public_type")))
-        .bind(user_row.as_ref().and_then(|r| r.get::<Option<String>, _>("occupation")))
         .bind(user_row.as_ref().and_then(|r| r.get::<Option<String>, _>("addr_city")))
-        .bind(user_row.as_ref().and_then(|r| r.get::<Option<i16>, _>("account_type_id")))
+        .bind(account_type)
         .execute(&self.pool)
         .await?;
 
@@ -255,18 +256,19 @@ impl LoansRepository {
         .fetch_one(&self.pool)
         .await?;
 
-        let user = sqlx::query_as::<_, UserShort>(
+        let user_row = sqlx::query_as::<_, UserShortRow>(
             r#"
-            SELECT u.id, u.firstname, u.lastname, at.name as account_type,
+            SELECT u.id, u.firstname, u.lastname, u.account_type,
                    0::bigint as nb_loans, 0::bigint as nb_late_loans
             FROM users u
-            LEFT JOIN account_types at ON u.account_type_id = at.id
             WHERE u.id = $1
             "#
         )
         .bind(loan.user_id)
         .fetch_optional(&self.pool)
         .await?;
+
+        let user: Option<UserShort> = user_row.map(|r| r.into());
 
         Ok(LoanDetails {
             id: loan.id,

@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
+use sqlx::{Decode, Encode, FromRow, Postgres};
 use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
 
@@ -34,7 +34,7 @@ impl From<Option<String>> for Rights {
     }
 }
 
-/// User account types
+/// User account types (legacy numeric IDs - deprecated, use AccountTypeSlug)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(i16)]
 pub enum AccountType {
@@ -58,6 +58,162 @@ impl From<i16> for AccountType {
         }
     }
 }
+
+/// Account type slug (string identifier)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum AccountTypeSlug {
+    Guest,
+    Reader,
+    Librarian,
+    Admin,
+    Group,
+}
+
+impl AccountTypeSlug {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            AccountTypeSlug::Guest => "guest",
+            AccountTypeSlug::Reader => "reader",
+            AccountTypeSlug::Librarian => "librarian",
+            AccountTypeSlug::Admin => "admin",
+            AccountTypeSlug::Group => "group",
+        }
+    }
+}
+
+impl std::fmt::Display for AccountTypeSlug {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl std::str::FromStr for AccountTypeSlug {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "guest" => Ok(AccountTypeSlug::Guest),
+            "reader" => Ok(AccountTypeSlug::Reader),
+            "librarian" => Ok(AccountTypeSlug::Librarian),
+            "admin" => Ok(AccountTypeSlug::Admin),
+            "group" => Ok(AccountTypeSlug::Group),
+            _ => Err(format!("Invalid account type slug: {}", s)),
+        }
+    }
+}
+
+impl From<String> for AccountTypeSlug {
+    fn from(s: String) -> Self {
+        s.parse().unwrap_or_else(|_| AccountTypeSlug::Guest)
+    }
+}
+
+impl From<&str> for AccountTypeSlug {
+    fn from(s: &str) -> Self {
+        s.parse().unwrap_or_else(|_| AccountTypeSlug::Guest)
+    }
+}
+
+impl From<AccountTypeSlug> for String {
+    fn from(slug: AccountTypeSlug) -> Self {
+        slug.as_str().to_string()
+    }
+}
+
+// SQLx conversion for AccountTypeSlug
+impl sqlx::Type<Postgres> for AccountTypeSlug {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        <String as sqlx::Type<Postgres>>::type_info()
+    }
+}
+
+impl<'r> Decode<'r, Postgres> for AccountTypeSlug {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let s: String = Decode::<Postgres>::decode(value)?;
+        s.parse().map_err(|e: String| e.into())
+    }
+}
+
+impl Encode<'_, Postgres> for AccountTypeSlug {
+    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
+        let s: String = self.as_str().to_string();
+        <String as Encode<Postgres>>::encode(s, buf)
+    }
+}
+
+/// Fee slug (string identifier)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(untagged)]
+pub enum FeeSlug {
+    /// Known fee types
+    #[serde(rename = "free")]
+    Free,
+    #[serde(rename = "local")]
+    Local,
+    #[serde(rename = "foreigner")]
+    Foreigner,
+    /// Custom fee slug (for user-defined fees)
+    Other(String),
+}
+
+impl FeeSlug {
+    pub fn as_str(&self) -> &str {
+        match self {
+            FeeSlug::Free => "free",
+            FeeSlug::Local => "local",
+            FeeSlug::Foreigner => "foreigner",
+            FeeSlug::Other(s) => s.as_str(),
+        }
+    }
+}
+
+impl std::fmt::Display for FeeSlug {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+impl std::str::FromStr for FeeSlug {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "free" => Ok(FeeSlug::Free),
+            "local" => Ok(FeeSlug::Local),
+            "foreigner" => Ok(FeeSlug::Foreigner),
+            other => Ok(FeeSlug::Other(other.to_string())),
+        }
+    }
+}
+
+impl From<String> for FeeSlug {
+    fn from(s: String) -> Self {
+        s.parse().unwrap_or_else(|_| FeeSlug::Free)
+    }
+}
+
+impl From<Option<String>> for FeeSlug {
+    fn from(s: Option<String>) -> Self {
+        s.map(|s| s.parse().unwrap_or_else(|_| FeeSlug::Free))
+            .unwrap_or(FeeSlug::Free)
+    }
+}
+
+impl From<&str> for FeeSlug {
+    fn from(s: &str) -> Self {
+        s.parse().unwrap_or_else(|_| FeeSlug::Free)
+    }
+}
+
+impl From<FeeSlug> for Option<String> {
+    fn from(slug: FeeSlug) -> Self {
+        Some(slug.as_str().to_string())
+    }
+}
+
+// Note: FeeSlug conversions are handled manually in repository code
+// because SQLx doesn't support custom Decode/Encode for enums with Other(String) variant
 
 /// User status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -85,8 +241,76 @@ impl From<Option<i16>> for UserStatus {
     }
 }
 
+/// Internal row structure for database queries (with String fields)
+#[derive(Debug, Clone, FromRow)]
+pub struct UserRow {
+    id: i32,
+    group_id: Option<i32>,
+    barcode: Option<String>,
+    login: Option<String>,
+    password: Option<String>,
+    firstname: Option<String>,
+    lastname: Option<String>,
+    email: Option<String>,
+    addr_street: Option<String>,
+    addr_zip_code: Option<i32>,
+    addr_city: Option<String>,
+    phone: Option<String>,
+    birthdate: Option<String>,
+    crea_date: Option<DateTime<Utc>>,
+    modif_date: Option<DateTime<Utc>>,
+    issue_date: Option<DateTime<Utc>>,
+    account_type: String,
+    fee: Option<String>,
+    public_type: Option<i32>,
+    notes: Option<String>,
+    status: Option<i16>,
+    archived_date: Option<DateTime<Utc>>,
+    language: Option<String>,
+    two_factor_enabled: Option<bool>,
+    two_factor_method: Option<String>,
+    totp_secret: Option<String>,
+    recovery_codes: Option<String>,
+    recovery_codes_used: Option<String>,
+}
+
+impl From<UserRow> for User {
+    fn from(row: UserRow) -> Self {
+        User {
+            id: row.id,
+            group_id: row.group_id,
+            barcode: row.barcode,
+            login: row.login,
+            password: row.password,
+            firstname: row.firstname,
+            lastname: row.lastname,
+            email: row.email,
+            addr_street: row.addr_street,
+            addr_zip_code: row.addr_zip_code,
+            addr_city: row.addr_city,
+            phone: row.phone,
+            birthdate: row.birthdate,
+            crea_date: row.crea_date,
+            modif_date: row.modif_date,
+            issue_date: row.issue_date,
+            account_type: row.account_type.parse().unwrap_or(AccountTypeSlug::Guest),
+            fee: row.fee.map(|f| f.parse().unwrap_or(FeeSlug::Free)),
+            public_type: row.public_type,
+            notes: row.notes,
+            status: row.status,
+            archived_date: row.archived_date,
+            language: row.language,
+            two_factor_enabled: row.two_factor_enabled,
+            two_factor_method: row.two_factor_method,
+            totp_secret: row.totp_secret,
+            recovery_codes: row.recovery_codes,
+            recovery_codes_used: row.recovery_codes_used,
+        }
+    }
+}
+
 /// Full user model from database
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct User {
     pub id: i32,
     pub group_id: Option<i32>,
@@ -102,14 +326,12 @@ pub struct User {
     pub addr_zip_code: Option<i32>,
     pub addr_city: Option<String>,
     pub phone: Option<String>,
-    pub occupation: Option<String>,
-    pub occupation_id: Option<i32>,
     pub birthdate: Option<String>,
     pub crea_date: Option<DateTime<Utc>>,
     pub modif_date: Option<DateTime<Utc>>,
     pub issue_date: Option<DateTime<Utc>>,
-    pub account_type_id: Option<i16>,
-    pub subscription_type_id: Option<i16>,
+    pub account_type: AccountTypeSlug,
+    pub fee: Option<FeeSlug>,
     pub public_type: Option<i32>,
     pub notes: Option<String>,
     pub status: Option<i16>,
@@ -125,29 +347,39 @@ pub struct User {
     pub recovery_codes: Option<String>,
     #[serde(skip_serializing)]
     pub recovery_codes_used: Option<String>,
-    // Joined fields
-    #[sqlx(skip)]
-    pub account_type: Option<String>,
 }
 
-/// Occupation code for users
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
-pub struct Occupation {
-    pub id: i32,
-    pub code: String,
-    pub label: String,
-    pub description: Option<String>,
-    pub is_active: Option<bool>,
-    pub sort_order: Option<i32>,
+/// Internal row structure for UserShort queries
+#[derive(Debug, Clone, FromRow)]
+pub struct UserShortRow {
+    id: i32,
+    firstname: Option<String>,
+    lastname: Option<String>,
+    account_type: Option<String>,
+    nb_loans: Option<i64>,
+    nb_late_loans: Option<i64>,
+}
+
+impl From<UserShortRow> for UserShort {
+    fn from(row: UserShortRow) -> Self {
+        UserShort {
+            id: row.id,
+            firstname: row.firstname,
+            lastname: row.lastname,
+            account_type: row.account_type.map(|s| s.parse().unwrap_or(AccountTypeSlug::Guest)),
+            nb_loans: row.nb_loans,
+            nb_late_loans: row.nb_late_loans,
+        }
+    }
 }
 
 /// Short user representation for lists
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UserShort {
     pub id: i32,
     pub firstname: Option<String>,
     pub lastname: Option<String>,
-    pub account_type: Option<String>,
+    pub account_type: Option<AccountTypeSlug>,
     pub nb_loans: Option<i64>,
     pub nb_late_loans: Option<i64>,
 }
@@ -179,11 +411,9 @@ pub struct CreateUser {
     pub addr_zip_code: Option<i32>,
     pub addr_city: Option<String>,
     pub phone: Option<String>,
-    pub occupation: Option<String>,
-    pub occupation_id: Option<i32>,
     pub birthdate: Option<String>,
-    pub account_type_id: Option<i16>,
-    pub subscription_type_id: Option<i16>,
+    pub account_type: Option<AccountTypeSlug>,
+    pub fee: Option<FeeSlug>,
     pub public_type: Option<i32>,
     pub notes: Option<String>,
     pub group_id: Option<i32>,
@@ -203,11 +433,9 @@ pub struct UpdateUser {
     pub addr_zip_code: Option<i32>,
     pub addr_city: Option<String>,
     pub phone: Option<String>,
-    pub occupation: Option<String>,
-    pub occupation_id: Option<i32>,
     pub birthdate: Option<String>,
-    pub account_type_id: Option<i16>,
-    pub subscription_type_id: Option<i16>,
+    pub account_type: Option<AccountTypeSlug>,
+    pub fee: Option<FeeSlug>,
     pub public_type: Option<i32>,
     pub notes: Option<String>,
     pub group_id: Option<i32>,
@@ -235,8 +463,6 @@ pub struct UpdateProfile {
     pub addr_city: Option<String>,
     /// Phone number
     pub phone: Option<String>,
-    /// Occupation ID
-    pub occupation_id: Option<i32>,
     /// Birth date
     pub birthdate: Option<String>,
     /// Current password (required to change password)
@@ -252,8 +478,8 @@ pub struct UpdateProfile {
 /// Update account type request (admin only)
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateAccountType {
-    /// New account type ID (1=Guest, 2=Reader, 3=Librarian, 4=Admin)
-    pub account_type_id: i16,
+    /// New account type slug (guest, reader, librarian, admin, group)
+    pub account_type: AccountTypeSlug,
 }
 
 /// User rights structure
@@ -285,7 +511,7 @@ impl Default for UserRights {
 pub struct UserClaims {
     pub sub: String,
     pub user_id: i32,
-    pub account_type_id: i16,
+    pub account_type: AccountTypeSlug,
     pub rights: UserRights,
     pub exp: i64,
     pub iat: i64,
@@ -378,9 +604,9 @@ impl UserClaims {
         }
     }
 
-    /// Check if user is admin (account_type_id = 4)
+    /// Check if user is admin (account_type = "admin")
     pub fn is_admin(&self) -> bool {
-        self.account_type_id == 4
+        self.account_type == AccountTypeSlug::Admin
     }
 
     /// Require admin privileges

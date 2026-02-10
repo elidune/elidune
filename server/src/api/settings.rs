@@ -45,8 +45,19 @@ pub struct Z3950ServerConfig {
     pub database: Option<String>,
     /// MARC format (UNIMARC, MARC21)
     pub format: Option<String>,
+    /// Login for authentication
+    pub login: Option<String>,
+    /// Password for authentication
+    pub password: Option<String>,
+    /// Character encoding (default: utf-8)
+    #[serde(default = "default_z3950_encoding")]
+    pub encoding: String,
     /// Whether server is active
     pub is_active: bool,
+}
+
+fn default_z3950_encoding() -> String {
+    "utf-8".to_string()
 }
 
 /// Update settings request

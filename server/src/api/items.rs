@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     error::AppResult,
     models::{
-        item::{CreateItem, Item, ItemQuery, ItemShort, UpdateItem},
+        item::{Item, ItemQuery, ItemShort},
         specimen::{CreateSpecimen, Specimen},
     },
 };
@@ -98,7 +98,7 @@ pub async fn get_item(
     path = "/items",
     tag = "items",
     security(("bearer_auth" = [])),
-    request_body = CreateItem,
+    request_body = Item,
     responses(
         (status = 201, description = "Item created", body = Item),
         (status = 400, description = "Invalid input"),
@@ -108,7 +108,7 @@ pub async fn get_item(
 pub async fn create_item(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Json(item): Json<CreateItem>,
+    Json(item): Json<Item>,
 ) -> AppResult<(StatusCode, Json<Item>)> {
     claims.require_write_items()?;
 
@@ -125,7 +125,7 @@ pub async fn create_item(
     params(
         ("id" = i32, Path, description = "Item ID")
     ),
-    request_body = UpdateItem,
+    request_body = Item,
     responses(
         (status = 200, description = "Item updated", body = Item),
         (status = 404, description = "Item not found")
@@ -135,7 +135,7 @@ pub async fn update_item(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     Path(id): Path<i32>,
-    Json(item): Json<UpdateItem>,
+    Json(item): Json<Item>,
 ) -> AppResult<Json<Item>> {
     claims.require_write_items()?;
 
