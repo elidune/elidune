@@ -12,6 +12,27 @@ use crate::{
     },
 };
 
+/// Generate a normalized key from a string (for series/collections lookup)
+fn normalize_key(s: &str) -> String {
+    s.to_lowercase()
+        .chars()
+        .map(|c| match c {
+            'à' | 'á' | 'â' | 'ã' | 'ä' => 'a',
+            'è' | 'é' | 'ê' | 'ë' => 'e',
+            'ì' | 'í' | 'î' | 'ï' => 'i',
+            'ò' | 'ó' | 'ô' | 'õ' | 'ö' => 'o',
+            'ù' | 'ú' | 'û' | 'ü' => 'u',
+            'ç' => 'c',
+            'ñ' => 'n',
+            c if c.is_alphanumeric() => c,
+            _ => '_',
+        })
+        .collect::<String>()
+        .replace("__", "_")
+        .trim_matches('_')
+        .to_string()
+}
+
 #[derive(Clone)]
 pub struct ItemsRepository {
     pool: Pool<Postgres>,
@@ -30,7 +51,8 @@ impl ItemsRepository {
                    publication_date, lang, lang_orig, title1, title2, title3, title4,
                    genre, subject, public_type, nb_pages, format, content, addon,
                    abstract as abstract_, notes, keywords, nb_specimens, state,
-                   collection_id, serie_id, edition_id,
+                   serie_id, serie_vol_number, edition_id,
+                   collection_id, collection_number_sub, collection_vol_number,
                    is_archive, is_valid, lifecycle_status, crea_date, modif_date, archived_date
             FROM items
             WHERE id = $1 AND lifecycle_status != 2
@@ -47,22 +69,33 @@ impl ItemsRepository {
         item.authors3 = self.get_item_authors(id, "author3_ids", "author3_functions").await?;
 
         // Load serie
-        item.serie = sqlx::query_as::<_, Serie>("SELECT * FROM series WHERE id = $1")
+        item.serie = sqlx::query_as::<_, Serie>("SELECT id, key, name, issn FROM series WHERE id = $1")
             .bind(item.serie_id)
             .fetch_optional(&self.pool)
             .await?;
 
         // Load collection
-        item.collection = sqlx::query_as::<_, Collection>("SELECT * FROM collections WHERE id = $1")
+        item.collection = sqlx::query_as::<_, Collection>("SELECT id, key, title1, title2, title3, issn FROM collections WHERE id = $1")
             .bind(item.collection_id)
             .fetch_optional(&self.pool)
             .await?;
 
         // Load edition
-        item.edition = sqlx::query_as::<_, Edition>("SELECT * FROM editions WHERE id = $1")
+        let mut edition: Option<Edition> = sqlx::query_as::<_, Edition>("SELECT id, name, place FROM editions WHERE id = $1")
             .bind(item.edition_id)
             .fetch_optional(&self.pool)
             .await?;
+        
+        // Load edition_date from items table if edition exists
+        if let Some(ref mut ed) = edition {
+            let edition_date: Option<String> = sqlx::query_scalar("SELECT edition_date FROM items WHERE id = $1")
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await?;
+            ed.date = edition_date;
+        }
+        
+        item.edition = edition;
 
         // Load specimens
         item.specimens = self.get_specimens(id).await?;
@@ -217,11 +250,12 @@ impl ItemsRepository {
                 public_type, nb_pages, format, content, addon, abstract, notes,
                 keywords, is_valid, author1_ids, author1_functions, author2_ids,
                 author2_functions, author3_ids, author3_functions, serie_id,
-                collection_id, edition_id, edition_date, crea_date, modif_date
+                serie_vol_number, collection_id, collection_number_sub,
+                collection_vol_number, edition_id, edition_date, crea_date, modif_date
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
                 $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26,
-                $27, $28, $29, $30, $31, $32, $33, $34, $34
+                $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $37
             ) RETURNING id
             "#,
         )
@@ -255,7 +289,10 @@ impl ItemsRepository {
         .bind(&author3_ids)
         .bind(&author3_functions)
         .bind(serie_id)
+        .bind(&item.serie_vol_number)
         .bind(collection_id)
+        .bind(&item.collection_number_sub)
+        .bind(&item.collection_vol_number)
         .bind(edition_id)
         .bind(item.edition.as_ref().and_then(|e| e.date.clone()))
         .bind(now)
@@ -330,8 +367,11 @@ impl ItemsRepository {
             return Ok(None);
         };
 
-        // Insert or get existing
-        let existing: Option<i32> = sqlx::query_scalar("SELECT id FROM series WHERE name = $1")
+        let key = normalize_key(name);
+
+        // Insert or get existing (check by key first, then by name for backward compatibility)
+        let existing: Option<i32> = sqlx::query_scalar("SELECT id FROM series WHERE key = $1 OR name = $2")
+            .bind(&key)
             .bind(name)
             .fetch_optional(&self.pool)
             .await?;
@@ -340,9 +380,11 @@ impl ItemsRepository {
             Ok(Some(id))
         } else {
             let id = sqlx::query_scalar::<_, i32>(
-                "INSERT INTO series (name) VALUES ($1) RETURNING id"
+                "INSERT INTO series (key, name, issn) VALUES ($1, $2, $3) RETURNING id"
             )
+            .bind(&key)
             .bind(name)
+            .bind(&serie.issn)
             .fetch_one(&self.pool)
             .await?;
             Ok(Some(id))
@@ -363,8 +405,11 @@ impl ItemsRepository {
             return Ok(None);
         };
 
-        // Insert or get existing
-        let existing: Option<i32> = sqlx::query_scalar("SELECT id FROM collections WHERE title1 = $1")
+        let key = normalize_key(title1);
+
+        // Insert or get existing (check by key first, then by title1 for backward compatibility)
+        let existing: Option<i32> = sqlx::query_scalar("SELECT id FROM collections WHERE key = $1 OR title1 = $2")
+            .bind(&key)
             .bind(title1)
             .fetch_optional(&self.pool)
             .await?;
@@ -373,8 +418,9 @@ impl ItemsRepository {
             Ok(Some(id))
         } else {
             let id = sqlx::query_scalar::<_, i32>(
-                "INSERT INTO collections (title1, title2, title3, issn) VALUES ($1, $2, $3, $4) RETURNING id"
+                "INSERT INTO collections (key, title1, title2, title3, issn) VALUES ($1, $2, $3, $4, $5) RETURNING id"
             )
+            .bind(&key)
             .bind(title1)
             .bind(&collection.title2)
             .bind(&collection.title3)
@@ -423,7 +469,20 @@ impl ItemsRepository {
     pub async fn update(&self, id: i32, item: &Item) -> AppResult<Item> {
         let now = Utc::now();
 
-        // Simple update for now - can be expanded with dynamic query building
+        // Handle authors
+        let (author1_ids, author1_functions) = self.process_authors(&item.authors1).await?;
+        let (author2_ids, author2_functions) = self.process_authors(&item.authors2).await?;
+        let (author3_ids, author3_functions) = self.process_authors(&item.authors3).await?;
+
+        // Handle serie
+        let serie_id = self.process_serie(&item.serie).await?;
+
+        // Handle collection
+        let collection_id = self.process_collection(&item.collection).await?;
+
+        // Handle edition
+        let edition_id = self.process_edition(&item.edition).await?;
+
         sqlx::query(
             r#"
             UPDATE items SET
@@ -431,14 +490,38 @@ impl ItemsRepository {
                 identification = COALESCE($2, identification),
                 title1 = COALESCE($3, title1),
                 title2 = COALESCE($4, title2),
-                modif_date = $5
-            WHERE id = $6
+                author1_ids = COALESCE($5, author1_ids),
+                author1_functions = COALESCE($6, author1_functions),
+                author2_ids = COALESCE($7, author2_ids),
+                author2_functions = COALESCE($8, author2_functions),
+                author3_ids = COALESCE($9, author3_ids),
+                author3_functions = COALESCE($10, author3_functions),
+                serie_id = $11,
+                serie_vol_number = $12,
+                collection_id = $13,
+                collection_number_sub = $14,
+                collection_vol_number = $15,
+                edition_id = $16,
+                modif_date = $17
+            WHERE id = $18
             "#,
         )
         .bind(&item.media_type)
         .bind(&item.identification)
         .bind(&item.title1)
         .bind(&item.title2)
+        .bind(&author1_ids)
+        .bind(&author1_functions)
+        .bind(&author2_ids)
+        .bind(&author2_functions)
+        .bind(&author3_ids)
+        .bind(&author3_functions)
+        .bind(serie_id)
+        .bind(&item.serie_vol_number)
+        .bind(collection_id)
+        .bind(&item.collection_number_sub)
+        .bind(&item.collection_vol_number)
+        .bind(edition_id)
         .bind(now)
         .bind(id)
         .execute(&self.pool)
@@ -556,17 +639,101 @@ impl ItemsRepository {
         .fetch_one(&self.pool)
         .await?;
 
-        // Update specimen count
-        sqlx::query("UPDATE items SET nb_specimens = (SELECT COUNT(*) FROM specimens WHERE id_item = $1) WHERE id = $1")
+        // Update specimen count (only count active specimens)
+        sqlx::query("UPDATE items SET nb_specimens = (SELECT COUNT(*) FROM specimens WHERE id_item = $1 AND lifecycle_status != 2) WHERE id = $1")
             .bind(item_id)
             .execute(&self.pool)
             .await?;
 
-        sqlx::query_as::<_, Specimen>("SELECT * FROM specimens WHERE id = $1")
+        // Return enriched specimen (with source_name and availability)
+        sqlx::query_as::<_, Specimen>(
+            r#"
+            SELECT s.*, so.name as source_name,
+                   (SELECT COUNT(*) FROM loans l WHERE l.specimen_id = s.id AND l.returned_date IS NULL) as availability
+            FROM specimens s
+            LEFT JOIN sources so ON s.source_id = so.id
+            WHERE s.id = $1
+            "#
+        )
+        .bind(id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+    /// Update a specimen
+    pub async fn update_specimen(&self, id: i32, specimen: &crate::models::specimen::UpdateSpecimen) -> AppResult<Specimen> {
+        let now = Utc::now();
+
+        // Handle source if provided
+        let source_id = if let Some(sid) = specimen.source_id {
+            Some(sid)
+        } else {
+            None
+        };
+
+        let lifecycle_status = specimen.lifecycle_status.map(|s| s as i16);
+
+        sqlx::query(
+            r#"
+            UPDATE specimens SET
+                identification = COALESCE($1, identification),
+                cote = COALESCE($2, cote),
+                place = COALESCE($3, place),
+                status = COALESCE($4, status),
+                notes = COALESCE($5, notes),
+                price = COALESCE($6, price),
+                source_id = COALESCE($7, source_id),
+                is_archive = COALESCE($8, is_archive),
+                lifecycle_status = COALESCE($9, lifecycle_status),
+                modif_date = $10
+            WHERE id = $11
+            "#
+        )
+        .bind(&specimen.identification)
+        .bind(&specimen.cote)
+        .bind(&specimen.place)
+        .bind(&specimen.status)
+        .bind(&specimen.notes)
+        .bind(&specimen.price)
+        .bind(source_id)
+        .bind(&specimen.is_archive)
+        .bind(lifecycle_status)
+        .bind(now)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        // Get item_id to update specimen count
+        let item_id: Option<i32> = sqlx::query_scalar("SELECT id_item FROM specimens WHERE id = $1")
             .bind(id)
-            .fetch_one(&self.pool)
-            .await
-            .map_err(Into::into)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        // Update specimen count if item_id exists
+        if let Some(item_id) = item_id {
+            sqlx::query(
+                "UPDATE items SET nb_specimens = (SELECT COUNT(*) FROM specimens WHERE id_item = $1 AND lifecycle_status != 2) WHERE id = $1"
+            )
+            .bind(item_id)
+            .execute(&self.pool)
+            .await?;
+        }
+
+        // Return enriched specimen
+        sqlx::query_as::<_, Specimen>(
+            r#"
+            SELECT s.*, so.name as source_name,
+                   (SELECT COUNT(*) FROM loans l WHERE l.specimen_id = s.id AND l.returned_date IS NULL) as availability
+            FROM specimens s
+            LEFT JOIN sources so ON s.source_id = so.id
+            WHERE s.id = $1
+            "#
+        )
+        .bind(id)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Into::into)
     }
 
     /// Delete a specimen (soft delete - sets lifecycle_status to Deleted)

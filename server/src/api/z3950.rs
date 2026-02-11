@@ -62,6 +62,14 @@ pub struct ImportSpecimen {
     pub cote: Option<String>,
     /// Status code
     pub status: Option<String>,
+    /// Place (shelf/room number)
+    pub place: Option<i16>,
+    /// Notes
+    pub notes: Option<String>,
+    /// Price
+    pub price: Option<String>,
+    /// Source ID
+    pub source_id: Option<i32>,
 }
 
 /// Search remote catalogs via Z39.50

@@ -135,6 +135,7 @@ fn create_router(state: AppState) -> Router {
         .route("/items/:id", delete(api::items::delete_item))
         .route("/items/:id/specimens", get(api::items::list_specimens))
         .route("/items/:id/specimens", post(api::items::create_specimen))
+        .route("/items/:item_id/specimens/:specimen_id", put(api::items::update_specimen))
         // Specimens
         .route("/specimens/:id", delete(api::items::delete_specimen))
         // Users

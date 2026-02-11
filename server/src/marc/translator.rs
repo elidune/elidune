@@ -74,27 +74,35 @@ fn translate_unimarc(record: &MarcRecord) -> Item {
         let serie = if let Some(series_title) = get_subfield(record, "225", 'a') {
             Some(Serie {
                 id: None,
+                key: None,
                 name: Some(series_title.to_string()),
-                volume_number: get_subfield(record, "225", 'v').and_then(|v| v.parse().ok()),
+                issn: get_subfield(record, "225", 'x').map(String::from),
             })
         } else {
             None
         };
 
+        // Volume number goes to Item, not Serie
+        let serie_vol_number = get_subfield(record, "225", 'v')
+            .and_then(|v| extract_volume_number(v));
+
         // Collection from 410
         let collection = if let Some(coll_title) = get_subfield(record, "410", 't') {
             Some(Collection {
                 id: None,
+                key: None,
                 title1: Some(coll_title.to_string()),
                 title2: None,
                 title3: None,
                 issn: get_subfield(record, "410", 'x').map(String::from),
-                number_sub: None,
-                volume_number: None,
             })
         } else {
             None
         };
+
+        // Collection volume number from 410$v
+        let collection_vol_number = get_subfield(record, "410", 'v')
+            .and_then(|v| extract_volume_number(v));
 
         // Media type from leader position 6
         let media_type = determine_media_type_unimarc(record);
@@ -106,8 +114,11 @@ fn translate_unimarc(record: &MarcRecord) -> Item {
         Item {
             id: None,
             serie_id: None,
+            serie_vol_number,
             edition_id: None,
             collection_id: None,
+            collection_number_sub: None,
+            collection_vol_number,
             media_type: Some(media_type),
             identification: isbn,
             price: None,
@@ -216,15 +227,38 @@ fn translate_marc21(record: &MarcRecord) -> Item {
         };
 
         // Series from 490
-        let serie = if let Some(series_title) = get_subfield(record, "490", 'a') {
+        let mut serie = if let Some(series_title) = get_subfield(record, "490", 'a') {
             Some(Serie {
                 id: None,
+                key: None,
                 name: Some(series_title.to_string()),
-                volume_number: get_subfield(record, "490", 'v').and_then(|v| extract_volume_number(v)),
+                issn: get_subfield(record, "490", 'x').map(String::from),
             })
         } else {
             None
         };
+
+        // Volume number goes to Item, not Serie
+        let serie_vol_number = get_subfield(record, "490", 'v')
+            .and_then(|v| extract_volume_number(v));
+
+        // Override serie name with authorized form from 830 if available
+        if let Some(uniform_title) = get_subfield(record, "830", 'a') {
+            if let Some(ref mut s) = serie {
+                s.name = Some(uniform_title.to_string());
+                // Use ISSN from 830 if not already set
+                if s.issn.is_none() {
+                    s.issn = get_subfield(record, "830", 'x').map(String::from);
+                }
+            } else {
+                serie = Some(Serie {
+                    id: None,
+                    key: None,
+                    name: Some(uniform_title.to_string()),
+                    issn: get_subfield(record, "830", 'x').map(String::from),
+                });
+            }
+        }
 
         // Media type from leader
         let media_type = determine_media_type_marc21(record);
@@ -243,8 +277,11 @@ fn translate_marc21(record: &MarcRecord) -> Item {
         Item {
             id: None,
             serie_id: None,
+            serie_vol_number,
             edition_id: None,
             collection_id: None,
+            collection_number_sub: None,
+            collection_vol_number: None,
             media_type: Some(media_type),
             identification: isbn,
             price: None,
@@ -484,5 +521,15 @@ mod tests {
         assert_eq!(language_code_to_id("fra"), Some(1));
         assert_eq!(language_code_to_id("eng"), Some(2));
         assert_eq!(language_code_to_id("xxx"), Some(0));
+    }
+
+    #[test]
+    fn test_extract_volume_number() {
+        assert_eq!(extract_volume_number("1"), Some(1));
+        assert_eq!(extract_volume_number("vol. 5"), Some(5));
+        assert_eq!(extract_volume_number("tome 12"), Some(12));
+        assert_eq!(extract_volume_number("no. 3"), Some(3));
+        assert_eq!(extract_volume_number("abc"), None);
+        assert_eq!(extract_volume_number(""), None);
     }
 }

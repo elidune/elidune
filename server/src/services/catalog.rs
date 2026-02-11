@@ -4,7 +4,7 @@ use crate::{
     error::AppResult,
     models::{
         item::{Item, ItemQuery, ItemShort},
-        specimen::{CreateSpecimen, Specimen},
+        specimen::{CreateSpecimen, Specimen, UpdateSpecimen},
     },
     repository::Repository,
 };
@@ -87,6 +87,20 @@ impl CatalogService {
         // Verify item exists
         self.repository.items.get_by_id(item_id).await?;
         self.repository.items.create_specimen(item_id, &specimen).await
+    }
+
+    /// Update a specimen
+    pub async fn update_specimen(&self, item_id: i32, specimen_id: i32, specimen: UpdateSpecimen) -> AppResult<Specimen> {
+        // Verify item exists
+        self.repository.items.get_by_id(item_id).await?;
+        // Verify specimen belongs to item
+        let specimens = self.repository.items.get_specimens(item_id).await?;
+        if !specimens.iter().any(|s| s.id == specimen_id) {
+            return Err(crate::error::AppError::NotFound(
+                format!("Specimen {} not found for item {}", specimen_id, item_id)
+            ));
+        }
+        self.repository.items.update_specimen(specimen_id, &specimen).await
     }
 
     /// Delete a specimen

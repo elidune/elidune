@@ -611,22 +611,26 @@ impl Z3950Service {
             for specimen in specimens {
                 sqlx::query(
                     r#"
-                    INSERT INTO specimens (id_item, identification, cote, status, crea_date, modif_date)
-                    VALUES ($1, $2, $3, $4, $5, $5)
+                    INSERT INTO specimens (id_item, identification, cote, place, status, notes, price, source_id, crea_date, modif_date)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
                     "#,
                 )
                 .bind(item_id)
                 .bind(&specimen.identification)
                 .bind(&specimen.cote)
+                .bind(&specimen.place)
                 .bind(specimen.status.as_ref().and_then(|s| s.parse::<i16>().ok()).unwrap_or(98))
+                .bind(&specimen.notes)
+                .bind(&specimen.price)
+                .bind(&specimen.source_id)
                 .bind(now)
                 .execute(pool)
                 .await?;
             }
 
-            // Update specimen count
+            // Update specimen count (only count active specimens)
             sqlx::query(
-                "UPDATE items SET nb_specimens = (SELECT COUNT(*) FROM specimens WHERE id_item = $1) WHERE id = $1"
+                "UPDATE items SET nb_specimens = (SELECT COUNT(*) FROM specimens WHERE id_item = $1 AND lifecycle_status != 2) WHERE id = $1"
             )
             .bind(item_id)
             .execute(pool)

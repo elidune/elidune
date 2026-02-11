@@ -66,11 +66,13 @@ pub struct Specimen {
     pub is_archive: Option<i32>,
     pub archive_date: Option<DateTime<Utc>>,
     pub lifecycle_status: i16,  // 0=Active, 1=Unavailable, 2=Deleted
-    // Joined fields
-    #[sqlx(skip)]
+    // Computed fields (populated when queried with JOINs, None otherwise)
+    #[sqlx(default)]
+    #[serde(default)]
     pub source_name: Option<String>,
-    #[sqlx(skip)]
-    pub availability: Option<i32>,
+    #[sqlx(default)]
+    #[serde(default)]
+    pub availability: Option<i64>,  // 0 = available, >0 = borrowed
 }
 
 /// Create specimen request

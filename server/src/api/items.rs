@@ -12,7 +12,7 @@ use crate::{
     error::AppResult,
     models::{
         item::{Item, ItemQuery, ItemShort},
-        specimen::{CreateSpecimen, Specimen},
+        specimen::{CreateSpecimen, Specimen, UpdateSpecimen},
     },
 };
 
@@ -238,6 +238,38 @@ pub async fn create_specimen(
         .create_specimen(item_id, specimen)
         .await?;
     Ok((StatusCode::CREATED, Json(created)))
+}
+
+/// Update a specimen
+#[utoipa::path(
+    put,
+    path = "/items/{item_id}/specimens/{specimen_id}",
+    tag = "items",
+    security(("bearer_auth" = [])),
+    params(
+        ("item_id" = i32, Path, description = "Item ID"),
+        ("specimen_id" = i32, Path, description = "Specimen ID")
+    ),
+    request_body = UpdateSpecimen,
+    responses(
+        (status = 200, description = "Specimen updated", body = Specimen),
+        (status = 404, description = "Item or specimen not found")
+    )
+)]
+pub async fn update_specimen(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Path((item_id, specimen_id)): Path<(i32, i32)>,
+    Json(specimen): Json<UpdateSpecimen>,
+) -> AppResult<Json<Specimen>> {
+    claims.require_write_items()?;
+
+    let updated = state
+        .services
+        .catalog
+        .update_specimen(item_id, specimen_id, specimen)
+        .await?;
+    Ok(Json(updated))
 }
 
 /// Delete a specimen

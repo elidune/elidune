@@ -183,8 +183,14 @@ pub struct Item {
     pub is_archive: Option<i16>,
     pub is_valid: Option<i16>,
     pub serie_id: Option<i32>,
+    #[serde(default)]
+    pub serie_vol_number: Option<i16>,
     pub edition_id: Option<i32>,
     pub collection_id: Option<i32>,
+    #[serde(default)]
+    pub collection_number_sub: Option<i16>,
+    #[serde(default)]
+    pub collection_vol_number: Option<i16>,
     #[serde(default)]
     pub lifecycle_status: i16,
     pub crea_date: Option<DateTime<Utc>>,
@@ -240,9 +246,9 @@ pub struct ItemShort {
 pub struct Serie {
     #[serde(default)]
     pub id: Option<i32>,
+    pub key: Option<String>,
     pub name: Option<String>,
-    #[serde(default)]
-    pub volume_number: Option<i16>,
+    pub issn: Option<String>,
 }
 
 /// Collection model
@@ -250,14 +256,11 @@ pub struct Serie {
 pub struct Collection {
     #[serde(default)]
     pub id: Option<i32>,
+    pub key: Option<String>,
     pub title1: Option<String>,
     pub title2: Option<String>,
     pub title3: Option<String>,
     pub issn: Option<String>,
-    #[serde(default)]
-    pub number_sub: Option<i16>,
-    #[serde(default)]
-    pub volume_number: Option<i16>,
 }
 
 /// Edition (publisher) model
@@ -267,6 +270,7 @@ pub struct Edition {
     pub id: Option<i32>,
     pub name: Option<String>,
     pub place: Option<String>,
+    #[sqlx(skip)]
     pub date: Option<String>,
 }
 
