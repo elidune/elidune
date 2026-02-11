@@ -22,7 +22,7 @@ use super::AuthenticatedUser;
 #[derive(Serialize, ToSchema)]
 pub struct PaginatedResponse<T>
 where
-    T: ToSchema,
+    T: for<'a> ToSchema<'a>,
 {
     /// List of items
     pub items: Vec<T>,

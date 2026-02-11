@@ -2,11 +2,16 @@
 
 pub mod catalog;
 pub mod email;
+pub mod equipment;
+pub mod events;
 pub mod loans;
 pub mod redis;
+pub mod schedules;
 pub mod settings;
-pub mod users;
+pub mod sources;
 pub mod stats;
+pub mod users;
+pub mod visitor_counts;
 pub mod z3950;
 
 use crate::{config::{UsersConfig, EmailConfig, RedisConfig}, error::AppResult, repository::Repository};
@@ -22,6 +27,11 @@ pub struct Services {
     pub settings: settings::SettingsService,
     pub email: email::EmailService,
     pub redis: redis::RedisService,
+    pub visitor_counts: visitor_counts::VisitorCountsService,
+    pub schedules: schedules::SchedulesService,
+    pub sources: sources::SourcesService,
+    pub equipment: equipment::EquipmentService,
+    pub events: events::EventsService,
 }
 
 impl Services {
@@ -39,8 +49,13 @@ impl Services {
             loans: loans::LoansService::new(repository.clone()),
             z3950: z3950::Z3950Service::new(repository.clone(), redis_service.clone(), redis_config.z3950_cache_ttl_seconds),
             stats: stats::StatsService::new(repository.clone()),
-            settings: settings::SettingsService::new(repository),
+            settings: settings::SettingsService::new(repository.clone()),
             email: email::EmailService::new(email_config.clone()),
+            visitor_counts: visitor_counts::VisitorCountsService::new(repository.clone()),
+            schedules: schedules::SchedulesService::new(repository.clone()),
+            sources: sources::SourcesService::new(repository.clone()),
+            equipment: equipment::EquipmentService::new(repository.clone()),
+            events: events::EventsService::new(repository),
             redis: redis_service,
         })
     }

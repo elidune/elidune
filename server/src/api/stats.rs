@@ -1,7 +1,7 @@
 //! Statistics endpoints
 
 use axum::{extract::Query, extract::State, Json};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
@@ -28,6 +28,14 @@ pub struct ItemStats {
     pub by_media_type: Vec<StatEntry>,
     /// Items by public type
     pub by_public_type: Vec<StatEntry>,
+    /// Number of items acquired in the period (crea_date in year)
+    pub acquisitions: i64,
+    /// Acquisitions by media type
+    pub acquisitions_by_media_type: Vec<StatEntry>,
+    /// Number of items withdrawn in the period (archived_date in year)
+    pub withdrawals: i64,
+    /// Withdrawals by media type
+    pub withdrawals_by_media_type: Vec<StatEntry>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -72,14 +80,31 @@ pub enum UserStatsSortBy {
     OverdueLoans,
 }
 
+/// Mode for user statistics endpoint
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum UserStatsMode {
+    /// Leaderboard-style response (list of users with their loan counts)
+    Leaderboard,
+    /// Aggregated response (totals for new users, active borrowers, etc.)
+    Aggregate,
+}
+
 /// Query parameters for user loan statistics
 #[derive(Debug, Deserialize, IntoParams, ToSchema)]
 pub struct UserStatsQuery {
-    /// Field to sort by (total_loans, active_loans, overdue_loans)
+    /// Field to sort by (total_loans, active_loans, overdue_loans) - only used in leaderboard mode
     #[serde(default)]
     pub sort_by: Option<UserStatsSortBy>,
-    /// Maximum number of users to return (default: 50, max: 1000)
+    /// Maximum number of users to return (default: 50, max: 1000) - only used in leaderboard mode
     pub limit: Option<i64>,
+    /// Start date (ISO 8601 format) for period-based statistics (E1 section)
+    pub start_date: Option<String>,
+    /// End date (ISO 8601 format) for period-based statistics (E1 section)
+    pub end_date: Option<String>,
+    /// Response mode: leaderboard (default) or aggregate
+    #[serde(default)]
+    pub mode: Option<UserStatsMode>,
 }
 
 /// User loan statistics entry
@@ -97,6 +122,22 @@ pub struct UserLoanStats {
     pub active_loans: i64,
     /// Number of overdue loans
     pub overdue_loans: i64,
+}
+
+/// Query parameters for main library statistics (GET /stats)
+#[derive(Debug, Default, Clone, Deserialize, IntoParams, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub struct StatsQuery {
+    /// Reference year (e.g. 2024) — stats computed as of 31 December of this year
+    pub year: Option<i32>,
+    /// Start of time interval (ISO 8601 date)
+    pub start_date: Option<String>,
+    /// End of time interval (ISO 8601 date); used as reference date when year is not set
+    pub end_date: Option<String>,
+    /// Filter by public type (e.g. 97 = adult, 106 = youth)
+    pub public_type: Option<i16>,
+    /// Filter by media type (e.g. 'b', 'bc', 'p')
+    pub media_type: Option<MediaType>,
 }
 
 /// Time interval for grouping statistics
@@ -122,6 +163,8 @@ pub struct LoanStatsQuery {
     pub interval: Option<Interval>,
     /// Filter by media type (e.g., 'b', 'bc', 'amc', 'vd')
     pub media_type: Option<MediaType>,
+    /// Filter by audience / public type (e.g., 97 = adult, 106 = children)
+    pub public_type: Option<i16>,
     /// Filter by specific user ID (admin only)
     pub user_id: Option<i32>,
 }
@@ -139,6 +182,42 @@ pub struct LoanStatsResponse {
     pub by_media_type: Vec<StatEntry>,
 }
 
+/// Aggregated user statistics for E1 section (new users, active borrowers)
+#[derive(Serialize, ToSchema)]
+pub struct UserStatsAggregate {
+    /// Total number of users (all users, with or without loans)
+    pub users_total: i64,
+    /// Users broken down by public type (adult/children)
+    pub users_by_public_type: Vec<StatEntry>,
+    /// Users broken down by sex (male/female/unknown)
+    pub users_by_sex: Vec<StatEntry>,
+    /// Number of new users in the period
+    pub new_users_total: i64,
+    /// New users broken down by public type (adult/children)
+    pub new_users_by_public_type: Vec<StatEntry>,
+    /// New users broken down by sex (male/female/unknown)
+    pub new_users_by_sex: Vec<StatEntry>,
+    /// Number of active borrowers in the period
+    pub active_borrowers_total: i64,
+    /// Active borrowers broken down by public type
+    pub active_borrowers_by_public_type: Vec<StatEntry>,
+    /// Total number of group accounts (collectivites)
+    pub groups_total: i64,
+}
+
+/// User statistics response, either leaderboard-style or aggregate
+#[derive(Serialize, ToSchema)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum UserStatsResponse {
+    /// Leaderboard-style statistics
+    Leaderboard {
+        /// Users with their loan statistics
+        users: Vec<UserLoanStats>,
+    },
+    /// Aggregated statistics (no per-user breakdown)
+    Aggregate(UserStatsAggregate),
+}
+
 /// Time series entry for loan statistics
 #[derive(Serialize, ToSchema)]
 pub struct TimeSeriesEntry {
@@ -150,12 +229,115 @@ pub struct TimeSeriesEntry {
     pub returns: i64,
 }
 
+/// Query parameters for catalog statistics (GET /stats/catalog)
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
+pub struct CatalogStatsQuery {
+    /// Start date (ISO 8601 format) for period-based statistics
+    pub start_date: Option<String>,
+    /// End date (ISO 8601 format) for period-based statistics
+    pub end_date: Option<String>,
+    /// Group results by source (default: false = aggregated)
+    #[serde(default)]
+    pub by_source: Option<bool>,
+    /// Group results by media type
+    #[serde(default)]
+    pub by_media_type: Option<bool>,
+    /// Group results by public type
+    #[serde(default)]
+    pub by_public_type: Option<bool>,
+}
+
+/// Catalog statistics response
+#[derive(Serialize, ToSchema)]
+pub struct CatalogStatsResponse {
+    /// Aggregated totals
+    pub totals: CatalogStatsTotals,
+    /// Breakdown by source (only if by_source=true)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub by_source: Option<Vec<CatalogSourceStats>>,
+    /// Breakdown by media type (only if by_media_type=true)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub by_media_type: Option<Vec<CatalogBreakdownStats>>,
+    /// Breakdown by public type (only if by_public_type=true)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub by_public_type: Option<Vec<CatalogBreakdownStats>>,
+}
+
+/// Aggregated catalog statistics totals
+#[derive(Serialize, ToSchema)]
+pub struct CatalogStatsTotals {
+    /// Number of active specimens (not archived)
+    pub active_specimens: i64,
+    /// Number of specimens entered in the period
+    pub entered_specimens: i64,
+    /// Number of specimens archived in the period
+    pub archived_specimens: i64,
+    /// Number of loans in the period (0 if no period specified)
+    pub loans: i64,
+}
+
+/// Catalog statistics per source
+#[derive(Serialize, ToSchema)]
+pub struct CatalogSourceStats {
+    /// Source ID
+    pub source_id: i32,
+    /// Source name
+    pub source_name: String,
+    /// Number of active specimens
+    pub active_specimens: i64,
+    /// Number of specimens entered in the period
+    pub entered_specimens: i64,
+    /// Number of specimens archived in the period
+    pub archived_specimens: i64,
+    /// Number of loans in the period (active loans attributed through specimens)
+    pub loans: i64,
+    /// Breakdown by media type (only when by_source=true AND by_media_type=true)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub by_media_type: Option<Vec<CatalogBreakdownStats>>,
+    /// Breakdown by public type (only when by_source=true AND by_public_type=true, without by_media_type)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub by_public_type: Option<Vec<CatalogBreakdownStats>>,
+}
+
+/// Catalog statistics breakdown (by media_type or public_type)
+#[derive(Serialize, ToSchema)]
+pub struct CatalogBreakdownStats {
+    /// Label (media type code or public type name)
+    pub label: String,
+    /// Number of active specimens
+    pub active_specimens: i64,
+    /// Number of specimens entered in the period
+    pub entered_specimens: i64,
+    /// Number of specimens archived in the period
+    pub archived_specimens: i64,
+    /// Number of loans in the period
+    pub loans: i64,
+    /// Nested breakdown by public type (only when by_public_type=true on a media_type entry)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub by_public_type: Option<Vec<CatalogBreakdownStats>>,
+}
+
+
+fn resolve_reference_date(query: &StatsQuery) -> Option<NaiveDate> {
+    if let Some(ref s) = query.end_date {
+        if let Ok(d) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+            return Some(d);
+        }
+    }
+    if let Some(y) = query.year {
+        NaiveDate::from_ymd_opt(y, 12, 31)
+    } else {
+        None
+    }
+}
+
 /// Get library statistics
 #[utoipa::path(
     get,
     path = "/stats",
     tag = "stats",
     security(("bearer_auth" = [])),
+    params(StatsQuery),
     responses(
         (status = 200, description = "Library statistics", body = StatsResponse)
     )
@@ -163,10 +345,25 @@ pub struct TimeSeriesEntry {
 pub async fn get_stats(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
+    Query(query): Query<StatsQuery>,
 ) -> AppResult<Json<StatsResponse>> {
     claims.require_read_items()?;
 
-    let stats = state.services.stats.get_stats().await?;
+    let filter = if query.year.is_none()
+        && query.start_date.is_none()
+        && query.end_date.is_none()
+        && query.public_type.is_none()
+        && query.media_type.is_none()
+    {
+        None
+    } else {
+        Some(crate::services::stats::StatsFilter {
+            reference_date: resolve_reference_date(&query),
+            public_type: query.public_type,
+            media_type: query.media_type.as_ref().map(MediaType::as_code).map(String::from),
+        })
+    };
+    let stats = state.services.stats.get_stats(filter).await?;
     Ok(Json(stats))
 }
 
@@ -192,15 +389,33 @@ pub async fn get_loan_stats(
     // Parse dates
     let start_date = query.start_date
         .as_ref()
-        .map(|s| DateTime::parse_from_rfc3339(s))
-        .transpose()
+        .map(|s| {
+        // On essaie de parser comme un DateTime complet (RFC 3339)
+        DateTime::parse_from_rfc3339(s)
+            .map(|dt| dt.with_timezone(&Utc))
+            // Sinon, on essaie de parser comme une date seule et on ajoute minuit UTC
+            .or_else(|_| {
+                NaiveDate::parse_from_str(s, "%Y-%m-%d")
+                    .map(|date| date.and_hms_opt(0, 0, 0).unwrap().and_local_timezone(Utc).unwrap())
+            })
+    })
+    .transpose()
         .map_err(|_| crate::error::AppError::Validation("Invalid start_date format. Use ISO 8601 (RFC 3339)".to_string()))?
         .map(|dt| dt.with_timezone(&Utc));
 
     let end_date = query.end_date
         .as_ref()
-        .map(|s| DateTime::parse_from_rfc3339(s))
-        .transpose()
+        .map(|s| {
+        // On essaie de parser comme un DateTime complet (RFC 3339)
+        DateTime::parse_from_rfc3339(s)
+            .map(|dt| dt.with_timezone(&Utc))
+            // Sinon, on essaie de parser comme une date seule et on ajoute minuit UTC
+            .or_else(|_| {
+                NaiveDate::parse_from_str(s, "%Y-%m-%d")
+                    .map(|date| date.and_hms_opt(0, 0, 0).unwrap().and_local_timezone(Utc).unwrap())
+            })
+    })
+    .transpose()
         .map_err(|_| crate::error::AppError::Validation("Invalid end_date format. Use ISO 8601 (RFC 3339)".to_string()))?
         .map(|dt| dt.with_timezone(&Utc));
 
@@ -228,6 +443,7 @@ pub async fn get_loan_stats(
         end_date,
         interval,
         query.media_type.as_ref(),
+        query.public_type,
         user_id,
     ).await?;
 
@@ -242,7 +458,7 @@ pub async fn get_loan_stats(
     security(("bearer_auth" = [])),
     params(UserStatsQuery),
     responses(
-        (status = 200, description = "User loan statistics", body = [UserLoanStats]),
+        (status = 200, description = "User loan statistics (leaderboard or aggregate)", body = UserStatsResponse),
         (status = 403, description = "Insufficient permissions")
     )
 )]
@@ -250,26 +466,162 @@ pub async fn get_user_stats(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     Query(query): Query<UserStatsQuery>,
-) -> AppResult<Json<Vec<UserLoanStats>>> {
+) -> AppResult<Json<UserStatsResponse>> {
     // Reading this requires loan statistics access
     claims.require_read_loans()?;
 
-    let sort_by = query.sort_by.unwrap_or(UserStatsSortBy::TotalLoans);
+    // Parse dates for aggregate mode
+    let start_date = query
+        .start_date
+        .as_ref()
+       .map(|s| {
+        // On essaie de parser comme un DateTime complet (RFC 3339)
+        DateTime::parse_from_rfc3339(s)
+            .map(|dt| dt.with_timezone(&Utc))
+            // Sinon, on essaie de parser comme une date seule et on ajoute minuit UTC
+            .or_else(|_| {
+                NaiveDate::parse_from_str(s, "%Y-%m-%d")
+                    .map(|date| date.and_hms_opt(0, 0, 0).unwrap().and_local_timezone(Utc).unwrap())
+            })
+    })
+        .transpose()
+        .map_err(|_| crate::error::AppError::Validation(
+            "Invalid start_date format. Use ISO 8601 (RFC 3339)".to_string(),
+        ))?
+        .map(|dt| dt.with_timezone(&Utc));
 
-    // Apply sane defaults and bounds for limit
-    let mut limit = query.limit.unwrap_or(50);
-    if limit < 1 {
-        limit = 1;
-    }
-    if limit > 1000 {
-        limit = 1000;
-    }
+    let end_date = query
+        .end_date
+        .as_ref()
+       .map(|s| {
+        // On essaie de parser comme un DateTime complet (RFC 3339)
+        DateTime::parse_from_rfc3339(s)
+            .map(|dt| dt.with_timezone(&Utc))
+            // Sinon, on essaie de parser comme une date seule et on ajoute minuit UTC
+            .or_else(|_| {
+                NaiveDate::parse_from_str(s, "%Y-%m-%d")
+                    .map(|date| date.and_hms_opt(0, 0, 0).unwrap().and_local_timezone(Utc).unwrap())
+            })
+    })
+        .transpose()
+        .map_err(|_| crate::error::AppError::Validation(
+            "Invalid end_date format. Use ISO 8601 (RFC 3339)".to_string(),
+        ))?
+        .map(|dt| dt.with_timezone(&Utc));
 
-    let stats = state
-        .services
-        .stats
-        .get_user_stats(sort_by, limit)
-        .await?;
+    let mode = query.mode.unwrap_or(UserStatsMode::Leaderboard);
+
+    match mode {
+        UserStatsMode::Leaderboard => {
+            let sort_by = query.sort_by.unwrap_or(UserStatsSortBy::TotalLoans);
+
+            // Apply sane defaults and bounds for limit
+            let mut limit = query.limit.unwrap_or(50);
+            if limit < 1 {
+                limit = 1;
+            }
+            if limit > 1000 {
+                limit = 1000;
+            }
+
+            let users = state
+                .services
+                .stats
+                .get_user_stats(sort_by, limit)
+                .await?;
+
+            Ok(Json(UserStatsResponse::Leaderboard { users }))
+        }
+        UserStatsMode::Aggregate => {
+            let aggregates = state
+                .services
+                .stats
+                .get_user_aggregates(start_date, end_date)
+                .await?;
+
+            Ok(Json(UserStatsResponse::Aggregate(aggregates)))
+        }
+    }
+}
+
+/// Get catalog statistics (specimens: active, entered, archived) with optional breakdowns.
+///
+/// ## Frontend display guide
+///
+/// The response always contains `totals` (global counts). The optional breakdown
+/// fields are populated depending on the query flags:
+///
+/// | Flags requested                               | Response shape                                                         |
+/// |-----------------------------------------------|------------------------------------------------------------------------|
+/// | *(none)*                                      | `totals` only                                                          |
+/// | `by_source`                                   | `by_source[]` — flat list of sources with counts                       |
+/// | `by_media_type`                               | `by_media_type[]` — flat list of media types                           |
+/// | `by_public_type`                              | `by_public_type[]` — flat list of public types                         |
+/// | `by_source` + `by_media_type`                 | `by_source[].by_media_type[]` — each source contains its media detail  |
+/// | `by_media_type` + `by_public_type`            | `by_media_type[].by_public_type[]` — each media contains public detail |
+/// | `by_source` + `by_media_type` + `by_public_type` | 3-level nesting: `by_source[].by_media_type[].by_public_type[]`     |
+///
+/// **Rendering rules:**
+/// - When `by_source` has nested `by_media_type`, render a table/accordion per source
+///   with media type rows inside.
+/// - When `by_media_type` entries contain `by_public_type`, add a sub-level
+///   (e.g. expandable row or indented sub-rows) showing adult/children split.
+/// - Top-level `by_media_type` and `by_public_type` are always global aggregations
+///   (regardless of nesting inside `by_source`), useful for summary charts/pie.
+/// - Each entry at every level carries `active_specimens`, `entered_specimens`,
+///   `archived_specimens` — the parent's counts are the sum of its children.
+#[utoipa::path(
+    get,
+    path = "/stats/catalog",
+    tag = "stats",
+    security(("bearer_auth" = [])),
+    params(CatalogStatsQuery),
+    responses(
+        (status = 200, description = "Catalog statistics", body = CatalogStatsResponse),
+        (status = 403, description = "Insufficient permissions")
+    )
+)]
+pub async fn get_catalog_stats(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Query(query): Query<CatalogStatsQuery>,
+) -> AppResult<Json<CatalogStatsResponse>> {
+    claims.require_read_items()?;
+
+    // Parse dates
+    let start_date = query.start_date
+        .as_ref()
+        .map(|s| {
+            DateTime::parse_from_rfc3339(s)
+                .map(|dt| dt.with_timezone(&Utc))
+                .or_else(|_| {
+                    NaiveDate::parse_from_str(s, "%Y-%m-%d")
+                        .map(|date| date.and_hms_opt(0, 0, 0).unwrap().and_local_timezone(Utc).unwrap())
+                })
+        })
+        .transpose()
+        .map_err(|_| crate::error::AppError::Validation("Invalid start_date format. Use ISO 8601 (RFC 3339)".to_string()))?;
+
+    let end_date = query.end_date
+        .as_ref()
+        .map(|s| {
+            DateTime::parse_from_rfc3339(s)
+                .map(|dt| dt.with_timezone(&Utc))
+                .or_else(|_| {
+                    NaiveDate::parse_from_str(s, "%Y-%m-%d")
+                        .map(|date| date.and_hms_opt(23, 59, 59).unwrap().and_local_timezone(Utc).unwrap())
+                })
+        })
+        .transpose()
+        .map_err(|_| crate::error::AppError::Validation("Invalid end_date format. Use ISO 8601 (RFC 3339)".to_string()))?;
+
+    let stats = state.services.stats.get_catalog_stats(
+        start_date,
+        end_date,
+        query.by_source.unwrap_or(false),
+        query.by_media_type.unwrap_or(false),
+        query.by_public_type.unwrap_or(false),
+    ).await?;
 
     Ok(Json(stats))
 }

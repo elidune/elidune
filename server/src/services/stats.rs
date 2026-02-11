@@ -1,17 +1,30 @@
 //! Statistics service
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use sqlx::Row;
 
 use crate::{
     api::stats::{
-        Interval, ItemStats, LoanStats, LoanStatsResponse, StatEntry, StatsResponse,
-        TimeSeriesEntry, UserLoanStats, UserStats, UserStatsSortBy,
+        Interval, ItemStats, LoanStats, LoanStatsResponse,
+        StatEntry, StatsResponse, TimeSeriesEntry, UserLoanStats, UserStats,
+        UserStatsSortBy,
     },
     error::AppResult,
     models::item::MediaType,
     repository::Repository,
+    services::Services,
 };
+
+/// Filter for GET /stats (optional year, time interval, public_type, media_type).
+/// When set, item stats are computed as of reference_date and filtered by public_type/media_type.
+pub struct StatsFilter {
+    /// Holdings as of this date (e.g. 31/12 for a given year).
+    pub reference_date: Option<NaiveDate>,
+    /// Restrict to this public type (e.g. 97 = adult, 106 = youth).
+    pub public_type: Option<i16>,
+    /// Restrict to this media type (DB code string).
+    pub media_type: Option<String>,
+}
 
 #[derive(Clone)]
 pub struct StatsService {
@@ -23,56 +36,128 @@ impl StatsService {
         Self { repository }
     }
 
-    /// Get library statistics
-    pub async fn get_stats(&self) -> AppResult<StatsResponse> {
+    /// Build WHERE clause for specimen-based queries.
+    /// Specimens are joined with items via `s` (specimens) and `i` (items) aliases.
+    fn specimen_where_clause(filter: &Option<StatsFilter>) -> (String, Vec<String>) {
+        let f = match filter {
+            None => {
+                return (
+                    "(s.is_archive = 0 OR s.is_archive IS NULL) AND s.lifecycle_status != 2".to_string(),
+                    vec![],
+                );
+            }
+            Some(f) => f,
+        };
+        let mut conditions = Vec::new();
+        let mut param_order = Vec::new();
+        if f.reference_date.is_some() {
+            conditions.push("(s.crea_date <= $1 AND (s.archive_date IS NULL OR s.archive_date > $1))".to_string());
+            param_order.push("ref_date".into());
+        } else {
+            conditions.push("(s.is_archive = 0 OR s.is_archive IS NULL)".to_string());
+        }
+        // Always exclude non-active specimens
+        conditions.push("s.lifecycle_status != 2".to_string());
+        if f.public_type.is_some() {
+            let i = param_order.len() + 1;
+            param_order.push("public_type".into());
+            conditions.push(format!("i.public_type = ${}", i));
+        }
+        if f.media_type.is_some() {
+            let i = param_order.len() + 1;
+            param_order.push("media_type".into());
+            conditions.push(format!("i.media_type = ${}", i));
+        }
+        (conditions.join(" AND "), param_order)
+    }
+
+    /// Get library statistics, optionally filtered by year, date range, public_type, media_type.
+    /// Counts are based on active specimens (joined with items for media_type/public_type).
+    pub async fn get_stats(&self, filter: Option<StatsFilter>) -> AppResult<StatsResponse> {
         let pool = &self.repository.pool;
+        let (spec_where, _param_order) = Self::specimen_where_clause(&filter);
 
-        // Item stats
-        let total_items: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM items WHERE is_archive = 0 OR is_archive IS NULL")
-            .fetch_one(pool)
-            .await?;
+        // Specimen stats (with optional filter)
+        let total_items: i64 = {
+            let q = format!(
+                "SELECT COUNT(*) FROM specimens s JOIN items i ON s.id_item = i.id WHERE {}",
+                spec_where
+            );
+            let mut query = sqlx::query_scalar::<_, i64>(&q);
+            if let Some(ref f) = filter {
+                if let Some(ref d) = f.reference_date {
+                    query = query.bind(d);
+                }
+                if let Some(pt) = f.public_type {
+                    query = query.bind(pt);
+                }
+                if let Some(ref mt) = f.media_type {
+                    query = query.bind(mt.as_str());
+                }
+            }
+            query.fetch_one(pool).await?
+        };
 
-        let items_by_media_type = sqlx::query(
-            r#"
-            SELECT COALESCE(media_type, 'unknown') as label, COUNT(*) as value
-            FROM items
-            WHERE is_archive = 0 OR is_archive IS NULL
-            GROUP BY media_type
-            ORDER BY value DESC
-            "#,
-        )
-        .fetch_all(pool)
-        .await?
-        .into_iter()
-        .map(|row| StatEntry {
-            label: row.get("label"),
-            value: row.get("value"),
-        })
-        .collect();
+        let items_by_media_type = {
+            let q = format!(
+                r#"SELECT COALESCE(i.media_type, 'unknown') as label, COUNT(*) as value
+                   FROM specimens s JOIN items i ON s.id_item = i.id
+                   WHERE {} GROUP BY i.media_type ORDER BY value DESC"#,
+                spec_where
+            );
+            let mut query = sqlx::query(&q);
+            if let Some(ref f) = filter {
+                if let Some(ref d) = f.reference_date {
+                    query = query.bind(d);
+                }
+                if let Some(pt) = f.public_type {
+                    query = query.bind(pt);
+                }
+                if let Some(ref mt) = f.media_type {
+                    query = query.bind(mt.as_str());
+                }
+            }
+            query
+                .fetch_all(pool)
+                .await?
+                .into_iter()
+                .map(|row| StatEntry {
+                    label: row.get("label"),
+                    value: row.get("value"),
+                })
+                .collect()
+        };
 
-        let items_by_public_type = sqlx::query(
-            r#"
-            SELECT 
-                CASE public_type
-                    WHEN 97 THEN 'adult'
-                    WHEN 106 THEN 'children'
-                    ELSE 'unknown'
-                END as label,
-                COUNT(*) as value
-            FROM items
-            WHERE is_archive = 0 OR is_archive IS NULL
-            GROUP BY public_type
-            ORDER BY value DESC
-            "#,
-        )
-        .fetch_all(pool)
-        .await?
-        .into_iter()
-        .map(|row| StatEntry {
-            label: row.get("label"),
-            value: row.get("value"),
-        })
-        .collect();
+        let items_by_public_type = {
+            let q = format!(
+                r#"SELECT CASE i.public_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as label,
+                          COUNT(*) as value
+                   FROM specimens s JOIN items i ON s.id_item = i.id
+                   WHERE {} GROUP BY i.public_type ORDER BY value DESC"#,
+                spec_where
+            );
+            let mut query = sqlx::query(&q);
+            if let Some(ref f) = filter {
+                if let Some(ref d) = f.reference_date {
+                    query = query.bind(d);
+                }
+                if let Some(pt) = f.public_type {
+                    query = query.bind(pt);
+                }
+                if let Some(ref mt) = f.media_type {
+                    query = query.bind(mt.as_str());
+                }
+            }
+            query
+                .fetch_all(pool)
+                .await?
+                .into_iter()
+                .map(|row| StatEntry {
+                    label: row.get("label"),
+                    value: row.get("value"),
+                })
+                .collect()
+        };
 
         // User stats (exclude deleted users: status != 2)
         let total_users: i64 = sqlx::query_scalar(
@@ -142,11 +227,93 @@ impl StatsService {
         })
         .collect();
 
+        // Acquisitions and withdrawals (only when a reference date / year is set)
+        // Based on specimens table joined with items for media_type/public_type filters.
+        let (acquisitions, acquisitions_by_media_type, withdrawals, withdrawals_by_media_type) = if let Some(ref f) = filter {
+            if let Some(ref_date) = f.reference_date {
+                let year_start = chrono::NaiveDate::from_ymd_opt(ref_date.year(), 1, 1).unwrap();
+                let year_end = ref_date;
+
+                // Build optional media_type / public_type filter fragments (on items alias i)
+                let mut extra_cond = String::new();
+                let mut param_offset = 2_usize; // $1 and $2 are year_start and year_end
+                if f.public_type.is_some() {
+                    param_offset += 1;
+                    extra_cond.push_str(&format!(" AND i.public_type = ${}", param_offset));
+                }
+                if f.media_type.is_some() {
+                    param_offset += 1;
+                    extra_cond.push_str(&format!(" AND i.media_type = ${}", param_offset));
+                }
+                let _ = param_offset;
+
+                // Acquisitions total
+                let acq_q = format!(
+                    "SELECT COUNT(*) FROM specimens s JOIN items i ON s.id_item = i.id WHERE s.crea_date >= $1 AND s.crea_date <= $2 AND s.lifecycle_status != 2{}",
+                    extra_cond
+                );
+                let mut acq_builder = sqlx::query_scalar::<_, i64>(&acq_q)
+                    .bind(year_start)
+                    .bind(year_end);
+                if let Some(pt) = f.public_type { acq_builder = acq_builder.bind(pt); }
+                if let Some(ref mt) = f.media_type { acq_builder = acq_builder.bind(mt.as_str()); }
+                let acq_total = acq_builder.fetch_one(pool).await?;
+
+                // Acquisitions by media type
+                let acq_mt_q = format!(
+                    "SELECT COALESCE(i.media_type, 'unknown') as label, COUNT(*) as value FROM specimens s JOIN items i ON s.id_item = i.id WHERE s.crea_date >= $1 AND s.crea_date <= $2 AND s.lifecycle_status != 2{} GROUP BY i.media_type ORDER BY value DESC",
+                    extra_cond
+                );
+                let mut acq_mt_builder = sqlx::query(&acq_mt_q)
+                    .bind(year_start)
+                    .bind(year_end);
+                if let Some(pt) = f.public_type { acq_mt_builder = acq_mt_builder.bind(pt); }
+                if let Some(ref mt) = f.media_type { acq_mt_builder = acq_mt_builder.bind(mt.as_str()); }
+                let acq_by_mt: Vec<StatEntry> = acq_mt_builder.fetch_all(pool).await?
+                    .into_iter().map(|row| StatEntry { label: row.get("label"), value: row.get("value") }).collect();
+
+                // Withdrawals total
+                let wd_q = format!(
+                    "SELECT COUNT(*) FROM specimens s JOIN items i ON s.id_item = i.id WHERE s.archive_date >= $1 AND s.archive_date <= $2{}",
+                    extra_cond
+                );
+                let mut wd_builder = sqlx::query_scalar::<_, i64>(&wd_q)
+                    .bind(year_start)
+                    .bind(year_end);
+                if let Some(pt) = f.public_type { wd_builder = wd_builder.bind(pt); }
+                if let Some(ref mt) = f.media_type { wd_builder = wd_builder.bind(mt.as_str()); }
+                let wd_total = wd_builder.fetch_one(pool).await?;
+
+                // Withdrawals by media type
+                let wd_mt_q = format!(
+                    "SELECT COALESCE(i.media_type, 'unknown') as label, COUNT(*) as value FROM specimens s JOIN items i ON s.id_item = i.id WHERE s.archive_date >= $1 AND s.archive_date <= $2{} GROUP BY i.media_type ORDER BY value DESC",
+                    extra_cond
+                );
+                let mut wd_mt_builder = sqlx::query(&wd_mt_q)
+                    .bind(year_start)
+                    .bind(year_end);
+                if let Some(pt) = f.public_type { wd_mt_builder = wd_mt_builder.bind(pt); }
+                if let Some(ref mt) = f.media_type { wd_mt_builder = wd_mt_builder.bind(mt.as_str()); }
+                let wd_by_mt: Vec<StatEntry> = wd_mt_builder.fetch_all(pool).await?
+                    .into_iter().map(|row| StatEntry { label: row.get("label"), value: row.get("value") }).collect();
+
+                (acq_total, acq_by_mt, wd_total, wd_by_mt)
+            } else {
+                (0, vec![], 0, vec![])
+            }
+        } else {
+            (0, vec![], 0, vec![])
+        };
+
         Ok(StatsResponse {
             items: ItemStats {
                 total: total_items,
                 by_media_type: items_by_media_type,
                 by_public_type: items_by_public_type,
+                acquisitions,
+                acquisitions_by_media_type,
+                withdrawals,
+                withdrawals_by_media_type,
             },
             users: UserStats {
                 total: total_users,
@@ -237,6 +404,7 @@ impl StatsService {
         end_date: Option<DateTime<Utc>>,
         interval: Interval,
         media_type: Option<&MediaType>,
+        public_type: Option<i16>,
         user_id: Option<i32>,
     ) -> AppResult<LoanStatsResponse> {
         let pool = &self.repository.pool;
@@ -268,6 +436,10 @@ impl StatsService {
 
         if let Some(mt) = media_type {
             where_clauses.push(format!("i.media_type = '{}'", mt));
+        }
+
+        if let Some(pt) = public_type {
+            where_clauses.push(format!("i.public_type = {}", pt));
         }
 
         if let Some(uid) = user_id {
@@ -313,6 +485,10 @@ impl StatsService {
             archived_loans_where.push(format!("i.media_type = '{}'", mt));
         }
 
+        if let Some(pt) = public_type {
+            archived_loans_where.push(format!("i.public_type = {}", pt));
+        }
+
         if let Some(uid) = user_id {
             archived_loans_where.push(format!("la.user_id = {}", uid));
         }
@@ -354,6 +530,10 @@ impl StatsService {
 
         if let Some(mt) = media_type {
             returns_where.push(format!("i.media_type = '{}'", mt));
+        }
+
+        if let Some(pt) = public_type {
+            returns_where.push(format!("i.public_type = {}", pt));
         }
 
         if let Some(uid) = user_id {
@@ -450,6 +630,692 @@ impl StatsService {
             total_returns,
             time_series,
             by_media_type,
+        })
+    }
+
+    /// Get aggregated user statistics for a period (new users, active borrowers)
+    pub async fn get_user_aggregates(
+        &self,
+        start_date: Option<DateTime<Utc>>,
+        end_date: Option<DateTime<Utc>>,
+    ) -> AppResult<crate::api::stats::UserStatsAggregate> {
+        let pool = &self.repository.pool;
+
+        // Default to the last 365 days if no explicit range is provided
+        let default_end = Utc::now();
+        let default_start = DateTime::from_timestamp(0, 0).unwrap();
+
+        let start = start_date.unwrap_or(default_start);
+        let end = end_date.unwrap_or(default_end);
+
+        // Total users: all users not deleted
+        let users_total: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)
+            FROM users
+            WHERE (status IS NULL OR status != 2)
+            "#,
+        )
+        .fetch_one(pool)
+        .await?;
+
+        // Users by public type
+        let users_by_public_type: Vec<StatEntry> = sqlx::query(
+            r#"
+            SELECT CASE public_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as label,
+                   COUNT(*) as value
+            FROM users
+            WHERE (status IS NULL OR status != 2)
+            GROUP BY public_type ORDER BY value DESC
+            "#,
+        )
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|row| StatEntry { label: row.get("label"), value: row.get("value") })
+        .collect();
+
+        // Users by sex
+        let users_by_sex: Vec<StatEntry> = sqlx::query(
+            r#"
+            SELECT CASE sex WHEN 70 THEN 'female' WHEN 77 THEN 'male' ELSE 'unknown' END as label,
+                   COUNT(*) as value
+            FROM users
+            WHERE (status IS NULL OR status != 2)
+            GROUP BY sex ORDER BY value DESC
+            "#,
+        )
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|row| StatEntry { label: row.get("label"), value: row.get("value") })
+        .collect();
+
+        // New users: created in the period and not deleted
+        let new_users_total: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)
+            FROM users
+            WHERE (status IS NULL OR status != 2)
+              AND crea_date IS NOT NULL
+              AND crea_date >= $1
+              AND crea_date <= $2
+            "#,
+        )
+        .bind(start)
+        .bind(end)
+        .fetch_one(pool)
+        .await?;
+
+        // New users by public type
+        let new_users_by_public_type: Vec<StatEntry> = sqlx::query(
+            r#"
+            SELECT CASE public_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as label,
+                   COUNT(*) as value
+            FROM users
+            WHERE (status IS NULL OR status != 2)
+              AND crea_date IS NOT NULL AND crea_date >= $1 AND crea_date <= $2
+            GROUP BY public_type ORDER BY value DESC
+            "#,
+        )
+        .bind(start)
+        .bind(end)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|row| StatEntry { label: row.get("label"), value: row.get("value") })
+        .collect();
+
+        // New users by sex
+        let new_users_by_sex: Vec<StatEntry> = sqlx::query(
+            r#"
+            SELECT CASE sex WHEN 70 THEN 'female' WHEN 77 THEN 'male' ELSE 'unknown' END as label,
+                   COUNT(*) as value
+            FROM users
+            WHERE (status IS NULL OR status != 2)
+              AND crea_date IS NOT NULL AND crea_date >= $1 AND crea_date <= $2
+            GROUP BY sex ORDER BY value DESC
+            "#,
+        )
+        .bind(start)
+        .bind(end)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|row| StatEntry { label: row.get("label"), value: row.get("value") })
+        .collect();
+
+        // Active borrowers: at least one loan (active or archived) in the period
+        let active_borrowers_total: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(DISTINCT u.id)
+            FROM users u
+            WHERE (u.status IS NULL OR u.status != 2)
+              AND EXISTS (
+                SELECT 1
+                FROM (
+                  SELECT user_id, date
+                  FROM loans
+                  UNION ALL
+                  SELECT user_id, date
+                  FROM loans_archives
+                ) l
+                WHERE l.user_id = u.id
+                  AND l.date >= $1
+                  AND l.date <= $2
+              )
+            "#,
+        )
+        .bind(start)
+        .bind(end)
+        .fetch_one(pool)
+        .await?;
+
+        // Active borrowers by public type
+        let active_borrowers_by_public_type: Vec<StatEntry> = sqlx::query(
+            r#"
+            SELECT CASE u.public_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as label,
+                   COUNT(DISTINCT u.id) as value
+            FROM users u
+            WHERE (u.status IS NULL OR u.status != 2)
+              AND EXISTS (
+                SELECT 1
+                FROM (
+                  SELECT user_id, date FROM loans
+                  UNION ALL
+                  SELECT user_id, date FROM loans_archives
+                ) l
+                WHERE l.user_id = u.id AND l.date >= $1 AND l.date <= $2
+              )
+            GROUP BY u.public_type ORDER BY value DESC
+            "#,
+        )
+        .bind(start)
+        .bind(end)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|row| StatEntry { label: row.get("label"), value: row.get("value") })
+        .collect();
+
+        // Groups total (collectivites with active registration up to end date)
+        let groups_total: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)
+            FROM users
+            WHERE account_type = 'group'
+              AND (status IS NULL OR status != 2)
+              AND (crea_date IS NULL OR crea_date <= $1)
+            "#,
+        )
+        .bind(end)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(crate::api::stats::UserStatsAggregate {
+            users_total,
+            users_by_public_type,
+            users_by_sex,
+            new_users_total,
+            new_users_by_public_type,
+            new_users_by_sex,
+            active_borrowers_total,
+            active_borrowers_by_public_type,
+            groups_total,
+        })
+    }
+
+    /// Get catalog statistics: active specimens, entered specimens, archived specimens
+    /// with optional breakdowns by source, media_type, public_type.
+    pub async fn get_catalog_stats(
+        &self,
+        start_date: Option<DateTime<Utc>>,
+        end_date: Option<DateTime<Utc>>,
+        by_source: bool,
+        by_media_type: bool,
+        by_public_type: bool,
+    ) -> AppResult<crate::api::stats::CatalogStatsResponse> {
+        let pool = &self.repository.pool;
+
+        let start = start_date.unwrap_or(chrono::DateTime::from_timestamp(0, 0).unwrap());
+        let end = end_date.unwrap_or(Utc::now());
+
+        // --- Totals ---
+        
+        let active_specimens: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM specimens WHERE crea_date < $1 AND (archive_date IS NULL OR archive_date > $2) "
+        )
+        .bind(end)
+        .bind(end_date.unwrap_or(start))
+        .fetch_one(pool)
+        .await?;
+
+        // Entered specimens in period
+        let entered_specimens: i64 = 
+            sqlx::query_scalar(
+                "SELECT COUNT(*) FROM specimens WHERE crea_date >= $1 AND crea_date <= $2"
+            )
+            .bind(start)
+            .bind(end)
+            .fetch_one(pool)
+            .await?;
+
+        // Archived specimens in period
+        let archived_specimens: i64 = 
+            sqlx::query_scalar(
+                "SELECT COUNT(*) FROM specimens WHERE archive_date >= $1 AND archive_date <= $2"
+            )
+            .bind(start)
+            .bind(end)
+            .fetch_one(pool)
+            .await?;
+
+        // Loans in period (active + archived via specimens)
+        let total_loans: i64 = 
+            sqlx::query_scalar(
+                r#"SELECT COUNT(*) FROM (
+                    SELECT id, date FROM loans
+                    UNION ALL
+                    SELECT id, date FROM loans_archives
+                ) all_loans WHERE date >= $1 AND date <= $2"#
+            )
+            .bind(start)
+            .bind(end)
+            .fetch_one(pool)
+            .await?;
+
+        let totals = crate::api::stats::CatalogStatsTotals {
+            active_specimens,
+            entered_specimens,
+            archived_specimens,
+            loans: total_loans,
+        };
+
+        // --- By source (with optional nested media_type / public_type breakdowns) ---
+        // When multiple flags are active, only the nested result is returned.
+        // Hierarchy: source → media_type → public_type
+        use std::collections::HashMap;
+        let mut by_source_data = if by_source {
+            if by_media_type && by_public_type {
+                // 3-level nesting: source → media_type → public_type
+                let rows = 
+                    sqlx::query(
+                        r#"
+                        SELECT
+                            COALESCE(src.id, 0) as source_id,
+                            COALESCE(src.name, 'unknown') as source_name,
+                            COALESCE(i.media_type, 'unknown') as media_type_label,
+                            CASE i.public_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as public_type_label,
+                            COUNT(*) FILTER (WHERE (sp.archive_date IS NULL OR sp.archive_date > $3)) as active_specimens,
+                            COUNT(*) FILTER (WHERE sp.crea_date >= $1 AND sp.crea_date <= $2) as entered_specimens,
+                            COUNT(*) FILTER (WHERE sp.archive_date >= $1 AND sp.archive_date <= $2) as archived_specimens
+                        FROM specimens sp
+                        LEFT JOIN sources src ON sp.source_id = src.id
+                        JOIN items i ON sp.id_item = i.id
+                        GROUP BY src.id, src.name, i.media_type, i.public_type
+                        "#
+                    )
+                    .bind(start)
+                    .bind(end)
+                    .bind(end_date.unwrap_or(start))
+
+                    .fetch_all(pool)
+                    .await?;
+
+                let mut source_map: HashMap<i32, (String, HashMap<String, HashMap<String, (i64, i64, i64)>>)> = HashMap::new();
+                for row in &rows {
+                    let sid: i32 = row.get("source_id");
+                    let sname: String = row.get("source_name");
+                    let mt: String = row.get("media_type_label");
+                    let pt: String = row.get("public_type_label");
+                    let a: i64 = row.get("active_specimens");
+                    let e: i64 = row.get("entered_specimens");
+                    let ar: i64 = row.get("archived_specimens");
+                    let source_entry = source_map.entry(sid).or_insert_with(|| (sname, HashMap::new()));
+                    let mt_entry = source_entry.1.entry(mt).or_default();
+                    let pt_entry = mt_entry.entry(pt).or_insert((0, 0, 0));
+                    pt_entry.0 += a;
+                    pt_entry.1 += e;
+                    pt_entry.2 += ar;
+                }
+
+                let mut result: Vec<crate::api::stats::CatalogSourceStats> = source_map.into_iter().map(|(source_id, (source_name, media_map))| {
+                    let mut by_mt: Vec<crate::api::stats::CatalogBreakdownStats> = media_map.into_iter().map(|(label, pt_map)| {
+                        let mut by_pt: Vec<crate::api::stats::CatalogBreakdownStats> = pt_map.into_iter().map(|(pt_label, (a, e, ar))| {
+                            crate::api::stats::CatalogBreakdownStats { label: pt_label, active_specimens: a, entered_specimens: e, archived_specimens: ar, loans: 0, by_public_type: None }
+                        }).collect();
+                        by_pt.sort_by(|a, b| b.active_specimens.cmp(&a.active_specimens));
+                        let (active, entered, archived) = by_pt.iter().fold((0i64, 0i64, 0i64), |acc, x| (acc.0 + x.active_specimens, acc.1 + x.entered_specimens, acc.2 + x.archived_specimens));
+                        crate::api::stats::CatalogBreakdownStats { label, active_specimens: active, entered_specimens: entered, archived_specimens: archived, loans: 0, by_public_type: Some(by_pt) }
+                    }).collect();
+                    by_mt.sort_by(|a, b| b.active_specimens.cmp(&a.active_specimens));
+                    let (active, entered, archived) = by_mt.iter().fold((0i64, 0i64, 0i64), |acc, x| (acc.0 + x.active_specimens, acc.1 + x.entered_specimens, acc.2 + x.archived_specimens));
+                    crate::api::stats::CatalogSourceStats { source_id, source_name, active_specimens: active, entered_specimens: entered, archived_specimens: archived, loans: 0, by_media_type: Some(by_mt), by_public_type: None }
+                }).collect();
+                result.sort_by(|a, b| b.active_specimens.cmp(&a.active_specimens));
+                Some(result)
+
+            } else if by_media_type {
+                // 2-level nesting: source → media_type
+                let rows = 
+                    sqlx::query(
+                        r#"
+                        SELECT
+                            COALESCE(src.id, 0) as source_id,
+                            COALESCE(src.name, 'unknown') as source_name,
+                            COALESCE(i.media_type, 'unknown') as media_type_label,
+                            COUNT(*) FILTER (WHERE (sp.is_archive = 0 OR sp.is_archive IS NULL) AND sp.lifecycle_status != 2) as active_specimens,
+                            COUNT(*) FILTER (WHERE sp.crea_date >= $1 AND sp.crea_date <= $2) as entered_specimens,
+                            COUNT(*) FILTER (WHERE sp.archive_date >= $1 AND sp.archive_date <= $2) as archived_specimens
+                        FROM specimens sp
+                        LEFT JOIN sources src ON sp.source_id = src.id
+                        JOIN items i ON sp.id_item = i.id
+                        GROUP BY src.id, src.name, i.media_type
+                        "#
+                    )
+                    .bind(start)
+                    .bind(end)
+                    .fetch_all(pool)
+                    .await?;
+
+                let mut source_map: HashMap<i32, (String, HashMap<String, (i64, i64, i64)>)> = HashMap::new();
+                for row in &rows {
+                    let sid: i32 = row.get("source_id");
+                    let sname: String = row.get("source_name");
+                    let mt: String = row.get("media_type_label");
+                    let a: i64 = row.get("active_specimens");
+                    let e: i64 = row.get("entered_specimens");
+                    let ar: i64 = row.get("archived_specimens");
+                    let source_entry = source_map.entry(sid).or_insert_with(|| (sname, HashMap::new()));
+                    let mt_entry = source_entry.1.entry(mt).or_insert((0, 0, 0));
+                    mt_entry.0 += a;
+                    mt_entry.1 += e;
+                    mt_entry.2 += ar;
+                }
+
+                let mut result: Vec<crate::api::stats::CatalogSourceStats> = source_map.into_iter().map(|(source_id, (source_name, media_map))| {
+                    let mut by_mt: Vec<crate::api::stats::CatalogBreakdownStats> = media_map.into_iter().map(|(label, (a, e, ar))| {
+                        crate::api::stats::CatalogBreakdownStats { label, active_specimens: a, entered_specimens: e, archived_specimens: ar, loans: 0, by_public_type: None }
+                    }).collect();
+                    by_mt.sort_by(|a, b| b.active_specimens.cmp(&a.active_specimens));
+                    let (active, entered, archived) = by_mt.iter().fold((0i64, 0i64, 0i64), |acc, x| (acc.0 + x.active_specimens, acc.1 + x.entered_specimens, acc.2 + x.archived_specimens));
+                    crate::api::stats::CatalogSourceStats { source_id, source_name, active_specimens: active, entered_specimens: entered, archived_specimens: archived, loans: 0, by_media_type: Some(by_mt), by_public_type: None }
+                }).collect();
+                result.sort_by(|a, b| b.active_specimens.cmp(&a.active_specimens));
+                Some(result)
+
+            } else if by_public_type {
+                // 2-level nesting: source → public_type
+                let rows = 
+                    sqlx::query(
+                        r#"
+                        SELECT
+                            COALESCE(src.id, 0) as source_id,
+                            COALESCE(src.name, 'unknown') as source_name,
+                            CASE i.public_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as public_type_label,
+                            COUNT(*) FILTER (WHERE (sp.is_archive = 0 OR sp.is_archive IS NULL) AND sp.lifecycle_status != 2) as active_specimens,
+                            COUNT(*) FILTER (WHERE sp.crea_date >= $1 AND sp.crea_date <= $2) as entered_specimens,
+                            COUNT(*) FILTER (WHERE sp.archive_date >= $1 AND sp.archive_date <= $2) as archived_specimens
+                        FROM specimens sp
+                        LEFT JOIN sources src ON sp.source_id = src.id
+                        JOIN items i ON sp.id_item = i.id
+                        GROUP BY src.id, src.name, i.public_type
+                        "#
+                    )
+                    .bind(start)
+                    .bind(end)
+                    .fetch_all(pool)
+                    .await?;
+               
+
+                let mut source_map: HashMap<i32, (String, HashMap<String, (i64, i64, i64)>)> = HashMap::new();
+                for row in &rows {
+                    let sid: i32 = row.get("source_id");
+                    let sname: String = row.get("source_name");
+                    let pt: String = row.get("public_type_label");
+                    let a: i64 = row.get("active_specimens");
+                    let e: i64 = row.get("entered_specimens");
+                    let ar: i64 = row.get("archived_specimens");
+                    let source_entry = source_map.entry(sid).or_insert_with(|| (sname, HashMap::new()));
+                    let pt_entry = source_entry.1.entry(pt).or_insert((0, 0, 0));
+                    pt_entry.0 += a;
+                    pt_entry.1 += e;
+                    pt_entry.2 += ar;
+                }
+
+                let mut result: Vec<crate::api::stats::CatalogSourceStats> = source_map.into_iter().map(|(source_id, (source_name, pt_map))| {
+                    let mut by_pt: Vec<crate::api::stats::CatalogBreakdownStats> = pt_map.into_iter().map(|(label, (a, e, ar))| {
+                        crate::api::stats::CatalogBreakdownStats { label, active_specimens: a, entered_specimens: e, archived_specimens: ar, loans: 0, by_public_type: None }
+                    }).collect();
+                    by_pt.sort_by(|a, b| b.active_specimens.cmp(&a.active_specimens));
+                    let (active, entered, archived) = by_pt.iter().fold((0i64, 0i64, 0i64), |acc, x| (acc.0 + x.active_specimens, acc.1 + x.entered_specimens, acc.2 + x.archived_specimens));
+                    crate::api::stats::CatalogSourceStats { source_id, source_name, active_specimens: active, entered_specimens: entered, archived_specimens: archived, loans: 0, by_media_type: None, by_public_type: Some(by_pt) }
+                }).collect();
+                result.sort_by(|a, b| b.active_specimens.cmp(&a.active_specimens));
+                Some(result)
+
+            } else {
+                // Flat source only
+                let rows = 
+                    sqlx::query(
+                        r#"
+                        SELECT
+                            COALESCE(src.id, 0) as source_id,
+                            COALESCE(src.name, 'unknown') as source_name,
+                            COUNT(*) FILTER (WHERE (sp.is_archive = 0 OR sp.is_archive IS NULL) AND sp.lifecycle_status != 2) as active_specimens,
+                            COUNT(*) FILTER (WHERE sp.crea_date >= $1 AND sp.crea_date <= $2) as entered_specimens,
+                            COUNT(*) FILTER (WHERE sp.archive_date >= $1 AND sp.archive_date <= $2) as archived_specimens
+                        FROM specimens sp
+                        LEFT JOIN sources src ON sp.source_id = src.id
+                        GROUP BY src.id, src.name
+                        ORDER BY active_specimens DESC
+                        "#
+                    )
+                    .bind(start)
+                    .bind(end)
+                    .fetch_all(pool)
+                    .await?;
+                
+                Some(rows.into_iter().map(|row| crate::api::stats::CatalogSourceStats {
+                    source_id: row.get("source_id"),
+                    source_name: row.get("source_name"),
+                    active_specimens: row.get("active_specimens"),
+                    entered_specimens: row.get("entered_specimens"),
+                    archived_specimens: row.get("archived_specimens"),
+                    loans: 0,
+                    by_media_type: None,
+                    by_public_type: None,
+                }).collect())
+            }
+        } else {
+            None
+        };
+
+        // --- Top-level by media type ---
+        // Only when by_source is off (otherwise media is nested inside source)
+        let mut by_media_type_data = if by_media_type && !by_source {
+            if by_public_type {
+                // 2-level nesting: media_type → public_type
+                let rows = 
+                    sqlx::query(
+                        r#"
+                        SELECT
+                            COALESCE(i.media_type, 'unknown') as label,
+                            CASE i.public_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as public_type_label,
+                            COUNT(*) FILTER (WHERE (sp.is_archive = 0 OR sp.is_archive IS NULL) AND sp.lifecycle_status != 2) as active_specimens,
+                            COUNT(*) FILTER (WHERE sp.crea_date >= $1 AND sp.crea_date <= $2) as entered_specimens,
+                            COUNT(*) FILTER (WHERE sp.archive_date >= $1 AND sp.archive_date <= $2) as archived_specimens
+                        FROM specimens sp
+                        JOIN items i ON sp.id_item = i.id
+                        GROUP BY i.media_type, i.public_type
+                        "#
+                    )
+                    .bind(start)
+                    .bind(end)
+                    .fetch_all(pool)
+                    .await?;
+              
+
+                let mut media_map: HashMap<String, HashMap<String, (i64, i64, i64)>> = HashMap::new();
+                for row in &rows {
+                    let mt: String = row.get("label");
+                    let pt: String = row.get("public_type_label");
+                    let a: i64 = row.get("active_specimens");
+                    let e: i64 = row.get("entered_specimens");
+                    let ar: i64 = row.get("archived_specimens");
+                    let mt_entry = media_map.entry(mt).or_default();
+                    let pt_entry = mt_entry.entry(pt).or_insert((0, 0, 0));
+                    pt_entry.0 += a;
+                    pt_entry.1 += e;
+                    pt_entry.2 += ar;
+                }
+
+                let mut result: Vec<crate::api::stats::CatalogBreakdownStats> = media_map.into_iter().map(|(label, pt_map)| {
+                    let mut by_pt: Vec<crate::api::stats::CatalogBreakdownStats> = pt_map.into_iter().map(|(pt_label, (a, e, ar))| {
+                        crate::api::stats::CatalogBreakdownStats { label: pt_label, active_specimens: a, entered_specimens: e, archived_specimens: ar, loans: 0, by_public_type: None }
+                    }).collect();
+                    by_pt.sort_by(|a, b| b.active_specimens.cmp(&a.active_specimens));
+                    let (active, entered, archived) = by_pt.iter().fold((0i64, 0i64, 0i64), |acc, x| (acc.0 + x.active_specimens, acc.1 + x.entered_specimens, acc.2 + x.archived_specimens));
+                    crate::api::stats::CatalogBreakdownStats { label, active_specimens: active, entered_specimens: entered, archived_specimens: archived, loans: 0, by_public_type: Some(by_pt) }
+                }).collect();
+                result.sort_by(|a, b| b.active_specimens.cmp(&a.active_specimens));
+                Some(result)
+            } else {
+                // Flat media type breakdown
+                let rows = 
+                    sqlx::query(
+                        r#"
+                        SELECT
+                            COALESCE(i.media_type, 'unknown') as label,
+                            COUNT(*) FILTER (WHERE (sp.is_archive = 0 OR sp.is_archive IS NULL) AND sp.lifecycle_status != 2) as active_specimens,
+                            COUNT(*) FILTER (WHERE sp.crea_date >= $1 AND sp.crea_date <= $2) as entered_specimens,
+                            COUNT(*) FILTER (WHERE sp.archive_date >= $1 AND sp.archive_date <= $2) as archived_specimens
+                        FROM specimens sp
+                        JOIN items i ON sp.id_item = i.id
+                        GROUP BY i.media_type
+                        ORDER BY active_specimens DESC
+                        "#
+                    )
+                    .bind(start)
+                    .bind(end)
+                    .fetch_all(pool)
+                    .await?;
+               
+                Some(rows.into_iter().map(|row| crate::api::stats::CatalogBreakdownStats {
+                    label: row.get("label"),
+                    active_specimens: row.get("active_specimens"),
+                    entered_specimens: row.get("entered_specimens"),
+                    archived_specimens: row.get("archived_specimens"),
+                    loans: 0,
+                    by_public_type: None,
+                }).collect())
+            }   
+        } else {
+            None
+        };
+
+        // --- Top-level by public type ---
+        // Only when neither by_source nor by_media_type is on (otherwise public is nested)
+        let mut by_public_type_data = if by_public_type && !by_source && !by_media_type {
+            let rows = 
+                sqlx::query(
+                    r#"
+                    SELECT
+                        CASE i.public_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as label,
+                        COUNT(*) FILTER (WHERE (sp.is_archive = 0 OR sp.is_archive IS NULL) AND sp.lifecycle_status != 2) as active_specimens,
+                        COUNT(*) FILTER (WHERE sp.crea_date >= $1 AND sp.crea_date <= $2) as entered_specimens,
+                        COUNT(*) FILTER (WHERE sp.archive_date >= $1 AND sp.archive_date <= $2) as archived_specimens
+                    FROM specimens sp
+                    JOIN items i ON sp.id_item = i.id
+                    GROUP BY i.public_type
+                    ORDER BY active_specimens DESC
+                    "#
+                )
+                .bind(start)
+                .bind(end)
+                .fetch_all(pool)
+                .await?;
+               
+            Some(rows.into_iter().map(|row| crate::api::stats::CatalogBreakdownStats {
+                label: row.get("label"),
+                active_specimens: row.get("active_specimens"),
+                entered_specimens: row.get("entered_specimens"),
+                archived_specimens: row.get("archived_specimens"),
+                loans: 0,
+                by_public_type: None,
+            }).collect::<Vec<_>>())
+        } else {
+            None
+        };
+
+        // --- Merge loan counts into breakdown structures ---
+        // All loans (active + archived) grouped by (source_id, media_type, public_type)
+        // via specimens for both tables.
+        
+            let loan_rows = sqlx::query(
+                r#"
+                SELECT
+                    COALESCE(sp.source_id, 0) as source_id,
+                    COALESCE(i.media_type, 'unknown') as media_type,
+                    CASE i.public_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as public_type,
+                    COUNT(*) as loans
+                FROM (
+                    SELECT specimen_id, date FROM loans
+                    UNION ALL
+                    SELECT specimen_id, date FROM loans_archives
+                ) all_loans
+                JOIN specimens sp ON all_loans.specimen_id = sp.id
+                JOIN items i ON sp.id_item = i.id
+                WHERE all_loans.date >= $1 AND all_loans.date <= $2
+                GROUP BY sp.source_id, i.media_type, i.public_type
+                "#
+            )
+            .bind(start)
+            .bind(end)
+            .fetch_all(pool)
+            .await?;
+
+            // source_id → media_type → public_type → count
+            let mut loan_map: HashMap<i32, HashMap<String, HashMap<String, i64>>> = HashMap::new();
+            for row in &loan_rows {
+                let sid: i32 = row.get("source_id");
+                let mt: String = row.get("media_type");
+                let pt: String = row.get("public_type");
+                let cnt: i64 = row.get("loans");
+                *loan_map.entry(sid).or_default().entry(mt).or_default().entry(pt).or_insert(0) += cnt;
+            }
+
+            // Merge into by_source
+            if let Some(ref mut sources) = by_source_data {
+                for source in sources.iter_mut() {
+                    let sid = source.source_id;
+                    source.loans = loan_map.get(&sid)
+                        .map(|mm| mm.values().flat_map(|pm| pm.values()).sum::<i64>())
+                        .unwrap_or(0);
+
+                    if let Some(ref mut medias) = source.by_media_type {
+                        for media in medias.iter_mut() {
+                            media.loans = loan_map.get(&sid)
+                                .and_then(|mm| mm.get(&media.label))
+                                .map(|pm| pm.values().sum::<i64>())
+                                .unwrap_or(0);
+                            if let Some(ref mut publics) = media.by_public_type {
+                                for public in publics.iter_mut() {
+                                    public.loans = loan_map.get(&sid)
+                                        .and_then(|mm| mm.get(&media.label))
+                                        .and_then(|pm| pm.get(&public.label))
+                                        .copied()
+                                        .unwrap_or(0);
+                                }
+                            }
+                        }
+                    }
+
+                    if let Some(ref mut publics) = source.by_public_type {
+                        for public in publics.iter_mut() {
+                            public.loans = loan_map.get(&sid)
+                                .map(|mm| mm.values().filter_map(|pm| pm.get(&public.label)).sum::<i64>())
+                                .unwrap_or(0);
+                        }
+                    }
+                }
+            }
+
+            // Merge into top-level by_media_type (sum across all sources)
+            if let Some(ref mut medias) = by_media_type_data {
+                for media in medias.iter_mut() {
+                    media.loans = loan_map.values()
+                        .filter_map(|mm| mm.get(&media.label))
+                        .flat_map(|pm| pm.values())
+                        .sum();
+
+                    if let Some(ref mut publics) = media.by_public_type {
+                        for public in publics.iter_mut() {
+                            public.loans = loan_map.values()
+                                .filter_map(|mm| mm.get(&media.label))
+                                .filter_map(|pm| pm.get(&public.label))
+                                .sum();
+                        }
+                    }
+                }
+            }
+
+            // Merge into top-level by_public_type (sum across all sources + media)
+            if let Some(ref mut publics) = by_public_type_data {
+                for public in publics.iter_mut() {
+                    public.loans = loan_map.values()
+                        .flat_map(|mm| mm.values())
+                        .filter_map(|pm| pm.get(&public.label))
+                        .sum();
+                }
+            }
+        
+
+        Ok(crate::api::stats::CatalogStatsResponse {
+            totals,
+            by_source: by_source_data,
+            by_media_type: by_media_type_data,
+            by_public_type: by_public_type_data,
         })
     }
 }

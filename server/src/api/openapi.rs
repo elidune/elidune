@@ -5,7 +5,7 @@ use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi};
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::api::{auth, health, items, loans, settings, stats, users, z3950};
+use crate::api::{auth, equipment, events, health, items, loans, schedules, settings, sources, stats, users, visitor_counts, z3950};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -59,9 +59,43 @@ use crate::api::{auth, health, items, loans, settings, stats, users, z3950};
         stats::get_stats,
         stats::get_loan_stats,
         stats::get_user_stats,
+        stats::get_catalog_stats,
         // Settings
         settings::get_settings,
         settings::update_settings,
+        // Visitor counts
+        visitor_counts::list_visitor_counts,
+        visitor_counts::create_visitor_count,
+        visitor_counts::delete_visitor_count,
+        // Schedules
+        schedules::list_periods,
+        schedules::create_period,
+        schedules::update_period,
+        schedules::delete_period,
+        schedules::list_slots,
+        schedules::create_slot,
+        schedules::delete_slot,
+        schedules::list_closures,
+        schedules::create_closure,
+        schedules::delete_closure,
+        // Sources
+        sources::list_sources,
+        sources::get_source,
+        sources::rename_source,
+        sources::archive_source,
+        sources::merge_sources,
+        // Equipment
+        equipment::list_equipment,
+        equipment::get_equipment,
+        equipment::create_equipment,
+        equipment::update_equipment,
+        equipment::delete_equipment,
+        // Events
+        events::list_events,
+        events::get_event,
+        events::create_event,
+        events::update_event,
+        events::delete_event,
     ),
     components(
         schemas(
@@ -106,6 +140,7 @@ use crate::api::{auth, health, items, loans, settings, stats, users, z3950};
             z3950::Z3950ImportRequest,
             // Stats
             stats::StatsResponse,
+            stats::StatsQuery,
             stats::LoanStatsResponse,
             stats::UserLoanStats,
             stats::Interval,
@@ -113,11 +148,46 @@ use crate::api::{auth, health, items, loans, settings, stats, users, z3950};
             stats::TimeSeriesEntry,
             stats::UserStatsSortBy,
             stats::UserStatsQuery,
+            stats::CatalogStatsQuery,
+            stats::CatalogStatsResponse,
+            stats::CatalogStatsTotals,
+            stats::CatalogSourceStats,
+            stats::CatalogBreakdownStats,
             // Settings
             settings::SettingsResponse,
             settings::LoanSettings,
             settings::Z3950ServerConfig,
             settings::UpdateSettingsRequest,
+            // Visitor counts
+            crate::models::visitor_count::VisitorCount,
+            crate::models::visitor_count::CreateVisitorCount,
+            crate::models::visitor_count::VisitorCountQuery,
+            // Schedules
+            crate::models::schedule::SchedulePeriod,
+            crate::models::schedule::ScheduleSlot,
+            crate::models::schedule::ScheduleClosure,
+            crate::models::schedule::CreateSchedulePeriod,
+            crate::models::schedule::UpdateSchedulePeriod,
+            crate::models::schedule::CreateScheduleSlot,
+            crate::models::schedule::CreateScheduleClosure,
+            crate::models::schedule::ScheduleClosureQuery,
+            // Sources
+            crate::models::source::Source,
+            crate::models::source::RenameSource,
+            crate::models::source::MergeSources,
+            sources::SourcesQuery,
+            // Equipment
+            crate::models::equipment::Equipment,
+            crate::models::equipment::CreateEquipment,
+            crate::models::equipment::UpdateEquipment,
+            // Events
+            crate::models::event::Event,
+            crate::models::event::CreateEvent,
+            crate::models::event::UpdateEvent,
+            crate::models::event::EventQuery,
+            events::EventsListResponse,
+            crate::repository::events::EventAnnualStats,
+            crate::repository::events::EventTypeStats,
             // Health
             health::HealthResponse,
             // Errors
@@ -132,7 +202,12 @@ use crate::api::{auth, health, items, loans, settings, stats, users, z3950};
         (name = "loans", description = "Loan management"),
         (name = "z3950", description = "Z39.50 catalog search"),
         (name = "stats", description = "Statistics"),
-        (name = "settings", description = "System settings")
+        (name = "settings", description = "System settings"),
+        (name = "visitor_counts", description = "Visitor counting"),
+        (name = "schedules", description = "Library schedules (hours, closures)"),
+        (name = "sources", description = "Acquisition source management"),
+        (name = "equipment", description = "Library equipment management"),
+        (name = "events", description = "Cultural events and school visits")
     ),
     modifiers(&SecurityAddon)
 )]

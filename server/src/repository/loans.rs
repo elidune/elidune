@@ -258,7 +258,7 @@ impl LoansRepository {
 
         let user_row = sqlx::query_as::<_, UserShortRow>(
             r#"
-            SELECT u.id, u.firstname, u.lastname, u.account_type,
+            SELECT u.id, u.firstname, u.lastname, u.account_type, u.public_type,
                    0::bigint as nb_loans, 0::bigint as nb_late_loans
             FROM users u
             WHERE u.id = $1

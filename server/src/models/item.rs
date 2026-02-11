@@ -182,6 +182,9 @@ pub struct Item {
     pub state: Option<String>,
     pub is_archive: Option<i16>,
     pub is_valid: Option<i16>,
+    pub serie_id: Option<i32>,
+    pub edition_id: Option<i32>,
+    pub collection_id: Option<i32>,
     #[serde(default)]
     pub lifecycle_status: i16,
     pub crea_date: Option<DateTime<Utc>>,
@@ -238,6 +241,7 @@ pub struct Serie {
     #[serde(default)]
     pub id: Option<i32>,
     pub name: Option<String>,
+    #[serde(default)]
     pub volume_number: Option<i16>,
 }
 
@@ -250,7 +254,9 @@ pub struct Collection {
     pub title2: Option<String>,
     pub title3: Option<String>,
     pub issn: Option<String>,
+    #[serde(default)]
     pub number_sub: Option<i16>,
+    #[serde(default)]
     pub volume_number: Option<i16>,
 }
 

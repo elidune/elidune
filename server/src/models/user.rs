@@ -267,6 +267,11 @@ pub struct UserRow {
     status: Option<i16>,
     archived_date: Option<DateTime<Utc>>,
     language: Option<String>,
+    sex: Option<i16>,
+    staff_type: Option<i16>,
+    hours_per_week: Option<f32>,
+    staff_start_date: Option<chrono::NaiveDate>,
+    staff_end_date: Option<chrono::NaiveDate>,
     two_factor_enabled: Option<bool>,
     two_factor_method: Option<String>,
     totp_secret: Option<String>,
@@ -300,6 +305,11 @@ impl From<UserRow> for User {
             status: row.status,
             archived_date: row.archived_date,
             language: row.language,
+            sex: row.sex,
+            staff_type: row.staff_type,
+            hours_per_week: row.hours_per_week.map(|v| v as f64),
+            staff_start_date: row.staff_start_date.map(|d| d.to_string()),
+            staff_end_date: row.staff_end_date.map(|d| d.to_string()),
             two_factor_enabled: row.two_factor_enabled,
             two_factor_method: row.two_factor_method,
             totp_secret: row.totp_secret,
@@ -338,6 +348,16 @@ pub struct User {
     pub archived_date: Option<DateTime<Utc>>,
     /// User preferred language (ISO 639-1 code: "fr", "en", etc.)
     pub language: Option<String>,
+    /// Sex (70=Female, 77=Male, 85=Unknown)
+    pub sex: Option<i16>,
+    /// Staff type (NULL=not staff, 0=employee, 1=volunteer)
+    pub staff_type: Option<i16>,
+    /// Contractual hours per week (for ETPT calculation)
+    pub hours_per_week: Option<f64>,
+    /// Staff start date (YYYY-MM-DD)
+    pub staff_start_date: Option<String>,
+    /// Staff end date (YYYY-MM-DD)
+    pub staff_end_date: Option<String>,
     // 2FA fields
     pub two_factor_enabled: Option<bool>,
     pub two_factor_method: Option<String>,
@@ -356,6 +376,7 @@ pub struct UserShortRow {
     firstname: Option<String>,
     lastname: Option<String>,
     account_type: Option<String>,
+    public_type: Option<i32>,
     nb_loans: Option<i64>,
     nb_late_loans: Option<i64>,
 }
@@ -367,6 +388,7 @@ impl From<UserShortRow> for UserShort {
             firstname: row.firstname,
             lastname: row.lastname,
             account_type: row.account_type.map(|s| s.parse().unwrap_or(AccountTypeSlug::Guest)),
+            public_type: row.public_type,
             nb_loans: row.nb_loans,
             nb_late_loans: row.nb_late_loans,
         }
@@ -380,6 +402,7 @@ pub struct UserShort {
     pub firstname: Option<String>,
     pub lastname: Option<String>,
     pub account_type: Option<AccountTypeSlug>,
+    pub public_type: Option<i32>,
     pub nb_loans: Option<i64>,
     pub nb_late_loans: Option<i64>,
 }
@@ -417,6 +440,16 @@ pub struct CreateUser {
     pub public_type: Option<i32>,
     pub notes: Option<String>,
     pub group_id: Option<i32>,
+    /// Sex (70=Female, 77=Male, 85=Unknown)
+    pub sex: Option<i16>,
+    /// Staff type (NULL=not staff, 0=employee, 1=volunteer)
+    pub staff_type: Option<i16>,
+    /// Contractual hours per week
+    pub hours_per_week: Option<f64>,
+    /// Staff start date (YYYY-MM-DD)
+    pub staff_start_date: Option<String>,
+    /// Staff end date (YYYY-MM-DD)
+    pub staff_end_date: Option<String>,
 }
 
 /// Update user request
@@ -440,6 +473,16 @@ pub struct UpdateUser {
     pub notes: Option<String>,
     pub group_id: Option<i32>,
     pub status: Option<i16>,
+    /// Sex (70=Female, 77=Male, 85=Unknown)
+    pub sex: Option<i16>,
+    /// Staff type (NULL=not staff, 0=employee, 1=volunteer)
+    pub staff_type: Option<i16>,
+    /// Contractual hours per week
+    pub hours_per_week: Option<f64>,
+    /// Staff start date (YYYY-MM-DD)
+    pub staff_start_date: Option<String>,
+    /// Staff end date (YYYY-MM-DD)
+    pub staff_end_date: Option<String>,
 }
 
 /// Update own profile request (for authenticated users)

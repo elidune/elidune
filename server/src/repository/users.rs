@@ -176,7 +176,7 @@ impl UsersRepository {
         use crate::models::user::UserShortRow;
         let select_query = format!(
             r#"
-            SELECT u.id, u.firstname, u.lastname, u.account_type,
+            SELECT u.id, u.firstname, u.lastname, u.account_type, u.public_type,
                    (SELECT COUNT(*) FROM loans l WHERE l.user_id = u.id AND l.returned_date IS NULL) as nb_loans,
                    (SELECT COUNT(*) FROM loans l WHERE l.user_id = u.id AND l.returned_date IS NULL AND l.issue_date < NOW()) as nb_late_loans
             FROM users u
@@ -204,16 +204,25 @@ impl UsersRepository {
         let account_type = user.account_type.as_ref().map(|at| at.as_str()).unwrap_or("guest");
         let fee = user.fee.as_ref().map(|f| f.as_str());
         
+        // Parse staff dates
+        let staff_start_date = user.staff_start_date.as_ref()
+            .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+        let staff_end_date = user.staff_end_date.as_ref()
+            .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+        let hours_pw = user.hours_per_week.map(|v| v as f32);
+
         let id = sqlx::query_scalar::<_, i32>(
             r#"
             INSERT INTO users (
                 login, password, firstname, lastname, email,
                 addr_street, addr_zip_code, addr_city, phone,
                 birthdate, account_type,
-                fee, public_type, notes, group_id, barcode, status, crea_date, modif_date
+                fee, public_type, notes, group_id, barcode,
+                sex, staff_type, hours_per_week, staff_start_date, staff_end_date,
+                status, crea_date, modif_date
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                $13, $14, $15, $16, $17, $18, $19, $20
+                $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24
             ) RETURNING id
             "#,
         )
@@ -233,7 +242,13 @@ impl UsersRepository {
         .bind(&user.notes)
         .bind(&user.group_id)
         .bind(&user.barcode)
+        .bind(&user.sex)
+        .bind(&user.staff_type)
+        .bind(hours_pw)
+        .bind(staff_start_date)
+        .bind(staff_end_date)
         .bind(UserStatus::Active as i16)
+        .bind(now)
         .bind(now)
         .fetch_one(&self.pool)
         .await?;
@@ -283,6 +298,11 @@ impl UsersRepository {
         add_field!(user.group_id, "group_id");
         add_field!(user.barcode, "barcode");
         add_field!(user.status, "status");
+        add_field!(user.sex, "sex");
+        add_field!(user.staff_type, "staff_type");
+        add_field!(user.hours_per_week, "hours_per_week");
+        add_field!(user.staff_start_date, "staff_start_date");
+        add_field!(user.staff_end_date, "staff_end_date");
 
         if password.is_some() {
             sets.push(format!("password = ${}", param_idx));
@@ -293,6 +313,13 @@ impl UsersRepository {
             sets.join(", "),
             id
         );
+
+        // Parse staff dates before binding
+        let staff_start_date = user.staff_start_date.as_ref()
+            .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+        let staff_end_date = user.staff_end_date.as_ref()
+            .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+        let hours_pw = user.hours_per_week.map(|v| v as f32);
 
         let mut builder = sqlx::query(&query).bind(now);
 
@@ -328,6 +355,17 @@ impl UsersRepository {
         bind_field!(user.group_id);
         bind_field!(user.barcode);
         bind_field!(user.status);
+        bind_field!(user.sex);
+        bind_field!(user.staff_type);
+        if user.hours_per_week.is_some() {
+            builder = builder.bind(hours_pw);
+        }
+        if user.staff_start_date.is_some() {
+            builder = builder.bind(staff_start_date);
+        }
+        if user.staff_end_date.is_some() {
+            builder = builder.bind(staff_end_date);
+        }
 
         if let Some(ref hash) = password {
             builder = builder.bind(hash);

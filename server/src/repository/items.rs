@@ -30,6 +30,7 @@ impl ItemsRepository {
                    publication_date, lang, lang_orig, title1, title2, title3, title4,
                    genre, subject, public_type, nb_pages, format, content, addon,
                    abstract as abstract_, notes, keywords, nb_specimens, state,
+                   collection_id, serie_id, edition_id,
                    is_archive, is_valid, lifecycle_status, crea_date, modif_date, archived_date
             FROM items
             WHERE id = $1 AND lifecycle_status != 2
@@ -46,53 +47,22 @@ impl ItemsRepository {
         item.authors3 = self.get_item_authors(id, "author3_ids", "author3_functions").await?;
 
         // Load serie
-        let serie_id: Option<i32> = sqlx::query_scalar("SELECT serie_id FROM items WHERE id = $1")
-            .bind(id)
-            .fetch_one(&self.pool)
-            .await?;
-        if let Some(sid) = serie_id {
-            item.serie = sqlx::query_as::<_, Serie>("SELECT * FROM series WHERE id = $1")
-                .bind(sid)
-                .fetch_optional(&self.pool)
-                .await?;
-        }
-
-        // Load collection
-        let collection_id: Option<i32> = sqlx::query_scalar("SELECT collection_id FROM items WHERE id = $1")
-            .bind(id)
-            .fetch_one(&self.pool)
-            .await?;
-        if let Some(cid) = collection_id {
-            item.collection = sqlx::query_as::<_, Collection>("SELECT * FROM collections WHERE id = $1")
-                .bind(cid)
-                .fetch_optional(&self.pool)
-                .await?;
-        }
-
-        // Load edition
-        let edition_id: Option<i32> = sqlx::query_scalar("SELECT edition_id FROM items WHERE id = $1")
-            .bind(id)
-            .fetch_one(&self.pool)
-            .await?;
-        if let Some(eid) = edition_id {
-            let edition_row = sqlx::query(
-                "SELECT e.*, i.edition_date FROM editions e 
-                 JOIN items i ON i.edition_id = e.id 
-                 WHERE e.id = $1"
-            )
-            .bind(eid)
+        item.serie = sqlx::query_as::<_, Serie>("SELECT * FROM series WHERE id = $1")
+            .bind(item.serie_id)
             .fetch_optional(&self.pool)
             .await?;
-            
-            if let Some(row) = edition_row {
-                item.edition = Some(Edition {
-                    id: row.get("id"),
-                    name: row.get("name"),
-                    place: row.get("place"),
-                    date: row.get("edition_date"),
-                });
-            }
-        }
+
+        // Load collection
+        item.collection = sqlx::query_as::<_, Collection>("SELECT * FROM collections WHERE id = $1")
+            .bind(item.collection_id)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        // Load edition
+        item.edition = sqlx::query_as::<_, Edition>("SELECT * FROM editions WHERE id = $1")
+            .bind(item.edition_id)
+            .fetch_optional(&self.pool)
+            .await?;
 
         // Load specimens
         item.specimens = self.get_specimens(id).await?;

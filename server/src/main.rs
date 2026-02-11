@@ -156,9 +156,43 @@ fn create_router(state: AppState) -> Router {
         .route("/stats", get(api::stats::get_stats))
         .route("/stats/loans", get(api::stats::get_loan_stats))
         .route("/stats/users", get(api::stats::get_user_stats))
+        .route("/stats/catalog", get(api::stats::get_catalog_stats))
         // Settings
         .route("/settings", get(api::settings::get_settings))
         .route("/settings", put(api::settings::update_settings))
+        // Visitor counts
+        .route("/visitor-counts", get(api::visitor_counts::list_visitor_counts))
+        .route("/visitor-counts", post(api::visitor_counts::create_visitor_count))
+        .route("/visitor-counts/:id", delete(api::visitor_counts::delete_visitor_count))
+        // Schedules
+        .route("/schedules/periods", get(api::schedules::list_periods))
+        .route("/schedules/periods", post(api::schedules::create_period))
+        .route("/schedules/periods/:id", put(api::schedules::update_period))
+        .route("/schedules/periods/:id", delete(api::schedules::delete_period))
+        .route("/schedules/periods/:id/slots", get(api::schedules::list_slots))
+        .route("/schedules/periods/:id/slots", post(api::schedules::create_slot))
+        .route("/schedules/slots/:id", delete(api::schedules::delete_slot))
+        .route("/schedules/closures", get(api::schedules::list_closures))
+        .route("/schedules/closures", post(api::schedules::create_closure))
+        .route("/schedules/closures/:id", delete(api::schedules::delete_closure))
+        // Sources
+        .route("/sources", get(api::sources::list_sources))
+        .route("/sources/merge", post(api::sources::merge_sources))
+        .route("/sources/:id", get(api::sources::get_source))
+        .route("/sources/:id/rename", put(api::sources::rename_source))
+        .route("/sources/:id/archive", post(api::sources::archive_source))
+        // Equipment
+        .route("/equipment", get(api::equipment::list_equipment))
+        .route("/equipment", post(api::equipment::create_equipment))
+        .route("/equipment/:id", get(api::equipment::get_equipment))
+        .route("/equipment/:id", put(api::equipment::update_equipment))
+        .route("/equipment/:id", delete(api::equipment::delete_equipment))
+        // Events
+        .route("/events", get(api::events::list_events))
+        .route("/events", post(api::events::create_event))
+        .route("/events/:id", get(api::events::get_event))
+        .route("/events/:id", put(api::events::update_event))
+        .route("/events/:id", delete(api::events::delete_event))
         .with_state(state.clone());
 
     // OpenAPI documentation

@@ -1,13 +1,18 @@
 //! API handlers for Elidune REST endpoints
 
 pub mod auth;
+pub mod equipment;
+pub mod events;
 pub mod health;
 pub mod items;
 pub mod loans;
 pub mod openapi;
+pub mod schedules;
 pub mod settings;
+pub mod sources;
 pub mod stats;
 pub mod users;
+pub mod visitor_counts;
 pub mod z3950;
 
 use axum::{

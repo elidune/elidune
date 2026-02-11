@@ -1,0 +1,41 @@
+//! Visitor count model
+
+use chrono::{DateTime, NaiveDate, Utc};
+use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
+use utoipa::{IntoParams, ToSchema};
+
+/// Visitor count record
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
+pub struct VisitorCount {
+    pub id: i32,
+    /// Date of the count
+    pub count_date: NaiveDate,
+    /// Number of visitors
+    pub count: i32,
+    /// Source of the count (manual, counter, estimate)
+    pub source: Option<String>,
+    pub notes: Option<String>,
+    pub crea_date: Option<DateTime<Utc>>,
+}
+
+/// Create visitor count request
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct CreateVisitorCount {
+    /// Date of the count (YYYY-MM-DD)
+    pub count_date: String,
+    /// Number of visitors
+    pub count: i32,
+    /// Source: manual, counter, estimate
+    pub source: Option<String>,
+    pub notes: Option<String>,
+}
+
+/// Query parameters for visitor counts
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
+pub struct VisitorCountQuery {
+    /// Start date (YYYY-MM-DD)
+    pub start_date: Option<String>,
+    /// End date (YYYY-MM-DD)
+    pub end_date: Option<String>,
+}

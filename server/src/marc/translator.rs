@@ -105,6 +105,9 @@ fn translate_unimarc(record: &MarcRecord) -> Item {
 
         Item {
             id: None,
+            serie_id: None,
+            edition_id: None,
+            collection_id: None,
             media_type: Some(media_type),
             identification: isbn,
             price: None,
@@ -239,6 +242,9 @@ fn translate_marc21(record: &MarcRecord) -> Item {
 
         Item {
             id: None,
+            serie_id: None,
+            edition_id: None,
+            collection_id: None,
             media_type: Some(media_type),
             identification: isbn,
             price: None,
