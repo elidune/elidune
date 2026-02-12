@@ -50,7 +50,7 @@ impl ItemsRepository {
             SELECT id, media_type, identification, price, barcode, dewey,
                    publication_date, lang, lang_orig, title1, title2, title3, title4,
                    genre, subject, public_type, nb_pages, format, content, addon,
-                   abstract as abstract_, notes, keywords, nb_specimens, state,
+                   abstract as abstract_, notes, keywords, state,
                    serie_id, serie_vol_number, edition_id,
                    collection_id, collection_number_sub, collection_vol_number,
                    is_archive, is_valid, lifecycle_status, crea_date, modif_date, archived_date
@@ -208,7 +208,13 @@ impl ItemsRepository {
             r#"
             SELECT i.id, i.media_type, i.identification, i.title1 as title, 
                    i.publication_date as date, 0::smallint as status,
-                   1::smallint as is_local, i.is_archive, i.is_valid, i.nb_specimens,
+                   1::smallint as is_local, i.is_archive, i.is_valid,
+                   COALESCE((
+                       SELECT CAST(COUNT(*) AS SMALLINT)
+                       FROM specimens s
+                       WHERE s.id_item = i.id
+                         AND s.lifecycle_status != 2
+                   ), 0::smallint)::smallint as nb_specimens,
                    COALESCE((
                        SELECT CAST(COUNT(*) AS SMALLINT)
                        FROM specimens s
@@ -650,11 +656,6 @@ impl ItemsRepository {
         .fetch_one(&self.pool)
         .await?;
 
-        // Update specimen count (only count active specimens)
-        sqlx::query("UPDATE items SET nb_specimens = (SELECT COUNT(*) FROM specimens WHERE id_item = $1 AND lifecycle_status != 2) WHERE id = $1")
-            .bind(item_id)
-            .execute(&self.pool)
-            .await?;
 
         // Return enriched specimen (with source_name and availability)
         sqlx::query_as::<_, Specimen>(
@@ -715,21 +716,6 @@ impl ItemsRepository {
         .execute(&self.pool)
         .await?;
 
-        // Get item_id to update specimen count
-        let item_id: Option<i32> = sqlx::query_scalar("SELECT id_item FROM specimens WHERE id = $1")
-            .bind(id)
-            .fetch_optional(&self.pool)
-            .await?;
-
-        // Update specimen count if item_id exists
-        if let Some(item_id) = item_id {
-            sqlx::query(
-                "UPDATE items SET nb_specimens = (SELECT COUNT(*) FROM specimens WHERE id_item = $1 AND lifecycle_status != 2) WHERE id = $1"
-            )
-            .bind(item_id)
-            .execute(&self.pool)
-            .await?;
-        }
 
         // Return enriched specimen
         sqlx::query_as::<_, Specimen>(
@@ -765,12 +751,6 @@ impl ItemsRepository {
             ));
         }
 
-        // Get item_id before soft deletion
-        let item_id: Option<i32> = sqlx::query_scalar("SELECT id_item FROM specimens WHERE id = $1")
-            .bind(id)
-            .fetch_optional(&self.pool)
-            .await?;
-
         // Soft delete specimen
         sqlx::query(
             "UPDATE specimens SET lifecycle_status = 2, archive_date = $1, modif_date = $1 WHERE id = $2"
@@ -779,16 +759,6 @@ impl ItemsRepository {
         .bind(id)
         .execute(&self.pool)
         .await?;
-
-        // Update specimen count (only count active specimens)
-        if let Some(item_id) = item_id {
-            sqlx::query(
-                "UPDATE items SET nb_specimens = (SELECT COUNT(*) FROM specimens WHERE id_item = $1 AND lifecycle_status != 2) WHERE id = $1"
-            )
-            .bind(item_id)
-            .execute(&self.pool)
-            .await?;
-        }
 
         Ok(())
     }

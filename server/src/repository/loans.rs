@@ -31,13 +31,35 @@ impl LoansRepository {
             .ok_or_else(|| AppError::NotFound(format!("Loan with id {} not found", id)))
     }
 
+    /// Get active loan by specimen identification
+    pub async fn get_loan_by_specimen_identification(&self, specimen_identification: &str) -> AppResult<Loan> {
+        sqlx::query_as::<_, Loan>(
+            r#"
+            SELECT l.* FROM loans l
+            JOIN specimens s ON l.specimen_id = s.id
+            WHERE s.identification = $1 AND l.returned_date IS NULL
+            ORDER BY l.id DESC LIMIT 1
+            "#
+        )
+        .bind(specimen_identification)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("No active loan found for specimen {}", specimen_identification)))
+    }
+
     /// Get loans for a user
     pub async fn get_user_loans(&self, user_id: i32) -> AppResult<Vec<LoanDetails>> {
         let loans = sqlx::query(
             r#"
             SELECT l.*, s.identification as specimen_identification,
                    i.id as item_id, i.media_type, i.identification as item_identification,
-                   i.title1, i.publication_date, i.nb_specimens,
+                   i.title1, i.publication_date,
+                   COALESCE((
+                       SELECT CAST(COUNT(*) AS SMALLINT)
+                       FROM specimens s2
+                       WHERE s2.id_item = i.id
+                         AND s2.lifecycle_status != 2
+                   ), 0::smallint)::smallint as nb_specimens,
                    COALESCE((
                        SELECT CAST(COUNT(*) AS SMALLINT)
                        FROM specimens s2
@@ -260,6 +282,12 @@ impl LoansRepository {
         let item_row = sqlx::query(
             r#"
             SELECT i.*, s.identification as specimen_identification,
+                   COALESCE((
+                       SELECT CAST(COUNT(*) AS SMALLINT)
+                       FROM specimens s2
+                       WHERE s2.id_item = i.id
+                         AND s2.lifecycle_status != 2
+                   ), 0::smallint)::smallint as nb_specimens,
                    COALESCE((
                        SELECT CAST(COUNT(*) AS SMALLINT)
                        FROM specimens s2

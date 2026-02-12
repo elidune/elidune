@@ -451,14 +451,6 @@ impl Z3950Service {
                 .execute(pool)
                 .await?;
             }
-
-            // Update specimen count (only count active specimens)
-            sqlx::query(
-                "UPDATE items SET nb_specimens = (SELECT COUNT(*) FROM specimens WHERE id_item = $1 AND lifecycle_status != 2) WHERE id = $1"
-            )
-            .bind(item_id)
-            .execute(pool)
-            .await?;
         }
 
         // Remove from Redis cache (item is now imported)

@@ -150,6 +150,8 @@ fn create_router(state: AppState) -> Router {
         .route("/loans", post(api::loans::create_loan))
         .route("/loans/:id/return", post(api::loans::return_loan))
         .route("/loans/:id/renew", post(api::loans::renew_loan))
+        .route("/loans/specimens/:specimen_id/return", post(api::loans::return_loan_by_specimen))
+        .route("/loans/specimens/:specimen_id/renew", post(api::loans::renew_loan_by_specimen))
         // Z39.50
         .route("/z3950/search", get(api::z3950::search))
         .route("/z3950/import", post(api::z3950::import_record))

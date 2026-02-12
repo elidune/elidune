@@ -59,7 +59,6 @@ pub struct ItemRemote {
 
     pub notes: Option<String>,
     pub keywords: Option<String>,
-    pub nb_specimens: Option<i16>,
 
     /// Source name (historically stored in `state`)
     pub state: Option<String>,
@@ -87,7 +86,6 @@ pub struct ItemRemoteShort {
     pub date: Option<String>,
     pub is_archive: Option<i16>,
     pub is_valid: Option<i16>,
-    pub nb_specimens: Option<i16>,
     pub nb_available: Option<i16>,
     pub authors: Vec<AuthorWithFunction>,
     pub source_name: Option<String>,
@@ -144,7 +142,6 @@ impl From<Item> for ItemRemote {
             abstract_: item.abstract_,
             notes: item.notes,
             keywords: item.keywords,
-            nb_specimens: item.nb_specimens,
             state: item.state,
             is_archive: item.is_archive,
             archived_timestamp: None,
@@ -186,7 +183,6 @@ impl From<ItemRemote> for ItemRemoteShort {
             date: item.publication_date,
             is_archive: item.is_archive,
             is_valid: item.is_valid,
-            nb_specimens: item.nb_specimens,
             nb_available: None, // Remote items don't have local availability
             authors,
             source_name: item.state,
@@ -206,7 +202,7 @@ impl From<ItemRemoteShort> for super::item::ItemShort {
             is_local: Some(0),
             is_archive: item.is_archive,
             is_valid: item.is_valid,
-            nb_specimens: item.nb_specimens,
+            nb_specimens: None, // Remote items don't have local specimens
             nb_available: item.nb_available,
             authors: item.authors,
             source_name: item.source_name,

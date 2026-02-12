@@ -141,7 +141,6 @@ fn translate_unimarc(record: &MarcRecord) -> Item {
             abstract_: get_subfield(record, "330", 'a').map(String::from),
             notes: get_subfield(record, "300", 'a').map(String::from),
             keywords: get_subfield(record, "610", 'a').map(String::from),
-            nb_specimens: None,
             state: None,
             is_archive: None,
             is_valid: Some(1),
@@ -306,7 +305,6 @@ fn translate_marc21(record: &MarcRecord) -> Item {
             keywords: get_all_subfields(record, "653", 'a')
                 .join(", ")
                 .into(),
-            nb_specimens: None,
             state: None,
             is_archive: None,
             is_valid: Some(1),

@@ -178,7 +178,6 @@ pub struct Item {
     pub abstract_: Option<String>,
     pub notes: Option<String>,
     pub keywords: Option<String>,
-    pub nb_specimens: Option<i16>,
     pub state: Option<String>,
     pub is_archive: Option<i16>,
     pub is_valid: Option<i16>,

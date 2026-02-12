@@ -37,9 +37,23 @@ impl LoansService {
         self.repository.loans.return_loan(loan_id).await
     }
 
+    /// Return a borrowed item by specimen ID
+    pub async fn return_loan_by_specimen(&self, specimen_id: &str) -> AppResult<LoanDetails> {
+        let loan = self.repository.loans.get_loan_by_specimen_identification(specimen_id).await?;
+        self.repository.loans.return_loan(loan.id).await
+    }
+
     /// Renew a loan
     pub async fn renew_loan(&self, loan_id: i32) -> AppResult<(DateTime<Utc>, i16)> {
         self.repository.loans.renew_loan(loan_id).await
+    }
+
+    /// Renew a loan by specimen ID
+    pub async fn renew_loan_by_specimen(&self, specimen_id: &str) -> AppResult<(i32, DateTime<Utc>, i16)> {
+        let loan = self.repository.loans.get_loan_by_specimen_identification(specimen_id).await?;
+        let loan_id = loan.id;
+        let (new_issue_date, renew_count) = self.repository.loans.renew_loan(loan_id).await?;
+        Ok((loan_id, new_issue_date, renew_count))
     }
 
     /// Count active loans

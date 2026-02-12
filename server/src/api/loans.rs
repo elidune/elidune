@@ -174,3 +174,64 @@ pub async fn renew_loan(
         message: format!("Loan renewed ({} renewals)", renew_count),
     }))
 }
+
+/// Return a borrowed item by specimen ID
+#[utoipa::path(
+    post,
+    path = "/loans/specimens/{specimen_id}/return",
+    tag = "loans",
+    security(("bearer_auth" = [])),
+    params(
+        ("specimen_id" = String, Path, description = "Specimen ID")
+    ),
+    responses(
+        (status = 200, description = "Item returned", body = ReturnResponse),
+        (status = 404, description = "Specimen or active loan not found"),
+        (status = 409, description = "Already returned")
+    )
+)]
+pub async fn return_loan_by_specimen(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Path(specimen_id): Path<String>,
+) -> AppResult<Json<ReturnResponse>> {
+    claims.require_write_borrows()?;
+
+    let loan = state.services.loans.return_loan_by_specimen(&specimen_id).await?;
+
+    Ok(Json(ReturnResponse {
+        status: "returned".to_string(),
+        loan,
+    }))
+}
+
+/// Renew a loan by specimen ID
+#[utoipa::path(
+    post,
+    path = "/loans/specimens/{specimen_id}/renew",
+    tag = "loans",
+    security(("bearer_auth" = [])),
+    params(
+        ("specimen_id" = String, Path, description = "Specimen ID")
+    ),
+    responses(
+        (status = 200, description = "Loan renewed", body = LoanResponse),
+        (status = 404, description = "Specimen or active loan not found"),
+        (status = 409, description = "Max renewals reached or already returned")
+    )
+)]
+pub async fn renew_loan_by_specimen(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Path(specimen_id): Path<String>,
+) -> AppResult<Json<LoanResponse>> {
+    claims.require_write_borrows()?;
+
+    let (loan_id, new_issue_date, renew_count) = state.services.loans.renew_loan_by_specimen(&specimen_id).await?;
+
+    Ok(Json(LoanResponse {
+        id: loan_id,
+        issue_date: new_issue_date,
+        message: format!("Loan renewed ({} renewals)", renew_count),
+    }))
+}
