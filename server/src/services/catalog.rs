@@ -104,8 +104,8 @@ impl CatalogService {
     }
 
     /// Delete a specimen
-    pub async fn delete_specimen(&self, id: i32, force: bool) -> AppResult<()> {
-        self.repository.items.delete_specimen(id, force).await
+    pub async fn delete_specimen(&self, _item_id: i32, specimen_id: i32, force: bool) -> AppResult<()> {
+        self.repository.items.delete_specimen(specimen_id, force).await
     }
 }
 

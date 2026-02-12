@@ -13,13 +13,16 @@ pub struct Source {
     pub name: Option<String>,
     pub is_archive: Option<i16>,
     pub archive_date: Option<DateTime<Utc>>,
+    pub default: Option<bool>,
 }
 
-/// Rename source request
+/// Update source request
 #[derive(Debug, Deserialize, ToSchema)]
-pub struct RenameSource {
+pub struct UpdateSource {
     /// New name for the source
-    pub name: String,
+    pub name: Option<String>,
+    /// Set as default source
+    pub default: Option<bool>,
 }
 
 /// Merge sources request

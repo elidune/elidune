@@ -275,11 +275,12 @@ pub async fn update_specimen(
 /// Delete a specimen
 #[utoipa::path(
     delete,
-    path = "/specimens/{id}",
+    path = "/items/{item_id}/specimens/{specimen_id}",
     tag = "items",
     security(("bearer_auth" = [])),
     params(
-        ("id" = i32, Path, description = "Specimen ID"),
+        ("item_id" = i32, Path, description = "Item ID"),
+        ("specimen_id" = i32, Path, description = "Specimen ID"),
         ("force" = Option<bool>, Query, description = "Force delete even if borrowed")
     ),
     responses(
@@ -291,7 +292,7 @@ pub async fn update_specimen(
 pub async fn delete_specimen(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i32>,
+    Path((item_id, specimen_id)): Path<(i32, i32)>,
     Query(params): Query<DeleteSpecimenParams>,
 ) -> AppResult<StatusCode> {
     claims.require_write_items()?;
@@ -299,7 +300,7 @@ pub async fn delete_specimen(
     state
         .services
         .catalog
-        .delete_specimen(id, params.force.unwrap_or(false))
+        .delete_specimen(item_id, specimen_id, params.force.unwrap_or(false))
         .await?;
     Ok(StatusCode::NO_CONTENT)
 }

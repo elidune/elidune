@@ -235,6 +235,8 @@ pub struct ItemShort {
     pub is_local: Option<i16>,
     pub is_archive: Option<i16>,
     pub is_valid: Option<i16>,
+    pub nb_specimens: Option<i16>,
+    pub nb_available: Option<i16>,
     #[sqlx(skip)]
     pub authors: Vec<AuthorWithFunction>,
     #[sqlx(skip)]

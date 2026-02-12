@@ -133,11 +133,11 @@ fn create_router(state: AppState) -> Router {
         .route("/items/:id", get(api::items::get_item))
         .route("/items/:id", put(api::items::update_item))
         .route("/items/:id", delete(api::items::delete_item))
+        // Specimens
         .route("/items/:id/specimens", get(api::items::list_specimens))
         .route("/items/:id/specimens", post(api::items::create_specimen))
         .route("/items/:item_id/specimens/:specimen_id", put(api::items::update_specimen))
-        // Specimens
-        .route("/specimens/:id", delete(api::items::delete_specimen))
+        .route("/items/:item_id/specimens/:specimen_id", delete(api::items::delete_specimen))
         // Users
         .route("/users", get(api::users::list_users))
         .route("/users", post(api::users::create_user))
@@ -180,7 +180,7 @@ fn create_router(state: AppState) -> Router {
         .route("/sources", get(api::sources::list_sources))
         .route("/sources/merge", post(api::sources::merge_sources))
         .route("/sources/:id", get(api::sources::get_source))
-        .route("/sources/:id/rename", put(api::sources::rename_source))
+        .route("/sources/:id", put(api::sources::update_source))
         .route("/sources/:id/archive", post(api::sources::archive_source))
         // Equipment
         .route("/equipment", get(api::equipment::list_equipment))

@@ -37,7 +37,18 @@ impl LoansRepository {
             r#"
             SELECT l.*, s.identification as specimen_identification,
                    i.id as item_id, i.media_type, i.identification as item_identification,
-                   i.title1, i.publication_date
+                   i.title1, i.publication_date, i.nb_specimens,
+                   COALESCE((
+                       SELECT CAST(COUNT(*) AS SMALLINT)
+                       FROM specimens s2
+                       WHERE s2.id_item = i.id
+                         AND s2.lifecycle_status != 2
+                         AND NOT EXISTS (
+                             SELECT 1 FROM loans l2
+                             WHERE l2.specimen_id = s2.id
+                               AND l2.returned_date IS NULL
+                         )
+                   ), 0::smallint)::smallint as nb_available
             FROM loans l
             JOIN specimens s ON l.specimen_id = s.id
             JOIN items i ON s.id_item = i.id
@@ -73,6 +84,8 @@ impl LoansRepository {
                     is_local: Some(1),
                     is_archive: Some(0),
                     is_valid: Some(1),
+                    nb_specimens: row.get("nb_specimens"),
+                    nb_available: row.get("nb_available"),
                     authors: Vec::new(),
                     source_name: None,
                 },
@@ -246,7 +259,18 @@ impl LoansRepository {
         // Get item details 
         let item_row = sqlx::query(
             r#"
-            SELECT i.*, s.identification as specimen_identification
+            SELECT i.*, s.identification as specimen_identification,
+                   COALESCE((
+                       SELECT CAST(COUNT(*) AS SMALLINT)
+                       FROM specimens s2
+                       WHERE s2.id_item = i.id
+                         AND s2.lifecycle_status != 2
+                         AND NOT EXISTS (
+                             SELECT 1 FROM loans l2
+                             WHERE l2.specimen_id = s2.id
+                               AND l2.returned_date IS NULL
+                         )
+                   ), 0::smallint)::smallint as nb_available
             FROM items i
             JOIN specimens s ON s.id_item = i.id
             WHERE s.id = $1
@@ -286,6 +310,8 @@ impl LoansRepository {
                 is_local: Some(1),
                 is_archive: Some(0),
                 is_valid: Some(1),
+                nb_specimens: item_row.get("nb_specimens"),
+                nb_available: item_row.get("nb_available"),
                 authors: Vec::new(),
                 source_name: None,
             },

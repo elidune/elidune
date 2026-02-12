@@ -10,7 +10,7 @@ use std::hash::{Hash, Hasher};
 use redis::AsyncCommands;
 
 use marc_rs::{Encoding, MarcFormat, Record as MarcRecord};
-use z3950_rs::Client;
+use z3950_rs::{Client, QueryLanguage};
 use crate::{
     api::z3950::{ImportSpecimen, Z3950SearchQuery},
     error::{AppError, AppResult},
@@ -49,8 +49,7 @@ impl Z3950Service {
     /// Search remote catalogs via Z39.50
     pub async fn search(&self, query: &Z3950SearchQuery) -> AppResult<(Vec<ItemRemoteShort>, i32, String)> {
         tracing::info!("Z39.50 search started");
-        tracing::debug!("Search params - ISBN: {:?}, ISSN: {:?}, Title: {:?}, Author: {:?}, Keywords: {:?}",
-            query.isbn, query.issn, query.title, query.author, query.keywords);
+        tracing::debug!("Search params - query: {}", query.query);
 
         let pool = &self.repository.pool;
 
@@ -96,10 +95,8 @@ impl Z3950Service {
         );
 
         // Build PQF query string
-        let pqf_query = self.build_pqf_query(query)?;
         let max_results = query.max_results.unwrap_or(50) as usize;
         
-        tracing::info!("PQF query: {}", pqf_query);
 
         let mut all_items = Vec::new();
         let mut sources = Vec::new();
@@ -109,7 +106,7 @@ impl Z3950Service {
         for (idx, server) in servers.iter().enumerate() {
             tracing::info!("Querying server {}/{}: {}", idx + 1, servers.len(), server.name);
             
-            match self.query_server(server, &pqf_query, max_results).await {
+            match self.query_server(server, &query).await {
                 Ok(records) => {
                     tracing::info!("Server {} returned {} records", server.name, records.len());
                     
@@ -146,12 +143,7 @@ impl Z3950Service {
         let search_elapsed = search_start.elapsed();
         tracing::info!("Z39.50 live search completed in {:?}, found {} items", search_elapsed, all_items.len());
 
-        // If no results from live search, try cache
-        if all_items.is_empty() {
-            tracing::info!("No live results, falling back to cache search");
-            return self.search_cache(query).await;
-        }
-
+       
         let total = all_items.len() as i32;
         let source = if sources.is_empty() {
             "cache".to_string()
@@ -163,64 +155,20 @@ impl Z3950Service {
         Ok((all_items, total, source))
     }
 
-    /// Build a PQF (Prefix Query Format) query string from search parameters
-    fn build_pqf_query(&self, query: &Z3950SearchQuery) -> AppResult<String> {
-        let mut terms = Vec::new();
-
-        // ISBN: Bib-1 attribute 7
-        if let Some(ref isbn) = query.isbn {
-            let clean_isbn = isbn.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>();
-            terms.push(format!("@attr 1=7 {}", clean_isbn));
-        }
-
-        // ISSN: Bib-1 attribute 8
-        if let Some(ref issn) = query.issn {
-            terms.push(format!("@attr 1=8 {}", issn));
-        }
-
-        // Title: Bib-1 attribute 4
-        if let Some(ref title) = query.title {
-            terms.push(format!("@attr 1=4 {}", title));
-        }
-
-        // Author: Bib-1 attribute 1003
-        if let Some(ref author) = query.author {
-            terms.push(format!("@attr 1=1003 {}", author));
-        }
-
-        // Keywords: Bib-1 attribute 21 (Subject)
-        if let Some(ref keywords) = query.keywords {
-            terms.push(format!("@attr 1=21 {}", keywords));
-        }
-
-        if terms.is_empty() {
-            return Err(AppError::Validation("At least one search term required".to_string()));
-        }
-
-        // Combine terms with AND operations: @and term1 term2
-        let pqf_query = if terms.len() == 1 {
-            terms[0].clone()
-        } else {
-            format!("@and {}", terms.join(" "))
-        };
-
-        Ok(pqf_query)
-    }
-
+  
 
     /// Query a single Z39.50 server using z3950-rs
     async fn query_server(
         &self,
         server: &Z3950Server,
-        pqf_query: &str,
-        max_results: usize,
+        query: &Z3950SearchQuery,
     ) -> AppResult<Vec<MarcRecord>> {
         // Build connection address: host:port
         let addr = format!("{}:{}", server.address, server.port);
         
         tracing::info!("Z39.50 search starting on server: {}", server.name);
         tracing::debug!("Z39.50 connection: {} (database: {})", addr, server.database);
-        tracing::debug!("Z39.50 max results: {}", max_results);
+        tracing::debug!("Z39.50 query: {:?}", query);
 
         // Connect to server
         let credentials = if let (Some(ref login), Some(ref password)) = (&server.login, &server.password) {
@@ -250,7 +198,7 @@ impl Z3950Service {
             &[server.database.as_str()]
         };
 
-        let search_response = client.search(databases, z3950_rs::query_languages::QueryLanguage::CQL(pqf_query.to_string())).await
+        let search_response = client.search(databases, QueryLanguage::CQL(query.query.clone())).await
             .map_err(|e| {
                 tracing::warn!("Z39.50 search failed on {}: {}", server.name, e);
                 AppError::Z3950(format!("Z39.50 search failed: {}", e))
@@ -267,7 +215,7 @@ impl Z3950Service {
         }
 
         // Present records
-        let count = std::cmp::min(hits, max_results);
+        let count = std::cmp::min(hits, query.max_results.unwrap_or(50) as usize);
         let records = client.present_marc(1, count as i64).await
             .map_err(|e| {
                 tracing::warn!("Z39.50 present failed on {}: {}", server.name, e);
@@ -366,138 +314,7 @@ impl Z3950Service {
     /// Search in cached items from Redis
 
 
-    /// Search in cached items from Redis
-    async fn search_cache(&self, query: &Z3950SearchQuery) -> AppResult<(Vec<ItemRemoteShort>, i32, String)> {
-        let mut conn = self.redis.get_connection().await?;
-        
-        // Get all keys matching the pattern
-        let pattern = "z3950:item:*";
-        let keys: Vec<String> = redis::cmd("KEYS")
-            .arg(pattern)
-            .query_async(&mut conn)
-            .await
-            .map_err(|e| AppError::Internal(format!("Failed to get keys from Redis: {}", e)))?;
-        
-        tracing::debug!("Found {} cached items in Redis", keys.len());
-        
-        let max_results = query.max_results.unwrap_or(50) as usize;
-        let mut items = Vec::new();
-        
-        // Fetch and filter items
-        for key in keys {
-            let json_str: Option<String> = conn
-                .get(&key)
-                .await
-                .map_err(|e| AppError::Internal(format!("Failed to get item from Redis: {}", e)))?;
-            
-            if let Some(json) = json_str {
-                let item_remote: ItemRemote = serde_json::from_str(&json)
-                    .map_err(|e| AppError::Internal(format!("Failed to deserialize item from Redis: {}", e)))?;
-                
-                // Apply filters
-                let mut matches = true;
-                
-                if let Some(ref isbn) = query.isbn {
-                    let clean_isbn = isbn.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>();
-                    if let Some(ref ident) = item_remote.identification {
-                        let clean_ident = ident.chars().filter(|c| c.is_ascii_alphanumeric()).collect::<String>();
-                        if !clean_ident.to_lowercase().contains(&clean_isbn.to_lowercase()) {
-                            matches = false;
-                        }
-                    } else {
-                        matches = false;
-                    }
-                }
-                
-                if matches && query.title.is_some() {
-                    if let Some(ref title) = query.title {
-                        if let Some(ref item_title) = item_remote.title1 {
-                            if !item_title.to_lowercase().contains(&title.to_lowercase()) {
-                                matches = false;
-                            }
-                        } else {
-                            matches = false;
-                        }
-                    }
-                }
-                
-                if matches && query.author.is_some() {
-                    if let Some(ref author) = query.author {
-                        let author_lower = author.to_lowercase();
-                        let mut found = false;
-                        
-                        // Check in state (source name)
-                        if let Some(ref state) = item_remote.state {
-                            if state.to_lowercase().contains(&author_lower) {
-                                found = true;
-                            }
-                        }
-                        
-                        // Check in authors JSON
-                        if !found {
-                            for json_field in [&item_remote.authors1_json, &item_remote.authors2_json, &item_remote.authors3_json] {
-                                if let Some(json) = json_field {
-                                    let json_str = json.to_string();
-                                    if json_str.to_lowercase().contains(&author_lower) {
-                                        found = true;
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                        
-                        if !found {
-                            matches = false;
-                        }
-                    }
-                }
-                
-                if matches && query.keywords.is_some() {
-                    if let Some(ref keywords) = query.keywords {
-                        let keywords_lower = keywords.to_lowercase();
-                        let mut found = false;
-                        
-                        if let Some(ref kw) = item_remote.keywords {
-                            if kw.to_lowercase().contains(&keywords_lower) {
-                                found = true;
-                            }
-                        }
-                        
-                        if !found {
-                            if let Some(ref subject) = item_remote.subject {
-                                if subject.to_lowercase().contains(&keywords_lower) {
-                                    found = true;
-                                }
-                            }
-                        }
-                        
-                        if !found {
-                            matches = false;
-                        }
-                    }
-                }
-                
-                if matches {
-                    let item_short: ItemRemoteShort = item_remote.into();
-                    items.push(item_short);
-                    
-                    if items.len() >= max_results {
-                        break;
-                    }
-                }
-            }
-        }
-        
-        // Sort by title
-        items.sort_by(|a, b| {
-            let a_title = a.title.as_deref().unwrap_or("");
-            let b_title = b.title.as_deref().unwrap_or("");
-            a_title.cmp(b_title)
-        });
-        
-        let total = items.len() as i32;
-        Ok((items, total, "cache".to_string()))
-    }
+  
 
     /// Import a record from Z39.50 cache into local catalog
     pub async fn import_record(
@@ -561,8 +378,7 @@ impl Z3950Service {
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
                 $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27,
-                $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40,
-                1, $41, $41
+                $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38
             )
             RETURNING id
             "#,
@@ -602,13 +418,21 @@ impl Z3950Service {
         .bind(&item_remote.abstract_)
         .bind(&item_remote.notes)
         .bind(&item_remote.keywords)
+        .bind(&item_remote.is_valid.unwrap_or(1))
+        .bind(now)
         .bind(now)
         .fetch_one(pool)
         .await?;
 
         // Create specimens if provided
         if let Some(specimens) = specimens {
+            // Get default source if needed
+            let default_source_id = self.repository.sources.get_default().await?.map(|s| s.id);
+
             for specimen in specimens {
+                // Use provided source_id or fall back to default source
+                let source_id = specimen.source_id.or(default_source_id);
+
                 sqlx::query(
                     r#"
                     INSERT INTO specimens (id_item, identification, cote, place, status, notes, price, source_id, crea_date, modif_date)
@@ -622,7 +446,7 @@ impl Z3950Service {
                 .bind(specimen.status.as_ref().and_then(|s| s.parse::<i16>().ok()).unwrap_or(98))
                 .bind(&specimen.notes)
                 .bind(&specimen.price)
-                .bind(&specimen.source_id)
+                .bind(&source_id)
                 .bind(now)
                 .execute(pool)
                 .await?;

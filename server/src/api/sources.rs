@@ -10,7 +10,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::{
     error::AppResult,
-    models::source::{MergeSources, RenameSource, Source},
+    models::source::{MergeSources, Source, UpdateSource},
 };
 
 use super::AuthenticatedUser;
@@ -68,26 +68,26 @@ pub async fn get_source(
     Ok(Json(source))
 }
 
-/// Rename a source
+/// Update a source (name and/or default status)
 #[utoipa::path(
-    put,
-    path = "/sources/{id}/rename",
+    post,
+    path = "/sources/{id}",
     tag = "sources",
     security(("bearer_auth" = [])),
     params(("id" = i32, Path, description = "Source ID")),
-    request_body = RenameSource,
+    request_body = UpdateSource,
     responses(
-        (status = 200, description = "Source renamed", body = Source)
+        (status = 200, description = "Source updated", body = Source)
     )
 )]
-pub async fn rename_source(
+pub async fn update_source(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     Path(id): Path<i32>,
-    Json(data): Json<RenameSource>,
+    Json(data): Json<UpdateSource>,
 ) -> AppResult<Json<Source>> {
     claims.require_write_items()?;
-    let source = state.services.sources.rename(id, &data.name).await?;
+    let source = state.services.sources.update(id, &data).await?;
     Ok(Json(source))
 }
 

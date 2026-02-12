@@ -2,7 +2,7 @@
 
 use crate::{
     error::{AppError, AppResult},
-    models::source::{MergeSources, Source},
+    models::source::{MergeSources, Source, UpdateSource},
     repository::Repository,
 };
 
@@ -32,6 +32,21 @@ impl SourcesService {
             return Err(AppError::Validation("Source name cannot be empty".to_string()));
         }
         self.repository.sources.rename(id, name.trim()).await
+    }
+
+    /// Update a source (name and/or default status)
+    pub async fn update(&self, id: i32, data: &UpdateSource) -> AppResult<Source> {
+        // Validate name if provided
+        if let Some(ref name) = data.name {
+            if name.trim().is_empty() {
+                return Err(AppError::Validation("Source name cannot be empty".to_string()));
+            }
+        }
+
+        self.repository
+            .sources
+            .update(id, data.name.as_deref(), data.default)
+            .await
     }
 
     /// Archive a source (fails if non-archived specimens are linked)

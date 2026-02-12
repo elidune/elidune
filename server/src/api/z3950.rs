@@ -16,25 +16,16 @@ use crate::{
 use super::AuthenticatedUser;
 
 /// Z39.50 search query parameters
-#[derive(Deserialize, IntoParams, ToSchema)]
+#[derive(Deserialize, IntoParams, ToSchema, Debug)]
 pub struct Z3950SearchQuery {
-    /// ISBN to search
-    pub isbn: Option<String>,
-    /// ISSN to search
-    pub issn: Option<String>,
-    /// Title to search
-    pub title: Option<String>,
-    /// Author to search
-    pub author: Option<String>,
-    /// Keywords to search
-    pub keywords: Option<String>,
-    /// Specific server ID to query
+    pub query: String,
     pub server_id: Option<i32>,
-    /// Maximum results to return
     pub max_results: Option<i32>,
 }
 
-/// Z39.50 search response
+
+
+
 #[derive(Serialize, ToSchema)]
 pub struct Z3950SearchResponse {
     /// Total results found

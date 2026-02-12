@@ -206,12 +206,23 @@ impl ItemsRepository {
         // Fetch items
         let select_query = format!(
             r#"
-            SELECT id, media_type, identification, title1 as title, 
-                   publication_date as date, 0::smallint as status,
-                   1::smallint as is_local, is_archive, is_valid
-            FROM items
+            SELECT i.id, i.media_type, i.identification, i.title1 as title, 
+                   i.publication_date as date, 0::smallint as status,
+                   1::smallint as is_local, i.is_archive, i.is_valid, i.nb_specimens,
+                   COALESCE((
+                       SELECT CAST(COUNT(*) AS SMALLINT)
+                       FROM specimens s
+                       WHERE s.id_item = i.id
+                         AND s.lifecycle_status != 2
+                         AND NOT EXISTS (
+                             SELECT 1 FROM loans l
+                             WHERE l.specimen_id = s.id
+                               AND l.returned_date IS NULL
+                         )
+                   ), 0::smallint)::smallint as nb_available
+            FROM items i
             WHERE {}
-            ORDER BY title1
+            ORDER BY i.title1
             LIMIT {} OFFSET {}
             "#,
             where_clause, per_page, offset

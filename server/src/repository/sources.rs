@@ -53,6 +53,54 @@ impl SourcesRepository {
             .ok_or_else(|| AppError::NotFound(format!("Source {} not found", id)))
     }
 
+    /// Update a source (name and/or default status)
+    pub async fn update(&self, id: i32, name: Option<&str>, default: Option<bool>) -> AppResult<Source> {
+        // If setting this source as default, first unset all other default sources
+        if let Some(true) = default {
+            sqlx::query(r#"UPDATE sources SET "default" = false WHERE id != $1"#)
+                .bind(id)
+                .execute(&self.pool)
+                .await?;
+        }
+
+        // Build update query based on what fields are provided
+        let source = match (name, default) {
+            (Some(name), Some(default_val)) => {
+                sqlx::query_as::<_, Source>(
+                    r#"UPDATE sources SET name = $1, "default" = $2 WHERE id = $3 RETURNING *"#
+                )
+                .bind(name)
+                .bind(default_val)
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await?
+            }
+            (Some(name), None) => {
+                sqlx::query_as::<_, Source>(
+                    "UPDATE sources SET name = $1 WHERE id = $2 RETURNING *"
+                )
+                .bind(name)
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await?
+            }
+            (None, Some(default_val)) => {
+                sqlx::query_as::<_, Source>(
+                    r#"UPDATE sources SET "default" = $1 WHERE id = $2 RETURNING *"#
+                )
+                .bind(default_val)
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await?
+            }
+            (None, None) => {
+                return Err(AppError::Validation("At least one field must be provided for update".to_string()));
+            }
+        };
+
+        source.ok_or_else(|| AppError::NotFound(format!("Source {} not found", id)))
+    }
+
     /// Count non-archived specimens linked to a source
     pub async fn count_active_specimens(&self, source_id: i32) -> AppResult<i64> {
         let count: i64 = sqlx::query_scalar(
@@ -134,5 +182,15 @@ impl SourcesRepository {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    /// Get the default source (the one with default = true)
+    pub async fn get_default(&self) -> AppResult<Option<Source>> {
+        let source = sqlx::query_as::<_, Source>(
+            r#"SELECT * FROM sources WHERE "default" = true AND (is_archive IS NULL OR is_archive = 0) LIMIT 1"#
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(source)
     }
 }

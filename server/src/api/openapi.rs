@@ -38,6 +38,7 @@ use crate::api::{auth, equipment, events, health, items, loans, schedules, setti
         items::delete_item,
         items::list_specimens,
         items::create_specimen,
+        items::update_specimen,
         items::delete_specimen,
         // Users
         users::list_users,
@@ -81,7 +82,7 @@ use crate::api::{auth, equipment, events, health, items, loans, schedules, setti
         // Sources
         sources::list_sources,
         sources::get_source,
-        sources::rename_source,
+        sources::update_source,
         sources::archive_source,
         sources::merge_sources,
         // Equipment
@@ -117,6 +118,7 @@ use crate::api::{auth, equipment, events, health, items, loans, schedules, setti
             crate::models::item::Edition,
             crate::models::specimen::Specimen,
             crate::models::specimen::CreateSpecimen,
+            crate::models::specimen::UpdateSpecimen,
             crate::models::author::AuthorWithFunction,
             // Pagination
             items::PaginatedResponse<crate::models::item::ItemShort>,
@@ -173,7 +175,7 @@ use crate::api::{auth, equipment, events, health, items, loans, schedules, setti
             crate::models::schedule::ScheduleClosureQuery,
             // Sources
             crate::models::source::Source,
-            crate::models::source::RenameSource,
+            crate::models::source::UpdateSource,
             crate::models::source::MergeSources,
             sources::SourcesQuery,
             // Equipment
