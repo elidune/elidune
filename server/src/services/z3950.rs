@@ -230,18 +230,18 @@ impl Z3950Service {
         Ok(records)
     }
 
-    /// Generate a stable ID from identification string
-    fn generate_id_from_identification(identification: &str) -> i32 {
+    /// Generate a stable ID from ISBN string
+    fn generate_id_from_isbn(isbn: &str) -> i32 {
         let mut hasher = DefaultHasher::new();
-        identification.hash(&mut hasher);
+        isbn.hash(&mut hasher);
         let hash = hasher.finish();
         // Convert to i32, using absolute value to ensure positive
         (hash as i32).abs()
     }
 
     /// Get Redis key for a cached item
-    fn get_redis_key(identification: &str) -> String {
-        format!("z3950:item:{}", identification)
+    fn get_redis_key(isbn: &str) -> String {
+        format!("z3950:item:{}", isbn)
     }
 
     /// Get Redis key for ID mapping
@@ -259,11 +259,11 @@ impl Z3950Service {
         let mut item_remote: ItemRemote = record.clone().into();
         let now = Utc::now();
         
-        // Use identification as key, or generate a temporary one if missing
-        let identification = item_remote.identification.clone()
+        // Use ISBN as key, or generate a temporary one if missing
+        let isbn_key = item_remote.isbn.clone()
             .unwrap_or_else(|| format!("temp:{}", now.timestamp_micros()));
         
-        let redis_key = Self::get_redis_key(&identification);
+        let redis_key = Self::get_redis_key(&isbn_key);
         
         // Update item with source and timestamp
         item_remote.state = Some(source_name.to_string());
@@ -274,8 +274,8 @@ impl Z3950Service {
         item_remote.is_valid = Some(1);
         item_remote.is_archive = Some(0);
         
-        // Generate ID from identification for compatibility
-        let id = Self::generate_id_from_identification(&identification);
+        // Generate ID from ISBN for compatibility
+        let id = Self::generate_id_from_isbn(&isbn_key);
         item_remote.id = Some(id);
         
         // Serialize to JSON and store in Redis
@@ -286,7 +286,7 @@ impl Z3950Service {
         
         let mut conn = self.redis.get_connection().await?;
         
-        // Store item by identification
+        // Store item by ISBN
         redis::cmd("SETEX")
             .arg(&redis_key)
             .arg(self.cache_ttl_seconds)
@@ -295,12 +295,12 @@ impl Z3950Service {
             .await
             .map_err(|e| AppError::Internal(format!("Failed to store item in Redis: {}", e)))?;
         
-        // Store ID -> identification mapping for import_record compatibility
+        // Store ID -> ISBN mapping for import_record compatibility
         let id_mapping_key = Self::get_id_mapping_key(id);
         redis::cmd("SETEX")
             .arg(&id_mapping_key)
             .arg(self.cache_ttl_seconds)
-            .arg(&identification)
+            .arg(&isbn_key)
             .query_async::<_, ()>(&mut conn)
             .await
             .map_err(|e| AppError::Internal(format!("Failed to store ID mapping in Redis: {}", e)))?;
@@ -325,18 +325,18 @@ impl Z3950Service {
         let pool = &self.repository.pool;
         let mut conn = self.redis.get_connection().await?;
 
-        // Get identification from ID mapping
+        // Get ISBN from ID mapping
         let id_mapping_key = Self::get_id_mapping_key(remote_item_id);
-        let identification: Option<String> = conn
+        let isbn_key: Option<String> = conn
             .get(&id_mapping_key)
             .await
             .map_err(|e| AppError::Internal(format!("Failed to get ID mapping from Redis: {}", e)))?;
         
-        let identification = identification
+        let isbn_key = isbn_key
             .ok_or_else(|| AppError::NotFound("Remote item not found in cache".to_string()))?;
         
         // Get remote item from Redis
-        let redis_key = Self::get_redis_key(&identification);
+        let redis_key = Self::get_redis_key(&isbn_key);
         let json_str: Option<String> = conn
             .get(&redis_key)
             .await
@@ -348,11 +348,11 @@ impl Z3950Service {
         .map_err(|e| AppError::Internal(format!("Failed to deserialize item from Redis: {}", e)))?;
 
         // Check if already imported
-        if let Some(ref id) = item_remote.identification {
+        if let Some(ref isbn) = item_remote.isbn {
             let existing: bool = sqlx::query_scalar(
-                "SELECT EXISTS(SELECT 1 FROM items WHERE identification = $1)"
+                "SELECT EXISTS(SELECT 1 FROM items WHERE isbn = $1)"
             )
-            .bind(id)
+            .bind(isbn)
             .fetch_one(pool)
             .await?;
 
@@ -367,7 +367,7 @@ impl Z3950Service {
         let item_id = sqlx::query_scalar::<_, i32>(
             r#"
             INSERT INTO items (
-                media_type, identification, price, barcode, dewey, publication_date,
+                media_type, isbn, price, barcode, dewey, publication_date,
                 lang, lang_orig, title1, title2, title3, title4,
                 author1_ids, author1_functions, author2_ids, author2_functions,
                 author3_ids, author3_functions, serie_id, serie_vol_number,
@@ -384,7 +384,7 @@ impl Z3950Service {
             "#,
         )
         .bind(&item_remote.media_type)
-        .bind(&item_remote.identification)
+        .bind(&item_remote.isbn)
         .bind(&item_remote.price)
         .bind(&item_remote.barcode)
         .bind(&item_remote.dewey)
@@ -435,13 +435,13 @@ impl Z3950Service {
 
                 sqlx::query(
                     r#"
-                    INSERT INTO specimens (id_item, identification, cote, place, status, notes, price, source_id, crea_date, modif_date)
+                    INSERT INTO specimens (id_item, barcode, call_number, place, status, notes, price, source_id, crea_date, modif_date)
                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
                     "#,
                 )
                 .bind(item_id)
-                .bind(&specimen.identification)
-                .bind(&specimen.cote)
+                .bind(&specimen.barcode)
+                .bind(&specimen.call_number)
                 .bind(&specimen.place)
                 .bind(specimen.status.as_ref().and_then(|s| s.parse::<i16>().ok()).unwrap_or(98))
                 .bind(&specimen.notes)
@@ -464,7 +464,7 @@ impl Z3950Service {
             .map_err(|e| AppError::Internal(format!("Failed to delete ID mapping from Redis: {}", e)))?;
 
         // Return the imported item
-        self.repository.items.get_by_id(item_id).await
+        self.repository.items.get_by_id_or_isbn(&item_id.to_string()).await
     }
 }
 

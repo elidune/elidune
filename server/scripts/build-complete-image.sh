@@ -45,7 +45,7 @@ fi
 echo -e "${YELLOW}Building Docker image ${IMAGE_NAME}:${IMAGE_TAG}...${NC}"
 echo -e "${YELLOW}(This may take several minutes for the Rust and Node.js builds)...${NC}"
 cd "${PROJECT_ROOT}"
-docker build -f Dockerfile.complete -t "${IMAGE_NAME}:${IMAGE_TAG}" .
+docker build --no-cache -f Dockerfile.complete -t "${IMAGE_NAME}:${IMAGE_TAG}" .
 
 if [ $? -eq 0 ]; then
     echo ""
@@ -70,8 +70,6 @@ if [ $? -eq 0 ]; then
     echo '    -p 5433:5432 -p 6379:6379 -p 8282:8080 -p 8181:80 \'
     echo '    -v elidune-postgres-data:/var/lib/postgresql/data \'
     echo '    -v elidune-redis-data:/data \'
-    echo '    -e JWT_SECRET=your-secret-key \'
-    echo '    -e RUST_LOG=elidune_server=debug \'
     echo "    ${IMAGE_NAME}:${IMAGE_TAG}"
     echo ""
     echo -e "${YELLOW}To access:${NC}"

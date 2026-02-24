@@ -16,6 +16,15 @@ pub struct Source {
     pub default: Option<bool>,
 }
 
+/// Create source request
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct CreateSource {
+    /// Source name
+    pub name: String,
+    /// Set as default source
+    pub default: Option<bool>,
+}
+
 /// Update source request
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateSource {

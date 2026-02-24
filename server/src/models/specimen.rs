@@ -54,8 +54,8 @@ pub struct Specimen {
     pub id: i32,
     pub id_item: Option<i32>,
     pub source_id: Option<i32>,
-    pub identification: Option<String>,
-    pub cote: Option<String>,
+    pub barcode: Option<String>,
+    pub call_number: Option<String>,
     pub place: Option<i16>,
     pub status: Option<i16>,  // Borrow status: 98=Borrowable, 110=NotBorrowable
     pub codestat: Option<i16>,
@@ -78,8 +78,9 @@ pub struct Specimen {
 /// Create specimen request
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateSpecimen {
-    pub identification: String,
-    pub cote: Option<String>,
+    /// Barcode (optional). When set, must be unique across specimens.
+    pub barcode: Option<String>,
+    pub call_number: Option<String>,
     pub place: Option<i16>,
     pub status: Option<i16>,
     pub notes: Option<String>,
@@ -91,8 +92,8 @@ pub struct CreateSpecimen {
 /// Update specimen request  
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateSpecimen {
-    pub identification: Option<String>,
-    pub cote: Option<String>,
+    pub barcode: Option<String>,
+    pub call_number: Option<String>,
     pub place: Option<i16>,
     pub status: Option<i16>,  // Borrow status
     pub notes: Option<String>,

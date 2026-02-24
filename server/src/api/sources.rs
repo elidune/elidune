@@ -10,7 +10,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::{
     error::AppResult,
-    models::source::{MergeSources, Source, UpdateSource},
+    models::source::{CreateSource, MergeSources, Source, UpdateSource},
 };
 
 use super::AuthenticatedUser;
@@ -20,6 +20,27 @@ use super::AuthenticatedUser;
 pub struct SourcesQuery {
     /// Include archived sources (default: false)
     pub include_archived: Option<bool>,
+}
+
+/// Create a source
+#[utoipa::path(
+    post,
+    path = "/sources",
+    tag = "sources",
+    security(("bearer_auth" = [])),
+    request_body = CreateSource,
+    responses(
+        (status = 201, description = "Source created", body = Source)
+    )
+)]
+pub async fn create_source(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Json(data): Json<CreateSource>,
+) -> AppResult<(StatusCode, Json<Source>)> {
+    claims.require_write_items()?;
+    let source = state.services.sources.create(&data).await?;
+    Ok((StatusCode::CREATED, Json(source)))
 }
 
 /// List all sources

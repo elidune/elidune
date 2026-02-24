@@ -44,7 +44,7 @@ where
         ("media_type" = Option<String>, Query, description = "Filter by media type"),
         ("title" = Option<String>, Query, description = "Search in title"),
         ("author" = Option<String>, Query, description = "Search by author"),
-        ("identification" = Option<String>, Query, description = "Search by ISBN/ISSN"),
+        ("isbn" = Option<String>, Query, description = "Search by ISBN/ISSN"),
         ("freesearch" = Option<String>, Query, description = "Full-text search"),
         ("page" = Option<i64>, Query, description = "Page number (default: 1)"),
         ("per_page" = Option<i64>, Query, description = "Items per page (default: 20)")
@@ -96,12 +96,23 @@ pub async fn get_item(
     Ok(Json(item))
 }
 
+/// Query params for create item
+#[derive(Debug, Deserialize, Default)]
+pub struct CreateItemQuery {
+    /// If true, allow creating an item even when another item has the same ISBN
+    #[serde(default)]
+    pub allow_duplicate_isbn: bool,
+}
+
 /// Create a new item
 #[utoipa::path(
     post,
     path = "/items",
     tag = "items",
     security(("bearer_auth" = [])),
+    params(
+        ("allow_duplicate_isbn" = Option<bool>, Query, description = "Allow duplicate ISBN (default: false)")
+    ),
     request_body = Item,
     responses(
         (status = 201, description = "Item created", body = Item),
@@ -112,11 +123,16 @@ pub async fn get_item(
 pub async fn create_item(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
+    Query(query): Query<CreateItemQuery>,
     Json(item): Json<Item>,
 ) -> AppResult<(StatusCode, Json<Item>)> {
     claims.require_write_items()?;
 
-    let created = state.services.catalog.create_item(item).await?;
+    let created = state
+        .services
+        .catalog
+        .create_item(item, query.allow_duplicate_isbn)
+        .await?;
     Ok((StatusCode::CREATED, Json(created)))
 }
 
@@ -221,7 +237,8 @@ pub async fn list_specimens(
     request_body = CreateSpecimen,
     responses(
         (status = 201, description = "Specimen created", body = Specimen),
-        (status = 404, description = "Item not found")
+        (status = 404, description = "Item not found"),
+        (status = 409, description = "A specimen with this barcode already exists")
     )
 )]
 pub async fn create_specimen(
@@ -253,7 +270,8 @@ pub async fn create_specimen(
     request_body = UpdateSpecimen,
     responses(
         (status = 200, description = "Specimen updated", body = Specimen),
-        (status = 404, description = "Item or specimen not found")
+        (status = 404, description = "Item or specimen not found"),
+        (status = 409, description = "A specimen with this barcode already exists")
     )
 )]
 pub async fn update_specimen(

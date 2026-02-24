@@ -26,22 +26,24 @@ impl CatalogService {
 
     /// Get item by ID with full details
     pub async fn get_item(&self, id: i32) -> AppResult<Item> {
-        self.repository.items.get_by_id(id).await
+        self.repository.items.get_by_id_or_isbn(&id.to_string()).await
     }
 
-    /// Create a new item
-    pub async fn create_item(&self, item: Item) -> AppResult<Item> {
-        // Check for duplicate identification
-        if let Some(ref identification) = item.identification {
-            if self
-                .repository
-                .items
-                .identification_exists(identification, None)
-                .await?
-            {
-                return Err(crate::error::AppError::Conflict(
-                    "Item with this identification already exists".to_string(),
-                ));
+    /// Create a new item.
+    /// If `allow_duplicate_isbn` is true, creation is allowed even when another item has the same ISBN.
+    pub async fn create_item(&self, item: Item, allow_duplicate_isbn: bool) -> AppResult<Item> {
+        if !allow_duplicate_isbn {
+            if let Some(ref isbn) = item.isbn {
+                if self
+                    .repository
+                    .items
+                    .isbn_exists(isbn, None)
+                    .await?
+                {
+                    return Err(crate::error::AppError::Conflict(
+                        "Item with this ISBN already exists".to_string(),
+                    ));
+                }
             }
         }
 
@@ -51,18 +53,18 @@ impl CatalogService {
     /// Update an existing item
     pub async fn update_item(&self, id: i32, item: Item) -> AppResult<Item> {
         // Check if item exists
-        self.repository.items.get_by_id(id).await?;
+        self.repository.items.get_by_id_or_isbn(&id.to_string()).await?;
 
-        // Check for duplicate identification
-        if let Some(ref identification) = item.identification {
+        // Check for duplicate ISBN
+        if let Some(ref isbn) = item.isbn {
             if self
                 .repository
                 .items
-                .identification_exists(identification, Some(id))
+                .isbn_exists(isbn, Some(id))
                 .await?
             {
                 return Err(crate::error::AppError::Conflict(
-                    "Item with this identification already exists".to_string(),
+                    "Item with this ISBN already exists".to_string(),
                 ));
             }
         }
@@ -78,27 +80,62 @@ impl CatalogService {
     /// Get specimens for an item
     pub async fn get_specimens(&self, item_id: i32) -> AppResult<Vec<Specimen>> {
         // Verify item exists
-        self.repository.items.get_by_id(item_id).await?;
+        self.repository.items.get_by_id_or_isbn(&item_id.to_string()).await?;
         self.repository.items.get_specimens(item_id).await
     }
 
-    /// Create a specimen for an item
+    /// Create a specimen for an item.
+    /// Barcode must be unique among active specimens (lifecycle_status=0).
+    /// If barcode exists on a non-active specimen, it is reactivated (lifecycle_status=0, archive_date=NULL) and updated.
     pub async fn create_specimen(&self, item_id: i32, specimen: CreateSpecimen) -> AppResult<Specimen> {
         // Verify item exists
-        self.repository.items.get_by_id(item_id).await?;
+        self.repository.items.get_by_id_or_isbn(&item_id.to_string()).await?;
+        if let Some(ref barcode) = specimen.barcode {
+            if let Some((existing_id, lifecycle_status)) = self
+                .repository
+                .items
+                .get_specimen_by_barcode(barcode)
+                .await?
+            {
+                if lifecycle_status != 0 {
+                    // Reactivate and update the existing specimen
+                    return self
+                        .repository
+                        .items
+                        .reactivate_specimen(existing_id, item_id, &specimen)
+                        .await;
+                }
+                return Err(crate::error::AppError::Conflict(
+                    "A specimen with this barcode already exists".to_string(),
+                ));
+            }
+        }
         self.repository.items.create_specimen(item_id, &specimen).await
     }
 
     /// Update a specimen
     pub async fn update_specimen(&self, item_id: i32, specimen_id: i32, specimen: UpdateSpecimen) -> AppResult<Specimen> {
         // Verify item exists
-        self.repository.items.get_by_id(item_id).await?;
+        self.repository.items.get_by_id_or_isbn(&item_id.to_string()).await?;
         // Verify specimen belongs to item
         let specimens = self.repository.items.get_specimens(item_id).await?;
         if !specimens.iter().any(|s| s.id == specimen_id) {
             return Err(crate::error::AppError::NotFound(
                 format!("Specimen {} not found for item {}", specimen_id, item_id)
             ));
+        }
+        // Enforce barcode uniqueness when changing barcode
+        if let Some(ref barcode) = specimen.barcode {
+            if self
+                .repository
+                .items
+                .specimen_barcode_exists(barcode, Some(specimen_id))
+                .await?
+            {
+                return Err(crate::error::AppError::Conflict(
+                    "A specimen with this barcode already exists".to_string(),
+                ));
+            }
         }
         self.repository.items.update_specimen(specimen_id, &specimen).await
     }

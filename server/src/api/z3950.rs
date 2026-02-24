@@ -47,10 +47,10 @@ pub struct Z3950ImportRequest {
 
 #[derive(Deserialize, ToSchema)]
 pub struct ImportSpecimen {
-    /// Specimen identification/barcode
-    pub identification: String,
-    /// Shelf location
-    pub cote: Option<String>,
+    /// Specimen barcode (must be unique when provided)
+    pub barcode: Option<String>,
+    /// Shelf location / call number
+    pub call_number: Option<String>,
     /// Status code
     pub status: Option<String>,
     /// Place (shelf/room number)

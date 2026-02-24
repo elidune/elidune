@@ -196,7 +196,7 @@ fn create_router(state: AppState) -> Router {
         .route("/schedules/closures", post(api::schedules::create_closure))
         .route("/schedules/closures/:id", delete(api::schedules::delete_closure))
         // Sources
-        .route("/sources", get(api::sources::list_sources))
+        .route("/sources", get(api::sources::list_sources).post(api::sources::create_source))
         .route("/sources/merge", post(api::sources::merge_sources))
         .route("/sources/:id", get(api::sources::get_source))
         .route("/sources/:id", put(api::sources::update_source))

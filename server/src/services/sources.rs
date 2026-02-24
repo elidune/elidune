@@ -2,7 +2,7 @@
 
 use crate::{
     error::{AppError, AppResult},
-    models::source::{MergeSources, Source, UpdateSource},
+    models::source::{CreateSource, MergeSources, Source, UpdateSource},
     repository::Repository,
 };
 
@@ -24,6 +24,15 @@ impl SourcesService {
     /// Get source by ID
     pub async fn get_by_id(&self, id: i32) -> AppResult<Source> {
         self.repository.sources.get_by_id(id).await
+    }
+
+    /// Create a source
+    pub async fn create(&self, data: &CreateSource) -> AppResult<Source> {
+        let name = data.name.trim();
+        if name.is_empty() {
+            return Err(AppError::Validation("Source name cannot be empty".to_string()));
+        }
+        self.repository.sources.create(name, data.default).await
     }
 
     /// Rename a source
@@ -92,7 +101,7 @@ impl SourcesService {
         }
 
         // Create new source
-        let new_source = self.repository.sources.create(data.name.trim()).await?;
+        let new_source = self.repository.sources.create(data.name.trim(), None).await?;
 
         // Reassign specimens and items to the new source
         self.repository

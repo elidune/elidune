@@ -14,7 +14,7 @@ pub struct ItemRemote {
     #[serde(default)]
     pub id: Option<i32>,
     pub media_type: Option<String>,
-    pub identification: Option<String>,
+    pub isbn: Option<String>,
     pub price: Option<String>,
     pub barcode: Option<String>,
     pub dewey: Option<String>,
@@ -81,7 +81,7 @@ pub struct ItemRemote {
 pub struct ItemRemoteShort {
     pub id: i32,
     pub media_type: Option<String>,
-    pub identification: Option<String>,
+    pub isbn: Option<String>,
     pub title: Option<String>,
     pub date: Option<String>,
     pub is_archive: Option<i16>,
@@ -107,7 +107,7 @@ impl From<Item> for ItemRemote {
         Self {
             id: None,
             media_type: item.media_type,
-            identification: item.identification,
+            isbn: item.isbn,
             price: item.price,
             barcode: item.barcode,
             dewey: item.dewey,
@@ -178,7 +178,7 @@ impl From<ItemRemote> for ItemRemoteShort {
         Self {
             id: item.id.unwrap_or_default(),
             media_type: item.media_type,
-            identification: item.identification,
+            isbn: item.isbn,
             title: item.title1,
             date: item.publication_date,
             is_archive: item.is_archive,
@@ -195,7 +195,7 @@ impl From<ItemRemoteShort> for super::item::ItemShort {
         Self {
             id: item.id,
             media_type: item.media_type,
-            identification: item.identification,
+            isbn: item.isbn,
             title: item.title,
             date: item.date,
             status: Some(0),

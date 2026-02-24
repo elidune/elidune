@@ -356,6 +356,10 @@ cargo fmt --check
 cargo clippy
 ```
 
+## Documentation
+
+- [Synchronisation PostgreSQL en temps réel (multi-site)](docs/postgresql-replication.md) — Mise en place de la réplication pour accéder à Elidune depuis deux sites avec les mêmes données à jour.
+
 ## Architecture
 
 ```

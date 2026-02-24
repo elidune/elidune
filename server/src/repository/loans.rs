@@ -37,7 +37,7 @@ impl LoansRepository {
             r#"
             SELECT l.* FROM loans l
             JOIN specimens s ON l.specimen_id = s.id
-            WHERE s.identification = $1 AND l.returned_date IS NULL
+            WHERE s.barcode = $1 AND l.returned_date IS NULL
             ORDER BY l.id DESC LIMIT 1
             "#
         )
@@ -51,8 +51,8 @@ impl LoansRepository {
     pub async fn get_user_loans(&self, user_id: i32) -> AppResult<Vec<LoanDetails>> {
         let loans = sqlx::query(
             r#"
-            SELECT l.*, s.identification as specimen_identification,
-                   i.id as item_id, i.media_type, i.identification as item_identification,
+            SELECT l.*, s.barcode as specimen_identification,
+                   i.id as item_id, i.media_type, i.isbn as item_isbn,
                    i.title1, i.publication_date,
                    COALESCE((
                        SELECT CAST(COUNT(*) AS SMALLINT)
@@ -99,7 +99,7 @@ impl LoansRepository {
                 item: ItemShort {
                     id: row.get("item_id"),
                     media_type: row.get("media_type"),
-                    identification: row.get("item_identification"),
+                    isbn: row.get("item_isbn"),
                     title: row.get("title1"),
                     date: row.get("publication_date"),
                     status: Some(0),
@@ -129,7 +129,7 @@ impl LoansRepository {
             id
         } else if let Some(ref identification) = loan.specimen_identification {
             sqlx::query_scalar::<_, i32>(
-                "SELECT id FROM specimens WHERE identification = $1"
+                "SELECT id FROM specimens WHERE barcode = $1"
             )
             .bind(identification)
             .fetch_optional(&self.pool)
@@ -281,7 +281,7 @@ impl LoansRepository {
         // Get item details 
         let item_row = sqlx::query(
             r#"
-            SELECT i.*, s.identification as specimen_identification,
+            SELECT i.*, s.barcode as specimen_identification,
                    COALESCE((
                        SELECT CAST(COUNT(*) AS SMALLINT)
                        FROM specimens s2
@@ -331,7 +331,7 @@ impl LoansRepository {
             item: ItemShort {
                 id: item_row.get("id"),
                 media_type: item_row.get("media_type"),
-                identification: item_row.get("identification"),
+                isbn: item_row.get("isbn"),
                 title: item_row.get("title1"),
                 date: item_row.get("publication_date"),
                 status: Some(0),

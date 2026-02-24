@@ -157,7 +157,7 @@ pub struct Item {
     #[serde(default)]
     pub id: Option<i32>,
     pub media_type: Option<String>,
-    pub identification: Option<String>,
+    pub isbn: Option<String>,
     pub price: Option<String>,
     pub barcode: Option<String>,
     pub dewey: Option<String>,
@@ -227,7 +227,7 @@ pub struct Item {
 pub struct ItemShort {
     pub id: i32,
     pub media_type: Option<String>,
-    pub identification: Option<String>,
+    pub isbn: Option<String>,
     pub title: Option<String>,
     pub date: Option<String>,
     pub status: Option<i16>,
@@ -279,7 +279,7 @@ pub struct Edition {
 #[derive(Debug, Deserialize, IntoParams, ToSchema)]
 pub struct ItemQuery {
     pub media_type: Option<String>,
-    pub identification: Option<String>,
+    pub isbn: Option<String>,
     pub barcode: Option<String>,
     pub author: Option<String>,
     pub title: Option<String>,

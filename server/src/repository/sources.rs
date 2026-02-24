@@ -130,12 +130,19 @@ impl SourcesRepository {
         .ok_or_else(|| AppError::NotFound(format!("Source {} not found", id)))
     }
 
-    /// Create a new source (used during merge)
-    pub async fn create(&self, name: &str) -> AppResult<Source> {
+    /// Create a new source
+    pub async fn create(&self, name: &str, default: Option<bool>) -> AppResult<Source> {
+        if default == Some(true) {
+            sqlx::query(r#"UPDATE sources SET "default" = false"#)
+                .execute(&self.pool)
+                .await?;
+        }
+        let default_val = default.unwrap_or(false);
         let row = sqlx::query_as::<_, Source>(
-            "INSERT INTO sources (name) VALUES ($1) RETURNING *",
+            r#"INSERT INTO sources (name, "default") VALUES ($1, $2) RETURNING *"#,
         )
         .bind(name)
+        .bind(default_val)
         .fetch_one(&self.pool)
         .await?;
         Ok(row)

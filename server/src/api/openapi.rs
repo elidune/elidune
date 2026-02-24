@@ -82,6 +82,7 @@ use crate::api::{auth, equipment, events, health, items, loans, schedules, setti
         schedules::delete_closure,
         // Sources
         sources::list_sources,
+        sources::create_source,
         sources::get_source,
         sources::update_source,
         sources::archive_source,
@@ -176,6 +177,7 @@ use crate::api::{auth, equipment, events, health, items, loans, schedules, setti
             crate::models::schedule::ScheduleClosureQuery,
             // Sources
             crate::models::source::Source,
+            crate::models::source::CreateSource,
             crate::models::source::UpdateSource,
             crate::models::source::MergeSources,
             sources::SourcesQuery,
