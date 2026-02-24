@@ -3,6 +3,7 @@
 use config::{Config, ConfigError, Environment, File};
 use serde::Deserialize;
 use std::env;
+use std::path::Path;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ServerConfig {
@@ -57,44 +58,19 @@ pub struct AppConfig {
     pub database: DatabaseConfig,
     pub users: UsersConfig,
     pub logging: LoggingConfig,
-    #[serde(default)]
     pub email: EmailConfig,
-    #[serde(default)]
     pub redis: RedisConfig,
 }
 
 impl AppConfig {
-    /// Load configuration from files and environment variables
-    pub fn load() -> Result<Self, ConfigError> {
-        let run_mode = env::var("RUN_MODE").unwrap_or_else(|_| "development".into());
+  
 
-        let config = Config::builder()
-            // Start with default configuration
-            .add_source(File::with_name("config/default"))
-            // Layer on the environment-specific file
-            .add_source(File::with_name(&format!("config/{}", run_mode)).required(false))
-            // Add environment variables (with prefix ELIDUNE_)
-            .add_source(
-                Environment::with_prefix("ELIDUNE")
-                    .separator("_")
-                    .try_parsing(true),
-            )
-            // Override database URL from DATABASE_URL env var if present
-            .set_override_option(
-                "database.url",
-                env::var("DATABASE_URL").ok(),
-            )?
-            // Override JWT secret from JWT_SECRET env var if present
-            .set_override_option(
-                "auth.jwt_secret",
-                env::var("JWT_SECRET").ok(),
-            )?
-            // Override Redis URL from REDIS_URL env var if present
-            .set_override_option(
-                "redis.url",
-                env::var("REDIS_URL").ok(),
-            )?
-            .build()?;
+    /// Load configuration from the given file path (and environment overrides).
+    /// When path is None, uses default paths (config/default + config/{RUN_MODE}).
+    pub fn load(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
+    
+        
+        let config = Config::builder().add_source(File::from(path.as_ref().to_path_buf().as_path()).required(true)).build()?;
 
         config.try_deserialize()
     }
@@ -109,24 +85,6 @@ impl Default for ServerConfig {
     }
 }
 
-impl Default for DatabaseConfig {
-    fn default() -> Self {
-        Self {
-            url: "postgres://elidune:elidune@localhost:5432/elidune".to_string(),
-            max_connections: 10,
-            min_connections: 2,
-        }
-    }
-}
-
-impl Default for UsersConfig {
-    fn default() -> Self {
-        Self {
-            jwt_secret: "change-this-secret-in-production".to_string(),
-            jwt_expiration_hours: 24,
-        }
-    }
-}
 
 impl Default for LoggingConfig {
     fn default() -> Self {
@@ -136,28 +94,4 @@ impl Default for LoggingConfig {
         }
     }
 }
-
-impl Default for EmailConfig {
-    fn default() -> Self {
-        Self {
-            smtp_host: "localhost".to_string(),
-            smtp_port: 587,
-            smtp_username: None,
-            smtp_password: None,
-            smtp_from: "noreply@elidune.org".to_string(),
-            smtp_from_name: Some("Elidune".to_string()),
-            smtp_use_tls: true,
-        }
-    }
-}
-
-impl Default for RedisConfig {
-    fn default() -> Self {
-        Self {
-            url: "redis://127.0.0.1:6379".to_string(),
-            z3950_cache_ttl_seconds: default_z3950_cache_ttl(),
-        }
-    }
-}
-
 

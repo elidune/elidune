@@ -7,6 +7,7 @@ use axum::{
     Router,
 };
 use sqlx::postgres::PgPoolOptions;
+use std::env;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tower_http::{
@@ -23,17 +24,33 @@ use elidune_server::{
     AppState,
 };
 
+/// Parse config path from args: --config <path> or -c <path>
+fn config_path_from_args() -> Option<String> {
+    let args: Vec<String> = env::args().collect();
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--config" || args[i] == "-c" {
+            if i + 1 < args.len() {
+                return Some(args[i + 1].clone());
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // Load environment variables from .env file
     dotenvy::dotenv().ok();
 
     // Load configuration
-    let config = AppConfig::load().expect("Failed to load configuration");
 
+    let config = config_path_from_args().map(|path| AppConfig::load(&path)).ok_or_else(|| anyhow::anyhow!("No configuration path provided"))??;
+    
     // Initialize tracing
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| format!("elidune_server={},tower_http=debug", config.logging.level).into());
+        .unwrap_or_else(|_| format!("elidune_server={},tower_http=debug,z3950_rs=debug", config.logging.level).into());
 
     tracing_subscriber::registry()
         .with(filter)

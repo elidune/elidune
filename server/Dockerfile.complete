@@ -74,52 +74,13 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
-# Set PostgreSQL environment variables
-# Note: POSTGRES_PASSWORD can be overridden at runtime via environment variable
-ENV POSTGRES_USER=elidune
-ENV POSTGRES_PASSWORD=elidune
-ENV POSTGRES_DB=elidune
+
 
 # Copy Elidune server binary and files from builder-rust
 COPY --from=builder-rust /app/elidune-server/target/release/elidune-server /app/elidune-server
 COPY --from=builder-rust /app/elidune-server/migrations /app/migrations
 COPY --from=builder-rust /app/elidune-server/config /app/config
 
-# Ensure config/default.toml exists (may be missing from GitHub repo)
-RUN mkdir -p /app/config && \
-    if [ ! -f /app/config/default.toml ]; then \
-        cat > /app/config/default.toml << 'CONFIG_EOF'
-[server]
-host = "0.0.0.0"
-port = 8080
-
-[database]
-url = "postgres://elidune:elidune@localhost:5432/elidune"
-max_connections = 10
-min_connections = 2
-
-[users]
-jwt_secret = "change-this-secret-in-production"
-jwt_expiration_hours = 24
-
-[logging]
-level = "info"
-format = "pretty"
-
-[email]
-smtp_host = ""
-smtp_port = 587
-smtp_username = ""
-smtp_password = ""
-smtp_from = ""
-smtp_from_name = "Elidune"
-smtp_use_tls = true
-
-[redis]
-url = "redis://127.0.0.1:6379"
-z3950_cache_ttl_seconds = 604800
-CONFIG_EOF
-    fi
 
 # Copy UI build from builder-ui
 COPY --from=builder-ui /app/elidune-ui/dist /usr/share/nginx/html

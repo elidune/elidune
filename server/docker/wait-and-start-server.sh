@@ -67,4 +67,4 @@ fi
 # Start the Elidune server (migrations will run automatically)
 echo "Starting Elidune server from $(pwd)..."
 echo "Config file: $(ls -la /app/config/default.toml)"
-exec /app/elidune-server
+exec /app/elidune-server -c /app/config/default.toml
