@@ -219,6 +219,7 @@ fn create_router(state: AppState) -> Router {
     let openapi = api::openapi::create_openapi_router();
 
     Router::new()
+        .route("/version", get(api::health::version))
         .nest("/api/v1", api_v1)
         .merge(openapi)
         .layer(TraceLayer::new_for_http())

@@ -43,3 +43,24 @@ pub async fn readiness_check() -> Json<HealthResponse> {
         version: env!("CARGO_PKG_VERSION").to_string(),
     })
 }
+
+#[derive(Serialize, ToSchema)]
+pub struct VersionResponse {
+    /// Server version (from Cargo.toml)
+    pub version: String,
+}
+
+/// Server version endpoint
+#[utoipa::path(
+    get,
+    path = "/version",
+    tag = "health",
+    responses(
+        (status = 200, description = "Server version", body = VersionResponse)
+    )
+)]
+pub async fn version() -> Json<VersionResponse> {
+    Json(VersionResponse {
+        version: env!("CARGO_PKG_VERSION").to_string(),
+    })
+}

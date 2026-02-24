@@ -23,6 +23,7 @@ use crate::api::{auth, equipment, events, health, items, loans, schedules, setti
         // Health
         health::health_check,
         health::readiness_check,
+        health::version,
         // Auth
         auth::login,
         auth::me,
@@ -192,6 +193,7 @@ use crate::api::{auth, equipment, events, health, items, loans, schedules, setti
             crate::repository::events::EventTypeStats,
             // Health
             health::HealthResponse,
+            health::VersionResponse,
             // Errors
             crate::error::ErrorResponse,
         )
