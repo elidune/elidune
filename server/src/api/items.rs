@@ -5,11 +5,13 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use axum_extra::extract::Multipart;
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::{
-    error::AppResult,
+    error::{AppError, AppResult},
+    marc::parse_unimarc_to_items,
     models::{
         item::{Item, ItemQuery, ItemShort},
         specimen::{CreateSpecimen, Specimen, UpdateSpecimen},
@@ -134,6 +136,50 @@ pub async fn create_item(
         .create_item(item, query.allow_duplicate_isbn)
         .await?;
     Ok((StatusCode::CREATED, Json(created)))
+}
+
+/// Upload a UNIMARC file and return parsed items with linked specimens (995/952).
+#[utoipa::path(
+    post,
+    path = "/items/upload-unimarc",
+    tag = "items",
+    security(("bearer_auth" = [])),
+    responses(
+        (status = 200, description = "Parsed items with specimens", body = Vec<Item>),
+        (status = 400, description = "Missing file or invalid UNIMARC"),
+        (status = 401, description = "Not authenticated")
+    )
+)]
+pub async fn upload_unimarc(
+    AuthenticatedUser(claims): AuthenticatedUser,
+    mut multipart: Multipart,
+) -> AppResult<Json<Vec<Item>>> {
+    claims.require_read_items()?;
+
+    let mut data = Vec::new();
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Multipart error: {}", e)))?
+    {
+        if field.name().as_deref() == Some("file") {
+            let bytes = field
+                .bytes()
+                .await
+                .map_err(|e| AppError::BadRequest(format!("Failed to read field: {}", e)))?;
+            data = bytes.to_vec();
+            break;
+        }
+    }
+    if data.is_empty() {
+        return Err(AppError::BadRequest(
+            "Missing 'file' field in multipart form".to_string(),
+        ));
+    }
+
+    let items = parse_unimarc_to_items(&data)
+        .map_err(|e| AppError::Validation(format!("UNIMARC parse error: {}", e)))?;
+    Ok(Json(items))
 }
 
 /// Update an existing item

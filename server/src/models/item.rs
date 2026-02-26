@@ -1,4 +1,8 @@
-//! Item (catalog entry) model and related types
+//! Item (catalog entry) model and related types.
+//!
+//! All structures are aligned with [marc-rs](https://docs.rs/marc-rs) data models.
+//! Persistence (DB) uses the associated char/int/string representations; conversions
+//! from marc-rs types are provided where applicable.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -7,6 +11,16 @@ use utoipa::{IntoParams, ToSchema};
 
 use super::author::AuthorWithFunction;
 use super::specimen::Specimen;
+
+// Re-exports: canonical MARC data types from marc-rs (via z3950-rs).
+pub use z3950_rs::marc_rs::format::MarcFormat;
+pub use z3950_rs::marc_rs::record::{
+    Author, AuthorKind, ControlField, DataField, EditionInfo, Leader, PublicationStatementInfo,
+    Subfield,
+};
+pub use z3950_rs::marc_rs::fields::{
+    DeweyClassification, Isbn, LanguageData, LinkingData, PublicationData, SeriesStatementData,
+};
 
 /// Item status for soft delete
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -34,7 +48,8 @@ impl Default for ItemStatus {
     }
 }
 
-/// Media type codes (matching original C implementation)
+/// Media type codes for catalog items.
+/// Maps from MARC Leader position 6 (record type) via `record_type_to_media_type_db` (see repository).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 pub enum MediaType {
     #[serde(rename = "")]
@@ -132,7 +147,8 @@ impl std::fmt::Display for MediaType {
     }
 }
 
-/// Public type (audience)
+/// Public type (audience). DB stores as i16 (97=Adult, 106=Children).
+/// Derived from MARC21 008 pos.22 or UNIMARC 100 pos.17 when importing from MARC.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(i16)]
 pub enum PublicType {
@@ -151,7 +167,8 @@ impl From<i16> for PublicType {
     }
 }
 
-/// Full item model from database
+/// Full item model (DB + API). Data aligns with marc-rs `Record`: titles, authors, edition_info,
+/// isbns, classifications, language_codes, specimens, etc. Built from MARC via `From<MarcRecord>` in the translator.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct Item {
     #[serde(default)]
@@ -242,7 +259,7 @@ pub struct ItemShort {
     pub source_name: Option<String>,
 }
 
-/// Serie model
+/// Serie model. Persistence shape for MARC series (440/490/225); source: marc-rs `SeriesStatementData` (statement → name, issn).
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct Serie {
     #[serde(default)]
@@ -252,7 +269,18 @@ pub struct Serie {
     pub issn: Option<String>,
 }
 
-/// Collection model
+impl From<&SeriesStatementData> for Serie {
+    fn from(d: &SeriesStatementData) -> Self {
+        Self {
+            id: None,
+            key: None,
+            name: Some(d.statement.clone()),
+            issn: d.issn.clone(),
+        }
+    }
+}
+
+/// Collection model. Persistence shape for MARC linking (e.g. 410); source: marc-rs `LinkingData` (title → title1, issn).
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct Collection {
     #[serde(default)]
@@ -264,7 +292,20 @@ pub struct Collection {
     pub issn: Option<String>,
 }
 
-/// Edition (publisher) model
+impl From<&LinkingData> for Collection {
+    fn from(d: &LinkingData) -> Self {
+        Self {
+            id: None,
+            key: None,
+            title1: d.title.clone(),
+            title2: None,
+            title3: None,
+            issn: d.issn.clone(),
+        }
+    }
+}
+
+/// Edition (publisher) model. Persistence shape for MARC publication (260/264/210); source: marc-rs `EditionInfo` or `PublicationData`.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct Edition {
     #[serde(default)]
@@ -275,7 +316,29 @@ pub struct Edition {
     pub date: Option<String>,
 }
 
-/// Item query parameters
+impl From<&EditionInfo> for Edition {
+    fn from(e: &EditionInfo) -> Self {
+        Self {
+            id: None,
+            name: e.publisher.clone(),
+            place: e.place.clone(),
+            date: e.date.clone(),
+        }
+    }
+}
+
+impl From<&PublicationData> for Edition {
+    fn from(p: &PublicationData) -> Self {
+        Self {
+            id: None,
+            name: p.publisher().map(String::from),
+            place: p.place().map(String::from),
+            date: p.date().map(String::from),
+        }
+    }
+}
+
+/// Item query parameters (API). Filter values are strings; use `MarcFormat` when filtering by MARC format where applicable.
 #[derive(Debug, Deserialize, IntoParams, ToSchema)]
 pub struct ItemQuery {
     pub media_type: Option<String>,

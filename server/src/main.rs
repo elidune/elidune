@@ -147,6 +147,7 @@ fn create_router(state: AppState) -> Router {
         // Items (catalog)
         .route("/items", get(api::items::list_items))
         .route("/items", post(api::items::create_item))
+        .route("/items/upload-unimarc", post(api::items::upload_unimarc))
         .route("/items/:id", get(api::items::get_item))
         .route("/items/:id", put(api::items::update_item))
         .route("/items/:id", delete(api::items::delete_item))

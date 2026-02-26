@@ -62,9 +62,8 @@ anyhow = "1"
 utoipa = { version = "4", features = ["axum_extras", "chrono", "uuid"] }
 utoipa-swagger-ui = { version = "7", features = ["axum"] }
 
-# MARC parsing (for Z39.50 records)
-marc-rs = "0.1.3"
-z3950-rs = "0.2.5"
+
+z3950-rs = "0.3.3"
 
 [dev-dependencies]
 tokio-test = "0.4"

@@ -63,7 +63,6 @@ pub struct Specimen {
     pub price: Option<String>,
     pub crea_date: Option<DateTime<Utc>>,
     pub modif_date: Option<DateTime<Utc>>,
-    pub is_archive: Option<i32>,
     pub archive_date: Option<DateTime<Utc>>,
     pub lifecycle_status: i16,  // 0=Active, 1=Unavailable, 2=Deleted
     // Computed fields (populated when queried with JOINs, None otherwise)
@@ -99,7 +98,6 @@ pub struct UpdateSpecimen {
     pub notes: Option<String>,
     pub price: Option<String>,
     pub source_id: Option<i32>,
-    pub is_archive: Option<i32>,
     pub lifecycle_status: Option<SpecimenStatus>,
 }
 

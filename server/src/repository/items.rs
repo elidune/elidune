@@ -1,7 +1,11 @@
-//! Items repository for database operations
+//! Items repository for database operations.
+//!
+//! Uses marc-rs types (Leader, MarcFormat, etc.) where applicable; DB serialization
+//! uses the associated char or int (e.g. media_type string from Leader record_type).
 
 use chrono::Utc;
 use sqlx::{Pool, Postgres, Row};
+use z3950_rs::marc_rs::{Leader, MarcFormat};
 
 use crate::{
     error::{AppError, AppResult},
@@ -11,6 +15,42 @@ use crate::{
         specimen::{CreateSpecimen, Specimen},
     },
 };
+
+// --- MARC type → DB (char/int) conversion helpers ---
+
+/// Converts MARC Leader record type (position 6) to DB media_type string.
+/// Uses marc-rs MarcFormat for MARC21 vs UNIMARC mapping.
+pub fn media_type_from_leader_for_db(leader: &Leader, format: MarcFormat) -> String {
+    let record_type = leader.record_type;
+    record_type_to_media_type_db(record_type, format)
+}
+
+/// Converts record type char (Leader position 6) to DB media_type string.
+pub fn record_type_to_media_type_db(record_type: char, format: MarcFormat) -> String {
+    let is_marc21 = format == MarcFormat::Marc21;
+    if is_marc21 {
+        match record_type {
+            'a' | 't' => "b",
+            'c' | 'd' => "bc",
+            'g' => "v",
+            'i' | 'j' => "a",
+            'm' => "c",
+            'k' => "i",
+            _ => "u",
+        }
+    } else {
+        match record_type {
+            'a' | 'b' => "b",
+            'c' | 'd' => "bc",
+            'g' => "v",
+            'i' | 'j' => "a",
+            'm' => "c",
+            'k' => "i",
+            _ => "u",
+        }
+    }
+    .to_string()
+}
 
 /// Strip all non-alphanumeric characters from ISBN (keep letters, digits, spaces)
 fn sanitize_isbn(s: &str) -> String {
@@ -730,10 +770,9 @@ impl ItemsRepository {
                 notes = COALESCE($5, notes),
                 price = COALESCE($6, price),
                 source_id = COALESCE($7, source_id),
-                is_archive = COALESCE($8, is_archive),
-                lifecycle_status = COALESCE($9, lifecycle_status),
-                modif_date = $10
-            WHERE id = $11
+                lifecycle_status = COALESCE($8, lifecycle_status),
+                modif_date = $9
+            WHERE id = $10
             "#
         )
         .bind(&specimen.barcode)
@@ -743,7 +782,6 @@ impl ItemsRepository {
         .bind(&specimen.notes)
         .bind(&specimen.price)
         .bind(source_id)
-        .bind(&specimen.is_archive)
         .bind(lifecycle_status)
         .bind(now)
         .bind(id)

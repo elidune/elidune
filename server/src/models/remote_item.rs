@@ -1,7 +1,7 @@
 //! Remote item (cached Z39.50 record) models
 
 use chrono::{DateTime, Utc};
-use marc_rs::Record as MarcRecord;
+use z3950_rs::marc_rs::Record as MarcRecord;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use utoipa::ToSchema;

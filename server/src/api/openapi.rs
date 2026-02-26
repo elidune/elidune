@@ -35,6 +35,7 @@ use crate::api::{auth, equipment, events, health, items, loans, schedules, setti
         items::list_items,
         items::get_item,
         items::create_item,
+        items::upload_unimarc,
         items::update_item,
         items::delete_item,
         items::list_specimens,

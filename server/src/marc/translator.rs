@@ -1,115 +1,579 @@
 //! MARC to Item translator
 //!
-//! Translates MARC records (UNIMARC or MARC21) into the internal Item structure.
+//! Translates MARC records (UNIMARC or MARC21) into the internal Item structure
+//! using marc-rs typed field structures.
+//!
+//! Field values in marc-rs may be enums (e.g. Leader positions, indicators);
+//! use `.into()` or `char::from()` / library conversion to get char or int when needed.
 
-use marc_rs::{Record as MarcRecord, DataField};
+use z3950_rs::marc_rs::fields::common::NoteData;
+use z3950_rs::marc_rs::fields::*;
+use z3950_rs::marc_rs::{MarcFormat, Record as MarcRecord};
+
 use crate::models::{
     author::AuthorWithFunction,
     item::{Collection, Edition, Item, Serie},
+    specimen::Specimen,
 };
 
-fn has_tag(record: &MarcRecord, tag: &str) -> bool {
-    record.data_fields.iter().any(|f| f.tag == tag)
+/// Detect MARC format from record control fields (008 = MARC21, 009 = UNIMARC).
+fn detect_format(record: &MarcRecord) -> MarcFormat {
+    let has_008 = record
+        .control()
+        .iter()
+        .any(|c| matches!(c, Control::FixedLengthDataElements(_)));
+    let has_009 = record
+        .control()
+        .iter()
+        .any(|c| matches!(c, Control::LocalControlNumber(_)));
+    if has_009 && !has_008 {
+        MarcFormat::Unimarc
+    } else {
+        MarcFormat::Marc21
+    }
 }
 
-/// Translate UNIMARC record
-fn translate_unimarc(record: &MarcRecord) -> Item {
-        // Extract all ISBNs from 010$a (UNIMARC) - concatenate all valid ISBNs
-        let isbn = {
-            let isbns: Vec<String> = get_all_subfields(record, "010", 'a')
+/// Get first subfield value from other_data by tag and code.
+fn other_subfield(record: &MarcRecord, tag: &str, code: char) -> Option<String> {
+    record
+        .other_data()
+        .iter()
+        .find(|f| f.tag == tag)
+        .and_then(|f| {
+            f.subfields
                 .iter()
-                .filter_map(|isbn_str| {
-                    let normalized = normalize_isbn(isbn_str);
-                    if !normalized.is_empty() {
-                        Some(normalized)
-                    } else {
-                        None
-                    }
-                })
+                .find(|sf| sf.code == code)
+                .map(|sf| sf.value.clone())
+        })
+}
+
+/// Get all subfield values from other_data by tag and code.
+fn other_subfields_all(record: &MarcRecord, tag: &str, code: char) -> Vec<String> {
+    record
+        .other_data()
+        .iter()
+        .filter(|f| f.tag == tag)
+        .flat_map(|f| {
+            f.subfields
+                .iter()
+                .filter(|sf| sf.code == code)
+                .map(|sf| sf.value.clone())
+        })
+        .collect()
+}
+
+/// Get value from Control::FixedLengthDataElements (008).
+fn control_008(record: &MarcRecord) -> Option<&str> {
+    record
+        .control()
+        .iter()
+        .find_map(|c| match c {
+            Control::FixedLengthDataElements(_) => Some(c.value()),
+            _ => None,
+        })
+}
+
+/// Get value from other_control by tag (e.g. UNIMARC 100).
+fn other_control_value<'a>(record: &'a MarcRecord, tag: &str) -> Option<&'a str> {
+    record
+        .other_control()
+        .iter()
+        .find(|f| f.tag == tag)
+        .map(|f| f.value.as_str())
+}
+
+fn normalize_isbn(isbn: &str) -> String {
+    isbn.chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect()
+}
+
+fn clean_title(title: &str) -> String {
+    title
+        .trim_end_matches(|c| c == '/' || c == ':' || c == ';' || c == ' ')
+        .to_string()
+}
+
+fn clean_publisher(publisher: &str) -> String {
+    publisher.trim_end_matches(',').trim().to_string()
+}
+
+fn clean_place(place: &str) -> String {
+    place
+        .trim_end_matches(|c| c == ':' || c == ';' || c == ' ')
+        .to_string()
+}
+
+/// Parse author name in "Lastname, Firstname" format (MARC21 100/700).
+fn parse_author_name(name: &str) -> (String, Option<String>) {
+    if let Some(pos) = name.find(',') {
+        let lastname = name[..pos].trim().to_string();
+        let firstname = name[pos + 1..].trim().to_string();
+        (
+            lastname,
+            if firstname.is_empty() {
+                None
+            } else {
+                Some(firstname)
+            },
+        )
+    } else {
+        (name.trim().to_string(), None)
+    }
+}
+
+fn extract_volume_number(vol: &str) -> Option<i16> {
+    vol.chars()
+        .filter(|c| c.is_ascii_digit())
+        .collect::<String>()
+        .parse()
+        .ok()
+}
+
+fn language_code_to_id(code: &str) -> Option<i16> {
+    match code.to_lowercase().as_str() {
+        "fre" | "fra" => Some(1),
+        "eng" => Some(2),
+        "ger" | "deu" => Some(3),
+        "jpn" => Some(4),
+        "spa" => Some(5),
+        "por" => Some(6),
+        _ => Some(0),
+    }
+}
+
+/// Get record type as char (Leader position 6). Works whether marc-rs uses char or RecordType enum.
+fn record_type_as_char(record: &MarcRecord) -> char {
+    let rt = record.leader().record_type;
+    char::from(rt)
+}
+
+/// Audience from MARC21 008 position 22.
+fn audience_marc21(record: &MarcRecord) -> Option<i16> {
+    control_008(record).and_then(|cf| {
+        if cf.len() >= 23 {
+            cf.chars().nth(22)
+        } else {
+            None
+        }
+    }).map(|c| match c {
+        'a' | 'b' | 'c' | 'd' | 'j' => 106,
+        _ => 97,
+    })
+}
+
+/// Audience from UNIMARC 100$a position 17 (via other_control "100").
+fn audience_unimarc(record: &MarcRecord) -> Option<i16> {
+    other_control_value(record, "100").and_then(|cf| {
+        if cf.len() >= 18 {
+            cf.chars().nth(17)
+        } else {
+            None
+        }
+    }).map(|c| match c {
+        'a' | 'b' | 'c' | 'd' | 'e' => 106,
+        _ => 97,
+    })
+}
+
+/// Get note text from NoteData (first $a).
+fn note_text(d: &NoteData) -> &str {
+    d.text.as_str()
+}
+
+impl From<MarcRecord> for Item {
+    fn from(record: MarcRecord) -> Self {
+        let format = detect_format(&record);
+        let is_marc21 = format == MarcFormat::Marc21;
+
+        // Price: first typed ISBN price_or_acquisition (020$c MARC21, 010$d UNIMARC)
+        let price = record
+            .isbns()
+            .first()
+            .and_then(|i| i.price_or_acquisition.clone());
+
+        // ISBN: from typed isbns() first, then fallback to other_data 020/010
+        let isbn = {
+            let from_typed: Vec<String> = record
+                .isbns()
+                .iter()
+                .map(|i| i.sanitized_number())
+                .filter(|n| !n.is_empty())
                 .collect();
+            let isbns: Vec<String> = if from_typed.is_empty() {
+                let isbn_tag = if is_marc21 { "020" } else { "010" };
+                other_subfields_all(&record, isbn_tag, 'a')
+                    .iter()
+                    .filter_map(|s| {
+                        let n = normalize_isbn(s);
+                        if n.is_empty() {
+                            None
+                        } else {
+                            Some(n)
+                        }
+                    })
+                    .collect()
+            } else {
+                from_typed
+            };
             if isbns.is_empty() {
                 None
             } else {
                 Some(isbns.join(", "))
             }
         };
-        let title1 = get_subfield(record, "200", 'a').map(String::from);
-        let title2 = get_subfield(record, "200", 'e').map(String::from);
-        let publication_date = get_subfield(record, "210", 'd').map(String::from);
-        let nb_pages = get_subfield(record, "215", 'a').map(String::from);
 
-        // Authors from 700, 701, 702 fields
+        // Title: first TitleStatement; title3/title4 from other Title variants (246, 510, etc.)
+        let (title1, title2) = record
+            .titles()
+            .iter()
+            .find_map(|t| {
+                if let Title::TitleStatement(ref d) = t {
+                    Some((
+                        d.title.clone(),
+                        d.remainder
+                            .clone()
+                            .map(|s| if is_marc21 { clean_title(&s) } else { s }),
+                    ))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or((String::new(), None));
+        let extra_titles: Vec<String> = record
+            .titles()
+            .iter()
+            .filter_map(|t| {
+                match t {
+                    Title::VaryingFormOfTitle(d)
+                    | Title::FormerTitle(d)
+                    | Title::ParallelTitle(d)
+                    | Title::OtherTitleInformation(d) => {
+                        let s = d.title.clone();
+                        let with_remainder = d
+                            .remainder
+                            .as_ref()
+                            .map(|r| format!("{} — {}", s, r))
+                            .unwrap_or(s);
+                        Some(if is_marc21 {
+                            clean_title(&with_remainder)
+                        } else {
+                            with_remainder
+                        })
+                    }
+                    _ => None,
+                }
+            })
+            .collect();
+        let title3 = extra_titles.first().cloned();
+        let title4 = extra_titles.get(1).cloned();
+
+        // Authors: main_entries (100/700) + added_entries (700/701/702)
         let mut authors1 = Vec::new();
-        for tag in ["700", "701", "702"] {
-            for field in get_fields(record, tag) {
-                if let (Some(lastname), Some(firstname)) = (
-                    get_datafield_subfield(field, 'a'),
-                    get_datafield_subfield(field, 'b'),
-                ) {
+        for me in record.main_entries() {
+            if let MainEntry::PersonalName(ref d) = me {
+                let (lastname, firstname) = if is_marc21 {
+                    parse_author_name(&d.name)
+                } else {
+                    (d.name.clone(), d.numeration.clone().or(d.titles.clone()))
+                };
+                authors1.push(AuthorWithFunction {
+                    id: 0,
+                    lastname: Some(lastname),
+                    firstname,
+                    bio: None,
+                    notes: None,
+                    function: if is_marc21 {
+                        Some("70".to_string())
+                    } else {
+                        d.relator_code.clone()
+                    },
+                });
+            }
+        }
+        for ae in record.added_entries() {
+            if let AddedEntry::PersonalName(ref d) = ae {
+                let (lastname, firstname) = if is_marc21 {
+                    parse_author_name(&d.name)
+                } else {
+                    (d.name.clone(), d.numeration.clone().or(d.titles.clone()))
+                };
+                authors1.push(AuthorWithFunction {
+                    id: 0,
+                    lastname: Some(lastname),
+                    firstname,
+                    bio: None,
+                    notes: None,
+                    function: if is_marc21 {
+                        d.relator_term.clone()
+                    } else {
+                        d.relator_code.clone()
+                    },
+                });
+            }
+        }
+        // Corporate/Meeting as single string in lastname
+        for me in record.main_entries() {
+            match me {
+                MainEntry::CorporateName(d) => {
                     authors1.push(AuthorWithFunction {
                         id: 0,
-                        lastname: Some(lastname.to_string()),
-                        firstname: Some(firstname.to_string()),
+                        lastname: Some(d.name.clone()),
+                        firstname: d.subordinate_unit.clone(),
                         bio: None,
                         notes: None,
-                        function: get_datafield_subfield(field, '4').map(String::from),
+                        function: d.relator_code.clone(),
                     });
                 }
+                MainEntry::MeetingName(d) => {
+                    authors1.push(AuthorWithFunction {
+                        id: 0,
+                        lastname: Some(d.name.clone()),
+                        firstname: d.subordinate_unit.clone(),
+                        bio: None,
+                        notes: None,
+                        function: None,
+                    });
+                }
+                _ => {}
+            }
+        }
+        for ae in record.added_entries() {
+            match ae {
+                AddedEntry::CorporateName(d) => {
+                    authors1.push(AuthorWithFunction {
+                        id: 0,
+                        lastname: Some(d.name.clone()),
+                        firstname: d.subordinate_unit.clone(),
+                        bio: None,
+                        notes: None,
+                        function: d.relator_code.clone(),
+                    });
+                }
+                AddedEntry::MeetingName(d) => {
+                    authors1.push(AuthorWithFunction {
+                        id: 0,
+                        lastname: Some(d.name.clone()),
+                        firstname: d.subordinate_unit.clone(),
+                        bio: None,
+                        notes: None,
+                        function: None,
+                    });
+                }
+                _ => {}
             }
         }
 
-        // Edition from 210
-        let edition = if let Some(publisher) = get_subfield(record, "210", 'c') {
-            Some(Edition {
-                id: None,
-                name: Some(publisher.to_string()),
-                place: get_subfield(record, "210", 'a').map(String::from),
-                date: get_subfield(record, "210", 'd').map(String::from),
+        // Edition and publication: from record.edition_info() (250/260/264 MARC21, 205/210 UNIMARC)
+        let edition_info = record.edition_info();
+        let place = edition_info.place.map(|s| clean_place(&s));
+        let publisher = edition_info.publisher.map(|s| clean_publisher(&s));
+        let publication_date = edition_info.date.map(String::from);
+        let edition = publisher.map(|name| Edition {
+            id: None,
+            name: Some(name),
+            place,
+            date: publication_date.clone(),
+        });
+
+        // Series: SeriesStatement / SeriesTitle
+        let (serie, serie_vol_number) = record
+            .series()
+            .iter()
+            .find_map(|s| {
+                match s {
+                    Series::SeriesStatement(d) | Series::SeriesTitle(d) => Some((
+                        Serie {
+                            id: None,
+                            key: None,
+                            name: Some(d.statement.clone()),
+                            issn: d.issn.clone(),
+                        },
+                        d.volume
+                            .as_deref()
+                            .and_then(extract_volume_number),
+                    )),
+                    _ => None,
+                }
             })
+            .unwrap_or((
+                Serie {
+                    id: None,
+                    key: None,
+                    name: None,
+                    issn: None,
+                },
+                None,
+            ));
+        let serie_vol_number = serie_vol_number.or_else(|| {
+            record.series().iter().find_map(|s| match s {
+                Series::SeriesStatement(d) | Series::SeriesTitle(d) => {
+                    d.volume.as_deref().and_then(extract_volume_number)
+                }
+                _ => None,
+            })
+        });
+
+        // Override series with 830 (MARC21) from other_data if present
+        let (serie, serie_vol_number) = if is_marc21 {
+            if let Some(uniform) = other_subfield(&record, "830", 'a') {
+                let mut s = serie;
+                s.name = Some(uniform);
+                if s.issn.is_none() {
+                    s.issn = other_subfield(&record, "830", 'x');
+                }
+                (Some(s), serie_vol_number)
+            } else if serie.name.is_some() {
+                (Some(serie), serie_vol_number)
+            } else {
+                (None, serie_vol_number)
+            }
         } else {
-            None
+            (if serie.name.is_some() { Some(serie) } else { None }, serie_vol_number)
         };
 
-        // Series from 225
-        let serie = if let Some(series_title) = get_subfield(record, "225", 'a') {
-            Some(Serie {
-                id: None,
-                key: None,
-                name: Some(series_title.to_string()),
-                issn: get_subfield(record, "225", 'x').map(String::from),
-            })
+        // Collection (UNIMARC 410): from linking or other_data
+        let (collection, collection_vol_number) = if is_marc21 {
+            (None, None)
         } else {
-            None
-        };
-
-        // Volume number goes to Item, not Serie
-        let serie_vol_number = get_subfield(record, "225", 'v')
-            .and_then(|v| extract_volume_number(v));
-
-        // Collection from 410
-        let collection = if let Some(coll_title) = get_subfield(record, "410", 't') {
-            Some(Collection {
+            let title = record
+                .linking()
+                .iter()
+                .find_map(|l| {
+                    if let Linking::MainSeriesEntry(d) = l {
+                        d.title.clone()
+                    } else {
+                        None
+                    }
+                })
+                .or_else(|| other_subfield(&record, "410", 't'));
+            let coll = title.map(|title1| Collection {
                 id: None,
                 key: None,
-                title1: Some(coll_title.to_string()),
+                title1: Some(title1),
                 title2: None,
                 title3: None,
-                issn: get_subfield(record, "410", 'x').map(String::from),
-            })
-        } else {
-            None
+                issn: other_subfield(&record, "410", 'x'),
+            });
+            let vol = other_subfield(&record, "410", 'v').and_then(|v| extract_volume_number(&v));
+            (coll, vol)
         };
 
-        // Collection volume number from 410$v
-        let collection_vol_number = get_subfield(record, "410", 'v')
-            .and_then(|v| extract_volume_number(v));
+        // Physical: extent, dimensions, accompanying
+        let (nb_pages, format, addon) = record
+            .physical()
+            .iter()
+            .find_map(|p| {
+                if let Physical::PhysicalDescription(ref d) = p {
+                    Some((
+                        Some(d.extent.clone()),
+                        d.dimensions.clone(),
+                        d.accompanying_material.clone(),
+                    ))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or((None, None, None));
 
-        // Media type from leader position 6
-        let media_type = determine_media_type_unimarc(record);
+        // Notes: Summary -> abstract_, GeneralNote -> notes, FormattedContentsNote (505) -> content
+        let abstract_ = record.notes().iter().find_map(|n| {
+            if let Note::Summary(d) = n {
+                Some(note_text(d).to_string())
+            } else {
+                None
+            }
+        });
+        let notes = record.notes().iter().find_map(|n| {
+            if let Note::GeneralNote(d) = n {
+                Some(note_text(d).to_string())
+            } else {
+                None
+            }
+        });
+        let content = record.notes().iter().find_map(|n| {
+            if let Note::FormattedContentsNote(d) = n {
+                Some(note_text(d).to_string())
+            } else {
+                None
+            }
+        });
 
-        // Language from 101$a
-        let lang = get_subfield(record, "101", 'a')
-            .and_then(|l| language_code_to_id(l));
+        // Subjects: topical term -> subject, uncontrolled -> keywords
+        let subject = record.subjects().iter().find_map(|s| {
+            if let Subject::SubjectTopicalTerm(d) = s {
+                Some(d.term.clone())
+            } else if let Subject::IndexTermUncontrolled(_) = s {
+                None
+            } else {
+                None
+            }
+        });
+        let keywords = {
+            let kws: Vec<String> = record
+                .subjects()
+                .iter()
+                .filter_map(|s| {
+                    if let Subject::IndexTermUncontrolled(d) = s {
+                        Some(d.term.clone())
+                    } else if let Subject::SubjectTopicalTerm(d) = s {
+                        Some(d.term.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            if kws.is_empty() {
+                None
+            } else {
+                Some(kws.join(", "))
+            }
+        };
+        let subject = subject.or_else(|| keywords.clone());
+
+        // Dewey: from typed classifications() first, then other_data 082/676
+        let dewey = record
+            .dewey()
+            .map(String::from)
+            .or_else(|| {
+                let dewey_tag = if is_marc21 { "082" } else { "676" };
+                other_subfield(&record, dewey_tag, 'a')
+            });
+
+        // Language: record.language_codes() first, then 008 (MARC21) or other_control 101 (UNIMARC)
+        let lang_codes = record.language_codes();
+        let lang = lang_codes
+            .first()
+            .and_then(|s| language_code_to_id(s))
+            .or_else(|| {
+                if is_marc21 {
+                    control_008(&record)
+                        .and_then(|cf| if cf.len() >= 38 { Some(&cf[35..38]) } else { None })
+                        .and_then(language_code_to_id)
+                } else {
+                    other_subfield(&record, "101", 'a')
+                        .as_ref()
+                        .and_then(|s| language_code_to_id(s))
+                }
+            });
+        let lang_orig = lang_codes
+            .get(1)
+            .and_then(|s| language_code_to_id(s));
+
+        let marc_format = if is_marc21 {
+            MarcFormat::Marc21
+        } else {
+            MarcFormat::Unimarc
+        };
+        let media_type = crate::repository::items::record_type_to_media_type_db(
+            record_type_as_char(&record),
+            marc_format,
+        );
+        let public_type = if is_marc21 {
+            audience_marc21(&record)
+        } else {
+            audience_unimarc(&record)
+        };
 
         Item {
             id: None,
@@ -120,27 +584,33 @@ fn translate_unimarc(record: &MarcRecord) -> Item {
             collection_number_sub: None,
             collection_vol_number,
             media_type: Some(media_type),
-            isbn: isbn,
-            price: None,
+            isbn,
+            price,
             barcode: None,
-            dewey: get_subfield(record, "676", 'a').map(String::from),
+            dewey,
             publication_date,
             lang,
-            lang_orig: None,
-            title1: Some(title1.unwrap_or_default()),
+            lang_orig,
+            title1: Some(if title1.is_empty() {
+                "".to_string()
+            } else if is_marc21 {
+                clean_title(&title1)
+            } else {
+                title1
+            }),
             title2,
-            title3: None,
-            title4: None,
+            title3,
+            title4,
             genre: None,
-            subject: get_subfield(record, "606", 'a').map(String::from),
-            public_type: determine_audience_unimarc(record),
+            subject,
+            public_type,
             nb_pages,
-            format: get_subfield(record, "215", 'd').map(String::from),
-            content: None,
-            addon: get_subfield(record, "215", 'e').map(String::from),
-            abstract_: get_subfield(record, "330", 'a').map(String::from),
-            notes: get_subfield(record, "300", 'a').map(String::from),
-            keywords: get_subfield(record, "610", 'a').map(String::from),
+            format,
+            content,
+            addon,
+            abstract_,
+            notes,
+            keywords,
             state: None,
             is_archive: None,
             is_valid: Some(1),
@@ -154,341 +624,40 @@ fn translate_unimarc(record: &MarcRecord) -> Item {
             serie,
             collection,
             edition,
-            specimens: Vec::new(),
-        }
-}
-
-/// Translate MARC21 record
-fn translate_marc21(record: &MarcRecord) -> Item {
-        // Extract all ISBNs from 020$a (MARC21) - concatenate all valid ISBNs
-        let isbn = {
-            let isbns: Vec<String> = get_all_subfields(record, "020", 'a')
+            specimens: record
+                .specimens()
                 .iter()
-                .filter_map(|isbn_str| {
-                    let normalized = normalize_isbn(isbn_str);
-                    if !normalized.is_empty() {
-                        Some(normalized)
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            if isbns.is_empty() {
-                None
-            } else {
-                Some(isbns.join(", "))
-            }
-        };
-        let title1 = get_subfield(record, "245", 'a').map(clean_title);
-        let title2 = get_subfield(record, "245", 'b').map(clean_title);
-        let publication_date = get_subfield(record, "260", 'c').map(String::from);
-        let nb_pages = get_subfield(record, "300", 'a').map(String::from);
-
-        // Main author from 100
-        let mut authors1 = Vec::new();
-        if let Some(author_name) = get_subfield(record, "100", 'a') {
-            let (lastname, firstname) = parse_author_name(author_name);
-            authors1.push(AuthorWithFunction {
-                id: 0,
-                lastname: Some(lastname),
-                firstname,
-                bio: None,
-                notes: None,
-                function: Some("70".to_string()), // Author
-            });
-        }
-
-        // Additional authors from 700
-        for field in get_fields(record, "700") {
-            if let Some(author_name) = get_datafield_subfield(field, 'a') {
-                let (lastname, firstname) = parse_author_name(author_name);
-                authors1.push(AuthorWithFunction {
-                    id: 0,
-                    lastname: Some(lastname),
-                    firstname,
-                    bio: None,
-                    notes: None,
-                    function: get_datafield_subfield(field, 'e').map(String::from),
-                });
-            }
-        }
-
-        // Edition from 260
-        let edition = if let Some(publisher) = get_subfield(record, "260", 'b') {
-            Some(Edition {
-                id: None,
-                name: Some(clean_publisher(publisher)),
-                place: get_subfield(record, "260", 'a').map(|p| clean_place(p)),
-                date: get_subfield(record, "260", 'c').map(String::from),
-            })
-        } else {
-            None
-        };
-
-        // Series from 490
-        let mut serie = if let Some(series_title) = get_subfield(record, "490", 'a') {
-            Some(Serie {
-                id: None,
-                key: None,
-                name: Some(series_title.to_string()),
-                issn: get_subfield(record, "490", 'x').map(String::from),
-            })
-        } else {
-            None
-        };
-
-        // Volume number goes to Item, not Serie
-        let serie_vol_number = get_subfield(record, "490", 'v')
-            .and_then(|v| extract_volume_number(v));
-
-        // Override serie name with authorized form from 830 if available
-        if let Some(uniform_title) = get_subfield(record, "830", 'a') {
-            if let Some(ref mut s) = serie {
-                s.name = Some(uniform_title.to_string());
-                // Use ISSN from 830 if not already set
-                if s.issn.is_none() {
-                    s.issn = get_subfield(record, "830", 'x').map(String::from);
-                }
-            } else {
-                serie = Some(Serie {
-                    id: None,
-                    key: None,
-                    name: Some(uniform_title.to_string()),
-                    issn: get_subfield(record, "830", 'x').map(String::from),
-                });
-            }
-        }
-
-        // Media type from leader
-        let media_type = determine_media_type_marc21(record);
-
-        // Language from 008 positions 35-37
-        let lang = get_control_field(record, "008")
-            .and_then(|cf| {
-                if cf.len() >= 38 {
-                    Some(&cf[35..38])
-                } else {
-                    None
-                }
-            })
-            .and_then(language_code_to_id);
-
-        Item {
-            id: None,
-            serie_id: None,
-            serie_vol_number,
-            edition_id: None,
-            collection_id: None,
-            collection_number_sub: None,
-            collection_vol_number: None,
-            media_type: Some(media_type),
-            isbn: isbn,
-            price: None,
-            barcode: None,
-            dewey: get_subfield(record, "082", 'a').map(String::from),
-            publication_date,
-            lang,
-            lang_orig: None,
-            title1: Some(title1.unwrap_or_default()),
-            title2,
-            title3: None,
-            title4: None,
-            genre: None,
-            subject: get_subfield(record, "650", 'a').map(String::from),
-            public_type: determine_audience_marc21(record),
-            nb_pages,
-            format: get_subfield(record, "300", 'c').map(String::from),
-            content: None,
-            addon: get_subfield(record, "300", 'e').map(String::from),
-            abstract_: get_subfield(record, "520", 'a').map(String::from),
-            notes: get_subfield(record, "500", 'a').map(String::from),
-            keywords: get_all_subfields(record, "653", 'a')
-                .join(", ")
-                .into(),
-            state: None,
-            is_archive: None,
-            is_valid: Some(1),
-            lifecycle_status: 0,
-            crea_date: None,
-            modif_date: None,
-            archived_date: None,
-            authors1,
-            authors2: Vec::new(),
-            authors3: Vec::new(),
-            serie,
-            collection: None,
-            edition,
-            specimens: Vec::new(),
-        }
-}
-
-/// Determine media type from UNIMARC leader
-fn determine_media_type_unimarc(record: &MarcRecord) -> String {
-        let type_code = record.leader.record_type;
-        match type_code {
-            'a' | 'b' => "b".to_string(),  // Printed text
-            'c' | 'd' => "bc".to_string(), // Comics (scores)
-            'g' => "v".to_string(),         // Video
-            'i' | 'j' => "a".to_string(),  // Audio
-            'm' => "c".to_string(),         // CD-ROM
-            'k' => "i".to_string(),         // Images
-            _ => "u".to_string(),           // Unknown
-        }
-}
-
-/// Determine media type from MARC21 leader
-fn determine_media_type_marc21(record: &MarcRecord) -> String {
-        let type_code = record.leader.record_type;
-        match type_code {
-            'a' | 't' => "b".to_string(),  // Language material
-            'c' | 'd' => "bc".to_string(), // Notated music
-            'g' => "v".to_string(),         // Projected medium (video)
-            'i' | 'j' => "a".to_string(),  // Sound recording
-            'm' => "c".to_string(),         // Computer file
-            'k' => "i".to_string(),         // Still image
-            _ => "u".to_string(),           // Unknown
-        }
-}
-
-/// Determine audience from UNIMARC 100$a position 17-19
-fn determine_audience_unimarc(record: &MarcRecord) -> Option<i16> {
-        get_subfield(record, "100", 'a')
-            .and_then(|cf| {
-                if cf.len() >= 18 {
-                    cf.chars().nth(17)
-                } else {
-                    None
-                }
-            })
-            .map(|c| match c {
-                'a' | 'b' | 'c' | 'd' | 'e' => 106, // Children/Youth
-                _ => 97, // Adult
-            })
-}
-
-/// Determine audience from MARC21 008 position 22
-fn determine_audience_marc21(record: &MarcRecord) -> Option<i16> {
-        get_control_field(record, "008")
-            .and_then(|cf| {
-                if cf.len() >= 23 {
-                    cf.chars().nth(22)
-                } else {
-                    None
-                }
-            })
-            .map(|c| match c {
-                'a' | 'b' | 'c' | 'd' | 'j' => 106, // Juvenile
-                _ => 97, // General/Adult
-            })
-}
-
-impl From<MarcRecord> for Item {
-    fn from(record: MarcRecord) -> Self {
-        // Heuristic: UNIMARC records usually have 200, MARC21 usually has 245.
-        // Default to MARC21 if ambiguous.
-        if has_tag(&record, "200") && !has_tag(&record, "245") {
-            translate_unimarc(&record)
-        } else {
-            translate_marc21(&record)
+                .map(marc_specimen_to_specimen)
+                .collect(),
         }
     }
 }
 
-/// Get a subfield value by tag and subfield code
-fn get_subfield<'a>(record: &'a MarcRecord, tag: &str, code: char) -> Option<&'a str> {
-    record.data_fields
-        .iter()
-        .find(|f| f.tag == tag)
-        .and_then(|f| get_datafield_subfield(f, code))
-}
-
-/// Get all subfield values for a tag and code
-fn get_all_subfields<'a>(record: &'a MarcRecord, tag: &str, code: char) -> Vec<&'a str> {
-    record.data_fields
-        .iter()
-        .filter(|f| f.tag == tag)
-        .flat_map(|f| f.subfields.iter()
-            .filter(|sf| sf.code == code)
-            .map(|sf| sf.value.as_str()))
-        .collect()
-}
-
-/// Get all data fields with a specific tag
-fn get_fields<'a>(record: &'a MarcRecord, tag: &str) -> Vec<&'a DataField> {
-    record.data_fields
-        .iter()
-        .filter(|f| f.tag == tag)
-        .collect()
-}
-
-/// Get a subfield value from a data field
-fn get_datafield_subfield(field: &DataField, code: char) -> Option<&str> {
-    field.subfields
-        .iter()
-        .find(|sf| sf.code == code)
-        .map(|sf| sf.value.as_str())
-}
-
-/// Get a control field value
-fn get_control_field<'a>(record: &'a MarcRecord, tag: &str) -> Option<&'a str> {
-    record.control_fields
-        .iter()
-        .find(|f| f.tag == tag)
-        .map(|f| f.value.as_str())
-}
-
-/// Normalize ISBN by removing hyphens and spaces
-fn normalize_isbn(isbn: &str) -> String {
-    isbn.chars()
-        .filter(|c| c.is_ascii_alphanumeric())
-        .collect()
-}
-
-/// Clean title by removing trailing punctuation
-fn clean_title(title: &str) -> String {
-    title.trim_end_matches(|c| c == '/' || c == ':' || c == ';' || c == ' ').to_string()
-}
-
-/// Clean publisher name
-fn clean_publisher(publisher: &str) -> String {
-    publisher.trim_end_matches(',').trim().to_string()
-}
-
-/// Clean place of publication
-fn clean_place(place: &str) -> String {
-    place.trim_end_matches(|c| c == ':' || c == ';' || c == ' ').to_string()
-}
-
-/// Parse author name in "Lastname, Firstname" format
-fn parse_author_name(name: &str) -> (String, Option<String>) {
-    if let Some(pos) = name.find(',') {
-        let lastname = name[..pos].trim().to_string();
-        let firstname = name[pos + 1..].trim().to_string();
-        (lastname, if firstname.is_empty() { None } else { Some(firstname) })
-    } else {
-        (name.trim().to_string(), None)
-    }
-}
-
-/// Extract volume number from series volume string
-fn extract_volume_number(vol: &str) -> Option<i16> {
-    vol.chars()
-        .filter(|c| c.is_ascii_digit())
-        .collect::<String>()
-        .parse()
-        .ok()
-}
-
-/// Convert language code to internal ID
-fn language_code_to_id(code: &str) -> Option<i16> {
-    match code.to_lowercase().as_str() {
-        "fre" | "fra" => Some(1),
-        "eng" => Some(2),
-        "ger" | "deu" => Some(3),
-        "jpn" => Some(4),
-        "spa" => Some(5),
-        "por" => Some(6),
-        _ => Some(0), // Unknown
+/// Map marc_rs specimen (995/952) to our Specimen model (preview, id=0).
+fn marc_specimen_to_specimen(s: &z3950_rs::marc_rs::fields::Specimen) -> Specimen {
+    let notes = match (&s.section, &s.document_type) {
+        (Some(sec), Some(doc)) => Some(format!("{} — {}", sec, doc)),
+        (Some(sec), None) => Some(sec.clone()),
+        (None, Some(doc)) => Some(doc.clone()),
+        (None, None) => None,
+    };
+    Specimen {
+        id: 0,
+        id_item: None,
+        source_id: None,
+        barcode: s.barcode.clone(),
+        call_number: s.call_number.clone(),
+        place: None,
+        status: Some(98), // Borrowable
+        codestat: None,
+        notes,
+        price: None,
+        crea_date: None,
+        modif_date: None,
+        archive_date: None,
+        lifecycle_status: 0,
+        source_name: s.library.clone(),
+        availability: Some(0),
     }
 }
 

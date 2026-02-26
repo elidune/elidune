@@ -42,7 +42,7 @@ impl StatsService {
         let f = match filter {
             None => {
                 return (
-                    "(s.is_archive = 0 OR s.is_archive IS NULL) AND s.lifecycle_status != 2".to_string(),
+                    "s.archive_date IS NULL AND s.lifecycle_status != 2".to_string(),
                     vec![],
                 );
             }
@@ -54,7 +54,7 @@ impl StatsService {
             conditions.push("(s.crea_date <= $1 AND (s.archive_date IS NULL OR s.archive_date > $1))".to_string());
             param_order.push("ref_date".into());
         } else {
-            conditions.push("(s.is_archive = 0 OR s.is_archive IS NULL)".to_string());
+            conditions.push("s.archive_date IS NULL".to_string());
         }
         // Always exclude non-active specimens
         conditions.push("s.lifecycle_status != 2".to_string());
@@ -964,7 +964,7 @@ impl StatsService {
                             COALESCE(src.id, 0) as source_id,
                             COALESCE(src.name, 'unknown') as source_name,
                             COALESCE(i.media_type, 'unknown') as media_type_label,
-                            COUNT(*) FILTER (WHERE (sp.is_archive = 0 OR sp.is_archive IS NULL) AND sp.lifecycle_status != 2) as active_specimens,
+                            COUNT(*) FILTER (WHERE sp.archive_date IS NULL AND sp.lifecycle_status != 2) as active_specimens,
                             COUNT(*) FILTER (WHERE sp.crea_date >= $1 AND sp.crea_date <= $2) as entered_specimens,
                             COUNT(*) FILTER (WHERE sp.archive_date >= $1 AND sp.archive_date <= $2) as archived_specimens
                         FROM specimens sp
@@ -1013,7 +1013,7 @@ impl StatsService {
                             COALESCE(src.id, 0) as source_id,
                             COALESCE(src.name, 'unknown') as source_name,
                             CASE i.public_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as public_type_label,
-                            COUNT(*) FILTER (WHERE (sp.is_archive = 0 OR sp.is_archive IS NULL) AND sp.lifecycle_status != 2) as active_specimens,
+                            COUNT(*) FILTER (WHERE sp.archive_date IS NULL AND sp.lifecycle_status != 2) as active_specimens,
                             COUNT(*) FILTER (WHERE sp.crea_date >= $1 AND sp.crea_date <= $2) as entered_specimens,
                             COUNT(*) FILTER (WHERE sp.archive_date >= $1 AND sp.archive_date <= $2) as archived_specimens
                         FROM specimens sp
@@ -1062,7 +1062,7 @@ impl StatsService {
                         SELECT
                             COALESCE(src.id, 0) as source_id,
                             COALESCE(src.name, 'unknown') as source_name,
-                            COUNT(*) FILTER (WHERE (sp.is_archive = 0 OR sp.is_archive IS NULL) AND sp.lifecycle_status != 2) as active_specimens,
+                            COUNT(*) FILTER (WHERE sp.archive_date IS NULL AND sp.lifecycle_status != 2) as active_specimens,
                             COUNT(*) FILTER (WHERE sp.crea_date >= $1 AND sp.crea_date <= $2) as entered_specimens,
                             COUNT(*) FILTER (WHERE sp.archive_date >= $1 AND sp.archive_date <= $2) as archived_specimens
                         FROM specimens sp
@@ -1102,7 +1102,7 @@ impl StatsService {
                         SELECT
                             COALESCE(i.media_type, 'unknown') as label,
                             CASE i.public_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as public_type_label,
-                            COUNT(*) FILTER (WHERE (sp.is_archive = 0 OR sp.is_archive IS NULL) AND sp.lifecycle_status != 2) as active_specimens,
+                            COUNT(*) FILTER (WHERE sp.archive_date IS NULL AND sp.lifecycle_status != 2) as active_specimens,
                             COUNT(*) FILTER (WHERE sp.crea_date >= $1 AND sp.crea_date <= $2) as entered_specimens,
                             COUNT(*) FILTER (WHERE sp.archive_date >= $1 AND sp.archive_date <= $2) as archived_specimens
                         FROM specimens sp
@@ -1147,7 +1147,7 @@ impl StatsService {
                         r#"
                         SELECT
                             COALESCE(i.media_type, 'unknown') as label,
-                            COUNT(*) FILTER (WHERE (sp.is_archive = 0 OR sp.is_archive IS NULL) AND sp.lifecycle_status != 2) as active_specimens,
+                            COUNT(*) FILTER (WHERE sp.archive_date IS NULL AND sp.lifecycle_status != 2) as active_specimens,
                             COUNT(*) FILTER (WHERE sp.crea_date >= $1 AND sp.crea_date <= $2) as entered_specimens,
                             COUNT(*) FILTER (WHERE sp.archive_date >= $1 AND sp.archive_date <= $2) as archived_specimens
                         FROM specimens sp
@@ -1182,7 +1182,7 @@ impl StatsService {
                     r#"
                     SELECT
                         CASE i.public_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as label,
-                        COUNT(*) FILTER (WHERE (sp.is_archive = 0 OR sp.is_archive IS NULL) AND sp.lifecycle_status != 2) as active_specimens,
+                        COUNT(*) FILTER (WHERE sp.archive_date IS NULL AND sp.lifecycle_status != 2) as active_specimens,
                         COUNT(*) FILTER (WHERE sp.crea_date >= $1 AND sp.crea_date <= $2) as entered_specimens,
                         COUNT(*) FILTER (WHERE sp.archive_date >= $1 AND sp.archive_date <= $2) as archived_specimens
                     FROM specimens sp
