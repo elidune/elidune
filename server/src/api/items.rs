@@ -20,6 +20,13 @@ use crate::{
 
 use super::AuthenticatedUser;
 
+#[derive(Debug, Deserialize, Default)]
+pub struct GetItemQuery {
+    /// If true, include the full MARC record (marc_record JSONB) in the response
+    #[serde(default)]
+    pub full_record: bool,
+}
+
 /// Paginated response wrapper
 #[derive(Serialize, ToSchema)]
 pub struct PaginatedResponse<T>
@@ -80,7 +87,8 @@ pub async fn list_items(
     tag = "items",
     security(("bearer_auth" = [])),
     params(
-        ("id" = i32, Path, description = "Item ID")
+        ("id" = i32, Path, description = "Item ID"),
+        ("full_record" = Option<bool>, Query, description = "If true, include full MARC record data")
     ),
     responses(
         (status = 200, description = "Item details", body = Item),
@@ -91,10 +99,15 @@ pub async fn get_item(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     Path(id): Path<i32>,
+    Query(query): Query<GetItemQuery>,
 ) -> AppResult<Json<Item>> {
     claims.require_read_items()?;
 
-    let item = state.services.catalog.get_item(id).await?;
+    let item = if query.full_record {
+        state.services.catalog.get_item_with_full_record(id).await?
+    } else {
+        state.services.catalog.get_item(id).await?
+    };
     Ok(Json(item))
 }
 

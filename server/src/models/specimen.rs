@@ -22,82 +22,56 @@ impl From<i16> for SpecimenBorrowStatus {
     }
 }
 
-/// Specimen lifecycle status for soft delete
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-#[repr(i16)]
-pub enum SpecimenStatus {
-    Active = 0,
-    Unavailable = 1,
-    Deleted = 2,
-}
-
-impl From<i16> for SpecimenStatus {
-    fn from(v: i16) -> Self {
-        match v {
-            0 => SpecimenStatus::Active,
-            1 => SpecimenStatus::Unavailable,
-            2 => SpecimenStatus::Deleted,
-            _ => SpecimenStatus::Active,
-        }
-    }
-}
-
-impl Default for SpecimenStatus {
-    fn default() -> Self {
-        SpecimenStatus::Active
-    }
-}
-
-/// Full specimen model from database
+/// Full specimen model from database.
+/// Soft delete is tracked solely via `archived_at` (NULL = active, set = archived).
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct Specimen {
     pub id: i32,
-    pub id_item: Option<i32>,
+    pub item_id: Option<i32>,
     pub source_id: Option<i32>,
     pub barcode: Option<String>,
     pub call_number: Option<String>,
+    pub volume_designation: Option<String>,
     pub place: Option<i16>,
-    pub status: Option<i16>,  // Borrow status: 98=Borrowable, 110=NotBorrowable
-    pub codestat: Option<i16>,
+    pub borrow_status: Option<i16>,
+    pub circulation_status: Option<i16>,
     pub notes: Option<String>,
     pub price: Option<String>,
-    pub crea_date: Option<DateTime<Utc>>,
-    pub modif_date: Option<DateTime<Utc>>,
-    pub archive_date: Option<DateTime<Utc>>,
-    pub lifecycle_status: i16,  // 0=Active, 1=Unavailable, 2=Deleted
-    // Computed fields (populated when queried with JOINs, None otherwise)
+    pub created_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<DateTime<Utc>>,
+    pub archived_at: Option<DateTime<Utc>>,
     #[sqlx(default)]
     #[serde(default)]
     pub source_name: Option<String>,
     #[sqlx(default)]
     #[serde(default)]
-    pub availability: Option<i64>,  // 0 = available, >0 = borrowed
+    pub availability: Option<i64>,
 }
 
 /// Create specimen request
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateSpecimen {
-    /// Barcode (optional). When set, must be unique across specimens.
     pub barcode: Option<String>,
     pub call_number: Option<String>,
+    pub volume_designation: Option<String>,
     pub place: Option<i16>,
-    pub status: Option<i16>,
+    pub borrow_status: Option<i16>,
     pub notes: Option<String>,
     pub price: Option<String>,
     pub source_id: Option<i32>,
     pub source_name: Option<String>,
 }
 
-/// Update specimen request  
+/// Update specimen request
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateSpecimen {
     pub barcode: Option<String>,
     pub call_number: Option<String>,
+    pub volume_designation: Option<String>,
     pub place: Option<i16>,
-    pub status: Option<i16>,  // Borrow status
+    pub borrow_status: Option<i16>,
     pub notes: Option<String>,
     pub price: Option<String>,
     pub source_id: Option<i32>,
-    pub lifecycle_status: Option<SpecimenStatus>,
 }
 

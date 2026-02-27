@@ -17,7 +17,6 @@ pub struct ItemRemote {
     pub isbn: Option<String>,
     pub price: Option<String>,
     pub barcode: Option<String>,
-    pub dewey: Option<String>,
     pub publication_date: Option<String>,
     pub lang: Option<i16>,
     pub lang_orig: Option<i16>,
@@ -100,9 +99,11 @@ impl From<MarcRecord> for ItemRemote {
 
 impl From<Item> for ItemRemote {
     fn from(item: Item) -> Self {
-        let authors1_json = serde_json::to_value(&item.authors1).ok();
-        let authors2_json = serde_json::to_value(&item.authors2).ok();
-        let authors3_json = serde_json::to_value(&item.authors3).ok();
+        let authors1_json = if !item.authors.is_empty() {
+            serde_json::to_value(&item.authors).ok()
+        } else {
+            None
+        };
 
         Self {
             id: None,
@@ -110,14 +111,13 @@ impl From<Item> for ItemRemote {
             isbn: item.isbn,
             price: item.price,
             barcode: item.barcode,
-            dewey: item.dewey,
             publication_date: item.publication_date,
             lang: item.lang,
             lang_orig: item.lang_orig,
-            title1: item.title1,
-            title2: item.title2,
-            title3: item.title3,
-            title4: item.title4,
+            title1: item.title,
+            title2: None,
+            title3: None,
+            title4: None,
             author1_ids: None,
             author1_functions: None,
             author2_ids: None,
@@ -125,32 +125,32 @@ impl From<Item> for ItemRemote {
             author3_ids: None,
             author3_functions: None,
             serie_id: None,
-            serie_vol_number: item.serie_vol_number,
+            serie_vol_number: item.series_volume_number,
             collection_id: None,
-            collection_number_sub: item.collection_number_sub,
-            collection_vol_number: item.collection_vol_number,
+            collection_number_sub: item.collection_sequence_number,
+            collection_vol_number: item.collection_volume_number,
             source_id: None,
             genre: item.genre,
             subject: item.subject,
-            public_type: item.public_type,
+            public_type: item.audience_type,
             edition_id: None,
             edition_date: None,
-            nb_pages: item.nb_pages,
+            nb_pages: item.page_extent,
             format: item.format,
-            content: item.content,
-            addon: item.addon,
+            content: item.table_of_contents,
+            addon: item.accompanying_material,
             abstract_: item.abstract_,
             notes: item.notes,
             keywords: item.keywords,
             state: item.state,
-            is_archive: item.is_archive,
-            archived_timestamp: None,
+            is_archive: item.archived_at.map(|_| 1i16),
+            archived_timestamp: item.archived_at.map(|d| d.timestamp()),
             is_valid: item.is_valid,
-            modif_date: item.modif_date,
-            crea_date: item.crea_date,
+            modif_date: item.updated_at,
+            crea_date: item.created_at,
             authors1_json,
-            authors2_json,
-            authors3_json,
+            authors2_json: None,
+            authors3_json: None,
         }
     }
 }
@@ -200,11 +200,11 @@ impl From<ItemRemoteShort> for super::item::ItemShort {
             date: item.date,
             status: Some(0),
             is_local: Some(0),
-            is_archive: item.is_archive,
             is_valid: item.is_valid,
+            archived_at: None,
             nb_specimens: None, // Remote items don't have local specimens
             nb_available: item.nb_available,
-            authors: item.authors,
+            author: item.authors.first().cloned(),
             source_name: item.source_name,
         }
     }

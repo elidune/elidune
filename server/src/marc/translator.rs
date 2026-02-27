@@ -193,176 +193,37 @@ impl From<MarcRecord> for Item {
             .and_then(|i| i.price_or_acquisition.clone());
 
         // ISBN: from typed isbns() first, then fallback to other_data 020/010
-        let isbn = {
-            let from_typed: Vec<String> = record
+        let isbn = record
                 .isbns()
                 .iter()
                 .map(|i| i.sanitized_number())
                 .filter(|n| !n.is_empty())
-                .collect();
-            let isbns: Vec<String> = if from_typed.is_empty() {
-                let isbn_tag = if is_marc21 { "020" } else { "010" };
-                other_subfields_all(&record, isbn_tag, 'a')
-                    .iter()
-                    .filter_map(|s| {
-                        let n = normalize_isbn(s);
-                        if n.is_empty() {
-                            None
-                        } else {
-                            Some(n)
-                        }
-                    })
-                    .collect()
-            } else {
-                from_typed
-            };
-            if isbns.is_empty() {
-                None
-            } else {
-                Some(isbns.join(", "))
-            }
-        };
+                .next();
 
-        // Title: first TitleStatement; title3/title4 from other Title variants (246, 510, etc.)
-        let (title1, title2) = record
-            .titles()
-            .iter()
-            .find_map(|t| {
-                if let Title::TitleStatement(ref d) = t {
-                    Some((
-                        d.title.clone(),
-                        d.remainder
-                            .clone()
-                            .map(|s| if is_marc21 { clean_title(&s) } else { s }),
-                    ))
-                } else {
-                    None
-                }
-            })
-            .unwrap_or((String::new(), None));
-        let extra_titles: Vec<String> = record
-            .titles()
-            .iter()
-            .filter_map(|t| {
-                match t {
-                    Title::VaryingFormOfTitle(d)
-                    | Title::FormerTitle(d)
-                    | Title::ParallelTitle(d)
-                    | Title::OtherTitleInformation(d) => {
-                        let s = d.title.clone();
-                        let with_remainder = d
-                            .remainder
-                            .as_ref()
-                            .map(|r| format!("{} — {}", s, r))
-                            .unwrap_or(s);
-                        Some(if is_marc21 {
-                            clean_title(&with_remainder)
-                        } else {
-                            with_remainder
-                        })
-                    }
-                    _ => None,
-                }
-            })
-            .collect();
-        let title3 = extra_titles.first().cloned();
-        let title4 = extra_titles.get(1).cloned();
 
-        // Authors: main_entries (100/700) + added_entries (700/701/702)
-        let mut authors1 = Vec::new();
-        for me in record.main_entries() {
-            if let MainEntry::PersonalName(ref d) = me {
-                let (lastname, firstname) = if is_marc21 {
-                    parse_author_name(&d.name)
-                } else {
-                    (d.name.clone(), d.numeration.clone().or(d.titles.clone()))
-                };
-                authors1.push(AuthorWithFunction {
-                    id: 0,
-                    lastname: Some(lastname),
-                    firstname,
-                    bio: None,
-                    notes: None,
-                    function: if is_marc21 {
-                        Some("70".to_string())
-                    } else {
-                        d.relator_code.clone()
-                    },
-                });
-            }
-        }
-        for ae in record.added_entries() {
-            if let AddedEntry::PersonalName(ref d) = ae {
-                let (lastname, firstname) = if is_marc21 {
-                    parse_author_name(&d.name)
-                } else {
-                    (d.name.clone(), d.numeration.clone().or(d.titles.clone()))
-                };
-                authors1.push(AuthorWithFunction {
-                    id: 0,
-                    lastname: Some(lastname),
-                    firstname,
-                    bio: None,
-                    notes: None,
-                    function: if is_marc21 {
-                        d.relator_term.clone()
-                    } else {
-                        d.relator_code.clone()
-                    },
-                });
-            }
-        }
-        // Corporate/Meeting as single string in lastname
-        for me in record.main_entries() {
-            match me {
-                MainEntry::CorporateName(d) => {
-                    authors1.push(AuthorWithFunction {
-                        id: 0,
-                        lastname: Some(d.name.clone()),
-                        firstname: d.subordinate_unit.clone(),
-                        bio: None,
-                        notes: None,
-                        function: d.relator_code.clone(),
-                    });
-                }
-                MainEntry::MeetingName(d) => {
-                    authors1.push(AuthorWithFunction {
-                        id: 0,
-                        lastname: Some(d.name.clone()),
-                        firstname: d.subordinate_unit.clone(),
-                        bio: None,
-                        notes: None,
-                        function: None,
-                    });
-                }
-                _ => {}
-            }
-        }
-        for ae in record.added_entries() {
-            match ae {
-                AddedEntry::CorporateName(d) => {
-                    authors1.push(AuthorWithFunction {
-                        id: 0,
-                        lastname: Some(d.name.clone()),
-                        firstname: d.subordinate_unit.clone(),
-                        bio: None,
-                        notes: None,
-                        function: d.relator_code.clone(),
-                    });
-                }
-                AddedEntry::MeetingName(d) => {
-                    authors1.push(AuthorWithFunction {
-                        id: 0,
-                        lastname: Some(d.name.clone()),
-                        firstname: d.subordinate_unit.clone(),
-                        bio: None,
-                        notes: None,
-                        function: None,
-                    });
-                }
-                _ => {}
-            }
-        }
+        // Title: first TitleStatement; then normalize with `clean_title` for all formats.
+        let raw_title = record
+            .titles()
+            .first()
+            .and_then(|t| match t {
+                Title::TitleStatement(d) => Some(d.title.clone()),
+                _ => None,
+            })
+            .unwrap_or_default();
+
+        // Authors: semantic authors from marc-rs (main + added entries)
+        let authors = record
+            .authors()
+            .iter()
+        .map(|a| AuthorWithFunction {
+            id: 0,
+            lastname: a.last_name.clone(),
+            firstname: a.first_name.clone(),
+            bio: None,
+            notes: None,
+            function: a.function.clone(),
+        })
+        .collect();
 
         // Edition and publication: from record.edition_info() (250/260/264 MARC21, 205/210 UNIMARC)
         let edition_info = record.edition_info();
@@ -371,71 +232,130 @@ impl From<MarcRecord> for Item {
         let publication_date = edition_info.date.map(String::from);
         let edition = publisher.map(|name| Edition {
             id: None,
-            name: Some(name),
-            place,
+            publisher_name: Some(name),
+            place_of_publication: place,
             date: publication_date.clone(),
+            created_at: None,
+            updated_at: None,
         });
 
-        // Series: SeriesStatement / SeriesTitle
-        let (serie, serie_vol_number) = record
+        // Serie: build from series fields that represent a narrative/author series,
+        // following COLLECTION_SERIE_MAPPING.md.
+        let mut serie: Option<Serie> = None;
+        let mut serie_vol_number: Option<i16> = None;
+
+        for s in record.series() {
+            match s {
+                // Author / corporate / meeting series: prefer these as true series names.
+                Series::SeriesPersonalName(d) | Series::SeriesAddedEntryPersonalName(d) => {
+                    if serie.is_none() {
+                        let name = d.name.clone();
+                        if !name.is_empty() {
+                            serie = Some(Serie {
+                                id: None,
+                                key: None,
+                                name: Some(name),
+                                issn: None,
+                                created_at: None,
+                                updated_at: None,
+                            });
+                        }
+                    }
+                }
+                Series::SeriesCorporateName(d) | Series::SeriesAddedEntryCorporateName(d) => {
+                    if serie.is_none() {
+                        let name = d.name.clone();
+                        if !name.is_empty() {
+                            serie = Some(Serie {
+                                id: None,
+                                key: None,
+                                name: Some(name),
+                                issn: None,
+                                created_at: None,
+                                updated_at: None,
+                            });
+                        }
+                    }
+                }
+                Series::SeriesMeetingName(d) | Series::SeriesAddedEntryMeetingName(d) => {
+                    if serie.is_none() {
+                        let name = d.name.clone();
+                        if !name.is_empty() {
+                            serie = Some(Serie {
+                                id: None,
+                                key: None,
+                                name: Some(name),
+                                issn: None,
+                                created_at: None,
+                                updated_at: None,
+                            });
+                        }
+                    }
+                }
+                // Statement / title treated as Serie when there is a volume number but no ISSN.
+                Series::SeriesStatement(d) | Series::SeriesTitle(d) => {
+                    if serie.is_none() && d.issn.is_none() {
+                        if let Some(vol_raw) = d.volume.as_deref() {
+                            if let Some(vol) = extract_volume_number(vol_raw) {
+                                serie_vol_number = Some(vol);
+                                serie = Some(Serie {
+                                    id: None,
+                                    key: None,
+                                    name: Some(d.statement.clone()),
+                                    issn: d.issn.clone(),
+                                    created_at: None,
+                                    updated_at: None,
+                                });
+                            }
+                        }
+                    }
+                }
+                // Uniform title is used for Collection (830), not Serie, so we skip it here.
+                Series::SeriesUniformTitle(_) => {}
+            }
+        }
+
+        // Collection: editorial collections with ISSN, or 410/411 links as fallback.
+        let mut collection: Option<Collection> = None;
+        let mut collection_vol_number: Option<i16> = None;
+
+        // Prefer series statements/titles that look like editorial collections (have ISSN).
+        if let Some((d, vol)) = record
             .series()
             .iter()
-            .find_map(|s| {
-                match s {
-                    Series::SeriesStatement(d) | Series::SeriesTitle(d) => Some((
-                        Serie {
-                            id: None,
-                            key: None,
-                            name: Some(d.statement.clone()),
-                            issn: d.issn.clone(),
-                        },
-                        d.volume
-                            .as_deref()
-                            .and_then(extract_volume_number),
-                    )),
-                    _ => None,
+            .find_map(|s| match s {
+                // 830: best candidate for collection primary_title.
+                Series::SeriesUniformTitle(d) => {
+                    let vol = d
+                        .volume
+                        .as_deref()
+                        .and_then(extract_volume_number);
+                    Some((d, vol))
                 }
-            })
-            .unwrap_or((
-                Serie {
-                    id: None,
-                    key: None,
-                    name: None,
-                    issn: None,
-                },
-                None,
-            ));
-        let serie_vol_number = serie_vol_number.or_else(|| {
-            record.series().iter().find_map(|s| match s {
-                Series::SeriesStatement(d) | Series::SeriesTitle(d) => {
-                    d.volume.as_deref().and_then(extract_volume_number)
+                // 225/440/490 with ISSN: editorial collections.
+                Series::SeriesStatement(d) | Series::SeriesTitle(d) if d.issn.is_some() => {
+                    let vol = d
+                        .volume
+                        .as_deref()
+                        .and_then(extract_volume_number);
+                    Some((d, vol))
                 }
                 _ => None,
             })
-        });
-
-        // Override series with 830 (MARC21) from other_data if present
-        let (serie, serie_vol_number) = if is_marc21 {
-            if let Some(uniform) = other_subfield(&record, "830", 'a') {
-                let mut s = serie;
-                s.name = Some(uniform);
-                if s.issn.is_none() {
-                    s.issn = other_subfield(&record, "830", 'x');
-                }
-                (Some(s), serie_vol_number)
-            } else if serie.name.is_some() {
-                (Some(serie), serie_vol_number)
-            } else {
-                (None, serie_vol_number)
-            }
+        {
+            collection = Some(Collection {
+                id: None,
+                key: None,
+                primary_title: Some(d.statement.clone()),
+                secondary_title: d.subseries.clone(),
+                tertiary_title: None,
+                issn: d.issn.clone(),
+                created_at: None,
+                updated_at: None,
+            });
+            collection_vol_number = vol;
         } else {
-            (if serie.name.is_some() { Some(serie) } else { None }, serie_vol_number)
-        };
-
-        // Collection (UNIMARC 410): from linking or other_data
-        let (collection, collection_vol_number) = if is_marc21 {
-            (None, None)
-        } else {
+            // Fallback: UNIMARC 410/411 linking information.
             let title = record
                 .linking()
                 .iter()
@@ -445,19 +365,23 @@ impl From<MarcRecord> for Item {
                     } else {
                         None
                     }
-                })
-                .or_else(|| other_subfield(&record, "410", 't'));
-            let coll = title.map(|title1| Collection {
-                id: None,
-                key: None,
-                title1: Some(title1),
-                title2: None,
-                title3: None,
-                issn: other_subfield(&record, "410", 'x'),
-            });
-            let vol = other_subfield(&record, "410", 'v').and_then(|v| extract_volume_number(&v));
-            (coll, vol)
-        };
+                });
+
+            if let Some(t) = title {
+                collection = Some(Collection {
+                    id: None,
+                    key: None,
+                    primary_title: Some(t),
+                    secondary_title: None,
+                    tertiary_title: None,
+                    issn: other_subfield(&record, "410", 'x'),
+                    created_at: None,
+                    updated_at: None,
+                });
+                collection_vol_number = other_subfield(&record, "410", 'v')
+                    .and_then(|v| extract_volume_number(&v));
+            }
+        }
 
         // Physical: extent, dimensions, accompanying
         let (nb_pages, format, addon) = record
@@ -531,8 +455,8 @@ impl From<MarcRecord> for Item {
         };
         let subject = subject.or_else(|| keywords.clone());
 
-        // Dewey: from typed classifications() first, then other_data 082/676
-        let dewey = record
+        // Call number: from Dewey classification (082/676) or other sources
+        let call_number = record
             .dewey()
             .map(String::from)
             .or_else(|| {
@@ -544,7 +468,7 @@ impl From<MarcRecord> for Item {
         let lang_codes = record.language_codes();
         let lang = lang_codes
             .first()
-            .and_then(|s| language_code_to_id(s))
+            .and_then(|lc| language_code_to_id(lc.as_code()))
             .or_else(|| {
                 if is_marc21 {
                     control_008(&record)
@@ -558,16 +482,11 @@ impl From<MarcRecord> for Item {
             });
         let lang_orig = lang_codes
             .get(1)
-            .and_then(|s| language_code_to_id(s));
+            .and_then(|lc| language_code_to_id(lc.as_code()));
 
-        let marc_format = if is_marc21 {
-            MarcFormat::Marc21
-        } else {
-            MarcFormat::Unimarc
-        };
+      
         let media_type = crate::repository::items::record_type_to_media_type_db(
             record_type_as_char(&record),
-            marc_format,
         );
         let public_type = if is_marc21 {
             audience_marc21(&record)
@@ -575,53 +494,43 @@ impl From<MarcRecord> for Item {
             audience_unimarc(&record)
         };
 
+
+
         Item {
             id: None,
-            serie_id: None,
-            serie_vol_number,
-            edition_id: None,
-            collection_id: None,
-            collection_number_sub: None,
-            collection_vol_number,
             media_type: Some(media_type),
             isbn,
-            price,
             barcode: None,
-            dewey,
-            publication_date,
-            lang,
-            lang_orig,
-            title1: Some(if title1.is_empty() {
-                "".to_string()
-            } else if is_marc21 {
-                clean_title(&title1)
-            } else {
-                title1
-            }),
-            title2,
-            title3,
-            title4,
+            call_number,
+            price,
+            title: Some(clean_title(&raw_title)),
             genre: None,
             subject,
-            public_type,
-            nb_pages,
+            audience_type: public_type,
+            lang,
+            lang_orig,
+            publication_date,
+            page_extent: nb_pages,
             format,
-            content,
-            addon,
+            table_of_contents: content,
+            accompanying_material: addon,
             abstract_,
             notes,
             keywords,
             state: None,
-            is_archive: None,
             is_valid: Some(1),
-            lifecycle_status: 0,
-            crea_date: None,
-            modif_date: None,
-            archived_date: None,
-            authors1,
-            authors2: Vec::new(),
-            authors3: Vec::new(),
-            serie,
+            series_id: None,
+            series_volume_number: serie_vol_number,
+            edition_id: None,
+            collection_id: None,
+            collection_sequence_number: None,
+            collection_volume_number: collection_vol_number,
+            status: 0,
+            created_at: None,
+            updated_at: None,
+            archived_at: None,
+            authors,
+            series: serie,
             collection,
             edition,
             specimens: record
@@ -629,6 +538,7 @@ impl From<MarcRecord> for Item {
                 .iter()
                 .map(marc_specimen_to_specimen)
                 .collect(),
+            marc_record: None,
         }
     }
 }
@@ -643,21 +553,317 @@ fn marc_specimen_to_specimen(s: &z3950_rs::marc_rs::fields::Specimen) -> Specime
     };
     Specimen {
         id: 0,
-        id_item: None,
+        item_id: None,
         source_id: None,
         barcode: s.barcode.clone(),
         call_number: s.call_number.clone(),
+        volume_designation: None,
         place: None,
-        status: Some(98), // Borrowable
-        codestat: None,
+        borrow_status: Some(98),
+        circulation_status: None,
         notes,
         price: None,
-        crea_date: None,
-        modif_date: None,
-        archive_date: None,
-        lifecycle_status: 0,
+        created_at: None,
+        updated_at: None,
+        archived_at: None,
         source_name: s.library.clone(),
         availability: Some(0),
+    }
+}
+
+fn language_id_to_code(id: i16) -> Option<&'static str> {
+    match id {
+        1 => Some("fre"),
+        2 => Some("eng"),
+        3 => Some("ger"),
+        4 => Some("jpn"),
+        5 => Some("spa"),
+        6 => Some("por"),
+        0 => Some("und"),
+        _ => None,
+    }
+}
+
+fn make_note(text: String) -> NoteData {
+    NoteData { text, other_subfields: Vec::new() }
+}
+
+fn make_subject(term: String) -> SubjectData {
+    SubjectData {
+        thesaurus: SubjectThesaurus::default(), term,
+        name_subdivision: None, form_subdivision: None,
+        general_subdivision: None, chronological_subdivision: None,
+        geographic_subdivision: None, source: None,
+        authority_number: None, other_subfields: Vec::new(),
+    }
+}
+
+fn author_to_personal(author: &AuthorWithFunction) -> PersonalNameData {
+
+    PersonalNameData {
+        name_type: PersonalNameType::default(),
+        name: author.lastname.clone().unwrap_or_default(),
+        numeration: author.firstname.clone(),
+        titles: None, dates: None,
+        relator_term: None,
+        fuller_form: None,
+        relator_code: author.function.clone(),
+        authority_number: None, dates_of_work: None,
+        other_subfields: Vec::new(),
+    }
+}
+
+/// Sync or insert a specific Note variant, preserving other notes.
+fn sync_note<F>(notes: &mut Vec<Note>, matcher: F, new_note: Note)
+where
+    F: Fn(&Note) -> bool,
+{
+    if let Some(pos) = notes.iter().position(&matcher) {
+        notes[pos] = new_note;
+    } else {
+        notes.push(new_note);
+    }
+}
+
+/// Remove all notes matching a predicate.
+fn remove_notes<F>(notes: &mut Vec<Note>, matcher: F)
+where
+    F: Fn(&Note) -> bool,
+{
+    notes.retain(|n| !matcher(n));
+}
+
+impl From<&Item> for MarcRecord {
+    fn from(item: &Item) -> Self {
+        use z3950_rs::marc_rs::fields::edition::Edition as MarcEdition;
+        use z3950_rs::marc_rs::leader::*;
+
+        // Start from existing marc_record if present, otherwise create a fresh record
+        let mut record = item
+            .marc_record
+            .as_ref()
+            .and_then(|v| serde_json::from_value::<MarcRecord>(v.clone()).ok())
+            .unwrap_or_else(|| {
+                MarcRecord::new(
+                    Leader::builder()
+                        .record_status(RecordStatus::New)
+                        .record_type(RecordType::LanguageMaterial)
+                        .bibliographic_level(BibliographicLevel::Monograph)
+                        .character_coding_scheme(CharacterCodingScheme::Utf8)
+                        .build(),
+                )
+            });
+
+        // --- Title: update existing TitleStatement or insert as first ---
+        if let Some(ref title) = item.title {
+            if let Some(pos) = record.titles.iter().position(|t| matches!(t, Title::TitleStatement(_))) {
+                if let Title::TitleStatement(ref existing) = record.titles[pos] {
+                    let mut updated = existing.clone();
+                    updated.title = title.clone();
+                    record.titles[pos] = Title::TitleStatement(updated);
+                }
+            } else {
+                record.titles.insert(0, Title::TitleStatement(TitleStatementData {
+                    title_added_entry: true, nonfiling_chars: 0,
+                    title: title.clone(),
+                    remainder: None, responsibility: None,
+                    other_title_info: None, first_responsibility: None,
+                    other_responsibility: None, medium: None,
+                    number_of_part: None, name_of_part: None,
+                    other_subfields: Vec::new(),
+                }));
+            }
+        }
+
+        // --- ISBNs: rebuild from Item (replaces all) ---
+        if let Some(ref isbn_str) = item.isbn {
+            record.isbns.clear();
+            for (i, part) in isbn_str.split(", ").enumerate() {
+                record.isbns.push(Isbn {
+                    number: part.to_string(),
+                    qualification: None,
+                    price_or_acquisition: if i == 0 { item.price.clone() } else { None },
+                    cancelled_invalid: None,
+                    other_subfields: Vec::new(),
+                });
+            }
+        }
+
+        // --- Authors: rebuild personal names, preserve corporate/meeting/uniform ---
+        record.main_entries.retain(|e| !matches!(e, MainEntry::PersonalName(_)));
+        record.added_entries.retain(|e| !matches!(e, AddedEntry::PersonalName(_)));
+
+        for (idx, author) in item.authors.iter().enumerate() {
+            let personal = author_to_personal(author);
+            if idx == 0 {
+                record.main_entries.insert(0, MainEntry::PersonalName(personal));
+            } else {
+                record.added_entries.push(AddedEntry::PersonalName(personal));
+            }
+            
+        }
+
+        // --- Publication: update first Publication entry or add one ---
+        if let Some(ref edition) = item.edition {
+            let pub_data = PublicationData {
+                is_rda: false, function: None,
+                places: edition.place_of_publication.clone().into_iter().collect(),
+                publishers: edition.publisher_name.clone().into_iter().collect(),
+                dates: edition.date.clone().into_iter().collect(),
+                manufacturing_places: Vec::new(),
+                manufacturing_dates: Vec::new(),
+                other_subfields: Vec::new(),
+            };
+            if let Some(pos) = record.editions.iter().position(|e| matches!(e, MarcEdition::Publication(_))) {
+                record.editions[pos] = MarcEdition::Publication(pub_data);
+            } else {
+                record.editions.push(MarcEdition::Publication(pub_data));
+            }
+        } else if let Some(ref pub_date) = item.publication_date {
+            let pub_data = PublicationData {
+                is_rda: false, function: None,
+                places: Vec::new(), publishers: Vec::new(),
+                dates: vec![pub_date.clone()],
+                manufacturing_places: Vec::new(),
+                manufacturing_dates: Vec::new(),
+                other_subfields: Vec::new(),
+            };
+            if let Some(pos) = record.editions.iter().position(|e| matches!(e, MarcEdition::Publication(_))) {
+                record.editions[pos] = MarcEdition::Publication(pub_data);
+            } else {
+                record.editions.push(MarcEdition::Publication(pub_data));
+            }
+        }
+
+        // --- Physical description: update first or add ---
+        if item.page_extent.is_some() || item.format.is_some() || item.accompanying_material.is_some() {
+            let phys = PhysicalDescriptionData {
+                extent: item.page_extent.clone().unwrap_or_default(),
+                other_physical_details: None,
+                dimensions: item.format.clone(),
+                accompanying_material: item.accompanying_material.clone(),
+                other_subfields: Vec::new(),
+            };
+            if let Some(pos) = record.physical.iter().position(|p| matches!(p, Physical::PhysicalDescription(_))) {
+                record.physical[pos] = Physical::PhysicalDescription(phys);
+            } else {
+                record.physical.insert(0, Physical::PhysicalDescription(phys));
+            }
+        }
+
+        // --- Series: update first SeriesStatement/SeriesTitle or add ---
+        if let Some(ref series) = item.series {
+            if let Some(ref name) = series.name {
+                let sd = SeriesStatementData {
+                    traced: false,
+                    statement: name.clone(),
+                    volume: item.series_volume_number.map(|v| v.to_string()),
+                    issn: series.issn.clone(),
+                    subseries: None,
+                    other_subfields: Vec::new(),
+                };
+                if let Some(pos) = record.series.iter().position(|s| {
+                    matches!(s, Series::SeriesStatement(_) | Series::SeriesTitle(_))
+                }) {
+                    record.series[pos] = Series::SeriesStatement(sd);
+                } else {
+                    record.series.push(Series::SeriesStatement(sd));
+                }
+            }
+        }
+
+        // --- Collection (Linking::MainSeriesEntry): update or add ---
+        if let Some(ref collection) = item.collection {
+            if let Some(ref coll_title) = collection.primary_title {
+                let ld = LinkingData {
+                    display_note: true,
+                    title: Some(coll_title.clone()),
+                    record_control_number: None,
+                    issn: collection.issn.clone(),
+                    isbn: None,
+                    volume: item.collection_volume_number.map(|v| v.to_string()),
+                    link_identifier: None,
+                    other_subfields: Vec::new(),
+                };
+                if let Some(pos) = record.linking.iter().position(|l| matches!(l, Linking::MainSeriesEntry(_))) {
+                    record.linking[pos] = Linking::MainSeriesEntry(ld);
+                } else {
+                    record.linking.push(Linking::MainSeriesEntry(ld));
+                }
+            }
+        }
+
+        // --- Notes: sync specific types, preserve the rest ---
+        if let Some(ref notes) = item.notes {
+            sync_note(&mut record.notes, |n| matches!(n, Note::GeneralNote(_)),
+                Note::GeneralNote(make_note(notes.clone())));
+        } else {
+            remove_notes(&mut record.notes, |n| matches!(n, Note::GeneralNote(_)));
+        }
+
+        if let Some(ref content) = item.table_of_contents {
+            sync_note(&mut record.notes, |n| matches!(n, Note::FormattedContentsNote(_)),
+                Note::FormattedContentsNote(make_note(content.clone())));
+        } else {
+            remove_notes(&mut record.notes, |n| matches!(n, Note::FormattedContentsNote(_)));
+        }
+
+        if let Some(ref abstract_) = item.abstract_ {
+            sync_note(&mut record.notes, |n| matches!(n, Note::Summary(_)),
+                Note::Summary(make_note(abstract_.clone())));
+        } else {
+            remove_notes(&mut record.notes, |n| matches!(n, Note::Summary(_)));
+        }
+
+        // --- Subjects: rebuild TopicalTerm + IndexTermUncontrolled, preserve others ---
+        record.subjects.retain(|s| !matches!(s,
+            Subject::SubjectTopicalTerm(_) | Subject::IndexTermUncontrolled(_)
+        ));
+
+        if let Some(ref subject) = item.subject {
+            record.subjects.insert(0, Subject::SubjectTopicalTerm(make_subject(subject.clone())));
+        }
+
+        if let Some(ref keywords) = item.keywords {
+            for kw in keywords.split(", ") {
+                if !kw.is_empty() {
+                    record.subjects.push(Subject::IndexTermUncontrolled(make_subject(kw.to_string())));
+                }
+            }
+        }
+
+        // --- Dewey / Call number: replace all ---
+        record.classifications.clear();
+        if let Some(ref call_number) = item.call_number {
+            record.classifications.push(DeweyClassification {
+                is_additional: false,
+                edition_type: DeweyEditionType::default(),
+                assigned_by_lc: None,
+                numbers: vec![call_number.clone()],
+                item_number: None, edition: None,
+                other_subfields: Vec::new(),
+            });
+        }
+
+        // --- Languages: replace all ---
+        record.languages.clear();
+        if let Some(lang) = item.lang {
+            if let Some(code) = language_id_to_code(lang) {
+                let mut codes = vec![LanguageCode::from_code(code)];
+                if let Some(lang_orig) = item.lang_orig {
+                    if let Some(orig_code) = language_id_to_code(lang_orig) {
+                        codes.push(LanguageCode::from_code(orig_code));
+                    }
+                }
+                record.languages.push(LanguageData {
+                    is_translation: if item.lang_orig.is_some() { Some(true) } else { None },
+                    codes,
+                    other_subfields: Vec::new(),
+                });
+            }
+        }
+
+        record
     }
 }
 

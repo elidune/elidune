@@ -5,6 +5,7 @@ pub mod enums;
 pub mod equipment;
 pub mod event;
 pub mod item;
+pub mod item_author;
 pub mod loan;
 pub mod remote_item;
 pub mod schedule;
@@ -16,6 +17,7 @@ pub mod visitor_count;
 // Re-export commonly used types
 pub use author::Author;
 pub use enums::{Genre, Lang, Occupation, Sex, StaffType, EquipmentType, EquipmentStatus, EventType};
+pub use item_author::ItemAuthor;
 pub use equipment::Equipment;
 pub use event::Event;
 pub use item::{Item, ItemShort, MediaType};

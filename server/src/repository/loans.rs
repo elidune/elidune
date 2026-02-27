@@ -53,18 +53,18 @@ impl LoansRepository {
             r#"
             SELECT l.*, s.barcode as specimen_identification,
                    i.id as item_id, i.media_type, i.isbn as item_isbn,
-                   i.title1, i.publication_date,
+                   i.title, i.publication_date,
                    COALESCE((
                        SELECT CAST(COUNT(*) AS SMALLINT)
                        FROM specimens s2
-                       WHERE s2.id_item = i.id
-                         AND s2.lifecycle_status != 2
+                       WHERE s2.item_id = i.id
+                         AND s2.archived_at IS NULL
                    ), 0::smallint)::smallint as nb_specimens,
                    COALESCE((
                        SELECT CAST(COUNT(*) AS SMALLINT)
                        FROM specimens s2
-                       WHERE s2.id_item = i.id
-                         AND s2.lifecycle_status != 2
+                       WHERE s2.item_id = i.id
+                         AND s2.archived_at IS NULL
                          AND NOT EXISTS (
                              SELECT 1 FROM loans l2
                              WHERE l2.specimen_id = s2.id
@@ -73,7 +73,7 @@ impl LoansRepository {
                    ), 0::smallint)::smallint as nb_available
             FROM loans l
             JOIN specimens s ON l.specimen_id = s.id
-            JOIN items i ON s.id_item = i.id
+            JOIN items i ON s.item_id = i.id
             WHERE l.user_id = $1 AND l.returned_date IS NULL
             ORDER BY l.issue_date
             "#,
@@ -100,15 +100,15 @@ impl LoansRepository {
                     id: row.get("item_id"),
                     media_type: row.get("media_type"),
                     isbn: row.get("item_isbn"),
-                    title: row.get("title1"),
+                    title: row.get("title"),
                     date: row.get("publication_date"),
                     status: Some(0),
                     is_local: Some(1),
-                    is_archive: Some(0),
                     is_valid: Some(1),
+                    archived_at: None,
                     nb_specimens: row.get("nb_specimens"),
                     nb_available: row.get("nb_available"),
-                    authors: Vec::new(),
+                    author: None,
                     source_name: None,
                 },
                 user: None,
@@ -154,9 +154,9 @@ impl LoansRepository {
         // Get specimen info and loan settings
         let specimen_row = sqlx::query(
             r#"
-            SELECT s.id_item, s.status, i.media_type
+            SELECT s.item_id, s.borrow_status, i.media_type
             FROM specimens s
-            JOIN items i ON s.id_item = i.id
+            JOIN items i ON s.item_id = i.id
             WHERE s.id = $1
             "#
         )
@@ -164,9 +164,9 @@ impl LoansRepository {
         .fetch_one(&self.pool)
         .await?;
 
-        let status: Option<i16> = specimen_row.get("status");
+        let status: Option<i16> = specimen_row.get("borrow_status");
         let media_type: Option<String> = specimen_row.get("media_type");
-        let item_id: i32 = specimen_row.get("id_item");
+        let item_id: i32 = specimen_row.get("item_id");
 
         // Check if borrowable
         if status != Some(98) && !loan.force {
@@ -285,14 +285,14 @@ impl LoansRepository {
                    COALESCE((
                        SELECT CAST(COUNT(*) AS SMALLINT)
                        FROM specimens s2
-                       WHERE s2.id_item = i.id
-                         AND s2.lifecycle_status != 2
+                       WHERE s2.item_id = i.id
+                         AND s2.archived_at IS NULL
                    ), 0::smallint)::smallint as nb_specimens,
                    COALESCE((
                        SELECT CAST(COUNT(*) AS SMALLINT)
                        FROM specimens s2
-                       WHERE s2.id_item = i.id
-                         AND s2.lifecycle_status != 2
+                       WHERE s2.item_id = i.id
+                         AND s2.archived_at IS NULL
                          AND NOT EXISTS (
                              SELECT 1 FROM loans l2
                              WHERE l2.specimen_id = s2.id
@@ -300,7 +300,7 @@ impl LoansRepository {
                          )
                    ), 0::smallint)::smallint as nb_available
             FROM items i
-            JOIN specimens s ON s.id_item = i.id
+            JOIN specimens s ON s.item_id = i.id
             WHERE s.id = $1
             "#
         )
@@ -332,15 +332,15 @@ impl LoansRepository {
                 id: item_row.get("id"),
                 media_type: item_row.get("media_type"),
                 isbn: item_row.get("isbn"),
-                title: item_row.get("title1"),
+                title: item_row.get("title"),
                 date: item_row.get("publication_date"),
                 status: Some(0),
                 is_local: Some(1),
-                is_archive: Some(0),
                 is_valid: Some(1),
+                archived_at: None,
                 nb_specimens: item_row.get("nb_specimens"),
                 nb_available: item_row.get("nb_available"),
-                authors: Vec::new(),
+                author: None,
                 source_name: None,
             },
             user,
@@ -361,7 +361,7 @@ impl LoansRepository {
 
         // Get max renewals
         let specimen_row = sqlx::query(
-            "SELECT i.media_type FROM specimens s JOIN items i ON s.id_item = i.id WHERE s.id = $1"
+            "SELECT i.media_type FROM specimens s JOIN items i ON s.item_id = i.id WHERE s.id = $1"
         )
         .bind(loan.specimen_id)
         .fetch_one(&self.pool)

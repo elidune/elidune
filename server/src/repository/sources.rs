@@ -107,8 +107,7 @@ impl SourcesRepository {
             r#"
             SELECT COUNT(*)::bigint FROM specimens
             WHERE source_id = $1
-              AND (is_archive IS NULL OR is_archive = 0)
-              AND lifecycle_status != 2
+              AND archived_at IS NULL
             "#,
         )
         .bind(source_id)

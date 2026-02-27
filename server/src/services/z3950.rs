@@ -361,24 +361,22 @@ impl Z3950Service {
             }
         }
 
-        // Copy to items table
         let now = Utc::now();
 
         let item_id = sqlx::query_scalar::<_, i32>(
             r#"
             INSERT INTO items (
-                media_type, isbn, price, barcode, dewey, publication_date,
-                lang, lang_orig, title1, title2, title3, title4,
-                author1_ids, author1_functions, author2_ids, author2_functions,
-                author3_ids, author3_functions, serie_id, serie_vol_number,
-                collection_id, collection_number_sub, collection_vol_number,
-                genre, subject, public_type, edition_id, edition_date,
-                nb_pages, format, content, addon, abstract, notes, keywords,
-                is_valid, crea_date, modif_date
+                media_type, isbn, price, barcode, publication_date,
+                lang, lang_orig, title,
+                series_id, series_volume_number,
+                collection_id, collection_sequence_number, collection_volume_number,
+                genre, subject, audience_type, edition_id,
+                page_extent, format, table_of_contents, accompanying_material,
+                abstract, notes, keywords, is_valid, created_at, updated_at
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27,
-                $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38
+                $1, $2, $3, $4, $5, $6, $7, $8,
+                $9, $10, $11, $12, $13, $14, $15, $16, $17,
+                $18, $19, $20, $21, $22, $23, $24, $25, $26, $27
             )
             RETURNING id
             "#,
@@ -387,20 +385,10 @@ impl Z3950Service {
         .bind(&item_remote.isbn)
         .bind(&item_remote.price)
         .bind(&item_remote.barcode)
-        .bind(&item_remote.dewey)
         .bind(&item_remote.publication_date)
         .bind(&item_remote.lang)
         .bind(&item_remote.lang_orig)
         .bind(&item_remote.title1)
-        .bind(&item_remote.title2)
-        .bind(&item_remote.title3)
-        .bind(&item_remote.title4)
-        .bind(&item_remote.author1_ids)
-        .bind(&item_remote.author1_functions)
-        .bind(&item_remote.author2_ids)
-        .bind(&item_remote.author2_functions)
-        .bind(&item_remote.author3_ids)
-        .bind(&item_remote.author3_functions)
         .bind(&item_remote.serie_id)
         .bind(&item_remote.serie_vol_number)
         .bind(&item_remote.collection_id)
@@ -410,7 +398,6 @@ impl Z3950Service {
         .bind(&item_remote.subject)
         .bind(&item_remote.public_type)
         .bind(&item_remote.edition_id)
-        .bind(&item_remote.edition_date)
         .bind(&item_remote.nb_pages)
         .bind(&item_remote.format)
         .bind(&item_remote.content)
@@ -424,6 +411,46 @@ impl Z3950Service {
         .fetch_one(pool)
         .await?;
 
+        // Insert authors via junction table
+        if let Some(ref json) = item_remote.authors1_json {
+            if let Ok(authors) = serde_json::from_value::<Vec<crate::models::author::AuthorWithFunction>>(json.clone()) {
+                for (idx, author) in authors.iter().enumerate() {
+                    if let Some(ref lastname) = author.lastname {
+                        let author_id: i32 = sqlx::query_scalar(
+                            "SELECT id FROM authors WHERE lastname = $1 AND firstname IS NOT DISTINCT FROM $2"
+                        )
+                        .bind(lastname)
+                        .bind(&author.firstname)
+                        .fetch_optional(pool)
+                        .await?
+                        .unwrap_or_else(|| 0);
+
+                        let author_id = if author_id == 0 {
+                            sqlx::query_scalar::<_, i32>(
+                                "INSERT INTO authors (lastname, firstname) VALUES ($1, $2) RETURNING id"
+                            )
+                            .bind(lastname)
+                            .bind(&author.firstname)
+                            .fetch_one(pool)
+                            .await?
+                        } else {
+                            author_id
+                        };
+
+                        let _ = sqlx::query(
+                            "INSERT INTO item_authors (item_id, author_id, role, author_type, position) VALUES ($1, $2, $3, 0, $4) ON CONFLICT DO NOTHING"
+                        )
+                        .bind(item_id)
+                        .bind(author_id)
+                        .bind(&author.function)
+                        .bind((idx + 1) as i16)
+                        .execute(pool)
+                        .await;
+                    }
+                }
+            }
+        }
+
         // Create specimens if provided
         if let Some(specimens) = specimens {
             // Get default source if needed
@@ -435,7 +462,7 @@ impl Z3950Service {
 
                 sqlx::query(
                     r#"
-                    INSERT INTO specimens (id_item, barcode, call_number, place, status, notes, price, source_id, crea_date, modif_date)
+                    INSERT INTO specimens (item_id, barcode, call_number, place, borrow_status, notes, price, source_id, created_at, updated_at)
                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
                     "#,
                 )
@@ -463,8 +490,13 @@ impl Z3950Service {
             .await
             .map_err(|e| AppError::Internal(format!("Failed to delete ID mapping from Redis: {}", e)))?;
 
-        // Return the imported item
-        self.repository.items.get_by_id_or_isbn(&item_id.to_string()).await
+        // Build and save marc_record from the fully constructed item
+        let item = self.repository.items.get_by_id_or_isbn(&item_id.to_string(), true).await?;
+        let marc_record_value = serde_json::to_value(&crate::marc::MarcRecord::from(&item))
+            .map_err(|e| AppError::Internal(format!("Failed to serialize MARC record: {}", e)))?;
+        self.repository.items.save_marc_record(item_id, &marc_record_value).await?;
+
+        Ok(item)
     }
 }
 

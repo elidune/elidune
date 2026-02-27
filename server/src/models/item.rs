@@ -8,35 +8,31 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use utoipa::{IntoParams, ToSchema};
-
 use super::author::AuthorWithFunction;
 use super::specimen::Specimen;
 
 // Re-exports: canonical MARC data types from marc-rs (via z3950-rs).
 pub use z3950_rs::marc_rs::format::MarcFormat;
 pub use z3950_rs::marc_rs::record::{
-    Author, AuthorKind, ControlField, DataField, EditionInfo, Leader, PublicationStatementInfo,
-    Subfield,
+    ControlField, DataField, EditionInfo, PublicationStatementInfo, Subfield,
 };
+pub use z3950_rs::marc_rs::author::{Author, AuthorKind};
 pub use z3950_rs::marc_rs::fields::{
     DeweyClassification, Isbn, LanguageData, LinkingData, PublicationData, SeriesStatementData,
 };
 
-/// Item status for soft delete
+/// Item operational status (independent of archival)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[repr(i16)]
 pub enum ItemStatus {
     Active = 0,
     Unavailable = 1,
-    Deleted = 2,
 }
 
 impl From<i16> for ItemStatus {
     fn from(v: i16) -> Self {
         match v {
-            0 => ItemStatus::Active,
             1 => ItemStatus::Unavailable,
-            2 => ItemStatus::Deleted,
             _ => ItemStatus::Active,
         }
     }
@@ -147,7 +143,7 @@ impl std::fmt::Display for MediaType {
     }
 }
 
-/// Public type (audience). DB stores as i16 (97=Adult, 106=Children).
+/// Audience type. DB stores as i16 (97=Adult, 106=Children).
 /// Derived from MARC21 008 pos.22 or UNIMARC 100 pos.17 when importing from MARC.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[repr(i16)]
@@ -167,64 +163,54 @@ impl From<i16> for PublicType {
     }
 }
 
-/// Full item model (DB + API). Data aligns with marc-rs `Record`: titles, authors, edition_info,
-/// isbns, classifications, language_codes, specimens, etc. Built from MARC via `From<MarcRecord>` in the translator.
+/// Full item model (DB + API). Data aligns with marc-rs `Record`: title, author, edition,
+/// ISBNs, classifications, language codes, specimens, etc. Built from MARC via the translator.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct Item {
     #[serde(default)]
     pub id: Option<i32>,
     pub media_type: Option<String>,
     pub isbn: Option<String>,
-    pub price: Option<String>,
     pub barcode: Option<String>,
-    pub dewey: Option<String>,
-    pub publication_date: Option<String>,
-    pub lang: Option<i16>,
-    pub lang_orig: Option<i16>,
-    pub title1: Option<String>,
-    pub title2: Option<String>,
-    pub title3: Option<String>,
-    pub title4: Option<String>,
+    pub call_number: Option<String>,
+    pub price: Option<String>,
+    pub title: Option<String>,
     pub genre: Option<i16>,
     pub subject: Option<String>,
-    pub public_type: Option<i16>,
-    pub nb_pages: Option<String>,
+    pub audience_type: Option<i16>,
+    pub lang: Option<i16>,
+    pub lang_orig: Option<i16>,
+    pub publication_date: Option<String>,
+    pub page_extent: Option<String>,
     pub format: Option<String>,
-    pub content: Option<String>,
-    pub addon: Option<String>,
+    pub table_of_contents: Option<String>,
+    pub accompanying_material: Option<String>,
     pub abstract_: Option<String>,
     pub notes: Option<String>,
     pub keywords: Option<String>,
     pub state: Option<String>,
-    pub is_archive: Option<i16>,
     pub is_valid: Option<i16>,
-    pub serie_id: Option<i32>,
+    pub series_id: Option<i32>,
     #[serde(default)]
-    pub serie_vol_number: Option<i16>,
+    pub series_volume_number: Option<i16>,
     pub edition_id: Option<i32>,
     pub collection_id: Option<i32>,
     #[serde(default)]
-    pub collection_number_sub: Option<i16>,
+    pub collection_sequence_number: Option<i16>,
     #[serde(default)]
-    pub collection_vol_number: Option<i16>,
+    pub collection_volume_number: Option<i16>,
     #[serde(default)]
-    pub lifecycle_status: i16,
-    pub crea_date: Option<DateTime<Utc>>,
-    pub modif_date: Option<DateTime<Utc>>,
-    pub archived_date: Option<DateTime<Utc>>,
+    pub status: i16,
+    pub created_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<DateTime<Utc>>,
+    pub archived_at: Option<DateTime<Utc>>,
     // Relations (loaded separately)
     #[sqlx(skip)]
     #[serde(default)]
-    pub authors1: Vec<AuthorWithFunction>,
+    pub authors: Vec<AuthorWithFunction>,
     #[sqlx(skip)]
     #[serde(default)]
-    pub authors2: Vec<AuthorWithFunction>,
-    #[sqlx(skip)]
-    #[serde(default)]
-    pub authors3: Vec<AuthorWithFunction>,
-    #[sqlx(skip)]
-    #[serde(default)]
-    pub serie: Option<Serie>,
+    pub series: Option<Serie>,
     #[sqlx(skip)]
     #[serde(default)]
     pub collection: Option<Collection>,
@@ -234,9 +220,10 @@ pub struct Item {
     #[sqlx(skip)]
     #[serde(default)]
     pub specimens: Vec<Specimen>,
+    #[sqlx(skip)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marc_record: Option<serde_json::Value>,
 }
-
-
 
 
 /// Short item representation for lists
@@ -249,12 +236,12 @@ pub struct ItemShort {
     pub date: Option<String>,
     pub status: Option<i16>,
     pub is_local: Option<i16>,
-    pub is_archive: Option<i16>,
     pub is_valid: Option<i16>,
+    pub archived_at: Option<DateTime<Utc>>,
     pub nb_specimens: Option<i16>,
     pub nb_available: Option<i16>,
     #[sqlx(skip)]
-    pub authors: Vec<AuthorWithFunction>,
+    pub author: Option<AuthorWithFunction>,
     #[sqlx(skip)]
     pub source_name: Option<String>,
 }
@@ -267,6 +254,10 @@ pub struct Serie {
     pub key: Option<String>,
     pub name: Option<String>,
     pub issn: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<DateTime<Utc>>,
 }
 
 impl From<&SeriesStatementData> for Serie {
@@ -276,20 +267,26 @@ impl From<&SeriesStatementData> for Serie {
             key: None,
             name: Some(d.statement.clone()),
             issn: d.issn.clone(),
+            created_at: None,
+            updated_at: None,
         }
     }
 }
 
-/// Collection model. Persistence shape for MARC linking (e.g. 410); source: marc-rs `LinkingData` (title → title1, issn).
+/// Collection model. Persistence shape for MARC linking (e.g. 410); source: marc-rs `LinkingData` (title → primary_title, issn).
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct Collection {
     #[serde(default)]
     pub id: Option<i32>,
     pub key: Option<String>,
-    pub title1: Option<String>,
-    pub title2: Option<String>,
-    pub title3: Option<String>,
+    pub primary_title: Option<String>,
+    pub secondary_title: Option<String>,
+    pub tertiary_title: Option<String>,
     pub issn: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<DateTime<Utc>>,
 }
 
 impl From<&LinkingData> for Collection {
@@ -297,10 +294,12 @@ impl From<&LinkingData> for Collection {
         Self {
             id: None,
             key: None,
-            title1: d.title.clone(),
-            title2: None,
-            title3: None,
+            primary_title: d.title.clone(),
+            secondary_title: None,
+            tertiary_title: None,
             issn: d.issn.clone(),
+            created_at: None,
+            updated_at: None,
         }
     }
 }
@@ -310,19 +309,24 @@ impl From<&LinkingData> for Collection {
 pub struct Edition {
     #[serde(default)]
     pub id: Option<i32>,
-    pub name: Option<String>,
-    pub place: Option<String>,
-    #[sqlx(skip)]
+    pub publisher_name: Option<String>,
+    pub place_of_publication: Option<String>,
     pub date: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<DateTime<Utc>>,
 }
 
 impl From<&EditionInfo> for Edition {
     fn from(e: &EditionInfo) -> Self {
         Self {
             id: None,
-            name: e.publisher.clone(),
-            place: e.place.clone(),
+            publisher_name: e.publisher.clone(),
+            place_of_publication: e.place.clone(),
             date: e.date.clone(),
+            created_at: None,
+            updated_at: None,
         }
     }
 }
@@ -331,9 +335,11 @@ impl From<&PublicationData> for Edition {
     fn from(p: &PublicationData) -> Self {
         Self {
             id: None,
-            name: p.publisher().map(String::from),
-            place: p.place().map(String::from),
+            publisher_name: p.publisher().map(String::from),
+            place_of_publication: p.place().map(String::from),
             date: p.date().map(String::from),
+            created_at: None,
+            updated_at: None,
         }
     }
 }
@@ -358,6 +364,3 @@ pub struct ItemQuery {
     pub page: Option<i64>,
     pub per_page: Option<i64>,
 }
-
-// Update requests now use `Item` directly.
-

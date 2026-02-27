@@ -42,7 +42,7 @@ impl StatsService {
         let f = match filter {
             None => {
                 return (
-                    "s.archive_date IS NULL AND s.lifecycle_status != 2".to_string(),
+                    "s.archived_at IS NULL".to_string(),
                     vec![],
                 );
             }
@@ -51,17 +51,15 @@ impl StatsService {
         let mut conditions = Vec::new();
         let mut param_order = Vec::new();
         if f.reference_date.is_some() {
-            conditions.push("(s.crea_date <= $1 AND (s.archive_date IS NULL OR s.archive_date > $1))".to_string());
+            conditions.push("(s.created_at <= $1 AND (s.archived_at IS NULL OR s.archived_at > $1))".to_string());
             param_order.push("ref_date".into());
         } else {
-            conditions.push("s.archive_date IS NULL".to_string());
+            conditions.push("s.archived_at IS NULL".to_string());
         }
-        // Always exclude non-active specimens
-        conditions.push("s.lifecycle_status != 2".to_string());
         if f.public_type.is_some() {
             let i = param_order.len() + 1;
             param_order.push("public_type".into());
-            conditions.push(format!("i.public_type = ${}", i));
+            conditions.push(format!("i.audience_type = ${}", i));
         }
         if f.media_type.is_some() {
             let i = param_order.len() + 1;
@@ -80,7 +78,7 @@ impl StatsService {
         // Specimen stats (with optional filter)
         let total_items: i64 = {
             let q = format!(
-                "SELECT COUNT(*) FROM specimens s JOIN items i ON s.id_item = i.id WHERE {}",
+                "SELECT COUNT(*) FROM specimens s JOIN items i ON s.item_id = i.id WHERE {}",
                 spec_where
             );
             let mut query = sqlx::query_scalar::<_, i64>(&q);
@@ -101,7 +99,7 @@ impl StatsService {
         let items_by_media_type = {
             let q = format!(
                 r#"SELECT COALESCE(i.media_type, 'unknown') as label, COUNT(*) as value
-                   FROM specimens s JOIN items i ON s.id_item = i.id
+                   FROM specimens s JOIN items i ON s.item_id = i.id
                    WHERE {} GROUP BY i.media_type ORDER BY value DESC"#,
                 spec_where
             );
@@ -130,10 +128,10 @@ impl StatsService {
 
         let items_by_public_type = {
             let q = format!(
-                r#"SELECT CASE i.public_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as label,
+                r#"SELECT CASE i.audience_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as label,
                           COUNT(*) as value
-                   FROM specimens s JOIN items i ON s.id_item = i.id
-                   WHERE {} GROUP BY i.public_type ORDER BY value DESC"#,
+                   FROM specimens s JOIN items i ON s.item_id = i.id
+                   WHERE {} GROUP BY i.audience_type ORDER BY value DESC"#,
                 spec_where
             );
             let mut query = sqlx::query(&q);
@@ -212,7 +210,7 @@ impl StatsService {
             SELECT COALESCE(i.media_type, 'unknown') as label, COUNT(*) as value
             FROM loans l
             JOIN specimens s ON l.specimen_id = s.id
-            JOIN items i ON s.id_item = i.id
+            JOIN items i ON s.item_id = i.id
             WHERE l.returned_date IS NULL
             GROUP BY i.media_type
             ORDER BY value DESC
@@ -239,7 +237,7 @@ impl StatsService {
                 let mut param_offset = 2_usize; // $1 and $2 are year_start and year_end
                 if f.public_type.is_some() {
                     param_offset += 1;
-                    extra_cond.push_str(&format!(" AND i.public_type = ${}", param_offset));
+                    extra_cond.push_str(&format!(" AND i.audience_type = ${}", param_offset));
                 }
                 if f.media_type.is_some() {
                     param_offset += 1;
@@ -249,7 +247,7 @@ impl StatsService {
 
                 // Acquisitions total
                 let acq_q = format!(
-                    "SELECT COUNT(*) FROM specimens s JOIN items i ON s.id_item = i.id WHERE s.crea_date >= $1 AND s.crea_date <= $2 AND s.lifecycle_status != 2{}",
+                    "SELECT COUNT(*) FROM specimens s JOIN items i ON s.item_id = i.id WHERE s.created_at >= $1 AND s.created_at <= $2 AND s.archived_at IS NULL{}",
                     extra_cond
                 );
                 let mut acq_builder = sqlx::query_scalar::<_, i64>(&acq_q)
@@ -261,7 +259,7 @@ impl StatsService {
 
                 // Acquisitions by media type
                 let acq_mt_q = format!(
-                    "SELECT COALESCE(i.media_type, 'unknown') as label, COUNT(*) as value FROM specimens s JOIN items i ON s.id_item = i.id WHERE s.crea_date >= $1 AND s.crea_date <= $2 AND s.lifecycle_status != 2{} GROUP BY i.media_type ORDER BY value DESC",
+                    "SELECT COALESCE(i.media_type, 'unknown') as label, COUNT(*) as value FROM specimens s JOIN items i ON s.item_id = i.id WHERE s.created_at >= $1 AND s.created_at <= $2 AND s.archived_at IS NULL{} GROUP BY i.media_type ORDER BY value DESC",
                     extra_cond
                 );
                 let mut acq_mt_builder = sqlx::query(&acq_mt_q)
@@ -274,7 +272,7 @@ impl StatsService {
 
                 // Withdrawals total
                 let wd_q = format!(
-                    "SELECT COUNT(*) FROM specimens s JOIN items i ON s.id_item = i.id WHERE s.archive_date >= $1 AND s.archive_date <= $2{}",
+                    "SELECT COUNT(*) FROM specimens s JOIN items i ON s.item_id = i.id WHERE s.archived_at >= $1 AND s.archived_at <= $2{}",
                     extra_cond
                 );
                 let mut wd_builder = sqlx::query_scalar::<_, i64>(&wd_q)
@@ -286,7 +284,7 @@ impl StatsService {
 
                 // Withdrawals by media type
                 let wd_mt_q = format!(
-                    "SELECT COALESCE(i.media_type, 'unknown') as label, COUNT(*) as value FROM specimens s JOIN items i ON s.id_item = i.id WHERE s.archive_date >= $1 AND s.archive_date <= $2{} GROUP BY i.media_type ORDER BY value DESC",
+                    "SELECT COALESCE(i.media_type, 'unknown') as label, COUNT(*) as value FROM specimens s JOIN items i ON s.item_id = i.id WHERE s.archived_at >= $1 AND s.archived_at <= $2{} GROUP BY i.media_type ORDER BY value DESC",
                     extra_cond
                 );
                 let mut wd_mt_builder = sqlx::query(&wd_mt_q)
@@ -439,7 +437,7 @@ impl StatsService {
         }
 
         if let Some(pt) = public_type {
-            where_clauses.push(format!("i.public_type = {}", pt));
+            where_clauses.push(format!("i.audience_type = {}", pt));
         }
 
         if let Some(uid) = user_id {
@@ -456,7 +454,7 @@ impl StatsService {
                 COUNT(*) as count
             FROM loans l
             JOIN specimens s ON l.specimen_id = s.id
-            JOIN items i ON s.id_item = i.id
+            JOIN items i ON s.item_id = i.id
             WHERE {}
             GROUP BY {}
             ORDER BY period
@@ -486,7 +484,7 @@ impl StatsService {
         }
 
         if let Some(pt) = public_type {
-            archived_loans_where.push(format!("i.public_type = {}", pt));
+            archived_loans_where.push(format!("i.audience_type = {}", pt));
         }
 
         if let Some(uid) = user_id {
@@ -533,7 +531,7 @@ impl StatsService {
         }
 
         if let Some(pt) = public_type {
-            returns_where.push(format!("i.public_type = {}", pt));
+            returns_where.push(format!("i.audience_type = {}", pt));
         }
 
         if let Some(uid) = user_id {
@@ -607,7 +605,7 @@ impl StatsService {
                 COUNT(*) as value
             FROM loans l
             JOIN specimens s ON l.specimen_id = s.id
-            JOIN items i ON s.id_item = i.id
+            JOIN items i ON s.item_id = i.id
             WHERE {}
             GROUP BY i.media_type
             ORDER BY value DESC
@@ -905,14 +903,14 @@ impl StatsService {
                             COALESCE(src.id, 0) as source_id,
                             COALESCE(src.name, 'unknown') as source_name,
                             COALESCE(i.media_type, 'unknown') as media_type_label,
-                            CASE i.public_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as public_type_label,
-                            COUNT(*) FILTER (WHERE (sp.archive_date IS NULL OR sp.archive_date > $3)) as active_specimens,
-                            COUNT(*) FILTER (WHERE sp.crea_date >= $1 AND sp.crea_date <= $2) as entered_specimens,
-                            COUNT(*) FILTER (WHERE sp.archive_date >= $1 AND sp.archive_date <= $2) as archived_specimens
+                            CASE i.audience_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as public_type_label,
+                            COUNT(*) FILTER (WHERE (sp.archived_at IS NULL OR sp.archived_at > $3)) as active_specimens,
+                            COUNT(*) FILTER (WHERE sp.created_at >= $1 AND sp.created_at <= $2) as entered_specimens,
+                            COUNT(*) FILTER (WHERE sp.archived_at >= $1 AND sp.archived_at <= $2) as archived_specimens
                         FROM specimens sp
                         LEFT JOIN sources src ON sp.source_id = src.id
-                        JOIN items i ON sp.id_item = i.id
-                        GROUP BY src.id, src.name, i.media_type, i.public_type
+                        JOIN items i ON sp.item_id = i.id
+                        GROUP BY src.id, src.name, i.media_type, i.audience_type
                         "#
                     )
                     .bind(start)
@@ -964,12 +962,12 @@ impl StatsService {
                             COALESCE(src.id, 0) as source_id,
                             COALESCE(src.name, 'unknown') as source_name,
                             COALESCE(i.media_type, 'unknown') as media_type_label,
-                            COUNT(*) FILTER (WHERE sp.archive_date IS NULL AND sp.lifecycle_status != 2) as active_specimens,
-                            COUNT(*) FILTER (WHERE sp.crea_date >= $1 AND sp.crea_date <= $2) as entered_specimens,
-                            COUNT(*) FILTER (WHERE sp.archive_date >= $1 AND sp.archive_date <= $2) as archived_specimens
+                            COUNT(*) FILTER (WHERE sp.archived_at IS NULL) as active_specimens,
+                            COUNT(*) FILTER (WHERE sp.created_at >= $1 AND sp.created_at <= $2) as entered_specimens,
+                            COUNT(*) FILTER (WHERE sp.archived_at >= $1 AND sp.archived_at <= $2) as archived_specimens
                         FROM specimens sp
                         LEFT JOIN sources src ON sp.source_id = src.id
-                        JOIN items i ON sp.id_item = i.id
+                        JOIN items i ON sp.item_id = i.id
                         GROUP BY src.id, src.name, i.media_type
                         "#
                     )
@@ -1012,14 +1010,14 @@ impl StatsService {
                         SELECT
                             COALESCE(src.id, 0) as source_id,
                             COALESCE(src.name, 'unknown') as source_name,
-                            CASE i.public_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as public_type_label,
-                            COUNT(*) FILTER (WHERE sp.archive_date IS NULL AND sp.lifecycle_status != 2) as active_specimens,
-                            COUNT(*) FILTER (WHERE sp.crea_date >= $1 AND sp.crea_date <= $2) as entered_specimens,
-                            COUNT(*) FILTER (WHERE sp.archive_date >= $1 AND sp.archive_date <= $2) as archived_specimens
+                            CASE i.audience_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as public_type_label,
+                            COUNT(*) FILTER (WHERE sp.archived_at IS NULL) as active_specimens,
+                            COUNT(*) FILTER (WHERE sp.created_at >= $1 AND sp.created_at <= $2) as entered_specimens,
+                            COUNT(*) FILTER (WHERE sp.archived_at >= $1 AND sp.archived_at <= $2) as archived_specimens
                         FROM specimens sp
                         LEFT JOIN sources src ON sp.source_id = src.id
-                        JOIN items i ON sp.id_item = i.id
-                        GROUP BY src.id, src.name, i.public_type
+                        JOIN items i ON sp.item_id = i.id
+                        GROUP BY src.id, src.name, i.audience_type
                         "#
                     )
                     .bind(start)
@@ -1062,9 +1060,9 @@ impl StatsService {
                         SELECT
                             COALESCE(src.id, 0) as source_id,
                             COALESCE(src.name, 'unknown') as source_name,
-                            COUNT(*) FILTER (WHERE sp.archive_date IS NULL AND sp.lifecycle_status != 2) as active_specimens,
-                            COUNT(*) FILTER (WHERE sp.crea_date >= $1 AND sp.crea_date <= $2) as entered_specimens,
-                            COUNT(*) FILTER (WHERE sp.archive_date >= $1 AND sp.archive_date <= $2) as archived_specimens
+                            COUNT(*) FILTER (WHERE sp.archived_at IS NULL) as active_specimens,
+                            COUNT(*) FILTER (WHERE sp.created_at >= $1 AND sp.created_at <= $2) as entered_specimens,
+                            COUNT(*) FILTER (WHERE sp.archived_at >= $1 AND sp.archived_at <= $2) as archived_specimens
                         FROM specimens sp
                         LEFT JOIN sources src ON sp.source_id = src.id
                         GROUP BY src.id, src.name
@@ -1101,13 +1099,13 @@ impl StatsService {
                         r#"
                         SELECT
                             COALESCE(i.media_type, 'unknown') as label,
-                            CASE i.public_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as public_type_label,
-                            COUNT(*) FILTER (WHERE sp.archive_date IS NULL AND sp.lifecycle_status != 2) as active_specimens,
-                            COUNT(*) FILTER (WHERE sp.crea_date >= $1 AND sp.crea_date <= $2) as entered_specimens,
-                            COUNT(*) FILTER (WHERE sp.archive_date >= $1 AND sp.archive_date <= $2) as archived_specimens
+                            CASE i.audience_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as public_type_label,
+                            COUNT(*) FILTER (WHERE sp.archived_at IS NULL) as active_specimens,
+                            COUNT(*) FILTER (WHERE sp.created_at >= $1 AND sp.created_at <= $2) as entered_specimens,
+                            COUNT(*) FILTER (WHERE sp.archived_at >= $1 AND sp.archived_at <= $2) as archived_specimens
                         FROM specimens sp
-                        JOIN items i ON sp.id_item = i.id
-                        GROUP BY i.media_type, i.public_type
+                        JOIN items i ON sp.item_id = i.id
+                        GROUP BY i.media_type, i.audience_type
                         "#
                     )
                     .bind(start)
@@ -1147,11 +1145,11 @@ impl StatsService {
                         r#"
                         SELECT
                             COALESCE(i.media_type, 'unknown') as label,
-                            COUNT(*) FILTER (WHERE sp.archive_date IS NULL AND sp.lifecycle_status != 2) as active_specimens,
-                            COUNT(*) FILTER (WHERE sp.crea_date >= $1 AND sp.crea_date <= $2) as entered_specimens,
-                            COUNT(*) FILTER (WHERE sp.archive_date >= $1 AND sp.archive_date <= $2) as archived_specimens
+                            COUNT(*) FILTER (WHERE sp.archived_at IS NULL) as active_specimens,
+                            COUNT(*) FILTER (WHERE sp.created_at >= $1 AND sp.created_at <= $2) as entered_specimens,
+                            COUNT(*) FILTER (WHERE sp.archived_at >= $1 AND sp.archived_at <= $2) as archived_specimens
                         FROM specimens sp
-                        JOIN items i ON sp.id_item = i.id
+                        JOIN items i ON sp.item_id = i.id
                         GROUP BY i.media_type
                         ORDER BY active_specimens DESC
                         "#
@@ -1181,13 +1179,13 @@ impl StatsService {
                 sqlx::query(
                     r#"
                     SELECT
-                        CASE i.public_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as label,
-                        COUNT(*) FILTER (WHERE sp.archive_date IS NULL AND sp.lifecycle_status != 2) as active_specimens,
-                        COUNT(*) FILTER (WHERE sp.crea_date >= $1 AND sp.crea_date <= $2) as entered_specimens,
-                        COUNT(*) FILTER (WHERE sp.archive_date >= $1 AND sp.archive_date <= $2) as archived_specimens
+                        CASE i.audience_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as label,
+                        COUNT(*) FILTER (WHERE sp.archived_at IS NULL) as active_specimens,
+                        COUNT(*) FILTER (WHERE sp.created_at >= $1 AND sp.created_at <= $2) as entered_specimens,
+                        COUNT(*) FILTER (WHERE sp.archived_at >= $1 AND sp.archived_at <= $2) as archived_specimens
                     FROM specimens sp
-                    JOIN items i ON sp.id_item = i.id
-                    GROUP BY i.public_type
+                    JOIN items i ON sp.item_id = i.id
+                    GROUP BY i.audience_type
                     ORDER BY active_specimens DESC
                     "#
                 )
@@ -1217,7 +1215,7 @@ impl StatsService {
                 SELECT
                     COALESCE(sp.source_id, 0) as source_id,
                     COALESCE(i.media_type, 'unknown') as media_type,
-                    CASE i.public_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as public_type,
+                    CASE i.audience_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as public_type,
                     COUNT(*) as loans
                 FROM (
                     SELECT specimen_id, date FROM loans
@@ -1225,9 +1223,9 @@ impl StatsService {
                     SELECT specimen_id, date FROM loans_archives
                 ) all_loans
                 JOIN specimens sp ON all_loans.specimen_id = sp.id
-                JOIN items i ON sp.id_item = i.id
+                JOIN items i ON sp.item_id = i.id
                 WHERE all_loans.date >= $1 AND all_loans.date <= $2
-                GROUP BY sp.source_id, i.media_type, i.public_type
+                GROUP BY sp.source_id, i.media_type, i.audience_type
                 "#
             )
             .bind(start)

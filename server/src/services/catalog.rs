@@ -2,6 +2,7 @@
 
 use crate::{
     error::AppResult,
+    marc::MarcRecord,
     models::{
         item::{Item, ItemQuery, ItemShort},
         specimen::{CreateSpecimen, Specimen, UpdateSpecimen},
@@ -26,12 +27,17 @@ impl CatalogService {
 
     /// Get item by ID with full details
     pub async fn get_item(&self, id: i32) -> AppResult<Item> {
-        self.repository.items.get_by_id_or_isbn(&id.to_string()).await
+        self.repository.items.get_by_id_or_isbn(&id.to_string(), false).await
+    }
+
+    /// Get item by ID with full MARC record (marc_data)
+    pub async fn get_item_with_full_record(&self, id: i32) -> AppResult<Item> {
+        self.repository.items.get_by_id_or_isbn(&id.to_string(), true).await
     }
 
     /// Create a new item.
     /// If `allow_duplicate_isbn` is true, creation is allowed even when another item has the same ISBN.
-    pub async fn create_item(&self, item: Item, allow_duplicate_isbn: bool) -> AppResult<Item> {
+    pub async fn create_item(&self, mut item: Item, allow_duplicate_isbn: bool) -> AppResult<Item> {
         if !allow_duplicate_isbn {
             if let Some(ref isbn) = item.isbn {
                 if self
@@ -47,13 +53,15 @@ impl CatalogService {
             }
         }
 
+        let record = MarcRecord::from(&item);
+        item.marc_record = serde_json::to_value(&record).ok();
         self.repository.items.create(&item).await
     }
 
     /// Update an existing item
-    pub async fn update_item(&self, id: i32, item: Item) -> AppResult<Item> {
+    pub async fn update_item(&self, id: i32, mut item: Item) -> AppResult<Item> {
         // Check if item exists
-        self.repository.items.get_by_id_or_isbn(&id.to_string()).await?;
+        self.repository.items.get_by_id_or_isbn(&id.to_string(), false).await?;
 
         // Check for duplicate ISBN
         if let Some(ref isbn) = item.isbn {
@@ -69,6 +77,8 @@ impl CatalogService {
             }
         }
 
+        let record = MarcRecord::from(&item);
+        item.marc_record = serde_json::to_value(&record).ok();
         self.repository.items.update(id, &item).await
     }
 
@@ -80,25 +90,23 @@ impl CatalogService {
     /// Get specimens for an item
     pub async fn get_specimens(&self, item_id: i32) -> AppResult<Vec<Specimen>> {
         // Verify item exists
-        self.repository.items.get_by_id_or_isbn(&item_id.to_string()).await?;
+        self.repository.items.get_by_id_or_isbn(&item_id.to_string(), false).await?;
         self.repository.items.get_specimens(item_id).await
     }
 
     /// Create a specimen for an item.
-    /// Barcode must be unique among active specimens (lifecycle_status=0).
-    /// If barcode exists on a non-active specimen, it is reactivated (lifecycle_status=0, archive_date=NULL) and updated.
+    /// Barcode must be unique among active specimens.
+    /// If barcode exists on an archived specimen, it is reactivated and updated.
     pub async fn create_specimen(&self, item_id: i32, specimen: CreateSpecimen) -> AppResult<Specimen> {
-        // Verify item exists
-        self.repository.items.get_by_id_or_isbn(&item_id.to_string()).await?;
+        self.repository.items.get_by_id_or_isbn(&item_id.to_string(), false).await?;
         if let Some(ref barcode) = specimen.barcode {
-            if let Some((existing_id, lifecycle_status)) = self
+            if let Some((existing_id, is_archived)) = self
                 .repository
                 .items
                 .get_specimen_by_barcode(barcode)
                 .await?
             {
-                if lifecycle_status != 0 {
-                    // Reactivate and update the existing specimen
+                if is_archived {
                     return self
                         .repository
                         .items
@@ -116,7 +124,7 @@ impl CatalogService {
     /// Update a specimen
     pub async fn update_specimen(&self, item_id: i32, specimen_id: i32, specimen: UpdateSpecimen) -> AppResult<Specimen> {
         // Verify item exists
-        self.repository.items.get_by_id_or_isbn(&item_id.to_string()).await?;
+        self.repository.items.get_by_id_or_isbn(&item_id.to_string(), false).await?;
         // Verify specimen belongs to item
         let specimens = self.repository.items.get_specimens(item_id).await?;
         if !specimens.iter().any(|s| s.id == specimen_id) {
@@ -143,6 +151,11 @@ impl CatalogService {
     /// Delete a specimen
     pub async fn delete_specimen(&self, _item_id: i32, specimen_id: i32, force: bool) -> AppResult<()> {
         self.repository.items.delete_specimen(specimen_id, force).await
+    }
+
+    /// List all items in a series (ordered by volume number)
+    pub async fn get_items_by_series(&self, series_id: i32) -> AppResult<Vec<ItemShort>> {
+        self.repository.items.get_items_by_series(series_id).await
     }
 }
 
