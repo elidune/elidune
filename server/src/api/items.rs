@@ -13,6 +13,7 @@ use crate::{
     error::{AppError, AppResult},
     marc::parse_unimarc_to_items,
     models::{
+        import_report::ImportReport,
         item::{Item, ItemQuery, ItemShort},
         specimen::{CreateSpecimen, Specimen, UpdateSpecimen},
     },
@@ -103,11 +104,8 @@ pub async fn get_item(
 ) -> AppResult<Json<Item>> {
     claims.require_read_items()?;
 
-    let item = if query.full_record {
-        state.services.catalog.get_item_with_full_record(id).await?
-    } else {
-        state.services.catalog.get_item(id).await?
-    };
+   
+    let item = state.services.catalog.get_item(id).await?;
     Ok(Json(item))
 }
 
@@ -117,22 +115,32 @@ pub struct CreateItemQuery {
     /// If true, allow creating an item even when another item has the same ISBN
     #[serde(default)]
     pub allow_duplicate_isbn: bool,
+    /// Set to the existing item ID to confirm replacement of a duplicate
+    pub confirm_replace_existing_id: Option<i32>,
 }
 
-/// Create a new item
+/// Response body for item creation (item + optional dedup report)
+#[derive(Serialize, ToSchema)]
+pub struct CreateItemResponse {
+    pub item: Item,
+    pub import_report: ImportReport,
+}
+
+/// Create a new item (with ISBN deduplication)
 #[utoipa::path(
     post,
     path = "/items",
     tag = "items",
     security(("bearer_auth" = [])),
     params(
-        ("allow_duplicate_isbn" = Option<bool>, Query, description = "Allow duplicate ISBN (default: false)")
+        ("allow_duplicate_isbn" = Option<bool>, Query, description = "Allow duplicate ISBN (default: false)"),
+        ("confirm_replace_existing_id" = Option<i32>, Query, description = "Confirm replacement of duplicate item")
     ),
     request_body = Item,
     responses(
-        (status = 201, description = "Item created", body = Item),
+        (status = 201, description = "Item created or merged", body = CreateItemResponse),
         (status = 400, description = "Invalid input"),
-        (status = 409, description = "Item already exists")
+        (status = 409, description = "Duplicate ISBN requires confirmation", body = crate::models::import_report::DuplicateConfirmationRequired)
     )
 )]
 pub async fn create_item(
@@ -140,15 +148,15 @@ pub async fn create_item(
     AuthenticatedUser(claims): AuthenticatedUser,
     Query(query): Query<CreateItemQuery>,
     Json(item): Json<Item>,
-) -> AppResult<(StatusCode, Json<Item>)> {
+) -> AppResult<(StatusCode, Json<CreateItemResponse>)> {
     claims.require_write_items()?;
 
-    let created = state
+    let (item, import_report) = state
         .services
         .catalog
-        .create_item(item, query.allow_duplicate_isbn)
+        .create_item(item, query.allow_duplicate_isbn, query.confirm_replace_existing_id)
         .await?;
-    Ok((StatusCode::CREATED, Json(created)))
+    Ok((StatusCode::CREATED, Json(CreateItemResponse { item, import_report })))
 }
 
 /// Upload a UNIMARC file and return parsed items with linked specimens (995/952).

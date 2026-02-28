@@ -1,8 +1,9 @@
-//! Loans repository for database operations
+//! Loans domain methods on Repository
 
 use chrono::{DateTime, Duration, Utc};
 use sqlx::{Pool, Postgres, Row};
 
+use super::Repository;
 use crate::{
     error::{AppError, AppResult},
     models::{
@@ -12,18 +13,9 @@ use crate::{
     },
 };
 
-#[derive(Clone)]
-pub struct LoansRepository {
-    pool: Pool<Postgres>,
-}
-
-impl LoansRepository {
-    pub fn new(pool: Pool<Postgres>) -> Self {
-        Self { pool }
-    }
-
+impl Repository {
     /// Get loan by ID
-    pub async fn get_by_id(&self, id: i32) -> AppResult<Loan> {
+    pub async fn loans_get_by_id(&self, id: i32) -> AppResult<Loan> {
         sqlx::query_as::<_, Loan>("SELECT * FROM loans WHERE id = $1")
             .bind(id)
             .fetch_optional(&self.pool)
@@ -32,7 +24,7 @@ impl LoansRepository {
     }
 
     /// Get active loan by specimen identification
-    pub async fn get_loan_by_specimen_identification(&self, specimen_identification: &str) -> AppResult<Loan> {
+    pub async fn loans_get_by_specimen_identification(&self, specimen_identification: &str) -> AppResult<Loan> {
         sqlx::query_as::<_, Loan>(
             r#"
             SELECT l.* FROM loans l
@@ -48,7 +40,7 @@ impl LoansRepository {
     }
 
     /// Get loans for a user
-    pub async fn get_user_loans(&self, user_id: i32) -> AppResult<Vec<LoanDetails>> {
+    pub async fn loans_get_for_user(&self, user_id: i32) -> AppResult<Vec<LoanDetails>> {
         let loans = sqlx::query(
             r#"
             SELECT l.*, s.barcode as specimen_identification,
@@ -121,7 +113,7 @@ impl LoansRepository {
     }
 
     /// Create a new loan
-    pub async fn create(&self, loan: &CreateLoan) -> AppResult<(i32, DateTime<Utc>)> {
+    pub async fn loans_create(&self, loan: &CreateLoan) -> AppResult<(i32, DateTime<Utc>)> {
         let now = Utc::now();
 
         // Get specimen ID
@@ -154,7 +146,7 @@ impl LoansRepository {
         // Get specimen info and loan settings
         let specimen_row = sqlx::query(
             r#"
-            SELECT s.item_id, s.borrow_status, i.media_type
+            SELECT s.borrow_status, i.media_type
             FROM specimens s
             JOIN items i ON s.item_id = i.id
             WHERE s.id = $1
@@ -166,7 +158,6 @@ impl LoansRepository {
 
         let status: Option<i16> = specimen_row.get("borrow_status");
         let media_type: Option<String> = specimen_row.get("media_type");
-        let item_id: i32 = specimen_row.get("item_id");
 
         // Check if borrowable
         if status != Some(98) && !loan.force {
@@ -210,14 +201,13 @@ impl LoansRepository {
         // Create the loan
         let loan_id = sqlx::query_scalar::<_, i32>(
             r#"
-            INSERT INTO loans (user_id, specimen_id, item_id, date, issue_date, nb_renews)
-            VALUES ($1, $2, $3, $4, $5, 0)
+            INSERT INTO loans (user_id, specimen_id, date, issue_date, nb_renews)
+            VALUES ($1, $2, $3, $4, 0)
             RETURNING id
             "#
         )
         .bind(loan.user_id)
         .bind(specimen_id)
-        .bind(item_id)
         .bind(now)
         .bind(issue_date)
         .fetch_one(&self.pool)
@@ -227,11 +217,11 @@ impl LoansRepository {
     }
 
     /// Return a loan (moves it to loans_archives)
-    pub async fn return_loan(&self, loan_id: i32) -> AppResult<LoanDetails> {
+    pub async fn loans_return(&self, loan_id: i32) -> AppResult<LoanDetails> {
         let now = Utc::now();
 
         // Get loan details before returning
-        let loan = self.get_by_id(loan_id).await?;
+        let loan = self.loans_get_by_id(loan_id).await?;
 
         if loan.returned_date.is_some() {
             return Err(AppError::BusinessRule("Loan already returned".to_string()));
@@ -251,15 +241,14 @@ impl LoansRepository {
         sqlx::query(
             r#"
             INSERT INTO loans_archives (
-                user_id, item_id, specimen_id, date, nb_renews, issue_date, 
+                user_id, specimen_id, date, nb_renews, issue_date, 
                 returned_date, notes, borrower_public_type,
                 addr_city, account_type
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             "#
         )
         .bind(loan.user_id)
-        .bind(loan.item_id)
         .bind(loan.specimen_id)
         .bind(loan.date)
         .bind(loan.nb_renews)
@@ -350,10 +339,10 @@ impl LoansRepository {
     }
 
     /// Renew a loan
-    pub async fn renew_loan(&self, loan_id: i32) -> AppResult<(DateTime<Utc>, i16)> {
+    pub async fn loans_renew(&self, loan_id: i32) -> AppResult<(DateTime<Utc>, i16)> {
         let now = Utc::now();
 
-        let loan = self.get_by_id(loan_id).await?;
+        let loan = self.loans_get_by_id(loan_id).await?;
 
         if loan.returned_date.is_some() {
             return Err(AppError::BusinessRule("Cannot renew a returned loan".to_string()));
@@ -412,7 +401,7 @@ impl LoansRepository {
     }
 
     /// Get loan settings
-    pub async fn get_settings(&self) -> AppResult<Vec<LoanSettings>> {
+    pub async fn loans_get_settings(&self) -> AppResult<Vec<LoanSettings>> {
         let settings = sqlx::query_as::<_, LoanSettings>(
             "SELECT * FROM loans_settings ORDER BY media_type"
         )
@@ -423,7 +412,7 @@ impl LoansRepository {
     }
 
     /// Count active loans
-    pub async fn count_active(&self) -> AppResult<i64> {
+    pub async fn loans_count_active(&self) -> AppResult<i64> {
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM loans WHERE returned_date IS NULL")
             .fetch_one(&self.pool)
             .await?;
@@ -431,10 +420,73 @@ impl LoansRepository {
     }
 
     /// Count overdue loans
-    pub async fn count_overdue(&self) -> AppResult<i64> {
+    pub async fn loans_count_overdue(&self) -> AppResult<i64> {
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM loans WHERE returned_date IS NULL AND issue_date < NOW()"
         )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count)
+    }
+
+    /// Count active (non-returned) loans for a specimen
+    pub async fn loans_count_active_for_specimen(&self, specimen_id: i32) -> AppResult<i64> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM loans WHERE specimen_id = $1 AND returned_date IS NULL"
+        )
+        .bind(specimen_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count)
+    }
+
+    /// Get IDs of active loans for a specimen
+    pub async fn loans_get_active_ids_for_specimen(&self, specimen_id: i32) -> AppResult<Vec<i32>> {
+        let ids: Vec<i32> = sqlx::query_scalar(
+            "SELECT id FROM loans WHERE specimen_id = $1 AND returned_date IS NULL"
+        )
+        .bind(specimen_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(ids)
+    }
+
+    /// Get IDs of active loans for an item
+    pub async fn loans_get_active_ids_for_item(&self, item_id: i32) -> AppResult<Vec<i32>> {
+        let ids: Vec<i32> = sqlx::query_scalar(
+            r#"
+            SELECT l.id FROM loans l
+            JOIN specimens s ON l.specimen_id = s.id
+            WHERE s.item_id = $1 AND l.returned_date IS NULL
+            "#
+        )
+        .bind(item_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(ids)
+    }
+
+    /// Count active loans for an item (via specimens)
+    pub async fn loans_count_active_for_item(&self, item_id: i32) -> AppResult<i64> {
+        let count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*) FROM loans l
+            JOIN specimens s ON l.specimen_id = s.id
+            WHERE s.item_id = $1 AND l.returned_date IS NULL
+            "#
+        )
+        .bind(item_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count)
+    }
+
+    /// Count active loans for a user
+    pub async fn loans_count_active_for_user(&self, user_id: i32) -> AppResult<i64> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM loans WHERE user_id = $1 AND returned_date IS NULL"
+        )
+        .bind(user_id)
         .fetch_one(&self.pool)
         .await?;
         Ok(count)

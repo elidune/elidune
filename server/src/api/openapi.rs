@@ -143,6 +143,14 @@ use crate::api::{auth, equipment, events, health, items, loans, schedules, setti
             z3950::Z3950SearchQuery,
             z3950::Z3950SearchResponse,
             z3950::Z3950ImportRequest,
+            z3950::Z3950ImportResponse,
+            z3950::ImportSpecimen,
+            // Import report
+            crate::models::import_report::ImportReport,
+            crate::models::import_report::ImportAction,
+            crate::models::import_report::DuplicateConfirmationRequired,
+            // Items
+            items::CreateItemResponse,
             // Stats
             stats::StatsResponse,
             stats::StatsQuery,

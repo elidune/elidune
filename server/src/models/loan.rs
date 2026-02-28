@@ -14,7 +14,6 @@ pub struct Loan {
     pub id: i32,
     pub user_id: i32,
     pub specimen_id: i32,
-    pub item_id: Option<i32>,
     pub date: DateTime<Utc>,
     pub renew_date: Option<DateTime<Utc>>,
     pub nb_renews: Option<i16>,
@@ -62,7 +61,6 @@ pub struct LoanSettings {
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct LoanArchive {
     pub id: i32,
-    pub item_id: i32,
     pub specimen_id: Option<i32>,
     pub date: DateTime<Utc>,
     pub nb_renews: Option<i16>,

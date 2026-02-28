@@ -68,6 +68,12 @@ pub enum AppError {
 
     #[error("Business rule violation: {0}")]
     BusinessRule(String),
+
+    #[error("Duplicate ISBN requires confirmation")]
+    DuplicateNeedsConfirmation {
+        existing_id: i32,
+        message: String,
+    },
 }
 
 /// Error response body
@@ -120,6 +126,14 @@ impl IntoResponse for AppError {
             }
             AppError::BusinessRule(msg) => {
                 (StatusCode::UNPROCESSABLE_ENTITY, ErrorCode::Failure, msg.clone())
+            }
+            AppError::DuplicateNeedsConfirmation { existing_id, ref message } => {
+                let body = Json(crate::models::import_report::DuplicateConfirmationRequired {
+                    code: "duplicate_isbn_needs_confirmation".to_string(),
+                    existing_id: *existing_id,
+                    message: message.clone(),
+                });
+                return (StatusCode::CONFLICT, body).into_response();
             }
         };
 

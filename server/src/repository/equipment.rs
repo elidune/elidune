@@ -1,25 +1,17 @@
-//! Equipment repository
+//! Equipment domain methods on Repository
 
 use chrono::Utc;
 use sqlx::{Pool, Postgres};
 
+use super::Repository;
 use crate::{
     error::{AppError, AppResult},
     models::equipment::{CreateEquipment, Equipment, UpdateEquipment},
 };
 
-#[derive(Clone)]
-pub struct EquipmentRepository {
-    pool: Pool<Postgres>,
-}
-
-impl EquipmentRepository {
-    pub fn new(pool: Pool<Postgres>) -> Self {
-        Self { pool }
-    }
-
+impl Repository {
     /// List all equipment
-    pub async fn list(&self) -> AppResult<Vec<Equipment>> {
+    pub async fn equipment_list(&self) -> AppResult<Vec<Equipment>> {
         let rows = sqlx::query_as::<_, Equipment>(
             "SELECT * FROM equipment ORDER BY name"
         )
@@ -29,7 +21,7 @@ impl EquipmentRepository {
     }
 
     /// Get equipment by ID
-    pub async fn get_by_id(&self, id: i32) -> AppResult<Equipment> {
+    pub async fn equipment_get_by_id(&self, id: i32) -> AppResult<Equipment> {
         sqlx::query_as::<_, Equipment>("SELECT * FROM equipment WHERE id = $1")
             .bind(id)
             .fetch_optional(&self.pool)
@@ -38,7 +30,7 @@ impl EquipmentRepository {
     }
 
     /// Create equipment
-    pub async fn create(&self, data: &CreateEquipment) -> AppResult<Equipment> {
+    pub async fn equipment_create(&self, data: &CreateEquipment) -> AppResult<Equipment> {
         let row = sqlx::query_as::<_, Equipment>(
             r#"
             INSERT INTO equipment (name, equipment_type, has_internet, is_public, quantity, notes)
@@ -58,7 +50,7 @@ impl EquipmentRepository {
     }
 
     /// Update equipment
-    pub async fn update(&self, id: i32, data: &UpdateEquipment) -> AppResult<Equipment> {
+    pub async fn equipment_update_equipment(&self, id: i32, data: &UpdateEquipment) -> AppResult<Equipment> {
         let now = Utc::now();
         let mut sets = vec!["modif_date = $1".to_string()];
         let mut idx = 2;
@@ -107,7 +99,7 @@ impl EquipmentRepository {
     }
 
     /// Delete equipment
-    pub async fn delete(&self, id: i32) -> AppResult<()> {
+    pub async fn equipment_delete(&self, id: i32) -> AppResult<()> {
         let result = sqlx::query("DELETE FROM equipment WHERE id = $1")
             .bind(id)
             .execute(&self.pool)
@@ -119,7 +111,7 @@ impl EquipmentRepository {
     }
 
     /// Count public equipment with internet access (for stats)
-    pub async fn count_public_internet_stations(&self) -> AppResult<i64> {
+    pub async fn equipment_count_public_internet_stations(&self) -> AppResult<i64> {
         let count: i64 = sqlx::query_scalar(
             r#"
             SELECT COALESCE(SUM(quantity), 0)::bigint FROM equipment
@@ -133,7 +125,7 @@ impl EquipmentRepository {
     }
 
     /// Count public tablets/ereaders (for stats)
-    pub async fn count_public_devices(&self) -> AppResult<i64> {
+    pub async fn equipment_count_public_devices(&self) -> AppResult<i64> {
         let count: i64 = sqlx::query_scalar(
             r#"
             SELECT COALESCE(SUM(quantity), 0)::bigint FROM equipment

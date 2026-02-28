@@ -500,7 +500,8 @@ impl StatsService {
                 TO_CHAR({}, '{}') as period,
                 COUNT(*) as count
             FROM loans_archives la
-            JOIN items i ON la.item_id = i.id
+            JOIN specimens s ON la.specimen_id = s.id
+            JOIN items i ON s.item_id = i.id
             WHERE {}
             GROUP BY {}
             ORDER BY period
@@ -547,7 +548,8 @@ impl StatsService {
                 TO_CHAR({}, '{}') as period,
                 COUNT(*) as count
             FROM loans_archives la
-            JOIN items i ON la.item_id = i.id
+            JOIN specimens s ON la.specimen_id = s.id
+            JOIN items i ON s.item_id = i.id
             WHERE {}
             GROUP BY {}
             ORDER BY period

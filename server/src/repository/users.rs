@@ -1,25 +1,17 @@
-//! Users repository for database operations
+//! Users domain methods on Repository
 
 use chrono::Utc;
 use sqlx::{Pool, Postgres, Row};
 
+use super::Repository;
 use crate::{
     error::{AppError, AppResult},
     models::user::{AccountTypeSlug, CreateUser, Rights, UpdateProfile, UpdateUser, User, UserQuery, UserRights, UserShort, UserStatus},
 };
 
-#[derive(Clone)]
-pub struct UsersRepository {
-    pool: Pool<Postgres>,
-}
-
-impl UsersRepository {
-    pub fn new(pool: Pool<Postgres>) -> Self {
-        Self { pool }
-    }
-
+impl Repository {
     /// Get user by ID
-    pub async fn get_by_id(&self, id: i32) -> AppResult<User> {
+    pub async fn users_get_by_id(&self, id: i32) -> AppResult<User> {
         use crate::models::user::UserRow;
         let user_row = sqlx::query_as::<_, UserRow>(
             r#"
@@ -35,7 +27,7 @@ impl UsersRepository {
     }
 
     /// Get user by login (primary authentication method)
-    pub async fn get_by_login(&self, login: &str) -> AppResult<Option<User>> {
+    pub async fn users_get_by_login(&self, login: &str) -> AppResult<Option<User>> {
         use crate::models::user::UserRow;
         let user_row = sqlx::query_as::<_, UserRow>(
             r#"
@@ -50,7 +42,7 @@ impl UsersRepository {
     }
 
     /// Get user by email (primary authentication method)
-    pub async fn get_by_email(&self, email: &str) -> AppResult<Option<User>> {
+    pub async fn users_get_by_email(&self, email: &str) -> AppResult<Option<User>> {
         use crate::models::user::UserRow;
         let user_row = sqlx::query_as::<_, UserRow>(
             r#"
@@ -65,7 +57,7 @@ impl UsersRepository {
     }
 
     /// Check if email already exists
-    pub async fn email_exists(&self, email: &str, exclude_id: Option<i32>) -> AppResult<bool> {
+    pub async fn users_email_exists(&self, email: &str, exclude_id: Option<i32>) -> AppResult<bool> {
         let exists: bool = if let Some(id) = exclude_id {
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE LOWER(email) = LOWER($1) AND id != $2)")
                 .bind(email)
@@ -82,7 +74,7 @@ impl UsersRepository {
     }
 
     /// Check if login already exists
-    pub async fn login_exists(&self, login: &str, exclude_id: Option<i32>) -> AppResult<bool> {
+    pub async fn users_login_exists(&self, login: &str, exclude_id: Option<i32>) -> AppResult<bool> {
         let exists: bool = if let Some(id) = exclude_id {
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE LOWER(login) = LOWER($1) AND id != $2)")
                 .bind(login)
@@ -99,7 +91,7 @@ impl UsersRepository {
     }
 
     /// Get user rights from account type
-    pub async fn get_user_rights(&self, account_type: &AccountTypeSlug) -> AppResult<UserRights> {
+    pub async fn users_get_rights(&self, account_type: &AccountTypeSlug) -> AppResult<UserRights> {
         let row = sqlx::query(
             r#"
             SELECT items_rights, users_rights, loans_rights, 
@@ -124,7 +116,7 @@ impl UsersRepository {
     }
 
     /// Search users with pagination
-    pub async fn search(&self, query: &UserQuery) -> AppResult<(Vec<UserShort>, i64)> {
+    pub async fn users_search(&self, query: &UserQuery) -> AppResult<(Vec<UserShort>, i64)> {
         let page = query.page.unwrap_or(1);
         let per_page = query.per_page.unwrap_or(20);
         let offset = (page - 1) * per_page;
@@ -198,7 +190,7 @@ impl UsersRepository {
     }
 
     /// Create a new user
-    pub async fn create(&self, user: &CreateUser, password: Option<String>) -> AppResult<User> {
+    pub async fn users_create(&self, user: &CreateUser, password: Option<String>) -> AppResult<User> {
         let now = Utc::now();
 
         let account_type = user.account_type.as_ref().map(|at| at.as_str()).unwrap_or("guest");
@@ -253,11 +245,11 @@ impl UsersRepository {
         .fetch_one(&self.pool)
         .await?;
 
-        self.get_by_id(id).await
+        self.users_get_by_id(id).await
     }
 
     /// Update an existing user
-    pub async fn update(&self, id: i32, user: &UpdateUser, password: Option<String>) -> AppResult<User> {
+    pub async fn users_update(&self, id: i32, user: &UpdateUser, password: Option<String>) -> AppResult<User> {
         let now = Utc::now();
 
         // Build dynamic update query
@@ -373,18 +365,12 @@ impl UsersRepository {
 
         builder.execute(&self.pool).await?;
 
-        self.get_by_id(id).await
+        self.users_get_by_id(id).await
     }
 
     /// Delete a user (soft delete: anonymize data and set status to deleted)
-    pub async fn delete(&self, id: i32, force: bool) -> AppResult<()> {
-        // Check for active loans
-        let active_loans: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM loans WHERE user_id = $1 AND returned_date IS NULL"
-        )
-        .bind(id)
-        .fetch_one(&self.pool)
-        .await?;
+    pub async fn users_delete(&self, id: i32, force: bool) -> AppResult<()> {
+        let active_loans = self.loans_count_active_for_user(id).await?;
 
         if active_loans > 0 && !force {
             return Err(AppError::BusinessRule(
@@ -420,7 +406,7 @@ impl UsersRepository {
     }
     
     /// Block a user
-    pub async fn block(&self, id: i32) -> AppResult<User> {
+    pub async fn users_block(&self, id: i32) -> AppResult<User> {
         let now = Utc::now();
 
         sqlx::query("UPDATE users SET status = $1, modif_date = $2 WHERE id = $3")
@@ -430,11 +416,11 @@ impl UsersRepository {
             .execute(&self.pool)
             .await?;
 
-        self.get_by_id(id).await
+        self.users_get_by_id(id).await
     }
     
     /// Unblock a user
-    pub async fn unblock(&self, id: i32) -> AppResult<User> {
+    pub async fn users_unblock(&self, id: i32) -> AppResult<User> {
         let now = Utc::now();
 
         sqlx::query("UPDATE users SET status = $1, modif_date = $2 WHERE id = $3")
@@ -444,11 +430,11 @@ impl UsersRepository {
             .execute(&self.pool)
             .await?;
 
-        self.get_by_id(id).await
+        self.users_get_by_id(id).await
     }
 
     /// Update user's own profile (firstname, lastname, password)
-    pub async fn update_profile(&self, id: i32, profile: &UpdateProfile, password: Option<String>) -> AppResult<User> {
+    pub async fn users_update_profile(&self, id: i32, profile: &UpdateProfile, password: Option<String>) -> AppResult<User> {
         let now = Utc::now();
 
         let mut sets = vec!["modif_date = $1".to_string()];
@@ -513,11 +499,11 @@ impl UsersRepository {
 
         builder.execute(&self.pool).await?;
 
-        self.get_by_id(id).await
+        self.users_get_by_id(id).await
     }
 
     /// Update user's account type (admin only)
-    pub async fn update_account_type(&self, id: i32, account_type: &AccountTypeSlug) -> AppResult<User> {
+    pub async fn users_update_account_type(&self, id: i32, account_type: &AccountTypeSlug) -> AppResult<User> {
         let now = Utc::now();
 
         sqlx::query("UPDATE users SET account_type = $1, modif_date = $2 WHERE id = $3")
@@ -527,11 +513,11 @@ impl UsersRepository {
             .execute(&self.pool)
             .await?;
 
-        self.get_by_id(id).await
+        self.users_get_by_id(id).await
     }
     
     /// Update 2FA settings for a user
-    pub async fn update_2fa_settings(
+    pub async fn users_update_2fa_settings(
         &self,
         id: i32,
         enabled: bool,
@@ -562,7 +548,7 @@ impl UsersRepository {
     }
 
     /// Mark a recovery code as used
-    pub async fn mark_recovery_code_used(&self, id: i32, used_codes: &str) -> AppResult<()> {
+    pub async fn users_mark_recovery_code_used(&self, id: i32, used_codes: &str) -> AppResult<()> {
         sqlx::query(
             "UPDATE users SET recovery_codes_used = $1, modif_date = NOW() WHERE id = $2",
         )

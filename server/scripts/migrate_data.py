@@ -587,9 +587,8 @@ def migrate_loans(src, dst):
         vals[9] = ts_to_datetime(vals[9])   # returned_date
 
         if returned_date_raw and returned_date_raw != 0:
-            # Returned loan -> loans_archives
-            item_id = vals[3] or specimen_to_item.get(specimen_id)
-            if item_id is None:
+            # Returned loan -> loans_archives (item_id removed; link via specimen_id only)
+            if specimen_id is None:
                 skipped += 1
                 continue
 
@@ -597,32 +596,32 @@ def migrate_loans(src, dst):
 
             dst_cur.execute("""
                 INSERT INTO loans_archives (
-                    id, user_id, item_id, specimen_id, date, nb_renews,
+                    id, user_id, specimen_id, date, nb_renews,
                     issue_date, returned_date, notes,
                     borrower_public_type, addr_city, account_type
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (id) DO NOTHING
             """, (
-                vals[0], user_id, item_id, specimen_id,
+                vals[0], user_id, specimen_id,
                 vals[4], vals[6], vals[7], vals[9], vals[8],
                 pt, city, at_code,
             ))
             archived += 1
         else:
-            # Active loan -> loans
+            # Active loan -> loans (item_id removed; link via specimen_id only)
             dst_cur.execute("""
                 INSERT INTO loans (
-                    id, user_id, specimen_id, item_id, date, renew_date,
+                    id, user_id, specimen_id, date, renew_date,
                     nb_renews, issue_date, notes, returned_date
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (id) DO NOTHING
-            """, vals)
+            """, (vals[0], vals[1], vals[2], vals[4], vals[5], vals[6], vals[7], vals[8], vals[9]))
             active += 1
 
     dst.commit()
     print(f"  {len(borrows)} borrows processed: {active} active loans, {archived} archived")
     if skipped:
-        print(f"  {skipped} skipped (missing item_id)")
+        print(f"  {skipped} skipped (missing specimen_id)")
 
 
 def migrate_loans_archives(src, dst):
@@ -633,10 +632,6 @@ def migrate_loans_archives(src, dst):
     print("Migrating borrows_archives -> loans_archives...")
     src_cur = src.cursor()
     dst_cur = dst.cursor()
-
-    # Load specimen -> item_id mapping
-    src_cur.execute("SELECT id, id_item FROM specimens")
-    specimen_to_item = {r[0]: r[1] for r in src_cur.fetchall()}
 
     src_cur.execute("""
         SELECT id, item_id, specimen_id, date, nb_renews, issue_date,
@@ -651,14 +646,10 @@ def migrate_loans_archives(src, dst):
 
     for row in rows:
         vals = list(row)
-        item_id = vals[1]
         specimen_id = vals[2]
         at_id = vals[10]
 
-        # Resolve item_id from specimen if NULL
-        if item_id is None and specimen_id is not None:
-            item_id = specimen_to_item.get(specimen_id)
-        if item_id is None:
+        if specimen_id is None:
             skipped += 1
             continue
 
@@ -671,13 +662,13 @@ def migrate_loans_archives(src, dst):
 
         dst_cur.execute("""
             INSERT INTO loans_archives (
-                id, item_id, specimen_id, date, nb_renews, issue_date,
+                id, specimen_id, date, nb_renews, issue_date,
                 returned_date, notes, borrower_public_type,
                 addr_city, account_type
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT (id) DO NOTHING
         """, (
-            vals[0], item_id, specimen_id, date_val, vals[4], issue_dt,
+            vals[0], specimen_id, date_val, vals[4], issue_dt,
             returned_dt, vals[7], vals[8], vals[9], at_code,
         ))
         migrated += 1
@@ -685,7 +676,7 @@ def migrate_loans_archives(src, dst):
     dst.commit()
     print(f"  {migrated}/{len(rows)} loans_archives migrated")
     if skipped:
-        print(f"  {skipped} skipped (missing item_id)")
+        print(f"  {skipped} skipped (missing specimen_id)")
 
 
 def migrate_loans_settings(src, dst):

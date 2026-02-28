@@ -18,12 +18,12 @@ impl SourcesService {
 
     /// List sources
     pub async fn list(&self, include_archived: bool) -> AppResult<Vec<Source>> {
-        self.repository.sources.list(include_archived).await
+        self.repository.sources_list(include_archived).await
     }
 
     /// Get source by ID
     pub async fn get_by_id(&self, id: i32) -> AppResult<Source> {
-        self.repository.sources.get_by_id(id).await
+        self.repository.sources_get_by_id(id).await
     }
 
     /// Create a source
@@ -32,7 +32,7 @@ impl SourcesService {
         if name.is_empty() {
             return Err(AppError::Validation("Source name cannot be empty".to_string()));
         }
-        self.repository.sources.create(name, data.default).await
+        self.repository.sources_create(name, data.default).await
     }
 
     /// Rename a source
@@ -40,7 +40,7 @@ impl SourcesService {
         if name.trim().is_empty() {
             return Err(AppError::Validation("Source name cannot be empty".to_string()));
         }
-        self.repository.sources.rename(id, name.trim()).await
+        self.repository.sources_rename(id, name.trim()).await
     }
 
     /// Update a source (name and/or default status)
@@ -53,15 +53,14 @@ impl SourcesService {
         }
 
         self.repository
-            .sources
-            .update(id, data.name.as_deref(), data.default)
+            .sources_update(id, data.name.as_deref(), data.default)
             .await
     }
 
     /// Archive a source (fails if non-archived specimens are linked)
     pub async fn archive(&self, id: i32) -> AppResult<Source> {
         // Verify source exists
-        let source = self.repository.sources.get_by_id(id).await?;
+        let source = self.repository.sources_get_by_id(id).await?;
 
         // Check if already archived
         if source.is_archive == Some(1) {
@@ -71,7 +70,7 @@ impl SourcesService {
         }
 
         // Check for non-archived specimens
-        let active_count = self.repository.sources.count_active_specimens(id).await?;
+        let active_count = self.repository.sources_count_active_specimens(id).await?;
         if active_count > 0 {
             return Err(AppError::BusinessRule(format!(
                 "Cannot archive source: {} non-archived specimen(s) still linked",
@@ -79,7 +78,7 @@ impl SourcesService {
             )));
         }
 
-        self.repository.sources.archive(id).await
+        self.repository.sources_archive(id).await
     }
 
     /// Merge multiple sources into a new one
@@ -97,26 +96,23 @@ impl SourcesService {
 
         // Verify all source IDs exist
         for &id in &data.source_ids {
-            self.repository.sources.get_by_id(id).await?;
+            self.repository.sources_get_by_id(id).await?;
         }
 
         // Create new source
-        let new_source = self.repository.sources.create(data.name.trim(), None).await?;
+        let new_source = self.repository.sources_create(data.name.trim(), None).await?;
 
         // Reassign specimens and items to the new source
         self.repository
-            .sources
-            .reassign_specimens(&data.source_ids, new_source.id)
+            .sources_reassign_specimens(&data.source_ids, new_source.id)
             .await?;
         self.repository
-            .sources
-            .reassign_items(&data.source_ids, new_source.id)
+            .sources_reassign_items(&data.source_ids, new_source.id)
             .await?;
 
         // Archive old sources
         self.repository
-            .sources
-            .archive_many(&data.source_ids)
+            .sources_archive_many(&data.source_ids)
             .await?;
 
         Ok(new_source)

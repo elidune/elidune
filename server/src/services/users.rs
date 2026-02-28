@@ -34,8 +34,7 @@ impl UsersService {
         // Authenticate by login (primary method)
         let user = self
             .repository
-            .users
-            .get_by_login(login)
+            .users_get_by_login(login)
             .await?
             .ok_or_else(|| AppError::Authentication("Invalid login or password".to_string()))?;
 
@@ -72,8 +71,7 @@ impl UsersService {
         // Get user rights
         let rights = self
             .repository
-            .users
-            .get_user_rights(&user.account_type)
+            .users_get_rights(&user.account_type)
             .await?;
 
         // Create JWT token
@@ -98,7 +96,7 @@ impl UsersService {
 
     /// Verify 2FA code and return JWT token
     pub async fn verify_2fa(&self, user_id: i32, code: &str, device_id: Option<&str>, trust_device: bool) -> AppResult<String> {
-        let user = self.repository.users.get_by_id(user_id).await?;
+        let user = self.repository.users_get_by_id(user_id).await?;
 
         if !user.two_factor_enabled.unwrap_or(false) {
             return Err(AppError::Validation("2FA is not enabled for this user".to_string()));
@@ -146,7 +144,7 @@ impl UsersService {
 
     /// Verify recovery code and return JWT token
     pub async fn verify_recovery_code(&self, user_id: i32, code: &str) -> AppResult<String> {
-        let user = self.repository.users.get_by_id(user_id).await?;
+        let user = self.repository.users_get_by_id(user_id).await?;
 
         if !user.two_factor_enabled.unwrap_or(false) {
             return Err(AppError::Validation("2FA is not enabled for this user".to_string()));
@@ -179,8 +177,7 @@ impl UsersService {
             .map_err(|e| AppError::Internal(format!("Failed to serialize used codes: {}", e)))?;
 
         self.repository
-            .users
-            .mark_recovery_code_used(user_id, &used_codes_json)
+            .users_mark_recovery_code_used(user_id, &used_codes_json)
             .await?;
 
         // Create token
@@ -191,8 +188,7 @@ impl UsersService {
     async fn create_token_for_user(&self, user: &User) -> AppResult<String> {
         let rights = self
             .repository
-            .users
-            .get_user_rights(&user.account_type)
+            .users_get_rights(&user.account_type)
             .await?;
 
         let now = Utc::now().timestamp();
@@ -264,7 +260,7 @@ impl UsersService {
             return Err(AppError::Validation("Invalid 2FA method. Must be 'totp' or 'email'".to_string()));
         }
 
-        let user = self.repository.users.get_by_id(user_id).await?;
+        let user = self.repository.users_get_by_id(user_id).await?;
 
         if method == "email" && user.email.is_none() {
             return Err(AppError::Validation("Email is required for email-based 2FA".to_string()));
@@ -275,8 +271,7 @@ impl UsersService {
             .map_err(|e| AppError::Internal(format!("Failed to serialize recovery codes: {}", e)))?;
 
         self.repository
-            .users
-            .update_2fa_settings(
+            .users_update_2fa_settings(
                 user_id,
                 true,
                 Some(method),
@@ -291,8 +286,7 @@ impl UsersService {
     /// Disable 2FA for a user
     pub async fn disable_2fa(&self, user_id: i32) -> AppResult<()> {
         self.repository
-            .users
-            .update_2fa_settings(user_id, false, None, None, None)
+            .users_update_2fa_settings(user_id, false, None, None, None)
             .await?;
 
         Ok(())
@@ -324,18 +318,18 @@ impl UsersService {
 
     /// Get user by ID
     pub async fn get_by_id(&self, id: i32) -> AppResult<User> {
-        self.repository.users.get_by_id(id).await
+        self.repository.users_get_by_id(id).await
     }
 
     /// Search users
     pub async fn search_users(&self, query: &UserQuery) -> AppResult<(Vec<UserShort>, i64)> {
-        self.repository.users.search(query).await
+        self.repository.users_search(query).await
     }
 
     /// Create a new user
     pub async fn create_user(&self, user: CreateUser) -> AppResult<User> {
         // Check if login already exists (required and unique)
-        if self.repository.users.login_exists(&user.login, None).await? {
+        if self.repository.users_login_exists(&user.login, None).await? {
             return Err(AppError::Conflict("Login already exists".to_string()));
         }
 
@@ -348,17 +342,17 @@ impl UsersService {
             None
         };
 
-        self.repository.users.create(&user, password).await
+        self.repository.users_create(&user, password).await
     }
 
     /// Update an existing user
     pub async fn update_user(&self, id: i32, user: UpdateUser) -> AppResult<User> {
         // Check if user exists
-        self.repository.users.get_by_id(id).await?;
+        self.repository.users_get_by_id(id).await?;
 
         // Check if login already exists for another user (login is required and unique)
         if let Some(ref login) = user.login {
-            if self.repository.users.login_exists(login, Some(id)).await? {
+            if self.repository.users_login_exists(login, Some(id)).await? {
                 return Err(AppError::Conflict("Login already exists".to_string()));
             }
         }
@@ -371,22 +365,22 @@ impl UsersService {
             None
         };
 
-        self.repository.users.update(id, &user, password).await
+        self.repository.users_update(id, &user, password).await
     }
 
     /// Delete a user
     pub async fn delete_user(&self, id: i32, force: bool) -> AppResult<()> {
-        self.repository.users.delete(id, force).await
+        self.repository.users_delete(id, force).await
     }
 
     /// Update user's own profile (name, password)
     pub async fn update_profile(&self, user_id: i32, profile: UpdateProfile) -> AppResult<User> {
         // Get current user
-        let user = self.repository.users.get_by_id(user_id).await?;
+        let user = self.repository.users_get_by_id(user_id).await?;
 
         // Check if login already exists for another user (login is required and unique)
         if let Some(ref login) = profile.login {
-            if self.repository.users.login_exists(login, Some(user_id)).await? {
+            if self.repository.users_login_exists(login, Some(user_id)).await? {
                 return Err(AppError::Conflict("Login already exists".to_string()));
             }
         }
@@ -410,17 +404,17 @@ impl UsersService {
         };
 
         // Update only allowed fields
-        self.repository.users.update_profile(user_id, &profile, password).await
+        self.repository.users_update_profile(user_id, &profile, password).await
     }
 
     /// Update user's account type (admin only)
     pub async fn update_account_type(&self, user_id: i32, account_type: &AccountTypeSlug) -> AppResult<User> {
         // Check if user exists
-        self.repository.users.get_by_id(user_id).await?;
+        self.repository.users_get_by_id(user_id).await?;
 
         // Account type is already validated by the enum type
 
-        self.repository.users.update_account_type(user_id, account_type).await
+        self.repository.users_update_account_type(user_id, account_type).await
     }
 }
 

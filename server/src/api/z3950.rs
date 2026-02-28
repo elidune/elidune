@@ -10,7 +10,11 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::{
     error::AppResult,
-    models::{item::Item, remote_item::ItemRemoteShort},
+    models::{
+        import_report::ImportReport,
+        item::Item,
+        remote_item::ItemRemoteShort,
+    },
 };
 
 use super::AuthenticatedUser;
@@ -22,9 +26,6 @@ pub struct Z3950SearchQuery {
     pub server_id: Option<i32>,
     pub max_results: Option<i32>,
 }
-
-
-
 
 #[derive(Serialize, ToSchema)]
 pub struct Z3950SearchResponse {
@@ -43,6 +44,8 @@ pub struct Z3950ImportRequest {
     pub remote_item_id: i32,
     /// Specimens to create for the imported item
     pub specimens: Option<Vec<ImportSpecimen>>,
+    /// Set to the existing item ID to confirm replacement of a duplicate
+    pub confirm_replace_existing_id: Option<i32>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -61,6 +64,15 @@ pub struct ImportSpecimen {
     pub price: Option<String>,
     /// Source ID
     pub source_id: Option<i32>,
+}
+
+/// Response body for Z39.50 import (item + dedup report)
+#[derive(Serialize, ToSchema)]
+pub struct Z3950ImportResponse {
+    /// The imported or updated item
+    pub item: Item,
+    /// Deduplication report
+    pub import_report: ImportReport,
 }
 
 /// Search remote catalogs via Z39.50
@@ -96,7 +108,8 @@ pub async fn search(
     }))
 }
 
-/// Import a record from Z39.50 search results into local catalog
+/// Import a record from Z39.50 search results into local catalog.
+/// Applies ISBN deduplication automatically (merge/replace/confirm).
 #[utoipa::path(
     post,
     path = "/z3950/import",
@@ -104,23 +117,27 @@ pub async fn search(
     security(("bearer_auth" = [])),
     request_body = Z3950ImportRequest,
     responses(
-        (status = 201, description = "Record imported", body = Item),
+        (status = 201, description = "Record imported or merged", body = Z3950ImportResponse),
         (status = 404, description = "Remote item not found"),
-        (status = 409, description = "Item already exists in local catalog")
+        (status = 409, description = "Duplicate ISBN requires confirmation", body = crate::models::import_report::DuplicateConfirmationRequired)
     )
 )]
 pub async fn import_record(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     Json(request): Json<Z3950ImportRequest>,
-) -> AppResult<(StatusCode, Json<Item>)> {
+) -> AppResult<(StatusCode, Json<Z3950ImportResponse>)> {
     claims.require_write_items()?;
 
-    let item = state
+    let (item, import_report) = state
         .services
         .z3950
-        .import_record(request.remote_item_id, request.specimens)
+        .import_record(
+            request.remote_item_id,
+            request.specimens,
+            request.confirm_replace_existing_id,
+        )
         .await?;
 
-    Ok((StatusCode::CREATED, Json(item)))
+    Ok((StatusCode::CREATED, Json(Z3950ImportResponse { item, import_report })))
 }

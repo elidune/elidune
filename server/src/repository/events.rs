@@ -1,25 +1,17 @@
-//! Events repository
+//! Events domain methods on Repository
 
 use chrono::{NaiveDate, NaiveTime, Utc};
 use sqlx::{Pool, Postgres};
 
+use super::Repository;
 use crate::{
     error::{AppError, AppResult},
     models::event::{CreateEvent, Event, EventQuery, UpdateEvent},
 };
 
-#[derive(Clone)]
-pub struct EventsRepository {
-    pool: Pool<Postgres>,
-}
-
-impl EventsRepository {
-    pub fn new(pool: Pool<Postgres>) -> Self {
-        Self { pool }
-    }
-
+impl Repository {
     /// List events with optional filters and pagination
-    pub async fn list(&self, query: &EventQuery) -> AppResult<(Vec<Event>, i64)> {
+    pub async fn events_list(&self, query: &EventQuery) -> AppResult<(Vec<Event>, i64)> {
         let page = query.page.unwrap_or(1);
         let per_page = query.per_page.unwrap_or(50);
         let offset = (page - 1) * per_page;
@@ -74,7 +66,7 @@ impl EventsRepository {
     }
 
     /// Get event by ID
-    pub async fn get_by_id(&self, id: i32) -> AppResult<Event> {
+    pub async fn events_get_by_id(&self, id: i32) -> AppResult<Event> {
         sqlx::query_as::<_, Event>("SELECT * FROM events WHERE id = $1")
             .bind(id)
             .fetch_optional(&self.pool)
@@ -83,7 +75,7 @@ impl EventsRepository {
     }
 
     /// Create an event
-    pub async fn create(&self, data: &CreateEvent) -> AppResult<Event> {
+    pub async fn events_create(&self, data: &CreateEvent) -> AppResult<Event> {
         let event_date = NaiveDate::parse_from_str(&data.event_date, "%Y-%m-%d")
             .map_err(|_| AppError::Validation("Invalid event_date".to_string()))?;
         let start_time = data.start_time.as_ref()
@@ -121,7 +113,7 @@ impl EventsRepository {
     }
 
     /// Update an event
-    pub async fn update(&self, id: i32, data: &UpdateEvent) -> AppResult<Event> {
+    pub async fn events_update(&self, id: i32, data: &UpdateEvent) -> AppResult<Event> {
         let now = Utc::now();
         let mut sets = vec!["modif_date = $1".to_string()];
         let mut idx = 2;
@@ -185,7 +177,7 @@ impl EventsRepository {
     }
 
     /// Delete an event
-    pub async fn delete(&self, id: i32) -> AppResult<()> {
+    pub async fn events_delete(&self, id: i32) -> AppResult<()> {
         let result = sqlx::query("DELETE FROM events WHERE id = $1")
             .bind(id)
             .execute(&self.pool)
@@ -197,7 +189,7 @@ impl EventsRepository {
     }
 
     /// Get event stats for a year (for annual report)
-    pub async fn annual_stats(&self, year: i32) -> AppResult<EventAnnualStats> {
+    pub async fn events_annual_stats(&self, year: i32) -> AppResult<EventAnnualStats> {
         let start = NaiveDate::from_ymd_opt(year, 1, 1).unwrap();
         let end = NaiveDate::from_ymd_opt(year, 12, 31).unwrap();
 

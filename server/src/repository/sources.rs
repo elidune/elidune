@@ -1,25 +1,17 @@
-//! Sources repository
+//! Sources domain methods on Repository
 
 use chrono::Utc;
 use sqlx::{Pool, Postgres};
 
+use super::Repository;
 use crate::{
     error::{AppError, AppResult},
     models::source::Source,
 };
 
-#[derive(Clone)]
-pub struct SourcesRepository {
-    pool: Pool<Postgres>,
-}
-
-impl SourcesRepository {
-    pub fn new(pool: Pool<Postgres>) -> Self {
-        Self { pool }
-    }
-
+impl Repository {
     /// List all sources, optionally filtering by archive status
-    pub async fn list(&self, include_archived: bool) -> AppResult<Vec<Source>> {
+    pub async fn sources_list(&self, include_archived: bool) -> AppResult<Vec<Source>> {
         let rows = if include_archived {
             sqlx::query_as::<_, Source>("SELECT * FROM sources ORDER BY name")
                 .fetch_all(&self.pool)
@@ -35,7 +27,7 @@ impl SourcesRepository {
     }
 
     /// Get source by ID
-    pub async fn get_by_id(&self, id: i32) -> AppResult<Source> {
+    pub async fn sources_get_by_id(&self, id: i32) -> AppResult<Source> {
         sqlx::query_as::<_, Source>("SELECT * FROM sources WHERE id = $1")
             .bind(id)
             .fetch_optional(&self.pool)
@@ -44,7 +36,7 @@ impl SourcesRepository {
     }
 
     /// Rename a source
-    pub async fn rename(&self, id: i32, name: &str) -> AppResult<Source> {
+    pub async fn sources_rename(&self, id: i32, name: &str) -> AppResult<Source> {
         sqlx::query_as::<_, Source>("UPDATE sources SET name = $1 WHERE id = $2 RETURNING *")
             .bind(name)
             .bind(id)
@@ -54,7 +46,7 @@ impl SourcesRepository {
     }
 
     /// Update a source (name and/or default status)
-    pub async fn update(&self, id: i32, name: Option<&str>, default: Option<bool>) -> AppResult<Source> {
+    pub async fn sources_update(&self, id: i32, name: Option<&str>, default: Option<bool>) -> AppResult<Source> {
         // If setting this source as default, first unset all other default sources
         if let Some(true) = default {
             sqlx::query(r#"UPDATE sources SET "default" = false WHERE id != $1"#)
@@ -102,22 +94,12 @@ impl SourcesRepository {
     }
 
     /// Count non-archived specimens linked to a source
-    pub async fn count_active_specimens(&self, source_id: i32) -> AppResult<i64> {
-        let count: i64 = sqlx::query_scalar(
-            r#"
-            SELECT COUNT(*)::bigint FROM specimens
-            WHERE source_id = $1
-              AND archived_at IS NULL
-            "#,
-        )
-        .bind(source_id)
-        .fetch_one(&self.pool)
-        .await?;
-        Ok(count)
+    pub async fn sources_count_active_specimens(&self, source_id: i32) -> AppResult<i64> {
+        self.items_count_specimens_for_source(source_id).await
     }
 
     /// Archive a source
-    pub async fn archive(&self, id: i32) -> AppResult<Source> {
+    pub async fn sources_archive(&self, id: i32) -> AppResult<Source> {
         let now = Utc::now();
         sqlx::query_as::<_, Source>(
             "UPDATE sources SET is_archive = 1, archive_date = $1 WHERE id = $2 RETURNING *",
@@ -130,7 +112,7 @@ impl SourcesRepository {
     }
 
     /// Create a new source
-    pub async fn create(&self, name: &str, default: Option<bool>) -> AppResult<Source> {
+    pub async fn sources_create(&self, name: &str, default: Option<bool>) -> AppResult<Source> {
         if default == Some(true) {
             sqlx::query(r#"UPDATE sources SET "default" = false"#)
                 .execute(&self.pool)
@@ -148,39 +130,25 @@ impl SourcesRepository {
     }
 
     /// Reassign all specimens from given source IDs to a new source ID
-    pub async fn reassign_specimens(
+    pub async fn sources_reassign_specimens(
         &self,
         old_source_ids: &[i32],
         new_source_id: i32,
     ) -> AppResult<u64> {
-        let result = sqlx::query(
-            "UPDATE specimens SET source_id = $1 WHERE source_id = ANY($2)",
-        )
-        .bind(new_source_id)
-        .bind(old_source_ids)
-        .execute(&self.pool)
-        .await?;
-        Ok(result.rows_affected())
+        self.items_reassign_specimens_source(old_source_ids, new_source_id).await
     }
 
     /// Reassign all items from given source IDs to a new source ID
-    pub async fn reassign_items(
+    pub async fn sources_reassign_items(
         &self,
         old_source_ids: &[i32],
         new_source_id: i32,
     ) -> AppResult<u64> {
-        let result = sqlx::query(
-            "UPDATE items SET source_id = $1 WHERE source_id = ANY($2)",
-        )
-        .bind(new_source_id)
-        .bind(old_source_ids)
-        .execute(&self.pool)
-        .await?;
-        Ok(result.rows_affected())
+        self.items_reassign_items_source(old_source_ids, new_source_id).await
     }
 
     /// Archive multiple sources by IDs
-    pub async fn archive_many(&self, ids: &[i32]) -> AppResult<()> {
+    pub async fn sources_archive_many(&self, ids: &[i32]) -> AppResult<()> {
         let now = Utc::now();
         sqlx::query("UPDATE sources SET is_archive = 1, archive_date = $1 WHERE id = ANY($2)")
             .bind(now)
@@ -190,8 +158,24 @@ impl SourcesRepository {
         Ok(())
     }
 
+    /// Find source by name or create it. Returns source id.
+    pub async fn sources_find_or_create_by_name(&self, name: &str) -> AppResult<i32> {
+        if let Some(id) = sqlx::query_scalar::<_, i32>("SELECT id FROM sources WHERE name = $1")
+            .bind(name)
+            .fetch_optional(&self.pool)
+            .await?
+        {
+            return Ok(id);
+        }
+        let id: i32 = sqlx::query_scalar(r#"INSERT INTO sources (name) VALUES ($1) RETURNING id"#)
+            .bind(name)
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(id)
+    }
+
     /// Get the default source (the one with default = true)
-    pub async fn get_default(&self) -> AppResult<Option<Source>> {
+    pub async fn sources_get_default(&self) -> AppResult<Option<Source>> {
         let source = sqlx::query_as::<_, Source>(
             r#"SELECT * FROM sources WHERE "default" = true AND (is_archive IS NULL OR is_archive = 0) LIMIT 1"#
         )

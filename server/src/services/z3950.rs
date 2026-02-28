@@ -14,7 +14,10 @@ use z3950_rs::{Client, QueryLanguage};
 use crate::{
     api::z3950::{ImportSpecimen, Z3950SearchQuery},
     error::{AppError, AppResult},
-    models::{Item, ItemRemote, ItemRemoteShort},
+    models::{
+        import_report::{ImportAction, ImportReport},
+        Item, ItemRemote, ItemRemoteShort,
+    },
     repository::Repository,
     services::redis::RedisService,
 };
@@ -316,12 +319,14 @@ impl Z3950Service {
 
   
 
-    /// Import a record from Z39.50 cache into local catalog
+    /// Import a record from Z39.50 cache into local catalog.
+    /// Applies ISBN deduplication: merge, replace or create depending on context.
     pub async fn import_record(
         &self,
         remote_item_id: i32,
         specimens: Option<Vec<ImportSpecimen>>,
-    ) -> AppResult<Item> {
+        confirm_replace_existing_id: Option<i32>,
+    ) -> AppResult<(Item, ImportReport)> {
         let pool = &self.repository.pool;
         let mut conn = self.redis.get_connection().await?;
 
@@ -331,36 +336,122 @@ impl Z3950Service {
             .get(&id_mapping_key)
             .await
             .map_err(|e| AppError::Internal(format!("Failed to get ID mapping from Redis: {}", e)))?;
-        
+
         let isbn_key = isbn_key
             .ok_or_else(|| AppError::NotFound("Remote item not found in cache".to_string()))?;
-        
+
         // Get remote item from Redis
         let redis_key = Self::get_redis_key(&isbn_key);
         let json_str: Option<String> = conn
             .get(&redis_key)
             .await
             .map_err(|e| AppError::Internal(format!("Failed to get item from Redis: {}", e)))?;
-        
+
         let item_remote: ItemRemote = serde_json::from_str(
             &json_str.ok_or_else(|| AppError::NotFound("Remote item not found in cache".to_string()))?
         )
         .map_err(|e| AppError::Internal(format!("Failed to deserialize item from Redis: {}", e)))?;
 
-        // Check if already imported
-        if let Some(ref isbn) = item_remote.isbn {
-            let existing: bool = sqlx::query_scalar(
-                "SELECT EXISTS(SELECT 1 FROM items WHERE isbn = $1)"
-            )
-            .bind(isbn)
-            .fetch_one(pool)
-            .await?;
-
-            if existing {
-                return Err(AppError::Conflict("Item already exists in local catalog".to_string()));
+        // ISBN deduplication decision
+        let (item, report) = if let Some(ref isbn) = item_remote.isbn {
+            match self.repository.items_find_by_isbn_for_import(isbn).await? {
+                Some(dup) if dup.specimen_count > 0 => {
+                    tracing::info!(
+                        "Import: merging bibliographic data into existing item id={} ({} active specimens)",
+                        dup.item_id, dup.specimen_count
+                    );
+                    let item = self.repository.items_update_bibliographic_from_remote(dup.item_id, &item_remote).await?;
+                    let report = ImportReport {
+                        action: ImportAction::MergedBibliographic,
+                        existing_id: Some(dup.item_id),
+                        warnings: vec![],
+                        message: Some(format!(
+                            "Bibliographic data merged into existing item id={}. {} specimen(s) preserved.",
+                            dup.item_id, dup.specimen_count
+                        )),
+                    };
+                    (item, report)
+                }
+                Some(dup) if dup.archived_at.is_some() => {
+                    tracing::info!(
+                        "Import: replacing archived item id={} (no active specimens)",
+                        dup.item_id
+                    );
+                    let item = self.repository.items_update_bibliographic_from_remote(dup.item_id, &item_remote).await?;
+                    let report = ImportReport {
+                        action: ImportAction::ReplacedArchived,
+                        existing_id: Some(dup.item_id),
+                        warnings: vec![],
+                        message: Some(format!(
+                            "Replaced archived item id={} with new bibliographic data.",
+                            dup.item_id
+                        )),
+                    };
+                    (item, report)
+                }
+                Some(dup) => {
+                    if confirm_replace_existing_id == Some(dup.item_id) {
+                        tracing::info!(
+                            "Import: confirmed replacement of item id={} (no specimens, not archived)",
+                            dup.item_id
+                        );
+                        let item = self.repository.items_update_bibliographic_from_remote(dup.item_id, &item_remote).await?;
+                        let report = ImportReport {
+                            action: ImportAction::ReplacedConfirmed,
+                            existing_id: Some(dup.item_id),
+                            warnings: vec![],
+                            message: Some(format!(
+                                "Replaced item id={} after confirmation.",
+                                dup.item_id
+                            )),
+                        };
+                        (item, report)
+                    } else {
+                        return Err(AppError::DuplicateNeedsConfirmation {
+                            existing_id: dup.item_id,
+                            message: format!(
+                                "An item with ISBN {} already exists (id={}). \
+                                 It has no specimens and is not archived. \
+                                 Resend with confirm_replace_existing_id={} to replace it.",
+                                isbn, dup.item_id, dup.item_id
+                            ),
+                        });
+                    }
+                }
+                None => {
+                    self.create_new_item(&item_remote, specimens, pool).await?
+                }
             }
-        }
+        } else {
+            let mut warnings = vec![
+                "No ISBN on imported record — duplicate check skipped. This may create silent duplicates.".to_string(),
+            ];
+            tracing::warn!("Import: no ISBN on remote item, skipping dedup");
+            let (item, mut report) = self.create_new_item(&item_remote, specimens, pool).await?;
+            report.warnings.append(&mut warnings);
+            (item, report)
+        };
 
+        // Remove from Redis cache (item is now imported)
+        let _: () = conn
+            .del(&redis_key)
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to delete item from Redis: {}", e)))?;
+        let _: () = conn
+            .del(&id_mapping_key)
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to delete ID mapping from Redis: {}", e)))?;
+
+        Ok((item, report))
+    }
+
+    /// Create a brand-new item from a remote record (no duplicate found).
+    async fn create_new_item(
+        &self,
+        item_remote: &ItemRemote,
+        specimens: Option<Vec<ImportSpecimen>>,
+        pool: &sqlx::Pool<sqlx::Postgres>,
+    ) -> AppResult<(Item, ImportReport)> {
         let now = Utc::now();
 
         let item_id = sqlx::query_scalar::<_, i32>(
@@ -411,7 +502,6 @@ impl Z3950Service {
         .fetch_one(pool)
         .await?;
 
-        // Insert authors via junction table
         if let Some(ref json) = item_remote.authors1_json {
             if let Ok(authors) = serde_json::from_value::<Vec<crate::models::author::AuthorWithFunction>>(json.clone()) {
                 for (idx, author) in authors.iter().enumerate() {
@@ -423,7 +513,7 @@ impl Z3950Service {
                         .bind(&author.firstname)
                         .fetch_optional(pool)
                         .await?
-                        .unwrap_or_else(|| 0);
+                        .unwrap_or(0);
 
                         let author_id = if author_id == 0 {
                             sqlx::query_scalar::<_, i32>(
@@ -451,13 +541,10 @@ impl Z3950Service {
             }
         }
 
-        // Create specimens if provided
         if let Some(specimens) = specimens {
-            // Get default source if needed
-            let default_source_id = self.repository.sources.get_default().await?.map(|s| s.id);
+            let default_source_id = self.repository.sources_get_default().await?.map(|s| s.id);
 
             for specimen in specimens {
-                // Use provided source_id or fall back to default source
                 let source_id = specimen.source_id.or(default_source_id);
 
                 sqlx::query(
@@ -480,23 +567,18 @@ impl Z3950Service {
             }
         }
 
-        // Remove from Redis cache (item is now imported)
-        let _: () = conn
-            .del(&redis_key)
-            .await
-            .map_err(|e| AppError::Internal(format!("Failed to delete item from Redis: {}", e)))?;
-        let _: () = conn
-            .del(&id_mapping_key)
-            .await
-            .map_err(|e| AppError::Internal(format!("Failed to delete ID mapping from Redis: {}", e)))?;
+        let item = self.repository.items_get_by_id_or_isbn(&item_id.to_string()).await?;
+        let record = crate::marc::MarcRecord::from(&item);
+        self.repository.items_save_marc_record(item_id, &record).await?;
 
-        // Build and save marc_record from the fully constructed item
-        let item = self.repository.items.get_by_id_or_isbn(&item_id.to_string(), true).await?;
-        let marc_record_value = serde_json::to_value(&crate::marc::MarcRecord::from(&item))
-            .map_err(|e| AppError::Internal(format!("Failed to serialize MARC record: {}", e)))?;
-        self.repository.items.save_marc_record(item_id, &marc_record_value).await?;
+        let report = ImportReport {
+            action: ImportAction::Created,
+            existing_id: None,
+            warnings: vec![],
+            message: None,
+        };
 
-        Ok(item)
+        Ok((item, report))
     }
 }
 

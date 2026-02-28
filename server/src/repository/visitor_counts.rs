@@ -1,25 +1,17 @@
-//! Visitor counts repository
+//! Visitor counts domain methods on Repository
 
 use chrono::NaiveDate;
 use sqlx::{Pool, Postgres};
 
+use super::Repository;
 use crate::{
     error::AppResult,
     models::visitor_count::{CreateVisitorCount, VisitorCount},
 };
 
-#[derive(Clone)]
-pub struct VisitorCountsRepository {
-    pool: Pool<Postgres>,
-}
-
-impl VisitorCountsRepository {
-    pub fn new(pool: Pool<Postgres>) -> Self {
-        Self { pool }
-    }
-
+impl Repository {
     /// List visitor counts, optionally filtered by date range
-    pub async fn list(
+    pub async fn visitor_counts_list(
         &self,
         start_date: Option<NaiveDate>,
         end_date: Option<NaiveDate>,
@@ -59,7 +51,7 @@ impl VisitorCountsRepository {
     }
 
     /// Get total visitor count for a date range
-    pub async fn total(
+    pub async fn visitor_counts_total(
         &self,
         start_date: NaiveDate,
         end_date: NaiveDate,
@@ -75,7 +67,7 @@ impl VisitorCountsRepository {
     }
 
     /// Create a new visitor count record
-    pub async fn create(&self, data: &CreateVisitorCount) -> AppResult<VisitorCount> {
+    pub async fn visitor_counts_create(&self, data: &CreateVisitorCount) -> AppResult<VisitorCount> {
         let count_date = NaiveDate::parse_from_str(&data.count_date, "%Y-%m-%d")
             .map_err(|_| crate::error::AppError::Validation("Invalid count_date format".to_string()))?;
 
@@ -97,7 +89,7 @@ impl VisitorCountsRepository {
     }
 
     /// Delete a visitor count record
-    pub async fn delete(&self, id: i32) -> AppResult<()> {
+    pub async fn visitor_counts_delete(&self, id: i32) -> AppResult<()> {
         let result = sqlx::query("DELETE FROM visitor_counts WHERE id = $1")
             .bind(id)
             .execute(&self.pool)
