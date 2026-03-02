@@ -6,9 +6,11 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
 use sqlx::FromRow;
 use utoipa::{IntoParams, ToSchema};
-use super::author::AuthorWithFunction;
+use crate::models::Author;
+
 use super::specimen::Specimen;
 
 // Re-exports: canonical MARC data types from marc-rs (via z3950-rs).
@@ -16,7 +18,7 @@ pub use z3950_rs::marc_rs::format::MarcFormat;
 pub use z3950_rs::marc_rs::record::{
     ControlField, DataField, EditionInfo, PublicationStatementInfo, Subfield,
 };
-pub use z3950_rs::marc_rs::author::{Author, AuthorKind};
+pub use z3950_rs::marc_rs::author::{Author as MarcAuthor, AuthorKind};
 pub use z3950_rs::marc_rs::fields::{
     DeweyClassification, Isbn, LanguageData, LinkingData, PublicationData, SeriesStatementData,
 };
@@ -165,10 +167,13 @@ impl From<i16> for PublicType {
 
 /// Full item model (DB + API). Data aligns with marc-rs `Record`: title, author, edition,
 /// ISBNs, classifications, language codes, specimens, etc. Built from MARC via the translator.
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct Item {
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
     #[serde(default)]
-    pub id: Option<i32>,
+    pub id: Option<i64>,
     pub media_type: Option<String>,
     pub isbn: Option<String>,
     pub barcode: Option<String>,
@@ -190,11 +195,17 @@ pub struct Item {
     pub keywords: Option<String>,
     pub state: Option<String>,
     pub is_valid: Option<i16>,
-    pub series_id: Option<i32>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub series_id: Option<i64>,
     #[serde(default)]
     pub series_volume_number: Option<i16>,
-    pub edition_id: Option<i32>,
-    pub collection_id: Option<i32>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub edition_id: Option<i64>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub collection_id: Option<i64>,
     #[serde(default)]
     pub collection_sequence_number: Option<i16>,
     #[serde(default)]
@@ -207,7 +218,7 @@ pub struct Item {
     // Relations (loaded separately)
     #[sqlx(skip)]
     #[serde(default)]
-    pub authors: Vec<AuthorWithFunction>,
+    pub authors: Vec<Author>,
     #[sqlx(skip)]
     #[serde(default)]
     pub series: Option<Serie>,
@@ -227,30 +238,49 @@ pub struct Item {
 
 
 /// Short item representation for lists
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct ItemShort {
-    pub id: i32,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub id: i64,
     pub media_type: Option<String>,
     pub isbn: Option<String>,
     pub title: Option<String>,
     pub date: Option<String>,
-    pub status: Option<i16>,
-    pub is_local: Option<i16>,
+    pub status: i16,
     pub is_valid: Option<i16>,
     pub archived_at: Option<DateTime<Utc>>,
-    pub nb_specimens: Option<i16>,
-    pub nb_available: Option<i16>,
-    #[sqlx(skip)]
-    pub author: Option<AuthorWithFunction>,
-    #[sqlx(skip)]
-    pub source_name: Option<String>,
+    pub author: Option<Author>,
+   
 }
 
+
+
+
+impl From<Item> for ItemShort {
+    fn from(item: Item) -> Self {
+        Self {
+            id: item.id.unwrap_or(0),
+            media_type: item.media_type,
+            isbn: item.isbn,
+            title: item.title,
+            date: item.publication_date,
+            status: item.status,
+            is_valid: item.is_valid,
+            archived_at: item.archived_at,
+            author: item.authors.first().cloned(),
+        }
+    }
+}
 /// Serie model. Persistence shape for MARC series (440/490/225); source: marc-rs `SeriesStatementData` (statement → name, issn).
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct Serie {
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
     #[serde(default)]
-    pub id: Option<i32>,
+    pub id: Option<i64>,
     pub key: Option<String>,
     pub name: Option<String>,
     pub issn: Option<String>,
@@ -274,10 +304,13 @@ impl From<&SeriesStatementData> for Serie {
 }
 
 /// Collection model. Persistence shape for MARC linking (e.g. 410); source: marc-rs `LinkingData` (title → primary_title, issn).
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct Collection {
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
     #[serde(default)]
-    pub id: Option<i32>,
+    pub id: Option<i64>,
     pub key: Option<String>,
     pub primary_title: Option<String>,
     pub secondary_title: Option<String>,
@@ -305,10 +338,13 @@ impl From<&LinkingData> for Collection {
 }
 
 /// Edition (publisher) model. Persistence shape for MARC publication (260/264/210); source: marc-rs `EditionInfo` or `PublicationData`.
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct Edition {
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
     #[serde(default)]
-    pub id: Option<i32>,
+    pub id: Option<i64>,
     pub publisher_name: Option<String>,
     pub place_of_publication: Option<String>,
     pub date: Option<String>,
@@ -363,4 +399,34 @@ pub struct ItemQuery {
     pub archive: Option<bool>,
     pub page: Option<i64>,
     pub per_page: Option<i64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ItemShort;
+    use serde_json;
+
+    #[test]
+    fn item_short_id_serializes_as_string() {
+        let item = ItemShort {
+            id: 12345,
+            media_type: None,
+            isbn: None,
+            title: Some("Test".to_string()),
+            date: None,
+            status: 0,
+            is_valid: None,
+            archived_at: None,
+            author: None,
+        };
+        let json = serde_json::to_string(&item).unwrap();
+        assert!(json.contains("\"id\":\"12345\""), "id should be string in JSON, got: {}", json);
+    }
+
+    #[test]
+    fn item_short_id_deserializes_from_string() {
+        let json = r#"{"id":"12345","media_type":null,"isbn":null,"title":"Test","date":null,"status":0,"is_valid":null,"archived_at":null,"author":null}"#;
+        let item: ItemShort = serde_json::from_str(json).unwrap();
+        assert_eq!(item.id, 12345);
+    }
 }

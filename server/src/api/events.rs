@@ -57,7 +57,7 @@ pub async fn list_events(
 pub async fn get_event(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i32>,
+    Path(id): Path<i64>,
 ) -> AppResult<Json<Event>> {
     claims.require_read_settings()?;
     let event = state.services.events.get_by_id(id).await?;
@@ -100,7 +100,7 @@ pub async fn create_event(
 pub async fn update_event(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i32>,
+    Path(id): Path<i64>,
     Json(data): Json<UpdateEvent>,
 ) -> AppResult<Json<Event>> {
     claims.require_write_settings()?;
@@ -122,7 +122,7 @@ pub async fn update_event(
 pub async fn delete_event(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i32>,
+    Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
     claims.require_write_settings()?;
     state.services.events.delete(id).await?;

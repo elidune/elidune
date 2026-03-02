@@ -2,6 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
 use sqlx::FromRow;
 use utoipa::ToSchema;
 
@@ -24,11 +25,18 @@ impl From<i16> for SpecimenBorrowStatus {
 
 /// Full specimen model from database.
 /// Soft delete is tracked solely via `archived_at` (NULL = active, set = archived).
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct Specimen {
-    pub id: i32,
-    pub item_id: Option<i32>,
-    pub source_id: Option<i32>,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub id: i64,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub item_id: Option<i64>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub source_id: Option<i64>,
     pub barcode: Option<String>,
     pub call_number: Option<String>,
     pub volume_designation: Option<String>,
@@ -49,6 +57,7 @@ pub struct Specimen {
 }
 
 /// Create specimen request
+#[serde_as]
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct CreateSpecimen {
     pub barcode: Option<String>,
@@ -58,11 +67,14 @@ pub struct CreateSpecimen {
     pub borrow_status: Option<i16>,
     pub notes: Option<String>,
     pub price: Option<String>,
-    pub source_id: Option<i32>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub source_id: Option<i64>,
     pub source_name: Option<String>,
 }
 
 /// Update specimen request
+#[serde_as]
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct UpdateSpecimen {
     pub barcode: Option<String>,
@@ -72,6 +84,8 @@ pub struct UpdateSpecimen {
     pub borrow_status: Option<i16>,
     pub notes: Option<String>,
     pub price: Option<String>,
-    pub source_id: Option<i32>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub source_id: Option<i64>,
 }
 

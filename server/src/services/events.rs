@@ -20,7 +20,7 @@ impl EventsService {
         self.repository.events_list(query).await
     }
 
-    pub async fn get_by_id(&self, id: i32) -> AppResult<Event> {
+    pub async fn get_by_id(&self, id: i64) -> AppResult<Event> {
         self.repository.events_get_by_id(id).await
     }
 
@@ -28,11 +28,11 @@ impl EventsService {
         self.repository.events_create(data).await
     }
 
-    pub async fn update(&self, id: i32, data: &UpdateEvent) -> AppResult<Event> {
+    pub async fn update(&self, id: i64, data: &UpdateEvent) -> AppResult<Event> {
         self.repository.events_update(id, data).await
     }
 
-    pub async fn delete(&self, id: i32) -> AppResult<()> {
+    pub async fn delete(&self, id: i64) -> AppResult<()> {
         self.repository.events_delete(id).await
     }
 

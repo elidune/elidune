@@ -21,7 +21,7 @@ impl Repository {
     }
 
     /// Get equipment by ID
-    pub async fn equipment_get_by_id(&self, id: i32) -> AppResult<Equipment> {
+    pub async fn equipment_get_by_id(&self, id: i64) -> AppResult<Equipment> {
         sqlx::query_as::<_, Equipment>("SELECT * FROM equipment WHERE id = $1")
             .bind(id)
             .fetch_optional(&self.pool)
@@ -50,7 +50,7 @@ impl Repository {
     }
 
     /// Update equipment
-    pub async fn equipment_update_equipment(&self, id: i32, data: &UpdateEquipment) -> AppResult<Equipment> {
+    pub async fn equipment_update_equipment(&self, id: i64, data: &UpdateEquipment) -> AppResult<Equipment> {
         let now = Utc::now();
         let mut sets = vec!["modif_date = $1".to_string()];
         let mut idx = 2;
@@ -99,7 +99,7 @@ impl Repository {
     }
 
     /// Delete equipment
-    pub async fn equipment_delete(&self, id: i32) -> AppResult<()> {
+    pub async fn equipment_delete(&self, id: i64) -> AppResult<()> {
         let result = sqlx::query("DELETE FROM equipment WHERE id = $1")
             .bind(id)
             .execute(&self.pool)

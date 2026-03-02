@@ -11,7 +11,7 @@ use z3950_rs::marc_rs::fields::*;
 use z3950_rs::marc_rs::{MarcFormat, Record as MarcRecord};
 
 use crate::models::{
-    author::AuthorWithFunction,
+    author::Author,
     item::{Collection, Edition, Item, Serie},
     specimen::Specimen,
 };
@@ -215,8 +215,9 @@ impl From<MarcRecord> for Item {
         let authors = record
             .authors()
             .iter()
-        .map(|a| AuthorWithFunction {
+        .map(|a| Author {
             id: 0,
+            key: None,
             lastname: a.last_name.clone(),
             firstname: a.first_name.clone(),
             bio: None,
@@ -598,7 +599,7 @@ fn make_subject(term: String) -> SubjectData {
     }
 }
 
-fn author_to_personal(author: &AuthorWithFunction) -> PersonalNameData {
+fn author_to_personal(author: &Author) -> PersonalNameData {
 
     PersonalNameData {
         name_type: PersonalNameType::default(),

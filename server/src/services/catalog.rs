@@ -27,7 +27,7 @@ impl CatalogService {
     }
 
     /// Get item by ID with full details
-    pub async fn get_item(&self, id: i32) -> AppResult<Item> {
+    pub async fn get_item(&self, id: i64) -> AppResult<Item> {
         self.repository.items_get_by_id_or_isbn(&id.to_string()).await
     }
 
@@ -40,7 +40,7 @@ impl CatalogService {
         &self,
         mut item: Item,
         allow_duplicate_isbn: bool,
-        confirm_replace_existing_id: Option<i32>,
+        confirm_replace_existing_id: Option<i64>,
     ) -> AppResult<(Item, ImportReport)> {
         if !allow_duplicate_isbn {
             if let Some(ref isbn) = item.isbn {
@@ -50,8 +50,7 @@ impl CatalogService {
                             "Catalog create: merging bibliographic data into existing item id={} ({} specimens)",
                             dup.item_id, dup.specimen_count
                         );
-                        let remote = crate::models::ItemRemote::from(item);
-                        let updated = self.repository.items_update_bibliographic_from_remote(dup.item_id, &remote).await?;
+                        let updated = self.repository.items_update(dup.item_id, &item).await?;
                         let report = ImportReport {
                             action: ImportAction::MergedBibliographic,
                             existing_id: Some(dup.item_id),
@@ -66,8 +65,7 @@ impl CatalogService {
 
                     if dup.archived_at.is_some() {
                         tracing::info!("Catalog create: replacing archived item id={}", dup.item_id);
-                        let remote = crate::models::ItemRemote::from(item);
-                        let updated = self.repository.items_update_bibliographic_from_remote(dup.item_id, &remote).await?;
+                        let updated = self.repository.items_update(dup.item_id, &item).await?;
                         let report = ImportReport {
                             action: ImportAction::ReplacedArchived,
                             existing_id: Some(dup.item_id),
@@ -79,8 +77,7 @@ impl CatalogService {
 
                     if confirm_replace_existing_id == Some(dup.item_id) {
                         tracing::info!("Catalog create: confirmed replacement of item id={}", dup.item_id);
-                        let remote = crate::models::ItemRemote::from(item);
-                        let updated = self.repository.items_update_bibliographic_from_remote(dup.item_id, &remote).await?;
+                        let updated = self.repository.items_update(dup.item_id, &item).await?;
                         let report = ImportReport {
                             action: ImportAction::ReplacedConfirmed,
                             existing_id: Some(dup.item_id),
@@ -120,7 +117,7 @@ impl CatalogService {
     }
 
     /// Update an existing item
-    pub async fn update_item(&self, id: i32, mut item: Item) -> AppResult<Item> {
+    pub async fn update_item(&self, id: i64, mut item: Item) -> AppResult<Item> {
         // Check if item exists
         self.repository.items_get_by_id_or_isbn(&id.to_string()).await?;
 
@@ -143,12 +140,12 @@ impl CatalogService {
     }
 
     /// Delete an item
-    pub async fn delete_item(&self, id: i32, force: bool) -> AppResult<()> {
+    pub async fn delete_item(&self, id: i64, force: bool) -> AppResult<()> {
         self.repository.items_delete(id, force).await
     }
 
     /// Get specimens for an item
-    pub async fn get_specimens(&self, item_id: i32) -> AppResult<Vec<Specimen>> {
+    pub async fn get_specimens(&self, item_id: i64) -> AppResult<Vec<Specimen>> {
         // Verify item exists
         self.repository.items_get_by_id_or_isbn(&item_id.to_string()).await?;
         self.repository.items_get_specimens(item_id).await
@@ -157,7 +154,7 @@ impl CatalogService {
     /// Create a specimen for an item.
     /// Barcode must be unique among active specimens.
     /// If barcode exists on an archived specimen, it is reactivated and updated.
-    pub async fn create_specimen(&self, item_id: i32, specimen: CreateSpecimen) -> AppResult<Specimen> {
+    pub async fn create_specimen(&self, item_id: i64, specimen: CreateSpecimen) -> AppResult<Specimen> {
         self.repository.items_get_by_id_or_isbn(&item_id.to_string()).await?;
         if let Some(ref barcode) = specimen.barcode {
             if let Some((existing_id, is_archived)) = self
@@ -180,7 +177,7 @@ impl CatalogService {
     }
 
     /// Update a specimen
-    pub async fn update_specimen(&self, item_id: i32, specimen_id: i32, specimen: UpdateSpecimen) -> AppResult<Specimen> {
+    pub async fn update_specimen(&self, item_id: i64, specimen_id: i64, specimen: UpdateSpecimen) -> AppResult<Specimen> {
         // Verify item exists
         self.repository.items_get_by_id_or_isbn(&item_id.to_string()).await?;
         // Verify specimen belongs to item
@@ -206,12 +203,12 @@ impl CatalogService {
     }
 
     /// Delete a specimen
-    pub async fn delete_specimen(&self, _item_id: i32, specimen_id: i32, force: bool) -> AppResult<()> {
+    pub async fn delete_specimen(&self, _item_id: i64, specimen_id: i64, force: bool) -> AppResult<()> {
         self.repository.items_delete_specimen(specimen_id, force).await
     }
 
     /// List all items in a series (ordered by volume number)
-    pub async fn get_items_by_series(&self, series_id: i32) -> AppResult<Vec<ItemShort>> {
+    pub async fn get_items_by_series(&self, series_id: i64) -> AppResult<Vec<ItemShort>> {
         self.repository.items_get_by_series(series_id).await
     }
 }

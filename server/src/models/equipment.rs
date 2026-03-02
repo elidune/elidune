@@ -2,13 +2,17 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
 use sqlx::FromRow;
 use utoipa::ToSchema;
 
 /// Equipment record
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct Equipment {
-    pub id: i32,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub id: i64,
     /// Equipment name / description
     pub name: String,
     /// Type (0=computer, 1=tablet, 2=ereader, 3=other)

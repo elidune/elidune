@@ -6,24 +6,28 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::{
     error::AppResult,
     models::{
         import_report::ImportReport,
-        item::Item,
-        remote_item::ItemRemoteShort,
+        item::{Item, ItemShort},
+        specimen::CreateSpecimen,
     },
 };
 
 use super::AuthenticatedUser;
 
 /// Z39.50 search query parameters
+#[serde_as]
 #[derive(Deserialize, IntoParams, ToSchema, Debug)]
 pub struct Z3950SearchQuery {
     pub query: String,
-    pub server_id: Option<i32>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub server_id: Option<i64>,
     pub max_results: Option<i32>,
 }
 
@@ -32,22 +36,28 @@ pub struct Z3950SearchResponse {
     /// Total results found
     pub total: i32,
     /// List of found items
-    pub items: Vec<ItemRemoteShort>,
+    pub items: Vec<ItemShort>,
     /// Source server name
     pub source: String,
 }
 
 /// Z39.50 import request
+#[serde_as]
 #[derive(Deserialize, ToSchema)]
 pub struct Z3950ImportRequest {
     /// Remote item ID to import
-    pub remote_item_id: i32,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub item_id: i64,
     /// Specimens to create for the imported item
     pub specimens: Option<Vec<ImportSpecimen>>,
     /// Set to the existing item ID to confirm replacement of a duplicate
-    pub confirm_replace_existing_id: Option<i32>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub confirm_replace_existing_id: Option<i64>,
 }
 
+#[serde_as]
 #[derive(Deserialize, ToSchema)]
 pub struct ImportSpecimen {
     /// Specimen barcode (must be unique when provided)
@@ -63,7 +73,29 @@ pub struct ImportSpecimen {
     /// Price
     pub price: Option<String>,
     /// Source ID
-    pub source_id: Option<i32>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub source_id: Option<i64>,
+}
+
+impl From<ImportSpecimen> for CreateSpecimen {
+    fn from(s: ImportSpecimen) -> Self {
+        let borrow_status = s
+            .status
+            .as_ref()
+            .and_then(|st| st.parse::<i16>().ok());
+        CreateSpecimen {
+            barcode: s.barcode,
+            call_number: s.call_number,
+            volume_designation: None,
+            place: s.place,
+            borrow_status,
+            notes: s.notes,
+            price: s.price,
+            source_id: s.source_id,
+            source_name: None,
+        }
+    }
 }
 
 /// Response body for Z39.50 import (item + dedup report)
@@ -129,11 +161,12 @@ pub async fn import_record(
 ) -> AppResult<(StatusCode, Json<Z3950ImportResponse>)> {
     claims.require_write_items()?;
 
+    
     let (item, import_report) = state
         .services
         .z3950
         .import_record(
-            request.remote_item_id,
+            request.item_id,
             request.specimens,
             request.confirm_replace_existing_id,
         )

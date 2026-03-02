@@ -26,7 +26,7 @@ impl SchedulesService {
         self.repository.schedules_list_periods().await
     }
 
-    pub async fn get_period(&self, id: i32) -> AppResult<SchedulePeriod> {
+    pub async fn get_period(&self, id: i64) -> AppResult<SchedulePeriod> {
         self.repository.schedules_get_period(id).await
     }
 
@@ -34,24 +34,24 @@ impl SchedulesService {
         self.repository.schedules_create_period(data).await
     }
 
-    pub async fn update_period(&self, id: i32, data: &UpdateSchedulePeriod) -> AppResult<SchedulePeriod> {
+    pub async fn update_period(&self, id: i64, data: &UpdateSchedulePeriod) -> AppResult<SchedulePeriod> {
         self.repository.schedules_update_period(id, data).await
     }
 
-    pub async fn delete_period(&self, id: i32) -> AppResult<()> {
+    pub async fn delete_period(&self, id: i64) -> AppResult<()> {
         self.repository.schedules_delete_period(id).await
     }
 
     // ---- Slots ----
-    pub async fn list_slots(&self, period_id: i32) -> AppResult<Vec<ScheduleSlot>> {
+    pub async fn list_slots(&self, period_id: i64) -> AppResult<Vec<ScheduleSlot>> {
         self.repository.schedules_list_slots(period_id).await
     }
 
-    pub async fn create_slot(&self, period_id: i32, data: &CreateScheduleSlot) -> AppResult<ScheduleSlot> {
+    pub async fn create_slot(&self, period_id: i64, data: &CreateScheduleSlot) -> AppResult<ScheduleSlot> {
         self.repository.schedules_create_slot(period_id, data).await
     }
 
-    pub async fn delete_slot(&self, id: i32) -> AppResult<()> {
+    pub async fn delete_slot(&self, id: i64) -> AppResult<()> {
         self.repository.schedules_delete_slot(id).await
     }
 
@@ -68,7 +68,7 @@ impl SchedulesService {
         self.repository.schedules_create_closure(data).await
     }
 
-    pub async fn delete_closure(&self, id: i32) -> AppResult<()> {
+    pub async fn delete_closure(&self, id: i64) -> AppResult<()> {
         self.repository.schedules_delete_closure(id).await
     }
 

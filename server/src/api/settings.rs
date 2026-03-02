@@ -2,6 +2,7 @@
 
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
 use utoipa::ToSchema;
 
 use crate::error::AppResult;
@@ -31,10 +32,13 @@ pub struct SettingsResponse {
 }
 
 /// Z39.50 server configuration
+#[serde_as]
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct Z3950ServerConfig {
     /// Server ID
-    pub id: i32,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub id: i64,
     /// Server name
     pub name: String,
     /// Server address

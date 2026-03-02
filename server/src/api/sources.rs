@@ -82,7 +82,7 @@ pub async fn list_sources(
 pub async fn get_source(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i32>,
+    Path(id): Path<i64>,
 ) -> AppResult<Json<Source>> {
     claims.require_read_items()?;
     let source = state.services.sources.get_by_id(id).await?;
@@ -104,7 +104,7 @@ pub async fn get_source(
 pub async fn update_source(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i32>,
+    Path(id): Path<i64>,
     Json(data): Json<UpdateSource>,
 ) -> AppResult<Json<Source>> {
     claims.require_write_items()?;
@@ -127,7 +127,7 @@ pub async fn update_source(
 pub async fn archive_source(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i32>,
+    Path(id): Path<i64>,
 ) -> AppResult<Json<Source>> {
     claims.require_write_items()?;
     let source = state.services.sources.archive(id).await?;

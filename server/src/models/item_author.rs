@@ -1,6 +1,7 @@
 //! Item-Author junction model (N:M relationship)
 
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
 use sqlx::FromRow;
 use utoipa::ToSchema;
 
@@ -24,11 +25,18 @@ impl From<i16> for AuthorType {
 }
 
 /// Junction row linking an item to an author with role and position
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct ItemAuthor {
-    pub id: i32,
-    pub item_id: i32,
-    pub author_id: i32,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub id: i64,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub item_id: i64,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub author_id: i64,
     pub role: Option<String>,
     pub author_type: i16,
     pub position: i16,

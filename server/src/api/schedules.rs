@@ -75,7 +75,7 @@ pub async fn create_period(
 pub async fn update_period(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i32>,
+    Path(id): Path<i64>,
     Json(data): Json<UpdateSchedulePeriod>,
 ) -> AppResult<Json<SchedulePeriod>> {
     claims.require_write_settings()?;
@@ -97,7 +97,7 @@ pub async fn update_period(
 pub async fn delete_period(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i32>,
+    Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
     claims.require_write_settings()?;
     state.services.schedules.delete_period(id).await?;
@@ -120,7 +120,7 @@ pub async fn delete_period(
 pub async fn list_slots(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(period_id): Path<i32>,
+    Path(period_id): Path<i64>,
 ) -> AppResult<Json<Vec<ScheduleSlot>>> {
     claims.require_read_settings()?;
     let slots = state.services.schedules.list_slots(period_id).await?;
@@ -142,7 +142,7 @@ pub async fn list_slots(
 pub async fn create_slot(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(period_id): Path<i32>,
+    Path(period_id): Path<i64>,
     Json(data): Json<CreateScheduleSlot>,
 ) -> AppResult<(StatusCode, Json<ScheduleSlot>)> {
     claims.require_write_settings()?;
@@ -164,7 +164,7 @@ pub async fn create_slot(
 pub async fn delete_slot(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i32>,
+    Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
     claims.require_write_settings()?;
     state.services.schedules.delete_slot(id).await?;
@@ -233,7 +233,7 @@ pub async fn create_closure(
 pub async fn delete_closure(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i32>,
+    Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
     claims.require_write_settings()?;
     state.services.schedules.delete_closure(id).await?;

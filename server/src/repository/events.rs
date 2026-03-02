@@ -66,7 +66,7 @@ impl Repository {
     }
 
     /// Get event by ID
-    pub async fn events_get_by_id(&self, id: i32) -> AppResult<Event> {
+    pub async fn events_get_by_id(&self, id: i64) -> AppResult<Event> {
         sqlx::query_as::<_, Event>("SELECT * FROM events WHERE id = $1")
             .bind(id)
             .fetch_optional(&self.pool)
@@ -113,7 +113,7 @@ impl Repository {
     }
 
     /// Update an event
-    pub async fn events_update(&self, id: i32, data: &UpdateEvent) -> AppResult<Event> {
+    pub async fn events_update(&self, id: i64, data: &UpdateEvent) -> AppResult<Event> {
         let now = Utc::now();
         let mut sets = vec!["modif_date = $1".to_string()];
         let mut idx = 2;
@@ -177,7 +177,7 @@ impl Repository {
     }
 
     /// Delete an event
-    pub async fn events_delete(&self, id: i32) -> AppResult<()> {
+    pub async fn events_delete(&self, id: i64) -> AppResult<()> {
         let result = sqlx::query("DELETE FROM events WHERE id = $1")
             .bind(id)
             .execute(&self.pool)

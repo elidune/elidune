@@ -43,11 +43,12 @@ impl Services {
         redis_config: RedisConfig,
         redis_service: redis::RedisService,
     ) -> AppResult<Self> {
+        let catalog = catalog::CatalogService::new(repository.clone());
         Ok(Self {
-            catalog: catalog::CatalogService::new(repository.clone()),
+            catalog: catalog.clone(),
             users: users::UsersService::new(repository.clone(), auth_config.clone(), redis_service.clone()),
             loans: loans::LoansService::new(repository.clone()),
-            z3950: z3950::Z3950Service::new(repository.clone(), redis_service.clone(), redis_config.z3950_cache_ttl_seconds),
+            z3950: z3950::Z3950Service::new(repository.clone(), catalog, redis_service.clone(), redis_config.z3950_cache_ttl_seconds),
             stats: stats::StatsService::new(repository.clone()),
             settings: settings::SettingsService::new(repository.clone()),
             email: email::EmailService::new(email_config.clone()),

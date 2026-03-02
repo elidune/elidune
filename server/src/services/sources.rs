@@ -22,7 +22,7 @@ impl SourcesService {
     }
 
     /// Get source by ID
-    pub async fn get_by_id(&self, id: i32) -> AppResult<Source> {
+    pub async fn get_by_id(&self, id: i64) -> AppResult<Source> {
         self.repository.sources_get_by_id(id).await
     }
 
@@ -36,7 +36,7 @@ impl SourcesService {
     }
 
     /// Rename a source
-    pub async fn rename(&self, id: i32, name: &str) -> AppResult<Source> {
+    pub async fn rename(&self, id: i64, name: &str) -> AppResult<Source> {
         if name.trim().is_empty() {
             return Err(AppError::Validation("Source name cannot be empty".to_string()));
         }
@@ -44,7 +44,7 @@ impl SourcesService {
     }
 
     /// Update a source (name and/or default status)
-    pub async fn update(&self, id: i32, data: &UpdateSource) -> AppResult<Source> {
+    pub async fn update(&self, id: i64, data: &UpdateSource) -> AppResult<Source> {
         // Validate name if provided
         if let Some(ref name) = data.name {
             if name.trim().is_empty() {
@@ -58,7 +58,7 @@ impl SourcesService {
     }
 
     /// Archive a source (fails if non-archived specimens are linked)
-    pub async fn archive(&self, id: i32) -> AppResult<Source> {
+    pub async fn archive(&self, id: i64) -> AppResult<Source> {
         // Verify source exists
         let source = self.repository.sources_get_by_id(id).await?;
 

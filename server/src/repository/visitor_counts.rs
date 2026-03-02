@@ -89,7 +89,7 @@ impl Repository {
     }
 
     /// Delete a visitor count record
-    pub async fn visitor_counts_delete(&self, id: i32) -> AppResult<()> {
+    pub async fn visitor_counts_delete(&self, id: i64) -> AppResult<()> {
         let result = sqlx::query("DELETE FROM visitor_counts WHERE id = $1")
             .bind(id)
             .execute(&self.pool)

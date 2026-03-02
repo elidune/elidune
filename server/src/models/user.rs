@@ -2,6 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
 use sqlx::{Decode, Encode, FromRow, Postgres};
 use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
@@ -244,8 +245,8 @@ impl From<Option<i16>> for UserStatus {
 /// Internal row structure for database queries (with String fields)
 #[derive(Debug, Clone, FromRow)]
 pub struct UserRow {
-    id: i32,
-    group_id: Option<i32>,
+    id: i64,
+    group_id: Option<i64>,
     barcode: Option<String>,
     login: Option<String>,
     password: Option<String>,
@@ -320,10 +321,15 @@ impl From<UserRow> for User {
 }
 
 /// Full user model from database
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct User {
-    pub id: i32,
-    pub group_id: Option<i32>,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub id: i64,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub group_id: Option<i64>,
     pub barcode: Option<String>,
     pub login: Option<String>,
     /// Hashed password (argon2)
@@ -372,7 +378,7 @@ pub struct User {
 /// Internal row structure for UserShort queries
 #[derive(Debug, Clone, FromRow)]
 pub struct UserShortRow {
-    id: i32,
+    id: i64,
     firstname: Option<String>,
     lastname: Option<String>,
     account_type: Option<String>,
@@ -396,9 +402,12 @@ impl From<UserShortRow> for UserShort {
 }
 
 /// Short user representation for lists
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UserShort {
-    pub id: i32,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub id: i64,
     pub firstname: Option<String>,
     pub lastname: Option<String>,
     pub account_type: Option<AccountTypeSlug>,
@@ -417,6 +426,7 @@ pub struct UserQuery {
 }
 
 /// Create user request
+#[serde_as]
 #[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct CreateUser {
     pub barcode: Option<String>,
@@ -439,7 +449,9 @@ pub struct CreateUser {
     pub fee: Option<FeeSlug>,
     pub public_type: Option<i32>,
     pub notes: Option<String>,
-    pub group_id: Option<i32>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub group_id: Option<i64>,
     /// Sex (70=Female, 77=Male, 85=Unknown)
     pub sex: Option<i16>,
     /// Staff type (NULL=not staff, 0=employee, 1=volunteer)
@@ -453,6 +465,7 @@ pub struct CreateUser {
 }
 
 /// Update user request
+#[serde_as]
 #[derive(Debug, Deserialize, Validate, ToSchema)]
 pub struct UpdateUser {
     pub barcode: Option<String>,
@@ -471,7 +484,9 @@ pub struct UpdateUser {
     pub fee: Option<FeeSlug>,
     pub public_type: Option<i32>,
     pub notes: Option<String>,
-    pub group_id: Option<i32>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub group_id: Option<i64>,
     pub status: Option<i16>,
     /// Sex (70=Female, 77=Male, 85=Unknown)
     pub sex: Option<i16>,
@@ -553,7 +568,7 @@ impl Default for UserRights {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserClaims {
     pub sub: String,
-    pub user_id: i32,
+    pub user_id: i64,
     pub account_type: AccountTypeSlug,
     pub rights: UserRights,
     pub exp: i64,

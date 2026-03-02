@@ -95,7 +95,7 @@ impl UsersService {
     }
 
     /// Verify 2FA code and return JWT token
-    pub async fn verify_2fa(&self, user_id: i32, code: &str, device_id: Option<&str>, trust_device: bool) -> AppResult<String> {
+    pub async fn verify_2fa(&self, user_id: i64, code: &str, device_id: Option<&str>, trust_device: bool) -> AppResult<String> {
         let user = self.repository.users_get_by_id(user_id).await?;
 
         if !user.two_factor_enabled.unwrap_or(false) {
@@ -111,9 +111,9 @@ impl UsersService {
                     let secret_bytes = base32::decode(base32::Alphabet::RFC4648 { padding: false }, secret)
                         .ok_or_else(|| AppError::Internal("Invalid TOTP secret format".to_string()))?;
                     
-                    let now = Utc::now().timestamp() as u64;
+                    let now = Utc::now().timestamp() as i64;
                     // totp_custom(step, digits, secret, time)
-                    let totp_code = totp_custom::<sha1::Sha1>(30, 6, &secret_bytes, now);
+                    let totp_code = totp_custom::<sha1::Sha1>(30, 6, &secret_bytes, now as u64);
                     
                     code == totp_code
                 } else {
@@ -143,7 +143,7 @@ impl UsersService {
     }
 
     /// Verify recovery code and return JWT token
-    pub async fn verify_recovery_code(&self, user_id: i32, code: &str) -> AppResult<String> {
+    pub async fn verify_recovery_code(&self, user_id: i64, code: &str) -> AppResult<String> {
         let user = self.repository.users_get_by_id(user_id).await?;
 
         if !user.two_factor_enabled.unwrap_or(false) {
@@ -252,7 +252,7 @@ impl UsersService {
     /// Enable 2FA for a user
     pub async fn enable_2fa(
         &self,
-        user_id: i32,
+        user_id: i64,
         method: &str,
         totp_secret: Option<String>,
     ) -> AppResult<Vec<String>> {
@@ -284,7 +284,7 @@ impl UsersService {
     }
 
     /// Disable 2FA for a user
-    pub async fn disable_2fa(&self, user_id: i32) -> AppResult<()> {
+    pub async fn disable_2fa(&self, user_id: i64) -> AppResult<()> {
         self.repository
             .users_update_2fa_settings(user_id, false, None, None, None)
             .await?;
@@ -317,7 +317,7 @@ impl UsersService {
     }
 
     /// Get user by ID
-    pub async fn get_by_id(&self, id: i32) -> AppResult<User> {
+    pub async fn get_by_id(&self, id: i64) -> AppResult<User> {
         self.repository.users_get_by_id(id).await
     }
 
@@ -346,7 +346,7 @@ impl UsersService {
     }
 
     /// Update an existing user
-    pub async fn update_user(&self, id: i32, user: UpdateUser) -> AppResult<User> {
+    pub async fn update_user(&self, id: i64, user: UpdateUser) -> AppResult<User> {
         // Check if user exists
         self.repository.users_get_by_id(id).await?;
 
@@ -369,12 +369,12 @@ impl UsersService {
     }
 
     /// Delete a user
-    pub async fn delete_user(&self, id: i32, force: bool) -> AppResult<()> {
+    pub async fn delete_user(&self, id: i64, force: bool) -> AppResult<()> {
         self.repository.users_delete(id, force).await
     }
 
     /// Update user's own profile (name, password)
-    pub async fn update_profile(&self, user_id: i32, profile: UpdateProfile) -> AppResult<User> {
+    pub async fn update_profile(&self, user_id: i64, profile: UpdateProfile) -> AppResult<User> {
         // Get current user
         let user = self.repository.users_get_by_id(user_id).await?;
 
@@ -408,7 +408,7 @@ impl UsersService {
     }
 
     /// Update user's account type (admin only)
-    pub async fn update_account_type(&self, user_id: i32, account_type: &AccountTypeSlug) -> AppResult<User> {
+    pub async fn update_account_type(&self, user_id: i64, account_type: &AccountTypeSlug) -> AppResult<User> {
         // Check if user exists
         self.repository.users_get_by_id(user_id).await?;
 

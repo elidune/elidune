@@ -11,7 +11,7 @@ use crate::{
 
 impl Repository {
     /// Get user by ID
-    pub async fn users_get_by_id(&self, id: i32) -> AppResult<User> {
+    pub async fn users_get_by_id(&self, id: i64) -> AppResult<User> {
         use crate::models::user::UserRow;
         let user_row = sqlx::query_as::<_, UserRow>(
             r#"
@@ -57,7 +57,7 @@ impl Repository {
     }
 
     /// Check if email already exists
-    pub async fn users_email_exists(&self, email: &str, exclude_id: Option<i32>) -> AppResult<bool> {
+    pub async fn users_email_exists(&self, email: &str, exclude_id: Option<i64>) -> AppResult<bool> {
         let exists: bool = if let Some(id) = exclude_id {
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE LOWER(email) = LOWER($1) AND id != $2)")
                 .bind(email)
@@ -74,7 +74,7 @@ impl Repository {
     }
 
     /// Check if login already exists
-    pub async fn users_login_exists(&self, login: &str, exclude_id: Option<i32>) -> AppResult<bool> {
+    pub async fn users_login_exists(&self, login: &str, exclude_id: Option<i64>) -> AppResult<bool> {
         let exists: bool = if let Some(id) = exclude_id {
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE LOWER(login) = LOWER($1) AND id != $2)")
                 .bind(login)
@@ -203,7 +203,7 @@ impl Repository {
             .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
         let hours_pw = user.hours_per_week.map(|v| v as f32);
 
-        let id = sqlx::query_scalar::<_, i32>(
+        let id = sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO users (
                 login, password, firstname, lastname, email,
@@ -249,7 +249,7 @@ impl Repository {
     }
 
     /// Update an existing user
-    pub async fn users_update(&self, id: i32, user: &UpdateUser, password: Option<String>) -> AppResult<User> {
+    pub async fn users_update(&self, id: i64, user: &UpdateUser, password: Option<String>) -> AppResult<User> {
         let now = Utc::now();
 
         // Build dynamic update query
@@ -369,7 +369,7 @@ impl Repository {
     }
 
     /// Delete a user (soft delete: anonymize data and set status to deleted)
-    pub async fn users_delete(&self, id: i32, force: bool) -> AppResult<()> {
+    pub async fn users_delete(&self, id: i64, force: bool) -> AppResult<()> {
         let active_loans = self.loans_count_active_for_user(id).await?;
 
         if active_loans > 0 && !force {
@@ -406,7 +406,7 @@ impl Repository {
     }
     
     /// Block a user
-    pub async fn users_block(&self, id: i32) -> AppResult<User> {
+    pub async fn users_block(&self, id: i64) -> AppResult<User> {
         let now = Utc::now();
 
         sqlx::query("UPDATE users SET status = $1, modif_date = $2 WHERE id = $3")
@@ -420,7 +420,7 @@ impl Repository {
     }
     
     /// Unblock a user
-    pub async fn users_unblock(&self, id: i32) -> AppResult<User> {
+    pub async fn users_unblock(&self, id: i64) -> AppResult<User> {
         let now = Utc::now();
 
         sqlx::query("UPDATE users SET status = $1, modif_date = $2 WHERE id = $3")
@@ -434,7 +434,7 @@ impl Repository {
     }
 
     /// Update user's own profile (firstname, lastname, password)
-    pub async fn users_update_profile(&self, id: i32, profile: &UpdateProfile, password: Option<String>) -> AppResult<User> {
+    pub async fn users_update_profile(&self, id: i64, profile: &UpdateProfile, password: Option<String>) -> AppResult<User> {
         let now = Utc::now();
 
         let mut sets = vec!["modif_date = $1".to_string()];
@@ -503,7 +503,7 @@ impl Repository {
     }
 
     /// Update user's account type (admin only)
-    pub async fn users_update_account_type(&self, id: i32, account_type: &AccountTypeSlug) -> AppResult<User> {
+    pub async fn users_update_account_type(&self, id: i64, account_type: &AccountTypeSlug) -> AppResult<User> {
         let now = Utc::now();
 
         sqlx::query("UPDATE users SET account_type = $1, modif_date = $2 WHERE id = $3")
@@ -519,7 +519,7 @@ impl Repository {
     /// Update 2FA settings for a user
     pub async fn users_update_2fa_settings(
         &self,
-        id: i32,
+        id: i64,
         enabled: bool,
         method: Option<&str>,
         totp_secret: Option<&str>,
@@ -548,7 +548,7 @@ impl Repository {
     }
 
     /// Mark a recovery code as used
-    pub async fn users_mark_recovery_code_used(&self, id: i32, used_codes: &str) -> AppResult<()> {
+    pub async fn users_mark_recovery_code_used(&self, id: i64, used_codes: &str) -> AppResult<()> {
         sqlx::query(
             "UPDATE users SET recovery_codes_used = $1, modif_date = NOW() WHERE id = $2",
         )

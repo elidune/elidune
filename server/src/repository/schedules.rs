@@ -26,7 +26,7 @@ impl Repository {
     }
 
     /// Get a schedule period by ID
-    pub async fn schedules_get_period(&self, id: i32) -> AppResult<SchedulePeriod> {
+    pub async fn schedules_get_period(&self, id: i64) -> AppResult<SchedulePeriod> {
         sqlx::query_as::<_, SchedulePeriod>("SELECT * FROM schedule_periods WHERE id = $1")
             .bind(id)
             .fetch_optional(&self.pool)
@@ -58,7 +58,7 @@ impl Repository {
     }
 
     /// Update a schedule period
-    pub async fn schedules_update_period(&self, id: i32, data: &UpdateSchedulePeriod) -> AppResult<SchedulePeriod> {
+    pub async fn schedules_update_period(&self, id: i64, data: &UpdateSchedulePeriod) -> AppResult<SchedulePeriod> {
         let now = Utc::now();
         let mut sets = vec!["modif_date = $1".to_string()];
         let mut idx = 2;
@@ -88,7 +88,7 @@ impl Repository {
     }
 
     /// Delete a schedule period (cascade deletes slots)
-    pub async fn schedules_delete_period(&self, id: i32) -> AppResult<()> {
+    pub async fn schedules_delete_period(&self, id: i64) -> AppResult<()> {
         let result = sqlx::query("DELETE FROM schedule_periods WHERE id = $1")
             .bind(id)
             .execute(&self.pool)
@@ -102,7 +102,7 @@ impl Repository {
     // ---- Slots ----
 
     /// List slots for a given period
-    pub async fn schedules_list_slots(&self, period_id: i32) -> AppResult<Vec<ScheduleSlot>> {
+    pub async fn schedules_list_slots(&self, period_id: i64) -> AppResult<Vec<ScheduleSlot>> {
         let rows = sqlx::query_as::<_, ScheduleSlot>(
             "SELECT * FROM schedule_slots WHERE period_id = $1 ORDER BY day_of_week, open_time"
         )
@@ -113,7 +113,7 @@ impl Repository {
     }
 
     /// Create a slot for a period
-    pub async fn schedules_create_slot(&self, period_id: i32, data: &CreateScheduleSlot) -> AppResult<ScheduleSlot> {
+    pub async fn schedules_create_slot(&self, period_id: i64, data: &CreateScheduleSlot) -> AppResult<ScheduleSlot> {
         let open = NaiveTime::parse_from_str(&data.open_time, "%H:%M")
             .map_err(|_| AppError::Validation("Invalid open_time (use HH:MM)".to_string()))?;
         let close = NaiveTime::parse_from_str(&data.close_time, "%H:%M")
@@ -136,7 +136,7 @@ impl Repository {
     }
 
     /// Delete a slot
-    pub async fn schedules_delete_slot(&self, id: i32) -> AppResult<()> {
+    pub async fn schedules_delete_slot(&self, id: i64) -> AppResult<()> {
         let result = sqlx::query("DELETE FROM schedule_slots WHERE id = $1")
             .bind(id)
             .execute(&self.pool)
@@ -259,7 +259,7 @@ impl Repository {
     }
 
     /// Delete a closure
-    pub async fn schedules_delete_closure(&self, id: i32) -> AppResult<()> {
+    pub async fn schedules_delete_closure(&self, id: i64) -> AppResult<()> {
         let result = sqlx::query("DELETE FROM schedule_closures WHERE id = $1")
             .bind(id)
             .execute(&self.pool)

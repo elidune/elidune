@@ -27,7 +27,7 @@ impl Repository {
     }
 
     /// Get source by ID
-    pub async fn sources_get_by_id(&self, id: i32) -> AppResult<Source> {
+    pub async fn sources_get_by_id(&self, id: i64) -> AppResult<Source> {
         sqlx::query_as::<_, Source>("SELECT * FROM sources WHERE id = $1")
             .bind(id)
             .fetch_optional(&self.pool)
@@ -36,7 +36,7 @@ impl Repository {
     }
 
     /// Rename a source
-    pub async fn sources_rename(&self, id: i32, name: &str) -> AppResult<Source> {
+    pub async fn sources_rename(&self, id: i64, name: &str) -> AppResult<Source> {
         sqlx::query_as::<_, Source>("UPDATE sources SET name = $1 WHERE id = $2 RETURNING *")
             .bind(name)
             .bind(id)
@@ -46,7 +46,7 @@ impl Repository {
     }
 
     /// Update a source (name and/or default status)
-    pub async fn sources_update(&self, id: i32, name: Option<&str>, default: Option<bool>) -> AppResult<Source> {
+    pub async fn sources_update(&self, id: i64, name: Option<&str>, default: Option<bool>) -> AppResult<Source> {
         // If setting this source as default, first unset all other default sources
         if let Some(true) = default {
             sqlx::query(r#"UPDATE sources SET "default" = false WHERE id != $1"#)
@@ -94,12 +94,12 @@ impl Repository {
     }
 
     /// Count non-archived specimens linked to a source
-    pub async fn sources_count_active_specimens(&self, source_id: i32) -> AppResult<i64> {
+    pub async fn sources_count_active_specimens(&self, source_id: i64) -> AppResult<i64> {
         self.items_count_specimens_for_source(source_id).await
     }
 
     /// Archive a source
-    pub async fn sources_archive(&self, id: i32) -> AppResult<Source> {
+    pub async fn sources_archive(&self, id: i64) -> AppResult<Source> {
         let now = Utc::now();
         sqlx::query_as::<_, Source>(
             "UPDATE sources SET is_archive = 1, archive_date = $1 WHERE id = $2 RETURNING *",
@@ -132,23 +132,23 @@ impl Repository {
     /// Reassign all specimens from given source IDs to a new source ID
     pub async fn sources_reassign_specimens(
         &self,
-        old_source_ids: &[i32],
-        new_source_id: i32,
-    ) -> AppResult<u64> {
+        old_source_ids: &[i64],
+        new_source_id: i64,
+    ) -> AppResult<i64> {
         self.items_reassign_specimens_source(old_source_ids, new_source_id).await
     }
 
     /// Reassign all items from given source IDs to a new source ID
     pub async fn sources_reassign_items(
         &self,
-        old_source_ids: &[i32],
-        new_source_id: i32,
-    ) -> AppResult<u64> {
+        old_source_ids: &[i64],
+        new_source_id: i64,
+    ) -> AppResult<i64> {
         self.items_reassign_items_source(old_source_ids, new_source_id).await
     }
 
     /// Archive multiple sources by IDs
-    pub async fn sources_archive_many(&self, ids: &[i32]) -> AppResult<()> {
+    pub async fn sources_archive_many(&self, ids: &[i64]) -> AppResult<()> {
         let now = Utc::now();
         sqlx::query("UPDATE sources SET is_archive = 1, archive_date = $1 WHERE id = ANY($2)")
             .bind(now)
@@ -159,15 +159,15 @@ impl Repository {
     }
 
     /// Find source by name or create it. Returns source id.
-    pub async fn sources_find_or_create_by_name(&self, name: &str) -> AppResult<i32> {
-        if let Some(id) = sqlx::query_scalar::<_, i32>("SELECT id FROM sources WHERE name = $1")
+    pub async fn sources_find_or_create_by_name(&self, name: &str) -> AppResult<i64> {
+        if let Some(id) = sqlx::query_scalar::<_, i64>("SELECT id FROM sources WHERE name = $1")
             .bind(name)
             .fetch_optional(&self.pool)
             .await?
         {
             return Ok(id);
         }
-        let id: i32 = sqlx::query_scalar(r#"INSERT INTO sources (name) VALUES ($1) RETURNING id"#)
+        let id: i64 = sqlx::query_scalar(r#"INSERT INTO sources (name) VALUES ($1) RETURNING id"#)
             .bind(name)
             .fetch_one(&self.pool)
             .await?;

@@ -2,6 +2,7 @@
 
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
 use sqlx::FromRow;
 use utoipa::{IntoParams, ToSchema};
 
@@ -10,9 +11,12 @@ use utoipa::{IntoParams, ToSchema};
 // ---------------------------------------------------------------------------
 
 /// A named schedule period (e.g. "Winter hours 2025")
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct SchedulePeriod {
-    pub id: i32,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub id: i64,
     /// Period name
     pub name: String,
     /// Period start date
@@ -49,11 +53,16 @@ pub struct UpdateSchedulePeriod {
 // ---------------------------------------------------------------------------
 
 /// A time slot within a schedule period
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct ScheduleSlot {
-    pub id: i32,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub id: i64,
     /// Parent period ID
-    pub period_id: i32,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub period_id: i64,
     /// Day of week (0=Monday, 6=Sunday)
     pub day_of_week: i16,
     /// Opening time
@@ -79,9 +88,12 @@ pub struct CreateScheduleSlot {
 // ---------------------------------------------------------------------------
 
 /// An exceptional closure day
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 pub struct ScheduleClosure {
-    pub id: i32,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub id: i64,
     /// Closure date
     pub closure_date: NaiveDate,
     /// Reason for closure

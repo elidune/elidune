@@ -77,7 +77,7 @@ pub async fn create_visitor_count(
 pub async fn delete_visitor_count(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i32>,
+    Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
     claims.require_write_settings()?;
 

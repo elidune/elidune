@@ -7,6 +7,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
 use utoipa::ToSchema;
 
 use crate::{
@@ -17,12 +18,17 @@ use crate::{
 use super::AuthenticatedUser;
 
 /// Create loan request
+#[serde_as]
 #[derive(Deserialize, ToSchema)]
 pub struct CreateLoanRequest {
     /// User ID
-    pub user_id: i32,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub user_id: i64,
     /// Specimen ID (optional if identification provided)
-    pub specimen_id: Option<i32>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub specimen_id: Option<i64>,
     /// Specimen barcode/identification
     pub specimen_identification: Option<String>,
     /// Force loan even if rules are violated
@@ -30,10 +36,13 @@ pub struct CreateLoanRequest {
 }
 
 /// Loan response with calculated dates
+#[serde_as]
 #[derive(Serialize, ToSchema)]
 pub struct LoanResponse {
     /// Loan ID
-    pub id: i32,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub id: i64,
     /// Due date (ISO 8601 format)
     pub issue_date: DateTime<Utc>,
     /// Status message
@@ -56,7 +65,7 @@ pub struct ReturnResponse {
     tag = "loans",
     security(("bearer_auth" = [])),
     params(
-        ("id" = i32, Path, description = "User ID")
+        ("id" = i64, Path, description = "User ID")
     ),
     responses(
         (status = 200, description = "User's active loans", body = Vec<LoanDetails>),
@@ -66,7 +75,7 @@ pub struct ReturnResponse {
 pub async fn get_user_loans(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(user_id): Path<i32>,
+    Path(user_id): Path<i64>,
 ) -> AppResult<Json<Vec<LoanDetails>>> {
     claims.require_read_users()?;
 
@@ -132,7 +141,7 @@ pub async fn create_loan(
 pub async fn return_loan(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(loan_id): Path<i32>,
+    Path(loan_id): Path<i64>,
 ) -> AppResult<Json<ReturnResponse>> {
     claims.require_write_borrows()?;
 
@@ -162,7 +171,7 @@ pub async fn return_loan(
 pub async fn renew_loan(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(loan_id): Path<i32>,
+    Path(loan_id): Path<i64>,
 ) -> AppResult<Json<LoanResponse>> {
     claims.require_write_borrows()?;
 

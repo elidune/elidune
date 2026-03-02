@@ -65,7 +65,7 @@ pub async fn list_users(
 pub async fn get_user(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i32>,
+    Path(id): Path<i64>,
 ) -> AppResult<Json<User>> {
     claims.require_read_users()?;
 
@@ -115,7 +115,7 @@ pub async fn create_user(
 pub async fn update_user(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i32>,
+    Path(id): Path<i64>,
     Json(user): Json<UpdateUser>,
 ) -> AppResult<Json<User>> {
     claims.require_write_users()?;
@@ -143,7 +143,7 @@ pub async fn update_user(
 pub async fn delete_user(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i32>,
+    Path(id): Path<i64>,
     Query(params): Query<DeleteUserParams>,
 ) -> AppResult<StatusCode> {
     claims.require_write_users()?;
@@ -202,7 +202,7 @@ pub async fn update_my_profile(
 pub async fn update_account_type(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i32>,
+    Path(id): Path<i64>,
     Json(request): Json<UpdateAccountType>,
 ) -> AppResult<Json<User>> {
     claims.require_admin()?;

@@ -71,7 +71,7 @@ pub enum AppError {
 
     #[error("Duplicate ISBN requires confirmation")]
     DuplicateNeedsConfirmation {
-        existing_id: i32,
+        existing_id: i64,
         message: String,
     },
 }

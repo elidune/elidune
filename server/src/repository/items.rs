@@ -4,21 +4,58 @@
 //! uses the associated char or int (e.g. media_type string from Leader record_type).
 
 use chrono::Utc;
-use sqlx::{Pool, Postgres, Row};
-use z3950_rs::marc_rs::{MarcFormat, Record};
+use sqlx::{FromRow, Row};
+use sqlx::types::Json;
+
+use z3950_rs::marc_rs::Record;
 
 use super::Repository;
 use crate::{
     error::{AppError, AppResult},
     marc::MarcRecord,
     models::{
-        author::AuthorWithFunction,
+        author::Author,
         import_report::DuplicateCandidate,
         item::{Collection, Edition, Item, ItemQuery, ItemShort, Serie},
-        remote_item::ItemRemote,
         specimen::{CreateSpecimen, Specimen},
     },
 };
+
+/// Internal row type for decoding ItemShort with JSONB author in a single query.
+#[derive(FromRow)]
+struct ItemShortRow {
+    id: i64,
+    media_type: Option<String>,
+    isbn: Option<String>,
+    title: Option<String>,
+    date: Option<String>,
+    status: i16,
+    #[allow(dead_code)]
+    is_local: i16,
+    is_valid: Option<i16>,
+    archived_at: Option<chrono::DateTime<Utc>>,
+    #[allow(dead_code)]
+    nb_specimens: i16,
+    #[allow(dead_code)]
+    nb_available: i16,
+    author: Option<Json<Author>>,
+}
+
+impl From<ItemShortRow> for ItemShort {
+    fn from(r: ItemShortRow) -> Self {
+        Self {
+            id: r.id,
+            media_type: r.media_type,
+            isbn: r.isbn,
+            title: r.title,
+            date: r.date,
+            status: r.status,
+            is_valid: r.is_valid,
+            archived_at: r.archived_at,
+            author: r.author.map(|j| j.0),
+        }
+    }
+}
 
 // --- MARC type → DB (char/int) conversion helpers ---
 
@@ -87,7 +124,7 @@ impl Repository {
             
         // query id and isbn in the same query
         let mut item = sqlx::query_as::<_, Item>(query)
-        .bind(id_or_isbn.parse::<i32>().unwrap_or(0))
+        .bind(id_or_isbn.parse::<i64>().unwrap_or(0))
         .bind(id_or_isbn)
         .fetch_optional(&self.pool)
         .await?
@@ -126,7 +163,7 @@ impl Repository {
     }
 
 
-    pub async fn items_get_marc_record(&self, id: i32) -> AppResult<Option<Record>> {
+    pub async fn items_get_marc_record(&self, id: i64) -> AppResult<Option<Record>> {
         let query = "SELECT marc_record FROM items WHERE id = $1";
         let marc_record = sqlx::query_scalar::<_, serde_json::Value>(query)
         .bind(id)
@@ -137,7 +174,7 @@ impl Repository {
 
 
     /// Load all authors for an item via the item_authors junction table
-    async fn get_item_authors(&self, item_id: i32) -> AppResult<Vec<AuthorWithFunction>> {
+    async fn get_item_authors(&self, item_id: i64) -> AppResult<Vec<Author>> {
         let rows = sqlx::query(
             r#"
             SELECT a.id, a.lastname, a.firstname, a.bio, a.notes, ia.role as function
@@ -153,13 +190,14 @@ impl Repository {
 
         Ok(rows
             .iter()
-            .map(|r| AuthorWithFunction {
+            .map(|r| Author {
                 id: r.get("id"),
+                key: None,
                 lastname: r.get("lastname"),
                 firstname: r.get("firstname"),
-                bio: r.get("bio"),
-                notes: r.get("notes"),
-                function: r.get("function"),
+                bio: r.get::<Option<String>, _>("bio"),
+                notes: r.get::<Option<String>, _>("notes"),
+                function: r.get::<Option<String>, _>("function"),
             })
             .collect())
     }
@@ -244,7 +282,21 @@ impl Repository {
                              WHERE l.specimen_id = s.id
                                AND l.returned_date IS NULL
                          )
-                   ), 0::smallint)::smallint as nb_available
+                   ), 0::smallint)::smallint as nb_available,
+                   (
+                       SELECT jsonb_build_object(
+                           'id', a.id,
+                           'lastname', a.lastname,
+                           'firstname', a.firstname,
+                           'bio', a.bio,
+                           'notes', a.notes,
+                           'function', ia.role
+                       )
+                       FROM item_authors ia
+                       JOIN authors a ON a.id = ia.author_id
+                       WHERE ia.item_id = i.id
+                       ORDER BY ia.position LIMIT 1
+                   ) as author
             FROM items i
             WHERE {}
             ORDER BY i.title
@@ -253,16 +305,17 @@ impl Repository {
             where_clause, per_page, offset
         );
 
-        let items = sqlx::query_as::<_, ItemShort>(&select_query)
+        let rows: Vec<ItemShortRow> = sqlx::query_as(&select_query)
             .fetch_all(&self.pool)
             .await?;
+        let items: Vec<ItemShort> = rows.into_iter().map(ItemShort::from).collect();
 
         Ok((items, total))
     }
 
     /// List all items belonging to a series
-    pub async fn items_get_by_series(&self, series_id: i32) -> AppResult<Vec<ItemShort>> {
-        let items = sqlx::query_as::<_, ItemShort>(
+    pub async fn items_get_by_series(&self, series_id: i64) -> AppResult<Vec<ItemShort>> {
+        let rows: Vec<ItemShortRow> = sqlx::query_as(
             r#"
             SELECT i.id, i.media_type, i.isbn, i.title,
                    i.publication_date as date, 0::smallint as status,
@@ -275,7 +328,21 @@ impl Repository {
                        SELECT CAST(COUNT(*) AS SMALLINT) FROM specimens s
                        WHERE s.item_id = i.id AND s.archived_at IS NULL
                          AND NOT EXISTS (SELECT 1 FROM loans l WHERE l.specimen_id = s.id AND l.returned_date IS NULL)
-                   ), 0::smallint)::smallint as nb_available
+                   ), 0::smallint)::smallint as nb_available,
+                   (
+                       SELECT jsonb_build_object(
+                           'id', a.id,
+                           'lastname', a.lastname,
+                           'firstname', a.firstname,
+                           'bio', a.bio,
+                           'notes', a.notes,
+                           'function', ia.role
+                       )
+                       FROM item_authors ia
+                       JOIN authors a ON a.id = ia.author_id
+                       WHERE ia.item_id = i.id
+                       ORDER BY ia.position LIMIT 1
+                   ) as author
             FROM items i
             WHERE i.series_id = $1 AND i.archived_at IS NULL
             ORDER BY i.series_volume_number, i.title
@@ -285,7 +352,7 @@ impl Repository {
         .fetch_all(&self.pool)
         .await?;
 
-        Ok(items)
+        Ok(rows.into_iter().map(ItemShort::from).collect())
     }
 
     // =========================================================================
@@ -300,7 +367,7 @@ impl Repository {
         let collection_id = self.process_collection(&item.collection).await?;
         let edition_id = self.process_edition(&item.edition).await?;
 
-        let id = sqlx::query_scalar::<_, i32>(
+        let id = sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO items (
                 media_type, isbn, price, barcode, call_number, publication_date,
@@ -313,7 +380,7 @@ impl Repository {
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
                 $13, $14, $15, $16, $17, $18, $19, $20, $21,
-                $22, $23, $24, $25, $26, $27, $28, $29
+                $22, $23, $24, $25, $26, $27, $28
             ) RETURNING id
             "#,
         )
@@ -362,7 +429,7 @@ impl Repository {
     // =========================================================================
 
     /// Update an existing item
-    pub async fn items_update(&self, id: i32, item: &Item) -> AppResult<Item> {
+    pub async fn items_update(&self, id: i64, item: &Item) -> AppResult<Item> {
         let now = Utc::now();
 
         let series_id = self.process_serie(&item.series).await?;
@@ -413,7 +480,7 @@ impl Repository {
     }
 
     /// Save marc_record JSONB for an item
-    pub async fn items_save_marc_record(&self, item_id: i32, marc_record: &Record) -> AppResult<()> {
+    pub async fn items_save_marc_record(&self, item_id: i64, marc_record: &Record) -> AppResult<()> {
         sqlx::query("UPDATE items SET marc_record = $1 WHERE id = $2")
             .bind(serde_json::to_value(marc_record).unwrap())
             .bind(item_id)
@@ -427,7 +494,7 @@ impl Repository {
     // =========================================================================
 
     /// Delete an item (soft delete — sets archived_at)
-    pub async fn items_delete(&self, id: i32, force: bool) -> AppResult<()> {
+    pub async fn items_delete(&self, id: i64, force: bool) -> AppResult<()> {
         let now = Utc::now();
 
         let loans = self.loans_get_active_ids_for_item(id).await?;
@@ -471,8 +538,8 @@ impl Repository {
     /// Replace all authors for an item: delete existing rows then insert new ones.
     async fn sync_item_authors(
         &self,
-        item_id: i32,
-        authors: &[AuthorWithFunction],
+        item_id: i64,
+        authors: &[Author],
     ) -> AppResult<()> {
         sqlx::query("DELETE FROM item_authors WHERE item_id = $1")
             .bind(item_id)
@@ -503,7 +570,7 @@ impl Repository {
     }
 
     /// Insert author if new, or return existing id.
-    async fn ensure_author(&self, author: &AuthorWithFunction) -> AppResult<Option<i32>> {
+    async fn ensure_author(&self, author: &Author) -> AppResult<Option<i64>> {
         if author.id != 0 {
             return Ok(Some(author.id));
         }
@@ -512,7 +579,7 @@ impl Repository {
             return Ok(None);
         };
 
-        let existing: Option<i32> = sqlx::query_scalar(
+        let existing: Option<i64> = sqlx::query_scalar(
             "SELECT id FROM authors WHERE lastname = $1 AND firstname IS NOT DISTINCT FROM $2",
         )
         .bind(lastname)
@@ -523,7 +590,7 @@ impl Repository {
         if let Some(id) = existing {
             Ok(Some(id))
         } else {
-            let id = sqlx::query_scalar::<_, i32>(
+            let id = sqlx::query_scalar::<_, i64>(
                 "INSERT INTO authors (lastname, firstname) VALUES ($1, $2) RETURNING id",
             )
             .bind(lastname)
@@ -538,7 +605,7 @@ impl Repository {
     // SERIES / COLLECTIONS / EDITIONS
     // =========================================================================
 
-    async fn process_serie(&self, serie: &Option<Serie>) -> AppResult<Option<i32>> {
+    async fn process_serie(&self, serie: &Option<Serie>) -> AppResult<Option<i64>> {
         let Some(serie) = serie else {
             return Ok(None);
         };
@@ -553,7 +620,7 @@ impl Repository {
 
         let key = normalize_key(name);
 
-        let existing: Option<i32> = sqlx::query_scalar("SELECT id FROM series WHERE key = $1 OR name = $2")
+        let existing: Option<i64> = sqlx::query_scalar("SELECT id FROM series WHERE key = $1 OR name = $2")
             .bind(&key)
             .bind(name)
             .fetch_optional(&self.pool)
@@ -562,7 +629,7 @@ impl Repository {
         if let Some(id) = existing {
             Ok(Some(id))
         } else {
-            let id = sqlx::query_scalar::<_, i32>(
+            let id = sqlx::query_scalar::<_, i64>(
                 "INSERT INTO series (key, name, issn) VALUES ($1, $2, $3) RETURNING id"
             )
             .bind(&key)
@@ -574,7 +641,7 @@ impl Repository {
         }
     }
 
-    async fn process_collection(&self, collection: &Option<Collection>) -> AppResult<Option<i32>> {
+    async fn process_collection(&self, collection: &Option<Collection>) -> AppResult<Option<i64>> {
         let Some(collection) = collection else {
             return Ok(None);
         };
@@ -589,7 +656,7 @@ impl Repository {
 
         let key = normalize_key(primary_title);
 
-        let existing: Option<i32> = sqlx::query_scalar(
+        let existing: Option<i64> = sqlx::query_scalar(
             "SELECT id FROM collections WHERE key = $1 OR primary_title = $2",
         )
         .bind(&key)
@@ -600,7 +667,7 @@ impl Repository {
         if let Some(id) = existing {
             Ok(Some(id))
         } else {
-            let id = sqlx::query_scalar::<_, i32>(
+            let id = sqlx::query_scalar::<_, i64>(
                 "INSERT INTO collections (key, primary_title, secondary_title, tertiary_title, issn) VALUES ($1, $2, $3, $4, $5) RETURNING id",
             )
             .bind(&key)
@@ -614,7 +681,7 @@ impl Repository {
         }
     }
 
-    async fn process_edition(&self, edition: &Option<Edition>) -> AppResult<Option<i32>> {
+    async fn process_edition(&self, edition: &Option<Edition>) -> AppResult<Option<i64>> {
         let Some(edition) = edition else {
             return Ok(None);
         };
@@ -630,7 +697,7 @@ impl Repository {
             return Ok(None);
         };
 
-        let existing: Option<i32> = sqlx::query_scalar(
+        let existing: Option<i64> = sqlx::query_scalar(
             "SELECT id FROM editions WHERE publisher_name = $1",
         )
         .bind(publisher_name)
@@ -640,7 +707,7 @@ impl Repository {
         if let Some(id) = existing {
             Ok(Some(id))
         } else {
-            let id = sqlx::query_scalar::<_, i32>(
+            let id = sqlx::query_scalar::<_, i64>(
                 "INSERT INTO editions (publisher_name, place_of_publication, date) VALUES ($1, $2, $3) RETURNING id",
             )
             .bind(publisher_name)
@@ -657,7 +724,7 @@ impl Repository {
     // =========================================================================
 
     /// Get specimens for an item (excludes archived specimens)
-    pub async fn items_get_specimens(&self, item_id: i32) -> AppResult<Vec<Specimen>> {
+    pub async fn items_get_specimens(&self, item_id: i64) -> AppResult<Vec<Specimen>> {
         let specimens = sqlx::query_as::<_, Specimen>(
             r#"
             SELECT s.id, s.item_id, s.source_id, s.barcode, s.call_number, s.volume_designation,
@@ -679,7 +746,7 @@ impl Repository {
     }
 
     /// Create a specimen
-    pub async fn items_create_specimen(&self, item_id: i32, specimen: &CreateSpecimen) -> AppResult<Specimen> {
+    pub async fn items_create_specimen(&self, item_id: i64, specimen: &CreateSpecimen) -> AppResult<Specimen> {
         let now = Utc::now();
 
         let source_id = if let Some(id) = specimen.source_id {
@@ -690,7 +757,7 @@ impl Repository {
             None
         };
 
-        let id = sqlx::query_scalar::<_, i32>(
+        let id = sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO specimens (
                 item_id, barcode, call_number, volume_designation, place, borrow_status, notes, price, source_id, created_at, updated_at
@@ -730,7 +797,7 @@ impl Repository {
     }
 
     /// Update a specimen
-    pub async fn items_update_specimen(&self, id: i32, specimen: &crate::models::specimen::UpdateSpecimen) -> AppResult<Specimen> {
+    pub async fn items_update_specimen(&self, id: i64, specimen: &crate::models::specimen::UpdateSpecimen) -> AppResult<Specimen> {
         let now = Utc::now();
 
         sqlx::query(
@@ -780,7 +847,7 @@ impl Repository {
     }
 
     /// Delete a specimen (soft delete — sets archived_at)
-    pub async fn items_delete_specimen(&self, id: i32, force: bool) -> AppResult<()> {
+    pub async fn items_delete_specimen(&self, id: i64, force: bool) -> AppResult<()> {
         let now = Utc::now();
 
         let borrowed = self.loans_count_active_for_specimen(id).await?;
@@ -813,7 +880,7 @@ impl Repository {
     pub async fn items_specimen_barcode_exists(
         &self,
         barcode: &str,
-        exclude_specimen_id: Option<i32>,
+        exclude_specimen_id: Option<i64>,
     ) -> AppResult<bool> {
         let exists: bool = if let Some(id) = exclude_specimen_id {
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM specimens WHERE barcode = $1 AND id != $2)")
@@ -831,8 +898,8 @@ impl Repository {
     }
 
     /// Get specimen id and archived_at by barcode
-    pub async fn items_get_specimen_by_barcode(&self, barcode: &str) -> AppResult<Option<(i32, bool)>> {
-        let row: Option<(i32, Option<chrono::DateTime<Utc>>)> = sqlx::query_as(
+    pub async fn items_get_specimen_by_barcode(&self, barcode: &str) -> AppResult<Option<(i64, bool)>> {
+        let row: Option<(i64, Option<chrono::DateTime<Utc>>)> = sqlx::query_as(
             "SELECT id, archived_at FROM specimens WHERE barcode = $1",
         )
         .bind(barcode)
@@ -844,8 +911,8 @@ impl Repository {
     /// Reactivate an archived specimen and update its fields.
     pub async fn items_reactivate_specimen(
         &self,
-        specimen_id: i32,
-        item_id: i32,
+        specimen_id: i64,
+        item_id: i64,
         specimen: &CreateSpecimen,
     ) -> AppResult<Specimen> {
         let now = Utc::now();
@@ -907,7 +974,7 @@ impl Repository {
     /// Find an existing item by ISBN for import deduplication.
     /// Includes archived items. Returns the best candidate (non-archived first).
     pub async fn items_find_by_isbn_for_import(&self, isbn: &str) -> AppResult<Option<DuplicateCandidate>> {
-        let row: Option<(i32, Option<chrono::DateTime<Utc>>, i64)> = sqlx::query_as(
+        let row: Option<(i64, Option<chrono::DateTime<Utc>>, i64)> = sqlx::query_as(
             r#"
             SELECT i.id,
                    i.archived_at,
@@ -929,90 +996,8 @@ impl Repository {
         }))
     }
 
-    /// Replace all bibliographic columns of an existing item from a remote record.
-    /// Never touches specimens or created_at. Re-activates the item if it was archived.
-    pub async fn items_update_bibliographic_from_remote(&self, id: i32, remote: &ItemRemote) -> AppResult<Item> {
-        let now = Utc::now();
-
-        sqlx::query(
-            r#"
-            UPDATE items SET
-                media_type = $2,
-                isbn = $3,
-                price = $4,
-                barcode = $5,
-                publication_date = $6,
-                lang = $7,
-                lang_orig = $8,
-                title = $9,
-                series_id = $10,
-                series_volume_number = $11,
-                collection_id = $12,
-                collection_sequence_number = $13,
-                collection_volume_number = $14,
-                genre = $15,
-                subject = $16,
-                audience_type = $17,
-                edition_id = $18,
-                page_extent = $19,
-                format = $20,
-                table_of_contents = $21,
-                accompanying_material = $22,
-                abstract = $23,
-                notes = $24,
-                keywords = $25,
-                is_valid = $26,
-                archived_at = NULL,
-                updated_at = $27
-            WHERE id = $1
-            "#,
-        )
-        .bind(id)
-        .bind(&remote.media_type)
-        .bind(&remote.isbn)
-        .bind(&remote.price)
-        .bind(&remote.barcode)
-        .bind(&remote.publication_date)
-        .bind(&remote.lang)
-        .bind(&remote.lang_orig)
-        .bind(&remote.title1)
-        .bind(&remote.serie_id)
-        .bind(&remote.serie_vol_number)
-        .bind(&remote.collection_id)
-        .bind(&remote.collection_number_sub)
-        .bind(&remote.collection_vol_number)
-        .bind(&remote.genre)
-        .bind(&remote.subject)
-        .bind(&remote.public_type)
-        .bind(&remote.edition_id)
-        .bind(&remote.nb_pages)
-        .bind(&remote.format)
-        .bind(&remote.content)
-        .bind(&remote.addon)
-        .bind(&remote.abstract_)
-        .bind(&remote.notes)
-        .bind(&remote.keywords)
-        .bind(&remote.is_valid.unwrap_or(1))
-        .bind(now)
-        .execute(&self.pool)
-        .await?;
-
-        if let Some(ref json) = remote.authors1_json {
-            if let Ok(authors) = serde_json::from_value::<Vec<AuthorWithFunction>>(json.clone()) {
-                self.sync_item_authors(id, &authors).await?;
-            }
-        }
-
-        // Rebuild marc_record from updated item so it stays in sync
-        let item = self.items_get_by_id_or_isbn(&id.to_string()).await?;
-        let record = MarcRecord::from(&item);
-        self.items_save_marc_record(id, &record).await?;
-
-        self.items_get_by_id_or_isbn(&id.to_string()).await
-    }
-
     /// Check if ISBN already exists
-    pub async fn items_isbn_exists(&self, isbn: &str, exclude_id: Option<i32>) -> AppResult<bool> {
+    pub async fn items_isbn_exists(&self, isbn: &str, exclude_id: Option<i64>) -> AppResult<bool> {
         let exists: bool = if let Some(id) = exclude_id {
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM items WHERE isbn = $1 AND id != $2)")
                 .bind(isbn)
@@ -1030,7 +1015,7 @@ impl Repository {
     }
 
     /// Count non-archived specimens for a source (items domain owns specimens)
-    pub async fn items_count_specimens_for_source(&self, source_id: i32) -> AppResult<i64> {
+    pub async fn items_count_specimens_for_source(&self, source_id: i64) -> AppResult<i64> {
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM specimens WHERE source_id = $1 AND archived_at IS NULL",
         )
@@ -1043,28 +1028,28 @@ impl Repository {
     /// Reassign specimens from given source IDs to a new source
     pub async fn items_reassign_specimens_source(
         &self,
-        old_source_ids: &[i32],
-        new_source_id: i32,
-    ) -> AppResult<u64> {
+        old_source_ids: &[i64],
+        new_source_id: i64,
+    ) -> AppResult<i64> {
         let result = sqlx::query("UPDATE specimens SET source_id = $1 WHERE source_id = ANY($2)")
             .bind(new_source_id)
             .bind(old_source_ids)
             .execute(&self.pool)
             .await?;
-        Ok(result.rows_affected())
+        Ok(result.rows_affected() as i64)
     }
 
     /// Reassign items from given source IDs to a new source
     pub async fn items_reassign_items_source(
         &self,
-        old_source_ids: &[i32],
-        new_source_id: i32,
-    ) -> AppResult<u64> {
+        old_source_ids: &[i64],
+        new_source_id: i64,
+    ) -> AppResult<i64> {
         let result = sqlx::query("UPDATE items SET source_id = $1 WHERE source_id = ANY($2)")
             .bind(new_source_id)
             .bind(old_source_ids)
             .execute(&self.pool)
             .await?;
-        Ok(result.rows_affected())
+        Ok(result.rows_affected() as i64)
     }
 }

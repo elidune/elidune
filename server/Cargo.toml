@@ -20,9 +20,10 @@ tokio = { version = "1", features = ["full"] }
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_with = { version = "3", features = ["json"] }
 
 # Database
-sqlx = { version = "0.7", features = ["runtime-tokio", "tls-rustls", "postgres", "chrono", "uuid"] }
+sqlx = { version = "0.7", features = ["runtime-tokio", "tls-rustls", "postgres", "chrono", "uuid", "json"] }
 
 # Redis
 redis = { version = "0.25", features = ["tokio-comp", "connection-manager"] }
@@ -63,7 +64,8 @@ utoipa = { version = "4", features = ["axum_extras", "chrono", "uuid"] }
 utoipa-swagger-ui = { version = "7", features = ["axum"] }
 
 
-z3950-rs = "0.3.9"
+snowflaked = "1.0"
+z3950-rs = "0.3.10"
 
 [dev-dependencies]
 tokio-test = "0.4"

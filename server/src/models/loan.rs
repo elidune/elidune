@@ -2,6 +2,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
 use sqlx::FromRow;
 use utoipa::ToSchema;
 
@@ -9,11 +10,15 @@ use super::item::ItemShort;
 use super::user::UserShort;
 
 /// Loan model from database
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Loan {
-    pub id: i32,
-    pub user_id: i32,
-    pub specimen_id: i32,
+    #[serde_as(as = "DisplayFromStr")]
+    pub id: i64,
+    #[serde_as(as = "DisplayFromStr")]
+    pub user_id: i64,
+    #[serde_as(as = "DisplayFromStr")]
+    pub specimen_id: i64,
     pub date: DateTime<Utc>,
     pub renew_date: Option<DateTime<Utc>>,
     pub nb_renews: Option<i16>,
@@ -23,9 +28,12 @@ pub struct Loan {
 }
 
 /// Loan with full details for display
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LoanDetails {
-    pub id: i32,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub id: i64,
     pub start_date: DateTime<Utc>,
     pub issue_date: DateTime<Utc>,
     pub renewal_date: Option<DateTime<Utc>>,
@@ -37,18 +45,23 @@ pub struct LoanDetails {
 }
 
 /// Create loan request
+#[serde_as]
 #[derive(Debug, Deserialize)]
 pub struct CreateLoan {
-    pub user_id: i32,
-    pub specimen_id: Option<i32>,
+    #[serde_as(as = "DisplayFromStr")]
+    pub user_id: i64,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    pub specimen_id: Option<i64>,
     pub specimen_identification: Option<String>,
     pub force: bool,
 }
 
 /// Loan settings by media type
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct LoanSettings {
-    pub id: i32,
+    #[serde_as(as = "DisplayFromStr")]
+    pub id: i64,
     pub media_type: Option<String>,
     pub nb_max: Option<i16>,
     pub nb_renews: Option<i16>,
@@ -58,10 +71,13 @@ pub struct LoanSettings {
 }
 
 /// Archived loan for statistics
+#[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct LoanArchive {
-    pub id: i32,
-    pub specimen_id: Option<i32>,
+    #[serde_as(as = "DisplayFromStr")]
+    pub id: i64,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    pub specimen_id: Option<i64>,
     pub date: DateTime<Utc>,
     pub nb_renews: Option<i16>,
     pub issue_date: Option<DateTime<Utc>>,

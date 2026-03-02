@@ -38,7 +38,7 @@ impl VisitorCountsService {
     }
 
     /// Delete a visitor count record
-    pub async fn delete(&self, id: i32) -> AppResult<()> {
+    pub async fn delete(&self, id: i64) -> AppResult<()> {
         self.repository.visitor_counts_delete(id).await
     }
 }

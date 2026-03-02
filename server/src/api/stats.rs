@@ -3,6 +3,7 @@
 use axum::{extract::Query, extract::State, Json};
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::{error::AppResult, models::item::MediaType};
@@ -108,10 +109,13 @@ pub struct UserStatsQuery {
 }
 
 /// User loan statistics entry
+#[serde_as]
 #[derive(Serialize, ToSchema)]
 pub struct UserLoanStats {
     /// User ID
-    pub user_id: i32,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub user_id: i64,
     /// First name
     pub firstname: Option<String>,
     /// Last name
@@ -166,7 +170,7 @@ pub struct LoanStatsQuery {
     /// Filter by audience / public type (e.g., 97 = adult, 106 = children)
     pub public_type: Option<i16>,
     /// Filter by specific user ID (admin only)
-    pub user_id: Option<i32>,
+    pub user_id: Option<i64>,
 }
 
 /// Loan statistics response with time series data
@@ -277,10 +281,13 @@ pub struct CatalogStatsTotals {
 }
 
 /// Catalog statistics per source
+#[serde_as]
 #[derive(Serialize, ToSchema)]
 pub struct CatalogSourceStats {
     /// Source ID
-    pub source_id: i32,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub source_id: i64,
     /// Source name
     pub source_name: String,
     /// Number of active specimens

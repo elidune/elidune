@@ -1,6 +1,7 @@
 //! Author model and related types
 
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
 use sqlx::FromRow;
 use utoipa::ToSchema;
 
@@ -214,20 +215,15 @@ impl From<i32> for AuthorFunction {
 }
 
 /// Full author model from database
-#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
-pub struct Author {
-    pub id: i32,
-    pub key: Option<String>,
-    pub lastname: Option<String>,
-    pub firstname: Option<String>,
-    pub bio: Option<String>,
-    pub notes: Option<String>,
-}
 
 /// Author with function for item relationships
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct AuthorWithFunction {
-    pub id: i32,
+#[serde_as]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, FromRow)]
+pub struct Author {
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub id: i64,
+    pub key: Option<String>,
     pub lastname: Option<String>,
     pub firstname: Option<String>,
     pub bio: Option<String>,

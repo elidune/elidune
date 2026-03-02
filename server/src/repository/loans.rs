@@ -15,7 +15,7 @@ use crate::{
 
 impl Repository {
     /// Get loan by ID
-    pub async fn loans_get_by_id(&self, id: i32) -> AppResult<Loan> {
+    pub async fn loans_get_by_id(&self, id: i64) -> AppResult<Loan> {
         sqlx::query_as::<_, Loan>("SELECT * FROM loans WHERE id = $1")
             .bind(id)
             .fetch_optional(&self.pool)
@@ -40,7 +40,7 @@ impl Repository {
     }
 
     /// Get loans for a user
-    pub async fn loans_get_for_user(&self, user_id: i32) -> AppResult<Vec<LoanDetails>> {
+    pub async fn loans_get_for_user(&self, user_id: i64) -> AppResult<Vec<LoanDetails>> {
         let loans = sqlx::query(
             r#"
             SELECT l.*, s.barcode as specimen_identification,
@@ -94,14 +94,10 @@ impl Repository {
                     isbn: row.get("item_isbn"),
                     title: row.get("title"),
                     date: row.get("publication_date"),
-                    status: Some(0),
-                    is_local: Some(1),
+                    status: 0,
                     is_valid: Some(1),
                     archived_at: None,
-                    nb_specimens: row.get("nb_specimens"),
-                    nb_available: row.get("nb_available"),
                     author: None,
-                    source_name: None,
                 },
                 user: None,
                 specimen_identification: row.get("specimen_identification"),
@@ -113,14 +109,14 @@ impl Repository {
     }
 
     /// Create a new loan
-    pub async fn loans_create(&self, loan: &CreateLoan) -> AppResult<(i32, DateTime<Utc>)> {
+    pub async fn loans_create(&self, loan: &CreateLoan) -> AppResult<(i64, DateTime<Utc>)> {
         let now = Utc::now();
 
         // Get specimen ID
         let specimen_id = if let Some(id) = loan.specimen_id {
             id
         } else if let Some(ref identification) = loan.specimen_identification {
-            sqlx::query_scalar::<_, i32>(
+            sqlx::query_scalar::<_, i64>(
                 "SELECT id FROM specimens WHERE barcode = $1"
             )
             .bind(identification)
@@ -199,7 +195,7 @@ impl Repository {
         }
 
         // Create the loan
-        let loan_id = sqlx::query_scalar::<_, i32>(
+        let loan_id = sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO loans (user_id, specimen_id, date, issue_date, nb_renews)
             VALUES ($1, $2, $3, $4, 0)
@@ -217,7 +213,7 @@ impl Repository {
     }
 
     /// Return a loan (moves it to loans_archives)
-    pub async fn loans_return(&self, loan_id: i32) -> AppResult<LoanDetails> {
+    pub async fn loans_return(&self, loan_id: i64) -> AppResult<LoanDetails> {
         let now = Utc::now();
 
         // Get loan details before returning
@@ -323,14 +319,11 @@ impl Repository {
                 isbn: item_row.get("isbn"),
                 title: item_row.get("title"),
                 date: item_row.get("publication_date"),
-                status: Some(0),
-                is_local: Some(1),
+                status: 0,
                 is_valid: Some(1),
                 archived_at: None,
-                nb_specimens: item_row.get("nb_specimens"),
-                nb_available: item_row.get("nb_available"),
                 author: None,
-                source_name: None,
+                
             },
             user,
             specimen_identification: item_row.get("specimen_identification"),
@@ -339,7 +332,7 @@ impl Repository {
     }
 
     /// Renew a loan
-    pub async fn loans_renew(&self, loan_id: i32) -> AppResult<(DateTime<Utc>, i16)> {
+    pub async fn loans_renew(&self, loan_id: i64) -> AppResult<(DateTime<Utc>, i16)> {
         let now = Utc::now();
 
         let loan = self.loans_get_by_id(loan_id).await?;
@@ -430,7 +423,7 @@ impl Repository {
     }
 
     /// Count active (non-returned) loans for a specimen
-    pub async fn loans_count_active_for_specimen(&self, specimen_id: i32) -> AppResult<i64> {
+    pub async fn loans_count_active_for_specimen(&self, specimen_id: i64) -> AppResult<i64> {
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM loans WHERE specimen_id = $1 AND returned_date IS NULL"
         )
@@ -441,8 +434,8 @@ impl Repository {
     }
 
     /// Get IDs of active loans for a specimen
-    pub async fn loans_get_active_ids_for_specimen(&self, specimen_id: i32) -> AppResult<Vec<i32>> {
-        let ids: Vec<i32> = sqlx::query_scalar(
+    pub async fn loans_get_active_ids_for_specimen(&self, specimen_id: i64) -> AppResult<Vec<i64>> {
+        let ids: Vec<i64> = sqlx::query_scalar(
             "SELECT id FROM loans WHERE specimen_id = $1 AND returned_date IS NULL"
         )
         .bind(specimen_id)
@@ -452,8 +445,8 @@ impl Repository {
     }
 
     /// Get IDs of active loans for an item
-    pub async fn loans_get_active_ids_for_item(&self, item_id: i32) -> AppResult<Vec<i32>> {
-        let ids: Vec<i32> = sqlx::query_scalar(
+    pub async fn loans_get_active_ids_for_item(&self, item_id: i64) -> AppResult<Vec<i64>> {
+        let ids: Vec<i64> = sqlx::query_scalar(
             r#"
             SELECT l.id FROM loans l
             JOIN specimens s ON l.specimen_id = s.id
@@ -467,7 +460,7 @@ impl Repository {
     }
 
     /// Count active loans for an item (via specimens)
-    pub async fn loans_count_active_for_item(&self, item_id: i32) -> AppResult<i64> {
+    pub async fn loans_count_active_for_item(&self, item_id: i64) -> AppResult<i64> {
         let count: i64 = sqlx::query_scalar(
             r#"
             SELECT COUNT(*) FROM loans l
@@ -482,7 +475,7 @@ impl Repository {
     }
 
     /// Count active loans for a user
-    pub async fn loans_count_active_for_user(&self, user_id: i32) -> AppResult<i64> {
+    pub async fn loans_count_active_for_user(&self, user_id: i64) -> AppResult<i64> {
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM loans WHERE user_id = $1 AND returned_date IS NULL"
         )

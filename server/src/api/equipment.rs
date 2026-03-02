@@ -46,7 +46,7 @@ pub async fn list_equipment(
 pub async fn get_equipment(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i32>,
+    Path(id): Path<i64>,
 ) -> AppResult<Json<Equipment>> {
     claims.require_read_settings()?;
     let equipment = state.services.equipment.get_by_id(id).await?;
@@ -89,7 +89,7 @@ pub async fn create_equipment(
 pub async fn update_equipment(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i32>,
+    Path(id): Path<i64>,
     Json(data): Json<UpdateEquipment>,
 ) -> AppResult<Json<Equipment>> {
     claims.require_write_settings()?;
@@ -111,7 +111,7 @@ pub async fn update_equipment(
 pub async fn delete_equipment(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i32>,
+    Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
     claims.require_write_settings()?;
     state.services.equipment.delete(id).await?;

@@ -403,7 +403,7 @@ impl StatsService {
         interval: Interval,
         media_type: Option<&MediaType>,
         public_type: Option<i16>,
-        user_id: Option<i32>,
+        user_id: Option<i64>,
     ) -> AppResult<LoanStatsResponse> {
         let pool = &self.repository.pool;
 
@@ -922,9 +922,9 @@ impl StatsService {
                     .fetch_all(pool)
                     .await?;
 
-                let mut source_map: HashMap<i32, (String, HashMap<String, HashMap<String, (i64, i64, i64)>>)> = HashMap::new();
+                let mut source_map: HashMap<i64, (String, HashMap<String, HashMap<String, (i64, i64, i64)>>)> = HashMap::new();
                 for row in &rows {
-                    let sid: i32 = row.get("source_id");
+                    let sid: i64 = row.get("source_id");
                     let sname: String = row.get("source_name");
                     let mt: String = row.get("media_type_label");
                     let pt: String = row.get("public_type_label");
@@ -978,9 +978,9 @@ impl StatsService {
                     .fetch_all(pool)
                     .await?;
 
-                let mut source_map: HashMap<i32, (String, HashMap<String, (i64, i64, i64)>)> = HashMap::new();
+                let mut source_map: HashMap<i64, (String, HashMap<String, (i64, i64, i64)>)> = HashMap::new();
                 for row in &rows {
-                    let sid: i32 = row.get("source_id");
+                    let sid: i64 = row.get("source_id");
                     let sname: String = row.get("source_name");
                     let mt: String = row.get("media_type_label");
                     let a: i64 = row.get("active_specimens");
@@ -1028,9 +1028,9 @@ impl StatsService {
                     .await?;
                
 
-                let mut source_map: HashMap<i32, (String, HashMap<String, (i64, i64, i64)>)> = HashMap::new();
+                let mut source_map: HashMap<i64, (String, HashMap<String, (i64, i64, i64)>)> = HashMap::new();
                 for row in &rows {
-                    let sid: i32 = row.get("source_id");
+                    let sid: i64 = row.get("source_id");
                     let sname: String = row.get("source_name");
                     let pt: String = row.get("public_type_label");
                     let a: i64 = row.get("active_specimens");
@@ -1236,9 +1236,9 @@ impl StatsService {
             .await?;
 
             // source_id → media_type → public_type → count
-            let mut loan_map: HashMap<i32, HashMap<String, HashMap<String, i64>>> = HashMap::new();
+            let mut loan_map: HashMap<i64, HashMap<String, HashMap<String, i64>>> = HashMap::new();
             for row in &loan_rows {
-                let sid: i32 = row.get("source_id");
+                let sid: i64 = row.get("source_id");
                 let mt: String = row.get("media_type");
                 let pt: String = row.get("public_type");
                 let cnt: i64 = row.get("loans");

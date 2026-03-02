@@ -99,7 +99,7 @@ pub async fn list_items(
 pub async fn get_item(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i32>,
+    Path(id): Path<i64>,
     Query(query): Query<GetItemQuery>,
 ) -> AppResult<Json<Item>> {
     claims.require_read_items()?;
@@ -116,7 +116,7 @@ pub struct CreateItemQuery {
     #[serde(default)]
     pub allow_duplicate_isbn: bool,
     /// Set to the existing item ID to confirm replacement of a duplicate
-    pub confirm_replace_existing_id: Option<i32>,
+    pub confirm_replace_existing_id: Option<i64>,
 }
 
 /// Response body for item creation (item + optional dedup report)
@@ -134,7 +134,7 @@ pub struct CreateItemResponse {
     security(("bearer_auth" = [])),
     params(
         ("allow_duplicate_isbn" = Option<bool>, Query, description = "Allow duplicate ISBN (default: false)"),
-        ("confirm_replace_existing_id" = Option<i32>, Query, description = "Confirm replacement of duplicate item")
+        ("confirm_replace_existing_id" = Option<i64>, Query, description = "Confirm replacement of duplicate item")
     ),
     request_body = Item,
     responses(
@@ -221,7 +221,7 @@ pub async fn upload_unimarc(
 pub async fn update_item(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i32>,
+    Path(id): Path<i64>,
     Json(item): Json<Item>,
 ) -> AppResult<Json<Item>> {
     claims.require_write_items()?;
@@ -249,7 +249,7 @@ pub async fn update_item(
 pub async fn delete_item(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i32>,
+    Path(id): Path<i64>,
     Query(params): Query<DeleteItemParams>,
 ) -> AppResult<StatusCode> {
     claims.require_write_items()?;
@@ -284,7 +284,7 @@ pub struct DeleteItemParams {
 pub async fn list_specimens(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(item_id): Path<i32>,
+    Path(item_id): Path<i64>,
 ) -> AppResult<Json<Vec<Specimen>>> {
     claims.require_read_items()?;
 
@@ -311,7 +311,7 @@ pub async fn list_specimens(
 pub async fn create_specimen(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path(item_id): Path<i32>,
+    Path(item_id): Path<i64>,
     Json(specimen): Json<CreateSpecimen>,
 ) -> AppResult<(StatusCode, Json<Specimen>)> {
     claims.require_write_items()?;
@@ -344,7 +344,7 @@ pub async fn create_specimen(
 pub async fn update_specimen(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path((item_id, specimen_id)): Path<(i32, i32)>,
+    Path((item_id, specimen_id)): Path<(i64, i64)>,
     Json(specimen): Json<UpdateSpecimen>,
 ) -> AppResult<Json<Specimen>> {
     claims.require_write_items()?;
@@ -377,7 +377,7 @@ pub async fn update_specimen(
 pub async fn delete_specimen(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Path((item_id, specimen_id)): Path<(i32, i32)>,
+    Path((item_id, specimen_id)): Path<(i64, i64)>,
     Query(params): Query<DeleteSpecimenParams>,
 ) -> AppResult<StatusCode> {
     claims.require_write_items()?;

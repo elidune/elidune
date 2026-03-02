@@ -30,7 +30,7 @@ impl RedisService {
     }
 
     /// Store a 2FA code for a user with expiration (in seconds)
-    pub async fn store_2fa_code(&self, user_id: i32, code: &str, expiration_seconds: u64) -> AppResult<()> {
+    pub async fn store_2fa_code(&self, user_id: i64, code: &str, expiration_seconds: u64) -> AppResult<()> {
         let mut conn = self.client
             .get_multiplexed_async_connection()
             .await
@@ -45,7 +45,7 @@ impl RedisService {
     }
 
     /// Verify and consume a 2FA code for a user
-    pub async fn verify_2fa_code(&self, user_id: i32, code: &str) -> AppResult<bool> {
+    pub async fn verify_2fa_code(&self, user_id: i64, code: &str) -> AppResult<bool> {
         let mut conn = self.client
             .get_multiplexed_async_connection()
             .await
@@ -74,7 +74,7 @@ impl RedisService {
     }
 
     /// Check if a 2FA code exists for a user (without consuming it)
-    pub async fn has_2fa_code(&self, user_id: i32) -> AppResult<bool> {
+    pub async fn has_2fa_code(&self, user_id: i64) -> AppResult<bool> {
         let mut conn = self.client
             .get_multiplexed_async_connection()
             .await
@@ -90,7 +90,7 @@ impl RedisService {
     }
 
     /// Store a trusted device for a user (90 days expiration)
-    pub async fn store_trusted_device(&self, user_id: i32, device_id: &str) -> AppResult<()> {
+    pub async fn store_trusted_device(&self, user_id: i64, device_id: &str) -> AppResult<()> {
         let mut conn = self.client
             .get_multiplexed_async_connection()
             .await
@@ -107,7 +107,7 @@ impl RedisService {
     }
 
     /// Check if a device is trusted for a user
-    pub async fn is_device_trusted(&self, user_id: i32, device_id: &str) -> AppResult<bool> {
+    pub async fn is_device_trusted(&self, user_id: i64, device_id: &str) -> AppResult<bool> {
         let mut conn = self.client
             .get_multiplexed_async_connection()
             .await

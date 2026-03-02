@@ -2,6 +2,7 @@
 
 use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
+use serde_with::{serde_as, DisplayFromStr};
 use utoipa::ToSchema;
 
 use crate::error::AppResult;
@@ -29,7 +30,7 @@ pub struct LoginResponse {
     /// Token type (always "Bearer")
     pub token_type: String,
     /// Token expiration time in seconds
-    pub expires_in: u64,
+    pub expires_in: i64,
     /// User information
     pub user: UserInfo,
     /// Whether 2FA verification is required
@@ -41,10 +42,13 @@ pub struct LoginResponse {
 }
 
 /// User information returned after login
+#[serde_as]
 #[derive(Serialize, ToSchema)]
 pub struct UserInfo {
     /// User ID
-    pub id: i32,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub id: i64,
     /// Login/username (primary identifier, required)
     pub login: String,
     /// Email (optional)
@@ -132,7 +136,7 @@ pub async fn login(
     Ok(Json(LoginResponse {
         token,
         token_type: "Bearer".to_string(),
-        expires_in: state.config.users.jwt_expiration_hours * 3600,
+        expires_in: (state.config.users.jwt_expiration_hours * 3600) as i64,
         user: UserInfo {
             id: user.id,
             login: user.login.unwrap_or_default(),
@@ -187,10 +191,13 @@ pub async fn me(
 }
 
 /// Verify 2FA code request
+#[serde_as]
 #[derive(Deserialize, ToSchema)]
 pub struct Verify2FARequest {
     /// User ID (from login response)
-    pub user_id: i32,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub user_id: i64,
     /// 2FA code (TOTP or email code)
     pub code: String,
     /// Device ID for trusted device feature (optional)
@@ -207,7 +214,7 @@ pub struct Verify2FAResponse {
     /// Token type (always "Bearer")
     pub token_type: String,
     /// Token expiration time in seconds
-    pub expires_in: u64,
+    pub expires_in: i64,
 }
 
 /// Verify 2FA code endpoint
@@ -235,15 +242,18 @@ pub async fn verify_2fa(
     Ok(Json(Verify2FAResponse {
         token,
         token_type: "Bearer".to_string(),
-        expires_in: state.config.users.jwt_expiration_hours * 3600,
+        expires_in: (state.config.users.jwt_expiration_hours * 3600) as i64,
     }))
 }
 
 /// Verify recovery code request
+#[serde_as]
 #[derive(Deserialize, ToSchema)]
 pub struct VerifyRecoveryRequest {
     /// User ID (from login response)
-    pub user_id: i32,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub user_id: i64,
     /// Recovery code
     pub code: String,
 }
@@ -272,7 +282,7 @@ pub async fn verify_recovery(
     Ok(Json(Verify2FAResponse {
         token,
         token_type: "Bearer".to_string(),
-        expires_in: state.config.users.jwt_expiration_hours * 3600,
+        expires_in: (state.config.users.jwt_expiration_hours * 3600) as i64,
     }))
 }
 

@@ -20,7 +20,7 @@ impl EquipmentService {
         self.repository.equipment_list().await
     }
 
-    pub async fn get_by_id(&self, id: i32) -> AppResult<Equipment> {
+    pub async fn get_by_id(&self, id: i64) -> AppResult<Equipment> {
         self.repository.equipment_get_by_id(id).await
     }
 
@@ -28,11 +28,11 @@ impl EquipmentService {
         self.repository.equipment_create(data).await
     }
 
-    pub async fn update(&self, id: i32, data: &UpdateEquipment) -> AppResult<Equipment> {
+    pub async fn update(&self, id: i64, data: &UpdateEquipment) -> AppResult<Equipment> {
         self.repository.equipment_update_equipment(id, data).await
     }
 
-    pub async fn delete(&self, id: i32) -> AppResult<()> {
+    pub async fn delete(&self, id: i64) -> AppResult<()> {
         self.repository.equipment_delete(id).await
     }
 

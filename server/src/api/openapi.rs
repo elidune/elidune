@@ -122,7 +122,6 @@ use crate::api::{auth, equipment, events, health, items, loans, schedules, setti
             crate::models::specimen::Specimen,
             crate::models::specimen::CreateSpecimen,
             crate::models::specimen::UpdateSpecimen,
-            crate::models::author::AuthorWithFunction,
             // Pagination
             items::PaginatedResponse<crate::models::item::ItemShort>,
             items::PaginatedResponse<crate::models::user::UserShort>,
