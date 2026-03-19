@@ -1,0 +1,41 @@
+name: Build & Push Docker Image
+
+on:
+  push:
+    branches:
+      - main        # déclenche sur chaque push sur main
+  # ou sur un tag :
+  # tags:
+  #   - 'v*'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: elidune/elidune-server
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write       # indispensable pour pousser sur GHCR
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}   # token automatique, rien à configurer
+
+      - name: Build & Push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile.complete
+          push: true
+          tags: |
+            ghcr.io/elidune/elidune-server:latest
+            ghcr.io/elidune/elidune-server:${{ github.sha }}
