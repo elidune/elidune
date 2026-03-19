@@ -165,7 +165,7 @@ impl StatsService {
             .await?;
 
         let active_users: i64 = sqlx::query_scalar(
-            "SELECT COUNT(DISTINCT user_id) FROM loans WHERE returned_date IS NULL"
+            "SELECT COUNT(DISTINCT user_id) FROM loans WHERE returned_at IS NULL"
         )
         .fetch_one(pool)
         .await?;
@@ -189,18 +189,18 @@ impl StatsService {
         .collect();
 
         // Loan stats
-        let active_loans: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM loans WHERE returned_date IS NULL")
+        let active_loans: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM loans WHERE returned_at IS NULL")
             .fetch_one(pool)
             .await?;
 
         let overdue_loans: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM loans WHERE returned_date IS NULL AND issue_date < NOW()"
+            "SELECT COUNT(*) FROM loans WHERE returned_at IS NULL AND issue_at < NOW()"
         )
         .fetch_one(pool)
         .await?;
 
         let returned_today: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM loans_archives WHERE returned_date >= DATE_TRUNC('day', NOW())"
+            "SELECT COUNT(*) FROM loans_archives WHERE returned_at >= DATE_TRUNC('day', NOW())"
         )
         .fetch_one(pool)
         .await?;
@@ -211,7 +211,7 @@ impl StatsService {
             FROM loans l
             JOIN specimens s ON l.specimen_id = s.id
             JOIN items i ON s.item_id = i.id
-            WHERE l.returned_date IS NULL
+            WHERE l.returned_at IS NULL
             GROUP BY i.media_type
             ORDER BY value DESC
             "#,
@@ -363,13 +363,13 @@ impl StatsService {
             LEFT JOIN (
                 SELECT user_id, COUNT(*) as active_loans
                 FROM loans
-                WHERE returned_date IS NULL
+                WHERE returned_at IS NULL
                 GROUP BY user_id
             ) a ON a.user_id = u.id
             LEFT JOIN (
                 SELECT user_id, COUNT(*) as overdue_loans
                 FROM loans
-                WHERE returned_date IS NULL AND issue_date < NOW()
+                WHERE returned_at IS NULL AND issue_at < NOW()
                 GROUP BY user_id
             ) o ON o.user_id = u.id
             WHERE (u.status IS NULL OR u.status != 2)
@@ -522,9 +522,9 @@ impl StatsService {
 
         // Query for returns (from loans_archives table)
         let mut returns_where = vec![
-            format!("la.returned_date >= '{}'", start.format("%Y-%m-%d %H:%M:%S")),
-            format!("la.returned_date <= '{}'", end.format("%Y-%m-%d %H:%M:%S")),
-            "la.returned_date IS NOT NULL".to_string(),
+            format!("la.returned_at >= '{}'", start.format("%Y-%m-%d %H:%M:%S")),
+            format!("la.returned_at <= '{}'", end.format("%Y-%m-%d %H:%M:%S")),
+            "la.returned_at IS NOT NULL".to_string(),
         ];
 
         if let Some(mt) = media_type {
@@ -540,7 +540,7 @@ impl StatsService {
         }
 
         let returns_where_clause = returns_where.join(" AND ");
-        let returns_date_trunc = date_trunc.replace("date", "la.returned_date");
+        let returns_date_trunc = date_trunc.replace("date", "la.returned_at");
 
         let returns_query = format!(
             r#"
@@ -659,14 +659,14 @@ impl StatsService {
         .fetch_one(pool)
         .await?;
 
-        // Users by public type
+        // Users by public type (JOIN public_types for label)
         let users_by_public_type: Vec<StatEntry> = sqlx::query(
             r#"
-            SELECT CASE public_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as label,
-                   COUNT(*) as value
-            FROM users
-            WHERE (status IS NULL OR status != 2)
-            GROUP BY public_type ORDER BY value DESC
+            SELECT COALESCE(pt.name, 'unknown') as label, COUNT(*) as value
+            FROM users u
+            LEFT JOIN public_types pt ON u.public_type = pt.id
+            WHERE (u.status IS NULL OR u.status != 2)
+            GROUP BY pt.name ORDER BY value DESC
             "#,
         )
         .fetch_all(pool)
@@ -697,9 +697,9 @@ impl StatsService {
             SELECT COUNT(*)
             FROM users
             WHERE (status IS NULL OR status != 2)
-              AND crea_date IS NOT NULL
-              AND crea_date >= $1
-              AND crea_date <= $2
+              AND created_at IS NOT NULL
+              AND created_at >= $1
+              AND created_at <= $2
             "#,
         )
         .bind(start)
@@ -707,15 +707,15 @@ impl StatsService {
         .fetch_one(pool)
         .await?;
 
-        // New users by public type
+        // New users by public type (JOIN public_types for label)
         let new_users_by_public_type: Vec<StatEntry> = sqlx::query(
             r#"
-            SELECT CASE public_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as label,
-                   COUNT(*) as value
-            FROM users
-            WHERE (status IS NULL OR status != 2)
-              AND crea_date IS NOT NULL AND crea_date >= $1 AND crea_date <= $2
-            GROUP BY public_type ORDER BY value DESC
+            SELECT COALESCE(pt.name, 'unknown') as label, COUNT(*) as value
+            FROM users u
+            LEFT JOIN public_types pt ON u.public_type = pt.id
+            WHERE (u.status IS NULL OR u.status != 2)
+              AND u.created_at IS NOT NULL AND u.created_at >= $1 AND u.created_at <= $2
+            GROUP BY pt.name ORDER BY value DESC
             "#,
         )
         .bind(start)
@@ -733,7 +733,7 @@ impl StatsService {
                    COUNT(*) as value
             FROM users
             WHERE (status IS NULL OR status != 2)
-              AND crea_date IS NOT NULL AND crea_date >= $1 AND crea_date <= $2
+              AND created_at IS NOT NULL AND created_at >= $1 AND created_at <= $2
             GROUP BY sex ORDER BY value DESC
             "#,
         )
@@ -771,12 +771,12 @@ impl StatsService {
         .fetch_one(pool)
         .await?;
 
-        // Active borrowers by public type
+        // Active borrowers by public type (JOIN public_types for label)
         let active_borrowers_by_public_type: Vec<StatEntry> = sqlx::query(
             r#"
-            SELECT CASE u.public_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as label,
-                   COUNT(DISTINCT u.id) as value
+            SELECT COALESCE(pt.name, 'unknown') as label, COUNT(DISTINCT u.id) as value
             FROM users u
+            LEFT JOIN public_types pt ON u.public_type = pt.id
             WHERE (u.status IS NULL OR u.status != 2)
               AND EXISTS (
                 SELECT 1
@@ -787,7 +787,7 @@ impl StatsService {
                 ) l
                 WHERE l.user_id = u.id AND l.date >= $1 AND l.date <= $2
               )
-            GROUP BY u.public_type ORDER BY value DESC
+            GROUP BY pt.name ORDER BY value DESC
             "#,
         )
         .bind(start)
@@ -805,7 +805,7 @@ impl StatsService {
             FROM users
             WHERE account_type = 'group'
               AND (status IS NULL OR status != 2)
-              AND (crea_date IS NULL OR crea_date <= $1)
+              AND (created_at IS NULL OR created_at <= $1)
             "#,
         )
         .bind(end)
@@ -843,7 +843,7 @@ impl StatsService {
         // --- Totals ---
         
         let active_specimens: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM specimens WHERE crea_date < $1 AND (archive_date IS NULL OR archive_date > $2) "
+            "SELECT COUNT(*) FROM specimens WHERE created_at < $1 AND (archived_at IS NULL OR archived_at > $2) "
         )
         .bind(end)
         .bind(end_date.unwrap_or(start))
@@ -853,7 +853,7 @@ impl StatsService {
         // Entered specimens in period
         let entered_specimens: i64 = 
             sqlx::query_scalar(
-                "SELECT COUNT(*) FROM specimens WHERE crea_date >= $1 AND crea_date <= $2"
+                "SELECT COUNT(*) FROM specimens WHERE created_at >= $1 AND created_at <= $2"
             )
             .bind(start)
             .bind(end)
@@ -863,7 +863,7 @@ impl StatsService {
         // Archived specimens in period
         let archived_specimens: i64 = 
             sqlx::query_scalar(
-                "SELECT COUNT(*) FROM specimens WHERE archive_date >= $1 AND archive_date <= $2"
+                "SELECT COUNT(*) FROM specimens WHERE archived_at >= $1 AND archived_at <= $2"
             )
             .bind(start)
             .bind(end)

@@ -2,8 +2,10 @@
 
 pub mod catalog;
 pub mod email;
+pub mod email_templates;
 pub mod equipment;
 pub mod events;
+pub mod public_types;
 pub mod loans;
 pub mod marc;
 pub mod redis;
@@ -33,6 +35,7 @@ pub struct Services {
     pub sources: sources::SourcesService,
     pub equipment: equipment::EquipmentService,
     pub events: events::EventsService,
+    pub public_types: public_types::PublicTypesService,
     pub marc: marc::MarcService,
 }
 
@@ -59,7 +62,8 @@ impl Services {
             schedules: schedules::SchedulesService::new(repository.clone()),
             sources: sources::SourcesService::new(repository.clone()),
             equipment: equipment::EquipmentService::new(repository.clone()),
-            events: events::EventsService::new(repository),
+            events: events::EventsService::new(repository.clone()),
+            public_types: public_types::PublicTypesService::new(repository),
             redis: redis_service,
             marc: marc_service,
         })

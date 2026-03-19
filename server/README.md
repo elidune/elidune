@@ -77,8 +77,8 @@ cargo install sqlx-cli --no-default-features --features postgres
 # Configure the URL (adjust the port if different from 5432)
 export DATABASE_URL="postgres://elidune:elidune@localhost:5432/elidune"
 
-# Run migrations
-cd /home/cjean/Documents/Developments/elidune/elidune-server-rust
+# Run migrations (from your clone of this repository)
+cd /path/to/elidune-server-rust
 sqlx migrate run
 ```
 
@@ -358,7 +358,7 @@ cargo clippy
 
 ## Documentation
 
-- [Synchronisation PostgreSQL en temps réel (multi-site)](docs/postgresql-replication.md) — Mise en place de la réplication pour accéder à Elidune depuis deux sites avec les mêmes données à jour.
+- [PostgreSQL real-time synchronization (multi-site)](docs/postgresql-replication.md) — Set up replication so Elidune can be used from two sites with the same up-to-date data.
 
 ## Architecture
 
@@ -380,7 +380,7 @@ GPL-2.0 - See [COPYING](COPYING)
 
 ## Authors
 
-- Jean Collonville <cjean@elidune.org>
+- See [GitHub contributors](https://github.com/elidune/elidune-server-rust/graphs/contributors) for current maintainers.
 
 ## History
 

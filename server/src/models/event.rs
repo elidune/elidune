@@ -37,8 +37,8 @@ pub struct Event {
     pub partner_name: Option<String>,
     pub description: Option<String>,
     pub notes: Option<String>,
-    pub crea_date: Option<DateTime<Utc>>,
-    pub modif_date: Option<DateTime<Utc>>,
+    pub created_at: Option<DateTime<Utc>>,
+    pub update_at: Option<DateTime<Utc>>,
 }
 
 /// Create event request

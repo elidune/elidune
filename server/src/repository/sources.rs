@@ -101,7 +101,7 @@ impl Repository {
     pub async fn sources_archive(&self, id: i64) -> AppResult<Source> {
         let now = Utc::now();
         sqlx::query_as::<_, Source>(
-            "UPDATE sources SET is_archive = 1, archive_date = $1 WHERE id = $2 RETURNING *",
+            "UPDATE sources SET is_archive = 1, archived_at = $1 WHERE id = $2 RETURNING *",
         )
         .bind(now)
         .bind(id)
@@ -151,7 +151,7 @@ impl Repository {
     /// Archive multiple sources by IDs
     pub async fn sources_archive_many(&self, ids: &[i64]) -> AppResult<()> {
         let now = Utc::now();
-        sqlx::query("UPDATE sources SET is_archive = 1, archive_date = $1 WHERE id = ANY($2)")
+        sqlx::query("UPDATE sources SET is_archive = 1, archived_at = $1 WHERE id = ANY($2)")
             .bind(now)
             .bind(ids)
             .execute(&self.pool)

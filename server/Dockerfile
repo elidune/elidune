@@ -22,6 +22,7 @@ RUN mkdir src && \
 COPY src ./src
 COPY migrations ./migrations
 COPY config ./config
+COPY data ./data
 
 # Build the application
 RUN touch src/main.rs && \
@@ -42,6 +43,7 @@ RUN apt-get update && apt-get install -y \
 COPY --from=builder /app/target/release/elidune-server /app/elidune-server
 COPY --from=builder /app/migrations /app/migrations
 COPY --from=builder /app/config /app/config
+COPY --from=builder /app/data /app/data
 
 # Create non-root user
 RUN useradd -m -u 1000 elidune && \

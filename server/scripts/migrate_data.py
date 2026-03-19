@@ -213,8 +213,8 @@ def migrate_users(src, dst, hash_passwords=True):
         addr_street, addr_zip_code, addr_city, phone, sex_id (dropped),
         account_type_id -> account_type (slug), subscription_type_id (dropped),
         fee_id -> fee (slug), last_payement_date (dropped), group_id, barcode,
-        notes, occupation (dropped), crea_date (int), modif_date (int),
-        issue_date (int), profession (dropped), birthdate, archived_date (int),
+        notes, occupation (dropped), created_at (int), update_at (int),
+        issue_at (int), profession (dropped), birthdate, archived_at (int),
         public_type
 
     Target adds: status, language, 2FA fields (defaults)
@@ -236,8 +236,8 @@ def migrate_users(src, dst, hash_passwords=True):
         SELECT id, login, password, firstname, lastname, email,
                addr_street, addr_zip_code, addr_city, phone,
                account_type_id, fee_id, group_id, barcode,
-               notes, crea_date, modif_date, issue_date,
-               birthdate, archived_date, public_type
+               notes, created_at, update_at, issue_at,
+               birthdate, archived_at, public_type
         FROM users
     """)
     rows = src_cur.fetchall()
@@ -264,8 +264,8 @@ def migrate_users(src, dst, hash_passwords=True):
         (uid, _, raw_pw, firstname, lastname, email,
          addr_street, addr_zip_code, addr_city, phone,
          account_type_id, fee_id, group_id, barcode,
-         notes, crea_date, modif_date, issue_date,
-         birthdate, archived_date, public_type) = row
+         notes, created_at, update_at, issue_at,
+         birthdate, archived_at, public_type) = row
 
         login = unique_logins.get(uid, f'user_{uid}')
         email = email.strip() if email and email.strip() else None
@@ -282,10 +282,10 @@ def migrate_users(src, dst, hash_passwords=True):
         fee = FEE_ID_TO_CODE.get(fee_id) if fee_id else None
 
         # Convert dates
-        crea_dt = ts_to_datetime(crea_date)
-        modif_dt = ts_to_datetime(modif_date)
-        issue_dt = ts_to_datetime(issue_date)
-        archived_dt = ts_to_datetime(archived_date)
+        crea_dt = ts_to_datetime(created_at)
+        modif_dt = ts_to_datetime(update_at)
+        issue_dt = ts_to_datetime(issue_at)
+        archived_dt = ts_to_datetime(archived_at)
 
         # Compute status: 0=active, 2=archived/deleted
         status = 2 if archived_dt else 0
@@ -296,7 +296,7 @@ def migrate_users(src, dst, hash_passwords=True):
                 addr_street, addr_zip_code, addr_city, phone,
                 account_type, fee, group_id, barcode, notes,
                 public_type, status, birthdate,
-                crea_date, modif_date, issue_date, archived_date,
+                created_at, update_at, issue_at, archived_at,
                 language
             ) VALUES (
                 %s, %s, %s, %s, %s, %s,
@@ -350,7 +350,7 @@ def migrate_simple_table(src, dst, table, columns, conflict_col="id"):
 
 
 def migrate_items(src, dst):
-    """Migrate items: dates int->timestamptz, add lifecycle_status/archived_date."""
+    """Migrate items: dates int->timestamptz, add lifecycle_status/archived_at."""
     print("Migrating items...")
     src_cur = src.cursor()
     dst_cur = dst.cursor()
@@ -371,7 +371,7 @@ def migrate_items(src, dst):
                    source_id, genre, subject, public_type,
                    edition_id, edition_date, nb_pages, format, content, addon,
                    abstract, notes, keywords, nb_specimens, state,
-                   is_archive, archived_timestamp, is_valid, crea_date, modif_date
+                   is_archive, archived_timestamp, is_valid, created_at, update_at
             FROM items ORDER BY id LIMIT {BATCH} OFFSET {offset}
         """)
 
@@ -379,7 +379,7 @@ def migrate_items(src, dst):
             vals = list(row)
             is_archive = vals[39]
 
-            # Convert dates (indices: archived_timestamp=42, crea_date=44, modif_date=45)
+            # Convert dates (indices: archived_timestamp=42, created_at=44, update_at=45)
             archived_ts = ts_to_datetime(vals[40])
             crea_dt = ts_to_datetime(vals[42])
             modif_dt = ts_to_datetime(vals[43])
@@ -388,7 +388,7 @@ def migrate_items(src, dst):
             vals[43] = modif_dt
 
             lifecycle_status = 2 if is_archive == 1 else 0
-            archived_date = archived_ts if is_archive == 1 else None
+            archived_at = archived_ts if is_archive == 1 else None
 
             dst_cur.execute("""
                 INSERT INTO items (
@@ -400,14 +400,14 @@ def migrate_items(src, dst):
                     source_id, genre, subject, public_type,
                     edition_id, edition_date, nb_pages, format, content, addon,
                     abstract, notes, keywords, nb_specimens, state,
-                    is_archive, archived_timestamp, is_valid, crea_date, modif_date,
-                    lifecycle_status, archived_date
+                    is_archive, archived_timestamp, is_valid, created_at, update_at,
+                    lifecycle_status, archived_at
                 ) VALUES (
                     %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
                     %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
                     %s,%s,%s,%s, %s,%s
                 ) ON CONFLICT (id) DO NOTHING
-            """, vals + [lifecycle_status, archived_date])
+            """, vals + [lifecycle_status, archived_at])
 
         dst.commit()
         offset += BATCH
@@ -431,7 +431,7 @@ def migrate_remote_items(src, dst):
                source_id, genre, subject, public_type,
                edition_id, edition_date, nb_pages, format, content, addon,
                abstract, notes, keywords, nb_specimens, state,
-               is_archive, archived_timestamp, is_valid, crea_date, modif_date
+               is_archive, archived_timestamp, is_valid, created_at, update_at
         FROM remote_items
     """)
     rows = src_cur.fetchall()
@@ -440,8 +440,8 @@ def migrate_remote_items(src, dst):
         vals = list(row)
         is_archive = vals[41]
         vals[40] = ts_to_datetime(vals[40])  # archived_timestamp
-        vals[42] = ts_to_datetime(vals[42])  # crea_date
-        vals[43] = ts_to_datetime(vals[43])  # modif_date
+        vals[42] = ts_to_datetime(vals[42])  # created_at
+        vals[43] = ts_to_datetime(vals[43])  # update_at
         lifecycle_status = 2 if is_archive == 1 else 0
 
         dst_cur.execute("""
@@ -454,7 +454,7 @@ def migrate_remote_items(src, dst):
                 source_id, genre, subject, public_type,
                 edition_id, edition_date, nb_pages, format, content, addon,
                 abstract, notes, keywords, nb_specimens, state,
-                is_archive, archived_timestamp, is_valid, crea_date, modif_date,
+                is_archive, archived_timestamp, is_valid, created_at, update_at,
                 lifecycle_status
             ) VALUES (
                 %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
@@ -482,24 +482,24 @@ def migrate_specimens(src, dst):
     while offset < total:
         src_cur.execute(f"""
             SELECT id, id_item, source_id, identification, cote, place,
-                   status, codestat, notes, price, modif_date,
-                   is_archive, archive_date, crea_date
+                   status, codestat, notes, price, update_at,
+                   is_archive, archived_at, created_at
             FROM specimens ORDER BY id LIMIT {BATCH} OFFSET {offset}
         """)
 
         for row in src_cur.fetchall():
             vals = list(row)
             is_archive = vals[11]
-            vals[10] = ts_to_datetime(vals[10])  # modif_date
-            vals[12] = ts_to_datetime(vals[12])  # archive_date
-            vals[13] = ts_to_datetime(vals[13])  # crea_date
+            vals[10] = ts_to_datetime(vals[10])  # update_at
+            vals[12] = ts_to_datetime(vals[12])  # archived_at
+            vals[13] = ts_to_datetime(vals[13])  # created_at
             lifecycle_status = 2 if is_archive == 1 else 0
 
             dst_cur.execute("""
                 INSERT INTO specimens (
                     id, id_item, source_id, identification, cote, place,
-                    status, codestat, notes, price, modif_date,
-                    is_archive, archive_date, crea_date, lifecycle_status
+                    status, codestat, notes, price, update_at,
+                    is_archive, archived_at, created_at, lifecycle_status
                 ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (id) DO NOTHING
             """, vals + [lifecycle_status])
@@ -519,7 +519,7 @@ def migrate_remote_specimens(src, dst):
 
     src_cur.execute("""
         SELECT id, id_item, source_id, identification, cote, media_type,
-               place, status, codestat, notes, price, creation_date, modif_date
+               place, status, codestat, notes, price, creation_date, update_at
         FROM remote_specimens
     """)
     rows = src_cur.fetchall()
@@ -527,12 +527,12 @@ def migrate_remote_specimens(src, dst):
     for row in rows:
         vals = list(row)
         vals[11] = ts_to_datetime(vals[11])  # creation_date
-        vals[12] = ts_to_datetime(vals[12])  # modif_date
+        vals[12] = ts_to_datetime(vals[12])  # update_at
 
         dst_cur.execute("""
             INSERT INTO remote_specimens (
                 id, id_item, source_id, identification, cote, media_type,
-                place, status, codestat, notes, price, creation_date, modif_date,
+                place, status, codestat, notes, price, creation_date, update_at,
                 lifecycle_status
             ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, 0)
             ON CONFLICT (id) DO NOTHING
@@ -545,8 +545,8 @@ def migrate_remote_specimens(src, dst):
 def migrate_loans(src, dst):
     """Migrate borrows -> loans + loans_archives.
 
-    Active loans (returned_date IS NULL or 0) -> loans table
-    Returned loans (returned_date set) -> loans_archives with user enrichment
+    Active loans (returned_at IS NULL or 0) -> loans table
+    Returned loans (returned_at set) -> loans_archives with user enrichment
     """
     print("Migrating borrows -> loans/loans_archives...")
     src_cur = src.cursor()
@@ -564,8 +564,8 @@ def migrate_loans(src, dst):
     specimen_to_item = {r[0]: r[1] for r in src_cur.fetchall()}
 
     src_cur.execute("""
-        SELECT id, user_id, specimen_id, item_id, date, renew_date,
-               nb_renews, issue_date, notes, returned_date
+        SELECT id, user_id, specimen_id, item_id, date, renew_at,
+               nb_renews, issue_at, notes, returned_at
         FROM borrows
     """)
     borrows = src_cur.fetchall()
@@ -582,9 +582,9 @@ def migrate_loans(src, dst):
 
         # Convert dates
         vals[4] = ts_to_datetime(vals[4])   # date
-        vals[5] = ts_to_datetime(vals[5])   # renew_date
-        vals[7] = ts_to_datetime(vals[7])   # issue_date
-        vals[9] = ts_to_datetime(vals[9])   # returned_date
+        vals[5] = ts_to_datetime(vals[5])   # renew_at
+        vals[7] = ts_to_datetime(vals[7])   # issue_at
+        vals[9] = ts_to_datetime(vals[9])   # returned_at
 
         if returned_date_raw and returned_date_raw != 0:
             # Returned loan -> loans_archives (item_id removed; link via specimen_id only)
@@ -597,7 +597,7 @@ def migrate_loans(src, dst):
             dst_cur.execute("""
                 INSERT INTO loans_archives (
                     id, user_id, specimen_id, date, nb_renews,
-                    issue_date, returned_date, notes,
+                    issue_at, returned_at, notes,
                     borrower_public_type, addr_city, account_type
                 ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (id) DO NOTHING
@@ -611,8 +611,8 @@ def migrate_loans(src, dst):
             # Active loan -> loans (item_id removed; link via specimen_id only)
             dst_cur.execute("""
                 INSERT INTO loans (
-                    id, user_id, specimen_id, date, renew_date,
-                    nb_renews, issue_date, notes, returned_date
+                    id, user_id, specimen_id, date, renew_at,
+                    nb_renews, issue_at, notes, returned_at
                 ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (id) DO NOTHING
             """, (vals[0], vals[1], vals[2], vals[4], vals[5], vals[6], vals[7], vals[8], vals[9]))
@@ -634,8 +634,8 @@ def migrate_loans_archives(src, dst):
     dst_cur = dst.cursor()
 
     src_cur.execute("""
-        SELECT id, item_id, specimen_id, date, nb_renews, issue_date,
-               returned_date, notes, borrower_public_type,
+        SELECT id, item_id, specimen_id, date, nb_renews, issue_at,
+               returned_at, notes, borrower_public_type,
                addr_city, account_type_id
         FROM borrows_archives
     """)
@@ -662,8 +662,8 @@ def migrate_loans_archives(src, dst):
 
         dst_cur.execute("""
             INSERT INTO loans_archives (
-                id, specimen_id, date, nb_renews, issue_date,
-                returned_date, notes, borrower_public_type,
+                id, specimen_id, date, nb_renews, issue_at,
+                returned_at, notes, borrower_public_type,
                 addr_city, account_type
             ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT (id) DO NOTHING

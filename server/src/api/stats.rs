@@ -29,11 +29,11 @@ pub struct ItemStats {
     pub by_media_type: Vec<StatEntry>,
     /// Items by public type
     pub by_public_type: Vec<StatEntry>,
-    /// Number of items acquired in the period (crea_date in year)
+    /// Number of items acquired in the period (created_at in year)
     pub acquisitions: i64,
     /// Acquisitions by media type
     pub acquisitions_by_media_type: Vec<StatEntry>,
-    /// Number of items withdrawn in the period (archived_date in year)
+    /// Number of items withdrawn in the period (archived_at in year)
     pub withdrawals: i64,
     /// Withdrawals by media type
     pub withdrawals_by_media_type: Vec<StatEntry>,

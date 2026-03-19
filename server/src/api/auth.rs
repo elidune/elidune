@@ -8,6 +8,7 @@ use utoipa::ToSchema;
 use crate::error::AppResult;
 #[allow(unused_imports)] // Used in utoipa macros
 use crate::error::ErrorResponse;
+use crate::models::Language;
 
 use super::AuthenticatedUser;
 
@@ -69,8 +70,8 @@ pub struct UserInfo {
     pub birthdate: Option<String>,
     /// Account type name
     pub account_type: String,
-    /// Preferred language (ISO 639-1 code: "fr", "en", etc.)
-    pub language: String,
+    /// Preferred language
+    pub language: Language,
 }
 
 /// Login endpoint - authenticate and get JWT token
@@ -129,7 +130,11 @@ pub async fn login(
             state.services.redis.store_2fa_code(user.id, &code, 600).await?;
             
             // Send code via email
-            state.services.email.send_2fa_code(email, &code).await?;
+            state
+                .services
+                .email
+                .send_2fa_code(email, &code, user.language)
+                .await?;
         }
     }
 
@@ -149,7 +154,7 @@ pub async fn login(
             phone: user.phone,
             birthdate: user.birthdate,
             account_type: user.account_type.to_string(),
-            language: user.language.unwrap_or_else(|| "fr".to_string()),
+            language: user.language.unwrap_or(Language::French),
         },
         requires_2fa,
         two_factor_method,
@@ -186,7 +191,7 @@ pub async fn me(
         phone: user.phone,
         birthdate: user.birthdate,
         account_type: user.account_type.to_string(),
-        language: user.language.unwrap_or_else(|| "fr".to_string()),
+        language: user.language.unwrap_or(Language::French),
     }))
 }
 
@@ -258,6 +263,24 @@ pub struct VerifyRecoveryRequest {
     pub code: String,
 }
 
+/// Password reset request
+#[derive(Deserialize, ToSchema)]
+pub struct RequestPasswordResetRequest {
+    /// Login or email used to find the account
+    pub identifier: String,
+    /// Base URL for the reset link, must contain `<token>` placeholder (e.g. https://app.example.com/reset?token=<token>)
+    pub reset_url: String,
+}
+
+/// Password reset confirmation request
+#[derive(Deserialize, ToSchema)]
+pub struct ResetPasswordRequest {
+    /// Reset token received by email
+    pub token: String,
+    /// New password
+    pub new_password: String,
+}
+
 /// Verify recovery code endpoint
 #[utoipa::path(
     post,
@@ -284,6 +307,80 @@ pub async fn verify_recovery(
         token_type: "Bearer".to_string(),
         expires_in: (state.config.users.jwt_expiration_hours * 3600) as i64,
     }))
+}
+
+/// Request password reset email
+#[utoipa::path(
+    post,
+    path = "/auth/request-password-reset",
+    tag = "auth",
+    request_body = RequestPasswordResetRequest,
+    responses(
+        (status = 200, description = "Reset email sent"),
+        (status = 400, description = "Invalid input (e.g. reset_url missing <token> placeholder, no email configured)", body = ErrorResponse),
+        (status = 404, description = "User not found", body = ErrorResponse)
+    )
+)]
+pub async fn request_password_reset(
+    State(state): State<crate::AppState>,
+    Json(request): Json<RequestPasswordResetRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    if !request.reset_url.contains("<token>") {
+        return Err(crate::error::AppError::Validation(
+            "reset_url must contain the <token> placeholder".to_string(),
+        ));
+    }
+
+    let (email, token, lang) = state
+        .services
+        .users
+        .request_password_reset(&request.identifier)
+        .await?;
+
+    let reset_url = request.reset_url.replace("<token>", &token);
+
+    state
+        .services
+        .email
+        .send_password_reset(&email, &token, lang, Some(&reset_url))
+        .await?;
+
+    Ok(Json(serde_json::json!({
+        "message": "Password reset email sent"
+    })))
+}
+
+/// Reset password with token
+#[utoipa::path(
+    post,
+    path = "/auth/reset-password",
+    tag = "auth",
+    request_body = ResetPasswordRequest,
+    responses(
+        (status = 200, description = "Password reset successful"),
+        (status = 400, description = "Invalid input", body = ErrorResponse),
+        (status = 401, description = "Invalid or expired token", body = ErrorResponse)
+    )
+)]
+pub async fn reset_password(
+    State(state): State<crate::AppState>,
+    Json(request): Json<ResetPasswordRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    if request.new_password.len() < 4 {
+        return Err(crate::error::AppError::Validation(
+            "Password must be at least 4 characters".to_string(),
+        ));
+    }
+
+    state
+        .services
+        .users
+        .reset_password(&request.token, &request.new_password)
+        .await?;
+
+    Ok(Json(serde_json::json!({
+        "message": "Password has been reset"
+    })))
 }
 
 /// Setup 2FA request

@@ -30,6 +30,10 @@ pub struct LoggingConfig {
     pub format: String,
 }
 
+fn default_email_templates_dir() -> String {
+    "data/email_templates".to_string()
+}
+
 #[derive(Debug, Deserialize, Clone)]
 pub struct EmailConfig {
     pub smtp_host: String,
@@ -39,6 +43,8 @@ pub struct EmailConfig {
     pub smtp_from: String,
     pub smtp_from_name: Option<String>,
     pub smtp_use_tls: bool,
+    #[serde(default = "default_email_templates_dir")]
+    pub templates_dir: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]

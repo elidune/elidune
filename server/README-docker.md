@@ -1,60 +1,60 @@
-# Guide de déploiement Elidune Complete avec Docker Compose
+# Elidune Complete deployment guide with Docker Compose
 
-Ce guide explique comment déployer Elidune Complete sur un serveur distant en utilisant Docker Compose avec volumes persistants.
+This guide explains how to deploy Elidune Complete on a remote server using Docker Compose with persistent volumes.
 
-## Table des matières
+## Table of contents
 
-1. [Prérequis](#prérequis)
-2. [Préparation des fichiers](#préparation-des-fichiers)
-3. [Transfert vers le serveur distant](#transfert-vers-le-serveur-distant)
-4. [Configuration sur le serveur](#configuration-sur-le-serveur)
-5. [Build ou import de l'image Docker](#build-ou-import-de-limage-docker)
-6. [Démarrage du service](#démarrage-du-service)
-7. [Vérification](#vérification)
-8. [Gestion des données](#gestion-des-données)
-9. [Commandes utiles](#commandes-utiles)
-10. [Dépannage](#dépannage)
+1. [Prerequisites](#prerequisites)
+2. [Preparing files](#preparing-files)
+3. [Transfer to remote server](#transfer-to-remote-server)
+4. [Server configuration](#server-configuration)
+5. [Build or import Docker image](#build-or-import-docker-image)
+6. [Starting the service](#starting-the-service)
+7. [Verification](#verification)
+8. [Data management](#data-management)
+9. [Useful commands](#useful-commands)
+10. [Troubleshooting](#troubleshooting)
 
 ---
 
-## Prérequis
+## Prerequisites
 
-### Sur le serveur distant
+### On the remote server
 
-- **Docker** (version 20.10 ou supérieure)
-- **Docker Compose** (version 2.0 ou supérieure)
-- **Espace disque** : minimum 5 Go (pour l'image + données)
-- **RAM** : minimum 2 Go recommandé
-- **Ports disponibles** :
-  - 5433 (PostgreSQL) - ou autre selon configuration
-  - 6379 (Redis) - ou autre selon configuration
-  - 8282 (API) - ou autre selon configuration
-  - 8181 (GUI) - ou autre selon configuration
+- **Docker** (20.10 or newer)
+- **Docker Compose** (2.0 or newer)
+- **Disk space:** at least 5 GB (image + data)
+- **RAM:** at least 2 GB recommended
+- **Available ports:**
+  - 5433 (PostgreSQL) — or as configured
+  - 6379 (Redis) — or as configured
+  - 8282 (API) — or as configured
+  - 8181 (GUI) — or as configured
 
-### Vérification des prérequis
+### Check prerequisites
 
 ```bash
-# Vérifier Docker
+# Docker
 docker --version
 
-# Vérifier Docker Compose
+# Docker Compose
 docker-compose --version
 
-# Vérifier l'espace disque
+# Disk space
 df -h
 ```
 
 ---
 
-## Préparation des fichiers
+## Preparing files
 
-### Structure de répertoire à créer sur le serveur
+### Directory layout on the server
 
 ```
 /opt/elidune/
 ├── docker-compose.complete.yml
 ├── .env
-├── Dockerfile.complete (optionnel, si build local)
+├── Dockerfile.complete (optional, for local build)
 ├── docker/
 │   ├── nginx-complete.conf
 │   ├── supervisord.conf
@@ -67,40 +67,40 @@ df -h
     └── docker-compose-helper.sh
 ```
 
-### Liste des fichiers à transférer
+### Files to transfer
 
-#### Fichiers essentiels (obligatoires)
+#### Required
 
-1. **`docker-compose.complete.yml`** - Configuration Docker Compose
-2. **`.env.example`** - Template de configuration (à copier en `.env`)
-3. **`docker/nginx-complete.conf`** - Configuration Nginx interne
-4. **`docker/supervisord.conf`** - Configuration Supervisor
-5. **`docker/wait-and-start-server.sh`** - Script de démarrage du serveur
+1. **`docker-compose.complete.yml`** — Docker Compose config
+2. **`.env.example`** — Config template (copy to `.env`)
+3. **`docker/nginx-complete.conf`** — Internal Nginx config
+4. **`docker/supervisord.conf`** — Supervisor config
+5. **`docker/wait-and-start-server.sh`** — Server startup script
 
-#### Fichiers optionnels (pour build local)
+#### Optional (local build)
 
-6. **`Dockerfile.complete`** - Dockerfile pour construire l'image localement
-7. **`scripts/build-complete-image.sh`** - Script de build
+6. **`Dockerfile.complete`** — Dockerfile for local image build
+7. **`scripts/build-complete-image.sh`** — Build script
 
-#### Scripts utilitaires (recommandés)
+#### Recommended utility scripts
 
-8. **`scripts/dump-db.sh`** - Export de la base de données
-9. **`scripts/import-db.sh`** - Import de la base de données
-10. **`scripts/backup-volumes.sh`** - Sauvegarde des volumes Docker
-11. **`scripts/restore-volumes.sh`** - Restauration des volumes Docker
-12. **`scripts/docker-compose-helper.sh`** - Helper pour les commandes courantes
+8. **`scripts/dump-db.sh`** — Database export
+9. **`scripts/import-db.sh`** — Database import
+10. **`scripts/backup-volumes.sh`** — Backup Docker volumes
+11. **`scripts/restore-volumes.sh`** — Restore Docker volumes
+12. **`scripts/docker-compose-helper.sh`** — Common command helper
 
 ---
 
-## Transfert vers le serveur distant
+## Transfer to remote server
 
-### Option 1 : Transfert via SCP
+### Option 1: SCP
 
 ```bash
-# Depuis votre machine locale
-cd /home/cjean/Documents/Developments/elidune/elidune-server-rust
+# From your local machine (repository root)
+cd /path/to/elidune-server-rust
 
-# Créer l'archive des fichiers nécessaires
+# Archive required files
 tar czf elidune-deploy.tar.gz \
     docker-compose.complete.yml \
     .env.example \
@@ -112,130 +112,130 @@ tar czf elidune-deploy.tar.gz \
     scripts/restore-volumes.sh \
     scripts/docker-compose-helper.sh
 
-# Transférer vers le serveur
-scp elidune-deploy.tar.gz user@serveur-distant:/opt/elidune/
+# Copy to server
+scp elidune-deploy.tar.gz user@remote-server:/opt/elidune/
 
-# Sur le serveur distant
-ssh user@serveur-distant
+# On the remote server
+ssh user@remote-server
 cd /opt/elidune
 tar xzf elidune-deploy.tar.gz
 ```
 
-### Option 2 : Transfert via Git
+### Option 2: Git
 
 ```bash
-# Sur le serveur distant
-ssh user@serveur-distant
+# On the remote server
+ssh user@remote-server
 cd /opt
-git clone https://github.com/jcollonville/elidune-server-rust.git elidune
+git clone https://github.com/elidune/elidune-server-rust.git elidune
 cd elidune
 ```
 
-### Option 3 : Transfert manuel fichier par fichier
+### Option 3: Manual file-by-file
 
 ```bash
-# Créer le répertoire sur le serveur
-ssh user@serveur-distant "mkdir -p /opt/elidune/{docker,scripts}"
+# Create directories on server
+ssh user@remote-server "mkdir -p /opt/elidune/{docker,scripts}"
 
-# Transférer les fichiers un par un
-scp docker-compose.complete.yml user@serveur-distant:/opt/elidune/
-scp .env.example user@serveur-distant:/opt/elidune/
-scp docker/nginx-complete.conf user@serveur-distant:/opt/elidune/docker/
-scp docker/supervisord.conf user@serveur-distant:/opt/elidune/docker/
-scp docker/wait-and-start-server.sh user@serveur-distant:/opt/elidune/docker/
-scp scripts/dump-db.sh user@serveur-distant:/opt/elidune/scripts/
-scp scripts/import-db.sh user@serveur-distant:/opt/elidune/scripts/
-scp scripts/backup-volumes.sh user@serveur-distant:/opt/elidune/scripts/
-scp scripts/restore-volumes.sh user@serveur-distant:/opt/elidune/scripts/
-scp scripts/docker-compose-helper.sh user@serveur-distant:/opt/elidune/scripts/
+# Copy files one by one
+scp docker-compose.complete.yml user@remote-server:/opt/elidune/
+scp .env.example user@remote-server:/opt/elidune/
+scp docker/nginx-complete.conf user@remote-server:/opt/elidune/docker/
+scp docker/supervisord.conf user@remote-server:/opt/elidune/docker/
+scp docker/wait-and-start-server.sh user@remote-server:/opt/elidune/docker/
+scp scripts/dump-db.sh user@remote-server:/opt/elidune/scripts/
+scp scripts/import-db.sh user@remote-server:/opt/elidune/scripts/
+scp scripts/backup-volumes.sh user@remote-server:/opt/elidune/scripts/
+scp scripts/restore-volumes.sh user@remote-server:/opt/elidune/scripts/
+scp scripts/docker-compose-helper.sh user@remote-server:/opt/elidune/scripts/
 ```
 
-### Rendre les scripts exécutables
+### Make scripts executable
 
 ```bash
-# Sur le serveur distant
+# On the remote server
 chmod +x /opt/elidune/docker/wait-and-start-server.sh
 chmod +x /opt/elidune/scripts/*.sh
 ```
 
 ---
 
-## Configuration sur le serveur
+## Server configuration
 
-### 1. Créer le fichier `.env`
+### 1. Create `.env`
 
 ```bash
 cd /opt/elidune
 cp .env.example .env
-nano .env  # ou vi .env
+nano .env   # or vi .env
 ```
 
-### 2. Configurer les variables importantes
+### 2. Important variables
 
-**⚠️ IMPORTANT : Modifier au minimum ces valeurs :**
+**⚠️ Change at least these:**
 
 ```bash
-# Générer une clé JWT sécurisée
+# Generate a secure JWT secret
 openssl rand -base64 32
 
-# Éditer .env et remplacer JWT_SECRET
-JWT_SECRET=votre-clé-générée-ici
+# Edit .env and set JWT_SECRET
+JWT_SECRET=your-generated-key-here
 
-# Modifier le mot de passe PostgreSQL (optionnel mais recommandé)
-POSTGRES_PASSWORD=votre-mot-de-passe-securise
+# Change PostgreSQL password (optional but recommended)
+POSTGRES_PASSWORD=your-secure-password
 
-# Ajuster les ports si nécessaire
+# Adjust ports if needed
 POSTGRES_PORT=5433
 API_PORT=8282
 GUI_PORT=8181
 REDIS_PORT=6379
 ```
 
-### 3. Vérifier la configuration
+### 3. Verify configuration
 
 ```bash
-# Vérifier que les ports ne sont pas déjà utilisés
+# Check ports are free
 netstat -tuln | grep -E ':(5433|6379|8282|8181)'
 
-# Vérifier que Docker fonctionne
+# Check Docker
 docker ps
 ```
 
 ---
 
-## Build ou import de l'image Docker
+## Build or import Docker image
 
-### Option A : Importer une image pré-construite (recommandé)
+### Option A: Import a pre-built image (recommended)
 
-Si vous avez exporté l'image depuis votre machine locale :
+If you exported the image from your local machine:
 
 ```bash
-# Sur votre machine locale, exporter l'image
+# On local machine, export image
 docker save elidune-complete:latest | gzip > elidune-complete-image.tar.gz
 
-# Transférer vers le serveur
-scp elidune-complete-image.tar.gz user@serveur-distant:/opt/elidune/
+# Copy to server
+scp elidune-complete-image.tar.gz user@remote-server:/opt/elidune/
 
-# Sur le serveur distant, charger l'image
+# On server, load image
 cd /opt/elidune
 gunzip -c elidune-complete-image.tar.gz | docker load
 ```
 
-### Option B : Construire l'image sur le serveur
+### Option B: Build on the server
 
-Si vous avez transféré le `Dockerfile.complete` :
+If you transferred `Dockerfile.complete`:
 
 ```bash
 cd /opt/elidune
 
-# Construire l'image (peut prendre 10-30 minutes)
+# Build (may take 10–30 minutes)
 docker build -f Dockerfile.complete -t elidune-complete:latest .
 
-# Ou utiliser le script de build si disponible
+# Or use build script if present
 ./scripts/build-complete-image.sh
 ```
 
-### Vérifier que l'image est présente
+### Confirm image exists
 
 ```bash
 docker images | grep elidune-complete
@@ -243,112 +243,112 @@ docker images | grep elidune-complete
 
 ---
 
-## Démarrage du service
+## Starting the service
 
-### 1. Démarrer avec Docker Compose
+### 1. Start with Docker Compose
 
 ```bash
 cd /opt/elidune
 
-# Démarrer en arrière-plan
+# Background
 docker-compose -f docker-compose.complete.yml up -d
 
-# Ou utiliser le helper
+# Or helper
 ./scripts/docker-compose-helper.sh start
 ```
 
-### 2. Vérifier le démarrage
+### 2. Check startup
 
 ```bash
-# Voir les logs
+# Logs
 docker-compose -f docker-compose.complete.yml logs -f
 
-# Ou avec le helper
+# Or helper
 ./scripts/docker-compose-helper.sh logs
 
-# Vérifier le statut
+# Status
 docker-compose -f docker-compose.complete.yml ps
 ```
 
-### 3. Attendre que les services soient prêts
+### 3. Wait for services
 
-Le conteneur démarre PostgreSQL, Redis, puis le serveur Elidune. Attendez 30-60 secondes pour que tout soit opérationnel.
+The container starts PostgreSQL, Redis, then Elidune. Allow 30–60 seconds before testing.
 
 ---
 
-## Vérification
+## Verification
 
-### 1. Vérifier que le conteneur tourne
+### 1. Container running
 
 ```bash
 docker ps | grep elidune-complete
 ```
 
-### 2. Vérifier les logs
+### 2. Logs
 
 ```bash
-# Logs du serveur Elidune
+# Elidune server
 docker-compose -f docker-compose.complete.yml logs elidune-complete | tail -50
 
-# Logs PostgreSQL
+# PostgreSQL
 docker-compose -f docker-compose.complete.yml exec elidune-complete tail -f /var/log/supervisor/postgresql.out.log
 
-# Logs du serveur Rust
+# Rust server
 docker-compose -f docker-compose.complete.yml exec elidune-complete tail -f /var/log/supervisor/elidune-server.out.log
 ```
 
-### 3. Tester l'accès aux services
+### 3. Service checks
 
 ```bash
-# Tester l'API
+# API
 curl http://localhost:8282/api/v1/health
 
-# Tester la GUI (devrait retourner du HTML)
+# GUI (should return HTML)
 curl http://localhost:8181
 
-# Tester PostgreSQL
+# PostgreSQL
 docker-compose -f docker-compose.complete.yml exec elidune-complete pg_isready -U elidune
 
-# Tester Redis
+# Redis
 docker-compose -f docker-compose.complete.yml exec elidune-complete redis-cli ping
 ```
 
-### 4. Accéder à l'interface web
+### 4. Web access
 
-Ouvrez dans votre navigateur :
-- **GUI** : `http://votre-serveur:8181`
-- **API** : `http://votre-serveur:8282/api/v1/health`
+In a browser:
+- **GUI:** `http://your-server:8181`
+- **API:** `http://your-server:8282/api/v1/health`
 
 ---
 
-## Gestion des données
+## Data management
 
-### Export de la base de données
+### Export database
 
 ```bash
 cd /opt/elidune
 ./scripts/dump-db.sh
 
-# Le dump sera créé dans /opt/elidune/elidune-db-dump-YYYYMMDD-HHMMSS.sql.gz
+# Dump path: /opt/elidune/elidune-db-dump-YYYYMMDD-HHMMSS.sql.gz
 ```
 
-### Import de la base de données
+### Import database
 
 ```bash
 cd /opt/elidune
 ./scripts/import-db.sh elidune-db-dump-YYYYMMDD-HHMMSS.sql.gz
 ```
 
-### Sauvegarde des volumes Docker
+### Backup Docker volumes
 
 ```bash
 cd /opt/elidune
 ./scripts/backup-volumes.sh
 
-# Les sauvegardes seront dans ./backups/volumes-YYYYMMDD-HHMMSS/
+# Backups under ./backups/volumes-YYYYMMDD-HHMMSS/
 ```
 
-### Restauration des volumes
+### Restore volumes
 
 ```bash
 cd /opt/elidune
@@ -357,184 +357,172 @@ cd /opt/elidune
 
 ---
 
-## Commandes utiles
+## Useful commands
 
-### Gestion du service
+### Service control
 
 ```bash
-# Démarrer
+# Start
 docker-compose -f docker-compose.complete.yml up -d
-# ou
+# or
 ./scripts/docker-compose-helper.sh start
 
-# Arrêter
+# Stop
 docker-compose -f docker-compose.complete.yml stop
-# ou
+# or
 ./scripts/docker-compose-helper.sh stop
 
-# Redémarrer
+# Restart
 docker-compose -f docker-compose.complete.yml restart
-# ou
+# or
 ./scripts/docker-compose-helper.sh restart
 
-# Voir les logs
+# Logs
 docker-compose -f docker-compose.complete.yml logs -f
-# ou
+# or
 ./scripts/docker-compose-helper.sh logs
 
-# Statut
+# Status
 docker-compose -f docker-compose.complete.yml ps
-# ou
+# or
 ./scripts/docker-compose-helper.sh status
 ```
 
-### Accès au conteneur
+### Container access
 
 ```bash
-# Ouvrir un shell dans le conteneur
+# Shell
 docker-compose -f docker-compose.complete.yml exec elidune-complete sh
-# ou
+# or
 ./scripts/docker-compose-helper.sh shell
 
-# Exécuter une commande dans le conteneur
+# Run psql
 docker-compose -f docker-compose.complete.yml exec elidune-complete psql -U elidune -d elidune
 ```
 
-### Gestion des volumes
+### Volumes
 
 ```bash
-# Lister les volumes
+# List
 docker volume ls | grep elidune
 
-# Inspecter un volume
+# Inspect
 docker volume inspect elidune-postgres-data
 docker volume inspect elidune-redis-data
 
-# Voir l'utilisation de l'espace
+# Disk usage
 docker system df -v
 ```
 
-### Mise à jour de l'image
+### Image update
 
 ```bash
-# Arrêter le service
+# Stop
 docker-compose -f docker-compose.complete.yml stop
 
-# Charger la nouvelle image
-gunzip -c nouvelle-image.tar.gz | docker load
+# Load new image
+gunzip -c new-image.tar.gz | docker load
 
-# Redémarrer
+# Start
 docker-compose -f docker-compose.complete.yml up -d
 ```
 
 ---
 
-## Dépannage
+## Troubleshooting
 
-### Le conteneur ne démarre pas
+### Container won’t start
 
 ```bash
-# Voir les logs détaillés
 docker-compose -f docker-compose.complete.yml logs
-
-# Vérifier les erreurs
 docker-compose -f docker-compose.complete.yml ps
 ```
 
-### PostgreSQL ne démarre pas
+### PostgreSQL won’t start
 
 ```bash
-# Vérifier les logs PostgreSQL
 docker-compose -f docker-compose.complete.yml exec elidune-complete \
     tail -f /var/log/supervisor/postgresql.err.log
 
-# Vérifier les permissions du volume
 docker volume inspect elidune-postgres-data
 ```
 
-### Le serveur Elidune ne démarre pas
+### Elidune server won’t start
 
 ```bash
-# Vérifier les logs du serveur
 docker-compose -f docker-compose.complete.yml exec elidune-complete \
     tail -f /var/log/supervisor/elidune-server.err.log
 
-# Vérifier la configuration
 docker-compose -f docker-compose.complete.yml exec elidune-complete \
     cat /app/config/default.toml
 ```
 
-### Problèmes de migrations de base de données
+### Database migration issues
 
 ```bash
-# Vérifier l'état des migrations
 docker-compose -f docker-compose.complete.yml exec elidune-complete \
     psql -U elidune -d elidune -c "SELECT * FROM _sqlx_migrations;"
 
-# Réinitialiser les migrations (⚠️ attention)
+# Reset migrations (⚠️ dangerous)
 docker-compose -f docker-compose.complete.yml exec elidune-complete \
     psql -U elidune -d elidune -c "TRUNCATE TABLE _sqlx_migrations;"
 ```
 
-### Les ports sont déjà utilisés
+### Ports already in use
 
 ```bash
-# Trouver quel processus utilise le port
 sudo netstat -tulpn | grep :8181
 sudo lsof -i :8181
 
-# Modifier les ports dans .env
+# Edit .env
 nano /opt/elidune/.env
-# Changer GUI_PORT, API_PORT, etc.
+# Change GUI_PORT, API_PORT, etc.
 
-# Redémarrer
 docker-compose -f docker-compose.complete.yml down
 docker-compose -f docker-compose.complete.yml up -d
 ```
 
-### Problèmes de permissions
+### Permissions
 
 ```bash
-# Vérifier les permissions des scripts
 ls -la /opt/elidune/scripts/
 chmod +x /opt/elidune/scripts/*.sh
 chmod +x /opt/elidune/docker/wait-and-start-server.sh
 ```
 
-### Nettoyer en cas de problème
+### Clean reset
 
 ```bash
-# Arrêter et supprimer le conteneur (volumes conservés)
+# Stop and remove container (keep volumes)
 docker-compose -f docker-compose.complete.yml down
 
-# Supprimer aussi les volumes (⚠️ supprime les données)
+# Remove volumes too (⚠️ deletes data)
 docker-compose -f docker-compose.complete.yml down -v
 
-# Nettoyer les images non utilisées
 docker image prune -a
 ```
 
 ---
 
-## Configuration Nginx sur le serveur hôte (optionnel)
+## Host Nginx (optional)
 
-Si vous voulez exposer Elidune via un domaine avec HTTPS :
+To expose Elidune on a domain with HTTPS:
 
-### Exemple de configuration Nginx
+### Example Nginx config
 
 ```nginx
 server {
     listen 80;
-    server_name elidune.votre-domaine.fr;
+    server_name elidune.example.com;
     return 301 https://$server_name$request_uri;
 }
 
 server {
     listen 443 ssl http2;
-    server_name elidune.votre-domaine.fr;
+    server_name elidune.example.com;
 
-    ssl_certificate /etc/letsencrypt/live/votre-domaine.fr/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/votre-domaine.fr/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
 
     # API
     location /api {
@@ -574,31 +562,33 @@ server {
 
 ---
 
-## Checklist de déploiement
+## Deployment checklist
 
-- [ ] Docker et Docker Compose installés sur le serveur
-- [ ] Fichiers transférés sur le serveur
-- [ ] Scripts rendus exécutables
-- [ ] Fichier `.env` créé et configuré
-- [ ] `JWT_SECRET` modifié avec une clé sécurisée
-- [ ] `POSTGRES_PASSWORD` modifié (recommandé)
-- [ ] Ports vérifiés et disponibles
-- [ ] Image Docker chargée ou construite
-- [ ] Service démarré avec `docker-compose up -d`
-- [ ] Logs vérifiés pour confirmer le démarrage
-- [ ] Services testés (API, GUI, PostgreSQL, Redis)
-- [ ] Sauvegarde initiale effectuée
+- [ ] Docker and Docker Compose installed on server
+- [ ] Files copied to server
+- [ ] Scripts executable
+- [ ] `.env` created and configured
+- [ ] `JWT_SECRET` set to a secure value
+- [ ] `POSTGRES_PASSWORD` changed (recommended)
+- [ ] Ports checked and free
+- [ ] Docker image loaded or built
+- [ ] Service started with `docker-compose up -d`
+- [ ] Logs checked for successful startup
+- [ ] API, GUI, PostgreSQL, Redis tested
+- [ ] Initial backup done
 
 ---
 
 ## Support
 
-En cas de problème, vérifiez :
-1. Les logs : `docker-compose logs -f`
-2. Le statut : `docker-compose ps`
-3. Les volumes : `docker volume ls`
-4. L'espace disque : `df -h`
+If something fails, check:
 
-Pour plus d'informations, consultez :
-- `scripts/README-docker-compose.md` - Guide détaillé Docker Compose
-- Les logs du conteneur pour les erreurs spécifiques
+1. Logs: `docker-compose logs -f`
+2. Status: `docker-compose ps`
+3. Volumes: `docker volume ls`
+4. Disk: `df -h`
+
+See also:
+
+- `scripts/README-docker-compose.md` — detailed Docker Compose guide
+- Container logs for specific errors

@@ -25,6 +25,7 @@ smtp_password = ""
 smtp_from = ""
 smtp_from_name = "Elidune"
 smtp_use_tls = true
+# templates_dir = "data/email_templates"  # optional, default
 
 [redis]
 url = "redis://127.0.0.1:6379"

@@ -24,8 +24,8 @@ pub struct SchedulePeriod {
     /// Period end date
     pub end_date: NaiveDate,
     pub notes: Option<String>,
-    pub crea_date: Option<DateTime<Utc>>,
-    pub modif_date: Option<DateTime<Utc>>,
+    pub created_at: Option<DateTime<Utc>>,
+    pub update_at: Option<DateTime<Utc>>,
 }
 
 /// Create schedule period request
@@ -69,7 +69,7 @@ pub struct ScheduleSlot {
     pub open_time: NaiveTime,
     /// Closing time
     pub close_time: NaiveTime,
-    pub crea_date: Option<DateTime<Utc>>,
+    pub created_at: Option<DateTime<Utc>>,
 }
 
 /// Create schedule slot request
@@ -98,7 +98,7 @@ pub struct ScheduleClosure {
     pub closure_date: NaiveDate,
     /// Reason for closure
     pub reason: Option<String>,
-    pub crea_date: Option<DateTime<Utc>>,
+    pub created_at: Option<DateTime<Utc>>,
 }
 
 /// Create closure request

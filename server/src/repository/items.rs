@@ -777,7 +777,7 @@ impl Repository {
                    s.place, s.borrowable, s.circulation_status, s.notes, s.price,
                    s.created_at, s.updated_at, s.archived_at,
                    so.name as source_name,
-                   (SELECT COUNT(*) FROM loans l WHERE l.specimen_id = s.id AND l.returned_date IS NULL) as availability
+                   (SELECT COUNT(*) FROM loans l WHERE l.specimen_id = s.id AND l.returned_at IS NULL) as availability
             FROM specimens s
             LEFT JOIN sources so ON s.source_id = so.id
             WHERE s.item_id = $1 AND s.archived_at IS NULL
@@ -803,7 +803,7 @@ impl Repository {
             r#"
             SELECT s.item_id, s.id, s.barcode, s.call_number, s.borrowable,
                    so.name as source_name,
-                   (SELECT COUNT(*) FROM loans l WHERE l.specimen_id = s.id AND l.returned_date IS NULL) as availability
+                   (SELECT COUNT(*) FROM loans l WHERE l.specimen_id = s.id AND l.returned_at IS NULL) as availability
             FROM specimens s
             LEFT JOIN sources so ON s.source_id = so.id
             WHERE s.item_id = ANY($1) AND s.archived_at IS NULL
@@ -1128,7 +1128,7 @@ impl Repository {
                    s.place, s.borrowable, s.circulation_status, s.notes, s.price,
                    s.created_at, s.updated_at, s.archived_at,
                    so.name as source_name,
-                   (SELECT COUNT(*) FROM loans l WHERE l.specimen_id = s.id AND l.returned_date IS NULL) as availability
+                   (SELECT COUNT(*) FROM loans l WHERE l.specimen_id = s.id AND l.returned_at IS NULL) as availability
             FROM specimens s
             LEFT JOIN sources so ON s.source_id = so.id
             WHERE s.id = $1
@@ -1178,7 +1178,7 @@ impl Repository {
                 r#"
                 SELECT s.item_id, s.id, s.barcode, s.call_number, s.borrowable,
                        so.name as source_name,
-                       (SELECT COUNT(*) FROM loans l WHERE l.specimen_id = s.id AND l.returned_date IS NULL) as availability
+                       (SELECT COUNT(*) FROM loans l WHERE l.specimen_id = s.id AND l.returned_at IS NULL) as availability
                 FROM specimens s
                 LEFT JOIN sources so ON s.source_id = so.id
                 WHERE s.barcode = $1 AND s.id != $2
@@ -1194,7 +1194,7 @@ impl Repository {
                 r#"
                 SELECT s.item_id, s.id, s.barcode, s.call_number, s.borrowable,
                        so.name as source_name,
-                       (SELECT COUNT(*) FROM loans l WHERE l.specimen_id = s.id AND l.returned_date IS NULL) as availability
+                       (SELECT COUNT(*) FROM loans l WHERE l.specimen_id = s.id AND l.returned_at IS NULL) as availability
                 FROM specimens s
                 LEFT JOIN sources so ON s.source_id = so.id
                 WHERE s.barcode = $1

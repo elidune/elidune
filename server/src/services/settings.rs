@@ -5,6 +5,7 @@ use sqlx::Row;
 use crate::{
     api::settings::{LoanSettings, SettingsResponse, UpdateSettingsRequest, Z3950ServerConfig},
     error::AppResult,
+    models::item::MediaType,
     repository::Repository,
 };
 
@@ -30,7 +31,11 @@ impl SettingsService {
         .await?
         .into_iter()
         .map(|row| LoanSettings {
-            media_type: row.get::<Option<String>, _>("media_type").unwrap_or_default(),
+            media_type: MediaType::from(
+                row.get::<Option<String>, _>("media_type")
+                    .unwrap_or_default()
+                    .as_str(),
+            ),
             max_loans: row.get::<Option<i16>, _>("nb_max").unwrap_or(5),
             max_renewals: row.get::<Option<i16>, _>("nb_renews").unwrap_or(2),
             duration_days: row.get::<Option<i16>, _>("duration").unwrap_or(21),
@@ -81,7 +86,7 @@ impl SettingsService {
                     WHERE media_type = $1
                     "#,
                 )
-                .bind(&setting.media_type)
+                .bind(setting.media_type.as_db_str())
                 .bind(setting.max_loans)
                 .bind(setting.max_renewals)
                 .bind(setting.duration_days)
@@ -97,7 +102,7 @@ impl SettingsService {
                         VALUES ($1, $2, $3, $4)
                         "#,
                     )
-                    .bind(&setting.media_type)
+                    .bind(setting.media_type.as_db_str())
                     .bind(setting.max_loans)
                     .bind(setting.max_renewals)
                     .bind(setting.duration_days)

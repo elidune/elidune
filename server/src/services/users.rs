@@ -5,6 +5,7 @@ use argon2::{
     Argon2,
 };
 use chrono::Utc;
+use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 
 use std::collections::HashSet;
 use totp_lite::totp_custom;
@@ -13,7 +14,7 @@ use crate::{
     config::UsersConfig,
     error::{AppError, AppResult},
     models::user::{AccountTypeSlug, CreateUser, UpdateProfile, UpdateUser, User, UserClaims, UserQuery, UserShort},
-    repository::{users, Repository},
+    repository::Repository,
 };
 
 #[derive(Clone)]
@@ -21,6 +22,15 @@ pub struct UsersService {
     repository: Repository,
     config: UsersConfig,
     redis: crate::services::redis::RedisService,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct PasswordResetClaims {
+    sub: String,
+    user_id: i64,
+    purpose: String,
+    exp: i64,
+    iat: i64,
 }
 
 impl UsersService {
@@ -402,6 +412,63 @@ impl UsersService {
         // Account type is already validated by the enum type
 
         self.repository.users_update_account_type(user_id, account_type).await
+    }
+
+    /// Request password reset by login or email.
+    /// Returns destination email, reset token, and user language for email template.
+    pub async fn request_password_reset(
+        &self,
+        identifier: &str,
+    ) -> AppResult<(String, String, Option<crate::models::Language>)> {
+        let user = if let Some(u) = self.repository.users_get_by_login(identifier).await? {
+            u
+        } else if let Some(u) = self.repository.users_get_by_email(identifier).await? {
+            u
+        } else {
+            return Err(AppError::NotFound("User not found".to_string()));
+        };
+
+        let email = user
+            .email
+            .as_deref()
+            .ok_or_else(|| AppError::Validation("No email configured for this user".to_string()))?;
+
+        let now = Utc::now().timestamp();
+        let exp = now + (30 * 60); // 30 minutes
+        let claims = PasswordResetClaims {
+            sub: user.login.clone().unwrap_or_else(|| format!("user_{}", user.id)),
+            user_id: user.id,
+            purpose: "password_reset".to_string(),
+            exp,
+            iat: now,
+        };
+
+        let token = encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(self.config.jwt_secret.as_bytes()),
+        )
+        .map_err(|e| AppError::Internal(format!("Failed to create reset token: {}", e)))?;
+
+        Ok((email.to_string(), token, user.language))
+    }
+
+    /// Reset password using a reset token and a new password.
+    pub async fn reset_password(&self, token: &str, new_password: &str) -> AppResult<()> {
+        let token_data = decode::<PasswordResetClaims>(
+            token,
+            &DecodingKey::from_secret(self.config.jwt_secret.as_bytes()),
+            &Validation::default(),
+        )
+        .map_err(|_| AppError::Authentication("Invalid or expired reset token".to_string()))?;
+
+        let claims = token_data.claims;
+        if claims.purpose != "password_reset" {
+            return Err(AppError::Authentication("Invalid reset token purpose".to_string()));
+        }
+
+        let hash = self.hash_password(new_password)?;
+        self.repository.users_update_password(claims.user_id, &hash).await
     }
 }
 

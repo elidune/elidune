@@ -20,7 +20,7 @@ pub struct VisitorCount {
     /// Source of the count (manual, counter, estimate)
     pub source: Option<String>,
     pub notes: Option<String>,
-    pub crea_date: Option<DateTime<Utc>>,
+    pub created_at: Option<DateTime<Utc>>,
 }
 
 /// Create visitor count request

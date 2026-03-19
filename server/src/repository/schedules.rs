@@ -59,7 +59,7 @@ impl Repository {
     /// Update a schedule period
     pub async fn schedules_update_period(&self, id: i64, data: &UpdateSchedulePeriod) -> AppResult<SchedulePeriod> {
         let now = Utc::now();
-        let mut sets = vec!["modif_date = $1".to_string()];
+        let mut sets = vec!["update_at = $1".to_string()];
         let mut idx = 2;
 
         if data.name.is_some() { sets.push(format!("name = ${}", idx)); idx += 1; }

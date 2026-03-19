@@ -8,6 +8,7 @@ use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
 
 use crate::error::AppError;
+use super::Language;
 
 /// User rights levels (matching original C implementation)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -258,16 +259,16 @@ pub struct UserRow {
     addr_city: Option<String>,
     phone: Option<String>,
     birthdate: Option<String>,
-    crea_date: Option<DateTime<Utc>>,
-    modif_date: Option<DateTime<Utc>>,
-    issue_date: Option<DateTime<Utc>>,
+    created_at: Option<DateTime<Utc>>,
+    update_at: Option<DateTime<Utc>>,
+    issue_at: Option<DateTime<Utc>>,
     account_type: String,
     fee: Option<String>,
-    public_type: Option<i32>,
+    public_type: Option<i64>,
     notes: Option<String>,
     status: Option<i16>,
-    archived_date: Option<DateTime<Utc>>,
-    language: Option<String>,
+    archived_at: Option<DateTime<Utc>>,
+    language: Option<Language>,
     sex: Option<i16>,
     staff_type: Option<i16>,
     hours_per_week: Option<f32>,
@@ -296,15 +297,15 @@ impl From<UserRow> for User {
             addr_city: row.addr_city,
             phone: row.phone,
             birthdate: row.birthdate,
-            crea_date: row.crea_date,
-            modif_date: row.modif_date,
-            issue_date: row.issue_date,
+            created_at: row.created_at,
+            update_at: row.update_at,
+            issue_at: row.issue_at,
             account_type: row.account_type.parse().unwrap_or(AccountTypeSlug::Guest),
             fee: row.fee.map(|f| f.parse().unwrap_or(FeeSlug::Free)),
             public_type: row.public_type,
             notes: row.notes,
             status: row.status,
-            archived_date: row.archived_date,
+            archived_at: row.archived_at,
             language: row.language,
             sex: row.sex,
             staff_type: row.staff_type,
@@ -343,17 +344,17 @@ pub struct User {
     pub addr_city: Option<String>,
     pub phone: Option<String>,
     pub birthdate: Option<String>,
-    pub crea_date: Option<DateTime<Utc>>,
-    pub modif_date: Option<DateTime<Utc>>,
-    pub issue_date: Option<DateTime<Utc>>,
+    pub created_at: Option<DateTime<Utc>>,
+    pub update_at: Option<DateTime<Utc>>,
+    pub issue_at: Option<DateTime<Utc>>,
     pub account_type: AccountTypeSlug,
     pub fee: Option<FeeSlug>,
-    pub public_type: Option<i32>,
+    pub public_type: Option<i64>,
     pub notes: Option<String>,
     pub status: Option<i16>,
-    pub archived_date: Option<DateTime<Utc>>,
-    /// User preferred language (ISO 639-1 code: "fr", "en", etc.)
-    pub language: Option<String>,
+    pub archived_at: Option<DateTime<Utc>>,
+    /// User preferred language
+    pub language: Option<Language>,
     /// Sex (70=Female, 77=Male, 85=Unknown)
     pub sex: Option<i16>,
     /// Staff type (NULL=not staff, 0=employee, 1=volunteer)
@@ -382,7 +383,7 @@ pub struct UserShortRow {
     firstname: Option<String>,
     lastname: Option<String>,
     account_type: Option<String>,
-    public_type: Option<i32>,
+    public_type: Option<i64>,
     nb_loans: Option<i64>,
     nb_late_loans: Option<i64>,
 }
@@ -411,7 +412,7 @@ pub struct UserShort {
     pub firstname: Option<String>,
     pub lastname: Option<String>,
     pub account_type: Option<AccountTypeSlug>,
-    pub public_type: Option<i32>,
+    pub public_type: Option<i64>,
     pub nb_loans: Option<i64>,
     pub nb_late_loans: Option<i64>,
 }
@@ -447,7 +448,7 @@ pub struct CreateUser {
     pub birthdate: Option<String>,
     pub account_type: Option<AccountTypeSlug>,
     pub fee: Option<FeeSlug>,
-    pub public_type: Option<i32>,
+    pub public_type: Option<i64>,
     pub notes: Option<String>,
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
@@ -482,7 +483,7 @@ pub struct UpdateUser {
     pub birthdate: Option<String>,
     pub account_type: Option<AccountTypeSlug>,
     pub fee: Option<FeeSlug>,
-    pub public_type: Option<i32>,
+    pub public_type: Option<i64>,
     pub notes: Option<String>,
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
@@ -528,9 +529,8 @@ pub struct UpdateProfile {
     /// New password
     #[validate(length(min = 4, message = "Password must be at least 4 characters"))]
     pub new_password: Option<String>,
-    /// Preferred language (ISO 639-1 code: "fr", "en", etc.)
-    #[validate(length(min = 2, max = 5, message = "Language code must be 2-5 characters"))]
-    pub language: Option<String>,
+    /// Preferred language
+    pub language: Option<Language>,
 }
 
 /// Update account type request (admin only)

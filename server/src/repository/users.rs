@@ -1,7 +1,7 @@
 //! Users domain methods on Repository
 
 use chrono::Utc;
-use sqlx::{Pool, Postgres, Row};
+use sqlx::Row;
 
 use super::Repository;
 use crate::{
@@ -54,6 +54,23 @@ impl Repository {
         .await?;
 
         Ok(user_row.map(|r| r.into()))
+    }
+
+    /// Update user password directly (used for password reset flow)
+    pub async fn users_update_password(&self, id: i64, password_hash: &str) -> AppResult<()> {
+        let result = sqlx::query(
+            "UPDATE users SET password = $1, update_at = NOW() WHERE id = $2"
+        )
+        .bind(password_hash)
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(AppError::NotFound(format!("User with id {} not found", id)));
+        }
+
+        Ok(())
     }
 
     /// Check if email already exists
@@ -169,8 +186,8 @@ impl Repository {
         let select_query = format!(
             r#"
             SELECT u.id, u.firstname, u.lastname, u.account_type, u.public_type,
-                   (SELECT COUNT(*) FROM loans l WHERE l.user_id = u.id AND l.returned_date IS NULL) as nb_loans,
-                   (SELECT COUNT(*) FROM loans l WHERE l.user_id = u.id AND l.returned_date IS NULL AND l.issue_date < NOW()) as nb_late_loans
+                   (SELECT COUNT(*) FROM loans l WHERE l.user_id = u.id AND l.returned_at IS NULL) as nb_loans,
+                   (SELECT COUNT(*) FROM loans l WHERE l.user_id = u.id AND l.returned_at IS NULL AND l.issue_at < NOW()) as nb_late_loans
             FROM users u
             {}{}
             ORDER BY u.lastname, u.firstname
@@ -211,7 +228,7 @@ impl Repository {
                 birthdate, account_type,
                 fee, public_type, notes, group_id, barcode,
                 sex, staff_type, hours_per_week, staff_start_date, staff_end_date,
-                status, crea_date, modif_date
+                status, created_at, update_at
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
                 $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24
@@ -253,7 +270,7 @@ impl Repository {
         let now = Utc::now();
 
         // Build dynamic update query
-        let mut sets = vec!["modif_date = $1".to_string()];
+        let mut sets = vec!["update_at = $1".to_string()];
         let mut param_idx = 2;
 
         macro_rules! add_field {
@@ -392,8 +409,8 @@ impl Repository {
                 addr_street = NULL,
                 addr_city = NULL,
                 status = $1,
-                archived_date = $2,
-                modif_date = $2
+                archived_at = $2,
+                update_at = $2
             WHERE id = $3
         "#)
             .bind(UserStatus::Deleted as i16)
@@ -409,7 +426,7 @@ impl Repository {
     pub async fn users_block(&self, id: i64) -> AppResult<User> {
         let now = Utc::now();
 
-        sqlx::query("UPDATE users SET status = $1, modif_date = $2 WHERE id = $3")
+        sqlx::query("UPDATE users SET status = $1, update_at = $2 WHERE id = $3")
             .bind(UserStatus::Blocked as i16)
             .bind(now)
             .bind(id)
@@ -423,7 +440,7 @@ impl Repository {
     pub async fn users_unblock(&self, id: i64) -> AppResult<User> {
         let now = Utc::now();
 
-        sqlx::query("UPDATE users SET status = $1, modif_date = $2 WHERE id = $3")
+        sqlx::query("UPDATE users SET status = $1, update_at = $2 WHERE id = $3")
             .bind(UserStatus::Active as i16)
             .bind(now)
             .bind(id)
@@ -437,7 +454,7 @@ impl Repository {
     pub async fn users_update_profile(&self, id: i64, profile: &UpdateProfile, password: Option<String>) -> AppResult<User> {
         let now = Utc::now();
 
-        let mut sets = vec!["modif_date = $1".to_string()];
+        let mut sets = vec!["update_at = $1".to_string()];
         let mut param_idx = 2;
 
         // Helper macro to add fields
@@ -491,7 +508,9 @@ impl Repository {
         bind_field!(builder, profile.addr_city);
         bind_field!(builder, profile.phone);
         bind_field!(builder, profile.birthdate);
-        bind_field!(builder, profile.language);
+        if let Some(ref lang) = profile.language {
+            builder = builder.bind(lang.as_db_str());
+        }
         
         if let Some(ref hash) = password {
             builder = builder.bind(hash);
@@ -506,7 +525,7 @@ impl Repository {
     pub async fn users_update_account_type(&self, id: i64, account_type: &AccountTypeSlug) -> AppResult<User> {
         let now = Utc::now();
 
-        sqlx::query("UPDATE users SET account_type = $1, modif_date = $2 WHERE id = $3")
+        sqlx::query("UPDATE users SET account_type = $1, update_at = $2 WHERE id = $3")
             .bind(account_type.as_str())
             .bind(now)
             .bind(id)
@@ -532,7 +551,7 @@ impl Repository {
                 two_factor_method = $2,
                 totp_secret = $3,
                 recovery_codes = $4,
-                modif_date = NOW()
+                update_at = NOW()
             WHERE id = $5
             "#,
         )
@@ -550,7 +569,7 @@ impl Repository {
     /// Mark a recovery code as used
     pub async fn users_mark_recovery_code_used(&self, id: i64, used_codes: &str) -> AppResult<()> {
         sqlx::query(
-            "UPDATE users SET recovery_codes_used = $1, modif_date = NOW() WHERE id = $2",
+            "UPDATE users SET recovery_codes_used = $1, update_at = NOW() WHERE id = $2",
         )
         .bind(used_codes)
         .bind(id)

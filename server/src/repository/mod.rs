@@ -2,6 +2,7 @@
 
 pub mod equipment;
 pub mod events;
+pub mod public_types;
 pub mod items;
 pub mod loans;
 pub mod schedules;

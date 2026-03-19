@@ -15,6 +15,79 @@ use crate::{
 };
 
 impl Repository {
+    /// Resolve loan settings: (duration_days, nb_max_media, nb_max_total, nb_renews).
+    /// nb_max_media: max loans for this specific media type.
+    /// nb_max_total: max total loans across all media types.
+    /// Priority: public_type_loan_settings > public_types > loans_settings > defaults.
+    async fn resolve_loan_settings(
+        &self,
+        user_public_type: Option<i64>,
+        media_type: Option<&str>,
+    ) -> AppResult<(i16, i16, i16, i16)> {
+        let default_duration = 21i16;
+        let default_nb_max_media = 5i16;
+        let default_nb_max_total = 5i16;
+        let default_nb_renews = 2i16;
+
+        let ptls = if let (Some(pt_id), Some(mt)) = (user_public_type, media_type) {
+            sqlx::query(
+                "SELECT duration, nb_max, nb_renews FROM public_type_loan_settings WHERE public_type_id = $1 AND media_type = $2"
+            )
+            .bind(pt_id)
+            .bind(mt)
+            .fetch_optional(&self.pool)
+            .await?
+        } else {
+            None
+        };
+
+        let pt_row = if let Some(pt_id) = user_public_type {
+            sqlx::query("SELECT loan_duration_days, max_loans FROM public_types WHERE id = $1")
+                .bind(pt_id)
+                .fetch_optional(&self.pool)
+                .await?
+        } else {
+            None
+        };
+
+        let ls_row = if let Some(mt) = media_type {
+            sqlx::query("SELECT duration, nb_max, nb_renews FROM loans_settings WHERE media_type = $1")
+                .bind(mt)
+                .fetch_optional(&self.pool)
+                .await?
+        } else {
+            None
+        };
+
+        let duration = ptls
+            .as_ref()
+            .and_then(|r| r.get::<Option<i16>, _>("duration"))
+            .or_else(|| pt_row.as_ref().and_then(|r| r.get::<Option<i16>, _>("loan_duration_days")))
+            .or_else(|| ls_row.as_ref().and_then(|r| r.get::<Option<i16>, _>("duration")))
+            .unwrap_or(default_duration);
+
+        // Per-media-type limit (for this document type)
+        let nb_max_media = ptls
+            .as_ref()
+            .and_then(|r| r.get::<Option<i16>, _>("nb_max"))
+            .or_else(|| ls_row.as_ref().and_then(|r| r.get::<Option<i16>, _>("nb_max")))
+            .unwrap_or(default_nb_max_media);
+
+        // Total limit (across all media types)
+        let nb_max_total = pt_row
+            .as_ref()
+            .and_then(|r| r.get::<Option<i16>, _>("max_loans"))
+            .unwrap_or(default_nb_max_total);
+
+        let nb_renews = ptls
+            .as_ref()
+            .and_then(|r| r.get::<Option<i16>, _>("nb_renews"))
+            .or_else(|| ls_row.as_ref().and_then(|r| r.get::<Option<i16>, _>("nb_renews")))
+            .unwrap_or(default_nb_renews);
+
+        Ok((duration, nb_max_media, nb_max_total, nb_renews))
+    }
+
     /// Get loan by ID
     pub async fn loans_get_by_id(&self, id: i64) -> AppResult<Loan> {
         sqlx::query_as::<_, Loan>("SELECT * FROM loans WHERE id = $1")
@@ -30,7 +103,7 @@ impl Repository {
             r#"
             SELECT l.* FROM loans l
             JOIN specimens s ON l.specimen_id = s.id
-            WHERE s.barcode = $1 AND l.returned_date IS NULL
+            WHERE s.barcode = $1 AND l.returned_at IS NULL
             ORDER BY l.id DESC LIMIT 1
             "#
         )
@@ -41,26 +114,19 @@ impl Repository {
     }
 
     /// Get loans for a user
-    pub async fn loans_get_for_user(&self, user_id: i64, include_returned: bool) -> AppResult<Vec<LoanDetails>> {
+    /// Get active loans for a user
+    pub async fn loans_get_for_user(&self, user_id: i64) -> AppResult<Vec<LoanDetails>> {
         let author_subquery = r#"
             (SELECT jsonb_build_object(
-                'id', a.id::text,
-                'lastname', a.lastname,
-                'firstname', a.firstname,
-                'bio', a.bio,
-                'notes', a.notes,
-                'function', ia.role
-            )
-            FROM item_authors ia
-            JOIN authors a ON a.id = ia.author_id
-            WHERE ia.item_id = i.id
-            ORDER BY ia.position LIMIT 1) as author
+                'id', a.id::text, 'lastname', a.lastname, 'firstname', a.firstname,
+                'bio', a.bio, 'notes', a.notes, 'function', ia.role
+            ) FROM item_authors ia JOIN authors a ON a.id = ia.author_id
+            WHERE ia.item_id = i.id ORDER BY ia.position LIMIT 1) as author
         "#;
 
-        let sql = if include_returned {
-            format!(r#"
-            SELECT l.id, l.date, l.renew_date, l.nb_renews, l.issue_date,
-                   l.returned_date,
+        let sql = format!(r#"
+            SELECT l.id, l.date, l.renew_at, l.nb_renews, l.issue_at,
+                   l.returned_at,
                    s.barcode as specimen_identification,
                    s.id as specimen_id, s.barcode as specimen_barcode,
                    s.call_number as specimen_call_number, s.borrowable as specimen_borrowable,
@@ -72,12 +138,31 @@ impl Repository {
             JOIN specimens s ON l.specimen_id = s.id
             LEFT JOIN sources so ON s.source_id = so.id
             JOIN items i ON s.item_id = i.id
-            WHERE l.user_id = $1
+            WHERE l.user_id = $1 AND l.returned_at IS NULL
+            ORDER BY l.issue_at
+        "#);
 
-            UNION ALL
+        let rows = sqlx::query(&sql)
+            .bind(user_id)
+            .fetch_all(&self.pool)
+            .await?;
 
-            SELECT la.id, la.date, NULL::timestamptz as renew_date, la.nb_renews,
-                   la.issue_date, la.returned_date,
+        Ok(Self::map_loan_rows(rows))
+    }
+
+    /// Get archived (returned) loans for a user
+    pub async fn loans_archives_get_for_user(&self, user_id: i64) -> AppResult<Vec<LoanDetails>> {
+        let author_subquery = r#"
+            (SELECT jsonb_build_object(
+                'id', a.id::text, 'lastname', a.lastname, 'firstname', a.firstname,
+                'bio', a.bio, 'notes', a.notes, 'function', ia.role
+            ) FROM item_authors ia JOIN authors a ON a.id = ia.author_id
+            WHERE ia.item_id = i.id ORDER BY ia.position LIMIT 1) as author
+        "#;
+
+        let sql = format!(r#"
+            SELECT la.id, la.date, NULL::timestamptz as renew_at, la.nb_renews,
+                   la.issue_at, la.returned_at,
                    s.barcode as specimen_identification,
                    s.id as specimen_id, s.barcode as specimen_barcode,
                    s.call_number as specimen_call_number, s.borrowable as specimen_borrowable,
@@ -90,42 +175,24 @@ impl Repository {
             LEFT JOIN sources so ON s.source_id = so.id
             JOIN items i ON s.item_id = i.id
             WHERE la.user_id = $1
+            ORDER BY la.returned_at DESC
+        "#);
 
-            ORDER BY returned_date NULLS FIRST, issue_date
-            "#)
-        } else {
-            format!(r#"
-            SELECT l.id, l.date, l.renew_date, l.nb_renews, l.issue_date,
-                   l.returned_date,
-                   s.barcode as specimen_identification,
-                   s.id as specimen_id, s.barcode as specimen_barcode,
-                   s.call_number as specimen_call_number, s.borrowable as specimen_borrowable,
-                   so.name as specimen_source_name,
-                   i.id as item_id, i.media_type, i.isbn as item_isbn,
-                   i.title, i.publication_date,
-                   {author_subquery}
-            FROM loans l
-            JOIN specimens s ON l.specimen_id = s.id
-            LEFT JOIN sources so ON s.source_id = so.id
-            JOIN items i ON s.item_id = i.id
-            WHERE l.user_id = $1 AND l.returned_date IS NULL
-            ORDER BY l.issue_date
-            "#)
-        };
+        let rows = sqlx::query(&sql)
+            .bind(user_id)
+            .fetch_all(&self.pool)
+            .await?;
 
-        let loans = sqlx::query(&sql)
-        .bind(user_id)
-        .fetch_all(&self.pool)
-        .await?;
+        Ok(Self::map_loan_rows(rows))
+    }
 
+    fn map_loan_rows(rows: Vec<sqlx::postgres::PgRow>) -> Vec<LoanDetails> {
         let now = Utc::now();
-
-        let mut result = Vec::new();
-        for row in loans {
+        rows.into_iter().map(|row| {
             let start_date: DateTime<Utc> = row.get("date");
-            let issue_date: Option<DateTime<Utc>> = row.get("issue_date");
-            let renew_date: Option<DateTime<Utc>> = row.get("renew_date");
-            let returned_date: Option<DateTime<Utc>> = row.get("returned_date");
+            let issue_at: Option<DateTime<Utc>> = row.get("issue_at");
+            let renew_at: Option<DateTime<Utc>> = row.get("renew_at");
+            let returned_at: Option<DateTime<Utc>> = row.get("returned_at");
 
             let borrowed_specimen = SpecimenShort {
                 id: row.get("specimen_id"),
@@ -133,16 +200,16 @@ impl Repository {
                 call_number: row.get("specimen_call_number"),
                 borrowable: row.get("specimen_borrowable"),
                 source_name: row.get("specimen_source_name"),
-                availability: Some(0), // borrowed = not available
+                availability: Some(0),
             };
 
-            result.push(LoanDetails {
+            LoanDetails {
                 id: row.get("id"),
                 start_date,
-                issue_date: issue_date.unwrap_or(now),
-                renewal_date: renew_date,
+                issue_at: issue_at.unwrap_or(now),
+                renewal_date: renew_at,
                 nb_renews: row.get::<Option<i16>, _>("nb_renews").unwrap_or(0),
-                returned_date: returned_date,
+                returned_at,
                 item: ItemShort {
                     id: row.get("item_id"),
                     media_type: row.get("media_type"),
@@ -161,11 +228,9 @@ impl Repository {
                 },
                 user: None,
                 specimen_identification: row.get("specimen_identification"),
-                is_overdue: returned_date.is_none() && issue_date.map(|d| d < now).unwrap_or(false),
-            });
-        }
-
-        Ok(result)
+                is_overdue: returned_at.is_none() && issue_at.map(|d| d < now).unwrap_or(false),
+            }
+        }).collect()
     }
 
     /// Create a new loan
@@ -189,7 +254,7 @@ impl Repository {
 
         // Check if specimen is already borrowed
         let already_borrowed: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM loans WHERE specimen_id = $1 AND returned_date IS NULL)"
+            "SELECT EXISTS(SELECT 1 FROM loans WHERE specimen_id = $1 AND returned_at IS NULL)"
         )
         .bind(specimen_id)
         .fetch_one(&self.pool)
@@ -220,44 +285,72 @@ impl Repository {
             return Err(AppError::BusinessRule("Specimen is not borrowable".to_string()));
         }
 
-        // Get loan duration from settings
-        let duration_days: i16 = sqlx::query_scalar(
-            "SELECT duration FROM loans_settings WHERE media_type = $1"
+        // Get user's public_type for loan settings cascade
+        let user_public_type: Option<i64> = sqlx::query_scalar(
+            "SELECT public_type FROM users WHERE id = $1"
         )
-        .bind(&media_type)
+        .bind(loan.user_id)
         .fetch_optional(&self.pool)
-        .await?
-        .unwrap_or(21); // Default 21 days
+        .await?;
 
-        let issue_date = now + Duration::days(duration_days as i64);
+        // Resolve duration, nb_max_media, nb_max_total, nb_renews
+        let (duration_days, nb_max_media, nb_max_total, _) = self
+            .resolve_loan_settings(user_public_type, media_type.as_deref())
+            .await?;
 
-        // Check max loans
-        let current_loans: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM loans WHERE user_id = $1 AND returned_date IS NULL"
+        let issue_at = now + Duration::days(duration_days as i64);
+
+        // Check max loans: total AND per media type
+        let current_loans_total: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM loans WHERE user_id = $1 AND returned_at IS NULL"
         )
         .bind(loan.user_id)
         .fetch_one(&self.pool)
         .await?;
 
-        let max_loans: i16 = sqlx::query_scalar(
-            "SELECT nb_max FROM loans_settings WHERE media_type = $1"
-        )
-        .bind(&media_type)
-        .fetch_optional(&self.pool)
-        .await?
-        .unwrap_or(5); // Default 5 loans
+        let current_loans_media: i64 = if let Some(ref mt) = media_type {
+            sqlx::query_scalar(
+                r#"
+                SELECT COUNT(*) FROM loans l
+                JOIN specimens s ON l.specimen_id = s.id
+                JOIN items i ON s.item_id = i.id
+                WHERE l.user_id = $1 AND l.returned_at IS NULL AND i.media_type = $2
+                "#
+            )
+            .bind(loan.user_id)
+            .bind(mt)
+            .fetch_one(&self.pool)
+            .await?
+        } else {
+            0
+        };
 
-        if current_loans >= max_loans as i64 && !loan.force {
-            return Err(AppError::BusinessRule(format!(
-                "Maximum loans reached ({}/{})",
-                current_loans, max_loans
-            )));
+        let total_limit_reached = current_loans_total >= nb_max_total as i64;
+        let media_limit_reached = current_loans_media >= nb_max_media as i64;
+
+        if (total_limit_reached || media_limit_reached) && !loan.force {
+            let msg = match (total_limit_reached, media_limit_reached) {
+                (true, true) => format!(
+                    "Maximum loans reached: total ({}/{}), this media type ({}/{})",
+                    current_loans_total, nb_max_total, current_loans_media, nb_max_media
+                ),
+                (true, false) => format!(
+                    "Maximum total loans reached ({}/{})",
+                    current_loans_total, nb_max_total
+                ),
+                (false, true) => format!(
+                    "Maximum loans for this document type reached ({}/{})",
+                    current_loans_media, nb_max_media
+                ),
+                (false, false) => unreachable!(),
+            };
+            return Err(AppError::BusinessRule(msg));
         }
 
         // Create the loan
         let loan_id = sqlx::query_scalar::<_, i64>(
             r#"
-            INSERT INTO loans (user_id, specimen_id, date, issue_date, nb_renews)
+            INSERT INTO loans (user_id, specimen_id, date, issue_at, nb_renews)
             VALUES ($1, $2, $3, $4, 0)
             RETURNING id
             "#
@@ -265,11 +358,11 @@ impl Repository {
         .bind(loan.user_id)
         .bind(specimen_id)
         .bind(now)
-        .bind(issue_date)
+        .bind(issue_at)
         .fetch_one(&self.pool)
         .await?;
 
-        Ok((loan_id, issue_date))
+        Ok((loan_id, issue_at))
     }
 
     /// Return a loan (moves it to loans_archives)
@@ -279,7 +372,7 @@ impl Repository {
         // Get loan details before returning
         let loan = self.loans_get_by_id(loan_id).await?;
 
-        if loan.returned_date.is_some() {
+        if loan.returned_at.is_some() {
             return Err(AppError::BusinessRule("Loan already returned".to_string()));
         }
 
@@ -297,8 +390,8 @@ impl Repository {
         sqlx::query(
             r#"
             INSERT INTO loans_archives (
-                user_id, specimen_id, date, nb_renews, issue_date, 
-                returned_date, notes, borrower_public_type,
+                user_id, specimen_id, date, nb_renews, issue_at, 
+                returned_at, notes, borrower_public_type,
                 addr_city, account_type
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -308,10 +401,10 @@ impl Repository {
         .bind(loan.specimen_id)
         .bind(loan.date)
         .bind(loan.nb_renews)
-        .bind(loan.issue_date)
+        .bind(loan.issue_at)
         .bind(now)
         .bind(&loan.notes)
-        .bind(user_row.as_ref().and_then(|r| r.get::<Option<i32>, _>("public_type")))
+        .bind(user_row.as_ref().and_then(|r| r.get::<Option<i64>, _>("public_type")))
         .bind(user_row.as_ref().and_then(|r| r.get::<Option<String>, _>("addr_city")))
         .bind(account_type)
         .execute(&self.pool)
@@ -367,10 +460,10 @@ impl Repository {
         Ok(LoanDetails {
             id: loan.id,
             start_date: loan.date,
-            issue_date: loan.issue_date.unwrap_or(now),
-            renewal_date: loan.renew_date,
+            issue_at: loan.issue_at.unwrap_or(now),
+            renewal_date: loan.renew_at,
             nb_renews: loan.nb_renews.unwrap_or(0),
-            returned_date: Some(now),
+            returned_at: Some(now),
             item: ItemShort {
                 id: item_row.get("id"),
                 media_type: item_row.get("media_type"),
@@ -395,11 +488,11 @@ impl Repository {
 
         let loan = self.loans_get_by_id(loan_id).await?;
 
-        if loan.returned_date.is_some() {
+        if loan.returned_at.is_some() {
             return Err(AppError::BusinessRule("Cannot renew a returned loan".to_string()));
         }
 
-        // Get max renewals
+        // Get specimen media_type and user public_type
         let specimen_row = sqlx::query(
             "SELECT i.media_type FROM specimens s JOIN items i ON s.item_id = i.id WHERE s.id = $1"
         )
@@ -409,13 +502,16 @@ impl Repository {
 
         let media_type: Option<String> = specimen_row.get("media_type");
 
-        let max_renews: i16 = sqlx::query_scalar(
-            "SELECT nb_renews FROM loans_settings WHERE media_type = $1"
+        let user_public_type: Option<i64> = sqlx::query_scalar(
+            "SELECT public_type FROM users WHERE id = $1"
         )
-        .bind(&media_type)
+        .bind(loan.user_id)
         .fetch_optional(&self.pool)
-        .await?
-        .unwrap_or(2);
+        .await?;
+
+        let (duration_days, _nb_max_media, _nb_max_total, max_renews) = self
+            .resolve_loan_settings(user_public_type, media_type.as_deref())
+            .await?;
 
         let current_renews = loan.nb_renews.unwrap_or(0);
 
@@ -426,20 +522,11 @@ impl Repository {
             )));
         }
 
-        // Get loan duration
-        let duration_days: i16 = sqlx::query_scalar(
-            "SELECT duration FROM loans_settings WHERE media_type = $1"
-        )
-        .bind(&media_type)
-        .fetch_optional(&self.pool)
-        .await?
-        .unwrap_or(21);
-
         let new_issue_date = now + Duration::days(duration_days as i64);
         let new_renews = current_renews + 1;
 
         sqlx::query(
-            "UPDATE loans SET issue_date = $1, renew_date = $2, nb_renews = $3 WHERE id = $4"
+            "UPDATE loans SET issue_at = $1, renew_at = $2, nb_renews = $3 WHERE id = $4"
         )
         .bind(new_issue_date)
         .bind(now)
@@ -464,7 +551,7 @@ impl Repository {
 
     /// Count active loans
     pub async fn loans_count_active(&self) -> AppResult<i64> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM loans WHERE returned_date IS NULL")
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM loans WHERE returned_at IS NULL")
             .fetch_one(&self.pool)
             .await?;
         Ok(count)
@@ -473,7 +560,7 @@ impl Repository {
     /// Count overdue loans
     pub async fn loans_count_overdue(&self) -> AppResult<i64> {
         let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM loans WHERE returned_date IS NULL AND issue_date < NOW()"
+            "SELECT COUNT(*) FROM loans WHERE returned_at IS NULL AND issue_at < NOW()"
         )
         .fetch_one(&self.pool)
         .await?;
@@ -483,7 +570,7 @@ impl Repository {
     /// Count active (non-returned) loans for a specimen
     pub async fn loans_count_active_for_specimen(&self, specimen_id: i64) -> AppResult<i64> {
         let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM loans WHERE specimen_id = $1 AND returned_date IS NULL"
+            "SELECT COUNT(*) FROM loans WHERE specimen_id = $1 AND returned_at IS NULL"
         )
         .bind(specimen_id)
         .fetch_one(&self.pool)
@@ -494,7 +581,7 @@ impl Repository {
     /// Get IDs of active loans for a specimen
     pub async fn loans_get_active_ids_for_specimen(&self, specimen_id: i64) -> AppResult<Vec<i64>> {
         let ids: Vec<i64> = sqlx::query_scalar(
-            "SELECT id FROM loans WHERE specimen_id = $1 AND returned_date IS NULL"
+            "SELECT id FROM loans WHERE specimen_id = $1 AND returned_at IS NULL"
         )
         .bind(specimen_id)
         .fetch_all(&self.pool)
@@ -508,7 +595,7 @@ impl Repository {
             r#"
             SELECT l.id FROM loans l
             JOIN specimens s ON l.specimen_id = s.id
-            WHERE s.item_id = $1 AND l.returned_date IS NULL
+            WHERE s.item_id = $1 AND l.returned_at IS NULL
             "#
         )
         .bind(item_id)
@@ -523,7 +610,7 @@ impl Repository {
             r#"
             SELECT COUNT(*) FROM loans l
             JOIN specimens s ON l.specimen_id = s.id
-            WHERE s.item_id = $1 AND l.returned_date IS NULL
+            WHERE s.item_id = $1 AND l.returned_at IS NULL
             "#
         )
         .bind(item_id)
@@ -535,7 +622,7 @@ impl Repository {
     /// Count active loans for a user
     pub async fn loans_count_active_for_user(&self, user_id: i64) -> AppResult<i64> {
         let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM loans WHERE user_id = $1 AND returned_date IS NULL"
+            "SELECT COUNT(*) FROM loans WHERE user_id = $1 AND returned_at IS NULL"
         )
         .bind(user_id)
         .fetch_one(&self.pool)

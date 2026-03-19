@@ -16,7 +16,7 @@ pub struct Source {
     pub key: Option<String>,
     pub name: Option<String>,
     pub is_archive: Option<i16>,
-    pub archive_date: Option<DateTime<Utc>>,
+    pub archived_at: Option<DateTime<Utc>>,
     pub default: Option<bool>,
 }
 

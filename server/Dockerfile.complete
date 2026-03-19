@@ -80,6 +80,8 @@ WORKDIR /app
 COPY --from=builder-rust /app/elidune-server/target/release/elidune-server /app/elidune-server
 COPY --from=builder-rust /app/elidune-server/migrations /app/migrations
 COPY --from=builder-rust /app/elidune-server/config /app/config
+# Copy email templates from local build context (not from GitHub clone)
+COPY data /app/data
 
 
 # Copy UI build from builder-ui

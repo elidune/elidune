@@ -44,7 +44,7 @@ pub struct LoanResponse {
     #[schema(value_type = String)]
     pub id: i64,
     /// Due date (ISO 8601 format)
-    pub issue_date: DateTime<Utc>,
+    pub issue_at: DateTime<Utc>,
     /// Status message
     pub message: String,
 }
@@ -66,7 +66,7 @@ pub struct ReturnResponse {
     security(("bearer_auth" = [])),
     params(
         ("id" = i64, Path, description = "User ID"),
-        ("include_returned" = Option<bool>, Query, description = "Include returned loans (default: false)")
+        ("archived" = Option<bool>, Query, description = "If true, return past (returned) loans instead of active ones")
     ),
     responses(
         (status = 200, description = "User's loans", body = Vec<LoanDetails>),
@@ -81,18 +81,17 @@ pub async fn get_user_loans(
 ) -> AppResult<Json<Vec<LoanDetails>>> {
     claims.require_read_users()?;
 
-    let loans = state
-        .services
-        .loans
-        .get_user_loans(user_id, query.include_returned)
-        .await?;
+    let loans = if query.archived.unwrap_or(false) {
+        state.services.loans.get_user_archived_loans(user_id).await?
+    } else {
+        state.services.loans.get_user_loans(user_id).await?
+    };
     Ok(Json(loans))
 }
 
 #[derive(Debug, Deserialize, Default, ToSchema)]
 pub struct GetUserLoansQuery {
-    #[serde(default)]
-    pub include_returned: bool,
+    pub archived: Option<bool>,
 }
 
 /// Create a new loan (borrow an item)
@@ -123,13 +122,13 @@ pub async fn create_loan(
         force: request.force.unwrap_or(false),
     };
 
-    let (loan_id, issue_date) = state.services.loans.create_loan(loan).await?;
+    let (loan_id, issue_at) = state.services.loans.create_loan(loan).await?;
 
     Ok((
         StatusCode::CREATED,
         Json(LoanResponse {
             id: loan_id,
-            issue_date,
+            issue_at,
             message: "Item borrowed successfully".to_string(),
         }),
     ))
@@ -191,7 +190,7 @@ pub async fn renew_loan(
 
     Ok(Json(LoanResponse {
         id: loan_id,
-        issue_date: new_issue_date,
+        issue_at: new_issue_date,
         message: format!("Loan renewed ({} renewals)", renew_count),
     }))
 }
@@ -252,7 +251,7 @@ pub async fn renew_loan_by_specimen(
 
     Ok(Json(LoanResponse {
         id: loan_id,
-        issue_date: new_issue_date,
+        issue_at: new_issue_date,
         message: format!("Loan renewed ({} renewals)", renew_count),
     }))
 }

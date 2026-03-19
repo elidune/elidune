@@ -52,7 +52,7 @@ impl Repository {
     /// Update equipment
     pub async fn equipment_update_equipment(&self, id: i64, data: &UpdateEquipment) -> AppResult<Equipment> {
         let now = Utc::now();
-        let mut sets = vec!["modif_date = $1".to_string()];
+        let mut sets = vec!["update_at = $1".to_string()];
         let mut idx = 2;
 
         macro_rules! add_field {

@@ -5,7 +5,7 @@ use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi};
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::api::{auth, equipment, events, health, items, loans, schedules, settings, sources, stats, users, visitor_counts, z3950};
+use crate::api::{auth, equipment, events, health, items, loans, public_types, schedules, settings, sources, stats, users, visitor_counts, z3950};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -29,6 +29,8 @@ use crate::api::{auth, equipment, events, health, items, loans, schedules, setti
         auth::me,
         auth::verify_2fa,
         auth::verify_recovery,
+        auth::request_password_reset,
+        auth::reset_password,
         auth::setup_2fa,
         auth::disable_2fa,
         // Items
@@ -101,6 +103,14 @@ use crate::api::{auth, equipment, events, health, items, loans, schedules, setti
         events::create_event,
         events::update_event,
         events::delete_event,
+        // Public types
+        public_types::list_public_types,
+        public_types::get_public_type,
+        public_types::create_public_type,
+        public_types::update_public_type,
+        public_types::delete_public_type,
+        public_types::upsert_loan_setting,
+        public_types::delete_loan_setting,
     ),
     components(
         schemas(
@@ -111,6 +121,8 @@ use crate::api::{auth, equipment, events, health, items, loans, schedules, setti
             auth::Verify2FARequest,
             auth::Verify2FAResponse,
             auth::VerifyRecoveryRequest,
+            auth::RequestPasswordResetRequest,
+            auth::ResetPasswordRequest,
             auth::Setup2FARequest,
             auth::Setup2FAResponse,
             // Items
@@ -199,6 +211,12 @@ use crate::api::{auth, equipment, events, health, items, loans, schedules, setti
             crate::models::event::UpdateEvent,
             crate::models::event::EventQuery,
             events::EventsListResponse,
+            // Public types
+            crate::models::public_type::PublicType,
+            crate::models::public_type::PublicTypeLoanSettings,
+            crate::models::public_type::CreatePublicType,
+            crate::models::public_type::UpdatePublicType,
+            public_types::UpsertLoanSettingRequest,
             crate::repository::events::EventAnnualStats,
             crate::repository::events::EventTypeStats,
             // Health
@@ -221,7 +239,8 @@ use crate::api::{auth, equipment, events, health, items, loans, schedules, setti
         (name = "schedules", description = "Library schedules (hours, closures)"),
         (name = "sources", description = "Acquisition source management"),
         (name = "equipment", description = "Library equipment management"),
-        (name = "events", description = "Cultural events and school visits")
+        (name = "events", description = "Cultural events and school visits"),
+        (name = "public_types", description = "Borrower public types (child, adult, school, staff, senior)")
     ),
     modifiers(&SecurityAddon)
 )]

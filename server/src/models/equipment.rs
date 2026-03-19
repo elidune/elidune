@@ -26,8 +26,8 @@ pub struct Equipment {
     /// Status (0=active, 1=maintenance, 2=retired)
     pub status: Option<i16>,
     pub notes: Option<String>,
-    pub crea_date: Option<DateTime<Utc>>,
-    pub modif_date: Option<DateTime<Utc>>,
+    pub created_at: Option<DateTime<Utc>>,
+    pub update_at: Option<DateTime<Utc>>,
 }
 
 /// Create equipment request

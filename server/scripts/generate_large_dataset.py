@@ -5,6 +5,7 @@ Generate a large dataset SQL file for Elidune legacy database testing.
 
 import random
 import datetime
+from pathlib import Path
 from typing import List, Tuple
 
 # French first names and last names
@@ -179,7 +180,7 @@ def generate_users(num_users: int, start_id: int = 1) -> List[str]:
         occupation = random.choice(OCCUPATIONS) if account_type_id == 2 else None
         
         # Creation date in the past year
-        crea_date = unix_timestamp(
+        created_at = unix_timestamp(
             datetime.date.today() - datetime.timedelta(days=random.randint(1, 365)),
             random.randint(9, 17)
         )
@@ -198,7 +199,7 @@ def generate_users(num_users: int, start_id: int = 1) -> List[str]:
             f"{sex_id}, {account_type_id}, NULL, NULL, NULL, "
             f"'{firstname.upper()[:3]}{user_id:03d}', NULL, "
             f"{f"'{occupation}'" if occupation else "NULL"}, "
-            f"{crea_date}, {crea_date}, NULL, NULL, 0, {public_type})"
+            f"{created_at}, {created_at}, NULL, NULL, 0, {public_type})"
         )
     
     return statements
@@ -289,7 +290,7 @@ def generate_items(num_items: int, num_authors: int, num_series: int, num_editio
         subject = random.choice(SUBJECTS)
         keywords = f"{title.lower()}, {subject.lower()}"
         
-        crea_date = unix_timestamp(
+        created_at = unix_timestamp(
             datetime.date.today() - datetime.timedelta(days=random.randint(1, 730)),
             random.randint(9, 17)
         )
@@ -313,7 +314,7 @@ def generate_items(num_items: int, num_authors: int, num_series: int, num_editio
             f"{random.randint(1, 4)}, NULL, NULL, {genre}, '{subject}', "
             f"{random.choice([97, 106])}, {random.randint(1, 8)}, '{edition_year}', "
             f"'{random.randint(100, 800)} p.', NULL, NULL, NULL, NULL, NULL, '{keywords}', "
-            f"{nb_specimens}, NULL, 0, NULL, 1, {crea_date}, {crea_date})"
+            f"{nb_specimens}, NULL, 0, NULL, 1, {created_at}, {created_at})"
         )
     
     return statements, item_specimen_counts
@@ -339,7 +340,7 @@ def generate_specimens(item_specimen_counts: dict, start_specimen_id: int = 1) -
             status = 98 if random.random() > 0.05 else 110  # 5% not borrowable
             price = f"{random.randint(5, 25)}.{random.randint(0, 99):02d}" if random.random() > 0.3 else None
             
-            crea_date = unix_timestamp(
+            created_at = unix_timestamp(
                 datetime.date.today() - datetime.timedelta(days=random.randint(1, 365)),
                 random.randint(9, 17)
             )
@@ -347,7 +348,7 @@ def generate_specimens(item_specimen_counts: dict, start_specimen_id: int = 1) -
             statements.append(
                 f"({specimen_id}, {item_id}, {source_id}, '{identification}', "
                 f"'{cote}', {place}, {status}, "
-                f"{f"'{price}'" if price else "NULL"}, {crea_date}, {crea_date})"
+                f"{f"'{price}'" if price else "NULL"}, {created_at}, {created_at})"
             )
             # Only add borrowable specimens to the map
             if status == 98:
@@ -552,17 +553,17 @@ def main():
     sql_lines.append("    barcode VARCHAR,")
     sql_lines.append("    notes VARCHAR,")
     sql_lines.append("    occupation VARCHAR,")
-    sql_lines.append("    crea_date INTEGER,")
-    sql_lines.append("    modif_date INTEGER,")
-    sql_lines.append("    issue_date INTEGER,")
+    sql_lines.append("    created_at INTEGER,")
+    sql_lines.append("    update_at INTEGER,")
+    sql_lines.append("    issue_at INTEGER,")
     sql_lines.append("    birthdate VARCHAR,")
-    sql_lines.append("    archived_date INTEGER DEFAULT 0,")
+    sql_lines.append("    archived_at INTEGER DEFAULT 0,")
     sql_lines.append("    public_type INTEGER")
     sql_lines.append(");")
     sql_lines.append("")
     
     user_statements = generate_users(num_users)
-    sql_lines.append("INSERT INTO users (id, login, password, firstname, lastname, email, addr_street, addr_zip_code, addr_city, phone, sex_id, account_type_id, subscription_type_id, fee_id, group_id, barcode, notes, occupation, crea_date, modif_date, issue_date, birthdate, archived_date, public_type) VALUES")
+    sql_lines.append("INSERT INTO users (id, login, password, firstname, lastname, email, addr_street, addr_zip_code, addr_city, phone, sex_id, account_type_id, subscription_type_id, fee_id, group_id, barcode, notes, occupation, created_at, update_at, issue_at, birthdate, archived_at, public_type) VALUES")
     for i, stmt in enumerate(user_statements):
         sql_lines.append(f"{stmt}{',' if i < len(user_statements) - 1 else ';'}")
     sql_lines.append("")
@@ -731,8 +732,8 @@ def main():
     sql_lines.append("    is_archive SMALLINT DEFAULT 0,")
     sql_lines.append("    archived_timestamp INTEGER,")
     sql_lines.append("    is_valid SMALLINT DEFAULT 1,")
-    sql_lines.append("    crea_date INTEGER,")
-    sql_lines.append("    modif_date INTEGER")
+    sql_lines.append("    created_at INTEGER,")
+    sql_lines.append("    update_at INTEGER")
     sql_lines.append(");")
     sql_lines.append("")
     
@@ -744,7 +745,7 @@ def main():
     for batch_start in range(0, len(item_statements), batch_size):
         batch_end = min(batch_start + batch_size, len(item_statements))
         batch = item_statements[batch_start:batch_end]
-        sql_lines.append("INSERT INTO items (id, media_type, identification, price, barcode, dewey, publication_date, lang, lang_orig, title1, title2, title3, title4, author1_ids, author1_functions, author2_ids, author2_functions, author3_ids, author3_functions, serie_id, serie_vol_number, collection_id, collection_number_sub, collection_vol_number, source_id, source_date, source_norme, genre, subject, public_type, edition_id, edition_date, nb_pages, format, content, addon, abstract, notes, keywords, nb_specimens, state, is_archive, archived_timestamp, is_valid, crea_date, modif_date) VALUES")
+        sql_lines.append("INSERT INTO items (id, media_type, identification, price, barcode, dewey, publication_date, lang, lang_orig, title1, title2, title3, title4, author1_ids, author1_functions, author2_ids, author2_functions, author3_ids, author3_functions, serie_id, serie_vol_number, collection_id, collection_number_sub, collection_vol_number, source_id, source_date, source_norme, genre, subject, public_type, edition_id, edition_date, nb_pages, format, content, addon, abstract, notes, keywords, nb_specimens, state, is_archive, archived_timestamp, is_valid, created_at, update_at) VALUES")
         for i, stmt in enumerate(batch):
             sql_lines.append(f"{stmt}{',' if i < len(batch) - 1 else ';'}")
         sql_lines.append("")
@@ -768,10 +769,10 @@ def main():
     sql_lines.append("    codestat SMALLINT,")
     sql_lines.append("    notes VARCHAR,")
     sql_lines.append("    price VARCHAR,")
-    sql_lines.append("    modif_date INTEGER,")
+    sql_lines.append("    update_at INTEGER,")
     sql_lines.append("    is_archive INTEGER DEFAULT 0,")
-    sql_lines.append("    archive_date INTEGER DEFAULT 0,")
-    sql_lines.append("    crea_date INTEGER")
+    sql_lines.append("    archived_at INTEGER DEFAULT 0,")
+    sql_lines.append("    created_at INTEGER")
     sql_lines.append(");")
     sql_lines.append("")
     
@@ -784,7 +785,7 @@ def main():
     for batch_start in range(0, len(specimen_statements), batch_size):
         batch_end = min(batch_start + batch_size, len(specimen_statements))
         batch = specimen_statements[batch_start:batch_end]
-        sql_lines.append("INSERT INTO specimens (id, id_item, source_id, identification, cote, place, status, price, crea_date, modif_date) VALUES")
+        sql_lines.append("INSERT INTO specimens (id, id_item, source_id, identification, cote, place, status, price, created_at, update_at) VALUES")
         for i, stmt in enumerate(batch):
             sql_lines.append(f"{stmt}{',' if i < len(batch) - 1 else ';'}")
         sql_lines.append("")
@@ -803,11 +804,11 @@ def main():
     sql_lines.append("    specimen_id INTEGER NOT NULL,")
     sql_lines.append("    item_id INTEGER,")
     sql_lines.append("    date INTEGER NOT NULL,")
-    sql_lines.append("    renew_date INTEGER,")
+    sql_lines.append("    renew_at INTEGER,")
     sql_lines.append("    nb_renews SMALLINT DEFAULT 0,")
-    sql_lines.append("    issue_date INTEGER,")
+    sql_lines.append("    issue_at INTEGER,")
     sql_lines.append("    notes VARCHAR,")
-    sql_lines.append("    returned_date INTEGER")
+    sql_lines.append("    returned_at INTEGER")
     sql_lines.append(");")
     sql_lines.append("")
     
@@ -820,7 +821,7 @@ def main():
         for batch_start in range(0, len(returned_loans), batch_size):
             batch_end = min(batch_start + batch_size, len(returned_loans))
             batch = returned_loans[batch_start:batch_end]
-            sql_lines.append("INSERT INTO borrows (id, user_id, specimen_id, item_id, date, issue_date, nb_renews, returned_date, notes) VALUES")
+            sql_lines.append("INSERT INTO borrows (id, user_id, specimen_id, item_id, date, issue_at, nb_renews, returned_at, notes) VALUES")
             for i, stmt in enumerate(batch):
                 sql_lines.append(f"{stmt}{',' if i < len(batch) - 1 else ';'}")
             sql_lines.append("")
@@ -831,7 +832,7 @@ def main():
         for batch_start in range(0, len(current_loans), batch_size):
             batch_end = min(batch_start + batch_size, len(current_loans))
             batch = current_loans[batch_start:batch_end]
-            sql_lines.append("INSERT INTO borrows (id, user_id, specimen_id, item_id, date, issue_date, nb_renews, notes) VALUES")
+            sql_lines.append("INSERT INTO borrows (id, user_id, specimen_id, item_id, date, issue_at, nb_renews, notes) VALUES")
             for i, stmt in enumerate(batch):
                 sql_lines.append(f"{stmt}{',' if i < len(batch) - 1 else ';'}")
             sql_lines.append("")
@@ -851,8 +852,8 @@ def main():
     sql_lines.append("    specimen_id INTEGER,")
     sql_lines.append("    date INTEGER NOT NULL,")
     sql_lines.append("    nb_renews SMALLINT,")
-    sql_lines.append("    issue_date INTEGER,")
-    sql_lines.append("    returned_date INTEGER,")
+    sql_lines.append("    issue_at INTEGER,")
+    sql_lines.append("    returned_at INTEGER,")
     sql_lines.append("    notes VARCHAR,")
     sql_lines.append("    borrower_public_type INTEGER,")
     sql_lines.append("    occupation VARCHAR,")
@@ -982,8 +983,8 @@ def main():
     sql_lines.append("    is_archive SMALLINT DEFAULT 0,")
     sql_lines.append("    archived_timestamp INTEGER,")
     sql_lines.append("    is_valid SMALLINT DEFAULT 0,")
-    sql_lines.append("    modif_date INTEGER,")
-    sql_lines.append("    crea_date INTEGER")
+    sql_lines.append("    update_at INTEGER,")
+    sql_lines.append("    created_at INTEGER")
     sql_lines.append(");")
     sql_lines.append("")
     
@@ -1000,7 +1001,7 @@ def main():
     sql_lines.append("    notes VARCHAR,")
     sql_lines.append("    price VARCHAR,")
     sql_lines.append("    creation_date INTEGER,")
-    sql_lines.append("    modif_date INTEGER")
+    sql_lines.append("    update_at INTEGER")
     sql_lines.append(");")
     sql_lines.append("")
     
@@ -1048,8 +1049,8 @@ def main():
     sql_lines.append("END $$;")
     sql_lines.append("")
     
-    # Write to file
-    output_file = "/home/cjean/Documents/Developments/elidune/elidune-server-rust/scripts/large_legacy_data.sql"
+    # Write next to this script (override in code if needed)
+    output_file = str(Path(__file__).resolve().parent / "large_legacy_data.sql")
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write('\n'.join(sql_lines))
     

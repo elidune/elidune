@@ -6,14 +6,15 @@ use serde_with::{serde_as, DisplayFromStr};
 use utoipa::ToSchema;
 
 use crate::error::AppResult;
+use crate::models::item::MediaType;
 
 use super::AuthenticatedUser;
 
 /// Loan settings by media type
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct LoanSettings {
-    /// Media type code
-    pub media_type: String,
+    /// Media type
+    pub media_type: MediaType,
     /// Maximum simultaneous loans
     pub max_loans: i16,
     /// Maximum renewals allowed

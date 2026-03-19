@@ -141,6 +141,8 @@ fn create_router(state: AppState) -> Router {
         .route("/auth/profile", put(api::users::update_my_profile))
         .route("/auth/verify-2fa", post(api::auth::verify_2fa))
         .route("/auth/verify-recovery", post(api::auth::verify_recovery))
+        .route("/auth/request-password-reset", post(api::auth::request_password_reset))
+        .route("/auth/reset-password", post(api::auth::reset_password))
         .route("/auth/setup-2fa", post(api::auth::setup_2fa))
         .route("/auth/disable-2fa", post(api::auth::disable_2fa))
         // Items (catalog)
@@ -181,6 +183,14 @@ fn create_router(state: AppState) -> Router {
         // Settings
         .route("/settings", get(api::settings::get_settings))
         .route("/settings", put(api::settings::update_settings))
+        // Public types
+        .route("/public-types", get(api::public_types::list_public_types))
+        .route("/public-types", post(api::public_types::create_public_type))
+        .route("/public-types/:id", get(api::public_types::get_public_type))
+        .route("/public-types/:id", put(api::public_types::update_public_type))
+        .route("/public-types/:id", delete(api::public_types::delete_public_type))
+        .route("/public-types/:id/loan-settings", put(api::public_types::upsert_loan_setting))
+        .route("/public-types/:id/loan-settings/:media_type", delete(api::public_types::delete_loan_setting))
         // Visitor counts
         .route("/visitor-counts", get(api::visitor_counts::list_visitor_counts))
         .route("/visitor-counts", post(api::visitor_counts::create_visitor_count))
