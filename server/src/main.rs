@@ -254,13 +254,6 @@ async fn main() -> anyhow::Result<()> {
 
     let services = Arc::new(services);
 
-    // Create application state
-    let state = AppState {
-        config: Arc::new(config),
-        dynamic_config: dynamic_config.clone(),
-        services: services.clone(),
-    };
-
     // Log system startup audit event
     services.audit.log(
         audit::event::SYSTEM_STARTUP,
@@ -272,11 +265,19 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // Start background scheduler (reminder sender + audit cleanup)
-    elidune_server::services::scheduler::spawn(
-        dynamic_config,
+    let scheduler_notify = elidune_server::services::scheduler::spawn(
+        dynamic_config.clone(),
         services.reminders.clone(),
         services.audit.clone(),
     );
+
+    // Create application state
+    let state = AppState {
+        config: Arc::new(config),
+        dynamic_config,
+        services: services.clone(),
+        scheduler_notify,
+    };
 
     // Build router
     let app = create_router(state);

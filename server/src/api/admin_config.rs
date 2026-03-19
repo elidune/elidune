@@ -167,6 +167,11 @@ pub async fn update_config_section(
         })),
     );
 
+    // Wake the reminder scheduler if the reminders config changed
+    if section == "reminders" {
+        state.scheduler_notify.notify_one();
+    }
+
     let value = dynamic.get_section_value(&section)?;
     let value = audit::mask_sensitive_fields(value);
 
@@ -219,6 +224,11 @@ pub async fn reset_config_section(
         ip,
         Some(serde_json::json!({ "section": section })),
     );
+
+    // Wake the reminder scheduler if the reminders config was reset
+    if section == "reminders" {
+        state.scheduler_notify.notify_one();
+    }
 
     let value = dynamic.get_section_value(&section)?;
     let value = audit::mask_sensitive_fields(value);

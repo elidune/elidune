@@ -5,6 +5,8 @@
 
 use std::sync::Arc;
 
+use tokio::sync::Notify;
+
 pub mod api;
 pub mod config;
 pub mod dynamic_config;
@@ -24,4 +26,6 @@ pub struct AppState {
     pub config: Arc<AppConfig>,
     pub dynamic_config: Arc<DynamicConfig>,
     pub services: Arc<services::Services>,
+    /// Wake handle for the reminder scheduler task (re-evaluates schedule on config change)
+    pub scheduler_notify: Arc<Notify>,
 }
