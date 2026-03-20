@@ -407,7 +407,6 @@ impl Repository {
                 firstname = NULL,
                 lastname = NULL,
                 password = NULL,
-                password = NULL,
                 email = NULL,
                 phone = NULL,
                 addr_street = NULL,
