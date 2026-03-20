@@ -52,6 +52,7 @@ pub mod event {
     pub const EVENT_CREATED: &str = "event.created";
     pub const EVENT_UPDATED: &str = "event.updated";
     pub const EVENT_DELETED: &str = "event.deleted";
+    pub const EVENT_ANNOUNCEMENT_SENT: &str = "event.announcement_sent";
 
     // Public types
     pub const PUBLIC_TYPE_CREATED: &str = "public_type.created";
@@ -75,6 +76,9 @@ pub mod event {
 
     // Settings
     pub const SETTINGS_UPDATED: &str = "settings.updated";
+
+    // Library info
+    pub const LIBRARY_INFO_UPDATED: &str = "library_info.updated";
 
     // Email
     pub const EMAIL_OVERDUE_REMINDER_SENT: &str = "email.overdue_reminder_sent";

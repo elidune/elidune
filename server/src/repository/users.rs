@@ -582,5 +582,49 @@ impl Repository {
 
         Ok(())
     }
+
+    /// Fetch all active users with a non-empty email, optionally filtered by public_type.
+    /// If `public_type` is None, all users with an email are returned (no filter).
+    pub async fn users_get_emails_by_public_type(
+        &self,
+        public_type: Option<i64>,
+    ) -> AppResult<Vec<UserEmailTarget>> {
+        let rows = if let Some(pt) = public_type {
+            sqlx::query_as::<_, UserEmailTarget>(
+                r#"
+                SELECT id, email, firstname, lastname, language
+                FROM users
+                WHERE email IS NOT NULL AND email <> ''
+                  AND public_type = $1
+                  AND (status IS NULL OR status != 2)
+                "#,
+            )
+            .bind(pt)
+            .fetch_all(&self.pool)
+            .await?
+        } else {
+            sqlx::query_as::<_, UserEmailTarget>(
+                r#"
+                SELECT id, email, firstname, lastname, language
+                FROM users
+                WHERE email IS NOT NULL AND email <> ''
+                  AND (status IS NULL OR status != 2)
+                "#,
+            )
+            .fetch_all(&self.pool)
+            .await?
+        };
+        Ok(rows)
+    }
+}
+
+/// Minimal user info used for bulk email targeting
+#[derive(Debug, sqlx::FromRow)]
+pub struct UserEmailTarget {
+    pub id: i64,
+    pub email: Option<String>,
+    pub firstname: Option<String>,
+    pub lastname: Option<String>,
+    pub language: Option<String>,
 }
 

@@ -176,6 +176,15 @@ impl Repository {
             .ok_or_else(|| AppError::NotFound(format!("Event {} not found", id)))
     }
 
+    /// Set the announcement_sent_at timestamp on an event
+    pub async fn events_set_announcement_sent_at(&self, id: i64) -> AppResult<()> {
+        sqlx::query("UPDATE events SET announcement_sent_at = NOW() WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Delete an event
     pub async fn events_delete(&self, id: i64) -> AppResult<()> {
         let result = sqlx::query("DELETE FROM events WHERE id = $1")

@@ -39,6 +39,8 @@ pub struct Event {
     pub notes: Option<String>,
     pub created_at: Option<DateTime<Utc>>,
     pub update_at: Option<DateTime<Utc>>,
+    /// Date the announcement email was last sent
+    pub announcement_sent_at: Option<DateTime<Utc>>,
 }
 
 /// Create event request

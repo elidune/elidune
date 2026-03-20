@@ -5,7 +5,7 @@ use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi};
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::api::{auth, equipment, events, health, items, loans, public_types, schedules, settings, sources, stats, users, visitor_counts, z3950};
+use crate::api::{admin_config, audit, auth, equipment, events, health, items, library_info, loans, public_types, schedules, settings, sources, stats, users, visitor_counts, z3950};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -58,6 +58,10 @@ use crate::api::{auth, equipment, events, health, items, loans, public_types, sc
         loans::create_loan,
         loans::return_loan,
         loans::renew_loan,
+        loans::return_loan_by_specimen,
+        loans::renew_loan_by_specimen,
+        loans::get_overdue_loans,
+        loans::send_overdue_reminders,
         // Z39.50
         z3950::search,
         z3950::import_record,
@@ -66,6 +70,9 @@ use crate::api::{auth, equipment, events, health, items, loans, public_types, sc
         stats::get_loan_stats,
         stats::get_user_stats,
         stats::get_catalog_stats,
+        // Library info
+        library_info::get_library_info,
+        library_info::update_library_info,
         // Settings
         settings::get_settings,
         settings::update_settings,
@@ -103,6 +110,15 @@ use crate::api::{auth, equipment, events, health, items, loans, public_types, sc
         events::create_event,
         events::update_event,
         events::delete_event,
+        events::send_event_announcement,
+        // Admin config
+        admin_config::get_config,
+        admin_config::update_config_section,
+        admin_config::reset_config_section,
+        admin_config::test_email,
+        // Audit
+        audit::get_audit_log,
+        audit::export_audit_log,
         // Public types
         public_types::list_public_types,
         public_types::get_public_type,
@@ -147,7 +163,14 @@ use crate::api::{auth, equipment, events, health, items, loans, public_types, sc
             loans::CreateLoanRequest,
             loans::LoanResponse,
             loans::ReturnResponse,
+            loans::OverdueLoansQuery,
+            loans::SendRemindersQuery,
             crate::models::loan::LoanDetails,
+            crate::services::reminders::ReminderReport,
+            crate::services::reminders::ReminderDetail,
+            crate::services::reminders::ReminderError,
+            crate::services::reminders::OverdueLoansPage,
+            crate::services::reminders::OverdueLoanInfo,
             // Z39.50
             z3950::Z3950SearchQuery,
             z3950::Z3950SearchResponse,
@@ -176,6 +199,9 @@ use crate::api::{auth, equipment, events, health, items, loans, public_types, sc
             stats::CatalogStatsTotals,
             stats::CatalogSourceStats,
             stats::CatalogBreakdownStats,
+            // Library info
+            library_info::LibraryInfo,
+            library_info::UpdateLibraryInfoRequest,
             // Settings
             settings::SettingsResponse,
             settings::LoanSettings,
@@ -210,6 +236,19 @@ use crate::api::{auth, equipment, events, health, items, loans, public_types, sc
             crate::models::event::UpdateEvent,
             crate::models::event::EventQuery,
             events::EventsListResponse,
+            crate::services::events::SendAnnouncementRequest,
+            crate::services::events::AnnouncementReport,
+            crate::services::events::AnnouncementError,
+            // Admin config
+            admin_config::ConfigResponse,
+            admin_config::ConfigSectionInfo,
+            admin_config::UpdateConfigSectionRequest,
+            admin_config::TestEmailRequest,
+            // Audit
+            audit::AuditQueryRequest,
+            audit::AuditExportRequest,
+            crate::services::audit::AuditLogPage,
+            crate::services::audit::AuditLogEntry,
             // Public types
             crate::models::public_type::PublicType,
             crate::models::public_type::PublicTypeLoanSettings,
@@ -239,7 +278,10 @@ use crate::api::{auth, equipment, events, health, items, loans, public_types, sc
         (name = "sources", description = "Acquisition source management"),
         (name = "equipment", description = "Library equipment management"),
         (name = "events", description = "Cultural events and school visits"),
-        (name = "public_types", description = "Borrower public types (child, adult, school, staff, senior)")
+        (name = "library_info", description = "Library global information (name, address, phones, email)"),
+        (name = "public_types", description = "Borrower public types (child, adult, school, staff, senior)"),
+        (name = "admin", description = "Admin runtime configuration"),
+        (name = "audit", description = "Audit log")
     ),
     modifiers(&SecurityAddon)
 )]

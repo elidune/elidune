@@ -6,6 +6,7 @@ pub mod email;
 pub mod email_templates;
 pub mod equipment;
 pub mod events;
+pub mod library_info;
 pub mod public_types;
 pub mod loans;
 pub mod marc;
@@ -39,6 +40,7 @@ pub struct Services {
     pub email: email::EmailService,
     pub equipment: equipment::EquipmentService,
     pub events: events::EventsService,
+    pub library_info: library_info::LibraryInfoService,
     pub loans: loans::LoansService,
     pub marc: marc::MarcService,
     pub public_types: public_types::PublicTypesService,
@@ -82,11 +84,17 @@ impl Services {
 
         Ok(Self {
             pool,
-            audit: audit_service,
+            audit: audit_service.clone(),
             catalog: catalog.clone(),
-            email: email_service,
+            email: email_service.clone(),
             equipment: equipment::EquipmentService::new(repository.clone()),
-            events: events::EventsService::new(repository.clone()),
+            events: events::EventsService::new(
+                repository.clone(),
+                email_service.clone(),
+                audit_service.clone(),
+                dynamic_config.clone(),
+            ),
+            library_info: library_info::LibraryInfoService::new(repository.clone()),
             loans: loans::LoansService::new(repository.clone()),
             marc: marc_service,
             public_types: public_types::PublicTypesService::new(repository.clone()),

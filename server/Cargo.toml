@@ -1,10 +1,10 @@
 [package]
 name = "elidune-server"
-version = "0.0.9"
+version = "0.0.10"
 edition = "2021"
 authors = ["Jean Collonville <jcollonville@b-612.fr>"]
 description = "Elidune - Library Management System Server"
-license = "GPL-2.0"
+license = "AGPL-3.0"
 repository = "https://github.com/elidune/elidune-server"
 
 [dependencies]

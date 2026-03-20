@@ -11,7 +11,10 @@ use utoipa::ToSchema;
 use crate::{
     error::AppResult,
     models::event::{CreateEvent, Event, EventQuery, UpdateEvent},
-    services::audit,
+    services::{
+        audit,
+        events::{AnnouncementReport, SendAnnouncementRequest},
+    },
 };
 
 use super::{AuthenticatedUser, ClientIp};
@@ -134,4 +137,37 @@ pub async fn delete_event(
     state.services.events.delete(id).await?;
     state.services.audit.log(audit::event::EVENT_DELETED, Some(claims.user_id), Some("event"), Some(id), ip, Some(serde_json::json!({ "id": id })));
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Send an announcement email for an event to all users whose public_type matches
+/// the event's target_public (all users if target_public is NULL).
+///
+/// The default `event_announcement` template is used unless `subject`/`body_plain`
+/// (and optionally `body_html`) are supplied in the request body, in which case the
+/// supplied text overrides the template entirely.
+#[utoipa::path(
+    post,
+    path = "/events/{id}/send-announcement",
+    tag = "events",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Event ID")),
+    request_body = SendAnnouncementRequest,
+    responses(
+        (status = 200, description = "Announcement report", body = AnnouncementReport)
+    )
+)]
+pub async fn send_event_announcement(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(id): Path<i64>,
+    Json(payload): Json<SendAnnouncementRequest>,
+) -> AppResult<Json<AnnouncementReport>> {
+    claims.require_write_settings()?;
+    let report = state
+        .services
+        .events
+        .send_announcement(id, &payload, Some(claims.user_id), ip)
+        .await?;
+    Ok(Json(report))
 }

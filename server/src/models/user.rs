@@ -36,30 +36,7 @@ impl From<Option<String>> for Rights {
     }
 }
 
-/// User account types (legacy numeric IDs - deprecated, use AccountTypeSlug)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[repr(i16)]
-pub enum AccountType {
-    Unknown = 0,
-    Guest = 1,
-    Reader = 2,
-    Librarian = 3,
-    Admin = 4,
-    Group = 8,
-}
 
-impl From<i16> for AccountType {
-    fn from(v: i16) -> Self {
-        match v {
-            1 => AccountType::Guest,
-            2 => AccountType::Reader,
-            3 => AccountType::Librarian,
-            4 => AccountType::Admin,
-            8 => AccountType::Group,
-            _ => AccountType::Unknown,
-        }
-    }
-}
 
 /// Account type slug (string identifier)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]

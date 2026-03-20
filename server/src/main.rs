@@ -358,6 +358,9 @@ fn create_router(state: AppState) -> Router {
         .route("/stats/loans", get(api::stats::get_loan_stats))
         .route("/stats/users", get(api::stats::get_user_stats))
         .route("/stats/catalog", get(api::stats::get_catalog_stats))
+        // Library information
+        .route("/library-info", get(api::library_info::get_library_info))
+        .route("/library-info", put(api::library_info::update_library_info))
         // Settings (loan rules)
         .route("/settings", get(api::settings::get_settings))
         .route("/settings", put(api::settings::update_settings))
@@ -410,6 +413,7 @@ fn create_router(state: AppState) -> Router {
         .route("/events/:id", get(api::events::get_event))
         .route("/events/:id", put(api::events::update_event))
         .route("/events/:id", delete(api::events::delete_event))
+        .route("/events/:id/send-announcement", post(api::events::send_event_announcement))
         .with_state(state.clone());
 
     // OpenAPI documentation

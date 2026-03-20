@@ -5,6 +5,7 @@ pub mod audit;
 pub mod auth;
 pub mod equipment;
 pub mod events;
+pub mod library_info;
 pub mod public_types;
 pub mod health;
 pub mod items;
