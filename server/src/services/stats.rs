@@ -20,8 +20,8 @@ use crate::{
 pub struct StatsFilter {
     /// Holdings as of this date (e.g. 31/12 for a given year).
     pub reference_date: Option<NaiveDate>,
-    /// Restrict to this public type (e.g. 97 = adult, 106 = youth).
-    pub public_type: Option<i16>,
+    /// Restrict to this public type (e.g. "adult", "juvenile").
+    pub public_type: Option<String>,
     /// Restrict to this media type (DB code string).
     pub media_type: Option<String>,
 }
@@ -86,8 +86,8 @@ impl StatsService {
                 if let Some(ref d) = f.reference_date {
                     query = query.bind(d);
                 }
-                if let Some(pt) = f.public_type {
-                    query = query.bind(pt);
+                if let Some(ref pt) = f.public_type {
+                    query = query.bind(pt.as_str());
                 }
                 if let Some(ref mt) = f.media_type {
                     query = query.bind(mt.as_str());
@@ -108,8 +108,8 @@ impl StatsService {
                 if let Some(ref d) = f.reference_date {
                     query = query.bind(d);
                 }
-                if let Some(pt) = f.public_type {
-                    query = query.bind(pt);
+                if let Some(ref pt) = f.public_type {
+                    query = query.bind(pt.as_str());
                 }
                 if let Some(ref mt) = f.media_type {
                     query = query.bind(mt.as_str());
@@ -128,7 +128,7 @@ impl StatsService {
 
         let items_by_public_type = {
             let q = format!(
-                r#"SELECT CASE i.audience_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as label,
+                r#"SELECT COALESCE(i.audience_type, 'unknown') as label,
                           COUNT(*) as value
                    FROM specimens s JOIN items i ON s.item_id = i.id
                    WHERE {} GROUP BY i.audience_type ORDER BY value DESC"#,
@@ -139,8 +139,8 @@ impl StatsService {
                 if let Some(ref d) = f.reference_date {
                     query = query.bind(d);
                 }
-                if let Some(pt) = f.public_type {
-                    query = query.bind(pt);
+                if let Some(ref pt) = f.public_type {
+                    query = query.bind(pt.as_str());
                 }
                 if let Some(ref mt) = f.media_type {
                     query = query.bind(mt.as_str());
@@ -253,7 +253,7 @@ impl StatsService {
                 let mut acq_builder = sqlx::query_scalar::<_, i64>(&acq_q)
                     .bind(year_start)
                     .bind(year_end);
-                if let Some(pt) = f.public_type { acq_builder = acq_builder.bind(pt); }
+                if let Some(ref pt) = f.public_type { acq_builder = acq_builder.bind(pt.as_str()); }
                 if let Some(ref mt) = f.media_type { acq_builder = acq_builder.bind(mt.as_str()); }
                 let acq_total = acq_builder.fetch_one(pool).await?;
 
@@ -265,7 +265,7 @@ impl StatsService {
                 let mut acq_mt_builder = sqlx::query(&acq_mt_q)
                     .bind(year_start)
                     .bind(year_end);
-                if let Some(pt) = f.public_type { acq_mt_builder = acq_mt_builder.bind(pt); }
+                if let Some(ref pt) = f.public_type { acq_mt_builder = acq_mt_builder.bind(pt.as_str()); }
                 if let Some(ref mt) = f.media_type { acq_mt_builder = acq_mt_builder.bind(mt.as_str()); }
                 let acq_by_mt: Vec<StatEntry> = acq_mt_builder.fetch_all(pool).await?
                     .into_iter().map(|row| StatEntry { label: row.get("label"), value: row.get("value") }).collect();
@@ -278,7 +278,7 @@ impl StatsService {
                 let mut wd_builder = sqlx::query_scalar::<_, i64>(&wd_q)
                     .bind(year_start)
                     .bind(year_end);
-                if let Some(pt) = f.public_type { wd_builder = wd_builder.bind(pt); }
+                if let Some(ref pt) = f.public_type { wd_builder = wd_builder.bind(pt.as_str()); }
                 if let Some(ref mt) = f.media_type { wd_builder = wd_builder.bind(mt.as_str()); }
                 let wd_total = wd_builder.fetch_one(pool).await?;
 
@@ -290,7 +290,7 @@ impl StatsService {
                 let mut wd_mt_builder = sqlx::query(&wd_mt_q)
                     .bind(year_start)
                     .bind(year_end);
-                if let Some(pt) = f.public_type { wd_mt_builder = wd_mt_builder.bind(pt); }
+                if let Some(ref pt) = f.public_type { wd_mt_builder = wd_mt_builder.bind(pt.as_str()); }
                 if let Some(ref mt) = f.media_type { wd_mt_builder = wd_mt_builder.bind(mt.as_str()); }
                 let wd_by_mt: Vec<StatEntry> = wd_mt_builder.fetch_all(pool).await?
                     .into_iter().map(|row| StatEntry { label: row.get("label"), value: row.get("value") }).collect();
@@ -402,7 +402,7 @@ impl StatsService {
         end_date: Option<DateTime<Utc>>,
         interval: Interval,
         media_type: Option<&MediaType>,
-        public_type: Option<i16>,
+        public_type: Option<&str>,
         user_id: Option<i64>,
     ) -> AppResult<LoanStatsResponse> {
         let pool = &self.repository.pool;
@@ -437,7 +437,7 @@ impl StatsService {
         }
 
         if let Some(pt) = public_type {
-            where_clauses.push(format!("i.audience_type = {}", pt));
+            where_clauses.push(format!("i.audience_type = '{}'", pt));
         }
 
         if let Some(uid) = user_id {
@@ -484,7 +484,7 @@ impl StatsService {
         }
 
         if let Some(pt) = public_type {
-            archived_loans_where.push(format!("i.audience_type = {}", pt));
+            archived_loans_where.push(format!("i.audience_type = '{}'", pt));
         }
 
         if let Some(uid) = user_id {
@@ -532,7 +532,7 @@ impl StatsService {
         }
 
         if let Some(pt) = public_type {
-            returns_where.push(format!("i.audience_type = {}", pt));
+            returns_where.push(format!("i.audience_type = '{}'", pt));
         }
 
         if let Some(uid) = user_id {
@@ -905,7 +905,7 @@ impl StatsService {
                             COALESCE(src.id, 0) as source_id,
                             COALESCE(src.name, 'unknown') as source_name,
                             COALESCE(i.media_type, 'unknown') as media_type_label,
-                            CASE i.audience_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as public_type_label,
+                            COALESCE(i.audience_type, 'unknown') as public_type_label,
                             COUNT(*) FILTER (WHERE (sp.archived_at IS NULL OR sp.archived_at > $3)) as active_specimens,
                             COUNT(*) FILTER (WHERE sp.created_at >= $1 AND sp.created_at <= $2) as entered_specimens,
                             COUNT(*) FILTER (WHERE sp.archived_at >= $1 AND sp.archived_at <= $2) as archived_specimens
@@ -1012,7 +1012,7 @@ impl StatsService {
                         SELECT
                             COALESCE(src.id, 0) as source_id,
                             COALESCE(src.name, 'unknown') as source_name,
-                            CASE i.audience_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as public_type_label,
+                            COALESCE(i.audience_type, 'unknown') as public_type_label,
                             COUNT(*) FILTER (WHERE sp.archived_at IS NULL) as active_specimens,
                             COUNT(*) FILTER (WHERE sp.created_at >= $1 AND sp.created_at <= $2) as entered_specimens,
                             COUNT(*) FILTER (WHERE sp.archived_at >= $1 AND sp.archived_at <= $2) as archived_specimens
@@ -1101,7 +1101,7 @@ impl StatsService {
                         r#"
                         SELECT
                             COALESCE(i.media_type, 'unknown') as label,
-                            CASE i.audience_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as public_type_label,
+                            COALESCE(i.audience_type, 'unknown') as public_type_label,
                             COUNT(*) FILTER (WHERE sp.archived_at IS NULL) as active_specimens,
                             COUNT(*) FILTER (WHERE sp.created_at >= $1 AND sp.created_at <= $2) as entered_specimens,
                             COUNT(*) FILTER (WHERE sp.archived_at >= $1 AND sp.archived_at <= $2) as archived_specimens
@@ -1181,7 +1181,7 @@ impl StatsService {
                 sqlx::query(
                     r#"
                     SELECT
-                        CASE i.audience_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as label,
+                        COALESCE(i.audience_type, 'unknown') as label,
                         COUNT(*) FILTER (WHERE sp.archived_at IS NULL) as active_specimens,
                         COUNT(*) FILTER (WHERE sp.created_at >= $1 AND sp.created_at <= $2) as entered_specimens,
                         COUNT(*) FILTER (WHERE sp.archived_at >= $1 AND sp.archived_at <= $2) as archived_specimens
@@ -1217,7 +1217,7 @@ impl StatsService {
                 SELECT
                     COALESCE(sp.source_id, 0) as source_id,
                     COALESCE(i.media_type, 'unknown') as media_type,
-                    CASE i.audience_type WHEN 97 THEN 'adult' WHEN 106 THEN 'children' ELSE 'unknown' END as public_type,
+                    COALESCE(i.audience_type, 'unknown') as public_type,
                     COUNT(*) as loans
                 FROM (
                     SELECT specimen_id, date FROM loans

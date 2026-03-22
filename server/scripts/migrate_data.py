@@ -16,9 +16,14 @@ Key transformations:
     - fees: id (int) -> code (slug), "desc" -> "name"
     - users: account_type_id -> account_type (slug), fee_id -> fee (slug),
              dates int -> timestamptz, passwords -> argon2 hash,
+             public_type int (97/106/117) -> FK to public_types table
              removed: sex_id, subscription_type_id, occupation, profession
              added: status, language
-    - items/specimens: dates int -> timestamptz, added lifecycle_status
+    - items/specimens: complete schema refactor (see migrate_items / migrate_specimens)
+      - items: identification->isbn, title1->title, author columns -> item_authors table,
+               media_type/lang/audience_type now camelCase strings, removed legacy columns
+      - specimens: identification->barcode, cote->call_number, codestat->circulation_status,
+                   borrow_status(98/110)->borrowable bool, removed is_archive/lifecycle_status
     - borrows -> loans (returned -> loans_archives)
     - borrows_archives -> loans_archives (account_type_id -> account_type slug)
     - borrows_settings -> loans_settings (account_type_id -> account_type slug)
@@ -62,13 +67,102 @@ FEE_ID_TO_CODE = {
     3: 'foreigner',
 }
 
+# Legacy integer public_type -> public_types.name (seeded in migration 033)
+# child=1, adult=2, school=3, staff=4, senior=5 (by insertion order)
+PUBLIC_TYPE_INT_TO_NAME = {
+    97:  'adult',
+    106: 'child',
+    117: 'senior',
+}
+
+# Legacy media_type codes -> camelCase DB strings (migration 028)
+MEDIA_TYPE_CODE_TO_DB = {
+    '':    'all',
+    'u':   'unknown',
+    'b':   'printedText',
+    'm':   'multimedia',
+    'bc':  'comics',
+    'p':   'periodic',
+    'v':   'video',
+    'vt':  'videoTape',
+    'vd':  'videoDvd',
+    'a':   'audio',
+    'am':  'audioMusic',
+    'amt': 'audioMusicTape',
+    'amc': 'audioMusicCd',
+    'an':  'audioNonMusic',
+    'ant': 'audioNonMusicTape',
+    'anc': 'audioNonMusicCd',
+    'c':   'cdRom',
+    'i':   'images',
+}
+
+# Legacy integer lang codes -> camelCase DB strings (migration 029)
+LANG_INT_TO_DB = {
+    0: 'unknown',
+    1: 'french',
+    2: 'english',
+    3: 'german',
+    4: 'japanese',
+    5: 'spanish',
+    6: 'portuguese',
+}
+
+# Legacy audience_type integers -> camelCase strings (migration 042)
+AUDIENCE_TYPE_INT_TO_DB = {
+    97:  'general',
+    106: 'juvenile',
+    117: 'unknown',
+}
+
+# Author function codes -> camelCase DB strings (migration 043)
+# Integer codes from AuthorFunction enum + MARC relator codes
+AUTHOR_FUNCTION_TO_DB = {
+    # Integer codes
+    '70':  'author',
+    '440': 'illustrator',
+    '730': 'translator',
+    '695': 'scientificAdvisor',
+    '340': 'scientificAdvisor',
+    '80':  'prefaceWriter',
+    '600': 'photographer',
+    '651': 'publishingDirector',
+    '650': 'publishingDirector',
+    '230': 'composer',
+    # MARC relator codes
+    'aut': 'author',
+    'ill': 'illustrator',
+    'trl': 'translator',
+    'edt': 'scientificAdvisor',
+    'aui': 'prefaceWriter',
+    'pht': 'photographer',
+    'pbd': 'publishingDirector',
+    'cmp': 'composer',
+    # Already-canonical camelCase (idempotent)
+    'author':             'author',
+    'illustrator':        'illustrator',
+    'translator':         'translator',
+    'scientificAdvisor':  'scientificAdvisor',
+    'prefaceWriter':      'prefaceWriter',
+    'photographer':       'photographer',
+    'publishingDirector': 'publishingDirector',
+    'composer':           'composer',
+}
+
 TABLES_DROP_ORDER = [
+    'audit_log',
     'loans_archives', 'loans', 'loans_settings',
-    'specimens', 'remote_specimens',
-    'items', 'remote_items',
+    'item_authors',
+    'specimens',
+    'items',
     'z3950servers', 'fees', 'users',
     'authors', 'editions', 'collections', 'series', 'sources',
+    'public_type_loan_settings', 'public_types',
     'account_types',
+    'visitor_counts',
+    'schedule_slots', 'schedule_closures', 'schedule_periods',
+    'equipment', 'events',
+    'settings', 'library_info',
 ]
 
 
@@ -119,6 +213,53 @@ def batch_insert(cursor, conn, sql, rows, batch_size=500):
         conn.commit()
 
 
+def map_media_type(code):
+    """Map legacy media_type code to camelCase DB string."""
+    if code is None:
+        return 'unknown'
+    return MEDIA_TYPE_CODE_TO_DB.get(code, code if code else 'unknown')
+
+
+def map_lang(value):
+    """Map legacy integer or ISO-3 lang code to camelCase DB string."""
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return LANG_INT_TO_DB.get(value)
+    s = str(value).strip()
+    if s.lstrip('-').isdigit():
+        return LANG_INT_TO_DB.get(int(s))
+    iso_map = {
+        'fre': 'french', 'fra': 'french', 'eng': 'english',
+        'ger': 'german', 'deu': 'german', 'jpn': 'japanese',
+        'spa': 'spanish', 'por': 'portuguese',
+    }
+    return iso_map.get(s.lower(), s if s else None)
+
+
+def map_audience_type(value):
+    """Map legacy integer audience_type to camelCase DB string."""
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return AUDIENCE_TYPE_INT_TO_DB.get(value, 'unknown')
+    s = str(value).strip()
+    if s.lstrip('-').isdigit():
+        return AUDIENCE_TYPE_INT_TO_DB.get(int(s), 'unknown')
+    return s if s else None
+
+
+def map_author_function(value):
+    """Map legacy author function code (int string or MARC relator) to camelCase DB string.
+
+    Returns None for unrecognised values (migration 043 ELSE NULL behaviour).
+    """
+    if not value:
+        return None
+    s = str(value).strip()
+    return AUTHOR_FUNCTION_TO_DB.get(s)
+
+
 # =============================================================================
 # SCHEMA MANAGEMENT
 # =============================================================================
@@ -131,11 +272,14 @@ def reset_target_database(conn):
     for table in TABLES_DROP_ORDER:
         cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
 
+    # Drop legacy FTS artifacts (safe no-ops if not present)
+    cur.execute("DROP TRIGGER IF EXISTS items_search_vector_trigger ON items")
     cur.execute("DROP FUNCTION IF EXISTS items_search_vector_update() CASCADE")
+    cur.execute("DROP FUNCTION IF EXISTS items_search_vector_trigger_fn() CASCADE")
+    cur.execute("DROP FUNCTION IF EXISTS items_rebuild_search_vector(BIGINT) CASCADE")
     conn.commit()
     print("  Tables dropped")
 
-    # Run init_database.sql
     init_sql_path = Path(__file__).parent / 'init_database.sql'
     if not init_sql_path.exists():
         print(f"  ERROR: {init_sql_path} not found")
@@ -189,7 +333,6 @@ def migrate_fees(src, dst):
     src_cur = src.cursor()
     dst_cur = dst.cursor()
 
-    # Source uses "desc" column, not "name"
     src_cur.execute('SELECT id, "desc", amount FROM fees')
 
     count = 0
@@ -215,7 +358,7 @@ def migrate_users(src, dst, hash_passwords=True):
         fee_id -> fee (slug), last_payement_date (dropped), group_id, barcode,
         notes, occupation (dropped), created_at (int), update_at (int),
         issue_at (int), profession (dropped), birthdate, archived_at (int),
-        public_type
+        public_type (int 97/106/117) -> FK to public_types
 
     Target adds: status, language, 2FA fields (defaults)
     """
@@ -231,6 +374,10 @@ def migrate_users(src, dst, hash_passwords=True):
 
     src_cur = src.cursor()
     dst_cur = dst.cursor()
+
+    # Load public_types id mapping from target DB (name -> id)
+    dst_cur.execute("SELECT id, name FROM public_types")
+    pt_name_to_id = {name: pid for pid, name in dst_cur.fetchall()}
 
     src_cur.execute("""
         SELECT id, login, password, firstname, lastname, email,
@@ -265,30 +412,33 @@ def migrate_users(src, dst, hash_passwords=True):
          addr_street, addr_zip_code, addr_city, phone,
          account_type_id, fee_id, group_id, barcode,
          notes, created_at, update_at, issue_at,
-         birthdate, archived_at, public_type) = row
+         birthdate, archived_at, public_type_raw) = row
 
         login = unique_logins.get(uid, f'user_{uid}')
         email = email.strip() if email and email.strip() else None
 
-        # Password hashing
         password = None
         if hash_passwords and raw_pw:
             password = hash_password(raw_pw, hasher)
             if password != raw_pw:
                 hashed_count += 1
 
-        # Convert IDs to codes
         account_type = ACCOUNT_TYPE_ID_TO_CODE.get(account_type_id, 'guest')
         fee = FEE_ID_TO_CODE.get(fee_id) if fee_id else None
 
-        # Convert dates
         crea_dt = ts_to_datetime(created_at)
         modif_dt = ts_to_datetime(update_at)
         issue_dt = ts_to_datetime(issue_at)
         archived_dt = ts_to_datetime(archived_at)
 
-        # Compute status: 0=active, 2=archived/deleted
         status = 2 if archived_dt else 0
+
+        # Map legacy integer public_type to FK id in target
+        pt_id = None
+        if public_type_raw is not None:
+            pt_name = PUBLIC_TYPE_INT_TO_NAME.get(int(public_type_raw))
+            if pt_name:
+                pt_id = pt_name_to_id.get(pt_name)
 
         dst_cur.execute("""
             INSERT INTO users (
@@ -304,7 +454,7 @@ def migrate_users(src, dst, hash_passwords=True):
                 %s, %s, %s, %s, %s,
                 %s, %s, %s,
                 %s, %s, %s, %s,
-                'fr'
+                'french'
             ) ON CONFLICT (id) DO UPDATE SET
                 login = EXCLUDED.login,
                 password = EXCLUDED.password,
@@ -314,7 +464,7 @@ def migrate_users(src, dst, hash_passwords=True):
             uid, login, password, firstname, lastname, email,
             addr_street, addr_zip_code, addr_city, phone,
             account_type, fee, group_id, barcode, notes,
-            public_type, status, birthdate,
+            pt_id, status, birthdate,
             crea_dt, modif_dt, issue_dt, archived_dt,
         ))
         migrated += 1
@@ -349,8 +499,68 @@ def migrate_simple_table(src, dst, table, columns, conflict_col="id"):
     print(f"  {len(rows)} {table} migrated")
 
 
+def migrate_editions(src, dst):
+    """Migrate editions: name -> publisher_name, place -> place_of_publication."""
+    print("Migrating editions...")
+    src_cur = src.cursor()
+    dst_cur = dst.cursor()
+
+    src_cur.execute("SELECT id, key, name, place, notes FROM editions")
+    rows = src_cur.fetchall()
+
+    for eid, key, name, place, notes in rows:
+        dst_cur.execute("""
+            INSERT INTO editions (id, key, publisher_name, place_of_publication, notes)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (id) DO NOTHING
+        """, (eid, key, name, place, notes))
+
+    dst.commit()
+    print(f"  {len(rows)} editions migrated")
+
+
+def migrate_collections(src, dst):
+    """Migrate collections: title1/2/3 -> primary/secondary/tertiary_title."""
+    print("Migrating collections...")
+    src_cur = src.cursor()
+    dst_cur = dst.cursor()
+
+    src_cur.execute("SELECT id, key, title1, title2, title3, issn FROM collections")
+    rows = src_cur.fetchall()
+
+    for cid, key, t1, t2, t3, issn in rows:
+        dst_cur.execute("""
+            INSERT INTO collections (id, key, primary_title, secondary_title, tertiary_title, issn)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (id) DO NOTHING
+        """, (cid, key, t1, t2, t3, issn))
+
+    dst.commit()
+    print(f"  {len(rows)} collections migrated")
+
+
 def migrate_items(src, dst):
-    """Migrate items: dates int->timestamptz, add lifecycle_status/archived_at."""
+    """Migrate items from legacy schema to new MARC-aligned schema.
+
+    Source columns (legacy):
+        id, media_type (code), identification (isbn), price, barcode, dewey,
+        publication_date, lang (int), lang_orig (int), title1-4,
+        author1_ids[], author1_functions, author2_ids[], author2_functions,
+        author3_ids[], author3_functions, serie_id, serie_vol_number,
+        collection_id, collection_number_sub, collection_vol_number,
+        source_id, genre, subject, public_type (int),
+        edition_id, edition_date, nb_pages, format, content, addon,
+        abstract, notes, keywords, nb_specimens, state,
+        is_archive, archived_timestamp, is_valid, created_at, update_at
+
+    Target columns (new schema):
+        id, media_type (camelCase), isbn, title, subject, audience_type (camelCase),
+        lang (camelCase), lang_orig (camelCase), publication_date,
+        series_id, series_volume_number, collection_id, collection_sequence_number,
+        collection_volume_number, source_id, edition_id, page_extent, format,
+        table_of_contents, accompanying_material, abstract, notes, keywords (array),
+        is_valid, created_at, updated_at, archived_at
+    """
     print("Migrating items...")
     src_cur = src.cursor()
     dst_cur = dst.cursor()
@@ -360,54 +570,104 @@ def migrate_items(src, dst):
 
     BATCH = 1000
     offset = 0
+    item_authors_batch = []
 
     while offset < total:
         src_cur.execute(f"""
-            SELECT id, media_type, identification, price, barcode, dewey,
-                   publication_date, lang, lang_orig, title1, title2, title3, title4,
-                   author1_ids, author1_functions, author2_ids, author2_functions,
-                   author3_ids, author3_functions, serie_id, serie_vol_number,
+            SELECT id, media_type, identification, publication_date,
+                   lang, lang_orig, title1,
+                   author1_ids, author1_functions,
+                   author2_ids, author2_functions,
+                   author3_ids, author3_functions,
+                   serie_id, serie_vol_number,
                    collection_id, collection_number_sub, collection_vol_number,
-                   source_id, genre, subject, public_type,
-                   edition_id, edition_date, nb_pages, format, content, addon,
-                   abstract, notes, keywords, nb_specimens, state,
-                   is_archive, archived_timestamp, is_valid, created_at, update_at
+                   source_id, subject, public_type,
+                   edition_id, nb_pages, format, content, addon,
+                   abstract, notes, keywords, is_valid,
+                   is_archive, archived_timestamp, created_at, update_at
             FROM items ORDER BY id LIMIT {BATCH} OFFSET {offset}
         """)
 
         for row in src_cur.fetchall():
-            vals = list(row)
-            is_archive = vals[39]
+            (iid, media_type_raw, identification, publication_date,
+             lang_raw, lang_orig_raw, title1,
+             author1_ids, author1_functions,
+             author2_ids, author2_functions,
+             author3_ids, author3_functions,
+             serie_id, serie_vol_number,
+             collection_id, collection_number_sub, collection_vol_number,
+             source_id, subject, public_type_raw,
+             edition_id, nb_pages, fmt, content, addon,
+             abstract_, notes, keywords, is_valid,
+             is_archive, archived_timestamp, created_at_raw, update_at_raw) = row
 
-            # Convert dates (indices: archived_timestamp=42, created_at=44, update_at=45)
-            archived_ts = ts_to_datetime(vals[40])
-            crea_dt = ts_to_datetime(vals[42])
-            modif_dt = ts_to_datetime(vals[43])
-            vals[40] = archived_ts
-            vals[42] = crea_dt
-            vals[43] = modif_dt
+            media_type = map_media_type(media_type_raw)
+            lang = map_lang(lang_raw)
+            lang_orig = map_lang(lang_orig_raw)
+            audience_type = map_audience_type(public_type_raw)
 
-            lifecycle_status = 2 if is_archive == 1 else 0
-            archived_at = archived_ts if is_archive == 1 else None
+            archived_ts = ts_to_datetime(archived_timestamp)
+            crea_dt = ts_to_datetime(created_at_raw)
+            modif_dt = ts_to_datetime(update_at_raw)
+
+            archived_at = archived_ts if (is_archive == 1) else None
+
+            # keywords: legacy may be a comma-separated string
+            keywords_arr = None
+            if keywords:
+                if isinstance(keywords, list):
+                    keywords_arr = [k.strip() for k in keywords if k and k.strip()]
+                elif isinstance(keywords, str) and keywords.strip():
+                    keywords_arr = [k.strip() for k in re.split(r'\s*,\s*', keywords) if k.strip()]
 
             dst_cur.execute("""
                 INSERT INTO items (
-                    id, media_type, identification, price, barcode, dewey,
-                    publication_date, lang, lang_orig, title1, title2, title3, title4,
-                    author1_ids, author1_functions, author2_ids, author2_functions,
-                    author3_ids, author3_functions, serie_id, serie_vol_number,
-                    collection_id, collection_number_sub, collection_vol_number,
-                    source_id, genre, subject, public_type,
-                    edition_id, edition_date, nb_pages, format, content, addon,
-                    abstract, notes, keywords, nb_specimens, state,
-                    is_archive, archived_timestamp, is_valid, created_at, update_at,
-                    lifecycle_status, archived_at
+                    id, media_type, isbn, title, subject, audience_type,
+                    lang, lang_orig, publication_date,
+                    series_id, series_volume_number,
+                    collection_id, collection_sequence_number, collection_volume_number,
+                    source_id, edition_id, page_extent, format,
+                    table_of_contents, accompanying_material, abstract, notes,
+                    keywords, is_valid,
+                    created_at, updated_at, archived_at
                 ) VALUES (
-                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                    %s,%s,%s,%s, %s,%s
+                    %s,%s,%s,%s,%s,%s,
+                    %s,%s,%s,
+                    %s,%s,
+                    %s,%s,%s,
+                    %s,%s,%s,%s,
+                    %s,%s,%s,%s,
+                    %s,%s,
+                    %s,%s,%s
                 ) ON CONFLICT (id) DO NOTHING
-            """, vals + [lifecycle_status, archived_at])
+            """, (
+                iid, media_type, identification, title1, subject, audience_type,
+                lang, lang_orig, publication_date,
+                serie_id, serie_vol_number,
+                collection_id, collection_number_sub, collection_vol_number,
+                source_id, edition_id, nb_pages, fmt,
+                content, addon, abstract_, notes,
+                keywords_arr, is_valid,
+                crea_dt, modif_dt, archived_at,
+            ))
+
+            # Collect item_authors entries from legacy author arrays
+            position = 1
+            for ids_arr, funcs_str in [
+                (author1_ids, author1_functions),
+                (author2_ids, author2_functions),
+                (author3_ids, author3_functions),
+            ]:
+                if not ids_arr:
+                    continue
+                func_list = [f.strip() for f in (funcs_str or '').split(',') if f.strip()]
+                for idx, author_id in enumerate(ids_arr):
+                    if author_id is None:
+                        continue
+                    raw_func = func_list[idx] if idx < len(func_list) else None
+                    function = map_author_function(raw_func)
+                    item_authors_batch.append((iid, int(author_id), function, 0, position))
+                    position += 1
 
         dst.commit()
         offset += BATCH
@@ -415,60 +675,37 @@ def migrate_items(src, dst):
 
     print(f"  {total} items migrated")
 
-
-def migrate_remote_items(src, dst):
-    """Migrate remote_items: dates int->timestamptz, add lifecycle_status."""
-    print("Migrating remote_items...")
-    src_cur = src.cursor()
-    dst_cur = dst.cursor()
-
-    src_cur.execute("""
-        SELECT id, media_type, identification, price, barcode, dewey,
-               publication_date, lang, lang_orig, title1, title2, title3, title4,
-               author1_ids, author1_functions, author2_ids, author2_functions,
-               author3_ids, author3_functions, serie_id, serie_vol_number,
-               collection_id, collection_number_sub, collection_vol_number,
-               source_id, genre, subject, public_type,
-               edition_id, edition_date, nb_pages, format, content, addon,
-               abstract, notes, keywords, nb_specimens, state,
-               is_archive, archived_timestamp, is_valid, created_at, update_at
-        FROM remote_items
-    """)
-    rows = src_cur.fetchall()
-
-    for row in rows:
-        vals = list(row)
-        is_archive = vals[41]
-        vals[40] = ts_to_datetime(vals[40])  # archived_timestamp
-        vals[42] = ts_to_datetime(vals[42])  # created_at
-        vals[43] = ts_to_datetime(vals[43])  # update_at
-        lifecycle_status = 2 if is_archive == 1 else 0
-
-        dst_cur.execute("""
-            INSERT INTO remote_items (
-                id, media_type, identification, price, barcode, dewey,
-                publication_date, lang, lang_orig, title1, title2, title3, title4,
-                author1_ids, author1_functions, author2_ids, author2_functions,
-                author3_ids, author3_functions, serie_id, serie_vol_number,
-                collection_id, collection_number_sub, collection_vol_number,
-                source_id, genre, subject, public_type,
-                edition_id, edition_date, nb_pages, format, content, addon,
-                abstract, notes, keywords, nb_specimens, state,
-                is_archive, archived_timestamp, is_valid, created_at, update_at,
-                lifecycle_status
-            ) VALUES (
-                %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                %s,%s,%s,%s, %s
-            ) ON CONFLICT (id) DO NOTHING
-        """, vals + [lifecycle_status])
-
-    dst.commit()
-    print(f"  {len(rows)} remote_items migrated")
+    # Insert item_authors in batches
+    print("  Migrating item_authors...")
+    ia_count = 0
+    for i in range(0, len(item_authors_batch), 500):
+        for entry in item_authors_batch[i:i + 500]:
+            try:
+                dst_cur.execute("""
+                    INSERT INTO item_authors (item_id, author_id, function, author_type, position)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (item_id, author_id, function) DO NOTHING
+                """, entry)
+                ia_count += 1
+            except Exception:
+                dst.rollback()
+        dst.commit()
+    print(f"  {ia_count} item_authors migrated")
 
 
 def migrate_specimens(src, dst):
-    """Migrate specimens: dates int->timestamptz, add lifecycle_status."""
+    """Migrate specimens: rename columns, replace borrow_status with borrowable bool.
+
+    Source columns (legacy):
+        id, id_item, source_id, identification (barcode), cote (call_number),
+        place, status (borrow_status: 98=borrowable, 110=not), codestat (circulation_status),
+        notes, price, update_at, is_archive, archived_at, created_at
+
+    Target columns:
+        id, item_id, source_id, barcode, call_number, place,
+        borrowable (bool), circulation_status, notes, price,
+        updated_at, archived_at, created_at
+    """
     print("Migrating specimens...")
     src_cur = src.cursor()
     dst_cur = dst.cursor()
@@ -488,58 +725,43 @@ def migrate_specimens(src, dst):
         """)
 
         for row in src_cur.fetchall():
-            vals = list(row)
-            is_archive = vals[11]
-            vals[10] = ts_to_datetime(vals[10])  # update_at
-            vals[12] = ts_to_datetime(vals[12])  # archived_at
-            vals[13] = ts_to_datetime(vals[13])  # created_at
-            lifecycle_status = 2 if is_archive == 1 else 0
+            (sid, id_item, source_id, identification, cote, place,
+             borrow_status, codestat, notes, price, update_at_raw,
+             is_archive, archived_at_raw, created_at_raw) = row
+
+            # 98 = borrowable, 110 = not borrowable; NULL defaults to True
+            borrowable = True
+            if borrow_status == 110:
+                borrowable = False
+            elif borrow_status == 98:
+                borrowable = True
+
+            updated_dt = ts_to_datetime(update_at_raw)
+            archived_dt = ts_to_datetime(archived_at_raw)
+            created_dt = ts_to_datetime(created_at_raw)
+
+            # is_archive=1 means archived; ensure archived_at is set
+            if is_archive == 1 and archived_dt is None:
+                archived_dt = datetime.now(tz=timezone.utc)
 
             dst_cur.execute("""
                 INSERT INTO specimens (
-                    id, id_item, source_id, identification, cote, place,
-                    status, codestat, notes, price, update_at,
-                    is_archive, archived_at, created_at, lifecycle_status
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    id, item_id, source_id, barcode, call_number, place,
+                    borrowable, circulation_status, notes, price,
+                    updated_at, archived_at, created_at
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (id) DO NOTHING
-            """, vals + [lifecycle_status])
+            """, (
+                sid, id_item, source_id, identification, cote, place,
+                borrowable, codestat, notes, price,
+                updated_dt, archived_dt, created_dt,
+            ))
 
         dst.commit()
         offset += BATCH
         print(f"  {min(offset, total)}/{total} specimens")
 
     print(f"  {total} specimens migrated")
-
-
-def migrate_remote_specimens(src, dst):
-    """Migrate remote_specimens: dates int->timestamptz, add lifecycle_status."""
-    print("Migrating remote_specimens...")
-    src_cur = src.cursor()
-    dst_cur = dst.cursor()
-
-    src_cur.execute("""
-        SELECT id, id_item, source_id, identification, cote, media_type,
-               place, status, codestat, notes, price, creation_date, update_at
-        FROM remote_specimens
-    """)
-    rows = src_cur.fetchall()
-
-    for row in rows:
-        vals = list(row)
-        vals[11] = ts_to_datetime(vals[11])  # creation_date
-        vals[12] = ts_to_datetime(vals[12])  # update_at
-
-        dst_cur.execute("""
-            INSERT INTO remote_specimens (
-                id, id_item, source_id, identification, cote, media_type,
-                place, status, codestat, notes, price, creation_date, update_at,
-                lifecycle_status
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, 0)
-            ON CONFLICT (id) DO NOTHING
-        """, vals)
-
-    dst.commit()
-    print(f"  {len(rows)} remote_specimens migrated")
 
 
 def migrate_loans(src, dst):
@@ -559,9 +781,9 @@ def migrate_loans(src, dst):
         at_code = ACCOUNT_TYPE_ID_TO_CODE.get(at_id, 'guest') if at_id else 'guest'
         user_info[uid] = (city, at_code, pt)
 
-    # Load specimen -> item_id mapping
-    src_cur.execute("SELECT id, id_item FROM specimens")
-    specimen_to_item = {r[0]: r[1] for r in src_cur.fetchall()}
+    # Load public_type FK mapping from target
+    dst_cur.execute("SELECT id, name FROM public_types")
+    pt_name_to_id = {name: pid for pid, name in dst_cur.fetchall()}
 
     src_cur.execute("""
         SELECT id, user_id, specimen_id, item_id, date, renew_at,
@@ -580,19 +802,23 @@ def migrate_loans(src, dst):
         specimen_id = vals[2]
         returned_date_raw = vals[9]
 
-        # Convert dates
         vals[4] = ts_to_datetime(vals[4])   # date
         vals[5] = ts_to_datetime(vals[5])   # renew_at
         vals[7] = ts_to_datetime(vals[7])   # issue_at
         vals[9] = ts_to_datetime(vals[9])   # returned_at
 
         if returned_date_raw and returned_date_raw != 0:
-            # Returned loan -> loans_archives (item_id removed; link via specimen_id only)
             if specimen_id is None:
                 skipped += 1
                 continue
 
-            city, at_code, pt = user_info.get(user_id, (None, 'guest', None))
+            city, at_code, pt_raw = user_info.get(user_id, (None, 'guest', None))
+
+            pt_id = None
+            if pt_raw is not None:
+                pt_name = PUBLIC_TYPE_INT_TO_NAME.get(int(pt_raw))
+                if pt_name:
+                    pt_id = pt_name_to_id.get(pt_name)
 
             dst_cur.execute("""
                 INSERT INTO loans_archives (
@@ -604,11 +830,10 @@ def migrate_loans(src, dst):
             """, (
                 vals[0], user_id, specimen_id,
                 vals[4], vals[6], vals[7], vals[9], vals[8],
-                pt, city, at_code,
+                pt_id, city, at_code,
             ))
             archived += 1
         else:
-            # Active loan -> loans (item_id removed; link via specimen_id only)
             dst_cur.execute("""
                 INSERT INTO loans (
                     id, user_id, specimen_id, date, renew_at,
@@ -633,6 +858,10 @@ def migrate_loans_archives(src, dst):
     src_cur = src.cursor()
     dst_cur = dst.cursor()
 
+    # Load public_type FK mapping from target
+    dst_cur.execute("SELECT id, name FROM public_types")
+    pt_name_to_id = {name: pid for pid, name in dst_cur.fetchall()}
+
     src_cur.execute("""
         SELECT id, item_id, specimen_id, date, nb_renews, issue_at,
                returned_at, notes, borrower_public_type,
@@ -648,17 +877,22 @@ def migrate_loans_archives(src, dst):
         vals = list(row)
         specimen_id = vals[2]
         at_id = vals[10]
+        pt_raw = vals[8]
 
         if specimen_id is None:
             skipped += 1
             continue
 
-        # Convert dates
         date_val = ts_to_datetime(vals[3])
         issue_dt = ts_to_datetime(vals[5])
         returned_dt = ts_to_datetime(vals[6])
-
         at_code = ACCOUNT_TYPE_ID_TO_CODE.get(at_id, 'guest') if at_id else 'guest'
+
+        pt_id = None
+        if pt_raw is not None:
+            pt_name = PUBLIC_TYPE_INT_TO_NAME.get(int(pt_raw))
+            if pt_name:
+                pt_id = pt_name_to_id.get(pt_name)
 
         dst_cur.execute("""
             INSERT INTO loans_archives (
@@ -669,7 +903,7 @@ def migrate_loans_archives(src, dst):
             ON CONFLICT (id) DO NOTHING
         """, (
             vals[0], specimen_id, date_val, vals[4], issue_dt,
-            returned_dt, vals[7], vals[8], vals[9], at_code,
+            returned_dt, vals[7], pt_id, vals[9], at_code,
         ))
         migrated += 1
 
@@ -693,6 +927,7 @@ def migrate_loans_settings(src, dst):
 
     for row in rows:
         sid, media_type, nb_max, nb_renews, duration, notes, at_id = row
+        media_type_db = map_media_type(media_type)
         at_code = ACCOUNT_TYPE_ID_TO_CODE.get(at_id) if at_id else None
 
         dst_cur.execute("""
@@ -702,7 +937,7 @@ def migrate_loans_settings(src, dst):
                 nb_max = EXCLUDED.nb_max, nb_renews = EXCLUDED.nb_renews,
                 duration = EXCLUDED.duration, notes = EXCLUDED.notes,
                 account_type = EXCLUDED.account_type
-        """, (sid, media_type, nb_max, nb_renews, duration, notes, at_code))
+        """, (sid, media_type_db, nb_max, nb_renews, duration, notes, at_code))
 
     dst.commit()
     print(f"  {len(rows)} loans_settings migrated")
@@ -741,13 +976,19 @@ def reset_sequences(conn):
 
     tables = [
         'users', 'authors', 'editions', 'collections', 'series', 'sources',
-        'items', 'remote_items', 'specimens', 'remote_specimens',
+        'items', 'item_authors', 'specimens',
         'loans', 'loans_archives', 'loans_settings', 'z3950servers',
+        'public_types', 'public_type_loan_settings',
+        'visitor_counts', 'schedule_periods', 'schedule_slots', 'schedule_closures',
+        'equipment', 'events', 'audit_log',
     ]
 
     for table in tables:
         try:
-            cur.execute(f"SELECT setval('{table}_id_seq', COALESCE((SELECT MAX(id) FROM {table}), 1), true)")
+            cur.execute(
+                f"SELECT setval('{table}_id_seq', "
+                f"COALESCE((SELECT MAX(id) FROM {table}), 1), true)"
+            )
         except Exception:
             conn.rollback()
 
@@ -827,16 +1068,14 @@ Examples:
             migrate_users(src, dst, hash_passwords=hash_passwords)
 
         migrate_simple_table(src, dst, 'authors', ['id', 'key', 'lastname', 'firstname', 'bio', 'notes'])
-        migrate_simple_table(src, dst, 'editions', ['id', 'key', 'name', 'place', 'notes'])
-        migrate_simple_table(src, dst, 'collections', ['id', 'key', 'title1', 'title2', 'title3', 'issn'])
+        migrate_editions(src, dst)
+        migrate_collections(src, dst)
         migrate_simple_table(src, dst, 'series', ['id', 'key', 'name'])
         migrate_simple_table(src, dst, 'sources', ['id', 'key', 'name'])
 
         if not args.skip_items:
             migrate_items(src, dst)
-            migrate_remote_items(src, dst)
             migrate_specimens(src, dst)
-            migrate_remote_specimens(src, dst)
 
         migrate_loans(src, dst)
         migrate_loans_archives(src, dst)

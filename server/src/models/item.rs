@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use sqlx::FromRow;
 use utoipa::{IntoParams, ToSchema};
-use z3950_rs::marc_rs;
 use crate::models::{Author, Language};
 use crate::models::specimen::SpecimenShort;
 
@@ -156,15 +155,84 @@ impl Default for ItemStatus {
     }
 }
 
-/// Audience type codes for catalog items.
+/// Audience type codes for catalog items, mirroring `marc_rs::record::TargetAudience`.
+///
+/// DB encoding: camelCase strings (e.g. `"juvenile"`, `"general"`, `"unknown"`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub enum AudienceType {
-    #[serde(rename = "97")]
-    Adult,
-    #[serde(rename = "106")]
+    Juvenile,
+    Preschool,
+    Primary,
     Children,
-    #[serde(rename = "117")]
+    YoungAdult,
+    AdultSerious,
+    Adult,
+    General,
+    Specialized,
     Unknown,
+    Other(String),
+}
+
+impl AudienceType {
+    /// Canonical camelCase string stored in the DB column.
+    pub fn as_db_str(&self) -> &str {
+        match self {
+            AudienceType::Juvenile => "juvenile",
+            AudienceType::Preschool => "preschool",
+            AudienceType::Primary => "primary",
+            AudienceType::Children => "children",
+            AudienceType::YoungAdult => "youngAdult",
+            AudienceType::AdultSerious => "adultSerious",
+            AudienceType::Adult => "adult",
+            AudienceType::General => "general",
+            AudienceType::Specialized => "specialized",
+            AudienceType::Unknown => "unknown",
+            AudienceType::Other(s) => s.as_str(),
+        }
+    }
+
+    /// Parse from the DB string, returning `None` for unrecognised values.
+    pub fn from_db_str(s: &str) -> Option<Self> {
+        match s {
+            "juvenile" => Some(AudienceType::Juvenile),
+            "preschool" => Some(AudienceType::Preschool),
+            "primary" => Some(AudienceType::Primary),
+            "children" => Some(AudienceType::Children),
+            "youngAdult" => Some(AudienceType::YoungAdult),
+            "adultSerious" => Some(AudienceType::AdultSerious),
+            "adult" => Some(AudienceType::Adult),
+            "general" => Some(AudienceType::General),
+            "specialized" => Some(AudienceType::Specialized),
+            "unknown" => Some(AudienceType::Unknown),
+            other => Some(AudienceType::Other(other.to_string())),
+        }
+    }
+}
+
+impl sqlx::Type<sqlx::Postgres> for AudienceType {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        <String as sqlx::Type<sqlx::Postgres>>::type_info()
+    }
+
+    fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
+        <String as sqlx::Type<sqlx::Postgres>>::compatible(ty)
+    }
+}
+
+impl<'r> sqlx::Decode<'r, sqlx::Postgres> for AudienceType {
+    fn decode(
+        value: sqlx::postgres::PgValueRef<'r>,
+    ) -> Result<Self, Box<dyn std::error::Error + 'static + Send + Sync>> {
+        let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
+        Ok(AudienceType::from_db_str(&s).unwrap_or(AudienceType::Unknown))
+    }
+}
+
+impl sqlx::Encode<'_, sqlx::Postgres> for AudienceType {
+    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
+        <String as sqlx::Encode<sqlx::Postgres>>::encode(self.as_db_str().to_string(), buf)
+    }
 }
 
 /// Media type codes for catalog items.
@@ -355,7 +423,7 @@ pub struct Item {
     pub isbn: Option<Isbn>,
     pub title: Option<String>,
     pub subject: Option<String>,
-    pub audience_type: Option<i16>,
+    pub audience_type: Option<AudienceType>,
     pub lang: Option<Language>,
     pub lang_orig: Option<Language>,
     pub publication_date: Option<String>,
@@ -402,7 +470,7 @@ pub struct Item {
     #[serde(default)]
     pub specimens: Vec<Specimen>,
     #[sqlx(skip)]
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip)]
     pub marc_record: Option<MarcRecord>,
 }
 
@@ -524,7 +592,7 @@ pub struct MeiliItemDocument {
     pub notes: Option<String>,
     pub table_of_contents: Option<String>,
     pub lang: Option<String>,
-    pub audience_type: Option<i16>,
+    pub audience_type: Option<String>,
     pub is_archived: bool,
 }
 
@@ -542,7 +610,7 @@ pub struct ItemQuery {
     pub content: Option<String>,
     pub keywords: Option<String>,
     pub freesearch: Option<String>,
-    pub audience_type: Option<i16>,
+    pub audience_type: Option<String>,
     pub archive: Option<bool>,
     pub page: Option<i64>,
     pub per_page: Option<i64>,
@@ -550,8 +618,51 @@ pub struct ItemQuery {
 
 #[cfg(test)]
 mod tests {
-    use super::{Isbn, ItemShort, MediaType};
+    use super::{AudienceType, Isbn, ItemShort, MediaType};
     use serde_json;
+    use z3950_rs::marc_rs::record::TargetAudience;
+
+    #[test]
+    fn audience_type_from_marc_rs_round_trip() {
+        assert_eq!(AudienceType::from(TargetAudience::General), AudienceType::General);
+        assert_eq!(AudienceType::from(TargetAudience::Juvenile), AudienceType::Juvenile);
+        assert_eq!(AudienceType::from(TargetAudience::YoungAdult), AudienceType::YoungAdult);
+        assert_eq!(AudienceType::from(TargetAudience::Specialized), AudienceType::Specialized);
+        assert_eq!(AudienceType::from(TargetAudience::Unknown), AudienceType::Unknown);
+        assert_eq!(AudienceType::from(TargetAudience::Preschool), AudienceType::Preschool);
+        assert_eq!(AudienceType::from(TargetAudience::Children), AudienceType::Children);
+        assert_eq!(AudienceType::from(TargetAudience::Adult), AudienceType::Adult);
+        assert_eq!(
+            AudienceType::from(TargetAudience::Other("x".to_string())),
+            AudienceType::Other("x".to_string()),
+        );
+    }
+
+    #[test]
+    fn audience_type_db_encoding() {
+        assert_eq!(AudienceType::General.as_db_str(), "general");
+        assert_eq!(AudienceType::Adult.as_db_str(), "adult");
+        assert_eq!(AudienceType::AdultSerious.as_db_str(), "adultSerious");
+        assert_eq!(AudienceType::YoungAdult.as_db_str(), "youngAdult");
+        assert_eq!(AudienceType::Specialized.as_db_str(), "specialized");
+        assert_eq!(AudienceType::Juvenile.as_db_str(), "juvenile");
+        assert_eq!(AudienceType::Preschool.as_db_str(), "preschool");
+        assert_eq!(AudienceType::Primary.as_db_str(), "primary");
+        assert_eq!(AudienceType::Children.as_db_str(), "children");
+        assert_eq!(AudienceType::Unknown.as_db_str(), "unknown");
+        assert_eq!(AudienceType::Other("custom".to_string()).as_db_str(), "custom");
+    }
+
+    #[test]
+    fn audience_type_from_db_str() {
+        assert_eq!(AudienceType::from_db_str("general"), Some(AudienceType::General));
+        assert_eq!(AudienceType::from_db_str("juvenile"), Some(AudienceType::Juvenile));
+        assert_eq!(AudienceType::from_db_str("unknown"), Some(AudienceType::Unknown));
+        assert_eq!(
+            AudienceType::from_db_str("custom"),
+            Some(AudienceType::Other("custom".to_string())),
+        );
+    }
 
     #[test]
     fn item_short_id_serializes_as_string() {

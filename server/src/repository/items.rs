@@ -15,6 +15,7 @@ use crate::{
     marc::MarcRecord,
     models::{
         author::Author,
+        author::Function,
         import_report::DuplicateCandidate,
         item::{Collection, Edition, Isbn, Item, ItemQuery, ItemShort, MeiliItemDocument, MediaType, Serie},
         specimen::Specimen,
@@ -177,7 +178,7 @@ impl Repository {
     async fn get_item_authors(&self, item_id: i64) -> AppResult<Vec<Author>> {
         let rows = sqlx::query(
             r#"
-            SELECT a.id, a.lastname, a.firstname, a.bio, a.notes, ia.role as function
+            SELECT a.id, a.lastname, a.firstname, a.bio, a.notes, ia.function
             FROM item_authors ia
             JOIN authors a ON a.id = ia.author_id
             WHERE ia.item_id = $1
@@ -197,7 +198,7 @@ impl Repository {
                 firstname: r.get("firstname"),
                 bio: r.get::<Option<String>, _>("bio"),
                 notes: r.get::<Option<String>, _>("notes"),
-                function: r.get::<Option<String>, _>("function"),
+                function: r.get::<Option<Function>, _>("function"),
             })
             .collect())
     }
@@ -216,7 +217,7 @@ impl Repository {
                            'firstname', a.firstname,
                            'bio', a.bio,
                            'notes', a.notes,
-                           'function', ia.role
+                           'function', ia.function
                        )
                        FROM item_authors ia
                        JOIN authors a ON a.id = ia.author_id
@@ -289,8 +290,8 @@ impl Repository {
         }
 
         // audience_type (exact)
-        if let Some(at) = query.audience_type {
-            params.push(Param::I16(at));
+        if let Some(ref at) = query.audience_type {
+            params.push(Param::Text(at.clone()));
             where_parts.push(format!("i.audience_type = ${}", params.len()));
         }
 
@@ -401,7 +402,7 @@ impl Repository {
                            'firstname', a.firstname,
                            'bio', a.bio,
                            'notes', a.notes,
-                           'function', ia.role
+                           'function', ia.function
                        )
                        FROM item_authors ia
                        JOIN authors a ON a.id = ia.author_id
@@ -491,7 +492,7 @@ impl Repository {
                            'firstname', a.firstname,
                            'bio', a.bio,
                            'notes', a.notes,
-                           'function', ia.role
+                           'function', ia.function
                        )
                        FROM item_authors ia
                        JOIN authors a ON a.id = ia.author_id
@@ -642,7 +643,7 @@ impl Repository {
                            'firstname', a.firstname,
                            'bio', a.bio,
                            'notes', a.notes,
-                           'function', ia.role
+                           'function', ia.function
                        )
                        FROM item_authors ia
                        JOIN authors a ON a.id = ia.author_id
@@ -889,9 +890,9 @@ impl Repository {
 
             sqlx::query(
                 r#"
-                INSERT INTO item_authors (item_id, author_id, role, author_type, position)
+                INSERT INTO item_authors (item_id, author_id, function, author_type, position)
                 VALUES ($1, $2, $3, $4, $5)
-                ON CONFLICT (item_id, author_id, role) DO UPDATE SET position = $5
+                ON CONFLICT (item_id, author_id, function) DO UPDATE SET position = $5
                 "#,
             )
             .bind(item_id)

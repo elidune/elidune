@@ -18,7 +18,7 @@ pub use crate::models::item::MeiliItemDocument;
 pub struct SearchFilters {
     pub media_type: Option<String>,
     pub lang: Option<String>,
-    pub audience_type: Option<i16>,
+    pub audience_type: Option<String>,
     pub archive: Option<bool>,
 }
 
@@ -191,8 +191,8 @@ fn build_filter_expr(filters: &SearchFilters) -> Option<String> {
     if let Some(ref lang) = filters.lang {
         parts.push(format!("lang = \"{}\"", lang.replace('"', "\\\"")));
     }
-    if let Some(at) = filters.audience_type {
-        parts.push(format!("audience_type = {}", at));
+    if let Some(ref at) = filters.audience_type {
+        parts.push(format!("audience_type = \"{}\"", at.replace('"', "\\\"")));
     }
     match filters.archive {
         Some(true) => parts.push("is_archived = true".to_string()),

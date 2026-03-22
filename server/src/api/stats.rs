@@ -138,8 +138,8 @@ pub struct StatsQuery {
     pub start_date: Option<String>,
     /// End of time interval (ISO 8601 date); used as reference date when year is not set
     pub end_date: Option<String>,
-    /// Filter by public type (e.g. 97 = adult, 106 = youth)
-    pub public_type: Option<i16>,
+    /// Filter by public type (e.g. "adult", "juvenile")
+    pub public_type: Option<String>,
     /// Filter by media type (e.g. 'b', 'bc', 'p')
     pub media_type: Option<MediaType>,
 }
@@ -167,8 +167,8 @@ pub struct LoanStatsQuery {
     pub interval: Option<Interval>,
     /// Filter by media type (e.g., 'b', 'bc', 'amc', 'vd')
     pub media_type: Option<MediaType>,
-    /// Filter by audience / public type (e.g., 97 = adult, 106 = children)
-    pub public_type: Option<i16>,
+    /// Filter by audience / public type (e.g., "adult", "juvenile", "children")
+    pub public_type: Option<String>,
     /// Filter by specific user ID (admin only)
     pub user_id: Option<i64>,
 }
@@ -450,7 +450,7 @@ pub async fn get_loan_stats(
         end_date,
         interval,
         query.media_type.as_ref(),
-        query.public_type,
+        query.public_type.as_deref(),
         user_id,
     ).await?;
 

@@ -7,8 +7,28 @@ use z3950_rs::marc_rs::record::{
 };
 
 use crate::models::{
-    Language, MediaType, author::Author, item::{Collection, Edition, Isbn, Item, Serie}, specimen::Specimen
+    Language, MediaType,
+    author::{Author, Function},
+    item::{AudienceType, Collection, Edition, Isbn, Item, Serie},
+    specimen::Specimen,
 };
+
+impl From<z3950_rs::marc_rs::record::Relator> for Function {
+    fn from(r: z3950_rs::marc_rs::record::Relator) -> Self {
+        use z3950_rs::marc_rs::record::Relator as R;
+        match r {
+            R::Author => Function::Author,
+            R::Illustrator => Function::Illustrator,
+            R::Translator => Function::Translator,
+            R::Editor => Function::ScientificAdvisor,
+            R::PrefaceWriter => Function::PrefaceWriter,
+            R::Photographer => Function::Photographer,
+            R::Publisher => Function::PublishingDirector,
+            R::Composer => Function::Composer,
+            R::Other(_) => Function::Author,
+        }
+    }
+}
 
 // ── Helpers (local) ──────────────────────────────────────────────────────────
 
@@ -128,6 +148,25 @@ impl From<Language> for z3950_rs::marc_rs::record::Language {
     }
 }
 
+impl From<z3950_rs::marc_rs::record::TargetAudience> for AudienceType {
+    fn from(v: z3950_rs::marc_rs::record::TargetAudience) -> Self {
+        use z3950_rs::marc_rs::record::TargetAudience as T;
+        match v {
+            T::Juvenile => AudienceType::Juvenile,
+            T::Preschool => AudienceType::Preschool,
+            T::Primary => AudienceType::Primary,
+            T::Children => AudienceType::Children,
+            T::YoungAdult => AudienceType::YoungAdult,
+            T::AdultSerious => AudienceType::AdultSerious,
+            T::Adult => AudienceType::Adult,
+            T::General => AudienceType::General,
+            T::Specialized => AudienceType::Specialized,
+            T::Unknown => AudienceType::Unknown,
+            T::Other(s) => AudienceType::Other(s),
+        }
+    }
+}
+
 #[allow(dead_code)]
 fn sync_note<F>(notes: &mut Vec<Note>, matcher: F, new_note: Note)
 where
@@ -175,7 +214,7 @@ impl From<MarcRecord> for Item {
                         firstname: person.forename.clone(),
                         bio: None,
                         notes: None,
-                        function: person.relator.clone(),
+                        function: person.relator.clone().map(Function::from),
                     }),
                     _ => None,
                 })
@@ -218,11 +257,7 @@ impl From<MarcRecord> for Item {
         let lang_orig = record.lang_original().map(Language::from);
 
         // --- Audience type ---
-        let audience_type: Option<i16> = match record.coded.target_audience {
-            Some(z3950_rs::marc_rs::record::TargetAudience::Juvenile) => Some(106),
-            Some(z3950_rs::marc_rs::record::TargetAudience::General) => Some(97),
-            _ => None,
-        };
+        let audience_type: Option<AudienceType> = record.coded.target_audience.clone().map(AudienceType::from);
 
         // --- Series / collection from description / links ---
         let mut serie: Option<Serie> = None;

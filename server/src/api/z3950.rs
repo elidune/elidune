@@ -36,7 +36,7 @@ pub struct Z3950SearchResponse {
     /// Total results found
     pub total: i32,
     /// List of found items
-    pub items: Vec<ItemShort>,
+    pub items: Vec<Item>,
     /// Source server name
     pub source: String,
 }

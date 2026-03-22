@@ -53,7 +53,7 @@ impl Z3950Service {
     }
 
     /// Search remote catalogs via Z39.50
-    pub async fn search(&self, query: &Z3950SearchQuery) -> AppResult<(Vec<ItemShort>, i32, String)> {
+    pub async fn search(&self, query: &Z3950SearchQuery) -> AppResult<(Vec<Item>, i32, String)> {
         tracing::info!("Z39.50 search started");
         tracing::debug!("Search params - query: {}", query.query);
 
@@ -126,7 +126,7 @@ impl Z3950Service {
                                     tracing::debug!("Cached record as remote_item id={:?}", id);
                                     let mut item = Item::from(record);
                                     item.id = Some(id.parse::<i64>().unwrap_or(0));
-                                    all_items.push(item.into());
+                                    all_items.push(item);
                                 }
                                 Err(e) => {
                                     tracing::warn!("Failed to cache record {}: {}", rec_idx + 1, e);

@@ -112,7 +112,7 @@ impl CatalogService {
                 let filters = SearchFilters {
                     media_type: query.media_type.clone(),
                     lang: query.lang.clone(),
-                    audience_type: query.audience_type,
+                    audience_type: query.audience_type.clone(),
                     archive: query.archive,
                 };
                 let page = query.page.unwrap_or(1).max(1);
