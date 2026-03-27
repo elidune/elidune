@@ -855,7 +855,7 @@ impl StatsService {
         .fetch_one(pool)
         .await?;
 
-        // Entered specimens in period
+        // Entered items in period
         let entered_items: i64 = 
             sqlx::query_scalar(
                 "SELECT COUNT(*) FROM items WHERE created_at >= $1 AND created_at <= $2"
@@ -865,7 +865,7 @@ impl StatsService {
             .fetch_one(pool)
             .await?;
 
-        // Archived specimens in period
+        // Archived items in period
         let archived_items: i64 = 
             sqlx::query_scalar(
                 "SELECT COUNT(*) FROM items WHERE archived_at >= $1 AND archived_at <= $2"
@@ -875,7 +875,7 @@ impl StatsService {
             .fetch_one(pool)
             .await?;
 
-        // Loans in period (active + archived via specimens)
+        // Loans in period (active + archived via items)
         let total_loans: i64 = 
             sqlx::query_scalar(
                 r#"SELECT COUNT(*) FROM (
@@ -916,7 +916,7 @@ impl StatsService {
                             COUNT(*) FILTER (WHERE sp.archived_at >= $1 AND sp.archived_at <= $2) as archived_items
                         FROM items sp
                         LEFT JOIN sources src ON sp.source_id = src.id
-                        JOIN items i ON sp.item_id = i.id
+                        JOIN biblios i ON sp.biblio_id = i.id
                         GROUP BY src.id, src.name, i.media_type, i.audience_type
                         "#
                     )
@@ -974,7 +974,7 @@ impl StatsService {
                             COUNT(*) FILTER (WHERE sp.archived_at >= $1 AND sp.archived_at <= $2) as archived_items
                         FROM items sp
                         LEFT JOIN sources src ON sp.source_id = src.id
-                        JOIN items i ON sp.item_id = i.id
+                        JOIN biblios i ON sp.biblio_id = i.id
                         GROUP BY src.id, src.name, i.media_type
                         "#
                     )
@@ -1023,7 +1023,7 @@ impl StatsService {
                             COUNT(*) FILTER (WHERE sp.archived_at >= $1 AND sp.archived_at <= $2) as archived_items
                         FROM items sp
                         LEFT JOIN sources src ON sp.source_id = src.id
-                        JOIN items i ON sp.item_id = i.id
+                        JOIN biblios i ON sp.biblio_id = i.id
                         GROUP BY src.id, src.name, i.audience_type
                         "#
                     )
@@ -1111,7 +1111,7 @@ impl StatsService {
                             COUNT(*) FILTER (WHERE sp.created_at >= $1 AND sp.created_at <= $2) as entered_items,
                             COUNT(*) FILTER (WHERE sp.archived_at >= $1 AND sp.archived_at <= $2) as archived_items
                         FROM items sp
-                        JOIN items i ON sp.item_id = i.id
+                        JOIN biblios i ON sp.biblio_id = i.id
                         GROUP BY i.media_type, i.audience_type
                         "#
                     )
@@ -1156,7 +1156,7 @@ impl StatsService {
                             COUNT(*) FILTER (WHERE sp.created_at >= $1 AND sp.created_at <= $2) as entered_items,
                             COUNT(*) FILTER (WHERE sp.archived_at >= $1 AND sp.archived_at <= $2) as archived_items
                         FROM items sp
-                        JOIN items i ON sp.item_id = i.id
+                        JOIN biblios i ON sp.biblio_id = i.id
                         GROUP BY i.media_type
                         ORDER BY active_items DESC
                         "#
@@ -1191,7 +1191,7 @@ impl StatsService {
                         COUNT(*) FILTER (WHERE sp.created_at >= $1 AND sp.created_at <= $2) as entered_items,
                         COUNT(*) FILTER (WHERE sp.archived_at >= $1 AND sp.archived_at <= $2) as archived_items
                     FROM items sp
-                    JOIN items i ON sp.item_id = i.id
+                    JOIN biblios i ON sp.biblio_id = i.id
                     GROUP BY i.audience_type
                     ORDER BY active_items DESC
                     "#
@@ -1215,7 +1215,7 @@ impl StatsService {
 
         // --- Merge loan counts into breakdown structures ---
         // All loans (active + archived) grouped by (source_id, media_type, public_type)
-        // via specimens for both tables.
+        // via items for both tables.
         
             let loan_rows = sqlx::query(
                 r#"
@@ -1229,8 +1229,8 @@ impl StatsService {
                     UNION ALL
                     SELECT item_id, date FROM loans_archives
                 ) all_loans
-                JOIN specimens sp ON all_loans.item_id = sp.id
-                JOIN items i ON sp.item_id = i.id
+                JOIN items sp ON all_loans.item_id = sp.id
+                JOIN biblios i ON sp.biblio_id = i.id
                 WHERE all_loans.date >= $1 AND all_loans.date <= $2
                 GROUP BY sp.source_id, i.media_type, i.audience_type
                 "#

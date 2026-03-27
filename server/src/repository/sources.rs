@@ -22,15 +22,15 @@ pub trait SourcesRepository: Send + Sync {
         name: Option<&str>,
         default: Option<bool>,
     ) -> AppResult<Source>;
-    async fn sources_count_active_specimens(&self, source_id: i64) -> AppResult<i64>;
+    async fn sources_count_active_items(&self, source_id: i64) -> AppResult<i64>;
     async fn sources_archive(&self, id: i64) -> AppResult<Source>;
     async fn sources_create(&self, name: &str, default: Option<bool>) -> AppResult<Source>;
-    async fn sources_reassign_specimens(
+    async fn sources_reassign_items(
         &self,
         old_source_ids: &[i64],
         new_source_id: i64,
     ) -> AppResult<i64>;
-    async fn sources_reassign_items(
+    async fn sources_reassign_biblios(
         &self,
         old_source_ids: &[i64],
         new_source_id: i64,
@@ -56,8 +56,8 @@ impl SourcesRepository for Repository {
     async fn sources_update(&self, id: i64, name: Option<&str>, default: Option<bool>) -> AppResult<Source> {
         Repository::sources_update(self, id, name, default).await
     }
-    async fn sources_count_active_specimens(&self, source_id: i64) -> AppResult<i64> {
-        Repository::sources_count_active_specimens(self, source_id).await
+    async fn sources_count_active_items(&self, source_id: i64) -> AppResult<i64> {
+        Repository::sources_count_active_items(self, source_id).await
     }
     async fn sources_archive(&self, id: i64) -> AppResult<Source> {
         Repository::sources_archive(self, id).await
@@ -65,11 +65,11 @@ impl SourcesRepository for Repository {
     async fn sources_create(&self, name: &str, default: Option<bool>) -> AppResult<Source> {
         Repository::sources_create(self, name, default).await
     }
-    async fn sources_reassign_specimens(&self, old_source_ids: &[i64], new_source_id: i64) -> AppResult<i64> {
-        Repository::sources_reassign_specimens(self, old_source_ids, new_source_id).await
-    }
     async fn sources_reassign_items(&self, old_source_ids: &[i64], new_source_id: i64) -> AppResult<i64> {
         Repository::sources_reassign_items(self, old_source_ids, new_source_id).await
+    }
+    async fn sources_reassign_biblios(&self, old_source_ids: &[i64], new_source_id: i64) -> AppResult<i64> {
+        Repository::sources_reassign_biblios(self, old_source_ids, new_source_id).await
     }
     async fn sources_archive_many(&self, ids: &[i64]) -> AppResult<()> {
         Repository::sources_archive_many(self, ids).await
@@ -199,7 +199,7 @@ impl Repository {
     }
 
     /// Count non-archived items (physical copies) linked to a source
-    pub async fn sources_count_active_specimens(&self, source_id: i64) -> AppResult<i64> {
+    pub async fn sources_count_active_items(&self, source_id: i64) -> AppResult<i64> {
         self.biblios_count_items_for_source(source_id).await
     }
 
@@ -249,7 +249,7 @@ impl Repository {
     }
 
     /// Reassign all physical items from given source IDs to a new source ID
-    pub async fn sources_reassign_specimens(
+    pub async fn sources_reassign_items(
         &self,
         old_source_ids: &[i64],
         new_source_id: i64,
@@ -258,7 +258,7 @@ impl Repository {
     }
 
     /// Reassign all biblios from given source IDs to a new source ID (no-op: sources attach to items)
-    pub async fn sources_reassign_items(
+    pub async fn sources_reassign_biblios(
         &self,
         old_source_ids: &[i64],
         new_source_id: i64,

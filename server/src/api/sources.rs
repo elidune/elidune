@@ -16,6 +16,18 @@ use crate::{
 
 use super::{AuthenticatedUser, ClientIp};
 
+
+
+/// Build the sources routes for this domain.
+pub fn router() -> axum::Router<crate::AppState> {
+    use axum::routing::{get, post, put};
+    axum::Router::new()
+        .route("/sources", get(list_sources).post(create_source))
+        .route("/sources/merge", post(merge_sources))
+        .route("/sources/:id", get(get_source).put(update_source))
+        .route("/sources/:id/archive", post(archive_source))
+}
+
 /// Query parameters for listing sources
 #[derive(Debug, Deserialize, IntoParams, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -134,7 +146,7 @@ pub async fn update_source(
     Ok(Json(source))
 }
 
-/// Archive a source (fails if non-archived specimens are still linked)
+/// Archive a source (fails if non-archived items are still linked)
 #[utoipa::path(
     post,
     path = "/sources/{id}/archive",
@@ -143,7 +155,7 @@ pub async fn update_source(
     params(("id" = i32, Path, description = "Source ID")),
     responses(
         (status = 200, description = "Source archived", body = Source),
-        (status = 422, description = "Cannot archive: active specimens linked")
+        (status = 422, description = "Cannot archive: active items linked")
     )
 )]
 pub async fn archive_source(
@@ -183,14 +195,4 @@ pub async fn merge_sources(
     let source = state.services.sources.merge(&data).await?;
     state.services.audit.log(audit::event::SOURCE_MERGED, Some(claims.user_id), Some("source"), Some(source.id), ip, Some((&data, &source)));
     Ok((StatusCode::CREATED, Json(source)))
-}
-
-/// Build the sources routes for this domain.
-pub fn router() -> axum::Router<crate::AppState> {
-    use axum::routing::{get, post, put};
-    axum::Router::new()
-        .route("/sources", get(list_sources).post(create_source))
-        .route("/sources/merge", post(merge_sources))
-        .route("/sources/:id", get(get_source).put(update_source))
-        .route("/sources/:id/archive", post(archive_source))
 }

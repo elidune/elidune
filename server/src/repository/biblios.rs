@@ -1524,7 +1524,7 @@ impl Repository {
     }
 
     // =========================================================================
-    // ITEMS (physical copies — formerly specimens)
+    // ITEMS (physical copies)
     // =========================================================================
 
     /// Get items (physical copies) for a biblio (excludes archived items)

@@ -52,7 +52,7 @@ pub struct BatchReturnResponse {
 
 /// Batch return by barcodes — for scanner return stations
 ///
-/// Returns all specimens in the list. Per-barcode errors are collected
+/// Returns all items in the list. Per-barcode errors are collected
 /// and returned inline (partial success is possible).
 #[utoipa::path(
     post,
@@ -125,7 +125,7 @@ pub struct BatchCreateLoanItem {
     pub barcode: String,
 }
 
-/// Batch create loans request — assign multiple specimens to the same user
+/// Batch create loans request — assign multiple items to the same user
 #[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct BatchCreateLoansRequest {

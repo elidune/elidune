@@ -61,7 +61,7 @@ impl SourcesService {
             .await
     }
 
-    /// Archive a source (fails if non-archived specimens are linked)
+    /// Archive a source (fails if non-archived items are linked)
     pub async fn archive(&self, id: i64) -> AppResult<Source> {
         // Verify source exists
         let source = self.repository.sources_get_by_id(id).await?;
@@ -73,14 +73,14 @@ impl SourcesService {
             ));
         }
 
-        // Check for non-archived specimens
+        // Check for non-archived items
         let active_count = self
             .repository
-            .sources_count_active_specimens(id)
+            .sources_count_active_items(id)
             .await?;
         if active_count > 0 {
             return Err(AppError::BusinessRule(format!(
-                "Cannot archive source: {} non-archived specimen(s) still linked",
+                "Cannot archive source: {} non-archived item(s) still linked",
                 active_count
             )));
         }
@@ -91,7 +91,7 @@ impl SourcesService {
     /// Merge multiple sources into a new one.
     ///
     /// All three writes (create, reassign, archive) run inside a single transaction so
-    /// a failure cannot leave specimens pointing at a non-existent or wrong source.
+    /// a failure cannot leave items pointing at a non-existent or wrong source.
     pub async fn merge(&self, data: &MergeSources) -> AppResult<Source> {
         if data.name.trim().is_empty() {
             return Err(AppError::Validation(
@@ -109,7 +109,6 @@ impl SourcesService {
             self.repository.sources_get_by_id(id).await?;
         }
 
-        let now = chrono::Utc::now();
         let name = data.name.trim();
         let old_ids = &data.source_ids;
 
@@ -123,21 +122,11 @@ impl SourcesService {
         .fetch_one(&mut *tx)
         .await?;
 
-        // Reassign all specimens from the old sources.
-        sqlx::query("UPDATE specimens SET source_id = $1 WHERE source_id = ANY($2)")
-            .bind(new_id)
-            .bind(old_ids.as_slice())
-            .execute(&mut *tx)
-            .await?;
+        // Reassign all items from the old sources.
+        self.repository.sources_reassign_items(old_ids, new_id).await?;
 
         // Archive the old sources.
-        sqlx::query(
-            "UPDATE sources SET is_archive = 1, archived_at = $1 WHERE id = ANY($2)",
-        )
-        .bind(now)
-        .bind(old_ids.as_slice())
-        .execute(&mut *tx)
-        .await?;
+        self.repository.sources_archive_many(old_ids).await?;
 
         tx.commit().await?;
 
