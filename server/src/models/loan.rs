@@ -49,6 +49,13 @@ pub struct LoanDetails {
     pub is_overdue: bool,
 }
 
+/// Result of [`crate::repository::Repository::loans_return`]: archived loan details and optional hold advanced to `ready`.
+#[derive(Debug, Clone)]
+pub struct LoanReturnOutcome {
+    pub details: LoanDetails,
+    pub readied_hold: Option<crate::models::hold::Hold>,
+}
+
 /// Create loan request
 #[serde_as]
 #[derive(Debug, Deserialize)]

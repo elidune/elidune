@@ -1119,6 +1119,53 @@ impl Repository {
         Ok(biblios.into_iter().map(|(_, biblio)| biblio).collect())
     }
 
+    /// Batch-load [`BiblioShort`] metadata (author, title, …) with **empty** `items`.
+    /// Used when items are attached separately (e.g. one copy per hold).
+    #[tracing::instrument(skip(self), err)]
+    pub async fn biblios_get_short_metadata_map_by_biblio_ids(
+        &self,
+        biblio_ids: &[i64],
+    ) -> AppResult<HashMap<i64, BiblioShort>> {
+        if biblio_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let rows: Vec<BiblioShortRow> = sqlx::query_as(
+            r#"
+            SELECT b.id, b.media_type, b.isbn, b.title,
+                   b.publication_date AS date, 0::smallint AS status,
+                   1::smallint AS is_local, b.is_valid, b.archived_at,
+                   (
+                       SELECT jsonb_build_object(
+                           'id', a.id::text,
+                           'lastname', a.lastname,
+                           'firstname', a.firstname,
+                           'bio', a.bio,
+                           'notes', a.notes,
+                           'function', ba.function
+                       )
+                       FROM biblio_authors ba
+                       JOIN authors a ON a.id = ba.author_id
+                       WHERE ba.biblio_id = b.id
+                       ORDER BY ba.position LIMIT 1
+                   ) AS author
+            FROM biblios b
+            WHERE b.id = ANY($1)
+            "#,
+        )
+        .bind(biblio_ids)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|r| {
+                let mut short = BiblioShort::from(r);
+                short.items = Vec::new();
+                (short.id, short)
+            })
+            .collect())
+    }
+
     // =========================================================================
     // CREATE
     // =========================================================================
@@ -1785,8 +1832,10 @@ impl Repository {
             }
         }
 
+        self.holds_cancel_active_for_item(id).await?;
+
         sqlx::query(
-            "UPDATE items SET archived_at = $1, updated_at = $1, barcode = CONCAT('ARCH_', $2, '_', barcode) WHERE biblio_id = $3 AND archived_at IS NULL"
+            "UPDATE items SET archived_at = $1, updated_at = $1, barcode = CONCAT('ARCH_', $2, '_', barcode) WHERE id = $3 AND archived_at IS NULL"
         )
         .bind(now)
         .bind(now.format("%Y%m%d%H%M%S").to_string())

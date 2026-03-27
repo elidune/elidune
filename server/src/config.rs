@@ -18,6 +18,12 @@ pub struct ServerConfig {
     /// Burst size for auth endpoint rate limiter (default: 2).
     #[serde(default)]
     pub auth_rate_burst: Option<u32>,
+    /// Sustained requests per second per IP on public (OPAC/covers) endpoints (default: 30).
+    #[serde(default)]
+    pub public_rate_per_second: Option<u64>,
+    /// Burst size for public endpoint rate limiter (default: 100).
+    #[serde(default)]
+    pub public_rate_burst: Option<u32>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -154,6 +160,30 @@ impl Default for AuditConfig {
     }
 }
 
+fn default_hold_ready_expiry_days() -> u32 {
+    7
+}
+
+/// Hold behaviour (pickup window when a copy becomes available).
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct HoldsConfig {
+    /// Days a `ready` hold stays valid for pickup (`expires_at` after notification).
+    #[serde(default = "default_hold_ready_expiry_days")]
+    pub ready_expiry_days: u32,
+    /// Whether this section can be overridden via the DB `settings` table and admin API
+    #[serde(default)]
+    pub overridable: bool,
+}
+
+impl Default for HoldsConfig {
+    fn default() -> Self {
+        Self {
+            ready_expiry_days: 7,
+            overridable: false,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct MeilisearchConfig {
     /// Meilisearch server URL, e.g. "http://meilisearch:7700"
@@ -177,6 +207,9 @@ pub struct AppConfig {
     pub reminders: RemindersConfig,
     #[serde(default)]
     pub audit: AuditConfig,
+    /// Holds / physical item queue. Accepts legacy TOML section `[reservations]`.
+    #[serde(default, alias = "reservations")]
+    pub holds: HoldsConfig,
     #[serde(default)]
     pub meilisearch: Option<MeilisearchConfig>,
 }
@@ -199,6 +232,8 @@ impl Default for ServerConfig {
             cors_origins: None,
             auth_rate_per_second: None,
             auth_rate_burst: None,
+            public_rate_per_second: None,
+            public_rate_burst: None,
         }
     }
 }

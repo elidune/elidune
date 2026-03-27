@@ -9,7 +9,7 @@ use regex::Regex;
 use serde_json::Value;
 
 use crate::{
-    config::{AppConfig, AuditConfig, EmailConfig, LoggingConfig, RemindersConfig},
+    config::{AppConfig, AuditConfig, EmailConfig, HoldsConfig, LoggingConfig, RemindersConfig},
     error::{AppError, AppResult},
 };
 
@@ -24,6 +24,7 @@ struct DynamicConfigInner {
     pub logging: LoggingConfig,
     pub reminders: RemindersConfig,
     pub audit: AuditConfig,
+    pub holds: HoldsConfig,
 }
 
 /// Thread-safe, runtime-mutable configuration.
@@ -44,6 +45,7 @@ impl DynamicConfig {
                 logging: config.logging.clone(),
                 reminders: config.reminders.clone(),
                 audit: config.audit.clone(),
+                holds: config.holds.clone(),
             }),
             file_config: config,
             log_level_reload: RwLock::new(None),
@@ -83,6 +85,10 @@ impl DynamicConfig {
         self.inner.read().unwrap().audit.clone()
     }
 
+    pub fn read_holds(&self) -> HoldsConfig {
+        self.inner.read().unwrap().holds.clone()
+    }
+
     /// Returns true if the given section is marked overridable in the file config.
     pub fn is_overridable(&self, section: &str) -> bool {
         match section {
@@ -90,6 +96,7 @@ impl DynamicConfig {
             "logging" => self.file_config.logging.overridable,
             "reminders" => self.file_config.reminders.overridable,
             "audit" => self.file_config.audit.overridable,
+            "holds" => self.file_config.holds.overridable,
             _ => false,
         }
     }
@@ -131,6 +138,12 @@ impl DynamicConfig {
                 validate_audit_config(&cfg)?;
                 self.inner.write().unwrap().audit = cfg;
             }
+            "holds" => {
+                let cfg: HoldsConfig = serde_json::from_value(value)
+                    .map_err(|e| AppError::BadRequest(format!("Invalid holds config: {}", e)))?;
+                validate_holds_config(&cfg)?;
+                self.inner.write().unwrap().holds = cfg;
+            }
             _ => {
                 return Err(AppError::NotFound(format!(
                     "Unknown config section '{}'",
@@ -158,6 +171,9 @@ impl DynamicConfig {
             }
             "reminders" => self.inner.write().unwrap().reminders = self.file_config.reminders.clone(),
             "audit" => self.inner.write().unwrap().audit = self.file_config.audit.clone(),
+            "holds" => {
+                self.inner.write().unwrap().holds = self.file_config.holds.clone()
+            }
             _ => {
                 return Err(AppError::NotFound(format!(
                     "Unknown config section '{}'",
@@ -175,6 +191,7 @@ impl DynamicConfig {
             "logging" => serde_json::to_value(self.read_logging()),
             "reminders" => serde_json::to_value(self.read_reminders()),
             "audit" => serde_json::to_value(self.read_audit()),
+            "holds" => serde_json::to_value(self.read_holds()),
             _ => return Err(AppError::NotFound(format!("Unknown config section '{}'", section))),
         };
         val.map_err(|e| AppError::Internal(format!("Failed to serialize config: {}", e)))
@@ -187,6 +204,7 @@ impl DynamicConfig {
         if self.file_config.logging.overridable { sections.push("logging"); }
         if self.file_config.reminders.overridable { sections.push("reminders"); }
         if self.file_config.audit.overridable { sections.push("audit"); }
+        if self.file_config.holds.overridable { sections.push("holds"); }
         sections
     }
 }
@@ -269,6 +287,15 @@ fn validate_audit_config(cfg: &AuditConfig) -> AppResult<()> {
     if cfg.retention_days < 1 {
         return Err(AppError::BadRequest(
             "audit.retention_days must be at least 1".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_holds_config(cfg: &HoldsConfig) -> AppResult<()> {
+    if cfg.ready_expiry_days < 1 || cfg.ready_expiry_days > 365 {
+        return Err(AppError::BadRequest(
+            "holds.ready_expiry_days must be between 1 and 365".to_string(),
         ));
     }
     Ok(())

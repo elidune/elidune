@@ -2,8 +2,6 @@
 
 pub mod audit;
 pub mod catalog;
-pub mod email;
-pub mod email_templates;
 pub mod equipment;
 pub mod events;
 pub mod fines;
@@ -14,7 +12,7 @@ pub mod marc;
 pub mod public_types;
 pub mod redis;
 pub mod reminders;
-pub mod reservations;
+pub mod holds;
 pub mod schedules;
 pub mod scheduler;
 pub mod search;
@@ -25,6 +23,10 @@ pub mod task_manager;
 pub mod users;
 pub mod visitor_counts;
 pub mod z3950;
+
+// Re-export for existing `services::email` / `services::email_templates` paths
+pub use crate::email as email;
+pub use crate::email_templates as email_templates;
 
 use std::sync::Arc;
 
@@ -37,7 +39,7 @@ use crate::{
     repository::{
         BibliosRepository, CatalogEntitiesRepository, EquipmentRepository, EventsServiceRepository,
         FinesRepository, InventoryRepository, LoansRepository, LoansServiceRepository,
-        PublicTypesRepository, Repository, ReservationsRepository, SchedulesRepository,
+        PublicTypesRepository, Repository, HoldsRepository, SchedulesRepository,
         SourcesRepository, UsersRepository, VisitorCountsRepository,
     },
 };
@@ -58,7 +60,7 @@ pub struct Services {
     pub public_types: public_types::PublicTypesService,
     pub redis: redis::RedisService,
     pub reminders: reminders::RemindersService,
-    pub reservations: reservations::ReservationsService,
+    pub holds: holds::HoldsService,
     pub schedules: schedules::SchedulesService,
     pub search: Option<Arc<search::MeilisearchService>>,
     pub settings: settings::SettingsService,
@@ -86,6 +88,7 @@ impl Services {
         redis_config: RedisConfig,
         redis_service: redis::RedisService,
         meilisearch_config: Option<MeilisearchConfig>,
+        email_service: Arc<crate::email::EmailService>,
     ) -> AppResult<Self> {
         let pool = repository.pool.clone();
 
@@ -112,13 +115,13 @@ impl Services {
 
         let marc_service = marc::MarcService::new(catalog.clone(), redis_service.clone());
         let audit_service = audit::AuditService::new(pool.clone());
-        let email_service = email::EmailService::new(dynamic_config.clone());
 
         let loans_repo: Arc<dyn LoansServiceRepository> = repo.clone();
         let loans_repo_only: Arc<dyn LoansRepository> = repo.clone();
+        let email = email_service.as_ref().clone();
         let reminders_service = reminders::RemindersService::new(
             loans_repo_only,
-            email_service.clone(),
+            email.clone(),
             audit_service.clone(),
             dynamic_config.clone(),
         );
@@ -127,11 +130,11 @@ impl Services {
             pool,
             audit: audit_service.clone(),
             catalog: catalog.clone(),
-            email: email_service.clone(),
+            email: email.clone(),
             equipment: equipment::EquipmentService::new(repo.clone() as Arc<dyn EquipmentRepository>),
             events: events::EventsService::new(
                 repo.clone() as Arc<dyn EventsServiceRepository>,
-                email_service.clone(),
+                email.clone(),
                 audit_service.clone(),
                 dynamic_config.clone(),
             ),
@@ -143,9 +146,7 @@ impl Services {
             public_types: public_types::PublicTypesService::new(repo.clone() as Arc<dyn PublicTypesRepository>),
             redis: redis_service.clone(),
             reminders: reminders_service,
-            reservations: reservations::ReservationsService::new(
-                repo.clone() as Arc<dyn ReservationsRepository>,
-            ),
+            holds: holds::HoldsService::new(repo.clone() as Arc<dyn HoldsRepository>),
             schedules: schedules::SchedulesService::new(repo.clone() as Arc<dyn SchedulesRepository>),
             search: search_service,
             settings: settings::SettingsService::new(repository.clone()),

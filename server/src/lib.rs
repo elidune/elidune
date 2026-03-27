@@ -10,13 +10,17 @@ use tokio::sync::{broadcast, Notify};
 pub mod api;
 pub mod config;
 pub mod dynamic_config;
+pub mod email;
+pub mod email_templates;
 pub mod error;
 pub mod marc;
 pub mod models;
 pub mod repository;
+pub mod hold_email;
 pub mod services;
 
 pub use config::AppConfig;
+pub use email::EmailService;
 pub use dynamic_config::DynamicConfig;
 pub use error::{AppError, AppResult};
 

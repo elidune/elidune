@@ -368,6 +368,26 @@ CREATE INDEX IF NOT EXISTS idx_loans_archives_item_id ON loans_archives(item_id)
 CREATE INDEX IF NOT EXISTS idx_loans_archives_user     ON loans_archives(user_id);
 
 -- =============================================================================
+-- HOLDS (physical item queue)
+-- =============================================================================
+
+CREATE TABLE IF NOT EXISTS holds (
+    id           BIGINT       PRIMARY KEY,
+    user_id      BIGINT       NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    item_id      BIGINT       NOT NULL REFERENCES items (id) ON DELETE CASCADE,
+    created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    notified_at  TIMESTAMPTZ,
+    expires_at   TIMESTAMPTZ,
+    status       VARCHAR(32)  NOT NULL DEFAULT 'pending',
+    position     INTEGER      NOT NULL DEFAULT 1,
+    notes        TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_holds_user_id ON holds (user_id);
+CREATE INDEX IF NOT EXISTS idx_holds_item_id ON holds (item_id);
+CREATE INDEX IF NOT EXISTS idx_holds_item_status ON holds (item_id, status);
+
+-- =============================================================================
 -- LOANS_SETTINGS
 -- =============================================================================
 
@@ -636,6 +656,7 @@ SELECT
     $$
     {
       "entity": "loans",
+      "unionWith": ["loans_archives"],
       "joins": [],
       "select": [],
       "filters": [],
@@ -662,6 +683,7 @@ SELECT
     $$
     {
       "entity": "loans",
+      "unionWith": ["loans_archives"],
       "joins": ["users.public_types", "items.biblios"],
       "select": [
         {"field": "public_types.label", "alias": "audienceType"},
@@ -693,6 +715,7 @@ SELECT
     $$
     {
       "entity": "loans",
+      "unionWith": ["loans_archives"],
       "joins": [],
       "select": [],
       "filters": [],
@@ -803,6 +826,7 @@ SELECT
     $$
     {
       "entity": "loans",
+      "unionWith": ["loans_archives"],
       "joins": [],
       "select": [],
       "filters": [],
@@ -944,6 +968,7 @@ SELECT
     $$
     {
       "entity": "loans",
+      "unionWith": ["loans_archives"],
       "joins": ["items", "items.biblios", "items.sources"],
       "select": [
         {"field": "biblios.media_type", "alias": "mediaType"},

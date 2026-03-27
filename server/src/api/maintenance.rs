@@ -134,7 +134,7 @@ pub async fn run_maintenance(
         TaskKind::Maintenance,
         claims.user_id,
         move |handle| async move {
-            let repo = Repository::new(pool);
+            let repo = Repository::new(pool, None, None);
             let total = req.actions.len();
             let mut reports = Vec::with_capacity(total);
 

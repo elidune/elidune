@@ -145,7 +145,7 @@ Request — `ChangePasswordRequest`:
 }
 ```
 
-### `UserShort` (embedded in loans, reservations, etc.)
+### `UserShort` (embedded in loans, holds, etc.)
 ```json
 {
   "id": "927364819265437697",
@@ -542,9 +542,11 @@ Request — `ChangePasswordRequest`:
 
 ---
 
-## Reservations (`/api/v1/reservations`)
+## Holds (`/api/v1/holds`)
 
-### `Reservation`
+List endpoints (`GET /holds`, `GET /items/:id/holds`, `GET /users/:id/holds`) return **`HoldDetails`**. Create/cancel responses use plain **`Hold`** (ids only, no embedded item/user).
+
+### `Hold`
 ```json
 {
   "id": "927364819265437701",
@@ -561,11 +563,11 @@ Request — `ChangePasswordRequest`:
 
 `status` values: `pending` | `ready` | `fulfilled` | `cancelled` | `expired`
 
-### `ReservationDetails`
+### `HoldDetails`
 ```json
 {
   "id": "927364819265437701",
-  "item": { ...ItemShort... },
+  "biblio": { ...BiblioShort... },
   "user": { ...UserShort... },
   "createdAt": "2026-03-24T10:00:00Z",
   "notifiedAt": null,
@@ -576,7 +578,9 @@ Request — `ChangePasswordRequest`:
 }
 ```
 
-### `CreateReservation`
+`biblio.items` has exactly **one** `ItemShort` (the copy this hold is on).
+
+### `CreateHold`
 ```json
 { "userId": "927364819265437697", "itemId": "818273645564928001", "notes": null }
 ```
@@ -1133,7 +1137,7 @@ type Language     = 'french' | 'english' | 'german' | 'spanish' | 'portuguese' |
 type AccountType  = 'admin' | 'librarian' | 'reader' | 'guest';
 type FeeType      = 'free' | 'local' | 'foreigner';
 type FineStatus   = 'pending' | 'partial' | 'paid' | 'waived';
-type ReservationStatus = 'pending' | 'ready' | 'fulfilled' | 'cancelled' | 'expired';
+type HoldStatus = 'pending' | 'ready' | 'fulfilled' | 'cancelled' | 'expired';
 type InventoryStatus   = 'open' | 'closed';
 type TaskKind     = 'marcBatchImport' | 'maintenance';
 type TaskStatus   = 'pending' | 'running' | 'completed' | 'failed';
@@ -1228,11 +1232,18 @@ interface FineRule {
 }
 interface UnpaidFinesSummary { totalUnpaid: string; fines: Fine[]; }
 
-// ── Reservations ──────────────────────────────────────────────
-interface Reservation {
+// ── Holds ─────────────────────────────────────────────────────
+interface Hold {
   id: ID; userId: ID; itemId: ID;
   createdAt: string; notifiedAt: string | null; expiresAt: string | null;
-  status: ReservationStatus; position: number; notes: string | null;
+  status: HoldStatus; position: number; notes: string | null;
+}
+interface HoldDetails {
+  id: ID;
+  biblio: BiblioShort;
+  user: UserShort | null;
+  createdAt: string; notifiedAt: string | null; expiresAt: string | null;
+  status: HoldStatus; position: number; notes: string | null;
 }
 
 // ── Batch ─────────────────────────────────────────────────────

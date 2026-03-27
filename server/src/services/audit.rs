@@ -109,10 +109,10 @@ pub mod event {
     pub const HISTORY_OPT_IN: &str = "history.opt_in";
     pub const HISTORY_OPT_OUT: &str = "history.opt_out";
 
-    // Reservations
-    pub const RESERVATION_CREATED: &str = "reservation.created";
-    pub const RESERVATION_CANCELLED: &str = "reservation.cancelled";
-    pub const RESERVATION_FULFILLED: &str = "reservation.fulfilled";
+    // Holds
+    pub const HOLD_CREATED: &str = "hold.created";
+    pub const HOLD_CANCELLED: &str = "hold.cancelled";
+    pub const HOLD_FULFILLED: &str = "hold.fulfilled";
 
     // Fines
     pub const FINE_CREATED: &str = "fine.created";

@@ -50,6 +50,9 @@ impl LoansService {
     /// Enforces user-level rules before delegating to the repository:
     /// - blocked users cannot borrow unless `force` is set
     /// - expired subscriptions are rejected unless `force` is set
+    ///
+    /// The repository enforces the hold queue on the copy: only the patron whose turn it is
+    /// (`ready`, else first `pending`) may borrow unless `force=true` (staff clears active holds on that copy).
     pub async fn create_loan(&self, loan: CreateLoan) -> AppResult<(i64, DateTime<Utc>)> {
         let user = self.repository.users_get_by_id(loan.user_id).await?;
 
@@ -80,13 +83,15 @@ impl LoansService {
 
     /// Return a borrowed item
     pub async fn return_loan(&self, loan_id: i64) -> AppResult<LoanDetails> {
-        self.repository.loans_return(loan_id).await
+        let outcome = self.repository.loans_return(loan_id).await?;
+        Ok(outcome.details)
     }
 
     /// Return a borrowed item by item identification (barcode or call number)
     pub async fn return_loan_by_item(&self, item_identification: &str) -> AppResult<LoanDetails> {
         let loan = self.repository.loans_get_by_item_identification(item_identification).await?;
-        self.repository.loans_return(loan.id).await
+        let outcome = self.repository.loans_return(loan.id).await?;
+        Ok(outcome.details)
     }
 
     /// Renew a loan
@@ -219,7 +224,9 @@ mod tests {
         async fn loans_create(&self, _: &CreateLoan) -> AppResult<(i64, chrono::DateTime<Utc>)> {
             Ok((self.loan_id, Utc::now()))
         }
-        async fn loans_return(&self, _: i64) -> AppResult<LoanDetails> { unimplemented!() }
+        async fn loans_return(&self, _: i64) -> AppResult<crate::models::loan::LoanReturnOutcome> {
+            unimplemented!()
+        }
         async fn loans_renew(&self, _: i64) -> AppResult<(chrono::DateTime<Utc>, i16)> { unimplemented!() }
         async fn loans_get_settings(&self) -> AppResult<Vec<crate::models::loan::LoanSettings>> { Ok(vec![]) }
         async fn loans_count_active(&self) -> AppResult<i64> { Ok(0) }

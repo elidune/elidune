@@ -1,10 +1,10 @@
 //! Server-Sent Events — real-time notifications for connected clients
 //!
 //! Clients subscribe with a valid JWT token. The server pushes events
-//! (loan created, item returned, reservation ready) as they happen.
+//! (loan created, item returned, hold ready) as they happen.
 //!
 //! Architecture: a tokio broadcast channel is held in AppState. All handlers
-//! that create/modify loans or reservations publish to the channel. SSE
+//! that create/modify loans or holds publish to the channel. SSE
 //! subscribers receive a filtered stream.
 
 use axum::{
@@ -33,7 +33,7 @@ pub struct SsePayload {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub item_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub reservation_id: Option<String>,
+    pub hold_id: Option<String>,
 }
 
 /// Subscribe to real-time library events
@@ -44,7 +44,7 @@ pub struct SsePayload {
 /// - `loan.created` — a new loan was created
 /// - `loan.returned` — a specimen was returned
 /// - `loan.renewed` — a loan was renewed
-/// - `reservation.ready` — a reservation is ready for pickup
+/// - `hold.ready` — a hold is ready for pickup
 #[utoipa::path(
     get,
     path = "/events/stream",

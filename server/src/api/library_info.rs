@@ -110,9 +110,15 @@ pub async fn update_library_info(
     Ok(Json(info))
 }
 
-/// Build the library-info routes for this domain.
-pub fn router() -> axum::Router<crate::AppState> {
-    use axum::routing::{get, put};
+/// Public GET only — merged under the public API rate limiter in `main.rs`.
+pub fn router_public() -> axum::Router<crate::AppState> {
+    use axum::routing::get;
+    axum::Router::new().route("/library-info", get(get_library_info))
+}
+
+/// Staff PUT — not subject to the public anonymous rate limiter.
+pub fn router_staff() -> axum::Router<crate::AppState> {
+    use axum::routing::put;
     axum::Router::new()
-        .route("/library-info", get(get_library_info).put(update_library_info))
+        .route("/library-info", put(update_library_info))
 }

@@ -13,8 +13,8 @@ use std::str::FromStr;
 use crate::{
     dynamic_config::DynamicConfig,
     error::{AppError, AppResult},
+    email_templates,
     models::Language,
-    services::email_templates,
 };
 
 #[derive(Clone)]
@@ -25,6 +25,11 @@ pub struct EmailService {
 impl EmailService {
     pub fn new(dynamic_config: Arc<DynamicConfig>) -> Self {
         Self { dynamic_config }
+    }
+
+    /// Directory containing JSON email templates (e.g. `data/email_templates`).
+    pub fn templates_dir(&self) -> String {
+        self.templates_dir_str()
     }
 
     fn templates_dir_str(&self) -> String {

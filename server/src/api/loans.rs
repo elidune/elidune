@@ -49,6 +49,7 @@ pub struct CreateLoanRequest {
     #[schema(value_type = Option<String>)]
     pub item_id: Option<i64>,
     pub item_identification: Option<String>,
+    /// When true, bypasses patron/subscription/limits checks and hold-queue rules; active holds on the copy are cancelled.
     pub force: Option<bool>,
 }
 

@@ -592,9 +592,15 @@ impl Repository {
             }
         }
 
-    
-        sqlx::query(r#"
-            UPDATE users SET 
+        // Soft-delete does not remove the `users` row, so ON DELETE CASCADE on `holds` does not run.
+        let mut tx = self.pool.begin().await?;
+        sqlx::query("DELETE FROM holds WHERE user_id = $1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            r#"
+            UPDATE users SET
                 firstname = NULL,
                 lastname = NULL,
                 password = NULL,
@@ -606,11 +612,13 @@ impl Repository {
                 archived_at = NOW(),
                 update_at = NOW()
             WHERE id = $2
-        "#)
-            .bind(UserStatus::Deleted)
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
+            "#,
+        )
+        .bind(UserStatus::Deleted)
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
 
         Ok(())
     }

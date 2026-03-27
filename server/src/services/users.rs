@@ -377,7 +377,7 @@ impl UsersService {
     /// Update an existing user
     #[tracing::instrument(skip(self), err)]
     pub async fn update_user(&self, id: i64, user: UserPayload) -> AppResult<User> {
-        user.validate_required_patron_fields()?;
+        // user.validate_required_patron_fields()?;
 
         // Check if user exists
         self.repository.users_get_by_id(id).await?;

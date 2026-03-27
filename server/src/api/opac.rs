@@ -93,7 +93,7 @@ pub async fn opac_availability(
     Path(biblio_id): Path<i64>,
 ) -> AppResult<Json<serde_json::Value>> {
     let active_loans = state.services.loans.count_active_for_biblio(biblio_id).await?;
-    let hold_count = state.services.reservations.count_for_item(biblio_id).await?;
+    let hold_count = state.services.holds.count_active_for_biblio(biblio_id).await?;
     Ok(Json(serde_json::json!({
         "biblioId": biblio_id.to_string(),
         "activeLoans": active_loans,

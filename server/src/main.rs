@@ -165,6 +165,7 @@ async fn main() -> anyhow::Result<()> {
                 "logging" => config.logging.overridable,
                 "reminders" => config.reminders.overridable,
                 "audit" => config.audit.overridable,
+                "holds" => config.holds.overridable,
                 _ => false,
             };
             if !overridable {
@@ -194,6 +195,12 @@ async fn main() -> anyhow::Result<()> {
                     if let Ok(v) = serde_json::from_value(value) {
                         merged.audit = v;
                         tracing::info!("DB settings: overriding [audit]");
+                    }
+                }
+                "holds" => {
+                    if let Ok(v) = serde_json::from_value(value) {
+                        merged.holds = v;
+                        tracing::info!("DB settings: overriding [holds]");
                     }
                 }
                 _ => {}
@@ -236,8 +243,15 @@ async fn main() -> anyhow::Result<()> {
     let server_host = config.server.host.clone();
     let server_port = config.server.port;
 
+    // Email service (shared by repository for hold-ready notifications and by Services)
+    let email_service = Arc::new(elidune_server::EmailService::new(dynamic_config.clone()));
+
     // Create repository and services
-    let repository = Repository::new(pool);
+    let repository = Repository::new(
+        pool,
+        Some(dynamic_config.clone()),
+        Some(email_service.clone()),
+    );
     let services = Services::new(
         repository,
         config.users.clone(),
@@ -245,6 +259,7 @@ async fn main() -> anyhow::Result<()> {
         config.redis.clone(),
         redis_service,
         config.meilisearch.clone(),
+        email_service,
     )
     .await
     .expect("Failed to create services");
@@ -292,6 +307,7 @@ async fn main() -> anyhow::Result<()> {
         dynamic_config.clone(),
         services.reminders.clone(),
         services.audit.clone(),
+        services.holds.clone(),
     );
 
     // Broadcast channel for SSE real-time events (capacity = 256 messages)
@@ -376,33 +392,57 @@ fn create_router(state: AppState) -> Router {
             .expect("Failed to build auth rate-limit configuration"),
     ));
 
-    // Periodically evict expired entries to bound memory usage.
-    let limiter = governor_conf.limiter().clone();
+    // Public anonymous APIs (OPAC, covers, library-info GET): separate quota from auth.
+    let public_per_second = state.config.server.public_rate_per_second.unwrap_or(30);
+    let public_burst = state.config.server.public_rate_burst.unwrap_or(100);
+    let public_governor_conf: &'static _ = Box::leak(Box::new(
+        GovernorConfigBuilder::default()
+            .per_second(public_per_second)
+            .burst_size(public_burst)
+            .finish()
+            .expect("Failed to build public rate-limit configuration"),
+    ));
+
+    // Periodically evict expired entries to bound memory usage (auth + public limiters).
+    let auth_limiter = governor_conf.limiter().clone();
+    let public_limiter = public_governor_conf.limiter().clone();
     std::thread::spawn(move || loop {
         std::thread::sleep(Duration::from_secs(60));
-        limiter.retain_recent();
+        auth_limiter.retain_recent();
+        public_limiter.retain_recent();
     });
 
     let auth_router = api::auth::router()
         .layer(GovernorLayer { config: governor_conf });
 
+    // OpenAPI documentation (unauthenticated; no governor — see plan).
+    let openapi = api::openapi::create_openapi_router();
+
+    // OPAC, covers, library-info GET only — rate-limited per IP.
+    let public_router = Router::new()
+        .merge(api::opac::router())
+        .merge(api::covers::router())
+        .merge(api::library_info::router_public())
+        .layer(GovernorLayer {
+            config: public_governor_conf,
+        });
+
     let api_v1 = Router::new()
         .merge(api::health::router())
         .merge(auth_router)
+        .merge(public_router)
         .merge(api::biblios::router())
         .merge(api::users::router())
         .merge(api::loans::router())
         .merge(api::batch::router())
-        .merge(api::reservations::router())
+        .merge(api::holds::router())
         .merge(api::fines::router())
         .merge(api::inventory::router())
         .merge(api::history::router())
-        .merge(api::opac::router())
-        .merge(api::covers::router())
         .merge(api::sse::router())
         .merge(api::z3950::router())
         .merge(api::stats::router())
-        .merge(api::library_info::router())
+        .merge(api::library_info::router_staff())
         .merge(api::settings::router())
         .merge(api::admin_config::router())
         .merge(api::audit::router())
@@ -417,9 +457,6 @@ fn create_router(state: AppState) -> Router {
         .merge(api::maintenance::router())
         .merge(api::tasks::router())
         .with_state(state.clone());
-
-    // OpenAPI documentation
-    let openapi = api::openapi::create_openapi_router();
 
     Router::new()
         .route("/version", get(api::health::version))

@@ -25,7 +25,7 @@ use super::{AuthenticatedUser, ClientIp};
 #[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigSectionInfo {
-    /// Section key (e.g. "email", "logging", "reminders", "audit")
+    /// Section key (e.g. "email", "logging", "reminders", "audit", "holds")
     pub key: String,
     /// Current effective value (merged file + DB override)
     pub value: Value,
@@ -106,7 +106,7 @@ pub async fn get_config(
     security(("bearer_auth" = [])),
     request_body = UpdateConfigSectionRequest,
     params(
-        ("section" = String, Path, description = "Config section key: email | logging | reminders | audit")
+        ("section" = String, Path, description = "Config section key: email | logging | reminders | audit | holds")
     ),
     responses(
         (status = 200, description = "Updated config section", body = ConfigSectionInfo),

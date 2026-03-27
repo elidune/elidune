@@ -19,7 +19,7 @@ pub mod maintenance;
 pub mod openapi;
 pub mod opac;
 pub mod public_types;
-pub mod reservations;
+pub mod holds;
 pub mod schedules;
 pub mod series;
 pub mod settings;

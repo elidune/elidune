@@ -5,7 +5,7 @@ use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi};
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::api::{admin_config, audit, auth, biblios, collections, equipment, events, health, library_info, loans, maintenance, opac, public_types, schedules, series, settings, sources, stats, tasks, users, visitor_counts, z3950};
+use crate::api::{admin_config, audit, auth, biblios, collections, equipment, events, health, holds, library_info, loans, maintenance, opac, public_types, schedules, series, settings, sources, stats, tasks, users, visitor_counts, z3950};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -64,6 +64,12 @@ use crate::api::{admin_config, audit, auth, biblios, collections, equipment, eve
         loans::renew_loan_by_item,
         loans::get_overdue_loans,
         loans::send_overdue_reminders,
+        // Holds
+        holds::list_holds,
+        holds::create_hold,
+        holds::list_holds_for_item,
+        holds::list_holds_for_user,
+        holds::cancel_hold,
         // Z39.50
         z3950::search,
         z3950::import_record,
@@ -207,6 +213,12 @@ use crate::api::{admin_config, audit, auth, biblios, collections, equipment, eve
             loans::LoanResponse,
             loans::ReturnResponse,
             loans::OverdueLoansQuery,
+            // Holds
+            crate::models::hold::Hold,
+            crate::models::hold::HoldDetails,
+            holds::CreateHoldRequest,
+            holds::ListHoldsQuery,
+            biblios::PaginatedResponse<crate::models::hold::HoldDetails>,
             loans::GetUserLoansQuery,
             loans::SendRemindersQuery,
             crate::models::loan::LoanDetails,
@@ -342,6 +354,7 @@ use crate::api::{admin_config, audit, auth, biblios, collections, equipment, eve
         (name = "biblios", description = "Bibliographic record management"),
         (name = "users", description = "User management"),
         (name = "loans", description = "Loan management"),
+        (name = "holds", description = "Physical item hold queue"),
         (name = "z3950", description = "Z39.50 catalog search"),
         (name = "stats", description = "Statistics"),
         (name = "settings", description = "System settings"),

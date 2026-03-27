@@ -1,7 +1,8 @@
-//! Background scheduler for overdue reminder emails and audit log cleanup.
+//! Background scheduler for overdue reminder emails, hold expiry, and audit log cleanup.
 //!
-//! Spawned at startup via `tokio::spawn`. Two periodic tasks run concurrently:
+//! Spawned at startup via `tokio::spawn`. Periodic tasks run concurrently:
 //! - Reminder sending at the configured time of day
+//! - Ready-hold expiry (missed pickup) at 02:00 daily
 //! - Audit log cleanup at 03:00 daily
 
 use std::sync::Arc;
@@ -12,7 +13,12 @@ use tokio::time::Duration;
 
 use crate::{
     dynamic_config::DynamicConfig,
-    services::{audit, reminders::RemindersService, audit::AuditService},
+    services::{
+        audit,
+        audit::AuditService,
+        reminders::RemindersService,
+        holds::HoldsService,
+    },
 };
 
 /// Start the background scheduler. Returns a `Notify` handle that can be used
@@ -21,6 +27,7 @@ pub fn spawn(
     dynamic_config: Arc<DynamicConfig>,
     reminders_service: RemindersService,
     audit_service: AuditService,
+    holds_service: HoldsService,
 ) -> Arc<Notify> {
     let notify = Arc::new(Notify::new());
 
@@ -85,6 +92,28 @@ pub fn spawn(
                 }
                 Err(e) => {
                     tracing::error!("Reminder batch failed: {}", e);
+                }
+            }
+        }
+    });
+
+    // Expire `ready` holds past `expires_at` (runs daily at 02:00 local)
+    let hold_exp = holds_service.clone();
+    tokio::spawn(async move {
+        tracing::info!("Hold expiry scheduler started");
+        loop {
+            let sleep_dur = duration_until_next_send("02:00");
+            tokio::time::sleep(sleep_dur).await;
+
+            match hold_exp.expire_overdue().await {
+                Ok(n) if n > 0 => {
+                    tracing::info!("Expired {} overdue ready hold(s)", n);
+                }
+                Ok(_) => {
+                    tracing::debug!("Hold expiry run: nothing to expire");
+                }
+                Err(e) => {
+                    tracing::error!("Hold expiry batch failed: {}", e);
                 }
             }
         }

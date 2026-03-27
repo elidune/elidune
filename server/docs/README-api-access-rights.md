@@ -130,7 +130,7 @@ All auth routes are rate-limited via GovernorLayer.
 | `PUT /users/:id/account-type` | JWT + `require_admin()` |
 | `PUT /users/:id/force-password-change` | JWT + `require_admin()` |
 | `GET /users/:id/loans` | JWT + `require_read_users()` |
-| `GET /users/:id/reservations` | JWT + `require_read_users()` |
+| `GET /users/:id/holds` | JWT + `require_read_users()` |
 | `GET /users/:id/fines` | JWT + `require_read_users()` |
 
 ## Loans and borrows
@@ -147,14 +147,15 @@ All auth routes are rate-limited via GovernorLayer.
 | `POST /loans/batch-return` | JWT + `require_write_borrows()` |
 | `POST /loans/batch-create` | JWT + `require_write_borrows()` |
 
-## Reservations
+## Holds
 
 | Endpoint | Required auth | Notes |
 |---|---|---|
-| `POST /reservations` | JWT + `require_write_borrows()` | |
-| `GET /items/:id/reservations` | JWT + `require_read_borrows()` | |
-| `GET /users/:id/reservations` | JWT + `require_read_users()` | |
-| `DELETE /reservations/:id` | JWT + `require_write_borrows()` | service enforces self-or-staff |
+| `GET /holds` | JWT + `require_read_borrows()` | paginated list of all holds |
+| `POST /holds` | JWT + `require_write_borrows()` | |
+| `GET /items/:id/holds` | JWT + `require_read_borrows()` | |
+| `GET /users/:id/holds` | JWT + `require_read_users()` | |
+| `DELETE /holds/:id` | JWT + `require_write_borrows()` | service enforces self-or-staff |
 
 ## Fines
 

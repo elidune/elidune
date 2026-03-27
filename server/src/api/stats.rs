@@ -6,7 +6,6 @@ use axum::{extract::Query, extract::State, Json, Router};
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
-use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::{
@@ -20,16 +19,8 @@ use crate::{
 use super::{AuthenticatedUser, StaffUser};
 
 
-/// Build the stats routes for this domain.
+/// Build the stats routes for this domain (staff/authenticated; no IP governor — see public API layer in `main.rs`).
 pub fn router() -> axum::Router<crate::AppState> {
-    let governor_conf: &'static _ = Box::leak(Box::new(
-        GovernorConfigBuilder::default()
-            .per_second(1)
-            .burst_size(30)
-            .finish()
-            .expect("stats governor config"),
-    ));
-
     Router::new()
         .route("/stats", get(get_stats))
         .route("/stats/loans", get(get_loan_stats))
@@ -46,11 +37,6 @@ pub fn router() -> axum::Router<crate::AppState> {
             put(update_saved_query).delete(delete_saved_query),
         )
         .route("/stats/saved/:id/run", get(run_saved_query))
-        .layer(GovernorLayer {
-            config: governor_conf,
-        })
-
-       
 }
 
 /// Statistics response

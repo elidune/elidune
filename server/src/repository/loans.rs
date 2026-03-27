@@ -10,7 +10,7 @@ use crate::{
     models::{
         biblio::{BiblioShort, Isbn, MediaType},
         item::ItemShort,
-        loan::{CreateLoan, Loan, LoanDetails, LoanSettings},
+        loan::{CreateLoan, Loan, LoanDetails, LoanReturnOutcome, LoanSettings},
         user::{UserShort, UserShortRow},
     },
 };
@@ -33,7 +33,7 @@ pub trait LoansRepository: Send + Sync {
         per_page: i64,
     ) -> AppResult<(Vec<LoanDetails>, i64)>;
     async fn loans_create(&self, loan: &CreateLoan) -> AppResult<(i64, DateTime<Utc>)>;
-    async fn loans_return(&self, loan_id: i64) -> AppResult<LoanDetails>;
+    async fn loans_return(&self, loan_id: i64) -> AppResult<LoanReturnOutcome>;
     async fn loans_renew(&self, loan_id: i64) -> AppResult<(DateTime<Utc>, i16)>;
     async fn loans_get_settings(&self) -> AppResult<Vec<LoanSettings>>;
     async fn loans_count_active(&self) -> AppResult<i64>;
@@ -96,7 +96,7 @@ impl LoansRepository for Repository {
     async fn loans_create(&self, loan: &CreateLoan) -> crate::error::AppResult<(i64, chrono::DateTime<chrono::Utc>)> {
         Repository::loans_create(self, loan).await
     }
-    async fn loans_return(&self, loan_id: i64) -> crate::error::AppResult<LoanDetails> {
+    async fn loans_return(&self, loan_id: i64) -> crate::error::AppResult<LoanReturnOutcome> {
         Repository::loans_return(self, loan_id).await
     }
     async fn loans_renew(&self, loan_id: i64) -> crate::error::AppResult<(chrono::DateTime<chrono::Utc>, i16)> {
@@ -500,6 +500,20 @@ impl Repository {
             return Err(AppError::BusinessRule(msg));
         }
 
+        // Hold queue: only the patron whose turn it is (`ready`, else first `pending`) may borrow,
+        // unless staff uses `force=true` (clears active holds on this copy).
+        if !loan.force {
+            if let Some(eligible) = self.holds_eligible_borrower_for_item(item_id).await? {
+                if eligible != loan.user_id {
+                    return Err(AppError::BusinessRule(
+                        "This copy has an active hold for another patron — only the queued patron may borrow it, or use force=true to override".to_string(),
+                    ));
+                }
+            }
+        }
+
+        let mut tx = self.pool.begin().await?;
+
         let loan_id = sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO loans (user_id, item_id, date, expiry_at, nb_renews)
@@ -511,14 +525,23 @@ impl Repository {
         .bind(item_id)
         .bind(now)
         .bind(expiry_at)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await?;
+
+        if loan.force {
+            self.holds_cancel_active_for_item_tx(&mut tx, item_id).await?;
+        } else {
+            self.holds_fulfill_active_for_user_item_tx(&mut tx, loan.user_id, item_id)
+                .await?;
+        }
+
+        tx.commit().await?;
 
         Ok((loan_id, expiry_at))
     }
 
     /// Return a loan (moves it to loans_archives).
-    pub async fn loans_return(&self, loan_id: i64) -> AppResult<LoanDetails> {
+    pub async fn loans_return(&self, loan_id: i64) -> AppResult<LoanReturnOutcome> {
         let now = Utc::now();
 
         let loan = self.loans_get_by_id(loan_id).await?;
@@ -568,6 +591,31 @@ impl Repository {
 
         tx.commit().await?;
 
+        let readied_hold = match self
+            .holds_notify_next(loan.item_id, self.hold_ready_expiry_days())
+            .await
+        {
+            Ok(Some(res)) => {
+                tracing::debug!(
+                    target: "loans",
+                    hold_id = res.id,
+                    item_id = loan.item_id,
+                    "Marked next pending hold as ready after loan return"
+                );
+                Some(res)
+            }
+            Ok(None) => None,
+            Err(e) => {
+                tracing::warn!(
+                    target: "loans",
+                    error = %e,
+                    item_id = loan.item_id,
+                    "Failed to advance hold queue after loan return"
+                );
+                None
+            }
+        };
+
         let biblio_row = sqlx::query(
             r#"
             SELECT b.id as biblio_id, b.media_type, b.isbn, b.title, b.publication_date,
@@ -609,7 +657,7 @@ impl Repository {
             borrowed: true,
         };
 
-        Ok(LoanDetails {
+        let details = LoanDetails {
             id: loan.id,
             start_date: loan.date,
             expiry_at: loan.expiry_at.unwrap_or(now),
@@ -631,6 +679,23 @@ impl Repository {
             user,
             item_identification: biblio_row.get("item_identification"),
             is_overdue: false,
+        };
+
+        if let (Some(ref h), Some(ref email_svc)) = (&readied_hold, &self.email_service) {
+            if let Err(e) = crate::hold_email::send_hold_ready(email_svc, &self.pool, h, &details).await
+            {
+                tracing::warn!(
+                    target: "loans",
+                    error = %e,
+                    hold_id = h.id,
+                    "Failed to send hold ready email"
+                );
+            }
+        }
+
+        Ok(LoanReturnOutcome {
+            details,
+            readied_hold,
         })
     }
 
