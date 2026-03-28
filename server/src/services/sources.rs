@@ -112,24 +112,16 @@ impl SourcesService {
         let name = data.name.trim();
         let old_ids = &data.source_ids;
 
-        let mut tx = self.repository.pool().begin().await?;
-
-        // Create the merged source.
-        let new_id: i64 = sqlx::query_scalar(
-            r#"INSERT INTO sources (name, "default") VALUES ($1, false) RETURNING id"#,
-        )
-        .bind(name)
-        .fetch_one(&mut *tx)
-        .await?;
+        
+        let new_source =self.repository.sources_create(name, Some(false)).await?;
 
         // Reassign all items from the old sources.
-        self.repository.sources_reassign_items(old_ids, new_id).await?;
+        self.repository.sources_reassign_items(old_ids, new_source.id).await?;
 
         // Archive the old sources.
         self.repository.sources_archive_many(old_ids).await?;
 
-        tx.commit().await?;
-
-        self.repository.sources_get_by_id(new_id).await
+        
+        self.repository.sources_get_by_id(new_source.id).await
     }
 }
