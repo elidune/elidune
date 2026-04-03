@@ -1,3 +1,6 @@
+# Publishes the "complete" all-in-one image (API + web UI + PostgreSQL + Redis + Nginx in one image).
+# For the API-only image used by docker/docker-compose.yml, build locally:
+#   docker build -f docker/Dockerfile -t elidune-server:local .
 name: Build & Push Docker Image
 
 on:
@@ -33,5 +36,5 @@ jobs:
           file: ./docker/Dockerfile.complete
           push: true
           tags: |
-            ghcr.io/jcollonville/elidune-complete:latest
-            ghcr.io/jcollonville/elidune-complete:${{ github.sha }}
+            ghcr.io/elidune/elidune-complete:latest
+            ghcr.io/elidune/elidune-complete:${{ github.sha }}

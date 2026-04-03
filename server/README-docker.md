@@ -2,6 +2,8 @@
 
 This guide explains how to deploy Elidune Complete on a remote server using Docker Compose with persistent volumes.
 
+For TLS and a public hostname in front of **only** the API (or split API + UI), see [docs/reverse-proxy.md](docs/reverse-proxy.md).
+
 ## Table of contents
 
 1. [Prerequisites](#prerequisites)

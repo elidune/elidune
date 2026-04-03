@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y \
 
 # Clone elidune-server from GitHub with retry logic
 # Using full clone to ensure all files are present
-RUN git clone https://github.com/jcollonville/elidune-server.git elidune-server
+RUN git clone https://github.com/elidune/elidune-server.git elidune-server
 
 WORKDIR /app/elidune-server
 
@@ -33,7 +33,7 @@ WORKDIR /app
 
 # Clone elidune-ui from GitHub with retry logic
 # Using full clone to ensure all files are present
-RUN git clone https://github.com/jcollonville/elidune-ui.git elidune-ui
+RUN git clone https://github.com/elidune/elidune-ui.git elidune-ui
 
 WORKDIR /app/elidune-ui
 

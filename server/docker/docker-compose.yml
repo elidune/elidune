@@ -1,17 +1,30 @@
-version: '3.8'
-
 services:
   app:
-    build: .
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: ["/app/elidune-server", "--config", "/app/config/default.toml"]
     ports:
       - "8080:8080"
     environment:
-      - DATABASE_URL=postgres://elidune:elidune@db:5432/elidune
-      - JWT_SECRET=${JWT_SECRET:-change-this-secret-in-production}
-      - RUST_LOG=elidune_server=info,tower_http=info
+      - RUST_LOG=${RUST_LOG:-elidune_server=info,tower_http=info}
+    volumes:
+      - ./config.docker.toml:/app/config/default.toml:ro
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_started
+      meilisearch:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - elidune-network
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
     restart: unless-stopped
     networks:
       - elidune-network

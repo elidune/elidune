@@ -1,303 +1,174 @@
 # Elidune Server (Rust)
 
-Modern library management system, rewritten in Rust with a JSON REST API.
+Library management system — JSON REST API written in Rust (Axum, PostgreSQL, Redis, optional Meilisearch).
 
-## Description
+## Features
 
-Elidune is a library management server that allows you to:
+- Catalog (bibliographic records, specimens, circulation)
+- Patrons and loans
+- Z39.50 import
+- JWT authentication, Argon2 passwords
+- OpenAPI/Swagger at `/swagger-ui`
 
-- Manage a document catalog (books, CDs, DVDs, periodicals, etc.)
-- Manage patrons and their subscriptions
-- Manage loans and returns
-- Import records from remote catalogs via Z39.50
-- Generate statistics
+## License
 
-This version is a complete rewrite of the original C server, with the following improvements:
-
-- Modern JSON REST API (instead of XML-RPC)
-- Secure JWT authentication
-- Password hashing with Argon2
-- PostgreSQL full-text search
-- Automatic OpenAPI/Swagger documentation
-- Improved performance with async/await
+[GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0). If you run a modified version as a network service, AGPL obligations apply — see the license text.
 
 ## Prerequisites
 
-- Rust 1.75+
-- PostgreSQL 14+
-- Docker (optional)
+- **Rust:** stable toolchain (see `Cargo.toml` / CI; typically latest stable)
+- **PostgreSQL:** 14+
+- **Redis:** required at runtime (Z39.50 cache and related features)
+- **Optional:** [Meilisearch](https://www.meilisearch.com/) for catalog full-text search (PostgreSQL fallback if omitted from config)
 
-## Database Initialization
+## Configuration model
 
-### Option 1: With Docker (recommended)
-
-Docker Compose automatically creates the database. No additional action is required.
+The server loads **one TOML file** passed on the command line:
 
 ```bash
-docker compose up -d
+elidune-server --config /path/to/config.toml
 ```
 
-### Option 2: Existing PostgreSQL in Docker
+Edit `config/default.toml` (or a copy) for database URL, JWT secret, Redis URL, email, Meilisearch, and rate limits.  
+Environment variables **do not** replace TOML for `database.url` or `users.jwt_secret` — set those in the file.  
+`RUST_LOG` is supported (tracing), and `.env` is loaded if present for local development.
 
-If you already have a PostgreSQL container running:
+## Run with Docker (API + PostgreSQL + Redis + Meilisearch)
+
+From the **repository root**:
 
 ```bash
-# 1. Identify the name or ID of your PostgreSQL container
-docker ps | grep postgres
-
-# 2. Connect to the container and create the database
-docker exec -it <postgres_container_name> psql -U postgres
-
-# In the psql shell:
-CREATE USER elidune WITH PASSWORD 'elidune';
-CREATE DATABASE elidune OWNER elidune;
-GRANT ALL PRIVILEGES ON DATABASE elidune TO elidune;
-
-# For PostgreSQL 15+
-\c elidune
-GRANT ALL ON SCHEMA public TO elidune;
-\q
+docker compose -f docker/docker-compose.yml up -d --build
 ```
 
-Or in a single command:
+- API: `http://localhost:8080` (Swagger: `http://localhost:8080/swagger-ui`)
+- Compose uses `docker/config.docker.toml` (mounted read-only). **Change `jwt_secret` and database passwords** before production.
+- Optional tools profile: `docker compose -f docker/docker-compose.yml --profile tools up -d` (includes pgAdmin on port 5050).
+
+To rebuild only after changing the Rust code:
 
 ```bash
-# Replace <container_name> with your PostgreSQL container name
-docker exec -it <container_name> psql -U postgres -c "CREATE USER elidune WITH PASSWORD 'elidune';"
-docker exec -it <container_name> psql -U postgres -c "CREATE DATABASE elidune OWNER elidune;"
-docker exec -it <container_name> psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE elidune TO elidune;"
+docker compose -f docker/docker-compose.yml build app
+docker compose -f docker/docker-compose.yml up -d
 ```
 
-Then run the migrations from your machine:
+### API-only image (build locally)
+
+The `docker/Dockerfile` builds **only** the Elidune server binary (no UI). Build from the repo root:
 
 ```bash
-# Install sqlx-cli
-cargo install sqlx-cli --no-default-features --features postgres
+docker build -f docker/Dockerfile -t elidune-server:local .
+```
 
-# Configure the URL (adjust the port if different from 5432)
+Run (example):
+
+```bash
+docker run --rm -p 8080:8080 \
+  -v /absolute/path/to/your/config.toml:/app/config/default.toml:ro \
+  elidune-server:local
+```
+
+The image default command is `elidune-server --config /app/config/default.toml`.
+
+### Prebuilt “complete” image (API + UI + DB stack)
+
+CI publishes a **full stack** image (Rust API + web UI + PostgreSQL + Redis + Nginx inside one image) to GitHub Container Registry when `main` is pushed:
+
+- **Image:** `ghcr.io/jcollonville/elidune-complete:latest` (and a tag per commit SHA)
+- **Build definition:** [`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml), [`docker/Dockerfile.complete`](docker/Dockerfile.complete)
+
+Deployment and host-level proxy examples for that stack: **[README-docker.md](README-docker.md)**.
+
+## Build and run from source
+
+```bash
+git clone https://github.com/elidune/elidune-server.git
+cd elidune-server
+```
+
+Install SQLx CLI (for migrations):
+
+```bash
+cargo install sqlx-cli --no-default-features --features postgres,rustls
+```
+
+Create the database and user (example names match `config/default.toml`):
+
+```bash
 export DATABASE_URL="postgres://elidune:elidune@localhost:5432/elidune"
-
-# Run migrations (from your clone of this repository)
-cd /path/to/elidune-server-rust
 sqlx migrate run
 ```
 
-Verify that the tables are created:
+Start Redis locally, then run the server with your config path:
 
 ```bash
-docker exec -it <container_name> psql -U elidune -d elidune -c "\dt"
-```
-
-### Option 3: Manual PostgreSQL Installation
-
-#### 1. Install PostgreSQL
-
-```bash
-# Ubuntu/Debian
-sudo apt update
-sudo apt install postgresql postgresql-contrib
-
-# Fedora/RHEL
-sudo dnf install postgresql-server postgresql-contrib
-sudo postgresql-setup --initdb
-sudo systemctl start postgresql
-
-# macOS with Homebrew
-brew install postgresql@16
-brew services start postgresql@16
-```
-
-#### 2. Create the user and database
-
-```bash
-# Connect as postgres
-sudo -u postgres psql
-
-# In the psql shell, run:
-CREATE USER elidune WITH PASSWORD 'elidune';
-CREATE DATABASE elidune OWNER elidune;
-GRANT ALL PRIVILEGES ON DATABASE elidune TO elidune;
-
-# For PostgreSQL 15+, also grant privileges on the public schema
-\c elidune
-GRANT ALL ON SCHEMA public TO elidune;
-
-# Exit
-\q
-```
-
-#### 3. Configure access (if necessary)
-
-Edit `/etc/postgresql/16/main/pg_hba.conf` (path may vary):
-
-```
-# Add this line to allow local connections with password
-host    elidune         elidune         127.0.0.1/32            scram-sha-256
-```
-
-Restart PostgreSQL:
-
-```bash
-sudo systemctl restart postgresql
-```
-
-#### 4. Run migrations
-
-```bash
-# Install sqlx-cli if not already done
-cargo install sqlx-cli --no-default-features --features postgres
-
-# Configure the connection URL
-export DATABASE_URL="postgres://elidune:elidune@localhost:5432/elidune"
-
-# Run migrations
-sqlx migrate run
-```
-
-### Verify Installation
-
-```bash
-# Test the connection
-psql -h localhost -U elidune -d elidune -c "SELECT version();"
-
-# Verify the created tables
-psql -h localhost -U elidune -d elidune -c "\dt"
-```
-
-### Default User
-
-After migrations, an administrator user is created:
-
-| Field | Value |
-|-------|-------|
-| Login | `admin` |
-| Password | `admin` |
-| Account type | Administrator |
-
-⚠️ **Important**: Change this password in production!
-
-## Installation
-
-### With Docker
-
-```bash
-# Clone the project
-git clone https://github.com/elidune/elidune-server-rust.git
-cd elidune-server-rust
-
-# Start with Docker Compose
-docker compose up -d
-
-# The API is available at http://localhost:8080
-```
-
-### Without Docker
-
-```bash
-# Install dependencies
 cargo build --release
-
-# Configure the database
-export DATABASE_URL="postgres://elidune:elidune@localhost:5432/elidune"
-
-# Run migrations
-cargo sqlx migrate run
-
-# Start the server
-./target/release/elidune-server
+./target/release/elidune-server --config config/default.toml
 ```
 
-## Configuration
+Development:
 
-The server can be configured via:
+```bash
+cargo run -- --config config/default.toml
+```
 
-1. Configuration files (`config/default.toml`)
-2. Environment variables (prefix `ELIDUNE_`)
-3. `.env` file
+Tests:
 
-### Main Variables
+```bash
+cargo test --lib
+# Integration tests need PostgreSQL + Redis (see CI workflow)
+export DATABASE_URL="postgres://elidune:elidune@localhost:5432/elidune_test"
+sqlx migrate run
+cargo test --test '*' -- --nocapture
+```
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `DATABASE_URL` | PostgreSQL connection URL | `postgres://elidune:elidune@localhost:5432/elidune` |
-| `JWT_SECRET` | Secret for signing JWT tokens | (must be changed in production) |
-| `SERVER_HOST` | Listen address | `0.0.0.0` |
-| `SERVER_PORT` | Listen port | `8080` |
-| `RUST_LOG` | Log level | `info` |
+## Reverse proxy (HTTPS / Nginx / Apache)
 
-## API
+Put Elidune behind Nginx or Apache for TLS and a stable public URL. Examples (single API upstream, split API + UI, headers, timeouts): **[docs/reverse-proxy.md](docs/reverse-proxy.md)**.
 
-### Documentation
+## Database initialization
 
-OpenAPI documentation is available at:
+### Docker Compose
 
-- Swagger UI: `http://localhost:8080/swagger-ui`
-- OpenAPI JSON: `http://localhost:8080/api-docs/openapi.json`
+The compose file provisions PostgreSQL; migrations run automatically when the app starts.
 
-### Main Endpoints
+### Existing PostgreSQL
 
-#### Authentication
+Create role and database, then run migrations from your machine:
+
+```bash
+export DATABASE_URL="postgres://elidune:elidune@localhost:5432/elidune"
+sqlx migrate run
+```
+
+See sections above for Docker-on-host and manual install examples if you need step-by-step SQL.
+
+### Default administrator
+
+After migrations, an administrator account exists (change the password immediately in production):
+
+| Field        | Value   |
+|-------------|---------|
+| Login       | `admin` |
+| Password    | `admin` |
+
+## API quick reference
+
+- **Swagger UI:** `http://localhost:8080/swagger-ui`
+- **OpenAPI JSON:** `http://localhost:8080/api-docs/openapi.json`
 
 ```bash
 # Login
-curl -X POST http://localhost:8080/api/v1/auth/login \
+curl -s -X POST http://localhost:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username": "admin", "password": "admin"}'
 
-# User profile
-curl http://localhost:8080/api/v1/auth/me \
-  -H "Authorization: Bearer <token>"
+# Authenticated call (replace TOKEN)
+curl -s "http://localhost:8080/api/v1/items?title=tolkien" \
+  -H "Authorization: Bearer TOKEN"
 ```
 
-#### Catalog
-
-```bash
-# Search documents
-curl "http://localhost:8080/api/v1/items?title=tolkien" \
-  -H "Authorization: Bearer <token>"
-
-# Document details
-curl http://localhost:8080/api/v1/items/1 \
-  -H "Authorization: Bearer <token>"
-
-# Create a document
-curl -X POST http://localhost:8080/api/v1/items \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{"title1": "The Lord of the Rings", "media_type": "b"}'
-```
-
-#### Patrons
-
-```bash
-# List patrons
-curl http://localhost:8080/api/v1/users \
-  -H "Authorization: Bearer <token>"
-
-# Create a patron
-curl -X POST http://localhost:8080/api/v1/users \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{"login": "john", "password": "secret", "firstname": "John", "lastname": "Doe"}'
-```
-
-#### Loans
-
-```bash
-# Borrow a document
-curl -X POST http://localhost:8080/api/v1/loans \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{"user_id": 2, "specimen_identification": "ABC123"}'
-
-# Return a document
-curl -X POST http://localhost:8080/api/v1/loans/1/return \
-  -H "Authorization: Bearer <token>"
-```
-
-## Migration from Old Version
-
-A Python script is provided to migrate data:
+## Migration from the legacy system
 
 ```bash
 python scripts/migrate_data.py \
@@ -305,84 +176,40 @@ python scripts/migrate_data.py \
   --target-db "postgres://elidune:elidune@localhost/elidune"
 ```
 
-### Migration Test with Sample Data
+Sample legacy data flow is described in older docs if you maintain `scripts/sample_legacy_data.sql`.
 
-A SQL file with test data is provided to test the migration:
-
-```bash
-# 1. Create a "legacy" database simulating the old format
-docker exec -it <postgres_container_name> psql -U postgres -c "CREATE DATABASE elidune_legacy OWNER elidune;"
-
-# 2. Import test data
-docker exec -i <postgres_container_name> psql -U elidune -d elidune_legacy < scripts/sample_legacy_data.sql
-
-# 3. Run the migration
-python scripts/migrate_data.py \
-  --source-db "postgres://elidune:elidune@localhost/elidune_legacy" \
-  --target-db "postgres://elidune:elidune@localhost/elidune"
-```
-
-The `sample_legacy_data.sql` file contains:
-- 7 patrons (admin, librarian, readers, guest)
-- 10 authors (Hugo, Tolkien, Rowling, Goscinny, etc.)
-- 14 documents (books, comics, CDs, DVDs)
-- 20 specimens
-- 5 current loans + 5 archived
-- Z39.50 server configuration (BnF, SUDOC)
-
-Test accounts:
-| Login | Password | Role |
-|-------|----------|------|
-| admin | admin | Administrator |
-| biblio | biblio123 | Librarian |
-| lecteur1 | pass123 | Reader |
-
-## Development
-
-```bash
-# Run in development mode
-cargo run
-
-# Run tests
-cargo test
-
-# Run integration tests (requires a running server)
-cargo test -- --ignored
-
-# Check formatting
-cargo fmt --check
-
-# Linter
-cargo clippy
-```
-
-## Documentation
-
-- [PostgreSQL real-time synchronization (multi-site)](docs/postgresql-replication.md) — Set up replication so Elidune can be used from two sites with the same up-to-date data.
-
-## Architecture
+## Project layout
 
 ```
 src/
-├── api/          # HTTP handlers (REST endpoints)
-├── models/       # Data structures
-├── repository/   # Database access
+├── api/          # HTTP handlers
+├── models/       # Data types
+├── repository/   # SQL access
 ├── services/     # Business logic
-├── marc/         # MARC parsing and translation
-├── config.rs     # Configuration
-├── error.rs      # Error handling
-└── main.rs       # Entry point
+├── marc/         # MARC translation
+├── config.rs
+├── error.rs
+└── main.rs
 ```
 
-## License
+## Additional documentation
 
-GPL-2.0 - See [COPYING](COPYING)
+- [Full Docker “complete” deployment](README-docker.md)
+- [Reverse proxy: Nginx & Apache](docs/reverse-proxy.md)
+
+## Public release checklist (maintainers)
+
+- [ ] Version in `Cargo.toml` matches release notes.
+- [ ] `LICENSE` matches intended terms (AGPL-3.0).
+- [ ] No secrets in `config/*.toml` committed to the repo.
+- [ ] `sqlx migrate run` succeeds on a clean database.
+- [ ] `cargo fmt`, `cargo clippy -- -D warnings`, `cargo test` pass (and integration job with Postgres/Redis as in CI).
 
 ## Authors
 
-- See [GitHub contributors](https://github.com/elidune/elidune-server-rust/graphs/contributors) for current maintainers.
+- Package metadata: see `Cargo.toml`. Contributors: [GitHub contributors](https://github.com/elidune/elidune-server/graphs/contributors).
 
 ## History
 
-- **v0.6.0** - Rewrite in Rust with JSON REST API
-- **v0.5.1** - Last C version with XML-RPC
+- **Current (Rust)** — JSON REST API, OpenAPI, PostgreSQL, Redis, optional Meilisearch.
+- Earlier iterations — legacy C/XML-RPC stack (see project history in your archive if applicable).

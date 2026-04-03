@@ -1,5 +1,5 @@
-# Build stage
-FROM rust:1.75-bookworm AS builder
+# Build stage (track stable Rust; update if MSRV changes)
+FROM rust:1-bookworm AS builder
 
 WORKDIR /app
 
@@ -33,9 +33,10 @@ FROM debian:bookworm-slim
 
 WORKDIR /app
 
-# Install runtime dependencies
+# Install runtime dependencies (curl: HEALTHCHECK)
 RUN apt-get update && apt-get install -y \
     ca-certificates \
+    curl \
     libssl3 \
     && rm -rf /var/lib/apt/lists/*
 
@@ -58,7 +59,7 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/api/v1/health || exit 1
 
-# Run the application
-CMD ["/app/elidune-server"]
+# Default config path (override with command or mount)
+CMD ["/app/elidune-server", "--config", "/app/config/default.toml"]
 
 
