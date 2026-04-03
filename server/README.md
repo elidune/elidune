@@ -74,7 +74,7 @@ The image default command is `elidune-server --config /app/config/default.toml`.
 
 CI publishes a **full stack** image (Rust API + web UI + PostgreSQL + Redis + Nginx inside one image) to GitHub Container Registry when `main` is pushed:
 
-- **Image:** `ghcr.io/jcollonville/elidune-complete:latest` (and a tag per commit SHA)
+- **Image:** `ghcr.io/elidune/elidune-complete:latest` (and a tag per commit SHA)
 - **Build definition:** [`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml), [`docker/Dockerfile.complete`](docker/Dockerfile.complete)
 
 Deployment and host-level proxy examples for that stack: **[README-docker.md](README-docker.md)**.
@@ -143,14 +143,11 @@ sqlx migrate run
 
 See sections above for Docker-on-host and manual install examples if you need step-by-step SQL.
 
-### Default administrator
+### First setup (no default administrator)
 
-After migrations, an administrator account exists (change the password immediately in production):
+There is **no** pre-created administrator after migrations. The **frontend** drives initial setup: it checks **`GET /health`** or **`GET /ready`** for `need_first_setup`, then submits **`POST /api/v1/first_setup`** to create the first admin account and library settings. Until that completes, use the wizard flow rather than logging in.
 
-| Field        | Value   |
-|-------------|---------|
-| Login       | `admin` |
-| Password    | `admin` |
+Details for API clients: **[docs/first-setup-api-frontend.md](docs/first-setup-api-frontend.md)**.
 
 ## API quick reference
 
@@ -158,10 +155,10 @@ After migrations, an administrator account exists (change the password immediate
 - **OpenAPI JSON:** `http://localhost:8080/api-docs/openapi.json`
 
 ```bash
-# Login
+# Login (use credentials from first setup; see docs/first-setup-api-frontend.md)
 curl -s -X POST http://localhost:8080/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username": "admin", "password": "admin"}'
+  -d '{"username": "YOUR_ADMIN_LOGIN", "password": "YOUR_PASSWORD"}'
 
 # Authenticated call (replace TOKEN)
 curl -s "http://localhost:8080/api/v1/items?title=tolkien" \
