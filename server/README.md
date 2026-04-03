@@ -2,17 +2,87 @@
 
 Library management system — JSON REST API written in Rust (Axum, PostgreSQL, Redis, optional Meilisearch).
 
-## Features
-
-- Catalog (bibliographic records, specimens, circulation)
-- Patrons and loans
-- Z39.50 import
-- JWT authentication, Argon2 passwords
-- OpenAPI/Swagger at `/swagger-ui`
+**Live demo:** [elidune.b-612.fr](https://elidune.b-612.fr/)
 
 ## License
 
 [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0). If you run a modified version as a network service, AGPL obligations apply — see the license text.
+
+
+## Why this stack
+
+**Fast and efficient** — The server is written in **Rust** and runs on **Tokio**: predictable latency, low overhead per request, and no garbage-collection pauses. Hot paths stay async end-to-end, from HTTP (**Axum**) to the database and Redis.
+
+**Modern API design** — **JSON** over HTTP/1.1, **JWT** auth, **OpenAPI 3** with **Swagger UI** out of the box, **CORS** for SPAs, and **Server-Sent Events** for live updates. Passwords use **Argon2**; staff accounts can use **2FA (TOTP)**.
+
+**Solid data layer** — **PostgreSQL** with versioned **SQLx** migrations (no opaque ORM — explicit SQL you can review and tune). **Redis** backs caching and protocol-adjacent features. Optional **Meilisearch** adds fast catalog search with a **PostgreSQL** fallback so the system stays usable without it.
+
+**Operable in production** — Structured logging (**tracing**), **health** and **readiness** probes, configurable **rate limiting**, gzip-friendly stack, and a clear split between **static config** (file) and **runtime settings** (database) for day-two changes.
+
+**Free software** — **AGPL-3.0**: you can study, modify, and self-host the stack; see [License](#license).
+
+## Features
+
+### Catalog & metadata
+
+- **Bibliographic records** — CRUD on biblios; link **series** and **collections**; attach **physical items** (copies) with barcodes, call numbers, and circulation flags; **CSV export** of bibliographic lists.
+- **Search** — Full-text catalog search via **Meilisearch** when configured, with **PostgreSQL** fallback.
+- **Covers** — Resolve cover images by ISBN (public endpoint).
+- **Sources** — Manage catalog **sources**, merge duplicates, archive.
+
+### Import & cataloging
+
+- **Z39.50** — Search remote catalogs, import records, **Redis-backed** query cache; configure Z39.50 servers via the API.
+- **MARC** — Load MARC into biblios, **batch import** with status tracking; suitable for staff workflows and background jobs.
+
+### Circulation
+
+- **Loans** — Checkout, return, **renew** (by loan or by item), **overdue** listing, **loan settings** (borrow rules).
+- **Batch circulation** — **Batch return** and **batch checkout** for efficiency at the desk.
+- **Holds / reservations** — Place, list, and cancel holds on items and per patron.
+- **Reminders** — Trigger **overdue reminder** emails (with configured SMTP).
+- **MARC export** — Export a patron’s **loan history** as MARC for interlibrary loan or archives.
+- **Fines** — Fine rules, list patron fines, **pay** or **waive**; tied to circulation policy.
+
+### Patrons & access
+
+- **Users** — Patron and staff accounts: list, create, update, delete; **account types**; **force password change**.
+- **Authentication** — **JWT** access tokens, **Argon2** password hashing; **2FA (TOTP)** with setup/disable and recovery codes; **password reset** and **change password**; **profile** updates for the logged-in user.
+- **Public types** — Audience classes (e.g. youth/adult) with **per–media-type loan settings**.
+
+### OPAC & public API
+
+- **OPAC** — Public **search** and **biblio detail** without staff auth; **availability** per biblio.
+- **Library info** — Public read of library contact details; staff can update **library information**.
+
+### Onboarding & operations
+
+- **First setup** — No default admin: **`/health`** / **`/ready`** expose `need_first_setup`; **`POST /first_setup`** creates the first administrator and initial settings (typically driven by the **frontend** wizard).
+- **Inventory** — **Inventory sessions**: scan barcodes (single or batch), list missing copies, reports, session close.
+- **Opening hours & closures** — **Schedules**: periods, time slots, **closures** (holidays, exceptions).
+- **Equipment** — Optional **equipment** inventory (non-book assets) with CRUD.
+- **Events** — Library **events** CRUD and **announcement** sending (email integration where configured).
+- **Visitor counts** — Record and list **visitor statistics** when used.
+
+### Reporting & administration
+
+- **Statistics** — Dashboard-style **stats** (loans, users, catalog), **ad‑hoc queries**, **saved queries** and run-by-id; **schema** discovery for building reports.
+- **Audit** — **Audit log** for sensitive actions, with **export**.
+- **Admin configuration** — Read/update **runtime settings** (sections in DB), optional **email test**, **search reindex** (Meilisearch).
+- **Maintenance & tasks** — **Maintenance** actions; **background tasks** list and status (e.g. MARC batches, long-running jobs).
+
+### Realtime & integration
+
+- **Server-Sent Events** — **`/events/stream`** for live updates to connected clients.
+- **Rate limiting** — Per-IP limits on auth and public routes (configurable).
+
+### API & docs
+
+- **OpenAPI 3** — **`/swagger-ui`** and **`/api-docs/openapi.json`** (**utoipa**).
+- **CORS** — Configurable allowed origins for browser clients.
+- **Version** — **`/version`** endpoint for deployment checks.
+
+
 
 ## Prerequisites
 
@@ -147,7 +217,6 @@ See sections above for Docker-on-host and manual install examples if you need st
 
 There is **no** pre-created administrator after migrations. The **frontend** drives initial setup: it checks **`GET /health`** or **`GET /ready`** for `need_first_setup`, then submits **`POST /api/v1/first_setup`** to create the first admin account and library settings. Until that completes, use the wizard flow rather than logging in.
 
-Details for API clients: **[docs/first-setup-api-frontend.md](docs/first-setup-api-frontend.md)**.
 
 ## API quick reference
 
