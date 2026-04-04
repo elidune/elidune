@@ -15,6 +15,13 @@ until redis-cli ping > /dev/null 2>&1; do
 done
 echo "Redis is ready"
 
+# Wait for Meilisearch (same container)
+echo "Waiting for Meilisearch to be ready..."
+until curl -sf "http://127.0.0.1:7700/health" > /dev/null 2>&1; do
+    sleep 1
+done
+echo "Meilisearch is ready"
+
 # Set environment variables
 export DATABASE_URL="${DATABASE_URL:-postgres://elidune:elidune@localhost:5432/elidune}"
 export REDIS_URL="${REDIS_URL:-redis://127.0.0.1:6379}"
@@ -61,6 +68,10 @@ smtp_use_tls = true
 [redis]
 url = "redis://127.0.0.1:6379"
 z3950_cache_ttl_seconds = 604800
+
+[meilisearch]
+url = "http://127.0.0.1:7700"
+index_name = "items"
 CONFIG_EOF
 fi
 

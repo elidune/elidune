@@ -17,11 +17,11 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Check if docker-compose is being used
 USE_COMPOSE=false
-if [ -f "${PROJECT_ROOT}/docker-compose.complete.yml" ]; then
+if [ -f "${PROJECT_ROOT}/docker/docker-compose.all-in-one.yml" ]; then
     # Check if service is running via docker-compose
-    if docker-compose -f "${PROJECT_ROOT}/docker-compose.complete.yml" ps elidune-complete 2>/dev/null | grep -q "Up"; then
+    if docker-compose -f "${PROJECT_ROOT}/docker/docker-compose.all-in-one.yml" ps elidune-all-in-one 2>/dev/null | grep -q "Up"; then
         USE_COMPOSE=true
-        COMPOSE_FILE="${PROJECT_ROOT}/docker-compose.complete.yml"
+        COMPOSE_FILE="${PROJECT_ROOT}/docker/docker-compose.all-in-one.yml"
     fi
 fi
 
@@ -30,29 +30,29 @@ echo ""
 
 if [ "${USE_COMPOSE}" = true ]; then
     echo -e "${YELLOW}Using docker-compose mode${NC}"
-    CONTAINER_NAME=$(docker-compose -f "${COMPOSE_FILE}" ps -q elidune-complete)
+    CONTAINER_NAME=$(docker-compose -f "${COMPOSE_FILE}" ps -q elidune-all-in-one)
     
     if [ -z "${CONTAINER_NAME}" ]; then
-        echo -e "${RED}Error: elidune-complete service is not running${NC}"
-        echo -e "${YELLOW}Start it with: docker-compose -f docker-compose.complete.yml up -d${NC}"
+        echo -e "${RED}Error: elidune-all-in-one service is not running${NC}"
+        echo -e "${YELLOW}Start it with: docker-compose -f docker/docker-compose.all-in-one.yml up -d${NC}"
         exit 1
     fi
     
     # Get PostgreSQL port from docker-compose
-    POSTGRES_PORT=$(docker-compose -f "${COMPOSE_FILE}" port elidune-complete 5432 2>/dev/null | cut -d: -f2 || echo "5433")
+    POSTGRES_PORT=$(docker-compose -f "${COMPOSE_FILE}" port elidune-all-in-one 5432 2>/dev/null | cut -d: -f2 || echo "5433")
     
     echo -e "${YELLOW}Dumping database from docker-compose service...${NC}"
     echo -e "${YELLOW}Database: ${DB_NAME}, User: ${DB_USER}, Port: ${POSTGRES_PORT}${NC}"
     echo ""
     
     # Dump using docker-compose exec
-    docker-compose -f "${COMPOSE_FILE}" exec -T elidune-complete \
+    docker-compose -f "${COMPOSE_FILE}" exec -T elidune-all-in-one \
         pg_dump -U "${DB_USER}" -d "${DB_NAME}" \
         --clean --if-exists --no-owner --no-acl \
         --format=plain | gzip > "${PROJECT_ROOT}/${DUMP_FILE}"
 else
     # Fallback to direct container access
-    CONTAINER_NAME="${CONTAINER_NAME:-elidune-complete}"
+    CONTAINER_NAME="${CONTAINER_NAME:-elidune-all-in-one}"
     
     if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
         echo -e "${RED}Error: Container ${CONTAINER_NAME} is not running${NC}"

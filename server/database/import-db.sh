@@ -37,11 +37,11 @@ fi
 
 # Check if docker-compose is being used
 USE_COMPOSE=false
-if [ -f "${PROJECT_ROOT}/docker-compose.complete.yml" ]; then
+if [ -f "${PROJECT_ROOT}/docker/docker-compose.all-in-one.yml" ]; then
     # Check if service is running via docker-compose
-    if docker-compose -f "${PROJECT_ROOT}/docker-compose.complete.yml" ps elidune-complete 2>/dev/null | grep -q "Up"; then
+    if docker-compose -f "${PROJECT_ROOT}/docker/docker-compose.all-in-one.yml" ps elidune-all-in-one 2>/dev/null | grep -q "Up"; then
         USE_COMPOSE=true
-        COMPOSE_FILE="${PROJECT_ROOT}/docker-compose.complete.yml"
+        COMPOSE_FILE="${PROJECT_ROOT}/docker/docker-compose.all-in-one.yml"
     fi
 fi
 
@@ -50,12 +50,12 @@ echo ""
 
 if [ "${USE_COMPOSE}" = true ]; then
     echo -e "${YELLOW}Using docker-compose mode${NC}"
-    SERVICE_NAME="elidune-complete"
+    SERVICE_NAME="elidune-all-in-one"
     
     # Check if service is running
     if ! docker-compose -f "${COMPOSE_FILE}" ps "${SERVICE_NAME}" 2>/dev/null | grep -q "Up"; then
-        echo -e "${RED}Error: elidune-complete service is not running${NC}"
-        echo -e "${YELLOW}Start it with: docker-compose -f docker-compose.complete.yml up -d${NC}"
+        echo -e "${RED}Error: elidune-all-in-one service is not running${NC}"
+        echo -e "${YELLOW}Start it with: docker-compose -f docker/docker-compose.all-in-one.yml up -d${NC}"
         exit 1
     fi
     
@@ -139,7 +139,7 @@ if [ "${USE_COMPOSE}" = true ]; then
     fi
 else
     # Fallback to direct container access
-    CONTAINER_NAME="${CONTAINER_NAME:-elidune-complete}"
+    CONTAINER_NAME="${CONTAINER_NAME:-elidune-all-in-one}"
     
     if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
         echo -e "${RED}Error: Container ${CONTAINER_NAME} is not running${NC}"

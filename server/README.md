@@ -140,12 +140,12 @@ docker run --rm -p 8080:8080 \
 
 The image default command is `elidune-server --config /app/config/default.toml`.
 
-### Prebuilt “complete” image (API + UI + DB stack)
+### Prebuilt all-in-one image (API + UI + DB stack)
 
-CI publishes a **full stack** image (Rust API + web UI + PostgreSQL + Redis + Nginx inside one image) to GitHub Container Registry when `main` is pushed:
+CI publishes a **full stack** image (Rust API + web UI + PostgreSQL + Redis + Meilisearch + Nginx inside one image) to GitHub Container Registry when `main` is pushed:
 
-- **Image:** `ghcr.io/elidune/elidune-complete:latest` (and a tag per commit SHA)
-- **Build definition:** [`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml), [`docker/Dockerfile.complete`](docker/Dockerfile.complete)
+- **Image:** `ghcr.io/elidune/elidune-all-in-one:latest` (and a tag per commit SHA)
+- **Build definition:** [`.github/workflows/docker-publish.yml`](.github/workflows/docker-publish.yml), [`docker/Dockerfile.all-in-one`](docker/Dockerfile.all-in-one)
 
 Deployment and host-level proxy examples for that stack: **[README-docker.md](README-docker.md)**.
 
@@ -260,7 +260,7 @@ src/
 
 ## Additional documentation
 
-- [Full Docker “complete” deployment](README-docker.md)
+- [Full Docker all-in-one deployment](README-docker.md)
 - [Reverse proxy: Nginx & Apache](docs/reverse-proxy.md)
 
 ## Public release checklist (maintainers)

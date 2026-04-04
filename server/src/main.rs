@@ -71,9 +71,8 @@ async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
 
     // Load configuration
-    let config = config_path_from_args()
-        .map(|path| AppConfig::load(&path))
-        .ok_or_else(|| anyhow::anyhow!("No configuration path provided"))??;
+    let config = AppConfig::load(config_path_from_args().as_deref())
+        .expect("Failed to load configuration");
 
     // Initialize tracing
     let initial_filter = tracing_subscriber::EnvFilter::try_from_default_env()

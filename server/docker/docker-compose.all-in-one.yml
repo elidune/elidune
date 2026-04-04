@@ -1,25 +1,30 @@
-# Stack: API + PostgreSQL + Redis + Meilisearch (see Dockerfile in this folder).
-# Config: `ELIDUNE_*` overrides TOML — see src/config.rs. Optional: `env_file: [.env]`.
+# All-in-one image: PostgreSQL, Redis, Meilisearch, API, Nginx (see Dockerfile.all-in-one).
+# Config: `ELIDUNE_*` env vars (prefix ELIDUNE, nested keys use __) override TOML — see src/config.rs.
 #
-# Optional (set in `.env`; do not set empty values — breaks deserialization):
-#   ELIDUNE_SERVER__CORS_ORIGINS — JSON array
+# Optional overrides (set in `.env`; do not set empty values — breaks deserialization):
+#   ELIDUNE_SERVER__CORS_ORIGINS — JSON array, e.g. ["https://app.example.com"]
 #   ELIDUNE_LOGGING__FILE_PATH, ELIDUNE_LOGGING__FILE_ROTATION — when logging.output=file
 #
 
 services:
-  app:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-    image: ${ELIDUNE_IMAGE:-elidune-server:local}
-    command: ["/app/elidune-server", "--config", "/app/config/default.toml"]
+  elidune-all-in-one:
+    image: ${ELIDUNE_IMAGE:-elidune-all-in-one:latest}
+    pull_policy: always
+    container_name: elidune-all-in-one
     ports:
-      - "${API_PORT:-8080}:8080"
+      - "${POSTGRES_PORT:-5433}:5432"
+      - "${REDIS_PORT:-6379}:6379"
+      - "${MEILI_PORT:-7700}:7700"
+      - "${API_PORT:-8282}:8080"
+      - "${GUI_PORT:-8181}:80"
     environment:
+      # Meilisearch process (same container; must match ELIDUNE_MEILISEARCH__API_KEY when set)
       MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-changeme}
 
+      # RUST_LOG is read by tracing (not ELIDUNE_*)
       RUST_LOG: ${RUST_LOG:-elidune_server=info,tower_http=info}
 
+      # --- server ---
       ELIDUNE_SERVER__HOST: ${ELIDUNE_SERVER__HOST:-0.0.0.0}
       ELIDUNE_SERVER__PORT: ${ELIDUNE_SERVER__PORT:-8080}
       ELIDUNE_SERVER__AUTH_RATE_PER_SECOND: ${ELIDUNE_SERVER__AUTH_RATE_PER_SECOND:-4}
@@ -27,18 +32,22 @@ services:
       ELIDUNE_SERVER__PUBLIC_RATE_PER_SECOND: ${ELIDUNE_SERVER__PUBLIC_RATE_PER_SECOND:-30}
       ELIDUNE_SERVER__PUBLIC_RATE_BURST: ${ELIDUNE_SERVER__PUBLIC_RATE_BURST:-100}
 
-      ELIDUNE_DATABASE__URL: ${ELIDUNE_DATABASE__URL:-postgres://elidune:elidune@db:5432/elidune}
+      # --- database ---
+      ELIDUNE_DATABASE__URL: ${ELIDUNE_DATABASE__URL:-postgres://elidune:elidune@localhost:5432/elidune}
       ELIDUNE_DATABASE__MAX_CONNECTIONS: ${ELIDUNE_DATABASE__MAX_CONNECTIONS:-10}
       ELIDUNE_DATABASE__MIN_CONNECTIONS: ${ELIDUNE_DATABASE__MIN_CONNECTIONS:-2}
 
+      # --- users / JWT ---
       ELIDUNE_USERS__JWT_SECRET: ${ELIDUNE_USERS__JWT_SECRET:-change-this-secret-in-production}
       ELIDUNE_USERS__JWT_EXPIRATION_HOURS: ${ELIDUNE_USERS__JWT_EXPIRATION_HOURS:-24}
 
+      # --- logging ---
       ELIDUNE_LOGGING__LEVEL: ${ELIDUNE_LOGGING__LEVEL:-info}
-      ELIDUNE_LOGGING__FORMAT: ${ELIDUNE_LOGGING__FORMAT:-plain}
+      ELIDUNE_LOGGING__FORMAT: ${ELIDUNE_LOGGING__FORMAT:-pretty}
       ELIDUNE_LOGGING__OUTPUT: ${ELIDUNE_LOGGING__OUTPUT:-stdout}
       ELIDUNE_LOGGING__OVERRIDABLE: ${ELIDUNE_LOGGING__OVERRIDABLE:-true}
 
+      # --- email ---
       ELIDUNE_EMAIL__SMTP_HOST: ${ELIDUNE_EMAIL__SMTP_HOST:-}
       ELIDUNE_EMAIL__SMTP_PORT: ${ELIDUNE_EMAIL__SMTP_PORT:-587}
       ELIDUNE_EMAIL__SMTP_USERNAME: ${ELIDUNE_EMAIL__SMTP_USERNAME:-}
@@ -49,105 +58,55 @@ services:
       ELIDUNE_EMAIL__TEMPLATES_DIR: ${ELIDUNE_EMAIL__TEMPLATES_DIR:-data/email_templates}
       ELIDUNE_EMAIL__OVERRIDABLE: ${ELIDUNE_EMAIL__OVERRIDABLE:-true}
 
-      ELIDUNE_REDIS__URL: ${ELIDUNE_REDIS__URL:-redis://redis:6379}
+      # --- redis ---
+      ELIDUNE_REDIS__URL: ${ELIDUNE_REDIS__URL:-redis://127.0.0.1:6379}
       ELIDUNE_REDIS__Z3950_CACHE_TTL_SECONDS: ${ELIDUNE_REDIS__Z3950_CACHE_TTL_SECONDS:-604800}
 
+      # --- reminders ---
       ELIDUNE_REMINDERS__ENABLED: ${ELIDUNE_REMINDERS__ENABLED:-true}
       ELIDUNE_REMINDERS__FREQUENCY_DAYS: ${ELIDUNE_REMINDERS__FREQUENCY_DAYS:-7}
       ELIDUNE_REMINDERS__SEND_TIME: ${ELIDUNE_REMINDERS__SEND_TIME:-09:00}
       ELIDUNE_REMINDERS__SMTP_THROTTLE_MS: ${ELIDUNE_REMINDERS__SMTP_THROTTLE_MS:-100}
       ELIDUNE_REMINDERS__OVERRIDABLE: ${ELIDUNE_REMINDERS__OVERRIDABLE:-true}
 
+      # --- audit ---
       ELIDUNE_AUDIT__RETENTION_DAYS: ${ELIDUNE_AUDIT__RETENTION_DAYS:-365}
       ELIDUNE_AUDIT__OVERRIDABLE: ${ELIDUNE_AUDIT__OVERRIDABLE:-true}
 
+      # --- holds ---
       ELIDUNE_HOLDS__READY_EXPIRY_DAYS: ${ELIDUNE_HOLDS__READY_EXPIRY_DAYS:-7}
       ELIDUNE_HOLDS__OVERRIDABLE: ${ELIDUNE_HOLDS__OVERRIDABLE:-true}
 
-      ELIDUNE_MEILISEARCH__URL: ${ELIDUNE_MEILISEARCH__URL:-http://meilisearch:7700}
-      # Defaults to MEILI_MASTER_KEY when ELIDUNE_MEILISEARCH__API_KEY is unset
-      ELIDUNE_MEILISEARCH__API_KEY: ${ELIDUNE_MEILISEARCH__API_KEY:-${MEILI_MASTER_KEY:-changeme}}
+      # --- meilisearch (in-container URL; override api_key to match MEILI_MASTER_KEY) ---
+      ELIDUNE_MEILISEARCH__URL: ${ELIDUNE_MEILISEARCH__URL:-http://127.0.0.1:7700}
+      ELIDUNE_MEILISEARCH__API_KEY: ${ELIDUNE_MEILISEARCH__API_KEY:-changeme}
       ELIDUNE_MEILISEARCH__INDEX_NAME: ${ELIDUNE_MEILISEARCH__INDEX_NAME:-items}
 
-    # Use this volume to override the default configuration with a custom one.
-    #volumes:
-    #  - ./config.docker.toml:/app/config/default.toml:ro
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_started
-      meilisearch:
-        condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - elidune-network
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
-    restart: unless-stopped
-    networks:
-      - elidune-network
-
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: elidune
-      POSTGRES_PASSWORD: elidune
-      POSTGRES_DB: elidune
     volumes:
+      - /etc/elidune/config:/app/config
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U elidune -d elidune"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    networks:
-      - elidune-network
-
-  meilisearch:
-    image: getmeili/meilisearch:v1.12
-    ports:
-      - "${MEILI_PORT:-7700}:7700"
-    environment:
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-changeme}
-      MEILI_ENV: production
-    volumes:
+      - redis_data:/data
       - meili_data:/meili_data
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:7700/health >/dev/null"]
-      interval: 10s
-      timeout: 5s
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U elidune -d elidune && redis-cli ping && curl -sf http://127.0.0.1:7700/health >/dev/null",
+        ]
+      interval: 30s
+      timeout: 10s
       retries: 5
-      start_period: 15s
-    restart: unless-stopped
-    networks:
-      - elidune-network
-
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    environment:
-      PGADMIN_DEFAULT_EMAIL: admin@elidune.org
-      PGADMIN_DEFAULT_PASSWORD: admin
-    ports:
-      - "5050:80"
-    depends_on:
-      - db
-    restart: unless-stopped
-    networks:
-      - elidune-network
-    profiles:
-      - tools
+      start_period: 90s
 
 volumes:
   postgres_data:
+    name: elidune-postgres-data
+  redis_data:
+    name: elidune-redis-data
   meili_data:
+    name: elidune-meili-data
 
 networks:
-  elidune-network:
-    driver: bridge
+  default:
+    name: elidune-network

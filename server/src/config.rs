@@ -1,6 +1,6 @@
 //! Configuration management for Elidune server
 
-use config::{Config, ConfigError, File};
+use config::{Config, ConfigError, Environment, File};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -216,10 +216,20 @@ pub struct AppConfig {
 
 impl AppConfig {
     /// Load configuration from the given file path.
-    pub fn load(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
-        let config = Config::builder()
-            .add_source(File::from(path.as_ref().to_path_buf().as_path()).required(true))
-            .build()?;
+    pub fn load(path: Option<impl AsRef<Path>>) -> Result<Self, ConfigError> {
+
+        let mut builder = Config::builder();
+        if let Some(path) = path {
+            builder = builder.add_source(File::from(path.as_ref().to_path_buf().as_path()).required(false));
+        }
+        
+        let config = builder.add_source(
+            Environment::with_prefix("ELIDUNE")
+                .prefix_separator("_")
+                .separator("__"),
+        ).build()?;
+
+        
         config.try_deserialize()
     }
 }

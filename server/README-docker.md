@@ -1,6 +1,6 @@
-# Elidune Complete deployment guide with Docker Compose
+# Elidune all-in-one deployment guide with Docker Compose
 
-This guide explains how to deploy Elidune Complete on a remote server using Docker Compose with persistent volumes.
+This guide explains how to deploy the Elidune all-in-one stack on a remote server using Docker Compose with persistent volumes.
 
 For TLS and a public hostname in front of **only** the API (or split API + UI), see [docs/reverse-proxy.md](docs/reverse-proxy.md).
 
@@ -30,6 +30,7 @@ For TLS and a public hostname in front of **only** the API (or split API + UI), 
 - **Available ports:**
   - 5433 (PostgreSQL) — or as configured
   - 6379 (Redis) — or as configured
+  - 7700 (Meilisearch) — or as configured
   - 8282 (API) — or as configured
   - 8181 (GUI) — or as configured
 
@@ -54,11 +55,11 @@ df -h
 
 ```
 /opt/elidune/
-├── docker-compose.complete.yml
+├── docker/docker-compose.all-in-one.yml
 ├── .env
-├── Dockerfile.complete (optional, for local build)
+├── docker/Dockerfile.all-in-one (optional, for local build)
 ├── docker/
-│   ├── nginx-complete.conf
+│   ├── nginx-all-in-one.conf
 │   ├── supervisord.conf
 │   └── wait-and-start-server.sh
 └── scripts/
@@ -73,16 +74,16 @@ df -h
 
 #### Required
 
-1. **`docker-compose.complete.yml`** — Docker Compose config
+1. **`docker/docker-compose.all-in-one.yml`** — Docker Compose config
 2. **`.env.example`** — Config template (copy to `.env`)
-3. **`docker/nginx-complete.conf`** — Internal Nginx config
+3. **`docker/nginx-all-in-one.conf`** — Internal Nginx config
 4. **`docker/supervisord.conf`** — Supervisor config
 5. **`docker/wait-and-start-server.sh`** — Server startup script
 
 #### Optional (local build)
 
-6. **`Dockerfile.complete`** — Dockerfile for local image build
-7. **`scripts/build-complete-image.sh`** — Build script
+6. **`docker/Dockerfile.all-in-one`** — Dockerfile for local image build
+7. **Build:** `docker build -f docker/Dockerfile.all-in-one -t elidune-all-in-one:latest .` (from repo root)
 
 #### Recommended utility scripts
 
@@ -104,9 +105,8 @@ cd /path/to/elidune-server-rust
 
 # Archive required files
 tar czf elidune-deploy.tar.gz \
-    docker-compose.complete.yml \
+    docker/docker-compose.all-in-one.yml \
     .env.example \
-    Dockerfile.complete \
     docker/ \
     scripts/dump-db.sh \
     scripts/import-db.sh \
@@ -140,9 +140,9 @@ cd elidune
 ssh user@remote-server "mkdir -p /opt/elidune/{docker,scripts}"
 
 # Copy files one by one
-scp docker-compose.complete.yml user@remote-server:/opt/elidune/
+scp docker/docker-compose.all-in-one.yml user@remote-server:/opt/elidune/
 scp .env.example user@remote-server:/opt/elidune/
-scp docker/nginx-complete.conf user@remote-server:/opt/elidune/docker/
+scp docker/nginx-all-in-one.conf user@remote-server:/opt/elidune/docker/
 scp docker/supervisord.conf user@remote-server:/opt/elidune/docker/
 scp docker/wait-and-start-server.sh user@remote-server:/opt/elidune/docker/
 scp scripts/dump-db.sh user@remote-server:/opt/elidune/scripts/
@@ -213,34 +213,31 @@ If you exported the image from your local machine:
 
 ```bash
 # On local machine, export image
-docker save elidune-complete:latest | gzip > elidune-complete-image.tar.gz
+docker save elidune-all-in-one:latest | gzip > elidune-all-in-one-image.tar.gz
 
 # Copy to server
-scp elidune-complete-image.tar.gz user@remote-server:/opt/elidune/
+scp elidune-all-in-one-image.tar.gz user@remote-server:/opt/elidune/
 
 # On server, load image
 cd /opt/elidune
-gunzip -c elidune-complete-image.tar.gz | docker load
+gunzip -c elidune-all-in-one-image.tar.gz | docker load
 ```
 
 ### Option B: Build on the server
 
-If you transferred `Dockerfile.complete`:
+If you transferred `docker/Dockerfile.all-in-one`:
 
 ```bash
 cd /opt/elidune
 
-# Build (may take 10–30 minutes)
-docker build -f Dockerfile.complete -t elidune-complete:latest .
-
-# Or use build script if present
-./scripts/build-complete-image.sh
+# Build (may take 10–30 minutes; clones elidune-server + elidune-ui from GitHub inside the Dockerfile)
+docker build -f docker/Dockerfile.all-in-one -t elidune-all-in-one:latest .
 ```
 
 ### Confirm image exists
 
 ```bash
-docker images | grep elidune-complete
+docker images | grep elidune-all-in-one
 ```
 
 ---
@@ -253,7 +250,7 @@ docker images | grep elidune-complete
 cd /opt/elidune
 
 # Background
-docker-compose -f docker-compose.complete.yml up -d
+docker-compose -f docker/docker-compose.all-in-one.yml up -d
 
 # Or helper
 ./scripts/docker-compose-helper.sh start
@@ -263,13 +260,13 @@ docker-compose -f docker-compose.complete.yml up -d
 
 ```bash
 # Logs
-docker-compose -f docker-compose.complete.yml logs -f
+docker-compose -f docker/docker-compose.all-in-one.yml logs -f
 
 # Or helper
 ./scripts/docker-compose-helper.sh logs
 
 # Status
-docker-compose -f docker-compose.complete.yml ps
+docker-compose -f docker/docker-compose.all-in-one.yml ps
 ```
 
 ### 3. Wait for services
@@ -283,20 +280,20 @@ The container starts PostgreSQL, Redis, then Elidune. Allow 30–60 seconds befo
 ### 1. Container running
 
 ```bash
-docker ps | grep elidune-complete
+docker ps | grep elidune-all-in-one
 ```
 
 ### 2. Logs
 
 ```bash
 # Elidune server
-docker-compose -f docker-compose.complete.yml logs elidune-complete | tail -50
+docker-compose -f docker/docker-compose.all-in-one.yml logs elidune-all-in-one | tail -50
 
 # PostgreSQL
-docker-compose -f docker-compose.complete.yml exec elidune-complete tail -f /var/log/supervisor/postgresql.out.log
+docker-compose -f docker/docker-compose.all-in-one.yml exec elidune-all-in-one tail -f /var/log/supervisor/postgresql.out.log
 
 # Rust server
-docker-compose -f docker-compose.complete.yml exec elidune-complete tail -f /var/log/supervisor/elidune-server.out.log
+docker-compose -f docker/docker-compose.all-in-one.yml exec elidune-all-in-one tail -f /var/log/supervisor/elidune-server.out.log
 ```
 
 ### 3. Service checks
@@ -309,10 +306,10 @@ curl http://localhost:8282/api/v1/health
 curl http://localhost:8181
 
 # PostgreSQL
-docker-compose -f docker-compose.complete.yml exec elidune-complete pg_isready -U elidune
+docker-compose -f docker/docker-compose.all-in-one.yml exec elidune-all-in-one pg_isready -U elidune
 
 # Redis
-docker-compose -f docker-compose.complete.yml exec elidune-complete redis-cli ping
+docker-compose -f docker/docker-compose.all-in-one.yml exec elidune-all-in-one redis-cli ping
 ```
 
 ### 4. Web access
@@ -365,27 +362,27 @@ cd /opt/elidune
 
 ```bash
 # Start
-docker-compose -f docker-compose.complete.yml up -d
+docker-compose -f docker/docker-compose.all-in-one.yml up -d
 # or
 ./scripts/docker-compose-helper.sh start
 
 # Stop
-docker-compose -f docker-compose.complete.yml stop
+docker-compose -f docker/docker-compose.all-in-one.yml stop
 # or
 ./scripts/docker-compose-helper.sh stop
 
 # Restart
-docker-compose -f docker-compose.complete.yml restart
+docker-compose -f docker/docker-compose.all-in-one.yml restart
 # or
 ./scripts/docker-compose-helper.sh restart
 
 # Logs
-docker-compose -f docker-compose.complete.yml logs -f
+docker-compose -f docker/docker-compose.all-in-one.yml logs -f
 # or
 ./scripts/docker-compose-helper.sh logs
 
 # Status
-docker-compose -f docker-compose.complete.yml ps
+docker-compose -f docker/docker-compose.all-in-one.yml ps
 # or
 ./scripts/docker-compose-helper.sh status
 ```
@@ -394,12 +391,12 @@ docker-compose -f docker-compose.complete.yml ps
 
 ```bash
 # Shell
-docker-compose -f docker-compose.complete.yml exec elidune-complete sh
+docker-compose -f docker/docker-compose.all-in-one.yml exec elidune-all-in-one sh
 # or
 ./scripts/docker-compose-helper.sh shell
 
 # Run psql
-docker-compose -f docker-compose.complete.yml exec elidune-complete psql -U elidune -d elidune
+docker-compose -f docker/docker-compose.all-in-one.yml exec elidune-all-in-one psql -U elidune -d elidune
 ```
 
 ### Volumes
@@ -420,13 +417,13 @@ docker system df -v
 
 ```bash
 # Stop
-docker-compose -f docker-compose.complete.yml stop
+docker-compose -f docker/docker-compose.all-in-one.yml stop
 
 # Load new image
 gunzip -c new-image.tar.gz | docker load
 
 # Start
-docker-compose -f docker-compose.complete.yml up -d
+docker-compose -f docker/docker-compose.all-in-one.yml up -d
 ```
 
 ---
@@ -436,14 +433,14 @@ docker-compose -f docker-compose.complete.yml up -d
 ### Container won’t start
 
 ```bash
-docker-compose -f docker-compose.complete.yml logs
-docker-compose -f docker-compose.complete.yml ps
+docker-compose -f docker/docker-compose.all-in-one.yml logs
+docker-compose -f docker/docker-compose.all-in-one.yml ps
 ```
 
 ### PostgreSQL won’t start
 
 ```bash
-docker-compose -f docker-compose.complete.yml exec elidune-complete \
+docker-compose -f docker/docker-compose.all-in-one.yml exec elidune-all-in-one \
     tail -f /var/log/supervisor/postgresql.err.log
 
 docker volume inspect elidune-postgres-data
@@ -452,21 +449,21 @@ docker volume inspect elidune-postgres-data
 ### Elidune server won’t start
 
 ```bash
-docker-compose -f docker-compose.complete.yml exec elidune-complete \
+docker-compose -f docker/docker-compose.all-in-one.yml exec elidune-all-in-one \
     tail -f /var/log/supervisor/elidune-server.err.log
 
-docker-compose -f docker-compose.complete.yml exec elidune-complete \
+docker-compose -f docker/docker-compose.all-in-one.yml exec elidune-all-in-one \
     cat /app/config/default.toml
 ```
 
 ### Database migration issues
 
 ```bash
-docker-compose -f docker-compose.complete.yml exec elidune-complete \
+docker-compose -f docker/docker-compose.all-in-one.yml exec elidune-all-in-one \
     psql -U elidune -d elidune -c "SELECT * FROM _sqlx_migrations;"
 
 # Reset migrations (⚠️ dangerous)
-docker-compose -f docker-compose.complete.yml exec elidune-complete \
+docker-compose -f docker/docker-compose.all-in-one.yml exec elidune-all-in-one \
     psql -U elidune -d elidune -c "TRUNCATE TABLE _sqlx_migrations;"
 ```
 
@@ -480,8 +477,8 @@ sudo lsof -i :8181
 nano /opt/elidune/.env
 # Change GUI_PORT, API_PORT, etc.
 
-docker-compose -f docker-compose.complete.yml down
-docker-compose -f docker-compose.complete.yml up -d
+docker-compose -f docker/docker-compose.all-in-one.yml down
+docker-compose -f docker/docker-compose.all-in-one.yml up -d
 ```
 
 ### Permissions
@@ -496,10 +493,10 @@ chmod +x /opt/elidune/docker/wait-and-start-server.sh
 
 ```bash
 # Stop and remove container (keep volumes)
-docker-compose -f docker-compose.complete.yml down
+docker-compose -f docker/docker-compose.all-in-one.yml down
 
 # Remove volumes too (⚠️ deletes data)
-docker-compose -f docker-compose.complete.yml down -v
+docker-compose -f docker/docker-compose.all-in-one.yml down -v
 
 docker image prune -a
 ```

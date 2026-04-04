@@ -1,0 +1,59 @@
+# Example configuration for `docker/docker-compose.yml` (service hostnames).
+# Mount or copy this file to `/app/config/default.toml` inside the container.
+# `ELIDUNE_*` environment variables override these values (see docker-compose.yml).
+# For production: set strong secrets via env or file, and use real SMTP.
+
+[server]
+host = "0.0.0.0"
+port = 8080
+
+[database]
+url = "postgres://elidune:elidune@db:5432/elidune"
+max_connections = 10
+min_connections = 2
+
+[users]
+jwt_secret = "change-this-secret-in-production"
+jwt_expiration_hours = 24
+
+[logging]
+level = "info"
+format = "plain"
+output = "stdout"
+overridable = true
+
+[email]
+smtp_host = ""
+smtp_port = 587
+smtp_username = ""
+smtp_password = ""
+smtp_from = ""
+smtp_from_name = ""
+smtp_use_tls = true
+templates_dir = "data/email_templates"
+overridable = true
+
+[redis]
+url = "redis://redis:6379"
+z3950_cache_ttl_seconds = 604800
+
+[reminders]
+enabled = true
+frequency_days = 7
+send_time = "09:00"
+smtp_throttle_ms = 100
+overridable = true
+
+[audit]
+retention_days = 365
+overridable = true
+
+[holds]
+ready_expiry_days = 7
+overridable = true
+
+[meilisearch]
+url = "http://meilisearch:7700"
+# Must match MEILI_MASTER_KEY in docker-compose (change both in production).
+api_key = "changeme"
+index_name = "items"

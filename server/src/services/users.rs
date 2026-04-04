@@ -538,50 +538,6 @@ impl UsersService {
         self.create_token_for_user(&user).await
     }
 
-    /// Seed the database with a default admin user if no users exist yet.
-    ///
-    /// Returns `Some((login, password))` when a new admin was created, `None` otherwise.
-    pub async fn seed_admin_if_empty(&self) -> AppResult<Option<(String, String)>> {
-        let count = self.repository.users_count().await?;
-        if count > 0 {
-            return Ok(None);
-        }
-
-        let login = "admin".to_string();
-        let password = Self::generate_random_password(16);
-        let hash = self.hash_password(&password)?;
-
-        let default_public_type: i64 = self
-            .repository
-            .public_types_first_id()
-            .await?
-            .ok_or_else(|| {
-                AppError::Internal(
-                    "No public_type row found; run database initialization/migrations first".into(),
-                )
-            })?;
-
-        let payload = UserPayload {
-            login: Some(login.clone()),
-            account_type: Some(AccountTypeSlug::Admin),
-            firstname: Some("Administrator".to_string()),
-            lastname: Some("Admin".to_string()),
-            sex: Some(Sex::M),
-            birthdate: Some(
-                NaiveDate::from_ymd_opt(1970, 1, 1).expect("1970-01-01 is a valid date"),
-            ),
-            public_type: Some(default_public_type),
-            addr_city: Some("System".to_string()),
-            ..Default::default()
-        };
-
-        let user = self.repository.users_create(&payload, Some(hash)).await?;
-        // Force password change on first login
-        self.repository.users_set_must_change_password(user.id, true).await?;
-
-        Ok(Some((login, password)))
-    }
-
     /// Force a password change for the given user on next login.
     pub async fn set_must_change_password(&self, user_id: i64, value: bool) -> AppResult<()> {
         // Ensure user exists before updating
