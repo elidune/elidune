@@ -1,593 +1,278 @@
-# Elidune all-in-one deployment guide with Docker Compose
+# Elidune Docker deployment
 
-This guide explains how to deploy the Elidune all-in-one stack on a remote server using Docker Compose with persistent volumes.
-
-For TLS and a public hostname in front of **only** the API (or split API + UI), see [docs/reverse-proxy.md](docs/reverse-proxy.md).
+This guide covers deploying Elidune with **Docker Compose** using either a **multi-container stack** (`docker-compose.yml`) or an **all-in-one** image (`docker-compose.all-in-one.yml`). For TLS and a reverse proxy in front of the API or split API + UI, see [docs/reverse-proxy.md](docs/reverse-proxy.md).
 
 ## Table of contents
 
-1. [Prerequisites](#prerequisites)
-2. [Preparing files](#preparing-files)
-3. [Transfer to remote server](#transfer-to-remote-server)
-4. [Server configuration](#server-configuration)
-5. [Build or import Docker image](#build-or-import-docker-image)
-6. [Starting the service](#starting-the-service)
+1. [Choosing a Compose file](#choosing-a-compose-file)
+2. [Images built on GitHub](#images-built-on-github)
+3. [Configuration with `.env`](#configuration-with-env)
+4. [Prerequisites](#prerequisites)
+5. [Deploy: all-in-one (`docker-compose.all-in-one.yml`)](#deploy-all-in-one-docker-composeall-in-oneyml)
+6. [Deploy: multi-service (`docker-compose.yml`)](#deploy-multi-service-docker-composeyml)
 7. [Verification](#verification)
-8. [Data management](#data-management)
+8. [Data and volumes](#data-and-volumes)
 9. [Useful commands](#useful-commands)
 10. [Troubleshooting](#troubleshooting)
+11. [Host Nginx (optional)](#host-nginx-optional)
+12. [Deployment checklist](#deployment-checklist)
+
+---
+
+## Choosing a Compose file
+
+| | `docker/docker-compose.yml` | `docker/docker-compose.all-in-one.yml` |
+|---|-----------------------------|------------------------------------------|
+| **Layout** | One container per concern: API app, PostgreSQL, Redis, Meilisearch (optional `pgadmin` via profile `tools`). | Single container: PostgreSQL, Redis, Meilisearch, API, and Nginx (GUI) via Supervisor. |
+| **Image** | Default: **build** from `docker/Dockerfile` as `elidune-server:local`. Alternatively set **`ELIDUNE_IMAGE`** to `ghcr.io/elidune/elidune-server` ([built on GitHub](#images-built-on-github)) and use `up --no-build` after `pull`. | Uses **`ELIDUNE_IMAGE`** (default `elidune-all-in-one:latest`). **Recommended:** pull [from GHCR](#images-built-on-github). |
+| **Ports (defaults)** | API `8080`→host `API_PORT` or `8080`; DB `5432`; Redis `6379`; Meilisearch `7700`. | Maps host ports to PostgreSQL, Redis, Meilisearch, API (`8282`→8080), GUI (`8181`→80). |
+| **Best for** | Development, scaling or swapping components, or when you already run an external database. | Simple installs on one host, demos, or minimal moving parts. |
+
+From the **repository root** (where this file lives), use:
+
+```bash
+# Multi-service stack
+docker compose -f docker/docker-compose.yml up -d
+
+# All-in-one
+docker compose -f docker/docker-compose.all-in-one.yml up -d
+```
+
+(`docker-compose` with a hyphen also works if your installation provides it.)
+
+---
+
+## Images built on GitHub
+
+On every push to `main`, **GitHub Actions** (`.github/workflows/docker-publish.yml`) builds and pushes both images to [GHCR](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry):
+
+| Image | Dockerfile | Example tag |
+|-------|------------|-------------|
+| `ghcr.io/elidune/elidune-server` | `docker/Dockerfile` | `:latest`, `:<git-sha>` |
+| `ghcr.io/elidune/elidune-all-in-one` | `docker/Dockerfile.all-in-one` | `:latest`, `:<git-sha>` |
+
+**All-in-one** — set the image and pull:
+
+```bash
+echo "ELIDUNE_IMAGE=ghcr.io/elidune/elidune-all-in-one:latest" >> .env
+docker login ghcr.io
+docker compose -f docker/docker-compose.all-in-one.yml pull
+docker compose -f docker/docker-compose.all-in-one.yml up -d
+```
+
+**Multi-service** — default compose builds `docker/Dockerfile` locally. To run the **published** API image, set `ELIDUNE_IMAGE`, pull, and start without building (the compose file defines both `build:` and `image:`; `--no-build` uses the pulled tag):
+
+```bash
+export ELIDUNE_IMAGE=ghcr.io/elidune/elidune-server:latest
+docker login ghcr.io
+docker compose -f docker/docker-compose.yml pull app
+docker compose -f docker/docker-compose.yml up -d --no-build
+```
+
+Fully local: `docker build -f docker/Dockerfile -t elidune-server:local .` then `docker compose -f docker/docker-compose.yml up -d`.
+
+---
+
+## Configuration with `.env`
+
+Docker Compose automatically reads a file named **`.env`** in the **current working directory** (the directory from which you run `docker compose`, not necessarily the folder that contains the YAML). Variables in `.env` are used for **substitution** in the compose file (`${VAR:-default}`) and are also passed where the compose file wires them into `environment:`.
+
+**Recommended layout**
+
+```
+/path/to/elidune-server-rust/    # repo root; run compose from here
+├── .env                            # created from docker/.env.example (all-in-one)
+└── docker/
+    ├── .env.example                # template for docker-compose.all-in-one.yml
+    ├── docker-compose.yml
+    └── docker-compose.all-in-one.yml
+```
+
+For the **all-in-one** stack, start from the template:
+
+```bash
+cd /path/to/elidune-server-rust
+cp docker/.env.example .env
+# edit .env: set ELIDUNE_USERS__JWT_SECRET, ELIDUNE_MEILISEARCH__API_KEY, and optional SMTP
+```
+
+Alternatively, keep the file under `docker/` and pass it explicitly (substitution uses this file):
+
+```bash
+docker compose --env-file docker/.env.example -f docker/docker-compose.all-in-one.yml config
+docker compose --env-file docker/.env -f docker/docker-compose.all-in-one.yml up -d
+```
+
+**Application settings (`ELIDUNE_*`)** — The server loads `config/default.toml` inside the image, then **environment variables** override that config. Naming follows the `ELIDUNE_` prefix and nested sections use double underscores, matching `src/config.rs` (e.g. `ELIDUNE_SERVER__PORT`, `ELIDUNE_USERS__JWT_SECRET`, `ELIDUNE_DATABASE__URL`).
+
+**Do not set empty values** for optional settings: empty strings can break deserialization. Omit the variable to use the default from the compose file or TOML.
+
+**All-in-one variables** — See `docker/.env.example` for every variable referenced by `docker-compose.all-in-one.yml`, with comments. At minimum, change **`ELIDUNE_USERS__JWT_SECRET`** and **`ELIDUNE_MEILISEARCH__API_KEY`** (the compose file sets `MEILI_MASTER_KEY` from the same value as the API key).
+
+**Multi-service compose** — The same `ELIDUNE_*` variables apply to the `app` service. Port defaults differ (`API_PORT` defaults to `8080` in `docker-compose.yml`). The `db` service uses fixed dev-style credentials in `docker-compose.yml` (`POSTGRES_USER` / `POSTGRES_PASSWORD`); override those in the YAML and set `ELIDUNE_DATABASE__URL` accordingly for production. The default app URL matches: `postgres://elidune:elidune@db:5432/elidune`.
+
+**Logging** — `RUST_LOG` is read directly by the Rust runtime (not under `ELIDUNE_`), e.g. `RUST_LOG=elidune_server=info,tower_http=info`.
 
 ---
 
 ## Prerequisites
 
-### On the remote server
-
-- **Docker** (20.10 or newer)
-- **Docker Compose** (2.0 or newer)
-- **Disk space:** at least 5 GB (image + data)
-- **RAM:** at least 2 GB recommended
-- **Available ports:**
-  - 5433 (PostgreSQL) — or as configured
-  - 6379 (Redis) — or as configured
-  - 7700 (Meilisearch) — or as configured
-  - 8282 (API) — or as configured
-  - 8181 (GUI) — or as configured
-
-### Check prerequisites
+- **Docker** (20.10+) and **Docker Compose** v2 (`docker compose`).
+- **Disk:** plan for several GB (images + PostgreSQL + Meilisearch data).
+- **RAM:** 2 GB minimum for light use; more for production load.
+- **Ports:** free on the host for the ports you map (see compose files).
 
 ```bash
-# Docker
 docker --version
-
-# Docker Compose
-docker-compose --version
-
-# Disk space
-df -h
+docker compose version
 ```
 
 ---
 
-## Preparing files
+## Deploy: all-in-one (`docker-compose.all-in-one.yml`)
 
-### Directory layout on the server
+1. Clone or copy the repo and `cd` to the repository root.
 
-```
-/opt/elidune/
-├── docker/docker-compose.all-in-one.yml
-├── .env
-├── docker/Dockerfile.all-in-one (optional, for local build)
-├── docker/
-│   ├── nginx-all-in-one.conf
-│   ├── supervisord.conf
-│   └── wait-and-start-server.sh
-└── scripts/
-    ├── dump-db.sh
-    ├── import-db.sh
-    ├── backup-volumes.sh
-    ├── restore-volumes.sh
-    └── docker-compose-helper.sh
-```
+2. Copy `docker/.env.example` to `.env` and edit secrets (see [Configuration with `.env`](#configuration-with-env)). Set at least `ELIDUNE_USERS__JWT_SECRET` and a strong `ELIDUNE_MEILISEARCH__API_KEY` (the compose file wires `MEILI_MASTER_KEY` from `ELIDUNE_MEILISEARCH__API_KEY`).
 
-### Files to transfer
+3. Point `ELIDUNE_IMAGE` at `ghcr.io/elidune/elidune-all-in-one:latest` (or a SHA tag) and `docker login ghcr.io` if needed.
 
-#### Required
-
-1. **`docker/docker-compose.all-in-one.yml`** — Docker Compose config
-2. **`.env.example`** — Config template (copy to `.env`)
-3. **`docker/nginx-all-in-one.conf`** — Internal Nginx config
-4. **`docker/supervisord.conf`** — Supervisor config
-5. **`docker/wait-and-start-server.sh`** — Server startup script
-
-#### Optional (local build)
-
-6. **`docker/Dockerfile.all-in-one`** — Dockerfile for local image build
-7. **Build:** `docker build -f docker/Dockerfile.all-in-one -t elidune-all-in-one:latest .` (from repo root)
-
-#### Recommended utility scripts
-
-8. **`scripts/dump-db.sh`** — Database export
-9. **`scripts/import-db.sh`** — Database import
-10. **`scripts/backup-volumes.sh`** — Backup Docker volumes
-11. **`scripts/restore-volumes.sh`** — Restore Docker volumes
-12. **`scripts/docker-compose-helper.sh`** — Common command helper
-
----
-
-## Transfer to remote server
-
-### Option 1: SCP
+4. Start:
 
 ```bash
-# From your local machine (repository root)
-cd /path/to/elidune-server-rust
-
-# Archive required files
-tar czf elidune-deploy.tar.gz \
-    docker/docker-compose.all-in-one.yml \
-    .env.example \
-    docker/ \
-    scripts/dump-db.sh \
-    scripts/import-db.sh \
-    scripts/backup-volumes.sh \
-    scripts/restore-volumes.sh \
-    scripts/docker-compose-helper.sh
-
-# Copy to server
-scp elidune-deploy.tar.gz user@remote-server:/opt/elidune/
-
-# On the remote server
-ssh user@remote-server
-cd /opt/elidune
-tar xzf elidune-deploy.tar.gz
+docker compose -f docker/docker-compose.all-in-one.yml pull
+docker compose -f docker/docker-compose.all-in-one.yml up -d
 ```
 
-### Option 2: Git
+5. Optional: build the image locally instead of GHCR — requires `docker/Dockerfile.all-in-one` and a longer build:
 
 ```bash
-# On the remote server
-ssh user@remote-server
-cd /opt
-git clone https://github.com/elidune/elidune-server-rust.git elidune
-cd elidune
-```
-
-### Option 3: Manual file-by-file
-
-```bash
-# Create directories on server
-ssh user@remote-server "mkdir -p /opt/elidune/{docker,scripts}"
-
-# Copy files one by one
-scp docker/docker-compose.all-in-one.yml user@remote-server:/opt/elidune/
-scp .env.example user@remote-server:/opt/elidune/
-scp docker/nginx-all-in-one.conf user@remote-server:/opt/elidune/docker/
-scp docker/supervisord.conf user@remote-server:/opt/elidune/docker/
-scp docker/wait-and-start-server.sh user@remote-server:/opt/elidune/docker/
-scp scripts/dump-db.sh user@remote-server:/opt/elidune/scripts/
-scp scripts/import-db.sh user@remote-server:/opt/elidune/scripts/
-scp scripts/backup-volumes.sh user@remote-server:/opt/elidune/scripts/
-scp scripts/restore-volumes.sh user@remote-server:/opt/elidune/scripts/
-scp scripts/docker-compose-helper.sh user@remote-server:/opt/elidune/scripts/
-```
-
-### Make scripts executable
-
-```bash
-# On the remote server
-chmod +x /opt/elidune/docker/wait-and-start-server.sh
-chmod +x /opt/elidune/scripts/*.sh
-```
-
----
-
-## Server configuration
-
-### 1. Create `.env`
-
-```bash
-cd /opt/elidune
-cp .env.example .env
-nano .env   # or vi .env
-```
-
-### 2. Important variables
-
-**⚠️ Change at least these:**
-
-```bash
-# Generate a secure JWT secret
-openssl rand -base64 32
-
-# Edit .env and set JWT_SECRET
-JWT_SECRET=your-generated-key-here
-
-# Change PostgreSQL password (optional but recommended)
-POSTGRES_PASSWORD=your-secure-password
-
-# Adjust ports if needed
-POSTGRES_PORT=5433
-API_PORT=8282
-GUI_PORT=8181
-REDIS_PORT=6379
-```
-
-### 3. Verify configuration
-
-```bash
-# Check ports are free
-netstat -tuln | grep -E ':(5433|6379|8282|8181)'
-
-# Check Docker
-docker ps
-```
-
----
-
-## Build or import Docker image
-
-### Option A: Import a pre-built image (recommended)
-
-If you exported the image from your local machine:
-
-```bash
-# On local machine, export image
-docker save elidune-all-in-one:latest | gzip > elidune-all-in-one-image.tar.gz
-
-# Copy to server
-scp elidune-all-in-one-image.tar.gz user@remote-server:/opt/elidune/
-
-# On server, load image
-cd /opt/elidune
-gunzip -c elidune-all-in-one-image.tar.gz | docker load
-```
-
-### Option B: Build on the server
-
-If you transferred `docker/Dockerfile.all-in-one`:
-
-```bash
-cd /opt/elidune
-
-# Build (may take 10–30 minutes; clones elidune-server + elidune-ui from GitHub inside the Dockerfile)
 docker build -f docker/Dockerfile.all-in-one -t elidune-all-in-one:latest .
-```
-
-### Confirm image exists
-
-```bash
-docker images | grep elidune-all-in-one
+# ELIDUNE_IMAGE=elidune-all-in-one:latest in .env or rely on default
+docker compose -f docker/docker-compose.all-in-one.yml up -d
 ```
 
 ---
 
-## Starting the service
+## Deploy: multi-service (`docker-compose.yml`)
 
-### 1. Start with Docker Compose
+1. From the repository root, create `.env` with the variables you need (JWT, database URL if not using defaults, SMTP, etc.).
 
-```bash
-cd /opt/elidune
-
-# Background
-docker-compose -f docker/docker-compose.all-in-one.yml up -d
-
-# Or helper
-./scripts/docker-compose-helper.sh start
-```
-
-### 2. Check startup
+2. Build and start (default: build API image locally):
 
 ```bash
-# Logs
-docker-compose -f docker/docker-compose.all-in-one.yml logs -f
-
-# Or helper
-./scripts/docker-compose-helper.sh logs
-
-# Status
-docker-compose -f docker/docker-compose.all-in-one.yml ps
+docker compose -f docker/docker-compose.yml build
+docker compose -f docker/docker-compose.yml up -d
 ```
 
-### 3. Wait for services
+3. Optional **pgAdmin** (profile `tools`):
 
-The container starts PostgreSQL, Redis, then Elidune. Allow 30–60 seconds before testing.
+```bash
+docker compose -f docker/docker-compose.yml --profile tools up -d
+```
+
+4. To use a pre-built API image instead of `build:`:
+
+```bash
+# Set ELIDUNE_IMAGE to your image name and adjust compose if you remove the build section locally
+export ELIDUNE_IMAGE=my-registry/elidune-server:1.2.3
+```
 
 ---
 
 ## Verification
 
-### 1. Container running
+**All-in-one**
 
 ```bash
-docker ps | grep elidune-all-in-one
+docker compose -f docker/docker-compose.all-in-one.yml ps
+curl -sS "http://127.0.0.1:${API_PORT:-8282}/api/v1/health"
+curl -sS -o /dev/null -w "%{http_code}" "http://127.0.0.1:${GUI_PORT:-8181}/"
 ```
 
-### 2. Logs
+**Multi-service**
 
 ```bash
-# Elidune server
-docker-compose -f docker/docker-compose.all-in-one.yml logs elidune-all-in-one | tail -50
-
-# PostgreSQL
-docker-compose -f docker/docker-compose.all-in-one.yml exec elidune-all-in-one tail -f /var/log/supervisor/postgresql.out.log
-
-# Rust server
-docker-compose -f docker/docker-compose.all-in-one.yml exec elidune-all-in-one tail -f /var/log/supervisor/elidune-server.out.log
+docker compose -f docker/docker-compose.yml ps
+curl -sS "http://127.0.0.1:${API_PORT:-8080}/api/v1/health"
 ```
 
-### 3. Service checks
+**Logs**
 
 ```bash
-# API
-curl http://localhost:8282/api/v1/health
-
-# GUI (should return HTML)
-curl http://localhost:8181
-
-# PostgreSQL
-docker-compose -f docker/docker-compose.all-in-one.yml exec elidune-all-in-one pg_isready -U elidune
-
-# Redis
-docker-compose -f docker/docker-compose.all-in-one.yml exec elidune-all-in-one redis-cli ping
+docker compose -f docker/docker-compose.all-in-one.yml logs -f elidune-all-in-one
+# or
+docker compose -f docker/docker-compose.yml logs -f app
 ```
-
-### 4. Web access
-
-In a browser:
-- **GUI:** `http://your-server:8181`
-- **API:** `http://your-server:8282/api/v1/health`
 
 ---
 
-## Data management
+## Data and volumes
 
-### Export database
+- **All-in-one:** named volumes `elidune-postgres-data`, `elidune-redis-data`, `elidune-meili-data` (see `docker-compose.all-in-one.yml`).
+- **Multi-service:** anonymous named volumes `postgres_data`, `meili_data` in the compose file.
 
-```bash
-cd /opt/elidune
-./scripts/dump-db.sh
-
-# Dump path: /opt/elidune/elidune-db-dump-YYYYMMDD-HHMMSS.sql.gz
-```
-
-### Import database
+Backup examples:
 
 ```bash
-cd /opt/elidune
-./scripts/import-db.sh elidune-db-dump-YYYYMMDD-HHMMSS.sql.gz
+docker run --rm -v elidune-postgres-data:/data -v "$(pwd):/backup" alpine \
+  tar czf /backup/postgres-backup.tgz -C /data .
 ```
 
-### Backup Docker volumes
-
-```bash
-cd /opt/elidune
-./scripts/backup-volumes.sh
-
-# Backups under ./backups/volumes-YYYYMMDD-HHMMSS/
-```
-
-### Restore volumes
-
-```bash
-cd /opt/elidune
-./scripts/restore-volumes.sh ./backups/volumes-YYYYMMDD-HHMMSS
-```
+Restore and upgrades should be planned with downtime and tested on a copy first.
 
 ---
 
 ## Useful commands
 
-### Service control
-
 ```bash
-# Start
-docker-compose -f docker/docker-compose.all-in-one.yml up -d
-# or
-./scripts/docker-compose-helper.sh start
+# Stop / start (all-in-one)
+docker compose -f docker/docker-compose.all-in-one.yml stop
+docker compose -f docker/docker-compose.all-in-one.yml start
 
-# Stop
-docker-compose -f docker/docker-compose.all-in-one.yml stop
-# or
-./scripts/docker-compose-helper.sh stop
+# Recreate after .env change
+docker compose -f docker/docker-compose.all-in-one.yml up -d
 
-# Restart
-docker-compose -f docker/docker-compose.all-in-one.yml restart
-# or
-./scripts/docker-compose-helper.sh restart
-
-# Logs
-docker-compose -f docker/docker-compose.all-in-one.yml logs -f
-# or
-./scripts/docker-compose-helper.sh logs
-
-# Status
-docker-compose -f docker/docker-compose.all-in-one.yml ps
-# or
-./scripts/docker-compose-helper.sh status
-```
-
-### Container access
-
-```bash
-# Shell
-docker-compose -f docker/docker-compose.all-in-one.yml exec elidune-all-in-one sh
-# or
-./scripts/docker-compose-helper.sh shell
-
-# Run psql
-docker-compose -f docker/docker-compose.all-in-one.yml exec elidune-all-in-one psql -U elidune -d elidune
-```
-
-### Volumes
-
-```bash
-# List
-docker volume ls | grep elidune
-
-# Inspect
-docker volume inspect elidune-postgres-data
-docker volume inspect elidune-redis-data
-
-# Disk usage
-docker system df -v
-```
-
-### Image update
-
-```bash
-# Stop
-docker-compose -f docker/docker-compose.all-in-one.yml stop
-
-# Load new image
-gunzip -c new-image.tar.gz | docker load
-
-# Start
-docker-compose -f docker/docker-compose.all-in-one.yml up -d
+# Shell inside all-in-one container
+docker compose -f docker/docker-compose.all-in-one.yml exec elidune-all-in-one sh
 ```
 
 ---
 
 ## Troubleshooting
 
-### Container won’t start
+- **Compose cannot find variables:** Run `docker compose` from the directory that contains `.env`, or use `docker compose --env-file /path/to/.env -f docker/docker-compose.all-in-one.yml up -d`.
+- **Port already in use:** Change `API_PORT`, `GUI_PORT`, etc. in `.env`, then `docker compose ... down` and `up -d` again.
+- **Pull errors for GHCR:** Run `docker login ghcr.io` and ensure you have read access to the package.
+- **Empty env vars:** Remove lines with `SOME_VAR=` if the app rejects empty strings.
 
 ```bash
-docker-compose -f docker/docker-compose.all-in-one.yml logs
-docker-compose -f docker/docker-compose.all-in-one.yml ps
-```
-
-### PostgreSQL won’t start
-
-```bash
-docker-compose -f docker/docker-compose.all-in-one.yml exec elidune-all-in-one \
-    tail -f /var/log/supervisor/postgresql.err.log
-
-docker volume inspect elidune-postgres-data
-```
-
-### Elidune server won’t start
-
-```bash
-docker-compose -f docker/docker-compose.all-in-one.yml exec elidune-all-in-one \
-    tail -f /var/log/supervisor/elidune-server.err.log
-
-docker-compose -f docker/docker-compose.all-in-one.yml exec elidune-all-in-one \
-    cat /app/config/default.toml
-```
-
-### Database migration issues
-
-```bash
-docker-compose -f docker/docker-compose.all-in-one.yml exec elidune-all-in-one \
-    psql -U elidune -d elidune -c "SELECT * FROM _sqlx_migrations;"
-
-# Reset migrations (⚠️ dangerous)
-docker-compose -f docker/docker-compose.all-in-one.yml exec elidune-all-in-one \
-    psql -U elidune -d elidune -c "TRUNCATE TABLE _sqlx_migrations;"
-```
-
-### Ports already in use
-
-```bash
-sudo netstat -tulpn | grep :8181
-sudo lsof -i :8181
-
-# Edit .env
-nano /opt/elidune/.env
-# Change GUI_PORT, API_PORT, etc.
-
-docker-compose -f docker/docker-compose.all-in-one.yml down
-docker-compose -f docker/docker-compose.all-in-one.yml up -d
-```
-
-### Permissions
-
-```bash
-ls -la /opt/elidune/scripts/
-chmod +x /opt/elidune/scripts/*.sh
-chmod +x /opt/elidune/docker/wait-and-start-server.sh
-```
-
-### Clean reset
-
-```bash
-# Stop and remove container (keep volumes)
-docker-compose -f docker/docker-compose.all-in-one.yml down
-
-# Remove volumes too (⚠️ deletes data)
-docker-compose -f docker/docker-compose.all-in-one.yml down -v
-
-docker image prune -a
+docker compose -f docker/docker-compose.all-in-one.yml logs --tail=200 elidune-all-in-one
 ```
 
 ---
 
 ## Host Nginx (optional)
 
-To expose Elidune on a domain with HTTPS:
-
-### Example Nginx config
-
-```nginx
-server {
-    listen 80;
-    server_name elidune.example.com;
-    return 301 https://$server_name$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name elidune.example.com;
-
-    ssl_certificate /etc/letsencrypt/live/example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/example.com/privkey.pem;
-
-    # API
-    location /api {
-        proxy_pass http://127.0.0.1:8282;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-Host $host;
-        proxy_set_header X-Forwarded-Port $server_port;
-        proxy_cache_bypass $http_upgrade;
-        proxy_connect_timeout 300s;
-        proxy_send_timeout 300s;
-        proxy_read_timeout 300s;
-        proxy_buffering off;
-    }
-
-    # GUI
-    location / {
-        proxy_pass http://127.0.0.1:8181;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-Host $host;
-        proxy_set_header X-Forwarded-Port $server_port;
-        proxy_cache_bypass $http_upgrade;
-    }
-}
-```
+To terminate TLS and proxy to the published ports, see [docs/reverse-proxy.md](docs/reverse-proxy.md). Typical upstreams: API on `127.0.0.1:8282` (all-in-one default), GUI on `127.0.0.1:8181`.
 
 ---
 
 ## Deployment checklist
 
-- [ ] Docker and Docker Compose installed on server
-- [ ] Files copied to server
-- [ ] Scripts executable
-- [ ] `.env` created and configured
-- [ ] `JWT_SECRET` set to a secure value
-- [ ] `POSTGRES_PASSWORD` changed (recommended)
-- [ ] Ports checked and free
-- [ ] Docker image loaded or built
-- [ ] Service started with `docker-compose up -d`
-- [ ] Logs checked for successful startup
-- [ ] API, GUI, PostgreSQL, Redis tested
-- [ ] Initial backup done
+- [ ] Docker and Compose installed
+- [ ] `.env` created (`cp docker/.env.example .env`) or `--env-file docker/.env` used
+- [ ] `ELIDUNE_USERS__JWT_SECRET` set to a strong secret
+- [ ] `ELIDUNE_MEILISEARCH__API_KEY` set (all-in-one) and consistent with Meilisearch
+- [ ] `ELIDUNE_IMAGE` set for all-in-one if using GHCR; `docker login ghcr.io` if private
+- [ ] Host ports in `.env` free and firewall-aligned
+- [ ] Health endpoint and GUI reachable after `up -d`
+- [ ] Backup strategy for volumes
 
 ---
 
-## Support
+## See also
 
-If something fails, check:
-
-1. Logs: `docker-compose logs -f`
-2. Status: `docker-compose ps`
-3. Volumes: `docker volume ls`
-4. Disk: `df -h`
-
-See also:
-
-- `scripts/README-docker-compose.md` — detailed Docker Compose guide
-- Container logs for specific errors
+- `docker/.env.example` — commented template for `docker-compose.all-in-one.yml`
+- `docker/docker-compose.yml` / `docker/docker-compose.all-in-one.yml` — inline comments for optional `ELIDUNE_*` keys
+- `src/config.rs` — mapping of environment variables to configuration

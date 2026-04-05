@@ -16,7 +16,6 @@ services:
     ports:
       - "${API_PORT:-8080}:8080"
     environment:
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-changeme}
 
       RUST_LOG: ${RUST_LOG:-elidune_server=info,tower_http=info}
 
@@ -69,9 +68,6 @@ services:
       ELIDUNE_MEILISEARCH__API_KEY: ${ELIDUNE_MEILISEARCH__API_KEY:-${MEILI_MASTER_KEY:-changeme}}
       ELIDUNE_MEILISEARCH__INDEX_NAME: ${ELIDUNE_MEILISEARCH__INDEX_NAME:-items}
 
-    # Use this volume to override the default configuration with a custom one.
-    #volumes:
-    #  - ./config.docker.toml:/app/config/default.toml:ro
     depends_on:
       db:
         condition: service_healthy
@@ -115,7 +111,7 @@ services:
     ports:
       - "${MEILI_PORT:-7700}:7700"
     environment:
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-changeme}
+      MEILI_MASTER_KEY: ${ELIDUNE_MEILISEARCH__API_KEY:-changeme}
       MEILI_ENV: production
     volumes:
       - meili_data:/meili_data

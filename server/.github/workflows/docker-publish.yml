@@ -1,6 +1,6 @@
-# Publishes the all-in-one image (API + web UI + PostgreSQL + Redis + Meilisearch + Nginx in one image).
-# For the API-only image used by docker/docker-compose.yml, build locally:
-#   docker build -f docker/Dockerfile -t elidune-server:local .
+# Publishes:
+# - API-only image (docker/Dockerfile) → ghcr.io/elidune/elidune-server
+# - All-in-one image (docker/Dockerfile.all-in-one) → ghcr.io/elidune/elidune-all-in-one
 name: Build & Push Docker Image
 
 on:
@@ -10,11 +10,18 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: jcollonville/elidune-all-in-one
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - dockerfile: ./docker/Dockerfile
+            image: ghcr.io/elidune/elidune-server
+          - dockerfile: ./docker/Dockerfile.all-in-one
+            image: ghcr.io/elidune/elidune-all-in-one
     permissions:
       contents: read
       packages: write
@@ -26,15 +33,16 @@ jobs:
       - name: Login to GHCR
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build & Push
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./docker/Dockerfile.all-in-one
+          file: ${{ matrix.dockerfile }}
           push: true
           tags: |
-            ghcr.io/elidune/elidune-all-in-one:latest
-            ghcr.io/elidune/elidune-all-in-one:${{ github.sha }}
+            ${{ matrix.image }}:latest
+            ${{ matrix.image }}:${{ github.sha }}
