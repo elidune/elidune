@@ -82,11 +82,11 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Copy Elidune server binary and files from builder-rust
-COPY --from=builder-rust /app/elidune-server/target/release/elidune-server /app/elidune-server
-COPY --from=builder-rust /app/elidune-server/migrations /app/migrations
-COPY --from=builder-rust /app/elidune-server/config /app/config
+COPY --from=builder-rust /app/target/release/elidune-server /app/elidune-server
+COPY --from=builder-rust /app/migrations /app/migrations
+COPY --from=builder-rust /app/config /app/config
 # Static assets (e.g. email templates): same Git revision as the server binary
-COPY --from=builder-rust /app/elidune-server/data /app/data
+COPY --from=builder-rust /app/data /app/data
 
 
 # Copy UI build from builder-ui
