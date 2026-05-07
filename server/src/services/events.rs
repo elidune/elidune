@@ -12,7 +12,6 @@ use utoipa::ToSchema;
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 
 use crate::{
-    dynamic_config::DynamicConfig,
     error::{AppError, AppResult},
     models::{
         event::{CreateEvent, Event, EventAttachmentInput, EventQuery, UpdateEvent},
@@ -66,7 +65,6 @@ pub struct EventsService {
     repository: Arc<dyn EventsServiceRepository>,
     email: EmailService,
     audit: AuditService,
-    dynamic_config: Arc<DynamicConfig>,
 }
 
 impl EventsService {
@@ -74,9 +72,8 @@ impl EventsService {
         repository: Arc<dyn EventsServiceRepository>,
         email: EmailService,
         audit: AuditService,
-        dynamic_config: Arc<DynamicConfig>,
     ) -> Self {
-        Self { repository, email, audit, dynamic_config }
+        Self { repository, email, audit }
     }
 
     #[tracing::instrument(skip(self), err)]
@@ -170,8 +167,6 @@ impl EventsService {
     ) -> AppResult<AnnouncementReport> {
         let event = self.repository.events_get_by_id(event_id).await?;
 
-        let templates_dir = self.dynamic_config.read_email().templates_dir.clone();
-
         let event_date = event.event_date.format("%d/%m/%Y").to_string();
         let event_type_label = match event.event_type {
             0 => "Animation",
@@ -264,13 +259,8 @@ impl EventsService {
                 });
                 (subj, plain, html)
             } else {
-                // Load template
                 let lang = user.language.as_deref().map(Language::from);
-                match email_templates::load_template(
-                    Path::new(&templates_dir),
-                    "event_announcement",
-                    lang,
-                ) {
+                match self.email.load_template("event_announcement", lang).await {
                     Err(e) => {
                         errors.push(AnnouncementError {
                             user_id: user.id,

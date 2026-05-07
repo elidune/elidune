@@ -297,9 +297,9 @@ impl Repository {
     pub async fn users_get_rights(&self, account_type: &AccountTypeSlug) -> AppResult<UserRights> {
         let row = sqlx::query(
             r#"
-            SELECT items_rights, users_rights, loans_rights, 
-                   borrows_rights, settings_rights
-            FROM account_types 
+            SELECT items_rights, users_rights, loans_rights,
+                   borrows_rights, settings_rights, events_rights
+            FROM account_types
             WHERE code = $1
             "#,
         )
@@ -314,6 +314,7 @@ impl Repository {
             loans_rights: Rights::from(row.get::<Option<String>, _>("loans_rights")),
             borrows_rights: Rights::from(row.get::<Option<String>, _>("borrows_rights")),
             settings_rights: Rights::from(row.get::<Option<String>, _>("settings_rights")),
+            events_rights: Rights::from(row.get::<Option<String>, _>("events_rights")),
         })
     }
 

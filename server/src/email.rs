@@ -7,24 +7,26 @@ use lettre::{
     transport::smtp::authentication::Credentials,
     SmtpTransport, Transport,
 };
+use sqlx::{Pool, Postgres};
 use std::path::Path;
 use std::str::FromStr;
 
 use crate::{
     dynamic_config::DynamicConfig,
     error::{AppError, AppResult},
-    email_templates,
+    email_templates::{self, EmailTemplate},
     models::Language,
 };
 
 #[derive(Clone)]
 pub struct EmailService {
     dynamic_config: Arc<DynamicConfig>,
+    pool: Pool<Postgres>,
 }
 
 impl EmailService {
-    pub fn new(dynamic_config: Arc<DynamicConfig>) -> Self {
-        Self { dynamic_config }
+    pub fn new(dynamic_config: Arc<DynamicConfig>, pool: Pool<Postgres>) -> Self {
+        Self { dynamic_config, pool }
     }
 
     /// Directory containing JSON email templates (e.g. `data/email_templates`).
@@ -36,6 +38,17 @@ impl EmailService {
         self.dynamic_config.read_email().templates_dir.clone()
     }
 
+    /// Resolve a template by id and (optional) language with cascade
+    /// `lang → french → english`, looking up the DB first then the on-disk fallback.
+    pub async fn load_template(
+        &self,
+        template_id: &str,
+        lang: Option<Language>,
+    ) -> AppResult<EmailTemplate> {
+        let dir = self.templates_dir_str();
+        email_templates::load_template_async(&self.pool, Path::new(&dir), template_id, lang).await
+    }
+
     /// Send a 2FA code via email
     pub async fn send_2fa_code(
         &self,
@@ -43,8 +56,7 @@ impl EmailService {
         code: &str,
         lang: Option<Language>,
     ) -> AppResult<()> {
-        let dir = self.templates_dir_str();
-        let template = email_templates::load_template(Path::new(&dir), "2fa_code", lang)?;
+        let template = self.load_template("2fa_code", lang).await?;
         let (subject, body_plain, body_html) =
             email_templates::substitute(&template, &[("code", code)]);
         self.send_email_with_html(to, &subject, &body_plain, &body_html).await
@@ -57,8 +69,7 @@ impl EmailService {
         code: &str,
         lang: Option<Language>,
     ) -> AppResult<()> {
-        let dir = self.templates_dir_str();
-        let template = email_templates::load_template(Path::new(&dir), "recovery_code", lang)?;
+        let template = self.load_template("recovery_code", lang).await?;
         let (subject, body_plain, body_html) =
             email_templates::substitute(&template, &[("code", code)]);
         self.send_email_with_html(to, &subject, &body_plain, &body_html).await
@@ -72,8 +83,7 @@ impl EmailService {
         lang: Option<Language>,
         reset_url: Option<&str>,
     ) -> AppResult<()> {
-        let dir = self.templates_dir_str();
-        let template = email_templates::load_template(Path::new(&dir), "password_reset", lang)?;
+        let template = self.load_template("password_reset", lang).await?;
         let vars: Vec<(&str, &str)> = match reset_url {
             Some(url) => vec![("token", token), ("reset_url", url)],
             None => vec![("token", token), ("reset_url", "")],

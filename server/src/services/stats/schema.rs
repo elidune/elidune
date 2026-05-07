@@ -317,6 +317,7 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
             fields: HashMap::from([
                 ("code", f("code", "text", "Code")),
                 ("name", f("name", "text", "Name")),
+                ("events_rights", f("events_rights", "text", "Events (n/r/w)")),
             ]),
             relations: HashMap::new(),
         },

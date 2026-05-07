@@ -37,6 +37,10 @@ pub struct DatabaseConfig {
 pub struct UsersConfig {
     pub jwt_secret: String,
     pub jwt_expiration_hours: u64,
+    /// When set, used as the reset link template if the client omits `resetUrl` on
+    /// `POST /auth/request-password-reset`. Must contain the literal `<token>` placeholder.
+    #[serde(default)]
+    pub password_reset_url_template: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]

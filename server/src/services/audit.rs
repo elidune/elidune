@@ -21,6 +21,7 @@ pub mod event {
     pub const USER_UPDATED: &str = "user.updated";
     pub const USER_DELETED: &str = "user.deleted";
     pub const USER_ACCOUNT_TYPE_CHANGED: &str = "user.account_type_changed";
+    pub const ACCOUNT_TYPE_UPDATED: &str = "account_type.updated";
 
     // Biblios
     pub const BIBLIO_CREATED: &str = "biblio.created";
@@ -88,6 +89,7 @@ pub mod event {
     pub const EMAIL_RECOVERY_CODE_SENT: &str = "email.recovery_code_sent";
     pub const EMAIL_PASSWORD_RESET_SENT: &str = "email.password_reset_sent";
     pub const EMAIL_TEST_SENT: &str = "email.test_sent";
+    pub const EMAIL_TEMPLATE_UPDATED: &str = "email_template.updated";
 
     // Auth
     pub const AUTH_LOGIN_SUCCESS: &str = "auth.login_success";

@@ -240,7 +240,21 @@ async fn main() -> anyhow::Result<()> {
     let server_port = config.server.port;
 
     // Email service (shared by repository for hold-ready notifications and by Services)
-    let email_service = Arc::new(elidune_server::EmailService::new(dynamic_config.clone()));
+    let email_service = Arc::new(elidune_server::EmailService::new(
+        dynamic_config.clone(),
+        pool.clone(),
+    ));
+
+    // One-time seed of `email_templates` from JSON files when the table is empty.
+    let templates_dir = dynamic_config.read_email().templates_dir.clone();
+    if let Err(e) = elidune_server::email_templates::bootstrap_from_files(
+        &pool,
+        Path::new(&templates_dir),
+    )
+    .await
+    {
+        tracing::warn!("Email templates bootstrap failed: {}", e);
+    }
 
     // Create repository and services
     let repository = Repository::new(
@@ -440,6 +454,7 @@ fn create_router(state: AppState) -> Router {
         .merge(api::z3950::router())
         .merge(api::stats::router())
         .merge(api::library_info::router_staff())
+        .merge(api::email_templates::router())
         .merge(api::admin_config::router())
         .merge(api::audit::router())
         .merge(api::public_types::router())
@@ -450,6 +465,7 @@ fn create_router(state: AppState) -> Router {
         .merge(api::sources::router())
         .merge(api::equipment::router())
         .merge(api::events::router())
+        .merge(api::account_types::router())
         .merge(api::maintenance::router())
         .merge(api::tasks::router())
         .with_state(state.clone());

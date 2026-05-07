@@ -36,6 +36,12 @@ impl From<Option<String>> for Rights {
     }
 }
 
+impl Default for Rights {
+    fn default() -> Self {
+        Rights::None
+    }
+}
+
 
 
 /// Account type slug (string identifier)
@@ -625,6 +631,9 @@ pub struct UserRights {
     pub loans_rights: Rights,
     pub borrows_rights: Rights,
     pub settings_rights: Rights,
+    /// Cultural events (`/events`): read list/detail vs write (create/update/delete/announce).
+    #[serde(default)]
+    pub events_rights: Rights,
 }
 
 impl Default for UserRights {
@@ -635,6 +644,7 @@ impl Default for UserRights {
             loans_rights: Rights::None,
             borrows_rights: Rights::None,
             settings_rights: Rights::None,
+            events_rights: Rights::None,
         }
     }
 }
@@ -758,15 +768,26 @@ impl UserClaims {
     }
 
     pub fn require_write_settings(&self) -> Result<(), AppError> {
-        println!("account_type: {:?}", self.account_type);
-        println!("rights: {:?}", self.rights);
-        println!("require_write_settings: {:?}", self.rights.settings_rights);
-        println!("Rights::Write: {:?}", Rights::Write as u8);
-        println!("self.rights.settings_rights as u8: {:?}", self.rights.settings_rights as u8);
         if self.rights.settings_rights as u8 >= Rights::Write as u8 {
             Ok(())
         } else {
             Err(AppError::Authorization("Insufficient rights to write settings".to_string()))
+        }
+    }
+
+    pub fn require_read_events(&self) -> Result<(), AppError> {
+        if self.rights.events_rights as u8 >= Rights::Read as u8 {
+            Ok(())
+        } else {
+            Err(AppError::Authorization("Insufficient rights to read events".to_string()))
+        }
+    }
+
+    pub fn require_write_events(&self) -> Result<(), AppError> {
+        if self.rights.events_rights as u8 >= Rights::Write as u8 {
+            Ok(())
+        } else {
+            Err(AppError::Authorization("Insufficient rights to manage events".to_string()))
         }
     }
 

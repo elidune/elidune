@@ -6,9 +6,11 @@
 //! ([`LibraryInfoRepository`]), and `audit_log` ([`AuditLogRepository`]), not only older domains
 //! like loans or biblios.
 
+pub mod account_types;
 pub mod audit_log;
 pub mod biblios;
 pub mod catalog_entities;
+pub mod email_templates;
 pub mod equipment;
 pub mod events;
 pub mod fines;
@@ -26,9 +28,11 @@ pub mod z3950;
 pub mod users;
 pub mod visitor_counts;
 
+pub use account_types::AccountTypesCatalogRepository;
 pub use audit_log::AuditLogRepository;
 pub use biblios::BibliosRepository;
 pub use catalog_entities::CatalogEntitiesRepository;
+pub use email_templates::{EmailTemplateRow, EmailTemplatesRepository};
 pub use equipment::EquipmentRepository;
 pub use events::{EventsRepository, EventsServiceRepository};
 pub use fines::FinesRepository;

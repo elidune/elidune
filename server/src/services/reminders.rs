@@ -4,7 +4,6 @@
 //! updates reminder tracking columns, and records audit events.
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
@@ -142,8 +141,6 @@ impl RemindersService {
         client_ip: Option<String>,
     ) -> AppResult<ReminderReport> {
         let reminders_cfg = self.dynamic_config.read_reminders();
-        let email_cfg = self.dynamic_config.read_email();
-        let templates_dir = email_cfg.templates_dir.clone();
 
         let overdue_rows = self
             .repository
@@ -239,12 +236,10 @@ impl RemindersService {
             );
 
             if !dry_run {
-                // Load template and substitute
-                let template_result = email_templates::load_template(
-                    Path::new(&templates_dir),
-                    "overdue_reminder",
-                    lang,
-                );
+                let template_result = self
+                    .email
+                    .load_template("overdue_reminder", lang)
+                    .await;
 
                 match template_result {
                     Err(e) => {

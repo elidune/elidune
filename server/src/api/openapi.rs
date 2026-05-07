@@ -5,7 +5,7 @@ use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::{Modify, OpenApi};
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::api::{admin_config, audit, auth, biblios, collections, equipment, events, first_setup, health, holds, inventory, items, library_info, loans, maintenance, opac, public_types, schedules, series, sources, stats, tasks, users, visitor_counts, z3950};
+use crate::api::{account_types, admin_config, audit, auth, biblios, collections, email_templates, equipment, events, first_setup, health, holds, inventory, items, library_info, loans, maintenance, opac, public_types, schedules, series, sources, stats, tasks, users, visitor_counts, z3950};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -105,6 +105,10 @@ use crate::api::{admin_config, audit, auth, biblios, collections, equipment, eve
         // Library info
         library_info::get_library_info,
         library_info::update_library_info,
+        // Email templates (settings)
+        email_templates::list_email_templates,
+        email_templates::get_email_template,
+        email_templates::update_email_template,
         // Visitor counts
         visitor_counts::list_visitor_counts,
         visitor_counts::create_visitor_count,
@@ -154,6 +158,10 @@ use crate::api::{admin_config, audit, auth, biblios, collections, equipment, eve
         events::update_event,
         events::delete_event,
         events::send_event_announcement,
+        // Library account types (roles / rights)
+        account_types::list_account_types,
+        account_types::get_account_type,
+        account_types::update_account_type,
         // Admin config
         admin_config::get_config,
         admin_config::update_config_section,
@@ -190,7 +198,9 @@ use crate::api::{admin_config, audit, auth, biblios, collections, equipment, eve
             auth::Verify2FAResponse,
             auth::VerifyRecoveryRequest,
             auth::RequestPasswordResetRequest,
+            auth::RequestPasswordResetResponse,
             auth::ResetPasswordRequest,
+            auth::ResetPasswordResponse,
             auth::Setup2FARequest,
             auth::Setup2FAResponse,
             // Biblios (bibliographic records)
@@ -222,6 +232,8 @@ use crate::api::{admin_config, audit, auth, biblios, collections, equipment, eve
             crate::models::user::UserPayload,
             crate::models::user::UpdateProfile,
             crate::models::user::UpdateAccountType,
+            crate::models::account_type::AccountTypeDefinition,
+            crate::models::account_type::UpdateAccountTypeDefinition,
             // Loans
             loans::CreateLoanRequest,
             loans::LoanResponse,
@@ -305,6 +317,9 @@ use crate::api::{admin_config, audit, auth, biblios, collections, equipment, eve
             // Library info
             library_info::LibraryInfo,
             library_info::UpdateLibraryInfoRequest,
+            // Email templates
+            email_templates::EmailTemplate,
+            email_templates::UpdateEmailTemplateRequest,
             loans::LoanSettings,
             loans::UpdateLoanSettingsRequest,
             z3950::Z3950ServerConfig,
@@ -405,7 +420,9 @@ use crate::api::{admin_config, audit, auth, biblios, collections, equipment, eve
         (name = "sources", description = "Acquisition source management"),
         (name = "equipment", description = "Library equipment management"),
         (name = "events", description = "Cultural events and school visits"),
+        (name = "account_types", description = "Library account types (guest, reader, librarian, admin, group) and per-domain rights"),
         (name = "library_info", description = "Library global information (name, address, phones, email)"),
+        (name = "email_templates", description = "Editable email templates exposed to the Settings UI"),
         (name = "series", description = "Series management"),
         (name = "collections", description = "Collections management"),
         (name = "public_types", description = "Borrower public types (child, adult, school, staff, senior)"),

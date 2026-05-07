@@ -1,5 +1,6 @@
 //! Business logic services
 
+pub mod account_types_catalog;
 pub mod audit;
 pub mod catalog;
 pub mod equipment;
@@ -38,6 +39,7 @@ use crate::{
     repository::{
         BibliosRepository, CatalogEntitiesRepository, EquipmentRepository, EventsServiceRepository,
         FinesRepository, InventoryRepository, LoansRepository, LoansServiceRepository,
+        AccountTypesCatalogRepository,
         PublicTypesRepository, Repository, HoldsRepository, SchedulesRepository,
         SourcesRepository, UsersRepository, VisitorCountsRepository,
     },
@@ -47,6 +49,8 @@ use crate::{
 #[derive(Clone)]
 pub struct Services {
     pub audit: audit::AuditService,
+    /// Library account roles (`account_types`) and rights.
+    pub account_types_catalog: account_types_catalog::AccountTypesCatalogService,
     pub catalog: catalog::CatalogService,
     pub email: email::EmailService,
     pub equipment: equipment::EquipmentService,
@@ -133,6 +137,9 @@ impl Services {
         Ok(Self {
             pool,
             audit: audit_service.clone(),
+            account_types_catalog: account_types_catalog::AccountTypesCatalogService::new(
+                repo.clone() as Arc<dyn AccountTypesCatalogRepository>,
+            ),
             catalog: catalog.clone(),
             email: email.clone(),
             equipment: equipment::EquipmentService::new(repo.clone() as Arc<dyn EquipmentRepository>),
@@ -140,7 +147,6 @@ impl Services {
                 repo.clone() as Arc<dyn EventsServiceRepository>,
                 email.clone(),
                 audit_service.clone(),
-                dynamic_config.clone(),
             ),
             fines: fines::FinesService::new(repo.clone() as Arc<dyn FinesRepository>),
             inventory: inventory::InventoryService::new(repo.clone() as Arc<dyn InventoryRepository>),

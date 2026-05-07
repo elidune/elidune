@@ -1,5 +1,6 @@
 //! API handlers for Elidune REST endpoints
 
+pub mod account_types;
 pub mod admin_config;
 pub mod audit;
 pub mod auth;
@@ -7,6 +8,7 @@ pub mod batch;
 pub mod biblios;
 pub mod collections;
 pub mod covers;
+pub mod email_templates;
 pub mod equipment;
 pub mod events;
 pub mod fines;

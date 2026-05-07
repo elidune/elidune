@@ -386,13 +386,26 @@ pub struct VerifyRecoveryRequest {
 #[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct RequestPasswordResetRequest {
-    /// Login or email used to find the account
+    /// Login or email address for the account.
     pub identifier: String,
-    /// Base URL for the reset link, must contain `<token>` placeholder (e.g. https://app.example.com/reset?token=<token>)
-    pub reset_url: String,
+    /// Full URL template for the reset link; must contain the literal `<token>` placeholder.
+    /// If omitted, the server uses `[users].password_reset_url_template` from the app config.
+    pub reset_url: Option<String>,
 }
 
-/// Password reset confirmation request
+/// Response after a password-reset email was queued (public: no token in body).
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestPasswordResetResponse {
+    pub message: String,
+}
+
+/// Response after password was reset with a valid token.
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ResetPasswordResponse {
+    pub message: String,
+}
 #[derive(Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ResetPasswordRequest {
@@ -437,30 +450,40 @@ pub async fn verify_recovery(
     tag = "auth",
     request_body = RequestPasswordResetRequest,
     responses(
-        (status = 200, description = "Reset email sent"),
-        (status = 400, description = "Invalid input (e.g. reset_url missing <token> placeholder, no email configured)", body = ErrorResponse),
-        (status = 404, description = "User not found", body = ErrorResponse)
+        (status = 200, description = "Reset email sent", body = RequestPasswordResetResponse),
+        (status = 400, description = "Invalid input (e.g. missing reset URL template, no email on account)", body = ErrorResponse),
+        (status = 404, description = "No account for this login or email", body = ErrorResponse)
     )
 )]
 pub async fn request_password_reset(
     State(state): State<crate::AppState>,
     ClientIp(ip): ClientIp,
     Json(request): Json<RequestPasswordResetRequest>,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Json<RequestPasswordResetResponse>> {
+    let url_template = request
+        .reset_url
+        .clone()
+        .or_else(|| state.config.users.password_reset_url_template.clone())
+        .ok_or_else(|| {
+            crate::error::AppError::Validation(
+                "reset_url is required, or configure users.password_reset_url_template on the server"
+                    .to_string(),
+            )
+        })?;
 
-    if !request.reset_url.contains("<token>") {
+    if !url_template.contains("<token>") {
         return Err(crate::error::AppError::Validation(
-            "reset_url must contain the <token> placeholder".to_string(),
+            "reset URL template must contain the <token> placeholder".to_string(),
         ));
     }
 
-    let (email, token, lang) = state
+    let (email, token, lang, user_id) = state
         .services
         .users
         .request_password_reset(&request.identifier)
         .await?;
 
-    let reset_url = request.reset_url.replace("<token>", &token);
+    let reset_url = url_template.replace("<token>", &token);
 
     state
         .services
@@ -470,24 +493,24 @@ pub async fn request_password_reset(
 
     state.services.audit.log(
         audit::event::AUTH_PASSWORD_RESET_REQUESTED,
-        None,
-        None,
-        None,
+        Some(user_id),
+        Some("user"),
+        Some(user_id),
         ip.clone(),
         Some(serde_json::json!({ "identifier": request.identifier.as_str() })),
     );
     state.services.audit.log(
         audit::event::EMAIL_PASSWORD_RESET_SENT,
-        None,
-        None,
-        None,
+        Some(user_id),
+        Some("user"),
+        Some(user_id),
         ip,
         Some(serde_json::json!({ "to": email.as_str() })),
     );
 
-    Ok(Json(serde_json::json!({
-        "message": "Password reset email sent"
-    })))
+    Ok(Json(RequestPasswordResetResponse {
+        message: "Password reset email sent".to_string(),
+    }))
 }
 
 /// Reset password with token
@@ -497,7 +520,7 @@ pub async fn request_password_reset(
     tag = "auth",
     request_body = ResetPasswordRequest,
     responses(
-        (status = 200, description = "Password reset successful"),
+        (status = 200, description = "Password reset successful", body = ResetPasswordResponse),
         (status = 400, description = "Invalid input", body = ErrorResponse),
         (status = 401, description = "Invalid or expired token", body = ErrorResponse)
     )
@@ -506,7 +529,7 @@ pub async fn reset_password(
     State(state): State<crate::AppState>,
     ClientIp(ip): ClientIp,
     Json(request): Json<ResetPasswordRequest>,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Json<ResetPasswordResponse>> {
 
     if request.new_password.len() < 4 {
         return Err(crate::error::AppError::Validation(
@@ -531,9 +554,9 @@ pub async fn reset_password(
         }),
     );
 
-    Ok(Json(serde_json::json!({
-        "message": "Password has been reset"
-    })))
+    Ok(Json(ResetPasswordResponse {
+        message: "Password has been reset".to_string(),
+    }))
 }
 
 /// Setup 2FA request

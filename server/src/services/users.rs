@@ -464,19 +464,26 @@ impl UsersService {
     pub async fn request_password_reset(
         &self,
         identifier: &str,
-    ) -> AppResult<(String, String, Option<crate::models::Language>)> {
-        let user = if let Some(u) = self.repository.users_get_by_login(identifier).await? {
+    ) -> AppResult<(String, String, Option<crate::models::Language>, i64)> {
+        let id = identifier.trim();
+        if id.is_empty() {
+            return Err(AppError::Validation("identifier must not be empty".to_string()));
+        }
+
+        let user = if let Some(u) = self.repository.users_get_by_login(id).await? {
             u
-        } else if let Some(u) = self.repository.users_get_by_email(identifier).await? {
+        } else if let Some(u) = self.repository.users_get_by_email(id).await? {
             u
         } else {
-            return Err(AppError::NotFound("User not found".to_string()));
+            return Err(AppError::NotFound(
+                "No account found for this login or email".to_string(),
+            ));
         };
 
         let email = user
             .email
             .as_deref()
-            .ok_or_else(|| AppError::Validation("No email configured for this user".to_string()))?;
+            .ok_or_else(|| AppError::Validation("No email configured for this account".to_string()))?;
 
         let now = Utc::now().timestamp();
         let exp = now + (30 * 60); // 30 minutes
@@ -495,7 +502,7 @@ impl UsersService {
         )
         .map_err(|e| AppError::Internal(format!("Failed to create reset token: {}", e)))?;
 
-        Ok((email.to_string(), token, user.language))
+        Ok((email.to_string(), token, user.language, user.id))
     }
 
     /// Reset password using a reset token and a new password.

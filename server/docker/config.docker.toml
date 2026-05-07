@@ -15,6 +15,7 @@ min_connections = 2
 [users]
 jwt_secret = "change-this-secret-in-production"
 jwt_expiration_hours = 24
+# password_reset_url_template = "https://app.example.com/reset?token=<token>"
 
 [logging]
 level = "info"

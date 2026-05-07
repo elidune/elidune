@@ -104,7 +104,7 @@ pub async fn create_event(
     ClientIp(ip): ClientIp,
     Json(data): Json<CreateEvent>,
 ) -> AppResult<(StatusCode, Json<Event>)> {
-    claims.require_write_settings()?;
+    claims.require_write_events()?;
     let event = state.services.events.create(&data).await?;
     state.services.audit.log(audit::event::EVENT_CREATED, Some(claims.user_id), Some("event"), Some(event.id), ip, Some((&data, &event)));
     Ok((StatusCode::CREATED, Json(event)))
@@ -133,7 +133,7 @@ pub async fn update_event(
     Path(id): Path<i64>,
     Json(data): Json<UpdateEvent>,
 ) -> AppResult<Json<Event>> {
-    claims.require_write_settings()?;
+    claims.require_write_events()?;
     let event = state.services.events.update(id, &data).await?;
     state.services.audit.log(audit::event::EVENT_UPDATED, Some(claims.user_id), Some("event"), Some(id), ip, Some((id, &data, &event)));
     Ok(Json(event))
@@ -160,7 +160,7 @@ pub async fn delete_event(
     ClientIp(ip): ClientIp,
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
-    claims.require_write_settings()?;
+    claims.require_write_events()?;
     state.services.events.delete(id).await?;
     state.services.audit.log(audit::event::EVENT_DELETED, Some(claims.user_id), Some("event"), Some(id), ip, Some(serde_json::json!({ "id": id })));
     Ok(StatusCode::NO_CONTENT)
@@ -194,7 +194,7 @@ pub async fn send_event_announcement(
     Path(id): Path<i64>,
     Json(payload): Json<SendAnnouncementRequest>,
 ) -> AppResult<Json<AnnouncementReport>> {
-    claims.require_write_settings()?;
+    claims.require_write_events()?;
     let report = state
         .services
         .events

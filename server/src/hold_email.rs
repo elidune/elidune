@@ -1,7 +1,5 @@
 //! Email notification when a hold becomes `ready` (after a loan return).
 
-use std::path::Path;
-
 use crate::{
     email::EmailService,
     email_templates,
@@ -58,8 +56,7 @@ pub async fn send_hold_ready(
         .map(|d| d.format("%d/%m/%Y %H:%M UTC").to_string())
         .unwrap_or_else(|| "—".to_string());
 
-    let dir = email_svc.templates_dir();
-    let template = email_templates::load_template(Path::new(&dir), "hold_ready", lang)?;
+    let template = email_svc.load_template("hold_ready", lang).await?;
     let vars: Vec<(&str, &str)> = vec![
         ("firstname", firstname.as_str()),
         ("lastname", lastname.as_str()),
