@@ -59,8 +59,7 @@ pub mod event {
     pub const PUBLIC_TYPE_CREATED: &str = "public_type.created";
     pub const PUBLIC_TYPE_UPDATED: &str = "public_type.updated";
     pub const PUBLIC_TYPE_DELETED: &str = "public_type.deleted";
-    pub const PUBLIC_TYPE_LOAN_SETTING_UPDATED: &str = "public_type.loan_setting_updated";
-    pub const PUBLIC_TYPE_LOAN_SETTING_DELETED: &str = "public_type.loan_setting_deleted";
+    pub const PUBLIC_TYPE_LOAN_SETTINGS_UPDATED: &str = "public_type.loan_settings_updated";
 
     // Schedules
     pub const SCHEDULE_PERIOD_CREATED: &str = "schedule.period_created";

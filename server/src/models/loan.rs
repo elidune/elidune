@@ -60,6 +60,60 @@ pub struct LoanReturnOutcome {
     pub readied_hold: Option<crate::models::hold::Hold>,
 }
 
+/// How the new due date is computed when a loan is renewed (`loans_settings.renew_at`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum LoanSettingsRenewAt {
+    /// New due date = instant of renewal + loan duration.
+    #[default]
+    Now,
+    /// New due date = current due date + loan duration.
+    AtDueDate,
+}
+
+impl LoanSettingsRenewAt {
+    pub fn as_db_str(&self) -> &'static str {
+        match self {
+            Self::Now => "now",
+            Self::AtDueDate => "at_due_date",
+        }
+    }
+}
+
+impl From<&str> for LoanSettingsRenewAt {
+    fn from(s: &str) -> Self {
+        match s {
+            "at_due_date" => Self::AtDueDate,
+            _ => Self::Now,
+        }
+    }
+}
+
+impl sqlx::Type<sqlx::Postgres> for LoanSettingsRenewAt {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        <String as sqlx::Type<sqlx::Postgres>>::type_info()
+    }
+
+    fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
+        <String as sqlx::Type<sqlx::Postgres>>::compatible(ty)
+    }
+}
+
+impl<'r> sqlx::Decode<'r, sqlx::Postgres> for LoanSettingsRenewAt {
+    fn decode(
+        value: sqlx::postgres::PgValueRef<'r>,
+    ) -> Result<Self, Box<dyn std::error::Error + 'static + Send + Sync>> {
+        let s: String = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
+        Ok(Self::from(s.as_str()))
+    }
+}
+
+impl sqlx::Encode<'_, sqlx::Postgres> for LoanSettingsRenewAt {
+    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
+        <String as sqlx::Encode<sqlx::Postgres>>::encode(self.as_db_str().to_string(), buf)
+    }
+}
+
 /// Create loan request
 #[serde_as]
 #[derive(Debug, Deserialize)]
@@ -73,7 +127,8 @@ pub struct CreateLoan {
     pub force: bool,
 }
 
-/// Loan settings by media type
+/// Loan settings: `nb_max` on the default row (`media_type` IS NULL) caps **all** active loans;
+/// on a per-media row, `nb_max` caps loans for that medium only.
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 #[serde(rename_all = "camelCase")]
@@ -84,8 +139,8 @@ pub struct LoanSettings {
     pub nb_max: Option<i16>,
     pub nb_renews: Option<i16>,
     pub duration: Option<i16>,
+    pub renew_at: Option<LoanSettingsRenewAt>,
     pub notes: Option<String>,
-    pub account_type: Option<String>,
 }
 
 /// One loan row for MARC export (full list, no pagination).

@@ -6,7 +6,8 @@ use super::Repository;
 use crate::{
     error::{AppError, AppResult},
     models::public_type::{
-        CreatePublicType, PublicType, PublicTypeLoanSettings, UpdatePublicType,
+        CreatePublicType, PublicType, PublicTypeLoanSettingInput, PublicTypeLoanSettings,
+        UpdatePublicType,
     },
 };
 
@@ -26,19 +27,11 @@ pub trait PublicTypesRepository: Send + Sync {
         data: &UpdatePublicType,
     ) -> AppResult<PublicType>;
     async fn public_types_delete(&self, id: i64) -> AppResult<()>;
-    async fn public_types_upsert_loan_setting(
+    async fn public_types_replace_loan_settings(
         &self,
         public_type_id: i64,
-        media_type: &str,
-        duration: Option<i16>,
-        nb_max: Option<i16>,
-        nb_renews: Option<i16>,
-    ) -> AppResult<PublicTypeLoanSettings>;
-    async fn public_types_delete_loan_setting(
-        &self,
-        public_type_id: i64,
-        media_type: &str,
-    ) -> AppResult<()>;
+        settings: &[PublicTypeLoanSettingInput],
+    ) -> AppResult<Vec<PublicTypeLoanSettings>>;
     /// Resolve a `public_types.name` to its id, if it exists.
     async fn public_types_find_id_by_name(&self, name: &str) -> AppResult<Option<i64>>;
 }
@@ -63,11 +56,12 @@ impl PublicTypesRepository for super::Repository {
     async fn public_types_delete(&self, id: i64) -> crate::error::AppResult<()> {
         super::Repository::public_types_delete(self, id).await
     }
-    async fn public_types_upsert_loan_setting(&self, public_type_id: i64, media_type: &str, duration: Option<i16>, nb_max: Option<i16>, nb_renews: Option<i16>) -> crate::error::AppResult<crate::models::public_type::PublicTypeLoanSettings> {
-        super::Repository::public_types_upsert_loan_setting(self, public_type_id, media_type, duration, nb_max, nb_renews).await
-    }
-    async fn public_types_delete_loan_setting(&self, public_type_id: i64, media_type: &str) -> crate::error::AppResult<()> {
-        super::Repository::public_types_delete_loan_setting(self, public_type_id, media_type).await
+    async fn public_types_replace_loan_settings(
+        &self,
+        public_type_id: i64,
+        settings: &[PublicTypeLoanSettingInput],
+    ) -> crate::error::AppResult<Vec<crate::models::public_type::PublicTypeLoanSettings>> {
+        super::Repository::public_types_replace_loan_settings(self, public_type_id, settings).await
     }
     async fn public_types_find_id_by_name(&self, name: &str) -> crate::error::AppResult<Option<i64>> {
         super::Repository::public_types_find_id_by_name(self, name).await
@@ -100,7 +94,7 @@ impl Repository {
     #[tracing::instrument(skip(self), err)]
     pub async fn public_types_get_loan_settings(&self, public_type_id: i64) -> AppResult<Vec<PublicTypeLoanSettings>> {
         Ok(sqlx::query_as::<_, PublicTypeLoanSettings>(
-            "SELECT * FROM public_type_loan_settings WHERE public_type_id = $1 ORDER BY media_type"
+            r#"SELECT * FROM public_type_loan_settings WHERE public_type_id = $1 ORDER BY (media_type IS NOT NULL), media_type"#,
         )
         .bind(public_type_id)
         .fetch_all(&self.pool)
@@ -110,13 +104,13 @@ impl Repository {
     /// Create a new public type
     #[tracing::instrument(skip(self), err)]
     pub async fn public_types_create(&self, data: &CreatePublicType) -> AppResult<PublicType> {
-        Ok(sqlx::query_as::<_, PublicType>(
+        let public_type = sqlx::query_as::<_, PublicType>(
             r#"
             INSERT INTO public_types (
                 name, label, subscription_duration_days, age_min, age_max,
-                subscription_price, max_loans, loan_duration_days
+                subscription_price
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
             "#,
         )
@@ -126,10 +120,24 @@ impl Repository {
         .bind(data.age_min)
         .bind(data.age_max)
         .bind(data.subscription_price)
-        .bind(data.max_loans)
-        .bind(data.loan_duration_days)
         .fetch_one(&self.pool)
-        .await?)
+        .await?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO public_type_loan_settings (public_type_id, media_type, duration, nb_max, nb_renews, renew_at)
+            SELECT $1, NULL, 21, 5, 2, 'now'
+            WHERE NOT EXISTS (
+                SELECT 1 FROM public_type_loan_settings x
+                WHERE x.public_type_id = $1 AND x.media_type IS NULL
+            )
+            "#,
+        )
+        .bind(public_type.id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(public_type)
     }
 
     /// Update a public type
@@ -143,16 +151,13 @@ impl Repository {
         let age_min = data.age_min.or(existing.age_min);
         let age_max = data.age_max.or(existing.age_max);
         let subscription_price = data.subscription_price.or(existing.subscription_price);
-        let max_loans = data.max_loans.or(existing.max_loans);
-        let loan_duration_days = data.loan_duration_days.or(existing.loan_duration_days);
 
         sqlx::query_as::<_, PublicType>(
             r#"
             UPDATE public_types SET
                 name = $1, label = $2, subscription_duration_days = $3,
-                age_min = $4, age_max = $5, subscription_price = $6,
-                max_loans = $7, loan_duration_days = $8
-            WHERE id = $9
+                age_min = $4, age_max = $5, subscription_price = $6
+            WHERE id = $7
             RETURNING *
             "#,
         )
@@ -162,8 +167,6 @@ impl Repository {
         .bind(age_min)
         .bind(age_max)
         .bind(subscription_price)
-        .bind(max_loans)
-        .bind(loan_duration_days)
         .bind(id)
         .fetch_optional(&self.pool)
         .await?
@@ -199,59 +202,53 @@ impl Repository {
         Ok(())
     }
 
-    /// Upsert loan settings override for a public type + media type
-    #[tracing::instrument(skip(self), err)]
-    pub async fn public_types_upsert_loan_setting(
+    /// Replace all `public_type_loan_settings` rows for a public type with the given snapshot.
+    #[tracing::instrument(skip(self, settings), err)]
+    pub async fn public_types_replace_loan_settings(
         &self,
         public_type_id: i64,
-        media_type: &str,
-        duration: Option<i16>,
-        nb_max: Option<i16>,
-        nb_renews: Option<i16>,
-    ) -> AppResult<PublicTypeLoanSettings> {
+        settings: &[PublicTypeLoanSettingInput],
+    ) -> AppResult<Vec<PublicTypeLoanSettings>> {
         self.public_types_get_by_id(public_type_id).await?;
 
-        Ok(sqlx::query_as::<_, PublicTypeLoanSettings>(
-            r#"
-            INSERT INTO public_type_loan_settings (public_type_id, media_type, duration, nb_max, nb_renews)
-            VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT (public_type_id, media_type)
-            DO UPDATE SET duration = EXCLUDED.duration, nb_max = EXCLUDED.nb_max, nb_renews = EXCLUDED.nb_renews
-            RETURNING *
-            "#,
-        )
-        .bind(public_type_id)
-        .bind(media_type)
-        .bind(duration)
-        .bind(nb_max)
-        .bind(nb_renews)
-        .fetch_one(&self.pool)
-        .await?)
-    }
+        let mut tx = self.pool.begin().await?;
 
-    /// Delete a loan settings override for a public type + media type
-    #[tracing::instrument(skip(self), err)]
-    pub async fn public_types_delete_loan_setting(
-        &self,
-        public_type_id: i64,
-        media_type: &str,
-    ) -> AppResult<()> {
-        let result = sqlx::query(
-            "DELETE FROM public_type_loan_settings WHERE public_type_id = $1 AND media_type = $2"
-        )
-        .bind(public_type_id)
-        .bind(media_type)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("DELETE FROM public_type_loan_settings WHERE public_type_id = $1")
+            .bind(public_type_id)
+            .execute(&mut *tx)
+            .await?;
 
-        if result.rows_affected() == 0 {
-            return Err(AppError::NotFound(format!(
-                "Loan setting for media_type {} not found",
-                media_type
-            )));
+        for row in settings {
+            let mt: Option<&str> = match row.media_type.as_deref() {
+                None => None,
+                Some(s) => {
+                    let t = s.trim();
+                    if t.is_empty() {
+                        None
+                    } else {
+                        Some(t)
+                    }
+                }
+            };
+
+            sqlx::query(
+                r#"
+                INSERT INTO public_type_loan_settings (public_type_id, media_type, duration, nb_max, nb_renews, renew_at)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                "#,
+            )
+            .bind(public_type_id)
+            .bind(mt)
+            .bind(row.duration)
+            .bind(row.nb_max)
+            .bind(row.nb_renews)
+            .bind(row.renew_at)
+            .execute(&mut *tx)
+            .await?;
         }
 
-        Ok(())
+        tx.commit().await?;
+        self.public_types_get_loan_settings(public_type_id).await
     }
 
     /// Smallest `public_types.id` (seed default for first admin).

@@ -48,7 +48,7 @@ impl AccountTypesCatalogService {
         normalize_right_field(&mut data.users_rights)?;
         normalize_right_field(&mut data.loans_rights)?;
         normalize_right_field(&mut data.items_archive_rights)?;
-        normalize_right_field(&mut data.borrows_rights)?;
+        normalize_holds_right_field(&mut data.holds_rights)?;
         normalize_right_field(&mut data.settings_rights)?;
         normalize_right_field(&mut data.events_rights)?;
 
@@ -68,6 +68,25 @@ fn normalize_right_field(field: &mut Option<String>) -> AppResult<()> {
         if !matches!(c, 'n' | 'r' | 'w') {
             return Err(AppError::Validation(
                 "rights must be n (none), r (read), or w (write)".to_string(),
+            ));
+        }
+        *field = Some(c.to_string());
+    }
+    Ok(())
+}
+
+fn normalize_holds_right_field(field: &mut Option<String>) -> AppResult<()> {
+    if let Some(raw) = field.as_ref() {
+        let t = raw.trim();
+        if t.len() != 1 {
+            return Err(AppError::Validation(
+                "holds_rights must be exactly one character: n, o, r, or w".to_string(),
+            ));
+        }
+        let c = t.chars().next().expect("length checked").to_ascii_lowercase();
+        if !matches!(c, 'n' | 'o' | 'r' | 'w') {
+            return Err(AppError::Validation(
+                "holds_rights must be n (none), o (own holds), r (read), or w (write)".to_string(),
             ));
         }
         *field = Some(c.to_string());

@@ -14,7 +14,7 @@ pub struct AccountTypeDefinition {
     pub users_rights: Option<String>,
     pub loans_rights: Option<String>,
     pub items_archive_rights: Option<String>,
-    pub borrows_rights: Option<String>,
+    pub holds_rights: Option<String>,
     pub settings_rights: Option<String>,
     pub events_rights: Option<String>,
 }
@@ -28,7 +28,7 @@ pub struct UpdateAccountTypeDefinition {
     pub users_rights: Option<String>,
     pub loans_rights: Option<String>,
     pub items_archive_rights: Option<String>,
-    pub borrows_rights: Option<String>,
+    pub holds_rights: Option<String>,
     pub settings_rights: Option<String>,
     pub events_rights: Option<String>,
 }

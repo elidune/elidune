@@ -10,10 +10,11 @@ use crate::{
     marc::MarcRecord,
     models::{
         author::Author,
-        biblio::{Biblio, BiblioShort, Collection, Edition, Isbn, MediaType, Serie},
+        biblio::{Biblio, BiblioShort, Collection, Edition, Isbn, Serie},
         item::{Item, ItemShort},
         loan::{
             CreateLoan, Loan, LoanDetails, LoanMarcExportRow, LoanReturnOutcome, LoanSettings,
+            LoanSettingsRenewAt,
         },
         user::{UserShort, UserShortRow},
     },
@@ -64,14 +65,16 @@ pub trait LoansRepository: Send + Sync {
         per_page: i64,
     ) -> AppResult<(Vec<OverdueLoanRow>, i64)>;
     async fn loans_update_reminder_sent(&self, loan_ids: &[i64]) -> AppResult<()>;
-    /// Upsert global loan rules for one media type (`loans_settings` table).
+    /// Upsert global loan rules (`loans_settings`). `media_type == None` updates the default row (`media_type` IS NULL).
     async fn loans_settings_upsert_row(
         &self,
-        media_type: &str,
+        media_type: Option<&str>,
         nb_max: i16,
         nb_renews: i16,
         duration: i16,
+        renew_at: LoanSettingsRenewAt,
     ) -> AppResult<()>;
+    async fn loans_settings_delete_rows(&self) -> AppResult<()>;
 }
 
 
@@ -165,31 +168,58 @@ impl LoansRepository for Repository {
     }
     async fn loans_settings_upsert_row(
         &self,
-        media_type: &str,
+        media_type: Option<&str>,
         nb_max: i16,
         nb_renews: i16,
         duration: i16,
+        renew_at: LoanSettingsRenewAt,
     ) -> crate::error::AppResult<()> {
-        Repository::loans_settings_upsert_row(self, media_type, nb_max, nb_renews, duration).await
+        Repository::loans_settings_upsert_row(
+            self,
+            media_type,
+            nb_max,
+            nb_renews,
+            duration,
+            renew_at,
+        )
+        .await
+    }
+    async fn loans_settings_delete_rows(&self) -> crate::error::AppResult<()> {
+        Repository::loans_settings_delete_rows(self).await
     }
 }
 
+/// Scalar subquery (column alias `author`): first author on biblio `b` as JSON for [`BiblioShort`].
+const LOAN_DETAILS_FIRST_AUTHOR_SQL: &str = r#"(SELECT jsonb_build_object(
+                'id', a.id::text, 'lastname', a.lastname, 'firstname', a.firstname,
+                'bio', a.bio, 'notes', a.notes, 'function', ba.function
+            ) FROM biblio_authors ba JOIN authors a ON a.id = ba.author_id
+            WHERE ba.biblio_id = b.id ORDER BY ba.position LIMIT 1) as author"#;
 
 impl Repository {
-    /// Resolve loan settings: (duration_days, nb_max_media, nb_max_total, nb_renews).
+    /// Resolve loan settings: (duration_days, nb_max_media, nb_max_total_all_media, nb_renews, renew_at_policy).
+    ///
+    /// `nb_max_total_all_media` comes from `nb_max` on the default rows (audience / global), not per-media rows.
+    /// `nb_max_media` applies only to the current `media_type`; it does not use default rows' `nb_max`.
     async fn resolve_loan_settings(
         &self,
         user_public_type: Option<i64>,
         media_type: Option<&str>,
-    ) -> AppResult<(i16, i16, i16, i16)> {
+    ) -> AppResult<(i16, i16, i16, i16, LoanSettingsRenewAt)> {
         let default_duration = 21i16;
         let default_nb_max_media = 5i16;
         let default_nb_max_total = 5i16;
         let default_nb_renews = 2i16;
 
-        let ptls = if let (Some(pt_id), Some(mt)) = (user_public_type, media_type) {
+        let pick_renew =
+            |row: Option<&sqlx::postgres::PgRow>| -> Option<LoanSettingsRenewAt> {
+                row.and_then(|r| r.get::<Option<String>, _>("renew_at"))
+                    .map(|s| LoanSettingsRenewAt::from(s.as_str()))
+            };
+
+        let ptls_spec = if let (Some(pt_id), Some(mt)) = (user_public_type, media_type) {
             sqlx::query(
-                "SELECT duration, nb_max, nb_renews FROM public_type_loan_settings WHERE public_type_id = $1 AND media_type = $2"
+                "SELECT duration, nb_max, nb_renews, renew_at FROM public_type_loan_settings WHERE public_type_id = $1 AND media_type = $2",
             )
             .bind(pt_id)
             .bind(mt)
@@ -199,49 +229,69 @@ impl Repository {
             None
         };
 
-        let pt_row = if let Some(pt_id) = user_public_type {
-            sqlx::query("SELECT loan_duration_days, max_loans FROM public_types WHERE id = $1")
-                .bind(pt_id)
-                .fetch_optional(&self.pool)
-                .await?
+        let ptls_default = if let Some(pt_id) = user_public_type {
+            sqlx::query(
+                "SELECT duration, nb_max, nb_renews, renew_at FROM public_type_loan_settings WHERE public_type_id = $1 AND media_type IS NULL",
+            )
+            .bind(pt_id)
+            .fetch_optional(&self.pool)
+            .await?
         } else {
             None
         };
 
-        let ls_row = if let Some(mt) = media_type {
-            sqlx::query("SELECT duration, nb_max, nb_renews FROM loans_settings WHERE media_type = $1")
-                .bind(mt)
-                .fetch_optional(&self.pool)
-                .await?
+        let ls_spec = if let Some(mt) = media_type {
+            sqlx::query(
+                "SELECT duration, nb_max, nb_renews, renew_at FROM loans_settings WHERE media_type = $1",
+            )
+            .bind(mt)
+            .fetch_optional(&self.pool)
+            .await?
         } else {
             None
         };
 
-        let duration = ptls
+        let ls_default = sqlx::query(
+            "SELECT duration, nb_max, nb_renews, renew_at FROM loans_settings WHERE media_type IS NULL",
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        let duration = ptls_spec
             .as_ref()
             .and_then(|r| r.get::<Option<i16>, _>("duration"))
-            .or_else(|| pt_row.as_ref().and_then(|r| r.get::<Option<i16>, _>("loan_duration_days")))
-            .or_else(|| ls_row.as_ref().and_then(|r| r.get::<Option<i16>, _>("duration")))
+            .or_else(|| ptls_default.as_ref().and_then(|r| r.get::<Option<i16>, _>("duration")))
+            .or_else(|| ls_spec.as_ref().and_then(|r| r.get::<Option<i16>, _>("duration")))
+            .or_else(|| ls_default.as_ref().and_then(|r| r.get::<Option<i16>, _>("duration")))
             .unwrap_or(default_duration);
 
-        let nb_max_media = ptls
+        let nb_max_media = ptls_spec
             .as_ref()
             .and_then(|r| r.get::<Option<i16>, _>("nb_max"))
-            .or_else(|| ls_row.as_ref().and_then(|r| r.get::<Option<i16>, _>("nb_max")))
+            .or_else(|| ls_spec.as_ref().and_then(|r| r.get::<Option<i16>, _>("nb_max")))
             .unwrap_or(default_nb_max_media);
 
-        let nb_max_total = pt_row
+        let nb_max_total = ptls_default
             .as_ref()
-            .and_then(|r| r.get::<Option<i16>, _>("max_loans"))
+            .and_then(|r| r.get::<Option<i16>, _>("nb_max"))
+            .or_else(|| ls_default.as_ref().and_then(|r| r.get::<Option<i16>, _>("nb_max")))
             .unwrap_or(default_nb_max_total);
 
-        let nb_renews = ptls
+        let nb_renews = ptls_spec
             .as_ref()
             .and_then(|r| r.get::<Option<i16>, _>("nb_renews"))
-            .or_else(|| ls_row.as_ref().and_then(|r| r.get::<Option<i16>, _>("nb_renews")))
+            .or_else(|| ptls_default.as_ref().and_then(|r| r.get::<Option<i16>, _>("nb_renews")))
+            .or_else(|| ls_spec.as_ref().and_then(|r| r.get::<Option<i16>, _>("nb_renews")))
+            .or_else(|| ls_default.as_ref().and_then(|r| r.get::<Option<i16>, _>("nb_renews")))
             .unwrap_or(default_nb_renews);
 
-        Ok((duration, nb_max_media, nb_max_total, nb_renews))
+        let renew_at_policy = pick_renew(ptls_spec.as_ref())
+            .or_else(|| pick_renew(ptls_default.as_ref()))
+            .or_else(|| pick_renew(ls_spec.as_ref()))
+            .or_else(|| pick_renew(ls_default.as_ref()))
+            .unwrap_or(LoanSettingsRenewAt::Now);
+
+        Ok((duration, nb_max_media, nb_max_total, nb_renews, renew_at_policy))
     }
 
     /// Get loan by ID
@@ -285,15 +335,8 @@ impl Repository {
         .fetch_one(&self.pool)
         .await?;
 
-        let author_subquery = r#"
-            (SELECT jsonb_build_object(
-                'id', a.id::text, 'lastname', a.lastname, 'firstname', a.firstname,
-                'bio', a.bio, 'notes', a.notes, 'function', ba.function
-            ) FROM biblio_authors ba JOIN authors a ON a.id = ba.author_id
-            WHERE ba.biblio_id = b.id ORDER BY ba.position LIMIT 1) as author
-        "#;
-
-        let sql = format!(r#"
+        let sql = format!(
+            r#"
             SELECT l.id, l.date, l.renew_at, l.nb_renews, l.expiry_at,
                    l.returned_at,
                    it.barcode as item_identification,
@@ -302,7 +345,7 @@ impl Repository {
                    so.name as item_source_name,
                    b.id as biblio_id, b.media_type, b.isbn as biblio_isbn,
                    b.title, b.publication_date,
-                   {author_subquery}
+                   {}
             FROM loans l
             JOIN items it ON l.item_id = it.id
             LEFT JOIN sources so ON it.source_id = so.id
@@ -310,7 +353,9 @@ impl Repository {
             WHERE l.user_id = $1 AND l.returned_at IS NULL
             ORDER BY l.expiry_at
             LIMIT $2 OFFSET $3
-        "#);
+        "#,
+            LOAN_DETAILS_FIRST_AUTHOR_SQL
+        );
 
         let rows = sqlx::query(&sql)
             .bind(user_id)
@@ -338,15 +383,8 @@ impl Repository {
         .fetch_one(&self.pool)
         .await?;
 
-        let author_subquery = r#"
-            (SELECT jsonb_build_object(
-                'id', a.id::text, 'lastname', a.lastname, 'firstname', a.firstname,
-                'bio', a.bio, 'notes', a.notes, 'function', ba.function
-            ) FROM biblio_authors ba JOIN authors a ON a.id = ba.author_id
-            WHERE ba.biblio_id = b.id ORDER BY ba.position LIMIT 1) as author
-        "#;
-
-        let sql = format!(r#"
+        let sql = format!(
+            r#"
             SELECT la.id, la.date, NULL::timestamptz as renew_at, la.nb_renews,
                    la.expiry_at, la.returned_at,
                    it.barcode as item_identification,
@@ -356,7 +394,7 @@ impl Repository {
 
                    b.id as biblio_id, b.media_type, b.isbn as biblio_isbn,
                    b.title, b.publication_date,
-                   {author_subquery}
+                   {}
             FROM loans_archives la
             JOIN items it ON la.item_id = it.id
             LEFT JOIN sources so ON it.source_id = so.id
@@ -364,7 +402,9 @@ impl Repository {
             WHERE la.user_id = $1
             ORDER BY la.returned_at DESC
             LIMIT $2 OFFSET $3
-        "#);
+        "#,
+            LOAN_DETAILS_FIRST_AUTHOR_SQL
+        );
 
         let rows = sqlx::query(&sql)
             .bind(user_id)
@@ -738,15 +778,20 @@ impl Repository {
         };
 
         // Check if item is already borrowed
-        let already_borrowed: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM loans WHERE item_id = $1 AND returned_at IS NULL)"
+        let loan_id: Option<i64> = sqlx::query_scalar::<_, i64>(
+            "SELECT id FROM loans WHERE item_id = $1 AND returned_at IS NULL"
         )
         .bind(item_id)
-        .fetch_one(&self.pool)
+        .fetch_optional(&self.pool)
         .await?;
 
-        if already_borrowed && !loan.force {
-            return Err(AppError::BusinessRule("Item is already borrowed".to_string()));
+        if let Some(loan_id) = loan_id {
+            if !loan.force {
+                return Err(AppError::BusinessRule("Item is already borrowed".to_string()));
+            } else {
+                // return the loan
+                self.loans_return(loan_id).await?;
+            }
         }
 
         // Get item info and loan settings
@@ -777,7 +822,7 @@ impl Repository {
         .await?
         .flatten();
 
-        let (duration_days, nb_max_media, nb_max_total, _) = self
+        let (duration_days, nb_max_media, nb_max_total, _, _) = self
             .resolve_loan_settings(user_public_type, media_type.as_deref())
             .await?;
 
@@ -789,7 +834,6 @@ impl Repository {
         .bind(loan.user_id)
         .fetch_one(&self.pool)
         .await?;
-
         let current_loans_media: i64 = if let Some(ref mt) = media_type {
             sqlx::query_scalar(
                 r#"
@@ -945,19 +989,21 @@ impl Repository {
             }
         };
 
-        let biblio_row = sqlx::query(
+        let biblio_row = sqlx::query(&format!(
             r#"
             SELECT b.id as biblio_id, b.media_type, b.isbn, b.title, b.publication_date,
                    it.barcode as item_identification,
                    it.id as item_copy_id, it.barcode as item_barcode,
                    it.call_number as item_call_number, it.borrowable as item_borrowable,
-                   so.name as item_source_name
+                   so.name as item_source_name,
+                   {}
             FROM biblios b
             JOIN items it ON it.biblio_id = b.id
             LEFT JOIN sources so ON it.source_id = so.id
             WHERE it.id = $1
-            "#
-        )
+            "#,
+            LOAN_DETAILS_FIRST_AUTHOR_SQL
+        ))
         .bind(loan.item_id)
         .fetch_one(&self.pool)
         .await?;
@@ -1003,7 +1049,9 @@ impl Repository {
                 status: 0,
                 is_valid: Some(true),
                 archived_at: None,
-                author: None,
+                author: biblio_row
+                    .get::<Option<serde_json::Value>, _>("author")
+                    .and_then(|v| serde_json::from_value(v).ok()),
                 items: vec![item_short],
             },
             user,
@@ -1062,7 +1110,7 @@ impl Repository {
         .await?
         .flatten();
 
-        let (duration_days, _nb_max_media, _nb_max_total, max_renews) = self
+        let (duration_days, _nb_max_media, _nb_max_total, max_renews, renew_at_policy) = self
             .resolve_loan_settings(user_public_type, media_type.as_deref())
             .await?;
 
@@ -1075,7 +1123,11 @@ impl Repository {
             )));
         }
 
-        let new_expiry_date = now + Duration::days(duration_days as i64);
+        let anchor = match renew_at_policy {
+            LoanSettingsRenewAt::Now => now,
+            LoanSettingsRenewAt::AtDueDate => loan.expiry_at.unwrap_or(now),
+        };
+        let new_expiry_date = anchor + Duration::days(duration_days as i64);
         let new_renews = current_renews + 1;
 
         sqlx::query(
@@ -1093,48 +1145,91 @@ impl Repository {
 
     /// Get loan settings
     pub async fn loans_get_settings(&self) -> AppResult<Vec<LoanSettings>> {
-        sqlx::query_as::<_, LoanSettings>("SELECT * FROM loans_settings ORDER BY media_type")
-            .fetch_all(&self.pool)
-            .await
-            .map_err(Into::into)
+        sqlx::query_as::<_, LoanSettings>(
+            r#"SELECT * FROM loans_settings ORDER BY (media_type IS NOT NULL), media_type"#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Into::into)
     }
 
-    /// Upsert one row in `loans_settings` for a media type (global defaults).
+    /// Delete all rows in `loans_settings`.
+    pub async fn loans_settings_delete_rows(&self) -> AppResult<()> {
+        sqlx::query("DELETE FROM loans_settings").execute(&self.pool).await?;
+        Ok(())
+    }
+
+    /// Upsert one row in `loans_settings`. `media_type == None` is the global default row (`media_type` IS NULL).
     pub async fn loans_settings_upsert_row(
         &self,
-        media_type: &str,
+        media_type: Option<&str>,
         nb_max: i16,
         nb_renews: i16,
         duration: i16,
+        renew_at: LoanSettingsRenewAt,
     ) -> AppResult<()> {
-        let rows_affected = sqlx::query(
-            r#"
-            UPDATE loans_settings
-            SET nb_max = $2, nb_renews = $3, duration = $4
-            WHERE media_type = $1
-            "#,
-        )
-        .bind(media_type)
-        .bind(nb_max)
-        .bind(nb_renews)
-        .bind(duration)
-        .execute(&self.pool)
-        .await?
-        .rows_affected();
-
-        if rows_affected == 0 {
+        let rows_affected = if let Some(mt) = media_type {
             sqlx::query(
                 r#"
-                INSERT INTO loans_settings (media_type, nb_max, nb_renews, duration)
-                VALUES ($1, $2, $3, $4)
+                UPDATE loans_settings
+                SET nb_max = $2, nb_renews = $3, duration = $4, renew_at = $5
+                WHERE media_type = $1
                 "#,
             )
-            .bind(media_type)
+            .bind(mt)
             .bind(nb_max)
             .bind(nb_renews)
             .bind(duration)
+            .bind(renew_at)
             .execute(&self.pool)
-            .await?;
+            .await?
+            .rows_affected()
+        } else {
+            sqlx::query(
+                r#"
+                UPDATE loans_settings
+                SET nb_max = $1, nb_renews = $2, duration = $3, renew_at = $4
+                WHERE media_type IS NULL
+                "#,
+            )
+            .bind(nb_max)
+            .bind(nb_renews)
+            .bind(duration)
+            .bind(renew_at)
+            .execute(&self.pool)
+            .await?
+            .rows_affected()
+        };
+
+        if rows_affected == 0 {
+            if let Some(mt) = media_type {
+                sqlx::query(
+                    r#"
+                    INSERT INTO loans_settings (media_type, nb_max, nb_renews, duration, renew_at)
+                    VALUES ($1, $2, $3, $4, $5)
+                    "#,
+                )
+                .bind(mt)
+                .bind(nb_max)
+                .bind(nb_renews)
+                .bind(duration)
+                .bind(renew_at)
+                .execute(&self.pool)
+                .await?;
+            } else {
+                sqlx::query(
+                    r#"
+                    INSERT INTO loans_settings (media_type, nb_max, nb_renews, duration, renew_at)
+                    VALUES (NULL, $1, $2, $3, $4)
+                    "#,
+                )
+                .bind(nb_max)
+                .bind(nb_renews)
+                .bind(duration)
+                .bind(renew_at)
+                .execute(&self.pool)
+                .await?;
+            }
         }
         Ok(())
     }

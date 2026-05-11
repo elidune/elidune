@@ -10,19 +10,39 @@ use validator::Validate;
 use crate::error::AppError;
 use super::{Language, Sex};
 
-/// User rights levels (matching original C implementation)
+/// User rights levels (DB single-letter codes; holds domain also uses `o` = own).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Rights {
-    None = 0,
-    Read = 1,
-    Write = 2,
+    #[serde(alias = "None")]
+    None,
+    #[serde(alias = "Own")]
+    Own,
+    #[serde(alias = "Read")]
+    Read,
+    #[serde(alias = "Write")]
+    Write,
+}
+
+impl Rights {
+    /// Ordering for `>= Read` / `>= Write` style checks (`Own` is below `Read`).
+    #[must_use]
+    pub fn rank(self) -> u8 {
+        match self {
+            Rights::None => 0,
+            Rights::Own => 1,
+            Rights::Read => 2,
+            Rights::Write => 3,
+        }
+    }
 }
 
 impl From<char> for Rights {
     fn from(c: char) -> Self {
-        match c {
-            'r' | 'R' => Rights::Read,
-            'w' | 'W' => Rights::Write,
+        match c.to_ascii_lowercase() {
+            'o' => Rights::Own,
+            'r' => Rights::Read,
+            'w' => Rights::Write,
             _ => Rights::None,
         }
     }
@@ -629,7 +649,9 @@ pub struct UserRights {
     pub items_rights: Rights,
     pub users_rights: Rights,
     pub loans_rights: Rights,
-    pub borrows_rights: Rights,
+    /// Holds + circulation (loans checkout/return): `n` / `o` / `r` / `w` from `account_types.holds_rights`.
+    #[serde(rename = "holdsRights", alias = "borrowsRights")]
+    pub holds_rights: Rights,
     pub settings_rights: Rights,
     /// Cultural events (`/events`): read list/detail vs write (create/update/delete/announce).
     #[serde(default)]
@@ -642,7 +664,7 @@ impl Default for UserRights {
             items_rights: Rights::None,
             users_rights: Rights::None,
             loans_rights: Rights::None,
-            borrows_rights: Rights::None,
+            holds_rights: Rights::None,
             settings_rights: Rights::None,
             events_rights: Rights::None,
         }
@@ -696,7 +718,7 @@ impl UserClaims {
 
     // Authorization checks
     pub fn require_read_items(&self) -> Result<(), AppError> {
-        if self.rights.items_rights as u8 >= Rights::Read as u8 {
+        if self.rights.items_rights.rank() >= Rights::Read.rank() {
             Ok(())
         } else {
             Err(AppError::Authorization("Insufficient rights to read items".to_string()))
@@ -704,7 +726,7 @@ impl UserClaims {
     }
 
     pub fn require_write_items(&self) -> Result<(), AppError> {
-        if self.rights.items_rights as u8 >= Rights::Write as u8 {
+        if self.rights.items_rights.rank() >= Rights::Write.rank() {
             Ok(())
         } else {
             Err(AppError::Authorization("Insufficient rights to write items".to_string()))
@@ -712,7 +734,7 @@ impl UserClaims {
     }
 
     pub fn require_read_users(&self) -> Result<(), AppError> {
-        if self.rights.users_rights as u8 >= Rights::Read as u8 {
+        if self.rights.users_rights.rank() >= Rights::Read.rank() {
             Ok(())
         } else {
             Err(AppError::Authorization("Insufficient rights to read users".to_string()))
@@ -720,7 +742,7 @@ impl UserClaims {
     }
 
     pub fn require_write_users(&self) -> Result<(), AppError> {
-        if self.rights.users_rights as u8 >= Rights::Write as u8 {
+        if self.rights.users_rights.rank() >= Rights::Write.rank() {
             Ok(())
         } else {
             Err(AppError::Authorization("Insufficient rights to write users".to_string()))
@@ -728,39 +750,49 @@ impl UserClaims {
     }
 
     pub fn require_read_catalog(&self) -> Result<(), AppError> {
-        if self.rights.items_rights as u8 >= Rights::Read as u8 {
+        if self.rights.items_rights.rank() >= Rights::Read.rank() {
             Ok(())
         } else {
             Err(AppError::Authorization("Insufficient rights to read catalog".to_string()))
         }
     }
 
-    pub fn require_read_borrows(&self) -> Result<(), AppError> {
-        if self.rights.borrows_rights as u8 >= Rights::Read as u8 {
+    /// Circulation (check out / return / renew) and full holds management.
+    pub fn require_write_holds(&self) -> Result<(), AppError> {
+        if self.rights.holds_rights.rank() >= Rights::Write.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization("Insufficient rights to read borrows".to_string()))
+            Err(AppError::Authorization("Insufficient rights for circulation/hold management".to_string()))
+        }
+    }
+
+    /// Read access to hold queues and staff hold listings (`r` or `w`, not `o`).
+    pub fn require_read_holds_staff(&self) -> Result<(), AppError> {
+        if self.rights.holds_rights.rank() >= Rights::Read.rank() {
+            Ok(())
+        } else {
+            Err(AppError::Authorization("Insufficient rights to view hold queues".to_string()))
         }
     }
 
     pub fn require_read_loans(&self) -> Result<(), AppError> {
-        if self.rights.loans_rights as u8 >= Rights::Read as u8 {
+        if self.rights.loans_rights.rank() >= Rights::Read.rank() {
             Ok(())
         } else {
             Err(AppError::Authorization("Insufficient rights to read loans".to_string()))
         }
     }
 
-    pub fn require_write_borrows(&self) -> Result<(), AppError> {
-        if self.rights.borrows_rights as u8 >= Rights::Write as u8 {
+    pub fn require_write_loans(&self) -> Result<(), AppError> { 
+        if self.rights.loans_rights.rank() >= Rights::Write.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization("Insufficient rights to manage borrows".to_string()))
+            Err(AppError::Authorization("Insufficient rights to write loans".to_string()))
         }
     }
 
     pub fn require_read_settings(&self) -> Result<(), AppError> {
-        if self.rights.settings_rights as u8 >= Rights::Read as u8 {
+        if self.rights.settings_rights.rank() >= Rights::Read.rank() {
             Ok(())
         } else {
             Err(AppError::Authorization("Insufficient rights to read settings".to_string()))
@@ -768,7 +800,7 @@ impl UserClaims {
     }
 
     pub fn require_write_settings(&self) -> Result<(), AppError> {
-        if self.rights.settings_rights as u8 >= Rights::Write as u8 {
+        if self.rights.settings_rights.rank() >= Rights::Write.rank() {
             Ok(())
         } else {
             Err(AppError::Authorization("Insufficient rights to write settings".to_string()))
@@ -776,7 +808,7 @@ impl UserClaims {
     }
 
     pub fn require_read_events(&self) -> Result<(), AppError> {
-        if self.rights.events_rights as u8 >= Rights::Read as u8 {
+        if self.rights.events_rights.rank() >= Rights::Read.rank() {
             Ok(())
         } else {
             Err(AppError::Authorization("Insufficient rights to read events".to_string()))
@@ -784,10 +816,40 @@ impl UserClaims {
     }
 
     pub fn require_write_events(&self) -> Result<(), AppError> {
-        if self.rights.events_rights as u8 >= Rights::Write as u8 {
+        if self.rights.events_rights.rank() >= Rights::Write.rank() {
             Ok(())
         } else {
             Err(AppError::Authorization("Insufficient rights to manage events".to_string()))
+        }
+    }
+
+    pub fn require_list_holds(&self) -> Result<(), AppError> {
+        if self.rights.holds_rights.rank() >= Rights::Read.rank()
+            || self.rights.holds_rights == Rights::Own
+        {
+            Ok(())
+        } else {
+            Err(AppError::Authorization("Insufficient rights to list holds".into()))
+        }
+    }
+
+    pub fn require_create_hold(&self) -> Result<(), AppError> {
+        if self.rights.holds_rights.rank() >= Rights::Write.rank()
+            || self.rights.holds_rights == Rights::Own
+        {
+            Ok(())
+        } else {
+            Err(AppError::Authorization("Insufficient rights to place a hold".into()))
+        }
+    }
+
+    pub fn require_cancel_hold(&self) -> Result<(), AppError> {
+        if self.rights.holds_rights.rank() >= Rights::Write.rank()
+            || self.rights.holds_rights == Rights::Own
+        {
+            Ok(())
+        } else {
+            Err(AppError::Authorization("Insufficient rights to cancel a hold".into()))
         }
     }
 

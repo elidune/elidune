@@ -72,7 +72,7 @@ pub async fn batch_return(
     ClientIp(ip): ClientIp,
     Json(req): Json<BatchReturnRequest>,
 ) -> AppResult<Json<BatchReturnResponse>> {
-    claims.require_write_borrows()?;
+    claims.require_write_holds()?;
 
     if req.barcodes.is_empty() {
         return Err(crate::error::AppError::Validation(
@@ -174,7 +174,7 @@ pub async fn batch_create_loans(
     ClientIp(ip): ClientIp,
     Json(req): Json<BatchCreateLoansRequest>,
 ) -> AppResult<Json<BatchCreateLoansResponse>> {
-    claims.require_write_borrows()?;
+    claims.require_write_holds()?;
 
     let user_id: i64 = req.user_id.parse().map_err(|_| {
         crate::error::AppError::Validation("Invalid userId format".to_string())

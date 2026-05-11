@@ -298,7 +298,7 @@ impl Repository {
         let row = sqlx::query(
             r#"
             SELECT items_rights, users_rights, loans_rights,
-                   borrows_rights, settings_rights, events_rights
+                   holds_rights, settings_rights, events_rights
             FROM account_types
             WHERE code = $1
             "#,
@@ -312,7 +312,7 @@ impl Repository {
             items_rights: Rights::from(row.get::<Option<String>, _>("items_rights")),
             users_rights: Rights::from(row.get::<Option<String>, _>("users_rights")),
             loans_rights: Rights::from(row.get::<Option<String>, _>("loans_rights")),
-            borrows_rights: Rights::from(row.get::<Option<String>, _>("borrows_rights")),
+            holds_rights: Rights::from(row.get::<Option<String>, _>("holds_rights")),
             settings_rights: Rights::from(row.get::<Option<String>, _>("settings_rights")),
             events_rights: Rights::from(row.get::<Option<String>, _>("events_rights")),
         })

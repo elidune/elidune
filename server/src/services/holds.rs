@@ -24,6 +24,20 @@ impl HoldsService {
         self.repository.holds_list_all(page, per_page, active_only).await
     }
 
+    /// Paginated holds for one user (`holds_rights == own` on `GET /holds`).
+    #[tracing::instrument(skip(self), err)]
+    pub async fn list_for_user_paginated(
+        &self,
+        user_id: i64,
+        page: i64,
+        per_page: i64,
+        active_only: bool,
+    ) -> AppResult<(Vec<HoldDetails>, i64)> {
+        self.repository
+            .holds_list_for_user_paginated(user_id, page, per_page, active_only)
+            .await
+    }
+
     /// Place a hold — rejects if the user already has a pending/ready hold for this item.
     #[tracing::instrument(skip(self), err)]
     pub async fn place_hold(&self, data: CreateHold) -> AppResult<Hold> {
@@ -51,9 +65,9 @@ impl HoldsService {
     }
 
     #[tracing::instrument(skip(self), err)]
-    pub async fn cancel(&self, id: i64, requesting_user_id: i64, is_staff: bool) -> AppResult<Hold> {
+    pub async fn cancel(&self, id: i64, requesting_user_id: i64, can_manage_others: bool) -> AppResult<Hold> {
         let hold = self.repository.holds_get_by_id(id).await?;
-        if !is_staff && hold.user_id != requesting_user_id {
+        if !can_manage_others && hold.user_id != requesting_user_id {
             return Err(AppError::Authorization(
                 "Cannot cancel another user's hold".to_string(),
             ));

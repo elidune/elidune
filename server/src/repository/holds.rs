@@ -23,6 +23,14 @@ pub trait HoldsRepository: Send + Sync {
     /// All holds, newest first, with total count (for pagination).
     /// When `active_only`, only `pending` and `ready` rows.
     async fn holds_list_all(&self, page: i64, per_page: i64, active_only: bool) -> AppResult<(Vec<HoldDetails>, i64)>;
+    /// Holds for one user (paginated), same ordering/filters as [`HoldsRepository::holds_list_all`].
+    async fn holds_list_for_user_paginated(
+        &self,
+        user_id: i64,
+        page: i64,
+        per_page: i64,
+        active_only: bool,
+    ) -> AppResult<(Vec<HoldDetails>, i64)>;
     async fn holds_list_for_item(&self, item_id: i64) -> AppResult<Vec<HoldDetails>>;
     async fn holds_list_for_user(&self, user_id: i64) -> AppResult<Vec<HoldDetails>>;
     async fn holds_get_by_id(&self, id: i64) -> AppResult<Hold>;
@@ -43,6 +51,15 @@ pub trait HoldsRepository: Send + Sync {
 impl HoldsRepository for Repository {
     async fn holds_list_all(&self, page: i64, per_page: i64, active_only: bool) -> AppResult<(Vec<HoldDetails>, i64)> {
         Repository::holds_list_all(self, page, per_page, active_only).await
+    }
+    async fn holds_list_for_user_paginated(
+        &self,
+        user_id: i64,
+        page: i64,
+        per_page: i64,
+        active_only: bool,
+    ) -> AppResult<(Vec<HoldDetails>, i64)> {
+        Repository::holds_list_for_user_paginated(self, user_id, page, per_page, active_only).await
     }
     async fn holds_list_for_item(&self, item_id: i64) -> AppResult<Vec<HoldDetails>> {
         Repository::holds_list_for_item(self, item_id).await
@@ -248,6 +265,53 @@ impl Repository {
             let rows = sqlx::query_as::<_, Hold>(
                 "SELECT * FROM holds ORDER BY created_at ASC LIMIT $1 OFFSET $2",
             )
+            .bind(per_page)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+            (total, rows)
+        };
+        let details = self.holds_holds_to_details(rows).await?;
+        Ok((details, total))
+    }
+
+    /// Paginated holds for a single user (same filters/order as [`Repository::holds_list_all`]).
+    #[tracing::instrument(skip(self), err)]
+    pub async fn holds_list_for_user_paginated(
+        &self,
+        user_id: i64,
+        page: i64,
+        per_page: i64,
+        active_only: bool,
+    ) -> AppResult<(Vec<HoldDetails>, i64)> {
+        let (total, rows) = if active_only {
+            let total: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*)::bigint FROM holds WHERE user_id = $1 AND status IN ('pending','ready')",
+            )
+            .bind(user_id)
+            .fetch_one(&self.pool)
+            .await?;
+            let offset = (page - 1).max(0) * per_page;
+            let rows = sqlx::query_as::<_, Hold>(
+                "SELECT * FROM holds WHERE user_id = $1 AND status IN ('pending','ready') \
+                 ORDER BY created_at ASC LIMIT $2 OFFSET $3",
+            )
+            .bind(user_id)
+            .bind(per_page)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+            (total, rows)
+        } else {
+            let total: i64 = sqlx::query_scalar("SELECT COUNT(*)::bigint FROM holds WHERE user_id = $1")
+                .bind(user_id)
+                .fetch_one(&self.pool)
+                .await?;
+            let offset = (page - 1).max(0) * per_page;
+            let rows = sqlx::query_as::<_, Hold>(
+                "SELECT * FROM holds WHERE user_id = $1 ORDER BY created_at ASC LIMIT $2 OFFSET $3",
+            )
+            .bind(user_id)
             .bind(per_page)
             .bind(offset)
             .fetch_all(&self.pool)

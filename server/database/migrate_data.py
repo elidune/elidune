@@ -388,13 +388,13 @@ def migrate_account_types(src, dst):
         code = ACCOUNT_TYPE_ID_TO_CODE.get(aid, f'type_{aid}')
         dst_cur.execute("""
             INSERT INTO account_types (code, name, items_rights, users_rights, loans_rights,
-                                       items_archive_rights, borrows_rights, settings_rights)
+                                       items_archive_rights, holds_rights, settings_rights)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (code) DO UPDATE SET
                 name = EXCLUDED.name, items_rights = EXCLUDED.items_rights,
                 users_rights = EXCLUDED.users_rights, loans_rights = EXCLUDED.loans_rights,
                 items_archive_rights = EXCLUDED.items_archive_rights,
-                borrows_rights = EXCLUDED.borrows_rights, settings_rights = EXCLUDED.settings_rights
+                holds_rights = EXCLUDED.holds_rights, settings_rights = EXCLUDED.settings_rights
         """, (code, name, ir, ur, lr, iar, br, sr))
         count += 1
 
@@ -1181,30 +1181,38 @@ def migrate_loans_archives(src, dst, migrated_specimen_ids=None):
 
 
 def migrate_loans_settings(src, dst):
-    """Migrate borrows_settings -> loans_settings: account_type_id -> account_type slug."""
+    """Migrate borrows_settings -> loans_settings (legacy per-media rows)."""
     print("Migrating borrows_settings -> loans_settings...")
     src_cur = src.cursor()
     dst_cur = dst.cursor()
 
     src_cur.execute("""
-        SELECT id, media_type, nb_max, nb_renews, duration, notes, account_type_id
+        SELECT id, media_type, nb_max, nb_renews, duration, notes
         FROM borrows_settings
     """)
     rows = src_cur.fetchall()
 
     for row in rows:
-        sid, media_type, nb_max, nb_renews, duration, notes, at_id = row
+        sid, media_type, nb_max, nb_renews, duration, notes = row
         media_type_db = map_media_type(media_type)
-        at_code = ACCOUNT_TYPE_ID_TO_CODE.get(at_id) if at_id else None
 
-        dst_cur.execute("""
-            INSERT INTO loans_settings (id, media_type, nb_max, nb_renews, duration, notes, account_type)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (media_type) DO UPDATE SET
-                nb_max = EXCLUDED.nb_max, nb_renews = EXCLUDED.nb_renews,
-                duration = EXCLUDED.duration, notes = EXCLUDED.notes,
-                account_type = EXCLUDED.account_type
-        """, (sid, media_type_db, nb_max, nb_renews, duration, notes, at_code))
+        dst_cur.execute(
+            """
+            UPDATE loans_settings SET
+                media_type = %s, nb_max = %s, nb_renews = %s, duration = %s, notes = %s,
+                renew_at = 'now'
+            WHERE id = %s
+            """,
+            (media_type_db, nb_max, nb_renews, duration, notes, sid),
+        )
+        if dst_cur.rowcount == 0:
+            dst_cur.execute(
+                """
+                INSERT INTO loans_settings (id, media_type, nb_max, nb_renews, duration, notes, renew_at)
+                VALUES (%s, %s, %s, %s, %s, %s, 'now')
+                """,
+                (sid, media_type_db, nb_max, nb_renews, duration, notes),
+            )
 
     dst.commit()
     print(f"  {len(rows)} loans_settings migrated")

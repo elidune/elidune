@@ -11,22 +11,31 @@ This document lists API endpoints and their required authentication/authorizatio
 - `Admin (extractor)`: authenticated user with `account_type == admin` (`AdminUser`)
 - `JWT + require_*()`: authenticated user plus granular rights check from JWT claims
 
-JWT rights fields in `UserRights`: `items_rights`, `users_rights`, `loans_rights`, `borrows_rights`, `settings_rights`  
-Each field is `None | Read | Write` (Write implies Read).
+JWT rights fields in `UserRights` (JSON camelCase, e.g. `holdsRights`): `items_rights`, `users_rights`, `loans_rights`, `holds_rights`, `settings_rights`, `events_rights`.
+
+For `items_rights`, `users_rights`, `loans_rights`, `settings_rights`, and `events_rights`, the level is **`none` \| `read` \| `write`** (from DB letters `n` / `r` / `w`). Checks use ordering: none < read < write.
+
+**`holds_rights`** (DB column `account_types.holds_rights`) uses **`n` \| `o` \| `r` \| `w`**: **none**, **own** (self-service holds only), **read** (staff: queues and global hold lists), **write** (full circulation + holds management). Ordering for checks: none < own < read < write.  
+Serialized JWT claims use `holdsRights`; **`borrowsRights`** is still accepted as a **deserialize alias** for backward compatibility.
 
 Helpers on `UserClaims`:
 
 | Method | Condition |
 |---|---|
-| `require_read_items()` | `items_rights >= Read` |
-| `require_write_items()` | `items_rights >= Write` |
-| `require_read_users()` | `users_rights >= Read` |
-| `require_write_users()` | `users_rights >= Write` |
-| `require_read_loans()` | `loans_rights >= Read` |
-| `require_read_borrows()` | `borrows_rights >= Read` |
-| `require_write_borrows()` | `borrows_rights >= Write` |
-| `require_read_settings()` | `settings_rights >= Read` |
-| `require_write_settings()` | `settings_rights >= Write` |
+| `require_read_items()` | `items_rights >= read` |
+| `require_write_items()` | `items_rights >= write` |
+| `require_read_users()` | `users_rights >= read` |
+| `require_write_users()` | `users_rights >= write` |
+| `require_read_loans()` | `loans_rights >= read` |
+| `require_write_holds()` | `holds_rights >= write` (circulation: checkout, return, renew, loan batches) |
+| `require_read_holds_staff()` | `holds_rights >= read` (not satisfied by **`own`** alone) |
+| `require_list_holds()` | `holds_rights >= read` **or** `holds_rights == own` |
+| `require_create_hold()` | `holds_rights >= write` **or** `holds_rights == own` |
+| `require_cancel_hold()` | `holds_rights >= write` **or** `holds_rights == own` |
+| `require_read_settings()` | `settings_rights >= read` |
+| `require_write_settings()` | `settings_rights >= write` |
+| `require_read_events()` | `events_rights >= read` |
+| `require_write_events()` | `events_rights >= write` |
 | `require_admin()` | `account_type == admin` |
 | `require_self_or_staff(id)` | caller is `id`, or `account_type` is librarian/admin |
 | `require_self_or_admin(id)` | caller is `id`, or `account_type` is admin |
@@ -131,32 +140,34 @@ All auth routes are rate-limited via GovernorLayer.
 | `PUT /users/:id/account-type` | JWT + `require_admin()` |
 | `PUT /users/:id/force-password-change` | JWT + `require_admin()` |
 | `GET /users/:id/loans` | JWT + `require_read_users()` |
-| `GET /users/:id/holds` | JWT + `require_read_users()` |
+| `GET /users/:id/holds` | JWT + `require_read_holds_staff()` + `require_read_users()` |
 | `GET /users/:id/fines` | JWT + `require_read_users()` |
 
-## Loans and borrows
+## Loans and circulation
+
+Loan checkout, return, renew, and batch loan operations require **`holds_rights >= write`** (same column as holds).
 
 | Endpoint | Required auth |
 |---|---|
-| `POST /loans` | JWT + `require_write_borrows()` |
-| `POST /loans/:id/return` | JWT + `require_write_borrows()` |
-| `POST /loans/:id/renew` | JWT + `require_write_borrows()` |
-| `POST /loans/items/:item_id/return` | JWT + `require_write_borrows()` |
-| `POST /loans/items/:item_id/renew` | JWT + `require_write_borrows()` |
+| `POST /loans` | JWT + `require_write_holds()` |
+| `POST /loans/:id/return` | JWT + `require_write_holds()` |
+| `POST /loans/:id/renew` | JWT + `require_write_holds()` |
+| `POST /loans/items/:item_id/return` | JWT + `require_write_holds()` |
+| `POST /loans/items/:item_id/renew` | JWT + `require_write_holds()` |
 | `GET /loans/overdue` | JWT + `require_read_loans()` |
 | `POST /loans/send-overdue-reminders` | JWT + `require_admin()` |
-| `POST /loans/batch-return` | JWT + `require_write_borrows()` |
-| `POST /loans/batch-create` | JWT + `require_write_borrows()` |
+| `POST /loans/batch-return` | JWT + `require_write_holds()` |
+| `POST /loans/batch-create` | JWT + `require_write_holds()` |
 
 ## Holds
 
 | Endpoint | Required auth | Notes |
 |---|---|---|
-| `GET /holds` | JWT + `require_read_borrows()` | paginated list of all holds |
-| `POST /holds` | JWT + `require_write_borrows()` | |
-| `GET /items/:id/holds` | JWT + `require_read_borrows()` | |
-| `GET /users/:id/holds` | JWT + `require_read_users()` | |
-| `DELETE /holds/:id` | JWT + `require_write_borrows()` | service enforces self-or-staff |
+| `GET /holds` | JWT + `require_list_holds()` | `read` / `write`: paginated **all** holds. **`own`**: same query, paginated **only the caller's** holds. |
+| `POST /holds` | JWT + `require_create_hold()` | `write`: any `userId`. **`own`**: `userId` must be the caller. **`read`** alone: not allowed. |
+| `GET /items/:id/holds` | JWT + `require_read_holds_staff()` | Hold queue for the item; not allowed for **`own`**. |
+| `GET /users/:id/holds` | JWT + `require_read_holds_staff()` + `require_read_users()` | Not allowed for **`own`**. |
+| `DELETE /holds/:id` | JWT + `require_cancel_hold()` | `write`: may cancel any user's hold. **`own`**: only own holds. **`read`** alone: not allowed. |
 
 ## Fines
 

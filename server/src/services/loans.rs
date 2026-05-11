@@ -7,14 +7,12 @@ use std::sync::Arc;
 use crate::{
     api::loans::{LoanSettings as LoanSettingsApi, UpdateLoanSettingsRequest},
     error::{AppError, AppResult},
-    marc::{marc_record_for_loan_export, MarcRecord},
+    marc::{MarcRecord, marc_record_for_loan_export},
     models::{
-        biblio::MediaType,
-        loan::{
-            CreateLoan, LoanDetails, LoanMarcExportEncoding, LoanMarcExportFormat,
-            LOANS_MARC_EXPORT_MAX,
-        },
-        user::UserStatus,
+        Loan, loan::{
+            CreateLoan, LOANS_MARC_EXPORT_MAX, LoanDetails, LoanMarcExportEncoding, LoanMarcExportFormat,
+            LoanSettingsRenewAt,
+        }, user::UserStatus
     },
     repository::LoansServiceRepository,
 };
@@ -101,6 +99,11 @@ impl LoansService {
         Ok(outcome.details)
     }
 
+    /// Get a loan by id
+    pub async fn get_loan(&self, loan_id: i64) -> AppResult<Loan> {
+        self.repository.loans_get_by_id(loan_id).await
+    }
+
     /// Renew a loan
     pub async fn renew_loan(&self, loan_id: i64) -> AppResult<(DateTime<Utc>, i16)> {
         let loan = self.repository.loans_get_by_id(loan_id).await?;
@@ -148,10 +151,11 @@ impl LoansService {
         Ok(rows
             .into_iter()
             .map(|row| LoanSettingsApi {
-                media_type: row.media_type.unwrap_or(MediaType::PrintedText),
+                media_type: row.media_type,
                 max_loans: row.nb_max.unwrap_or(5),
                 max_renewals: row.nb_renews.unwrap_or(2),
                 duration_days: row.duration.unwrap_or(21),
+                renew_at: row.renew_at.unwrap_or(LoanSettingsRenewAt::Now),
             })
             .collect())
     }
@@ -161,14 +165,20 @@ impl LoansService {
         &self,
         request: UpdateLoanSettingsRequest,
     ) -> AppResult<Vec<LoanSettingsApi>> {
+
+        // remove all existing loan settings
+        self.repository.loans_settings_delete_rows().await?;
+
         if let Some(loan_settings) = request.loan_settings {
             for setting in loan_settings {
+                let media_key = setting.media_type.as_ref().map(|m| m.as_db_str());
                 self.repository
                     .loans_settings_upsert_row(
-                        setting.media_type.as_db_str(),
+                        media_key,
                         setting.max_loans,
                         setting.max_renewals,
                         setting.duration_days,
+                        setting.renew_at,
                     )
                     .await?;
             }
@@ -358,6 +368,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl LoansRepository for FakeRepo {
+        async fn loans_settings_delete_rows(&self) -> AppResult<()> { Ok(()) }
         async fn loans_get_by_id(&self, _: i64) -> AppResult<crate::models::loan::Loan> { unimplemented!() }
         async fn loans_get_by_item_identification(&self, _: &str) -> AppResult<crate::models::loan::Loan> { unimplemented!() }
         async fn loans_get_for_user(
@@ -404,10 +415,11 @@ mod tests {
         async fn loans_update_reminder_sent(&self, _: &[i64]) -> AppResult<()> { Ok(()) }
         async fn loans_settings_upsert_row(
             &self,
-            _: &str,
+            _: Option<&str>,
             _: i16,
             _: i16,
             _: i16,
+            _: LoanSettingsRenewAt,
         ) -> AppResult<()> {
             Ok(())
         }

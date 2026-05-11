@@ -42,7 +42,7 @@ impl Repository {
         sqlx::query_as::<_, AccountTypeDefinition>(
             r#"
             SELECT code, name, items_rights, users_rights, loans_rights,
-                   items_archive_rights, borrows_rights, settings_rights, events_rights
+                   items_archive_rights, holds_rights, settings_rights, events_rights
             FROM account_types
             ORDER BY code
             "#,
@@ -56,7 +56,7 @@ impl Repository {
         sqlx::query_as::<_, AccountTypeDefinition>(
             r#"
             SELECT code, name, items_rights, users_rights, loans_rights,
-                   items_archive_rights, borrows_rights, settings_rights, events_rights
+                   items_archive_rights, holds_rights, settings_rights, events_rights
             FROM account_types
             WHERE code = $1
             "#,
@@ -90,7 +90,7 @@ impl Repository {
         add_opt!(data.users_rights, "users_rights");
         add_opt!(data.loans_rights, "loans_rights");
         add_opt!(data.items_archive_rights, "items_archive_rights");
-        add_opt!(data.borrows_rights, "borrows_rights");
+        add_opt!(data.holds_rights, "holds_rights");
         add_opt!(data.settings_rights, "settings_rights");
         add_opt!(data.events_rights, "events_rights");
 
@@ -102,7 +102,7 @@ impl Repository {
 
         let q = format!(
             "UPDATE account_types SET {} WHERE code = ${} RETURNING code, name, items_rights, users_rights, loans_rights, \
-             items_archive_rights, borrows_rights, settings_rights, events_rights",
+             items_archive_rights, holds_rights, settings_rights, events_rights",
             sets.join(", "),
             idx
         );
@@ -122,7 +122,7 @@ impl Repository {
         bind_opt!(data.users_rights);
         bind_opt!(data.loans_rights);
         bind_opt!(data.items_archive_rights);
-        bind_opt!(data.borrows_rights);
+        bind_opt!(data.holds_rights);
         bind_opt!(data.settings_rights);
         bind_opt!(data.events_rights);
 

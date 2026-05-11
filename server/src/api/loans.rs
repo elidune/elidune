@@ -21,7 +21,8 @@ use crate::{
         biblio::MediaType,
         loan::{
             CreateLoan, LoanDetails, LoanMarcExportEncoding, LoanMarcExportFormat,
-        },
+            LoanSettingsRenewAt,
+        }, user::Rights,
     },
     services::{
         audit::{self},
@@ -31,14 +32,19 @@ use crate::{
 
 use super::{biblios::PaginatedResponse, AuthenticatedUser, ClientIp};
 
-/// Loan rules per media type (global defaults, `loans_settings` table).
+/// Loan rules (`loans_settings`): per-document-type overrides plus one global default row (`mediaType` JSON `null`).
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct LoanSettings {
-    pub media_type: MediaType,
+    /// `null` = global default row (`media_type` IS NULL in DB). On that row, `maxLoans` is the cap **across all media** for a patron.
+    pub media_type: Option<MediaType>,
+    /// Per-media cap when `mediaType` is set; **total** active loans cap when `mediaType` is null (default row).
     pub max_loans: i16,
     pub max_renewals: i16,
     pub duration_days: i16,
+    /// How the new due date is computed on renew: from renewal time (`now`) or current due date (`at_due_date`).
+    #[serde(default)]
+    pub renew_at: LoanSettingsRenewAt,
 }
 
 /// Partial update of global loan rules.
@@ -220,7 +226,13 @@ pub async fn get_user_loans(
     Path(user_id): Path<i64>,
     Query(query): Query<GetUserLoansQuery>,
 ) -> AppResult<Json<PaginatedResponse<LoanDetails>>> {
-    claims.require_read_users()?;
+    claims.require_self_or_staff(user_id)?;
+
+    if claims.rights.loans_rights.rank() < Rights::Read.rank() && user_id != claims.user_id {
+        return Err(AppError::Authorization(
+            "Insufficient rights to read loans for another user".into(),
+        ));
+    }
 
     let page = query.page.unwrap_or(1).max(1);
     let per_page = query.per_page.unwrap_or(20).clamp(1, 200);
@@ -322,7 +334,7 @@ pub async fn create_loan(
     ClientIp(ip): ClientIp,
     Json(request): Json<CreateLoanRequest>,
 ) -> AppResult<(StatusCode, Json<LoanResponse>)> {
-    claims.require_write_borrows()?;
+    claims.require_write_loans()?;
     let loan = CreateLoan {
         user_id: request.user_id,
         item_id: request.item_id,
@@ -376,7 +388,7 @@ pub async fn return_loan(
     ClientIp(ip): ClientIp,
     Path(loan_id): Path<i64>,
 ) -> AppResult<Json<ReturnResponse>> {
-    claims.require_write_borrows()?;
+    claims.require_write_loans()?;
     let loan = state.services.loans.return_loan(loan_id).await?;
 
     state.services.audit.log(
@@ -410,7 +422,18 @@ pub async fn renew_loan(
     ClientIp(ip): ClientIp,
     Path(loan_id): Path<i64>,
 ) -> AppResult<Json<LoanResponse>> {
-    claims.require_write_borrows()?;
+    
+    let loan = state.services.loans.get_loan(loan_id).await?;
+    let user_id = loan.user_id;
+
+    if claims.rights.loans_rights.rank() < Rights::Write.rank() && user_id != claims.user_id {
+        return Err(AppError::Authorization(
+            "Insufficient rights to read loans for another user".into(),
+        ));
+    }
+
+
+
     let (new_expiry_date, renew_count) = state.services.loans.renew_loan(loan_id).await?;
 
     state.services.audit.log(
@@ -451,7 +474,7 @@ pub async fn return_loan_by_item(
     ClientIp(ip): ClientIp,
     Path(item_id): Path<String>,
 ) -> AppResult<Json<ReturnResponse>> {
-    claims.require_write_borrows()?;
+    claims.require_write_loans()?;
     let loan = state.services.loans.return_loan_by_item(&item_id).await?;
     let loan_id = loan.id;
 
@@ -486,7 +509,7 @@ pub async fn renew_loan_by_item(
     ClientIp(ip): ClientIp,
     Path(item_id): Path<String>,
 ) -> AppResult<Json<LoanResponse>> {
-    claims.require_write_borrows()?;
+    claims.require_write_loans()?;
     let (loan_id, new_expiry_date, renew_count) = state
         .services
         .loans
