@@ -121,6 +121,7 @@ impl CatalogService {
                     lang: query.lang.clone(),
                     audience_type: query.audience_type.clone(),
                     archive: query.archive,
+                    include_without_active_items: query.include_without_active_items.unwrap_or(false),
                 };
                 let page = query.page.unwrap_or(1).max(1);
                 let per_page = query.per_page.unwrap_or(20).clamp(1, 200);
@@ -154,6 +155,18 @@ impl CatalogService {
     #[tracing::instrument(skip(self), err)]
     pub async fn get_biblio_for_item(&self, item_id: i64) -> AppResult<Biblio> {
         let item = self.repository.items_get_active_by_id(item_id).await?;
+        let biblio_id = item
+            .biblio_id
+            .ok_or_else(|| AppError::Internal("Item has no biblio_id".to_string()))?;
+        let mut biblio = self.repository.biblios_get_by_id(biblio_id).await?;
+        biblio.items = vec![item];
+        Ok(biblio)
+    }
+
+    /// Same as [`Self::get_biblio_for_item`], but resolves the physical copy by barcode.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn get_biblio_for_item_barcode(&self, barcode: &str) -> AppResult<Biblio> {
+        let item = self.repository.items_get_active_by_barcode(barcode).await?;
         let biblio_id = item
             .biblio_id
             .ok_or_else(|| AppError::Internal("Item has no biblio_id".to_string()))?;

@@ -605,6 +605,8 @@ pub struct MeiliBiblioDocument {
     pub lang: Option<String>,
     pub audience_type: Option<String>,
     pub is_archived: bool,
+    /// True when the biblio has at least one non-archived (`items.archived_at IS NULL`) linked item.
+    pub has_active_items: bool,
 }
 
 /// Query/list parameters for series.
@@ -692,6 +694,9 @@ pub struct BiblioQuery {
     pub collection: Option<String>,
     /// Filter by collection ID (exact match).
     pub collection_id: Option<i64>,
+    /// When `true`, include bibliographic records that have **no** active (non-archived) linked items.
+    /// When omitted or `false`, only biblios with at least one active item are returned (recommended for patron-facing catalog).
+    pub include_without_active_items: Option<bool>,
     pub page: Option<i64>,
     pub per_page: Option<i64>,
 }

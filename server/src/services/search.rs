@@ -20,6 +20,8 @@ pub struct SearchFilters {
     pub lang: Option<String>,
     pub audience_type: Option<String>,
     pub archive: Option<bool>,
+    /// When `true`, do not restrict to biblios that have active items (Meili `has_active_items`).
+    pub include_without_active_items: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -87,7 +89,13 @@ impl MeilisearchService {
 
         // Filterable attributes are set separately because the 0.32 SDK
         // uses FilterableAttribute instead of plain &str in the Settings builder.
-        let filterable: Vec<&str> = vec!["media_type", "lang", "audience_type", "is_archived"];
+        let filterable: Vec<&str> = vec![
+            "media_type",
+            "lang",
+            "audience_type",
+            "is_archived",
+            "has_active_items",
+        ];
         match index.set_filterable_attributes(&filterable).await {
             Ok(_) => {}
             Err(e) => warn!("Failed to set filterable attributes: {}", e),
@@ -203,6 +211,9 @@ fn build_filter_expr(filters: &SearchFilters) -> Option<String> {
     match filters.archive {
         Some(true) => parts.push("is_archived = true".to_string()),
         Some(false) | None => parts.push("is_archived = false".to_string()),
+    }
+    if !filters.include_without_active_items {
+        parts.push("has_active_items = true".to_string());
     }
 
     if parts.is_empty() {

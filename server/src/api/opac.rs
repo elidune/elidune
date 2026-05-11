@@ -38,6 +38,7 @@ pub fn router() -> axum::Router<crate::AppState> {
         ("serie_id" = Option<i64>, Query, description = "Filter by series ID (exact match)"),
         ("collection" = Option<String>, Query, description = "Filter by collection name (substring)"),
         ("collection_id" = Option<i64>, Query, description = "Filter by collection ID (exact match)"),
+        ("include_without_active_items" = Option<bool>, Query, description = "If true, include biblios with no active items; default excludes them (patron catalogue)"),
         ("page" = Option<i64>, Query, description = "Page number (default 1)"),
         ("per_page" = Option<i64>, Query, description = "Items per page (default 20, max 50)")
     ),

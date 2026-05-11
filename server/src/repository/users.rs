@@ -278,13 +278,13 @@ impl Repository {
     #[tracing::instrument(skip(self), err)]
     pub async fn users_login_exists(&self, login: &str, exclude_id: Option<i64>) -> AppResult<bool> {
         let exists: bool = if let Some(id) = exclude_id {
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE LOWER(login) = LOWER($1) AND id != $2)")
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE LOWER(login) = LOWER($1) AND id != $2 AND (status IS NULL OR status <> 'deleted'))")
                 .bind(login)
                 .bind(id)
                 .fetch_one(&self.pool)
                 .await?
         } else {
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE LOWER(login) = LOWER($1))")
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE LOWER(login) = LOWER($1) AND (status IS NULL OR status <> 'deleted'))")
                 .bind(login)
                 .fetch_one(&self.pool)
                 .await?
@@ -611,6 +611,7 @@ impl Repository {
         sqlx::query(
             r#"
             UPDATE users SET
+                login = NULL,
                 firstname = NULL,
                 lastname = NULL,
                 password = NULL,

@@ -18,10 +18,15 @@ use super::{AuthenticatedUser, ClientIp, ValidatedJson};
 
 pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::get;
-    axum::Router::new().route(
-        "/items/:id",
-        get(get_biblio_by_item).put(update_item).delete(delete_item),
-    )
+    axum::Router::new()
+        .route(
+            "/items/barcode/:barcode",
+            get(get_biblio_by_barcode),
+        )
+        .route(
+            "/items/:id",
+            get(get_biblio_by_item).put(update_item).delete(delete_item),
+        )
 }
 
 /// Get the bibliographic record for a physical copy.
@@ -49,6 +54,38 @@ pub async fn get_biblio_by_item(
 ) -> AppResult<Json<Biblio>> {
     claims.require_read_items()?;
     let biblio = state.services.catalog.get_biblio_for_item(item_id).await?;
+    Ok(Json(biblio))
+}
+
+/// Get the bibliographic record for a physical copy identified by barcode.
+///
+/// Response is a full [`Biblio`]; `items` contains **only** the matching copy.
+#[utoipa::path(
+    get,
+    path = "/items/barcode/{barcode}",
+    tag = "items",
+    security(("bearer_auth" = [])),
+    params(
+        ("barcode" = String, Path, description = "Physical copy barcode (exact match)")
+    ),
+    responses(
+        (status = 200, description = "Biblio with a single item entry", body = Biblio),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
+        (status = 404, description = "No active item with this barcode", body = crate::error::ErrorResponse),
+        (status = 410, description = "Bibliographic record is archived", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn get_biblio_by_barcode(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Path(barcode): Path<String>,
+) -> AppResult<Json<Biblio>> {
+    claims.require_read_items()?;
+    let biblio = state
+        .services
+        .catalog
+        .get_biblio_for_item_barcode(barcode.as_str())
+        .await?;
     Ok(Json(biblio))
 }
 

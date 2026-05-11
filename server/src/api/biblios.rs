@@ -100,6 +100,7 @@ impl<T: for<'a> ToSchema<'a>> PaginatedResponse<T> {
         ("serieId" = Option<i64>, Query, description = "Filter by series ID (exact match)"),
         ("collection" = Option<String>, Query, description = "Filter by collection name (substring)"),
         ("collectionId" = Option<i64>, Query, description = "Filter by collection ID (exact match)"),
+        ("includeWithoutActiveItems" = Option<bool>, Query, description = "If true, include biblios with no active (non-archived) items; default excludes them"),
         ("page" = Option<i64>, Query, description = "Page number (default: 1)"),
         ("perPage" = Option<i64>, Query, description = "Items per page (default: 20)")
     ),

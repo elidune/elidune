@@ -47,6 +47,8 @@ pub trait BibliosRepository: Send + Sync {
     async fn biblios_get_items(&self, biblio_id: i64) -> AppResult<Vec<Item>>;
     /// Active (non-archived) item by primary key.
     async fn items_get_active_by_id(&self, item_id: i64) -> AppResult<Item>;
+    /// Active (non-archived) item by barcode (exact match).
+    async fn items_get_active_by_barcode(&self, barcode: &str) -> AppResult<Item>;
     async fn biblios_get_items_short_by_biblio_ids(
         &self,
         biblio_ids: &[i64],
@@ -143,6 +145,9 @@ impl BibliosRepository for Repository {
     }
     async fn items_get_active_by_id(&self, item_id: i64) -> crate::error::AppResult<crate::models::item::Item> {
         Repository::items_get_active_by_id(self, item_id).await
+    }
+    async fn items_get_active_by_barcode(&self, barcode: &str) -> crate::error::AppResult<crate::models::item::Item> {
+        Repository::items_get_active_by_barcode(self, barcode).await
     }
     async fn biblios_get_items_short_by_biblio_ids(&self, biblio_ids: &[i64]) -> crate::error::AppResult<std::collections::HashMap<i64, Vec<crate::models::item::ItemShort>>> {
         Repository::biblios_get_items_short_by_biblio_ids(self, biblio_ids).await
@@ -603,7 +608,9 @@ impl Repository {
     // =========================================================================
 
     /// Search biblios with parameterized field filters. All non-freesearch BiblioQuery fields
-    /// are handled here. When freesearch is present, the CatalogService routes through
+    /// are handled here. When `include_without_active_items` is false/absent, only biblios
+    /// with at least one non-archived linked item are returned.
+    /// When freesearch is present, the CatalogService routes through
     /// Meilisearch instead; this path handles field-only filters and Meilisearch fallback.
     #[tracing::instrument(skip(self), err)]
     pub async fn biblios_search(&self, query: &BiblioQuery) -> AppResult<(Vec<BiblioShort>, i64)> {
@@ -625,6 +632,13 @@ impl Repository {
             where_parts.push("b.archived_at IS NOT NULL".to_string());
         } else {
             where_parts.push("b.archived_at IS NULL".to_string());
+        }
+
+        if !query.include_without_active_items.unwrap_or(false) {
+            where_parts.push(
+                "EXISTS (SELECT 1 FROM items i WHERE i.biblio_id = b.id AND i.archived_at IS NULL)"
+                    .to_string(),
+            );
         }
 
         if let Some(ref mt) = query.media_type {
@@ -1006,7 +1020,11 @@ impl Repository {
                 b.table_of_contents,
                 b.lang,
                 b.audience_type,
-                (b.archived_at IS NOT NULL) AS is_archived
+                (b.archived_at IS NOT NULL) AS is_archived,
+                EXISTS (
+                    SELECT 1 FROM items it_act
+                    WHERE it_act.biblio_id = b.id AND it_act.archived_at IS NULL
+                ) AS has_active_items
             FROM biblios b
             LEFT JOIN biblio_authors ba ON ba.biblio_id = b.id
             LEFT JOIN authors a ON a.id = ba.author_id
@@ -1070,7 +1088,11 @@ impl Repository {
                 b.table_of_contents,
                 b.lang,
                 b.audience_type,
-                (b.archived_at IS NOT NULL) AS is_archived
+                (b.archived_at IS NOT NULL) AS is_archived,
+                EXISTS (
+                    SELECT 1 FROM items it_act
+                    WHERE it_act.biblio_id = b.id AND it_act.archived_at IS NULL
+                ) AS has_active_items
             FROM biblios b
             LEFT JOIN biblio_authors ba ON ba.biblio_id = b.id
             LEFT JOIN authors a ON a.id = ba.author_id
@@ -1099,7 +1121,6 @@ impl Repository {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
-println!("ids: {:?}", ids);
         let rows: Vec<BiblioShortRow> = sqlx::query_as(
             r#"
             SELECT b.id, b.media_type, b.isbn, b.title,
@@ -1761,6 +1782,27 @@ println!("ids: {:?}", ids);
         .fetch_optional(&self.pool)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))
+    }
+
+    /// Get one active item by barcode (same row shape as [`items_get_active_by_id`]).
+    #[tracing::instrument(skip(self), err)]
+    pub async fn items_get_active_by_barcode(&self, barcode: &str) -> AppResult<Item> {
+        sqlx::query_as::<_, Item>(
+            r#"
+            SELECT i.id, i.biblio_id, i.source_id, i.barcode, i.call_number, i.volume_designation,
+                   i.place, i.borrowable, i.circulation_status, i.notes, i.price,
+                   i.created_at, i.updated_at, i.archived_at,
+                   so.name as source_name,
+                   EXISTS(SELECT 1 FROM loans l WHERE l.item_id = i.id AND l.returned_at IS NULL) as borrowed
+            FROM items i
+            LEFT JOIN sources so ON i.source_id = so.id
+            WHERE i.barcode = $1 AND i.archived_at IS NULL
+            "#,
+        )
+        .bind(barcode)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Item with barcode {barcode} not found")))
     }
 
     /// Get ItemShort for many biblios (excludes archived). Used to attach items to BiblioShort lists.

@@ -47,6 +47,7 @@ use crate::api::{account_types, admin_config, audit, auth, biblios, collections,
         biblios::list_items,
         biblios::create_item,
         items::get_biblio_by_item,
+        items::get_biblio_by_barcode,
         items::update_item,
         items::delete_item,
         // Users
