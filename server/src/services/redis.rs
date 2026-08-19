@@ -12,7 +12,8 @@ pub struct RedisService {
 impl RedisService {
     /// Create a new Redis service
     pub async fn new(url: &str) -> AppResult<Self> {
-        let client = Client::open(url).map_err(|e| AppError::Internal(format!("Failed to create Redis client: {}", e)))?;
+        let client = Client::open(url)
+            .map_err(|e| AppError::Internal(format!("Failed to create Redis client: {}", e)))?;
 
         // Test connection
         let mut conn = client
@@ -29,7 +30,12 @@ impl RedisService {
     }
 
     /// Store a 2FA code for a user with expiration (in seconds)
-    pub async fn store_2fa_code(&self, user_id: i64, code: &str, expiration_seconds: u64) -> AppResult<()> {
+    pub async fn store_2fa_code(
+        &self,
+        user_id: i64,
+        code: &str,
+        expiration_seconds: u64,
+    ) -> AppResult<()> {
         let mut conn = self
             .client
             .get_multiplexed_async_connection()
@@ -55,12 +61,17 @@ impl RedisService {
         let key = format!("2fa:email:{}", user_id);
 
         // Get the stored code
-        let stored_code: Option<String> = conn.get(&key).await.map_err(|e| AppError::Internal(format!("Failed to get 2FA code from Redis: {}", e)))?;
+        let stored_code: Option<String> = conn
+            .get(&key)
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to get 2FA code from Redis: {}", e)))?;
 
         match stored_code {
             Some(stored) if stored == code => {
                 // Code matches, delete it (one-time use)
-                let _: () = conn.del(&key).await.map_err(|e| AppError::Internal(format!("Failed to delete 2FA code from Redis: {}", e)))?;
+                let _: () = conn.del(&key).await.map_err(|e| {
+                    AppError::Internal(format!("Failed to delete 2FA code from Redis: {}", e))
+                })?;
                 Ok(true)
             }
             Some(_) => Ok(false), // Code doesn't match
@@ -77,7 +88,10 @@ impl RedisService {
             .map_err(|e| AppError::Internal(format!("Failed to get Redis connection: {}", e)))?;
 
         let key = format!("2fa:email:{}", user_id);
-        let exists: bool = conn.exists(&key).await.map_err(|e| AppError::Internal(format!("Failed to check 2FA code in Redis: {}", e)))?;
+        let exists: bool = conn
+            .exists(&key)
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to check 2FA code in Redis: {}", e)))?;
 
         Ok(exists)
     }
@@ -95,7 +109,9 @@ impl RedisService {
         let key = format!("trust_device:{}:{}", user_id, device_id);
         conn.set_ex::<_, _, ()>(&key, "1", expiration_seconds)
             .await
-            .map_err(|e| AppError::Internal(format!("Failed to store trusted device in Redis: {}", e)))?;
+            .map_err(|e| {
+                AppError::Internal(format!("Failed to store trusted device in Redis: {}", e))
+            })?;
 
         Ok(())
     }
@@ -109,7 +125,9 @@ impl RedisService {
             .map_err(|e| AppError::Internal(format!("Failed to get Redis connection: {}", e)))?;
 
         let key = format!("trust_device:{}:{}", user_id, device_id);
-        let exists: bool = conn.exists(&key).await.map_err(|e| AppError::Internal(format!("Failed to check trusted device in Redis: {}", e)))?;
+        let exists: bool = conn.exists(&key).await.map_err(|e| {
+            AppError::Internal(format!("Failed to check trusted device in Redis: {}", e))
+        })?;
 
         Ok(exists)
     }

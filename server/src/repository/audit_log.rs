@@ -30,7 +30,12 @@ pub trait AuditLogRepository: Send + Sync {
 
     async fn audit_query_page(&self, params: AuditQueryParams) -> AppResult<AuditLogPage>;
 
-    async fn audit_export(&self, from_date: Option<DateTime<Utc>>, to_date: Option<DateTime<Utc>>, event_type: Option<&str>) -> AppResult<Vec<AuditLogEntry>>;
+    async fn audit_export(
+        &self,
+        from_date: Option<DateTime<Utc>>,
+        to_date: Option<DateTime<Utc>>,
+        event_type: Option<&str>,
+    ) -> AppResult<Vec<AuditLogEntry>>;
 
     async fn audit_cleanup(&self, retention_days: u32) -> AppResult<u64>;
 }
@@ -50,14 +55,32 @@ impl AuditLogRepository for Repository {
         error_code: Option<&str>,
         error_message: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        Repository::audit_insert(self, event_type, user_id, entity_type, entity_id, ip_address, payload, outcome, http_status, error_code, error_message).await
+        Repository::audit_insert(
+            self,
+            event_type,
+            user_id,
+            entity_type,
+            entity_id,
+            ip_address,
+            payload,
+            outcome,
+            http_status,
+            error_code,
+            error_message,
+        )
+        .await
     }
 
     async fn audit_query_page(&self, params: AuditQueryParams) -> AppResult<AuditLogPage> {
         Repository::audit_query_page(self, params).await
     }
 
-    async fn audit_export(&self, from_date: Option<DateTime<Utc>>, to_date: Option<DateTime<Utc>>, event_type: Option<&str>) -> AppResult<Vec<AuditLogEntry>> {
+    async fn audit_export(
+        &self,
+        from_date: Option<DateTime<Utc>>,
+        to_date: Option<DateTime<Utc>>,
+        event_type: Option<&str>,
+    ) -> AppResult<Vec<AuditLogEntry>> {
         Repository::audit_export(self, from_date, to_date, event_type).await
     }
 
@@ -147,7 +170,11 @@ impl Repository {
             bind_idx += 1;
         }
 
-        let where_clause = if conditions.is_empty() { String::new() } else { format!("WHERE {}", conditions.join(" AND ")) };
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
 
         let count_sql = format!("SELECT COUNT(*) FROM audit_log {}", where_clause);
         let data_sql = format!(
@@ -235,24 +262,42 @@ impl Repository {
             })
             .collect();
 
-        Ok(AuditLogPage { entries, total, page, per_page })
+        Ok(AuditLogPage {
+            entries,
+            total,
+            page,
+            per_page,
+        })
     }
 
     /// Export audit log entries for a date range (unbounded, for CSV/JSON export).
-    pub async fn audit_export(&self, from_date: Option<DateTime<Utc>>, to_date: Option<DateTime<Utc>>, event_type: Option<&str>) -> AppResult<Vec<AuditLogEntry>> {
+    pub async fn audit_export(
+        &self,
+        from_date: Option<DateTime<Utc>>,
+        to_date: Option<DateTime<Utc>>,
+        event_type: Option<&str>,
+    ) -> AppResult<Vec<AuditLogEntry>> {
         let mut conditions = Vec::new();
         if from_date.is_some() {
             conditions.push("created_at >= $1");
         }
         if to_date.is_some() {
-            conditions.push(if from_date.is_some() { "created_at <= $2" } else { "created_at <= $1" });
+            conditions.push(if from_date.is_some() {
+                "created_at <= $2"
+            } else {
+                "created_at <= $1"
+            });
         }
         if event_type.is_some() {
             let idx = from_date.is_some() as usize + to_date.is_some() as usize + 1;
             conditions.push(Box::leak(format!("event_type = ${}", idx).into_boxed_str()));
         }
 
-        let where_clause = if conditions.is_empty() { String::new() } else { format!("WHERE {}", conditions.join(" AND ")) };
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
 
         let sql = format!(
             "SELECT id, event_type, outcome, user_id, entity_type, entity_id, ip_address, payload, \

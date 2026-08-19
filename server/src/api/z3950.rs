@@ -23,7 +23,10 @@ pub fn router() -> axum::Router<crate::AppState> {
     axum::Router::new()
         .route("/z3950/search", get(search))
         .route("/z3950/import", post(import_record))
-        .route("/z3950/servers", get(get_z3950_servers).put(update_z3950_servers))
+        .route(
+            "/z3950/servers",
+            get(get_z3950_servers).put(update_z3950_servers),
+        )
 }
 
 pub use crate::models::dto::z3950::{ImportItem, Z3950SearchQuery, Z3950ServerConfig};
@@ -65,7 +68,12 @@ pub struct Z3950ImportRequest {
 
 impl From<ImportItem> for Item {
     fn from(s: ImportItem) -> Self {
-        let borrowable = s.status.as_ref().and_then(|st| st.parse::<i16>().ok()).map(|v| v == 98).unwrap_or(true);
+        let borrowable = s
+            .status
+            .as_ref()
+            .and_then(|st| st.parse::<i16>().ok())
+            .map(|v| v == 98)
+            .unwrap_or(true);
         Item {
             id: None,
             biblio_id: None,
@@ -115,12 +123,20 @@ pub struct Z3950ImportResponse {
         (status = 502, description = "Z39.50 server error")
     )
 )]
-pub async fn search(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<Z3950SearchQuery>) -> AppResult<Json<Z3950SearchResponse>> {
+pub async fn search(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Query(query): Query<Z3950SearchQuery>,
+) -> AppResult<Json<Z3950SearchResponse>> {
     claims.require_read_items()?;
 
     let (biblios, total, source) = state.services.z3950.search(&query).await?;
 
-    Ok(Json(Z3950SearchResponse { total, biblios, source }))
+    Ok(Json(Z3950SearchResponse {
+        total,
+        biblios,
+        source,
+    }))
 }
 
 /// Import a record from Z39.50 search results into local catalog.
@@ -145,7 +161,16 @@ pub async fn import_record(
 ) -> AppResult<(StatusCode, Json<Z3950ImportResponse>)> {
     claims.require_write_items()?;
 
-    match state.services.z3950.import_record(request.biblio_id, request.items, request.confirm_replace_existing_id).await {
+    match state
+        .services
+        .z3950
+        .import_record(
+            request.biblio_id,
+            request.items,
+            request.confirm_replace_existing_id,
+        )
+        .await
+    {
         Ok((biblio, import_report)) => {
             state.services.audit.log(
                 audit::event::IMPORT_Z3950_RECORD,
@@ -160,7 +185,13 @@ pub async fn import_record(
                 })),
                 audit::AuditLogMeta::success(),
             );
-            Ok((StatusCode::CREATED, Json(Z3950ImportResponse { biblio, import_report })))
+            Ok((
+                StatusCode::CREATED,
+                Json(Z3950ImportResponse {
+                    biblio,
+                    import_report,
+                }),
+            ))
         }
         Err(e) => {
             state.services.audit.log(
@@ -190,7 +221,10 @@ pub async fn import_record(
         (status = 403, description = "Insufficient permissions")
     )
 )]
-pub async fn get_z3950_servers(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser) -> AppResult<Json<Vec<Z3950ServerConfig>>> {
+pub async fn get_z3950_servers(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+) -> AppResult<Json<Vec<Z3950ServerConfig>>> {
     claims.require_read_settings()?;
     let rows = state.services.z3950.get_servers_for_settings().await?;
     Ok(Json(rows))
@@ -219,7 +253,11 @@ pub async fn update_z3950_servers(
         let rows = state.services.z3950.get_servers_for_settings().await?;
         return Ok(Json(rows));
     };
-    let rows = state.services.z3950.update_servers_for_settings(servers).await?;
+    let rows = state
+        .services
+        .z3950
+        .update_servers_for_settings(servers)
+        .await?;
 
     state.services.audit.log(
         audit::event::SETTINGS_UPDATED,

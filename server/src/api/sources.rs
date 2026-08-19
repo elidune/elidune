@@ -84,9 +84,17 @@ pub async fn create_source(
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn list_sources(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<SourcesQuery>) -> AppResult<Json<Vec<Source>>> {
+pub async fn list_sources(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Query(query): Query<SourcesQuery>,
+) -> AppResult<Json<Vec<Source>>> {
     claims.require_read_items()?;
-    let sources = state.services.sources.list(query.include_archived.unwrap_or(false)).await?;
+    let sources = state
+        .services
+        .sources
+        .list(query.include_archived.unwrap_or(false))
+        .await?;
     Ok(Json(sources))
 }
 
@@ -105,7 +113,11 @@ pub async fn list_sources(State(state): State<crate::AppState>, AuthenticatedUse
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn get_source(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(id): Path<i64>) -> AppResult<Json<Source>> {
+pub async fn get_source(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Path(id): Path<i64>,
+) -> AppResult<Json<Source>> {
     claims.require_read_items()?;
     let source = state.services.sources.get_by_id(id).await?;
     Ok(Json(source))
@@ -160,7 +172,12 @@ pub async fn update_source(
         (status = 422, description = "Cannot archive: active items linked")
     )
 )]
-pub async fn archive_source(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Path(id): Path<i64>) -> AppResult<Json<Source>> {
+pub async fn archive_source(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(id): Path<i64>,
+) -> AppResult<Json<Source>> {
     claims.require_write_items()?;
     let source = state.services.sources.archive(id).await?;
     state.services.audit.log(

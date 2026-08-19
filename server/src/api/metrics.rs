@@ -26,8 +26,9 @@ pub fn router() -> axum::Router<crate::AppState> {
 pub async fn metrics(State(state): State<crate::AppState>) -> AppResult<Response> {
     let payload = operational_metrics::gather_handler(state.services.repository.as_ref()).await?;
     let mut response = (StatusCode::OK, payload).into_response();
-    response
-        .headers_mut()
-        .insert(header::CONTENT_TYPE, HeaderValue::from_static("text/plain; version=0.0.4; charset=utf-8"));
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("text/plain; version=0.0.4; charset=utf-8"),
+    );
     Ok(response)
 }

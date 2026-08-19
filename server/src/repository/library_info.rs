@@ -54,7 +54,18 @@ impl LibraryInfoRepository for Repository {
         phones_json: Option<serde_json::Value>,
         email: &Option<String>,
     ) -> AppResult<()> {
-        Repository::library_info_upsert(self, name, addr_line1, addr_line2, addr_postcode, addr_city, addr_country, phones_json, email).await
+        Repository::library_info_upsert(
+            self,
+            name,
+            addr_line1,
+            addr_line2,
+            addr_postcode,
+            addr_city,
+            addr_country,
+            phones_json,
+            email,
+        )
+        .await
     }
 }
 

@@ -27,7 +27,11 @@ impl AccountTypesCatalogService {
     }
 
     /// Normalize and validate `data` in place (rights letters, name length).
-    pub async fn update(&self, code: &str, data: &mut UpdateAccountTypeDefinition) -> AppResult<AccountTypeDefinition> {
+    pub async fn update(
+        &self,
+        code: &str,
+        data: &mut UpdateAccountTypeDefinition,
+    ) -> AppResult<AccountTypeDefinition> {
         let code = code.trim();
         if code.is_empty() {
             return Err(AppError::Validation("code must not be empty".to_string()));
@@ -36,10 +40,14 @@ impl AccountTypesCatalogService {
         if let Some(ref mut name) = data.name {
             let t = name.trim();
             if t.is_empty() {
-                return Err(AppError::Validation("name must not be empty when provided".to_string()));
+                return Err(AppError::Validation(
+                    "name must not be empty when provided".to_string(),
+                ));
             }
             if t.len() > 100 {
-                return Err(AppError::Validation("name must be at most 100 characters".to_string()));
+                return Err(AppError::Validation(
+                    "name must be at most 100 characters".to_string(),
+                ));
             }
             *name = t.to_string();
         }
@@ -60,11 +68,19 @@ fn normalize_right_field(field: &mut Option<String>) -> AppResult<()> {
     if let Some(raw) = field.as_ref() {
         let t = raw.trim();
         if t.len() != 1 {
-            return Err(AppError::Validation("each rights field must be exactly one character: n, r, or w".to_string()));
+            return Err(AppError::Validation(
+                "each rights field must be exactly one character: n, r, or w".to_string(),
+            ));
         }
-        let c = t.chars().next().expect("length checked").to_ascii_lowercase();
+        let c = t
+            .chars()
+            .next()
+            .expect("length checked")
+            .to_ascii_lowercase();
         if !matches!(c, 'n' | 'r' | 'w') {
-            return Err(AppError::Validation("rights must be n (none), r (read), or w (write)".to_string()));
+            return Err(AppError::Validation(
+                "rights must be n (none), r (read), or w (write)".to_string(),
+            ));
         }
         *field = Some(c.to_string());
     }
@@ -75,11 +91,19 @@ fn normalize_holds_right_field(field: &mut Option<String>) -> AppResult<()> {
     if let Some(raw) = field.as_ref() {
         let t = raw.trim();
         if t.len() != 1 {
-            return Err(AppError::Validation("holds_rights must be exactly one character: n, o, r, or w".to_string()));
+            return Err(AppError::Validation(
+                "holds_rights must be exactly one character: n, o, r, or w".to_string(),
+            ));
         }
-        let c = t.chars().next().expect("length checked").to_ascii_lowercase();
+        let c = t
+            .chars()
+            .next()
+            .expect("length checked")
+            .to_ascii_lowercase();
         if !matches!(c, 'n' | 'o' | 'r' | 'w') {
-            return Err(AppError::Validation("holds_rights must be n (none), o (own holds), r (read), or w (write)".to_string()));
+            return Err(AppError::Validation(
+                "holds_rights must be n (none), o (own holds), r (read), or w (write)".to_string(),
+            ));
         }
         *field = Some(c.to_string());
     }

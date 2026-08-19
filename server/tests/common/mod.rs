@@ -10,7 +10,10 @@ use sqlx::postgres::PgPoolOptions;
 use tokio::sync::Notify;
 use tower::ServiceExt;
 
-use elidune_server::{build_app_with_options, repository::Repository, services::Services, AppBuildOptions, AppConfig, AppState, DynamicConfig, EmailService};
+use elidune_server::{
+    build_app_with_options, repository::Repository, services::Services, AppBuildOptions, AppConfig,
+    AppState, DynamicConfig, EmailService,
+};
 
 pub mod fixtures;
 
@@ -30,13 +33,22 @@ impl TestApp {
 
         let config = AppConfig::for_test();
 
-        let pool = PgPoolOptions::new().max_connections(5).connect(&config.database.url).await.expect("connect test database");
+        let pool = PgPoolOptions::new()
+            .max_connections(5)
+            .connect(&config.database.url)
+            .await
+            .expect("connect test database");
 
-        sqlx::migrate!("./migrations").run(&pool).await.expect("run migrations");
+        sqlx::migrate!("./migrations")
+            .run(&pool)
+            .await
+            .expect("run migrations");
 
         let dynamic_config = DynamicConfig::new(config.clone());
 
-        let redis_service = elidune_server::services::redis::RedisService::new(&config.redis.url).await.expect("connect redis");
+        let redis_service = elidune_server::services::redis::RedisService::new(&config.redis.url)
+            .await
+            .expect("connect redis");
 
         let email_service = Arc::new(EmailService::new(dynamic_config.clone(), pool.clone()));
 
@@ -75,12 +87,24 @@ impl TestApp {
 
     /// Send an HTTP request and return the full response.
     pub async fn request(&self, req: Request<Body>) -> Response<Body> {
-        self.router.clone().oneshot(req).await.expect("router oneshot")
+        self.router
+            .clone()
+            .oneshot(req)
+            .await
+            .expect("router oneshot")
     }
 
     /// GET helper returning status and JSON body.
     pub async fn get_json(&self, uri: &str) -> (StatusCode, serde_json::Value) {
-        let response = self.request(Request::builder().method("GET").uri(uri).body(Body::empty()).unwrap()).await;
+        let response = self
+            .request(
+                Request::builder()
+                    .method("GET")
+                    .uri(uri)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await;
         let status = response.status();
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
         let json: serde_json::Value = if bytes.is_empty() {
@@ -92,12 +116,24 @@ impl TestApp {
     }
 
     /// POST JSON helper.
-    pub async fn post_json(&self, uri: &str, body: &serde_json::Value, auth_token: Option<&str>) -> (StatusCode, serde_json::Value) {
+    pub async fn post_json(
+        &self,
+        uri: &str,
+        body: &serde_json::Value,
+        auth_token: Option<&str>,
+    ) -> (StatusCode, serde_json::Value) {
         let mut builder = Request::builder().method("POST").uri(uri);
         if let Some(token) = auth_token {
             builder = builder.header("Authorization", format!("Bearer {token}"));
         }
-        let response = self.request(builder.header("Content-Type", "application/json").body(Body::from(body.to_string())).unwrap()).await;
+        let response = self
+            .request(
+                builder
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await;
         let status = response.status();
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
         let json: serde_json::Value = if bytes.is_empty() {
@@ -109,7 +145,11 @@ impl TestApp {
     }
 
     /// GET helper with Bearer auth.
-    pub async fn get_json_with_auth(&self, uri: &str, token: &str) -> (StatusCode, serde_json::Value) {
+    pub async fn get_json_with_auth(
+        &self,
+        uri: &str,
+        token: &str,
+    ) -> (StatusCode, serde_json::Value) {
         let response = self
             .request(
                 Request::builder()
@@ -131,7 +171,11 @@ impl TestApp {
     }
 
     /// POST with empty body.
-    pub async fn post_empty(&self, uri: &str, auth_token: Option<&str>) -> (StatusCode, serde_json::Value) {
+    pub async fn post_empty(
+        &self,
+        uri: &str,
+        auth_token: Option<&str>,
+    ) -> (StatusCode, serde_json::Value) {
         let mut builder = Request::builder().method("POST").uri(uri);
         if let Some(token) = auth_token {
             builder = builder.header("Authorization", format!("Bearer {token}"));

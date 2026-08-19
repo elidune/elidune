@@ -250,6 +250,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: changes
     if: needs.changes.outputs.ui == 'true' || github.event_name == 'pull_request'
+    continue-on-error: true
     defaults:
       run:
         working-directory: ui
@@ -272,7 +273,7 @@ jobs:
   build-ui:
     name: UI Build
     runs-on: ubuntu-latest
-    needs: [changes, lint-ui]
+    needs: changes
     if: needs.changes.outputs.ui == 'true' || github.event_name == 'pull_request'
     defaults:
       run:

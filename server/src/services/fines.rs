@@ -34,7 +34,13 @@ impl FinesService {
 
     /// Accrue a fine for an overdue loan (calculates amount from rules)
     #[tracing::instrument(skip(self), err)]
-    pub async fn accrue(&self, loan_id: i64, user_id: i64, media_type: Option<&str>, overdue_days: i64) -> AppResult<Fine> {
+    pub async fn accrue(
+        &self,
+        loan_id: i64,
+        user_id: i64,
+        media_type: Option<&str>,
+        overdue_days: i64,
+    ) -> AppResult<Fine> {
         let rules = self.repository.fines_list_rules().await?;
         // Look for media-type specific rule first, then default
         let rule = rules
@@ -50,17 +56,23 @@ impl FinesService {
         }
 
         if amount <= Decimal::ZERO {
-            return Err(AppError::BusinessRule("Fine amount is zero — within grace period".to_string()));
+            return Err(AppError::BusinessRule(
+                "Fine amount is zero — within grace period".to_string(),
+            ));
         }
 
-        self.repository.fines_create(loan_id, user_id, amount, None).await
+        self.repository
+            .fines_create(loan_id, user_id, amount, None)
+            .await
     }
 
     /// Apply a payment to a fine
     #[tracing::instrument(skip(self), err)]
     pub async fn pay(&self, id: i64, amount: Decimal, notes: Option<&str>) -> AppResult<Fine> {
         if amount <= Decimal::ZERO {
-            return Err(AppError::Validation("Payment amount must be positive".to_string()));
+            return Err(AppError::Validation(
+                "Payment amount must be positive".to_string(),
+            ));
         }
         self.repository.fines_pay(id, amount, notes).await
     }
@@ -85,10 +97,20 @@ impl FinesService {
 
     /// Upsert a fine rule
     #[tracing::instrument(skip(self), err)]
-    pub async fn upsert_rule(&self, media_type: Option<&str>, daily_rate: Decimal, max_amount: Option<Decimal>, grace_days: i32) -> AppResult<FineRule> {
+    pub async fn upsert_rule(
+        &self,
+        media_type: Option<&str>,
+        daily_rate: Decimal,
+        max_amount: Option<Decimal>,
+        grace_days: i32,
+    ) -> AppResult<FineRule> {
         if daily_rate < Decimal::ZERO {
-            return Err(AppError::Validation("Daily rate cannot be negative".to_string()));
+            return Err(AppError::Validation(
+                "Daily rate cannot be negative".to_string(),
+            ));
         }
-        self.repository.fines_upsert_rule(media_type, daily_rate, max_amount, grace_days).await
+        self.repository
+            .fines_upsert_rule(media_type, daily_rate, max_amount, grace_days)
+            .await
     }
 }

@@ -15,7 +15,10 @@ use crate::{
     models::{
         author::Author,
         author::Function,
-        biblio::{Biblio, BiblioQuery, BiblioShort, Collection, Edition, Isbn, MediaType, MeiliBiblioDocument, Serie},
+        biblio::{
+            Biblio, BiblioQuery, BiblioShort, Collection, Edition, Isbn, MediaType,
+            MeiliBiblioDocument, Serie,
+        },
         import_report::DuplicateCandidate,
         item::Item,
     },
@@ -49,7 +52,10 @@ impl Repository {
         }
 
         if !query.include_without_active_items.unwrap_or(false) {
-            where_parts.push("EXISTS (SELECT 1 FROM items i WHERE i.biblio_id = b.id AND i.archived_at IS NULL)".to_string());
+            where_parts.push(
+                "EXISTS (SELECT 1 FROM items i WHERE i.biblio_id = b.id AND i.archived_at IS NULL)"
+                    .to_string(),
+            );
         }
 
         if let Some(ref mt) = query.media_type {
@@ -65,7 +71,10 @@ impl Repository {
         // barcode → item lookup
         if let Some(ref barcode) = query.barcode {
             params.push(Param::Text(barcode.clone()));
-            where_parts.push(format!("EXISTS (SELECT 1 FROM items i WHERE i.biblio_id = b.id AND i.barcode = ${})", params.len()));
+            where_parts.push(format!(
+                "EXISTS (SELECT 1 FROM items i WHERE i.biblio_id = b.id AND i.barcode = ${})",
+                params.len()
+            ));
         }
 
         if let Some(ref at) = query.audience_type {
@@ -81,13 +90,17 @@ impl Repository {
         if let Some(ref title) = query.title {
             params.push(Param::Text(format!("%{}%", like_escape(title))));
             let idx = params.len();
-            where_parts.push(format!("unaccent(lower(b.title)) LIKE unaccent(lower(${idx}))"));
+            where_parts.push(format!(
+                "unaccent(lower(b.title)) LIKE unaccent(lower(${idx}))"
+            ));
         }
 
         if let Some(ref subject) = query.subject {
             params.push(Param::Text(format!("%{}%", like_escape(subject))));
             let idx = params.len();
-            where_parts.push(format!("unaccent(lower(b.subject)) LIKE unaccent(lower(${idx}))"));
+            where_parts.push(format!(
+                "unaccent(lower(b.subject)) LIKE unaccent(lower(${idx}))"
+            ));
         }
 
         if let Some(ref kw) = query.keywords {
@@ -139,7 +152,9 @@ impl Repository {
             if let Some(ref serie) = query.serie {
                 params.push(Param::Text(format!("%{}%", like_escape(serie))));
                 let idx = params.len();
-                conds.push(format!("unaccent(lower(s.name)) LIKE unaccent(lower(${idx}))"));
+                conds.push(format!(
+                    "unaccent(lower(s.name)) LIKE unaccent(lower(${idx}))"
+                ));
             }
             if let Some(serie_id) = query.serie_id {
                 params.push(Param::I64(serie_id));
@@ -162,7 +177,9 @@ impl Repository {
             if let Some(ref collection) = query.collection {
                 params.push(Param::Text(format!("%{}%", like_escape(collection))));
                 let idx = params.len();
-                conds.push(format!("unaccent(lower(c.name)) LIKE unaccent(lower(${idx}))"));
+                conds.push(format!(
+                    "unaccent(lower(c.name)) LIKE unaccent(lower(${idx}))"
+                ));
             }
             if let Some(collection_id) = query.collection_id {
                 params.push(Param::I64(collection_id));
@@ -193,7 +210,11 @@ impl Repository {
             }
         }
 
-        let where_sql = if where_parts.is_empty() { "1=1".to_string() } else { where_parts.join(" AND ") };
+        let where_sql = if where_parts.is_empty() {
+            "1=1".to_string()
+        } else {
+            where_parts.join(" AND ")
+        };
 
         let order_sql = "b.title ASC NULLS LAST".to_string();
 
@@ -254,11 +275,15 @@ impl Repository {
             total_count: i64,
         }
 
-        let rows: Vec<BiblioShortWithCount> = sqlx::query_as_with(&sql, pg_args).fetch_all(&self.pool).await?;
+        let rows: Vec<BiblioShortWithCount> = sqlx::query_as_with(&sql, pg_args)
+            .fetch_all(&self.pool)
+            .await?;
 
         let total = rows.first().map(|r| r.total_count).unwrap_or(0);
         let biblio_ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
-        let items_map = self.biblios_get_items_short_by_biblio_ids(&biblio_ids).await?;
+        let items_map = self
+            .biblios_get_items_short_by_biblio_ids(&biblio_ids)
+            .await?;
 
         let biblios: Vec<BiblioShort> = rows
             .into_iter()
@@ -316,7 +341,9 @@ impl Repository {
         .await?;
 
         let biblio_ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
-        let items_map = self.biblios_get_items_short_by_biblio_ids(&biblio_ids).await?;
+        let items_map = self
+            .biblios_get_items_short_by_biblio_ids(&biblio_ids)
+            .await?;
         let biblios: Vec<BiblioShort> = rows
             .into_iter()
             .map(|r| {
@@ -331,7 +358,10 @@ impl Repository {
 
     /// List all biblios belonging to a collection (ordered by volume number)
     #[tracing::instrument(skip(self), err)]
-    pub async fn biblios_get_by_collection(&self, collection_id: i64) -> AppResult<Vec<BiblioShort>> {
+    pub async fn biblios_get_by_collection(
+        &self,
+        collection_id: i64,
+    ) -> AppResult<Vec<BiblioShort>> {
         let rows: Vec<BiblioShortRow> = sqlx::query_as(
             r#"
             SELECT b.id, b.media_type, b.isbn, b.title,
@@ -362,7 +392,9 @@ impl Repository {
         .await?;
 
         let biblio_ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
-        let items_map = self.biblios_get_items_short_by_biblio_ids(&biblio_ids).await?;
+        let items_map = self
+            .biblios_get_items_short_by_biblio_ids(&biblio_ids)
+            .await?;
         let biblios: Vec<BiblioShort> = rows
             .into_iter()
             .map(|r| {

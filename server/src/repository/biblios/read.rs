@@ -15,7 +15,10 @@ use crate::{
     models::{
         author::Author,
         author::Function,
-        biblio::{Biblio, BiblioQuery, BiblioShort, Collection, Edition, Isbn, MediaType, MeiliBiblioDocument, Serie},
+        biblio::{
+            Biblio, BiblioQuery, BiblioShort, Collection, Edition, Isbn, MediaType,
+            MeiliBiblioDocument, Serie,
+        },
         import_report::DuplicateCandidate,
         item::Item,
     },
@@ -47,7 +50,9 @@ impl Repository {
             return Err(AppError::Gone(format!("Biblio '{}' has been archived", id)));
         }
 
-        let id = biblio.id.ok_or_else(|| AppError::Internal("Biblio id is null".to_string()))?;
+        let id = biblio
+            .id
+            .ok_or_else(|| AppError::Internal("Biblio id is null".to_string()))?;
 
         biblio.authors = self.get_biblio_authors(id).await?;
         self.load_biblio_series(id, &mut biblio).await?;
@@ -91,7 +96,11 @@ impl Repository {
             })
             .collect())
     }
-    pub(crate) async fn load_biblio_series(&self, biblio_id: i64, biblio: &mut Biblio) -> AppResult<()> {
+    pub(crate) async fn load_biblio_series(
+        &self,
+        biblio_id: i64,
+        biblio: &mut Biblio,
+    ) -> AppResult<()> {
         let rows = sqlx::query(
             r#"
             SELECT bsx.series_id, bsx.volume_number,
@@ -127,7 +136,11 @@ impl Repository {
         }
         Ok(())
     }
-    pub(crate) async fn load_biblio_collections(&self, biblio_id: i64, biblio: &mut Biblio) -> AppResult<()> {
+    pub(crate) async fn load_biblio_collections(
+        &self,
+        biblio_id: i64,
+        biblio: &mut Biblio,
+    ) -> AppResult<()> {
         let rows = sqlx::query(
             r#"
             SELECT bcx.collection_id, bcx.volume_number,
@@ -198,13 +211,18 @@ impl Repository {
         .ok_or_else(|| AppError::NotFound(format!("Biblio with id {} not found", id)))?;
 
         let mut short = BiblioShort::from(row);
-        let items_map = self.biblios_get_items_short_by_biblio_ids(&[short.id]).await?;
+        let items_map = self
+            .biblios_get_items_short_by_biblio_ids(&[short.id])
+            .await?;
         short.items = items_map.get(&short.id).cloned().unwrap_or_default();
         Ok(short)
     }
 
     #[tracing::instrument(skip(self), err)]
-    pub async fn biblios_get_short_by_ids_ordered(&self, ids: &[i64]) -> AppResult<Vec<BiblioShort>> {
+    pub async fn biblios_get_short_by_ids_ordered(
+        &self,
+        ids: &[i64],
+    ) -> AppResult<Vec<BiblioShort>> {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -235,10 +253,13 @@ impl Repository {
         .fetch_all(&self.pool)
         .await?;
 
-        let id_to_index: std::collections::HashMap<i64, usize> = ids.iter().enumerate().map(|(i, &id)| (id, i)).collect();
+        let id_to_index: std::collections::HashMap<i64, usize> =
+            ids.iter().enumerate().map(|(i, &id)| (id, i)).collect();
 
         let biblio_ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
-        let items_map = self.biblios_get_items_short_by_biblio_ids(&biblio_ids).await?;
+        let items_map = self
+            .biblios_get_items_short_by_biblio_ids(&biblio_ids)
+            .await?;
 
         let mut biblios: Vec<(usize, BiblioShort)> = rows
             .into_iter()
@@ -257,7 +278,10 @@ impl Repository {
     /// Batch-load [`BiblioShort`] metadata (author, title, …) with **empty** `items`.
     /// Used when items are attached separately (e.g. one copy per hold).
     #[tracing::instrument(skip(self), err)]
-    pub async fn biblios_get_short_metadata_map_by_biblio_ids(&self, biblio_ids: &[i64]) -> AppResult<HashMap<i64, BiblioShort>> {
+    pub async fn biblios_get_short_metadata_map_by_biblio_ids(
+        &self,
+        biblio_ids: &[i64],
+    ) -> AppResult<HashMap<i64, BiblioShort>> {
         if biblio_ids.is_empty() {
             return Ok(HashMap::new());
         }
@@ -298,8 +322,15 @@ impl Repository {
             .collect())
     }
     #[tracing::instrument(skip(self), err)]
-    pub async fn biblios_get_marc_record_optional(&self, biblio_id: i64) -> AppResult<Option<crate::marc::MarcRecord>> {
-        let json_opt: Option<serde_json::Value> = sqlx::query_scalar("SELECT marc_record FROM biblios WHERE id = $1").bind(biblio_id).fetch_one(&self.pool).await?;
+    pub async fn biblios_get_marc_record_optional(
+        &self,
+        biblio_id: i64,
+    ) -> AppResult<Option<crate::marc::MarcRecord>> {
+        let json_opt: Option<serde_json::Value> =
+            sqlx::query_scalar("SELECT marc_record FROM biblios WHERE id = $1")
+                .bind(biblio_id)
+                .fetch_one(&self.pool)
+                .await?;
         let Some(json) = json_opt else {
             return Ok(None);
         };
@@ -307,7 +338,12 @@ impl Repository {
             return Ok(None);
         }
         serde_json::from_value(json)
-            .map_err(|e| AppError::Internal(format!("Invalid marc_record JSON for biblio {}: {}", biblio_id, e)))
+            .map_err(|e| {
+                AppError::Internal(format!(
+                    "Invalid marc_record JSON for biblio {}: {}",
+                    biblio_id, e
+                ))
+            })
             .map(Some)
     }
 }

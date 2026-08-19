@@ -121,7 +121,8 @@ impl MarcService {
     /// Returns the generated `batch_id` and the list of preview items.
     #[tracing::instrument(skip(self), err)]
     pub async fn enqueue_unimarc_batch(&self, data: &[u8]) -> AppResult<EnqueueResult> {
-        let records = parse_records(&data).map_err(|e| AppError::Validation(format!("UNIMARC parse error: {}", e)))?;
+        let records = parse_records(&data)
+            .map_err(|e| AppError::Validation(format!("UNIMARC parse error: {}", e)))?;
 
         let batch_id: i64 = snowflaked::Generator::new(1).generate::<i64>();
 
@@ -137,7 +138,9 @@ impl MarcService {
                 record.local.items.swap(0, idx);
                 record.local.items.truncate(1);
 
-                let json_str: String = serde_json::to_string(&record).map_err(|e| AppError::Internal(format!("Failed to serialize MARC record: {}", e)))?;
+                let json_str: String = serde_json::to_string(&record).map_err(|e| {
+                    AppError::Internal(format!("Failed to serialize MARC record: {}", e))
+                })?;
 
                 let record_key = Self::redis_key(batch_id, index);
 
@@ -148,7 +151,9 @@ impl MarcService {
                     .arg(&json_str)
                     .query_async::<_, ()>(&mut conn)
                     .await
-                    .map_err(|e| AppError::Internal(format!("Failed to store MARC record in Redis: {}", e)))?;
+                    .map_err(|e| {
+                        AppError::Internal(format!("Failed to store MARC record in Redis: {}", e))
+                    })?;
 
                 let index_key = Self::batch_index_key(batch_id);
                 redis::cmd("SADD")
@@ -156,7 +161,9 @@ impl MarcService {
                     .arg(&record_key)
                     .query_async::<_, ()>(&mut conn)
                     .await
-                    .map_err(|e| AppError::Internal(format!("Failed to index MARC record in Redis: {}", e)))?;
+                    .map_err(|e| {
+                        AppError::Internal(format!("Failed to index MARC record in Redis: {}", e))
+                    })?;
 
                 if index == 0 {
                     redis::cmd("SADD")
@@ -164,7 +171,12 @@ impl MarcService {
                         .arg(batch_id.to_string())
                         .query_async::<_, ()>(&mut conn)
                         .await
-                        .map_err(|e| AppError::Internal(format!("Failed to register MARC batch in Redis: {}", e)))?;
+                        .map_err(|e| {
+                            AppError::Internal(format!(
+                                "Failed to register MARC batch in Redis: {}",
+                                e
+                            ))
+                        })?;
                 }
 
                 redis::cmd("EXPIRE")
@@ -172,7 +184,12 @@ impl MarcService {
                     .arg(Self::BATCH_TTL_SECS)
                     .query_async::<_, ()>(&mut conn)
                     .await
-                    .map_err(|e| AppError::Internal(format!("Failed to set MARC batch index TTL in Redis: {}", e)))?;
+                    .map_err(|e| {
+                        AppError::Internal(format!(
+                            "Failed to set MARC batch index TTL in Redis: {}",
+                            e
+                        ))
+                    })?;
 
                 let mut preview = MarcImportPreview::from(record);
                 preview.biblio.id = index as i64;
@@ -182,7 +199,10 @@ impl MarcService {
             }
         }
 
-        Ok(EnqueueResult { batch_id, previews: previews })
+        Ok(EnqueueResult {
+            batch_id,
+            previews: previews,
+        })
     }
 
     /// List all MARC batches currently cached in Redis.
@@ -193,10 +213,9 @@ impl MarcService {
     pub async fn list_marc_batches(&self) -> AppResult<Vec<MarcBatchInfo>> {
         let mut conn = self.redis.get_connection().await?;
 
-        let batch_ids: Vec<String> = conn
-            .smembers(Self::BATCHES_SET_KEY)
-            .await
-            .map_err(|e| AppError::Internal(format!("Failed to list MARC batches in Redis: {}", e)))?;
+        let batch_ids: Vec<String> = conn.smembers(Self::BATCHES_SET_KEY).await.map_err(|e| {
+            AppError::Internal(format!("Failed to list MARC batches in Redis: {}", e))
+        })?;
 
         let mut batches = Vec::with_capacity(batch_ids.len());
         for batch_id_str in batch_ids {
@@ -205,16 +224,19 @@ impl MarcService {
             };
 
             let index_key = Self::batch_index_key(batch_id);
-            let record_keys: Vec<String> = conn
-                .smembers(&index_key)
-                .await
-                .map_err(|e| AppError::Internal(format!("Failed to list MARC batch index in Redis: {}", e)))?;
+            let record_keys: Vec<String> = conn.smembers(&index_key).await.map_err(|e| {
+                AppError::Internal(format!("Failed to list MARC batch index in Redis: {}", e))
+            })?;
 
             if record_keys.is_empty() {
                 continue;
             }
 
-            let ttl_seconds: i64 = redis::cmd("TTL").arg(&index_key).query_async::<_, i64>(&mut conn).await.unwrap_or(-2);
+            let ttl_seconds: i64 = redis::cmd("TTL")
+                .arg(&index_key)
+                .query_async::<_, i64>(&mut conn)
+                .await
+                .unwrap_or(-2);
 
             batches.push(MarcBatchInfo {
                 batch_id,
@@ -240,34 +262,55 @@ impl MarcService {
         let mut keys: Vec<String> = conn
             .smembers(Self::batch_index_key(batch_id))
             .await
-            .map_err(|e| AppError::Internal(format!("Failed to list MARC batch keys in Redis: {}", e)))?;
+            .map_err(|e| {
+                AppError::Internal(format!("Failed to list MARC batch keys in Redis: {}", e))
+            })?;
 
         if keys.is_empty() {
-            return Err(AppError::NotFound(format!("MARC batch {} not found in cache", batch_id)));
+            return Err(AppError::NotFound(format!(
+                "MARC batch {} not found in cache",
+                batch_id
+            )));
         }
 
         // Sort by record index so the preview order matches the original upload.
-        keys.sort_by_key(|k| k.rsplit(':').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(0));
+        keys.sort_by_key(|k| {
+            k.rsplit(':')
+                .next()
+                .and_then(|s| s.parse::<usize>().ok())
+                .unwrap_or(0)
+        });
 
         let mut previews = Vec::with_capacity(keys.len());
 
         for key in &keys {
-            let record_idx: usize = key.rsplit(':').next().and_then(|s| s.parse().ok()).unwrap_or(0);
+            let record_idx: usize = key
+                .rsplit(':')
+                .next()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(0);
 
-            let json_str: Option<String> = conn.get(key).await.map_err(|e| AppError::Internal(format!("Failed to get MARC record from Redis: {}", e)))?;
+            let json_str: Option<String> = conn.get(key).await.map_err(|e| {
+                AppError::Internal(format!("Failed to get MARC record from Redis: {}", e))
+            })?;
 
             let Some(json_str) = json_str else {
                 continue;
             };
 
-            let record: MarcRecord = serde_json::from_str(&json_str).map_err(|e| AppError::Internal(format!("Failed to deserialize MARC record: {}", e)))?;
+            let record: MarcRecord = serde_json::from_str(&json_str).map_err(|e| {
+                AppError::Internal(format!("Failed to deserialize MARC record: {}", e))
+            })?;
 
             let mut preview = MarcImportPreview::from(record);
             preview.biblio.id = record_idx as i64;
             previews.push(preview);
         }
 
-        Ok(EnqueueResult { batch_id, previews: previews })
+        Ok(EnqueueResult {
+            batch_id,
+            previews: previews,
+        })
     }
 
     /// Import MARC records from a cached batch into the catalog.
@@ -297,7 +340,9 @@ impl MarcService {
         } else {
             conn.smembers(Self::batch_index_key(batch_id))
                 .await
-                .map_err(|e| AppError::Internal(format!("Failed to list MARC batch keys in Redis: {}", e)))?
+                .map_err(|e| {
+                    AppError::Internal(format!("Failed to list MARC batch keys in Redis: {}", e))
+                })?
         };
 
         let mut imported = Vec::new();
@@ -307,7 +352,9 @@ impl MarcService {
         for (idx, key) in keys.iter().enumerate() {
             let key = key.clone();
 
-            let json_str: Option<String> = conn.get(&key).await.map_err(|e| AppError::Internal(format!("Failed to get MARC record from Redis: {}", e)))?;
+            let json_str: Option<String> = conn.get(&key).await.map_err(|e| {
+                AppError::Internal(format!("Failed to get MARC record from Redis: {}", e))
+            })?;
 
             let Some(json_str) = json_str else {
                 failed.push(MarcBatchImportError {
@@ -335,11 +382,19 @@ impl MarcService {
                 item.source_id = Some(source_id);
             }
 
-            match self.catalog.create_biblio(biblio, allow_duplicate_isbn, confirm_replace_existing_id).await {
+            match self
+                .catalog
+                .create_biblio(biblio, allow_duplicate_isbn, confirm_replace_existing_id)
+                .await
+            {
                 Ok((_biblio, _report)) => {
                     imported.push(Self::item_key_from_record_key(&key));
                 }
-                Err(AppError::DuplicateNeedsConfirmation { existing_id, message, .. }) => {
+                Err(AppError::DuplicateNeedsConfirmation {
+                    existing_id,
+                    message,
+                    ..
+                }) => {
                     failed.push(MarcBatchImportError {
                         key: Self::item_key_from_record_key(&key),
                         error: message,
@@ -370,6 +425,10 @@ impl MarcService {
             }
         }
 
-        Ok(MarcBatchImportReport { batch_id, imported, failed })
+        Ok(MarcBatchImportReport {
+            batch_id,
+            imported,
+            failed,
+        })
     }
 }

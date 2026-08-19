@@ -35,31 +35,45 @@ async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
 
     // 1. File config (static sections: server, database, JWT, …)
-    let file_config = AppConfig::load(config_path_from_args().as_deref()).expect("Failed to load configuration");
-    file_config.validate_security().expect("Invalid security configuration");
+    let file_config =
+        AppConfig::load(config_path_from_args().as_deref()).expect("Failed to load configuration");
+    file_config
+        .validate_security()
+        .expect("Invalid security configuration");
 
     // 2. Database (no tracing yet — effective logging comes from DB overrides)
-    let pool = connect_pool(&file_config.database).await.expect("Failed to connect to database");
+    let pool = connect_pool(&file_config.database)
+        .await
+        .expect("Failed to connect to database");
 
     // 3. Merge DB overrides into dynamic config, then apply all runtime side effects
     let dynamic_config = DynamicConfig::load_with_db_overrides(file_config.clone(), &pool).await;
-    let _config_guard = dynamic_config.apply(&pool).await.expect("Failed to apply effective configuration");
+    let _config_guard = dynamic_config
+        .apply(&pool)
+        .await
+        .expect("Failed to apply effective configuration");
 
     tracing::info!("Starting Elidune Server v{}", env!("CARGO_PKG_VERSION"));
     tracing::info!("Connected to database and migrations completed");
 
-    let redis_service = elidune_server::services::redis::RedisService::new(&file_config.redis.url).await.expect("Failed to connect to Redis");
+    let redis_service = elidune_server::services::redis::RedisService::new(&file_config.redis.url)
+        .await
+        .expect("Failed to connect to Redis");
     tracing::info!("Connected to Redis");
 
     let server_host = file_config.server.host.clone();
     let server_port = file_config.server.port;
 
-    let email_service = Arc::new(elidune_server::EmailService::new(dynamic_config.clone(), pool.clone()));
+    let email_service = Arc::new(elidune_server::EmailService::new(
+        dynamic_config.clone(),
+        pool.clone(),
+    ));
 
     let (event_bus_tx, _) = tokio::sync::broadcast::channel(256);
     let event_bus = EventBus::new(event_bus_tx.clone());
 
-    let repository = elidune_server::repository::Repository::new(pool, Some(dynamic_config.clone()));
+    let repository =
+        elidune_server::repository::Repository::new(pool, Some(dynamic_config.clone()));
     let services = Services::new(
         repository,
         file_config.users.clone(),
@@ -73,7 +87,8 @@ async fn main() -> anyhow::Result<()> {
     .await
     .expect("Failed to create services");
     let services = Arc::new(services);
-    operational_metrics::init_prometheus_recorder().expect("Failed to initialize Prometheus metrics recorder");
+    operational_metrics::init_prometheus_recorder()
+        .expect("Failed to initialize Prometheus metrics recorder");
 
     services.audit.log(
         audit::event::SYSTEM_STARTUP,
@@ -103,14 +118,20 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let app = build_app(state);
-    let addr = SocketAddr::new(server_host.parse().expect("Invalid host address"), server_port);
+    let addr = SocketAddr::new(
+        server_host.parse().expect("Invalid host address"),
+        server_port,
+    );
 
     tracing::info!("Server listening on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
 
     tracing::info!("Server has shut down cleanly");
     Ok(())
@@ -122,12 +143,17 @@ async fn shutdown_signal() {
     use tokio::signal;
 
     let ctrl_c = async {
-        signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");
+        signal::ctrl_c()
+            .await
+            .expect("Failed to install Ctrl+C handler");
     };
 
     #[cfg(unix)]
     let terminate = async {
-        signal::unix::signal(signal::unix::SignalKind::terminate()).expect("Failed to install SIGTERM handler").recv().await;
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("Failed to install SIGTERM handler")
+            .recv()
+            .await;
     };
 
     #[cfg(not(unix))]

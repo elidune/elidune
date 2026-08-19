@@ -58,7 +58,10 @@ impl Repository {
     }
 
     /// Pending outbox rows still linked to a given event announcement.
-    pub async fn email_outbox_pending_event_announcement_count(&self, event_id: i64) -> AppResult<i64> {
+    pub async fn email_outbox_pending_event_announcement_count(
+        &self,
+        event_id: i64,
+    ) -> AppResult<i64> {
         let pending = sqlx::query_scalar(
             r#"
             SELECT COUNT(*)::bigint

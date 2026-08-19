@@ -68,10 +68,18 @@ pub enum AppError {
     BusinessRule(String),
 
     #[error("Duplicate ISBN requires confirmation")]
-    DuplicateNeedsConfirmation { existing_id: i64, existing_item: BiblioShort, message: String },
+    DuplicateNeedsConfirmation {
+        existing_id: i64,
+        existing_item: BiblioShort,
+        message: String,
+    },
 
     #[error("Duplicate barcode requires confirmation")]
-    DuplicateBarcodeNeedsConfirmation { existing_id: i64, existing_item: ItemShort, message: String },
+    DuplicateBarcodeNeedsConfirmation {
+        existing_id: i64,
+        existing_item: ItemShort,
+        message: String,
+    },
 }
 
 /// Error response body returned for all API errors.
@@ -169,7 +177,8 @@ impl AppError {
                 label: "Business Rule Violation",
                 message: msg.clone(),
             },
-            AppError::DuplicateNeedsConfirmation { .. } | AppError::DuplicateBarcodeNeedsConfirmation { .. } => HttpErrorFields {
+            AppError::DuplicateNeedsConfirmation { .. }
+            | AppError::DuplicateBarcodeNeedsConfirmation { .. } => HttpErrorFields {
                 status: StatusCode::CONFLICT,
                 code: ec::CONFLICT,
                 label: "Conflict",
@@ -184,16 +193,26 @@ impl IntoResponse for AppError {
         use error_code as ec;
 
         match self {
-            AppError::DuplicateNeedsConfirmation { existing_id, existing_item, message } => {
-                let body = Json(crate::models::import_report::DuplicateConfirmationRequired {
-                    code: ec::DUPLICATE_ISBN.to_string(),
-                    existing_id,
-                    existing_biblio: existing_item,
-                    message,
-                });
+            AppError::DuplicateNeedsConfirmation {
+                existing_id,
+                existing_item,
+                message,
+            } => {
+                let body = Json(
+                    crate::models::import_report::DuplicateConfirmationRequired {
+                        code: ec::DUPLICATE_ISBN.to_string(),
+                        existing_id,
+                        existing_biblio: existing_item,
+                        message,
+                    },
+                );
                 return (StatusCode::CONFLICT, body).into_response();
             }
-            AppError::DuplicateBarcodeNeedsConfirmation { existing_id, existing_item, message } => {
+            AppError::DuplicateBarcodeNeedsConfirmation {
+                existing_id,
+                existing_item,
+                message,
+            } => {
                 let body = Json(crate::models::import_report::DuplicateItemBarcodeRequired {
                     code: ec::DUPLICATE_BARCODE.to_string(),
                     existing_id,
@@ -221,8 +240,12 @@ impl AppError {
         use error_code as ec;
 
         match self {
-            AppError::DuplicateNeedsConfirmation { message, .. } => (409, ec::DUPLICATE_ISBN, message.clone()),
-            AppError::DuplicateBarcodeNeedsConfirmation { message, .. } => (409, ec::DUPLICATE_BARCODE, message.clone()),
+            AppError::DuplicateNeedsConfirmation { message, .. } => {
+                (409, ec::DUPLICATE_ISBN, message.clone())
+            }
+            AppError::DuplicateBarcodeNeedsConfirmation { message, .. } => {
+                (409, ec::DUPLICATE_BARCODE, message.clone())
+            }
             other => {
                 let f = other.http_fields();
                 (f.status.as_u16(), f.code, f.message)

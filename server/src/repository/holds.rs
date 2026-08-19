@@ -22,9 +22,20 @@ use crate::{
 pub trait HoldsRepository: Send + Sync {
     /// All holds, newest first, with total count (for pagination).
     /// When `active_only`, only `pending` and `ready` rows.
-    async fn holds_list_all(&self, page: i64, per_page: i64, active_only: bool) -> AppResult<(Vec<HoldDetails>, i64)>;
+    async fn holds_list_all(
+        &self,
+        page: i64,
+        per_page: i64,
+        active_only: bool,
+    ) -> AppResult<(Vec<HoldDetails>, i64)>;
     /// Holds for one user (paginated), same ordering/filters as [`HoldsRepository::holds_list_all`].
-    async fn holds_list_for_user_paginated(&self, user_id: i64, page: i64, per_page: i64, active_only: bool) -> AppResult<(Vec<HoldDetails>, i64)>;
+    async fn holds_list_for_user_paginated(
+        &self,
+        user_id: i64,
+        page: i64,
+        per_page: i64,
+        active_only: bool,
+    ) -> AppResult<(Vec<HoldDetails>, i64)>;
     async fn holds_list_for_item(&self, item_id: i64) -> AppResult<Vec<HoldDetails>>;
     async fn holds_list_for_user(&self, user_id: i64) -> AppResult<Vec<HoldDetails>>;
     async fn holds_get_by_id(&self, id: i64) -> AppResult<Hold>;
@@ -43,10 +54,21 @@ pub trait HoldsRepository: Send + Sync {
 
 #[async_trait::async_trait]
 impl HoldsRepository for Repository {
-    async fn holds_list_all(&self, page: i64, per_page: i64, active_only: bool) -> AppResult<(Vec<HoldDetails>, i64)> {
+    async fn holds_list_all(
+        &self,
+        page: i64,
+        per_page: i64,
+        active_only: bool,
+    ) -> AppResult<(Vec<HoldDetails>, i64)> {
         Repository::holds_list_all(self, page, per_page, active_only).await
     }
-    async fn holds_list_for_user_paginated(&self, user_id: i64, page: i64, per_page: i64, active_only: bool) -> AppResult<(Vec<HoldDetails>, i64)> {
+    async fn holds_list_for_user_paginated(
+        &self,
+        user_id: i64,
+        page: i64,
+        per_page: i64,
+        active_only: bool,
+    ) -> AppResult<(Vec<HoldDetails>, i64)> {
         Repository::holds_list_for_user_paginated(self, user_id, page, per_page, active_only).await
     }
     async fn holds_list_for_item(&self, item_id: i64) -> AppResult<Vec<HoldDetails>> {
@@ -90,15 +112,22 @@ impl HoldsRepository for Repository {
     }
 }
 
-static SNOWFLAKE: std::sync::LazyLock<std::sync::Mutex<Generator>> = std::sync::LazyLock::new(|| std::sync::Mutex::new(Generator::new(1)));
+static SNOWFLAKE: std::sync::LazyLock<std::sync::Mutex<Generator>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(Generator::new(1)));
 
 fn next_id() -> i64 {
-    SNOWFLAKE.lock().unwrap_or_else(|e| e.into_inner()).generate::<i64>()
+    SNOWFLAKE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .generate::<i64>()
 }
 
 impl Repository {
     /// Batch-load `(biblio_id, ItemShort)` per hold `item_id` for list enrichment.
-    async fn holds_item_biblio_map(&self, item_ids: &[i64]) -> AppResult<HashMap<i64, (i64, ItemShort)>> {
+    async fn holds_item_biblio_map(
+        &self,
+        item_ids: &[i64],
+    ) -> AppResult<HashMap<i64, (i64, ItemShort)>> {
         if item_ids.is_empty() {
             return Ok(HashMap::new());
         }
@@ -176,23 +205,39 @@ impl Repository {
         if holds.is_empty() {
             return Ok(vec![]);
         }
-        let item_ids: Vec<i64> = holds.iter().map(|h| h.item_id).collect::<HashSet<_>>().into_iter().collect();
-        let user_ids: Vec<i64> = holds.iter().map(|h| h.user_id).collect::<HashSet<_>>().into_iter().collect();
+        let item_ids: Vec<i64> = holds
+            .iter()
+            .map(|h| h.item_id)
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        let user_ids: Vec<i64> = holds
+            .iter()
+            .map(|h| h.user_id)
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
 
         let item_biblio_map = self.holds_item_biblio_map(&item_ids).await?;
-        let biblio_ids: Vec<i64> = item_biblio_map.values().map(|(bid, _)| *bid).collect::<HashSet<_>>().into_iter().collect();
-        let biblio_meta = self.biblios_get_short_metadata_map_by_biblio_ids(&biblio_ids).await?;
+        let biblio_ids: Vec<i64> = item_biblio_map
+            .values()
+            .map(|(bid, _)| *bid)
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+        let biblio_meta = self
+            .biblios_get_short_metadata_map_by_biblio_ids(&biblio_ids)
+            .await?;
         let users_map = self.holds_user_short_map(&user_ids).await?;
 
         let mut out = Vec::with_capacity(holds.len());
         for h in holds {
-            let (biblio_id, item_short) = item_biblio_map
-                .get(&h.item_id)
-                .ok_or_else(|| AppError::Internal(format!("Item {} not found for hold {}", h.item_id, h.id)))?;
-            let mut biblio: BiblioShort = biblio_meta
-                .get(biblio_id)
-                .cloned()
-                .ok_or_else(|| AppError::Internal(format!("Biblio {} not found for hold {}", biblio_id, h.id)))?;
+            let (biblio_id, item_short) = item_biblio_map.get(&h.item_id).ok_or_else(|| {
+                AppError::Internal(format!("Item {} not found for hold {}", h.item_id, h.id))
+            })?;
+            let mut biblio: BiblioShort = biblio_meta.get(biblio_id).cloned().ok_or_else(|| {
+                AppError::Internal(format!("Biblio {} not found for hold {}", biblio_id, h.id))
+            })?;
             biblio.items = vec![item_short.clone()];
             let user = users_map.get(&h.user_id).cloned();
             out.push(HoldDetails {
@@ -212,11 +257,18 @@ impl Repository {
 
     /// List every hold row (staff / reporting). Ordered by `created_at` ascending.
     #[tracing::instrument(skip(self), err)]
-    pub async fn holds_list_all(&self, page: i64, per_page: i64, active_only: bool) -> AppResult<(Vec<HoldDetails>, i64)> {
+    pub async fn holds_list_all(
+        &self,
+        page: i64,
+        per_page: i64,
+        active_only: bool,
+    ) -> AppResult<(Vec<HoldDetails>, i64)> {
         let (total, rows) = if active_only {
-            let total: i64 = sqlx::query_scalar("SELECT COUNT(*)::bigint FROM holds WHERE status IN ('pending','ready')")
-                .fetch_one(&self.pool)
-                .await?;
+            let total: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*)::bigint FROM holds WHERE status IN ('pending','ready')",
+            )
+            .fetch_one(&self.pool)
+            .await?;
             let offset = (page - 1).max(0) * per_page;
             let rows = sqlx::query_as::<_, Hold>("SELECT * FROM holds WHERE status IN ('pending','ready') ORDER BY created_at ASC LIMIT $1 OFFSET $2")
                 .bind(per_page)
@@ -225,13 +277,17 @@ impl Repository {
                 .await?;
             (total, rows)
         } else {
-            let total: i64 = sqlx::query_scalar("SELECT COUNT(*)::bigint FROM holds").fetch_one(&self.pool).await?;
-            let offset = (page - 1).max(0) * per_page;
-            let rows = sqlx::query_as::<_, Hold>("SELECT * FROM holds ORDER BY created_at ASC LIMIT $1 OFFSET $2")
-                .bind(per_page)
-                .bind(offset)
-                .fetch_all(&self.pool)
+            let total: i64 = sqlx::query_scalar("SELECT COUNT(*)::bigint FROM holds")
+                .fetch_one(&self.pool)
                 .await?;
+            let offset = (page - 1).max(0) * per_page;
+            let rows = sqlx::query_as::<_, Hold>(
+                "SELECT * FROM holds ORDER BY created_at ASC LIMIT $1 OFFSET $2",
+            )
+            .bind(per_page)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
             (total, rows)
         };
         let details = self.holds_holds_to_details(rows).await?;
@@ -240,7 +296,13 @@ impl Repository {
 
     /// Paginated holds for a single user (same filters/order as [`Repository::holds_list_all`]).
     #[tracing::instrument(skip(self), err)]
-    pub async fn holds_list_for_user_paginated(&self, user_id: i64, page: i64, per_page: i64, active_only: bool) -> AppResult<(Vec<HoldDetails>, i64)> {
+    pub async fn holds_list_for_user_paginated(
+        &self,
+        user_id: i64,
+        page: i64,
+        per_page: i64,
+        active_only: bool,
+    ) -> AppResult<(Vec<HoldDetails>, i64)> {
         let (total, rows) = if active_only {
             let total: i64 = sqlx::query_scalar("SELECT COUNT(*)::bigint FROM holds WHERE user_id = $1 AND status IN ('pending','ready')")
                 .bind(user_id)
@@ -258,14 +320,20 @@ impl Repository {
             .await?;
             (total, rows)
         } else {
-            let total: i64 = sqlx::query_scalar("SELECT COUNT(*)::bigint FROM holds WHERE user_id = $1").bind(user_id).fetch_one(&self.pool).await?;
+            let total: i64 =
+                sqlx::query_scalar("SELECT COUNT(*)::bigint FROM holds WHERE user_id = $1")
+                    .bind(user_id)
+                    .fetch_one(&self.pool)
+                    .await?;
             let offset = (page - 1).max(0) * per_page;
-            let rows = sqlx::query_as::<_, Hold>("SELECT * FROM holds WHERE user_id = $1 ORDER BY created_at ASC LIMIT $2 OFFSET $3")
-                .bind(user_id)
-                .bind(per_page)
-                .bind(offset)
-                .fetch_all(&self.pool)
-                .await?;
+            let rows = sqlx::query_as::<_, Hold>(
+                "SELECT * FROM holds WHERE user_id = $1 ORDER BY created_at ASC LIMIT $2 OFFSET $3",
+            )
+            .bind(user_id)
+            .bind(per_page)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
             (total, rows)
         };
         let details = self.holds_holds_to_details(rows).await?;
@@ -274,7 +342,11 @@ impl Repository {
 
     /// First pending hold for this item becomes `ready` (after a loan return frees the copy).
     #[tracing::instrument(skip(self), err)]
-    pub async fn holds_notify_next(&self, item_id: i64, expiry_days: i32) -> AppResult<Option<Hold>> {
+    pub async fn holds_notify_next(
+        &self,
+        item_id: i64,
+        expiry_days: i32,
+    ) -> AppResult<Option<Hold>> {
         let next = self.holds_get_next_pending(item_id).await?;
         if let Some(ref r) = next {
             self.holds_mark_ready(r.id, expiry_days).await?;
@@ -284,7 +356,12 @@ impl Repository {
 
     /// Same as [`holds_notify_next`] but within an open transaction (atomic with loan return).
     #[tracing::instrument(skip(self, tx), err)]
-    pub async fn holds_notify_next_tx(&self, tx: &mut sqlx::Transaction<'_, Postgres>, item_id: i64, expiry_days: i32) -> AppResult<Option<Hold>> {
+    pub async fn holds_notify_next_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        item_id: i64,
+        expiry_days: i32,
+    ) -> AppResult<Option<Hold>> {
         let next = sqlx::query_as::<_, Hold>(
             "SELECT * FROM holds WHERE item_id = $1 AND status = 'pending'
              ORDER BY position ASC LIMIT 1",
@@ -325,10 +402,12 @@ impl Repository {
 
     #[tracing::instrument(skip(self), err)]
     pub async fn holds_list_for_user(&self, user_id: i64) -> AppResult<Vec<HoldDetails>> {
-        let rows = sqlx::query_as::<_, Hold>("SELECT * FROM holds WHERE user_id = $1 ORDER BY created_at ASC")
-            .bind(user_id)
-            .fetch_all(&self.pool)
-            .await?;
+        let rows = sqlx::query_as::<_, Hold>(
+            "SELECT * FROM holds WHERE user_id = $1 ORDER BY created_at ASC",
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
         self.holds_holds_to_details(rows).await
     }
 
@@ -404,10 +483,12 @@ impl Repository {
 
     #[tracing::instrument(skip(self), err)]
     pub async fn holds_count_for_item(&self, item_id: i64) -> AppResult<i64> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM holds WHERE item_id = $1 AND status IN ('pending','ready')")
-            .bind(item_id)
-            .fetch_one(&self.pool)
-            .await?;
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM holds WHERE item_id = $1 AND status IN ('pending','ready')",
+        )
+        .bind(item_id)
+        .fetch_one(&self.pool)
+        .await?;
         Ok(count)
     }
 
@@ -451,7 +532,12 @@ impl Repository {
 
     /// Mark the patron’s active hold on this copy as fulfilled (after a normal checkout).
     #[tracing::instrument(skip(self, tx), err)]
-    pub async fn holds_fulfill_active_for_user_item_tx(&self, tx: &mut sqlx::Transaction<'_, Postgres>, user_id: i64, item_id: i64) -> AppResult<Option<i64>> {
+    pub async fn holds_fulfill_active_for_user_item_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        user_id: i64,
+        item_id: i64,
+    ) -> AppResult<Option<i64>> {
         let hold_id: Option<i64> = sqlx::query_scalar("UPDATE holds SET status = 'fulfilled' WHERE user_id = $1 AND item_id = $2 AND status IN ('pending','ready') RETURNING id")
             .bind(user_id)
             .bind(item_id)
@@ -462,7 +548,11 @@ impl Repository {
 
     /// Cancel every active hold on this copy (used when staff checks out with `force` or removes the item).
     #[tracing::instrument(skip(self, tx), err)]
-    pub async fn holds_cancel_active_for_item_tx(&self, tx: &mut sqlx::Transaction<'_, Postgres>, item_id: i64) -> AppResult<u64> {
+    pub async fn holds_cancel_active_for_item_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        item_id: i64,
+    ) -> AppResult<u64> {
         let r = sqlx::query("UPDATE holds SET status = 'cancelled' WHERE item_id = $1 AND status IN ('pending','ready')")
             .bind(item_id)
             .execute(&mut **tx)
@@ -482,7 +572,11 @@ impl Repository {
 
     /// Whether the user already has a `pending` or `ready` hold on this copy.
     #[tracing::instrument(skip(self), err)]
-    pub async fn holds_has_active_for_user_item(&self, user_id: i64, item_id: i64) -> AppResult<bool> {
+    pub async fn holds_has_active_for_user_item(
+        &self,
+        user_id: i64,
+        item_id: i64,
+    ) -> AppResult<bool> {
         let b: bool = sqlx::query_scalar(
             r#"
             SELECT EXISTS(

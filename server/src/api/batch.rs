@@ -69,7 +69,9 @@ pub async fn batch_return(
     claims.require_write_holds()?;
 
     if req.barcodes.is_empty() {
-        return Err(crate::error::AppError::Validation("barcodes list cannot be empty".to_string()));
+        return Err(crate::error::AppError::Validation(
+            "barcodes list cannot be empty".to_string(),
+        ));
     }
 
     let mut results = Vec::with_capacity(req.barcodes.len());
@@ -77,7 +79,12 @@ pub async fn batch_return(
     let mut errors = 0u32;
 
     for barcode in &req.barcodes {
-        match state.services.loans.return_loan_by_item(barcode, Some(claims.user_id), ip.clone()).await {
+        match state
+            .services
+            .loans
+            .return_loan_by_item(barcode, Some(claims.user_id), ip.clone())
+            .await
+        {
             Ok(loan) => {
                 state.services.audit.log(
                     audit::event::LOAN_RETURNED,
@@ -117,7 +124,11 @@ pub async fn batch_return(
         }
     }
 
-    Ok(Json(BatchReturnResponse { returned, errors, results }))
+    Ok(Json(BatchReturnResponse {
+        returned,
+        errors,
+        results,
+    }))
 }
 
 /// Batch loan creation request
@@ -178,10 +189,15 @@ pub async fn batch_create_loans(
 ) -> AppResult<Json<BatchCreateLoansResponse>> {
     claims.require_write_holds()?;
 
-    let user_id: i64 = req.user_id.parse().map_err(|_| crate::error::AppError::Validation("Invalid userId format".to_string()))?;
+    let user_id: i64 = req
+        .user_id
+        .parse()
+        .map_err(|_| crate::error::AppError::Validation("Invalid userId format".to_string()))?;
 
     if req.barcodes.is_empty() {
-        return Err(crate::error::AppError::Validation("barcodes list cannot be empty".to_string()));
+        return Err(crate::error::AppError::Validation(
+            "barcodes list cannot be empty".to_string(),
+        ));
     }
 
     let mut results = Vec::with_capacity(req.barcodes.len());
@@ -195,7 +211,12 @@ pub async fn batch_create_loans(
             item_identification: Some(barcode.clone()),
             force: req.force,
         };
-        match state.services.loans.create_loan(loan_data, Some(claims.user_id), ip.clone()).await {
+        match state
+            .services
+            .loans
+            .create_loan(loan_data, Some(claims.user_id), ip.clone())
+            .await
+        {
             Ok(outcome) => {
                 let loan_id = outcome.loan_id;
                 let expiry_at = outcome.expiry_at;
@@ -237,5 +258,9 @@ pub async fn batch_create_loans(
         }
     }
 
-    Ok(Json(BatchCreateLoansResponse { created, errors, results }))
+    Ok(Json(BatchCreateLoansResponse {
+        created,
+        errors,
+        results,
+    }))
 }

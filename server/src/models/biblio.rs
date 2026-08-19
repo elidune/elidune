@@ -42,7 +42,12 @@ impl std::error::Error for IsbnParseError {}
 
 impl Isbn {
     pub fn new(raw: impl AsRef<str>) -> Self {
-        let s = raw.as_ref().chars().filter(|c| c.is_ascii_alphanumeric()).map(|c| c.to_ascii_uppercase()).collect::<String>();
+        let s = raw
+            .as_ref()
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric())
+            .map(|c| c.to_ascii_uppercase())
+            .collect::<String>();
         Self(s)
     }
 
@@ -117,7 +122,9 @@ impl sqlx::Type<sqlx::Postgres> for Isbn {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for Isbn {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + 'static + Send + Sync>> {
+    fn decode(
+        value: sqlx::postgres::PgValueRef<'r>,
+    ) -> Result<Self, Box<dyn std::error::Error + 'static + Send + Sync>> {
         let s: String = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
         Ok(Isbn::new(s))
     }
@@ -218,7 +225,9 @@ impl sqlx::Type<sqlx::Postgres> for AudienceType {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for AudienceType {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + 'static + Send + Sync>> {
+    fn decode(
+        value: sqlx::postgres::PgValueRef<'r>,
+    ) -> Result<Self, Box<dyn std::error::Error + 'static + Send + Sync>> {
         let s = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
         Ok(AudienceType::from_db_str(&s).unwrap_or(AudienceType::Unknown))
     }
@@ -376,7 +385,9 @@ impl sqlx::Type<sqlx::Postgres> for MediaType {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for MediaType {
-    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + 'static + Send + Sync>> {
+    fn decode(
+        value: sqlx::postgres::PgValueRef<'r>,
+    ) -> Result<Self, Box<dyn std::error::Error + 'static + Send + Sync>> {
         let s: String = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
         Ok(MediaType::from(s.as_str()))
     }
@@ -700,15 +711,42 @@ mod tests {
 
     #[test]
     fn audience_type_from_marc_rs_round_trip() {
-        assert_eq!(AudienceType::from(TargetAudience::General), AudienceType::General);
-        assert_eq!(AudienceType::from(TargetAudience::Juvenile), AudienceType::Juvenile);
-        assert_eq!(AudienceType::from(TargetAudience::YoungAdult), AudienceType::YoungAdult);
-        assert_eq!(AudienceType::from(TargetAudience::Specialized), AudienceType::Specialized);
-        assert_eq!(AudienceType::from(TargetAudience::Unknown), AudienceType::Unknown);
-        assert_eq!(AudienceType::from(TargetAudience::Preschool), AudienceType::Preschool);
-        assert_eq!(AudienceType::from(TargetAudience::Children), AudienceType::Children);
-        assert_eq!(AudienceType::from(TargetAudience::Adult), AudienceType::Adult);
-        assert_eq!(AudienceType::from(TargetAudience::Other("x".to_string())), AudienceType::Other("x".to_string()),);
+        assert_eq!(
+            AudienceType::from(TargetAudience::General),
+            AudienceType::General
+        );
+        assert_eq!(
+            AudienceType::from(TargetAudience::Juvenile),
+            AudienceType::Juvenile
+        );
+        assert_eq!(
+            AudienceType::from(TargetAudience::YoungAdult),
+            AudienceType::YoungAdult
+        );
+        assert_eq!(
+            AudienceType::from(TargetAudience::Specialized),
+            AudienceType::Specialized
+        );
+        assert_eq!(
+            AudienceType::from(TargetAudience::Unknown),
+            AudienceType::Unknown
+        );
+        assert_eq!(
+            AudienceType::from(TargetAudience::Preschool),
+            AudienceType::Preschool
+        );
+        assert_eq!(
+            AudienceType::from(TargetAudience::Children),
+            AudienceType::Children
+        );
+        assert_eq!(
+            AudienceType::from(TargetAudience::Adult),
+            AudienceType::Adult
+        );
+        assert_eq!(
+            AudienceType::from(TargetAudience::Other("x".to_string())),
+            AudienceType::Other("x".to_string()),
+        );
     }
 
     #[test]
@@ -723,15 +761,30 @@ mod tests {
         assert_eq!(AudienceType::Primary.as_db_str(), "primary");
         assert_eq!(AudienceType::Children.as_db_str(), "children");
         assert_eq!(AudienceType::Unknown.as_db_str(), "unknown");
-        assert_eq!(AudienceType::Other("custom".to_string()).as_db_str(), "custom");
+        assert_eq!(
+            AudienceType::Other("custom".to_string()).as_db_str(),
+            "custom"
+        );
     }
 
     #[test]
     fn audience_type_from_db_str() {
-        assert_eq!(AudienceType::from_db_str("general"), Some(AudienceType::General));
-        assert_eq!(AudienceType::from_db_str("juvenile"), Some(AudienceType::Juvenile));
-        assert_eq!(AudienceType::from_db_str("unknown"), Some(AudienceType::Unknown));
-        assert_eq!(AudienceType::from_db_str("custom"), Some(AudienceType::Other("custom".to_string())),);
+        assert_eq!(
+            AudienceType::from_db_str("general"),
+            Some(AudienceType::General)
+        );
+        assert_eq!(
+            AudienceType::from_db_str("juvenile"),
+            Some(AudienceType::Juvenile)
+        );
+        assert_eq!(
+            AudienceType::from_db_str("unknown"),
+            Some(AudienceType::Unknown)
+        );
+        assert_eq!(
+            AudienceType::from_db_str("custom"),
+            Some(AudienceType::Other("custom".to_string())),
+        );
     }
 
     #[test]
@@ -749,7 +802,11 @@ mod tests {
             items: Vec::new(),
         };
         let json = serde_json::to_string(&biblio).unwrap();
-        assert!(json.contains("\"id\":\"12345\""), "id should be string in JSON, got: {}", json);
+        assert!(
+            json.contains("\"id\":\"12345\""),
+            "id should be string in JSON, got: {}",
+            json
+        );
     }
 
     #[test]
@@ -781,6 +838,9 @@ mod tests {
     fn isbn_biblio_short_deserializes_formatted_isbn_via_display_from_str() {
         let json = r#"{"id":"1","mediaType":"unknown","isbn":"978-2-07-040850-4","title":null,"date":null,"status":0,"isValid":null,"archivedAt":null,"author":null,"items":[]}"#;
         let short: BiblioShort = serde_json::from_str(json).unwrap();
-        assert_eq!(short.isbn.as_ref().map(|i| i.as_str()), Some("9782070408504"));
+        assert_eq!(
+            short.isbn.as_ref().map(|i| i.as_str()),
+            Some("9782070408504")
+        );
     }
 }

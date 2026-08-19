@@ -33,7 +33,10 @@ pub struct Item {
     pub barcode: Option<String>,
     #[validate(length(max = 200, message = "Call number must be at most 200 characters"))]
     pub call_number: Option<String>,
-    #[validate(length(max = 100, message = "Volume designation must be at most 100 characters"))]
+    #[validate(length(
+        max = 100,
+        message = "Volume designation must be at most 100 characters"
+    ))]
     pub volume_designation: Option<String>,
     pub place: Option<i16>,
     #[serde(default = "default_borrowable")]

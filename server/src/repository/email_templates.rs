@@ -24,9 +24,28 @@ pub struct EmailTemplateRow {
 pub trait EmailTemplatesRepository: Send + Sync {
     async fn email_templates_count(&self) -> AppResult<i64>;
     async fn email_templates_list(&self) -> AppResult<Vec<EmailTemplateRow>>;
-    async fn email_templates_get(&self, template_id: &str, language: &str) -> AppResult<Option<EmailTemplateRow>>;
-    async fn email_templates_upsert(&self, template_id: &str, language: &str, name: &str, subject: &str, body_plain: &str, body_html: Option<&str>) -> AppResult<EmailTemplateRow>;
-    async fn email_templates_update_content(&self, template_id: &str, language: &str, subject: &str, body_plain: &str, body_html: Option<&str>) -> AppResult<EmailTemplateRow>;
+    async fn email_templates_get(
+        &self,
+        template_id: &str,
+        language: &str,
+    ) -> AppResult<Option<EmailTemplateRow>>;
+    async fn email_templates_upsert(
+        &self,
+        template_id: &str,
+        language: &str,
+        name: &str,
+        subject: &str,
+        body_plain: &str,
+        body_html: Option<&str>,
+    ) -> AppResult<EmailTemplateRow>;
+    async fn email_templates_update_content(
+        &self,
+        template_id: &str,
+        language: &str,
+        subject: &str,
+        body_plain: &str,
+        body_html: Option<&str>,
+    ) -> AppResult<EmailTemplateRow>;
 }
 
 #[async_trait]
@@ -39,23 +58,61 @@ impl EmailTemplatesRepository for Repository {
         Repository::email_templates_list(self).await
     }
 
-    async fn email_templates_get(&self, template_id: &str, language: &str) -> AppResult<Option<EmailTemplateRow>> {
+    async fn email_templates_get(
+        &self,
+        template_id: &str,
+        language: &str,
+    ) -> AppResult<Option<EmailTemplateRow>> {
         Repository::email_templates_get(self, template_id, language).await
     }
 
-    async fn email_templates_upsert(&self, template_id: &str, language: &str, name: &str, subject: &str, body_plain: &str, body_html: Option<&str>) -> AppResult<EmailTemplateRow> {
-        Repository::email_templates_upsert(self, template_id, language, name, subject, body_plain, body_html).await
+    async fn email_templates_upsert(
+        &self,
+        template_id: &str,
+        language: &str,
+        name: &str,
+        subject: &str,
+        body_plain: &str,
+        body_html: Option<&str>,
+    ) -> AppResult<EmailTemplateRow> {
+        Repository::email_templates_upsert(
+            self,
+            template_id,
+            language,
+            name,
+            subject,
+            body_plain,
+            body_html,
+        )
+        .await
     }
 
-    async fn email_templates_update_content(&self, template_id: &str, language: &str, subject: &str, body_plain: &str, body_html: Option<&str>) -> AppResult<EmailTemplateRow> {
-        Repository::email_templates_update_content(self, template_id, language, subject, body_plain, body_html).await
+    async fn email_templates_update_content(
+        &self,
+        template_id: &str,
+        language: &str,
+        subject: &str,
+        body_plain: &str,
+        body_html: Option<&str>,
+    ) -> AppResult<EmailTemplateRow> {
+        Repository::email_templates_update_content(
+            self,
+            template_id,
+            language,
+            subject,
+            body_plain,
+            body_html,
+        )
+        .await
     }
 }
 
 impl Repository {
     /// Number of rows in `email_templates`. Used at startup to decide whether to bootstrap from files.
     pub async fn email_templates_count(&self) -> AppResult<i64> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM email_templates").fetch_one(&self.pool).await?;
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM email_templates")
+            .fetch_one(&self.pool)
+            .await?;
         Ok(count)
     }
 
@@ -86,7 +143,11 @@ impl Repository {
     }
 
     /// Single template by `(template_id, language)`.
-    pub async fn email_templates_get(&self, template_id: &str, language: &str) -> AppResult<Option<EmailTemplateRow>> {
+    pub async fn email_templates_get(
+        &self,
+        template_id: &str,
+        language: &str,
+    ) -> AppResult<Option<EmailTemplateRow>> {
         let row = sqlx::query(
             r#"
             SELECT template_id, language, name, subject, body_plain, body_html, updated_at
@@ -111,7 +172,15 @@ impl Repository {
     }
 
     /// Insert a template row from packaged JSON (bootstrap). Existing rows are left unchanged.
-    pub async fn email_templates_upsert(&self, template_id: &str, language: &str, name: &str, subject: &str, body_plain: &str, body_html: Option<&str>) -> AppResult<EmailTemplateRow> {
+    pub async fn email_templates_upsert(
+        &self,
+        template_id: &str,
+        language: &str,
+        name: &str,
+        subject: &str,
+        body_plain: &str,
+        body_html: Option<&str>,
+    ) -> AppResult<EmailTemplateRow> {
         let row = sqlx::query(
             r#"
             INSERT INTO email_templates (template_id, language, name, subject, body_plain, body_html, updated_at)
@@ -145,7 +214,14 @@ impl Repository {
     }
 
     /// Update editable content only; display `name` is preserved.
-    pub async fn email_templates_update_content(&self, template_id: &str, language: &str, subject: &str, body_plain: &str, body_html: Option<&str>) -> AppResult<EmailTemplateRow> {
+    pub async fn email_templates_update_content(
+        &self,
+        template_id: &str,
+        language: &str,
+        subject: &str,
+        body_plain: &str,
+        body_html: Option<&str>,
+    ) -> AppResult<EmailTemplateRow> {
         let row = sqlx::query(
             r#"
             UPDATE email_templates

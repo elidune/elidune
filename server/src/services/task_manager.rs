@@ -45,9 +45,18 @@ impl TaskHandle {
     ///
     /// `message` can be any serialisable value — a plain string, a structured
     /// object, etc.  Pass `None` to omit the message field.
-    pub async fn set_progress(&self, current: usize, total: usize, message: Option<serde_json::Value>) {
+    pub async fn set_progress(
+        &self,
+        current: usize,
+        total: usize,
+        message: Option<serde_json::Value>,
+    ) {
         let mut task = self.task.write().await;
-        task.progress = Some(TaskProgress { current, total, message });
+        task.progress = Some(TaskProgress {
+            current,
+            total,
+            message,
+        });
     }
 
     /// Mark the task as completed and persist the result to Redis.
@@ -91,17 +100,30 @@ impl TaskHandle {
         let task_id = snapshot.id;
 
         tokio::spawn(async move {
-            let Ok(json) = serde_json::to_string(&snapshot) else { return };
-            let Ok(mut conn) = redis.get_connection().await else { return };
+            let Ok(json) = serde_json::to_string(&snapshot) else {
+                return;
+            };
+            let Ok(mut conn) = redis.get_connection().await else {
+                return;
+            };
 
             let task_key = format!("task:{task_id}");
             let user_key = format!("task:user:{user_id}");
 
-            let _: Result<(), _> = redis::cmd("SETEX").arg(&task_key).arg(TASK_TTL_SECS).arg(&json).query_async(&mut conn).await;
+            let _: Result<(), _> = redis::cmd("SETEX")
+                .arg(&task_key)
+                .arg(TASK_TTL_SECS)
+                .arg(&json)
+                .query_async(&mut conn)
+                .await;
 
             let _: Result<(), _> = conn.sadd(&user_key, task_id.to_string()).await;
 
-            let _: Result<(), _> = redis::cmd("EXPIRE").arg(&user_key).arg(TASK_TTL_SECS).query_async(&mut conn).await;
+            let _: Result<(), _> = redis::cmd("EXPIRE")
+                .arg(&user_key)
+                .arg(TASK_TTL_SECS)
+                .query_async(&mut conn)
+                .await;
         });
     }
 }
@@ -176,7 +198,11 @@ impl TaskManager {
             if let Ok(mut conn) = redis_for_index.get_connection().await {
                 let user_key = format!("task:user:{user_id}");
                 let _: Result<(), _> = conn.sadd(&user_key, task_id.to_string()).await;
-                let _: Result<(), _> = redis::cmd("EXPIRE").arg(&user_key).arg(TASK_TTL_SECS).query_async(&mut conn).await;
+                let _: Result<(), _> = redis::cmd("EXPIRE")
+                    .arg(&user_key)
+                    .arg(TASK_TTL_SECS)
+                    .query_async(&mut conn)
+                    .await;
             }
 
             f(handle).await;
@@ -207,7 +233,8 @@ impl TaskManager {
     /// - Admins see **all** in-memory active tasks plus their own completed tasks
     ///   from Redis.
     pub async fn list_tasks(&self, user_id: i64, is_admin: bool) -> Vec<BackgroundTask> {
-        let arcs: Vec<Arc<RwLock<BackgroundTask>>> = self.active.read().await.values().cloned().collect();
+        let arcs: Vec<Arc<RwLock<BackgroundTask>>> =
+            self.active.read().await.values().cloned().collect();
 
         let mut result: Vec<BackgroundTask> = Vec::new();
         for arc in arcs {
@@ -249,9 +276,13 @@ impl TaskManager {
 
         let mut tasks = Vec::with_capacity(ids.len());
         for id_str in &ids {
-            let Ok(task_id) = id_str.parse::<i64>() else { continue };
+            let Ok(task_id) = id_str.parse::<i64>() else {
+                continue;
+            };
             let key = format!("task:{task_id}");
-            let Ok(json): Result<String, _> = conn.get(&key).await else { continue };
+            let Ok(json): Result<String, _> = conn.get(&key).await else {
+                continue;
+            };
             if let Ok(t) = serde_json::from_str::<BackgroundTask>(&json) {
                 tasks.push(t);
             }

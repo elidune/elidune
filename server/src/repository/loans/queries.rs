@@ -49,7 +49,10 @@ impl Repository {
     }
 
     /// Get active loan by item identification (barcode)
-    pub async fn loans_get_by_item_identification(&self, item_identification: &str) -> AppResult<Loan> {
+    pub async fn loans_get_by_item_identification(
+        &self,
+        item_identification: &str,
+    ) -> AppResult<Loan> {
         sqlx::query_as::<_, Loan>(
             r#"
             SELECT l.* FROM loans l
@@ -61,17 +64,29 @@ impl Repository {
         .bind(item_identification)
         .fetch_optional(&self.pool)
         .await?
-        .ok_or_else(|| AppError::NotFound(format!("No active loan found for item {}", item_identification)))
+        .ok_or_else(|| {
+            AppError::NotFound(format!(
+                "No active loan found for item {}",
+                item_identification
+            ))
+        })
     }
 
     /// Get active loans for a user (paginated).
-    pub async fn loans_get_for_user(&self, user_id: i64, page: i64, per_page: i64) -> AppResult<(Vec<LoanDetails>, i64)> {
+    pub async fn loans_get_for_user(
+        &self,
+        user_id: i64,
+        page: i64,
+        per_page: i64,
+    ) -> AppResult<(Vec<LoanDetails>, i64)> {
         let offset = (page - 1) * per_page;
 
-        let total: i64 = sqlx::query_scalar("SELECT COUNT(*)::bigint FROM loans l WHERE l.user_id = $1 AND l.returned_at IS NULL")
-            .bind(user_id)
-            .fetch_one(&self.pool)
-            .await?;
+        let total: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM loans l WHERE l.user_id = $1 AND l.returned_at IS NULL",
+        )
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await?;
 
         let sql = format!(
             r#"
@@ -95,19 +110,31 @@ impl Repository {
             LOAN_DETAILS_FIRST_AUTHOR_SQL
         );
 
-        let rows = sqlx::query(&sql).bind(user_id).bind(per_page).bind(offset).fetch_all(&self.pool).await?;
+        let rows = sqlx::query(&sql)
+            .bind(user_id)
+            .bind(per_page)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
 
         Ok((Self::map_loan_rows(rows), total))
     }
 
     /// Get archived (returned) loans for a user (paginated).
-    pub async fn loans_archives_get_for_user(&self, user_id: i64, page: i64, per_page: i64) -> AppResult<(Vec<LoanDetails>, i64)> {
+    pub async fn loans_archives_get_for_user(
+        &self,
+        user_id: i64,
+        page: i64,
+        per_page: i64,
+    ) -> AppResult<(Vec<LoanDetails>, i64)> {
         let offset = (page - 1) * per_page;
 
-        let total: i64 = sqlx::query_scalar("SELECT COUNT(*)::bigint FROM loans_archives la WHERE la.user_id = $1")
-            .bind(user_id)
-            .fetch_one(&self.pool)
-            .await?;
+        let total: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM loans_archives la WHERE la.user_id = $1",
+        )
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await?;
 
         let sql = format!(
             r#"
@@ -132,13 +159,22 @@ impl Repository {
             LOAN_DETAILS_FIRST_AUTHOR_SQL
         );
 
-        let rows = sqlx::query(&sql).bind(user_id).bind(per_page).bind(offset).fetch_all(&self.pool).await?;
+        let rows = sqlx::query(&sql)
+            .bind(user_id)
+            .bind(per_page)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
 
         Ok((Self::map_loan_rows(rows), total))
     }
 
     /// All loans for one user for MARC file export (no pagination): one round-trip with full [`Biblio`] per row.
-    pub async fn loans_get_for_marc_export(&self, user_id: i64, archived: bool) -> AppResult<Vec<LoanMarcExportRow>> {
+    pub async fn loans_get_for_marc_export(
+        &self,
+        user_id: i64,
+        archived: bool,
+    ) -> AppResult<Vec<LoanMarcExportRow>> {
         const BIBLIO_MARC_EXPORT_SELECT: &str = r#"
             b.id AS biblio_id,
             b.media_type,
@@ -282,7 +318,10 @@ impl Repository {
             )
         };
 
-        let rows = sqlx::query(&sql).bind(user_id).fetch_all(&self.pool).await?;
+        let rows = sqlx::query(&sql)
+            .bind(user_id)
+            .fetch_all(&self.pool)
+            .await?;
         let mut out = Vec::with_capacity(rows.len());
         for row in rows {
             out.push(Self::loan_marc_export_row_from_pg(row)?);
@@ -291,31 +330,49 @@ impl Repository {
     }
 
     fn loan_marc_export_row_from_pg(row: sqlx::postgres::PgRow) -> AppResult<LoanMarcExportRow> {
-        let start_date: DateTime<Utc> = row.try_get("start_date").map_err(|e| AppError::Internal(format!("marc export row start_date: {}", e)))?;
-        let expiry_at: Option<DateTime<Utc>> = row.try_get("expiry_at").map_err(|e| AppError::Internal(format!("marc export row expiry_at: {}", e)))?;
-        let returned_at: Option<DateTime<Utc>> = row.try_get("returned_at").map_err(|e| AppError::Internal(format!("marc export row returned_at: {}", e)))?;
+        let start_date: DateTime<Utc> = row
+            .try_get("start_date")
+            .map_err(|e| AppError::Internal(format!("marc export row start_date: {}", e)))?;
+        let expiry_at: Option<DateTime<Utc>> = row
+            .try_get("expiry_at")
+            .map_err(|e| AppError::Internal(format!("marc export row expiry_at: {}", e)))?;
+        let returned_at: Option<DateTime<Utc>> = row
+            .try_get("returned_at")
+            .map_err(|e| AppError::Internal(format!("marc export row returned_at: {}", e)))?;
 
         let authors: Vec<Author> = {
-            let v: serde_json::Value = row.try_get("authors_json").unwrap_or_else(|_| serde_json::json!([]));
-            serde_json::from_value(v).map_err(|e| AppError::Internal(format!("marc export authors_json: {}", e)))?
+            let v: serde_json::Value = row
+                .try_get("authors_json")
+                .unwrap_or_else(|_| serde_json::json!([]));
+            serde_json::from_value(v)
+                .map_err(|e| AppError::Internal(format!("marc export authors_json: {}", e)))?
         };
         let series: Vec<Serie> = {
-            let v: serde_json::Value = row.try_get("series_json").unwrap_or_else(|_| serde_json::json!([]));
-            serde_json::from_value(v).map_err(|e| AppError::Internal(format!("marc export series_json: {}", e)))?
+            let v: serde_json::Value = row
+                .try_get("series_json")
+                .unwrap_or_else(|_| serde_json::json!([]));
+            serde_json::from_value(v)
+                .map_err(|e| AppError::Internal(format!("marc export series_json: {}", e)))?
         };
         let collections: Vec<Collection> = {
-            let v: serde_json::Value = row.try_get("collections_json").unwrap_or_else(|_| serde_json::json!([]));
-            serde_json::from_value(v).map_err(|e| AppError::Internal(format!("marc export collections_json: {}", e)))?
+            let v: serde_json::Value = row
+                .try_get("collections_json")
+                .unwrap_or_else(|_| serde_json::json!([]));
+            serde_json::from_value(v)
+                .map_err(|e| AppError::Internal(format!("marc export collections_json: {}", e)))?
         };
 
-        let edition: Option<Edition> = {
-            let v: Option<serde_json::Value> = row.try_get("edition_json").ok().flatten();
-            match v {
-                None => None,
-                Some(ref x) if x.is_null() => None,
-                Some(v) => Some(serde_json::from_value(v).map_err(|e| AppError::Internal(format!("marc export edition_json: {}", e)))?),
-            }
-        };
+        let edition: Option<Edition> =
+            {
+                let v: Option<serde_json::Value> = row.try_get("edition_json").ok().flatten();
+                match v {
+                    None => None,
+                    Some(ref x) if x.is_null() => None,
+                    Some(v) => Some(serde_json::from_value(v).map_err(|e| {
+                        AppError::Internal(format!("marc export edition_json: {}", e))
+                    })?),
+                }
+            };
 
         let isbn_raw: Option<String> = row.try_get("isbn").ok().flatten();
         let isbn = isbn_raw.and_then(|s| {
@@ -327,14 +384,17 @@ impl Repository {
             }
         });
 
-        let marc_record: Option<MarcRecord> = {
-            let v: Option<serde_json::Value> = row.try_get("marc_record").ok().flatten();
-            match v {
-                None => None,
-                Some(ref x) if x.is_null() => None,
-                Some(v) => Some(serde_json::from_value(v).map_err(|e| AppError::Internal(format!("marc export marc_record: {}", e)))?),
-            }
-        };
+        let marc_record: Option<MarcRecord> =
+            {
+                let v: Option<serde_json::Value> = row.try_get("marc_record").ok().flatten();
+                match v {
+                    None => None,
+                    Some(ref x) if x.is_null() => None,
+                    Some(v) => Some(serde_json::from_value(v).map_err(|e| {
+                        AppError::Internal(format!("marc export marc_record: {}", e))
+                    })?),
+                }
+            };
 
         let item = Item {
             id: row.try_get("item_id").ok(),
@@ -357,13 +417,17 @@ impl Repository {
         };
 
         let series_ids: Vec<i64> = series.iter().filter_map(|s| s.id).collect();
-        let series_volume_numbers: Vec<Option<i16>> = series.iter().map(|s| s.volume_number).collect();
+        let series_volume_numbers: Vec<Option<i16>> =
+            series.iter().map(|s| s.volume_number).collect();
         let collection_ids: Vec<i64> = collections.iter().filter_map(|c| c.id).collect();
-        let collection_volume_numbers: Vec<Option<i16>> = collections.iter().map(|c| c.volume_number).collect();
+        let collection_volume_numbers: Vec<Option<i16>> =
+            collections.iter().map(|c| c.volume_number).collect();
 
         let biblio = Biblio {
             id: row.try_get("biblio_id").ok(),
-            media_type: row.try_get("media_type").map_err(|e| AppError::Internal(format!("marc export media_type: {}", e)))?,
+            media_type: row
+                .try_get("media_type")
+                .map_err(|e| AppError::Internal(format!("marc export media_type: {}", e)))?,
             isbn,
             title: row.try_get("title").ok().flatten(),
             subject: row.try_get("subject").ok().flatten(),
@@ -433,18 +497,24 @@ impl Repository {
                     biblio: BiblioShort {
                         id: row.get("biblio_id"),
                         media_type: row.get("media_type"),
-                        isbn: row.get::<Option<String>, _>("biblio_isbn").map(Isbn::new).filter(|i| !i.is_empty()),
+                        isbn: row
+                            .get::<Option<String>, _>("biblio_isbn")
+                            .map(Isbn::new)
+                            .filter(|i| !i.is_empty()),
                         title: row.get("title"),
                         date: row.get("publication_date"),
                         status: 0,
                         is_valid: Some(true),
                         archived_at: None,
-                        author: row.get::<Option<serde_json::Value>, _>("author").and_then(|v| serde_json::from_value(v).ok()),
+                        author: row
+                            .get::<Option<serde_json::Value>, _>("author")
+                            .and_then(|v| serde_json::from_value(v).ok()),
                         items: vec![borrowed_item],
                     },
                     user: None,
                     item_identification: row.get("item_identification"),
-                    is_overdue: returned_at.is_none() && expiry_at.map(|d| d < now).unwrap_or(false),
+                    is_overdue: returned_at.is_none()
+                        && expiry_at.map(|d| d < now).unwrap_or(false),
                 }
             })
             .collect()
@@ -452,33 +522,40 @@ impl Repository {
 
     /// Count active loans
     pub async fn loans_count_active(&self) -> AppResult<i64> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM loans WHERE returned_at IS NULL").fetch_one(&self.pool).await?;
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM loans WHERE returned_at IS NULL")
+            .fetch_one(&self.pool)
+            .await?;
         Ok(count)
     }
 
     /// Count overdue loans
     pub async fn loans_count_overdue(&self) -> AppResult<i64> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM loans WHERE returned_at IS NULL AND expiry_at < NOW()")
-            .fetch_one(&self.pool)
-            .await?;
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM loans WHERE returned_at IS NULL AND expiry_at < NOW()",
+        )
+        .fetch_one(&self.pool)
+        .await?;
         Ok(count)
     }
 
     /// Count active loans for a physical item (items table)
     pub async fn loans_count_active_for_item(&self, item_id: i64) -> AppResult<i64> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM loans WHERE item_id = $1 AND returned_at IS NULL")
-            .bind(item_id)
-            .fetch_one(&self.pool)
-            .await?;
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM loans WHERE item_id = $1 AND returned_at IS NULL",
+        )
+        .bind(item_id)
+        .fetch_one(&self.pool)
+        .await?;
         Ok(count)
     }
 
     /// Get IDs of active loans for a physical item
     pub async fn loans_get_active_ids_for_item(&self, item_id: i64) -> AppResult<Vec<i64>> {
-        let ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM loans WHERE item_id = $1 AND returned_at IS NULL")
-            .bind(item_id)
-            .fetch_all(&self.pool)
-            .await?;
+        let ids: Vec<i64> =
+            sqlx::query_scalar("SELECT id FROM loans WHERE item_id = $1 AND returned_at IS NULL")
+                .bind(item_id)
+                .fetch_all(&self.pool)
+                .await?;
         Ok(ids)
     }
 
@@ -499,10 +576,11 @@ impl Repository {
 
     /// Get IDs of active loans for a user
     pub async fn loans_get_active_ids_for_user(&self, user_id: i64) -> AppResult<Vec<i64>> {
-        let ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM loans WHERE user_id = $1 AND returned_at IS NULL")
-            .bind(user_id)
-            .fetch_all(&self.pool)
-            .await?;
+        let ids: Vec<i64> =
+            sqlx::query_scalar("SELECT id FROM loans WHERE user_id = $1 AND returned_at IS NULL")
+                .bind(user_id)
+                .fetch_all(&self.pool)
+                .await?;
         Ok(ids)
     }
 
@@ -523,10 +601,12 @@ impl Repository {
 
     /// Count active loans for a user
     pub async fn loans_count_active_for_user(&self, user_id: i64) -> AppResult<i64> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM loans WHERE user_id = $1 AND returned_at IS NULL")
-            .bind(user_id)
-            .fetch_one(&self.pool)
-            .await?;
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM loans WHERE user_id = $1 AND returned_at IS NULL",
+        )
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await?;
         Ok(count)
     }
 }

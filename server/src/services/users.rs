@@ -16,7 +16,10 @@ use crate::{
     error::{AppError, AppResult},
     models::{
         secret::{ExposeSecret, PlaintextPassword},
-        user::{AccountTypeSlug, UpdateProfile, User, UserClaims, UserPayload, UserQuery, UserShort, UserStatus, SCOPE_CHANGE_PASSWORD},
+        user::{
+            AccountTypeSlug, UpdateProfile, User, UserClaims, UserPayload, UserQuery, UserShort,
+            UserStatus, SCOPE_CHANGE_PASSWORD,
+        },
         Sex,
     },
     repository::Repository,
@@ -39,14 +42,27 @@ struct PasswordResetClaims {
 }
 
 impl UsersService {
-    pub fn new(repository: Repository, config: UsersConfig, redis: crate::services::redis::RedisService) -> Self {
-        Self { repository, config, redis }
+    pub fn new(
+        repository: Repository,
+        config: UsersConfig,
+        redis: crate::services::redis::RedisService,
+    ) -> Self {
+        Self {
+            repository,
+            config,
+            redis,
+        }
     }
 
     /// Authenticate user by login and return JWT token
     /// Returns (token, user) if 2FA is not enabled, or (None, user) if 2FA is required
     #[tracing::instrument(skip(self), err)]
-    pub async fn authenticate(&self, login: &str, password: &PlaintextPassword, device_id: Option<&str>) -> AppResult<(Option<String>, User)> {
+    pub async fn authenticate(
+        &self,
+        login: &str,
+        password: &PlaintextPassword,
+        device_id: Option<&str>,
+    ) -> AppResult<(Option<String>, User)> {
         // Authenticate by login (primary method)
         let user = self
             .repository
@@ -60,14 +76,18 @@ impl UsersService {
                 return Err(AppError::Authentication("Account is blocked".to_string()));
             }
             if status == UserStatus::Deleted {
-                return Err(AppError::Authentication("Invalid login or password".to_string()));
+                return Err(AppError::Authentication(
+                    "Invalid login or password".to_string(),
+                ));
             }
         }
 
         // Check password
         let password_valid = self.verify_password(&user, password)?;
         if !password_valid {
-            return Err(AppError::Authentication("Invalid login or password".to_string()));
+            return Err(AppError::Authentication(
+                "Invalid login or password".to_string(),
+            ));
         }
 
         // Check if 2FA is enabled
@@ -91,11 +111,19 @@ impl UsersService {
 
     /// Verify 2FA code and return JWT token
     #[tracing::instrument(skip(self), err)]
-    pub async fn verify_2fa(&self, user_id: i64, code: &str, device_id: Option<&str>, trust_device: bool) -> AppResult<String> {
+    pub async fn verify_2fa(
+        &self,
+        user_id: i64,
+        code: &str,
+        device_id: Option<&str>,
+        trust_device: bool,
+    ) -> AppResult<String> {
         let user = self.repository.users_get_by_id(user_id).await?;
 
         if !user.two_factor_enabled.unwrap_or(false) {
-            return Err(AppError::Validation("2FA is not enabled for this user".to_string()));
+            return Err(AppError::Validation(
+                "2FA is not enabled for this user".to_string(),
+            ));
         }
 
         let method = user.two_factor_method.as_deref().unwrap_or("totp");
@@ -104,7 +132,11 @@ impl UsersService {
             "totp" => {
                 if let Some(ref secret) = user.totp_secret {
                     // Decode base32 secret to get original bytes
-                    let secret_bytes = base32::decode(base32::Alphabet::RFC4648 { padding: false }, secret).ok_or_else(|| AppError::Internal("Invalid TOTP secret format".to_string()))?;
+                    let secret_bytes =
+                        base32::decode(base32::Alphabet::RFC4648 { padding: false }, secret)
+                            .ok_or_else(|| {
+                                AppError::Internal("Invalid TOTP secret format".to_string())
+                            })?;
 
                     let now = Utc::now().timestamp() as i64;
                     // totp_custom(step, digits, secret, time)
@@ -143,27 +175,44 @@ impl UsersService {
         let user = self.repository.users_get_by_id(user_id).await?;
 
         if !user.two_factor_enabled.unwrap_or(false) {
-            return Err(AppError::Validation("2FA is not enabled for this user".to_string()));
+            return Err(AppError::Validation(
+                "2FA is not enabled for this user".to_string(),
+            ));
         }
 
-        let recovery_codes: Vec<String> = user.recovery_codes.as_ref().and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default();
+        let recovery_codes: Vec<String> = user
+            .recovery_codes
+            .as_ref()
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or_default();
 
-        let used_codes: HashSet<String> = user.recovery_codes_used.as_ref().and_then(|s| serde_json::from_str(s).ok()).unwrap_or_default();
+        let used_codes: HashSet<String> = user
+            .recovery_codes_used
+            .as_ref()
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or_default();
 
         if !recovery_codes.contains(&code.to_string()) {
-            return Err(AppError::Authentication("Invalid recovery code".to_string()));
+            return Err(AppError::Authentication(
+                "Invalid recovery code".to_string(),
+            ));
         }
 
         if used_codes.contains(&code.to_string()) {
-            return Err(AppError::Authentication("Recovery code has already been used".to_string()));
+            return Err(AppError::Authentication(
+                "Recovery code has already been used".to_string(),
+            ));
         }
 
         // Mark code as used
         let mut new_used_codes = used_codes;
         new_used_codes.insert(code.to_string());
-        let used_codes_json = serde_json::to_string(&new_used_codes).map_err(|e| AppError::Internal(format!("Failed to serialize used codes: {}", e)))?;
+        let used_codes_json = serde_json::to_string(&new_used_codes)
+            .map_err(|e| AppError::Internal(format!("Failed to serialize used codes: {}", e)))?;
 
-        self.repository.users_mark_recovery_code_used(user_id, &used_codes_json).await?;
+        self.repository
+            .users_mark_recovery_code_used(user_id, &used_codes_json)
+            .await?;
 
         // Create token (scoped if must_change_password)
         self.token_respecting_password_policy(&user).await
@@ -205,13 +254,16 @@ impl UsersService {
             scope: scope.map(str::to_owned),
         };
 
-        claims.create_token(&self.config.jwt_secret).map_err(|e| AppError::Internal(format!("Failed to create token: {}", e)))
+        claims
+            .create_token(&self.config.jwt_secret)
+            .map_err(|e| AppError::Internal(format!("Failed to create token: {}", e)))
     }
 
     /// Return a scoped token if the user must change their password, otherwise a full token.
     async fn token_respecting_password_policy(&self, user: &User) -> AppResult<String> {
         if user.must_change_password {
-            self.create_token_with_scope(user, Some(SCOPE_CHANGE_PASSWORD)).await
+            self.create_token_with_scope(user, Some(SCOPE_CHANGE_PASSWORD))
+                .await
         } else {
             self.create_token_for_user(user).await
         }
@@ -238,7 +290,10 @@ impl UsersService {
         } else {
             format!("{}:{}", issuer, account_name)
         };
-        let uri = format!("otpauth://totp/{}?secret={}&issuer={}", label, secret, issuer);
+        let uri = format!(
+            "otpauth://totp/{}?secret={}&issuer={}",
+            label, secret, issuer
+        );
 
         Ok((secret, uri))
     }
@@ -257,22 +312,39 @@ impl UsersService {
 
     /// Enable 2FA for a user
     #[tracing::instrument(skip(self), err)]
-    pub async fn enable_2fa(&self, user_id: i64, method: &str, totp_secret: Option<String>) -> AppResult<Vec<String>> {
+    pub async fn enable_2fa(
+        &self,
+        user_id: i64,
+        method: &str,
+        totp_secret: Option<String>,
+    ) -> AppResult<Vec<String>> {
         if method != "totp" && method != "email" {
-            return Err(AppError::Validation("Invalid 2FA method. Must be 'totp' or 'email'".to_string()));
+            return Err(AppError::Validation(
+                "Invalid 2FA method. Must be 'totp' or 'email'".to_string(),
+            ));
         }
 
         let user = self.get_by_id(user_id).await?;
 
         if method == "email" && user.email.is_none() {
-            return Err(AppError::Validation("Email is required for email-based 2FA".to_string()));
+            return Err(AppError::Validation(
+                "Email is required for email-based 2FA".to_string(),
+            ));
         }
 
         let recovery_codes = self.generate_recovery_codes(10);
-        let recovery_codes_json = serde_json::to_string(&recovery_codes).map_err(|e| AppError::Internal(format!("Failed to serialize recovery codes: {}", e)))?;
+        let recovery_codes_json = serde_json::to_string(&recovery_codes).map_err(|e| {
+            AppError::Internal(format!("Failed to serialize recovery codes: {}", e))
+        })?;
 
         self.repository
-            .users_update_2fa_settings(user_id, true, Some(method), totp_secret.as_deref(), Some(&recovery_codes_json))
+            .users_update_2fa_settings(
+                user_id,
+                true,
+                Some(method),
+                totp_secret.as_deref(),
+                Some(&recovery_codes_json),
+            )
             .await?;
 
         Ok(recovery_codes)
@@ -283,9 +355,13 @@ impl UsersService {
     pub async fn disable_2fa(&self, user_id: i64, password: &PlaintextPassword) -> AppResult<()> {
         let user = self.repository.users_get_by_id(user_id).await?;
         if !self.verify_password(&user, password)? {
-            return Err(AppError::Authentication("Invalid login or password".to_string()));
+            return Err(AppError::Authentication(
+                "Invalid login or password".to_string(),
+            ));
         }
-        self.repository.users_update_2fa_settings(user_id, false, None, None, None).await?;
+        self.repository
+            .users_update_2fa_settings(user_id, false, None, None, None)
+            .await?;
 
         Ok(())
     }
@@ -295,8 +371,11 @@ impl UsersService {
         let password = password.expose_secret().as_str();
         // First try the new hashed password
         if let Some(ref hash) = user.password {
-            let parsed_hash = PasswordHash::new(hash).map_err(|_| AppError::Internal("Invalid password hash".to_string()))?;
-            return Ok(Argon2::default().verify_password(password.as_bytes(), &parsed_hash).is_ok());
+            let parsed_hash = PasswordHash::new(hash)
+                .map_err(|_| AppError::Internal("Invalid password hash".to_string()))?;
+            return Ok(Argon2::default()
+                .verify_password(password.as_bytes(), &parsed_hash)
+                .is_ok());
         }
 
         Ok(false)
@@ -335,7 +414,9 @@ impl UsersService {
             .filter(|s| !s.is_empty())
             .ok_or_else(|| AppError::Validation("Login is required".to_string()))?;
         if login.len() < 3 {
-            return Err(AppError::Validation("Login must be at least 3 characters".to_string()));
+            return Err(AppError::Validation(
+                "Login must be at least 3 characters".to_string(),
+            ));
         }
 
         if self.repository.users_login_exists(&login, None).await? {
@@ -398,7 +479,11 @@ impl UsersService {
 
         // Check if login already exists for another user (login is required and unique)
         if let Some(ref login) = profile.login {
-            if self.repository.users_login_exists(login, Some(user_id)).await? {
+            if self
+                .repository
+                .users_login_exists(login, Some(user_id))
+                .await?
+            {
                 return Err(AppError::Conflict("Login already exists".to_string()));
             }
         }
@@ -406,13 +491,14 @@ impl UsersService {
 
         // If changing password, verify current password
         if profile.new_password.is_some() {
-            let current_password = profile
-                .current_password
-                .as_ref()
-                .ok_or_else(|| AppError::Validation("Current password required to change password".to_string()))?;
+            let current_password = profile.current_password.as_ref().ok_or_else(|| {
+                AppError::Validation("Current password required to change password".to_string())
+            })?;
 
             if !self.verify_password(&user, current_password)? {
-                return Err(AppError::Authentication("Current password is incorrect".to_string()));
+                return Err(AppError::Authentication(
+                    "Current password is incorrect".to_string(),
+                ));
             }
         }
 
@@ -425,27 +511,40 @@ impl UsersService {
         };
 
         // Update only allowed fields
-        self.repository.users_update_profile(user_id, &profile, password).await
+        self.repository
+            .users_update_profile(user_id, &profile, password)
+            .await
     }
 
     /// Update user's account type (admin only)
     #[tracing::instrument(skip(self), err)]
-    pub async fn update_account_type(&self, user_id: i64, account_type: &AccountTypeSlug) -> AppResult<User> {
+    pub async fn update_account_type(
+        &self,
+        user_id: i64,
+        account_type: &AccountTypeSlug,
+    ) -> AppResult<User> {
         // Check if user exists
         self.repository.users_get_by_id(user_id).await?;
 
         // Account type is already validated by the enum type
 
-        self.repository.users_update_account_type(user_id, account_type).await
+        self.repository
+            .users_update_account_type(user_id, account_type)
+            .await
     }
 
     /// Request password reset by login or email.
     /// Returns destination email, reset token, and user language for email template.
     #[tracing::instrument(skip(self), err)]
-    pub async fn request_password_reset(&self, identifier: &str) -> AppResult<(String, String, Option<crate::models::Language>, i64)> {
+    pub async fn request_password_reset(
+        &self,
+        identifier: &str,
+    ) -> AppResult<(String, String, Option<crate::models::Language>, i64)> {
         let id = identifier.trim();
         if id.is_empty() {
-            return Err(AppError::Validation("identifier must not be empty".to_string()));
+            return Err(AppError::Validation(
+                "identifier must not be empty".to_string(),
+            ));
         }
 
         let user = if let Some(u) = self.repository.users_get_by_login(id).await? {
@@ -453,41 +552,64 @@ impl UsersService {
         } else if let Some(u) = self.repository.users_get_by_email(id).await? {
             u
         } else {
-            return Err(AppError::NotFound("No account found for this login or email".to_string()));
+            return Err(AppError::NotFound(
+                "No account found for this login or email".to_string(),
+            ));
         };
 
-        let email = user.email.as_deref().ok_or_else(|| AppError::Validation("No email configured for this account".to_string()))?;
+        let email = user.email.as_deref().ok_or_else(|| {
+            AppError::Validation("No email configured for this account".to_string())
+        })?;
 
         let now = Utc::now().timestamp();
         let exp = now + (30 * 60); // 30 minutes
         let claims = PasswordResetClaims {
-            sub: user.login.clone().unwrap_or_else(|| format!("user_{}", user.id)),
+            sub: user
+                .login
+                .clone()
+                .unwrap_or_else(|| format!("user_{}", user.id)),
             user_id: user.id,
             purpose: "password_reset".to_string(),
             exp,
             iat: now,
         };
 
-        let token =
-            encode(&Header::default(), &claims, &EncodingKey::from_secret(self.config.jwt_secret.as_bytes())).map_err(|e| AppError::Internal(format!("Failed to create reset token: {}", e)))?;
+        let token = encode(
+            &Header::default(),
+            &claims,
+            &EncodingKey::from_secret(self.config.jwt_secret.as_bytes()),
+        )
+        .map_err(|e| AppError::Internal(format!("Failed to create reset token: {}", e)))?;
 
         Ok((email.to_string(), token, user.language, user.id))
     }
 
     /// Reset password using a reset token and a new password.
     #[tracing::instrument(skip(self), err)]
-    pub async fn reset_password(&self, token: &str, new_password: &PlaintextPassword) -> AppResult<()> {
-        let token_data = decode::<PasswordResetClaims>(token, &DecodingKey::from_secret(self.config.jwt_secret.as_bytes()), &Validation::default())
-            .map_err(|_| AppError::Authentication("Invalid or expired reset token".to_string()))?;
+    pub async fn reset_password(
+        &self,
+        token: &str,
+        new_password: &PlaintextPassword,
+    ) -> AppResult<()> {
+        let token_data = decode::<PasswordResetClaims>(
+            token,
+            &DecodingKey::from_secret(self.config.jwt_secret.as_bytes()),
+            &Validation::default(),
+        )
+        .map_err(|_| AppError::Authentication("Invalid or expired reset token".to_string()))?;
 
         let claims = token_data.claims;
         if claims.purpose != "password_reset" {
-            return Err(AppError::Authentication("Invalid reset token purpose".to_string()));
+            return Err(AppError::Authentication(
+                "Invalid reset token purpose".to_string(),
+            ));
         }
 
         validate_password_strength(new_password.expose_secret().as_str())?;
         let hash = self.hash_password(new_password)?;
-        self.repository.users_update_password(claims.user_id, &hash).await
+        self.repository
+            .users_update_password(claims.user_id, &hash)
+            .await
     }
 
     /// Change the password for a user who has a `change_password_only` scoped token.
@@ -497,11 +619,17 @@ impl UsersService {
     /// must_change_password flag is cleared by the repository layer and a full JWT
     /// is returned.
     #[tracing::instrument(skip(self), err)]
-    pub async fn change_password_first_login(&self, user_id: i64, new_password: &PlaintextPassword) -> AppResult<String> {
+    pub async fn change_password_first_login(
+        &self,
+        user_id: i64,
+        new_password: &PlaintextPassword,
+    ) -> AppResult<String> {
         validate_password_strength(new_password.expose_secret().as_str())?;
         let hash = self.hash_password(new_password)?;
         // users_update_password also resets must_change_password = false
-        self.repository.users_update_password(user_id, &hash).await?;
+        self.repository
+            .users_update_password(user_id, &hash)
+            .await?;
 
         let user = self.repository.users_get_by_id(user_id).await?;
         // Issue a full JWT now that the password has been changed
@@ -517,7 +645,9 @@ impl UsersService {
     pub async fn set_must_change_password(&self, user_id: i64, value: bool) -> AppResult<()> {
         // Ensure user exists before updating
         self.repository.users_get_by_id(user_id).await?;
-        self.repository.users_set_must_change_password(user_id, value).await
+        self.repository
+            .users_set_must_change_password(user_id, value)
+            .await
     }
 
     /// Generate a cryptographically random alphanumeric password of the given length.

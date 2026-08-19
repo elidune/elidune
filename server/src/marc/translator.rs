@@ -1,8 +1,10 @@
 use chrono::{DateTime, Utc};
 
 use z3950_rs::marc_rs::record::{
-    Agent, BibliographicLevel, Classification, ClassificationScheme, Description, Indexing, Isbn as MarcIsbn, Item as MarcItem, LinkType, LinkedRecord, Local, Note, NoteType, Person, Publication,
-    Record as MarcRecord, RecordStatus, RecordType, Relator, Responsibility, SeriesStatement, Subject, SubjectType, TargetAudience, Title,
+    Agent, BibliographicLevel, Classification, ClassificationScheme, Description, Indexing,
+    Isbn as MarcIsbn, Item as MarcItem, LinkType, LinkedRecord, Local, Note, NoteType, Person,
+    Publication, Record as MarcRecord, RecordStatus, RecordType, Relator, Responsibility,
+    SeriesStatement, Subject, SubjectType, TargetAudience, Title,
 };
 
 use crate::{
@@ -60,11 +62,20 @@ fn extract_volume_number(s: &str) -> Option<i16> {
 /// Reverse of [`MediaType`] as derived from MARC [`RecordType`] in [`From<&RecordType> for MediaType`].
 fn record_type_from_media_type(mt: &MediaType) -> RecordType {
     match mt {
-        MediaType::PrintedText | MediaType::Comics | MediaType::Unknown | MediaType::All => RecordType::LanguageMaterial,
+        MediaType::PrintedText | MediaType::Comics | MediaType::Unknown | MediaType::All => {
+            RecordType::LanguageMaterial
+        }
         MediaType::Periodic => RecordType::LanguageMaterial,
-        MediaType::Video | MediaType::VideoTape | MediaType::VideoDvd => RecordType::ProjectedOrVideo,
-        MediaType::Audio | MediaType::AudioNonMusic | MediaType::AudioNonMusicTape | MediaType::AudioNonMusicCd => RecordType::NonMusicalSound,
-        MediaType::AudioMusic | MediaType::AudioMusicTape | MediaType::AudioMusicCd => RecordType::NotatedMusic,
+        MediaType::Video | MediaType::VideoTape | MediaType::VideoDvd => {
+            RecordType::ProjectedOrVideo
+        }
+        MediaType::Audio
+        | MediaType::AudioNonMusic
+        | MediaType::AudioNonMusicTape
+        | MediaType::AudioNonMusicCd => RecordType::NonMusicalSound,
+        MediaType::AudioMusic | MediaType::AudioMusicTape | MediaType::AudioMusicCd => {
+            RecordType::NotatedMusic
+        }
         MediaType::Multimedia | MediaType::CdRom => RecordType::ElectronicResource,
         MediaType::Images => RecordType::GraphicTwoDimensional,
     }
@@ -101,8 +112,16 @@ fn audience_type_to_target_audience(a: &AudienceType) -> TargetAudience {
 }
 
 fn author_to_marc_agent(author: &Author) -> Option<Agent> {
-    let last = author.lastname.as_deref().map(|s| s.trim()).filter(|s| !s.is_empty());
-    let first = author.firstname.as_deref().map(|s| s.trim()).filter(|s| !s.is_empty());
+    let last = author
+        .lastname
+        .as_deref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty());
+    let first = author
+        .firstname
+        .as_deref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty());
     let (name, forename) = match (last, first) {
         (Some(l), f_opt) => (l.to_string(), f_opt.map(|s| s.to_string())),
         (None, Some(f)) => (f.to_string(), None),
@@ -265,7 +284,10 @@ impl From<MarcRecord> for Biblio {
     fn from(mut record: MarcRecord) -> Self {
         // --- ISBN ---
         // Requires `record.isbn_string()` in marc-rs (see module doc).
-        let isbn = record.isbn_string().map(Isbn::new).filter(|i| !i.is_empty());
+        let isbn = record
+            .isbn_string()
+            .map(Isbn::new)
+            .filter(|i| !i.is_empty());
 
         // --- Title ---
         let title = record.title_main().map(|s| s.to_string());
@@ -295,7 +317,11 @@ impl From<MarcRecord> for Biblio {
         let subject = record.subject_main().map(|s| s.to_string());
         let dewey = dewey_from_classifications(&record.indexing.classifications);
         let kws = record.keywords();
-        let keywords = if kws.is_empty() { None } else { Some(kws.to_vec()) };
+        let keywords = if kws.is_empty() {
+            None
+        } else {
+            Some(kws.to_vec())
+        };
 
         // --- Edition info / publication date ---
         let publication_date = record.publication_date().map(|s| s.to_string());
@@ -329,7 +355,8 @@ impl From<MarcRecord> for Biblio {
         let lang_orig = record.lang_original().map(Language::from);
 
         // --- Audience type ---
-        let audience_type: Option<AudienceType> = record.coded.target_audience.clone().map(AudienceType::from);
+        let audience_type: Option<AudienceType> =
+            record.coded.target_audience.clone().map(AudienceType::from);
 
         // --- Series / collection from description / links ---
         let mut series_list: Vec<Serie> = Vec::new();
@@ -338,7 +365,12 @@ impl From<MarcRecord> for Biblio {
         // UNIMARC 410 → links.records[link_type=Series]: authority-controlled series.
         // Only used as fallback when no free-text series statement was found (225/490),
         // to avoid creating duplicates from the same bibliographic series.
-        for link in record.links.records.iter().filter(|l| matches!(l.link_type, Some(LinkType::Series))) {
+        for link in record
+            .links
+            .records
+            .iter()
+            .filter(|l| matches!(l.link_type, Some(LinkType::Series)))
+        {
             if let Some(title) = &link.title {
                 series_list.push(Serie {
                     id: None,
@@ -370,7 +402,12 @@ impl From<MarcRecord> for Biblio {
         // Collection: UNIMARC 461 → links.records[link_type=SetLevel].
         // Represents the publisher collection (ensemble documentaire) the item belongs to.
         // No direct MARC21 equivalent is mapped in the current dictionary.
-        if let Some(link) = record.links.records.iter().find(|l| matches!(l.link_type, Some(LinkType::SetLevel))) {
+        if let Some(link) = record
+            .links
+            .records
+            .iter()
+            .find(|l| matches!(l.link_type, Some(LinkType::SetLevel)))
+        {
             if let Some(title) = &link.title {
                 collection = Some(Collection {
                     id: None,
@@ -391,7 +428,10 @@ impl From<MarcRecord> for Biblio {
         let items: Vec<Item> = record.local.items.iter().map(Item::from).collect();
         record.local.items.clear();
 
-        let collection_volume_numbers: Vec<Option<i16>> = collection.as_ref().map(|c| vec![c.volume_number]).unwrap_or_default();
+        let collection_volume_numbers: Vec<Option<i16>> = collection
+            .as_ref()
+            .map(|c| vec![c.volume_number])
+            .unwrap_or_default();
         let collections_vec: Vec<Collection> = collection.into_iter().collect();
 
         Biblio {
@@ -502,7 +542,11 @@ impl From<&Biblio> for MarcRecord {
             }
         }
 
-        let agents: Vec<Agent> = item.authors.iter().filter_map(author_to_marc_agent).collect();
+        let agents: Vec<Agent> = item
+            .authors
+            .iter()
+            .filter_map(author_to_marc_agent)
+            .collect();
         if !agents.is_empty() {
             let mut it = agents.into_iter();
             record.responsibility = Responsibility {
@@ -564,7 +608,11 @@ impl From<&Biblio> for MarcRecord {
         // Publication
         if item.edition.is_some() || item.publication_date.is_some() {
             let (place, publisher, date) = if let Some(ref ed) = item.edition {
-                (ed.place_of_publication.clone(), ed.publisher_name.clone(), ed.date.clone())
+                (
+                    ed.place_of_publication.clone(),
+                    ed.publisher_name.clone(),
+                    ed.date.clone(),
+                )
             } else {
                 (None, None, item.publication_date.clone())
             };
@@ -581,13 +629,17 @@ impl From<&Biblio> for MarcRecord {
         }
 
         // Physical description
-        if item.page_extent.is_some() || item.format.is_some() || item.accompanying_material.is_some() {
-            record.description.physical_description = Some(z3950_rs::marc_rs::record::PhysicalDescription {
-                extent: item.page_extent.clone(),
-                other_physical_details: None,
-                dimensions: item.format.clone(),
-                accompanying_material: item.accompanying_material.clone(),
-            });
+        if item.page_extent.is_some()
+            || item.format.is_some()
+            || item.accompanying_material.is_some()
+        {
+            record.description.physical_description =
+                Some(z3950_rs::marc_rs::record::PhysicalDescription {
+                    extent: item.page_extent.clone(),
+                    other_physical_details: None,
+                    dimensions: item.format.clone(),
+                    accompanying_material: item.accompanying_material.clone(),
+                });
         }
 
         // Notes (only General / Contents / Summary)
@@ -665,7 +717,12 @@ impl From<&Biblio> for MarcRecord {
 /// `loan_date` and `return_date` are filled (ISO 8601 dates `YYYY-MM-DD`). For active loans,
 /// `return_date` is the due date (`loan_expiry`); when the loan is returned, it is the actual
 /// return date (`returned_at`).
-pub fn biblio_items_to_marc_items(items: &[Item], loan_start: Option<DateTime<Utc>>, loan_expiry: Option<DateTime<Utc>>, returned_at: Option<DateTime<Utc>>) -> Vec<MarcItem> {
+pub fn biblio_items_to_marc_items(
+    items: &[Item],
+    loan_start: Option<DateTime<Utc>>,
+    loan_expiry: Option<DateTime<Utc>>,
+    returned_at: Option<DateTime<Utc>>,
+) -> Vec<MarcItem> {
     let loan_date = loan_start.map(|d| d.format("%Y-%m-%d").to_string());
     let return_date = match returned_at {
         Some(d) => Some(d.format("%Y-%m-%d").to_string()),
@@ -698,12 +755,22 @@ pub fn biblio_items_to_marc_items(items: &[Item], loan_start: Option<DateTime<Ut
 /// Builds a [`MarcRecord`] for loan export: uses stored `biblio.marc_record` when present
 /// (bibliographic notice without local items), otherwise [`MarcRecord::from`] the relational
 /// biblio. Always sets `local.items` to the borrowed copy(ies) in `biblio.items`, with loan dates.
-pub fn marc_record_for_loan_export(biblio: &Biblio, loan_start: DateTime<Utc>, loan_expiry: DateTime<Utc>, returned_at: Option<DateTime<Utc>>) -> MarcRecord {
+pub fn marc_record_for_loan_export(
+    biblio: &Biblio,
+    loan_start: DateTime<Utc>,
+    loan_expiry: DateTime<Utc>,
+    returned_at: Option<DateTime<Utc>>,
+) -> MarcRecord {
     let mut record = match &biblio.marc_record {
         Some(rec) => rec.clone(),
         None => MarcRecord::from(biblio),
     };
-    record.local.items = biblio_items_to_marc_items(&biblio.items, Some(loan_start), Some(loan_expiry), returned_at);
+    record.local.items = biblio_items_to_marc_items(
+        &biblio.items,
+        Some(loan_start),
+        Some(loan_expiry),
+        returned_at,
+    );
     record
 }
 
@@ -775,6 +842,9 @@ mod tests {
         };
 
         let record = MarcRecord::from(&biblio);
-        assert_eq!(dewey_from_classifications(&record.indexing.classifications).as_deref(), Some("843.914"));
+        assert_eq!(
+            dewey_from_classifications(&record.indexing.classifications).as_deref(),
+            Some("843.914")
+        );
     }
 }

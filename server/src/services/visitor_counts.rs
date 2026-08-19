@@ -22,14 +22,22 @@ impl VisitorCountsService {
 
     /// List visitor counts for a date range
     #[tracing::instrument(skip(self), err)]
-    pub async fn list(&self, start_date: Option<NaiveDate>, end_date: Option<NaiveDate>) -> AppResult<Vec<VisitorCount>> {
-        self.repository.visitor_counts_list(start_date, end_date).await
+    pub async fn list(
+        &self,
+        start_date: Option<NaiveDate>,
+        end_date: Option<NaiveDate>,
+    ) -> AppResult<Vec<VisitorCount>> {
+        self.repository
+            .visitor_counts_list(start_date, end_date)
+            .await
     }
 
     /// Get total visitor count for a date range
     #[tracing::instrument(skip(self), err)]
     pub async fn total(&self, start_date: NaiveDate, end_date: NaiveDate) -> AppResult<i64> {
-        self.repository.visitor_counts_total(start_date, end_date).await
+        self.repository
+            .visitor_counts_total(start_date, end_date)
+            .await
     }
 
     /// Create a visitor count record

@@ -25,33 +25,75 @@ const EVENT_COLUMNS: &str = r#"
 pub trait EventsRepository: Send + Sync {
     async fn events_list(&self, query: &EventQuery) -> AppResult<(Vec<Event>, i64)>;
     async fn events_get_by_id(&self, id: i64) -> AppResult<Event>;
-    async fn events_create(&self, data: &CreateEvent, attachment: Option<(Vec<u8>, String, String)>) -> AppResult<Event>;
+    async fn events_create(
+        &self,
+        data: &CreateEvent,
+        attachment: Option<(Vec<u8>, String, String)>,
+    ) -> AppResult<Event>;
     async fn events_update(&self, id: i64, data: &UpdateEvent) -> AppResult<Event>;
     async fn events_set_announcement_sent_at(&self, id: i64) -> AppResult<()>;
     async fn events_delete(&self, id: i64) -> AppResult<()>;
-    async fn events_put_attachment(&self, id: i64, data: &[u8], filename: &str, mime_type: &str) -> AppResult<Event>;
+    async fn events_put_attachment(
+        &self,
+        id: i64,
+        data: &[u8],
+        filename: &str,
+        mime_type: &str,
+    ) -> AppResult<Event>;
     async fn events_delete_attachment(&self, id: i64) -> AppResult<Event>;
-    async fn events_get_attachment_blob(&self, id: i64) -> AppResult<Option<(Vec<u8>, String, String)>>;
+    async fn events_get_attachment_blob(
+        &self,
+        id: i64,
+    ) -> AppResult<Option<(Vec<u8>, String, String)>>;
     async fn events_annual_stats(&self, year: i32) -> AppResult<EventAnnualStats>;
 }
 
 /// Combined repository trait used by [`crate::services::events::EventsService`].
-pub trait EventsServiceRepository: EventsRepository + crate::repository::UsersRepository + crate::repository::PublicTypesRepository + Send + Sync {}
+pub trait EventsServiceRepository:
+    EventsRepository
+    + crate::repository::UsersRepository
+    + crate::repository::PublicTypesRepository
+    + Send
+    + Sync
+{
+}
 
-impl<T: EventsRepository + crate::repository::UsersRepository + crate::repository::PublicTypesRepository + Send + Sync> EventsServiceRepository for T {}
+impl<
+        T: EventsRepository
+            + crate::repository::UsersRepository
+            + crate::repository::PublicTypesRepository
+            + Send
+            + Sync,
+    > EventsServiceRepository for T
+{
+}
 
 #[async_trait::async_trait]
 impl EventsRepository for super::Repository {
-    async fn events_list(&self, query: &crate::models::event::EventQuery) -> crate::error::AppResult<(Vec<crate::models::event::Event>, i64)> {
+    async fn events_list(
+        &self,
+        query: &crate::models::event::EventQuery,
+    ) -> crate::error::AppResult<(Vec<crate::models::event::Event>, i64)> {
         super::Repository::events_list(self, query).await
     }
-    async fn events_get_by_id(&self, id: i64) -> crate::error::AppResult<crate::models::event::Event> {
+    async fn events_get_by_id(
+        &self,
+        id: i64,
+    ) -> crate::error::AppResult<crate::models::event::Event> {
         super::Repository::events_get_by_id(self, id).await
     }
-    async fn events_create(&self, data: &crate::models::event::CreateEvent, attachment: Option<(Vec<u8>, String, String)>) -> crate::error::AppResult<crate::models::event::Event> {
+    async fn events_create(
+        &self,
+        data: &crate::models::event::CreateEvent,
+        attachment: Option<(Vec<u8>, String, String)>,
+    ) -> crate::error::AppResult<crate::models::event::Event> {
         super::Repository::events_create(self, data, attachment).await
     }
-    async fn events_update(&self, id: i64, data: &crate::models::event::UpdateEvent) -> crate::error::AppResult<crate::models::event::Event> {
+    async fn events_update(
+        &self,
+        id: i64,
+        data: &crate::models::event::UpdateEvent,
+    ) -> crate::error::AppResult<crate::models::event::Event> {
         super::Repository::events_update(self, id, data).await
     }
     async fn events_set_announcement_sent_at(&self, id: i64) -> crate::error::AppResult<()> {
@@ -60,13 +102,25 @@ impl EventsRepository for super::Repository {
     async fn events_delete(&self, id: i64) -> crate::error::AppResult<()> {
         super::Repository::events_delete(self, id).await
     }
-    async fn events_put_attachment(&self, id: i64, data: &[u8], filename: &str, mime_type: &str) -> crate::error::AppResult<crate::models::event::Event> {
+    async fn events_put_attachment(
+        &self,
+        id: i64,
+        data: &[u8],
+        filename: &str,
+        mime_type: &str,
+    ) -> crate::error::AppResult<crate::models::event::Event> {
         super::Repository::events_put_attachment(self, id, data, filename, mime_type).await
     }
-    async fn events_delete_attachment(&self, id: i64) -> crate::error::AppResult<crate::models::event::Event> {
+    async fn events_delete_attachment(
+        &self,
+        id: i64,
+    ) -> crate::error::AppResult<crate::models::event::Event> {
         super::Repository::events_delete_attachment(self, id).await
     }
-    async fn events_get_attachment_blob(&self, id: i64) -> crate::error::AppResult<Option<(Vec<u8>, String, String)>> {
+    async fn events_get_attachment_blob(
+        &self,
+        id: i64,
+    ) -> crate::error::AppResult<Option<(Vec<u8>, String, String)>> {
         super::Repository::events_get_attachment_blob(self, id).await
     }
     async fn events_annual_stats(&self, year: i32) -> crate::error::AppResult<EventAnnualStats> {
@@ -97,11 +151,21 @@ impl Repository {
             conditions.push(format!("event_type = ${}", idx));
         }
 
-        let where_clause = if conditions.is_empty() { String::new() } else { format!("WHERE {}", conditions.join(" AND ")) };
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
 
         // Parse dates once
-        let start = query.start_date.as_ref().and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
-        let end = query.end_date.as_ref().and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+        let start = query
+            .start_date
+            .as_ref()
+            .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+        let end = query
+            .end_date
+            .as_ref()
+            .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
 
         // Count total
         let count_q = format!("SELECT COUNT(*) FROM events {}", where_clause);
@@ -118,7 +182,10 @@ impl Repository {
         let total = count_builder.fetch_one(&self.pool).await?;
 
         // Fetch rows
-        let select_q = format!("SELECT {} FROM events {} ORDER BY event_date DESC LIMIT {} OFFSET {}", EVENT_COLUMNS, where_clause, per_page, offset);
+        let select_q = format!(
+            "SELECT {} FROM events {} ORDER BY event_date DESC LIMIT {} OFFSET {}",
+            EVENT_COLUMNS, where_clause, per_page, offset
+        );
         let mut builder = sqlx::query_as::<_, Event>(&select_q);
         if let Some(sd) = start {
             builder = builder.bind(sd);
@@ -147,10 +214,21 @@ impl Repository {
 
     /// Create an event
     #[tracing::instrument(skip(self), err)]
-    pub async fn events_create(&self, data: &CreateEvent, attachment: Option<(Vec<u8>, String, String)>) -> AppResult<Event> {
-        let event_date = NaiveDate::parse_from_str(&data.event_date, "%Y-%m-%d").map_err(|_| AppError::Validation("Invalid event_date".to_string()))?;
-        let start_time = data.start_time.as_ref().and_then(|s| NaiveTime::parse_from_str(s, "%H:%M").ok());
-        let end_time = data.end_time.as_ref().and_then(|s| NaiveTime::parse_from_str(s, "%H:%M").ok());
+    pub async fn events_create(
+        &self,
+        data: &CreateEvent,
+        attachment: Option<(Vec<u8>, String, String)>,
+    ) -> AppResult<Event> {
+        let event_date = NaiveDate::parse_from_str(&data.event_date, "%Y-%m-%d")
+            .map_err(|_| AppError::Validation("Invalid event_date".to_string()))?;
+        let start_time = data
+            .start_time
+            .as_ref()
+            .and_then(|s| NaiveTime::parse_from_str(s, "%H:%M").ok());
+        let end_time = data
+            .end_time
+            .as_ref()
+            .and_then(|s| NaiveTime::parse_from_str(s, "%H:%M").ok());
 
         let (att_data, att_name, att_mime) = match attachment {
             Some((b, n, m)) => (Some(b), Some(n), Some(m)),
@@ -222,12 +300,26 @@ impl Repository {
         add_f!(data.description, "description");
         add_f!(data.notes, "notes");
 
-        let query = format!("UPDATE events SET {} WHERE id = {} RETURNING {}", sets.join(", "), id, EVENT_COLUMNS);
+        let query = format!(
+            "UPDATE events SET {} WHERE id = {} RETURNING {}",
+            sets.join(", "),
+            id,
+            EVENT_COLUMNS
+        );
 
         // Parse special types
-        let event_date = data.event_date.as_ref().and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
-        let start_time = data.start_time.as_ref().and_then(|s| NaiveTime::parse_from_str(s, "%H:%M").ok());
-        let end_time = data.end_time.as_ref().and_then(|s| NaiveTime::parse_from_str(s, "%H:%M").ok());
+        let event_date = data
+            .event_date
+            .as_ref()
+            .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+        let start_time = data
+            .start_time
+            .as_ref()
+            .and_then(|s| NaiveTime::parse_from_str(s, "%H:%M").ok());
+        let end_time = data
+            .end_time
+            .as_ref()
+            .and_then(|s| NaiveTime::parse_from_str(s, "%H:%M").ok());
 
         let mut builder = sqlx::query_as::<_, Event>(&query).bind(now);
 
@@ -261,20 +353,29 @@ impl Repository {
         bind_f!(data.description);
         bind_f!(data.notes);
 
-        builder.fetch_optional(&self.pool).await?.ok_or_else(|| AppError::NotFound(format!("Event {} not found", id)))
+        builder
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Event {} not found", id)))
     }
 
     /// Set the announcement_sent_at timestamp on an event
     #[tracing::instrument(skip(self), err)]
     pub async fn events_set_announcement_sent_at(&self, id: i64) -> AppResult<()> {
-        sqlx::query("UPDATE events SET announcement_sent_at = NOW() WHERE id = $1").bind(id).execute(&self.pool).await?;
+        sqlx::query("UPDATE events SET announcement_sent_at = NOW() WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
     /// Delete an event
     #[tracing::instrument(skip(self), err)]
     pub async fn events_delete(&self, id: i64) -> AppResult<()> {
-        let result = sqlx::query("DELETE FROM events WHERE id = $1").bind(id).execute(&self.pool).await?;
+        let result = sqlx::query("DELETE FROM events WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
         if result.rows_affected() == 0 {
             return Err(AppError::NotFound(format!("Event {} not found", id)));
         }
@@ -283,7 +384,13 @@ impl Repository {
 
     /// Replace the event attachment (binary stored in-database).
     #[tracing::instrument(skip(self, data), err)]
-    pub async fn events_put_attachment(&self, id: i64, data: &[u8], filename: &str, mime_type: &str) -> AppResult<Event> {
+    pub async fn events_put_attachment(
+        &self,
+        id: i64,
+        data: &[u8],
+        filename: &str,
+        mime_type: &str,
+    ) -> AppResult<Event> {
         let sql = format!(
             r#"
             UPDATE events SET
@@ -330,7 +437,10 @@ impl Repository {
 
     /// Load raw attachment bytes and metadata when present.
     #[tracing::instrument(skip(self), err)]
-    pub async fn events_get_attachment_blob(&self, id: i64) -> AppResult<Option<(Vec<u8>, String, String)>> {
+    pub async fn events_get_attachment_blob(
+        &self,
+        id: i64,
+    ) -> AppResult<Option<(Vec<u8>, String, String)>> {
         let row = sqlx::query(
             r#"
             SELECT attachment_data, attachment_filename, attachment_mime_type

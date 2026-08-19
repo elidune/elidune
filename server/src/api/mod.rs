@@ -61,8 +61,14 @@ where
     type Rejection = std::convert::Infallible;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        let peer = parts.extensions.get::<ConnectInfo<SocketAddr>>().map(|c| c.0);
-        Ok(ClientIp(crate::services::audit::resolve_client_ip(&parts.headers, peer)))
+        let peer = parts
+            .extensions
+            .get::<ConnectInfo<SocketAddr>>()
+            .map(|c| c.0);
+        Ok(ClientIp(crate::services::audit::resolve_client_ip(
+            &parts.headers,
+            peer,
+        )))
     }
 }
 
@@ -83,11 +89,16 @@ where
     type Rejection = AppError;
 
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
-        let bytes = axum::body::Bytes::from_request(req, state).await.map_err(|e| AppError::BadRequest(e.to_string()))?;
+        let bytes = axum::body::Bytes::from_request(req, state)
+            .await
+            .map_err(|e| AppError::BadRequest(e.to_string()))?;
 
-        let value: T = serde_json::from_slice(&bytes).map_err(|e| AppError::Validation(format!("Invalid JSON body: {e}")))?;
+        let value: T = serde_json::from_slice(&bytes)
+            .map_err(|e| AppError::Validation(format!("Invalid JSON body: {e}")))?;
 
-        value.validate().map_err(|e| AppError::Validation(e.to_string()))?;
+        value
+            .validate()
+            .map_err(|e| AppError::Validation(e.to_string()))?;
 
         Ok(Self(value))
     }
@@ -105,7 +116,10 @@ pub struct AdminUser(pub UserClaims);
 impl FromRequestParts<AppState> for AdminUser {
     type Rejection = AppError;
 
-    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
         let AuthenticatedUser(claims) = AuthenticatedUser::from_request_parts(parts, state).await?;
         if !claims.is_admin() {
             return Err(AppError::Authorization("Admin access required".to_string()));
@@ -122,7 +136,10 @@ pub struct StaffUser(pub UserClaims);
 impl FromRequestParts<AppState> for StaffUser {
     type Rejection = AppError;
 
-    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
         let AuthenticatedUser(claims) = AuthenticatedUser::from_request_parts(parts, state).await?;
         if !claims.is_admin() && !claims.is_librarian() {
             return Err(AppError::Authorization("Staff access required".to_string()));
@@ -144,16 +161,23 @@ fn parse_bearer_token(parts: &Parts, secret: &str) -> Result<UserClaims, AppErro
         .ok_or_else(|| AppError::Authentication("Missing authorization header".to_string()))?;
 
     if !auth_header.starts_with("Bearer ") {
-        return Err(AppError::Authentication("Invalid authorization header format".to_string()));
+        return Err(AppError::Authentication(
+            "Invalid authorization header format".to_string(),
+        ));
     }
 
-    UserClaims::from_token(&auth_header[7..], secret).map_err(|e| AppError::Authentication(e.to_string()))
+    UserClaims::from_token(&auth_header[7..], secret)
+        .map_err(|e| AppError::Authentication(e.to_string()))
 }
 
 /// Parse JWT and ensure `token_version` matches the database (revoked sessions rejected).
 async fn extract_claims(parts: &Parts, state: &AppState) -> Result<UserClaims, AppError> {
     let claims = parse_bearer_token(parts, &state.config.users.jwt_secret)?;
-    let stored_version = state.services.users.get_token_version(claims.user_id).await?;
+    let stored_version = state
+        .services
+        .users
+        .get_token_version(claims.user_id)
+        .await?;
     claims.check_token_version(stored_version)?;
     Ok(claims)
 }
@@ -168,11 +192,16 @@ pub struct AuthenticatedUser(pub UserClaims);
 impl FromRequestParts<AppState> for AuthenticatedUser {
     type Rejection = AppError;
 
-    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
         let claims = extract_claims(parts, state).await?;
 
         if claims.is_password_change_scope() {
-            return Err(AppError::Authorization("Password change required before accessing this endpoint".to_string()));
+            return Err(AppError::Authorization(
+                "Password change required before accessing this endpoint".to_string(),
+            ));
         }
 
         Ok(AuthenticatedUser(claims))
@@ -188,11 +217,16 @@ pub struct PasswordChangeUser(pub UserClaims);
 impl FromRequestParts<AppState> for PasswordChangeUser {
     type Rejection = AppError;
 
-    async fn from_request_parts(parts: &mut Parts, state: &AppState) -> Result<Self, Self::Rejection> {
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
         let claims = extract_claims(parts, state).await?;
 
         if claims.scope.as_deref() != Some(SCOPE_CHANGE_PASSWORD) {
-            return Err(AppError::Authorization("This endpoint requires a password-change token".to_string()));
+            return Err(AppError::Authorization(
+                "This endpoint requires a password-change token".to_string(),
+            ));
         }
 
         Ok(PasswordChangeUser(claims))

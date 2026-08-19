@@ -59,7 +59,12 @@ fn language_chain(lang: Option<Language>) -> Vec<&'static str> {
 
 /// Load template for given id and language from the DB, with cascade `lang → french → english`.
 /// Falls back to the on-disk JSON file (same cascade) if no DB row matches.
-pub async fn load_template_async(pool: &Pool<Postgres>, templates_dir: &Path, template_id: &str, lang: Option<Language>) -> AppResult<EmailTemplate> {
+pub async fn load_template_async(
+    pool: &Pool<Postgres>,
+    templates_dir: &Path,
+    template_id: &str,
+    lang: Option<Language>,
+) -> AppResult<EmailTemplate> {
     let candidates = language_chain(lang);
 
     for lang_key in &candidates {
@@ -74,12 +79,20 @@ pub async fn load_template_async(pool: &Pool<Postgres>, templates_dir: &Path, te
         }
     }
 
-    Err(AppError::Internal(format!("No template found for {} (tried languages: {})", template_id, candidates.join(", "))))
+    Err(AppError::Internal(format!(
+        "No template found for {} (tried languages: {})",
+        template_id,
+        candidates.join(", ")
+    )))
 }
 
 /// Synchronous on-disk loader kept for callers that do not (yet) own a DB pool.
 /// Newer code should prefer [`load_template_async`].
-pub fn load_template(templates_dir: &Path, template_id: &str, lang: Option<Language>) -> AppResult<EmailTemplate> {
+pub fn load_template(
+    templates_dir: &Path,
+    template_id: &str,
+    lang: Option<Language>,
+) -> AppResult<EmailTemplate> {
     let candidates = language_chain(lang);
 
     for lang_key in &candidates {
@@ -88,10 +101,18 @@ pub fn load_template(templates_dir: &Path, template_id: &str, lang: Option<Langu
         }
     }
 
-    Err(AppError::Internal(format!("No template found for {} (tried languages: {})", template_id, candidates.join(", "))))
+    Err(AppError::Internal(format!(
+        "No template found for {} (tried languages: {})",
+        template_id,
+        candidates.join(", ")
+    )))
 }
 
-async fn load_from_db(pool: &Pool<Postgres>, template_id: &str, language: &str) -> AppResult<Option<EmailTemplate>> {
+async fn load_from_db(
+    pool: &Pool<Postgres>,
+    template_id: &str,
+    language: &str,
+) -> AppResult<Option<EmailTemplate>> {
     let repo = Repository::new(pool.clone(), None);
     let row = repo.email_templates_get(template_id, language).await?;
     Ok(row.map(|r| EmailTemplate {
@@ -101,13 +122,19 @@ async fn load_from_db(pool: &Pool<Postgres>, template_id: &str, language: &str) 
     }))
 }
 
-fn load_from_file(templates_dir: &Path, template_id: &str, language: &str) -> AppResult<Option<RawTemplate>> {
+fn load_from_file(
+    templates_dir: &Path,
+    template_id: &str,
+    language: &str,
+) -> AppResult<Option<RawTemplate>> {
     let path: PathBuf = templates_dir.join(format!("{}.{}.json", template_id, language));
     if !path.exists() {
         return Ok(None);
     }
-    let content = std::fs::read_to_string(&path).map_err(|e| AppError::Internal(format!("Failed to read template {:?}: {}", path, e)))?;
-    let raw: RawTemplate = serde_json::from_str(&content).map_err(|e| AppError::Internal(format!("Invalid template {:?}: {}", path, e)))?;
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| AppError::Internal(format!("Failed to read template {:?}: {}", path, e)))?;
+    let raw: RawTemplate = serde_json::from_str(&content)
+        .map_err(|e| AppError::Internal(format!("Invalid template {:?}: {}", path, e)))?;
     Ok(Some(raw))
 }
 
@@ -128,7 +155,12 @@ pub fn substitute(template: &EmailTemplate, vars: &[(&str, &str)]) -> (String, S
         .body_html
         .as_ref()
         .map(|h| substitute_str(h, vars))
-        .unwrap_or_else(|| format!("<html><body><pre>{}</pre></body></html>", plain.replace('\n', "<br>")));
+        .unwrap_or_else(|| {
+            format!(
+                "<html><body><pre>{}</pre></body></html>",
+                plain.replace('\n', "<br>")
+            )
+        });
     (subj, plain, html)
 }
 
@@ -155,27 +187,49 @@ pub async fn bootstrap_from_files(pool: &Pool<Postgres>, templates_dir: &Path) -
     for template_id in KNOWN_TEMPLATE_IDS {
         for language in SUPPORTED_LANGUAGES {
             // check if the template already exists in the database, if so, skip it
-            if repo.email_templates_get(template_id, language).await?.is_some() {
+            if repo
+                .email_templates_get(template_id, language)
+                .await?
+                .is_some()
+            {
                 continue;
             }
 
             match load_from_file(templates_dir, template_id, language)? {
                 Some(raw) => {
-                    repo.email_templates_upsert(template_id, language, raw.name.trim(), &raw.subject, &raw.body_plain, raw.body_html.as_deref())
-                        .await?;
+                    repo.email_templates_upsert(
+                        template_id,
+                        language,
+                        raw.name.trim(),
+                        &raw.subject,
+                        &raw.body_plain,
+                        raw.body_html.as_deref(),
+                    )
+                    .await?;
                     inserted += 1;
                 }
                 None => {
-                    tracing::debug!("Email template bootstrap: no file for {}.{}.json — skipped", template_id, language);
+                    tracing::debug!(
+                        "Email template bootstrap: no file for {}.{}.json — skipped",
+                        template_id,
+                        language
+                    );
                 }
             }
         }
     }
 
     if inserted == 0 {
-        tracing::warn!("Email template bootstrap: no JSON files found under {:?}; the table stays empty", templates_dir);
+        tracing::warn!(
+            "Email template bootstrap: no JSON files found under {:?}; the table stays empty",
+            templates_dir
+        );
     } else {
-        tracing::info!("Email template bootstrap: seeded {} rows from {:?}", inserted, templates_dir);
+        tracing::info!(
+            "Email template bootstrap: seeded {} rows from {:?}",
+            inserted,
+            templates_dir
+        );
     }
 
     Ok(inserted)

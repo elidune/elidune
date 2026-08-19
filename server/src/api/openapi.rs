@@ -6,8 +6,10 @@ use utoipa::{Modify, OpenApi};
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::api::{
-    account_types, admin_config, audit, auth, biblios, collections, email_templates, equipment, events, first_setup, health, holds, inventory, items, library_info, loans, maintenance, metrics, opac,
-    public_types, schedules, series, sources, stats, tasks, users, visitor_counts, z3950,
+    account_types, admin_config, audit, auth, biblios, collections, email_templates, equipment,
+    events, first_setup, health, holds, inventory, items, library_info, loans, maintenance,
+    metrics, opac, public_types, schedules, series, sources, stats, tasks, users, visitor_counts,
+    z3950,
 };
 
 #[derive(OpenApi)]
@@ -467,7 +469,10 @@ impl Modify for SecurityAddon {
                     HttpBuilder::new()
                         .scheme(HttpAuthScheme::Bearer)
                         .bearer_format("JWT")
-                        .description(Some("Bearer authentication using JWT. Use 'Authorization: Bearer <token>'".to_string()))
+                        .description(Some(
+                            "Bearer authentication using JWT. Use 'Authorization: Bearer <token>'"
+                                .to_string(),
+                        ))
                         .build(),
                 ),
             );
@@ -477,7 +482,8 @@ impl Modify for SecurityAddon {
 
 /// Create the OpenAPI documentation router
 pub fn create_openapi_router() -> Router {
-    Router::new().merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+    Router::new()
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
 }
 
 #[cfg(test)]

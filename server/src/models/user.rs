@@ -51,7 +51,9 @@ impl From<char> for Rights {
 
 impl From<Option<String>> for Rights {
     fn from(s: Option<String>) -> Self {
-        s.and_then(|s| s.chars().next()).map(Rights::from).unwrap_or(Rights::None)
+        s.and_then(|s| s.chars().next())
+            .map(Rights::from)
+            .unwrap_or(Rights::None)
     }
 }
 
@@ -197,7 +199,8 @@ impl From<String> for FeeSlug {
 
 impl From<Option<String>> for FeeSlug {
     fn from(s: Option<String>) -> Self {
-        s.map(|s| s.parse().unwrap_or_else(|_| FeeSlug::Free)).unwrap_or(FeeSlug::Free)
+        s.map(|s| s.parse().unwrap_or_else(|_| FeeSlug::Free))
+            .unwrap_or(FeeSlug::Free)
     }
 }
 
@@ -460,7 +463,9 @@ impl From<UserShortRow> for UserShort {
             id: row.id,
             firstname: row.firstname,
             lastname: row.lastname,
-            account_type: row.account_type.map(|s| s.parse().unwrap_or(AccountTypeSlug::Guest)),
+            account_type: row
+                .account_type
+                .map(|s| s.parse().unwrap_or(AccountTypeSlug::Guest)),
             public_type: row.public_type,
             nb_loans: row.nb_loans,
             nb_late_loans: row.nb_late_loans,
@@ -549,17 +554,29 @@ pub struct UserPayload {
 impl UserPayload {
     /// Validates required patron identity fields for admin create and full user update.
     pub fn validate_required_patron_fields(&self) -> Result<(), AppError> {
-        let login = self.login.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        let login = self
+            .login
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
         if login.is_none() {
             return Err(AppError::Validation("login is required".into()));
         }
 
-        let firstname = self.firstname.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        let firstname = self
+            .firstname
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
         if firstname.is_none() {
             return Err(AppError::Validation("firstname is required".into()));
         }
 
-        let lastname = self.lastname.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        let lastname = self
+            .lastname
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
         if lastname.is_none() {
             return Err(AppError::Validation("lastname is required".into()));
         }
@@ -576,7 +593,11 @@ impl UserPayload {
             return Err(AppError::Validation("publicType is required".into()));
         }
 
-        let city = self.addr_city.as_deref().map(str::trim).filter(|s| !s.is_empty());
+        let city = self
+            .addr_city
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty());
         if city.is_none() {
             return Err(AppError::Validation("addrCity is required".into()));
         }
@@ -699,20 +720,30 @@ impl UserClaims {
     /// Create a new JWT token (HS256 only).
     pub fn create_token(&self, secret: &str) -> Result<String, jsonwebtoken::errors::Error> {
         use jsonwebtoken::{encode, EncodingKey};
-        encode(&Self::hs256_header(), self, &EncodingKey::from_secret(secret.as_bytes()))
+        encode(
+            &Self::hs256_header(),
+            self,
+            &EncodingKey::from_secret(secret.as_bytes()),
+        )
     }
 
     /// Parse JWT token (HS256 only).
     pub fn from_token(token: &str, secret: &str) -> Result<Self, jsonwebtoken::errors::Error> {
         use jsonwebtoken::{decode, DecodingKey};
-        let token_data = decode::<Self>(token, &DecodingKey::from_secret(secret.as_bytes()), &Self::hs256_validation())?;
+        let token_data = decode::<Self>(
+            token,
+            &DecodingKey::from_secret(secret.as_bytes()),
+            &Self::hs256_validation(),
+        )?;
         Ok(token_data.claims)
     }
 
     /// Reject tokens issued before the user's current `token_version` (session revocation).
     pub fn check_token_version(&self, current: i64) -> Result<(), AppError> {
         if self.token_version != current {
-            return Err(AppError::Authentication("Token has been revoked".to_string()));
+            return Err(AppError::Authentication(
+                "Token has been revoked".to_string(),
+            ));
         }
         Ok(())
     }
@@ -722,7 +753,9 @@ impl UserClaims {
         if self.rights.items_rights.rank() >= Rights::Read.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization("Insufficient rights to read items".to_string()))
+            Err(AppError::Authorization(
+                "Insufficient rights to read items".to_string(),
+            ))
         }
     }
 
@@ -730,7 +763,9 @@ impl UserClaims {
         if self.rights.items_rights.rank() >= Rights::Write.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization("Insufficient rights to write items".to_string()))
+            Err(AppError::Authorization(
+                "Insufficient rights to write items".to_string(),
+            ))
         }
     }
 
@@ -738,7 +773,9 @@ impl UserClaims {
         if self.rights.users_rights.rank() >= Rights::Read.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization("Insufficient rights to read users".to_string()))
+            Err(AppError::Authorization(
+                "Insufficient rights to read users".to_string(),
+            ))
         }
     }
 
@@ -746,7 +783,9 @@ impl UserClaims {
         if self.rights.users_rights.rank() >= Rights::Write.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization("Insufficient rights to write users".to_string()))
+            Err(AppError::Authorization(
+                "Insufficient rights to write users".to_string(),
+            ))
         }
     }
 
@@ -754,7 +793,9 @@ impl UserClaims {
         if self.rights.items_rights.rank() >= Rights::Read.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization("Insufficient rights to read catalog".to_string()))
+            Err(AppError::Authorization(
+                "Insufficient rights to read catalog".to_string(),
+            ))
         }
     }
 
@@ -763,7 +804,9 @@ impl UserClaims {
         if self.rights.holds_rights.rank() >= Rights::Write.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization("Insufficient rights for circulation/hold management".to_string()))
+            Err(AppError::Authorization(
+                "Insufficient rights for circulation/hold management".to_string(),
+            ))
         }
     }
 
@@ -772,7 +815,9 @@ impl UserClaims {
         if self.rights.holds_rights.rank() >= Rights::Read.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization("Insufficient rights to view hold queues".to_string()))
+            Err(AppError::Authorization(
+                "Insufficient rights to view hold queues".to_string(),
+            ))
         }
     }
 
@@ -780,7 +825,9 @@ impl UserClaims {
         if self.rights.loans_rights.rank() >= Rights::Read.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization("Insufficient rights to read loans".to_string()))
+            Err(AppError::Authorization(
+                "Insufficient rights to read loans".to_string(),
+            ))
         }
     }
 
@@ -788,7 +835,9 @@ impl UserClaims {
         if self.rights.loans_rights.rank() >= Rights::Write.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization("Insufficient rights to write loans".to_string()))
+            Err(AppError::Authorization(
+                "Insufficient rights to write loans".to_string(),
+            ))
         }
     }
 
@@ -796,7 +845,9 @@ impl UserClaims {
         if self.rights.settings_rights.rank() >= Rights::Read.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization("Insufficient rights to read settings".to_string()))
+            Err(AppError::Authorization(
+                "Insufficient rights to read settings".to_string(),
+            ))
         }
     }
 
@@ -804,7 +855,9 @@ impl UserClaims {
         if self.rights.settings_rights.rank() >= Rights::Write.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization("Insufficient rights to write settings".to_string()))
+            Err(AppError::Authorization(
+                "Insufficient rights to write settings".to_string(),
+            ))
         }
     }
 
@@ -812,7 +865,9 @@ impl UserClaims {
         if self.rights.events_rights.rank() >= Rights::Read.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization("Insufficient rights to read events".to_string()))
+            Err(AppError::Authorization(
+                "Insufficient rights to read events".to_string(),
+            ))
         }
     }
 
@@ -820,31 +875,45 @@ impl UserClaims {
         if self.rights.events_rights.rank() >= Rights::Write.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization("Insufficient rights to manage events".to_string()))
+            Err(AppError::Authorization(
+                "Insufficient rights to manage events".to_string(),
+            ))
         }
     }
 
     pub fn require_list_holds(&self) -> Result<(), AppError> {
-        if self.rights.holds_rights.rank() >= Rights::Read.rank() || self.rights.holds_rights == Rights::Own {
+        if self.rights.holds_rights.rank() >= Rights::Read.rank()
+            || self.rights.holds_rights == Rights::Own
+        {
             Ok(())
         } else {
-            Err(AppError::Authorization("Insufficient rights to list holds".into()))
+            Err(AppError::Authorization(
+                "Insufficient rights to list holds".into(),
+            ))
         }
     }
 
     pub fn require_create_hold(&self) -> Result<(), AppError> {
-        if self.rights.holds_rights.rank() >= Rights::Write.rank() || self.rights.holds_rights == Rights::Own {
+        if self.rights.holds_rights.rank() >= Rights::Write.rank()
+            || self.rights.holds_rights == Rights::Own
+        {
             Ok(())
         } else {
-            Err(AppError::Authorization("Insufficient rights to place a hold".into()))
+            Err(AppError::Authorization(
+                "Insufficient rights to place a hold".into(),
+            ))
         }
     }
 
     pub fn require_cancel_hold(&self) -> Result<(), AppError> {
-        if self.rights.holds_rights.rank() >= Rights::Write.rank() || self.rights.holds_rights == Rights::Own {
+        if self.rights.holds_rights.rank() >= Rights::Write.rank()
+            || self.rights.holds_rights == Rights::Own
+        {
             Ok(())
         } else {
-            Err(AppError::Authorization("Insufficient rights to cancel a hold".into()))
+            Err(AppError::Authorization(
+                "Insufficient rights to cancel a hold".into(),
+            ))
         }
     }
 
@@ -855,7 +924,10 @@ impl UserClaims {
 
     /// Check if user is librarian or admin
     pub fn is_librarian(&self) -> bool {
-        matches!(self.account_type, AccountTypeSlug::Librarian | AccountTypeSlug::Admin)
+        matches!(
+            self.account_type,
+            AccountTypeSlug::Librarian | AccountTypeSlug::Admin
+        )
     }
 
     /// Require admin privileges
@@ -863,7 +935,9 @@ impl UserClaims {
         if self.is_admin() {
             Ok(())
         } else {
-            Err(AppError::Authorization("Administrator privileges required".to_string()))
+            Err(AppError::Authorization(
+                "Administrator privileges required".to_string(),
+            ))
         }
     }
 

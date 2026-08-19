@@ -41,24 +41,35 @@ impl RuntimeSettingsRepository for Repository {
 impl Repository {
     /// Load all key/value rows from `settings` for merging into file config at startup.
     pub async fn settings_load_overrides(&self) -> AppResult<Vec<(String, serde_json::Value)>> {
-        let rows = sqlx::query_as::<_, (String, serde_json::Value)>("SELECT key, value FROM settings").fetch_all(&self.pool).await?;
+        let rows =
+            sqlx::query_as::<_, (String, serde_json::Value)>("SELECT key, value FROM settings")
+                .fetch_all(&self.pool)
+                .await?;
         Ok(rows)
     }
 
     /// Number of rows in `settings` (runtime config overrides).
     pub async fn settings_count(&self) -> AppResult<i64> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM settings").fetch_one(&self.pool).await?;
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM settings")
+            .fetch_one(&self.pool)
+            .await?;
         Ok(count)
     }
 
     /// Keys currently present in `settings` (overridden sections).
     pub async fn settings_list_keys(&self) -> AppResult<Vec<String>> {
-        let rows = sqlx::query_scalar::<_, String>("SELECT key FROM settings").fetch_all(&self.pool).await?;
+        let rows = sqlx::query_scalar::<_, String>("SELECT key FROM settings")
+            .fetch_all(&self.pool)
+            .await?;
         Ok(rows)
     }
 
     /// Upsert a JSON section in `settings`.
-    pub async fn settings_upsert_section(&self, key: &str, value: &serde_json::Value) -> AppResult<()> {
+    pub async fn settings_upsert_section(
+        &self,
+        key: &str,
+        value: &serde_json::Value,
+    ) -> AppResult<()> {
         sqlx::query(
             r#"
             INSERT INTO settings (key, value, updated_at)
@@ -75,7 +86,10 @@ impl Repository {
 
     /// Remove a section override from `settings`.
     pub async fn settings_delete_key(&self, key: &str) -> AppResult<()> {
-        sqlx::query("DELETE FROM settings WHERE key = $1").bind(key).execute(&self.pool).await?;
+        sqlx::query("DELETE FROM settings WHERE key = $1")
+            .bind(key)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 }

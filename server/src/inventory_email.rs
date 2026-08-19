@@ -31,7 +31,10 @@ pub async fn send_loan_closure_notifications(
         let to = match first.user_email.as_deref().map(str::trim) {
             Some(e) if !e.is_empty() => e,
             _ => {
-                tracing::debug!(user_id, "No email — skipping inventory loan closure notification");
+                tracing::debug!(
+                    user_id,
+                    "No email — skipping inventory loan closure notification"
+                );
                 continue;
             }
         };
@@ -40,9 +43,19 @@ pub async fn send_loan_closure_notifications(
         let lastname = first.user_lastname.clone().unwrap_or_default();
         let lang = first.user_language.as_deref().map(Language::from);
 
-        let items_list = user_rows.iter().map(|r| format_item_line(r)).collect::<Vec<_>>().join("\n");
+        let items_list = user_rows
+            .iter()
+            .map(|r| format_item_line(r))
+            .collect::<Vec<_>>()
+            .join("\n");
 
-        let items_list_html = format!("<ul>{}</ul>", user_rows.iter().map(|r| format!("<li>{}</li>", html_escape(&format_item_line(r)))).collect::<String>());
+        let items_list_html = format!(
+            "<ul>{}</ul>",
+            user_rows
+                .iter()
+                .map(|r| format!("<li>{}</li>", html_escape(&format_item_line(r))))
+                .collect::<String>()
+        );
 
         match email_svc.load_template("inventory_loan_closed", lang).await {
             Ok(template) => {
@@ -53,8 +66,12 @@ pub async fn send_loan_closure_notifications(
                     ("items_list", items_list.as_str()),
                     ("items_list_html", items_list_html.as_str()),
                 ];
-                let (subject, body_plain, body_html) = email_templates::substitute(&template, &vars);
-                match email_svc.enqueue(to, &subject, &body_plain, &body_html).await {
+                let (subject, body_plain, body_html) =
+                    email_templates::substitute(&template, &vars);
+                match email_svc
+                    .enqueue(to, &subject, &body_plain, &body_html)
+                    .await
+                {
                     Ok(outbox_id) => {
                         sent += 1;
                         let loan_ids: Vec<i64> = user_rows.iter().map(|r| r.loan_id).collect();
@@ -132,5 +149,8 @@ fn format_item_line(row: &InventoryLoanClosureRow) -> String {
 }
 
 fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }

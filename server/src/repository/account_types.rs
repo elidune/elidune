@@ -13,7 +13,11 @@ use crate::{
 pub trait AccountTypesCatalogRepository: Send + Sync {
     async fn account_types_list(&self) -> AppResult<Vec<AccountTypeDefinition>>;
     async fn account_types_get_by_code(&self, code: &str) -> AppResult<AccountTypeDefinition>;
-    async fn account_types_update(&self, code: &str, data: &UpdateAccountTypeDefinition) -> AppResult<AccountTypeDefinition>;
+    async fn account_types_update(
+        &self,
+        code: &str,
+        data: &UpdateAccountTypeDefinition,
+    ) -> AppResult<AccountTypeDefinition>;
 }
 
 #[async_trait]
@@ -24,7 +28,11 @@ impl AccountTypesCatalogRepository for Repository {
     async fn account_types_get_by_code(&self, code: &str) -> AppResult<AccountTypeDefinition> {
         Repository::account_types_get_by_code(self, code).await
     }
-    async fn account_types_update(&self, code: &str, data: &UpdateAccountTypeDefinition) -> AppResult<AccountTypeDefinition> {
+    async fn account_types_update(
+        &self,
+        code: &str,
+        data: &UpdateAccountTypeDefinition,
+    ) -> AppResult<AccountTypeDefinition> {
         Repository::account_types_update(self, code, data).await
     }
 }
@@ -60,7 +68,11 @@ impl Repository {
     }
 
     /// Apply a partial update; at least one column must be set by the caller.
-    pub async fn account_types_update(&self, code: &str, data: &UpdateAccountTypeDefinition) -> AppResult<AccountTypeDefinition> {
+    pub async fn account_types_update(
+        &self,
+        code: &str,
+        data: &UpdateAccountTypeDefinition,
+    ) -> AppResult<AccountTypeDefinition> {
         let mut sets = Vec::new();
         let mut idx: usize = 1;
 
@@ -114,6 +126,8 @@ impl Repository {
 
         b = b.bind(code);
 
-        b.fetch_optional(&self.pool).await?.ok_or_else(|| AppError::NotFound(format!("Account type '{code}' not found")))
+        b.fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Account type '{code}' not found")))
     }
 }

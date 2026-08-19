@@ -47,7 +47,12 @@ pub struct Z3950Service {
 }
 
 impl Z3950Service {
-    pub fn new(repository: Repository, catalog: CatalogService, redis: RedisService, cache_ttl_seconds: u64) -> Self {
+    pub fn new(
+        repository: Repository,
+        catalog: CatalogService,
+        redis: RedisService,
+        cache_ttl_seconds: u64,
+    ) -> Self {
         Self {
             repository,
             catalog,
@@ -62,11 +67,16 @@ impl Z3950Service {
         tracing::info!("Z39.50 search started");
         tracing::debug!("Search params - query: {}", query.query);
 
-        let server_rows = self.repository.z3950_servers_list_active_for_search(query.server_id).await?;
+        let server_rows = self
+            .repository
+            .z3950_servers_list_active_for_search(query.server_id)
+            .await?;
 
         if server_rows.is_empty() {
             tracing::warn!("No active Z39.50 servers found in database");
-            return Err(AppError::Z3950("No active Z39.50 servers configured".to_string()));
+            return Err(AppError::Z3950(
+                "No active Z39.50 servers configured".to_string(),
+            ));
         }
 
         let servers: Vec<Z3950Server> = server_rows
@@ -83,7 +93,11 @@ impl Z3950Service {
             })
             .collect();
 
-        tracing::info!("Found {} active Z39.50 servers: {:?}", servers.len(), servers.iter().map(|s| &s.name).collect::<Vec<_>>());
+        tracing::info!(
+            "Found {} active Z39.50 servers: {:?}",
+            servers.len(),
+            servers.iter().map(|s| &s.name).collect::<Vec<_>>()
+        );
 
         // Build PQF query string
         let max_results = query.max_results.unwrap_or(50) as usize;
@@ -94,7 +108,12 @@ impl Z3950Service {
 
         // Query each server
         for (idx, server) in servers.iter().enumerate() {
-            tracing::info!("Querying server {}/{}: {}", idx + 1, servers.len(), server.name);
+            tracing::info!(
+                "Querying server {}/{}: {}",
+                idx + 1,
+                servers.len(),
+                server.name
+            );
 
             match self.query_server(server, &query).await {
                 Ok(records) => {
@@ -127,16 +146,27 @@ impl Z3950Service {
 
             // Stop if we have enough results
             if all_biblios.len() >= max_results {
-                tracing::debug!("Reached max results ({}), stopping server queries", max_results);
+                tracing::debug!(
+                    "Reached max results ({}), stopping server queries",
+                    max_results
+                );
                 break;
             }
         }
 
         let search_elapsed = search_start.elapsed();
-        tracing::info!("Z39.50 live search completed in {:?}, found {} biblios", search_elapsed, all_biblios.len());
+        tracing::info!(
+            "Z39.50 live search completed in {:?}, found {} biblios",
+            search_elapsed,
+            all_biblios.len()
+        );
 
         let total = all_biblios.len() as i32;
-        let source = if sources.is_empty() { "cache".to_string() } else { sources.join(", ") };
+        let source = if sources.is_empty() {
+            "cache".to_string()
+        } else {
+            sources.join(", ")
+        };
 
         tracing::info!("Z39.50 search complete: {} results from {}", total, source);
         Ok((all_biblios, total, source))
@@ -145,8 +175,13 @@ impl Z3950Service {
     /// Load one **active** Z39.50 server by id (same filter as search).
     #[tracing::instrument(skip(self), err)]
     pub async fn load_active_server(&self, server_id: i64) -> AppResult<Z3950Server> {
-        let rows = self.repository.z3950_servers_list_active_for_search(Some(server_id)).await?;
-        let row = rows.into_iter().next().ok_or_else(|| AppError::NotFound("Z39.50 server not found or not active".to_string()))?;
+        let rows = self
+            .repository
+            .z3950_servers_list_active_for_search(Some(server_id))
+            .await?;
+        let row = rows.into_iter().next().ok_or_else(|| {
+            AppError::NotFound("Z39.50 server not found or not active".to_string())
+        })?;
         Ok(Z3950Server {
             id: row.id,
             name: row.name.unwrap_or_default(),
@@ -165,17 +200,20 @@ impl Z3950Service {
         let addr = format!("{}:{}", server.address, server.port);
         tracing::debug!("Z39.50 connect: {} (database: {})", addr, server.database);
 
-        let credentials = if let (Some(ref login), Some(ref password)) = (&server.login, &server.password) {
-            Some((login.as_str(), password.expose_secret().as_str()))
-        } else {
-            None
-        };
+        let credentials =
+            if let (Some(ref login), Some(ref password)) = (&server.login, &server.password) {
+                Some((login.as_str(), password.expose_secret().as_str()))
+            } else {
+                None
+            };
 
         let client = if let Some((login, password)) = credentials {
-            Client::connect_with_credentials(&addr, Some((login, password))).await.map_err(|e| {
-                tracing::warn!("Failed to connect to Z39.50 server {}: {}", server.name, e);
-                AppError::Z3950(format!("Failed to connect to Z39.50 server: {}", e))
-            })?
+            Client::connect_with_credentials(&addr, Some((login, password)))
+                .await
+                .map_err(|e| {
+                    tracing::warn!("Failed to connect to Z39.50 server {}: {}", server.name, e);
+                    AppError::Z3950(format!("Failed to connect to Z39.50 server: {}", e))
+                })?
         } else {
             Client::connect(&addr).await.map_err(|e| {
                 tracing::warn!("Failed to connect to Z39.50 server {}: {}", server.name, e);
@@ -188,17 +226,34 @@ impl Z3950Service {
 
     /// CQL search + MARC present on an **existing** connection. Does **not** close the client.
     #[tracing::instrument(skip(client, query), fields(server = %server.name))]
-    pub async fn query(client: &mut Client, server: &Z3950Server, query: &Z3950SearchQuery) -> AppResult<Vec<MarcRecord>> {
+    pub async fn query(
+        client: &mut Client,
+        server: &Z3950Server,
+        query: &Z3950SearchQuery,
+    ) -> AppResult<Vec<MarcRecord>> {
         tracing::debug!("Z39.50 query: {:?}", query);
 
-        let databases = if server.database.is_empty() { &["default" as &str] } else { &[server.database.as_str()] };
+        let databases = if server.database.is_empty() {
+            &["default" as &str]
+        } else {
+            &[server.database.as_str()]
+        };
 
-        let search_response = client.search(databases, QueryLanguage::CQL(query.query.clone())).await.map_err(|e| {
-            tracing::warn!("Z39.50 search failed on {}: {}", server.name, e);
-            AppError::Z3950(format!("Z39.50 search failed: {}", e))
-        })?;
+        let search_response = client
+            .search(databases, QueryLanguage::CQL(query.query.clone()))
+            .await
+            .map_err(|e| {
+                tracing::warn!("Z39.50 search failed on {}: {}", server.name, e);
+                AppError::Z3950(format!("Z39.50 search failed: {}", e))
+            })?;
 
-        let hits = usize::try_from(&search_response.result_count).unwrap_or_else(|_| search_response.result_count.to_string().parse::<usize>().unwrap_or(0));
+        let hits = usize::try_from(&search_response.result_count).unwrap_or_else(|_| {
+            search_response
+                .result_count
+                .to_string()
+                .parse::<usize>()
+                .unwrap_or(0)
+        });
         tracing::debug!("Z39.50 search returned {} hits on {}", hits, server.name);
 
         if hits == 0 {
@@ -211,12 +266,20 @@ impl Z3950Service {
             AppError::Z3950(format!("Z39.50 present failed: {}", e))
         })?;
 
-        tracing::info!("z3950-rs returned {} MARC records from {}", records.len(), server.name);
+        tracing::info!(
+            "z3950-rs returned {} MARC records from {}",
+            records.len(),
+            server.name
+        );
         Ok(records)
     }
 
     /// Connect, search, present, then close — convenience for one-shot calls.
-    pub(crate) async fn query_server(&self, server: &Z3950Server, query: &Z3950SearchQuery) -> AppResult<Vec<MarcRecord>> {
+    pub(crate) async fn query_server(
+        &self,
+        server: &Z3950Server,
+        query: &Z3950SearchQuery,
+    ) -> AppResult<Vec<MarcRecord>> {
         tracing::info!("Z39.50 search starting on server: {}", server.name);
         let mut client = Self::connect_server(server).await?;
         let out = Self::query(&mut client, server, query).await;
@@ -232,7 +295,8 @@ impl Z3950Service {
     /// Upsert a MARC record in Redis cache and return ItemRemoteShort
     async fn upsert_cache_record(&self, record: &MarcRecord) -> AppResult<String> {
         // Serialize to JSON and store in Redis
-        let json_str = serde_json::to_string(&record).map_err(|e| AppError::Internal(format!("Failed to serialize item to JSON: {}", e)))?;
+        let json_str = serde_json::to_string(&record)
+            .map_err(|e| AppError::Internal(format!("Failed to serialize item to JSON: {}", e)))?;
 
         let mut conn = self.redis.get_connection().await?;
 
@@ -247,7 +311,11 @@ impl Z3950Service {
             .await
             .map_err(|e| AppError::Internal(format!("Failed to store item in Redis: {}", e)))?;
 
-        tracing::debug!("Cached item in Redis with key: {}, TTL: {}s", id, self.cache_ttl_seconds);
+        tracing::debug!(
+            "Cached item in Redis with key: {}, TTL: {}s",
+            id,
+            self.cache_ttl_seconds
+        );
 
         // Convert to ItemRemoteShort (return string key for API)
         Ok(id.to_string())
@@ -258,17 +326,33 @@ impl Z3950Service {
     /// Import a record from Z39.50 cache into local catalog.
     /// Applies ISBN deduplication via CatalogService::create_biblio; then creates physical items when action is Created.
     #[tracing::instrument(skip(self), err)]
-    pub async fn import_record(&self, biblio_id: i64, items: Option<Vec<ImportItem>>, confirm_replace_existing_id: Option<i64>) -> AppResult<(Biblio, ImportReport)> {
+    pub async fn import_record(
+        &self,
+        biblio_id: i64,
+        items: Option<Vec<ImportItem>>,
+        confirm_replace_existing_id: Option<i64>,
+    ) -> AppResult<(Biblio, ImportReport)> {
         let mut conn = self.redis.get_connection().await?;
 
         let redis_key = Self::get_redis_key(&biblio_id);
-        let json_str: Option<String> = conn.get(&redis_key).await.map_err(|e| AppError::Internal(format!("Failed to get biblio from Redis: {}", e)))?;
+        let json_str: Option<String> = conn
+            .get(&redis_key)
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to get biblio from Redis: {}", e)))?;
 
-        let marc_record: MarcRecord = serde_json::from_str(&json_str.ok_or_else(|| AppError::NotFound("Remote biblio not found in cache".to_string()))?)
-            .map_err(|e| AppError::Internal(format!("Failed to deserialize biblio from Redis: {}", e)))?;
+        let marc_record: MarcRecord =
+            serde_json::from_str(&json_str.ok_or_else(|| {
+                AppError::NotFound("Remote biblio not found in cache".to_string())
+            })?)
+            .map_err(|e| {
+                AppError::Internal(format!("Failed to deserialize biblio from Redis: {}", e))
+            })?;
 
         let biblio: Biblio = marc_record.into();
-        let (mut biblio, report) = self.catalog.create_biblio(biblio, false, confirm_replace_existing_id).await?;
+        let (mut biblio, report) = self
+            .catalog
+            .create_biblio(biblio, false, confirm_replace_existing_id)
+            .await?;
 
         if let (Some(items_list), Some(created_biblio_id)) = (items, biblio.id) {
             for s in items_list {
@@ -302,7 +386,10 @@ impl Z3950Service {
     }
 
     /// Staff UI: upsert Z39.50 servers (id &gt; 0 update, id == 0 insert).
-    pub async fn update_servers_for_settings(&self, servers: Vec<Z3950ServerConfig>) -> AppResult<Vec<Z3950ServerConfig>> {
+    pub async fn update_servers_for_settings(
+        &self,
+        servers: Vec<Z3950ServerConfig>,
+    ) -> AppResult<Vec<Z3950ServerConfig>> {
         for server in servers {
             let password = optional_exposed_string(&server.password);
             if server.id > 0 {

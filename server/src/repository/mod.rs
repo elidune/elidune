@@ -69,7 +69,10 @@ impl Repository {
     /// Create a new repository with the given database pool.
     /// Pass `dynamic_config` so hold pickup windows follow TOML / DB settings.
     pub fn new(pool: Pool<Postgres>, dynamic_config: Option<Arc<DynamicConfig>>) -> Self {
-        Self { pool, dynamic_config }
+        Self {
+            pool,
+            dynamic_config,
+        }
     }
 
     /// Days until a `ready` hold expires (`expires_at`), from config or default **7** when no dynamic config.
