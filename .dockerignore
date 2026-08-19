@@ -1,0 +1,27 @@
+# Git
+.git
+.gitignore
+
+# Rust build artifacts
+server/target/
+
+# UI build artifacts and dependencies
+ui/node_modules/
+ui/dist/
+ui/.next/
+
+# Local / dev overrides
+**/.env
+**/.env.local
+*.sql.gz
+*.tar.gz
+exports/
+
+# IDE and tooling
+.claude/
+.cursor/
+.vscode/
+
+# Test and coverage output
+**/lcov.info
+**/coverage/

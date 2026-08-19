@@ -1,7 +1,5 @@
-# API-only image: build from repository context (unlike Dockerfile.all-in-one, which clones from GitHub).
-# Toolchain matches all-in-one: rust:1.90-bookworm + same build deps.
-#
-# Config: mount `config/default.toml` or rely on baked-in defaults; `ELIDUNE_*` env vars override TOML (see src/config.rs).
+# API-only image — build from monorepo root: docker build -f docker/Dockerfile .
+# Toolchain: rust:1.90-bookworm. Config via mounted TOML or ELIDUNE_* env vars (see server/src/config.rs).
 
 FROM rust:1.90-bookworm AS builder
 
@@ -13,7 +11,7 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-COPY Cargo.toml ./
+COPY server/Cargo.toml ./
 
 # Cache dependency build
 RUN mkdir src && \
@@ -21,16 +19,14 @@ RUN mkdir src && \
     cargo build --release && \
     rm -rf src
 
-# Application source
-COPY src ./src
-COPY migrations ./migrations
-COPY config ./config
-COPY data ./data
+COPY server/src ./src
+COPY server/migrations ./migrations
+COPY server/config ./config
+COPY server/data ./data
 
 RUN touch src/main.rs && \
     cargo build --release
 
-# Runtime
 FROM debian:bookworm-slim
 
 WORKDIR /app

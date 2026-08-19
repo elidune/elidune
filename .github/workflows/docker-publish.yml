@@ -1,12 +1,19 @@
-# Publishes:
-# - API-only image (docker/Dockerfile) → ghcr.io/elidune/elidune-server
-# - All-in-one image (docker/Dockerfile.all-in-one) → ghcr.io/elidune/elidune-all-in-one
+# Publishes Docker images from the monorepo root:
+# - API-only (docker/Dockerfile) → ghcr.io/elidune/elidune-server
+# - UI (docker/Dockerfile.ui) → ghcr.io/elidune/elidune-ui
+# - All-in-one (docker/Dockerfile.all-in-one) → ghcr.io/elidune/elidune-all-in-one
 name: Build & Push Docker Image
 
 on:
   push:
     branches:
       - main
+    paths:
+      - 'server/**'
+      - 'ui/**'
+      - 'docker/**'
+      - '.dockerignore'
+      - '.github/workflows/docker-publish.yml'
 
 env:
   REGISTRY: ghcr.io
@@ -18,9 +25,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - dockerfile: ./docker/Dockerfile
+          - dockerfile: docker/Dockerfile
             image: ghcr.io/elidune/elidune-server
-          - dockerfile: ./docker/Dockerfile.all-in-one
+          - dockerfile: docker/Dockerfile.ui
+            image: ghcr.io/elidune/elidune-ui
+          - dockerfile: docker/Dockerfile.all-in-one
             image: ghcr.io/elidune/elidune-all-in-one
     permissions:
       contents: read

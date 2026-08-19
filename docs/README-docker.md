@@ -23,19 +23,19 @@ This guide covers deploying Elidune with **Docker Compose** using either a **mul
 
 | | `docker/docker-compose.yml` | `docker/docker-compose.all-in-one.yml` |
 |---|-----------------------------|------------------------------------------|
-| **Layout** | One container per concern: API app, PostgreSQL, Redis, Meilisearch (optional `pgadmin` via profile `tools`). | Single container: PostgreSQL, Redis, Meilisearch, API, and Nginx (GUI) via Supervisor. |
-| **Image** | Default: **build** from `docker/Dockerfile` as `elidune-server:local`. Alternatively set **`ELIDUNE_IMAGE`** to `ghcr.io/elidune/elidune-server` ([built on GitHub](#images-built-on-github)) and use `up --no-build` after `pull`. | Uses **`ELIDUNE_IMAGE`** (default `elidune-all-in-one:latest`). **Recommended:** pull [from GHCR](#images-built-on-github). |
-| **Ports (defaults)** | API `8080`→host `API_PORT` or `8080`; DB `5432`; Redis `6379`; Meilisearch `7700`. | Maps host ports to PostgreSQL, Redis, Meilisearch, API (`8282`→8080), GUI (`8181`→80). |
+| **Layout** | UI (nginx) + API + PostgreSQL + Redis + Meilisearch. | Single container: PostgreSQL, Redis, Meilisearch, API, and Nginx (GUI) via Supervisor. |
+| **Image** | Builds `elidune-ui` and `elidune-server` from the monorepo root, or pull from GHCR. | Builds or pulls `elidune-all-in-one`. |
+| **Ports (defaults)** | GUI `80`; API `8080`; DB `5432`; Redis `6379`; Meilisearch `7700`. | Maps host ports to PostgreSQL, Redis, Meilisearch, API (`8282`→8080), GUI (`8181`→80). |
 | **Best for** | Development, scaling or swapping components, or when you already run an external database. | Simple installs on one host, demos, or minimal moving parts. |
 
 From the **repository root** (where this file lives), use:
 
 ```bash
-# Multi-service stack
-docker compose -f docker/docker-compose.yml up -d
+# Multi-service stack (UI + API + data stores)
+docker compose -f docker/docker-compose.yml up --build -d
 
 # All-in-one
-docker compose -f docker/docker-compose.all-in-one.yml up -d
+docker compose -f docker/docker-compose.all-in-one.yml up --build -d
 ```
 
 (`docker-compose` with a hyphen also works if your installation provides it.)
@@ -44,11 +44,12 @@ docker compose -f docker/docker-compose.all-in-one.yml up -d
 
 ## Images built on GitHub
 
-On every push to `main`, **GitHub Actions** (`.github/workflows/docker-publish.yml`) builds and pushes both images to [GHCR](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry):
+On every push to `main`, **GitHub Actions** (`.github/workflows/docker-publish.yml`) builds and pushes images to [GHCR](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry):
 
 | Image | Dockerfile | Example tag |
 |-------|------------|-------------|
 | `ghcr.io/elidune/elidune-server` | `docker/Dockerfile` | `:latest`, `:<git-sha>` |
+| `ghcr.io/elidune/elidune-ui` | `docker/Dockerfile.ui` | `:latest`, `:<git-sha>` |
 | `ghcr.io/elidune/elidune-all-in-one` | `docker/Dockerfile.all-in-one` | `:latest`, `:<git-sha>` |
 
 **All-in-one** — set the image and pull:
@@ -80,10 +81,10 @@ Docker Compose automatically reads a file named **`.env`** in the **current work
 **Recommended layout**
 
 ```
-/path/to/elidune-server-rust/    # repo root; run compose from here
-├── .env                            # created from docker/.env.example (all-in-one)
+/path/to/elidune/                  # monorepo root; run compose from here
+├── .env                           # created from docker/.env.example (all-in-one)
 └── docker/
-    ├── .env.example                # template for docker-compose.all-in-one.yml
+    ├── .env.example
     ├── docker-compose.yml
     └── docker-compose.all-in-one.yml
 ```
@@ -91,7 +92,7 @@ Docker Compose automatically reads a file named **`.env`** in the **current work
 For the **all-in-one** stack, start from the template:
 
 ```bash
-cd /path/to/elidune-server-rust
+cd /path/to/elidune
 cp docker/.env.example .env
 # edit .env: set ELIDUNE_USERS__JWT_SECRET, ELIDUNE_MEILISEARCH__API_KEY, and optional SMTP
 ```
@@ -103,7 +104,7 @@ docker compose --env-file docker/.env.example -f docker/docker-compose.all-in-on
 docker compose --env-file docker/.env -f docker/docker-compose.all-in-one.yml up -d
 ```
 
-**Application settings (`ELIDUNE_*`)** — The server loads `config/default.toml` inside the image, then **environment variables** override that config. Naming follows the `ELIDUNE_` prefix and nested sections use double underscores, matching `src/config.rs` (e.g. `ELIDUNE_SERVER__PORT`, `ELIDUNE_USERS__JWT_SECRET`, `ELIDUNE_DATABASE__URL`).
+**Application settings (`ELIDUNE_*`)** — The server loads `config/default.toml` inside the image, then **environment variables** override that config. Naming follows the `ELIDUNE_` prefix and nested sections use double underscores, matching `server/src/config.rs` (e.g. `ELIDUNE_SERVER__PORT`, `ELIDUNE_USERS__JWT_SECRET`, `ELIDUNE_DATABASE__URL`).
 
 **Do not set empty values** for optional settings: empty strings can break deserialization. Omit the variable to use the default from the compose file or TOML.
 

@@ -3,7 +3,6 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Info, ArrowLeft, Code2, Bug, Shield, User, ExternalLink, Package } from 'lucide-react';
 import { Card } from '@/components/common';
-import { useLibrary } from '@/contexts/LibraryContext';
 import api from '@/services/api';
 import { version as uiVersion, author as devAuthor, email as devEmail, license as uiLicense, bugs as bugsUrl } from '../../package.json';
 
@@ -69,7 +68,7 @@ function DepList({ deps, loading, error }: { deps: GithubDep[]; loading: boolean
 }
 
 export default function AboutPage() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const navigate = useNavigate();
 
 

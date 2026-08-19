@@ -823,18 +823,19 @@ export default function StatsPage() {
                       borderRadius: '0.5rem',
                     }}
                     labelFormatter={(label) => {
+                      const labelStr = String(label ?? '');
                       const interval = statsParams?.interval || 'day';
                       
                       // Handle ISO week format (YYYY-Www)
-                      if (interval === 'week' && /^\d{4}-W\d{2}$/.test(label)) {
-                        const [year, week] = label.split('-W');
+                      if (interval === 'week' && /^\d{4}-W\d{2}$/.test(labelStr)) {
+                        const [year, week] = labelStr.split('-W');
                         return t('stats.weekFormat', { year, week });
                       }
                       
                       // Try to parse as date
-                      const date = new Date(label);
+                      const date = new Date(labelStr);
                       if (isNaN(date.getTime())) {
-                        return label;
+                        return labelStr;
                       }
                       
                       return date.toLocaleDateString(i18n.language, {

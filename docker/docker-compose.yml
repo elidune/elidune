@@ -1,5 +1,6 @@
-# Stack: API + PostgreSQL + Redis + Meilisearch (see Dockerfile in this folder).
-# Config: `ELIDUNE_*` overrides TOML — see src/config.rs. Optional: `env_file: [.env]`.
+# Stack: UI + API + PostgreSQL + Redis + Meilisearch.
+# Build from monorepo root: docker compose -f docker/docker-compose.yml up --build
+# Config: `ELIDUNE_*` overrides TOML — see server/src/config.rs. Optional: `env_file: [.env]`.
 #
 # Optional (set in `.env`; do not set empty values — breaks deserialization):
 #   ELIDUNE_SERVER__CORS_ORIGINS — JSON array
@@ -7,9 +8,27 @@
 #
 
 services:
+  ui:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ui
+    image: ${ELIDUNE_UI_IMAGE:-elidune-ui:latest}
+    pull_policy: build
+    restart: unless-stopped
+    ports:
+      - "${GUI_PORT:-80}:80"
+    depends_on:
+      elidnune-server:
+        condition: service_started
+    networks:
+      - elidune-network
+
   elidnune-server:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
     image: ${ELIDUNE_IMAGE:-elidune-server:latest}
-    pull_policy: always
+    pull_policy: build
     restart: unless-stopped
     networks:
       - elidune-network

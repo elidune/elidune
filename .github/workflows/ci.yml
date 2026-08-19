@@ -1,0 +1,287 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      server: ${{ steps.filter.outputs.server }}
+      ui: ${{ steps.filter.outputs.ui }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            server:
+              - 'server/**'
+              - '.github/workflows/ci.yml'
+            ui:
+              - 'ui/**'
+              - '.github/workflows/ci.yml'
+
+  # -------------------------------------------------------------------------
+  # Server: formatting, clippy, OpenAPI (no DB required)
+  # -------------------------------------------------------------------------
+  lint-server:
+    name: Server Lint & Format
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.server == 'true' || github.event_name == 'pull_request'
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable with rustfmt + clippy
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            server/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('server/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: Verify OpenAPI schema compiles
+        run: cargo test --lib api::openapi::tests::openapi_schema_compiles -- --exact
+
+  test-fast:
+    name: Server Unit Tests (lib)
+    runs-on: ubuntu-latest
+    needs: [changes, lint-server]
+    if: needs.changes.outputs.server == 'true' || github.event_name == 'pull_request'
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            server/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('server/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Run library unit tests
+        run: cargo test --lib -- --nocapture
+
+  test-db:
+    name: Server Integration Tests (DB)
+    runs-on: ubuntu-latest
+    needs: [changes, lint-server, test-fast]
+    if: needs.changes.outputs.server == 'true' || github.event_name == 'pull_request'
+    defaults:
+      run:
+        working-directory: server
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: elidune
+          POSTGRES_PASSWORD: elidune
+          POSTGRES_DB: elidune_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://elidune:elidune@localhost:5432/elidune_test
+      REDIS_URL: redis://localhost:6379
+      CI: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli --no-default-features --features rustls,postgres
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            server/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('server/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Run database migrations
+        run: sqlx migrate run
+
+      - name: Generate SQLx offline query cache
+        run: cargo sqlx prepare -- --lib
+
+      - name: Verify offline SQLx build
+        env:
+          SQLX_OFFLINE: true
+        run: cargo check --lib
+
+      - name: Run DB integration tests
+        run: >-
+          cargo test
+          --test lms_flows
+          --test repository_loans_holds
+          --test security_rbac
+          --test email_outbox
+          -- --nocapture
+
+  coverage:
+    name: Server Coverage
+    runs-on: ubuntu-latest
+    needs: [changes, test-db]
+    if: needs.changes.outputs.server == 'true' || github.event_name == 'pull_request'
+    defaults:
+      run:
+        working-directory: server
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: elidune
+          POSTGRES_PASSWORD: elidune
+          POSTGRES_DB: elidune_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://elidune:elidune@localhost:5432/elidune_test
+      REDIS_URL: redis://localhost:6379
+      CI: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli --no-default-features --features rustls,postgres
+
+      - name: Run database migrations
+        run: sqlx migrate run
+
+      - name: Coverage report (lib + integration)
+        run: >-
+          cargo llvm-cov
+          --lib
+          --test lms_flows
+          --test repository_loans_holds
+          --test security_rbac
+          --test email_outbox
+          --lcov
+          --output-path lcov.info
+          --fail-under-lines 20
+          --ignore-fail
+
+  lint-ui:
+    name: UI Lint
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.ui == 'true' || github.event_name == 'pull_request'
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+
+  build-ui:
+    name: UI Build
+    runs-on: ubuntu-latest
+    needs: [changes, lint-ui]
+    if: needs.changes.outputs.ui == 'true' || github.event_name == 'pull_request'
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build

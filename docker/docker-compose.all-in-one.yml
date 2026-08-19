@@ -1,5 +1,5 @@
 # All-in-one image: PostgreSQL, Redis, Meilisearch, API, Nginx (see Dockerfile.all-in-one).
-# Config: `ELIDUNE_*` env vars (prefix ELIDUNE, nested keys use __) override TOML — see src/config.rs.
+# Config: `ELIDUNE_*` env vars (prefix ELIDUNE, nested keys use __) override TOML — see server/src/config.rs.
 #
 # Optional overrides (set in `.env`; do not set empty values — breaks deserialization):
 #   ELIDUNE_SERVER__CORS_ORIGINS — JSON array, e.g. ["https://app.example.com"]
@@ -8,8 +8,11 @@
 
 services:
   elidune-all-in-one:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.all-in-one
     image: ${ELIDUNE_IMAGE:-elidune-all-in-one:latest}
-    pull_policy: always
+    pull_policy: build
     container_name: elidune-all-in-one
     ports:
       - "${POSTGRES_PORT:-5433}:5432"

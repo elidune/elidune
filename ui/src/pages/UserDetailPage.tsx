@@ -694,13 +694,14 @@ export default function UserDetailPage() {
                     borderRadius: '0.5rem',
                   }}
                   labelFormatter={(label) => {
+                    const labelStr = String(label ?? '');
                     const interval = userStatsFilters?.interval || 'month';
-                    if (interval === 'week' && /^\d{4}-W\d{2}$/.test(label)) {
-                      const [year, week] = label.split('-W');
+                    if (interval === 'week' && /^\d{4}-W\d{2}$/.test(labelStr)) {
+                      const [year, week] = labelStr.split('-W');
                       return t('stats.weekFormat', { year, week });
                     }
-                    const date = new Date(label);
-                    if (isNaN(date.getTime())) return label;
+                    const date = new Date(labelStr);
+                    if (isNaN(date.getTime())) return labelStr;
                     return date.toLocaleDateString(i18n.language, {
                       weekday: interval === 'day' ? 'long' : undefined,
                       day: 'numeric',

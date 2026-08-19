@@ -25,7 +25,7 @@ export default defineConfig(async () => {
       port: 3000,
       proxy: {
         '/api': {
-          target: 'http://192.168.10.6:8080',
+          target: 'http://127.0.0.1:8080',
           changeOrigin: true,
         },
       },
