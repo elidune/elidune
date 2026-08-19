@@ -1,0 +1,30 @@
+# Rust (server/)
+server/target/
+server/Cargo.lock
+
+# UI
+ui/node_modules/
+ui/dist/
+ui/.next/
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+**/config/default.toml
+
+# IDE
+.idea/
+.vscode/
+.claude/
+.cursor/
+
+# OS & logs
+.DS_Store
+Thumbs.db
+*.log
+
+# Database dumps & exports
+*.sql.gz
+*.tar.gz
+exports/
