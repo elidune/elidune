@@ -12,8 +12,8 @@ use std::collections::HashMap;
 
 use async_trait::async_trait;
 use chrono::Utc;
-use sqlx::{FromRow, Row};
 use sqlx::types::Json;
+use sqlx::{FromRow, Row};
 
 use super::Repository;
 use crate::models::item::ItemShort;
@@ -23,8 +23,8 @@ use crate::{
     models::{
         author::Author,
         author::Function,
+        biblio::{Biblio, BiblioQuery, BiblioShort, Collection, Edition, Isbn, MediaType, MeiliBiblioDocument, Serie},
         import_report::DuplicateCandidate,
-        biblio::{Collection, Edition, Isbn, Biblio, BiblioQuery, BiblioShort, MeiliBiblioDocument, MediaType, Serie},
         item::Item,
     },
 };
@@ -65,11 +65,7 @@ pub trait BibliosRepository: Send + Sync {
     async fn biblios_get_meili_document(&self, id: i64) -> AppResult<Option<MeiliBiblioDocument>>;
     /// Fetch a page of Meilisearch documents using a keyset cursor.
     /// Returns biblios with `id > after_id`, up to `limit` rows, ordered by id.
-    async fn biblios_get_meili_documents_batch(
-        &self,
-        after_id: i64,
-        limit: i64,
-    ) -> AppResult<Vec<MeiliBiblioDocument>>;
+    async fn biblios_get_meili_documents_batch(&self, after_id: i64, limit: i64) -> AppResult<Vec<MeiliBiblioDocument>>;
     async fn biblios_get_short_by_ids_ordered(&self, ids: &[i64]) -> AppResult<Vec<BiblioShort>>;
     async fn biblios_create<'a>(&self, biblio: &'a mut Biblio) -> AppResult<&'a mut Biblio>;
     async fn biblios_update<'a>(&self, id: i64, biblio: &'a mut Biblio) -> AppResult<&'a mut Biblio>;
@@ -81,60 +77,28 @@ pub trait BibliosRepository: Send + Sync {
     async fn items_get_active_by_id(&self, item_id: i64) -> AppResult<Item>;
     /// Active (non-archived) item by barcode (exact match).
     async fn items_get_active_by_barcode(&self, barcode: &str) -> AppResult<Item>;
-    async fn biblios_get_items_short_by_biblio_ids(
-        &self,
-        biblio_ids: &[i64],
-    ) -> AppResult<HashMap<i64, Vec<ItemShort>>>;
+    async fn biblios_get_items_short_by_biblio_ids(&self, biblio_ids: &[i64]) -> AppResult<HashMap<i64, Vec<ItemShort>>>;
     async fn biblios_create_item(&self, biblio_id: i64, item: &Item) -> AppResult<Item>;
     async fn upsert_item<'a>(&self, item: &'a mut Item) -> AppResult<&'a mut Item>;
     async fn items_update<'a>(&self, item: &'a mut Item) -> AppResult<&'a mut Item>;
     async fn items_delete(&self, id: i64, force: bool) -> AppResult<()>;
-    async fn items_barcode_exists(
-        &self,
-        barcode: &str,
-        exclude_item_id: Option<i64>,
-    ) -> AppResult<bool>;
+    async fn items_barcode_exists(&self, barcode: &str, exclude_item_id: Option<i64>) -> AppResult<bool>;
     async fn items_get_by_barcode(&self, barcode: &str) -> AppResult<Option<(i64, bool)>>;
-    async fn items_reactivate(
-        &self,
-        item_id: i64,
-        biblio_id: i64,
-        item: &Item,
-    ) -> AppResult<Item>;
-    async fn biblios_find_active_by_isbn(
-        &self,
-        isbn: &str,
-        exclude_id: Option<i64>,
-    ) -> AppResult<Option<i64>>;
-    async fn items_find_short_by_barcode(
-        &self,
-        barcode: &str,
-        exclude_item_id: Option<i64>,
-    ) -> AppResult<Option<ItemShort>>;
+    async fn items_reactivate(&self, item_id: i64, biblio_id: i64, item: &Item) -> AppResult<Item>;
+    async fn biblios_find_active_by_isbn(&self, isbn: &str, exclude_id: Option<i64>) -> AppResult<Option<i64>>;
+    async fn items_find_short_by_barcode(&self, barcode: &str, exclude_item_id: Option<i64>) -> AppResult<Option<ItemShort>>;
     async fn biblios_find_by_isbn_for_import(&self, isbn: &str) -> AppResult<Option<DuplicateCandidate>>;
     async fn biblios_update_marc_record(&self, biblio: &mut Biblio) -> AppResult<()>;
     async fn biblios_isbn_exists(&self, isbn: &str, exclude_id: Option<i64>) -> AppResult<bool>;
     async fn biblios_count_items_for_source(&self, source_id: i64) -> AppResult<i64>;
-    async fn biblios_reassign_items_source(
-        &self,
-        old_source_ids: &[i64],
-        new_source_id: i64,
-    ) -> AppResult<i64>;
-    async fn biblios_reassign_biblios_source(
-        &self,
-        old_source_ids: &[i64],
-        new_source_id: i64,
-    ) -> AppResult<i64>;
+    async fn biblios_reassign_items_source(&self, old_source_ids: &[i64], new_source_id: i64) -> AppResult<i64>;
+    async fn biblios_reassign_biblios_source(&self, old_source_ids: &[i64], new_source_id: i64) -> AppResult<i64>;
     /// Stored MARC JSON from `biblios.marc_record`, if non-null (notice without local items for export).
     async fn biblios_get_marc_record_optional(&self, biblio_id: i64) -> AppResult<Option<crate::marc::MarcRecord>>;
     /// Active biblios with a non-empty ISBN, optionally restricted to `marc_record IS NULL` when `force_rebuild` is false.
     async fn biblios_list_ids_for_z3950_refresh(&self, force_rebuild: bool) -> AppResult<Vec<i64>>;
     /// Replace bibliographic columns and `marc_record` (items are taken from `biblio.items` — caller must set copies to keep).
-    async fn biblios_full_bibliographic_replace<'a>(
-        &self,
-        id: i64,
-        biblio: &'a mut crate::models::biblio::Biblio,
-    ) -> AppResult<&'a mut crate::models::biblio::Biblio>;
+    async fn biblios_full_bibliographic_replace<'a>(&self, id: i64, biblio: &'a mut crate::models::biblio::Biblio) -> AppResult<&'a mut crate::models::biblio::Biblio>;
 }
 
 #[async_trait::async_trait]
@@ -238,15 +202,10 @@ impl BibliosRepository for Repository {
     async fn biblios_list_ids_for_z3950_refresh(&self, force_rebuild: bool) -> crate::error::AppResult<Vec<i64>> {
         Repository::biblios_list_ids_for_z3950_refresh(self, force_rebuild).await
     }
-    async fn biblios_full_bibliographic_replace<'a>(
-        &self,
-        id: i64,
-        biblio: &'a mut crate::models::biblio::Biblio,
-    ) -> crate::error::AppResult<&'a mut crate::models::biblio::Biblio> {
+    async fn biblios_full_bibliographic_replace<'a>(&self, id: i64, biblio: &'a mut crate::models::biblio::Biblio) -> crate::error::AppResult<&'a mut crate::models::biblio::Biblio> {
         Repository::biblios_full_bibliographic_replace(self, id, biblio).await
     }
 }
-
 
 /// Internal row type for decoding BiblioShort with JSONB author (items loaded separately).
 #[derive(FromRow)]
@@ -308,9 +267,7 @@ impl From<BiblioShortRow> for BiblioShort {
 
 /// Escape a string for use as a LIKE pattern (ESCAPE '\').
 pub(crate) fn like_escape(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
+    s.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
 }
 
 pub(crate) fn normalize_key(s: &str) -> String {

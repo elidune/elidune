@@ -203,10 +203,7 @@ impl<'r> sqlx::Decode<'r, sqlx::Postgres> for Sex {
 }
 
 impl sqlx::Encode<'_, sqlx::Postgres> for Sex {
-    fn encode_by_ref(
-        &self,
-        buf: &mut sqlx::postgres::PgArgumentBuffer,
-    ) -> sqlx::encode::IsNull {
+    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
         <&str as sqlx::Encode<sqlx::Postgres>>::encode(self.as_str(), buf)
     }
 }

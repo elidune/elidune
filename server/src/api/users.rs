@@ -15,7 +15,6 @@ use crate::{
 
 use super::{biblios::PaginatedResponse, AuthenticatedUser, ClientIp, ValidatedJson};
 
-
 /// Build the users routes for this domain.
 pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::{delete, get, put};
@@ -25,12 +24,8 @@ pub fn router() -> axum::Router<crate::AppState> {
         .route("/users/:id/account-type", put(update_account_type))
         .route("/users/:id/force-password-change", put(force_password_change))
         .route("/users/:id/loans", get(super::loans::get_user_loans))
-        .route(
-            "/users/:id/loans/export",
-            get(super::loans::export_user_loans_marc),
-        )
+        .route("/users/:id/loans/export", get(super::loans::export_user_loans_marc))
 }
-
 
 /// List users with search and pagination
 #[utoipa::path(
@@ -49,11 +44,7 @@ pub fn router() -> axum::Router<crate::AppState> {
         (status = 401, description = "Not authenticated")
     )
 )]
-pub async fn list_users(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Query(query): Query<UserQuery>,
-) -> AppResult<Json<PaginatedResponse<UserShort>>> {
+pub async fn list_users(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<UserQuery>) -> AppResult<Json<PaginatedResponse<UserShort>>> {
     claims.require_read_users()?;
 
     let (users, total) = state.services.users.search_users(&query).await?;
@@ -77,11 +68,7 @@ pub async fn list_users(
         (status = 404, description = "User not found")
     )
 )]
-pub async fn get_user(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i64>,
-) -> AppResult<Json<User>> {
+pub async fn get_user(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(id): Path<i64>) -> AppResult<Json<User>> {
     claims.require_read_users()?;
 
     let user = state.services.users.get_by_id(id).await?;
@@ -260,11 +247,7 @@ pub struct DeleteUserParams {
         (status = 401, description = "Not authenticated or wrong current password")
     )
 )]
-pub async fn update_my_profile(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    ValidatedJson(profile): ValidatedJson<UpdateProfile>,
-) -> AppResult<Json<User>> {
+pub async fn update_my_profile(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ValidatedJson(profile): ValidatedJson<UpdateProfile>) -> AppResult<Json<User>> {
     let updated = state.services.users.update_profile(claims.user_id, profile).await?;
     Ok(Json(updated))
 }
@@ -293,12 +276,7 @@ pub async fn update_account_type(
     Json(request): Json<UpdateAccountType>,
 ) -> AppResult<Json<User>> {
     claims.require_admin()?;
-    match state
-        .services
-        .users
-        .update_account_type(id, &request.account_type)
-        .await
-    {
+    match state.services.users.update_account_type(id, &request.account_type).await {
         Ok(updated) => {
             state.services.audit.log(
                 audit::event::USER_ACCOUNT_TYPE_CHANGED,
@@ -378,4 +356,3 @@ pub async fn force_password_change(
         }
     }
 }
-

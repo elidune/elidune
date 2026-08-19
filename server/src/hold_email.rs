@@ -10,12 +10,7 @@ use crate::{
 
 /// Queue a "hold ready" email for the patron via the outbox. No-op if user has no email.
 #[tracing::instrument(skip_all, fields(hold_id = hold.id, user_id = hold.user_id))]
-pub async fn send_hold_ready(
-    email_svc: &EmailService,
-    contact: Option<HoldReadyUserContact>,
-    hold: &Hold,
-    loan_details: &LoanDetails,
-) -> AppResult<()> {
+pub async fn send_hold_ready(email_svc: &EmailService, contact: Option<HoldReadyUserContact>, hold: &Hold, loan_details: &LoanDetails) -> AppResult<()> {
     let Some(row) = contact else {
         tracing::warn!(user_id = hold.user_id, "User not found for hold ready email");
         return Ok(());
@@ -34,27 +29,14 @@ pub async fn send_hold_ready(
     let lastname: String = row.lastname.clone().unwrap_or_default();
     let lang = row.language.as_deref().map(Language::from);
 
-    let title = loan_details
-        .biblio
-        .title
-        .as_deref()
-        .unwrap_or("(unknown title)");
+    let title = loan_details.biblio.title.as_deref().unwrap_or("(unknown title)");
 
-    let barcode = loan_details
-        .biblio
-        .items
-        .first()
-        .and_then(|i| i.barcode.as_deref());
+    let barcode = loan_details.biblio.items.first().and_then(|i| i.barcode.as_deref());
 
     let barcode_line = barcode.map(|b| format!("Barcode: {b}")).unwrap_or_default();
-    let barcode_line_html = barcode
-        .map(|b| format!("Barcode: <code>{b}</code>"))
-        .unwrap_or_default();
+    let barcode_line_html = barcode.map(|b| format!("Barcode: <code>{b}</code>")).unwrap_or_default();
 
-    let expires_at = hold
-        .expires_at
-        .map(|d| d.format("%d/%m/%Y %H:%M UTC").to_string())
-        .unwrap_or_else(|| "—".to_string());
+    let expires_at = hold.expires_at.map(|d| d.format("%d/%m/%Y %H:%M UTC").to_string()).unwrap_or_else(|| "—".to_string());
 
     let template = email_svc.load_template("hold_ready", lang).await?;
     let vars: Vec<(&str, &str)> = vec![
@@ -67,8 +49,5 @@ pub async fn send_hold_ready(
     ];
     let (subject, body_plain, body_html) = email_templates::substitute(&template, &vars);
 
-    email_svc
-        .enqueue(to, &subject, &body_plain, &body_html)
-        .await
-        .map(|_| ())
+    email_svc.enqueue(to, &subject, &body_plain, &body_html).await.map(|_| ())
 }

@@ -3,10 +3,11 @@
 use std::collections::HashMap;
 
 use chrono::Utc;
-use sqlx::{FromRow, Row};
 use sqlx::types::Json;
+use sqlx::{FromRow, Row};
 
 use super::super::Repository;
+use super::{like_escape, BiblioShortRow};
 use crate::models::item::ItemShort;
 use crate::{
     error::{AppError, AppResult},
@@ -14,12 +15,11 @@ use crate::{
     models::{
         author::Author,
         author::Function,
+        biblio::{Biblio, BiblioQuery, BiblioShort, Collection, Edition, Isbn, MediaType, MeiliBiblioDocument, Serie},
         import_report::DuplicateCandidate,
-        biblio::{Collection, Edition, Isbn, Biblio, BiblioQuery, BiblioShort, MeiliBiblioDocument, MediaType, Serie},
         item::Item,
     },
 };
-use super::{BiblioShortRow, like_escape};
 
 impl Repository {
     /// are handled here. When `include_without_active_items` is false/absent, only biblios
@@ -49,10 +49,7 @@ impl Repository {
         }
 
         if !query.include_without_active_items.unwrap_or(false) {
-            where_parts.push(
-                "EXISTS (SELECT 1 FROM items i WHERE i.biblio_id = b.id AND i.archived_at IS NULL)"
-                    .to_string(),
-            );
+            where_parts.push("EXISTS (SELECT 1 FROM items i WHERE i.biblio_id = b.id AND i.archived_at IS NULL)".to_string());
         }
 
         if let Some(ref mt) = query.media_type {
@@ -68,10 +65,7 @@ impl Repository {
         // barcode → item lookup
         if let Some(ref barcode) = query.barcode {
             params.push(Param::Text(barcode.clone()));
-            where_parts.push(format!(
-                "EXISTS (SELECT 1 FROM items i WHERE i.biblio_id = b.id AND i.barcode = ${})",
-                params.len()
-            ));
+            where_parts.push(format!("EXISTS (SELECT 1 FROM items i WHERE i.biblio_id = b.id AND i.barcode = ${})", params.len()));
         }
 
         if let Some(ref at) = query.audience_type {
@@ -87,17 +81,13 @@ impl Repository {
         if let Some(ref title) = query.title {
             params.push(Param::Text(format!("%{}%", like_escape(title))));
             let idx = params.len();
-            where_parts.push(format!(
-                "unaccent(lower(b.title)) LIKE unaccent(lower(${idx}))"
-            ));
+            where_parts.push(format!("unaccent(lower(b.title)) LIKE unaccent(lower(${idx}))"));
         }
 
         if let Some(ref subject) = query.subject {
             params.push(Param::Text(format!("%{}%", like_escape(subject))));
             let idx = params.len();
-            where_parts.push(format!(
-                "unaccent(lower(b.subject)) LIKE unaccent(lower(${idx}))"
-            ));
+            where_parts.push(format!("unaccent(lower(b.subject)) LIKE unaccent(lower(${idx}))"));
         }
 
         if let Some(ref kw) = query.keywords {
@@ -203,11 +193,7 @@ impl Repository {
             }
         }
 
-        let where_sql = if where_parts.is_empty() {
-            "1=1".to_string()
-        } else {
-            where_parts.join(" AND ")
-        };
+        let where_sql = if where_parts.is_empty() { "1=1".to_string() } else { where_parts.join(" AND ") };
 
         let order_sql = "b.title ASC NULLS LAST".to_string();
 
@@ -268,9 +254,7 @@ impl Repository {
             total_count: i64,
         }
 
-        let rows: Vec<BiblioShortWithCount> = sqlx::query_as_with(&sql, pg_args)
-            .fetch_all(&self.pool)
-            .await?;
+        let rows: Vec<BiblioShortWithCount> = sqlx::query_as_with(&sql, pg_args).fetch_all(&self.pool).await?;
 
         let total = rows.first().map(|r| r.total_count).unwrap_or(0);
         let biblio_ids: Vec<i64> = rows.iter().map(|r| r.id).collect();

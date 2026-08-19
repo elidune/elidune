@@ -25,41 +25,20 @@ const EVENT_COLUMNS: &str = r#"
 pub trait EventsRepository: Send + Sync {
     async fn events_list(&self, query: &EventQuery) -> AppResult<(Vec<Event>, i64)>;
     async fn events_get_by_id(&self, id: i64) -> AppResult<Event>;
-    async fn events_create(
-        &self,
-        data: &CreateEvent,
-        attachment: Option<(Vec<u8>, String, String)>,
-    ) -> AppResult<Event>;
+    async fn events_create(&self, data: &CreateEvent, attachment: Option<(Vec<u8>, String, String)>) -> AppResult<Event>;
     async fn events_update(&self, id: i64, data: &UpdateEvent) -> AppResult<Event>;
     async fn events_set_announcement_sent_at(&self, id: i64) -> AppResult<()>;
     async fn events_delete(&self, id: i64) -> AppResult<()>;
-    async fn events_put_attachment(
-        &self,
-        id: i64,
-        data: &[u8],
-        filename: &str,
-        mime_type: &str,
-    ) -> AppResult<Event>;
+    async fn events_put_attachment(&self, id: i64, data: &[u8], filename: &str, mime_type: &str) -> AppResult<Event>;
     async fn events_delete_attachment(&self, id: i64) -> AppResult<Event>;
     async fn events_get_attachment_blob(&self, id: i64) -> AppResult<Option<(Vec<u8>, String, String)>>;
     async fn events_annual_stats(&self, year: i32) -> AppResult<EventAnnualStats>;
 }
 
 /// Combined repository trait used by [`crate::services::events::EventsService`].
-pub trait EventsServiceRepository:
-    EventsRepository + crate::repository::UsersRepository + crate::repository::PublicTypesRepository + Send + Sync
-{
-}
+pub trait EventsServiceRepository: EventsRepository + crate::repository::UsersRepository + crate::repository::PublicTypesRepository + Send + Sync {}
 
-impl<
-        T: EventsRepository
-            + crate::repository::UsersRepository
-            + crate::repository::PublicTypesRepository
-            + Send
-            + Sync,
-    > EventsServiceRepository for T
-{
-}
+impl<T: EventsRepository + crate::repository::UsersRepository + crate::repository::PublicTypesRepository + Send + Sync> EventsServiceRepository for T {}
 
 #[async_trait::async_trait]
 impl EventsRepository for super::Repository {
@@ -69,11 +48,7 @@ impl EventsRepository for super::Repository {
     async fn events_get_by_id(&self, id: i64) -> crate::error::AppResult<crate::models::event::Event> {
         super::Repository::events_get_by_id(self, id).await
     }
-    async fn events_create(
-        &self,
-        data: &crate::models::event::CreateEvent,
-        attachment: Option<(Vec<u8>, String, String)>,
-    ) -> crate::error::AppResult<crate::models::event::Event> {
+    async fn events_create(&self, data: &crate::models::event::CreateEvent, attachment: Option<(Vec<u8>, String, String)>) -> crate::error::AppResult<crate::models::event::Event> {
         super::Repository::events_create(self, data, attachment).await
     }
     async fn events_update(&self, id: i64, data: &crate::models::event::UpdateEvent) -> crate::error::AppResult<crate::models::event::Event> {
@@ -85,13 +60,7 @@ impl EventsRepository for super::Repository {
     async fn events_delete(&self, id: i64) -> crate::error::AppResult<()> {
         super::Repository::events_delete(self, id).await
     }
-    async fn events_put_attachment(
-        &self,
-        id: i64,
-        data: &[u8],
-        filename: &str,
-        mime_type: &str,
-    ) -> crate::error::AppResult<crate::models::event::Event> {
+    async fn events_put_attachment(&self, id: i64, data: &[u8], filename: &str, mime_type: &str) -> crate::error::AppResult<crate::models::event::Event> {
         super::Repository::events_put_attachment(self, id, data, filename, mime_type).await
     }
     async fn events_delete_attachment(&self, id: i64) -> crate::error::AppResult<crate::models::event::Event> {
@@ -104,7 +73,6 @@ impl EventsRepository for super::Repository {
         super::Repository::events_annual_stats(self, year).await
     }
 }
-
 
 impl Repository {
     /// List events with optional filters and pagination
@@ -129,38 +97,38 @@ impl Repository {
             conditions.push(format!("event_type = ${}", idx));
         }
 
-        let where_clause = if conditions.is_empty() {
-            String::new()
-        } else {
-            format!("WHERE {}", conditions.join(" AND "))
-        };
+        let where_clause = if conditions.is_empty() { String::new() } else { format!("WHERE {}", conditions.join(" AND ")) };
 
         // Parse dates once
-        let start = query.start_date.as_ref()
-            .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
-        let end = query.end_date.as_ref()
-            .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+        let start = query.start_date.as_ref().and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+        let end = query.end_date.as_ref().and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
 
         // Count total
         let count_q = format!("SELECT COUNT(*) FROM events {}", where_clause);
         let mut count_builder = sqlx::query_scalar::<_, i64>(&count_q);
-        if let Some(sd) = start { count_builder = count_builder.bind(sd); }
-        if let Some(ed) = end { count_builder = count_builder.bind(ed); }
-        if let Some(et) = query.event_type { count_builder = count_builder.bind(et); }
+        if let Some(sd) = start {
+            count_builder = count_builder.bind(sd);
+        }
+        if let Some(ed) = end {
+            count_builder = count_builder.bind(ed);
+        }
+        if let Some(et) = query.event_type {
+            count_builder = count_builder.bind(et);
+        }
         let total = count_builder.fetch_one(&self.pool).await?;
 
         // Fetch rows
-        let select_q = format!(
-            "SELECT {} FROM events {} ORDER BY event_date DESC LIMIT {} OFFSET {}",
-            EVENT_COLUMNS,
-            where_clause,
-            per_page,
-            offset
-        );
+        let select_q = format!("SELECT {} FROM events {} ORDER BY event_date DESC LIMIT {} OFFSET {}", EVENT_COLUMNS, where_clause, per_page, offset);
         let mut builder = sqlx::query_as::<_, Event>(&select_q);
-        if let Some(sd) = start { builder = builder.bind(sd); }
-        if let Some(ed) = end { builder = builder.bind(ed); }
-        if let Some(et) = query.event_type { builder = builder.bind(et); }
+        if let Some(sd) = start {
+            builder = builder.bind(sd);
+        }
+        if let Some(ed) = end {
+            builder = builder.bind(ed);
+        }
+        if let Some(et) = query.event_type {
+            builder = builder.bind(et);
+        }
 
         let rows = builder.fetch_all(&self.pool).await?;
         Ok((rows, total))
@@ -179,17 +147,10 @@ impl Repository {
 
     /// Create an event
     #[tracing::instrument(skip(self), err)]
-    pub async fn events_create(
-        &self,
-        data: &CreateEvent,
-        attachment: Option<(Vec<u8>, String, String)>,
-    ) -> AppResult<Event> {
-        let event_date = NaiveDate::parse_from_str(&data.event_date, "%Y-%m-%d")
-            .map_err(|_| AppError::Validation("Invalid event_date".to_string()))?;
-        let start_time = data.start_time.as_ref()
-            .and_then(|s| NaiveTime::parse_from_str(s, "%H:%M").ok());
-        let end_time = data.end_time.as_ref()
-            .and_then(|s| NaiveTime::parse_from_str(s, "%H:%M").ok());
+    pub async fn events_create(&self, data: &CreateEvent, attachment: Option<(Vec<u8>, String, String)>) -> AppResult<Event> {
+        let event_date = NaiveDate::parse_from_str(&data.event_date, "%Y-%m-%d").map_err(|_| AppError::Validation("Invalid event_date".to_string()))?;
+        let start_time = data.start_time.as_ref().and_then(|s| NaiveTime::parse_from_str(s, "%H:%M").ok());
+        let end_time = data.end_time.as_ref().and_then(|s| NaiveTime::parse_from_str(s, "%H:%M").ok());
 
         let (att_data, att_name, att_mime) = match attachment {
             Some((b, n, m)) => (Some(b), Some(n), Some(m)),
@@ -210,24 +171,24 @@ impl Repository {
             EVENT_COLUMNS
         );
         let row = sqlx::query_as::<_, Event>(&sql)
-        .bind(&data.name)
-        .bind(data.event_type.unwrap_or(0))
-        .bind(event_date)
-        .bind(start_time)
-        .bind(end_time)
-        .bind(data.attendees_count)
-        .bind(data.public_type.as_ref().map(|s| s.trim()))
-        .bind(&data.school_name)
-        .bind(&data.class_name)
-        .bind(data.students_count)
-        .bind(&data.partner_name)
-        .bind(&data.description)
-        .bind(&data.notes)
-        .bind(att_data.as_deref())
-        .bind(att_name.as_ref())
-        .bind(att_mime.as_ref())
-        .fetch_one(&self.pool)
-        .await?;
+            .bind(&data.name)
+            .bind(data.event_type.unwrap_or(0))
+            .bind(event_date)
+            .bind(start_time)
+            .bind(end_time)
+            .bind(data.attendees_count)
+            .bind(data.public_type.as_ref().map(|s| s.trim()))
+            .bind(&data.school_name)
+            .bind(&data.class_name)
+            .bind(data.students_count)
+            .bind(&data.partner_name)
+            .bind(&data.description)
+            .bind(&data.notes)
+            .bind(att_data.as_deref())
+            .bind(att_name.as_ref())
+            .bind(att_mime.as_ref())
+            .fetch_one(&self.pool)
+            .await?;
         Ok(row)
     }
 
@@ -240,7 +201,10 @@ impl Repository {
 
         macro_rules! add_f {
             ($field:expr, $name:expr) => {
-                if $field.is_some() { sets.push(format!("{} = ${}", $name, idx)); idx += 1; }
+                if $field.is_some() {
+                    sets.push(format!("{} = ${}", $name, idx));
+                    idx += 1;
+                }
             };
         }
 
@@ -258,34 +222,34 @@ impl Repository {
         add_f!(data.description, "description");
         add_f!(data.notes, "notes");
 
-        let query = format!(
-            "UPDATE events SET {} WHERE id = {} RETURNING {}",
-            sets.join(", "),
-            id,
-            EVENT_COLUMNS
-        );
+        let query = format!("UPDATE events SET {} WHERE id = {} RETURNING {}", sets.join(", "), id, EVENT_COLUMNS);
 
         // Parse special types
-        let event_date = data.event_date.as_ref()
-            .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
-        let start_time = data.start_time.as_ref()
-            .and_then(|s| NaiveTime::parse_from_str(s, "%H:%M").ok());
-        let end_time = data.end_time.as_ref()
-            .and_then(|s| NaiveTime::parse_from_str(s, "%H:%M").ok());
+        let event_date = data.event_date.as_ref().and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+        let start_time = data.start_time.as_ref().and_then(|s| NaiveTime::parse_from_str(s, "%H:%M").ok());
+        let end_time = data.end_time.as_ref().and_then(|s| NaiveTime::parse_from_str(s, "%H:%M").ok());
 
         let mut builder = sqlx::query_as::<_, Event>(&query).bind(now);
 
         macro_rules! bind_f {
             ($field:expr) => {
-                if let Some(ref val) = $field { builder = builder.bind(val); }
+                if let Some(ref val) = $field {
+                    builder = builder.bind(val);
+                }
             };
         }
 
         bind_f!(data.name);
         bind_f!(data.event_type);
-        if data.event_date.is_some() { builder = builder.bind(event_date); }
-        if data.start_time.is_some() { builder = builder.bind(start_time); }
-        if data.end_time.is_some() { builder = builder.bind(end_time); }
+        if data.event_date.is_some() {
+            builder = builder.bind(event_date);
+        }
+        if data.start_time.is_some() {
+            builder = builder.bind(start_time);
+        }
+        if data.end_time.is_some() {
+            builder = builder.bind(end_time);
+        }
         bind_f!(data.attendees_count);
         if data.public_type.is_some() {
             builder = builder.bind(data.public_type.as_ref().map(|s| s.trim()));
@@ -297,29 +261,20 @@ impl Repository {
         bind_f!(data.description);
         bind_f!(data.notes);
 
-        builder
-            .fetch_optional(&self.pool)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("Event {} not found", id)))
+        builder.fetch_optional(&self.pool).await?.ok_or_else(|| AppError::NotFound(format!("Event {} not found", id)))
     }
 
     /// Set the announcement_sent_at timestamp on an event
     #[tracing::instrument(skip(self), err)]
     pub async fn events_set_announcement_sent_at(&self, id: i64) -> AppResult<()> {
-        sqlx::query("UPDATE events SET announcement_sent_at = NOW() WHERE id = $1")
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query("UPDATE events SET announcement_sent_at = NOW() WHERE id = $1").bind(id).execute(&self.pool).await?;
         Ok(())
     }
 
     /// Delete an event
     #[tracing::instrument(skip(self), err)]
     pub async fn events_delete(&self, id: i64) -> AppResult<()> {
-        let result = sqlx::query("DELETE FROM events WHERE id = $1")
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
+        let result = sqlx::query("DELETE FROM events WHERE id = $1").bind(id).execute(&self.pool).await?;
         if result.rows_affected() == 0 {
             return Err(AppError::NotFound(format!("Event {} not found", id)));
         }
@@ -328,13 +283,7 @@ impl Repository {
 
     /// Replace the event attachment (binary stored in-database).
     #[tracing::instrument(skip(self, data), err)]
-    pub async fn events_put_attachment(
-        &self,
-        id: i64,
-        data: &[u8],
-        filename: &str,
-        mime_type: &str,
-    ) -> AppResult<Event> {
+    pub async fn events_put_attachment(&self, id: i64, data: &[u8], filename: &str, mime_type: &str) -> AppResult<Event> {
         let sql = format!(
             r#"
             UPDATE events SET
@@ -401,9 +350,7 @@ impl Repository {
         let mime: Option<String> = row.try_get("attachment_mime_type")?;
 
         match (data, filename, mime) {
-            (Some(bytes), Some(fname), Some(m)) if !bytes.is_empty() => {
-                Ok(Some((bytes, fname, m)))
-            }
+            (Some(bytes), Some(fname), Some(m)) if !bytes.is_empty() => Ok(Some((bytes, fname, m))),
             _ => Ok(None),
         }
     }
@@ -422,7 +369,7 @@ impl Repository {
                 COALESCE(SUM(attendees_count), 0)::bigint as total_attendees
             FROM events
             WHERE event_date >= $1 AND event_date <= $2
-            "#
+            "#,
         )
         .bind(start)
         .bind(end)
@@ -441,7 +388,7 @@ impl Repository {
                 COALESCE(SUM(students_count), 0)::bigint as total_students
             FROM events
             WHERE event_date >= $1 AND event_date <= $2 AND event_type = 1
-            "#
+            "#,
         )
         .bind(start)
         .bind(end)
@@ -459,20 +406,21 @@ impl Repository {
             FROM events
             WHERE event_date >= $1 AND event_date <= $2
             GROUP BY event_type ORDER BY count DESC
-            "#
+            "#,
         )
         .bind(start)
         .bind(end)
         .fetch_all(&self.pool)
         .await?;
 
-        let by_type: Vec<EventTypeStats> = type_rows.iter().map(|r| {
-            EventTypeStats {
+        let by_type: Vec<EventTypeStats> = type_rows
+            .iter()
+            .map(|r| EventTypeStats {
                 event_type: sqlx::Row::get(r, "event_type"),
                 count: sqlx::Row::get(r, "count"),
                 attendees: sqlx::Row::get(r, "attendees"),
-            }
-        }).collect();
+            })
+            .collect();
 
         Ok(EventAnnualStats {
             total_events,
@@ -505,4 +453,3 @@ pub struct EventTypeStats {
     pub count: i64,
     pub attendees: i64,
 }
-

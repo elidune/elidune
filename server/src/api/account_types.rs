@@ -26,10 +26,7 @@ use super::{AuthenticatedUser, ClientIp};
         (status = 401, description = "Not authenticated", body = ErrorResponse),
     )
 )]
-pub async fn list_account_types(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(_claims): AuthenticatedUser,
-) -> AppResult<Json<Vec<AccountTypeDefinition>>> {
+pub async fn list_account_types(State(state): State<crate::AppState>, AuthenticatedUser(_claims): AuthenticatedUser) -> AppResult<Json<Vec<AccountTypeDefinition>>> {
     let rows = state.services.account_types_catalog.list().await?;
     Ok(Json(rows))
 }
@@ -47,11 +44,7 @@ pub async fn list_account_types(
         (status = 404, description = "Unknown code", body = ErrorResponse),
     )
 )]
-pub async fn get_account_type(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(_claims): AuthenticatedUser,
-    Path(code): Path<String>,
-) -> AppResult<Json<AccountTypeDefinition>> {
+pub async fn get_account_type(State(state): State<crate::AppState>, AuthenticatedUser(_claims): AuthenticatedUser, Path(code): Path<String>) -> AppResult<Json<AccountTypeDefinition>> {
     let row = state.services.account_types_catalog.get_by_code(&code).await?;
     Ok(Json(row))
 }
@@ -81,11 +74,7 @@ pub async fn update_account_type(
 ) -> AppResult<Json<AccountTypeDefinition>> {
     claims.require_admin()?;
     let before = state.services.account_types_catalog.get_by_code(&code).await?;
-    let updated = state
-        .services
-        .account_types_catalog
-        .update(&code, &mut body)
-        .await?;
+    let updated = state.services.account_types_catalog.update(&code, &mut body).await?;
 
     state.services.audit.log(
         audit::event::ACCOUNT_TYPE_UPDATED,
@@ -98,7 +87,8 @@ pub async fn update_account_type(
             "before": before,
             "after": &updated,
         })),
-     audit::AuditLogMeta::success());
+        audit::AuditLogMeta::success(),
+    );
 
     Ok(Json(updated))
 }

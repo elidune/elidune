@@ -39,10 +39,8 @@ async fn test_golden_path_loan_hold_return() {
     };
 
     let admin_token = fixtures::ensure_first_setup(&app).await;
-    let (reader_b_id, reader_b_token) =
-        fixtures::create_reader(&app, &admin_token, "readerb").await;
-    let (reader_c_id, reader_c_token) =
-        fixtures::create_reader(&app, &admin_token, "readerc").await;
+    let (reader_b_id, reader_b_token) = fixtures::create_reader(&app, &admin_token, "readerb").await;
+    let (reader_c_id, reader_c_token) = fixtures::create_reader(&app, &admin_token, "readerc").await;
 
     // Create biblio + borrowable item
     let biblio_payload = json!({
@@ -55,9 +53,7 @@ async fn test_golden_path_loan_hold_return() {
         }]
     });
 
-    let (status, body) = app
-        .post_json("/api/v1/biblios", &biblio_payload, Some(&admin_token))
-        .await;
+    let (status, body) = app.post_json("/api/v1/biblios", &biblio_payload, Some(&admin_token)).await;
     assert_eq!(status, StatusCode::CREATED, "create biblio: {body}");
     let biblio = &body["biblio"];
 
@@ -65,16 +61,12 @@ async fn test_golden_path_loan_hold_return() {
 
     // Reader C places hold (second in queue)
     let hold_c = json!({ "userId": reader_c_id.to_string(), "itemId": item_id });
-    let (hold_status, hold_body) = app
-        .post_json("/api/v1/holds", &hold_c, Some(&reader_c_token))
-        .await;
+    let (hold_status, hold_body) = app.post_json("/api/v1/holds", &hold_c, Some(&reader_c_token)).await;
     assert_eq!(hold_status, StatusCode::CREATED, "place hold C: {hold_body}");
 
     // Reader B places hold (first in queue)
     let hold_b = json!({ "userId": reader_b_id.to_string(), "itemId": item_id });
-    let (hold_b_status, hold_b_body) = app
-        .post_json("/api/v1/holds", &hold_b, Some(&reader_b_token))
-        .await;
+    let (hold_b_status, hold_b_body) = app.post_json("/api/v1/holds", &hold_b, Some(&reader_b_token)).await;
     assert_eq!(hold_b_status, StatusCode::CREATED, "place hold B: {hold_b_body}");
 
     // Checkout to reader B (should fulfill their hold)
@@ -82,19 +74,12 @@ async fn test_golden_path_loan_hold_return() {
         "userId": reader_b_id.to_string(),
         "itemId": item_id
     });
-    let (loan_status, loan_body) = app
-        .post_json("/api/v1/loans", &loan_payload, Some(&admin_token))
-        .await;
+    let (loan_status, loan_body) = app.post_json("/api/v1/loans", &loan_payload, Some(&admin_token)).await;
     assert_eq!(loan_status, StatusCode::CREATED, "checkout: {loan_body}");
 
     let loan_id = fixtures::json_id(&loan_body["id"]);
 
     // Return loan — reader C's hold should become ready
-    let (return_status, return_body) = app
-        .post_empty(
-            &format!("/api/v1/loans/{loan_id}/return"),
-            Some(&admin_token),
-        )
-        .await;
+    let (return_status, return_body) = app.post_empty(&format!("/api/v1/loans/{loan_id}/return"), Some(&admin_token)).await;
     assert_eq!(return_status, StatusCode::OK, "return: {return_body}");
 }

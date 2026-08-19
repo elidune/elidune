@@ -1,11 +1,6 @@
 //! Health check endpoints
 
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 use serde::Serialize;
 use utoipa::ToSchema;
 
@@ -39,10 +34,7 @@ pub struct HealthResponse {
 
 async fn database_connected(pool: &sqlx::PgPool) -> bool {
     // Use `execute`: `SELECT 1` is INT4 in PostgreSQL; `i8`/`query_scalar` types must match exactly.
-    sqlx::query("SELECT 1")
-        .execute(pool)
-        .await
-        .is_ok()
+    sqlx::query("SELECT 1").execute(pool).await.is_ok()
 }
 
 async fn load_setup_status(state: &crate::AppState) -> Option<HealthSetupStatus> {
@@ -57,11 +49,7 @@ async fn load_setup_status(state: &crate::AppState) -> Option<HealthSetupStatus>
     })
 }
 
-fn build_health_response(
-    status: &str,
-    db: Option<HealthDatabaseStatus>,
-    setup: Option<HealthSetupStatus>,
-) -> HealthResponse {
+fn build_health_response(status: &str, db: Option<HealthDatabaseStatus>, setup: Option<HealthSetupStatus>) -> HealthResponse {
     HealthResponse {
         status: status.to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -83,30 +71,13 @@ pub async fn health_check(State(state): State<crate::AppState>) -> Json<HealthRe
     let pool = state.services.repository.pool();
     let connected = database_connected(pool).await;
     if !connected {
-        return Json(build_health_response(
-            "degraded",
-            Some(HealthDatabaseStatus { connected: false }),
-            None,
-        ));
+        return Json(build_health_response("degraded", Some(HealthDatabaseStatus { connected: false }), None));
     }
 
     let setup = load_setup_status(&state).await;
-    let status = setup
-        .as_ref()
-        .map(|s| {
-            if s.need_first_setup {
-                "need_first_setup"
-            } else {
-                "healthy"
-            }
-        })
-        .unwrap_or("healthy");
+    let status = setup.as_ref().map(|s| if s.need_first_setup { "need_first_setup" } else { "healthy" }).unwrap_or("healthy");
 
-    Json(build_health_response(
-        status,
-        Some(HealthDatabaseStatus { connected: true }),
-        setup,
-    ))
+    Json(build_health_response(status, Some(HealthDatabaseStatus { connected: true }), setup))
 }
 
 /// Readiness — database must be reachable; HTTP 503 when not.
@@ -125,36 +96,15 @@ pub async fn readiness_check(State(state): State<crate::AppState>) -> impl IntoR
     if !connected {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
-            Json(build_health_response(
-                "not_ready",
-                Some(HealthDatabaseStatus { connected: false }),
-                None,
-            )),
+            Json(build_health_response("not_ready", Some(HealthDatabaseStatus { connected: false }), None)),
         )
             .into_response();
     }
 
     let setup = load_setup_status(&state).await;
-    let status = setup
-        .as_ref()
-        .map(|s| {
-            if s.need_first_setup {
-                "need_first_setup"
-            } else {
-                "ready"
-            }
-        })
-        .unwrap_or("ready");
+    let status = setup.as_ref().map(|s| if s.need_first_setup { "need_first_setup" } else { "ready" }).unwrap_or("ready");
 
-    (
-        StatusCode::OK,
-        Json(build_health_response(
-            status,
-            Some(HealthDatabaseStatus { connected: true }),
-            setup,
-        )),
-    )
-        .into_response()
+    (StatusCode::OK, Json(build_health_response(status, Some(HealthDatabaseStatus { connected: true }), setup))).into_response()
 }
 
 #[derive(Serialize, ToSchema)]
@@ -182,7 +132,5 @@ pub async fn version() -> Json<VersionResponse> {
 /// Build the health routes for this domain.
 pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::get;
-    axum::Router::new()
-        .route("/health", get(health_check))
-        .route("/ready", get(readiness_check))
+    axum::Router::new().route("/health", get(health_check)).route("/ready", get(readiness_check))
 }

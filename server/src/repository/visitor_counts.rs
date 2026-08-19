@@ -9,19 +9,10 @@ use crate::{
     models::visitor_count::{CreateVisitorCount, VisitorCount},
 };
 
-
 #[async_trait]
 pub trait VisitorCountsRepository: Send + Sync {
-    async fn visitor_counts_list(
-        &self,
-        start_date: Option<NaiveDate>,
-        end_date: Option<NaiveDate>,
-    ) -> AppResult<Vec<VisitorCount>>;
-    async fn visitor_counts_total(
-        &self,
-        start_date: NaiveDate,
-        end_date: NaiveDate,
-    ) -> AppResult<i64>;
+    async fn visitor_counts_list(&self, start_date: Option<NaiveDate>, end_date: Option<NaiveDate>) -> AppResult<Vec<VisitorCount>>;
+    async fn visitor_counts_total(&self, start_date: NaiveDate, end_date: NaiveDate) -> AppResult<i64>;
     async fn visitor_counts_create(&self, data: &CreateVisitorCount) -> AppResult<VisitorCount>;
     async fn visitor_counts_delete(&self, id: i64) -> AppResult<()>;
 }
@@ -42,15 +33,10 @@ impl VisitorCountsRepository for super::Repository {
     }
 }
 
-
 impl Repository {
     /// List visitor counts, optionally filtered by date range
     #[tracing::instrument(skip(self), err)]
-    pub async fn visitor_counts_list(
-        &self,
-        start_date: Option<NaiveDate>,
-        end_date: Option<NaiveDate>,
-    ) -> AppResult<Vec<VisitorCount>> {
+    pub async fn visitor_counts_list(&self, start_date: Option<NaiveDate>, end_date: Option<NaiveDate>) -> AppResult<Vec<VisitorCount>> {
         let mut conditions = Vec::new();
         let mut idx = 1;
 
@@ -62,16 +48,9 @@ impl Repository {
             conditions.push(format!("count_date <= ${}", idx));
         }
 
-        let where_clause = if conditions.is_empty() {
-            String::new()
-        } else {
-            format!("WHERE {}", conditions.join(" AND "))
-        };
+        let where_clause = if conditions.is_empty() { String::new() } else { format!("WHERE {}", conditions.join(" AND ")) };
 
-        let query = format!(
-            "SELECT * FROM visitor_counts {} ORDER BY count_date DESC",
-            where_clause
-        );
+        let query = format!("SELECT * FROM visitor_counts {} ORDER BY count_date DESC", where_clause);
 
         let mut builder = sqlx::query_as::<_, VisitorCount>(&query);
         if let Some(sd) = start_date {
@@ -87,26 +66,19 @@ impl Repository {
 
     /// Get total visitor count for a date range
     #[tracing::instrument(skip(self), err)]
-    pub async fn visitor_counts_total(
-        &self,
-        start_date: NaiveDate,
-        end_date: NaiveDate,
-    ) -> AppResult<i64> {
-        let total: i64 = sqlx::query_scalar(
-            "SELECT COALESCE(SUM(count), 0)::bigint FROM visitor_counts WHERE count_date >= $1 AND count_date <= $2"
-        )
-        .bind(start_date)
-        .bind(end_date)
-        .fetch_one(&self.pool)
-        .await?;
+    pub async fn visitor_counts_total(&self, start_date: NaiveDate, end_date: NaiveDate) -> AppResult<i64> {
+        let total: i64 = sqlx::query_scalar("SELECT COALESCE(SUM(count), 0)::bigint FROM visitor_counts WHERE count_date >= $1 AND count_date <= $2")
+            .bind(start_date)
+            .bind(end_date)
+            .fetch_one(&self.pool)
+            .await?;
         Ok(total)
     }
 
     /// Create a new visitor count record
     #[tracing::instrument(skip(self), err)]
     pub async fn visitor_counts_create(&self, data: &CreateVisitorCount) -> AppResult<VisitorCount> {
-        let count_date = NaiveDate::parse_from_str(&data.count_date, "%Y-%m-%d")
-            .map_err(|_| crate::error::AppError::Validation("Invalid count_date format".to_string()))?;
+        let count_date = NaiveDate::parse_from_str(&data.count_date, "%Y-%m-%d").map_err(|_| crate::error::AppError::Validation("Invalid count_date format".to_string()))?;
 
         let row = sqlx::query_as::<_, VisitorCount>(
             r#"
@@ -128,18 +100,11 @@ impl Repository {
     /// Delete a visitor count record
     #[tracing::instrument(skip(self), err)]
     pub async fn visitor_counts_delete(&self, id: i64) -> AppResult<()> {
-        let result = sqlx::query("DELETE FROM visitor_counts WHERE id = $1")
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
+        let result = sqlx::query("DELETE FROM visitor_counts WHERE id = $1").bind(id).execute(&self.pool).await?;
 
         if result.rows_affected() == 0 {
-            return Err(crate::error::AppError::NotFound(
-                format!("Visitor count with id {} not found", id),
-            ));
+            return Err(crate::error::AppError::NotFound(format!("Visitor count with id {} not found", id)));
         }
         Ok(())
     }
 }
-
-

@@ -10,7 +10,6 @@ use crate::{
     models::user::{AccountTypeSlug, Rights, UpdateProfile, User, UserPayload, UserQuery, UserRights, UserShort, UserStatus},
 };
 
-
 /// Minimal user info used for bulk email targeting
 #[derive(Debug, sqlx::FromRow)]
 pub struct UserEmailTarget {
@@ -42,50 +41,19 @@ pub trait UsersRepository: Send + Sync {
     async fn users_login_exists(&self, login: &str, exclude_id: Option<i64>) -> AppResult<bool>;
     async fn users_get_rights(&self, account_type: &AccountTypeSlug) -> AppResult<UserRights>;
     async fn users_search(&self, query: &UserQuery) -> AppResult<(Vec<UserShort>, i64)>;
-    async fn users_create(
-        &self,
-        user: &UserPayload,
-        password: Option<String>,
-    ) -> AppResult<User>;
-    async fn users_update(
-        &self,
-        id: i64,
-        user: &UserPayload,
-        password: Option<String>,
-    ) -> AppResult<User>;
+    async fn users_create(&self, user: &UserPayload, password: Option<String>) -> AppResult<User>;
+    async fn users_update(&self, id: i64, user: &UserPayload, password: Option<String>) -> AppResult<User>;
     async fn users_delete(&self, id: i64, force: bool) -> AppResult<()>;
     async fn users_block(&self, id: i64) -> AppResult<User>;
     async fn users_unblock(&self, id: i64) -> AppResult<User>;
-    async fn users_update_profile(
-        &self,
-        id: i64,
-        profile: &UpdateProfile,
-        password: Option<String>,
-    ) -> AppResult<User>;
-    async fn users_update_account_type(
-        &self,
-        id: i64,
-        account_type: &AccountTypeSlug,
-    ) -> AppResult<User>;
-    async fn users_update_2fa_settings(
-        &self,
-        id: i64,
-        enabled: bool,
-        method: Option<&str>,
-        totp_secret: Option<&str>,
-        recovery_codes: Option<&str>,
-    ) -> AppResult<()>;
+    async fn users_update_profile(&self, id: i64, profile: &UpdateProfile, password: Option<String>) -> AppResult<User>;
+    async fn users_update_account_type(&self, id: i64, account_type: &AccountTypeSlug) -> AppResult<User>;
+    async fn users_update_2fa_settings(&self, id: i64, enabled: bool, method: Option<&str>, totp_secret: Option<&str>, recovery_codes: Option<&str>) -> AppResult<()>;
     async fn users_mark_recovery_code_used(&self, id: i64, used_codes: &str) -> AppResult<()>;
-    async fn users_get_emails_by_public_type(
-        &self,
-        public_type: Option<i64>,
-    ) -> AppResult<Vec<UserEmailTarget>>;
+    async fn users_get_emails_by_public_type(&self, public_type: Option<i64>) -> AppResult<Vec<UserEmailTarget>>;
     async fn users_count(&self) -> AppResult<i64>;
     async fn users_set_must_change_password(&self, id: i64, value: bool) -> AppResult<()>;
-    async fn users_hold_ready_contact(
-        &self,
-        user_id: i64,
-    ) -> AppResult<Option<HoldReadyUserContact>>;
+    async fn users_hold_ready_contact(&self, user_id: i64) -> AppResult<Option<HoldReadyUserContact>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -142,14 +110,7 @@ impl UsersRepository for Repository {
     async fn users_update_account_type(&self, id: i64, account_type: &crate::models::user::AccountTypeSlug) -> crate::error::AppResult<User> {
         Repository::users_update_account_type(self, id, account_type).await
     }
-    async fn users_update_2fa_settings(
-        &self,
-        id: i64,
-        enabled: bool,
-        method: Option<&str>,
-        totp_secret: Option<&str>,
-        recovery_codes: Option<&str>,
-    ) -> crate::error::AppResult<()> {
+    async fn users_update_2fa_settings(&self, id: i64, enabled: bool, method: Option<&str>, totp_secret: Option<&str>, recovery_codes: Option<&str>) -> crate::error::AppResult<()> {
         Repository::users_update_2fa_settings(self, id, enabled, method, totp_secret, recovery_codes).await
     }
     async fn users_mark_recovery_code_used(&self, id: i64, used_codes: &str) -> crate::error::AppResult<()> {
@@ -164,15 +125,10 @@ impl UsersRepository for Repository {
     async fn users_set_must_change_password(&self, id: i64, value: bool) -> crate::error::AppResult<()> {
         Repository::users_set_must_change_password(self, id, value).await
     }
-    async fn users_hold_ready_contact(
-        &self,
-        user_id: i64,
-    ) -> crate::error::AppResult<Option<HoldReadyUserContact>> {
+    async fn users_hold_ready_contact(&self, user_id: i64) -> crate::error::AppResult<Option<HoldReadyUserContact>> {
         Repository::users_hold_ready_contact(self, user_id).await
     }
 }
-
-
 
 impl Repository {
     /// Get user by ID
@@ -227,12 +183,7 @@ impl Repository {
     /// Current JWT revocation counter for a user.
     #[tracing::instrument(skip(self), err)]
     pub async fn users_get_token_version(&self, id: i64) -> AppResult<i64> {
-        let version: Option<i64> = sqlx::query_scalar(
-            "SELECT token_version FROM users WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await?;
+        let version: Option<i64> = sqlx::query_scalar("SELECT token_version FROM users WHERE id = $1").bind(id).fetch_optional(&self.pool).await?;
 
         version.ok_or_else(|| AppError::NotFound(format!("User with id {} not found", id)))
     }
@@ -241,13 +192,11 @@ impl Repository {
     /// Also clears the must_change_password flag and bumps `token_version`.
     #[tracing::instrument(skip(self), err)]
     pub async fn users_update_password(&self, id: i64, password_hash: &str) -> AppResult<()> {
-        let result = sqlx::query(
-            "UPDATE users SET password = $1, must_change_password = FALSE, token_version = token_version + 1, update_at = NOW() WHERE id = $2"
-        )
-        .bind(password_hash)
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
+        let result = sqlx::query("UPDATE users SET password = $1, must_change_password = FALSE, token_version = token_version + 1, update_at = NOW() WHERE id = $2")
+            .bind(password_hash)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
 
         if result.rows_affected() == 0 {
             return Err(AppError::NotFound(format!("User with id {} not found", id)));
@@ -259,22 +208,18 @@ impl Repository {
     /// Count total users (used to detect first-run empty database).
     #[tracing::instrument(skip(self), err)]
     pub async fn users_count(&self) -> AppResult<i64> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-            .fetch_one(&self.pool)
-            .await?;
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users").fetch_one(&self.pool).await?;
         Ok(count)
     }
 
     /// Set or clear the must_change_password flag for a user.
     #[tracing::instrument(skip(self), err)]
     pub async fn users_set_must_change_password(&self, id: i64, value: bool) -> AppResult<()> {
-        let result = sqlx::query(
-            "UPDATE users SET must_change_password = $1, update_at = NOW() WHERE id = $2"
-        )
-        .bind(value)
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
+        let result = sqlx::query("UPDATE users SET must_change_password = $1, update_at = NOW() WHERE id = $2")
+            .bind(value)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
 
         if result.rows_affected() == 0 {
             return Err(AppError::NotFound(format!("User with id {} not found", id)));
@@ -357,11 +302,7 @@ impl Repository {
 
         if let Some(ref name) = query.name {
             params.push(format!("%{}%", name.to_lowercase()));
-            conditions.push(format!(
-                "(LOWER(firstname) LIKE ${} OR LOWER(lastname) LIKE ${})",
-                params.len(),
-                params.len()
-            ));
+            conditions.push(format!("(LOWER(firstname) LIKE ${} OR LOWER(lastname) LIKE ${})", params.len(), params.len()));
         }
 
         if let Some(ref barcode) = query.barcode {
@@ -369,11 +310,7 @@ impl Repository {
             conditions.push(format!("barcode = ${}", params.len()));
         }
 
-        let where_clause = if conditions.is_empty() {
-            String::new()
-        } else {
-            format!("WHERE {}", conditions.join(" AND "))
-        };
+        let where_clause = if conditions.is_empty() { String::new() } else { format!("WHERE {}", conditions.join(" AND ")) };
 
         // Count total
         let count_query = format!(
@@ -395,7 +332,7 @@ impl Repository {
         } else {
             " AND (u.status IS NULL OR u.status <> 'deleted')".to_string()
         };
-        
+
         use crate::models::user::UserShortRow;
         let select_query = format!(
             r#"
@@ -428,12 +365,10 @@ impl Repository {
 
         let account_type = user.account_type.as_ref().map(|at| at.as_str()).unwrap_or("guest");
         let fee = user.fee.as_ref().map(|f| f.as_str());
-        
+
         // Parse staff dates
-        let staff_start_date = user.staff_start_date.as_ref()
-            .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
-        let staff_end_date = user.staff_end_date.as_ref()
-            .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+        let staff_start_date = user.staff_start_date.as_ref().and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+        let staff_end_date = user.staff_end_date.as_ref().and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
         let hours_pw = user.hours_per_week.map(|v| v as f32);
 
         let id = sqlx::query_scalar::<_, i64>(
@@ -451,11 +386,7 @@ impl Repository {
             ) RETURNING id
             "#,
         )
-        .bind(
-            user.login
-                .as_deref()
-                .ok_or_else(|| AppError::Validation("Login is required".to_string()))?,
-        )
+        .bind(user.login.as_deref().ok_or_else(|| AppError::Validation("Login is required".to_string()))?)
         .bind(&password)
         .bind(&user.firstname)
         .bind(&user.lastname)
@@ -490,7 +421,6 @@ impl Repository {
     /// Update an existing user
     #[tracing::instrument(skip(self), err)]
     pub async fn users_update(&self, id: i64, user: &UserPayload, password: Option<String>) -> AppResult<User> {
-
         // Build dynamic update query ($1..$N consecutive; `update_at` uses NOW() in SQL, not a bind)
         let mut sets = vec![];
         let mut param_idx = 1;
@@ -503,7 +433,7 @@ impl Repository {
                 }
             };
         }
-        
+
         macro_rules! add_field_enum {
             ($field:expr, $name:expr) => {
                 if $field.is_some() {
@@ -537,7 +467,7 @@ impl Repository {
         add_field!(user.hours_per_week, "hours_per_week");
         add_field!(user.staff_start_date, "staff_start_date");
         add_field!(user.staff_end_date, "staff_end_date");
-        
+
         let bumps_token_version = password.is_some() || user.account_type.is_some();
         if password.is_some() {
             sets.push(format!("password = ${}", param_idx));
@@ -546,17 +476,11 @@ impl Repository {
             sets.push("token_version = token_version + 1".to_string());
         }
 
-        let query = format!(
-            "UPDATE users SET {}, update_at = NOW() WHERE id = {}",
-            sets.join(", "),
-            id
-        );
+        let query = format!("UPDATE users SET {}, update_at = NOW() WHERE id = {}", sets.join(", "), id);
 
         // Parse staff dates before binding
-        let staff_start_date = user.staff_start_date.as_ref()
-            .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
-        let staff_end_date = user.staff_end_date.as_ref()
-            .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+        let staff_start_date = user.staff_start_date.as_ref().and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+        let staff_end_date = user.staff_end_date.as_ref().and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
         let hours_pw = user.hours_per_week.map(|v| v as f32);
 
         let mut builder = sqlx::query(&query);
@@ -568,7 +492,7 @@ impl Repository {
                 }
             };
         }
-        
+
         macro_rules! bind_field_enum {
             ($field:expr) => {
                 if let Some(ref val) = $field {
@@ -623,9 +547,7 @@ impl Repository {
 
         if active_loans.len() > 0 {
             if !force {
-                return Err(AppError::BusinessRule(
-                    "User has active loans. Use force=true to delete anyway.".to_string()
-                ));
+                return Err(AppError::BusinessRule("User has active loans. Use force=true to delete anyway.".to_string()));
             } else {
                 for loan_id in active_loans {
                     self.loans_return(loan_id).await?;
@@ -635,10 +557,7 @@ impl Repository {
 
         // Soft-delete does not remove the `users` row, so ON DELETE CASCADE on `holds` does not run.
         let mut tx = self.pool.begin().await?;
-        sqlx::query("DELETE FROM holds WHERE user_id = $1")
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query("DELETE FROM holds WHERE user_id = $1").bind(id).execute(&mut *tx).await?;
         sqlx::query(
             r#"
             UPDATE users SET
@@ -664,11 +583,10 @@ impl Repository {
 
         Ok(())
     }
-    
+
     /// Block a user
     #[tracing::instrument(skip(self), err)]
     pub async fn users_block(&self, id: i64) -> AppResult<User> {
-
         sqlx::query("UPDATE users SET status = $1, update_at = NOW() WHERE id = $2")
             .bind(UserStatus::Blocked)
             .bind(id)
@@ -677,11 +595,10 @@ impl Repository {
 
         self.users_get_by_id(id).await
     }
-    
+
     /// Unblock a user
     #[tracing::instrument(skip(self), err)]
     pub async fn users_unblock(&self, id: i64) -> AppResult<User> {
-
         sqlx::query("UPDATE users SET status = $1, update_at = NOW() WHERE id = $2")
             .bind(UserStatus::Active)
             .bind(id)
@@ -694,7 +611,6 @@ impl Repository {
     /// Update user's own profile (firstname, lastname, password)
     #[tracing::instrument(skip(self), err)]
     pub async fn users_update_profile(&self, id: i64, profile: &UpdateProfile, password: Option<String>) -> AppResult<User> {
-
         let mut sets = vec![];
         let mut param_idx = 1;
 
@@ -718,7 +634,7 @@ impl Repository {
         add_field!(profile.phone, "phone");
         add_field!(profile.birthdate, "birthdate");
         add_field!(profile.language, "language");
-        
+
         if password.is_some() {
             add_field!(password, "password");
             // Changing password clears the forced-change flag
@@ -726,11 +642,7 @@ impl Repository {
             sets.push("token_version = token_version + 1".to_string());
         }
 
-        let query = format!(
-            "UPDATE users SET {}, update_at = NOW() WHERE id = {}",
-            sets.join(", "),
-            id
-        );
+        let query = format!("UPDATE users SET {}, update_at = NOW() WHERE id = {}", sets.join(", "), id);
 
         let mut builder = sqlx::query(&query);
 
@@ -755,7 +667,7 @@ impl Repository {
         if let Some(ref lang) = profile.language {
             builder = builder.bind(lang.as_db_str());
         }
-        
+
         if let Some(ref hash) = password {
             builder = builder.bind(hash);
             // Bind false for must_change_password (cleared when user sets a new password)
@@ -770,10 +682,7 @@ impl Repository {
     /// Update user's account type (admin only)
     #[tracing::instrument(skip(self), err)]
     pub async fn users_update_account_type(&self, id: i64, account_type: &AccountTypeSlug) -> AppResult<User> {
-
-        sqlx::query(
-            "UPDATE users SET account_type = $1, token_version = token_version + 1, update_at = NOW() WHERE id = $2",
-        )
+        sqlx::query("UPDATE users SET account_type = $1, token_version = token_version + 1, update_at = NOW() WHERE id = $2")
             .bind(account_type.as_str())
             .bind(id)
             .execute(&self.pool)
@@ -781,17 +690,10 @@ impl Repository {
 
         self.users_get_by_id(id).await
     }
-    
+
     /// Update 2FA settings for a user
     #[tracing::instrument(skip(self), err)]
-    pub async fn users_update_2fa_settings(
-        &self,
-        id: i64,
-        enabled: bool,
-        method: Option<&str>,
-        totp_secret: Option<&str>,
-        recovery_codes: Option<&str>,
-    ) -> AppResult<()> {
+    pub async fn users_update_2fa_settings(&self, id: i64, enabled: bool, method: Option<&str>, totp_secret: Option<&str>, recovery_codes: Option<&str>) -> AppResult<()> {
         sqlx::query(
             r#"
             UPDATE users 
@@ -818,13 +720,11 @@ impl Repository {
     /// Mark a recovery code as used
     #[tracing::instrument(skip(self), err)]
     pub async fn users_mark_recovery_code_used(&self, id: i64, used_codes: &str) -> AppResult<()> {
-        sqlx::query(
-            "UPDATE users SET recovery_codes_used = $1, update_at = NOW() WHERE id = $2",
-        )
-        .bind(used_codes)
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("UPDATE users SET recovery_codes_used = $1, update_at = NOW() WHERE id = $2")
+            .bind(used_codes)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
 
         Ok(())
     }
@@ -832,10 +732,7 @@ impl Repository {
     /// Fetch all active users with a non-empty email, optionally filtered by public_type.
     /// If `public_type` is None, all users with an email are returned (no filter).
     #[tracing::instrument(skip(self), err)]
-    pub async fn users_get_emails_by_public_type(
-        &self,
-        public_type: Option<i64>,
-    ) -> AppResult<Vec<UserEmailTarget>> {
+    pub async fn users_get_emails_by_public_type(&self, public_type: Option<i64>) -> AppResult<Vec<UserEmailTarget>> {
         let rows = if let Some(pt) = public_type {
             sqlx::query_as::<_, UserEmailTarget>(
                 r#"
@@ -864,17 +761,11 @@ impl Repository {
         Ok(rows)
     }
 
-    pub async fn users_hold_ready_contact(
-        &self,
-        user_id: i64,
-    ) -> AppResult<Option<HoldReadyUserContact>> {
-        sqlx::query_as::<_, HoldReadyUserContact>(
-            r#"SELECT email, firstname, lastname, language FROM users WHERE id = $1"#,
-        )
-        .bind(user_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(Into::into)
+    pub async fn users_hold_ready_contact(&self, user_id: i64) -> AppResult<Option<HoldReadyUserContact>> {
+        sqlx::query_as::<_, HoldReadyUserContact>(r#"SELECT email, firstname, lastname, language FROM users WHERE id = $1"#)
+            .bind(user_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(Into::into)
     }
-
 }

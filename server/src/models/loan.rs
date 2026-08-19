@@ -118,9 +118,7 @@ impl sqlx::Type<sqlx::Postgres> for LoanSettingsRenewAt {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for LoanSettingsRenewAt {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, Box<dyn std::error::Error + 'static + Send + Sync>> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + 'static + Send + Sync>> {
         let s: String = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
         Ok(Self::from(s.as_str()))
     }

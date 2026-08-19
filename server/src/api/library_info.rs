@@ -10,7 +10,6 @@ use crate::services::audit;
 
 use super::{AuthenticatedUser, ClientIp};
 
-
 /// Public GET only — merged under the public API rate limiter in `main.rs`.
 pub fn router_public() -> axum::Router<crate::AppState> {
     use axum::routing::get;
@@ -20,8 +19,7 @@ pub fn router_public() -> axum::Router<crate::AppState> {
 /// Staff PUT — not subject to the public anonymous rate limiter.
 pub fn router_staff() -> axum::Router<crate::AppState> {
     use axum::routing::put;
-    axum::Router::new()
-        .route("/library-info", put(update_library_info))
+    axum::Router::new().route("/library-info", put(update_library_info))
 }
 
 pub use crate::models::dto::library_info::{LibraryInfo, UpdateLibraryInfoRequest};
@@ -39,9 +37,7 @@ pub use crate::models::dto::library_info::{LibraryInfo, UpdateLibraryInfoRequest
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn get_library_info(
-    State(state): State<crate::AppState>,
-) -> AppResult<Json<LibraryInfo>> {
+pub async fn get_library_info(State(state): State<crate::AppState>) -> AppResult<Json<LibraryInfo>> {
     let info = state.services.library_info.get().await?;
     Ok(Json(info))
 }
@@ -68,15 +64,10 @@ pub async fn update_library_info(
 
     let info = state.services.library_info.update(request).await?;
 
-    state.services.audit.log(
-        audit::event::LIBRARY_INFO_UPDATED,
-        Some(claims.user_id),
-        None,
-        None,
-        ip,
-        Some(&info),
-     audit::AuditLogMeta::success());
+    state
+        .services
+        .audit
+        .log(audit::event::LIBRARY_INFO_UPDATED, Some(claims.user_id), None, None, ip, Some(&info), audit::AuditLogMeta::success());
 
     Ok(Json(info))
 }
-

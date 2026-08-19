@@ -1,9 +1,6 @@
 //! Biblios repository — meili operations.
 
-use crate::{
-    error::AppResult,
-    models::biblio::MeiliBiblioDocument,
-};
+use crate::{error::AppResult, models::biblio::MeiliBiblioDocument};
 
 use super::super::Repository;
 
@@ -74,11 +71,7 @@ impl Repository {
     /// Fetch a page of Meilisearch documents using a keyset cursor.
     /// Returns biblios with `id > after_id`, up to `limit` rows, ordered by id.
     #[tracing::instrument(skip(self), err)]
-    pub async fn biblios_get_meili_documents_batch(
-        &self,
-        after_id: i64,
-        limit: i64,
-    ) -> AppResult<Vec<MeiliBiblioDocument>> {
+    pub async fn biblios_get_meili_documents_batch(&self, after_id: i64, limit: i64) -> AppResult<Vec<MeiliBiblioDocument>> {
         let docs = sqlx::query_as::<_, MeiliBiblioDocument>(
             r#"
             SELECT

@@ -10,11 +10,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::{
-    error::AppError,
-    error::AppResult,
-    repository::Repository,
-};
+use crate::{error::AppError, error::AppResult, repository::Repository};
 
 const AUDIT_MESSAGE_MAX_BYTES: usize = 1000;
 
@@ -256,11 +252,7 @@ impl AuditService {
         let payload: Option<Value> = payload.and_then(|p| match serde_json::to_value(p) {
             Ok(v) => Some(mask_sensitive_fields(v)),
             Err(e) => {
-                tracing::warn!(
-                    "audit log payload serialization failed for '{}': {}",
-                    event_type,
-                    e
-                );
+                tracing::warn!("audit log payload serialization failed for '{}': {}", event_type, e);
                 None
             }
         });
@@ -309,15 +301,8 @@ impl AuditService {
 
     /// Export audit log entries for a date range (unbounded, for CSV/JSON export).
     #[tracing::instrument(skip(self), err)]
-    pub async fn export(
-        &self,
-        from_date: Option<DateTime<Utc>>,
-        to_date: Option<DateTime<Utc>>,
-        event_type: Option<&str>,
-    ) -> AppResult<Vec<AuditLogEntry>> {
-        self.repository
-            .audit_export(from_date, to_date, event_type)
-            .await
+    pub async fn export(&self, from_date: Option<DateTime<Utc>>, to_date: Option<DateTime<Utc>>, event_type: Option<&str>) -> AppResult<Vec<AuditLogEntry>> {
+        self.repository.audit_export(from_date, to_date, event_type).await
     }
 
     /// Delete audit log entries older than `retention_days` days.

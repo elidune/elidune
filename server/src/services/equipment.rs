@@ -33,9 +33,7 @@ impl EquipmentService {
     }
 
     pub async fn update(&self, id: i64, data: &UpdateEquipment) -> AppResult<Equipment> {
-        self.repository
-            .equipment_update_equipment(id, data)
-            .await
+        self.repository.equipment_update_equipment(id, data).await
     }
 
     #[tracing::instrument(skip(self), err)]
@@ -46,16 +44,12 @@ impl EquipmentService {
     /// Count public internet stations (for stats)
     #[tracing::instrument(skip(self), err)]
     pub async fn count_public_internet_stations(&self) -> AppResult<i64> {
-        self.repository
-            .equipment_count_public_internet_stations()
-            .await
+        self.repository.equipment_count_public_internet_stations().await
     }
 
     /// Count public devices - tablets and ereaders (for stats)
     #[tracing::instrument(skip(self), err)]
     pub async fn count_public_devices(&self) -> AppResult<i64> {
-        self.repository
-            .equipment_count_public_devices()
-            .await
+        self.repository.equipment_count_public_devices().await
     }
 }

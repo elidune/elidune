@@ -8,6 +8,7 @@ pub mod equipment;
 pub mod event_bus;
 pub mod events;
 pub mod fines;
+pub mod holds;
 pub mod inventory;
 pub mod library_info;
 pub mod loans;
@@ -17,9 +18,8 @@ pub mod operational_metrics;
 pub mod public_types;
 pub mod redis;
 pub mod reminders;
-pub mod holds;
-pub mod schedules;
 pub mod scheduler;
+pub mod schedules;
 pub mod search;
 pub mod sources;
 pub mod stats;
@@ -29,8 +29,8 @@ pub mod visitor_counts;
 pub mod z3950;
 
 // Re-export for existing `services::email` / `services::email_templates` paths
-pub use crate::email as email;
-pub use crate::email_templates as email_templates;
+pub use crate::email;
+pub use crate::email_templates;
 
 use std::sync::Arc;
 
@@ -39,11 +39,8 @@ use crate::{
     dynamic_config::DynamicConfig,
     error::AppResult,
     repository::{
-        BibliosRepository, CatalogEntitiesRepository, EquipmentRepository, EventsServiceRepository,
-        FinesRepository, InventoryRepository, LoansRepository, LoansServiceRepository,
-        AccountTypesCatalogRepository,
-        PublicTypesRepository, Repository, HoldsRepository, SchedulesRepository,
-        SourcesRepository, UsersRepository, VisitorCountsRepository,
+        AccountTypesCatalogRepository, BibliosRepository, CatalogEntitiesRepository, EquipmentRepository, EventsServiceRepository, FinesRepository, HoldsRepository, InventoryRepository,
+        LoansRepository, LoansServiceRepository, PublicTypesRepository, Repository, SchedulesRepository, SourcesRepository, UsersRepository, VisitorCountsRepository,
     },
 };
 
@@ -115,49 +112,28 @@ impl Services {
         let entities_repo: Arc<dyn CatalogEntitiesRepository> = repo.clone();
         let audit_service = audit::AuditService::new(repository.clone());
         let catalog = if let Some(ref svc) = search_service {
-            catalog::CatalogService::with_search(
-                biblios_repo.clone(),
-                entities_repo,
-                Arc::clone(svc),
-                audit_service.clone(),
-            )
+            catalog::CatalogService::with_search(biblios_repo.clone(), entities_repo, Arc::clone(svc), audit_service.clone())
         } else {
             catalog::CatalogService::new(biblios_repo, entities_repo, audit_service.clone())
         };
 
         let marc_service = marc::MarcService::new(catalog.clone(), redis_service.clone());
 
-        let z3950_service = z3950::Z3950Service::new(
-            repository.clone(),
-            catalog.clone(),
-            redis_service.clone(),
-            redis_config.z3950_cache_ttl_seconds,
-        );
+        let z3950_service = z3950::Z3950Service::new(repository.clone(), catalog.clone(), redis_service.clone(), redis_config.z3950_cache_ttl_seconds);
 
         let loans_repo: Arc<dyn LoansServiceRepository> = repo.clone();
         let loans_repo_only: Arc<dyn LoansRepository> = repo.clone();
         let email = email_service.as_ref().clone();
-        let reminders_service = reminders::RemindersService::new(
-            loans_repo_only,
-            email.clone(),
-            audit_service.clone(),
-            dynamic_config.clone(),
-        );
+        let reminders_service = reminders::RemindersService::new(loans_repo_only, email.clone(), audit_service.clone(), dynamic_config.clone());
 
         Ok(Self {
             repository: repo.clone(),
             audit: audit_service.clone(),
-            account_types_catalog: account_types_catalog::AccountTypesCatalogService::new(
-                repo.clone() as Arc<dyn AccountTypesCatalogRepository>,
-            ),
+            account_types_catalog: account_types_catalog::AccountTypesCatalogService::new(repo.clone() as Arc<dyn AccountTypesCatalogRepository>),
             catalog: catalog.clone(),
             email: email.clone(),
             equipment: equipment::EquipmentService::new(repo.clone() as Arc<dyn EquipmentRepository>),
-            events: events::EventsService::new(
-                repo.clone() as Arc<dyn EventsServiceRepository>,
-                email.clone(),
-                audit_service.clone(),
-            ),
+            events: events::EventsService::new(repo.clone() as Arc<dyn EventsServiceRepository>, email.clone(), audit_service.clone()),
             fines: fines::FinesService::new(repo.clone() as Arc<dyn FinesRepository>),
             inventory: inventory::InventoryService::new(
                 repo.clone() as Arc<dyn InventoryRepository>,
@@ -167,17 +143,8 @@ impl Services {
                 audit_service.clone(),
             ),
             library_info: library_info::LibraryInfoService::new(repository.clone()),
-            loans: loans::LoansService::new(
-                loans_repo,
-                audit_service.clone(),
-                email.clone(),
-                event_bus,
-            ),
-            maintenance: maintenance_service::MaintenanceService::new(
-                catalog.clone(),
-                z3950_service.clone(),
-                audit_service.clone(),
-            ),
+            loans: loans::LoansService::new(loans_repo, audit_service.clone(), email.clone(), event_bus),
+            maintenance: maintenance_service::MaintenanceService::new(catalog.clone(), z3950_service.clone(), audit_service.clone()),
             marc: marc_service,
             public_types: public_types::PublicTypesService::new(repo.clone() as Arc<dyn PublicTypesRepository>),
             redis: redis_service.clone(),
@@ -189,9 +156,7 @@ impl Services {
             stats: stats::StatsService::new(repository.clone(), redis_service.clone()),
             tasks: task_manager::TaskManager::new(redis_service.clone()),
             users: users::UsersService::new(repository.clone(), auth_config, redis_service.clone()),
-            visitor_counts: visitor_counts::VisitorCountsService::new(
-                repo.clone() as Arc<dyn VisitorCountsRepository>,
-            ),
+            visitor_counts: visitor_counts::VisitorCountsService::new(repo.clone() as Arc<dyn VisitorCountsRepository>),
             z3950: z3950_service,
         })
     }

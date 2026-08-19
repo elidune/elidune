@@ -42,9 +42,7 @@ impl SourcesService {
         if name.trim().is_empty() {
             return Err(AppError::Validation("Source name cannot be empty".to_string()));
         }
-        self.repository
-            .sources_rename(id, name.trim())
-            .await
+        self.repository.sources_rename(id, name.trim()).await
     }
 
     /// Update a source (name and/or default status)
@@ -56,9 +54,7 @@ impl SourcesService {
             }
         }
 
-        self.repository
-            .sources_update(id, data.name.as_deref(), data.default)
-            .await
+        self.repository.sources_update(id, data.name.as_deref(), data.default).await
     }
 
     /// Archive a source (fails if non-archived items are linked)
@@ -68,21 +64,13 @@ impl SourcesService {
 
         // Check if already archived
         if source.is_archive == Some(1) {
-            return Err(AppError::BusinessRule(
-                "Source is already archived".to_string(),
-            ));
+            return Err(AppError::BusinessRule("Source is already archived".to_string()));
         }
 
         // Check for non-archived items
-        let active_count = self
-            .repository
-            .sources_count_active_items(id)
-            .await?;
+        let active_count = self.repository.sources_count_active_items(id).await?;
         if active_count > 0 {
-            return Err(AppError::BusinessRule(format!(
-                "Cannot archive source: {} non-archived item(s) still linked",
-                active_count
-            )));
+            return Err(AppError::BusinessRule(format!("Cannot archive source: {} non-archived item(s) still linked", active_count)));
         }
 
         self.repository.sources_archive(id).await
@@ -94,14 +82,10 @@ impl SourcesService {
     /// a failure cannot leave items pointing at a non-existent or wrong source.
     pub async fn merge(&self, data: &MergeSources) -> AppResult<Source> {
         if data.name.trim().is_empty() {
-            return Err(AppError::Validation(
-                "Merged source name cannot be empty".to_string(),
-            ));
+            return Err(AppError::Validation("Merged source name cannot be empty".to_string()));
         }
         if data.source_ids.len() < 2 {
-            return Err(AppError::Validation(
-                "At least 2 source IDs are required for merge".to_string(),
-            ));
+            return Err(AppError::Validation("At least 2 source IDs are required for merge".to_string()));
         }
 
         // Verify all source IDs exist before opening the transaction.

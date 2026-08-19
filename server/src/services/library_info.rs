@@ -1,8 +1,8 @@
 //! Library information service
 
 use crate::{
-    models::dto::library_info::{LibraryInfo, UpdateLibraryInfoRequest},
     error::AppResult,
+    models::dto::library_info::{LibraryInfo, UpdateLibraryInfoRequest},
     repository::Repository,
 };
 
@@ -22,20 +22,8 @@ impl LibraryInfoService {
         let result = self.repository.library_info_get().await?;
 
         match result {
-            Some((
-                name,
-                addr_line1,
-                addr_line2,
-                addr_postcode,
-                addr_city,
-                addr_country,
-                phones_val,
-                email,
-                updated_at,
-            )) => {
-                let phones: Vec<String> = phones_val
-                    .and_then(|v| serde_json::from_value(v).ok())
-                    .unwrap_or_default();
+            Some((name, addr_line1, addr_line2, addr_postcode, addr_city, addr_country, phones_val, email, updated_at)) => {
+                let phones: Vec<String> = phones_val.and_then(|v| serde_json::from_value(v).ok()).unwrap_or_default();
 
                 Ok(LibraryInfo {
                     name,
@@ -66,9 +54,7 @@ impl LibraryInfoService {
     /// Update library information (partial update: only provided fields are changed)
     #[tracing::instrument(skip(self), err)]
     pub async fn update(&self, req: UpdateLibraryInfoRequest) -> AppResult<LibraryInfo> {
-        let phones_json = req
-            .phones
-            .map(|p| serde_json::to_value(p).unwrap_or(serde_json::json!([])));
+        let phones_json = req.phones.map(|p| serde_json::to_value(p).unwrap_or(serde_json::json!([])));
 
         self.repository
             .library_info_upsert(

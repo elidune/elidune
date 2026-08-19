@@ -34,8 +34,8 @@ use axum::{
     Json,
 };
 use chrono::Utc;
-use tokio_util::io::ReaderStream;
 use serde::{Deserialize, Deserializer, Serialize};
+use tokio_util::io::ReaderStream;
 use utoipa::ToSchema;
 
 use crate::{
@@ -46,8 +46,7 @@ use crate::{
 };
 
 pub use crate::services::maintenance_service::{
-    CatalogZ3950RefreshProgress, CatalogZ3950RefreshProgressStatus, CatalogZ3950RefreshResult,
-    MaintenanceAction, MaintenanceActionReport, MaintenanceResponse, MaintenanceTaskProgress,
+    CatalogZ3950RefreshProgress, CatalogZ3950RefreshProgressStatus, CatalogZ3950RefreshResult, MaintenanceAction, MaintenanceActionReport, MaintenanceResponse, MaintenanceTaskProgress,
 };
 
 use super::{tasks::TaskAcceptedResponse, AdminUser, ClientIp};
@@ -61,10 +60,7 @@ pub fn router() -> axum::Router<AppState> {
     axum::Router::new()
         .route("/maintenance", post(run_maintenance))
         .route("/maintenance/database/dump", get(dump_database))
-        .route(
-            "/maintenance/database/restore",
-            post(restore_database).layer(DefaultBodyLimit::max(MAX_RESTORE_SQL_BYTES)),
-        )
+        .route("/maintenance/database/restore", post(restore_database).layer(DefaultBodyLimit::max(MAX_RESTORE_SQL_BYTES)))
 }
 
 // ─── Request types ────────────────────────────────────────────────────────────
@@ -125,9 +121,7 @@ fn parse_legacy_action(s: &str) -> Result<MaintenanceAction, String> {
         "cleanupDanglingBiblioSeries" => Ok(MaintenanceAction::CleanupDanglingBiblioSeries),
         "cleanupDanglingBiblioCollections" => Ok(MaintenanceAction::CleanupDanglingBiblioCollections),
         "cleanupUsers" => Ok(MaintenanceAction::CleanupUsers),
-        "z3950Refresh" => Err(
-            "z3950Refresh requires an object with z3950ServerId (and optional forceRebuild)".into(),
-        ),
+        "z3950Refresh" => Err("z3950Refresh requires an object with z3950ServerId (and optional forceRebuild)".into()),
         _ => Err(format!("unknown maintenance action: {s}")),
     }
 }
@@ -157,9 +151,7 @@ pub async fn run_maintenance(
     Json(req): Json<MaintenanceRequest>,
 ) -> AppResult<(StatusCode, Json<TaskAcceptedResponse>)> {
     if req.actions.is_empty() {
-        return Err(crate::error::AppError::Validation(
-            "actions list must not be empty".into(),
-        ));
+        return Err(crate::error::AppError::Validation("actions list must not be empty".into()));
     }
 
     let repository = state.services.repository.as_ref().clone();
@@ -171,9 +163,7 @@ pub async fn run_maintenance(
         .services
         .tasks
         .spawn_task(TaskKind::Maintenance, user_id, move |handle| async move {
-            maintenance
-                .run_maintenance_task(repository, actions, user_id, ip, handle)
-                .await;
+            maintenance.run_maintenance_task(repository, actions, user_id, ip, handle).await;
         })
         .await;
 
@@ -185,20 +175,10 @@ async fn pg_dump_plain_to_read_file(db_url: &str) -> AppResult<(tokio::fs::File,
     use tokio::process::Command as TokioCommand;
 
     let path = std::env::temp_dir().join(format!("elidune-pg-dump-{}.sql", uuid::Uuid::new_v4()));
-    let path_str = path
-        .to_str()
-        .ok_or_else(|| AppError::Internal("invalid temp dump path".into()))?;
+    let path_str = path.to_str().ok_or_else(|| AppError::Internal("invalid temp dump path".into()))?;
 
     let output = TokioCommand::new("pg_dump")
-        .args([
-            "--format=plain",
-            "--no-owner",
-            "--no-acl",
-            "--clean",
-            "--if-exists",
-            "-f",
-            path_str,
-        ])
+        .args(["--format=plain", "--no-owner", "--no-acl", "--clean", "--if-exists", "-f", path_str])
         .arg(db_url)
         .stderr(Stdio::piped())
         .stdout(Stdio::null())
@@ -206,10 +186,7 @@ async fn pg_dump_plain_to_read_file(db_url: &str) -> AppResult<(tokio::fs::File,
         .await
         .map_err(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
-                AppError::Internal(
-                    "pg_dump not found: install PostgreSQL client tools (e.g. postgresql-client)"
-                        .into(),
-                )
+                AppError::Internal("pg_dump not found: install PostgreSQL client tools (e.g. postgresql-client)".into())
             } else {
                 AppError::Internal(format!("pg_dump: {e}"))
             }
@@ -220,14 +197,10 @@ async fn pg_dump_plain_to_read_file(db_url: &str) -> AppResult<(tokio::fs::File,
         return Err(AppError::Internal(format!("pg_dump failed: {stderr}")));
     }
 
-    let meta = tokio::fs::metadata(&path)
-        .await
-        .map_err(|e| AppError::Internal(format!("dump stat: {e}")))?;
+    let meta = tokio::fs::metadata(&path).await.map_err(|e| AppError::Internal(format!("dump stat: {e}")))?;
     let len = meta.len();
 
-    let file = tokio::fs::File::open(&path)
-        .await
-        .map_err(|e| AppError::Internal(format!("open dump: {e}")))?;
+    let file = tokio::fs::File::open(&path).await.map_err(|e| AppError::Internal(format!("open dump: {e}")))?;
 
     if let Err(e) = tokio::fs::remove_file(&path).await {
         tracing::warn!(
@@ -252,11 +225,7 @@ async fn pg_dump_plain_to_read_file(db_url: &str) -> AppResult<(tokio::fs::File,
         (status = 500, description = "pg_dump failed or client tools missing")
     )
 )]
-pub async fn dump_database(
-    State(state): State<AppState>,
-    AdminUser(claims): AdminUser,
-    ClientIp(ip): ClientIp,
-) -> AppResult<Response<Body>> {
+pub async fn dump_database(State(state): State<AppState>, AdminUser(claims): AdminUser, ClientIp(ip): ClientIp) -> AppResult<Response<Body>> {
     let db_url = state.config.database.url.as_str();
     let (file, byte_len) = pg_dump_plain_to_read_file(db_url).await?;
 
@@ -270,20 +239,14 @@ pub async fn dump_database(
         audit::AuditLogMeta::success(),
     );
 
-    let filename = format!(
-        "elidune-db-dump-{}.sql",
-        Utc::now().format("%Y%m%dT%H%M%SZ")
-    );
+    let filename = format!("elidune-db-dump-{}.sql", Utc::now().format("%Y%m%dT%H%M%SZ"));
 
     let body = Body::from_stream(ReaderStream::new(file));
 
     Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/sql")
-        .header(
-            header::CONTENT_DISPOSITION,
-            format!(r#"attachment; filename="{filename}""#),
-        )
+        .header(header::CONTENT_DISPOSITION, format!(r#"attachment; filename="{filename}""#))
         .body(body)
         .map_err(|e| AppError::Internal(format!("dump response: {e}")))
 }
@@ -322,10 +285,7 @@ async fn run_psql_sql_file(db_url: &str, sql_path: &Path) -> AppResult<()> {
     .map_err(|e| AppError::Internal(format!("psql task: {e}")))?
     .map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
-            AppError::Internal(
-                "psql not found: install PostgreSQL client tools (e.g. postgresql-client package)"
-                    .into(),
-            )
+            AppError::Internal("psql not found: install PostgreSQL client tools (e.g. postgresql-client package)".into())
         } else {
             AppError::Internal(format!("psql: {e}"))
         }
@@ -334,10 +294,7 @@ async fn run_psql_sql_file(db_url: &str, sql_path: &Path) -> AppResult<()> {
     if !output.status.success() {
         let err = String::from_utf8_lossy(&output.stderr);
         let out = String::from_utf8_lossy(&output.stdout);
-        return Err(AppError::Internal(format!(
-            "psql failed (status {status}): {err} {out}",
-            status = output.status
-        )));
+        return Err(AppError::Internal(format!("psql failed (status {status}): {err} {out}", status = output.status)));
     }
 
     Ok(())
@@ -356,20 +313,10 @@ async fn run_psql_sql_file(db_url: &str, sql_path: &Path) -> AppResult<()> {
         (status = 500, description = "psql failed or client tools missing")
     )
 )]
-pub async fn restore_database(
-    State(state): State<AppState>,
-    AdminUser(claims): AdminUser,
-    ClientIp(ip): ClientIp,
-    body: Body,
-) -> AppResult<Response<Body>> {
+pub async fn restore_database(State(state): State<AppState>, AdminUser(claims): AdminUser, ClientIp(ip): ClientIp, body: Body) -> AppResult<Response<Body>> {
     let bytes = axum::body::to_bytes(body, MAX_RESTORE_SQL_BYTES)
         .await
-        .map_err(|e| {
-            AppError::Validation(format!(
-                "read body (max {} MiB): {e}",
-                MAX_RESTORE_SQL_BYTES / (1024 * 1024)
-            ))
-        })?;
+        .map_err(|e| AppError::Validation(format!("read body (max {} MiB): {e}", MAX_RESTORE_SQL_BYTES / (1024 * 1024))))?;
 
     if bytes.is_empty() {
         return Err(AppError::Validation("SQL body must not be empty".into()));
@@ -377,14 +324,9 @@ pub async fn restore_database(
 
     let db_url = state.config.database.url.as_str();
 
-    let path = std::env::temp_dir().join(format!(
-        "elidune-restore-{}.sql",
-        uuid::Uuid::new_v4()
-    ));
+    let path = std::env::temp_dir().join(format!("elidune-restore-{}.sql", uuid::Uuid::new_v4()));
 
-    tokio::fs::write(&path, &bytes)
-        .await
-        .map_err(|e| AppError::Internal(format!("write temp restore file: {e}")))?;
+    tokio::fs::write(&path, &bytes).await.map_err(|e| AppError::Internal(format!("write temp restore file: {e}")))?;
 
     let _cleanup = RestoreTempFile(path.clone());
 

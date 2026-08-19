@@ -7,9 +7,9 @@ use sqlx::{Decode, Encode, FromRow, Postgres, Type};
 use utoipa::{IntoParams, ToSchema};
 use validator::Validate;
 
-use crate::error::AppError;
-use super::{Language, Sex};
 use super::secret::PlaintextPassword;
+use super::{Language, Sex};
+use crate::error::AppError;
 
 /// User rights levels (DB single-letter codes; holds domain also uses `o` = own).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,9 +51,7 @@ impl From<char> for Rights {
 
 impl From<Option<String>> for Rights {
     fn from(s: Option<String>) -> Self {
-        s.and_then(|s| s.chars().next())
-            .map(Rights::from)
-            .unwrap_or(Rights::None)
+        s.and_then(|s| s.chars().next()).map(Rights::from).unwrap_or(Rights::None)
     }
 }
 
@@ -62,8 +60,6 @@ impl Default for Rights {
         Rights::None
     }
 }
-
-
 
 /// Account type slug (string identifier)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -201,8 +197,7 @@ impl From<String> for FeeSlug {
 
 impl From<Option<String>> for FeeSlug {
     fn from(s: Option<String>) -> Self {
-        s.map(|s| s.parse().unwrap_or_else(|_| FeeSlug::Free))
-            .unwrap_or(FeeSlug::Free)
+        s.map(|s| s.parse().unwrap_or_else(|_| FeeSlug::Free)).unwrap_or(FeeSlug::Free)
     }
 }
 
@@ -434,9 +429,7 @@ pub struct User {
     pub token_version: i64,
 }
 
-
 impl User {
-    
     pub fn is_active(&self) -> bool {
         self.status == Some(UserStatus::Active) && self.archived_at.is_none()
     }
@@ -556,29 +549,17 @@ pub struct UserPayload {
 impl UserPayload {
     /// Validates required patron identity fields for admin create and full user update.
     pub fn validate_required_patron_fields(&self) -> Result<(), AppError> {
-        let login = self
-            .login
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty());
+        let login = self.login.as_deref().map(str::trim).filter(|s| !s.is_empty());
         if login.is_none() {
             return Err(AppError::Validation("login is required".into()));
         }
 
-        let firstname = self
-            .firstname
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty());
+        let firstname = self.firstname.as_deref().map(str::trim).filter(|s| !s.is_empty());
         if firstname.is_none() {
             return Err(AppError::Validation("firstname is required".into()));
         }
 
-        let lastname = self
-            .lastname
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty());
+        let lastname = self.lastname.as_deref().map(str::trim).filter(|s| !s.is_empty());
         if lastname.is_none() {
             return Err(AppError::Validation("lastname is required".into()));
         }
@@ -595,11 +576,7 @@ impl UserPayload {
             return Err(AppError::Validation("publicType is required".into()));
         }
 
-        let city = self
-            .addr_city
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty());
+        let city = self.addr_city.as_deref().map(str::trim).filter(|s| !s.is_empty());
         if city.is_none() {
             return Err(AppError::Validation("addrCity is required".into()));
         }
@@ -722,21 +699,13 @@ impl UserClaims {
     /// Create a new JWT token (HS256 only).
     pub fn create_token(&self, secret: &str) -> Result<String, jsonwebtoken::errors::Error> {
         use jsonwebtoken::{encode, EncodingKey};
-        encode(
-            &Self::hs256_header(),
-            self,
-            &EncodingKey::from_secret(secret.as_bytes()),
-        )
+        encode(&Self::hs256_header(), self, &EncodingKey::from_secret(secret.as_bytes()))
     }
 
     /// Parse JWT token (HS256 only).
     pub fn from_token(token: &str, secret: &str) -> Result<Self, jsonwebtoken::errors::Error> {
         use jsonwebtoken::{decode, DecodingKey};
-        let token_data = decode::<Self>(
-            token,
-            &DecodingKey::from_secret(secret.as_bytes()),
-            &Self::hs256_validation(),
-        )?;
+        let token_data = decode::<Self>(token, &DecodingKey::from_secret(secret.as_bytes()), &Self::hs256_validation())?;
         Ok(token_data.claims)
     }
 
@@ -815,7 +784,7 @@ impl UserClaims {
         }
     }
 
-    pub fn require_write_loans(&self) -> Result<(), AppError> { 
+    pub fn require_write_loans(&self) -> Result<(), AppError> {
         if self.rights.loans_rights.rank() >= Rights::Write.rank() {
             Ok(())
         } else {
@@ -856,9 +825,7 @@ impl UserClaims {
     }
 
     pub fn require_list_holds(&self) -> Result<(), AppError> {
-        if self.rights.holds_rights.rank() >= Rights::Read.rank()
-            || self.rights.holds_rights == Rights::Own
-        {
+        if self.rights.holds_rights.rank() >= Rights::Read.rank() || self.rights.holds_rights == Rights::Own {
             Ok(())
         } else {
             Err(AppError::Authorization("Insufficient rights to list holds".into()))
@@ -866,9 +833,7 @@ impl UserClaims {
     }
 
     pub fn require_create_hold(&self) -> Result<(), AppError> {
-        if self.rights.holds_rights.rank() >= Rights::Write.rank()
-            || self.rights.holds_rights == Rights::Own
-        {
+        if self.rights.holds_rights.rank() >= Rights::Write.rank() || self.rights.holds_rights == Rights::Own {
             Ok(())
         } else {
             Err(AppError::Authorization("Insufficient rights to place a hold".into()))
@@ -876,9 +841,7 @@ impl UserClaims {
     }
 
     pub fn require_cancel_hold(&self) -> Result<(), AppError> {
-        if self.rights.holds_rights.rank() >= Rights::Write.rank()
-            || self.rights.holds_rights == Rights::Own
-        {
+        if self.rights.holds_rights.rank() >= Rights::Write.rank() || self.rights.holds_rights == Rights::Own {
             Ok(())
         } else {
             Err(AppError::Authorization("Insufficient rights to cancel a hold".into()))
@@ -922,4 +885,3 @@ impl UserClaims {
         }
     }
 }
-

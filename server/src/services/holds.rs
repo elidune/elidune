@@ -26,29 +26,15 @@ impl HoldsService {
 
     /// Paginated holds for one user (`holds_rights == own` on `GET /holds`).
     #[tracing::instrument(skip(self), err)]
-    pub async fn list_for_user_paginated(
-        &self,
-        user_id: i64,
-        page: i64,
-        per_page: i64,
-        active_only: bool,
-    ) -> AppResult<(Vec<HoldDetails>, i64)> {
-        self.repository
-            .holds_list_for_user_paginated(user_id, page, per_page, active_only)
-            .await
+    pub async fn list_for_user_paginated(&self, user_id: i64, page: i64, per_page: i64, active_only: bool) -> AppResult<(Vec<HoldDetails>, i64)> {
+        self.repository.holds_list_for_user_paginated(user_id, page, per_page, active_only).await
     }
 
     /// Place a hold — rejects if the user already has a pending/ready hold for this item.
     #[tracing::instrument(skip(self), err)]
     pub async fn place_hold(&self, data: CreateHold) -> AppResult<Hold> {
-        if self
-            .repository
-            .holds_has_active_for_user_item(data.user_id, data.item_id)
-            .await?
-        {
-            return Err(AppError::Conflict(
-                "User already has an active hold for this item".to_string(),
-            ));
+        if self.repository.holds_has_active_for_user_item(data.user_id, data.item_id).await? {
+            return Err(AppError::Conflict("User already has an active hold for this item".to_string()));
         }
 
         self.repository.holds_create(&data).await
@@ -68,9 +54,7 @@ impl HoldsService {
     pub async fn cancel(&self, id: i64, requesting_user_id: i64, can_manage_others: bool) -> AppResult<Hold> {
         let hold = self.repository.holds_get_by_id(id).await?;
         if !can_manage_others && hold.user_id != requesting_user_id {
-            return Err(AppError::Authorization(
-                "Cannot cancel another user's hold".to_string(),
-            ));
+            return Err(AppError::Authorization("Cannot cancel another user's hold".to_string()));
         }
         self.repository.holds_cancel(id).await
     }
@@ -111,21 +95,10 @@ mod tests {
 
     #[async_trait]
     impl HoldsRepository for FakeHoldsRepo {
-        async fn holds_list_all(
-            &self,
-            _: i64,
-            _: i64,
-            _: bool,
-        ) -> AppResult<(Vec<HoldDetails>, i64)> {
+        async fn holds_list_all(&self, _: i64, _: i64, _: bool) -> AppResult<(Vec<HoldDetails>, i64)> {
             Ok((vec![], 0))
         }
-        async fn holds_list_for_user_paginated(
-            &self,
-            _: i64,
-            _: i64,
-            _: i64,
-            _: bool,
-        ) -> AppResult<(Vec<HoldDetails>, i64)> {
+        async fn holds_list_for_user_paginated(&self, _: i64, _: i64, _: i64, _: bool) -> AppResult<(Vec<HoldDetails>, i64)> {
             Ok((vec![], 0))
         }
         async fn holds_has_active_for_user_item(&self, _: i64, _: i64) -> AppResult<bool> {
@@ -191,27 +164,14 @@ mod tests {
 
     #[tokio::test]
     async fn place_hold_rejects_duplicate() {
-        let svc = HoldsService::new(Arc::new(FakeHoldsRepo {
-            duplicate: true,
-            hold_user_id: 1,
-        }));
-        let err = svc
-            .place_hold(CreateHold {
-                user_id: 1,
-                item_id: 42,
-                notes: None,
-            })
-            .await
-            .unwrap_err();
+        let svc = HoldsService::new(Arc::new(FakeHoldsRepo { duplicate: true, hold_user_id: 1 }));
+        let err = svc.place_hold(CreateHold { user_id: 1, item_id: 42, notes: None }).await.unwrap_err();
         assert!(matches!(err, AppError::Conflict(_)));
     }
 
     #[tokio::test]
     async fn cancel_hold_rejects_other_user() {
-        let svc = HoldsService::new(Arc::new(FakeHoldsRepo {
-            duplicate: false,
-            hold_user_id: 2,
-        }));
+        let svc = HoldsService::new(Arc::new(FakeHoldsRepo { duplicate: false, hold_user_id: 2 }));
         let err = svc.cancel(1, 1, false).await.unwrap_err();
         assert!(matches!(err, AppError::Authorization(_)));
     }

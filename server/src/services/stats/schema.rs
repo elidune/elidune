@@ -21,16 +21,11 @@ pub fn validate_union_branches(entity: &str, union_with: &[String]) -> Result<()
     names.extend(union_with.iter().cloned());
     let set: HashSet<&str> = names.iter().map(|s| s.as_str()).collect();
     if set.len() != names.len() {
-        return Err(AppError::Validation(
-            "unionWith must not duplicate entity names".into(),
-        ));
+        return Err(AppError::Validation("unionWith must not duplicate entity names".into()));
     }
     let allowed: HashSet<&str> = LOANS_UNION_GROUP.iter().copied().collect();
     if set != allowed {
-        return Err(AppError::Validation(
-            "unionWith is only supported for combining loans and loans_archives (exactly both)"
-                .into(),
-        ));
+        return Err(AppError::Validation("unionWith is only supported for combining loans and loans_archives (exactly both)".into()));
     }
     Ok(())
 }
@@ -49,10 +44,7 @@ pub fn validate_union_field_usage(query: &StatsBuilderBody) -> Result<(), AppErr
     }
     for path in iter_stats_field_paths(query) {
         if field_references_union_source(&path) {
-            return Err(AppError::Validation(
-                "union_source / __union_source fields require unionWith (e.g. [\"loans_archives\"])"
-                    .into(),
-            ));
+            return Err(AppError::Validation("union_source / __union_source fields require unionWith (e.g. [\"loans_archives\"])".into()));
         }
     }
     Ok(())
@@ -86,13 +78,9 @@ fn iter_stats_field_paths(query: &StatsBuilderBody) -> Vec<String> {
 #[derive(Debug, Clone)]
 pub enum FieldKind {
     /// A real column on the entity table (`"{alias}"."column"` in SQL).
-    Physical {
-        column: &'static str,
-    },
+    Physical { column: &'static str },
     /// Server-defined SQL; `{alias}` is replaced with the quoted table alias (e.g. `"users"`).
-    Computed {
-        sql_template: &'static str,
-    },
+    Computed { sql_template: &'static str },
 }
 
 #[derive(Debug, Clone)]
@@ -118,11 +106,7 @@ pub struct RelationDef {
     pub label: &'static str,
 }
 
-fn f(
-    column: &'static str,
-    data_type: &'static str,
-    label: &'static str,
-) -> FieldDef {
+fn f(column: &'static str, data_type: &'static str, label: &'static str) -> FieldDef {
     FieldDef {
         kind: FieldKind::Physical { column },
         data_type,
@@ -130,11 +114,7 @@ fn f(
     }
 }
 
-fn c(
-    sql_template: &'static str,
-    data_type: &'static str,
-    label: &'static str,
-) -> FieldDef {
+fn c(sql_template: &'static str, data_type: &'static str, label: &'static str) -> FieldDef {
     FieldDef {
         kind: FieldKind::Computed { sql_template },
         data_type,
@@ -142,12 +122,7 @@ fn c(
     }
 }
 
-fn r(
-    target_entity: &'static str,
-    from_column: &'static str,
-    to_column: &'static str,
-    label: &'static str,
-) -> RelationDef {
+fn r(target_entity: &'static str, from_column: &'static str, to_column: &'static str, label: &'static str) -> RelationDef {
     RelationDef {
         target_entity,
         from_column,
@@ -173,19 +148,9 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
                 ("expiry_at", f("expiry_at", "timestamptz", "Due date")),
                 ("returned_at", f("returned_at", "timestamptz", "Return date")),
                 ("nb_renews", f("nb_renews", "integer", "Renewals")),
-                (
-                    "union_source",
-                    c(
-                        "{alias}.__union_source",
-                        "text",
-                        "Union branch (loans | loans_archives); only when using unionWith",
-                    ),
-                ),
+                ("union_source", c("{alias}.__union_source", "text", "Union branch (loans | loans_archives); only when using unionWith")),
             ]),
-            relations: HashMap::from([
-                ("users", r("users", "user_id", "id", "Borrower")),
-                ("items", r("items", "item_id", "id", "Item copy")),
-            ]),
+            relations: HashMap::from([("users", r("users", "user_id", "id", "Borrower")), ("items", r("items", "item_id", "id", "Item copy"))]),
         },
     );
 
@@ -258,10 +223,7 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
                 ("created_at", f("created_at", "timestamptz", "Created at")),
                 ("archived_at", f("archived_at", "timestamptz", "Archived at")),
             ]),
-            relations: HashMap::from([
-                ("biblios", r("biblios", "biblio_id", "id", "Biblio")),
-                ("sources", r("sources", "source_id", "id", "Catalog source")),
-            ]),
+            relations: HashMap::from([("biblios", r("biblios", "biblio_id", "id", "Biblio")), ("sources", r("sources", "source_id", "id", "Catalog source"))]),
         },
     );
 
@@ -270,10 +232,7 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
         EntityDef {
             table: "sources",
             label: "Catalog sources",
-            fields: HashMap::from([
-                ("id", f("id", "bigint", "Source id")),
-                ("name", f("name", "text", "Source name")),
-            ]),
+            fields: HashMap::from([("id", f("id", "bigint", "Source id")), ("name", f("name", "text", "Source name"))]),
             relations: HashMap::new(),
         },
     );
@@ -300,11 +259,7 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
         EntityDef {
             table: "public_types",
             label: "Audience types",
-            fields: HashMap::from([
-                ("id", f("id", "bigint", "Id")),
-                ("name", f("name", "text", "Code")),
-                ("label", f("label", "text", "Label")),
-            ]),
+            fields: HashMap::from([("id", f("id", "bigint", "Id")), ("name", f("name", "text", "Code")), ("label", f("label", "text", "Label"))]),
             relations: HashMap::new(),
         },
     );
@@ -415,10 +370,7 @@ pub fn discovery_json() -> Value {
         entity_obj.insert("fields".to_string(), Value::Object(fields));
         entity_obj.insert("relations".to_string(), Value::Object(relations));
         if *key == "loans" {
-            entity_obj.insert(
-                "unionWith".to_string(),
-                json!(["loans_archives"]),
-            );
+            entity_obj.insert("unionWith".to_string(), json!(["loans_archives"]));
         }
         entities.insert((*key).to_string(), Value::Object(entity_obj));
     }

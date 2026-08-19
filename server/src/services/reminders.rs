@@ -93,13 +93,13 @@ pub struct RemindersService {
 }
 
 impl RemindersService {
-    pub fn new(
-        repository: Arc<dyn LoansRepository>,
-        email: EmailService,
-        audit: AuditService,
-        dynamic_config: Arc<DynamicConfig>,
-    ) -> Self {
-        Self { repository, email, audit, dynamic_config }
+    pub fn new(repository: Arc<dyn LoansRepository>, email: EmailService, audit: AuditService, dynamic_config: Arc<DynamicConfig>) -> Self {
+        Self {
+            repository,
+            email,
+            audit,
+            dynamic_config,
+        }
     }
 
     /// Get paginated overdue loans for the admin dashboard.
@@ -134,18 +134,10 @@ impl RemindersService {
     /// Enqueue overdue reminder emails for delivery by the outbox worker.
     /// If `dry_run` is true, builds the report but does NOT enqueue emails or update the DB.
     #[tracing::instrument(skip(self), err)]
-    pub async fn send_overdue_reminders(
-        &self,
-        dry_run: bool,
-        triggered_by: Option<i64>,
-        client_ip: Option<String>,
-    ) -> AppResult<ReminderReport> {
+    pub async fn send_overdue_reminders(&self, dry_run: bool, triggered_by: Option<i64>, client_ip: Option<String>) -> AppResult<ReminderReport> {
         let reminders_cfg = self.dynamic_config.read_reminders();
 
-        let overdue_rows = self
-            .repository
-            .loans_get_overdue_for_reminders(reminders_cfg.frequency_days)
-            .await?;
+        let overdue_rows = self.repository.loans_get_overdue_for_reminders(reminders_cfg.frequency_days).await?;
 
         if overdue_rows.is_empty() {
             return Ok(ReminderReport {
@@ -178,10 +170,7 @@ impl RemindersService {
             let lastname = first.lastname.as_deref().unwrap_or("");
 
             // Determine language
-            let lang = first
-                .user_language
-                .as_deref()
-                .map(Language::from);
+            let lang = first.user_language.as_deref().map(Language::from);
 
             // Build loan list (plain text)
             let loans_list = loans
@@ -190,14 +179,8 @@ impl RemindersService {
                     let title = l.title.as_deref().unwrap_or("(unknown title)");
                     let authors = l.authors.as_deref().unwrap_or("");
                     let loan_date = l.loan_date.format("%d/%m/%Y").to_string();
-                    let due_date = l
-                        .expiry_at
-                        .map(|d| d.format("%d/%m/%Y").to_string())
-                        .unwrap_or_else(|| "N/A".to_string());
-                    format!(
-                        "- {} ({}) — borrowed: {}, due: {}",
-                        title, authors, loan_date, due_date
-                    )
+                    let due_date = l.expiry_at.map(|d| d.format("%d/%m/%Y").to_string()).unwrap_or_else(|| "N/A".to_string());
+                    format!("- {} ({}) — borrowed: {}, due: {}", title, authors, loan_date, due_date)
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
@@ -209,10 +192,7 @@ impl RemindersService {
                     let title = l.title.as_deref().unwrap_or("(unknown title)");
                     let authors = l.authors.as_deref().unwrap_or("");
                     let loan_date = l.loan_date.format("%d/%m/%Y").to_string();
-                    let due_date = l
-                        .expiry_at
-                        .map(|d| d.format("%d/%m/%Y").to_string())
-                        .unwrap_or_else(|| "N/A".to_string());
+                    let due_date = l.expiry_at.map(|d| d.format("%d/%m/%Y").to_string()).unwrap_or_else(|| "N/A".to_string());
                     format!(
                         "<tr><td style=\"padding:4px 8px;border:1px solid #ccc\">{}</td>\
                          <td style=\"padding:4px 8px;border:1px solid #ccc\">{}</td>\
@@ -236,10 +216,7 @@ impl RemindersService {
             );
 
             if !dry_run {
-                let template_result = self
-                    .email
-                    .load_template("overdue_reminder", lang)
-                    .await;
+                let template_result = self.email.load_template("overdue_reminder", lang).await;
 
                 match template_result {
                     Err(e) => {
@@ -251,29 +228,16 @@ impl RemindersService {
                         continue;
                     }
                     Ok(template) => {
-                        let vars: Vec<(&str, &str)> = vec![
-                            ("firstname", firstname),
-                            ("lastname", lastname),
-                            ("loans_list", &loans_list),
-                            ("loans_table_html", &loans_table_html),
-                        ];
-                        let (subject, body_plain, body_html) =
-                            email_templates::substitute(&template, &vars);
+                        let vars: Vec<(&str, &str)> = vec![("firstname", firstname), ("lastname", lastname), ("loans_list", &loans_list), ("loans_table_html", &loans_table_html)];
+                        let (subject, body_plain, body_html) = email_templates::substitute(&template, &vars);
 
                         match self
                             .email
-                            .enqueue_overdue_reminder(
-                                &email_addr,
-                                &subject,
-                                &body_plain,
-                                &body_html,
-                                &loans.iter().map(|l| l.loan_id).collect::<Vec<_>>(),
-                            )
+                            .enqueue_overdue_reminder(&email_addr, &subject, &body_plain, &body_html, &loans.iter().map(|l| l.loan_id).collect::<Vec<_>>())
                             .await
                         {
                             Ok(outbox_id) => {
-                                let loan_ids: Vec<i64> =
-                                    loans.iter().map(|l| l.loan_id).collect();
+                                let loan_ids: Vec<i64> = loans.iter().map(|l| l.loan_id).collect();
                                 queued_loan_ids.extend(&loan_ids);
 
                                 self.audit.log(

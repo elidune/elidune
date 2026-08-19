@@ -1,13 +1,13 @@
 //! Background worker for the `email_outbox` table.
 
-use chrono::Utc;
-use serde::{Deserialize, Serialize};
 use crate::{
     email::EmailService,
     error::{AppError, AppResult},
     repository::Repository,
     services::audit::{self, AuditLogMeta, AuditService},
 };
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
 
 /// Maximum send attempts before marking a row as permanently failed.
 const MAX_ATTEMPTS: i32 = 5;
@@ -42,12 +42,7 @@ pub struct EmailOutboxBatchReport {
 }
 
 /// Claim and send up to `batch_size` pending outbox rows.
-pub async fn process_outbox_batch(
-    email: &EmailService,
-    repository: &Repository,
-    audit: &AuditService,
-    batch_size: Option<i64>,
-) -> AppResult<EmailOutboxBatchReport> {
+pub async fn process_outbox_batch(email: &EmailService, repository: &Repository, audit: &AuditService, batch_size: Option<i64>) -> AppResult<EmailOutboxBatchReport> {
     let pool = repository.pool();
     let limit = batch_size.unwrap_or(DEFAULT_BATCH_SIZE).clamp(1, 100);
     let mut report = EmailOutboxBatchReport::default();
@@ -72,17 +67,13 @@ pub async fn process_outbox_batch(
         let body = match serde_json::from_str::<OutboxBody>(&row.body) {
             Ok(b) => b,
             Err(e) => {
-                mark_failed(repository, audit, row.id, row.to_addr.as_str(), row.attempts, &format!("invalid body JSON: {e}"))
-                    .await?;
+                mark_failed(repository, audit, row.id, row.to_addr.as_str(), row.attempts, &format!("invalid body JSON: {e}")).await?;
                 report.failed += 1;
                 continue;
             }
         };
 
-        match email
-            .send_email_with_html(&row.to_addr, &row.subject, &body.plain, &body.html)
-            .await
-        {
+        match email.send_email_with_html(&row.to_addr, &row.subject, &body.plain, &body.html).await {
             Ok(()) => {
                 sqlx::query(
                     r#"
@@ -98,15 +89,9 @@ pub async fn process_outbox_batch(
                 .map_err(AppError::from)?;
                 report.sent += 1;
 
-                if let Some(loan_ids) = apply_reminder_delivery(repository, audit, row.id, &row.to_addr)
-                    .await?
-                {
+                if let Some(loan_ids) = apply_reminder_delivery(repository, audit, row.id, &row.to_addr).await? {
                     report.reminders_confirmed += 1;
-                    tracing::info!(
-                        outbox_id = row.id,
-                        loan_count = loan_ids.len(),
-                        "overdue reminder delivered; loan tracking updated"
-                    );
+                    tracing::info!(outbox_id = row.id, loan_count = loan_ids.len(), "overdue reminder delivered; loan tracking updated");
                 }
 
                 apply_event_announcement_delivery(repository, row.id).await?;
@@ -114,8 +99,7 @@ pub async fn process_outbox_batch(
             Err(e) => {
                 let next_attempts = row.attempts + 1;
                 if next_attempts >= MAX_ATTEMPTS {
-                    mark_failed(repository, audit, row.id, row.to_addr.as_str(), row.attempts, &e.to_string())
-                        .await?;
+                    mark_failed(repository, audit, row.id, row.to_addr.as_str(), row.attempts, &e.to_string()).await?;
                     report.failed += 1;
                 } else {
                     sqlx::query(
@@ -145,12 +129,7 @@ pub async fn process_outbox_batch(
 }
 
 /// After SMTP success: update loan reminder columns and release reservations.
-async fn apply_reminder_delivery(
-    repository: &Repository,
-    audit: &AuditService,
-    outbox_id: i64,
-    to_addr: &str,
-) -> AppResult<Option<Vec<i64>>> {
+async fn apply_reminder_delivery(repository: &Repository, audit: &AuditService, outbox_id: i64, to_addr: &str) -> AppResult<Option<Vec<i64>>> {
     let loan_ids = repository.email_outbox_reminder_loan_ids(outbox_id).await?;
     if loan_ids.is_empty() {
         return Ok(None);
@@ -181,16 +160,11 @@ async fn apply_reminder_delivery(
 /// After SMTP success: if this row belongs to an event announcement, mark the event sent
 /// once no pending outbox rows remain for that event.
 async fn apply_event_announcement_delivery(repository: &Repository, outbox_id: i64) -> AppResult<()> {
-    let Some(event_id) = repository
-        .email_outbox_event_id_for_outbox(outbox_id)
-        .await?
-    else {
+    let Some(event_id) = repository.email_outbox_event_id_for_outbox(outbox_id).await? else {
         return Ok(());
     };
 
-    let pending = repository
-        .email_outbox_pending_event_announcement_count(event_id)
-        .await?;
+    let pending = repository.email_outbox_pending_event_announcement_count(event_id).await?;
     if pending == 0 {
         repository.events_set_announcement_sent_at(event_id).await?;
     }
@@ -198,14 +172,7 @@ async fn apply_event_announcement_delivery(repository: &Repository, outbox_id: i
     Ok(())
 }
 
-async fn mark_failed(
-    repository: &Repository,
-    audit: &AuditService,
-    id: i64,
-    to_addr: &str,
-    attempts: i32,
-    reason: &str,
-) -> AppResult<()> {
+async fn mark_failed(repository: &Repository, audit: &AuditService, id: i64, to_addr: &str, attempts: i32, reason: &str) -> AppResult<()> {
     let pool = repository.pool();
     sqlx::query(
         r#"

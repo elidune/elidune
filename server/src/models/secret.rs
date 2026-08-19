@@ -66,12 +66,10 @@ pub fn validate_password_strength_secret(value: &PlaintextPassword) -> Result<()
 
 #[must_use]
 pub fn optional_exposed_str(opt: &Option<PlaintextPassword>) -> Option<&str> {
-    opt.as_ref()
-        .map(|s| s.expose_secret().as_str())
+    opt.as_ref().map(|s| s.expose_secret().as_str())
 }
 
 #[must_use]
 pub fn optional_exposed_string(opt: &Option<PlaintextPassword>) -> Option<String> {
-    opt.as_ref()
-        .map(|s| s.expose_secret().as_str().to_string())
+    opt.as_ref().map(|s| s.expose_secret().as_str().to_string())
 }

@@ -8,25 +8,25 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, Notify};
 
 pub mod api;
-pub mod auth_policy;
 pub mod app;
+pub mod auth_policy;
 pub mod bootstrap;
 pub mod config;
 pub mod dynamic_config;
 pub mod email;
 pub mod email_templates;
 pub mod error;
+pub mod hold_email;
+pub mod inventory_email;
 pub mod marc;
 pub mod models;
 pub mod repository;
-pub mod hold_email;
-pub mod inventory_email;
 pub mod services;
 
 pub use app::{build_app, build_app_with_options, build_cors, AppBuildOptions};
 pub use config::AppConfig;
-pub use email::EmailService;
 pub use dynamic_config::DynamicConfig;
+pub use email::EmailService;
 pub use error::{AppError, AppResult};
 
 /// Application state shared across all handlers

@@ -5,10 +5,7 @@ use std::sync::Arc;
 
 use crate::{
     error::{AppError, AppResult},
-    models::public_type::{
-        CreatePublicType, PublicType, PublicTypeLoanSettingInput, PublicTypeLoanSettings,
-        ReplacePublicTypeLoanSettingsRequest, UpdatePublicType,
-    },
+    models::public_type::{CreatePublicType, PublicType, PublicTypeLoanSettingInput, PublicTypeLoanSettings, ReplacePublicTypeLoanSettingsRequest, UpdatePublicType},
     repository::PublicTypesRepository,
 };
 
@@ -52,44 +49,28 @@ impl PublicTypesService {
 
     /// Full replace of loan settings for a public type; returns rows in the same order as GET.
     #[tracing::instrument(skip(self, body), err)]
-    pub async fn update_loan_settings(
-        &self,
-        public_type_id: i64,
-        body: &ReplacePublicTypeLoanSettingsRequest,
-    ) -> AppResult<Vec<PublicTypeLoanSettings>> {
+    pub async fn update_loan_settings(&self, public_type_id: i64, body: &ReplacePublicTypeLoanSettingsRequest) -> AppResult<Vec<PublicTypeLoanSettings>> {
         validate_replace_public_type_loan_settings(&body.settings)?;
-        self.repository
-            .public_types_replace_loan_settings(public_type_id, &body.settings)
-            .await
+        self.repository.public_types_replace_loan_settings(public_type_id, &body.settings).await
     }
 }
 
 fn validate_replace_public_type_loan_settings(rows: &[PublicTypeLoanSettingInput]) -> AppResult<()> {
     if rows.is_empty() {
-        return Err(AppError::Validation(
-            "loan settings: at least one row is required".into(),
-        ));
+        return Err(AppError::Validation("loan settings: at least one row is required".into()));
     }
 
     let mut default_rows = 0usize;
     let mut seen_media = HashSet::<String>::new();
 
     for r in rows {
-        match r
-            .media_type
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-        {
+        match r.media_type.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
             None => {
                 default_rows += 1;
             }
             Some(mt) => {
                 if !seen_media.insert(mt.to_string()) {
-                    return Err(AppError::Validation(format!(
-                        "loan settings: duplicate mediaType `{}`",
-                        mt
-                    )));
+                    return Err(AppError::Validation(format!("loan settings: duplicate mediaType `{}`", mt)));
                 }
             }
         }

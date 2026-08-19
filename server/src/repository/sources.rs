@@ -16,25 +16,12 @@ pub trait SourcesRepository: Send + Sync {
     async fn sources_list(&self, include_archived: bool) -> AppResult<Vec<Source>>;
     async fn sources_get_by_id(&self, id: i64) -> AppResult<Source>;
     async fn sources_rename(&self, id: i64, name: &str) -> AppResult<Source>;
-    async fn sources_update(
-        &self,
-        id: i64,
-        name: Option<&str>,
-        default: Option<bool>,
-    ) -> AppResult<Source>;
+    async fn sources_update(&self, id: i64, name: Option<&str>, default: Option<bool>) -> AppResult<Source>;
     async fn sources_count_active_items(&self, source_id: i64) -> AppResult<i64>;
     async fn sources_archive(&self, id: i64) -> AppResult<Source>;
     async fn sources_create(&self, name: &str, default: Option<bool>) -> AppResult<Source>;
-    async fn sources_reassign_items(
-        &self,
-        old_source_ids: &[i64],
-        new_source_id: i64,
-    ) -> AppResult<i64>;
-    async fn sources_reassign_biblios(
-        &self,
-        old_source_ids: &[i64],
-        new_source_id: i64,
-    ) -> AppResult<i64>;
+    async fn sources_reassign_items(&self, old_source_ids: &[i64], new_source_id: i64) -> AppResult<i64>;
+    async fn sources_reassign_biblios(&self, old_source_ids: &[i64], new_source_id: i64) -> AppResult<i64>;
     async fn sources_archive_many(&self, ids: &[i64]) -> AppResult<()>;
     async fn sources_find_or_create_by_name(&self, name: &str) -> AppResult<i64>;
     async fn sources_get_default(&self) -> AppResult<Option<Source>>;
@@ -90,21 +77,15 @@ impl SourcesRepository for Repository {
     }
 }
 
-
-
 impl Repository {
     /// List all sources, optionally filtering by archive status
     pub async fn sources_list(&self, include_archived: bool) -> AppResult<Vec<Source>> {
         let rows = if include_archived {
-            sqlx::query_as::<_, Source>("SELECT * FROM sources ORDER BY name")
+            sqlx::query_as::<_, Source>("SELECT * FROM sources ORDER BY name").fetch_all(&self.pool).await?
+        } else {
+            sqlx::query_as::<_, Source>("SELECT * FROM sources WHERE is_archive IS NULL OR is_archive = 0 ORDER BY name")
                 .fetch_all(&self.pool)
                 .await?
-        } else {
-            sqlx::query_as::<_, Source>(
-                "SELECT * FROM sources WHERE is_archive IS NULL OR is_archive = 0 ORDER BY name",
-            )
-            .fetch_all(&self.pool)
-            .await?
         };
         Ok(rows)
     }
@@ -136,28 +117,21 @@ impl Repository {
         if let Some(true) = default {
             let mut tx = self.pool.begin().await?;
 
-            sqlx::query(r#"UPDATE sources SET "default" = false WHERE id != $1"#)
-                .bind(id)
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query(r#"UPDATE sources SET "default" = false WHERE id != $1"#).bind(id).execute(&mut *tx).await?;
 
             let source = match name {
                 Some(n) => {
-                    sqlx::query_as::<_, Source>(
-                        r#"UPDATE sources SET name = $1, "default" = true WHERE id = $2 RETURNING *"#
-                    )
-                    .bind(n)
-                    .bind(id)
-                    .fetch_optional(&mut *tx)
-                    .await?
+                    sqlx::query_as::<_, Source>(r#"UPDATE sources SET name = $1, "default" = true WHERE id = $2 RETURNING *"#)
+                        .bind(n)
+                        .bind(id)
+                        .fetch_optional(&mut *tx)
+                        .await?
                 }
                 None => {
-                    sqlx::query_as::<_, Source>(
-                        r#"UPDATE sources SET "default" = true WHERE id = $1 RETURNING *"#
-                    )
-                    .bind(id)
-                    .fetch_optional(&mut *tx)
-                    .await?
+                    sqlx::query_as::<_, Source>(r#"UPDATE sources SET "default" = true WHERE id = $1 RETURNING *"#)
+                        .bind(id)
+                        .fetch_optional(&mut *tx)
+                        .await?
                 }
             };
 
@@ -168,32 +142,26 @@ impl Repository {
         // No default change — simple update without a transaction.
         let source = match (name, default) {
             (Some(n), Some(dv)) => {
-                sqlx::query_as::<_, Source>(
-                    r#"UPDATE sources SET name = $1, "default" = $2 WHERE id = $3 RETURNING *"#
-                )
-                .bind(n)
-                .bind(dv)
-                .bind(id)
-                .fetch_optional(&self.pool)
-                .await?
+                sqlx::query_as::<_, Source>(r#"UPDATE sources SET name = $1, "default" = $2 WHERE id = $3 RETURNING *"#)
+                    .bind(n)
+                    .bind(dv)
+                    .bind(id)
+                    .fetch_optional(&self.pool)
+                    .await?
             }
             (Some(n), None) => {
-                sqlx::query_as::<_, Source>(
-                    "UPDATE sources SET name = $1 WHERE id = $2 RETURNING *"
-                )
-                .bind(n)
-                .bind(id)
-                .fetch_optional(&self.pool)
-                .await?
+                sqlx::query_as::<_, Source>("UPDATE sources SET name = $1 WHERE id = $2 RETURNING *")
+                    .bind(n)
+                    .bind(id)
+                    .fetch_optional(&self.pool)
+                    .await?
             }
             (None, Some(dv)) => {
-                sqlx::query_as::<_, Source>(
-                    r#"UPDATE sources SET "default" = $1 WHERE id = $2 RETURNING *"#
-                )
-                .bind(dv)
-                .bind(id)
-                .fetch_optional(&self.pool)
-                .await?
+                sqlx::query_as::<_, Source>(r#"UPDATE sources SET "default" = $1 WHERE id = $2 RETURNING *"#)
+                    .bind(dv)
+                    .bind(id)
+                    .fetch_optional(&self.pool)
+                    .await?
             }
             (None, None) => {
                 return Err(AppError::Validation("At least one field must be provided for update".to_string()));
@@ -211,14 +179,12 @@ impl Repository {
     /// Archive a source
     pub async fn sources_archive(&self, id: i64) -> AppResult<Source> {
         let now = Utc::now();
-        sqlx::query_as::<_, Source>(
-            "UPDATE sources SET is_archive = 1, archived_at = $1 WHERE id = $2 RETURNING *",
-        )
-        .bind(now)
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Source {} not found", id)))
+        sqlx::query_as::<_, Source>("UPDATE sources SET is_archive = 1, archived_at = $1 WHERE id = $2 RETURNING *")
+            .bind(now)
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Source {} not found", id)))
     }
 
     /// Create a new source.
@@ -229,45 +195,31 @@ impl Repository {
         if default == Some(true) {
             let mut tx = self.pool.begin().await?;
 
-            sqlx::query(r#"UPDATE sources SET "default" = false"#)
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query(r#"UPDATE sources SET "default" = false"#).execute(&mut *tx).await?;
 
-            let row = sqlx::query_as::<_, Source>(
-                r#"INSERT INTO sources (name, "default") VALUES ($1, true) RETURNING *"#,
-            )
-            .bind(name)
-            .fetch_one(&mut *tx)
-            .await?;
+            let row = sqlx::query_as::<_, Source>(r#"INSERT INTO sources (name, "default") VALUES ($1, true) RETURNING *"#)
+                .bind(name)
+                .fetch_one(&mut *tx)
+                .await?;
 
             tx.commit().await?;
             return Ok(row);
         }
 
-        let row = sqlx::query_as::<_, Source>(
-            r#"INSERT INTO sources (name, "default") VALUES ($1, false) RETURNING *"#,
-        )
-        .bind(name)
-        .fetch_one(&self.pool)
-        .await?;
+        let row = sqlx::query_as::<_, Source>(r#"INSERT INTO sources (name, "default") VALUES ($1, false) RETURNING *"#)
+            .bind(name)
+            .fetch_one(&self.pool)
+            .await?;
         Ok(row)
     }
 
     /// Reassign all physical items from given source IDs to a new source ID
-    pub async fn sources_reassign_items(
-        &self,
-        old_source_ids: &[i64],
-        new_source_id: i64,
-    ) -> AppResult<i64> {
+    pub async fn sources_reassign_items(&self, old_source_ids: &[i64], new_source_id: i64) -> AppResult<i64> {
         self.biblios_reassign_items_source(old_source_ids, new_source_id).await
     }
 
     /// Reassign all biblios from given source IDs to a new source ID (no-op: sources attach to items)
-    pub async fn sources_reassign_biblios(
-        &self,
-        old_source_ids: &[i64],
-        new_source_id: i64,
-    ) -> AppResult<i64> {
+    pub async fn sources_reassign_biblios(&self, old_source_ids: &[i64], new_source_id: i64) -> AppResult<i64> {
         self.biblios_reassign_biblios_source(old_source_ids, new_source_id).await
     }
 
@@ -284,45 +236,30 @@ impl Repository {
 
     /// Find source by name or create it. Returns source id.
     pub async fn sources_find_or_create_by_name(&self, name: &str) -> AppResult<i64> {
-        if let Some(id) = sqlx::query_scalar::<_, i64>("SELECT id FROM sources WHERE name = $1")
-            .bind(name)
-            .fetch_optional(&self.pool)
-            .await?
-        {
+        if let Some(id) = sqlx::query_scalar::<_, i64>("SELECT id FROM sources WHERE name = $1").bind(name).fetch_optional(&self.pool).await? {
             return Ok(id);
         }
-        let id: i64 = sqlx::query_scalar(r#"INSERT INTO sources (name) VALUES ($1) RETURNING id"#)
-            .bind(name)
-            .fetch_one(&self.pool)
-            .await?;
+        let id: i64 = sqlx::query_scalar(r#"INSERT INTO sources (name) VALUES ($1) RETURNING id"#).bind(name).fetch_one(&self.pool).await?;
         Ok(id)
     }
 
     /// Get the default source (the one with default = true)
     pub async fn sources_get_default(&self) -> AppResult<Option<Source>> {
-        let source = sqlx::query_as::<_, Source>(
-            r#"SELECT * FROM sources WHERE "default" = true AND (is_archive IS NULL OR is_archive = 0) LIMIT 1"#
-        )
-        .fetch_optional(&self.pool)
-        .await?;
+        let source = sqlx::query_as::<_, Source>(r#"SELECT * FROM sources WHERE "default" = true AND (is_archive IS NULL OR is_archive = 0) LIMIT 1"#)
+            .fetch_optional(&self.pool)
+            .await?;
         Ok(source)
     }
 
     /// Atomically merge sources: create target, reassign items, archive sources.
-    pub async fn merge_sources_tx(
-        &self,
-        name: &str,
-        old_source_ids: &[i64],
-    ) -> AppResult<Source> {
+    pub async fn merge_sources_tx(&self, name: &str, old_source_ids: &[i64]) -> AppResult<Source> {
         let mut tx = self.pool.begin().await?;
         let now = Utc::now();
 
-        let new_source = sqlx::query_as::<_, Source>(
-            r#"INSERT INTO sources (name, "default") VALUES ($1, false) RETURNING *"#,
-        )
-        .bind(name)
-        .fetch_one(&mut *tx)
-        .await?;
+        let new_source = sqlx::query_as::<_, Source>(r#"INSERT INTO sources (name, "default") VALUES ($1, false) RETURNING *"#)
+            .bind(name)
+            .fetch_one(&mut *tx)
+            .await?;
 
         sqlx::query("UPDATE items SET source_id = $1 WHERE source_id = ANY($2)")
             .bind(new_source.id)
@@ -340,4 +277,3 @@ impl Repository {
         Ok(new_source)
     }
 }
-

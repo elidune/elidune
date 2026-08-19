@@ -1,12 +1,12 @@
 //! Series CRUD endpoints.
 
+use axum::routing::get;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     Json, Router,
 };
-use axum::routing::get;
 use serde::Serialize;
 use utoipa::ToSchema;
 
@@ -30,7 +30,11 @@ pub struct PaginatedSeries {
 }
 
 fn page_count(total: i64, per_page: i64) -> i64 {
-    if per_page > 0 { (total + per_page - 1) / per_page } else { 0 }
+    if per_page > 0 {
+        (total + per_page - 1) / per_page
+    } else {
+        0
+    }
 }
 
 /// List series (paginated, optional name filter).
@@ -49,16 +53,18 @@ fn page_count(total: i64, per_page: i64) -> i64 {
         (status = 401, description = "Not authenticated"),
     )
 )]
-pub async fn list_series(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Query(query): Query<SerieQuery>,
-) -> AppResult<Json<PaginatedSeries>> {
+pub async fn list_series(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<SerieQuery>) -> AppResult<Json<PaginatedSeries>> {
     claims.require_read_items()?;
     let page = query.page.unwrap_or(1).max(1);
     let per_page = query.per_page.unwrap_or(50).min(200);
     let (items, total) = state.services.catalog.list_series(&query).await?;
-    Ok(Json(PaginatedSeries { items, total, page, per_page, page_count: page_count(total, per_page) }))
+    Ok(Json(PaginatedSeries {
+        items,
+        total,
+        page,
+        per_page,
+        page_count: page_count(total, per_page),
+    }))
 }
 
 /// Get a series by ID.
@@ -73,11 +79,7 @@ pub async fn list_series(
         (status = 404, description = "Not found"),
     )
 )]
-pub async fn get_serie(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i64>,
-) -> AppResult<Json<Serie>> {
+pub async fn get_serie(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(id): Path<i64>) -> AppResult<Json<Serie>> {
     claims.require_read_items()?;
     let serie = state.services.catalog.get_serie(id).await?;
     Ok(Json(serie))
@@ -95,11 +97,7 @@ pub async fn get_serie(
         (status = 404, description = "Not found"),
     )
 )]
-pub async fn get_serie_biblios(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i64>,
-) -> AppResult<Json<Vec<BiblioShort>>> {
+pub async fn get_serie_biblios(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(id): Path<i64>) -> AppResult<Json<Vec<BiblioShort>>> {
     claims.require_read_items()?;
     state.services.catalog.get_serie(id).await?;
     let biblios = state.services.catalog.get_biblios_by_series(id).await?;
@@ -120,12 +118,7 @@ pub async fn get_serie_biblios(
         (status = 409, description = "Duplicate key"),
     )
 )]
-pub async fn create_serie(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    ClientIp(ip): ClientIp,
-    Json(data): Json<CreateSerie>,
-) -> AppResult<impl IntoResponse> {
+pub async fn create_serie(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Json(data): Json<CreateSerie>) -> AppResult<impl IntoResponse> {
     claims.require_write_items()?;
     match state.services.catalog.create_serie(&data).await {
         Ok(serie) => {
@@ -220,12 +213,7 @@ pub async fn update_serie(
         (status = 409, description = "Still linked to biblios"),
     )
 )]
-pub async fn delete_serie(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    ClientIp(ip): ClientIp,
-    Path(id): Path<i64>,
-) -> AppResult<StatusCode> {
+pub async fn delete_serie(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Path(id): Path<i64>) -> AppResult<StatusCode> {
     claims.require_write_items()?;
     match state.services.catalog.delete_serie(id).await {
         Ok(()) => {

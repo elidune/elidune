@@ -46,25 +46,19 @@ impl sqlx::Type<sqlx::Postgres> for InventoryScanResult {
     }
 
     fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
-        *ty == Self::type_info()
-            || <String as sqlx::Type<sqlx::Postgres>>::compatible(ty)
+        *ty == Self::type_info() || <String as sqlx::Type<sqlx::Postgres>>::compatible(ty)
     }
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for InventoryScanResult {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
         Ok(Self::from(s))
     }
 }
 
 impl sqlx::Encode<'_, sqlx::Postgres> for InventoryScanResult {
-    fn encode_by_ref(
-        &self,
-        buf: &mut sqlx::postgres::PgArgumentBuffer,
-    ) -> sqlx::encode::IsNull {
+    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
         <String as sqlx::Encode<sqlx::Postgres>>::encode(self.as_str().to_string(), buf)
     }
 }
@@ -109,25 +103,19 @@ impl sqlx::Type<sqlx::Postgres> for InventoryStatus {
     }
 
     fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
-        *ty == Self::type_info()
-            || <String as sqlx::Type<sqlx::Postgres>>::compatible(ty)
+        *ty == Self::type_info() || <String as sqlx::Type<sqlx::Postgres>>::compatible(ty)
     }
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for InventoryStatus {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
         Ok(Self::from(s))
     }
 }
 
 impl sqlx::Encode<'_, sqlx::Postgres> for InventoryStatus {
-    fn encode_by_ref(
-        &self,
-        buf: &mut sqlx::postgres::PgArgumentBuffer,
-    ) -> sqlx::encode::IsNull {
+    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
         <String as sqlx::Encode<sqlx::Postgres>>::encode(self.as_str().to_string(), buf)
     }
 }

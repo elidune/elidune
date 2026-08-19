@@ -1,25 +1,25 @@
 //! Data models for Elidune
 
 pub mod account_type;
-pub mod dto;
 pub mod audit;
 pub mod author;
 pub mod biblio;
 pub mod biblio_author;
+pub mod dto;
 pub mod enums;
 pub mod equipment;
 pub mod event;
 pub mod fine;
+pub mod hold;
 pub mod import_report;
 pub mod inventory;
 pub mod item;
 pub mod loan;
 pub mod public_type;
-pub mod hold;
 pub mod schedule;
 pub mod secret;
-pub mod stats_builder;
 pub mod source;
+pub mod stats_builder;
 pub mod task;
 pub mod user;
 pub mod visitor_count;
@@ -28,20 +28,19 @@ pub mod visitor_count;
 pub use author::Author;
 pub use biblio::{Biblio, BiblioShort, MediaType};
 pub use biblio_author::BiblioAuthor;
-pub use enums::{Genre, Lang, Occupation, Sex, StaffType, EquipmentType, EquipmentStatus, EventType};
-pub use import_report::{ImportReport, ImportAction, DuplicateCandidate, DuplicateConfirmationRequired, DuplicateItemBarcodeRequired};
+pub use enums::{EquipmentStatus, EquipmentType, EventType, Genre, Lang, Occupation, Sex, StaffType};
 pub use equipment::Equipment;
 pub use event::Event;
+pub use import_report::{DuplicateCandidate, DuplicateConfirmationRequired, DuplicateItemBarcodeRequired, ImportAction, ImportReport};
 pub use item::{Item, ItemShort};
 pub use loan::{Loan, LoanDetails};
-pub use schedule::{SchedulePeriod, ScheduleSlot, ScheduleClosure};
+pub use schedule::{ScheduleClosure, SchedulePeriod, ScheduleSlot};
+pub use secret::PlaintextPassword;
 use serde::{Deserialize, Serialize};
 pub use source::Source;
 pub use user::{User, UserShort};
-pub use secret::PlaintextPassword;
 use utoipa::ToSchema;
 pub use visitor_count::VisitorCount;
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -211,9 +210,7 @@ impl sqlx::Type<sqlx::Postgres> for Language {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for Language {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, Box<dyn std::error::Error + 'static + Send + Sync>> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + 'static + Send + Sync>> {
         let s: String = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
         Ok(Language::from(s.as_str()))
     }

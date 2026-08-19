@@ -6,11 +6,8 @@ use crate::{
     error::{AppError, AppResult},
     marc::MarcRecord,
     models::{
+        biblio::{Biblio, BiblioQuery, BiblioShort, Collection, CollectionQuery, CreateCollection, CreateSerie, Serie, SerieQuery, UpdateCollection, UpdateSerie},
         import_report::{ImportAction, ImportReport},
-        biblio::{
-            Biblio, BiblioQuery, BiblioShort, Collection, CollectionQuery, CreateCollection,
-            CreateSerie, Serie, SerieQuery, UpdateCollection, UpdateSerie,
-        },
         item::Item,
     },
     repository::{BibliosRepository, CatalogEntitiesRepository},
@@ -27,11 +24,7 @@ pub struct CatalogService {
 }
 
 impl CatalogService {
-    pub fn new(
-        repository: Arc<dyn BibliosRepository>,
-        entities: Arc<dyn CatalogEntitiesRepository>,
-        audit: AuditService,
-    ) -> Self {
+    pub fn new(repository: Arc<dyn BibliosRepository>, entities: Arc<dyn CatalogEntitiesRepository>, audit: AuditService) -> Self {
         Self {
             repository,
             entities,
@@ -40,12 +33,7 @@ impl CatalogService {
         }
     }
 
-    pub fn with_search(
-        repository: Arc<dyn BibliosRepository>,
-        entities: Arc<dyn CatalogEntitiesRepository>,
-        search: Arc<MeilisearchService>,
-        audit: AuditService,
-    ) -> Self {
+    pub fn with_search(repository: Arc<dyn BibliosRepository>, entities: Arc<dyn CatalogEntitiesRepository>, search: Arc<MeilisearchService>, audit: AuditService) -> Self {
         Self {
             repository,
             entities,
@@ -186,9 +174,7 @@ impl CatalogService {
     /// Get biblio by ID with full details
     #[tracing::instrument(skip(self), err)]
     pub async fn get_biblio(&self, id: i64) -> AppResult<Biblio> {
-        self.repository
-            .biblios_get_by_id(id)
-            .await
+        self.repository.biblios_get_by_id(id).await
     }
 
     /// Get the bibliographic record for a physical copy (`item_id`).
@@ -197,9 +183,7 @@ impl CatalogService {
     #[tracing::instrument(skip(self), err)]
     pub async fn get_biblio_for_item(&self, item_id: i64) -> AppResult<Biblio> {
         let item = self.repository.items_get_active_by_id(item_id).await?;
-        let biblio_id = item
-            .biblio_id
-            .ok_or_else(|| AppError::Internal("Item has no biblio_id".to_string()))?;
+        let biblio_id = item.biblio_id.ok_or_else(|| AppError::Internal("Item has no biblio_id".to_string()))?;
         let mut biblio = self.repository.biblios_get_by_id(biblio_id).await?;
         biblio.items = vec![item];
         Ok(biblio)
@@ -209,9 +193,7 @@ impl CatalogService {
     #[tracing::instrument(skip(self), err)]
     pub async fn get_biblio_for_item_barcode(&self, barcode: &str) -> AppResult<Biblio> {
         let item = self.repository.items_get_active_by_barcode(barcode).await?;
-        let biblio_id = item
-            .biblio_id
-            .ok_or_else(|| AppError::Internal("Item has no biblio_id".to_string()))?;
+        let biblio_id = item.biblio_id.ok_or_else(|| AppError::Internal("Item has no biblio_id".to_string()))?;
         let mut biblio = self.repository.biblios_get_by_id(biblio_id).await?;
         biblio.items = vec![item];
         Ok(biblio)
@@ -220,9 +202,7 @@ impl CatalogService {
     /// Like [`Self::get_biblio_for_item`], plus `biblio.marc_record` when stored in DB (for MARC export).
     pub async fn get_biblio_for_item_with_marc(&self, item_id: i64) -> AppResult<Biblio> {
         let mut biblio = self.get_biblio_for_item(item_id).await?;
-        let bid = biblio
-            .id
-            .ok_or_else(|| AppError::Internal("Biblio id missing".to_string()))?;
+        let bid = biblio.id.ok_or_else(|| AppError::Internal("Biblio id missing".to_string()))?;
         if let Some(rec) = self.repository.biblios_get_marc_record_optional(bid).await? {
             biblio.marc_record = Some(rec);
         }
@@ -239,12 +219,7 @@ impl CatalogService {
     ///
     /// Embedded items (physical copies) are created through the barcode policy.
     #[tracing::instrument(skip(self), err)]
-    pub async fn create_biblio(
-        &self,
-        mut biblio: Biblio,
-        allow_duplicate_isbn: bool,
-        replace_existing: Option<i64>,
-    ) -> AppResult<(Biblio, ImportReport)> {
+    pub async fn create_biblio(&self, mut biblio: Biblio, allow_duplicate_isbn: bool, replace_existing: Option<i64>) -> AppResult<(Biblio, ImportReport)> {
         if !allow_duplicate_isbn {
             if let Some(ref isbn) = biblio.isbn {
                 if let Some(existing_id) = self.repository.biblios_find_active_by_isbn(isbn.as_str(), None).await? {
@@ -261,10 +236,7 @@ impl CatalogService {
                             action: ImportAction::MergedBibliographic,
                             existing_id: Some(existing_id),
                             warnings: vec![],
-                            message: Some(format!(
-                                "Merged bibliographic data into biblio id={} after confirmation.",
-                                existing_id
-                            )),
+                            message: Some(format!("Merged bibliographic data into biblio id={} after confirmation.", existing_id)),
                         };
                         return Ok((biblio, report));
                     }
@@ -309,9 +281,7 @@ impl CatalogService {
     /// Update an existing biblio.
     #[tracing::instrument(skip(self), err)]
     pub async fn update_biblio(&self, id: i64, mut biblio: Biblio, allow_duplicate_isbn: bool) -> AppResult<Biblio> {
-        self.repository
-            .biblios_get_by_id(id)
-            .await?;
+        self.repository.biblios_get_by_id(id).await?;
 
         if !allow_duplicate_isbn {
             if let Some(ref isbn) = biblio.isbn {
@@ -328,16 +298,11 @@ impl CatalogService {
         self.sync_index(id).await;
 
         self.repository.biblios_get_by_id(id).await
-       
     }
 
     /// Replace bibliographic data and stored MARC from a Z39.50 fetch; keeps existing physical items and `created_at`.
     #[tracing::instrument(skip(self, remote_marc), err)]
-    pub async fn refresh_biblio_from_z3950_marc(
-        &self,
-        biblio_id: i64,
-        remote_marc: MarcRecord,
-    ) -> AppResult<Biblio> {
+    pub async fn refresh_biblio_from_z3950_marc(&self, biblio_id: i64, remote_marc: MarcRecord) -> AppResult<Biblio> {
         let existing = self.repository.biblios_get_by_id(biblio_id).await?;
         let mut merged: Biblio = remote_marc.into();
         merged.id = Some(biblio_id);
@@ -346,9 +311,7 @@ impl CatalogService {
         if let Some(ref isbn) = merged.isbn {
             self.ensure_isbn_unique(isbn.as_str(), Some(biblio_id)).await?;
         }
-        self.repository
-            .biblios_full_bibliographic_replace(biblio_id, &mut merged)
-            .await?;
+        self.repository.biblios_full_bibliographic_replace(biblio_id, &mut merged).await?;
         self.sync_index(biblio_id).await;
         self.repository.biblios_get_by_id(biblio_id).await
     }
@@ -368,9 +331,7 @@ impl CatalogService {
     /// Get items (physical copies) for a biblio
     #[tracing::instrument(skip(self), err)]
     pub async fn get_items(&self, biblio_id: i64) -> AppResult<Vec<Item>> {
-        self.repository
-            .biblios_get_by_id(biblio_id)
-            .await?;
+        self.repository.biblios_get_by_id(biblio_id).await?;
         self.repository.biblios_get_items(biblio_id).await
     }
 
@@ -378,9 +339,7 @@ impl CatalogService {
     /// Barcode uniqueness is enforced through the shared policy.
     #[tracing::instrument(skip(self), err)]
     pub async fn create_item(&self, biblio_id: i64, item: Item) -> AppResult<Item> {
-        self.repository
-            .biblios_get_by_id(biblio_id)
-            .await?;
+        self.repository.biblios_get_by_id(biblio_id).await?;
 
         if let Some(ref barcode) = item.barcode {
             self.ensure_barcode_unique(barcode, None).await?;
@@ -395,30 +354,20 @@ impl CatalogService {
     ///
     /// `item_id` (path) is the source of truth; if `item.id` is set it must match.
     #[tracing::instrument(skip(self), err)]
-    pub async fn update_item<'a>(
-        &self,
-        item_id: i64,
-        item: &'a mut Item,
-    ) -> AppResult<(i64, &'a mut Item)> {
+    pub async fn update_item<'a>(&self, item_id: i64, item: &'a mut Item) -> AppResult<(i64, &'a mut Item)> {
         if let Some(body_id) = item.id {
             if body_id != item_id {
-                return Err(AppError::Validation(
-                    "Item id in body must match path id".to_string(),
-                ));
+                return Err(AppError::Validation("Item id in body must match path id".to_string()));
             }
         }
         item.id = Some(item_id);
 
         let existing = self.repository.items_get_active_by_id(item_id).await?;
-        let biblio_id = existing.biblio_id.ok_or_else(|| {
-            AppError::Internal("Active item is missing biblio_id".to_string())
-        })?;
+        let biblio_id = existing.biblio_id.ok_or_else(|| AppError::Internal("Active item is missing biblio_id".to_string()))?;
 
         if let Some(body_biblio) = item.biblio_id {
             if body_biblio != biblio_id {
-                return Err(AppError::Validation(
-                    "Item biblioId in body must match the item's bibliographic record".to_string(),
-                ));
+                return Err(AppError::Validation("Item biblioId in body must match the item's bibliographic record".to_string()));
             }
         }
 
@@ -437,9 +386,7 @@ impl CatalogService {
     #[tracing::instrument(skip(self), err)]
     pub async fn delete_item(&self, item_id: i64, force: bool) -> AppResult<i64> {
         let existing = self.repository.items_get_active_by_id(item_id).await?;
-        let biblio_id = existing.biblio_id.ok_or_else(|| {
-            AppError::Internal("Active item is missing biblio_id".to_string())
-        })?;
+        let biblio_id = existing.biblio_id.ok_or_else(|| AppError::Internal("Active item is missing biblio_id".to_string()))?;
 
         self.repository.items_delete(item_id, force).await?;
         self.sync_index(biblio_id).await;
@@ -567,10 +514,7 @@ impl CatalogService {
         let mut since_last_log = 0usize;
 
         loop {
-            let batch = self
-                .repository
-                .biblios_get_meili_documents_batch(cursor, BATCH_SIZE)
-                .await?;
+            let batch = self.repository.biblios_get_meili_documents_batch(cursor, BATCH_SIZE).await?;
 
             if batch.is_empty() {
                 break;

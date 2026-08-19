@@ -10,16 +10,11 @@ use serde_json::json;
 
 use crate::{
     error::AppResult,
-    models::schedule::{
-        CreateScheduleClosure, CreateSchedulePeriod, CreateScheduleSlot,
-        ScheduleClosure, ScheduleClosureQuery, SchedulePeriod, ScheduleSlot,
-        UpdateSchedulePeriod,
-    },
+    models::schedule::{CreateScheduleClosure, CreateSchedulePeriod, CreateScheduleSlot, ScheduleClosure, ScheduleClosureQuery, SchedulePeriod, ScheduleSlot, UpdateSchedulePeriod},
     services::audit,
 };
 
 use super::{AuthenticatedUser, ClientIp};
-
 
 /// Build the schedules routes for this domain.
 pub fn router() -> axum::Router<crate::AppState> {
@@ -32,7 +27,6 @@ pub fn router() -> axum::Router<crate::AppState> {
         .route("/schedules/closures", get(list_closures).post(create_closure))
         .route("/schedules/closures/:id", delete(delete_closure))
 }
-
 
 // ---- Periods ----
 
@@ -50,9 +44,7 @@ pub fn router() -> axum::Router<crate::AppState> {
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn list_periods(
-    State(state): State<crate::AppState>,
-) -> AppResult<Json<Vec<SchedulePeriod>>> {
+pub async fn list_periods(State(state): State<crate::AppState>) -> AppResult<Json<Vec<SchedulePeriod>>> {
     let periods = state.services.schedules.list_periods().await?;
     Ok(Json(periods))
 }
@@ -80,7 +72,15 @@ pub async fn create_period(
 ) -> AppResult<(StatusCode, Json<SchedulePeriod>)> {
     claims.require_write_settings()?;
     let period = state.services.schedules.create_period(&data).await?;
-    state.services.audit.log(audit::event::SCHEDULE_PERIOD_CREATED, Some(claims.user_id), Some("schedule_period"), Some(period.id), ip, Some((&data, &period)), audit::AuditLogMeta::success());
+    state.services.audit.log(
+        audit::event::SCHEDULE_PERIOD_CREATED,
+        Some(claims.user_id),
+        Some("schedule_period"),
+        Some(period.id),
+        ip,
+        Some((&data, &period)),
+        audit::AuditLogMeta::success(),
+    );
     Ok((StatusCode::CREATED, Json(period)))
 }
 
@@ -109,7 +109,15 @@ pub async fn update_period(
 ) -> AppResult<Json<SchedulePeriod>> {
     claims.require_write_settings()?;
     let period = state.services.schedules.update_period(id, &data).await?;
-    state.services.audit.log(audit::event::SCHEDULE_PERIOD_UPDATED, Some(claims.user_id), Some("schedule_period"), Some(id), ip, Some((id, &data, &period)), audit::AuditLogMeta::success());
+    state.services.audit.log(
+        audit::event::SCHEDULE_PERIOD_UPDATED,
+        Some(claims.user_id),
+        Some("schedule_period"),
+        Some(id),
+        ip,
+        Some((id, &data, &period)),
+        audit::AuditLogMeta::success(),
+    );
     Ok(Json(period))
 }
 
@@ -128,15 +136,18 @@ pub async fn update_period(
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn delete_period(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    ClientIp(ip): ClientIp,
-    Path(id): Path<i64>,
-) -> AppResult<StatusCode> {
+pub async fn delete_period(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Path(id): Path<i64>) -> AppResult<StatusCode> {
     claims.require_write_settings()?;
     state.services.schedules.delete_period(id).await?;
-    state.services.audit.log(audit::event::SCHEDULE_PERIOD_DELETED, Some(claims.user_id), Some("schedule_period"), Some(id), ip, Some(json!({ "id": id })), audit::AuditLogMeta::success());
+    state.services.audit.log(
+        audit::event::SCHEDULE_PERIOD_DELETED,
+        Some(claims.user_id),
+        Some("schedule_period"),
+        Some(id),
+        ip,
+        Some(json!({ "id": id })),
+        audit::AuditLogMeta::success(),
+    );
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -157,10 +168,7 @@ pub async fn delete_period(
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn list_slots(
-    State(state): State<crate::AppState>,
-    Path(period_id): Path<i64>,
-) -> AppResult<Json<Vec<ScheduleSlot>>> {
+pub async fn list_slots(State(state): State<crate::AppState>, Path(period_id): Path<i64>) -> AppResult<Json<Vec<ScheduleSlot>>> {
     let slots = state.services.schedules.list_slots(period_id).await?;
     Ok(Json(slots))
 }
@@ -190,7 +198,15 @@ pub async fn create_slot(
 ) -> AppResult<(StatusCode, Json<ScheduleSlot>)> {
     claims.require_write_settings()?;
     let slot = state.services.schedules.create_slot(period_id, &data).await?;
-    state.services.audit.log(audit::event::SCHEDULE_SLOT_CREATED, Some(claims.user_id), Some("schedule_slot"), Some(slot.id), ip, Some((period_id, &data, &slot)), audit::AuditLogMeta::success());
+    state.services.audit.log(
+        audit::event::SCHEDULE_SLOT_CREATED,
+        Some(claims.user_id),
+        Some("schedule_slot"),
+        Some(slot.id),
+        ip,
+        Some((period_id, &data, &slot)),
+        audit::AuditLogMeta::success(),
+    );
     Ok((StatusCode::CREATED, Json(slot)))
 }
 
@@ -209,15 +225,18 @@ pub async fn create_slot(
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn delete_slot(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    ClientIp(ip): ClientIp,
-    Path(id): Path<i64>,
-) -> AppResult<StatusCode> {
+pub async fn delete_slot(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Path(id): Path<i64>) -> AppResult<StatusCode> {
     claims.require_write_settings()?;
     state.services.schedules.delete_slot(id).await?;
-    state.services.audit.log(audit::event::SCHEDULE_SLOT_DELETED, Some(claims.user_id), Some("schedule_slot"), Some(id), ip, Some(json!({ "id": id })), audit::AuditLogMeta::success());
+    state.services.audit.log(
+        audit::event::SCHEDULE_SLOT_DELETED,
+        Some(claims.user_id),
+        Some("schedule_slot"),
+        Some(id),
+        ip,
+        Some(json!({ "id": id })),
+        audit::AuditLogMeta::success(),
+    );
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -238,14 +257,9 @@ pub async fn delete_slot(
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn list_closures(
-    State(state): State<crate::AppState>,
-    Query(query): Query<ScheduleClosureQuery>,
-) -> AppResult<Json<Vec<ScheduleClosure>>> {
-    let start = query.start_date.as_ref()
-        .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
-    let end = query.end_date.as_ref()
-        .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+pub async fn list_closures(State(state): State<crate::AppState>, Query(query): Query<ScheduleClosureQuery>) -> AppResult<Json<Vec<ScheduleClosure>>> {
+    let start = query.start_date.as_ref().and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+    let end = query.end_date.as_ref().and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
     let closures = state.services.schedules.list_closures(start, end).await?;
     Ok(Json(closures))
 }
@@ -273,7 +287,15 @@ pub async fn create_closure(
 ) -> AppResult<(StatusCode, Json<ScheduleClosure>)> {
     claims.require_write_settings()?;
     let closure = state.services.schedules.create_closure(&data).await?;
-    state.services.audit.log(audit::event::SCHEDULE_CLOSURE_CREATED, Some(claims.user_id), Some("schedule_closure"), Some(closure.id), ip, Some((&data, &closure)), audit::AuditLogMeta::success());
+    state.services.audit.log(
+        audit::event::SCHEDULE_CLOSURE_CREATED,
+        Some(claims.user_id),
+        Some("schedule_closure"),
+        Some(closure.id),
+        ip,
+        Some((&data, &closure)),
+        audit::AuditLogMeta::success(),
+    );
     Ok((StatusCode::CREATED, Json(closure)))
 }
 
@@ -292,15 +314,17 @@ pub async fn create_closure(
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn delete_closure(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    ClientIp(ip): ClientIp,
-    Path(id): Path<i64>,
-) -> AppResult<StatusCode> {
+pub async fn delete_closure(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Path(id): Path<i64>) -> AppResult<StatusCode> {
     claims.require_write_settings()?;
     state.services.schedules.delete_closure(id).await?;
-    state.services.audit.log(audit::event::SCHEDULE_CLOSURE_DELETED, Some(claims.user_id), Some("schedule_closure"), Some(id), ip, Some(json!({ "id": id })), audit::AuditLogMeta::success());
+    state.services.audit.log(
+        audit::event::SCHEDULE_CLOSURE_DELETED,
+        Some(claims.user_id),
+        Some("schedule_closure"),
+        Some(id),
+        ip,
+        Some(json!({ "id": id })),
+        audit::AuditLogMeta::success(),
+    );
     Ok(StatusCode::NO_CONTENT)
 }
-

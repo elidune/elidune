@@ -28,15 +28,10 @@ pub struct AppBuildResult {
 
 impl AppBuildResult {
     /// Build services, scheduler, and router from file config and database pool.
-    pub async fn build(
-        file_config: AppConfig,
-        pool: Pool<Postgres>,
-        options: AppBuildOptions,
-    ) -> crate::error::AppResult<Self> {
+    pub async fn build(file_config: AppConfig, pool: Pool<Postgres>, options: AppBuildOptions) -> crate::error::AppResult<Self> {
         let dynamic_config = DynamicConfig::load_with_db_overrides(file_config.clone(), &pool).await;
 
-        let redis_service =
-            crate::services::redis::RedisService::new(&file_config.redis.url).await?;
+        let redis_service = crate::services::redis::RedisService::new(&file_config.redis.url).await?;
 
         let email_service = Arc::new(EmailService::new(dynamic_config.clone(), pool.clone()));
 
@@ -93,10 +88,6 @@ impl AppBuildResult {
             build_app_with_options(state.clone(), options)
         };
 
-        Ok(Self {
-            state,
-            router,
-            pool,
-        })
+        Ok(Self { state, router, pool })
     }
 }

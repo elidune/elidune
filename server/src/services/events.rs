@@ -68,11 +68,7 @@ pub struct EventsService {
 }
 
 impl EventsService {
-    pub fn new(
-        repository: Arc<dyn EventsServiceRepository>,
-        email: EmailService,
-        audit: AuditService,
-    ) -> Self {
+    pub fn new(repository: Arc<dyn EventsServiceRepository>, email: EmailService, audit: AuditService) -> Self {
         Self { repository, email, audit }
     }
 
@@ -122,9 +118,7 @@ impl EventsService {
         event = if remove {
             self.repository.events_delete_attachment(id).await?
         } else if let Some((bytes, fname, mime)) = new_attachment {
-            self.repository
-                .events_put_attachment(id, &bytes, &fname, &mime)
-                .await?
+            self.repository.events_put_attachment(id, &bytes, &fname, &mime).await?
         } else {
             event
         };
@@ -158,13 +152,7 @@ impl EventsService {
     /// If the request provides `subject`/`body_plain`/`body_html`, those are used
     /// directly instead of the template.
     #[tracing::instrument(skip(self), err)]
-    pub async fn send_announcement(
-        &self,
-        event_id: i64,
-        payload: &SendAnnouncementRequest,
-        triggered_by: Option<i64>,
-        client_ip: Option<String>,
-    ) -> AppResult<AnnouncementReport> {
+    pub async fn send_announcement(&self, event_id: i64, payload: &SendAnnouncementRequest, triggered_by: Option<i64>, client_ip: Option<String>) -> AppResult<AnnouncementReport> {
         let event = self.repository.events_get_by_id(event_id).await?;
 
         let event_date = event.event_date.format("%d/%m/%Y").to_string();
@@ -178,29 +166,20 @@ impl EventsService {
             _ => "Autre / Other",
         };
 
-        let start_time_plain = event
-            .start_time
-            .map(|t| format!("\nHeure / Time: {}", t.format("%H:%M")))
-            .unwrap_or_default();
+        let start_time_plain = event.start_time.map(|t| format!("\nHeure / Time: {}", t.format("%H:%M"))).unwrap_or_default();
         let start_time_row = event
             .start_time
-            .map(|t| format!(
-                "<tr><td style=\"padding:6px 12px;font-weight:bold;background:#f7f7f7;border:1px solid #e2e8f0\">Heure / Time</td>\
+            .map(|t| {
+                format!(
+                    "<tr><td style=\"padding:6px 12px;font-weight:bold;background:#f7f7f7;border:1px solid #e2e8f0\">Heure / Time</td>\
                  <td style=\"padding:6px 12px;border:1px solid #e2e8f0\">{}</td></tr>",
-                t.format("%H:%M")
-            ))
+                    t.format("%H:%M")
+                )
+            })
             .unwrap_or_default();
 
-        let description_plain = event
-            .description
-            .as_deref()
-            .map(|d| format!("\n{}", d))
-            .unwrap_or_default();
-        let description_block = event
-            .description
-            .as_deref()
-            .map(|d| format!("<p>{}</p>", d.replace('\n', "<br>")))
-            .unwrap_or_default();
+        let description_plain = event.description.as_deref().map(|d| format!("\n{}", d)).unwrap_or_default();
+        let description_block = event.description.as_deref().map(|d| format!("<p>{}</p>", d.replace('\n', "<br>"))).unwrap_or_default();
 
         let audience_id = match event.public_type.as_deref() {
             None => None,
@@ -208,19 +187,11 @@ impl EventsService {
                 self.repository
                     .public_types_find_id_by_name(name.trim())
                     .await?
-                    .ok_or_else(|| {
-                        AppError::Internal(format!(
-                            "event {} references missing public_type name {:?}",
-                            event_id, name
-                        ))
-                    })?,
+                    .ok_or_else(|| AppError::Internal(format!("event {} references missing public_type name {:?}", event_id, name)))?,
             ),
         };
 
-        let targets = self
-            .repository
-            .users_get_emails_by_public_type(audience_id)
-            .await?;
+        let targets = self.repository.users_get_emails_by_public_type(audience_id).await?;
 
         let mut emails_sent: u32 = 0;
         let mut skipped: u32 = 0;
@@ -237,26 +208,15 @@ impl EventsService {
 
             let firstname = user.firstname.as_deref().unwrap_or("");
 
-            let (subject, body_plain, body_html) = if payload.subject.is_some()
-                || payload.body_plain.is_some()
-            {
+            let (subject, body_plain, body_html) = if payload.subject.is_some() || payload.body_plain.is_some() {
                 // Use caller-supplied content
-                let subj = payload
-                    .subject
+                let subj = payload.subject.as_deref().unwrap_or(&event.name).to_string();
+                let plain = payload.body_plain.as_deref().unwrap_or("").to_string();
+                let html = payload
+                    .body_html
                     .as_deref()
-                    .unwrap_or(&event.name)
-                    .to_string();
-                let plain = payload
-                    .body_plain
-                    .as_deref()
-                    .unwrap_or("")
-                    .to_string();
-                let html = payload.body_html.as_deref().map(|h| h.to_string()).unwrap_or_else(|| {
-                    format!(
-                        "<html><body><pre>{}</pre></body></html>",
-                        plain.replace('\n', "<br>")
-                    )
-                });
+                    .map(|h| h.to_string())
+                    .unwrap_or_else(|| format!("<html><body><pre>{}</pre></body></html>", plain.replace('\n', "<br>")));
                 (subj, plain, html)
             } else {
                 let lang = user.language.as_deref().map(Language::from);
@@ -286,11 +246,7 @@ impl EventsService {
                 }
             };
 
-            match self
-                .email
-                .enqueue_event_announcement(&email_addr, &subject, &body_plain, &body_html, event_id)
-                .await
-            {
+            match self.email.enqueue_event_announcement(&email_addr, &subject, &body_plain, &body_html, event_id).await {
                 Ok(outbox_id) => {
                     emails_sent += 1;
                     self.audit.log(
@@ -331,13 +287,15 @@ impl EventsService {
             }
         }
 
-        Ok(AnnouncementReport { event_id, emails_sent, skipped, errors })
+        Ok(AnnouncementReport {
+            event_id,
+            emails_sent,
+            skipped,
+            errors,
+        })
     }
 
-    async fn validate_public_type_name(
-        repository: &dyn EventsServiceRepository,
-        public_type: Option<&String>,
-    ) -> AppResult<()> {
+    async fn validate_public_type_name(repository: &dyn EventsServiceRepository, public_type: Option<&String>) -> AppResult<()> {
         let Some(raw) = public_type else {
             return Ok(());
         };
@@ -347,26 +305,19 @@ impl EventsService {
         }
         let exists = repository.public_types_find_id_by_name(name).await?;
         if exists.is_none() {
-            return Err(AppError::Validation(format!(
-                "Unknown public_type name {name:?} (must match public_types.name)"
-            )));
+            return Err(AppError::Validation(format!("Unknown public_type name {name:?} (must match public_types.name)")));
         }
         Ok(())
     }
 }
 
 fn decode_event_attachment_input(input: &EventAttachmentInput) -> AppResult<(Vec<u8>, String, String)> {
-    let bytes = B64
-        .decode(input.data_base64.trim())
-        .map_err(|_| AppError::Validation("Invalid Base64 in attachment".to_string()))?;
+    let bytes = B64.decode(input.data_base64.trim()).map_err(|_| AppError::Validation("Invalid Base64 in attachment".to_string()))?;
     if bytes.is_empty() {
         return Err(AppError::Validation("Attachment payload is empty".to_string()));
     }
     if bytes.len() > MAX_EVENT_ATTACHMENT_BYTES {
-        return Err(AppError::Validation(format!(
-            "Attachment exceeds maximum size of {} bytes",
-            MAX_EVENT_ATTACHMENT_BYTES
-        )));
+        return Err(AppError::Validation(format!("Attachment exceeds maximum size of {} bytes", MAX_EVENT_ATTACHMENT_BYTES)));
     }
     let fname = sanitize_attachment_filename(&input.file_name);
     let mime = normalize_mime_type(&input.mime_type);
@@ -374,15 +325,8 @@ fn decode_event_attachment_input(input: &EventAttachmentInput) -> AppResult<(Vec
 }
 
 fn sanitize_attachment_filename(name: &str) -> String {
-    let base = Path::new(name.trim())
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or("attachment");
-    let cleaned: String = base
-        .chars()
-        .filter(|c| c.is_alphanumeric() || *c == '.' || *c == '-' || *c == '_')
-        .take(200)
-        .collect();
+    let base = Path::new(name.trim()).file_name().and_then(|s| s.to_str()).unwrap_or("attachment");
+    let cleaned: String = base.chars().filter(|c| c.is_alphanumeric() || *c == '.' || *c == '-' || *c == '_').take(200).collect();
     let trimmed = cleaned.trim_matches('.');
     if trimmed.is_empty() {
         "attachment".to_string()

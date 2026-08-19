@@ -15,16 +15,11 @@ pub trait EquipmentRepository: Send + Sync {
     async fn equipment_list(&self) -> AppResult<Vec<Equipment>>;
     async fn equipment_get_by_id(&self, id: i64) -> AppResult<Equipment>;
     async fn equipment_create(&self, data: &CreateEquipment) -> AppResult<Equipment>;
-    async fn equipment_update_equipment(
-        &self,
-        id: i64,
-        data: &UpdateEquipment,
-    ) -> AppResult<Equipment>;
+    async fn equipment_update_equipment(&self, id: i64, data: &UpdateEquipment) -> AppResult<Equipment>;
     async fn equipment_delete(&self, id: i64) -> AppResult<()>;
     async fn equipment_count_public_internet_stations(&self) -> AppResult<i64>;
     async fn equipment_count_public_devices(&self) -> AppResult<i64>;
 }
-
 
 #[async_trait::async_trait]
 impl EquipmentRepository for super::Repository {
@@ -51,16 +46,11 @@ impl EquipmentRepository for super::Repository {
     }
 }
 
-
 impl Repository {
     /// List all equipment
     #[tracing::instrument(skip(self), err)]
     pub async fn equipment_list(&self) -> AppResult<Vec<Equipment>> {
-        let rows = sqlx::query_as::<_, Equipment>(
-            "SELECT * FROM equipment ORDER BY name"
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let rows = sqlx::query_as::<_, Equipment>("SELECT * FROM equipment ORDER BY name").fetch_all(&self.pool).await?;
         Ok(rows)
     }
 
@@ -139,19 +129,13 @@ impl Repository {
         bind_field!(data.status);
         bind_field!(data.notes);
 
-        builder
-            .fetch_optional(&self.pool)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("Equipment {} not found", id)))
+        builder.fetch_optional(&self.pool).await?.ok_or_else(|| AppError::NotFound(format!("Equipment {} not found", id)))
     }
 
     /// Delete equipment
     #[tracing::instrument(skip(self), err)]
     pub async fn equipment_delete(&self, id: i64) -> AppResult<()> {
-        let result = sqlx::query("DELETE FROM equipment WHERE id = $1")
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
+        let result = sqlx::query("DELETE FROM equipment WHERE id = $1").bind(id).execute(&self.pool).await?;
         if result.rows_affected() == 0 {
             return Err(AppError::NotFound(format!("Equipment {} not found", id)));
         }
@@ -166,7 +150,7 @@ impl Repository {
             SELECT COALESCE(SUM(quantity), 0)::bigint FROM equipment
             WHERE is_public = TRUE AND has_internet = TRUE
               AND (status IS NULL OR status = 0)
-            "#
+            "#,
         )
         .fetch_one(&self.pool)
         .await?;
@@ -182,11 +166,10 @@ impl Repository {
             WHERE is_public = TRUE
               AND equipment_type IN (1, 2)
               AND (status IS NULL OR status = 0)
-            "#
+            "#,
         )
         .fetch_one(&self.pool)
-            .await?;
+        .await?;
         Ok(count)
     }
 }
-

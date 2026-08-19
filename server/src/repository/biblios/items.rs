@@ -5,10 +5,11 @@
 use std::collections::HashMap;
 
 use chrono::Utc;
-use sqlx::{FromRow, Row};
 use sqlx::types::Json;
+use sqlx::{FromRow, Row};
 
 use super::super::Repository;
+use super::BiblioShortRow;
 use crate::models::item::ItemShort;
 use crate::{
     error::{AppError, AppResult},
@@ -16,12 +17,11 @@ use crate::{
     models::{
         author::Author,
         author::Function,
+        biblio::{Biblio, BiblioQuery, BiblioShort, Collection, Edition, Isbn, MediaType, MeiliBiblioDocument, Serie},
         import_report::DuplicateCandidate,
-        biblio::{Collection, Edition, Isbn, Biblio, BiblioQuery, BiblioShort, MeiliBiblioDocument, MediaType, Serie},
         item::Item,
     },
 };
-use super::BiblioShortRow;
 
 use super::ItemShortRow;
 
@@ -96,10 +96,7 @@ impl Repository {
 
     /// Get ItemShort for many biblios (excludes archived). Used to attach items to BiblioShort lists.
     #[tracing::instrument(skip(self), err)]
-    pub async fn biblios_get_items_short_by_biblio_ids(
-        &self,
-        biblio_ids: &[i64],
-    ) -> AppResult<HashMap<i64, Vec<ItemShort>>> {
+    pub async fn biblios_get_items_short_by_biblio_ids(&self, biblio_ids: &[i64]) -> AppResult<HashMap<i64, Vec<ItemShort>>> {
         if biblio_ids.is_empty() {
             return Ok(HashMap::new());
         }
@@ -120,9 +117,7 @@ impl Repository {
 
         let mut map: HashMap<i64, Vec<ItemShort>> = HashMap::new();
         for row in rows {
-            map.entry(row.biblio_id)
-                .or_default()
-                .push(ItemShort::from(row));
+            map.entry(row.biblio_id).or_default().push(ItemShort::from(row));
         }
         Ok(map)
     }
@@ -207,12 +202,7 @@ impl Repository {
             .await?;
         } else {
             if let Some(ref barcode) = item.barcode {
-                let existing_id = sqlx::query_scalar::<_, i64>(
-                    "SELECT id FROM items WHERE barcode = $1",
-                )
-                .bind(barcode)
-                .fetch_optional(&self.pool)
-                .await?;
+                let existing_id = sqlx::query_scalar::<_, i64>("SELECT id FROM items WHERE barcode = $1").bind(barcode).fetch_optional(&self.pool).await?;
                 item.id = existing_id;
             }
 
@@ -276,7 +266,7 @@ impl Repository {
                 item.id = Some(id);
             }
         }
-       
+
         Ok(item)
     }
 
@@ -299,7 +289,7 @@ impl Repository {
                 updated_at = $9,
                 archived_at = $10
             WHERE id = $11
-            "#
+            "#,
         )
         .bind(&item.barcode)
         .bind(&item.call_number)
@@ -327,9 +317,7 @@ impl Repository {
 
         if borrowed > 0 {
             if !force {
-                return Err(AppError::Conflict(
-                    "Item is currently borrowed. Use force=true to delete anyway.".to_string(),
-                ));
+                return Err(AppError::Conflict("Item is currently borrowed. Use force=true to delete anyway.".to_string()));
             }
             let loan_ids = self.loans_get_active_ids_for_item(id).await?;
             for loan_id in loan_ids {
@@ -339,24 +327,18 @@ impl Repository {
 
         self.holds_cancel_active_for_item(id).await?;
 
-        sqlx::query(
-            "UPDATE items SET archived_at = $1, updated_at = $1, barcode = CONCAT('ARCH_', id::text, '_', COALESCE(barcode, '')) WHERE id = $2 AND archived_at IS NULL"
-        )
-        .bind(now)
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("UPDATE items SET archived_at = $1, updated_at = $1, barcode = CONCAT('ARCH_', id::text, '_', COALESCE(barcode, '')) WHERE id = $2 AND archived_at IS NULL")
+            .bind(now)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
 
         Ok(())
     }
 
     /// Check if item barcode already exists
     #[tracing::instrument(skip(self), err)]
-    pub async fn items_barcode_exists(
-        &self,
-        barcode: &str,
-        exclude_item_id: Option<i64>,
-    ) -> AppResult<bool> {
+    pub async fn items_barcode_exists(&self, barcode: &str, exclude_item_id: Option<i64>) -> AppResult<bool> {
         let exists: bool = if let Some(id) = exclude_item_id {
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM items WHERE barcode = $1 AND id != $2)")
                 .bind(barcode)
@@ -364,10 +346,7 @@ impl Repository {
                 .fetch_one(&self.pool)
                 .await?
         } else {
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM items WHERE barcode = $1)")
-                .bind(barcode)
-                .fetch_one(&self.pool)
-                .await?
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM items WHERE barcode = $1)").bind(barcode).fetch_one(&self.pool).await?
         };
         Ok(exists)
     }
@@ -375,23 +354,13 @@ impl Repository {
     /// Get item id and archived_at by barcode
     #[tracing::instrument(skip(self), err)]
     pub async fn items_get_by_barcode(&self, barcode: &str) -> AppResult<Option<(i64, bool)>> {
-        let row: Option<(i64, Option<chrono::DateTime<Utc>>)> = sqlx::query_as(
-            "SELECT id, archived_at FROM items WHERE barcode = $1",
-        )
-        .bind(barcode)
-        .fetch_optional(&self.pool)
-        .await?;
+        let row: Option<(i64, Option<chrono::DateTime<Utc>>)> = sqlx::query_as("SELECT id, archived_at FROM items WHERE barcode = $1").bind(barcode).fetch_optional(&self.pool).await?;
         Ok(row.map(|(id, archived_at)| (id, archived_at.is_some())))
     }
 
     /// Reactivate an archived item and update its fields.
     #[tracing::instrument(skip(self), err)]
-    pub async fn items_reactivate(
-        &self,
-        item_id: i64,
-        biblio_id: i64,
-        item: &Item,
-    ) -> AppResult<Item> {
+    pub async fn items_reactivate(&self, item_id: i64, biblio_id: i64, item: &Item) -> AppResult<Item> {
         let now = Utc::now();
         let source_id = if let Some(id) = item.source_id {
             Some(id)
@@ -448,11 +417,7 @@ impl Repository {
     }
     /// Find an existing item by barcode and return its short representation.
     #[tracing::instrument(skip(self), err)]
-    pub async fn items_find_short_by_barcode(
-        &self,
-        barcode: &str,
-        exclude_item_id: Option<i64>,
-    ) -> AppResult<Option<ItemShort>> {
+    pub async fn items_find_short_by_barcode(&self, barcode: &str, exclude_item_id: Option<i64>) -> AppResult<Option<ItemShort>> {
         let row: Option<ItemShortRow> = if let Some(eid) = exclude_item_id {
             sqlx::query_as(
                 r#"

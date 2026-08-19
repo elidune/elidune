@@ -6,10 +6,7 @@ use std::sync::Arc;
 
 use crate::{
     error::AppResult,
-    models::schedule::{
-        CreateScheduleClosure, CreateSchedulePeriod, CreateScheduleSlot,
-        ScheduleClosure, SchedulePeriod, ScheduleSlot, UpdateSchedulePeriod,
-    },
+    models::schedule::{CreateScheduleClosure, CreateSchedulePeriod, CreateScheduleSlot, ScheduleClosure, SchedulePeriod, ScheduleSlot, UpdateSchedulePeriod},
     repository::SchedulesRepository,
 };
 
@@ -64,11 +61,7 @@ impl SchedulesService {
     }
 
     // ---- Closures ----
-    pub async fn list_closures(
-        &self,
-        start_date: Option<NaiveDate>,
-        end_date: Option<NaiveDate>,
-    ) -> AppResult<Vec<ScheduleClosure>> {
+    pub async fn list_closures(&self, start_date: Option<NaiveDate>, end_date: Option<NaiveDate>) -> AppResult<Vec<ScheduleClosure>> {
         self.repository.schedules_list_closures(start_date, end_date).await
     }
 

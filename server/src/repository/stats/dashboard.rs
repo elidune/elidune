@@ -4,13 +4,9 @@ use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use sqlx::Row;
 
 use crate::{
-    models::dto::stats::{
-        Interval, ItemStats, LoanStats, LoanStatsResponse,
-        StatEntry, StatsResponse, TimeSeriesEntry, UserLoanStats, UserStats,
-        UserStatsSortBy,
-    },
     error::AppResult,
     models::biblio::MediaType,
+    models::dto::stats::{Interval, ItemStats, LoanStats, LoanStatsResponse, StatEntry, StatsResponse, TimeSeriesEntry, UserLoanStats, UserStats, UserStatsSortBy},
     repository::Repository,
 };
 
@@ -28,18 +24,8 @@ pub struct StatsFilter {
 
 impl Repository {
     /// Build a parameterized WHERE clause for loan stats queries.
-    fn stats_loan_where_clause(
-        date_col: &str,
-        user_col: &str,
-        media_type: Option<&MediaType>,
-        public_type: Option<&str>,
-        user_id: Option<i64>,
-        extra: &[&str],
-    ) -> String {
-        let mut clauses = vec![
-            format!("{date_col} >= $1"),
-            format!("{date_col} <= $2"),
-        ];
+    fn stats_loan_where_clause(date_col: &str, user_col: &str, media_type: Option<&MediaType>, public_type: Option<&str>, user_id: Option<i64>, extra: &[&str]) -> String {
+        let mut clauses = vec![format!("{date_col} >= $1"), format!("{date_col} <= $2")];
         clauses.extend(extra.iter().map(|s| (*s).to_string()));
         let mut idx = 3;
         if media_type.is_some() {
@@ -82,10 +68,7 @@ impl Repository {
     fn stats_item_where_clause(filter: &Option<StatsFilter>) -> (String, Vec<String>) {
         let f = match filter {
             None => {
-                return (
-                    "s.archived_at IS NULL".to_string(),
-                    vec![],
-                );
+                return ("s.archived_at IS NULL".to_string(), vec![]);
             }
             Some(f) => f,
         };
@@ -119,10 +102,7 @@ impl Repository {
 
         // Specimen stats (with optional filter)
         let total_items: i64 = {
-            let q = format!(
-                "SELECT COUNT(*) FROM items s JOIN biblios i ON s.biblio_id = i.id WHERE {}",
-                spec_where
-            );
+            let q = format!("SELECT COUNT(*) FROM items s JOIN biblios i ON s.biblio_id = i.id WHERE {}", spec_where);
             let mut query = sqlx::query_scalar::<_, i64>(&q);
             if let Some(ref f) = filter {
                 if let Some(ref d) = f.reference_date {
@@ -200,17 +180,9 @@ impl Repository {
         };
 
         // User stats (exclude deleted accounts)
-        let total_users: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM users WHERE (status IS NULL OR status <> 'deleted')"
-        )
-            .fetch_one(pool)
-            .await?;
+        let total_users: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE (status IS NULL OR status <> 'deleted')").fetch_one(pool).await?;
 
-        let active_users: i64 = sqlx::query_scalar(
-            "SELECT COUNT(DISTINCT user_id) FROM loans WHERE returned_at IS NULL"
-        )
-        .fetch_one(pool)
-        .await?;
+        let active_users: i64 = sqlx::query_scalar("SELECT COUNT(DISTINCT user_id) FROM loans WHERE returned_at IS NULL").fetch_one(pool).await?;
 
         let users_by_account_type = sqlx::query(
             r#"
@@ -231,21 +203,13 @@ impl Repository {
         .collect();
 
         // Loan stats
-        let active_loans: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM loans WHERE returned_at IS NULL")
+        let active_loans: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM loans WHERE returned_at IS NULL").fetch_one(pool).await?;
+
+        let overdue_loans: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM loans WHERE returned_at IS NULL AND expiry_at < NOW()").fetch_one(pool).await?;
+
+        let returned_today: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM loans_archives WHERE returned_at >= DATE_TRUNC('day', NOW())")
             .fetch_one(pool)
             .await?;
-
-        let overdue_loans: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM loans WHERE returned_at IS NULL AND expiry_at < NOW()"
-        )
-        .fetch_one(pool)
-        .await?;
-
-        let returned_today: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM loans_archives WHERE returned_at >= DATE_TRUNC('day', NOW())"
-        )
-        .fetch_one(pool)
-        .await?;
 
         let loans_by_media_type = sqlx::query(
             r#"
@@ -292,11 +256,13 @@ impl Repository {
                     "SELECT COUNT(*) FROM items s JOIN biblios i ON s.biblio_id = i.id WHERE s.created_at >= $1 AND s.created_at <= $2 AND s.archived_at IS NULL{}",
                     extra_cond
                 );
-                let mut acq_builder = sqlx::query_scalar::<_, i64>(&acq_q)
-                    .bind(year_start)
-                    .bind(year_end);
-                if let Some(ref pt) = f.public_type { acq_builder = acq_builder.bind(pt.as_str()); }
-                if let Some(ref mt) = f.media_type { acq_builder = acq_builder.bind(mt.as_str()); }
+                let mut acq_builder = sqlx::query_scalar::<_, i64>(&acq_q).bind(year_start).bind(year_end);
+                if let Some(ref pt) = f.public_type {
+                    acq_builder = acq_builder.bind(pt.as_str());
+                }
+                if let Some(ref mt) = f.media_type {
+                    acq_builder = acq_builder.bind(mt.as_str());
+                }
                 let acq_total = acq_builder.fetch_one(pool).await?;
 
                 // Acquisitions by media type
@@ -304,24 +270,35 @@ impl Repository {
                     "SELECT COALESCE(i.media_type, 'unknown') as label, COUNT(*) as value FROM items s JOIN biblios i ON s.biblio_id = i.id WHERE s.created_at >= $1 AND s.created_at <= $2 AND s.archived_at IS NULL{} GROUP BY i.media_type ORDER BY value DESC",
                     extra_cond
                 );
-                let mut acq_mt_builder = sqlx::query(&acq_mt_q)
-                    .bind(year_start)
-                    .bind(year_end);
-                if let Some(ref pt) = f.public_type { acq_mt_builder = acq_mt_builder.bind(pt.as_str()); }
-                if let Some(ref mt) = f.media_type { acq_mt_builder = acq_mt_builder.bind(mt.as_str()); }
-                let acq_by_mt: Vec<StatEntry> = acq_mt_builder.fetch_all(pool).await?
-                    .into_iter().map(|row| StatEntry { label: row.get("label"), value: row.get("value") }).collect();
+                let mut acq_mt_builder = sqlx::query(&acq_mt_q).bind(year_start).bind(year_end);
+                if let Some(ref pt) = f.public_type {
+                    acq_mt_builder = acq_mt_builder.bind(pt.as_str());
+                }
+                if let Some(ref mt) = f.media_type {
+                    acq_mt_builder = acq_mt_builder.bind(mt.as_str());
+                }
+                let acq_by_mt: Vec<StatEntry> = acq_mt_builder
+                    .fetch_all(pool)
+                    .await?
+                    .into_iter()
+                    .map(|row| StatEntry {
+                        label: row.get("label"),
+                        value: row.get("value"),
+                    })
+                    .collect();
 
                 // Withdrawals total
                 let wd_q = format!(
                     "SELECT COUNT(*) FROM items s JOIN biblios i ON s.biblio_id = i.id WHERE s.archived_at >= $1 AND s.archived_at <= $2{}",
                     extra_cond
                 );
-                let mut wd_builder = sqlx::query_scalar::<_, i64>(&wd_q)
-                    .bind(year_start)
-                    .bind(year_end);
-                if let Some(ref pt) = f.public_type { wd_builder = wd_builder.bind(pt.as_str()); }
-                if let Some(ref mt) = f.media_type { wd_builder = wd_builder.bind(mt.as_str()); }
+                let mut wd_builder = sqlx::query_scalar::<_, i64>(&wd_q).bind(year_start).bind(year_end);
+                if let Some(ref pt) = f.public_type {
+                    wd_builder = wd_builder.bind(pt.as_str());
+                }
+                if let Some(ref mt) = f.media_type {
+                    wd_builder = wd_builder.bind(mt.as_str());
+                }
                 let wd_total = wd_builder.fetch_one(pool).await?;
 
                 // Withdrawals by media type
@@ -329,13 +306,22 @@ impl Repository {
                     "SELECT COALESCE(i.media_type, 'unknown') as label, COUNT(*) as value FROM items s JOIN biblios i ON s.biblio_id = i.id WHERE s.archived_at >= $1 AND s.archived_at <= $2{} GROUP BY i.media_type ORDER BY value DESC",
                     extra_cond
                 );
-                let mut wd_mt_builder = sqlx::query(&wd_mt_q)
-                    .bind(year_start)
-                    .bind(year_end);
-                if let Some(ref pt) = f.public_type { wd_mt_builder = wd_mt_builder.bind(pt.as_str()); }
-                if let Some(ref mt) = f.media_type { wd_mt_builder = wd_mt_builder.bind(mt.as_str()); }
-                let wd_by_mt: Vec<StatEntry> = wd_mt_builder.fetch_all(pool).await?
-                    .into_iter().map(|row| StatEntry { label: row.get("label"), value: row.get("value") }).collect();
+                let mut wd_mt_builder = sqlx::query(&wd_mt_q).bind(year_start).bind(year_end);
+                if let Some(ref pt) = f.public_type {
+                    wd_mt_builder = wd_mt_builder.bind(pt.as_str());
+                }
+                if let Some(ref mt) = f.media_type {
+                    wd_mt_builder = wd_mt_builder.bind(mt.as_str());
+                }
+                let wd_by_mt: Vec<StatEntry> = wd_mt_builder
+                    .fetch_all(pool)
+                    .await?
+                    .into_iter()
+                    .map(|row| StatEntry {
+                        label: row.get("label"),
+                        value: row.get("value"),
+                    })
+                    .collect();
 
                 (acq_total, acq_by_mt, wd_total, wd_by_mt)
             } else {
@@ -371,11 +357,7 @@ impl Repository {
 
     /// Get per-user loan statistics (total, active, overdue)
     #[tracing::instrument(skip(self), err)]
-    pub async fn stats_get_user_stats(
-        &self,
-        sort_by: UserStatsSortBy,
-        limit: i64,
-    ) -> AppResult<Vec<UserLoanStats>> {
+    pub async fn stats_get_user_stats(&self, sort_by: UserStatsSortBy, limit: i64) -> AppResult<Vec<UserLoanStats>> {
         let pool = &self.pool;
 
         let order_by = match sort_by {
@@ -470,14 +452,7 @@ impl Repository {
             Interval::Year => "YYYY",
         };
 
-        let where_clause = Self::stats_loan_where_clause(
-            "l.date",
-            "l.user_id",
-            media_type,
-            public_type,
-            user_id,
-            &[],
-        );
+        let where_clause = Self::stats_loan_where_clause("l.date", "l.user_id", media_type, public_type, user_id, &[]);
 
         // Query for loans (from active loans table)
         let loans_query = format!(
@@ -495,14 +470,7 @@ impl Repository {
             date_trunc, date_format, where_clause, date_trunc
         );
 
-        let loans_data: Vec<(String, i64)> = Self::bind_loan_stats_params(
-            sqlx::query(&loans_query),
-            start,
-            end,
-            media_type,
-            public_type,
-            user_id,
-        )
+        let loans_data: Vec<(String, i64)> = Self::bind_loan_stats_params(sqlx::query(&loans_query), start, end, media_type, public_type, user_id)
             .fetch_all(pool)
             .await?
             .into_iter()
@@ -514,14 +482,7 @@ impl Repository {
             .collect();
 
         // Query for loans from archives table (historical loans)
-        let archived_loans_where_clause = Self::stats_loan_where_clause(
-            "la.date",
-            "la.user_id",
-            media_type,
-            public_type,
-            user_id,
-            &[],
-        );
+        let archived_loans_where_clause = Self::stats_loan_where_clause("la.date", "la.user_id", media_type, public_type, user_id, &[]);
         let archived_loans_date_trunc = date_trunc.replace("date", "la.date");
 
         let archived_loans_query = format!(
@@ -539,14 +500,7 @@ impl Repository {
             archived_loans_date_trunc, date_format, archived_loans_where_clause, archived_loans_date_trunc
         );
 
-        let archived_loans_data: Vec<(String, i64)> = Self::bind_loan_stats_params(
-            sqlx::query(&archived_loans_query),
-            start,
-            end,
-            media_type,
-            public_type,
-            user_id,
-        )
+        let archived_loans_data: Vec<(String, i64)> = Self::bind_loan_stats_params(sqlx::query(&archived_loans_query), start, end, media_type, public_type, user_id)
             .fetch_all(pool)
             .await?
             .into_iter()
@@ -558,14 +512,7 @@ impl Repository {
             .collect();
 
         // Query for returns (from loans_archives table)
-        let returns_where_clause = Self::stats_loan_where_clause(
-            "la.returned_at",
-            "la.user_id",
-            media_type,
-            public_type,
-            user_id,
-            &["la.returned_at IS NOT NULL"],
-        );
+        let returns_where_clause = Self::stats_loan_where_clause("la.returned_at", "la.user_id", media_type, public_type, user_id, &["la.returned_at IS NOT NULL"]);
         let returns_date_trunc = date_trunc.replace("date", "la.returned_at");
 
         let returns_query = format!(
@@ -583,14 +530,7 @@ impl Repository {
             returns_date_trunc, date_format, returns_where_clause, returns_date_trunc
         );
 
-        let returns_data: Vec<(String, i64)> = Self::bind_loan_stats_params(
-            sqlx::query(&returns_query),
-            start,
-            end,
-            media_type,
-            public_type,
-            user_id,
-        )
+        let returns_data: Vec<(String, i64)> = Self::bind_loan_stats_params(sqlx::query(&returns_query), start, end, media_type, public_type, user_id)
             .fetch_all(pool)
             .await?
             .into_iter()
@@ -617,14 +557,7 @@ impl Repository {
             period_map.entry(period).or_insert((0, 0)).1 += count;
         }
 
-        let mut time_series: Vec<TimeSeriesEntry> = period_map
-            .into_iter()
-            .map(|(period, (loans, returns))| TimeSeriesEntry {
-                period,
-                loans,
-                returns,
-            })
-            .collect();
+        let mut time_series: Vec<TimeSeriesEntry> = period_map.into_iter().map(|(period, (loans, returns))| TimeSeriesEntry { period, loans, returns }).collect();
 
         time_series.sort_by_key(|e| e.period.clone());
 
@@ -648,14 +581,7 @@ impl Repository {
             where_clause
         );
 
-        let by_media_type = Self::bind_loan_stats_params(
-            sqlx::query(&by_media_type_query),
-            start,
-            end,
-            media_type,
-            public_type,
-            user_id,
-        )
+        let by_media_type = Self::bind_loan_stats_params(sqlx::query(&by_media_type_query), start, end, media_type, public_type, user_id)
             .fetch_all(pool)
             .await?
             .into_iter()
@@ -675,11 +601,7 @@ impl Repository {
 
     /// Get aggregated user statistics for a period (new users, active borrowers)
     #[tracing::instrument(skip(self), err)]
-    pub async fn stats_get_user_aggregates(
-        &self,
-        start_date: Option<DateTime<Utc>>,
-        end_date: Option<DateTime<Utc>>,
-    ) -> AppResult<crate::models::dto::stats::UserStatsAggregate> {
+    pub async fn stats_get_user_aggregates(&self, start_date: Option<DateTime<Utc>>, end_date: Option<DateTime<Utc>>) -> AppResult<crate::models::dto::stats::UserStatsAggregate> {
         let pool = &self.pool;
 
         // Default to the last 365 days if no explicit range is provided
@@ -713,7 +635,10 @@ impl Repository {
         .fetch_all(pool)
         .await?
         .into_iter()
-        .map(|row| StatEntry { label: row.get("label"), value: row.get("value") })
+        .map(|row| StatEntry {
+            label: row.get("label"),
+            value: row.get("value"),
+        })
         .collect();
 
         // Users by sex
@@ -729,7 +654,10 @@ impl Repository {
         .fetch_all(pool)
         .await?
         .into_iter()
-        .map(|row| StatEntry { label: row.get("label"), value: row.get("value") })
+        .map(|row| StatEntry {
+            label: row.get("label"),
+            value: row.get("value"),
+        })
         .collect();
 
         // New users: created in the period and not deleted
@@ -764,7 +692,10 @@ impl Repository {
         .fetch_all(pool)
         .await?
         .into_iter()
-        .map(|row| StatEntry { label: row.get("label"), value: row.get("value") })
+        .map(|row| StatEntry {
+            label: row.get("label"),
+            value: row.get("value"),
+        })
         .collect();
 
         // New users by sex
@@ -783,7 +714,10 @@ impl Repository {
         .fetch_all(pool)
         .await?
         .into_iter()
-        .map(|row| StatEntry { label: row.get("label"), value: row.get("value") })
+        .map(|row| StatEntry {
+            label: row.get("label"),
+            value: row.get("value"),
+        })
         .collect();
 
         // Active borrowers: at least one loan (active or archived) in the period
@@ -836,7 +770,10 @@ impl Repository {
         .fetch_all(pool)
         .await?
         .into_iter()
-        .map(|row| StatEntry { label: row.get("label"), value: row.get("value") })
+        .map(|row| StatEntry {
+            label: row.get("label"),
+            value: row.get("value"),
+        })
         .collect();
 
         // Groups total (collectivites with active registration up to end date)
@@ -883,48 +820,39 @@ impl Repository {
         let end = end_date.unwrap_or(Utc::now());
 
         // --- Totals ---
-        
-        let active_items: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM items WHERE created_at < $1 AND (archived_at IS NULL OR archived_at > $2) "
-        )
-        .bind(end)
-        .bind(end_date.unwrap_or(start))
-        .fetch_one(pool)
-        .await?;
+
+        let active_items: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM items WHERE created_at < $1 AND (archived_at IS NULL OR archived_at > $2) ")
+            .bind(end)
+            .bind(end_date.unwrap_or(start))
+            .fetch_one(pool)
+            .await?;
 
         // Entered items in period
-        let entered_items: i64 = 
-            sqlx::query_scalar(
-                "SELECT COUNT(*) FROM items WHERE created_at >= $1 AND created_at <= $2"
-            )
+        let entered_items: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM items WHERE created_at >= $1 AND created_at <= $2")
             .bind(start)
             .bind(end)
             .fetch_one(pool)
             .await?;
 
         // Archived items in period
-        let archived_items: i64 = 
-            sqlx::query_scalar(
-                "SELECT COUNT(*) FROM items WHERE archived_at >= $1 AND archived_at <= $2"
-            )
+        let archived_items: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM items WHERE archived_at >= $1 AND archived_at <= $2")
             .bind(start)
             .bind(end)
             .fetch_one(pool)
             .await?;
 
         // Loans in period (active + archived via items)
-        let total_loans: i64 = 
-            sqlx::query_scalar(
-                r#"SELECT COUNT(*) FROM (
+        let total_loans: i64 = sqlx::query_scalar(
+            r#"SELECT COUNT(*) FROM (
                     SELECT id, date FROM loans
                     UNION ALL
                     SELECT id, date FROM loans_archives
-                ) all_loans WHERE date >= $1 AND date <= $2"#
-            )
-            .bind(start)
-            .bind(end)
-            .fetch_one(pool)
-            .await?;
+                ) all_loans WHERE date >= $1 AND date <= $2"#,
+        )
+        .bind(start)
+        .bind(end)
+        .fetch_one(pool)
+        .await?;
 
         let totals = crate::models::dto::stats::CatalogStatsTotals {
             active_items,
@@ -940,9 +868,8 @@ impl Repository {
         let mut by_source_data = if by_source {
             if by_media_type && by_public_type {
                 // 3-level nesting: source → media_type → public_type
-                let rows = 
-                    sqlx::query(
-                        r#"
+                let rows = sqlx::query(
+                    r#"
                         SELECT
                             COALESCE(src.id, 0) as source_id,
                             COALESCE(src.name, 'unknown') as source_name,
@@ -955,14 +882,13 @@ impl Repository {
                         LEFT JOIN sources src ON sp.source_id = src.id
                         JOIN biblios i ON sp.biblio_id = i.id
                         GROUP BY src.id, src.name, i.media_type, i.audience_type
-                        "#
-                    )
-                    .bind(start)
-                    .bind(end)
-                    .bind(end_date.unwrap_or(start))
-
-                    .fetch_all(pool)
-                    .await?;
+                        "#,
+                )
+                .bind(start)
+                .bind(end)
+                .bind(end_date.unwrap_or(start))
+                .fetch_all(pool)
+                .await?;
 
                 let mut source_map: HashMap<i64, (String, HashMap<String, HashMap<String, (i64, i64, i64)>>)> = HashMap::new();
                 for row in &rows {
@@ -981,27 +907,59 @@ impl Repository {
                     pt_entry.2 += ar;
                 }
 
-                let mut result: Vec<crate::models::dto::stats::CatalogSourceStats> = source_map.into_iter().map(|(source_id, (source_name, media_map))| {
-                    let mut by_mt: Vec<crate::models::dto::stats::CatalogBreakdownStats> = media_map.into_iter().map(|(label, pt_map)| {
-                        let mut by_pt: Vec<crate::models::dto::stats::CatalogBreakdownStats> = pt_map.into_iter().map(|(pt_label, (a, e, ar))| {
-                            crate::models::dto::stats::CatalogBreakdownStats { label: pt_label, active_items: a, entered_items: e, archived_items: ar, loans: 0, by_public_type: None }
-                        }).collect();
-                        by_pt.sort_by(|a, b| b.active_items.cmp(&a.active_items));
-                        let (active, entered, archived) = by_pt.iter().fold((0i64, 0i64, 0i64), |acc, x| (acc.0 + x.active_items, acc.1 + x.entered_items, acc.2 + x.archived_items));
-                        crate::models::dto::stats::CatalogBreakdownStats { label, active_items: active, entered_items: entered, archived_items: archived, loans: 0, by_public_type: Some(by_pt) }
-                    }).collect();
-                    by_mt.sort_by(|a, b| b.active_items.cmp(&a.active_items));
-                    let (active, entered, archived) = by_mt.iter().fold((0i64, 0i64, 0i64), |acc, x| (acc.0 + x.active_items, acc.1 + x.entered_items, acc.2 + x.archived_items));
-                    crate::models::dto::stats::CatalogSourceStats { source_id, source_name, active_items: active, entered_items: entered, archived_items: archived, loans: 0, by_media_type: Some(by_mt), by_public_type: None }
-                }).collect();
+                let mut result: Vec<crate::models::dto::stats::CatalogSourceStats> = source_map
+                    .into_iter()
+                    .map(|(source_id, (source_name, media_map))| {
+                        let mut by_mt: Vec<crate::models::dto::stats::CatalogBreakdownStats> = media_map
+                            .into_iter()
+                            .map(|(label, pt_map)| {
+                                let mut by_pt: Vec<crate::models::dto::stats::CatalogBreakdownStats> = pt_map
+                                    .into_iter()
+                                    .map(|(pt_label, (a, e, ar))| crate::models::dto::stats::CatalogBreakdownStats {
+                                        label: pt_label,
+                                        active_items: a,
+                                        entered_items: e,
+                                        archived_items: ar,
+                                        loans: 0,
+                                        by_public_type: None,
+                                    })
+                                    .collect();
+                                by_pt.sort_by(|a, b| b.active_items.cmp(&a.active_items));
+                                let (active, entered, archived) = by_pt
+                                    .iter()
+                                    .fold((0i64, 0i64, 0i64), |acc, x| (acc.0 + x.active_items, acc.1 + x.entered_items, acc.2 + x.archived_items));
+                                crate::models::dto::stats::CatalogBreakdownStats {
+                                    label,
+                                    active_items: active,
+                                    entered_items: entered,
+                                    archived_items: archived,
+                                    loans: 0,
+                                    by_public_type: Some(by_pt),
+                                }
+                            })
+                            .collect();
+                        by_mt.sort_by(|a, b| b.active_items.cmp(&a.active_items));
+                        let (active, entered, archived) = by_mt
+                            .iter()
+                            .fold((0i64, 0i64, 0i64), |acc, x| (acc.0 + x.active_items, acc.1 + x.entered_items, acc.2 + x.archived_items));
+                        crate::models::dto::stats::CatalogSourceStats {
+                            source_id,
+                            source_name,
+                            active_items: active,
+                            entered_items: entered,
+                            archived_items: archived,
+                            loans: 0,
+                            by_media_type: Some(by_mt),
+                            by_public_type: None,
+                        }
+                    })
+                    .collect();
                 result.sort_by(|a, b| b.active_items.cmp(&a.active_items));
                 Some(result)
-
             } else if by_media_type {
                 // 2-level nesting: source → media_type
-                let rows = 
-                    sqlx::query(
-                        r#"
+                let rows = sqlx::query(
+                    r#"
                         SELECT
                             COALESCE(src.id, 0) as source_id,
                             COALESCE(src.name, 'unknown') as source_name,
@@ -1013,12 +971,12 @@ impl Repository {
                         LEFT JOIN sources src ON sp.source_id = src.id
                         JOIN biblios i ON sp.biblio_id = i.id
                         GROUP BY src.id, src.name, i.media_type
-                        "#
-                    )
-                    .bind(start)
-                    .bind(end)
-                    .fetch_all(pool)
-                    .await?;
+                        "#,
+                )
+                .bind(start)
+                .bind(end)
+                .fetch_all(pool)
+                .await?;
 
                 let mut source_map: HashMap<i64, (String, HashMap<String, (i64, i64, i64)>)> = HashMap::new();
                 for row in &rows {
@@ -1035,22 +993,42 @@ impl Repository {
                     mt_entry.2 += ar;
                 }
 
-                let mut result: Vec<crate::models::dto::stats::CatalogSourceStats> = source_map.into_iter().map(|(source_id, (source_name, media_map))| {
-                    let mut by_mt: Vec<crate::models::dto::stats::CatalogBreakdownStats> = media_map.into_iter().map(|(label, (a, e, ar))| {
-                        crate::models::dto::stats::CatalogBreakdownStats { label, active_items: a, entered_items: e, archived_items: ar, loans: 0, by_public_type: None }
-                    }).collect();
-                    by_mt.sort_by(|a, b| b.active_items.cmp(&a.active_items));
-                    let (active, entered, archived) = by_mt.iter().fold((0i64, 0i64, 0i64), |acc, x| (acc.0 + x.active_items, acc.1 + x.entered_items, acc.2 + x.archived_items));
-                    crate::models::dto::stats::CatalogSourceStats { source_id, source_name, active_items: active, entered_items: entered, archived_items: archived, loans: 0, by_media_type: Some(by_mt), by_public_type: None }
-                }).collect();
+                let mut result: Vec<crate::models::dto::stats::CatalogSourceStats> = source_map
+                    .into_iter()
+                    .map(|(source_id, (source_name, media_map))| {
+                        let mut by_mt: Vec<crate::models::dto::stats::CatalogBreakdownStats> = media_map
+                            .into_iter()
+                            .map(|(label, (a, e, ar))| crate::models::dto::stats::CatalogBreakdownStats {
+                                label,
+                                active_items: a,
+                                entered_items: e,
+                                archived_items: ar,
+                                loans: 0,
+                                by_public_type: None,
+                            })
+                            .collect();
+                        by_mt.sort_by(|a, b| b.active_items.cmp(&a.active_items));
+                        let (active, entered, archived) = by_mt
+                            .iter()
+                            .fold((0i64, 0i64, 0i64), |acc, x| (acc.0 + x.active_items, acc.1 + x.entered_items, acc.2 + x.archived_items));
+                        crate::models::dto::stats::CatalogSourceStats {
+                            source_id,
+                            source_name,
+                            active_items: active,
+                            entered_items: entered,
+                            archived_items: archived,
+                            loans: 0,
+                            by_media_type: Some(by_mt),
+                            by_public_type: None,
+                        }
+                    })
+                    .collect();
                 result.sort_by(|a, b| b.active_items.cmp(&a.active_items));
                 Some(result)
-
             } else if by_public_type {
                 // 2-level nesting: source → public_type
-                let rows = 
-                    sqlx::query(
-                        r#"
+                let rows = sqlx::query(
+                    r#"
                         SELECT
                             COALESCE(src.id, 0) as source_id,
                             COALESCE(src.name, 'unknown') as source_name,
@@ -1062,13 +1040,12 @@ impl Repository {
                         LEFT JOIN sources src ON sp.source_id = src.id
                         JOIN biblios i ON sp.biblio_id = i.id
                         GROUP BY src.id, src.name, i.audience_type
-                        "#
-                    )
-                    .bind(start)
-                    .bind(end)
-                    .fetch_all(pool)
-                    .await?;
-               
+                        "#,
+                )
+                .bind(start)
+                .bind(end)
+                .fetch_all(pool)
+                .await?;
 
                 let mut source_map: HashMap<i64, (String, HashMap<String, (i64, i64, i64)>)> = HashMap::new();
                 for row in &rows {
@@ -1085,22 +1062,42 @@ impl Repository {
                     pt_entry.2 += ar;
                 }
 
-                let mut result: Vec<crate::models::dto::stats::CatalogSourceStats> = source_map.into_iter().map(|(source_id, (source_name, pt_map))| {
-                    let mut by_pt: Vec<crate::models::dto::stats::CatalogBreakdownStats> = pt_map.into_iter().map(|(label, (a, e, ar))| {
-                        crate::models::dto::stats::CatalogBreakdownStats { label, active_items: a, entered_items: e, archived_items: ar, loans: 0, by_public_type: None }
-                    }).collect();
-                    by_pt.sort_by(|a, b| b.active_items.cmp(&a.active_items));
-                    let (active, entered, archived) = by_pt.iter().fold((0i64, 0i64, 0i64), |acc, x| (acc.0 + x.active_items, acc.1 + x.entered_items, acc.2 + x.archived_items));
-                    crate::models::dto::stats::CatalogSourceStats { source_id, source_name, active_items: active, entered_items: entered, archived_items: archived, loans: 0, by_media_type: None, by_public_type: Some(by_pt) }
-                }).collect();
+                let mut result: Vec<crate::models::dto::stats::CatalogSourceStats> = source_map
+                    .into_iter()
+                    .map(|(source_id, (source_name, pt_map))| {
+                        let mut by_pt: Vec<crate::models::dto::stats::CatalogBreakdownStats> = pt_map
+                            .into_iter()
+                            .map(|(label, (a, e, ar))| crate::models::dto::stats::CatalogBreakdownStats {
+                                label,
+                                active_items: a,
+                                entered_items: e,
+                                archived_items: ar,
+                                loans: 0,
+                                by_public_type: None,
+                            })
+                            .collect();
+                        by_pt.sort_by(|a, b| b.active_items.cmp(&a.active_items));
+                        let (active, entered, archived) = by_pt
+                            .iter()
+                            .fold((0i64, 0i64, 0i64), |acc, x| (acc.0 + x.active_items, acc.1 + x.entered_items, acc.2 + x.archived_items));
+                        crate::models::dto::stats::CatalogSourceStats {
+                            source_id,
+                            source_name,
+                            active_items: active,
+                            entered_items: entered,
+                            archived_items: archived,
+                            loans: 0,
+                            by_media_type: None,
+                            by_public_type: Some(by_pt),
+                        }
+                    })
+                    .collect();
                 result.sort_by(|a, b| b.active_items.cmp(&a.active_items));
                 Some(result)
-
             } else {
                 // Flat source only
-                let rows = 
-                    sqlx::query(
-                        r#"
+                let rows = sqlx::query(
+                    r#"
                         SELECT
                             COALESCE(src.id, 0) as source_id,
                             COALESCE(src.name, 'unknown') as source_name,
@@ -1111,23 +1108,27 @@ impl Repository {
                         LEFT JOIN sources src ON sp.source_id = src.id
                         GROUP BY src.id, src.name
                         ORDER BY active_items DESC
-                        "#
-                    )
-                    .bind(start)
-                    .bind(end)
-                    .fetch_all(pool)
-                    .await?;
-                
-                Some(rows.into_iter().map(|row| crate::models::dto::stats::CatalogSourceStats {
-                    source_id: row.get("source_id"),
-                    source_name: row.get("source_name"),
-                    active_items: row.get("active_items"),
-                    entered_items: row.get("entered_items"),
-                    archived_items: row.get("archived_items"),
-                    loans: 0,
-                    by_media_type: None,
-                    by_public_type: None,
-                }).collect())
+                        "#,
+                )
+                .bind(start)
+                .bind(end)
+                .fetch_all(pool)
+                .await?;
+
+                Some(
+                    rows.into_iter()
+                        .map(|row| crate::models::dto::stats::CatalogSourceStats {
+                            source_id: row.get("source_id"),
+                            source_name: row.get("source_name"),
+                            active_items: row.get("active_items"),
+                            entered_items: row.get("entered_items"),
+                            archived_items: row.get("archived_items"),
+                            loans: 0,
+                            by_media_type: None,
+                            by_public_type: None,
+                        })
+                        .collect(),
+                )
             }
         } else {
             None
@@ -1138,9 +1139,8 @@ impl Repository {
         let mut by_media_type_data = if by_media_type && !by_source {
             if by_public_type {
                 // 2-level nesting: media_type → public_type
-                let rows = 
-                    sqlx::query(
-                        r#"
+                let rows = sqlx::query(
+                    r#"
                         SELECT
                             COALESCE(i.media_type, 'unknown') as label,
                             COALESCE(i.audience_type, 'unknown') as public_type_label,
@@ -1150,13 +1150,12 @@ impl Repository {
                         FROM items sp
                         JOIN biblios i ON sp.biblio_id = i.id
                         GROUP BY i.media_type, i.audience_type
-                        "#
-                    )
-                    .bind(start)
-                    .bind(end)
-                    .fetch_all(pool)
-                    .await?;
-              
+                        "#,
+                )
+                .bind(start)
+                .bind(end)
+                .fetch_all(pool)
+                .await?;
 
                 let mut media_map: HashMap<String, HashMap<String, (i64, i64, i64)>> = HashMap::new();
                 for row in &rows {
@@ -1172,21 +1171,40 @@ impl Repository {
                     pt_entry.2 += ar;
                 }
 
-                let mut result: Vec<crate::models::dto::stats::CatalogBreakdownStats> = media_map.into_iter().map(|(label, pt_map)| {
-                    let mut by_pt: Vec<crate::models::dto::stats::CatalogBreakdownStats> = pt_map.into_iter().map(|(pt_label, (a, e, ar))| {
-                        crate::models::dto::stats::CatalogBreakdownStats { label: pt_label, active_items: a, entered_items: e, archived_items: ar, loans: 0, by_public_type: None }
-                    }).collect();
-                    by_pt.sort_by(|a, b| b.active_items.cmp(&a.active_items));
-                    let (active, entered, archived) = by_pt.iter().fold((0i64, 0i64, 0i64), |acc, x| (acc.0 + x.active_items, acc.1 + x.entered_items, acc.2 + x.archived_items));
-                    crate::models::dto::stats::CatalogBreakdownStats { label, active_items: active, entered_items: entered, archived_items: archived, loans: 0, by_public_type: Some(by_pt) }
-                }).collect();
+                let mut result: Vec<crate::models::dto::stats::CatalogBreakdownStats> = media_map
+                    .into_iter()
+                    .map(|(label, pt_map)| {
+                        let mut by_pt: Vec<crate::models::dto::stats::CatalogBreakdownStats> = pt_map
+                            .into_iter()
+                            .map(|(pt_label, (a, e, ar))| crate::models::dto::stats::CatalogBreakdownStats {
+                                label: pt_label,
+                                active_items: a,
+                                entered_items: e,
+                                archived_items: ar,
+                                loans: 0,
+                                by_public_type: None,
+                            })
+                            .collect();
+                        by_pt.sort_by(|a, b| b.active_items.cmp(&a.active_items));
+                        let (active, entered, archived) = by_pt
+                            .iter()
+                            .fold((0i64, 0i64, 0i64), |acc, x| (acc.0 + x.active_items, acc.1 + x.entered_items, acc.2 + x.archived_items));
+                        crate::models::dto::stats::CatalogBreakdownStats {
+                            label,
+                            active_items: active,
+                            entered_items: entered,
+                            archived_items: archived,
+                            loans: 0,
+                            by_public_type: Some(by_pt),
+                        }
+                    })
+                    .collect();
                 result.sort_by(|a, b| b.active_items.cmp(&a.active_items));
                 Some(result)
             } else {
                 // Flat media type breakdown
-                let rows = 
-                    sqlx::query(
-                        r#"
+                let rows = sqlx::query(
+                    r#"
                         SELECT
                             COALESCE(i.media_type, 'unknown') as label,
                             COUNT(*) FILTER (WHERE sp.archived_at IS NULL) as active_items,
@@ -1196,22 +1214,26 @@ impl Repository {
                         JOIN biblios i ON sp.biblio_id = i.id
                         GROUP BY i.media_type
                         ORDER BY active_items DESC
-                        "#
-                    )
-                    .bind(start)
-                    .bind(end)
-                    .fetch_all(pool)
-                    .await?;
-               
-                Some(rows.into_iter().map(|row| crate::models::dto::stats::CatalogBreakdownStats {
-                    label: row.get("label"),
-                    active_items: row.get("active_items"),
-                    entered_items: row.get("entered_items"),
-                    archived_items: row.get("archived_items"),
-                    loans: 0,
-                    by_public_type: None,
-                }).collect())
-            }   
+                        "#,
+                )
+                .bind(start)
+                .bind(end)
+                .fetch_all(pool)
+                .await?;
+
+                Some(
+                    rows.into_iter()
+                        .map(|row| crate::models::dto::stats::CatalogBreakdownStats {
+                            label: row.get("label"),
+                            active_items: row.get("active_items"),
+                            entered_items: row.get("entered_items"),
+                            archived_items: row.get("archived_items"),
+                            loans: 0,
+                            by_public_type: None,
+                        })
+                        .collect(),
+                )
+            }
         } else {
             None
         };
@@ -1219,9 +1241,8 @@ impl Repository {
         // --- Top-level by public type ---
         // Only when neither by_source nor by_media_type is on (otherwise public is nested)
         let mut by_public_type_data = if by_public_type && !by_source && !by_media_type {
-            let rows = 
-                sqlx::query(
-                    r#"
+            let rows = sqlx::query(
+                r#"
                     SELECT
                         COALESCE(i.audience_type, 'unknown') as label,
                         COUNT(*) FILTER (WHERE sp.archived_at IS NULL) as active_items,
@@ -1231,21 +1252,25 @@ impl Repository {
                     JOIN biblios i ON sp.biblio_id = i.id
                     GROUP BY i.audience_type
                     ORDER BY active_items DESC
-                    "#
-                )
-                .bind(start)
-                .bind(end)
-                .fetch_all(pool)
-                .await?;
-               
-            Some(rows.into_iter().map(|row| crate::models::dto::stats::CatalogBreakdownStats {
-                label: row.get("label"),
-                active_items: row.get("active_items"),
-                entered_items: row.get("entered_items"),
-                archived_items: row.get("archived_items"),
-                loans: 0,
-                by_public_type: None,
-            }).collect::<Vec<_>>())
+                    "#,
+            )
+            .bind(start)
+            .bind(end)
+            .fetch_all(pool)
+            .await?;
+
+            Some(
+                rows.into_iter()
+                    .map(|row| crate::models::dto::stats::CatalogBreakdownStats {
+                        label: row.get("label"),
+                        active_items: row.get("active_items"),
+                        entered_items: row.get("entered_items"),
+                        archived_items: row.get("archived_items"),
+                        loans: 0,
+                        by_public_type: None,
+                    })
+                    .collect::<Vec<_>>(),
+            )
         } else {
             None
         };
@@ -1253,9 +1278,9 @@ impl Repository {
         // --- Merge loan counts into breakdown structures ---
         // All loans (active + archived) grouped by (source_id, media_type, public_type)
         // via items for both tables.
-        
-            let loan_rows = sqlx::query(
-                r#"
+
+        let loan_rows = sqlx::query(
+            r#"
                 SELECT
                     COALESCE(sp.source_id, 0) as source_id,
                     COALESCE(i.media_type, 'unknown') as media_type,
@@ -1270,88 +1295,67 @@ impl Repository {
                 JOIN biblios i ON sp.biblio_id = i.id
                 WHERE all_loans.date >= $1 AND all_loans.date <= $2
                 GROUP BY sp.source_id, i.media_type, i.audience_type
-                "#
-            )
-            .bind(start)
-            .bind(end)
-            .fetch_all(pool)
-            .await?;
+                "#,
+        )
+        .bind(start)
+        .bind(end)
+        .fetch_all(pool)
+        .await?;
 
-            // source_id → media_type → public_type → count
-            let mut loan_map: HashMap<i64, HashMap<String, HashMap<String, i64>>> = HashMap::new();
-            for row in &loan_rows {
-                let sid: i64 = row.get("source_id");
-                let mt: String = row.get("media_type");
-                let pt: String = row.get("public_type");
-                let cnt: i64 = row.get("loans");
-                *loan_map.entry(sid).or_default().entry(mt).or_default().entry(pt).or_insert(0) += cnt;
-            }
+        // source_id → media_type → public_type → count
+        let mut loan_map: HashMap<i64, HashMap<String, HashMap<String, i64>>> = HashMap::new();
+        for row in &loan_rows {
+            let sid: i64 = row.get("source_id");
+            let mt: String = row.get("media_type");
+            let pt: String = row.get("public_type");
+            let cnt: i64 = row.get("loans");
+            *loan_map.entry(sid).or_default().entry(mt).or_default().entry(pt).or_insert(0) += cnt;
+        }
 
-            // Merge into by_source
-            if let Some(ref mut sources) = by_source_data {
-                for source in sources.iter_mut() {
-                    let sid = source.source_id;
-                    source.loans = loan_map.get(&sid)
-                        .map(|mm| mm.values().flat_map(|pm| pm.values()).sum::<i64>())
-                        .unwrap_or(0);
+        // Merge into by_source
+        if let Some(ref mut sources) = by_source_data {
+            for source in sources.iter_mut() {
+                let sid = source.source_id;
+                source.loans = loan_map.get(&sid).map(|mm| mm.values().flat_map(|pm| pm.values()).sum::<i64>()).unwrap_or(0);
 
-                    if let Some(ref mut medias) = source.by_media_type {
-                        for media in medias.iter_mut() {
-                            media.loans = loan_map.get(&sid)
-                                .and_then(|mm| mm.get(&media.label))
-                                .map(|pm| pm.values().sum::<i64>())
-                                .unwrap_or(0);
-                            if let Some(ref mut publics) = media.by_public_type {
-                                for public in publics.iter_mut() {
-                                    public.loans = loan_map.get(&sid)
-                                        .and_then(|mm| mm.get(&media.label))
-                                        .and_then(|pm| pm.get(&public.label))
-                                        .copied()
-                                        .unwrap_or(0);
-                                }
+                if let Some(ref mut medias) = source.by_media_type {
+                    for media in medias.iter_mut() {
+                        media.loans = loan_map.get(&sid).and_then(|mm| mm.get(&media.label)).map(|pm| pm.values().sum::<i64>()).unwrap_or(0);
+                        if let Some(ref mut publics) = media.by_public_type {
+                            for public in publics.iter_mut() {
+                                public.loans = loan_map.get(&sid).and_then(|mm| mm.get(&media.label)).and_then(|pm| pm.get(&public.label)).copied().unwrap_or(0);
                             }
                         }
                     }
+                }
 
-                    if let Some(ref mut publics) = source.by_public_type {
-                        for public in publics.iter_mut() {
-                            public.loans = loan_map.get(&sid)
-                                .map(|mm| mm.values().filter_map(|pm| pm.get(&public.label)).sum::<i64>())
-                                .unwrap_or(0);
-                        }
+                if let Some(ref mut publics) = source.by_public_type {
+                    for public in publics.iter_mut() {
+                        public.loans = loan_map.get(&sid).map(|mm| mm.values().filter_map(|pm| pm.get(&public.label)).sum::<i64>()).unwrap_or(0);
                     }
                 }
             }
+        }
 
-            // Merge into top-level by_media_type (sum across all sources)
-            if let Some(ref mut medias) = by_media_type_data {
-                for media in medias.iter_mut() {
-                    media.loans = loan_map.values()
-                        .filter_map(|mm| mm.get(&media.label))
-                        .flat_map(|pm| pm.values())
-                        .sum();
+        // Merge into top-level by_media_type (sum across all sources)
+        if let Some(ref mut medias) = by_media_type_data {
+            for media in medias.iter_mut() {
+                media.loans = loan_map.values().filter_map(|mm| mm.get(&media.label)).flat_map(|pm| pm.values()).sum();
 
-                    if let Some(ref mut publics) = media.by_public_type {
-                        for public in publics.iter_mut() {
-                            public.loans = loan_map.values()
-                                .filter_map(|mm| mm.get(&media.label))
-                                .filter_map(|pm| pm.get(&public.label))
-                                .sum();
-                        }
+                if let Some(ref mut publics) = media.by_public_type {
+                    for public in publics.iter_mut() {
+                        public.loans = loan_map.values().filter_map(|mm| mm.get(&media.label)).filter_map(|pm| pm.get(&public.label)).sum();
                     }
                 }
             }
+        }
 
-            // Merge into top-level by_public_type (sum across all sources + media)
-            if let Some(ref mut publics) = by_public_type_data {
-                for public in publics.iter_mut() {
-                    public.loans = loan_map.values()
-                        .flat_map(|mm| mm.values())
-                        .filter_map(|pm| pm.get(&public.label))
-                        .sum();
-                }
+        // Merge into top-level by_public_type (sum across all sources + media)
+        if let Some(ref mut publics) = by_public_type_data {
+            for public in publics.iter_mut() {
+                public.loans = loan_map.values().flat_map(|mm| mm.values()).filter_map(|pm| pm.get(&public.label)).sum();
             }
-        
+        }
 
         Ok(crate::models::dto::stats::CatalogStatsResponse {
             totals,
@@ -1361,5 +1365,3 @@ impl Repository {
         })
     }
 }
-
-

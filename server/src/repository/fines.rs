@@ -14,28 +14,11 @@ use crate::{
 pub trait FinesRepository: Send + Sync {
     async fn fines_list_for_user(&self, user_id: i64) -> AppResult<Vec<Fine>>;
     async fn fines_get_by_id(&self, id: i64) -> AppResult<Fine>;
-    async fn fines_create(
-        &self,
-        loan_id: i64,
-        user_id: i64,
-        amount: Decimal,
-        notes: Option<&str>,
-    ) -> AppResult<Fine>;
-    async fn fines_pay(
-        &self,
-        id: i64,
-        payment: Decimal,
-        notes: Option<&str>,
-    ) -> AppResult<Fine>;
+    async fn fines_create(&self, loan_id: i64, user_id: i64, amount: Decimal, notes: Option<&str>) -> AppResult<Fine>;
+    async fn fines_pay(&self, id: i64, payment: Decimal, notes: Option<&str>) -> AppResult<Fine>;
     async fn fines_waive(&self, id: i64, notes: Option<&str>) -> AppResult<Fine>;
     async fn fines_list_rules(&self) -> AppResult<Vec<FineRule>>;
-    async fn fines_upsert_rule(
-        &self,
-        media_type: Option<&str>,
-        daily_rate: Decimal,
-        max_amount: Option<Decimal>,
-        grace_days: i32,
-    ) -> AppResult<FineRule>;
+    async fn fines_upsert_rule(&self, media_type: Option<&str>, daily_rate: Decimal, max_amount: Option<Decimal>, grace_days: i32) -> AppResult<FineRule>;
     async fn fines_total_unpaid(&self, user_id: i64) -> AppResult<Decimal>;
 }
 
@@ -47,14 +30,10 @@ impl FinesRepository for Repository {
     async fn fines_get_by_id(&self, id: i64) -> AppResult<Fine> {
         Repository::fines_get_by_id(self, id).await
     }
-    async fn fines_create(
-        &self, loan_id: i64, user_id: i64, amount: Decimal, notes: Option<&str>,
-    ) -> AppResult<Fine> {
+    async fn fines_create(&self, loan_id: i64, user_id: i64, amount: Decimal, notes: Option<&str>) -> AppResult<Fine> {
         Repository::fines_create(self, loan_id, user_id, amount, notes).await
     }
-    async fn fines_pay(
-        &self, id: i64, payment: Decimal, notes: Option<&str>,
-    ) -> AppResult<Fine> {
+    async fn fines_pay(&self, id: i64, payment: Decimal, notes: Option<&str>) -> AppResult<Fine> {
         Repository::fines_pay(self, id, payment, notes).await
     }
     async fn fines_waive(&self, id: i64, notes: Option<&str>) -> AppResult<Fine> {
@@ -63,13 +42,7 @@ impl FinesRepository for Repository {
     async fn fines_list_rules(&self) -> AppResult<Vec<FineRule>> {
         Repository::fines_list_rules(self).await
     }
-    async fn fines_upsert_rule(
-        &self,
-        media_type: Option<&str>,
-        daily_rate: Decimal,
-        max_amount: Option<Decimal>,
-        grace_days: i32,
-    ) -> AppResult<FineRule> {
+    async fn fines_upsert_rule(&self, media_type: Option<&str>, daily_rate: Decimal, max_amount: Option<Decimal>, grace_days: i32) -> AppResult<FineRule> {
         Repository::fines_upsert_rule(self, media_type, daily_rate, max_amount, grace_days).await
     }
     async fn fines_total_unpaid(&self, user_id: i64) -> AppResult<Decimal> {
@@ -77,27 +50,20 @@ impl FinesRepository for Repository {
     }
 }
 
-
-static SNOWFLAKE: std::sync::LazyLock<std::sync::Mutex<Generator>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(Generator::new(2)));
+static SNOWFLAKE: std::sync::LazyLock<std::sync::Mutex<Generator>> = std::sync::LazyLock::new(|| std::sync::Mutex::new(Generator::new(2)));
 
 fn next_id() -> i64 {
-    SNOWFLAKE
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .generate::<i64>()
+    SNOWFLAKE.lock().unwrap_or_else(|e| e.into_inner()).generate::<i64>()
 }
 
 impl Repository {
     /// List fines for a user
     #[tracing::instrument(skip(self), err)]
     pub async fn fines_list_for_user(&self, user_id: i64) -> AppResult<Vec<Fine>> {
-        let rows = sqlx::query_as::<_, Fine>(
-            "SELECT * FROM fines WHERE user_id = $1 ORDER BY created_at DESC",
-        )
-        .bind(user_id)
-        .fetch_all(&self.pool)
-        .await?;
+        let rows = sqlx::query_as::<_, Fine>("SELECT * FROM fines WHERE user_id = $1 ORDER BY created_at DESC")
+            .bind(user_id)
+            .fetch_all(&self.pool)
+            .await?;
         Ok(rows)
     }
 
@@ -113,13 +79,7 @@ impl Repository {
 
     /// Create a fine for a loan
     #[tracing::instrument(skip(self), err)]
-    pub async fn fines_create(
-        &self,
-        loan_id: i64,
-        user_id: i64,
-        amount: Decimal,
-        notes: Option<&str>,
-    ) -> AppResult<Fine> {
+    pub async fn fines_create(&self, loan_id: i64, user_id: i64, amount: Decimal, notes: Option<&str>) -> AppResult<Fine> {
         let id = next_id();
         let row = sqlx::query_as::<_, Fine>(
             r#"
@@ -140,12 +100,7 @@ impl Repository {
 
     /// Apply a payment to a fine
     #[tracing::instrument(skip(self), err)]
-    pub async fn fines_pay(
-        &self,
-        id: i64,
-        payment: Decimal,
-        notes: Option<&str>,
-    ) -> AppResult<Fine> {
+    pub async fn fines_pay(&self, id: i64, payment: Decimal, notes: Option<&str>) -> AppResult<Fine> {
         sqlx::query_as::<_, Fine>(
             r#"
             UPDATE fines SET
@@ -185,23 +140,13 @@ impl Repository {
     /// Get fine rules (per media type + default)
     #[tracing::instrument(skip(self), err)]
     pub async fn fines_list_rules(&self) -> AppResult<Vec<FineRule>> {
-        let rows = sqlx::query_as::<_, FineRule>(
-            "SELECT * FROM fine_rules ORDER BY media_type NULLS FIRST",
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let rows = sqlx::query_as::<_, FineRule>("SELECT * FROM fine_rules ORDER BY media_type NULLS FIRST").fetch_all(&self.pool).await?;
         Ok(rows)
     }
 
     /// Upsert a fine rule for a media type (or default)
     #[tracing::instrument(skip(self), err)]
-    pub async fn fines_upsert_rule(
-        &self,
-        media_type: Option<&str>,
-        daily_rate: Decimal,
-        max_amount: Option<Decimal>,
-        grace_days: i32,
-    ) -> AppResult<FineRule> {
+    pub async fn fines_upsert_rule(&self, media_type: Option<&str>, daily_rate: Decimal, max_amount: Option<Decimal>, grace_days: i32) -> AppResult<FineRule> {
         let row = sqlx::query_as::<_, FineRule>(
             r#"
             INSERT INTO fine_rules (media_type, daily_rate, max_amount, grace_days)
@@ -233,4 +178,3 @@ impl Repository {
         Ok(total.unwrap_or(Decimal::ZERO))
     }
 }
-

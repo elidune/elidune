@@ -30,18 +30,14 @@ impl Repository {
                 .await?
                 .ok_or_else(|| AppError::NotFound("Item not found".to_string()))?
         } else {
-            return Err(AppError::BadRequest(
-                "item_id or item_identification required".to_string(),
-            ));
+            return Err(AppError::BadRequest("item_id or item_identification required".to_string()));
         };
 
         // Check if item is already borrowed
-        let loan_id: Option<i64> = sqlx::query_scalar::<_, i64>(
-            "SELECT id FROM loans WHERE item_id = $1 AND returned_at IS NULL",
-        )
-        .bind(item_id)
-        .fetch_optional(&self.pool)
-        .await?;
+        let loan_id: Option<i64> = sqlx::query_scalar::<_, i64>("SELECT id FROM loans WHERE item_id = $1 AND returned_at IS NULL")
+            .bind(item_id)
+            .fetch_optional(&self.pool)
+            .await?;
 
         if let Some(loan_id) = loan_id {
             if !loan.force {
@@ -72,26 +68,20 @@ impl Repository {
             return Err(AppError::BusinessRule("Item is not borrowable".to_string()));
         }
 
-        let user_public_type: Option<i64> = sqlx::query_scalar::<_, Option<i64>>(
-            "SELECT public_type FROM users WHERE id = $1",
-        )
-        .bind(loan.user_id)
-        .fetch_optional(&self.pool)
-        .await?
-        .flatten();
+        let user_public_type: Option<i64> = sqlx::query_scalar::<_, Option<i64>>("SELECT public_type FROM users WHERE id = $1")
+            .bind(loan.user_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .flatten();
 
-        let (duration_days, nb_max_media, nb_max_total, _, _) = self
-            .resolve_loan_settings(user_public_type, media_type.as_deref())
-            .await?;
+        let (duration_days, nb_max_media, nb_max_total, _, _) = self.resolve_loan_settings(user_public_type, media_type.as_deref()).await?;
 
         let expiry_at = now + Duration::days(duration_days as i64);
 
-        let current_loans_total: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM loans WHERE user_id = $1 AND returned_at IS NULL",
-        )
-        .bind(loan.user_id)
-        .fetch_one(&self.pool)
-        .await?;
+        let current_loans_total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM loans WHERE user_id = $1 AND returned_at IS NULL")
+            .bind(loan.user_id)
+            .fetch_one(&self.pool)
+            .await?;
         let current_loans_media: i64 = if let Some(ref mt) = media_type {
             sqlx::query_scalar(
                 r#"
@@ -118,14 +108,8 @@ impl Repository {
                     "Maximum loans reached: total ({}/{}), this media type ({}/{})",
                     current_loans_total, nb_max_total, current_loans_media, nb_max_media
                 ),
-                (true, false) => format!(
-                    "Maximum total loans reached ({}/{})",
-                    current_loans_total, nb_max_total
-                ),
-                (false, true) => format!(
-                    "Maximum loans for this document type reached ({}/{})",
-                    current_loans_media, nb_max_media
-                ),
+                (true, false) => format!("Maximum total loans reached ({}/{})", current_loans_total, nb_max_total),
+                (false, true) => format!("Maximum loans for this document type reached ({}/{})", current_loans_media, nb_max_media),
                 (false, false) => unreachable!(),
             };
             return Err(AppError::BusinessRule(msg));
@@ -160,12 +144,10 @@ impl Repository {
         .await?;
 
         let fulfilled_hold_id = if loan.force {
-            self.holds_cancel_active_for_item_tx(&mut tx, item_id)
-                .await?;
+            self.holds_cancel_active_for_item_tx(&mut tx, item_id).await?;
             None
         } else {
-            self.holds_fulfill_active_for_user_item_tx(&mut tx, loan.user_id, item_id)
-                .await?
+            self.holds_fulfill_active_for_user_item_tx(&mut tx, loan.user_id, item_id).await?
         };
 
         tx.commit().await?;
@@ -187,12 +169,10 @@ impl Repository {
             return Err(AppError::BusinessRule("Loan already returned".to_string()));
         }
 
-        let user_row = sqlx::query(
-            "SELECT addr_city, account_type, public_type FROM users WHERE id = $1",
-        )
-        .bind(loan.user_id)
-        .fetch_optional(&self.pool)
-        .await?;
+        let user_row = sqlx::query("SELECT addr_city, account_type, public_type FROM users WHERE id = $1")
+            .bind(loan.user_id)
+            .fetch_optional(&self.pool)
+            .await?;
 
         let account_type: Option<String> = user_row.as_ref().and_then(|r| r.get("account_type"));
 
@@ -215,28 +195,15 @@ impl Repository {
         .bind(loan.expiry_at)
         .bind(now)
         .bind(&loan.notes)
-        .bind(
-            user_row
-                .as_ref()
-                .and_then(|r| r.get::<Option<i64>, _>("public_type")),
-        )
-        .bind(
-            user_row
-                .as_ref()
-                .and_then(|r| r.get::<Option<String>, _>("addr_city")),
-        )
+        .bind(user_row.as_ref().and_then(|r| r.get::<Option<i64>, _>("public_type")))
+        .bind(user_row.as_ref().and_then(|r| r.get::<Option<String>, _>("addr_city")))
         .bind(account_type)
         .execute(&mut *tx)
         .await?;
 
-        sqlx::query("DELETE FROM loans WHERE id = $1")
-            .bind(loan_id)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query("DELETE FROM loans WHERE id = $1").bind(loan_id).execute(&mut *tx).await?;
 
-        let readied_hold = self
-            .holds_notify_next_tx(&mut tx, loan.item_id, self.hold_ready_expiry_days())
-            .await?;
+        let readied_hold = self.holds_notify_next_tx(&mut tx, loan.item_id, self.hold_ready_expiry_days()).await?;
 
         if let Some(ref h) = readied_hold {
             tracing::debug!(
@@ -309,9 +276,7 @@ impl Repository {
                 status: 0,
                 is_valid: Some(true),
                 archived_at: None,
-                author: biblio_row
-                    .get::<Option<serde_json::Value>, _>("author")
-                    .and_then(|v| serde_json::from_value(v).ok()),
+                author: biblio_row.get::<Option<serde_json::Value>, _>("author").and_then(|v| serde_json::from_value(v).ok()),
                 items: vec![item_short],
             },
             user,
@@ -333,39 +298,28 @@ impl Repository {
         let loan = self.loans_get_by_id(loan_id).await?;
 
         if loan.returned_at.is_some() {
-            return Err(AppError::BusinessRule(
-                "Cannot renew a returned loan".to_string(),
-            ));
+            return Err(AppError::BusinessRule("Cannot renew a returned loan".to_string()));
         }
 
-        let item_row = sqlx::query(
-            "SELECT b.media_type FROM items it JOIN biblios b ON it.biblio_id = b.id WHERE it.id = $1",
-        )
-        .bind(loan.item_id)
-        .fetch_one(&self.pool)
-        .await?;
+        let item_row = sqlx::query("SELECT b.media_type FROM items it JOIN biblios b ON it.biblio_id = b.id WHERE it.id = $1")
+            .bind(loan.item_id)
+            .fetch_one(&self.pool)
+            .await?;
 
         let media_type: Option<String> = item_row.get("media_type");
 
-        let user_public_type: Option<i64> = sqlx::query_scalar::<_, Option<i64>>(
-            "SELECT public_type FROM users WHERE id = $1",
-        )
-        .bind(loan.user_id)
-        .fetch_optional(&self.pool)
-        .await?
-        .flatten();
+        let user_public_type: Option<i64> = sqlx::query_scalar::<_, Option<i64>>("SELECT public_type FROM users WHERE id = $1")
+            .bind(loan.user_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .flatten();
 
-        let (duration_days, _nb_max_media, _nb_max_total, max_renews, renew_at_policy) = self
-            .resolve_loan_settings(user_public_type, media_type.as_deref())
-            .await?;
+        let (duration_days, _nb_max_media, _nb_max_total, max_renews, renew_at_policy) = self.resolve_loan_settings(user_public_type, media_type.as_deref()).await?;
 
         let current_renews = loan.nb_renews.unwrap_or(0);
 
         if current_renews >= max_renews {
-            return Err(AppError::BusinessRule(format!(
-                "Maximum renewals reached ({}/{})",
-                current_renews, max_renews
-            )));
+            return Err(AppError::BusinessRule(format!("Maximum renewals reached ({}/{})", current_renews, max_renews)));
         }
 
         let anchor = match renew_at_policy {
@@ -375,15 +329,13 @@ impl Repository {
         let new_expiry_date = anchor + Duration::days(duration_days as i64);
         let new_renews = current_renews + 1;
 
-        sqlx::query(
-            "UPDATE loans SET expiry_at = $1, renew_at = $2, nb_renews = $3 WHERE id = $4",
-        )
-        .bind(new_expiry_date)
-        .bind(now)
-        .bind(new_renews)
-        .bind(loan_id)
-        .execute(&self.pool)
-        .await?;
+        sqlx::query("UPDATE loans SET expiry_at = $1, renew_at = $2, nb_renews = $3 WHERE id = $4")
+            .bind(new_expiry_date)
+            .bind(now)
+            .bind(new_renews)
+            .bind(loan_id)
+            .execute(&self.pool)
+            .await?;
 
         Ok((new_expiry_date, new_renews))
     }

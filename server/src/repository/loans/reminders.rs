@@ -27,10 +27,7 @@ pub struct OverdueLoanRow {
 
 impl Repository {
     /// Get overdue loans eligible for reminder emails.
-    pub async fn loans_get_overdue_for_reminders(
-        &self,
-        frequency_days: u32,
-    ) -> AppResult<Vec<OverdueLoanRow>> {
+    pub async fn loans_get_overdue_for_reminders(&self, frequency_days: u32) -> AppResult<Vec<OverdueLoanRow>> {
         let rows = sqlx::query(
             r#"
             SELECT
@@ -102,18 +99,12 @@ impl Repository {
     }
 
     /// Get all overdue loans for the admin dashboard (paginated).
-    pub async fn loans_get_overdue(
-        &self,
-        page: i64,
-        per_page: i64,
-    ) -> AppResult<(Vec<OverdueLoanRow>, i64)> {
+    pub async fn loans_get_overdue(&self, page: i64, per_page: i64) -> AppResult<(Vec<OverdueLoanRow>, i64)> {
         let offset = (page - 1) * per_page;
 
-        let total: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM loans WHERE returned_at IS NULL AND expiry_at < NOW()",
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM loans WHERE returned_at IS NULL AND expiry_at < NOW()")
+            .fetch_one(&self.pool)
+            .await?;
 
         let rows = sqlx::query(
             r#"

@@ -14,16 +14,16 @@ pub mod events;
 pub mod fines;
 pub mod first_setup;
 pub mod health;
+pub mod holds;
 pub mod inventory;
 pub mod items;
 pub mod library_info;
 pub mod loans;
 pub mod maintenance;
 pub mod metrics;
-pub mod openapi;
 pub mod opac;
+pub mod openapi;
 pub mod public_types;
-pub mod holds;
 pub mod schedules;
 pub mod series;
 pub mod sources;
@@ -44,7 +44,11 @@ use axum::{
 use serde::de::DeserializeOwned;
 use validator::Validate;
 
-use crate::{error::AppError, models::user::{UserClaims, SCOPE_CHANGE_PASSWORD}, AppState};
+use crate::{
+    error::AppError,
+    models::user::{UserClaims, SCOPE_CHANGE_PASSWORD},
+    AppState,
+};
 
 /// Resolved client IP for audit: proxy headers first, then `ConnectInfo` peer address.
 pub struct ClientIp(pub Option<String>);
@@ -57,14 +61,8 @@ where
     type Rejection = std::convert::Infallible;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        let peer = parts
-            .extensions
-            .get::<ConnectInfo<SocketAddr>>()
-            .map(|c| c.0);
-        Ok(ClientIp(crate::services::audit::resolve_client_ip(
-            &parts.headers,
-            peer,
-        )))
+        let peer = parts.extensions.get::<ConnectInfo<SocketAddr>>().map(|c| c.0);
+        Ok(ClientIp(crate::services::audit::resolve_client_ip(&parts.headers, peer)))
     }
 }
 
@@ -85,16 +83,11 @@ where
     type Rejection = AppError;
 
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
-        let bytes = axum::body::Bytes::from_request(req, state)
-            .await
-            .map_err(|e| AppError::BadRequest(e.to_string()))?;
+        let bytes = axum::body::Bytes::from_request(req, state).await.map_err(|e| AppError::BadRequest(e.to_string()))?;
 
-        let value: T = serde_json::from_slice(&bytes)
-            .map_err(|e| AppError::Validation(format!("Invalid JSON body: {e}")))?;
+        let value: T = serde_json::from_slice(&bytes).map_err(|e| AppError::Validation(format!("Invalid JSON body: {e}")))?;
 
-        value
-            .validate()
-            .map_err(|e| AppError::Validation(e.to_string()))?;
+        value.validate().map_err(|e| AppError::Validation(e.to_string()))?;
 
         Ok(Self(value))
     }
@@ -154,8 +147,7 @@ fn parse_bearer_token(parts: &Parts, secret: &str) -> Result<UserClaims, AppErro
         return Err(AppError::Authentication("Invalid authorization header format".to_string()));
     }
 
-    UserClaims::from_token(&auth_header[7..], secret)
-        .map_err(|e| AppError::Authentication(e.to_string()))
+    UserClaims::from_token(&auth_header[7..], secret).map_err(|e| AppError::Authentication(e.to_string()))
 }
 
 /// Parse JWT and ensure `token_version` matches the database (revoked sessions rejected).
@@ -180,9 +172,7 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
         let claims = extract_claims(parts, state).await?;
 
         if claims.is_password_change_scope() {
-            return Err(AppError::Authorization(
-                "Password change required before accessing this endpoint".to_string(),
-            ));
+            return Err(AppError::Authorization("Password change required before accessing this endpoint".to_string()));
         }
 
         Ok(AuthenticatedUser(claims))
@@ -202,12 +192,9 @@ impl FromRequestParts<AppState> for PasswordChangeUser {
         let claims = extract_claims(parts, state).await?;
 
         if claims.scope.as_deref() != Some(SCOPE_CHANGE_PASSWORD) {
-            return Err(AppError::Authorization(
-                "This endpoint requires a password-change token".to_string(),
-            ));
+            return Err(AppError::Authorization("This endpoint requires a password-change token".to_string()));
         }
 
         Ok(PasswordChangeUser(claims))
     }
 }
-

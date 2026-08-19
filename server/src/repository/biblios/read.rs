@@ -3,10 +3,11 @@
 use std::collections::HashMap;
 
 use chrono::Utc;
-use sqlx::{FromRow, Row};
 use sqlx::types::Json;
+use sqlx::{FromRow, Row};
 
 use super::super::Repository;
+use super::BiblioShortRow;
 use crate::models::item::ItemShort;
 use crate::{
     error::{AppError, AppResult},
@@ -14,17 +15,15 @@ use crate::{
     models::{
         author::Author,
         author::Function,
+        biblio::{Biblio, BiblioQuery, BiblioShort, Collection, Edition, Isbn, MediaType, MeiliBiblioDocument, Serie},
         import_report::DuplicateCandidate,
-        biblio::{Collection, Edition, Isbn, Biblio, BiblioQuery, BiblioShort, MeiliBiblioDocument, MediaType, Serie},
         item::Item,
     },
 };
-use super::BiblioShortRow;
 
 impl Repository {
     #[tracing::instrument(skip(self), err)]
     pub async fn biblios_get_by_id(&self, id: i64) -> AppResult<Biblio> {
-
         let query = r#"
             SELECT id, media_type, isbn,
                    publication_date, lang, lang_orig, title,
@@ -54,12 +53,10 @@ impl Repository {
         self.load_biblio_series(id, &mut biblio).await?;
         self.load_biblio_collections(id, &mut biblio).await?;
 
-        biblio.edition = sqlx::query_as::<_, Edition>(
-            "SELECT id, publisher_name, place_of_publication, date, created_at, updated_at FROM editions WHERE id = $1",
-        )
-        .bind(biblio.edition_id)
-        .fetch_optional(&self.pool)
-        .await?;
+        biblio.edition = sqlx::query_as::<_, Edition>("SELECT id, publisher_name, place_of_publication, date, created_at, updated_at FROM editions WHERE id = $1")
+            .bind(biblio.edition_id)
+            .fetch_optional(&self.pool)
+            .await?;
 
         biblio.items = self.biblios_get_items(id).await?;
 
@@ -238,8 +235,7 @@ impl Repository {
         .fetch_all(&self.pool)
         .await?;
 
-        let id_to_index: std::collections::HashMap<i64, usize> =
-            ids.iter().enumerate().map(|(i, &id)| (id, i)).collect();
+        let id_to_index: std::collections::HashMap<i64, usize> = ids.iter().enumerate().map(|(i, &id)| (id, i)).collect();
 
         let biblio_ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
         let items_map = self.biblios_get_items_short_by_biblio_ids(&biblio_ids).await?;
@@ -261,10 +257,7 @@ impl Repository {
     /// Batch-load [`BiblioShort`] metadata (author, title, …) with **empty** `items`.
     /// Used when items are attached separately (e.g. one copy per hold).
     #[tracing::instrument(skip(self), err)]
-    pub async fn biblios_get_short_metadata_map_by_biblio_ids(
-        &self,
-        biblio_ids: &[i64],
-    ) -> AppResult<HashMap<i64, BiblioShort>> {
+    pub async fn biblios_get_short_metadata_map_by_biblio_ids(&self, biblio_ids: &[i64]) -> AppResult<HashMap<i64, BiblioShort>> {
         if biblio_ids.is_empty() {
             return Ok(HashMap::new());
         }
@@ -306,21 +299,15 @@ impl Repository {
     }
     #[tracing::instrument(skip(self), err)]
     pub async fn biblios_get_marc_record_optional(&self, biblio_id: i64) -> AppResult<Option<crate::marc::MarcRecord>> {
-        let json_opt: Option<serde_json::Value> = sqlx::query_scalar(
-            "SELECT marc_record FROM biblios WHERE id = $1",
-        )
-        .bind(biblio_id)
-        .fetch_one(&self.pool)
-        .await?;
+        let json_opt: Option<serde_json::Value> = sqlx::query_scalar("SELECT marc_record FROM biblios WHERE id = $1").bind(biblio_id).fetch_one(&self.pool).await?;
         let Some(json) = json_opt else {
             return Ok(None);
         };
         if json.is_null() {
             return Ok(None);
         }
-        serde_json::from_value(json).map_err(|e| {
-            AppError::Internal(format!("Invalid marc_record JSON for biblio {}: {}", biblio_id, e))
-        })
-        .map(Some)
+        serde_json::from_value(json)
+            .map_err(|e| AppError::Internal(format!("Invalid marc_record JSON for biblio {}: {}", biblio_id, e)))
+            .map(Some)
     }
 }

@@ -67,17 +67,10 @@ pub struct TestEmailRequest {
         (status = 403, description = "Admin privileges required")
     )
 )]
-pub async fn get_config(
-    State(state): State<AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-) -> AppResult<Json<ConfigResponse>> {
+pub async fn get_config(State(state): State<AppState>, AuthenticatedUser(claims): AuthenticatedUser) -> AppResult<Json<ConfigResponse>> {
     claims.require_admin()?;
 
-    let overridden_keys: Vec<String> = state
-        .services
-        .minimal_repository()
-        .settings_list_keys()
-        .await?;
+    let overridden_keys: Vec<String> = state.services.minimal_repository().settings_list_keys().await?;
 
     let dynamic = &state.dynamic_config;
     let mut sections = Vec::new();
@@ -126,10 +119,7 @@ pub async fn update_config_section(
     let dynamic = &state.dynamic_config;
 
     // Capture old value before update (masked)
-    let old_value = dynamic
-        .get_section_value(&section)
-        .ok()
-        .map(audit::mask_sensitive_fields);
+    let old_value = dynamic.get_section_value(&section).ok().map(audit::mask_sensitive_fields);
 
     // Validate and apply in memory
     dynamic.update_section(&section, body.value.clone())?;
@@ -142,10 +132,7 @@ pub async fn update_config_section(
         .map_err(|e| AppError::Internal(format!("persist config section: {e}")))?;
 
     // Audit
-    let new_value_masked = dynamic
-        .get_section_value(&section)
-        .ok()
-        .map(audit::mask_sensitive_fields);
+    let new_value_masked = dynamic.get_section_value(&section).ok().map(audit::mask_sensitive_fields);
 
     state.services.audit.log(
         audit::event::CONFIG_SECTION_UPDATED,
@@ -158,7 +145,8 @@ pub async fn update_config_section(
             "old_value": old_value,
             "new_value": new_value_masked,
         })),
-     audit::AuditLogMeta::success());
+        audit::AuditLogMeta::success(),
+    );
 
     // Wake the reminder scheduler if the reminders config changed
     if section == "reminders" {
@@ -216,7 +204,8 @@ pub async fn reset_config_section(
         None,
         ip,
         Some(serde_json::json!({ "section": section })),
-     audit::AuditLogMeta::success());
+        audit::AuditLogMeta::success(),
+    );
 
     // Wake the reminder scheduler if the reminders config was reset
     if section == "reminders" {
@@ -264,7 +253,8 @@ pub async fn test_email(
         None,
         ip,
         Some(serde_json::json!({ "to": body.to })),
-     audit::AuditLogMeta::success());
+        audit::AuditLogMeta::success(),
+    );
 
     Ok(StatusCode::OK)
 }
@@ -285,11 +275,7 @@ pub async fn test_email(
         (status = 503, description = "Meilisearch not configured")
     )
 )]
-pub async fn reindex_search(
-    State(state): State<AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    ClientIp(ip): ClientIp,
-) -> AppResult<Json<ReindexSearchResponse>> {
+pub async fn reindex_search(State(state): State<AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp) -> AppResult<Json<ReindexSearchResponse>> {
     claims.require_admin()?;
 
     match state.services.catalog.reindex_search().await {

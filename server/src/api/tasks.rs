@@ -24,16 +24,12 @@ use crate::{
 
 use super::AuthenticatedUser;
 
-
 // ── Router ─────────────────────────────────────────────────────────────────────
 
 pub fn router() -> axum::Router<AppState> {
     use axum::routing::get;
-    axum::Router::new()
-        .route("/tasks", get(list_tasks))
-        .route("/tasks/:id", get(get_task))
+    axum::Router::new().route("/tasks", get(list_tasks)).route("/tasks/:id", get(get_task))
 }
-
 
 // ── Response types ─────────────────────────────────────────────────────────────
 
@@ -65,15 +61,8 @@ pub struct TaskAcceptedResponse {
         (status = 401, description = "Not authenticated")
     )
 )]
-pub async fn list_tasks(
-    State(state): State<AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-) -> AppResult<Json<Vec<BackgroundTask>>> {
-    let tasks = state
-        .services
-        .tasks
-        .list_tasks(claims.user_id, claims.is_admin())
-        .await;
+pub async fn list_tasks(State(state): State<AppState>, AuthenticatedUser(claims): AuthenticatedUser) -> AppResult<Json<Vec<BackgroundTask>>> {
+    let tasks = state.services.tasks.list_tasks(claims.user_id, claims.is_admin()).await;
     Ok(Json(tasks))
 }
 
@@ -98,24 +87,12 @@ pub async fn list_tasks(
         (status = 403, description = "Task belongs to another user")
     )
 )]
-pub async fn get_task(
-    State(state): State<AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i64>,
-) -> AppResult<Json<BackgroundTask>> {
-    let task = state
-        .services
-        .tasks
-        .get_task(id)
-        .await
-        .ok_or_else(|| AppError::NotFound("Task not found or expired".into()))?;
+pub async fn get_task(State(state): State<AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(id): Path<i64>) -> AppResult<Json<BackgroundTask>> {
+    let task = state.services.tasks.get_task(id).await.ok_or_else(|| AppError::NotFound("Task not found or expired".into()))?;
 
     if !claims.is_admin() && task.user_id != claims.user_id {
-        return Err(AppError::Authorization(
-            "Task belongs to another user".into(),
-        ));
+        return Err(AppError::Authorization("Task belongs to another user".into()));
     }
 
     Ok(Json(task))
 }
-

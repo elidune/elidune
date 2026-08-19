@@ -55,19 +55,14 @@ impl sqlx::Type<sqlx::Postgres> for HoldStatus {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for HoldStatus {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
         Ok(Self::from(s))
     }
 }
 
 impl sqlx::Encode<'_, sqlx::Postgres> for HoldStatus {
-    fn encode_by_ref(
-        &self,
-        buf: &mut sqlx::postgres::PgArgumentBuffer,
-    ) -> sqlx::encode::IsNull {
+    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
         <String as sqlx::Encode<sqlx::Postgres>>::encode(self.as_str().to_string(), buf)
     }
 }

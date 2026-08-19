@@ -221,19 +221,13 @@ pub struct AppConfig {
 impl AppConfig {
     /// Load configuration from the given file path.
     pub fn load(path: Option<impl AsRef<Path>>) -> Result<Self, ConfigError> {
-
         let mut builder = Config::builder();
         if let Some(path) = path {
             builder = builder.add_source(File::from(path.as_ref().to_path_buf().as_path()).required(false));
         }
-        
-        let config = builder.add_source(
-            Environment::with_prefix("ELIDUNE")
-                .prefix_separator("_")
-                .separator("__"),
-        ).build()?;
 
-        
+        let config = builder.add_source(Environment::with_prefix("ELIDUNE").prefix_separator("_").separator("__")).build()?;
+
         config.try_deserialize()
     }
 
@@ -243,37 +237,26 @@ impl AppConfig {
         const MIN_SECRET_LEN: usize = 32;
 
         if self.users.jwt_secret == DEFAULT_SECRET {
-            return Err(
-                "users.jwt_secret is the sample default — set a strong secret via config or ELIDUNE_USERS__JWT_SECRET"
-                    .into(),
-            );
+            return Err("users.jwt_secret is the sample default — set a strong secret via config or ELIDUNE_USERS__JWT_SECRET".into());
         }
         if self.users.jwt_secret.len() < MIN_SECRET_LEN {
-            return Err(format!(
-                "users.jwt_secret must be at least {MIN_SECRET_LEN} characters"
-            ));
+            return Err(format!("users.jwt_secret must be at least {MIN_SECRET_LEN} characters"));
         }
 
         let prod_mode = std::env::var("ELIDUNE_PRODUCTION").ok().as_deref() == Some("true");
         if prod_mode {
             let origins = self.server.cors_origins.as_deref().unwrap_or(&[]);
             if origins.is_empty() {
-                return Err(
-                    "server.cors_origins must be set when ELIDUNE_PRODUCTION=true".into(),
-                );
+                return Err("server.cors_origins must be set when ELIDUNE_PRODUCTION=true".into());
             }
         }
         Ok(())
     }
 
-
- 
     /// Minimal configuration for integration tests (uses `DATABASE_URL` / `REDIS_URL` env vars).
     pub fn for_test() -> Self {
-        let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://elidune:elidune@localhost:5432/elidune_test".into());
-        let redis_url =
-            std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".into());
+        let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://elidune:elidune@localhost:5432/elidune_test".into());
+        let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".into());
 
         Self {
             server: ServerConfig::default(),
