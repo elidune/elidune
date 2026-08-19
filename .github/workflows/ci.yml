@@ -44,9 +44,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust stable with rustfmt + clippy
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust 1.90 with rustfmt + clippy
+        uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: 1.90
           components: rustfmt, clippy
 
       - name: Cache Cargo registry
@@ -79,8 +80,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust 1.90
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.90
 
       - name: Cache Cargo registry
         uses: actions/cache@v4
@@ -136,8 +139,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust 1.90
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.90
 
       - name: Install sqlx-cli
         run: cargo install sqlx-cli --no-default-features --features rustls,postgres
@@ -213,8 +218,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Rust stable
-        uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust 1.90
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.90
 
       - name: Install llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
