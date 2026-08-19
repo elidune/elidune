@@ -1,0 +1,1784 @@
+import { useState, useRef, useCallback, useEffect, Fragment } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router-dom';
+import {
+  Plus,
+  ClipboardList,
+  Scan,
+  CheckCircle,
+  XCircle,
+  Loader2,
+  AlertCircle,
+  Upload,
+  ListOrdered,
+  PackageSearch,
+  ChevronRight,
+  ChevronDown,
+  ExternalLink,
+  Archive,
+} from 'lucide-react';
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
+import { Card, Button, Modal, Input, Badge, ScrollableListRegion, BarcodeScanField } from '@/components/common';
+import api from '@/services/api';
+import { getApiErrorMessage } from '@/utils/apiError';
+import { useBackgroundTasks } from '@/contexts/BackgroundTasksContext';
+import { formatTaskProgressDetail, taskProgressPercent } from '@/utils/backgroundTaskDisplay';
+import { formControlClass, formTextareaClass, formLabelClass } from '@/utils/formControl';
+import type {
+  InventorySession,
+  CreateInventorySession,
+  CreateInventorySessionResponse,
+  InventoryScan,
+  InventoryScanResultCode,
+  InventoryConsolidationResult,
+  Author,
+  Biblio,
+  Item,
+  Source,
+} from '@/types';
+
+const SCANS_PER_PAGE = 50;
+const MISSING_PER_PAGE = 50;
+const SESSIONS_PER_PAGE = 50;
+const BATCH_CHUNK = 500;
+const CONSOLIDATION_PREVIEW_PER_PAGE = 50;
+
+type SessionStatusFilter = 'all' | 'open' | 'closed';
+type SessionSubTab = 'scans' | 'missing';
+type SessionInputTab = 'scan' | 'batch';
+
+function sessionStartedAt(s: InventorySession): string {
+  return s.startedAt ?? s.createdAt ?? '';
+}
+
+function sessionDisplayName(s: InventorySession, t: (k: string) => string): string {
+  if (s.name?.trim()) return s.name.trim();
+  return `${t('inventory.sessionTitle')} #${s.id.slice(0, 8)}`;
+}
+
+function formatSessionScope(
+  session: InventorySession,
+  t: (key: string, opts?: Record<string, unknown>) => string
+): string {
+  const source = session.scopeSourceName?.trim()
+    ? session.scopeSourceName.trim()
+    : t('inventory.scopeAllSources');
+  const place =
+    session.scopePlace != null
+      ? t('inventory.scopePlaceShort', { n: session.scopePlace })
+      : t('inventory.scopeAllPlaces');
+  return `${source} · ${place}`;
+}
+
+function scanResultVariant(
+  result: InventoryScanResultCode
+): 'success' | 'warning' | 'danger' | 'default' {
+  if (result === 'found') return 'success';
+  if (result === 'found_out_of_scope') return 'warning';
+  if (result === 'found_archived') return 'warning';
+  if (result === 'unknown_barcode') return 'danger';
+  return 'default';
+}
+
+export default function InventoryPage() {
+  const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const { trackTask } = useBackgroundTasks();
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionsPage, setSessionsPage] = useState(1);
+  const [sessionsStatus, setSessionsStatus] = useState<SessionStatusFilter>('all');
+  const [subTab, setSubTab] = useState<SessionSubTab>('scans');
+  const [inputSubTab, setInputSubTab] = useState<SessionInputTab>('scan');
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+
+  const toggleExpand = useCallback((key: string) => {
+    setExpandedKey((prev) => (prev === key ? null : key));
+  }, []);
+
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createName, setCreateName] = useState('');
+  const [createLocationFilter, setCreateLocationFilter] = useState('');
+  const [createNotes, setCreateNotes] = useState('');
+  const [createScopePlace, setCreateScopePlace] = useState('');
+  const [createScopeSourceId, setCreateScopeSourceId] = useState('');
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [sessionCreateInfo, setSessionCreateInfo] = useState<{
+    expectedInScope: number;
+    warnings: string[];
+  } | null>(null);
+
+  const [barcode, setBarcode] = useState('');
+  const [scanFlash, setScanFlash] = useState<InventoryScan | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [batchText, setBatchText] = useState('');
+  const [batchError, setBatchError] = useState<string | null>(null);
+  const [batchSummary, setBatchSummary] = useState<string | null>(null);
+  const [batchProgress, setBatchProgress] = useState<{ current: number; total: number } | null>(null);
+  const [showConsolidationModal, setShowConsolidationModal] = useState(false);
+  const barcodeRef = useRef<HTMLInputElement>(null);
+
+  const sourcesQuery = useQuery({
+    queryKey: ['sources', false],
+    queryFn: () => api.getSources(false),
+    enabled: showCreateModal,
+    staleTime: 60_000,
+  });
+
+  const sessionsQuery = useQuery({
+    queryKey: ['inventory', 'sessions', sessionsPage, SESSIONS_PER_PAGE, sessionsStatus],
+    queryFn: () =>
+      api.getInventorySessions({
+        page: sessionsPage,
+        perPage: SESSIONS_PER_PAGE,
+        status: sessionsStatus === 'all' ? undefined : sessionsStatus,
+      }),
+    staleTime: 30_000,
+  });
+
+  const sessionQuery = useQuery({
+    queryKey: ['inventory', 'session', sessionId],
+    queryFn: () => api.getInventorySession(sessionId!),
+    enabled: !!sessionId,
+    staleTime: 15_000,
+  });
+
+  const activeSession = sessionQuery.data ?? null;
+
+  const reportQuery = useQuery({
+    queryKey: ['inventory', 'report', sessionId],
+    queryFn: () => api.getInventoryReport(sessionId!),
+    enabled: !!sessionId,
+    staleTime: 10_000,
+  });
+
+  const scansInfinite = useInfiniteQuery({
+    queryKey: ['inventory', 'scans-infinite', sessionId, SCANS_PER_PAGE],
+    queryFn: ({ pageParam }) =>
+      api.getInventoryScans(sessionId!, { page: pageParam, perPage: SCANS_PER_PAGE }),
+    initialPageParam: 1,
+    getNextPageParam: (last) => {
+      if (last.pageCount === 0 || last.page >= last.pageCount) return undefined;
+      return last.page + 1;
+    },
+    enabled: !!sessionId && subTab === 'scans',
+    staleTime: 10_000,
+  });
+
+  const missingInfinite = useInfiniteQuery({
+    queryKey: ['inventory', 'missing-infinite', sessionId, MISSING_PER_PAGE],
+    queryFn: ({ pageParam }) =>
+      api.getInventoryMissing(sessionId!, { page: pageParam, perPage: MISSING_PER_PAGE }),
+    initialPageParam: 1,
+    getNextPageParam: (last) => {
+      if (last.pageCount === 0 || last.page >= last.pageCount) return undefined;
+      return last.page + 1;
+    },
+    enabled: !!sessionId && subTab === 'missing',
+    staleTime: 10_000,
+  });
+
+  const scanRows = scansInfinite.data?.pages.flatMap((p) => p.items) ?? [];
+  const scansTotal = scansInfinite.data?.pages[0]?.total ?? 0;
+  const missingRows = missingInfinite.data?.pages.flatMap((p) => p.items) ?? [];
+  const missingTotal = missingInfinite.data?.pages[0]?.total ?? 0;
+
+  const infiniteSentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = infiniteSentinelRef.current;
+    if (!el || !sessionId) return;
+    const root = el.closest('.app-list-scroll');
+    const hasNext = subTab === 'scans' ? scansInfinite.hasNextPage : missingInfinite.hasNextPage;
+    const isFetching =
+      subTab === 'scans' ? scansInfinite.isFetchingNextPage : missingInfinite.isFetchingNextPage;
+    const fetchNext =
+      subTab === 'scans' ? scansInfinite.fetchNextPage : missingInfinite.fetchNextPage;
+    if (!hasNext) return;
+
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && hasNext && !isFetching) {
+          void fetchNext();
+        }
+      },
+      { root: root instanceof Element ? root : null, rootMargin: '120px', threshold: 0 }
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [
+    sessionId,
+    subTab,
+    scansInfinite.hasNextPage,
+    scansInfinite.isFetchingNextPage,
+    scansInfinite.fetchNextPage,
+    missingInfinite.hasNextPage,
+    missingInfinite.isFetchingNextPage,
+    missingInfinite.fetchNextPage,
+  ]);
+
+  const invalidateSessionData = useCallback(
+    (id: string) => {
+      void queryClient.invalidateQueries({ queryKey: ['inventory', 'session', id] });
+      void queryClient.invalidateQueries({ queryKey: ['inventory', 'report', id] });
+      void queryClient.invalidateQueries({ queryKey: ['inventory', 'scans-infinite', id] });
+      void queryClient.invalidateQueries({ queryKey: ['inventory', 'missing-infinite', id] });
+      void queryClient.invalidateQueries({ queryKey: ['inventory', 'sessions'] });
+    },
+    [queryClient]
+  );
+
+  const enterSession = useCallback((id: string) => {
+    setExpandedKey(null);
+    setSubTab('scans');
+    setInputSubTab('scan');
+    setScanFlash(null);
+    setScanError(null);
+    setBarcode('');
+    setBatchText('');
+    setBatchError(null);
+    setBatchSummary(null);
+    setBatchProgress(null);
+    setSessionId(id);
+  }, []);
+
+  const resolveCreateScope = useCallback(() => {
+    const scopeRaw = createScopePlace.trim();
+    let scopePlace: number | null = null;
+    if (scopeRaw !== '') {
+      const n = parseInt(scopeRaw, 10);
+      if (Number.isNaN(n) || n < 0) {
+        return { error: 'scopePlaceInvalid' as const };
+      }
+      scopePlace = n;
+    }
+    const scopeSourceId = createScopeSourceId.trim() === '' ? null : createScopeSourceId.trim();
+    return {
+      scopePlace: scopeRaw === '' ? null : scopePlace,
+      scopeSourceId,
+    };
+  }, [createScopePlace, createScopeSourceId]);
+
+  const createMutation = useMutation({
+    mutationFn: (body: CreateInventorySession) => api.createInventorySession(body),
+    onSuccess: (created: CreateInventorySessionResponse) => {
+      setShowCreateModal(false);
+      setCreateName('');
+      setCreateLocationFilter('');
+      setCreateNotes('');
+      setCreateScopePlace('');
+      setCreateScopeSourceId('');
+      setCreateError(null);
+      setSessionCreateInfo({
+        expectedInScope: created.expectedInScope,
+        warnings: created.warnings ?? [],
+      });
+      void queryClient.invalidateQueries({ queryKey: ['inventory', 'sessions'] });
+      enterSession(created.session.id);
+    },
+    onError: async (err: unknown) => {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status === 409) {
+        const scope = resolveCreateScope();
+        if ('error' in scope) {
+          setCreateError(t('inventory.createConflict'));
+          return;
+        }
+        try {
+          const open = await api.getInventorySessions({ status: 'open', perPage: 200 });
+          const existing = open.items.find(
+            (s) =>
+              (s.scopeSourceId ?? null) === scope.scopeSourceId &&
+              (s.scopePlace ?? null) === scope.scopePlace
+          );
+          if (existing) {
+            setShowCreateModal(false);
+            setCreateError(null);
+            enterSession(existing.id);
+            return;
+          }
+        } catch {
+          /* fall through to message */
+        }
+        setCreateError(t('inventory.createConflict'));
+        return;
+      }
+      setCreateError(getApiErrorMessage(err, t) || t('inventory.createError'));
+    },
+  });
+
+  const scanMutation = useMutation({
+    mutationFn: ({ id, bc }: { id: string; bc: string }) => api.scanInventoryItem(id, bc),
+    onSuccess: (row, { id }) => {
+      setScanFlash(row);
+      setScanError(null);
+      invalidateSessionData(id);
+      setBarcode('');
+      setTimeout(() => barcodeRef.current?.focus(), 80);
+    },
+    onError: () => setScanError(t('inventory.scanError')),
+  });
+
+  const batchMutation = useMutation({
+    mutationFn: async ({ id, codes }: { id: string; codes: string[] }) => {
+      let total = 0;
+      for (let i = 0; i < codes.length; i += BATCH_CHUNK) {
+        const chunk = codes.slice(i, i + BATCH_CHUNK);
+        setBatchProgress(null);
+        const { taskId } = await api.batchInventoryScans(id, chunk);
+        trackTask(taskId);
+        await api.waitForInventoryBatchScanTask(taskId, (task) => {
+          const p = task.progress;
+          if (p && typeof p.current === 'number' && typeof p.total === 'number') {
+            setBatchProgress({ current: p.current, total: p.total });
+          }
+        });
+        total += chunk.length;
+      }
+      return total;
+    },
+    onSuccess: (total, { id }) => {
+      setBatchError(null);
+      setBatchProgress(null);
+      setBatchSummary(t('inventory.batchDone', { count: total }));
+      setBatchText('');
+      invalidateSessionData(id);
+    },
+    onError: (err: unknown) => {
+      setBatchProgress(null);
+      const msg = err instanceof Error && err.message ? err.message : t('inventory.batchError');
+      setBatchError(msg);
+    },
+  });
+
+  const closeMutation = useMutation({
+    mutationFn: (id: string) => api.closeInventorySession(id),
+    onSuccess: (_, id) => {
+      invalidateSessionData(id);
+    },
+  });
+
+  const handleCreateSession = () => {
+    const name = createName.trim();
+    if (!name) {
+      setCreateError(t('inventory.nameRequired'));
+      return;
+    }
+    const scope = resolveCreateScope();
+    if ('error' in scope) {
+      setCreateError(t('inventory.scopePlaceInvalid'));
+      return;
+    }
+    setCreateError(null);
+    createMutation.mutate({
+      name,
+      locationFilter: createLocationFilter.trim() || null,
+      notes: createNotes.trim() || null,
+      scopePlace: scope.scopePlace,
+      scopeSourceId: scope.scopeSourceId,
+    });
+  };
+
+  const handleScan = () => {
+    if (!activeSession || !barcode.trim() || activeSession.status !== 'open') return;
+    scanMutation.mutate({ id: activeSession.id, bc: barcode.trim() });
+  };
+
+  const handleBatchImport = () => {
+    if (!activeSession || activeSession.status !== 'open') return;
+    const lines = batchText
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean);
+    if (lines.length === 0) {
+      setBatchError(t('inventory.batchEmpty'));
+      return;
+    }
+    setBatchError(null);
+    setBatchSummary(null);
+    setBatchProgress(null);
+    batchMutation.mutate({ id: activeSession.id, codes: lines });
+  };
+
+  const openCreateModal = () => {
+    const d = new Date();
+    const suggested = t('inventory.defaultSessionName', {
+      date: d.toLocaleDateString(undefined, { dateStyle: 'medium' }),
+    });
+    setCreateName(suggested);
+    setCreateLocationFilter('');
+    setCreateNotes('');
+    setCreateScopePlace('');
+    setCreateScopeSourceId('');
+    setCreateError(null);
+    setShowCreateModal(true);
+  };
+
+  // ─── Session detail view ───────────────────────────────────────
+  if (sessionId) {
+    if (sessionQuery.isError) {
+      return (
+        <div className="space-y-4">
+          <Button variant="secondary" onClick={() => setSessionId(null)}>
+            ← {t('common.back')}
+          </Button>
+          <p className="text-red-600 dark:text-red-400">{t('inventory.sessionLoadError')}</p>
+        </div>
+      );
+    }
+
+    if (sessionQuery.isLoading || !activeSession) {
+      return (
+        <div className="flex justify-center py-16">
+          <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
+        </div>
+      );
+    }
+
+    const report = reportQuery.data ?? null;
+    const isConsolidated = activeSession.consolidatedAt != null;
+    const canPreviewOrConsolidate =
+      activeSession.status === 'closed' && activeSession.consolidatedAt == null;
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-start gap-4 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setSessionId(null)}
+            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300 shrink-0"
+          >
+            ← {t('common.back')}
+          </button>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-xl font-bold text-gray-900 dark:text-white break-words">
+              {sessionDisplayName(activeSession, t)}
+            </h1>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              {sessionStartedAt(activeSession)
+                ? new Date(sessionStartedAt(activeSession)).toLocaleString()
+                : '—'}
+              {activeSession.locationFilter ? ` — ${activeSession.locationFilter}` : ''}
+              {' · '}
+              {formatSessionScope(activeSession, t)}
+            </p>
+          </div>
+          <div className="ml-auto flex items-center gap-3 shrink-0 flex-wrap justify-end">
+            <Badge variant={activeSession.status === 'open' ? 'success' : 'default'}>
+              {t(`inventory.statuses.${activeSession.status}`)}
+            </Badge>
+            {isConsolidated && (
+              <Badge variant="default">{t('inventory.consolidatedBadge')}</Badge>
+            )}
+            {canPreviewOrConsolidate && (
+              <Button
+                variant="danger"
+                size="sm"
+                leftIcon={<Archive className="h-4 w-4" />}
+                onClick={() => setShowConsolidationModal(true)}
+              >
+                {t('inventory.consolidateCatalog')}
+              </Button>
+            )}
+            {activeSession.status === 'open' && (
+              <Button
+                variant="danger"
+                size="sm"
+                isLoading={closeMutation.isPending}
+                onClick={() => closeMutation.mutate(activeSession.id)}
+              >
+                {t('inventory.closeSession')}
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {sessionCreateInfo && (
+          <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50/90 dark:bg-amber-950/30 px-4 py-3 text-sm space-y-2">
+            <p className="font-medium text-amber-900 dark:text-amber-100">
+              {t('inventory.createExpectedInScope', { count: sessionCreateInfo.expectedInScope })}
+            </p>
+            {sessionCreateInfo.warnings.map((w, i) => (
+              <p key={i} className="text-amber-800 dark:text-amber-200">
+                {w}
+              </p>
+            ))}
+            <div className="pt-1">
+              <Button size="sm" variant="secondary" onClick={() => setSessionCreateInfo(null)}>
+                {t('inventory.createAcknowledgeWarnings')}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        <div className="rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50/80 dark:bg-indigo-950/30 px-4 py-3 text-sm text-indigo-900 dark:text-indigo-100">
+          <p className="font-medium">{t('inventory.sessionHelpTitle')}</p>
+          <p className="mt-1 text-indigo-800 dark:text-indigo-200">{t('inventory.sessionHelpBody')}</p>
+          {activeSession.status === 'open' ? (
+            <p className="mt-2 text-indigo-800 dark:text-indigo-200">{t('inventory.sessionHelpOpen')}</p>
+          ) : isConsolidated ? (
+            <p className="mt-2 text-indigo-800 dark:text-indigo-200">{t('inventory.sessionHelpConsolidated')}</p>
+          ) : (
+            <p className="mt-2 text-indigo-800 dark:text-indigo-200">{t('inventory.sessionHelpClosedConsolidate')}</p>
+          )}
+        </div>
+
+        {activeSession.status === 'open' && (
+          <Card>
+            <div className="flex flex-wrap gap-2 border-b border-gray-200 dark:border-gray-800 pb-3 mb-4">
+              <button
+                type="button"
+                onClick={() => setInputSubTab('scan')}
+                className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                  inputSubTab === 'scan'
+                    ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-900 dark:text-indigo-100'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+              >
+                <Scan className="h-4 w-4" />
+                {t('inventory.scanBarcode')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setInputSubTab('batch')}
+                className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                  inputSubTab === 'batch'
+                    ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-900 dark:text-indigo-100'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+              >
+                <Upload className="h-4 w-4" />
+                {t('inventory.batchTab')}
+              </button>
+            </div>
+
+            {inputSubTab === 'scan' && (
+              <>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">{t('inventory.scanBarcodeHint')}</p>
+                <div className="flex gap-3 flex-wrap items-end">
+                  <BarcodeScanField
+                    ref={barcodeRef}
+                    value={barcode}
+                    onChange={(e) => setBarcode(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleScan();
+                    }}
+                    placeholder={t('inventory.barcodePlaceholder')}
+                    autoFocus
+                    inputClassName="min-w-[200px]"
+                    wrapperClassName="flex-1 min-w-[200px]"
+                    scannerTitle={t('inventory.scanBarcode')}
+                    onCameraScan={(code) => {
+                      setBarcode(code);
+                      if (activeSession && activeSession.status === 'open') {
+                        scanMutation.mutate({ id: activeSession.id, bc: code.trim() });
+                      }
+                    }}
+                    suffix={
+                      <Button
+                        onClick={handleScan}
+                        isLoading={scanMutation.isPending}
+                        leftIcon={<Scan className="h-4 w-4" />}
+                      >
+                        {t('inventory.scan')}
+                      </Button>
+                    }
+                  />
+                </div>
+
+                {scanFlash && (
+                  <div
+                    className={`mt-3 flex items-center gap-2 p-3 rounded-lg text-sm ${
+                      scanFlash.result === 'found'
+                        ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400'
+                        : scanFlash.result === 'found_out_of_scope'
+                          ? 'bg-orange-50 dark:bg-orange-900/20 border border-orange-300 dark:border-orange-700 text-orange-800 dark:text-orange-200'
+                          : scanFlash.result === 'found_archived'
+                            ? 'bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200'
+                            : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400'
+                    }`}
+                  >
+                    {scanFlash.result === 'found' ? (
+                      <CheckCircle className="h-4 w-4 flex-shrink-0" />
+                    ) : (
+                      <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                    )}
+                    <span>
+                      {scanFlash.result === 'found' &&
+                        t('inventory.scanFound', { barcode: scanFlash.barcode })}
+                      {scanFlash.result === 'found_out_of_scope' &&
+                        t('inventory.scanOutOfScope', { barcode: scanFlash.barcode })}
+                      {scanFlash.result === 'found_archived' &&
+                        t('inventory.scanArchived', { barcode: scanFlash.barcode })}
+                      {scanFlash.result === 'unknown_barcode' &&
+                        t('inventory.scanNotFound', { barcode: scanFlash.barcode })}
+                    </span>
+                  </div>
+                )}
+
+                {scanError && (
+                  <div className="mt-3 flex items-center gap-2 p-3 rounded-lg text-sm bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400">
+                    <XCircle className="h-4 w-4 flex-shrink-0" />
+                    {scanError}
+                  </div>
+                )}
+              </>
+            )}
+
+            {inputSubTab === 'batch' && (
+              <>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">{t('inventory.batchHint')}</p>
+                <label className={formLabelClass()}>
+                  {t('inventory.batchTextareaLabel')}
+                </label>
+                <textarea
+                  value={batchText}
+                  onChange={(e) => setBatchText(e.target.value)}
+                  rows={6}
+                  className={formTextareaClass({ className: 'font-mono' })}
+                  placeholder={t('inventory.batchPlaceholder')}
+                />
+                {batchError && (
+                  <div className="mt-2 flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
+                    <AlertCircle className="h-4 w-4 shrink-0" />
+                    {batchError}
+                  </div>
+                )}
+                {batchSummary && (
+                  <div className="mt-2 flex items-center gap-2 text-sm text-green-700 dark:text-green-400">
+                    <CheckCircle className="h-4 w-4 shrink-0" />
+                    {batchSummary}
+                  </div>
+                )}
+                {batchProgress && batchMutation.isPending && (
+                  <div className="mt-2 flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                    {t('inventory.batchProgress', {
+                      current: batchProgress.current,
+                      total: batchProgress.total,
+                    })}
+                  </div>
+                )}
+                <div className="mt-3">
+                  <Button
+                    variant="secondary"
+                    leftIcon={<Upload className="h-4 w-4" />}
+                    onClick={handleBatchImport}
+                    isLoading={batchMutation.isPending}
+                  >
+                    {t('inventory.batchSubmit')}
+                  </Button>
+                </div>
+              </>
+            )}
+          </Card>
+        )}
+
+        <Card padding="sm">
+          <div className="mb-3">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{t('inventory.report')}</h3>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-snug">
+              {t('inventory.reportHint')}
+            </p>
+          </div>
+          {reportQuery.isLoading ? (
+            <div className="flex justify-center py-6">
+              <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+            </div>
+          ) : report ? (
+            <>
+              {(report.expectedInScope ?? 0) > 0 && (
+                <div className="mb-4">
+                  <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400 mb-1">
+                    <span>{t('inventory.progressLabel')}</span>
+                    <span className="tabular-nums font-medium">
+                      {t('inventory.progressRatio', {
+                        scanned: report.distinctItemsScanned ?? 0,
+                        expected: report.expectedInScope ?? 0,
+                      })}
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-indigo-600 dark:bg-indigo-500 transition-all"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          ((report.distinctItemsScanned ?? 0) / (report.expectedInScope ?? 1)) * 100
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2">
+              <StatBox compact label={t('inventory.expectedInScope')} value={report.expectedInScope ?? 0} />
+              <StatBox compact label={t('inventory.totalScanned')} value={report.totalScanned ?? 0} />
+              <StatBox compact label={t('inventory.totalFound')} value={report.totalFound ?? 0} color="green" />
+              <StatBox
+                compact
+                label={t('inventory.totalFoundOutOfScope')}
+                value={report.totalFoundOutOfScope ?? 0}
+                color="amber"
+              />
+              <StatBox
+                compact
+                label={t('inventory.totalFoundArchived')}
+                value={report.totalFoundArchived ?? 0}
+                color="amber"
+              />
+              <StatBox
+                compact
+                label={t('inventory.totalUnknown')}
+                value={report.totalUnknown ?? 0}
+                color="amber"
+              />
+              <StatBox
+                compact
+                label={t('inventory.distinctItemsScanned')}
+                value={report.distinctItemsScanned ?? 0}
+              />
+              <StatBox
+                compact
+                label={t('inventory.duplicateScanCount')}
+                value={report.duplicateScanCount ?? 0}
+              />
+              <StatBox compact label={t('inventory.missing')} value={report.missingCount ?? 0} color="red" />
+              <StatBox
+                compact
+                label={t('inventory.missingScannable')}
+                value={report.missingScannable ?? 0}
+                color="red"
+              />
+              <StatBox
+                compact
+                label={t('inventory.missingWithoutBarcode')}
+                value={report.missingWithoutBarcode ?? 0}
+              />
+            </div>
+            </>
+          ) : (
+            <p className="text-center text-gray-500 dark:text-gray-400 py-3 text-sm">{t('inventory.noReport')}</p>
+          )}
+        </Card>
+
+        <Card padding="none" className="flex flex-col">
+          <div className="space-y-3 border-b border-gray-200 p-4 sm:p-6 dark:border-gray-800">
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setExpandedKey(null);
+                  setSubTab('scans');
+                }}
+                className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                  subTab === 'scans'
+                    ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-900 dark:text-indigo-100'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+              >
+                <ListOrdered className="h-4 w-4" />
+                {t('inventory.scansTitle')}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setExpandedKey(null);
+                  setSubTab('missing');
+                }}
+                className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                  subTab === 'missing'
+                    ? 'bg-indigo-100 dark:bg-indigo-900/40 text-indigo-900 dark:text-indigo-100'
+                    : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+              >
+                <PackageSearch className="h-4 w-4" />
+                {t('inventory.missingTab')}
+              </button>
+            </div>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              {subTab === 'scans' ? t('inventory.scansTabHintLazy') : t('inventory.missingTabHintLazy')}
+            </p>
+            {subTab === 'scans' && scansTotal > 0 && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {t('inventory.lazyLoadedCount', { loaded: scanRows.length, total: scansTotal })}
+              </p>
+            )}
+            {subTab === 'missing' && missingTotal > 0 && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {t('inventory.lazyLoadedCount', { loaded: missingRows.length, total: missingTotal })}
+              </p>
+            )}
+          </div>
+          <ScrollableListRegion
+            aria-label={subTab === 'scans' ? t('inventory.scansTitle') : t('inventory.missingTab')}
+          >
+            {subTab === 'scans' && (
+              <>
+                {scansInfinite.isPending && !scansInfinite.data ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+                  </div>
+                ) : scanRows.length === 0 ? (
+                  <p className="text-center text-gray-500 dark:text-gray-400 py-6 px-4">
+                    {t('inventory.noScans')}
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto p-4 sm:p-6">
+                    <table className="w-full text-sm text-left">
+                      <thead>
+                        <tr className="border-b border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
+                          <th className="py-2 pr-2 w-8" aria-hidden />
+                          <th className="py-2 pr-3 font-medium">{t('inventory.scanColBarcode')}</th>
+                          <th className="py-2 pr-3 font-medium whitespace-nowrap">
+                            {t('inventory.scanColDate')}
+                          </th>
+                          <th className="py-2 pl-3 font-medium text-right">{t('inventory.scanColResult')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {scanRows.map((scan) => {
+                          const rowKey = `scan-${scan.id}`;
+                          const open = expandedKey === rowKey;
+                          return (
+                            <Fragment key={scan.id}>
+                              <tr
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => toggleExpand(rowKey)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    toggleExpand(rowKey);
+                                  }
+                                }}
+                                className="border-b border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                              >
+                                <td className="py-2 pr-1 align-middle text-gray-400" aria-hidden>
+                                  {open ? (
+                                    <ChevronDown className="h-4 w-4" />
+                                  ) : (
+                                    <ChevronRight className="h-4 w-4" />
+                                  )}
+                                </td>
+                                <td className="py-2 pr-3 align-middle font-mono text-gray-800 dark:text-gray-200 break-all max-w-[min(24rem,50vw)]">
+                                  {scan.barcode}
+                                </td>
+                                <td className="py-2 pr-3 align-middle text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap text-left">
+                                  {scan.scannedAt
+                                    ? new Date(scan.scannedAt).toLocaleString()
+                                    : '—'}
+                                </td>
+                                <td className="py-2 pl-3 align-middle text-right">
+                                  <Badge variant={scanResultVariant(scan.result)}>
+                                    {t(`inventory.scanResults.${scan.result}`)}
+                                  </Badge>
+                                </td>
+                              </tr>
+                              {open && (
+                                <tr className="border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/20">
+                                  <td colSpan={4} className="p-3 pl-10">
+                                    <InventoryExpandContent
+                                      mode={scan.itemId ? 'item' : 'unknown'}
+                                      itemId={scan.itemId}
+                                    />
+                                  </td>
+                                </tr>
+                              )}
+                            </Fragment>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
+            {subTab === 'missing' && (
+              <>
+                {missingInfinite.isPending && !missingInfinite.data ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+                  </div>
+                ) : missingRows.length === 0 ? (
+                  <p className="text-center text-gray-500 dark:text-gray-400 py-6 px-4">
+                    {t('inventory.noMissing')}
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto p-4 sm:p-6">
+                    <table className="w-full text-sm text-left">
+                      <thead>
+                        <tr className="border-b border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
+                          <th className="py-2 w-8" aria-hidden />
+                          <th className="py-2 pr-3 font-medium">{t('inventory.missingColTitle')}</th>
+                          <th className="py-2 pr-3 font-medium">{t('items.callNumber')}</th>
+                          <th className="py-2 pr-3 font-medium">{t('inventory.missingColBarcode')}</th>
+                          <th className="py-2 pr-3 font-medium">{t('items.source')}</th>
+                          <th className="py-2 font-medium">{t('inventory.missingColPlace')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {missingRows.map((row) => {
+                          const rowKey = `missing-${row.itemId}`;
+                          const open = expandedKey === rowKey;
+                          return (
+                            <Fragment key={row.itemId}>
+                              <tr
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => toggleExpand(rowKey)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    toggleExpand(rowKey);
+                                  }
+                                }}
+                                className="border-b border-gray-100 dark:border-gray-800 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                              >
+                                <td className="py-2 pr-1 align-top text-gray-400" aria-hidden>
+                                  {open ? (
+                                    <ChevronDown className="h-4 w-4" />
+                                  ) : (
+                                    <ChevronRight className="h-4 w-4" />
+                                  )}
+                                </td>
+                                <td className="py-2 pr-3 text-gray-900 dark:text-gray-100">
+                                  {row.biblioTitle ?? '—'}
+                                </td>
+                                <td className="py-2 pr-3 font-mono text-gray-700 dark:text-gray-300">
+                                  {row.callNumber ?? '—'}
+                                </td>
+                                <td className="py-2 pr-3 font-mono text-gray-700 dark:text-gray-300">
+                                  {row.barcode ?? '—'}
+                                </td>
+                                <td className="py-2 pr-3 text-gray-700 dark:text-gray-300">
+                                  {row.sourceName ?? '—'}
+                                </td>
+                                <td className="py-2 text-gray-600 dark:text-gray-400">
+                                  {row.place != null ? row.place : '—'}
+                                </td>
+                              </tr>
+                              {open && (
+                                <tr className="border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/20">
+                                  <td colSpan={6} className="p-3 pl-10">
+                                    <InventoryExpandContent mode="item" itemId={row.itemId} />
+                                  </td>
+                                </tr>
+                              )}
+                            </Fragment>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
+            )}
+            {((subTab === 'scans' && scanRows.length > 0) ||
+              (subTab === 'missing' && missingRows.length > 0)) && (
+              <div
+                ref={infiniteSentinelRef}
+                className="flex min-h-10 items-center justify-center gap-2 border-t border-gray-100 dark:border-gray-800 px-4 py-2 text-xs text-gray-500 dark:text-gray-400"
+              >
+                {(subTab === 'scans' ? scansInfinite.isFetchingNextPage : missingInfinite.isFetchingNextPage) ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                    {t('inventory.loadingMore')}
+                  </>
+                ) : (
+                  (subTab === 'scans' ? !scansInfinite.hasNextPage : !missingInfinite.hasNextPage) &&
+                  (subTab === 'scans' ? scanRows.length : missingRows.length) > 0 && (
+                    <span>{t('inventory.endOfList')}</span>
+                  )
+                )}
+              </div>
+            )}
+          </ScrollableListRegion>
+        </Card>
+
+        <ConsolidationModal
+          session={activeSession}
+          sessionId={activeSession.id}
+          isOpen={showConsolidationModal}
+          onClose={() => setShowConsolidationModal(false)}
+          onSuccess={(id) => {
+            invalidateSessionData(id);
+            void queryClient.invalidateQueries({ queryKey: ['biblios'] });
+          }}
+        />
+      </div>
+    );
+  }
+
+  // ─── Sessions list ─────────────────────────────────────────────
+  const sess = sessionsQuery.data;
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40 px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
+        <p className="font-medium text-gray-900 dark:text-white">{t('inventory.listHelpTitle')}</p>
+        <p className="mt-1">{t('inventory.listHelpBody')}</p>
+        <ul className="mt-2 list-disc list-inside space-y-1 text-gray-600 dark:text-gray-400">
+          <li>{t('inventory.listHelpStep1')}</li>
+          <li>{t('inventory.listHelpStep2')}</li>
+          <li>{t('inventory.listHelpStep3')}</li>
+          <li>{t('inventory.listHelpStep4')}</li>
+          <li>{t('inventory.listHelpStep5')}</li>
+        </ul>
+      </div>
+
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('inventory.title')}</h1>
+          <p className="text-gray-500 dark:text-gray-400">{t('inventory.subtitle')}</p>
+        </div>
+        <Button onClick={openCreateModal} leftIcon={<Plus className="h-4 w-4" />}>
+          {t('inventory.newSession')}
+        </Button>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {(['all', 'open', 'closed'] as const).map((key) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => {
+              setSessionsStatus(key);
+              setSessionsPage(1);
+            }}
+            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+              sessionsStatus === key
+                ? 'bg-indigo-600 text-white'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
+            }`}
+          >
+            {key === 'all' ? t('common.all') : t(`inventory.statuses.${key}`)}
+          </button>
+        ))}
+      </div>
+
+      <Card padding="none" className="flex flex-col">
+        {sessionsQuery.isLoading ? (
+          <div className="flex justify-center py-12">
+            <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+          </div>
+        ) : !sess?.items.length ? (
+          <div className="flex flex-col justify-center text-center py-12 px-4">
+            <ClipboardList className="h-12 w-12 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
+            <p className="text-gray-500 dark:text-gray-400">{t('inventory.noSessions')}</p>
+          </div>
+        ) : (
+          <>
+            <ScrollableListRegion aria-label={t('inventory.title')}>
+              <div className="space-y-3 p-4 sm:p-6">
+                {sess.items.map((session) => (
+                  <button
+                    key={session.id}
+                    type="button"
+                    onClick={() => enterSession(session.id)}
+                    className="w-full flex items-center justify-between gap-3 p-4 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-indigo-300 dark:hover:border-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors text-left"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-medium text-gray-900 dark:text-white break-words">
+                        {sessionDisplayName(session, t)}
+                      </p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">
+                        {sessionStartedAt(session)
+                          ? new Date(sessionStartedAt(session)).toLocaleString()
+                          : '—'}
+                        {session.locationFilter ? ` — ${session.locationFilter}` : ''}
+                        {' · '}
+                        {formatSessionScope(session, t)}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {session.consolidatedAt != null && (
+                        <Badge variant="default">{t('inventory.consolidatedBadge')}</Badge>
+                      )}
+                      <Badge variant={session.status === 'open' ? 'success' : 'default'}>
+                        {t(`inventory.statuses.${session.status}`)}
+                      </Badge>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </ScrollableListRegion>
+            <div className="border-t border-gray-200 dark:border-gray-800 px-4 py-3 sm:px-6">
+              <PaginationControls
+                page={sessionsPage}
+                pageCount={Math.max(1, sess.pageCount)}
+                total={sess.total}
+                perPage={sess.perPage}
+                onPageChange={setSessionsPage}
+                t={t}
+              />
+            </div>
+          </>
+        )}
+      </Card>
+
+      <Modal
+        isOpen={showCreateModal}
+        onClose={() => {
+          if (createMutation.isPending) return;
+          setShowCreateModal(false);
+          setCreateError(null);
+        }}
+        title={t('inventory.newSession')}
+        size="md"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setShowCreateModal(false);
+                setCreateError(null);
+              }}
+              disabled={createMutation.isPending}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button onClick={handleCreateSession} isLoading={createMutation.isPending}>
+              {t('common.create')}
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600 dark:text-gray-400">{t('inventory.createModalHint')}</p>
+          <Input
+            label={t('inventory.sessionName')}
+            value={createName}
+            onChange={(e) => setCreateName(e.target.value)}
+            placeholder={t('inventory.sessionNamePlaceholder')}
+          />
+          <Input
+            label={t('inventory.locationFilter')}
+            hint={t('inventory.locationFilterExplain')}
+            value={createLocationFilter}
+            onChange={(e) => setCreateLocationFilter(e.target.value)}
+            placeholder={t('inventory.locationFilterHint')}
+          />
+          <div>
+            <label className={formLabelClass()}>
+              {t('inventory.scopeSource')}
+            </label>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">{t('inventory.scopeSourceHint')}</p>
+            {sourcesQuery.isLoading ? (
+              <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 py-2">
+                <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                {t('common.loading')}
+              </div>
+            ) : sourcesQuery.isError ? (
+              <p className="text-sm text-red-600 dark:text-red-400">{t('inventory.sourcesLoadError')}</p>
+            ) : (
+              <select
+                value={createScopeSourceId}
+                onChange={(e) => setCreateScopeSourceId(e.target.value)}
+                className={formControlClass({ className: 'w-full' })}
+              >
+                <option value="">{t('inventory.scopeAllSources')}</option>
+                {(sourcesQuery.data ?? []).map((source: Source) => (
+                  <option key={source.id} value={source.id}>
+                    {source.name || source.key || `Source ${source.id}`}
+                    {source.default ? ` (${t('inventory.defaultSource')})` : ''}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          <Input
+            label={t('inventory.scopePlace')}
+            hint={t('inventory.scopePlaceHint')}
+            value={createScopePlace}
+            onChange={(e) => setCreateScopePlace(e.target.value)}
+            placeholder={t('inventory.scopePlacePlaceholder')}
+          />
+          <div>
+            <label className={formLabelClass()}>
+              {t('inventory.notes')}
+            </label>
+            <textarea
+              value={createNotes}
+              onChange={(e) => setCreateNotes(e.target.value)}
+              rows={3}
+              className={formTextareaClass()}
+              placeholder={t('inventory.notesPlaceholder')}
+            />
+          </div>
+          {createError && (
+            <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400 text-sm">
+              <AlertCircle className="h-4 w-4 flex-shrink-0" />
+              {createError}
+            </div>
+          )}
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+function formatInventoryAuthors(authors?: Author[] | null): string {
+  if (!authors?.length) return '';
+  const seen = new Set<string>();
+  const parts: string[] = [];
+  for (const a of authors) {
+    const name = `${a.firstname || ''} ${a.lastname || ''}`.trim();
+    if (!name) continue;
+    const key = a.id != null && String(a.id) !== '' ? `id:${a.id}` : name;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    parts.push(name);
+  }
+  return parts.join(', ');
+}
+
+function findSpecimenInBiblio(biblio: Biblio, itemId: string): Item | undefined {
+  return biblio.items?.find((i) => i.id != null && String(i.id) === String(itemId));
+}
+
+function InventoryExpandContent({
+  mode,
+  itemId,
+}: {
+  mode: 'item' | 'unknown';
+  itemId?: string | null;
+}) {
+  const { t } = useTranslation();
+  const detailQuery = useQuery({
+    queryKey: ['inventory-expand', itemId],
+    queryFn: async () => {
+      const biblio = await api.getItem(itemId!);
+      const specimen = findSpecimenInBiblio(biblio, itemId!);
+      return { biblio, specimen };
+    },
+    enabled: mode === 'item' && !!itemId,
+    staleTime: 60_000,
+  });
+
+  if (mode === 'unknown') {
+    return (
+      <p className="text-sm text-gray-600 dark:text-gray-400">{t('inventory.expandUnknownBarcode')}</p>
+    );
+  }
+
+  if (!itemId) {
+    return null;
+  }
+
+  if (detailQuery.isPending) {
+    return (
+      <div className="flex items-center gap-2 py-2 text-sm text-gray-500 dark:text-gray-400">
+        <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+        {t('common.loading')}
+      </div>
+    );
+  }
+
+  if (detailQuery.isError) {
+    return <p className="text-sm text-red-600 dark:text-red-400">{t('inventory.expandLoadError')}</p>;
+  }
+
+  const { biblio, specimen } = detailQuery.data!;
+  const title = (biblio.title ?? '').trim() || '—';
+  const authors = formatInventoryAuthors(biblio.authors);
+  const isbn = (biblio.isbn ?? '').trim() || '—';
+  const sp = specimen;
+  const callNumber = (sp?.callNumber ?? '').trim() || '—';
+  const specimenBits = sp
+    ? [
+        sp.barcode?.trim() || null,
+        sp.volumeDesignation?.trim() || null,
+        sp.place != null ? String(sp.place) : null,
+      ].filter(Boolean)
+    : [];
+  const specimenLine = specimenBits.length ? specimenBits.join(' · ') : '—';
+  const source = (sp?.sourceName ?? '').trim() || '—';
+
+  const biblioId = biblio.id != null && String(biblio.id) !== '' ? String(biblio.id) : null;
+
+  return (
+    <div className="pt-1 text-xs leading-snug text-gray-800 dark:text-gray-200 space-y-1 max-w-full">
+      <p className="font-medium text-gray-900 dark:text-gray-100 line-clamp-3 break-words">{title}</p>
+      {biblioId && (
+        <p className="pt-0.5">
+          <Link
+            to={`/biblios/${biblioId}`}
+            className="inline-flex items-center gap-1 font-medium text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300"
+          >
+            <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            {t('inventory.expandOpenCatalog')}
+          </Link>
+        </p>
+      )}
+      <p className="text-gray-700 dark:text-gray-300">
+        <span className="text-gray-500 dark:text-gray-500">{t('items.callNumber')} </span>
+        <span className="font-mono">{callNumber}</span>
+      </p>
+      <p className="flex flex-wrap gap-x-2 gap-y-0.5 text-gray-600 dark:text-gray-400">
+        <span>
+          <span className="text-gray-500 dark:text-gray-500">{t('items.authors')} </span>
+          {authors || '—'}
+        </span>
+        <span className="text-gray-400 dark:text-gray-600" aria-hidden>
+          ·
+        </span>
+        <span>
+          <span className="text-gray-500 dark:text-gray-500">{t('items.isbn')} </span>
+          {isbn}
+        </span>
+      </p>
+      <p className="font-mono text-[11px] text-gray-700 dark:text-gray-300 break-all">
+        <span className="text-gray-500 dark:text-gray-500 font-sans">{t('inventory.expandSpecimen')} </span>
+        {specimenLine}
+        <span className="font-sans text-gray-400 dark:text-gray-600"> · </span>
+        <span className="text-gray-500 dark:text-gray-500 font-sans">{t('items.source')} </span>
+        <span className="font-sans">{source}</span>
+      </p>
+    </div>
+  );
+}
+
+function PaginationControls(props: {
+  page: number;
+  pageCount: number;
+  total: number;
+  perPage: number;
+  onPageChange: (p: number) => void;
+  t: (key: string, opts?: Record<string, unknown>) => string;
+}) {
+  const { page, pageCount, total, perPage, onPageChange, t } = props;
+  const from = total === 0 ? 0 : (page - 1) * perPage + 1;
+  const to = Math.min(page * perPage, total);
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-gray-600 dark:text-gray-400">
+      <span>
+        {t('inventory.paginationRange', { from, to, total })}
+      </span>
+      <div className="flex items-center gap-2">
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={page <= 1}
+          onClick={() => onPageChange(page - 1)}
+        >
+          {t('common.previous')}
+        </Button>
+        <span>
+          {t('common.page')} {page} / {pageCount}
+        </span>
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={page >= pageCount}
+          onClick={() => onPageChange(page + 1)}
+        >
+          {t('common.next')}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function ConsolidationModal({
+  session,
+  sessionId,
+  isOpen,
+  onClose,
+  onSuccess,
+}: {
+  session: InventorySession;
+  sessionId: string;
+  isOpen: boolean;
+  onClose: () => void;
+  onSuccess: (sessionId: string) => void;
+}) {
+  const { t } = useTranslation();
+  const { trackTask, getTask } = useBackgroundTasks();
+  const [page, setPage] = useState(1);
+  const [result, setResult] = useState<InventoryConsolidationResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [consolidationTaskId, setConsolidationTaskId] = useState<string | null>(null);
+  const settledTaskRef = useRef<string | null>(null);
+
+  const consolidationTask = consolidationTaskId ? getTask(consolidationTaskId) : null;
+  const isConsolidating =
+    !!consolidationTask &&
+    (consolidationTask.status === 'pending' || consolidationTask.status === 'running');
+
+  useEffect(() => {
+    if (!isOpen) {
+      setPage(1);
+      setResult(null);
+      setError(null);
+      setConsolidationTaskId(null);
+      settledTaskRef.current = null;
+    }
+  }, [isOpen, sessionId]);
+
+  useEffect(() => {
+    if (!consolidationTask || settledTaskRef.current === consolidationTask.id) return;
+    if (consolidationTask.status === 'completed') {
+      settledTaskRef.current = consolidationTask.id;
+      const data = consolidationTask.result;
+      if (data && typeof data === 'object' && !Array.isArray(data) && 'sessionId' in data) {
+        setResult(data as InventoryConsolidationResult);
+        setError(null);
+        onSuccess(sessionId);
+      } else {
+        setError(t('inventory.consolidationError'));
+      }
+    } else if (consolidationTask.status === 'failed') {
+      settledTaskRef.current = consolidationTask.id;
+      setError(consolidationTask.error ?? t('inventory.consolidationError'));
+    }
+  }, [consolidationTask, onSuccess, sessionId, t]);
+
+  const previewQuery = useQuery({
+    queryKey: ['inventory', 'consolidation-preview', sessionId, page, CONSOLIDATION_PREVIEW_PER_PAGE],
+    queryFn: () =>
+      api.getInventoryConsolidationPreview(sessionId, {
+        page,
+        perPage: CONSOLIDATION_PREVIEW_PER_PAGE,
+      }),
+    enabled: isOpen && result == null,
+    staleTime: 0,
+  });
+
+  const consolidateMutation = useMutation({
+    mutationFn: async (force: boolean) => {
+      const { taskId } = await api.consolidateInventorySession(sessionId, { force });
+      settledTaskRef.current = null;
+      setResult(null);
+      setError(null);
+      setConsolidationTaskId(taskId);
+      trackTask(taskId);
+      return taskId;
+    },
+    onError: (err: unknown) => {
+      const msg = err instanceof Error && err.message ? err.message : t('inventory.consolidationError');
+      setError(getApiErrorMessage(err, t) || msg);
+    },
+  });
+
+  const preview = previewQuery.data ?? null;
+  const summary = preview?.summary;
+  const isPending = consolidateMutation.isPending || isConsolidating;
+
+  const handleClose = () => {
+    if (consolidateMutation.isPending) return;
+    onClose();
+  };
+
+  const footer = result ? (
+    <div className="flex justify-end gap-2">
+      <Button onClick={handleClose}>{t('common.close')}</Button>
+    </div>
+  ) : (
+    <div className="flex flex-wrap justify-end gap-2">
+      <Button variant="secondary" onClick={handleClose} disabled={isPending}>
+        {t('common.cancel')}
+      </Button>
+      {summary && summary.totalMissing > 0 && (
+        <>
+          <Button
+            variant="danger"
+            onClick={() => consolidateMutation.mutate(false)}
+            isLoading={isPending}
+            disabled={previewQuery.isLoading || previewQuery.isError}
+          >
+            {t('inventory.consolidate')}
+          </Button>
+          {summary.onLoanCount > 0 && (
+            <Button
+              variant="danger"
+              onClick={() => consolidateMutation.mutate(true)}
+              isLoading={isPending}
+              disabled={previewQuery.isLoading || previewQuery.isError}
+            >
+              {t('inventory.consolidateForce')}
+            </Button>
+          )}
+        </>
+      )}
+    </div>
+  );
+
+  return (
+    <Modal
+      isOpen={isOpen}
+      onClose={handleClose}
+      title={t('inventory.consolidationModalTitle')}
+      size="lg"
+      footer={footer}
+    >
+      {result ? (
+        <div className="space-y-4">
+          {result.consolidated ? (
+            <div className="flex items-start gap-2 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800 dark:border-green-800 dark:bg-green-900/20 dark:text-green-300">
+              <CheckCircle className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <p className="font-medium">{t('inventory.consolidationSuccessTitle')}</p>
+                <p className="mt-1">
+                  {t('inventory.consolidationSuccessBody', {
+                    deleted: result.deleted,
+                    archivedBiblios: result.archivedBiblios,
+                  })}
+                </p>
+                {result.loanClosureEmailsSent > 0 && (
+                  <p className="mt-1">
+                    {t('inventory.consolidationEmailsSent', { count: result.loanClosureEmailsSent })}
+                  </p>
+                )}
+                {result.loanClosureEmailErrors.length > 0 && (
+                  <p className="mt-1 text-amber-700 dark:text-amber-300">
+                    {t('inventory.consolidationEmailErrors', {
+                      count: result.loanClosureEmailErrors.length,
+                    })}
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-100">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <div>
+                  <p className="font-medium">{t('inventory.consolidationPartialTitle')}</p>
+                  <p className="mt-1">
+                    {t('inventory.consolidationPartialBody', {
+                      deleted: result.deleted,
+                      skipped: result.skipped.length,
+                    })}
+                  </p>
+                </div>
+              </div>
+              {result.skipped.length > 0 && (
+                <Button variant="danger" size="sm" onClick={() => consolidateMutation.mutate(true)}>
+                  {t('inventory.consolidationRetryForce')}
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <p className="text-sm text-red-700 dark:text-red-400">{t('inventory.consolidationWarning')}</p>
+          <p className="text-sm font-medium text-gray-800 dark:text-gray-200">
+            {t('inventory.consolidationScopeReminder', {
+              scope: formatSessionScope(session, t),
+            })}
+          </p>
+
+          {previewQuery.isLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+            </div>
+          ) : previewQuery.isError ? (
+            <p className="text-sm text-red-600 dark:text-red-400">{t('inventory.consolidationPreviewLoadError')}</p>
+          ) : preview && summary ? (
+            <>
+              {summary.totalMissing === 0 ? (
+                <p className="text-sm text-gray-600 dark:text-gray-400">{t('inventory.consolidationNoMissing')}</p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                    <StatBox compact label={t('inventory.consolidationSummaryTotalMissing')} value={summary.totalMissing} color="red" />
+                    <StatBox compact label={t('inventory.consolidationSummaryOnLoan')} value={summary.onLoanCount} color="amber" />
+                    <StatBox
+                      compact
+                      label={t('inventory.consolidationSummaryDeletable')}
+                      value={summary.deletableWithoutForce}
+                    />
+                    <StatBox
+                      compact
+                      label={t('inventory.consolidationSummaryOrphanBiblios')}
+                      value={summary.orphanBibliosCount}
+                      color="amber"
+                    />
+                    <StatBox
+                      compact
+                      label={t('inventory.consolidationSummaryAffectedReaders')}
+                      value={summary.affectedReadersCount}
+                    />
+                  </div>
+
+                  {summary.onLoanCount > 0 && (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-100">
+                      <p>{t('inventory.consolidationOnLoanWarning', { count: summary.onLoanCount })}</p>
+                      <p className="mt-1">{t('inventory.consolidationForceWarning')}</p>
+                    </div>
+                  )}
+
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{t('inventory.consolidationPreviewHint')}</p>
+
+                  <div className="overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700">
+                    <table className="w-full text-sm text-left">
+                      <thead>
+                        <tr className="border-b border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400">
+                          <th className="py-2 px-3 font-medium">{t('inventory.consolidationColTitle')}</th>
+                          <th className="py-2 px-3 font-medium">{t('items.callNumber')}</th>
+                          <th className="py-2 px-3 font-medium">{t('inventory.missingColBarcode')}</th>
+                          <th className="py-2 px-3 font-medium">{t('items.source')}</th>
+                          <th className="py-2 px-3 font-medium">{t('inventory.consolidationColOnLoan')}</th>
+                          <th className="py-2 px-3 font-medium">{t('inventory.consolidationColOrphan')}</th>
+                          <th className="py-2 px-3 font-medium">{t('inventory.consolidationColLoanReader')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {preview.items.map((row) => {
+                          const loan = row.activeLoan;
+                          const readerName =
+                            loan &&
+                            [loan.userFirstname, loan.userLastname].filter(Boolean).join(' ').trim();
+                          return (
+                            <tr
+                              key={row.itemId}
+                              className={`border-b border-gray-100 dark:border-gray-800 ${
+                                row.onLoan
+                                  ? 'bg-amber-50/60 dark:bg-amber-950/20'
+                                  : row.biblioWouldBeOrphaned
+                                    ? 'bg-indigo-50/40 dark:bg-indigo-950/20'
+                                    : ''
+                              }`}
+                            >
+                              <td className="py-2 px-3 text-gray-900 dark:text-gray-100">{row.biblioTitle ?? '—'}</td>
+                              <td className="py-2 px-3 font-mono text-gray-700 dark:text-gray-300">{row.callNumber ?? '—'}</td>
+                              <td className="py-2 px-3 font-mono text-gray-700 dark:text-gray-300">{row.barcode ?? '—'}</td>
+                              <td className="py-2 px-3 text-gray-700 dark:text-gray-300">{row.sourceName ?? '—'}</td>
+                              <td className="py-2 px-3">
+                                {row.onLoan ? (
+                                  <Badge variant="warning">{t('inventory.consolidationOnLoanYes')}</Badge>
+                                ) : (
+                                  t('inventory.consolidationOnLoanNo')
+                                )}
+                              </td>
+                              <td className="py-2 px-3">
+                                {row.biblioWouldBeOrphaned ? (
+                                  <Badge variant="warning">{t('inventory.consolidationOrphanYes')}</Badge>
+                                ) : (
+                                  t('inventory.consolidationOrphanNo')
+                                )}
+                              </td>
+                              <td className="py-2 px-3 text-xs text-gray-600 dark:text-gray-400">
+                                {row.onLoan && loan ? (
+                                  <span>
+                                    {readerName || loan.userEmail || loan.userId}
+                                    {loan.expiryAt && (
+                                      <span className="block text-gray-500 dark:text-gray-500">
+                                        {new Date(loan.expiryAt).toLocaleDateString()}
+                                      </span>
+                                    )}
+                                  </span>
+                                ) : (
+                                  '—'
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {preview.pageCount > 1 && (
+                    <PaginationControls
+                      page={page}
+                      pageCount={Math.max(1, preview.pageCount)}
+                      total={preview.total}
+                      perPage={preview.perPage}
+                      onPageChange={setPage}
+                      t={t}
+                    />
+                  )}
+                </>
+              )}
+            </>
+          ) : null}
+
+          {isConsolidating && consolidationTask?.progress && (
+            <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-3 text-sm dark:border-indigo-800 dark:bg-indigo-950/30">
+              <div className="flex items-center gap-2 text-indigo-900 dark:text-indigo-100">
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                <span>{formatTaskProgressDetail(consolidationTask, t)}</span>
+              </div>
+              {taskProgressPercent(consolidationTask) != null && (
+                <div className="mt-2">
+                  <div className="flex justify-between text-xs text-indigo-700 dark:text-indigo-300 mb-1">
+                    <span>{t('backgroundTask.progress')}</span>
+                    <span className="tabular-nums">
+                      {consolidationTask.progress!.current} / {consolidationTask.progress!.total}
+                    </span>
+                  </div>
+                  <div className="h-2 rounded-full bg-indigo-200 dark:bg-indigo-900 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-indigo-600 dark:bg-indigo-500 transition-all"
+                      style={{ width: `${taskProgressPercent(consolidationTask)!}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+              <p className="mt-2 text-xs text-indigo-800 dark:text-indigo-200">
+                {t('inventory.consolidationBackgroundHint')}
+              </p>
+            </div>
+          )}
+
+          {isPending && !isConsolidating && (
+            <div className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+              <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+              {t('inventory.consolidationProgress')}
+            </div>
+          )}
+
+          {error && (
+            <div className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              {error}
+            </div>
+          )}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+interface StatBoxProps {
+  label: string;
+  value: number;
+  color?: 'green' | 'amber' | 'red' | 'default';
+  /** Smaller padding and typography (e.g. inventory report grid). */
+  compact?: boolean;
+}
+
+function StatBox({ label, value, color = 'default', compact = false }: StatBoxProps) {
+  const colorClass = {
+    green: 'text-green-600 dark:text-green-400',
+    amber: 'text-amber-600 dark:text-amber-400',
+    red: 'text-red-600 dark:text-red-400',
+    default: 'text-gray-900 dark:text-white',
+  }[color];
+
+  return (
+    <div
+      className={`rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 text-center ${
+        compact ? 'px-2 py-2' : 'p-4'
+      }`}
+    >
+      <p className={`font-bold ${compact ? 'text-lg tabular-nums' : 'text-2xl sm:text-3xl'} ${colorClass}`}>
+        {value}
+      </p>
+      <p
+        className={`text-gray-500 dark:text-gray-400 mt-0.5 leading-tight ${
+          compact ? 'text-[10px] sm:text-[11px]' : 'text-xs sm:text-sm mt-1 leading-snug'
+        }`}
+      >
+        {label}
+      </p>
+    </div>
+  );
+}

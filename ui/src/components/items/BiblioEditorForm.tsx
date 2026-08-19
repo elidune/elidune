@@ -1,0 +1,1190 @@
+import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
+import {
+  Plus,
+  Trash2,
+  Globe,
+  Loader2,
+  CheckCircle,
+  AlertCircle,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  Import,
+} from 'lucide-react';
+import { Input, Button, ConfirmDialog, BarcodeScanField } from '@/components/common';
+import CallNumberField from '@/components/specimen/CallNumberField';
+import { buildSuggestedCallNumber, validateCallNumber } from '@/utils/callNumber';
+import { formControlClass, formTextareaClass, formLabelClass } from '@/utils/formControl';
+import api from '@/services/api';
+import type { Author, Biblio, CreateBiblioItemInput, MediaType, MediaTypeOption, Source, Z3950Server, Serie, Collection } from '@/types';
+import { LANG_OPTIONS, FUNCTION_OPTIONS, PUBLIC_TYPE_OPTIONS } from '@/utils/codeLabels';
+import { formatIsbnDisplay, stripIsbnForZ3950Query } from '@/utils/isbnDisplay';
+import { EntityLinker, type LinkedEntry } from './EntityLinker';
+
+export type CreateBiblioPayload = Omit<Partial<Biblio>, 'items'> & { items?: CreateBiblioItemInput[] };
+
+export type AuthorFormRow = { id: string; lastname: string; firstname: string; function: string };
+
+export type SpecimenFormRow = { barcode: string; callNumber: string; sourceId: string };
+
+const Z3950_PICK_PAGE_SIZE = 8;
+
+function primaryAuthorLine(b: Biblio): string {
+  const a = b.authors?.[0];
+  if (!a) return '—';
+  const line = [a.firstname, a.lastname].filter(Boolean).join(' ').trim();
+  return line || '—';
+}
+
+function applyZ3950BiblioToForm(
+  item: Biblio,
+  prev: {
+    title: string;
+    isbn: string;
+    mediaType: MediaType;
+    publicationDate: string;
+    subject: string;
+    dewey: string;
+    abstract: string;
+    keywords: string;
+    audienceType: string;
+    lang: string;
+    editionPublisher: string;
+    editionPlace: string;
+    editionDate: string;
+    authors: AuthorFormRow[];
+  }
+) {
+  return {
+    ...prev,
+    isbn: formatIsbnDisplay(item.isbn || '') || item.isbn || prev.isbn,
+    title: item.title || prev.title,
+    mediaType: (item.mediaType || prev.mediaType) as MediaType,
+    publicationDate: item.publicationDate || prev.publicationDate,
+    subject: item.subject || prev.subject,
+    dewey: item.dewey || prev.dewey,
+    abstract: item.abstract || prev.abstract,
+    keywords: Array.isArray(item.keywords) ? item.keywords.join(', ') : (item.keywords || prev.keywords),
+    audienceType: item.audienceType || prev.audienceType,
+    lang: item.lang || prev.lang,
+    editionPublisher: item.edition?.publisherName || prev.editionPublisher,
+    editionPlace: item.edition?.placeOfPublication || prev.editionPlace,
+    editionDate: item.edition?.date || prev.editionDate,
+    authors:
+      item.authors && item.authors.length > 0
+        ? item.authors.map((a) => ({
+            id: a.id || '',
+            lastname: a.lastname || '',
+            firstname: a.firstname || '',
+            function: a.function || '',
+          }))
+        : prev.authors,
+  };
+}
+
+type CollapsibleSectionId =
+  | 'typeAndPublication'
+  | 'abstractAndIndexing'
+  | 'audienceAndLanguage'
+  | 'edition'
+  | 'authors'
+  | 'collections'
+  | 'series';
+
+function linkedCollectionsAfterZ3950(item: Biblio, prev: LinkedEntry[]): LinkedEntry[] {
+  const firstColl = item.collections?.[0] ?? item.collection;
+  if (firstColl) {
+    return [
+      {
+        id: firstColl.id ?? undefined,
+        name: firstColl.name ?? '',
+        volumeNumber: firstColl.volumeNumber?.toString() ?? '',
+      },
+    ];
+  }
+  return prev;
+}
+
+function linkedSeriesAfterZ3950(item: Biblio, prev: LinkedEntry[]): LinkedEntry[] {
+  if (item.series && item.series.length > 0) {
+    return item.series.map((s) => ({
+      id: s.id ?? undefined,
+      name: s.name ?? '',
+      volumeNumber: s.volumeNumber?.toString() ?? '',
+    }));
+  }
+  return prev;
+}
+
+function computeZ3950OpenedSections(
+  prevForm: Parameters<typeof applyZ3950BiblioToForm>[1],
+  nextForm: ReturnType<typeof applyZ3950BiblioToForm>,
+  prevColl: LinkedEntry[],
+  nextColl: LinkedEntry[],
+  prevSer: LinkedEntry[],
+  nextSer: LinkedEntry[],
+): CollapsibleSectionId[] {
+  const opened: CollapsibleSectionId[] = [];
+  if (nextForm.publicationDate !== prevForm.publicationDate || nextForm.mediaType !== prevForm.mediaType) {
+    opened.push('typeAndPublication');
+  }
+  if (
+    nextForm.abstract !== prevForm.abstract ||
+    nextForm.keywords !== prevForm.keywords ||
+    nextForm.subject !== prevForm.subject ||
+    nextForm.dewey !== prevForm.dewey
+  ) {
+    opened.push('abstractAndIndexing');
+  }
+  if (nextForm.audienceType !== prevForm.audienceType || nextForm.lang !== prevForm.lang) {
+    opened.push('audienceAndLanguage');
+  }
+  if (
+    nextForm.editionPublisher !== prevForm.editionPublisher ||
+    nextForm.editionPlace !== prevForm.editionPlace ||
+    nextForm.editionDate !== prevForm.editionDate
+  ) {
+    opened.push('edition');
+  }
+  if (JSON.stringify(nextForm.authors) !== JSON.stringify(prevForm.authors)) {
+    opened.push('authors');
+  }
+  if (JSON.stringify(nextColl) !== JSON.stringify(prevColl)) {
+    opened.push('collections');
+  }
+  if (JSON.stringify(nextSer) !== JSON.stringify(prevSer)) {
+    opened.push('series');
+  }
+  return opened;
+}
+
+const BIBLIO_FORM_SECTION =
+  'rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-4 bg-gray-100 dark:bg-gray-800/50';
+
+const BIBLIO_SPECIMENS_SECTION =
+  'rounded-lg border border-amber-300/80 dark:border-amber-700/50 p-4 space-y-4 bg-amber-100/90 dark:bg-amber-950/35 shadow-sm';
+
+/** Matches common `Input` control height */
+const BIBLIO_FORM_SELECT = formControlClass({ className: 'w-full' });
+
+const BIBLIO_FORM_SELECT_COMPACT = formControlClass({
+  className: 'shrink-0 w-[min(100%,11rem)]',
+});
+
+function BiblioFormCollapsibleSection({
+  sectionId,
+  title,
+  open,
+  onToggle,
+  children,
+  headerRight,
+}: {
+  sectionId: CollapsibleSectionId;
+  title: string;
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+  headerRight?: ReactNode;
+}) {
+  const { t } = useTranslation();
+  const panelId = `biblio-section-${sectionId}`;
+  const triggerId = `biblio-section-trigger-${sectionId}`;
+  return (
+    <section className={BIBLIO_FORM_SECTION}>
+      <div className="flex items-center gap-2 min-w-0">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md text-left hover:bg-gray-200/60 dark:hover:bg-gray-700/40 -m-1 p-1"
+          aria-expanded={open}
+          aria-controls={panelId}
+          id={triggerId}
+          title={open ? t('common.collapseSection') : t('common.expandSection')}
+        >
+          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 truncate">{title}</h3>
+          <ChevronDown
+            className={`h-5 w-5 shrink-0 text-gray-500 transition-transform ${open ? 'rotate-180' : ''}`}
+            aria-hidden
+          />
+        </button>
+        {headerRight != null ? <div className="shrink-0 flex items-center">{headerRight}</div> : null}
+      </div>
+      {open ? (
+        <div id={panelId} role="region" aria-labelledby={triggerId} className="space-y-4 pt-4">
+          {children}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+export interface BiblioEditorFormProps {
+  mode: 'create' | 'edit';
+  formId: string;
+  /** Required when mode is edit */
+  initialBiblio?: Biblio | null;
+  /** Edit mode: wired to modal save button loading state */
+  onLoadingChange?: (loading: boolean) => void;
+  onSubmitCreate?: (payload: CreateBiblioPayload) => void | Promise<void>;
+  onSubmitEdit?: (update: Partial<Biblio>) => void | Promise<void>;
+}
+
+export default function BiblioEditorForm({
+  mode,
+  formId,
+  initialBiblio,
+  onLoadingChange,
+  onSubmitCreate,
+  onSubmitEdit,
+}: BiblioEditorFormProps) {
+  const { t } = useTranslation();
+  const showSpecimens = mode === 'create';
+
+  const toAuthorForm = (a: Author): AuthorFormRow => ({
+    id: a.id,
+    lastname: a.lastname ?? '',
+    firstname: a.firstname ?? '',
+    function: a.function ?? '',
+  });
+
+  const initialCollections = (b: Biblio): LinkedEntry[] => {
+    const arr = b.collections ?? [];
+    if (arr.length > 0) {
+      return arr.map((c) => ({
+        id: c.id ?? undefined,
+        name: c.name ?? '',
+        volumeNumber: c.volumeNumber?.toString() ?? '',
+      }));
+    }
+    if (b.collection?.id || b.collection?.name) {
+      return [{
+        id: b.collection.id ?? undefined,
+        name: b.collection.name ?? '',
+        volumeNumber: '',
+      }];
+    }
+    return [];
+  };
+
+  const initialSeries = (b: Biblio): LinkedEntry[] =>
+    (b.series ?? []).map((s) => ({
+      id: s.id ?? undefined,
+      name: s.name ?? '',
+      volumeNumber: s.volumeNumber?.toString() ?? '',
+    }));
+
+  const [formData, setFormData] = useState(() => {
+    if (mode === 'edit' && initialBiblio) {
+      const b = initialBiblio;
+      return {
+        title: b.title || '',
+        isbn: formatIsbnDisplay(b.isbn || '') || (b.isbn || ''),
+        publicationDate: b.publicationDate || '',
+        abstract: b.abstract || '',
+        keywords: Array.isArray(b.keywords) ? b.keywords.join(', ') : (b.keywords || ''),
+        subject: b.subject || '',
+        dewey: b.dewey || '',
+        mediaType: (b.mediaType || 'printedText') as MediaType,
+        audienceType: b.audienceType ?? '',
+        lang: b.lang ?? '',
+        editionPublisher: b.edition?.publisherName ?? '',
+        editionPlace: b.edition?.placeOfPublication ?? '',
+        editionDate: b.edition?.date ?? '',
+        authors: (b.authors ?? []).map(toAuthorForm),
+      };
+    }
+    return {
+      title: '',
+      isbn: '',
+      publicationDate: '',
+      abstract: '',
+      keywords: '',
+      subject: '',
+      dewey: '',
+      mediaType: 'printedText' as MediaType,
+      audienceType: '',
+      lang: '',
+      editionPublisher: '',
+      editionPlace: '',
+      editionDate: '',
+      authors: [] as AuthorFormRow[],
+    };
+  });
+
+  const [linkedCollections, setLinkedCollections] = useState<LinkedEntry[]>(() =>
+    mode === 'edit' && initialBiblio ? initialCollections(initialBiblio) : []
+  );
+  const [linkedSeries, setLinkedSeries] = useState<LinkedEntry[]>(() =>
+    mode === 'edit' && initialBiblio ? initialSeries(initialBiblio) : []
+  );
+
+  const [z3950Servers, setZ3950Servers] = useState<Z3950Server[]>([]);
+  const [z3950SelectedServerId, setZ3950SelectedServerId] = useState<string | null>(null);
+  const [z3950ServerMenuOpen, setZ3950ServerMenuOpen] = useState(false);
+  const z3950MenuRef = useRef<HTMLDivElement>(null);
+  const [isSearchingZ3950, setIsSearchingZ3950] = useState(false);
+  const [z3950Message, setZ3950Message] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [z3950PickList, setZ3950PickList] = useState<Biblio[] | null>(null);
+  const [z3950PickPage, setZ3950PickPage] = useState(0);
+
+  const [openSections, setOpenSections] = useState<Partial<Record<CollapsibleSectionId, boolean>>>({});
+  const [noSpecimensConfirmOpen, setNoSpecimensConfirmOpen] = useState(false);
+
+  const [sources, setSources] = useState<Source[]>([]);
+  const [specimens, setSpecimens] = useState<SpecimenFormRow[]>([
+    { barcode: '', callNumber: '', sourceId: '' },
+  ]);
+
+  const formDataRef = useRef(formData);
+  formDataRef.current = formData;
+  const linkedCollectionsRef = useRef(linkedCollections);
+  linkedCollectionsRef.current = linkedCollections;
+  const linkedSeriesRef = useRef(linkedSeries);
+  linkedSeriesRef.current = linkedSeries;
+
+  const sectionOpen = (id: CollapsibleSectionId) => openSections[id] === true;
+  const toggleSection = (id: CollapsibleSectionId) => {
+    setOpenSections((s) => ({ ...s, [id]: !s[id] }));
+  };
+
+  useEffect(() => {
+    const fetchServers = async () => {
+      try {
+        const servers = await api.getZ3950Servers();
+        setZ3950Servers(servers.filter((s) => s.isActive));
+      } catch {
+        /* ignore */
+      }
+    };
+    fetchServers();
+  }, []);
+
+  useEffect(() => {
+    setZ3950SelectedServerId((prev) => {
+      if (z3950Servers.length === 0) return null;
+      if (prev && z3950Servers.some((s) => s.id === prev)) return prev;
+      return z3950Servers[0].id;
+    });
+  }, [z3950Servers]);
+
+  useEffect(() => {
+    if (!z3950ServerMenuOpen) return;
+    const close = (e: MouseEvent) => {
+      if (z3950MenuRef.current && !z3950MenuRef.current.contains(e.target as Node)) {
+        setZ3950ServerMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [z3950ServerMenuOpen]);
+
+  useEffect(() => {
+    if (!showSpecimens) return;
+    const load = async () => {
+      try {
+        const list = await api.getSources(false);
+        setSources(list);
+        const defaultId = list.find((s) => s.default)?.id ?? list[0]?.id ?? '';
+        setSpecimens((prev) =>
+          prev.length === 1 && prev[0].sourceId === '' && defaultId
+            ? [{ ...prev[0], sourceId: defaultId }]
+            : prev
+        );
+      } catch {
+        /* ignore */
+      }
+    };
+    load();
+  }, [showSpecimens]);
+
+  const searchCollections = useCallback(async (q: string) => {
+    const res = await api.getCollections({ name: q, perPage: 10 });
+    return res.items.map((c) => ({ id: c.id ?? '', name: c.name ?? '' }));
+  }, []);
+
+  const searchSeries = useCallback(async (q: string) => {
+    const res = await api.getSeries({ name: q, perPage: 10 });
+    return res.items.map((s) => ({ id: s.id ?? '', name: s.name ?? '' }));
+  }, []);
+
+  const MEDIA_TYPES: MediaTypeOption[] = [
+    { value: 'unknown', label: t('items.mediaType.unknown') },
+    { value: 'printedText', label: t('items.mediaType.printedText') },
+    { value: 'comics', label: t('items.mediaType.comics') },
+    { value: 'periodic', label: t('items.mediaType.periodic') },
+    { value: 'video', label: t('items.mediaType.video') },
+    { value: 'videoTape', label: t('items.mediaType.videoTape') },
+    { value: 'videoDvd', label: t('items.mediaType.videoDvd') },
+    { value: 'audio', label: t('items.mediaType.audio') },
+    { value: 'audioMusic', label: t('items.mediaType.audioMusic') },
+    { value: 'audioMusicTape', label: t('items.mediaType.audioMusicTape') },
+    { value: 'audioMusicCd', label: t('items.mediaType.audioMusicCd') },
+    { value: 'audioNonMusic', label: t('items.mediaType.audioNonMusic') },
+    { value: 'cdRom', label: t('items.mediaType.cdRom') },
+    { value: 'images', label: t('items.mediaType.images') },
+    { value: 'multimedia', label: t('items.mediaType.multimedia') },
+  ];
+
+  const updateAuthor = (index: number, field: keyof AuthorFormRow, value: string) => {
+    const arr = [...formData.authors];
+    arr[index] = { ...arr[index], [field]: value };
+    setFormData({ ...formData, authors: arr });
+  };
+  const addAuthor = () => {
+    setFormData({
+      ...formData,
+      authors: [...formData.authors, { id: '', lastname: '', firstname: '', function: '' }],
+    });
+  };
+  const removeAuthor = (index: number) => {
+    setFormData({ ...formData, authors: formData.authors.filter((_, i) => i !== index) });
+  };
+
+  const buildLinkedPayload = () => {
+    const series = linkedSeries
+      .filter((s) => s.name.trim())
+      .map((s) => ({
+        id: s.id || null,
+        name: s.name.trim() || undefined,
+        volumeNumber: s.volumeNumber ? parseInt(s.volumeNumber, 10) : undefined,
+      }));
+    const collections = linkedCollections
+      .filter((c) => c.name.trim())
+      .map((c) => ({
+        id: c.id || null,
+        name: c.name.trim() || undefined,
+        volumeNumber: c.volumeNumber ? parseInt(c.volumeNumber, 10) : undefined,
+      }));
+    return { series, collections };
+  };
+
+  const buildSpecimensPayload = (): CreateBiblioItemInput[] | undefined => {
+    if (!showSpecimens) return undefined;
+    const filled = specimens.filter((s) => s.sourceId.trim() !== '' && s.barcode.trim() !== '');
+    if (filled.length === 0) return undefined;
+    return filled.map((s) => ({
+      barcode: s.barcode.trim(),
+      callNumber: s.callNumber.trim() || undefined,
+      sourceId: s.sourceId,
+    }));
+  };
+
+  const buildCreatePayload = (specimenItems: CreateBiblioItemInput[] | undefined): CreateBiblioPayload => {
+    const authorsPayload: Author[] = formData.authors.map((a) => ({
+      id: a.id,
+      lastname: a.lastname || undefined,
+      firstname: a.firstname || undefined,
+      function: a.function || undefined,
+    }));
+    const { series, collections } = buildLinkedPayload();
+    return {
+      title: formData.title,
+      isbn: formData.isbn || undefined,
+      mediaType: formData.mediaType,
+      publicationDate: formData.publicationDate || undefined,
+      abstract: formData.abstract || undefined,
+      keywords: formData.keywords || undefined,
+      subject: formData.subject || undefined,
+      dewey: formData.dewey || undefined,
+      audienceType: formData.audienceType || undefined,
+      lang: formData.lang || undefined,
+      edition:
+        formData.editionPublisher || formData.editionPlace || formData.editionDate
+          ? {
+              id: null,
+              publisherName: formData.editionPublisher || undefined,
+              placeOfPublication: formData.editionPlace || undefined,
+              date: formData.editionDate || undefined,
+            }
+          : undefined,
+      authors: authorsPayload,
+      series: series as Serie[],
+      collections: collections as Collection[],
+      ...(specimenItems?.length ? { items: specimenItems } : {}),
+    };
+  };
+
+  const handleAddSpecimen = () => {
+    const defaultId = sources.find((s) => s.default)?.id ?? sources[0]?.id ?? '';
+    setSpecimens([...specimens, { barcode: '', callNumber: '', sourceId: defaultId }]);
+  };
+
+  const handleRemoveSpecimen = (index: number) => {
+    if (specimens.length <= 1) return;
+    setSpecimens(specimens.filter((_, i) => i !== index));
+  };
+
+  const handleSpecimenChange = (index: number, field: keyof SpecimenFormRow, value: string) => {
+    const next = [...specimens];
+    next[index] = { ...next[index], [field]: value };
+    setSpecimens(next);
+  };
+
+  const applyZ3950Record = useCallback((item: Biblio) => {
+    const prevForm = formDataRef.current;
+    const prevColl = linkedCollectionsRef.current;
+    const prevSer = linkedSeriesRef.current;
+    const nextForm = applyZ3950BiblioToForm(item, prevForm);
+    const nextColl = linkedCollectionsAfterZ3950(item, prevColl);
+    const nextSer = linkedSeriesAfterZ3950(item, prevSer);
+    const toOpen = computeZ3950OpenedSections(prevForm, nextForm, prevColl, nextColl, prevSer, nextSer);
+
+    setOpenSections((s) => {
+      const next = { ...s };
+      for (const id of toOpen) {
+        next[id] = true;
+      }
+      return next;
+    });
+
+    setFormData(nextForm);
+    if (item.series && item.series.length > 0) {
+      setLinkedSeries(nextSer);
+    }
+    const firstColl = item.collections?.[0] ?? item.collection;
+    if (firstColl) {
+      setLinkedCollections(nextColl);
+    }
+    setZ3950PickList(null);
+    setZ3950PickPage(0);
+    setZ3950Message({ type: 'success', text: t('z3950.dataFound') });
+  }, [t]);
+
+  const handleZ3950Search = async () => {
+    const isbnTrim = formData.isbn.trim();
+    const titleTrim = formData.title.trim();
+    const isbnQuery = stripIsbnForZ3950Query(isbnTrim);
+
+    if (isbnTrim !== '') {
+      if (!isbnQuery) {
+        setZ3950Message({ type: 'error', text: t('items.z3950InvalidIsbn') });
+        return;
+      }
+    } else if (!titleTrim) {
+      setZ3950Message({ type: 'error', text: t('items.z3950NeedIsbnOrTitle') });
+      return;
+    }
+
+    const serverId = z3950SelectedServerId ?? z3950Servers[0]?.id;
+    if (!serverId) {
+      return;
+    }
+    setIsSearchingZ3950(true);
+    setZ3950Message(null);
+    setZ3950PickList(null);
+    setZ3950PickPage(0);
+    try {
+      const response = await api.searchZ3950(
+        isbnTrim !== '' ? { isbn: isbnQuery, serverId } : { title: titleTrim, serverId }
+      );
+      const list = response.biblios ?? [];
+      if (list.length === 0) {
+        setZ3950Message({ type: 'error', text: t('z3950.noResults') });
+        return;
+      }
+      if (list.length === 1) {
+        applyZ3950Record(list[0]);
+      } else {
+        setZ3950PickList(list);
+        setZ3950PickPage(0);
+      }
+    } catch {
+      setZ3950Message({ type: 'error', text: t('z3950.searchError') });
+    } finally {
+      setIsSearchingZ3950(false);
+    }
+  };
+
+  const z3950CanSearch =
+    formData.isbn.trim() !== '' || formData.title.trim() !== '';
+
+  const z3950AutocompleteDisabled = isSearchingZ3950 || !z3950CanSearch;
+
+  useEffect(() => {
+    if (z3950AutocompleteDisabled) {
+      setZ3950ServerMenuOpen(false);
+    }
+  }, [z3950AutocompleteDisabled]);
+
+  const z3950PickTotalPages =
+    z3950PickList && z3950PickList.length > 1
+      ? Math.max(1, Math.ceil(z3950PickList.length / Z3950_PICK_PAGE_SIZE))
+      : 0;
+  const z3950PickPageSlice = useMemo(() => {
+    if (!z3950PickList || z3950PickList.length <= 1) return [];
+    const tp = Math.max(1, Math.ceil(z3950PickList.length / Z3950_PICK_PAGE_SIZE));
+    const safe = Math.min(z3950PickPage, tp - 1);
+    const start = safe * Z3950_PICK_PAGE_SIZE;
+    return z3950PickList.slice(start, start + Z3950_PICK_PAGE_SIZE);
+  }, [z3950PickList, z3950PickPage]);
+
+  const z3950AutocompleteButtonText = useMemo(() => {
+    const s =
+      z3950Servers.find((x) => x.id === z3950SelectedServerId) ?? z3950Servers[0];
+    const serverName =
+      s == null ? '—' : s.name?.trim() || s.address?.trim() || '—';
+    return t('z3950.autocompleteWithSearch', { serverName });
+  }, [t, z3950Servers, z3950SelectedServerId]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (formData.title.trim() === '') return;
+
+    if (mode === 'create') {
+      const invalidCallNumber = specimens.find(
+        (s) => s.barcode.trim() !== '' && s.callNumber.trim() !== '' && !validateCallNumber(s.callNumber)
+      );
+      if (invalidCallNumber) return;
+      const specimenPayload = buildSpecimensPayload();
+      if (specimenPayload?.some((s) => !s.sourceId)) return;
+
+      if (!specimenPayload?.length) {
+        setNoSpecimensConfirmOpen(true);
+        return;
+      }
+
+      const payload = buildCreatePayload(specimenPayload);
+      await onSubmitCreate?.(payload);
+      return;
+    }
+
+    if (mode === 'edit' && initialBiblio?.id != null && onSubmitEdit) {
+      const authorsPayload: Author[] = formData.authors.map((a) => ({
+        id: a.id,
+        lastname: a.lastname || undefined,
+        firstname: a.firstname || undefined,
+        function: a.function || undefined,
+      }));
+      const { series, collections } = buildLinkedPayload();
+      const updateData: Partial<Biblio> = {
+        title: formData.title || undefined,
+        isbn: formData.isbn || undefined,
+        publicationDate: formData.publicationDate || undefined,
+        abstract: formData.abstract || undefined,
+        keywords: formData.keywords || undefined,
+        subject: formData.subject || undefined,
+        dewey: formData.dewey || undefined,
+        mediaType: formData.mediaType,
+        audienceType: formData.audienceType || undefined,
+        lang: formData.lang || undefined,
+        edition: {
+          id: initialBiblio.edition?.id ?? null,
+          publisherName: formData.editionPublisher || undefined,
+          placeOfPublication: formData.editionPlace || undefined,
+          date: formData.editionDate || undefined,
+        },
+        authors: authorsPayload,
+        series,
+        collections,
+      };
+      onLoadingChange?.(true);
+      try {
+        await onSubmitEdit(updateData);
+      } finally {
+        onLoadingChange?.(false);
+      }
+    }
+  };
+
+  const handleConfirmCreateWithoutSpecimens = async () => {
+    setNoSpecimensConfirmOpen(false);
+    const invalidCallNumber = specimens.find(
+      (s) => s.barcode.trim() !== '' && s.callNumber.trim() !== '' && !validateCallNumber(s.callNumber)
+    );
+    if (invalidCallNumber) return;
+    const specimenPayload = buildSpecimensPayload();
+    if (specimenPayload?.some((s) => !s.sourceId)) return;
+    const payload = buildCreatePayload(specimenPayload);
+    await onSubmitCreate?.(payload);
+  };
+
+  return (
+    <>
+      <form id={formId} onSubmit={handleSubmit} className="space-y-4">
+      <section className={BIBLIO_FORM_SECTION}>
+        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">{t('items.identification')}</h3>
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(12rem,1fr)_minmax(0,2fr)] gap-4">
+          <Input
+            label={t('items.isbn')}
+            value={formData.isbn}
+            onChange={(e) => {
+              setFormData({ ...formData, isbn: e.target.value });
+              setZ3950Message(null);
+              setZ3950PickList(null);
+            }}
+            onBlur={() => {
+              const raw = formData.isbn.trim();
+              if (!raw) return;
+              const f = formatIsbnDisplay(raw);
+              if (f) setFormData((prev) => (prev.isbn === f ? prev : { ...prev, isbn: f }));
+            }}
+            className="font-mono"
+            placeholder={t('z3950.isbnPlaceholder')}
+          />
+          <Input
+            label={t('items.titleField')}
+            value={formData.title}
+            onChange={(e) => {
+              setFormData({ ...formData, title: e.target.value });
+              setZ3950Message(null);
+              setZ3950PickList(null);
+            }}
+            required
+          />
+        </div>
+
+        {z3950Servers.length > 0 && (
+          <>
+            {z3950Servers.length === 1 ? (
+              <Button
+                type="button"
+                variant="primary"
+                onClick={handleZ3950Search}
+                disabled={z3950AutocompleteDisabled}
+                leftIcon={isSearchingZ3950 ? <Loader2 className="h-4 w-4 animate-spin" /> : <Globe className="h-4 w-4" />}
+                title={z3950AutocompleteButtonText}
+              >
+                {z3950AutocompleteButtonText}
+              </Button>
+            ) : (
+              <div className="relative inline-flex items-stretch rounded-lg shadow-sm" ref={z3950MenuRef}>
+                <Button
+                  type="button"
+                  variant="primary"
+                  className="rounded-r-none border-r border-amber-500/30 h-auto"
+                  onClick={handleZ3950Search}
+                  disabled={z3950AutocompleteDisabled}
+                  leftIcon={isSearchingZ3950 ? <Loader2 className="h-4 w-4 animate-spin" /> : <Globe className="h-4 w-4" />}
+                  title={z3950AutocompleteButtonText}
+                >
+                  {z3950AutocompleteButtonText}
+                </Button>
+                <button
+                  type="button"
+                  className="inline-flex shrink-0 items-center justify-center self-stretch px-2.5 rounded-r-lg bg-amber-600 text-white hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 dark:bg-amber-600 dark:hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-amber-600 dark:disabled:hover:bg-amber-600 border-l border-amber-500/40"
+                  aria-expanded={z3950ServerMenuOpen}
+                  aria-haspopup="listbox"
+                  aria-label={t('z3950.selectServerForAutocomplete')}
+                  disabled={z3950AutocompleteDisabled}
+                  onClick={() => setZ3950ServerMenuOpen((o) => !o)}
+                >
+                  <ChevronDown className="h-4 w-4 shrink-0" />
+                </button>
+                {z3950ServerMenuOpen && (
+                  <ul
+                    role="listbox"
+                    className="absolute left-0 top-full z-30 mt-1 min-w-full rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-gray-600 dark:bg-gray-800"
+                  >
+                    {z3950Servers.map((s) => (
+                      <li key={s.id} role="presentation">
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={s.id === z3950SelectedServerId}
+                          className={`w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 ${
+                            s.id === z3950SelectedServerId ? 'bg-amber-50 dark:bg-amber-900/20 font-medium' : ''
+                          }`}
+                          onClick={() => {
+                            setZ3950SelectedServerId(s.id);
+                            setZ3950ServerMenuOpen(false);
+                          }}
+                        >
+                          {s.name?.trim() || s.address}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+            {z3950PickList && z3950PickList.length > 1 && (
+              <div className="mt-3 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-950/40 p-3 space-y-3 shadow-inner">
+                <p className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                  {t('items.z3950PickFromList', { count: z3950PickList.length })}
+                </p>
+                <ul className="space-y-1.5">
+                  {z3950PickPageSlice.map((b, idx) => (
+                    <li
+                      key={`${z3950PickPage * Z3950_PICK_PAGE_SIZE + idx}-${b.title ?? ''}-${b.isbn ?? ''}`}
+                      className="flex flex-wrap items-center gap-2 sm:flex-nowrap rounded-md border border-gray-200/90 dark:border-gray-600/90 px-3 py-2.5 shadow-sm odd:bg-gray-50/95 even:bg-white dark:odd:bg-gray-800/45 dark:even:bg-gray-800/70 hover:border-amber-300/70 hover:bg-amber-50/80 dark:hover:border-amber-700/50 dark:hover:bg-amber-950/25 transition-colors"
+                    >
+                      <p className="min-w-0 flex-1 text-sm text-gray-800 dark:text-gray-100 truncate">
+                        <span className="font-medium">{b.title?.trim() || '—'}</span>
+                        <span className="text-gray-400 dark:text-gray-500"> · </span>
+                        <span className="font-mono text-xs">{formatIsbnDisplay(b.isbn || '') || '—'}</span>
+                        <span className="text-gray-400 dark:text-gray-500"> · </span>
+                        <span>{primaryAuthorLine(b)}</span>
+                      </p>
+                      <Button
+                        type="button"
+                        variant="primary"
+                        size="sm"
+                        className="flex-shrink-0 shadow-sm"
+                        leftIcon={<Import className="h-4 w-4" aria-hidden />}
+                        onClick={() => applyZ3950Record(b)}
+                      >
+                        {t('items.z3950Choose')}
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+                {z3950PickTotalPages > 1 && (
+                  <div className="flex items-center justify-between gap-2 pt-3 mt-1 border-t border-gray-200/80 dark:border-gray-600">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setZ3950PickPage((p) => Math.max(0, p - 1))}
+                      disabled={z3950PickPage <= 0}
+                      leftIcon={<ChevronLeft className="h-4 w-4" />}
+                    >
+                      {t('common.previous')}
+                    </Button>
+                    <span className="text-xs text-gray-600 dark:text-gray-400 tabular-nums">
+                      {t('items.z3950PageOf', {
+                        current: Math.min(z3950PickPage + 1, z3950PickTotalPages),
+                        total: z3950PickTotalPages,
+                      })}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() =>
+                        setZ3950PickPage((p) => Math.min(z3950PickTotalPages - 1, p + 1))
+                      }
+                      disabled={z3950PickPage >= z3950PickTotalPages - 1}
+                      rightIcon={<ChevronRight className="h-4 w-4" />}
+                    >
+                      {t('common.next')}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        {z3950Message && (
+          <div
+            className={`flex items-center gap-2 p-3 rounded-lg text-sm ${
+              z3950Message.type === 'success'
+                ? 'bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-400'
+                : 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-400'
+            }`}
+          >
+            {z3950Message.type === 'success' ? (
+              <CheckCircle className="h-4 w-4 flex-shrink-0" />
+            ) : (
+              <AlertCircle className="h-4 w-4 flex-shrink-0" />
+            )}
+            <span>{z3950Message.text}</span>
+          </div>
+        )}
+      </section>
+
+      <BiblioFormCollapsibleSection
+        sectionId="typeAndPublication"
+        title={t('items.formSectionTypeAndPublication')}
+        open={sectionOpen('typeAndPublication')}
+        onToggle={() => toggleSection('typeAndPublication')}
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className={formLabelClass()}>
+              {t('items.mediaTypeLabel')}
+            </label>
+            <select
+              value={formData.mediaType}
+              onChange={(e) => setFormData({ ...formData, mediaType: e.target.value as MediaType })}
+              className={BIBLIO_FORM_SELECT}
+            >
+              {MEDIA_TYPES.map((type) => (
+                <option key={type.value} value={type.value}>
+                  {type.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <Input
+            label={t('items.publicationDate')}
+            value={formData.publicationDate}
+            onChange={(e) => setFormData({ ...formData, publicationDate: e.target.value })}
+            placeholder="YYYY"
+          />
+        </div>
+      </BiblioFormCollapsibleSection>
+
+      <BiblioFormCollapsibleSection
+        sectionId="abstractAndIndexing"
+        title={t('items.formSectionAbstractAndIndexing')}
+        open={sectionOpen('abstractAndIndexing')}
+        onToggle={() => toggleSection('abstractAndIndexing')}
+      >
+        <div>
+             <Input
+          label={t('items.subject')}
+          value={formData.subject}
+          onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
+        />
+        <Input
+          label={t('items.keywords')}
+          value={formData.keywords}
+          onChange={(e) => setFormData({ ...formData, keywords: e.target.value })}
+          placeholder={t('items.keywordsHint')}
+        />
+        <Input
+          label={t('items.dewey')}
+          value={formData.dewey}
+          onChange={(e) => setFormData({ ...formData, dewey: e.target.value })}
+          placeholder={t('items.deweyPlaceholder')}
+          className="font-mono"
+        />
+
+          <label className={formLabelClass()}>
+            {t('items.abstract')}
+          </label>
+          <textarea
+            value={formData.abstract}
+            onChange={(e) => setFormData({ ...formData, abstract: e.target.value })}
+            rows={6}
+            className={formTextareaClass({ className: 'min-h-[9rem]' })}
+          />
+        </div>
+             
+      </BiblioFormCollapsibleSection>
+
+      <BiblioFormCollapsibleSection
+        sectionId="audienceAndLanguage"
+        title={t('items.formSectionAudienceAndLanguage')}
+        open={sectionOpen('audienceAndLanguage')}
+        onToggle={() => toggleSection('audienceAndLanguage')}
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className={formLabelClass()}>
+              {t('items.publicType')}
+            </label>
+            <select
+              value={formData.audienceType}
+              onChange={(e) => setFormData({ ...formData, audienceType: e.target.value })}
+              className={BIBLIO_FORM_SELECT}
+            >
+              <option value="">{t('items.notSpecified')}</option>
+              {PUBLIC_TYPE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {t(opt.labelKey)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={formLabelClass()}>
+              {t('items.language')}
+            </label>
+            <select
+              value={formData.lang}
+              onChange={(e) => setFormData({ ...formData, lang: e.target.value })}
+              className={BIBLIO_FORM_SELECT}
+            >
+              <option value="">{t('items.notSpecified')}</option>
+              {LANG_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {t(opt.labelKey)}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </BiblioFormCollapsibleSection>
+
+      <BiblioFormCollapsibleSection
+        sectionId="edition"
+        title={t('items.editionInfo')}
+        open={sectionOpen('edition')}
+        onToggle={() => toggleSection('edition')}
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <Input
+            label={t('items.publisher')}
+            value={formData.editionPublisher}
+            onChange={(e) => setFormData({ ...formData, editionPublisher: e.target.value })}
+          />
+          <Input
+            label={t('items.publicationPlace')}
+            value={formData.editionPlace}
+            onChange={(e) => setFormData({ ...formData, editionPlace: e.target.value })}
+          />
+          <Input
+            label={t('items.editionDate')}
+            value={formData.editionDate}
+            onChange={(e) => setFormData({ ...formData, editionDate: e.target.value })}
+          />
+        </div>
+      </BiblioFormCollapsibleSection>
+
+      <BiblioFormCollapsibleSection
+        sectionId="authors"
+        title={t('items.authors')}
+        open={sectionOpen('authors')}
+        onToggle={() => toggleSection('authors')}
+        headerRight={
+          sectionOpen('authors') ? (
+            <Button type="button" size="sm" variant="secondary" onClick={addAuthor} leftIcon={<Plus className="h-3 w-3" />}>
+              {t('common.add')}
+            </Button>
+          ) : null
+        }
+      >
+        {formData.authors.length === 0 ? (
+          <p className="text-xs text-gray-500 dark:text-gray-400">{t('items.notSpecified')}</p>
+        ) : (
+          formData.authors.map((author, index) => (
+            <div
+              key={index}
+              className="flex flex-nowrap items-center gap-2 p-2 rounded-lg bg-white/80 dark:bg-gray-900/50 min-w-0 overflow-x-auto border border-gray-200/80 dark:border-gray-600/50"
+            >
+              <Input
+                placeholder={t('items.authorLastname')}
+                value={author.lastname}
+                onChange={(e) => updateAuthor(index, 'lastname', e.target.value)}
+                className="min-w-[6rem] flex-1 shrink"
+              />
+              <Input
+                placeholder={t('items.authorFirstname')}
+                value={author.firstname}
+                onChange={(e) => updateAuthor(index, 'firstname', e.target.value)}
+                className="min-w-[6rem] flex-1 shrink"
+              />
+              <select
+                value={author.function}
+                onChange={(e) => updateAuthor(index, 'function', e.target.value)}
+                className={BIBLIO_FORM_SELECT_COMPACT}
+              >
+                <option value="">{t('items.notSpecified')}</option>
+                {FUNCTION_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {t(opt.labelKey)}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => removeAuthor(index)}
+                className="shrink-0 p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500"
+                title={t('common.delete')}
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          ))
+        )}
+      </BiblioFormCollapsibleSection>
+
+      <BiblioFormCollapsibleSection
+        sectionId="collections"
+        title={t('items.collection')}
+        open={sectionOpen('collections')}
+        onToggle={() => toggleSection('collections')}
+      >
+        <EntityLinker
+          label={t('items.collection')}
+          addLabel={t('catalog.searchOrCreateCollection')}
+          entries={linkedCollections}
+          onChange={setLinkedCollections}
+          onSearch={searchCollections}
+          volumeLabel={t('catalog.volumeNumber')}
+          hideLabel
+        />
+      </BiblioFormCollapsibleSection>
+
+      <BiblioFormCollapsibleSection
+        sectionId="series"
+        title={t('items.series')}
+        open={sectionOpen('series')}
+        onToggle={() => toggleSection('series')}
+      >
+        <EntityLinker
+          label={t('items.series')}
+          addLabel={t('catalog.searchOrCreateSerie')}
+          entries={linkedSeries}
+          onChange={setLinkedSeries}
+          onSearch={searchSeries}
+          volumeLabel={t('catalog.volumeNumber')}
+          hideLabel
+        />
+      </BiblioFormCollapsibleSection>
+
+      {showSpecimens && (
+        <section className={BIBLIO_SPECIMENS_SECTION}>
+          <h3 className="text-sm font-semibold text-amber-950 dark:text-amber-100">{t('items.specimens')}</h3>
+          <p className="text-xs text-amber-900/80 dark:text-amber-200/80">{t('items.specimensOptionalHint')}</p>
+          <div className="space-y-3">
+            {specimens.map((specimen, index) => (
+              <div key={index} className="flex items-start gap-2 p-3 rounded-lg border border-amber-200/70 dark:border-amber-800/50 bg-white/70 dark:bg-gray-900/40">
+                <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <BarcodeScanField
+                    placeholder={t('items.specimenBarcode')}
+                    value={specimen.barcode}
+                    onChange={(e) => handleSpecimenChange(index, 'barcode', e.target.value)}
+                    scannerTitle={t('items.specimenBarcode')}
+                    onCameraScan={(code) => handleSpecimenChange(index, 'barcode', code)}
+                  />
+                  <CallNumberField
+                    value={specimen.callNumber}
+                    onChange={(v) => handleSpecimenChange(index, 'callNumber', v)}
+                    suggestedValue={buildSuggestedCallNumber({
+                      categoryCode: 'GEN',
+                      year: formData.publicationDate,
+                    })}
+                    placeholder={t('items.callNumber')}
+                    inputId={`biblio-editor-specimen-call-${index}`}
+                  />
+                  <div className="min-w-0">
+                    <select
+                      value={specimen.sourceId}
+                      onChange={(e) => handleSpecimenChange(index, 'sourceId', e.target.value)}
+                      className={BIBLIO_FORM_SELECT}
+                    >
+                      <option value="">{t('items.selectSource')}</option>
+                      {sources.map((src) => (
+                        <option key={src.id} value={src.id}>
+                          {src.name || src.id}
+                          {src.default ? ` (${t('importMarc.default')})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                {specimens.length > 1 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleRemoveSpecimen(index)}
+                    className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 shrink-0"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            ))}
+          </div>
+          <Button type="button" variant="secondary" size="sm" onClick={handleAddSpecimen} leftIcon={<Plus className="h-4 w-4" />}>
+            {t('items.addSpecimen')}
+          </Button>
+        </section>
+      )}
+    </form>
+      <ConfirmDialog
+        isOpen={noSpecimensConfirmOpen}
+        onClose={() => setNoSpecimensConfirmOpen(false)}
+        onConfirm={() => {
+          void handleConfirmCreateWithoutSpecimens();
+        }}
+        message={t('items.createBiblioNoSpecimensConfirm')}
+      />
+    </>
+  );
+}
