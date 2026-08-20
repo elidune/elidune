@@ -65,14 +65,8 @@ pub fn build_app(state: AppState) -> Router {
 pub fn build_app_with_options(state: AppState, options: AppBuildOptions) -> Router {
     let cors = build_cors(&state.config);
 
-    let per_second = options
-        .auth_rate_per_second
-        .or(state.config.server.auth_rate_per_second)
-        .unwrap_or(4);
-    let burst_size = options
-        .auth_rate_burst
-        .or(state.config.server.auth_rate_burst)
-        .unwrap_or(2);
+    let per_second = options.auth_rate_per_second.or(state.config.server.auth_rate_per_second).unwrap_or(4);
+    let burst_size = options.auth_rate_burst.or(state.config.server.auth_rate_burst).unwrap_or(2);
 
     let governor_conf: &'static _ = Box::leak(Box::new(
         GovernorConfigBuilder::default()
@@ -82,14 +76,8 @@ pub fn build_app_with_options(state: AppState, options: AppBuildOptions) -> Rout
             .expect("Failed to build auth rate-limit configuration"),
     ));
 
-    let public_per_second = options
-        .public_rate_per_second
-        .or(state.config.server.public_rate_per_second)
-        .unwrap_or(30);
-    let public_burst = options
-        .public_rate_burst
-        .or(state.config.server.public_rate_burst)
-        .unwrap_or(100);
+    let public_per_second = options.public_rate_per_second.or(state.config.server.public_rate_per_second).unwrap_or(30);
+    let public_burst = options.public_rate_burst.or(state.config.server.public_rate_burst).unwrap_or(100);
 
     let public_governor_conf: &'static _ = Box::leak(Box::new(
         GovernorConfigBuilder::default()
@@ -109,21 +97,15 @@ pub fn build_app_with_options(state: AppState, options: AppBuildOptions) -> Rout
         });
     }
 
-    let auth_router = api::auth::router().layer(GovernorLayer {
-        config: governor_conf,
-    });
+    let auth_router = api::auth::router().layer(GovernorLayer { config: governor_conf });
 
     let public_router = Router::new()
         .merge(api::opac::router())
         .merge(api::covers::router())
         .merge(api::library_info::router_public())
-        .layer(GovernorLayer {
-            config: public_governor_conf,
-        });
+        .layer(GovernorLayer { config: public_governor_conf });
 
-    let first_setup_router = api::first_setup::router().layer(GovernorLayer {
-        config: governor_conf,
-    });
+    let first_setup_router = api::first_setup::router().layer(GovernorLayer { config: governor_conf });
 
     let api_v1 = Router::new()
         .merge(api::health::router())
@@ -156,6 +138,8 @@ pub fn build_app_with_options(state: AppState, options: AppBuildOptions) -> Rout
         .merge(api::account_types::router())
         .merge(api::maintenance::router())
         .merge(api::tasks::router())
+        .merge(api::chat::router())
+        .merge(api::llm_providers::router())
         .merge(crate::mcp::router())
         .with_state(state.clone());
 
@@ -187,16 +171,10 @@ pub fn build_cors(config: &AppConfig) -> tower_http::cors::CorsLayer {
         if !origins.is_empty() {
             let parsed: Vec<HeaderValue> = origins.iter().filter_map(|o| o.parse().ok()).collect();
             if !parsed.is_empty() {
-                return CorsLayer::new()
-                    .allow_origin(parsed)
-                    .allow_methods(Any)
-                    .allow_headers(Any);
+                return CorsLayer::new().allow_origin(parsed).allow_methods(Any).allow_headers(Any);
             }
         }
     }
 
-    CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any)
+    CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any)
 }

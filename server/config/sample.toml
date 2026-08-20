@@ -69,5 +69,20 @@ index_name = "items"           # default: "items"
 enabled = true
 max_rows = 200
 statement_timeout_ms = 5000
-# Optional; defaults to database.url with user/password elidune_mcp
-# database_url = "postgres://elidune_mcp:elidune_mcp@localhost:5432/elidune"
+
+[chat]
+enabled = true
+max_tool_rounds = 8
+max_history_messages = 40
+request_timeout_secs = 120
+
+# Example local Ollama provider (seeded on first startup if slug is absent)
+# [[chat.providers]]
+# slug = "ollama"
+# label = "Ollama (local)"
+# kind = "openaiCompat"
+# base_url = "http://127.0.0.1:11434/v1"
+# models = ["llama3.2", "mistral"]
+# default_model = "llama3.2"
+# enabled = true
+# sort_order = 0

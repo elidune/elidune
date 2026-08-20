@@ -25,4 +25,5 @@ export { LibrarySettingsPanel } from './LibraryPage';
 export { default as EventsPage } from './EventsPage';
 export { default as PublicEventsPage } from './PublicEventsPage';
 export { default as AboutPage } from './AboutPage';
+export { default as ChatPage } from './ChatPage';
 export { default as PrivacyPage } from './PrivacyPage';

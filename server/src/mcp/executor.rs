@@ -12,10 +12,10 @@ use super::roles::pg_role;
 use super::sql_guard::{guard_sql, GuardedSql};
 
 /// Run a guarded query as `claims` and return JSON rows plus truncation metadata.
-pub async fn execute_query(state: &AppState, claims: &UserClaims, sql: &str) -> AppResult<QueryResult> {
+pub async fn execute_query(state: &AppState, claims: &UserClaims, sql: &str, max_rows_override: Option<u32>) -> AppResult<QueryResult> {
     let pool = state.mcp_pool.as_ref().ok_or_else(|| AppError::Internal("MCP database pool is not configured".into()))?;
 
-    let max_rows = state.config.mcp.max_rows;
+    let max_rows = max_rows_override.unwrap_or(state.config.mcp.max_rows);
     let timeout_ms = state.config.mcp.statement_timeout_ms;
     let guarded = guard_sql(sql, max_rows)?;
     let role = pg_role(&claims.account_type);
@@ -59,14 +59,20 @@ pub async fn execute_query(state: &AppState, claims: &UserClaims, sql: &str) -> 
 /// Introspect tables the current MCP role can SELECT (including `mcp` views).
 pub async fn list_tables(state: &AppState, claims: &UserClaims) -> AppResult<Value> {
     let sql = r#"
-        SELECT DISTINCT table_schema, table_name
-        FROM information_schema.table_privileges
-        WHERE grantee = current_user
-          AND privilege_type = 'SELECT'
-          AND table_schema IN ('mcp', 'public')
-        ORDER BY table_schema, table_name
+        SELECT DISTINCT
+            p.table_schema,
+            p.table_name,
+            obj_description(
+                (quote_ident(p.table_schema) || '.' || quote_ident(p.table_name))::regclass,
+                'pg_class'
+            ) AS table_comment
+        FROM information_schema.table_privileges p
+        WHERE p.grantee = current_user
+          AND p.privilege_type = 'SELECT'
+          AND p.table_schema IN ('mcp', 'public')
+        ORDER BY p.table_schema, p.table_name
     "#;
-    let result = execute_query(state, claims, sql).await?;
+    let result = execute_query(state, claims, sql, None).await?;
     Ok(json!({
         "tables": result.rows,
         "truncated": result.truncated,
@@ -80,7 +86,30 @@ pub async fn describe_table(state: &AppState, claims: &UserClaims, table_name: &
     }
     let sql = format!(
         r#"
-        SELECT c.table_schema, c.table_name, c.column_name, c.data_type, c.is_nullable
+        SELECT
+            c.table_schema,
+            c.table_name,
+            c.column_name,
+            c.data_type,
+            c.is_nullable,
+            pg_catalog.col_description(
+                (quote_ident(c.table_schema) || '.' || quote_ident(c.table_name))::regclass,
+                c.ordinal_position
+            ) AS column_comment,
+            (
+                SELECT ccu.table_schema || '.' || ccu.table_name || '.' || ccu.column_name
+                FROM information_schema.key_column_usage kcu
+                JOIN information_schema.referential_constraints rc
+                  ON kcu.constraint_name = rc.constraint_name
+                 AND kcu.constraint_schema = rc.constraint_schema
+                JOIN information_schema.constraint_column_usage ccu
+                  ON rc.unique_constraint_name = ccu.constraint_name
+                 AND rc.unique_constraint_schema = ccu.constraint_schema
+                WHERE kcu.table_schema = c.table_schema
+                  AND kcu.table_name = c.table_name
+                  AND kcu.column_name = c.column_name
+                LIMIT 1
+            ) AS references
         FROM information_schema.columns c
         WHERE c.table_name = '{table_name}'
           AND c.table_schema IN ('mcp', 'public')
@@ -96,7 +125,7 @@ pub async fn describe_table(state: &AppState, claims: &UserClaims, table_name: &
         "#
     );
     // table_name is identifier-validated; still go through the guard + RLS session.
-    let result = execute_query(state, claims, &sql).await?;
+    let result = execute_query(state, claims, &sql, None).await?;
     Ok(json!({
         "columns": result.rows,
         "truncated": result.truncated,

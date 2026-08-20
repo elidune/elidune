@@ -6,10 +6,7 @@ use super::super::Repository;
 
 impl Repository {
     #[tracing::instrument(skip(self), err)]
-    pub async fn biblios_get_meili_document(
-        &self,
-        id: i64,
-    ) -> AppResult<Option<MeiliBiblioDocument>> {
+    pub async fn biblios_get_meili_document(&self, id: i64) -> AppResult<Option<MeiliBiblioDocument>> {
         let doc = sqlx::query_as::<_, MeiliBiblioDocument>(
             r#"
             SELECT
@@ -74,11 +71,7 @@ impl Repository {
     /// Fetch a page of Meilisearch documents using a keyset cursor.
     /// Returns biblios with `id > after_id`, up to `limit` rows, ordered by id.
     #[tracing::instrument(skip(self), err)]
-    pub async fn biblios_get_meili_documents_batch(
-        &self,
-        after_id: i64,
-        limit: i64,
-    ) -> AppResult<Vec<MeiliBiblioDocument>> {
+    pub async fn biblios_get_meili_documents_batch(&self, after_id: i64, limit: i64) -> AppResult<Vec<MeiliBiblioDocument>> {
         let docs = sqlx::query_as::<_, MeiliBiblioDocument>(
             r#"
             SELECT

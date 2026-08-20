@@ -24,14 +24,8 @@ pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::{get, post};
     axum::Router::new()
         .route("/events", get(list_events).post(create_event))
-        .route(
-            "/events/:id",
-            get(get_event).put(update_event).delete(delete_event),
-        )
-        .route(
-            "/events/:id/send-announcement",
-            post(send_event_announcement),
-        )
+        .route("/events/:id", get(get_event).put(update_event).delete(delete_event))
+        .route("/events/:id/send-announcement", post(send_event_announcement))
 }
 
 /// Paginated events response
@@ -57,10 +51,7 @@ pub struct EventsListResponse {
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn list_events(
-    State(state): State<crate::AppState>,
-    Query(query): Query<EventQuery>,
-) -> AppResult<Json<EventsListResponse>> {
+pub async fn list_events(State(state): State<crate::AppState>, Query(query): Query<EventQuery>) -> AppResult<Json<EventsListResponse>> {
     let (events, total) = state.services.events.list(&query).await?;
     Ok(Json(EventsListResponse { events, total }))
 }
@@ -80,10 +71,7 @@ pub async fn list_events(
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn get_event(
-    State(state): State<crate::AppState>,
-    Path(id): Path<i64>,
-) -> AppResult<Json<Event>> {
+pub async fn get_event(State(state): State<crate::AppState>, Path(id): Path<i64>) -> AppResult<Json<Event>> {
     let event = state.services.events.get_by_id_with_attachment(id).await?;
     Ok(Json(event))
 }
@@ -205,12 +193,7 @@ pub async fn update_event(
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn delete_event(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    ClientIp(ip): ClientIp,
-    Path(id): Path<i64>,
-) -> AppResult<StatusCode> {
+pub async fn delete_event(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Path(id): Path<i64>) -> AppResult<StatusCode> {
     claims.require_write_events()?;
     match state.services.events.delete(id).await {
         Ok(()) => {
@@ -269,10 +252,6 @@ pub async fn send_event_announcement(
     Json(payload): Json<SendAnnouncementRequest>,
 ) -> AppResult<Json<AnnouncementReport>> {
     claims.require_write_events()?;
-    let report = state
-        .services
-        .events
-        .send_announcement(id, &payload, Some(claims.user_id), ip)
-        .await?;
+    let report = state.services.events.send_announcement(id, &payload, Some(claims.user_id), ip).await?;
     Ok(Json(report))
 }

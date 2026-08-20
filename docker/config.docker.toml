@@ -63,3 +63,9 @@ index_name = "items"
 enabled = true
 max_rows = 200
 statement_timeout_ms = 5000
+
+[chat]
+enabled = true
+max_tool_rounds = 8
+max_history_messages = 40
+request_timeout_secs = 120

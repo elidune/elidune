@@ -41,8 +41,7 @@ pub trait MaintenanceRepository: Send + Sync {
     async fn maintenance_cleanup_dangling_biblio_series(&self) -> AppResult<MaintenanceDetail>;
 
     /// Same defensive check for `biblio_collections`.
-    async fn maintenance_cleanup_dangling_biblio_collections(&self)
-        -> AppResult<MaintenanceDetail>;
+    async fn maintenance_cleanup_dangling_biblio_collections(&self) -> AppResult<MaintenanceDetail>;
 
     /// Delete soft-deleted user rows, normalize `addr_city`, and set `public_type` from `birthdate`
     /// using each `public_types` row's `age_min` / `age_max` (when not null).
@@ -84,27 +83,21 @@ impl MaintenanceRepository for Repository {
         .rows_affected() as i64;
 
         // delete from series where name is empty or null
-        let deleted_series = sqlx::query("DELETE FROM series WHERE name IS NULL OR name = ''")
-            .execute(&mut *tx)
-            .await?
-            .rows_affected() as i64;
+        let deleted_series = sqlx::query("DELETE FROM series WHERE name IS NULL OR name = ''").execute(&mut *tx).await?.rows_affected() as i64;
 
         // force collection key to be normalized
-        let series = sqlx::query_as::<_, (i64, String)>("SELECT id, name FROM series")
-            .fetch_all(&mut *tx)
-            .await?;
+        let series = sqlx::query_as::<_, (i64, String)>("SELECT id, name FROM series").fetch_all(&mut *tx).await?;
         let mut series_merged = 0;
         let mut series_updated = 0;
         for (id, name) in series {
             let normalized_key = Repository::normalize_key(&name);
 
             // check if another collection with the same key exists
-            let another_series =
-                sqlx::query_scalar::<_, i64>("SELECT id  FROM series WHERE key = $1 AND id != $2")
-                    .bind(&normalized_key)
-                    .bind(id)
-                    .fetch_optional(&mut *tx)
-                    .await?;
+            let another_series = sqlx::query_scalar::<_, i64>("SELECT id  FROM series WHERE key = $1 AND id != $2")
+                .bind(&normalized_key)
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?;
 
             if another_series.is_some() {
                 //update biblio_series to use the new series id
@@ -115,18 +108,11 @@ impl MaintenanceRepository for Repository {
                     .await?;
 
                 //delete the old series
-                sqlx::query("DELETE FROM series WHERE id = $1")
-                    .bind(id)
-                    .execute(&mut *tx)
-                    .await?;
+                sqlx::query("DELETE FROM series WHERE id = $1").bind(id).execute(&mut *tx).await?;
                 series_merged += 1;
             } else {
                 //update the collection key
-                sqlx::query("UPDATE series SET key = $1 WHERE id = $2")
-                    .bind(&normalized_key)
-                    .bind(id)
-                    .execute(&mut *tx)
-                    .await?;
+                sqlx::query("UPDATE series SET key = $1 WHERE id = $2").bind(&normalized_key).bind(id).execute(&mut *tx).await?;
                 series_updated += 1;
             }
         }
@@ -173,53 +159,36 @@ impl MaintenanceRepository for Repository {
         .rows_affected() as i64;
 
         // delete from collections where name is empty or null
-        let deleted_collections =
-            sqlx::query("DELETE FROM collections WHERE name IS NULL OR name = ''")
-                .execute(&mut *tx)
-                .await?
-                .rows_affected() as i64;
+        let deleted_collections = sqlx::query("DELETE FROM collections WHERE name IS NULL OR name = ''").execute(&mut *tx).await?.rows_affected() as i64;
 
         // force collection key to be normalized
-        let collections = sqlx::query_as::<_, (i64, String)>("SELECT id, name FROM collections")
-            .fetch_all(&mut *tx)
-            .await?;
+        let collections = sqlx::query_as::<_, (i64, String)>("SELECT id, name FROM collections").fetch_all(&mut *tx).await?;
         let mut collections_merged = 0;
         let mut collections_updated = 0;
         for (id, name) in collections {
             let normalized_key = Repository::normalize_key(&name);
 
             // check if another collection with the same key exists
-            let another_collection = sqlx::query_scalar::<_, i64>(
-                "SELECT id  FROM collections WHERE key = $1 AND id != $2",
-            )
-            .bind(&normalized_key)
-            .bind(id)
-            .fetch_optional(&mut *tx)
-            .await?;
+            let another_collection = sqlx::query_scalar::<_, i64>("SELECT id  FROM collections WHERE key = $1 AND id != $2")
+                .bind(&normalized_key)
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?;
 
             if another_collection.is_some() {
                 //update biblio_collections to use the new collection id
-                sqlx::query(
-                    "UPDATE biblio_collections SET collection_id = $1 WHERE collection_id = $2",
-                )
-                .bind(another_collection.unwrap())
-                .bind(id)
-                .execute(&mut *tx)
-                .await?;
-
-                //delete the old collection
-                sqlx::query("DELETE FROM collections WHERE id = $1")
+                sqlx::query("UPDATE biblio_collections SET collection_id = $1 WHERE collection_id = $2")
+                    .bind(another_collection.unwrap())
                     .bind(id)
                     .execute(&mut *tx)
                     .await?;
+
+                //delete the old collection
+                sqlx::query("DELETE FROM collections WHERE id = $1").bind(id).execute(&mut *tx).await?;
                 collections_merged += 1;
             } else {
                 //update the collection key
-                sqlx::query("UPDATE collections SET key = $1 WHERE id = $2")
-                    .bind(&normalized_key)
-                    .bind(id)
-                    .execute(&mut *tx)
-                    .await?;
+                sqlx::query("UPDATE collections SET key = $1 WHERE id = $2").bind(&normalized_key).bind(id).execute(&mut *tx).await?;
                 collections_updated += 1;
             }
         }
@@ -268,13 +237,10 @@ impl MaintenanceRepository for Repository {
         let mut tx = self.pool.begin().await?;
 
         // Load all series to detect duplicates in Rust (simpler than pure SQL for re-pointing).
-        let rows: Vec<(i64, String)> = sqlx::query_as("SELECT id, name FROM series ORDER BY id")
-            .fetch_all(&mut *tx)
-            .await?;
+        let rows: Vec<(i64, String)> = sqlx::query_as("SELECT id, name FROM series ORDER BY id").fetch_all(&mut *tx).await?;
 
         // Group ids by normalized name; first id in each group is the canonical one.
-        let mut by_norm: std::collections::HashMap<String, Vec<i64>> =
-            std::collections::HashMap::new();
+        let mut by_norm: std::collections::HashMap<String, Vec<i64>> = std::collections::HashMap::new();
         for (id, name) in rows {
             let key = name.trim().to_lowercase();
             by_norm.entry(key).or_default().push(id);
@@ -310,17 +276,10 @@ impl MaintenanceRepository for Repository {
                 refs_moved += moved;
 
                 // Remove old junction rows pointing to the duplicate.
-                sqlx::query("DELETE FROM biblio_series WHERE series_id = $1")
-                    .bind(dup_id)
-                    .execute(&mut *tx)
-                    .await?;
+                sqlx::query("DELETE FROM biblio_series WHERE series_id = $1").bind(dup_id).execute(&mut *tx).await?;
 
                 // Delete the duplicate series record (now an orphan).
-                let deleted = sqlx::query("DELETE FROM series WHERE id = $1")
-                    .bind(dup_id)
-                    .execute(&mut *tx)
-                    .await?
-                    .rows_affected() as i64;
+                let deleted = sqlx::query("DELETE FROM series WHERE id = $1").bind(dup_id).execute(&mut *tx).await?.rows_affected() as i64;
 
                 duplicates_deleted += deleted;
             }
@@ -337,13 +296,9 @@ impl MaintenanceRepository for Repository {
     async fn maintenance_merge_duplicate_collections(&self) -> AppResult<MaintenanceDetail> {
         let mut tx = self.pool.begin().await?;
 
-        let rows: Vec<(i64, String)> =
-            sqlx::query_as("SELECT id, name FROM collections ORDER BY id")
-                .fetch_all(&mut *tx)
-                .await?;
+        let rows: Vec<(i64, String)> = sqlx::query_as("SELECT id, name FROM collections ORDER BY id").fetch_all(&mut *tx).await?;
 
-        let mut by_norm: std::collections::HashMap<String, Vec<i64>> =
-            std::collections::HashMap::new();
+        let mut by_norm: std::collections::HashMap<String, Vec<i64>> = std::collections::HashMap::new();
         for (id, name) in rows {
             let key = name.trim().to_lowercase();
             by_norm.entry(key).or_default().push(id);
@@ -377,16 +332,9 @@ impl MaintenanceRepository for Repository {
 
                 refs_moved += moved;
 
-                sqlx::query("DELETE FROM biblio_collections WHERE collection_id = $1")
-                    .bind(dup_id)
-                    .execute(&mut *tx)
-                    .await?;
+                sqlx::query("DELETE FROM biblio_collections WHERE collection_id = $1").bind(dup_id).execute(&mut *tx).await?;
 
-                let deleted = sqlx::query("DELETE FROM collections WHERE id = $1")
-                    .bind(dup_id)
-                    .execute(&mut *tx)
-                    .await?
-                    .rows_affected() as i64;
+                let deleted = sqlx::query("DELETE FROM collections WHERE id = $1").bind(dup_id).execute(&mut *tx).await?.rows_affected() as i64;
 
                 duplicates_deleted += deleted;
             }
@@ -422,9 +370,7 @@ impl MaintenanceRepository for Repository {
         Ok(detail)
     }
 
-    async fn maintenance_cleanup_dangling_biblio_collections(
-        &self,
-    ) -> AppResult<MaintenanceDetail> {
+    async fn maintenance_cleanup_dangling_biblio_collections(&self) -> AppResult<MaintenanceDetail> {
         let mut tx = self.pool.begin().await?;
 
         let deleted = sqlx::query(
@@ -449,10 +395,7 @@ impl MaintenanceRepository for Repository {
     async fn maintenance_cleanup_users(&self) -> AppResult<MaintenanceDetail> {
         let mut tx = self.pool.begin().await?;
 
-        let rows: Vec<(i64, Option<String>)> =
-            sqlx::query_as(r#"SELECT id, addr_city FROM users WHERE addr_city IS NOT NULL"#)
-                .fetch_all(&mut *tx)
-                .await?;
+        let rows: Vec<(i64, Option<String>)> = sqlx::query_as(r#"SELECT id, addr_city FROM users WHERE addr_city IS NOT NULL"#).fetch_all(&mut *tx).await?;
 
         let mut cities_sanitized: i64 = 0;
         for (id, old_city) in rows {
@@ -467,35 +410,19 @@ impl MaintenanceRepository for Repository {
             if !should_update {
                 continue;
             }
-            sqlx::query("UPDATE users SET addr_city = $1 WHERE id = $2")
-                .bind(new_city)
-                .bind(id)
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query("UPDATE users SET addr_city = $1 WHERE id = $2").bind(new_city).bind(id).execute(&mut *tx).await?;
             cities_sanitized += 1;
         }
 
-        let age_rules: Vec<(i64, Option<i16>, Option<i16>)> =
-            sqlx::query_as(r#"SELECT id, age_min, age_max FROM public_types ORDER BY id"#)
-                .fetch_all(&mut *tx)
-                .await?;
+        let age_rules: Vec<(i64, Option<i16>, Option<i16>)> = sqlx::query_as(r#"SELECT id, age_min, age_max FROM public_types ORDER BY id"#).fetch_all(&mut *tx).await?;
 
-        let rules: Vec<PublicTypeAgeRule> = age_rules
-            .into_iter()
-            .map(|(id, age_min, age_max)| PublicTypeAgeRule {
-                id,
-                age_min,
-                age_max,
-            })
-            .collect();
+        let rules: Vec<PublicTypeAgeRule> = age_rules.into_iter().map(|(id, age_min, age_max)| PublicTypeAgeRule { id, age_min, age_max }).collect();
 
         let today = Utc::now().date_naive();
 
-        let user_rows: Vec<(i64, NaiveDate, Option<i64>)> = sqlx::query_as(
-            r#"SELECT id, birthdate, public_type FROM users WHERE birthdate IS NOT NULL"#,
-        )
-        .fetch_all(&mut *tx)
-        .await?;
+        let user_rows: Vec<(i64, NaiveDate, Option<i64>)> = sqlx::query_as(r#"SELECT id, birthdate, public_type FROM users WHERE birthdate IS NOT NULL"#)
+            .fetch_all(&mut *tx)
+            .await?;
 
         let mut public_types_updated: i64 = 0;
         for (user_id, birthdate, current_pt) in user_rows {
@@ -509,11 +436,7 @@ impl MaintenanceRepository for Repository {
             if current_pt == Some(resolved) {
                 continue;
             }
-            sqlx::query("UPDATE users SET public_type = $1 WHERE id = $2")
-                .bind(resolved)
-                .bind(user_id)
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query("UPDATE users SET public_type = $1 WHERE id = $2").bind(resolved).bind(user_id).execute(&mut *tx).await?;
             public_types_updated += 1;
         }
 
@@ -625,22 +548,13 @@ mod city_sanitize_tests {
 
     #[test]
     fn trim_and_collapse_spaces() {
-        assert_eq!(
-            sanitize_user_city("  saint   étienne  ").as_deref(),
-            Some("Saint Étienne")
-        );
-        assert_eq!(
-            sanitize_user_city("saint-étienne").as_deref(),
-            Some("Saint-Étienne")
-        );
+        assert_eq!(sanitize_user_city("  saint   étienne  ").as_deref(), Some("Saint Étienne"));
+        assert_eq!(sanitize_user_city("saint-étienne").as_deref(), Some("Saint-Étienne"));
     }
 
     #[test]
     fn nfc_and_punctuation() {
-        assert_eq!(
-            sanitize_user_city("L\u{2019}ISLE").as_deref(),
-            Some("L'Isle")
-        );
+        assert_eq!(sanitize_user_city("L\u{2019}ISLE").as_deref(), Some("L'Isle"));
     }
 
     #[test]
@@ -659,10 +573,7 @@ mod city_sanitize_tests {
 mod public_type_age_tests {
     use chrono::NaiveDate;
 
-    use super::{
-        age_matches_public_type_bounds, age_years_on_date, resolve_public_type_for_age,
-        PublicTypeAgeRule,
-    };
+    use super::{age_matches_public_type_bounds, age_years_on_date, resolve_public_type_for_age, PublicTypeAgeRule};
 
     fn rules_sample() -> Vec<PublicTypeAgeRule> {
         vec![

@@ -17,6 +17,7 @@ pub struct AccountTypeDefinition {
     pub holds_rights: Option<String>,
     pub settings_rights: Option<String>,
     pub events_rights: Option<String>,
+    pub chat_rights: Option<String>,
 }
 
 /// Partial update for `account_types` (admin only). Omit a field to leave it unchanged.
@@ -31,4 +32,5 @@ pub struct UpdateAccountTypeDefinition {
     pub holds_rights: Option<String>,
     pub settings_rights: Option<String>,
     pub events_rights: Option<String>,
+    pub chat_rights: Option<String>,
 }

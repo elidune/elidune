@@ -11,7 +11,7 @@ This document lists API endpoints and their required authentication/authorizatio
 - `Admin (extractor)`: authenticated user with `account_type == admin` (`AdminUser`)
 - `JWT + require_*()`: authenticated user plus granular rights check from JWT claims
 
-JWT rights fields in `UserRights` (JSON camelCase, e.g. `holdsRights`): `items_rights`, `users_rights`, `loans_rights`, `holds_rights`, `settings_rights`, `events_rights`.
+JWT rights fields in `UserRights` (JSON camelCase, e.g. `holdsRights`): `items_rights`, `users_rights`, `loans_rights`, `holds_rights`, `settings_rights`, `events_rights`, `chat_rights`.
 
 For `items_rights`, `users_rights`, `loans_rights`, `settings_rights`, and `events_rights`, the level is **`none` \| `read` \| `write`** (from DB letters `n` / `r` / `w`). Checks use ordering: none < read < write.
 
@@ -36,6 +36,7 @@ Helpers on `UserClaims`:
 | `require_write_settings()` | `settings_rights >= write` |
 | `require_read_events()` | `events_rights >= read` |
 | `require_write_events()` | `events_rights >= write` |
+| `require_chat()` | `chat_rights >= read` |
 | `require_admin()` | `account_type == admin` |
 | `require_self_or_staff(id)` | caller is `id`, or `account_type` is librarian/admin |
 | `require_self_or_admin(id)` | caller is `id`, or `account_type` is admin |
@@ -234,3 +235,18 @@ Loan checkout, return, renew, and batch loan operations require **`holds_rights 
 | `GET /audit/export` | JWT + `require_admin()` |
 | `POST /maintenance` | Admin (extractor — `AdminUser`) |
 | `POST /mcp` | JWT (full). Read-only SQL; PostgreSQL RLS by account type. See [README-mcp.md](README-mcp.md). |
+
+## Chat assistant
+
+| Endpoint | Required auth |
+|---|---|
+| `GET /chat/providers` | JWT + `require_chat()` |
+| `GET/POST /chat/conversations` | JWT + `require_chat()` |
+| `GET/PATCH/DELETE /chat/conversations/:id` | JWT + `require_chat()` (own rows only) |
+| `POST /chat/conversations/:id/messages` | JWT + `require_chat()` (SSE stream) |
+| `POST /chat/conversations/:id/cancel` | JWT + `require_chat()` |
+| `GET/POST /admin/llm/providers` | JWT + `require_admin()` |
+| `PUT/DELETE /admin/llm/providers/:id` | JWT + `require_admin()` |
+| `POST /admin/llm/providers/:id/test` | JWT + `require_admin()` |
+
+See [README-chat.md](README-chat.md).

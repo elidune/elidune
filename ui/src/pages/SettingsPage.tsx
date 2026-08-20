@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
-import { Save, Plus, Trash2, Server, Archive, Pencil, Merge, Package, Check, X, AlertTriangle, Users, ChevronDown, BookOpen, Cog, ScrollText, Shield, Mail, Library } from 'lucide-react';
+import { Save, Plus, Trash2, Server, Archive, Pencil, Merge, Package, Check, X, AlertTriangle, Users, ChevronDown, BookOpen, Cog, ScrollText, Shield, Mail, Library, Bot } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { LibrarySettingsPanel } from '@/pages/LibraryPage';
 import AdminServerSettings from '@/components/settings/AdminServerSettings';
 import AccountTypesSettings from '@/components/settings/AccountTypesSettings';
 import EmailTemplatesSettings from '@/components/settings/EmailTemplatesSettings';
+import LlmProvidersSettings from '@/components/settings/LlmProvidersSettings';
 import AuditLogViewer from '@/components/settings/AuditLogViewer';
 import { Card, CardHeader, Button, Input, Badge, ConfirmDialog } from '@/components/common';
 import api from '@/services/api';
@@ -1436,7 +1437,8 @@ type SettingsTab =
   | 'publicTypes'
   | 'accountTypes'
   | 'emailTemplates'
-  | 'z3950';
+  | 'z3950'
+  | 'llmProviders';
 
 const SETTINGS_TAB_IDS: SettingsTab[] = [
   'library',
@@ -1446,6 +1448,7 @@ const SETTINGS_TAB_IDS: SettingsTab[] = [
   'emailTemplates',
   'sources',
   'z3950',
+  'llmProviders',
   'server',
   'audit',
 ];
@@ -1650,6 +1653,7 @@ export default function SettingsPage() {
     { id: 'emailTemplates', label: t('settings.emailTemplates.title'), icon: <Mail className="h-5 w-5" /> },
     { id: 'sources', label: t('settings.sources.title'), icon: <Package className="h-5 w-5" /> },
     { id: 'z3950', label: t('settings.z3950Servers'), icon: <Server className="h-5 w-5" /> },
+    { id: 'llmProviders', label: t('chat.admin.title'), icon: <Bot className="h-5 w-5" /> },
     { id: 'server', label: t('settings.server.title'), icon: <Cog className="h-5 w-5" /> },
     { id: 'audit', label: t('settings.audit.title'), icon: <ScrollText className="h-5 w-5" /> },
   ];
@@ -1886,6 +1890,8 @@ export default function SettingsPage() {
 
       {/* Account types (library roles) */}
       {activeTab === 'accountTypes' && <AccountTypesSettings />}
+
+      {activeTab === 'llmProviders' && <LlmProvidersSettings />}
 
       {/* Email templates */}
       {activeTab === 'emailTemplates' && <EmailTemplatesSettings />}

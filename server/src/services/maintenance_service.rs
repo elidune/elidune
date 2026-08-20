@@ -18,11 +18,7 @@ use crate::{
 
 /// Single maintenance step.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema)]
-#[serde(
-    tag = "action",
-    rename_all = "camelCase",
-    rename_all_fields = "camelCase"
-)]
+#[serde(tag = "action", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum MaintenanceAction {
     CleanupSeries,
     CleanupCollections,
@@ -133,22 +129,11 @@ pub struct MaintenanceService {
 
 impl MaintenanceService {
     pub fn new(catalog: CatalogService, z3950: Z3950Service, audit: AuditService) -> Self {
-        Self {
-            catalog,
-            z3950,
-            audit,
-        }
+        Self { catalog, z3950, audit }
     }
 
     /// Run the ordered maintenance actions, reporting progress via `handle`.
-    pub async fn run_maintenance_task(
-        &self,
-        repository: Repository,
-        actions: Vec<MaintenanceAction>,
-        user_id: i64,
-        ip: Option<String>,
-        handle: TaskHandle,
-    ) {
+    pub async fn run_maintenance_task(&self, repository: Repository, actions: Vec<MaintenanceAction>, user_id: i64, ip: Option<String>, handle: TaskHandle) {
         let total = actions.len();
         let mut reports = Vec::with_capacity(total);
 
@@ -165,23 +150,11 @@ impl MaintenanceService {
                 handle.set_progress(idx, total, Some(v)).await;
             }
 
-            let result = dispatch_maintenance_action(
-                &repository,
-                &self.catalog,
-                &self.z3950,
-                action,
-                &handle,
-                idx,
-                total,
-            )
-            .await;
+            let result = dispatch_maintenance_action(&repository, &self.catalog, &self.z3950, action, &handle, idx, total).await;
 
             let report = match result {
                 Ok(details) => {
-                    tracing::info!(
-                        action = action.discriminant(),
-                        "maintenance action completed"
-                    );
+                    tracing::info!(action = action.discriminant(), "maintenance action completed");
                     MaintenanceActionReport {
                         action: action.clone(),
                         success: true,
@@ -212,10 +185,7 @@ impl MaintenanceService {
         let maint_meta = if failed == 0 {
             audit::AuditLogMeta::success()
         } else {
-            audit::AuditLogMeta::failure_background(
-                crate::error::error_code::BUSINESS_RULE,
-                format!("{failed} of {action_count} maintenance actions failed"),
-            )
+            audit::AuditLogMeta::failure_background(crate::error::error_code::BUSINESS_RULE, format!("{failed} of {action_count} maintenance actions failed"))
         };
 
         self.audit.log(
@@ -239,10 +209,7 @@ impl MaintenanceService {
 }
 
 fn maintenance_detail_to_json(d: MaintenanceDetail) -> serde_json::Value {
-    let m: serde_json::Map<String, serde_json::Value> = d
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), serde_json::json!(v)))
-        .collect();
+    let m: serde_json::Map<String, serde_json::Value> = d.into_iter().map(|(k, v)| (k.to_string(), serde_json::json!(v))).collect();
     serde_json::Value::Object(m)
 }
 
@@ -281,9 +248,7 @@ async fn dispatch_maintenance_action(
             Ok(maintenance_detail_to_json(d))
         }
         MaintenanceAction::CleanupDanglingBiblioCollections => {
-            let d = repo
-                .maintenance_cleanup_dangling_biblio_collections()
-                .await?;
+            let d = repo.maintenance_cleanup_dangling_biblio_collections().await?;
             Ok(maintenance_detail_to_json(d))
         }
         MaintenanceAction::CleanupUsers => {
@@ -296,22 +261,9 @@ async fn dispatch_maintenance_action(
             biblio_ids,
         } => {
             if *z3950_server_id <= 0 {
-                return Err(crate::error::AppError::Validation(
-                    "z3950ServerId must be positive".into(),
-                ));
+                return Err(crate::error::AppError::Validation("z3950ServerId must be positive".into()));
             }
-            run_z3950_refresh_action(
-                repo,
-                catalog,
-                z3950,
-                *z3950_server_id,
-                *rebuild_all,
-                biblio_ids.as_ref(),
-                handle,
-                action_index,
-                total_actions,
-            )
-            .await
+            run_z3950_refresh_action(repo, catalog, z3950, *z3950_server_id, *rebuild_all, biblio_ids.as_ref(), handle, action_index, total_actions).await
         }
     }
 }
@@ -385,11 +337,7 @@ async fn run_z3950_refresh_action(
         };
 
         let prev_snapshot = previous_biblio.clone();
-        let isbn_str = previous_biblio
-            .isbn
-            .as_ref()
-            .map(|i| i.as_str().to_string())
-            .unwrap_or_default();
+        let isbn_str = previous_biblio.isbn.as_ref().map(|i| i.as_str().to_string()).unwrap_or_default();
 
         if isbn_str.is_empty() {
             failed += 1;
@@ -453,10 +401,7 @@ async fn run_z3950_refresh_action(
             continue;
         };
 
-        match catalog
-            .refresh_biblio_from_z3950_marc(*biblio_id, marc)
-            .await
-        {
+        match catalog.refresh_biblio_from_z3950_marc(*biblio_id, marc).await {
             Ok(new_biblio) => {
                 updated += 1;
                 let prog = make_progress(CatalogZ3950RefreshProgress {

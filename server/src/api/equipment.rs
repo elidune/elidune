@@ -28,10 +28,7 @@ use super::{AuthenticatedUser, ClientIp};
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn list_equipment(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-) -> AppResult<Json<Vec<Equipment>>> {
+pub async fn list_equipment(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser) -> AppResult<Json<Vec<Equipment>>> {
     claims.require_read_settings()?;
     let equipment = state.services.equipment.list().await?;
     Ok(Json(equipment))
@@ -52,11 +49,7 @@ pub async fn list_equipment(
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn get_equipment(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i64>,
-) -> AppResult<Json<Equipment>> {
+pub async fn get_equipment(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(id): Path<i64>) -> AppResult<Json<Equipment>> {
     claims.require_read_settings()?;
     let equipment = state.services.equipment.get_by_id(id).await?;
     Ok(Json(equipment))
@@ -179,12 +172,7 @@ pub async fn update_equipment(
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn delete_equipment(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    ClientIp(ip): ClientIp,
-    Path(id): Path<i64>,
-) -> AppResult<StatusCode> {
+pub async fn delete_equipment(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Path(id): Path<i64>) -> AppResult<StatusCode> {
     claims.require_write_settings()?;
     match state.services.equipment.delete(id).await {
         Ok(()) => {
@@ -219,10 +207,5 @@ pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::{delete, get, post, put};
     axum::Router::new()
         .route("/equipment", get(list_equipment).post(create_equipment))
-        .route(
-            "/equipment/:id",
-            get(get_equipment)
-                .put(update_equipment)
-                .delete(delete_equipment),
-        )
+        .route("/equipment/:id", get(get_equipment).put(update_equipment).delete(delete_equipment))
 }

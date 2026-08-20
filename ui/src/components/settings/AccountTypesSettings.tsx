@@ -20,6 +20,7 @@ const RIGHT_FIELDS = [
   'borrowsRights',
   'settingsRights',
   'eventsRights',
+  'chatRights',
 ] as const;
 
 type RightField = (typeof RIGHT_FIELDS)[number];

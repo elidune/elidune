@@ -3,6 +3,9 @@
 pub mod account_types_catalog;
 pub mod audit;
 pub mod catalog;
+pub mod chat;
+pub mod chat_service;
+pub mod chat_session_registry;
 pub mod email_outbox;
 pub mod equipment;
 pub mod event_bus;
@@ -11,6 +14,7 @@ pub mod fines;
 pub mod holds;
 pub mod inventory;
 pub mod library_info;
+pub mod llm_providers;
 pub mod loans;
 pub mod maintenance_service;
 pub mod marc;
@@ -39,10 +43,8 @@ use crate::{
     dynamic_config::DynamicConfig,
     error::AppResult,
     repository::{
-        AccountTypesCatalogRepository, BibliosRepository, CatalogEntitiesRepository,
-        EquipmentRepository, EventsServiceRepository, FinesRepository, HoldsRepository,
-        InventoryRepository, LoansRepository, LoansServiceRepository, PublicTypesRepository,
-        Repository, SchedulesRepository, SourcesRepository, UsersRepository,
+        AccountTypesCatalogRepository, BibliosRepository, CatalogEntitiesRepository, ChatRepository, EquipmentRepository, EventsServiceRepository, FinesRepository, HoldsRepository,
+        InventoryRepository, LlmProvidersRepository, LoansRepository, LoansServiceRepository, PublicTypesRepository, Repository, SchedulesRepository, SourcesRepository, UsersRepository,
         VisitorCountsRepository,
     },
 };
@@ -76,6 +78,8 @@ pub struct Services {
     pub users: users::UsersService,
     pub visitor_counts: visitor_counts::VisitorCountsService,
     pub z3950: z3950::Z3950Service,
+    pub chat: chat_service::ChatService,
+    pub llm_providers: llm_providers::LlmProvidersService,
     /// Shared DB repository (pool + dynamic config for hold expiry windows).
     pub repository: Arc<Repository>,
 }
@@ -102,67 +106,41 @@ impl Services {
         let repo = Arc::new(repository.clone());
 
         // Build optional Meilisearch service
-        let search_service: Option<Arc<search::MeilisearchService>> =
-            if let Some(ref cfg) = meilisearch_config {
-                let svc = search::MeilisearchService::new(cfg);
-                svc.ensure_index().await;
-                Some(Arc::new(svc))
-            } else {
-                tracing::info!(
-                    "Meilisearch not configured — catalog freesearch will use PostgreSQL fallback"
-                );
-                None
-            };
+        let search_service: Option<Arc<search::MeilisearchService>> = if let Some(ref cfg) = meilisearch_config {
+            let svc = search::MeilisearchService::new(cfg);
+            svc.ensure_index().await;
+            Some(Arc::new(svc))
+        } else {
+            tracing::info!("Meilisearch not configured — catalog freesearch will use PostgreSQL fallback");
+            None
+        };
 
         let biblios_repo: Arc<dyn BibliosRepository> = repo.clone();
         let entities_repo: Arc<dyn CatalogEntitiesRepository> = repo.clone();
         let audit_service = audit::AuditService::new(repository.clone());
         let catalog = if let Some(ref svc) = search_service {
-            catalog::CatalogService::with_search(
-                biblios_repo.clone(),
-                entities_repo,
-                Arc::clone(svc),
-                audit_service.clone(),
-            )
+            catalog::CatalogService::with_search(biblios_repo.clone(), entities_repo, Arc::clone(svc), audit_service.clone())
         } else {
             catalog::CatalogService::new(biblios_repo, entities_repo, audit_service.clone())
         };
 
         let marc_service = marc::MarcService::new(catalog.clone(), redis_service.clone());
 
-        let z3950_service = z3950::Z3950Service::new(
-            repository.clone(),
-            catalog.clone(),
-            redis_service.clone(),
-            redis_config.z3950_cache_ttl_seconds,
-        );
+        let z3950_service = z3950::Z3950Service::new(repository.clone(), catalog.clone(), redis_service.clone(), redis_config.z3950_cache_ttl_seconds);
 
         let loans_repo: Arc<dyn LoansServiceRepository> = repo.clone();
         let loans_repo_only: Arc<dyn LoansRepository> = repo.clone();
         let email = email_service.as_ref().clone();
-        let reminders_service = reminders::RemindersService::new(
-            loans_repo_only,
-            email.clone(),
-            audit_service.clone(),
-            dynamic_config.clone(),
-        );
+        let reminders_service = reminders::RemindersService::new(loans_repo_only, email.clone(), audit_service.clone(), dynamic_config.clone());
 
         Ok(Self {
             repository: repo.clone(),
             audit: audit_service.clone(),
-            account_types_catalog: account_types_catalog::AccountTypesCatalogService::new(
-                repo.clone() as Arc<dyn AccountTypesCatalogRepository>,
-            ),
+            account_types_catalog: account_types_catalog::AccountTypesCatalogService::new(repo.clone() as Arc<dyn AccountTypesCatalogRepository>),
             catalog: catalog.clone(),
             email: email.clone(),
-            equipment: equipment::EquipmentService::new(
-                repo.clone() as Arc<dyn EquipmentRepository>
-            ),
-            events: events::EventsService::new(
-                repo.clone() as Arc<dyn EventsServiceRepository>,
-                email.clone(),
-                audit_service.clone(),
-            ),
+            equipment: equipment::EquipmentService::new(repo.clone() as Arc<dyn EquipmentRepository>),
+            events: events::EventsService::new(repo.clone() as Arc<dyn EventsServiceRepository>, email.clone(), audit_service.clone()),
             fines: fines::FinesService::new(repo.clone() as Arc<dyn FinesRepository>),
             inventory: inventory::InventoryService::new(
                 repo.clone() as Arc<dyn InventoryRepository>,
@@ -172,36 +150,23 @@ impl Services {
                 audit_service.clone(),
             ),
             library_info: library_info::LibraryInfoService::new(repository.clone()),
-            loans: loans::LoansService::new(
-                loans_repo,
-                audit_service.clone(),
-                email.clone(),
-                event_bus,
-            ),
-            maintenance: maintenance_service::MaintenanceService::new(
-                catalog.clone(),
-                z3950_service.clone(),
-                audit_service.clone(),
-            ),
+            loans: loans::LoansService::new(loans_repo, audit_service.clone(), email.clone(), event_bus),
+            maintenance: maintenance_service::MaintenanceService::new(catalog.clone(), z3950_service.clone(), audit_service.clone()),
             marc: marc_service,
-            public_types: public_types::PublicTypesService::new(
-                repo.clone() as Arc<dyn PublicTypesRepository>
-            ),
+            public_types: public_types::PublicTypesService::new(repo.clone() as Arc<dyn PublicTypesRepository>),
             redis: redis_service.clone(),
             reminders: reminders_service,
             holds: holds::HoldsService::new(repo.clone() as Arc<dyn HoldsRepository>),
-            schedules: schedules::SchedulesService::new(
-                repo.clone() as Arc<dyn SchedulesRepository>
-            ),
+            schedules: schedules::SchedulesService::new(repo.clone() as Arc<dyn SchedulesRepository>),
             search: search_service,
             sources: sources::SourcesService::new(repo.clone() as Arc<dyn SourcesRepository>),
             stats: stats::StatsService::new(repository.clone(), redis_service.clone()),
             tasks: task_manager::TaskManager::new(redis_service.clone()),
             users: users::UsersService::new(repository.clone(), auth_config, redis_service.clone()),
-            visitor_counts: visitor_counts::VisitorCountsService::new(
-                repo.clone() as Arc<dyn VisitorCountsRepository>
-            ),
+            visitor_counts: visitor_counts::VisitorCountsService::new(repo.clone() as Arc<dyn VisitorCountsRepository>),
             z3950: z3950_service,
+            chat: chat_service::ChatService::new(repo.clone() as Arc<dyn ChatRepository>, repo.clone() as Arc<dyn LlmProvidersRepository>),
+            llm_providers: llm_providers::LlmProvidersService::new(repo.clone() as Arc<dyn LlmProvidersRepository>),
         })
     }
 }

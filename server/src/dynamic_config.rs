@@ -29,13 +29,7 @@ enum Section {
 }
 
 impl Section {
-    const ALL: [Self; 5] = [
-        Self::Email,
-        Self::Logging,
-        Self::Reminders,
-        Self::Audit,
-        Self::Holds,
-    ];
+    const ALL: [Self; 5] = [Self::Email, Self::Logging, Self::Reminders, Self::Audit, Self::Holds];
 
     fn key(self) -> &'static str {
         match self {
@@ -154,18 +148,12 @@ impl DynamicConfig {
 
     /// Load DB settings overrides and merge into the effective runtime config.
     /// The original file config is preserved for [`reset_section`].
-    pub async fn load_with_db_overrides(
-        file_config: AppConfig,
-        pool: &Pool<Postgres>,
-    ) -> Arc<Self> {
+    pub async fn load_with_db_overrides(file_config: AppConfig, pool: &Pool<Postgres>) -> Arc<Self> {
         let original_file = file_config.clone();
         let mut effective = file_config;
         let mut db_overrides = Vec::new();
 
-        let db_settings = Repository::new(pool.clone(), None)
-            .settings_load_overrides()
-            .await
-            .unwrap_or_default();
+        let db_settings = Repository::new(pool.clone(), None).settings_load_overrides().await.unwrap_or_default();
 
         for (key, value) in db_settings {
             let Some(section) = Section::try_from_key(&key) else {
@@ -201,34 +189,22 @@ impl DynamicConfig {
         let logging = self.read_logging();
         validate_logging_config(&logging)?;
 
-        let tracing_guard = logging::init(&logging)
-            .map_err(|e| AppError::Internal(format!("tracing init: {e}")))?;
+        let tracing_guard = logging::init(&logging).map_err(|e| AppError::Internal(format!("tracing init: {e}")))?;
 
         self.register_logging_reload(tracing_guard.reload());
 
         if !self.db_overrides.is_empty() {
-            tracing::info!(
-                "DB config overrides applied: [{}]",
-                self.db_overrides.join(", ")
-            );
+            tracing::info!("DB config overrides applied: [{}]", self.db_overrides.join(", "));
         }
 
         let templates_dir = self.read_email().templates_dir.clone();
-        if let Err(e) =
-            crate::email_templates::bootstrap_from_files(pool, Path::new(&templates_dir)).await
-        {
+        if let Err(e) = crate::email_templates::bootstrap_from_files(pool, Path::new(&templates_dir)).await {
             tracing::warn!("Email templates bootstrap failed: {e}");
         }
 
-        tracing::info!(
-            "Effective config ready (logging.level={}, logging.output={})",
-            logging.level,
-            logging.output
-        );
+        tracing::info!("Effective config ready (logging.level={}, logging.output={})", logging.level, logging.output);
 
-        Ok(ApplyGuard {
-            _tracing: tracing_guard,
-        })
+        Ok(ApplyGuard { _tracing: tracing_guard })
     }
 
     fn register_logging_reload(&self, reload: Arc<logging::LoggingReload>) {
@@ -243,12 +219,7 @@ impl DynamicConfig {
         match reload.reload(&cfg) {
             Ok(()) => {
                 // Log after the layer swap; JSON omits span context so this is safe mid-request.
-                tracing::info!(
-                    "Logging reloaded (level={}, format={}, output={})",
-                    cfg.level,
-                    cfg.format,
-                    cfg.output
-                );
+                tracing::info!("Logging reloaded (level={}, format={}, output={})", cfg.level, cfg.format, cfg.output);
             }
             Err(e) => eprintln!("Failed to reload logging config: {e}"),
         }
@@ -276,52 +247,41 @@ impl DynamicConfig {
 
     /// Returns true if the given section is marked overridable in the file config.
     pub fn is_overridable(&self, section: &str) -> bool {
-        Section::try_from_key(section)
-            .map(|s| s.overridable(&self.file_config))
-            .unwrap_or(false)
+        Section::try_from_key(section).map(|s| s.overridable(&self.file_config)).unwrap_or(false)
     }
 
     /// Validate and apply a new config section from a JSON value.
     pub fn update_section(&self, section: &str, value: Value) -> AppResult<()> {
-        let section = Section::try_from_key(section)
-            .ok_or_else(|| AppError::NotFound(format!("Unknown config section '{section}'")))?;
+        let section = Section::try_from_key(section).ok_or_else(|| AppError::NotFound(format!("Unknown config section '{section}'")))?;
 
         if !section.overridable(&self.file_config) {
-            return Err(AppError::Authorization(format!(
-                "Config section '{}' is not overridable",
-                section.key()
-            )));
+            return Err(AppError::Authorization(format!("Config section '{}' is not overridable", section.key())));
         }
 
         match section {
             Section::Email => {
-                let cfg: EmailConfig = serde_json::from_value(value)
-                    .map_err(|e| AppError::BadRequest(format!("Invalid email config: {e}")))?;
+                let cfg: EmailConfig = serde_json::from_value(value).map_err(|e| AppError::BadRequest(format!("Invalid email config: {e}")))?;
                 validate_email_config(&cfg)?;
                 self.inner.write().unwrap().email = cfg;
             }
             Section::Logging => {
-                let cfg: LoggingConfig = serde_json::from_value(value)
-                    .map_err(|e| AppError::BadRequest(format!("Invalid logging config: {e}")))?;
+                let cfg: LoggingConfig = serde_json::from_value(value).map_err(|e| AppError::BadRequest(format!("Invalid logging config: {e}")))?;
                 validate_logging_config(&cfg)?;
                 self.inner.write().unwrap().logging = cfg;
                 self.reload_logging();
             }
             Section::Reminders => {
-                let cfg: RemindersConfig = serde_json::from_value(value)
-                    .map_err(|e| AppError::BadRequest(format!("Invalid reminders config: {e}")))?;
+                let cfg: RemindersConfig = serde_json::from_value(value).map_err(|e| AppError::BadRequest(format!("Invalid reminders config: {e}")))?;
                 validate_reminders_config(&cfg)?;
                 self.inner.write().unwrap().reminders = cfg;
             }
             Section::Audit => {
-                let cfg: AuditConfig = serde_json::from_value(value)
-                    .map_err(|e| AppError::BadRequest(format!("Invalid audit config: {e}")))?;
+                let cfg: AuditConfig = serde_json::from_value(value).map_err(|e| AppError::BadRequest(format!("Invalid audit config: {e}")))?;
                 validate_audit_config(&cfg)?;
                 self.inner.write().unwrap().audit = cfg;
             }
             Section::Holds => {
-                let cfg: HoldsConfig = serde_json::from_value(value)
-                    .map_err(|e| AppError::BadRequest(format!("Invalid holds config: {e}")))?;
+                let cfg: HoldsConfig = serde_json::from_value(value).map_err(|e| AppError::BadRequest(format!("Invalid holds config: {e}")))?;
                 validate_holds_config(&cfg)?;
                 self.inner.write().unwrap().holds = cfg;
             }
@@ -331,14 +291,10 @@ impl DynamicConfig {
 
     /// Reset a section to the value from the original file config.
     pub fn reset_section(&self, section: &str) -> AppResult<()> {
-        let section = Section::try_from_key(section)
-            .ok_or_else(|| AppError::NotFound(format!("Unknown config section '{section}'")))?;
+        let section = Section::try_from_key(section).ok_or_else(|| AppError::NotFound(format!("Unknown config section '{section}'")))?;
 
         if !section.overridable(&self.file_config) {
-            return Err(AppError::Authorization(format!(
-                "Config section '{}' is not overridable",
-                section.key()
-            )));
+            return Err(AppError::Authorization(format!("Config section '{}' is not overridable", section.key())));
         }
 
         match section {
@@ -371,9 +327,7 @@ impl DynamicConfig {
             Some(Section::Audit) => serde_json::to_value(self.read_audit()),
             Some(Section::Holds) => serde_json::to_value(self.read_holds()),
             None => {
-                return Err(AppError::NotFound(format!(
-                    "Unknown config section '{section}'"
-                )));
+                return Err(AppError::NotFound(format!("Unknown config section '{section}'")));
             }
         };
         val.map_err(|e| AppError::Internal(format!("Failed to serialize config: {e}")))
@@ -381,12 +335,7 @@ impl DynamicConfig {
 
     /// List of all overridable section keys.
     pub fn overridable_sections(&self) -> Vec<&'static str> {
-        Section::ALL
-            .iter()
-            .copied()
-            .filter(|s| s.overridable(&self.file_config))
-            .map(Section::key)
-            .collect()
+        Section::ALL.iter().copied().filter(|s| s.overridable(&self.file_config)).map(Section::key).collect()
     }
 }
 
@@ -394,24 +343,16 @@ impl DynamicConfig {
 
 fn validate_email_config(cfg: &EmailConfig) -> AppResult<()> {
     if cfg.smtp_host.trim().is_empty() {
-        return Err(AppError::BadRequest(
-            "email.smtp_host must not be empty".to_string(),
-        ));
+        return Err(AppError::BadRequest("email.smtp_host must not be empty".to_string()));
     }
     if cfg.smtp_port == 0 {
-        return Err(AppError::BadRequest(
-            "email.smtp_port must be between 1 and 65535".to_string(),
-        ));
+        return Err(AppError::BadRequest("email.smtp_port must be between 1 and 65535".to_string()));
     }
     if cfg.smtp_from.trim().is_empty() {
-        return Err(AppError::BadRequest(
-            "email.smtp_from must not be empty".to_string(),
-        ));
+        return Err(AppError::BadRequest("email.smtp_from must not be empty".to_string()));
     }
     if !cfg.smtp_from.contains('@') {
-        return Err(AppError::BadRequest(
-            "email.smtp_from must be a valid email address".to_string(),
-        ));
+        return Err(AppError::BadRequest("email.smtp_from must be a valid email address".to_string()));
     }
     Ok(())
 }
@@ -422,42 +363,21 @@ fn validate_logging_config(cfg: &LoggingConfig) -> AppResult<()> {
     const OUTPUTS: &[&str] = &["stdout", "stderr", "file", "syslog"];
 
     if !LEVELS.contains(&cfg.level.as_str()) {
-        return Err(AppError::BadRequest(format!(
-            "logging.level must be one of: {}",
-            LEVELS.join(", ")
-        )));
+        return Err(AppError::BadRequest(format!("logging.level must be one of: {}", LEVELS.join(", "))));
     }
     if !FORMATS.contains(&cfg.format.as_str()) {
-        return Err(AppError::BadRequest(format!(
-            "logging.format must be one of: {}",
-            FORMATS.join(", ")
-        )));
+        return Err(AppError::BadRequest(format!("logging.format must be one of: {}", FORMATS.join(", "))));
     }
     if !OUTPUTS.contains(&cfg.output.as_str()) {
-        return Err(AppError::BadRequest(format!(
-            "logging.output must be one of: {}",
-            OUTPUTS.join(", ")
-        )));
+        return Err(AppError::BadRequest(format!("logging.output must be one of: {}", OUTPUTS.join(", "))));
     }
-    if cfg.output == "file"
-        && cfg
-            .file_path
-            .as_deref()
-            .map(str::trim)
-            .unwrap_or("")
-            .is_empty()
-    {
-        return Err(AppError::BadRequest(
-            "logging.file_path is required when output = \"file\"".to_string(),
-        ));
+    if cfg.output == "file" && cfg.file_path.as_deref().map(str::trim).unwrap_or("").is_empty() {
+        return Err(AppError::BadRequest("logging.file_path is required when output = \"file\"".to_string()));
     }
     if let Some(rotation) = cfg.file_rotation.as_deref() {
         const ROTATIONS: &[&str] = &["monthly", "weekly", "daily", "never"];
         if !ROTATIONS.contains(&rotation) {
-            return Err(AppError::BadRequest(format!(
-                "logging.file_rotation must be one of: {}",
-                ROTATIONS.join(", ")
-            )));
+            return Err(AppError::BadRequest(format!("logging.file_rotation must be one of: {}", ROTATIONS.join(", "))));
         }
     }
     Ok(())
@@ -465,41 +385,31 @@ fn validate_logging_config(cfg: &LoggingConfig) -> AppResult<()> {
 
 fn validate_reminders_config(cfg: &RemindersConfig) -> AppResult<()> {
     if cfg.frequency_days < 1 {
-        return Err(AppError::BadRequest(
-            "reminders.frequency_days must be at least 1".to_string(),
-        ));
+        return Err(AppError::BadRequest("reminders.frequency_days must be at least 1".to_string()));
     }
     let hhmm = Regex::new(r"^\d{2}:\d{2}$").unwrap();
     if !hhmm.is_match(&cfg.send_time) {
-        return Err(AppError::BadRequest(
-            "reminders.send_time must be in HH:MM format (24h)".to_string(),
-        ));
+        return Err(AppError::BadRequest("reminders.send_time must be in HH:MM format (24h)".to_string()));
     }
     let parts: Vec<&str> = cfg.send_time.split(':').collect();
     let h: u32 = parts[0].parse().unwrap_or(99);
     let m: u32 = parts[1].parse().unwrap_or(99);
     if h > 23 || m > 59 {
-        return Err(AppError::BadRequest(
-            "reminders.send_time has invalid hour or minute value".to_string(),
-        ));
+        return Err(AppError::BadRequest("reminders.send_time has invalid hour or minute value".to_string()));
     }
     Ok(())
 }
 
 fn validate_audit_config(cfg: &AuditConfig) -> AppResult<()> {
     if cfg.retention_days < 1 {
-        return Err(AppError::BadRequest(
-            "audit.retention_days must be at least 1".to_string(),
-        ));
+        return Err(AppError::BadRequest("audit.retention_days must be at least 1".to_string()));
     }
     Ok(())
 }
 
 fn validate_holds_config(cfg: &HoldsConfig) -> AppResult<()> {
     if cfg.ready_expiry_days < 1 || cfg.ready_expiry_days > 365 {
-        return Err(AppError::BadRequest(
-            "holds.ready_expiry_days must be between 1 and 365".to_string(),
-        ));
+        return Err(AppError::BadRequest("holds.ready_expiry_days must be between 1 and 365".to_string()));
     }
     Ok(())
 }

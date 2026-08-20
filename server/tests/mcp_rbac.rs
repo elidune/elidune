@@ -178,3 +178,57 @@ async fn reader_join_loans_does_not_leak_other_users() {
     let emails = row_emails(&body);
     assert_eq!(emails, vec!["mcpjoin_a@test.local".to_string()]);
 }
+
+#[tokio::test]
+async fn select_star_is_rejected() {
+    let Some((_guard, app)) = spawn_app().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+
+    let (status, body) = mcp_query(&app, &admin_token, "SELECT * FROM users").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(is_tool_error(&body), "SELECT * must be rejected: {body}");
+}
+
+#[tokio::test]
+async fn describe_loans_includes_domain_metadata() {
+    let Some((_guard, app)) = spawn_app().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+
+    let (status, body) = mcp_call(&app, Some(&admin_token), "tools/call", json!({ "name": "describe_table", "arguments": { "table_name": "loans" } })).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(!is_tool_error(&body), "{body}");
+    let cols = structured(&body)["columns"].as_array().expect("columns array");
+    assert!(!cols.is_empty(), "loans should have columns");
+    let item_id = cols.iter().find(|c| c["column_name"].as_str() == Some("item_id")).expect("item_id column");
+    let comment = item_id["column_comment"].as_str().unwrap_or("");
+    let references = item_id["references"].as_str().unwrap_or("");
+    assert!(comment.contains("items") || references.contains("items"), "item_id should document FK to items: {item_id}");
+}
+
+#[tokio::test]
+async fn list_my_loans_scoped_to_jwt_user() {
+    let Some((_guard, app)) = spawn_app().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (id_a, token_a) = fixtures::create_reader(&app, &admin_token, "mcploans_a").await;
+    let (id_b, _token_b) = fixtures::create_reader(&app, &admin_token, "mcploans_b").await;
+
+    let pool = app.state.services.repository.pool();
+    sqlx::query("INSERT INTO loans (user_id, date) VALUES ($1, NOW()), ($2, NOW())")
+        .bind(id_a)
+        .bind(id_b)
+        .execute(pool)
+        .await
+        .expect("seed loans");
+
+    let (status, body) = mcp_call(&app, Some(&token_a), "tools/call", json!({ "name": "list_my_loans", "arguments": {} })).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(!is_tool_error(&body), "{body}");
+    let loans = structured(&body)["loans"].as_array().expect("loans array");
+    assert_eq!(loans.len(), 1, "reader A should see only their loan");
+}

@@ -13,11 +13,7 @@ use crate::{
 pub trait AccountTypesCatalogRepository: Send + Sync {
     async fn account_types_list(&self) -> AppResult<Vec<AccountTypeDefinition>>;
     async fn account_types_get_by_code(&self, code: &str) -> AppResult<AccountTypeDefinition>;
-    async fn account_types_update(
-        &self,
-        code: &str,
-        data: &UpdateAccountTypeDefinition,
-    ) -> AppResult<AccountTypeDefinition>;
+    async fn account_types_update(&self, code: &str, data: &UpdateAccountTypeDefinition) -> AppResult<AccountTypeDefinition>;
 }
 
 #[async_trait]
@@ -28,11 +24,7 @@ impl AccountTypesCatalogRepository for Repository {
     async fn account_types_get_by_code(&self, code: &str) -> AppResult<AccountTypeDefinition> {
         Repository::account_types_get_by_code(self, code).await
     }
-    async fn account_types_update(
-        &self,
-        code: &str,
-        data: &UpdateAccountTypeDefinition,
-    ) -> AppResult<AccountTypeDefinition> {
+    async fn account_types_update(&self, code: &str, data: &UpdateAccountTypeDefinition) -> AppResult<AccountTypeDefinition> {
         Repository::account_types_update(self, code, data).await
     }
 }
@@ -42,7 +34,7 @@ impl Repository {
         sqlx::query_as::<_, AccountTypeDefinition>(
             r#"
             SELECT code, name, items_rights, users_rights, loans_rights,
-                   items_archive_rights, holds_rights, settings_rights, events_rights
+                   items_archive_rights, holds_rights, settings_rights, events_rights, chat_rights
             FROM account_types
             ORDER BY code
             "#,
@@ -56,7 +48,7 @@ impl Repository {
         sqlx::query_as::<_, AccountTypeDefinition>(
             r#"
             SELECT code, name, items_rights, users_rights, loans_rights,
-                   items_archive_rights, holds_rights, settings_rights, events_rights
+                   items_archive_rights, holds_rights, settings_rights, events_rights, chat_rights
             FROM account_types
             WHERE code = $1
             "#,
@@ -68,11 +60,7 @@ impl Repository {
     }
 
     /// Apply a partial update; at least one column must be set by the caller.
-    pub async fn account_types_update(
-        &self,
-        code: &str,
-        data: &UpdateAccountTypeDefinition,
-    ) -> AppResult<AccountTypeDefinition> {
+    pub async fn account_types_update(&self, code: &str, data: &UpdateAccountTypeDefinition) -> AppResult<AccountTypeDefinition> {
         let mut sets = Vec::new();
         let mut idx: usize = 1;
 
@@ -93,6 +81,7 @@ impl Repository {
         add_opt!(data.holds_rights, "holds_rights");
         add_opt!(data.settings_rights, "settings_rights");
         add_opt!(data.events_rights, "events_rights");
+        add_opt!(data.chat_rights, "chat_rights");
 
         if sets.is_empty() {
             return Err(AppError::Validation("No fields to update".to_string()));
@@ -100,7 +89,7 @@ impl Repository {
 
         let q = format!(
             "UPDATE account_types SET {} WHERE code = ${} RETURNING code, name, items_rights, users_rights, loans_rights, \
-             items_archive_rights, holds_rights, settings_rights, events_rights",
+             items_archive_rights, holds_rights, settings_rights, events_rights, chat_rights",
             sets.join(", "),
             idx
         );
@@ -123,11 +112,10 @@ impl Repository {
         bind_opt!(data.holds_rights);
         bind_opt!(data.settings_rights);
         bind_opt!(data.events_rights);
+        bind_opt!(data.chat_rights);
 
         b = b.bind(code);
 
-        b.fetch_optional(&self.pool)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("Account type '{code}' not found")))
+        b.fetch_optional(&self.pool).await?.ok_or_else(|| AppError::NotFound(format!("Account type '{code}' not found")))
     }
 }

@@ -6,10 +6,7 @@ use chrono::{NaiveDate, NaiveTime, Utc};
 use super::Repository;
 use crate::{
     error::{AppError, AppResult},
-    models::schedule::{
-        CreateScheduleClosure, CreateSchedulePeriod, CreateScheduleSlot, ScheduleClosure,
-        SchedulePeriod, ScheduleSlot, UpdateSchedulePeriod,
-    },
+    models::schedule::{CreateScheduleClosure, CreateSchedulePeriod, CreateScheduleSlot, ScheduleClosure, SchedulePeriod, ScheduleSlot, UpdateSchedulePeriod},
 };
 
 #[cfg_attr(test, mockall::automock)]
@@ -17,87 +14,46 @@ use crate::{
 pub trait SchedulesRepository: Send + Sync {
     async fn schedules_list_periods(&self) -> AppResult<Vec<SchedulePeriod>>;
     async fn schedules_get_period(&self, id: i64) -> AppResult<SchedulePeriod>;
-    async fn schedules_create_period(
-        &self,
-        data: &CreateSchedulePeriod,
-    ) -> AppResult<SchedulePeriod>;
-    async fn schedules_update_period(
-        &self,
-        id: i64,
-        data: &UpdateSchedulePeriod,
-    ) -> AppResult<SchedulePeriod>;
+    async fn schedules_create_period(&self, data: &CreateSchedulePeriod) -> AppResult<SchedulePeriod>;
+    async fn schedules_update_period(&self, id: i64, data: &UpdateSchedulePeriod) -> AppResult<SchedulePeriod>;
     async fn schedules_delete_period(&self, id: i64) -> AppResult<()>;
     async fn schedules_list_slots(&self, period_id: i64) -> AppResult<Vec<ScheduleSlot>>;
-    async fn schedules_create_slot(
-        &self,
-        period_id: i64,
-        data: &CreateScheduleSlot,
-    ) -> AppResult<ScheduleSlot>;
+    async fn schedules_create_slot(&self, period_id: i64, data: &CreateScheduleSlot) -> AppResult<ScheduleSlot>;
     async fn schedules_delete_slot(&self, id: i64) -> AppResult<()>;
-    async fn schedules_list_closures(
-        &self,
-        start_date: Option<NaiveDate>,
-        end_date: Option<NaiveDate>,
-    ) -> AppResult<Vec<ScheduleClosure>>;
+    async fn schedules_list_closures(&self, start_date: Option<NaiveDate>, end_date: Option<NaiveDate>) -> AppResult<Vec<ScheduleClosure>>;
     async fn schedules_count_opening_days(&self, year: i32) -> AppResult<i64>;
     async fn schedules_weekly_hours(&self, year: i32) -> AppResult<f64>;
-    async fn schedules_create_closure(
-        &self,
-        data: &CreateScheduleClosure,
-    ) -> AppResult<ScheduleClosure>;
+    async fn schedules_create_closure(&self, data: &CreateScheduleClosure) -> AppResult<ScheduleClosure>;
     async fn schedules_delete_closure(&self, id: i64) -> AppResult<()>;
 }
 
 #[async_trait::async_trait]
 impl SchedulesRepository for super::Repository {
-    async fn schedules_list_periods(
-        &self,
-    ) -> crate::error::AppResult<Vec<crate::models::schedule::SchedulePeriod>> {
+    async fn schedules_list_periods(&self) -> crate::error::AppResult<Vec<crate::models::schedule::SchedulePeriod>> {
         super::Repository::schedules_list_periods(self).await
     }
-    async fn schedules_get_period(
-        &self,
-        id: i64,
-    ) -> crate::error::AppResult<crate::models::schedule::SchedulePeriod> {
+    async fn schedules_get_period(&self, id: i64) -> crate::error::AppResult<crate::models::schedule::SchedulePeriod> {
         super::Repository::schedules_get_period(self, id).await
     }
-    async fn schedules_create_period(
-        &self,
-        data: &crate::models::schedule::CreateSchedulePeriod,
-    ) -> crate::error::AppResult<crate::models::schedule::SchedulePeriod> {
+    async fn schedules_create_period(&self, data: &crate::models::schedule::CreateSchedulePeriod) -> crate::error::AppResult<crate::models::schedule::SchedulePeriod> {
         super::Repository::schedules_create_period(self, data).await
     }
-    async fn schedules_update_period(
-        &self,
-        id: i64,
-        data: &crate::models::schedule::UpdateSchedulePeriod,
-    ) -> crate::error::AppResult<crate::models::schedule::SchedulePeriod> {
+    async fn schedules_update_period(&self, id: i64, data: &crate::models::schedule::UpdateSchedulePeriod) -> crate::error::AppResult<crate::models::schedule::SchedulePeriod> {
         super::Repository::schedules_update_period(self, id, data).await
     }
     async fn schedules_delete_period(&self, id: i64) -> crate::error::AppResult<()> {
         super::Repository::schedules_delete_period(self, id).await
     }
-    async fn schedules_list_slots(
-        &self,
-        period_id: i64,
-    ) -> crate::error::AppResult<Vec<crate::models::schedule::ScheduleSlot>> {
+    async fn schedules_list_slots(&self, period_id: i64) -> crate::error::AppResult<Vec<crate::models::schedule::ScheduleSlot>> {
         super::Repository::schedules_list_slots(self, period_id).await
     }
-    async fn schedules_create_slot(
-        &self,
-        period_id: i64,
-        data: &crate::models::schedule::CreateScheduleSlot,
-    ) -> crate::error::AppResult<crate::models::schedule::ScheduleSlot> {
+    async fn schedules_create_slot(&self, period_id: i64, data: &crate::models::schedule::CreateScheduleSlot) -> crate::error::AppResult<crate::models::schedule::ScheduleSlot> {
         super::Repository::schedules_create_slot(self, period_id, data).await
     }
     async fn schedules_delete_slot(&self, id: i64) -> crate::error::AppResult<()> {
         super::Repository::schedules_delete_slot(self, id).await
     }
-    async fn schedules_list_closures(
-        &self,
-        start_date: Option<chrono::NaiveDate>,
-        end_date: Option<chrono::NaiveDate>,
-    ) -> crate::error::AppResult<Vec<crate::models::schedule::ScheduleClosure>> {
+    async fn schedules_list_closures(&self, start_date: Option<chrono::NaiveDate>, end_date: Option<chrono::NaiveDate>) -> crate::error::AppResult<Vec<crate::models::schedule::ScheduleClosure>> {
         super::Repository::schedules_list_closures(self, start_date, end_date).await
     }
     async fn schedules_count_opening_days(&self, year: i32) -> crate::error::AppResult<i64> {
@@ -106,10 +62,7 @@ impl SchedulesRepository for super::Repository {
     async fn schedules_weekly_hours(&self, year: i32) -> crate::error::AppResult<f64> {
         super::Repository::schedules_weekly_hours(self, year).await
     }
-    async fn schedules_create_closure(
-        &self,
-        data: &crate::models::schedule::CreateScheduleClosure,
-    ) -> crate::error::AppResult<crate::models::schedule::ScheduleClosure> {
+    async fn schedules_create_closure(&self, data: &crate::models::schedule::CreateScheduleClosure) -> crate::error::AppResult<crate::models::schedule::ScheduleClosure> {
         super::Repository::schedules_create_closure(self, data).await
     }
     async fn schedules_delete_closure(&self, id: i64) -> crate::error::AppResult<()> {
@@ -123,11 +76,9 @@ impl Repository {
     /// List all schedule periods, ordered by start_date desc
     #[tracing::instrument(skip(self), err)]
     pub async fn schedules_list_periods(&self) -> AppResult<Vec<SchedulePeriod>> {
-        let rows = sqlx::query_as::<_, SchedulePeriod>(
-            "SELECT * FROM schedule_periods ORDER BY start_date DESC",
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let rows = sqlx::query_as::<_, SchedulePeriod>("SELECT * FROM schedule_periods ORDER BY start_date DESC")
+            .fetch_all(&self.pool)
+            .await?;
         Ok(rows)
     }
 
@@ -143,14 +94,9 @@ impl Repository {
 
     /// Create a schedule period
     #[tracing::instrument(skip(self), err)]
-    pub async fn schedules_create_period(
-        &self,
-        data: &CreateSchedulePeriod,
-    ) -> AppResult<SchedulePeriod> {
-        let start = NaiveDate::parse_from_str(&data.start_date, "%Y-%m-%d")
-            .map_err(|_| AppError::Validation("Invalid start_date".to_string()))?;
-        let end = NaiveDate::parse_from_str(&data.end_date, "%Y-%m-%d")
-            .map_err(|_| AppError::Validation("Invalid end_date".to_string()))?;
+    pub async fn schedules_create_period(&self, data: &CreateSchedulePeriod) -> AppResult<SchedulePeriod> {
+        let start = NaiveDate::parse_from_str(&data.start_date, "%Y-%m-%d").map_err(|_| AppError::Validation("Invalid start_date".to_string()))?;
+        let end = NaiveDate::parse_from_str(&data.end_date, "%Y-%m-%d").map_err(|_| AppError::Validation("Invalid end_date".to_string()))?;
 
         let row = sqlx::query_as::<_, SchedulePeriod>(
             r#"
@@ -170,11 +116,7 @@ impl Repository {
 
     /// Update a schedule period
     #[tracing::instrument(skip(self), err)]
-    pub async fn schedules_update_period(
-        &self,
-        id: i64,
-        data: &UpdateSchedulePeriod,
-    ) -> AppResult<SchedulePeriod> {
+    pub async fn schedules_update_period(&self, id: i64, data: &UpdateSchedulePeriod) -> AppResult<SchedulePeriod> {
         let now = Utc::now();
         let mut sets = vec!["update_at = $1".to_string()];
         let mut idx = 2;
@@ -195,20 +137,10 @@ impl Repository {
             sets.push(format!("notes = ${}", idx));
         }
 
-        let query = format!(
-            "UPDATE schedule_periods SET {} WHERE id = {} RETURNING *",
-            sets.join(", "),
-            id
-        );
+        let query = format!("UPDATE schedule_periods SET {} WHERE id = {} RETURNING *", sets.join(", "), id);
 
-        let start = data
-            .start_date
-            .as_ref()
-            .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
-        let end = data
-            .end_date
-            .as_ref()
-            .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+        let start = data.start_date.as_ref().and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+        let end = data.end_date.as_ref().and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
 
         let mut builder = sqlx::query_as::<_, SchedulePeriod>(&query).bind(now);
         if let Some(ref name) = data.name {
@@ -224,24 +156,15 @@ impl Repository {
             builder = builder.bind(notes);
         }
 
-        builder
-            .fetch_optional(&self.pool)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("Schedule period {} not found", id)))
+        builder.fetch_optional(&self.pool).await?.ok_or_else(|| AppError::NotFound(format!("Schedule period {} not found", id)))
     }
 
     /// Delete a schedule period (cascade deletes slots)
     #[tracing::instrument(skip(self), err)]
     pub async fn schedules_delete_period(&self, id: i64) -> AppResult<()> {
-        let result = sqlx::query("DELETE FROM schedule_periods WHERE id = $1")
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
+        let result = sqlx::query("DELETE FROM schedule_periods WHERE id = $1").bind(id).execute(&self.pool).await?;
         if result.rows_affected() == 0 {
-            return Err(AppError::NotFound(format!(
-                "Schedule period {} not found",
-                id
-            )));
+            return Err(AppError::NotFound(format!("Schedule period {} not found", id)));
         }
         Ok(())
     }
@@ -251,26 +174,18 @@ impl Repository {
     /// List slots for a given period
     #[tracing::instrument(skip(self), err)]
     pub async fn schedules_list_slots(&self, period_id: i64) -> AppResult<Vec<ScheduleSlot>> {
-        let rows = sqlx::query_as::<_, ScheduleSlot>(
-            "SELECT * FROM schedule_slots WHERE period_id = $1 ORDER BY day_of_week, open_time",
-        )
-        .bind(period_id)
-        .fetch_all(&self.pool)
-        .await?;
+        let rows = sqlx::query_as::<_, ScheduleSlot>("SELECT * FROM schedule_slots WHERE period_id = $1 ORDER BY day_of_week, open_time")
+            .bind(period_id)
+            .fetch_all(&self.pool)
+            .await?;
         Ok(rows)
     }
 
     /// Create a slot for a period
     #[tracing::instrument(skip(self), err)]
-    pub async fn schedules_create_slot(
-        &self,
-        period_id: i64,
-        data: &CreateScheduleSlot,
-    ) -> AppResult<ScheduleSlot> {
-        let open = NaiveTime::parse_from_str(&data.open_time, "%H:%M")
-            .map_err(|_| AppError::Validation("Invalid open_time (use HH:MM)".to_string()))?;
-        let close = NaiveTime::parse_from_str(&data.close_time, "%H:%M")
-            .map_err(|_| AppError::Validation("Invalid close_time (use HH:MM)".to_string()))?;
+    pub async fn schedules_create_slot(&self, period_id: i64, data: &CreateScheduleSlot) -> AppResult<ScheduleSlot> {
+        let open = NaiveTime::parse_from_str(&data.open_time, "%H:%M").map_err(|_| AppError::Validation("Invalid open_time (use HH:MM)".to_string()))?;
+        let close = NaiveTime::parse_from_str(&data.close_time, "%H:%M").map_err(|_| AppError::Validation("Invalid close_time (use HH:MM)".to_string()))?;
 
         let row = sqlx::query_as::<_, ScheduleSlot>(
             r#"
@@ -291,15 +206,9 @@ impl Repository {
     /// Delete a slot
     #[tracing::instrument(skip(self), err)]
     pub async fn schedules_delete_slot(&self, id: i64) -> AppResult<()> {
-        let result = sqlx::query("DELETE FROM schedule_slots WHERE id = $1")
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
+        let result = sqlx::query("DELETE FROM schedule_slots WHERE id = $1").bind(id).execute(&self.pool).await?;
         if result.rows_affected() == 0 {
-            return Err(AppError::NotFound(format!(
-                "Schedule slot {} not found",
-                id
-            )));
+            return Err(AppError::NotFound(format!("Schedule slot {} not found", id)));
         }
         Ok(())
     }
@@ -308,11 +217,7 @@ impl Repository {
 
     /// List closures, optionally filtered by date range
     #[tracing::instrument(skip(self), err)]
-    pub async fn schedules_list_closures(
-        &self,
-        start_date: Option<NaiveDate>,
-        end_date: Option<NaiveDate>,
-    ) -> AppResult<Vec<ScheduleClosure>> {
+    pub async fn schedules_list_closures(&self, start_date: Option<NaiveDate>, end_date: Option<NaiveDate>) -> AppResult<Vec<ScheduleClosure>> {
         let mut conditions = Vec::new();
         let mut idx = 1;
 
@@ -324,16 +229,9 @@ impl Repository {
             conditions.push(format!("closure_date <= ${}", idx));
         }
 
-        let where_clause = if conditions.is_empty() {
-            String::new()
-        } else {
-            format!("WHERE {}", conditions.join(" AND "))
-        };
+        let where_clause = if conditions.is_empty() { String::new() } else { format!("WHERE {}", conditions.join(" AND ")) };
 
-        let query = format!(
-            "SELECT * FROM schedule_closures {} ORDER BY closure_date",
-            where_clause
-        );
+        let query = format!("SELECT * FROM schedule_closures {} ORDER BY closure_date", where_clause);
 
         let mut builder = sqlx::query_as::<_, ScheduleClosure>(&query);
         if let Some(sd) = start_date {
@@ -407,30 +305,21 @@ impl Repository {
 
     /// Create a closure
     #[tracing::instrument(skip(self), err)]
-    pub async fn schedules_create_closure(
-        &self,
-        data: &CreateScheduleClosure,
-    ) -> AppResult<ScheduleClosure> {
-        let date = NaiveDate::parse_from_str(&data.closure_date, "%Y-%m-%d")
-            .map_err(|_| AppError::Validation("Invalid closure_date".to_string()))?;
+    pub async fn schedules_create_closure(&self, data: &CreateScheduleClosure) -> AppResult<ScheduleClosure> {
+        let date = NaiveDate::parse_from_str(&data.closure_date, "%Y-%m-%d").map_err(|_| AppError::Validation("Invalid closure_date".to_string()))?;
 
-        let row = sqlx::query_as::<_, ScheduleClosure>(
-            "INSERT INTO schedule_closures (closure_date, reason) VALUES ($1, $2) RETURNING *",
-        )
-        .bind(date)
-        .bind(&data.reason)
-        .fetch_one(&self.pool)
-        .await?;
+        let row = sqlx::query_as::<_, ScheduleClosure>("INSERT INTO schedule_closures (closure_date, reason) VALUES ($1, $2) RETURNING *")
+            .bind(date)
+            .bind(&data.reason)
+            .fetch_one(&self.pool)
+            .await?;
         Ok(row)
     }
 
     /// Delete a closure
     #[tracing::instrument(skip(self), err)]
     pub async fn schedules_delete_closure(&self, id: i64) -> AppResult<()> {
-        let result = sqlx::query("DELETE FROM schedule_closures WHERE id = $1")
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
+        let result = sqlx::query("DELETE FROM schedule_closures WHERE id = $1").bind(id).execute(&self.pool).await?;
         if result.rows_affected() == 0 {
             return Err(AppError::NotFound(format!("Closure {} not found", id)));
         }

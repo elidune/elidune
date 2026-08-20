@@ -1,10 +1,12 @@
 //! Read-only MCP server: Streamable HTTP JSON-RPC over JWT, SQL under PostgreSQL RLS.
 
+mod domain;
 mod executor;
 mod protocol;
 mod roles;
+pub mod schema_memo;
 mod sql_guard;
-mod tools;
+pub mod tools;
 
 use axum::routing::post;
 use axum::Router;

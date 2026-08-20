@@ -219,6 +219,9 @@ pub struct AppConfig {
     /// Streamable HTTP MCP (read-only SQL). Disabled only when `enabled = false`.
     #[serde(default)]
     pub mcp: McpConfig,
+    /// In-app chat assistant (LLM + MCP tools).
+    #[serde(default)]
+    pub chat: ChatConfig,
 }
 
 fn default_mcp_enabled() -> bool {
@@ -260,9 +263,87 @@ impl Default for McpConfig {
 impl McpConfig {
     /// Explicit MCP URL, or `elidune_mcp:elidune_mcp` substituted into the app URL.
     pub fn resolved_database_url(&self, app_database_url: &str) -> String {
-        self.database_url
-            .clone()
-            .unwrap_or_else(|| crate::mcp::derive_mcp_database_url(app_database_url))
+        self.database_url.clone().unwrap_or_else(|| crate::mcp::derive_mcp_database_url(app_database_url))
+    }
+}
+
+fn default_chat_enabled() -> bool {
+    true
+}
+
+fn default_chat_max_tool_rounds() -> u32 {
+    8
+}
+
+fn default_chat_max_history() -> u32 {
+    40
+}
+
+fn default_chat_timeout_secs() -> u64 {
+    120
+}
+
+fn default_chat_query_max_rows() -> u32 {
+    25
+}
+
+fn default_chat_tool_result_max() -> usize {
+    4000
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ChatProviderConfig {
+    pub slug: String,
+    pub label: String,
+    pub kind: String,
+    pub base_url: String,
+    #[serde(default)]
+    pub api_key: Option<String>,
+    #[serde(default)]
+    pub api_key_env: Option<String>,
+    #[serde(default)]
+    pub models: Vec<String>,
+    #[serde(default)]
+    pub default_model: Option<String>,
+    #[serde(default = "default_true_bool")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub sort_order: i32,
+}
+
+fn default_true_bool() -> bool {
+    true
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ChatConfig {
+    #[serde(default = "default_chat_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_chat_max_tool_rounds")]
+    pub max_tool_rounds: u32,
+    #[serde(default = "default_chat_max_history")]
+    pub max_history_messages: u32,
+    #[serde(default = "default_chat_timeout_secs")]
+    pub request_timeout_secs: u64,
+    #[serde(default = "default_chat_query_max_rows")]
+    pub query_max_rows: u32,
+    #[serde(default = "default_chat_tool_result_max")]
+    pub tool_result_max_chars: usize,
+    #[serde(default)]
+    pub providers: Vec<ChatProviderConfig>,
+}
+
+impl Default for ChatConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_chat_enabled(),
+            max_tool_rounds: default_chat_max_tool_rounds(),
+            max_history_messages: default_chat_max_history(),
+            request_timeout_secs: default_chat_timeout_secs(),
+            query_max_rows: default_chat_query_max_rows(),
+            tool_result_max_chars: default_chat_tool_result_max(),
+            providers: Vec::new(),
+        }
     }
 }
 
@@ -271,17 +352,10 @@ impl AppConfig {
     pub fn load(path: Option<impl AsRef<Path>>) -> Result<Self, ConfigError> {
         let mut builder = Config::builder();
         if let Some(path) = path {
-            builder = builder
-                .add_source(File::from(path.as_ref().to_path_buf().as_path()).required(false));
+            builder = builder.add_source(File::from(path.as_ref().to_path_buf().as_path()).required(false));
         }
 
-        let config = builder
-            .add_source(
-                Environment::with_prefix("ELIDUNE")
-                    .prefix_separator("_")
-                    .separator("__"),
-            )
-            .build()?;
+        let config = builder.add_source(Environment::with_prefix("ELIDUNE").prefix_separator("_").separator("__")).build()?;
 
         config.try_deserialize()
     }
@@ -295,9 +369,7 @@ impl AppConfig {
             return Err("users.jwt_secret is the sample default — set a strong secret via config or ELIDUNE_USERS__JWT_SECRET".into());
         }
         if self.users.jwt_secret.len() < MIN_SECRET_LEN {
-            return Err(format!(
-                "users.jwt_secret must be at least {MIN_SECRET_LEN} characters"
-            ));
+            return Err(format!("users.jwt_secret must be at least {MIN_SECRET_LEN} characters"));
         }
 
         let prod_mode = std::env::var("ELIDUNE_PRODUCTION").ok().as_deref() == Some("true");
@@ -312,10 +384,8 @@ impl AppConfig {
 
     /// Minimal configuration for integration tests (uses `DATABASE_URL` / `REDIS_URL` env vars).
     pub fn for_test() -> Self {
-        let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://elidune:elidune@localhost:5432/elidune_test".into());
-        let redis_url =
-            std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".into());
+        let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://elidune:elidune@localhost:5432/elidune_test".into());
+        let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".into());
 
         Self {
             server: ServerConfig::default(),
@@ -356,6 +426,7 @@ impl AppConfig {
             },
             meilisearch: None,
             mcp: McpConfig::default(),
+            chat: ChatConfig::default(),
         }
     }
 }

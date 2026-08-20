@@ -32,10 +32,7 @@ pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::{get, post};
     axum::Router::new()
         .route("/biblios", get(list_biblios).post(create_biblio))
-        .route(
-            "/biblios/:id",
-            get(get_biblio).put(update_biblio).delete(delete_biblio),
-        )
+        .route("/biblios/:id", get(get_biblio).put(update_biblio).delete(delete_biblio))
         .route("/biblios/:id/items", get(list_items).post(create_item))
         .route("/biblios/export.csv", get(export_biblios_csv))
         .route("/biblios/load-marc", post(load_marc))
@@ -77,11 +74,7 @@ where
 impl<T: for<'a> ToSchema<'a>> PaginatedResponse<T> {
     /// Construct a paginated response, calculating `page_count` automatically.
     pub fn new(items: Vec<T>, total: i64, page: i64, per_page: i64) -> Self {
-        let page_count = if per_page > 0 {
-            (total + per_page - 1) / per_page
-        } else {
-            0
-        };
+        let page_count = if per_page > 0 { (total + per_page - 1) / per_page } else { 0 };
         Self {
             items,
             total,
@@ -117,11 +110,7 @@ impl<T: for<'a> ToSchema<'a>> PaginatedResponse<T> {
         (status = 401, description = "Not authenticated")
     )
 )]
-pub async fn list_biblios(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Query(query): Query<BiblioQuery>,
-) -> AppResult<Json<PaginatedResponse<BiblioShort>>> {
+pub async fn list_biblios(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<BiblioQuery>) -> AppResult<Json<PaginatedResponse<BiblioShort>>> {
     claims.require_read_items()?;
 
     let (biblios, total) = state.services.catalog.search_biblios(&query).await?;
@@ -146,12 +135,7 @@ pub async fn list_biblios(
         (status = 404, description = "Biblio not found")
     )
 )]
-pub async fn get_biblio(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i64>,
-    Query(_query): Query<GetBiblioQuery>,
-) -> AppResult<Json<Biblio>> {
+pub async fn get_biblio(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(id): Path<i64>, Query(_query): Query<GetBiblioQuery>) -> AppResult<Json<Biblio>> {
     claims.require_read_items()?;
 
     let biblio = state.services.catalog.get_biblio(id).await?;
@@ -229,16 +213,7 @@ pub async fn create_biblio(
     Json(biblio): Json<Biblio>,
 ) -> AppResult<(StatusCode, Json<CreateBiblioResponse>)> {
     claims.require_write_items()?;
-    match state
-        .services
-        .catalog
-        .create_biblio(
-            biblio,
-            query.allow_duplicate_isbn,
-            query.confirm_replace_existing_id,
-        )
-        .await
-    {
+    match state.services.catalog.create_biblio(biblio, query.allow_duplicate_isbn, query.confirm_replace_existing_id).await {
         Ok((biblio, import_report)) => {
             state.services.audit.log(
                 audit::event::BIBLIO_CREATED,
@@ -249,13 +224,7 @@ pub async fn create_biblio(
                 Some(&biblio),
                 audit::AuditLogMeta::success(),
             );
-            Ok((
-                StatusCode::CREATED,
-                Json(CreateBiblioResponse {
-                    biblio,
-                    import_report,
-                }),
-            ))
+            Ok((StatusCode::CREATED, Json(CreateBiblioResponse { biblio, import_report })))
         }
         Err(e) => {
             state.services.audit.log(
@@ -287,33 +256,19 @@ pub async fn create_biblio(
         (status = 401, description = "Not authenticated")
     )
 )]
-pub async fn load_marc(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    ClientIp(ip): ClientIp,
-    mut multipart: Multipart,
-) -> AppResult<Json<EnqueueResult>> {
+pub async fn load_marc(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, mut multipart: Multipart) -> AppResult<Json<EnqueueResult>> {
     claims.require_read_items()?;
 
     let mut data = Vec::new();
-    while let Some(field) = multipart
-        .next_field()
-        .await
-        .map_err(|e| AppError::BadRequest(format!("Multipart error: {}", e)))?
-    {
+    while let Some(field) = multipart.next_field().await.map_err(|e| AppError::BadRequest(format!("Multipart error: {}", e)))? {
         if field.name().as_deref() == Some("file") {
-            let bytes = field
-                .bytes()
-                .await
-                .map_err(|e| AppError::BadRequest(format!("Failed to read field: {}", e)))?;
+            let bytes = field.bytes().await.map_err(|e| AppError::BadRequest(format!("Failed to read field: {}", e)))?;
             data = bytes.to_vec();
             break;
         }
     }
     if data.is_empty() {
-        return Err(AppError::BadRequest(
-            "Missing 'file' field in multipart form".to_string(),
-        ));
+        return Err(AppError::BadRequest("Missing 'file' field in multipart form".to_string()));
     }
 
     let enqueue_result = state.services.marc.enqueue_unimarc_batch(&data).await?;
@@ -372,79 +327,68 @@ pub async fn import_marc_batch(
     let task_id = state
         .services
         .tasks
-        .spawn_task(
-            TaskKind::MarcBatchImport,
-            claims.user_id,
-            move |handle| async move {
-                match marc
-                    .import_from_batch(
-                        p.batch_id,
-                        p.source_id,
-                        p.record_id,
-                        p.allow_duplicate_isbn,
-                        p.confirm_replace_existing_id,
-                        Some(handle.clone()),
-                    )
-                    .await
-                {
-                    Ok(report) => {
-                        audit.log(
-                            audit::event::IMPORT_MARC_BATCH,
-                            Some(claims.user_id),
-                            None,
-                            None,
-                            ip.clone(),
-                            Some(serde_json::json!({
-                                "params": &p,
-                                "report": &report,
-                            })),
-                            audit::AuditLogMeta::success(),
-                        );
-                        audit.log(
-                            audit::event::SYSTEM_TASK_COMPLETED,
-                            Some(claims.user_id),
-                            None,
-                            None,
-                            None,
-                            Some(serde_json::json!({
-                                "task_id": handle.id,
-                                "task_kind": "marc_batch_import",
-                                "batch_id": p.batch_id,
-                            })),
-                            audit::AuditLogMeta::success(),
-                        );
-                        let result = serde_json::to_value(&report).unwrap_or_default();
-                        handle.complete(result).await;
-                    }
-                    Err(e) => {
-                        audit.log(
-                            audit::event::IMPORT_MARC_BATCH,
-                            Some(claims.user_id),
-                            None,
-                            None,
-                            ip.clone(),
-                            Some(&p),
-                            audit::AuditLogMeta::from_app_error(&e),
-                        );
-                        audit.log(
-                            audit::event::SYSTEM_TASK_FAILED,
-                            Some(claims.user_id),
-                            None,
-                            None,
-                            None,
-                            Some(serde_json::json!({
-                                "task_id": handle.id,
-                                "task_kind": "marc_batch_import",
-                                "batch_id": p.batch_id,
-                                "error": e.to_string(),
-                            })),
-                            audit::AuditLogMeta::failure_background("task_failed", e.to_string()),
-                        );
-                        handle.fail(e.to_string()).await;
-                    }
+        .spawn_task(TaskKind::MarcBatchImport, claims.user_id, move |handle| async move {
+            match marc
+                .import_from_batch(p.batch_id, p.source_id, p.record_id, p.allow_duplicate_isbn, p.confirm_replace_existing_id, Some(handle.clone()))
+                .await
+            {
+                Ok(report) => {
+                    audit.log(
+                        audit::event::IMPORT_MARC_BATCH,
+                        Some(claims.user_id),
+                        None,
+                        None,
+                        ip.clone(),
+                        Some(serde_json::json!({
+                            "params": &p,
+                            "report": &report,
+                        })),
+                        audit::AuditLogMeta::success(),
+                    );
+                    audit.log(
+                        audit::event::SYSTEM_TASK_COMPLETED,
+                        Some(claims.user_id),
+                        None,
+                        None,
+                        None,
+                        Some(serde_json::json!({
+                            "task_id": handle.id,
+                            "task_kind": "marc_batch_import",
+                            "batch_id": p.batch_id,
+                        })),
+                        audit::AuditLogMeta::success(),
+                    );
+                    let result = serde_json::to_value(&report).unwrap_or_default();
+                    handle.complete(result).await;
                 }
-            },
-        )
+                Err(e) => {
+                    audit.log(
+                        audit::event::IMPORT_MARC_BATCH,
+                        Some(claims.user_id),
+                        None,
+                        None,
+                        ip.clone(),
+                        Some(&p),
+                        audit::AuditLogMeta::from_app_error(&e),
+                    );
+                    audit.log(
+                        audit::event::SYSTEM_TASK_FAILED,
+                        Some(claims.user_id),
+                        None,
+                        None,
+                        None,
+                        Some(serde_json::json!({
+                            "task_id": handle.id,
+                            "task_kind": "marc_batch_import",
+                            "batch_id": p.batch_id,
+                            "error": e.to_string(),
+                        })),
+                        audit::AuditLogMeta::failure_background("task_failed", e.to_string()),
+                    );
+                    handle.fail(e.to_string()).await;
+                }
+            }
+        })
         .await;
 
     Ok((StatusCode::ACCEPTED, Json(TaskAcceptedResponse { task_id })))
@@ -476,12 +420,7 @@ pub async fn update_biblio(
     Json(biblio): Json<Biblio>,
 ) -> AppResult<Json<Biblio>> {
     claims.require_write_items()?;
-    match state
-        .services
-        .catalog
-        .update_biblio(id, biblio, query.allow_duplicate_isbn)
-        .await
-    {
+    match state.services.catalog.update_biblio(id, biblio, query.allow_duplicate_isbn).await {
         Ok(updated) => {
             state.services.audit.log(
                 audit::event::BIBLIO_UPDATED,
@@ -589,11 +528,7 @@ pub struct DeleteBiblioParams {
         (status = 404, description = "Biblio not found")
     )
 )]
-pub async fn list_items(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path(biblio_id): Path<i64>,
-) -> AppResult<Json<Vec<Item>>> {
+pub async fn list_items(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(biblio_id): Path<i64>) -> AppResult<Json<Vec<Item>>> {
     claims.require_read_items()?;
 
     let items = state.services.catalog.get_items(biblio_id).await?;
@@ -650,10 +585,7 @@ pub async fn create_item(
         (status = 401, description = "Not authenticated")
     )
 )]
-pub async fn list_marc_batches(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-) -> AppResult<Json<Vec<MarcBatchInfo>>> {
+pub async fn list_marc_batches(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser) -> AppResult<Json<Vec<MarcBatchInfo>>> {
     claims.require_read_items()?;
     let batches = state.services.marc.list_marc_batches().await?;
     Ok(Json(batches))
@@ -674,11 +606,7 @@ pub async fn list_marc_batches(
         (status = 401, description = "Not authenticated")
     )
 )]
-pub async fn load_marc_batch(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path(batch_id): Path<i64>,
-) -> AppResult<Json<EnqueueResult>> {
+pub async fn load_marc_batch(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(batch_id): Path<i64>) -> AppResult<Json<EnqueueResult>> {
     claims.require_read_items()?;
     let result = state.services.marc.load_marc_batch(batch_id).await?;
     Ok(Json(result))
@@ -703,11 +631,7 @@ pub async fn load_marc_batch(
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn export_biblios_csv(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Query(mut query): Query<BiblioQuery>,
-) -> AppResult<axum::response::Response> {
+pub async fn export_biblios_csv(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(mut query): Query<BiblioQuery>) -> AppResult<axum::response::Response> {
     claims.require_read_catalog()?;
 
     query.page = Some(1);
@@ -720,15 +644,7 @@ pub async fn export_biblios_csv(
         let author_name = biblio
             .author
             .as_ref()
-            .map(|a| {
-                format!(
-                    "{} {}",
-                    a.firstname.as_deref().unwrap_or(""),
-                    a.lastname.as_deref().unwrap_or("")
-                )
-                .trim()
-                .to_string()
-            })
+            .map(|a| format!("{} {}", a.firstname.as_deref().unwrap_or(""), a.lastname.as_deref().unwrap_or("")).trim().to_string())
             .unwrap_or_default();
         csv.push_str(&format!(
             "{},{},{},{},{},{},{}\n",
@@ -744,13 +660,7 @@ pub async fn export_biblios_csv(
 
     use axum::http::header;
     Ok((
-        [
-            (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
-            (
-                header::CONTENT_DISPOSITION,
-                "attachment; filename=\"catalog.csv\"",
-            ),
-        ],
+        [(header::CONTENT_TYPE, "text/csv; charset=utf-8"), (header::CONTENT_DISPOSITION, "attachment; filename=\"catalog.csv\"")],
         csv,
     )
         .into_response())

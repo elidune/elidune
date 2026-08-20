@@ -27,10 +27,7 @@ pub struct EmailService {
 
 impl EmailService {
     pub fn new(dynamic_config: Arc<DynamicConfig>, pool: Pool<Postgres>) -> Self {
-        Self {
-            dynamic_config,
-            pool,
-        }
+        Self { dynamic_config, pool }
     }
 
     /// Directory containing JSON email templates (e.g. `data/email_templates`).
@@ -44,59 +41,34 @@ impl EmailService {
 
     /// Resolve a template by id and (optional) language with cascade
     /// `lang → french → english`, looking up the DB first then the on-disk fallback.
-    pub async fn load_template(
-        &self,
-        template_id: &str,
-        lang: Option<Language>,
-    ) -> AppResult<EmailTemplate> {
+    pub async fn load_template(&self, template_id: &str, lang: Option<Language>) -> AppResult<EmailTemplate> {
         let dir = self.templates_dir_str();
         email_templates::load_template_async(&self.pool, Path::new(&dir), template_id, lang).await
     }
 
     /// Send a 2FA code via email
-    pub async fn send_2fa_code(
-        &self,
-        to: &str,
-        code: &str,
-        lang: Option<Language>,
-    ) -> AppResult<()> {
+    pub async fn send_2fa_code(&self, to: &str, code: &str, lang: Option<Language>) -> AppResult<()> {
         let template = self.load_template("2fa_code", lang).await?;
-        let (subject, body_plain, body_html) =
-            email_templates::substitute(&template, &[("code", code)]);
-        self.send_email_with_html(to, &subject, &body_plain, &body_html)
-            .await
+        let (subject, body_plain, body_html) = email_templates::substitute(&template, &[("code", code)]);
+        self.send_email_with_html(to, &subject, &body_plain, &body_html).await
     }
 
     /// Send a recovery code via email
-    pub async fn send_recovery_code(
-        &self,
-        to: &str,
-        code: &str,
-        lang: Option<Language>,
-    ) -> AppResult<()> {
+    pub async fn send_recovery_code(&self, to: &str, code: &str, lang: Option<Language>) -> AppResult<()> {
         let template = self.load_template("recovery_code", lang).await?;
-        let (subject, body_plain, body_html) =
-            email_templates::substitute(&template, &[("code", code)]);
-        self.send_email_with_html(to, &subject, &body_plain, &body_html)
-            .await
+        let (subject, body_plain, body_html) = email_templates::substitute(&template, &[("code", code)]);
+        self.send_email_with_html(to, &subject, &body_plain, &body_html).await
     }
 
     /// Send password reset email
-    pub async fn send_password_reset(
-        &self,
-        to: &str,
-        token: &str,
-        lang: Option<Language>,
-        reset_url: Option<&str>,
-    ) -> AppResult<()> {
+    pub async fn send_password_reset(&self, to: &str, token: &str, lang: Option<Language>, reset_url: Option<&str>) -> AppResult<()> {
         let template = self.load_template("password_reset", lang).await?;
         let vars: Vec<(&str, &str)> = match reset_url {
             Some(url) => vec![("token", token), ("reset_url", url)],
             None => vec![("token", token), ("reset_url", "")],
         };
         let (subject, body_plain, body_html) = email_templates::substitute(&template, &vars);
-        self.send_email_with_html(to, &subject, &body_plain, &body_html)
-            .await
+        self.send_email_with_html(to, &subject, &body_plain, &body_html).await
     }
 
     /// Send a test email using the current live SMTP configuration
@@ -109,18 +81,11 @@ impl EmailService {
             <p>This is a test email from Elidune to verify your SMTP configuration.</p>\
             <p>Ceci est un email de test envoyé par Elidune pour vérifier votre configuration SMTP.</p>\
             </body></html>";
-        self.send_email_with_html(to, subject, body_plain, body_html)
-            .await
+        self.send_email_with_html(to, subject, body_plain, body_html).await
     }
 
     /// Queue an email for asynchronous delivery via the `email_outbox` worker.
-    pub async fn enqueue(
-        &self,
-        to: &str,
-        subject: &str,
-        body_plain: &str,
-        body_html: &str,
-    ) -> AppResult<i64> {
+    pub async fn enqueue(&self, to: &str, subject: &str, body_plain: &str, body_html: &str) -> AppResult<i64> {
         let id: i64 = snowflaked::Generator::new(4).generate();
         let body = serde_json::json!({
             "plain": body_plain,
@@ -147,14 +112,7 @@ impl EmailService {
     }
 
     /// Queue an overdue-reminder email and reserve the covered loans until SMTP delivery succeeds.
-    pub async fn enqueue_overdue_reminder(
-        &self,
-        to: &str,
-        subject: &str,
-        body_plain: &str,
-        body_html: &str,
-        loan_ids: &[i64],
-    ) -> AppResult<i64> {
+    pub async fn enqueue_overdue_reminder(&self, to: &str, subject: &str, body_plain: &str, body_html: &str, loan_ids: &[i64]) -> AppResult<i64> {
         let mut tx = self.pool.begin().await.map_err(AppError::from)?;
         let id: i64 = snowflaked::Generator::new(4).generate();
         let body = serde_json::json!({
@@ -197,14 +155,7 @@ impl EmailService {
     }
 
     /// Queue an event-announcement email and reserve the event linkage until delivery is settled.
-    pub async fn enqueue_event_announcement(
-        &self,
-        to: &str,
-        subject: &str,
-        body_plain: &str,
-        body_html: &str,
-        event_id: i64,
-    ) -> AppResult<i64> {
+    pub async fn enqueue_event_announcement(&self, to: &str, subject: &str, body_plain: &str, body_html: &str, event_id: i64) -> AppResult<i64> {
         let mut tx = self.pool.begin().await.map_err(AppError::from)?;
         let id: i64 = snowflaked::Generator::new(4).generate();
         let body = serde_json::json!({
@@ -245,21 +196,13 @@ impl EmailService {
     }
 
     /// Low-level send: builds the SMTP transport from the current live config on each call.
-    pub async fn send_email_with_html(
-        &self,
-        to: &str,
-        subject: &str,
-        body_plain: &str,
-        body_html: &str,
-    ) -> AppResult<()> {
+    pub async fn send_email_with_html(&self, to: &str, subject: &str, body_plain: &str, body_html: &str) -> AppResult<()> {
         let config = self.dynamic_config.read_email();
 
         let from_name = config.smtp_from_name.as_deref().unwrap_or("Elidune");
-        let from_mailbox = Mailbox::from_str(&format!("{} <{}>", from_name, config.smtp_from))
-            .map_err(|e| AppError::Internal(format!("Invalid from address: {}", e)))?;
+        let from_mailbox = Mailbox::from_str(&format!("{} <{}>", from_name, config.smtp_from)).map_err(|e| AppError::Internal(format!("Invalid from address: {}", e)))?;
 
-        let to_mailbox = Mailbox::from_str(to)
-            .map_err(|e| AppError::Internal(format!("Invalid to address: {}", e)))?;
+        let to_mailbox = Mailbox::from_str(to).map_err(|e| AppError::Internal(format!("Invalid to address: {}", e)))?;
 
         let email = Message::builder()
             .from(from_mailbox)
@@ -267,31 +210,19 @@ impl EmailService {
             .subject(subject)
             .multipart(
                 MultiPart::alternative()
-                    .singlepart(
-                        SinglePart::builder()
-                            .header(ContentType::TEXT_PLAIN)
-                            .body(body_plain.to_string()),
-                    )
-                    .singlepart(
-                        SinglePart::builder()
-                            .header(ContentType::TEXT_HTML)
-                            .body(body_html.to_string()),
-                    ),
+                    .singlepart(SinglePart::builder().header(ContentType::TEXT_PLAIN).body(body_plain.to_string()))
+                    .singlepart(SinglePart::builder().header(ContentType::TEXT_HTML).body(body_html.to_string())),
             )
             .map_err(|e| AppError::Internal(format!("Failed to build email: {}", e)))?;
 
         let mailer_builder = if config.smtp_use_tls {
-            SmtpTransport::starttls_relay(&config.smtp_host).map_err(|e| {
-                AppError::Internal(format!("Failed to create SMTP transport: {}", e))
-            })?
+            SmtpTransport::starttls_relay(&config.smtp_host).map_err(|e| AppError::Internal(format!("Failed to create SMTP transport: {}", e)))?
         } else {
             SmtpTransport::builder_dangerous(&config.smtp_host)
         }
         .port(config.smtp_port);
 
-        let mailer_builder = if let (Some(username), Some(password)) =
-            (&config.smtp_username, &config.smtp_password)
-        {
+        let mailer_builder = if let (Some(username), Some(password)) = (&config.smtp_username, &config.smtp_password) {
             mailer_builder.credentials(Credentials::new(username.clone(), password.clone()))
         } else {
             mailer_builder
@@ -299,9 +230,7 @@ impl EmailService {
 
         let mailer = mailer_builder.build();
 
-        mailer
-            .send(&email)
-            .map_err(|e| AppError::Internal(format!("Failed to send email: {}", e)))?;
+        mailer.send(&email).map_err(|e| AppError::Internal(format!("Failed to send email: {}", e)))?;
 
         Ok(())
     }

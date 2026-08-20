@@ -44,9 +44,7 @@ impl EquipmentService {
     /// Count public internet stations (for stats)
     #[tracing::instrument(skip(self), err)]
     pub async fn count_public_internet_stations(&self) -> AppResult<i64> {
-        self.repository
-            .equipment_count_public_internet_stations()
-            .await
+        self.repository.equipment_count_public_internet_stations().await
     }
 
     /// Count public devices - tablets and ereaders (for stats)

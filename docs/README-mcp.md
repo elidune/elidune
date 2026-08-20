@@ -76,3 +76,5 @@ statement_timeout_ms = 5000
 ```
 
 Every `query` call is written to `audit_log` as `mcp.query` (SQL truncated, no result rows).
+
+The **in-app chat assistant** (`/chat`) calls the same tools in-process; see [README-chat.md](README-chat.md).

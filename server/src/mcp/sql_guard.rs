@@ -1,6 +1,6 @@
 //! Application-level SQL allowlist for MCP queries (defense in depth; RLS is the real boundary).
 
-use sqlparser::ast::Statement;
+use sqlparser::ast::{Query, Select, SelectItem, SetExpr, Statement};
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
 
@@ -33,13 +33,21 @@ pub fn guard_sql(sql: &str, max_rows: u32) -> Result<GuardedSql, AppError> {
     }
 
     match &statements[0] {
-        Statement::Query(_) => {
+        Statement::Query(query) => {
+            if query_uses_select_star(query) {
+                return Err(AppError::Validation("SELECT * is not allowed; list columns explicitly".into()));
+            }
             let inner = trimmed.trim_end_matches(';').trim();
             Ok(GuardedSql::Select { sql: wrap_select(inner, max_rows) })
         }
         Statement::Explain { statement, .. } => {
             if !matches!(statement.as_ref(), Statement::Query(_)) {
                 return Err(AppError::Validation("EXPLAIN is only allowed for SELECT queries".into()));
+            }
+            if let Statement::Query(query) = statement.as_ref() {
+                if query_uses_select_star(query) {
+                    return Err(AppError::Validation("SELECT * is not allowed; list columns explicitly".into()));
+                }
             }
             Ok(GuardedSql::Explain {
                 sql: trimmed.trim_end_matches(';').trim().to_string(),
@@ -51,6 +59,26 @@ pub fn guard_sql(sql: &str, max_rows: u32) -> Result<GuardedSql, AppError> {
 
 fn wrap_select(sql: &str, max_rows: u32) -> String {
     format!("SELECT to_jsonb(mcp_q) AS row FROM ({sql}) AS mcp_q LIMIT {max_rows}")
+}
+
+fn query_uses_select_star(query: &Query) -> bool {
+    select_star_in_setexpr(&query.body)
+}
+
+fn select_star_in_setexpr(expr: &SetExpr) -> bool {
+    match expr {
+        SetExpr::Select(select) => select_has_star(select),
+        SetExpr::Query(q) => query_uses_select_star(q),
+        SetExpr::SetOperation { left, right, .. } => select_star_in_setexpr(left) || select_star_in_setexpr(right),
+        SetExpr::Values(_) | SetExpr::Insert(_) | SetExpr::Update(_) | SetExpr::Table(_) => false,
+    }
+}
+
+fn select_has_star(select: &Select) -> bool {
+    select.projection.iter().any(|item| match item {
+        SelectItem::Wildcard(_) | SelectItem::QualifiedWildcard(_, _) => true,
+        _ => false,
+    })
 }
 
 fn statement_kind(stmt: &Statement) -> &'static str {
@@ -145,5 +173,23 @@ mod tests {
     fn rejects_explain_insert() {
         let err = guard_sql("EXPLAIN INSERT INTO users (login) VALUES ('x')", 200).unwrap_err().to_string();
         assert!(err.contains("EXPLAIN"));
+    }
+
+    #[test]
+    fn rejects_select_star() {
+        let err = guard_sql("SELECT * FROM users", 200).unwrap_err().to_string();
+        assert!(err.contains("SELECT *") || err.contains("columns explicitly"));
+    }
+
+    #[test]
+    fn rejects_qualified_select_star() {
+        let err = guard_sql("SELECT u.* FROM users u", 200).unwrap_err().to_string();
+        assert!(err.contains("SELECT *") || err.contains("columns explicitly"));
+    }
+
+    #[test]
+    fn accepts_explicit_columns() {
+        let out = select_sql("SELECT id, login FROM users");
+        assert!(out.contains("SELECT id, login FROM users"));
     }
 }

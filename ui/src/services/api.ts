@@ -106,6 +106,15 @@ import type {
   EmailTemplateListItem,
   EmailTemplateDetail,
   UpdateEmailTemplateRequest,
+  LlmProviderPublic,
+  LlmProviderAdmin,
+  CreateLlmProviderRequest,
+  UpdateLlmProviderRequest,
+  ChatConversation,
+  ConversationDetail,
+  CreateConversationRequest,
+  SendChatMessageRequest,
+  ChatStreamEvent,
 } from '@/types';
 import { normalizePaginatedResponse } from '@/utils/serverJson';
 
@@ -1735,6 +1744,114 @@ class ApiService {
       this.setToken(body.token);
     }
     return body;
+  }
+
+  // ─── Chat assistant ──────────────────────────────────────────────
+
+  async getChatProviders(): Promise<LlmProviderPublic[]> {
+    const response = await this.client.get<LlmProviderPublic[]>('/chat/providers');
+    return response.data;
+  }
+
+  async getChatConversations(): Promise<ChatConversation[]> {
+    const response = await this.client.get<ChatConversation[]>('/chat/conversations');
+    return response.data;
+  }
+
+  async createChatConversation(data: CreateConversationRequest): Promise<ChatConversation> {
+    const response = await this.client.post<ChatConversation>('/chat/conversations', data);
+    return response.data;
+  }
+
+  async getChatConversation(id: string): Promise<ConversationDetail> {
+    const response = await this.client.get<ConversationDetail>(`/chat/conversations/${id}`);
+    return response.data;
+  }
+
+  async deleteChatConversation(id: string): Promise<void> {
+    await this.client.delete(`/chat/conversations/${id}`);
+  }
+
+  async cancelChatGeneration(conversationId: string): Promise<void> {
+    await this.client.post(`/chat/conversations/${conversationId}/cancel`);
+  }
+
+  async *streamChatMessage(
+    conversationId: string,
+    body: SendChatMessageRequest,
+    signal?: AbortSignal,
+  ): AsyncGenerator<ChatStreamEvent> {
+    const token = this.getToken();
+    const response = await fetch(`/api/v1/chat/conversations/${conversationId}/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(body),
+      signal,
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || `Chat request failed (${response.status})`);
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) return;
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let idx: number;
+      while ((idx = buffer.indexOf('\n\n')) >= 0) {
+        const block = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        for (const line of block.split('\n')) {
+          if (!line.startsWith('data:')) continue;
+          const data = line.slice(5).trim();
+          if (!data) continue;
+          try {
+            const parsed = JSON.parse(data) as ChatStreamEvent;
+            yield parsed;
+          } catch {
+            // ignore malformed chunks
+          }
+        }
+      }
+    }
+  }
+
+  // ─── Admin LLM providers ─────────────────────────────────────────
+
+  async getLlmProvidersAdmin(): Promise<LlmProviderAdmin[]> {
+    const response = await this.client.get<LlmProviderAdmin[]>('/admin/llm/providers');
+    return response.data;
+  }
+
+  async createLlmProvider(data: CreateLlmProviderRequest): Promise<LlmProviderAdmin> {
+    const response = await this.client.post<LlmProviderAdmin>('/admin/llm/providers', data);
+    return response.data;
+  }
+
+  async updateLlmProvider(id: string, data: UpdateLlmProviderRequest): Promise<LlmProviderAdmin> {
+    const response = await this.client.put<LlmProviderAdmin>(`/admin/llm/providers/${id}`, data);
+    return response.data;
+  }
+
+  async deleteLlmProvider(id: string): Promise<void> {
+    await this.client.delete(`/admin/llm/providers/${id}`);
+  }
+
+  async testLlmProvider(id: string): Promise<{ ok: boolean }> {
+    const response = await this.client.post<{ ok: boolean }>(`/admin/llm/providers/${id}/test`);
+    return response.data;
   }
 }
 

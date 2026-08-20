@@ -80,7 +80,8 @@
     "profile": "Mon Profil",
     "logout": "Déconnexion",
     "about": "À propos",
-    "privacy": "Confidentialité"
+    "privacy": "Confidentialité",
+    "chat": "Assistant"
   },
   "theme": {
     "light": "Clair",
@@ -798,6 +799,38 @@
     "count_plural": "{{count}} emprunts",
     "returnDate": "Date retour"
   },
+  "chat": {
+    "intro": "Posez une question sur le catalogue, vos prêts ou les réservations. L'assistant interroge la base en lecture seule selon vos droits.",
+    "placeholder": "Votre message…",
+    "provider": "Fournisseur IA",
+    "model": "Modèle",
+    "emptyConversations": "Aucune conversation",
+    "noProviders": "Aucun fournisseur IA configuré. Contactez l'administrateur.",
+    "noProvidersShort": "Aucun fournisseur",
+    "noProvidersAdmin": "Aucun fournisseur IA activé. Configurez-les dans",
+    "providersLoadError": "Impossible de charger la liste des fournisseurs IA.",
+    "sendError": "Impossible d'envoyer le message.",
+    "toolRunning": "Consultation : {{name}}…",
+    "admin": {
+      "title": "Assistants LLM",
+      "add": "Ajouter",
+      "newProvider": "Nouveau fournisseur",
+      "slug": "Identifiant (slug)",
+      "kind": "Type d'API",
+      "baseUrl": "URL de base",
+      "models": "Modèles (séparés par des virgules)",
+      "defaultModel": "Modèle par défaut",
+      "apiKey": "Clé API",
+      "apiKeyReplace": "Nouvelle clé API (laisser vide pour conserver)",
+      "apiKeyEnv": "Variable d'environnement pour la clé",
+      "enabled": "Activé",
+      "test": "Tester",
+      "saved": "Enregistré.",
+      "saveError": "Échec de l'enregistrement.",
+      "testOk": "Connexion réussie.",
+      "testError": "Échec du test de connexion."
+    }
+  },
   "settings": {
     "server": {
       "overridden": "Surcharge BDD",
@@ -1078,7 +1111,8 @@
         "itemsArchiveRights": "Archives",
         "borrowsRights": "Emprunts",
         "settingsRights": "Paramètres",
-        "eventsRights": "Événements"
+        "eventsRights": "Événements",
+        "chatRights": "Assistant chat"
       },
       "level": {
         "none": "—",

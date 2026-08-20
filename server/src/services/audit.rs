@@ -223,6 +223,9 @@ pub mod event {
 
     /// MCP `query` tool (success and failure).
     pub const MCP_QUERY: &str = "mcp.query";
+
+    /// User message sent to the chat assistant (content truncated).
+    pub const CHAT_MESSAGE: &str = "chat.message";
 }
 
 pub use crate::models::audit::{AuditLogEntry, AuditLogPage, AuditQueryParams};
@@ -255,11 +258,7 @@ impl AuditService {
         let payload: Option<Value> = payload.and_then(|p| match serde_json::to_value(p) {
             Ok(v) => Some(mask_sensitive_fields(v)),
             Err(e) => {
-                tracing::warn!(
-                    "audit log payload serialization failed for '{}': {}",
-                    event_type,
-                    e
-                );
+                tracing::warn!("audit log payload serialization failed for '{}': {}", event_type, e);
                 None
             }
         });
@@ -308,15 +307,8 @@ impl AuditService {
 
     /// Export audit log entries for a date range (unbounded, for CSV/JSON export).
     #[tracing::instrument(skip(self), err)]
-    pub async fn export(
-        &self,
-        from_date: Option<DateTime<Utc>>,
-        to_date: Option<DateTime<Utc>>,
-        event_type: Option<&str>,
-    ) -> AppResult<Vec<AuditLogEntry>> {
-        self.repository
-            .audit_export(from_date, to_date, event_type)
-            .await
+    pub async fn export(&self, from_date: Option<DateTime<Utc>>, to_date: Option<DateTime<Utc>>, event_type: Option<&str>) -> AppResult<Vec<AuditLogEntry>> {
+        self.repository.audit_export(from_date, to_date, event_type).await
     }
 
     /// Delete audit log entries older than `retention_days` days.
@@ -396,10 +388,7 @@ mod tests {
     fn internal_audit_event_constants_have_expected_values() {
         assert_eq!(event::EMAIL_HOLD_READY_SENT, "email.hold_ready_sent");
         assert_eq!(event::HOLD_READY, "hold.ready");
-        assert_eq!(
-            event::SYSTEM_HOLD_EXPIRY_BATCH_COMPLETED,
-            "system.hold_expiry_batch_completed"
-        );
+        assert_eq!(event::SYSTEM_HOLD_EXPIRY_BATCH_COMPLETED, "system.hold_expiry_batch_completed");
         assert_eq!(event::IMPORT_MARC_UPLOAD, "import.marc_upload");
         assert_eq!(event::ADMIN_REINDEX_SEARCH, "admin.reindex_search");
         assert_eq!(event::SEARCH_INDEX_SYNC_FAILED, "search.index_sync_failed");

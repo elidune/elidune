@@ -26,10 +26,7 @@ use super::{AuthenticatedUser, ClientIp};
         (status = 401, description = "Not authenticated", body = ErrorResponse),
     )
 )]
-pub async fn list_account_types(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(_claims): AuthenticatedUser,
-) -> AppResult<Json<Vec<AccountTypeDefinition>>> {
+pub async fn list_account_types(State(state): State<crate::AppState>, AuthenticatedUser(_claims): AuthenticatedUser) -> AppResult<Json<Vec<AccountTypeDefinition>>> {
     let rows = state.services.account_types_catalog.list().await?;
     Ok(Json(rows))
 }
@@ -47,16 +44,8 @@ pub async fn list_account_types(
         (status = 404, description = "Unknown code", body = ErrorResponse),
     )
 )]
-pub async fn get_account_type(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(_claims): AuthenticatedUser,
-    Path(code): Path<String>,
-) -> AppResult<Json<AccountTypeDefinition>> {
-    let row = state
-        .services
-        .account_types_catalog
-        .get_by_code(&code)
-        .await?;
+pub async fn get_account_type(State(state): State<crate::AppState>, AuthenticatedUser(_claims): AuthenticatedUser, Path(code): Path<String>) -> AppResult<Json<AccountTypeDefinition>> {
+    let row = state.services.account_types_catalog.get_by_code(&code).await?;
     Ok(Json(row))
 }
 
@@ -84,16 +73,8 @@ pub async fn update_account_type(
     Json(mut body): Json<UpdateAccountTypeDefinition>,
 ) -> AppResult<Json<AccountTypeDefinition>> {
     claims.require_admin()?;
-    let before = state
-        .services
-        .account_types_catalog
-        .get_by_code(&code)
-        .await?;
-    let updated = state
-        .services
-        .account_types_catalog
-        .update(&code, &mut body)
-        .await?;
+    let before = state.services.account_types_catalog.get_by_code(&code).await?;
+    let updated = state.services.account_types_catalog.update(&code, &mut body).await?;
 
     state.services.audit.log(
         audit::event::ACCOUNT_TYPE_UPDATED,
@@ -117,8 +98,5 @@ pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::get;
     axum::Router::new()
         .route("/account-types", get(list_account_types))
-        .route(
-            "/account-types/:code",
-            get(get_account_type).put(update_account_type),
-        )
+        .route("/account-types/:code", get(get_account_type).put(update_account_type))
 }

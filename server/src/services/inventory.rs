@@ -7,9 +7,8 @@ use crate::{
     error::{AppError, AppResult},
     inventory_email,
     models::inventory::{
-        CreateInventorySessionResponse, InventoryConsolidationEmailError,
-        InventoryConsolidationPreview, InventoryConsolidationResult, InventoryConsolidationSkipped,
-        InventoryMissingRow, InventoryReport, InventoryScan, InventorySession, InventoryStatus,
+        CreateInventorySessionResponse, InventoryConsolidationEmailError, InventoryConsolidationPreview, InventoryConsolidationResult, InventoryConsolidationSkipped, InventoryMissingRow,
+        InventoryReport, InventoryScan, InventorySession, InventoryStatus,
     },
     repository::{InventoryRepository, SourcesRepository},
     services::{audit::AuditService, catalog::CatalogService, task_manager::TaskHandle},
@@ -30,13 +29,7 @@ pub struct InventoryService {
 }
 
 impl InventoryService {
-    pub fn new(
-        repository: Arc<dyn InventoryRepository>,
-        sources: Arc<dyn SourcesRepository>,
-        catalog: CatalogService,
-        email: EmailService,
-        audit: AuditService,
-    ) -> Self {
+    pub fn new(repository: Arc<dyn InventoryRepository>, sources: Arc<dyn SourcesRepository>, catalog: CatalogService, email: EmailService, audit: AuditService) -> Self {
         Self {
             repository,
             sources,
@@ -47,15 +40,8 @@ impl InventoryService {
     }
 
     #[tracing::instrument(skip(self), err)]
-    pub async fn list_sessions_page(
-        &self,
-        page: i64,
-        per_page: i64,
-        status: Option<InventoryStatus>,
-    ) -> AppResult<(Vec<InventorySession>, i64)> {
-        self.repository
-            .inventory_list_sessions_page(page, per_page, status)
-            .await
+    pub async fn list_sessions_page(&self, page: i64, per_page: i64, status: Option<InventoryStatus>) -> AppResult<(Vec<InventorySession>, i64)> {
+        self.repository.inventory_list_sessions_page(page, per_page, status).await
     }
 
     #[tracing::instrument(skip(self), err)]
@@ -76,50 +62,24 @@ impl InventoryService {
         if let Some(source_id) = scope_source_id {
             let source = self.sources.sources_get_by_id(source_id).await?;
             if source.is_archive.unwrap_or(0) != 0 || source.archived_at.is_some() {
-                return Err(AppError::Validation(
-                    "Cannot open inventory for an archived source".to_string(),
-                ));
+                return Err(AppError::Validation("Cannot open inventory for an archived source".to_string()));
             }
         }
 
-        if self
-            .repository
-            .inventory_has_open_session_for_scope(scope_source_id, scope_place)
-            .await?
-        {
-            return Err(AppError::Conflict(
-                "An open inventory session already exists for this source and place scope"
-                    .to_string(),
-            ));
+        if self.repository.inventory_has_open_session_for_scope(scope_source_id, scope_place).await? {
+            return Err(AppError::Conflict("An open inventory session already exists for this source and place scope".to_string()));
         }
 
-        let expected_in_scope = self
-            .repository
-            .inventory_count_expected_in_scope(scope_source_id, scope_place)
-            .await?;
+        let expected_in_scope = self.repository.inventory_count_expected_in_scope(scope_source_id, scope_place).await?;
 
         let mut warnings = Vec::new();
         if expected_in_scope == 0 {
             warnings.push(WARN_EMPTY_SCOPE.to_string());
         }
 
-        let session = self
-            .repository
-            .inventory_create_session(
-                name,
-                location_filter,
-                notes,
-                scope_place,
-                scope_source_id,
-                created_by,
-            )
-            .await?;
+        let session = self.repository.inventory_create_session(name, location_filter, notes, scope_place, scope_source_id, created_by).await?;
 
-        Ok(CreateInventorySessionResponse {
-            session,
-            warnings,
-            expected_in_scope,
-        })
+        Ok(CreateInventorySessionResponse { session, warnings, expected_in_scope })
     }
 
     #[tracing::instrument(skip(self), err)]
@@ -128,41 +88,20 @@ impl InventoryService {
     }
 
     #[tracing::instrument(skip(self), err)]
-    pub async fn scan_barcode(
-        &self,
-        session_id: i64,
-        barcode: &str,
-        scanned_by: Option<i64>,
-    ) -> AppResult<InventoryScan> {
-        self.repository
-            .inventory_scan_barcode(session_id, barcode, scanned_by)
-            .await
+    pub async fn scan_barcode(&self, session_id: i64, barcode: &str, scanned_by: Option<i64>) -> AppResult<InventoryScan> {
+        self.repository.inventory_scan_barcode(session_id, barcode, scanned_by).await
     }
 
     #[tracing::instrument(skip(self), err)]
-    pub async fn list_scans_page(
-        &self,
-        session_id: i64,
-        page: i64,
-        per_page: i64,
-    ) -> AppResult<(Vec<InventoryScan>, i64)> {
+    pub async fn list_scans_page(&self, session_id: i64, page: i64, per_page: i64) -> AppResult<(Vec<InventoryScan>, i64)> {
         self.repository.inventory_get_session(session_id).await?;
-        self.repository
-            .inventory_list_scans_page(session_id, page, per_page)
-            .await
+        self.repository.inventory_list_scans_page(session_id, page, per_page).await
     }
 
     #[tracing::instrument(skip(self), err)]
-    pub async fn list_missing_page(
-        &self,
-        session_id: i64,
-        page: i64,
-        per_page: i64,
-    ) -> AppResult<(Vec<InventoryMissingRow>, i64)> {
+    pub async fn list_missing_page(&self, session_id: i64, page: i64, per_page: i64) -> AppResult<(Vec<InventoryMissingRow>, i64)> {
         self.repository.inventory_get_session(session_id).await?;
-        self.repository
-            .inventory_list_missing_page(session_id, page, per_page)
-            .await
+        self.repository.inventory_list_missing_page(session_id, page, per_page).await
     }
 
     #[tracing::instrument(skip(self), err)]
@@ -173,44 +112,25 @@ impl InventoryService {
 
     fn ensure_consolidation_eligible(&self, session: &InventorySession) -> AppResult<()> {
         if session.status != InventoryStatus::Closed {
-            return Err(AppError::BadRequest(
-                "Session must be closed before consolidation".to_string(),
-            ));
+            return Err(AppError::BadRequest("Session must be closed before consolidation".to_string()));
         }
         if session.consolidated_at.is_some() {
-            return Err(AppError::Conflict(
-                "Session has already been consolidated".to_string(),
-            ));
+            return Err(AppError::Conflict("Session has already been consolidated".to_string()));
         }
         Ok(())
     }
 
     /// Preview copies that would be archived and side effects (loans, orphan biblios).
     #[tracing::instrument(skip(self), err)]
-    pub async fn consolidation_preview(
-        &self,
-        session_id: i64,
-        page: i64,
-        per_page: i64,
-    ) -> AppResult<InventoryConsolidationPreview> {
+    pub async fn consolidation_preview(&self, session_id: i64, page: i64, per_page: i64) -> AppResult<InventoryConsolidationPreview> {
         let session = self.repository.inventory_get_session(session_id).await?;
         self.ensure_consolidation_eligible(&session)?;
 
         let page = page.max(1);
         let per_page = per_page.clamp(1, 200);
-        let summary = self
-            .repository
-            .inventory_consolidation_preview_summary(session_id)
-            .await?;
-        let (items, total) = self
-            .repository
-            .inventory_consolidation_preview_page(session_id, page, per_page)
-            .await?;
-        let page_count = if total == 0 {
-            0
-        } else {
-            (total + per_page - 1) / per_page
-        };
+        let summary = self.repository.inventory_consolidation_preview_summary(session_id).await?;
+        let (items, total) = self.repository.inventory_consolidation_preview_page(session_id, page, per_page).await?;
+        let page_count = if total == 0 { 0 } else { (total + per_page - 1) / per_page };
 
         Ok(InventoryConsolidationPreview {
             session_id,
@@ -230,28 +150,17 @@ impl InventoryService {
     /// Orphan bibliographic records (no active copies left) are archived automatically.
     /// When `force` is true, readers with closed loans receive an email notification.
     #[tracing::instrument(skip(self, task), err)]
-    pub async fn consolidate_session(
-        &self,
-        session_id: i64,
-        consolidated_by: Option<i64>,
-        force: bool,
-        task: Option<TaskHandle>,
-    ) -> AppResult<InventoryConsolidationResult> {
+    pub async fn consolidate_session(&self, session_id: i64, consolidated_by: Option<i64>, force: bool, task: Option<TaskHandle>) -> AppResult<InventoryConsolidationResult> {
         let session = self.repository.inventory_get_session(session_id).await?;
         self.ensure_consolidation_eligible(&session)?;
 
         let loan_closures = if force {
-            self.repository
-                .inventory_list_loan_closures_for_missing(session_id)
-                .await?
+            self.repository.inventory_list_loan_closures_for_missing(session_id).await?
         } else {
             Vec::new()
         };
 
-        let missing_ids = self
-            .repository
-            .inventory_list_missing_item_ids(session_id)
-            .await?;
+        let missing_ids = self.repository.inventory_list_missing_item_ids(session_id).await?;
 
         let total = missing_ids.len();
         let attempted = total as i64;
@@ -305,51 +214,35 @@ impl InventoryService {
         }
 
         let consolidated = if skipped.is_empty() {
-            self.repository
-                .inventory_mark_consolidated(session_id, consolidated_by)
-                .await?;
+            self.repository.inventory_mark_consolidated(session_id, consolidated_by).await?;
             true
         } else {
             false
         };
 
-        let (loan_closure_emails_sent, loan_closure_email_errors) =
-            if force && consolidated && !loan_closures.is_empty() {
-                if let Some(ref handle) = task {
-                    handle
-                        .set_progress(
-                            total,
-                            total,
-                            Some(serde_json::json!({
-                                "sessionId": session_id.to_string(),
-                                "phase": "notifying_readers",
-                                "recipientCount": loan_closures.len(),
-                            })),
-                        )
-                        .await;
-                }
-                let (sent, errors) = inventory_email::send_loan_closure_notifications(
-                    &self.email,
-                    &self.audit,
-                    session_id,
-                    &session.name,
-                    &loan_closures,
-                )
-                .await;
-                let mapped = errors
-                    .into_iter()
-                    .map(
-                        |(user_id, email, error_message)| InventoryConsolidationEmailError {
-                            user_id,
-                            email,
-                            error_message,
-                        },
+        let (loan_closure_emails_sent, loan_closure_email_errors) = if force && consolidated && !loan_closures.is_empty() {
+            if let Some(ref handle) = task {
+                handle
+                    .set_progress(
+                        total,
+                        total,
+                        Some(serde_json::json!({
+                            "sessionId": session_id.to_string(),
+                            "phase": "notifying_readers",
+                            "recipientCount": loan_closures.len(),
+                        })),
                     )
-                    .collect();
-                (sent, mapped)
-            } else {
-                (0, Vec::new())
-            };
+                    .await;
+            }
+            let (sent, errors) = inventory_email::send_loan_closure_notifications(&self.email, &self.audit, session_id, &session.name, &loan_closures).await;
+            let mapped = errors
+                .into_iter()
+                .map(|(user_id, email, error_message)| InventoryConsolidationEmailError { user_id, email, error_message })
+                .collect();
+            (sent, mapped)
+        } else {
+            (0, Vec::new())
+        };
 
         Ok(InventoryConsolidationResult {
             session_id,

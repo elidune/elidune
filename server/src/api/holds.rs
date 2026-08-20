@@ -54,11 +54,7 @@ pub struct ListHoldsQuery {
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn list_holds(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Query(query): Query<ListHoldsQuery>,
-) -> AppResult<Json<PaginatedResponse<HoldDetails>>> {
+pub async fn list_holds(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<ListHoldsQuery>) -> AppResult<Json<PaginatedResponse<HoldDetails>>> {
     claims.require_list_holds()?;
 
     let page = query.page.unwrap_or(1).max(1);
@@ -66,17 +62,9 @@ pub async fn list_holds(
     let active_only = query.active_only.unwrap_or(false);
 
     let (items, total) = if claims.rights.holds_rights.rank() >= Rights::Read.rank() {
-        state
-            .services
-            .holds
-            .list_all(page, per_page, active_only)
-            .await?
+        state.services.holds.list_all(page, per_page, active_only).await?
     } else {
-        state
-            .services
-            .holds
-            .list_for_user_paginated(claims.user_id, page, per_page, active_only)
-            .await?
+        state.services.holds.list_for_user_paginated(claims.user_id, page, per_page, active_only).await?
     };
     Ok(Json(PaginatedResponse::new(items, total, page, per_page)))
 }
@@ -115,9 +103,7 @@ pub async fn create_hold(
 ) -> AppResult<(StatusCode, Json<Hold>)> {
     claims.require_create_hold()?;
     if claims.rights.holds_rights.rank() < Rights::Write.rank() && req.user_id != claims.user_id {
-        return Err(AppError::Authorization(
-            "Insufficient rights to place a hold for another user".into(),
-        ));
+        return Err(AppError::Authorization("Insufficient rights to place a hold for another user".into()));
     }
     let data = CreateHold {
         user_id: req.user_id,
@@ -170,11 +156,7 @@ pub async fn create_hold(
         (status = 404, description = "Item not found", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn list_holds_for_item(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path(item_id): Path<i64>,
-) -> AppResult<Json<Vec<HoldDetails>>> {
+pub async fn list_holds_for_item(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(item_id): Path<i64>) -> AppResult<Json<Vec<HoldDetails>>> {
     claims.require_read_holds_staff()?;
     let list = state.services.holds.get_for_item(item_id).await?;
     Ok(Json(list))
@@ -192,11 +174,7 @@ pub async fn list_holds_for_item(
         (status = 404, description = "User not found", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn list_holds_for_user(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path(user_id): Path<i64>,
-) -> AppResult<Json<Vec<HoldDetails>>> {
+pub async fn list_holds_for_user(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(user_id): Path<i64>) -> AppResult<Json<Vec<HoldDetails>>> {
     claims.require_read_holds_staff()?;
     claims.require_read_users()?;
     let list = state.services.holds.get_for_user(user_id).await?;
@@ -216,20 +194,10 @@ pub async fn list_holds_for_user(
         (status = 404, description = "Hold not found", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn cancel_hold(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    ClientIp(ip): ClientIp,
-    Path(id): Path<i64>,
-) -> AppResult<Json<Hold>> {
+pub async fn cancel_hold(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Path(id): Path<i64>) -> AppResult<Json<Hold>> {
     claims.require_cancel_hold()?;
     let can_manage_others = claims.rights.holds_rights.rank() >= Rights::Write.rank();
-    match state
-        .services
-        .holds
-        .cancel(id, claims.user_id, can_manage_others)
-        .await
-    {
+    match state.services.holds.cancel(id, claims.user_id, can_manage_others).await {
         Ok(hold) => {
             state.services.audit.log(
                 audit::event::HOLD_CANCELLED,

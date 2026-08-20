@@ -48,18 +48,11 @@ pub struct UnpaidFinesSummary {
         (status = 404, description = "User not found", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn list_user_fines(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path(user_id): Path<i64>,
-) -> AppResult<Json<UnpaidFinesSummary>> {
+pub async fn list_user_fines(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(user_id): Path<i64>) -> AppResult<Json<UnpaidFinesSummary>> {
     claims.require_read_users()?;
     let fines = state.services.fines.list_for_user(user_id).await?;
     let total_unpaid = state.services.fines.total_unpaid(user_id).await?;
-    Ok(Json(UnpaidFinesSummary {
-        total_unpaid,
-        fines,
-    }))
+    Ok(Json(UnpaidFinesSummary { total_unpaid, fines }))
 }
 
 /// Pay a fine (record payment)
@@ -77,18 +70,8 @@ pub async fn list_user_fines(
         (status = 404, description = "Fine not found", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn pay_fine(
-    State(state): State<crate::AppState>,
-    StaffUser(claims): StaffUser,
-    ClientIp(ip): ClientIp,
-    Path(id): Path<i64>,
-    Json(req): Json<PayFineRequest>,
-) -> AppResult<Json<Fine>> {
-    let fine = state
-        .services
-        .fines
-        .pay(id, req.amount, req.notes.as_deref())
-        .await?;
+pub async fn pay_fine(State(state): State<crate::AppState>, StaffUser(claims): StaffUser, ClientIp(ip): ClientIp, Path(id): Path<i64>, Json(req): Json<PayFineRequest>) -> AppResult<Json<Fine>> {
+    let fine = state.services.fines.pay(id, req.amount, req.notes.as_deref()).await?;
 
     state.services.audit.log(
         audit::event::FINE_PAID,
@@ -118,24 +101,13 @@ pub async fn pay_fine(
         (status = 404, description = "Fine not found", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn waive_fine(
-    State(state): State<crate::AppState>,
-    StaffUser(claims): StaffUser,
-    ClientIp(ip): ClientIp,
-    Path(id): Path<i64>,
-    Json(req): Json<WaiveFineRequest>,
-) -> AppResult<Json<Fine>> {
+pub async fn waive_fine(State(state): State<crate::AppState>, StaffUser(claims): StaffUser, ClientIp(ip): ClientIp, Path(id): Path<i64>, Json(req): Json<WaiveFineRequest>) -> AppResult<Json<Fine>> {
     let fine = state.services.fines.waive(id, req.notes.as_deref()).await?;
 
-    state.services.audit.log(
-        audit::event::FINE_WAIVED,
-        Some(claims.user_id),
-        Some("fine"),
-        Some(id),
-        ip,
-        None::<()>,
-        audit::AuditLogMeta::success(),
-    );
+    state
+        .services
+        .audit
+        .log(audit::event::FINE_WAIVED, Some(claims.user_id), Some("fine"), Some(id), ip, None::<()>, audit::AuditLogMeta::success());
 
     Ok(Json(fine))
 }
@@ -152,10 +124,7 @@ pub async fn waive_fine(
         (status = 403, description = "Insufficient permissions", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn list_fine_rules(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-) -> AppResult<Json<Vec<FineRule>>> {
+pub async fn list_fine_rules(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser) -> AppResult<Json<Vec<FineRule>>> {
     claims.require_read_settings()?;
     Ok(Json(state.services.fines.list_rules().await?))
 }
@@ -173,23 +142,8 @@ pub async fn list_fine_rules(
         (status = 403, description = "Staff access required", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn upsert_fine_rule(
-    State(state): State<crate::AppState>,
-    StaffUser(claims): StaffUser,
-    ClientIp(ip): ClientIp,
-    Json(req): Json<UpsertFineRuleRequest>,
-) -> AppResult<Json<FineRule>> {
-    match state
-        .services
-        .fines
-        .upsert_rule(
-            req.media_type.as_deref(),
-            req.daily_rate,
-            req.max_amount,
-            req.grace_days,
-        )
-        .await
-    {
+pub async fn upsert_fine_rule(State(state): State<crate::AppState>, StaffUser(claims): StaffUser, ClientIp(ip): ClientIp, Json(req): Json<UpsertFineRuleRequest>) -> AppResult<Json<FineRule>> {
+    match state.services.fines.upsert_rule(req.media_type.as_deref(), req.daily_rate, req.max_amount, req.grace_days).await {
         Ok(rule) => {
             state.services.audit.log(
                 audit::event::FINE_RULE_UPDATED,

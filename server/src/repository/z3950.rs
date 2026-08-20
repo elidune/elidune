@@ -58,10 +58,7 @@ impl From<Z3950ServerRecordRow> for Z3950ServerRecord {
 #[async_trait]
 pub trait Z3950Repository: Send + Sync {
     async fn z3950_servers_list_all(&self) -> AppResult<Vec<Z3950ServerRecord>>;
-    async fn z3950_servers_list_active_for_search(
-        &self,
-        server_id: Option<i64>,
-    ) -> AppResult<Vec<Z3950ServerRecord>>;
+    async fn z3950_servers_list_active_for_search(&self, server_id: Option<i64>) -> AppResult<Vec<Z3950ServerRecord>>;
     async fn z3950_server_update(
         &self,
         id: i64,
@@ -95,10 +92,7 @@ impl Z3950Repository for Repository {
         Repository::z3950_servers_list_all(self).await
     }
 
-    async fn z3950_servers_list_active_for_search(
-        &self,
-        server_id: Option<i64>,
-    ) -> AppResult<Vec<Z3950ServerRecord>> {
+    async fn z3950_servers_list_active_for_search(&self, server_id: Option<i64>) -> AppResult<Vec<Z3950ServerRecord>> {
         Repository::z3950_servers_list_active_for_search(self, server_id).await
     }
 
@@ -115,10 +109,7 @@ impl Z3950Repository for Repository {
         encoding: &str,
         activated: bool,
     ) -> AppResult<()> {
-        Repository::z3950_server_update(
-            self, id, name, address, port, database, format, login, password, encoding, activated,
-        )
-        .await
+        Repository::z3950_server_update(self, id, name, address, port, database, format, login, password, encoding, activated).await
     }
 
     async fn z3950_server_insert(
@@ -133,10 +124,7 @@ impl Z3950Repository for Repository {
         encoding: &str,
         activated: bool,
     ) -> AppResult<()> {
-        Repository::z3950_server_insert(
-            self, name, address, port, database, format, login, password, encoding, activated,
-        )
-        .await
+        Repository::z3950_server_insert(self, name, address, port, database, format, login, password, encoding, activated).await
     }
 }
 
@@ -153,10 +141,7 @@ impl Repository {
     }
 
     /// Active servers for catalog search (optional filter by server id).
-    pub async fn z3950_servers_list_active_for_search(
-        &self,
-        server_id: Option<i64>,
-    ) -> AppResult<Vec<Z3950ServerRecord>> {
+    pub async fn z3950_servers_list_active_for_search(&self, server_id: Option<i64>) -> AppResult<Vec<Z3950ServerRecord>> {
         let rows = if let Some(id) = server_id {
             sqlx::query_as::<_, Z3950ServerRecordRow>(
                 r#"SELECT id, name, address, port, database, format, login, password, encoding, activated

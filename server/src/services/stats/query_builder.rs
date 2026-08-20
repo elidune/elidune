@@ -1,10 +1,7 @@
 //! Build parameterized SQL from a validated [`StatsBuilderBody`].
 
 use crate::error::AppError;
-use crate::models::stats_builder::{
-    AggregateFunction, FilterOperator, SortDirection, StatsBuilderBody, StatsFilter,
-    TimeGranularity,
-};
+use crate::models::stats_builder::{AggregateFunction, FilterOperator, SortDirection, StatsBuilderBody, StatsFilter, TimeGranularity};
 
 use super::join_graph::{emit_join_sql, resolve_field, resolve_joins, AliasMap, ResolvedField};
 
@@ -30,10 +27,7 @@ pub fn build_sql(query: &StatsBuilderBody) -> Result<BuiltQuery, AppError> {
         let resolved = resolve_field(&sf.field, &query.entity, &alias_map)?;
         let alias = sf.alias.as_deref().unwrap_or(&sf.field);
         match resolved {
-            ResolvedField::Physical {
-                ref table_alias,
-                ref column,
-            } => {
+            ResolvedField::Physical { ref table_alias, ref column } => {
                 select_parts.push(format!(r#""{}"."{}" AS "{}""#, table_alias, column, alias));
             }
             ResolvedField::Computed { ref expression } => {
@@ -45,17 +39,11 @@ pub fn build_sql(query: &StatsBuilderBody) -> Result<BuiltQuery, AppError> {
     if let Some(ref tb) = query.time_bucket {
         let resolved = resolve_field(&tb.field, &query.entity, &alias_map)?;
         match resolved {
-            ResolvedField::Physical {
-                table_alias,
-                column,
-            } => {
+            ResolvedField::Physical { table_alias, column } => {
                 let trunc = granularity_to_pg(&tb.granularity);
                 let default_alias = format!("{}_{}", tb.field.replace('.', "_"), trunc);
                 let alias = tb.alias.as_deref().unwrap_or(&default_alias);
-                select_parts.push(format!(
-                    r#"DATE_TRUNC('{}', "{}"."{}") AS "{}""#,
-                    trunc, table_alias, column, alias
-                ));
+                select_parts.push(format!(r#"DATE_TRUNC('{}', "{}"."{}") AS "{}""#, trunc, table_alias, column, alias));
             }
             ResolvedField::Computed { .. } => {
                 return Err(AppError::Validation("timeBucket cannot use a computed field; use a physical date/timestamptz column".into()));
@@ -66,25 +54,18 @@ pub fn build_sql(query: &StatsBuilderBody) -> Result<BuiltQuery, AppError> {
     for agg in &query.aggregations {
         let resolved = resolve_field(&agg.field, &query.entity, &alias_map)?;
         match resolved {
-            ResolvedField::Physical {
-                table_alias,
-                column,
-            } => {
+            ResolvedField::Physical { table_alias, column } => {
                 let expr = build_agg_expr(&agg.function, &table_alias, &column);
                 select_parts.push(format!(r#"{} AS "{}""#, expr, agg.alias));
             }
             ResolvedField::Computed { .. } => {
-                return Err(AppError::Validation(
-                    "aggregations cannot use computed fields; use a physical column".into(),
-                ));
+                return Err(AppError::Validation("aggregations cannot use computed fields; use a physical column".into()));
             }
         }
     }
 
     if select_parts.is_empty() {
-        return Err(AppError::Validation(
-            "Query must include at least one of: select, timeBucket, aggregations".into(),
-        ));
+        return Err(AppError::Validation("Query must include at least one of: select, timeBucket, aggregations".into()));
     }
 
     let select_clause = select_parts.join(", ");
@@ -100,14 +81,7 @@ pub fn build_sql(query: &StatsBuilderBody) -> Result<BuiltQuery, AppError> {
     let group_by_clause = build_group_by_clause(query, &alias_map)?;
 
     let having_clause = if !query.having.is_empty() {
-        let conditions = build_having_conditions(
-            &query.having,
-            &query.aggregations,
-            &query.entity,
-            &alias_map,
-            &mut binds,
-            &mut bind_idx,
-        )?;
+        let conditions = build_having_conditions(&query.having, &query.aggregations, &query.entity, &alias_map, &mut binds, &mut bind_idx)?;
         format!(" HAVING {}", conditions.join(" AND "))
     } else {
         String::new()
@@ -134,44 +108,26 @@ pub fn build_sql(query: &StatsBuilderBody) -> Result<BuiltQuery, AppError> {
     let offset = query.offset.unwrap_or(0);
     let pagination = format!(" LIMIT {} OFFSET {}", limit, offset);
 
-    let core_sql = format!(
-        "SELECT {} FROM {}{}{}{}{}",
-        select_clause, from_clause, join_clause, where_clause, group_by_clause, having_clause
-    );
+    let core_sql = format!("SELECT {} FROM {}{}{}{}{}", select_clause, from_clause, join_clause, where_clause, group_by_clause, having_clause);
 
     let data_sql = format!("{}{}{}", core_sql, order_by_clause, pagination);
 
-    let count_sql = format!(
-        r#"SELECT COUNT(*) AS "__total" FROM ({}) AS __sub"#,
-        core_sql
-    );
+    let count_sql = format!(r#"SELECT COUNT(*) AS "__total" FROM ({}) AS __sub"#, core_sql);
 
-    Ok(BuiltQuery {
-        data_sql,
-        count_sql,
-        binds,
-    })
+    Ok(BuiltQuery { data_sql, count_sql, binds })
 }
 
-fn build_where_clause(
-    query: &StatsBuilderBody,
-    alias_map: &AliasMap,
-    binds: &mut Vec<serde_json::Value>,
-    bind_idx: &mut usize,
-) -> Result<String, AppError> {
+fn build_where_clause(query: &StatsBuilderBody, alias_map: &AliasMap, binds: &mut Vec<serde_json::Value>, bind_idx: &mut usize) -> Result<String, AppError> {
     let mut parts: Vec<String> = Vec::new();
     if !query.filters.is_empty() {
-        let conditions =
-            build_filter_conditions(&query.filters, &query.entity, alias_map, binds, bind_idx)?;
+        let conditions = build_filter_conditions(&query.filters, &query.entity, alias_map, binds, bind_idx)?;
         parts.push(format!("({})", conditions.join(" AND ")));
     }
     if !query.filter_groups.is_empty() {
         let mut or_groups: Vec<String> = Vec::new();
         for group in &query.filter_groups {
             if group.is_empty() {
-                return Err(AppError::Validation(
-                    "filterGroups must not contain empty groups".into(),
-                ));
+                return Err(AppError::Validation("filterGroups must not contain empty groups".into()));
             }
             let inner = build_filter_conditions(group, &query.entity, alias_map, binds, bind_idx)?;
             or_groups.push(format!("({})", inner.join(" AND ")));
@@ -185,9 +141,7 @@ fn build_where_clause(
     }
 }
 
-fn root_entity_def(
-    query: &StatsBuilderBody,
-) -> Result<&'static super::schema::EntityDef, AppError> {
+fn root_entity_def(query: &StatsBuilderBody) -> Result<&'static super::schema::EntityDef, AppError> {
     super::schema::SCHEMA
         .get(query.entity.as_str())
         .ok_or_else(|| AppError::BadRequest(format!("Unknown entity: {}", query.entity)))
@@ -200,20 +154,16 @@ fn build_union_from_clause(entity: &str, union_with: &[String]) -> Result<String
     branches.extend(union_with.iter().cloned());
     let mut parts: Vec<String> = Vec::with_capacity(branches.len());
     for name in &branches {
-        let def = super::schema::SCHEMA.get(name.as_str()).ok_or_else(|| {
-            AppError::BadRequest(format!("Unknown union branch entity: {}", name))
-        })?;
+        let def = super::schema::SCHEMA
+            .get(name.as_str())
+            .ok_or_else(|| AppError::BadRequest(format!("Unknown union branch entity: {}", name)))?;
         let lit = name.replace('\'', "''");
         parts.push(format!(
             r#"SELECT '{}'::text AS __union_source, id, user_id, item_id, date, expiry_at, returned_at, nb_renews FROM {}"#,
             lit, def.table
         ));
     }
-    Ok(format!(
-        r#"({}) AS "{}""#,
-        parts.join(" UNION ALL "),
-        entity
-    ))
+    Ok(format!(r#"({}) AS "{}""#, parts.join(" UNION ALL "), entity))
 }
 
 fn granularity_to_pg(g: &TimeGranularity) -> &'static str {
@@ -237,10 +187,7 @@ fn build_agg_expr(func: &AggregateFunction, alias: &str, col: &str) -> String {
     }
 }
 
-fn build_group_by_clause(
-    query: &StatsBuilderBody,
-    alias_map: &AliasMap,
-) -> Result<String, AppError> {
+fn build_group_by_clause(query: &StatsBuilderBody, alias_map: &AliasMap) -> Result<String, AppError> {
     let mut gb_parts: Vec<String> = Vec::new();
 
     for gbf in &query.group_by {
@@ -251,10 +198,7 @@ fn build_group_by_clause(
     if let Some(ref tb) = query.time_bucket {
         let resolved = resolve_field(&tb.field, &query.entity, alias_map)?;
         match resolved {
-            ResolvedField::Physical {
-                table_alias,
-                column,
-            } => {
+            ResolvedField::Physical { table_alias, column } => {
                 let trunc = granularity_to_pg(&tb.granularity);
                 let expr = format!(r#"DATE_TRUNC('{}', "{}"."{}")"#, trunc, table_alias, column);
                 if !gb_parts.contains(&expr) {
@@ -262,9 +206,7 @@ fn build_group_by_clause(
                 }
             }
             ResolvedField::Computed { .. } => {
-                return Err(AppError::Internal(
-                    "timeBucket computed field should have been rejected earlier".into(),
-                ));
+                return Err(AppError::Internal("timeBucket computed field should have been rejected earlier".into()));
             }
         }
     }
@@ -276,13 +218,7 @@ fn build_group_by_clause(
     }
 }
 
-fn build_filter_conditions(
-    filters: &[StatsFilter],
-    root_entity: &str,
-    alias_map: &AliasMap,
-    binds: &mut Vec<serde_json::Value>,
-    bind_idx: &mut usize,
-) -> Result<Vec<String>, AppError> {
+fn build_filter_conditions(filters: &[StatsFilter], root_entity: &str, alias_map: &AliasMap, binds: &mut Vec<serde_json::Value>, bind_idx: &mut usize) -> Result<Vec<String>, AppError> {
     filters
         .iter()
         .map(|f| {
@@ -307,22 +243,12 @@ fn build_having_conditions(
             let agg = aggregations
                 .iter()
                 .find(|a| a.alias == h.field)
-                .ok_or_else(|| {
-                    AppError::BadRequest(format!(
-                        "HAVING references unknown aggregation alias '{}'",
-                        h.field
-                    ))
-                })?;
+                .ok_or_else(|| AppError::BadRequest(format!("HAVING references unknown aggregation alias '{}'", h.field)))?;
             let resolved = resolve_field(&agg.field, root_entity, alias_map)?;
             let agg_expr = match resolved {
-                ResolvedField::Physical {
-                    table_alias,
-                    column,
-                } => build_agg_expr(&agg.function, &table_alias, &column),
+                ResolvedField::Physical { table_alias, column } => build_agg_expr(&agg.function, &table_alias, &column),
                 ResolvedField::Computed { .. } => {
-                    return Err(AppError::Validation(
-                        "HAVING aggregation must reference a physical column".into(),
-                    ));
+                    return Err(AppError::Validation("HAVING aggregation must reference a physical column".into()));
                 }
             };
             build_condition_sql(&agg_expr, &h.op, &h.value, binds, bind_idx)
@@ -330,20 +256,12 @@ fn build_having_conditions(
         .collect()
 }
 
-fn build_condition_sql(
-    expr: &str,
-    op: &FilterOperator,
-    value: &serde_json::Value,
-    binds: &mut Vec<serde_json::Value>,
-    bind_idx: &mut usize,
-) -> Result<String, AppError> {
+fn build_condition_sql(expr: &str, op: &FilterOperator, value: &serde_json::Value, binds: &mut Vec<serde_json::Value>, bind_idx: &mut usize) -> Result<String, AppError> {
     match op {
         FilterOperator::IsNull => Ok(format!("{} IS NULL", expr)),
         FilterOperator::IsNotNull => Ok(format!("{} IS NOT NULL", expr)),
         FilterOperator::In | FilterOperator::NotIn => {
-            let arr = value.as_array().ok_or_else(|| {
-                AppError::Validation("Operator 'in' / 'notIn' expects a JSON array value".into())
-            })?;
+            let arr = value.as_array().ok_or_else(|| AppError::Validation("Operator 'in' / 'notIn' expects a JSON array value".into()))?;
             let placeholders: Vec<String> = arr
                 .iter()
                 .map(|v| {
@@ -353,11 +271,7 @@ fn build_condition_sql(
                     p
                 })
                 .collect();
-            let kw = if matches!(op, FilterOperator::In) {
-                "IN"
-            } else {
-                "NOT IN"
-            };
+            let kw = if matches!(op, FilterOperator::In) { "IN" } else { "NOT IN" };
             Ok(format!("{} {} ({})", expr, kw, placeholders.join(", ")))
         }
         _ => {
@@ -368,11 +282,7 @@ fn build_condition_sql(
                 FilterOperator::Gte => ">=",
                 FilterOperator::Lt => "<",
                 FilterOperator::Lte => "<=",
-                _ => {
-                    return Err(AppError::Internal(
-                        "Unexpected filter operator in build_condition_sql".into(),
-                    ))
-                }
+                _ => return Err(AppError::Internal("Unexpected filter operator in build_condition_sql".into())),
             };
             binds.push(value.clone());
             let c = format!("{} {} ${}", expr, op_str, *bind_idx);
@@ -385,10 +295,7 @@ fn build_condition_sql(
 #[cfg(test)]
 mod tests {
     use super::build_sql;
-    use crate::models::stats_builder::{
-        AggregateFunction, SelectField, StatsAggregation, StatsBuilderBody, TimeBucket,
-        TimeGranularity,
-    };
+    use crate::models::stats_builder::{AggregateFunction, SelectField, StatsAggregation, StatsBuilderBody, TimeBucket, TimeGranularity};
     use crate::services::stats::validator::validate;
 
     fn minimal_union_body() -> StatsBuilderBody {
@@ -417,11 +324,7 @@ mod tests {
     fn union_loans_archives_from_clause_contains_union_all() {
         let q = minimal_union_body();
         let built = build_sql(&q).expect("build_sql");
-        assert!(
-            built.data_sql.contains("UNION ALL"),
-            "data_sql={}",
-            built.data_sql
-        );
+        assert!(built.data_sql.contains("UNION ALL"), "data_sql={}", built.data_sql);
         assert!(built.data_sql.contains(r#"AS "loans""#));
         assert!(built.data_sql.contains("loans_archives"));
         assert!(built.data_sql.contains("__union_source"));

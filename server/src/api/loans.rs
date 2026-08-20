@@ -19,10 +19,7 @@ use crate::{
     error::{AppError, AppResult},
     models::{
         biblio::MediaType,
-        loan::{
-            CreateLoan, LoanDetails, LoanMarcExportEncoding, LoanMarcExportFormat,
-            LoanSettingsRenewAt,
-        },
+        loan::{CreateLoan, LoanDetails, LoanMarcExportEncoding, LoanMarcExportFormat, LoanSettingsRenewAt},
         user::{Rights, UserShort},
     },
     services::{
@@ -40,15 +37,9 @@ pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::{get, post, put};
     axum::Router::new()
         .route("/loans", post(create_loan))
-        .route(
-            "/loans/settings",
-            get(get_loan_settings).put(update_loan_settings),
-        )
+        .route("/loans/settings", get(get_loan_settings).put(update_loan_settings))
         .route("/loans/overdue", get(get_overdue_loans))
-        .route(
-            "/loans/send-overdue-reminders",
-            post(send_overdue_reminders),
-        )
+        .route("/loans/send-overdue-reminders", post(send_overdue_reminders))
         .route("/loans/:id/user", get(get_loan_borrower))
         .route("/loans/:id/return", post(return_loan))
         .route("/loans/:id/renew", post(renew_loan))
@@ -69,11 +60,7 @@ pub fn router() -> axum::Router<crate::AppState> {
         (status = 404, description = "Loan not found")
     )
 )]
-pub async fn get_loan_borrower(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path(loan_id): Path<i64>,
-) -> AppResult<Json<UserShort>> {
+pub async fn get_loan_borrower(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(loan_id): Path<i64>) -> AppResult<Json<UserShort>> {
     claims.require_write_loans()?;
     let user = state.services.loans.get_loan_borrower(loan_id).await?;
     Ok(Json(user))
@@ -171,10 +158,7 @@ pub struct SendRemindersQuery {
         (status = 403, description = "Insufficient permissions")
     )
 )]
-pub async fn get_loan_settings(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-) -> AppResult<Json<Vec<LoanSettings>>> {
+pub async fn get_loan_settings(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser) -> AppResult<Json<Vec<LoanSettings>>> {
     claims.require_read_settings()?;
     let rows = state.services.loans.get_global_loan_settings().await?;
     Ok(Json(rows))
@@ -199,11 +183,7 @@ pub async fn update_loan_settings(
     Json(body): Json<UpdateLoanSettingsRequest>,
 ) -> AppResult<Json<Vec<LoanSettings>>> {
     claims.require_write_settings()?;
-    let rows = state
-        .services
-        .loans
-        .update_global_loan_settings(body)
-        .await?;
+    let rows = state.services.loans.update_global_loan_settings(body).await?;
 
     state.services.audit.log(
         audit::event::SETTINGS_UPDATED,
@@ -242,26 +222,16 @@ pub async fn get_user_loans(
     claims.require_self_or_staff(user_id)?;
 
     if claims.rights.loans_rights.rank() < Rights::Read.rank() && user_id != claims.user_id {
-        return Err(AppError::Authorization(
-            "Insufficient rights to read loans for another user".into(),
-        ));
+        return Err(AppError::Authorization("Insufficient rights to read loans for another user".into()));
     }
 
     let page = query.page.unwrap_or(1).max(1);
     let per_page = query.per_page.unwrap_or(20).clamp(1, 200);
 
     let (items, total) = if query.archived.unwrap_or(false) {
-        state
-            .services
-            .loans
-            .get_user_archived_loans(user_id, page, per_page)
-            .await?
+        state.services.loans.get_user_archived_loans(user_id, page, per_page).await?
     } else {
-        state
-            .services
-            .loans
-            .get_user_loans(user_id, page, per_page)
-            .await?
+        state.services.loans.get_user_loans(user_id, page, per_page).await?
     };
 
     Ok(Json(PaginatedResponse::new(items, total, page, per_page)))
@@ -306,11 +276,7 @@ pub async fn export_user_loans_marc(
 ) -> AppResult<Response> {
     claims.require_self_or_staff(user_id)?;
     let archived = query.archived.unwrap_or(false);
-    let (bytes, content_type, filename) = state
-        .services
-        .loans
-        .export_user_loans_marc_file(user_id, archived, query.format, query.encoding)
-        .await?;
+    let (bytes, content_type, filename) = state.services.loans.export_user_loans_marc_file(user_id, archived, query.format, query.encoding).await?;
     let disposition = format!(r#"attachment; filename="{}""#, filename);
     Response::builder()
         .status(StatusCode::OK)
@@ -359,12 +325,7 @@ pub async fn create_loan(
         force: request.force.unwrap_or(false),
     };
 
-    let outcome = match state
-        .services
-        .loans
-        .create_loan(loan, Some(claims.user_id), ip.clone())
-        .await
-    {
+    let outcome = match state.services.loans.create_loan(loan, Some(claims.user_id), ip.clone()).await {
         Ok(outcome) => outcome,
         Err(e) => {
             state.services.audit.log(
@@ -427,19 +388,9 @@ pub async fn create_loan(
         (status = 409, description = "Already returned")
     )
 )]
-pub async fn return_loan(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    ClientIp(ip): ClientIp,
-    Path(loan_id): Path<i64>,
-) -> AppResult<Json<ReturnResponse>> {
+pub async fn return_loan(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Path(loan_id): Path<i64>) -> AppResult<Json<ReturnResponse>> {
     claims.require_write_loans()?;
-    let loan = match state
-        .services
-        .loans
-        .return_loan(loan_id, Some(claims.user_id), ip.clone())
-        .await
-    {
+    let loan = match state.services.loans.return_loan(loan_id, Some(claims.user_id), ip.clone()).await {
         Ok(loan) => loan,
         Err(e) => {
             state.services.audit.log(
@@ -465,10 +416,7 @@ pub async fn return_loan(
         audit::AuditLogMeta::success(),
     );
 
-    Ok(Json(ReturnResponse {
-        status: "returned".to_string(),
-        loan,
-    }))
+    Ok(Json(ReturnResponse { status: "returned".to_string(), loan }))
 }
 
 /// Renew a loan
@@ -484,19 +432,12 @@ pub async fn return_loan(
         (status = 409, description = "Max renewals reached or already returned")
     )
 )]
-pub async fn renew_loan(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    ClientIp(ip): ClientIp,
-    Path(loan_id): Path<i64>,
-) -> AppResult<Json<LoanResponse>> {
+pub async fn renew_loan(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Path(loan_id): Path<i64>) -> AppResult<Json<LoanResponse>> {
     let loan = state.services.loans.get_loan(loan_id).await?;
     let user_id = loan.user_id;
 
     if claims.rights.loans_rights.rank() < Rights::Write.rank() && user_id != claims.user_id {
-        return Err(AppError::Authorization(
-            "Insufficient rights to read loans for another user".into(),
-        ));
+        return Err(AppError::Authorization("Insufficient rights to read loans for another user".into()));
     }
 
     let (new_expiry_date, renew_count) = state.services.loans.renew_loan(loan_id).await?;
@@ -541,12 +482,7 @@ pub async fn return_loan_by_item(
     Path(item_id): Path<String>,
 ) -> AppResult<Json<ReturnResponse>> {
     claims.require_write_loans()?;
-    match state
-        .services
-        .loans
-        .return_loan_by_item(&item_id, Some(claims.user_id), ip.clone())
-        .await
-    {
+    match state.services.loans.return_loan_by_item(&item_id, Some(claims.user_id), ip.clone()).await {
         Ok(loan) => {
             let loan_id = loan.id;
             state.services.audit.log(
@@ -558,10 +494,7 @@ pub async fn return_loan_by_item(
                 Some((item_id.as_str(), &loan)),
                 audit::AuditLogMeta::success(),
             );
-            Ok(Json(ReturnResponse {
-                status: "returned".to_string(),
-                loan,
-            }))
+            Ok(Json(ReturnResponse { status: "returned".to_string(), loan }))
         }
         Err(e) => {
             state.services.audit.log(
@@ -598,8 +531,7 @@ pub async fn renew_loan_by_item(
     Path(item_id): Path<String>,
 ) -> AppResult<Json<LoanResponse>> {
     claims.require_write_loans()?;
-    let (loan_id, new_expiry_date, renew_count) =
-        state.services.loans.renew_loan_by_item(&item_id).await?;
+    let (loan_id, new_expiry_date, renew_count) = state.services.loans.renew_loan_by_item(&item_id).await?;
 
     state.services.audit.log(
         audit::event::LOAN_RENEWED,
@@ -634,18 +566,10 @@ pub async fn renew_loan_by_item(
         (status = 403, description = "Insufficient permissions")
     )
 )]
-pub async fn get_overdue_loans(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Query(query): Query<OverdueLoansQuery>,
-) -> AppResult<Json<OverdueLoansPage>> {
+pub async fn get_overdue_loans(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<OverdueLoansQuery>) -> AppResult<Json<OverdueLoansPage>> {
     claims.require_read_loans()?;
 
-    let page = state
-        .services
-        .reminders
-        .get_overdue_loans(query.page.unwrap_or(1), query.per_page.unwrap_or(50))
-        .await?;
+    let page = state.services.reminders.get_overdue_loans(query.page.unwrap_or(1), query.per_page.unwrap_or(50)).await?;
 
     Ok(Json(page))
 }
@@ -672,11 +596,7 @@ pub async fn send_overdue_reminders(
 
     let dry_run = query.dry_run.unwrap_or(false);
 
-    let report = state
-        .services
-        .reminders
-        .send_overdue_reminders(dry_run, Some(claims.user_id), ip.clone())
-        .await?;
+    let report = state.services.reminders.send_overdue_reminders(dry_run, Some(claims.user_id), ip.clone()).await?;
 
     if !dry_run {
         state.services.audit.log(

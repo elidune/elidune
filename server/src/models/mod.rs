@@ -5,6 +5,7 @@ pub mod audit;
 pub mod author;
 pub mod biblio;
 pub mod biblio_author;
+pub mod chat;
 pub mod dto;
 pub mod enums;
 pub mod equipment;
@@ -28,15 +29,10 @@ pub mod visitor_count;
 pub use author::Author;
 pub use biblio::{Biblio, BiblioShort, MediaType};
 pub use biblio_author::BiblioAuthor;
-pub use enums::{
-    EquipmentStatus, EquipmentType, EventType, Genre, Lang, Occupation, Sex, StaffType,
-};
+pub use enums::{EquipmentStatus, EquipmentType, EventType, Genre, Lang, Occupation, Sex, StaffType};
 pub use equipment::Equipment;
 pub use event::Event;
-pub use import_report::{
-    DuplicateCandidate, DuplicateConfirmationRequired, DuplicateItemBarcodeRequired, ImportAction,
-    ImportReport,
-};
+pub use import_report::{DuplicateCandidate, DuplicateConfirmationRequired, DuplicateItemBarcodeRequired, ImportAction, ImportReport};
 pub use item::{Item, ItemShort};
 pub use loan::{Loan, LoanDetails};
 pub use schedule::{ScheduleClosure, SchedulePeriod, ScheduleSlot};
@@ -215,9 +211,7 @@ impl sqlx::Type<sqlx::Postgres> for Language {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for Language {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, Box<dyn std::error::Error + 'static + Send + Sync>> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + 'static + Send + Sync>> {
         let s: String = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
         Ok(Language::from(s.as_str()))
     }

@@ -15,10 +15,7 @@ use crate::{
     dynamic_config::DynamicConfig,
     email::EmailService,
     repository::Repository,
-    services::{
-        audit, audit::AuditService, email_outbox, holds::HoldsService, operational_metrics,
-        reminders::RemindersService,
-    },
+    services::{audit, audit::AuditService, email_outbox, holds::HoldsService, operational_metrics, reminders::RemindersService},
 };
 
 /// Start the background scheduler. Returns a `Notify` handle that can be used
@@ -56,11 +53,7 @@ pub fn spawn(
             }
 
             let sleep_dur = duration_until_next_send(&cfg.send_time);
-            tracing::info!(
-                "Next reminder run in {:.1} minutes (at {})",
-                sleep_dur.as_secs_f64() / 60.0,
-                cfg.send_time
-            );
+            tracing::info!("Next reminder run in {:.1} minutes (at {})", sleep_dur.as_secs_f64() / 60.0, cfg.send_time);
 
             tokio::select! {
                 _ = tokio::time::sleep(sleep_dur) => {}
@@ -168,10 +161,7 @@ pub fn spawn(
             tokio::time::sleep(sleep_dur).await;
 
             let cfg = dc_audit.read_audit();
-            tracing::info!(
-                "Running audit log cleanup (retention: {} days)",
-                cfg.retention_days
-            );
+            tracing::info!("Running audit log cleanup (retention: {} days)", cfg.retention_days);
 
             match audit_cleanup.cleanup(cfg.retention_days).await {
                 Ok(deleted) => {
@@ -215,14 +205,7 @@ pub fn spawn(
         loop {
             tokio::time::sleep(Duration::from_secs(30)).await;
 
-            match email_outbox::process_outbox_batch(
-                &email_out,
-                repository_out.as_ref(),
-                &audit_out,
-                None,
-            )
-            .await
-            {
+            match email_outbox::process_outbox_batch(&email_out, repository_out.as_ref(), &audit_out, None).await {
                 Ok(report) if report.processed > 0 => {
                     tracing::info!(
                         "Email outbox batch: {} sent, {} failed, {} deferred, {} reminders confirmed (of {} processed)",
@@ -253,8 +236,7 @@ fn duration_until_next_send(send_time: &str) -> Duration {
     let minute: u32 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
 
     let now = Local::now();
-    let target = NaiveTime::from_hms_opt(hour, minute, 0)
-        .unwrap_or_else(|| NaiveTime::from_hms_opt(9, 0, 0).unwrap());
+    let target = NaiveTime::from_hms_opt(hour, minute, 0).unwrap_or_else(|| NaiveTime::from_hms_opt(9, 0, 0).unwrap());
     let now_time = now.time();
 
     let secs_until = if now_time < target {

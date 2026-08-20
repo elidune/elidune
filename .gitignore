@@ -1,6 +1,7 @@
 # Rust (server/)
 server/target/
 server/Cargo.lock
+server/config/default.toml
 
 # UI
 ui/node_modules/

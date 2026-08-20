@@ -100,7 +100,7 @@ async fn dispatch(state: &AppState, claims: &UserClaims, req: JsonRpcRequest) ->
         "ping" => ok(req.id, json!({})),
         "tools/list" => ok(req.id, json!({ "tools": tools::tool_defs() })),
         "tools/call" => match call_params(&req.params) {
-            Ok((name, args)) => match tools::call_tool(state, claims, &name, args).await {
+            Ok((name, args)) => match tools::call_tool(state, claims, &name, args, tools::ToolCallOptions::default()).await {
                 Ok(value) => ok(
                     req.id,
                     json!({

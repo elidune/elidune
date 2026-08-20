@@ -74,14 +74,7 @@ impl MeilisearchService {
                 "table_of_contents",
             ])
             .with_sortable_attributes(["title"])
-            .with_ranking_rules([
-                "words",
-                "typo",
-                "proximity",
-                "attribute",
-                "sort",
-                "exactness",
-            ]);
+            .with_ranking_rules(["words", "typo", "proximity", "attribute", "sort", "exactness"]);
 
         match index.set_settings(&settings).await {
             Ok(_) => info!("Meilisearch index '{}' configured", self.index_name),
@@ -90,14 +83,7 @@ impl MeilisearchService {
 
         // Filterable attributes are set separately because the 0.32 SDK
         // uses FilterableAttribute instead of plain &str in the Settings builder.
-        let filterable: Vec<&str> = vec![
-            "media_type",
-            "lang",
-            "audience_type",
-            "dewey",
-            "is_archived",
-            "has_active_items",
-        ];
+        let filterable: Vec<&str> = vec!["media_type", "lang", "audience_type", "dewey", "is_archived", "has_active_items"];
         match index.set_filterable_attributes(&filterable).await {
             Ok(_) => {}
             Err(e) => warn!("Failed to set filterable attributes: {}", e),
@@ -108,13 +94,7 @@ impl MeilisearchService {
     ///
     /// `page` and `per_page` are 1-based / count-based, matching the API convention.
     #[tracing::instrument(skip(self), err)]
-    pub async fn search(
-        &self,
-        query: &str,
-        filters: &SearchFilters,
-        page: i64,
-        per_page: i64,
-    ) -> Result<(Vec<i64>, i64), meilisearch_sdk::errors::Error> {
+    pub async fn search(&self, query: &str, filters: &SearchFilters, page: i64, per_page: i64) -> Result<(Vec<i64>, i64), meilisearch_sdk::errors::Error> {
         let index = self.client.index(&self.index_name);
         let offset = ((page - 1) * per_page) as usize;
         let limit = per_page as usize;
@@ -145,15 +125,11 @@ impl MeilisearchService {
     #[tracing::instrument(skip(self))]
     pub async fn index_document(&self, doc: &MeiliBiblioDocument) -> Result<(), String> {
         let index = self.client.index(&self.index_name);
-        index
-            .add_or_replace(&[doc], Some("id"))
-            .await
-            .map(|_| ())
-            .map_err(|e| {
-                let msg = format!("Meilisearch index_document failed for id={}: {}", doc.id, e);
-                warn!("{}", msg);
-                msg
-            })
+        index.add_or_replace(&[doc], Some("id")).await.map(|_| ()).map_err(|e| {
+            let msg = format!("Meilisearch index_document failed for id={}: {}", doc.id, e);
+            warn!("{}", msg);
+            msg
+        })
     }
 
     /// Remove a document by item ID.

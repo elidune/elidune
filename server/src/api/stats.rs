@@ -17,10 +17,8 @@ use crate::{
 use super::{AuthenticatedUser, StaffUser};
 
 pub use crate::models::dto::stats::{
-    CatalogBreakdownStats, CatalogSourceStats, CatalogStatsQuery, CatalogStatsResponse,
-    CatalogStatsTotals, Interval, ItemStats, LoanStats, LoanStatsQuery, LoanStatsResponse,
-    StatEntry, StatsQuery, StatsResponse, TimeSeriesEntry, UserLoanStats, UserStats,
-    UserStatsAggregate, UserStatsMode, UserStatsQuery, UserStatsResponse, UserStatsSortBy,
+    CatalogBreakdownStats, CatalogSourceStats, CatalogStatsQuery, CatalogStatsResponse, CatalogStatsTotals, Interval, ItemStats, LoanStats, LoanStatsQuery, LoanStatsResponse, StatEntry, StatsQuery,
+    StatsResponse, TimeSeriesEntry, UserLoanStats, UserStats, UserStatsAggregate, UserStatsMode, UserStatsQuery, UserStatsResponse, UserStatsSortBy,
 };
 
 /// Build the stats routes for this domain (staff/authenticated; no IP governor — see public API layer in `main.rs`).
@@ -32,14 +30,8 @@ pub fn router() -> axum::Router<crate::AppState> {
         .route("/stats/catalog", get(get_catalog_stats))
         .route("/stats/schema", get(get_stats_schema))
         .route("/stats/query", post(post_stats_query))
-        .route(
-            "/stats/saved",
-            get(list_saved_queries).post(create_saved_query),
-        )
-        .route(
-            "/stats/saved/:id",
-            put(update_saved_query).delete(delete_saved_query),
-        )
+        .route("/stats/saved", get(list_saved_queries).post(create_saved_query))
+        .route("/stats/saved/:id", put(update_saved_query).delete(delete_saved_query))
         .route("/stats/saved/:id/run", get(run_saved_query))
 }
 
@@ -71,29 +63,16 @@ fn resolve_reference_date(query: &StatsQuery) -> Option<NaiveDate> {
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn get_stats(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Query(query): Query<StatsQuery>,
-) -> AppResult<Json<StatsResponse>> {
+pub async fn get_stats(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<StatsQuery>) -> AppResult<Json<StatsResponse>> {
     claims.require_read_items()?;
 
-    let filter = if query.year.is_none()
-        && query.start_date.is_none()
-        && query.end_date.is_none()
-        && query.public_type.is_none()
-        && query.media_type.is_none()
-    {
+    let filter = if query.year.is_none() && query.start_date.is_none() && query.end_date.is_none() && query.public_type.is_none() && query.media_type.is_none() {
         None
     } else {
         Some(crate::services::stats::StatsFilter {
             reference_date: resolve_reference_date(&query),
             public_type: query.public_type,
-            media_type: query
-                .media_type
-                .as_ref()
-                .map(MediaType::as_code)
-                .map(String::from),
+            media_type: query.media_type.as_ref().map(MediaType::as_code).map(String::from),
         })
     };
     let stats = state.services.stats.get_stats(filter).await?;
@@ -116,11 +95,7 @@ pub async fn get_stats(
         (status = 403, description = "Insufficient permissions or querying another user without admin rights")
     )
 )]
-pub async fn get_loan_stats(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Query(query): Query<LoanStatsQuery>,
-) -> AppResult<Json<LoanStatsResponse>> {
+pub async fn get_loan_stats(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<LoanStatsQuery>) -> AppResult<Json<LoanStatsResponse>> {
     claims.require_read_loans()?;
 
     // Parse dates
@@ -132,21 +107,10 @@ pub async fn get_loan_stats(
             DateTime::parse_from_rfc3339(s)
                 .map(|dt| dt.with_timezone(&Utc))
                 // Sinon, on essaie de parser comme une date seule et on ajoute minuit UTC
-                .or_else(|_| {
-                    NaiveDate::parse_from_str(s, "%Y-%m-%d").map(|date| {
-                        date.and_hms_opt(0, 0, 0)
-                            .unwrap()
-                            .and_local_timezone(Utc)
-                            .unwrap()
-                    })
-                })
+                .or_else(|_| NaiveDate::parse_from_str(s, "%Y-%m-%d").map(|date| date.and_hms_opt(0, 0, 0).unwrap().and_local_timezone(Utc).unwrap()))
         })
         .transpose()
-        .map_err(|_| {
-            crate::error::AppError::Validation(
-                "Invalid start_date format. Use ISO 8601 (RFC 3339)".to_string(),
-            )
-        })?
+        .map_err(|_| crate::error::AppError::Validation("Invalid start_date format. Use ISO 8601 (RFC 3339)".to_string()))?
         .map(|dt| dt.with_timezone(&Utc));
 
     let end_date = query
@@ -157,29 +121,16 @@ pub async fn get_loan_stats(
             DateTime::parse_from_rfc3339(s)
                 .map(|dt| dt.with_timezone(&Utc))
                 // Sinon, on essaie de parser comme une date seule et on ajoute minuit UTC
-                .or_else(|_| {
-                    NaiveDate::parse_from_str(s, "%Y-%m-%d").map(|date| {
-                        date.and_hms_opt(0, 0, 0)
-                            .unwrap()
-                            .and_local_timezone(Utc)
-                            .unwrap()
-                    })
-                })
+                .or_else(|_| NaiveDate::parse_from_str(s, "%Y-%m-%d").map(|date| date.and_hms_opt(0, 0, 0).unwrap().and_local_timezone(Utc).unwrap()))
         })
         .transpose()
-        .map_err(|_| {
-            crate::error::AppError::Validation(
-                "Invalid end_date format. Use ISO 8601 (RFC 3339)".to_string(),
-            )
-        })?
+        .map_err(|_| crate::error::AppError::Validation("Invalid end_date format. Use ISO 8601 (RFC 3339)".to_string()))?
         .map(|dt| dt.with_timezone(&Utc));
 
     // Check if user can query other users' stats
     let user_id = if let Some(uid) = query.user_id {
         if uid != claims.user_id && !claims.is_admin() {
-            return Err(crate::error::AppError::Authorization(
-                "Only administrators can query statistics for other users".to_string(),
-            ));
+            return Err(crate::error::AppError::Authorization("Only administrators can query statistics for other users".to_string()));
         }
         Some(uid)
     } else {
@@ -196,14 +147,7 @@ pub async fn get_loan_stats(
     let stats = state
         .services
         .stats
-        .get_loan_stats(
-            start_date,
-            end_date,
-            interval,
-            query.media_type.as_ref(),
-            query.public_type.as_deref(),
-            user_id,
-        )
+        .get_loan_stats(start_date, end_date, interval, query.media_type.as_ref(), query.public_type.as_deref(), user_id)
         .await?;
 
     Ok(Json(stats))
@@ -221,11 +165,7 @@ pub async fn get_loan_stats(
         (status = 403, description = "Insufficient permissions")
     )
 )]
-pub async fn get_user_stats(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Query(query): Query<UserStatsQuery>,
-) -> AppResult<Json<UserStatsResponse>> {
+pub async fn get_user_stats(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<UserStatsQuery>) -> AppResult<Json<UserStatsResponse>> {
     // Reading this requires loan statistics access
     claims.require_read_loans()?;
 
@@ -238,21 +178,10 @@ pub async fn get_user_stats(
             DateTime::parse_from_rfc3339(s)
                 .map(|dt| dt.with_timezone(&Utc))
                 // Sinon, on essaie de parser comme une date seule et on ajoute minuit UTC
-                .or_else(|_| {
-                    NaiveDate::parse_from_str(s, "%Y-%m-%d").map(|date| {
-                        date.and_hms_opt(0, 0, 0)
-                            .unwrap()
-                            .and_local_timezone(Utc)
-                            .unwrap()
-                    })
-                })
+                .or_else(|_| NaiveDate::parse_from_str(s, "%Y-%m-%d").map(|date| date.and_hms_opt(0, 0, 0).unwrap().and_local_timezone(Utc).unwrap()))
         })
         .transpose()
-        .map_err(|_| {
-            crate::error::AppError::Validation(
-                "Invalid start_date format. Use ISO 8601 (RFC 3339)".to_string(),
-            )
-        })?
+        .map_err(|_| crate::error::AppError::Validation("Invalid start_date format. Use ISO 8601 (RFC 3339)".to_string()))?
         .map(|dt| dt.with_timezone(&Utc));
 
     let end_date = query
@@ -263,21 +192,10 @@ pub async fn get_user_stats(
             DateTime::parse_from_rfc3339(s)
                 .map(|dt| dt.with_timezone(&Utc))
                 // Sinon, on essaie de parser comme une date seule et on ajoute minuit UTC
-                .or_else(|_| {
-                    NaiveDate::parse_from_str(s, "%Y-%m-%d").map(|date| {
-                        date.and_hms_opt(0, 0, 0)
-                            .unwrap()
-                            .and_local_timezone(Utc)
-                            .unwrap()
-                    })
-                })
+                .or_else(|_| NaiveDate::parse_from_str(s, "%Y-%m-%d").map(|date| date.and_hms_opt(0, 0, 0).unwrap().and_local_timezone(Utc).unwrap()))
         })
         .transpose()
-        .map_err(|_| {
-            crate::error::AppError::Validation(
-                "Invalid end_date format. Use ISO 8601 (RFC 3339)".to_string(),
-            )
-        })?
+        .map_err(|_| crate::error::AppError::Validation("Invalid end_date format. Use ISO 8601 (RFC 3339)".to_string()))?
         .map(|dt| dt.with_timezone(&Utc));
 
     let mode = query.mode.unwrap_or(UserStatsMode::Leaderboard);
@@ -300,11 +218,7 @@ pub async fn get_user_stats(
             Ok(Json(UserStatsResponse::Leaderboard { users }))
         }
         UserStatsMode::Aggregate => {
-            let aggregates = state
-                .services
-                .stats
-                .get_user_aggregates(start_date, end_date)
-                .await?;
+            let aggregates = state.services.stats.get_user_aggregates(start_date, end_date).await?;
 
             Ok(Json(UserStatsResponse::Aggregate(aggregates)))
         }
@@ -348,11 +262,7 @@ pub async fn get_user_stats(
         (status = 403, description = "Insufficient permissions")
     )
 )]
-pub async fn get_catalog_stats(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Query(query): Query<CatalogStatsQuery>,
-) -> AppResult<Json<CatalogStatsResponse>> {
+pub async fn get_catalog_stats(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<CatalogStatsQuery>) -> AppResult<Json<CatalogStatsResponse>> {
     claims.require_read_items()?;
 
     // Parse dates
@@ -362,21 +272,10 @@ pub async fn get_catalog_stats(
         .map(|s| {
             DateTime::parse_from_rfc3339(s)
                 .map(|dt| dt.with_timezone(&Utc))
-                .or_else(|_| {
-                    NaiveDate::parse_from_str(s, "%Y-%m-%d").map(|date| {
-                        date.and_hms_opt(0, 0, 0)
-                            .unwrap()
-                            .and_local_timezone(Utc)
-                            .unwrap()
-                    })
-                })
+                .or_else(|_| NaiveDate::parse_from_str(s, "%Y-%m-%d").map(|date| date.and_hms_opt(0, 0, 0).unwrap().and_local_timezone(Utc).unwrap()))
         })
         .transpose()
-        .map_err(|_| {
-            crate::error::AppError::Validation(
-                "Invalid start_date format. Use ISO 8601 (RFC 3339)".to_string(),
-            )
-        })?;
+        .map_err(|_| crate::error::AppError::Validation("Invalid start_date format. Use ISO 8601 (RFC 3339)".to_string()))?;
 
     let end_date = query
         .end_date
@@ -384,21 +283,10 @@ pub async fn get_catalog_stats(
         .map(|s| {
             DateTime::parse_from_rfc3339(s)
                 .map(|dt| dt.with_timezone(&Utc))
-                .or_else(|_| {
-                    NaiveDate::parse_from_str(s, "%Y-%m-%d").map(|date| {
-                        date.and_hms_opt(23, 59, 59)
-                            .unwrap()
-                            .and_local_timezone(Utc)
-                            .unwrap()
-                    })
-                })
+                .or_else(|_| NaiveDate::parse_from_str(s, "%Y-%m-%d").map(|date| date.and_hms_opt(23, 59, 59).unwrap().and_local_timezone(Utc).unwrap()))
         })
         .transpose()
-        .map_err(|_| {
-            crate::error::AppError::Validation(
-                "Invalid end_date format. Use ISO 8601 (RFC 3339)".to_string(),
-            )
-        })?;
+        .map_err(|_| crate::error::AppError::Validation("Invalid end_date format. Use ISO 8601 (RFC 3339)".to_string()))?;
 
     let stats = state
         .services
@@ -446,17 +334,9 @@ pub async fn get_stats_schema(_staff: StaffUser) -> AppResult<Json<serde_json::V
         (status = 403, description = "Staff only")
     )
 )]
-pub async fn post_stats_query(
-    State(state): State<crate::AppState>,
-    _staff: StaffUser,
-    Json(body): Json<StatsBuilderBody>,
-) -> Result<impl IntoResponse, crate::error::AppError> {
+pub async fn post_stats_query(State(state): State<crate::AppState>, _staff: StaffUser, Json(body): Json<StatsBuilderBody>) -> Result<impl IntoResponse, crate::error::AppError> {
     let res = state.services.stats.run_query(&body).await?;
-    let status = if res.sql_error.is_some() {
-        StatusCode::UNPROCESSABLE_ENTITY
-    } else {
-        StatusCode::OK
-    };
+    let status = if res.sql_error.is_some() { StatusCode::UNPROCESSABLE_ENTITY } else { StatusCode::OK };
     Ok((status, Json(res)))
 }
 
@@ -471,15 +351,8 @@ pub async fn post_stats_query(
         (status = 403, description = "Staff only")
     )
 )]
-pub async fn list_saved_queries(
-    State(state): State<crate::AppState>,
-    StaffUser(claims): StaffUser,
-) -> AppResult<Json<Vec<SavedStatsQuery>>> {
-    let list = state
-        .services
-        .stats
-        .list_saved_queries(claims.user_id, claims.is_admin())
-        .await?;
+pub async fn list_saved_queries(State(state): State<crate::AppState>, StaffUser(claims): StaffUser) -> AppResult<Json<Vec<SavedStatsQuery>>> {
+    let list = state.services.stats.list_saved_queries(claims.user_id, claims.is_admin()).await?;
     Ok(Json(list))
 }
 
@@ -495,16 +368,8 @@ pub async fn list_saved_queries(
         (status = 403, description = "Staff only")
     )
 )]
-pub async fn create_saved_query(
-    State(state): State<crate::AppState>,
-    StaffUser(claims): StaffUser,
-    Json(body): Json<SavedStatsQueryWrite>,
-) -> AppResult<Json<SavedStatsQuery>> {
-    let row = state
-        .services
-        .stats
-        .create_saved_query(claims.user_id, &body)
-        .await?;
+pub async fn create_saved_query(State(state): State<crate::AppState>, StaffUser(claims): StaffUser, Json(body): Json<SavedStatsQueryWrite>) -> AppResult<Json<SavedStatsQuery>> {
+    let row = state.services.stats.create_saved_query(claims.user_id, &body).await?;
     Ok(Json(row))
 }
 
@@ -524,17 +389,8 @@ pub async fn create_saved_query(
         (status = 404, description = "Not found")
     )
 )]
-pub async fn update_saved_query(
-    State(state): State<crate::AppState>,
-    StaffUser(claims): StaffUser,
-    Path(id): Path<i64>,
-    Json(body): Json<SavedStatsQueryWrite>,
-) -> AppResult<Json<SavedStatsQuery>> {
-    let row = state
-        .services
-        .stats
-        .update_saved_query(id, claims.user_id, claims.is_admin(), &body)
-        .await?;
+pub async fn update_saved_query(State(state): State<crate::AppState>, StaffUser(claims): StaffUser, Path(id): Path<i64>, Json(body): Json<SavedStatsQueryWrite>) -> AppResult<Json<SavedStatsQuery>> {
+    let row = state.services.stats.update_saved_query(id, claims.user_id, claims.is_admin(), &body).await?;
     Ok(Json(row))
 }
 
@@ -553,16 +409,8 @@ pub async fn update_saved_query(
         (status = 404, description = "Not found")
     )
 )]
-pub async fn delete_saved_query(
-    State(state): State<crate::AppState>,
-    StaffUser(claims): StaffUser,
-    Path(id): Path<i64>,
-) -> AppResult<Json<serde_json::Value>> {
-    state
-        .services
-        .stats
-        .delete_saved_query(id, claims.user_id, claims.is_admin())
-        .await?;
+pub async fn delete_saved_query(State(state): State<crate::AppState>, StaffUser(claims): StaffUser, Path(id): Path<i64>) -> AppResult<Json<serde_json::Value>> {
+    state.services.stats.delete_saved_query(id, claims.user_id, claims.is_admin()).await?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -582,20 +430,8 @@ pub async fn delete_saved_query(
         (status = 404, description = "Not found")
     )
 )]
-pub async fn run_saved_query(
-    State(state): State<crate::AppState>,
-    StaffUser(claims): StaffUser,
-    Path(id): Path<i64>,
-) -> Result<impl IntoResponse, crate::error::AppError> {
-    let res = state
-        .services
-        .stats
-        .run_saved_query(id, claims.user_id, claims.is_admin())
-        .await?;
-    let status = if res.sql_error.is_some() {
-        StatusCode::UNPROCESSABLE_ENTITY
-    } else {
-        StatusCode::OK
-    };
+pub async fn run_saved_query(State(state): State<crate::AppState>, StaffUser(claims): StaffUser, Path(id): Path<i64>) -> Result<impl IntoResponse, crate::error::AppError> {
+    let res = state.services.stats.run_saved_query(id, claims.user_id, claims.is_admin()).await?;
+    let status = if res.sql_error.is_some() { StatusCode::UNPROCESSABLE_ENTITY } else { StatusCode::OK };
     Ok((status, Json(res)))
 }

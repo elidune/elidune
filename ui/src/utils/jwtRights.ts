@@ -34,3 +34,21 @@ export function readHoldsRightsFromJwt(accessToken: string | null | undefined): 
   }
   return normalizeHoldsRightsValue(payload.holdsRights ?? payload.borrowsRights);
 }
+
+function normalizeChatRightsValue(raw: unknown): string | null {
+  const s = raw != null ? String(raw).trim().toLowerCase() : '';
+  return s || null;
+}
+
+export function readChatRightsFromJwt(accessToken: string | null | undefined): string | null {
+  if (!accessToken?.trim()) return null;
+  const payload = decodeAccessTokenPayload(accessToken);
+  if (!payload) return null;
+  const rights = payload.rights;
+  if (rights && typeof rights === 'object') {
+    const r = rights as Record<string, unknown>;
+    const fromNested = normalizeChatRightsValue(r.chatRights);
+    if (fromNested) return fromNested;
+  }
+  return normalizeChatRightsValue(payload.chatRights);
+}

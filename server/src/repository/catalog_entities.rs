@@ -6,10 +6,7 @@ use chrono::Utc;
 use super::Repository;
 use crate::{
     error::{AppError, AppResult},
-    models::biblio::{
-        Collection, CollectionQuery, CreateCollection, CreateSerie, Serie, SerieQuery,
-        UpdateCollection, UpdateSerie,
-    },
+    models::biblio::{Collection, CollectionQuery, CreateCollection, CreateSerie, Serie, SerieQuery, UpdateCollection, UpdateSerie},
 };
 
 #[async_trait]
@@ -95,12 +92,10 @@ impl Repository {
 
         let (rows, total) = if let Some(ref name) = query.name {
             let pattern = format!("%{}%", name.replace('%', "\\%").replace('_', "\\_"));
-            let total: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM series WHERE unaccent(lower(name)) LIKE unaccent(lower($1))",
-            )
-            .bind(&pattern)
-            .fetch_one(&self.pool)
-            .await?;
+            let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM series WHERE unaccent(lower(name)) LIKE unaccent(lower($1))")
+                .bind(&pattern)
+                .fetch_one(&self.pool)
+                .await?;
 
             let rows: Vec<Serie> = sqlx::query_as(
                 r#"SELECT id, key, name, issn, created_at, updated_at
@@ -117,9 +112,7 @@ impl Repository {
 
             (rows, total)
         } else {
-            let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM series")
-                .fetch_one(&self.pool)
-                .await?;
+            let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM series").fetch_one(&self.pool).await?;
 
             let rows: Vec<Serie> = sqlx::query_as("SELECT id, key, name, issn, created_at, updated_at FROM series ORDER BY name ASC LIMIT $1 OFFSET $2")
                 .bind(per_page)
@@ -134,22 +127,16 @@ impl Repository {
     }
 
     pub async fn series_get(&self, id: i64) -> AppResult<Serie> {
-        sqlx::query_as(
-            "SELECT id, key, name, issn, created_at, updated_at FROM series WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Series {id} not found")))
+        sqlx::query_as("SELECT id, key, name, issn, created_at, updated_at FROM series WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Series {id} not found")))
     }
 
     pub async fn series_create(&self, data: &CreateSerie) -> AppResult<Serie> {
         let now = Utc::now();
-        let key = data
-            .key
-            .as_deref()
-            .map(Self::normalize_key)
-            .unwrap_or_else(|| Self::normalize_key(&data.name));
+        let key = data.key.as_deref().map(Self::normalize_key).unwrap_or_else(|| Self::normalize_key(&data.name));
 
         let id: i64 = sqlx::query_scalar(
             r#"INSERT INTO series (key, name, issn, created_at, updated_at)
@@ -200,23 +187,16 @@ impl Repository {
     }
 
     pub async fn series_delete(&self, id: i64) -> AppResult<()> {
-        let used: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM biblio_series WHERE series_id = $1")
-                .bind(id)
-                .fetch_one(&self.pool)
-                .await?;
+        let used: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM biblio_series WHERE series_id = $1").bind(id).fetch_one(&self.pool).await?;
 
         if used > 0 {
-            return Err(AppError::Conflict(format!(
-                "Series {id} is still linked to {used} biblio(s) and cannot be deleted"
-            )));
+            return Err(AppError::Conflict(format!("Series {id} is still linked to {used} biblio(s) and cannot be deleted")));
         }
 
-        let deleted =
-            sqlx::query_scalar::<_, bool>("DELETE FROM series WHERE id = $1 RETURNING true")
-                .bind(id)
-                .fetch_optional(&self.pool)
-                .await?;
+        let deleted = sqlx::query_scalar::<_, bool>("DELETE FROM series WHERE id = $1 RETURNING true")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
 
         if deleted.is_none() {
             return Err(AppError::NotFound(format!("Series {id} not found")));
@@ -229,10 +209,7 @@ impl Repository {
     // COLLECTIONS
     // =========================================================================
 
-    pub async fn collections_list(
-        &self,
-        query: &CollectionQuery,
-    ) -> AppResult<(Vec<Collection>, i64)> {
+    pub async fn collections_list(&self, query: &CollectionQuery) -> AppResult<(Vec<Collection>, i64)> {
         let page = query.page.unwrap_or(1).max(1);
         let per_page = query.per_page.unwrap_or(50).min(200);
         let offset = (page - 1) * per_page;
@@ -259,9 +236,7 @@ impl Repository {
 
             (rows, total)
         } else {
-            let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM collections")
-                .fetch_one(&self.pool)
-                .await?;
+            let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM collections").fetch_one(&self.pool).await?;
 
             let rows: Vec<Collection> = sqlx::query_as(
                 r#"SELECT id, key, name, secondary_title, tertiary_title, issn, created_at, updated_at
@@ -288,11 +263,7 @@ impl Repository {
 
     pub async fn collections_create(&self, data: &CreateCollection) -> AppResult<Collection> {
         let now = Utc::now();
-        let key = data
-            .key
-            .as_deref()
-            .map(Self::normalize_key)
-            .unwrap_or_else(|| Self::normalize_key(&data.name));
+        let key = data.key.as_deref().map(Self::normalize_key).unwrap_or_else(|| Self::normalize_key(&data.name));
 
         let id: i64 = sqlx::query_scalar(
             r#"INSERT INTO collections (key, name, secondary_title, tertiary_title, issn, created_at, updated_at)
@@ -317,11 +288,7 @@ impl Repository {
         self.collections_get(id).await
     }
 
-    pub async fn collections_update(
-        &self,
-        id: i64,
-        data: &UpdateCollection,
-    ) -> AppResult<Collection> {
+    pub async fn collections_update(&self, id: i64, data: &UpdateCollection) -> AppResult<Collection> {
         let now = Utc::now();
 
         let updated = sqlx::query_scalar::<_, bool>(
@@ -353,23 +320,19 @@ impl Repository {
     }
 
     pub async fn collections_delete(&self, id: i64) -> AppResult<()> {
-        let used: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM biblio_collections WHERE collection_id = $1")
-                .bind(id)
-                .fetch_one(&self.pool)
-                .await?;
+        let used: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM biblio_collections WHERE collection_id = $1")
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await?;
 
         if used > 0 {
-            return Err(AppError::Conflict(format!(
-                "Collection {id} is still linked to {used} biblio(s) and cannot be deleted"
-            )));
+            return Err(AppError::Conflict(format!("Collection {id} is still linked to {used} biblio(s) and cannot be deleted")));
         }
 
-        let deleted =
-            sqlx::query_scalar::<_, bool>("DELETE FROM collections WHERE id = $1 RETURNING true")
-                .bind(id)
-                .fetch_optional(&self.pool)
-                .await?;
+        let deleted = sqlx::query_scalar::<_, bool>("DELETE FROM collections WHERE id = $1 RETURNING true")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
 
         if deleted.is_none() {
             return Err(AppError::NotFound(format!("Collection {id} not found")));

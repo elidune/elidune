@@ -15,11 +15,7 @@ pub trait EquipmentRepository: Send + Sync {
     async fn equipment_list(&self) -> AppResult<Vec<Equipment>>;
     async fn equipment_get_by_id(&self, id: i64) -> AppResult<Equipment>;
     async fn equipment_create(&self, data: &CreateEquipment) -> AppResult<Equipment>;
-    async fn equipment_update_equipment(
-        &self,
-        id: i64,
-        data: &UpdateEquipment,
-    ) -> AppResult<Equipment>;
+    async fn equipment_update_equipment(&self, id: i64, data: &UpdateEquipment) -> AppResult<Equipment>;
     async fn equipment_delete(&self, id: i64) -> AppResult<()>;
     async fn equipment_count_public_internet_stations(&self) -> AppResult<i64>;
     async fn equipment_count_public_devices(&self) -> AppResult<i64>;
@@ -27,28 +23,16 @@ pub trait EquipmentRepository: Send + Sync {
 
 #[async_trait::async_trait]
 impl EquipmentRepository for super::Repository {
-    async fn equipment_list(
-        &self,
-    ) -> crate::error::AppResult<Vec<crate::models::equipment::Equipment>> {
+    async fn equipment_list(&self) -> crate::error::AppResult<Vec<crate::models::equipment::Equipment>> {
         super::Repository::equipment_list(self).await
     }
-    async fn equipment_get_by_id(
-        &self,
-        id: i64,
-    ) -> crate::error::AppResult<crate::models::equipment::Equipment> {
+    async fn equipment_get_by_id(&self, id: i64) -> crate::error::AppResult<crate::models::equipment::Equipment> {
         super::Repository::equipment_get_by_id(self, id).await
     }
-    async fn equipment_create(
-        &self,
-        data: &crate::models::equipment::CreateEquipment,
-    ) -> crate::error::AppResult<crate::models::equipment::Equipment> {
+    async fn equipment_create(&self, data: &crate::models::equipment::CreateEquipment) -> crate::error::AppResult<crate::models::equipment::Equipment> {
         super::Repository::equipment_create(self, data).await
     }
-    async fn equipment_update_equipment(
-        &self,
-        id: i64,
-        data: &crate::models::equipment::UpdateEquipment,
-    ) -> crate::error::AppResult<crate::models::equipment::Equipment> {
+    async fn equipment_update_equipment(&self, id: i64, data: &crate::models::equipment::UpdateEquipment) -> crate::error::AppResult<crate::models::equipment::Equipment> {
         super::Repository::equipment_update_equipment(self, id, data).await
     }
     async fn equipment_delete(&self, id: i64) -> crate::error::AppResult<()> {
@@ -66,9 +50,7 @@ impl Repository {
     /// List all equipment
     #[tracing::instrument(skip(self), err)]
     pub async fn equipment_list(&self) -> AppResult<Vec<Equipment>> {
-        let rows = sqlx::query_as::<_, Equipment>("SELECT * FROM equipment ORDER BY name")
-            .fetch_all(&self.pool)
-            .await?;
+        let rows = sqlx::query_as::<_, Equipment>("SELECT * FROM equipment ORDER BY name").fetch_all(&self.pool).await?;
         Ok(rows)
     }
 
@@ -105,11 +87,7 @@ impl Repository {
 
     /// Update equipment
     #[tracing::instrument(skip(self), err)]
-    pub async fn equipment_update_equipment(
-        &self,
-        id: i64,
-        data: &UpdateEquipment,
-    ) -> AppResult<Equipment> {
+    pub async fn equipment_update_equipment(&self, id: i64, data: &UpdateEquipment) -> AppResult<Equipment> {
         let now = Utc::now();
         let mut sets = vec!["update_at = $1".to_string()];
         let mut idx = 2;
@@ -131,11 +109,7 @@ impl Repository {
         add_field!(data.status, "status");
         add_field!(data.notes, "notes");
 
-        let query = format!(
-            "UPDATE equipment SET {} WHERE id = {} RETURNING *",
-            sets.join(", "),
-            id
-        );
+        let query = format!("UPDATE equipment SET {} WHERE id = {} RETURNING *", sets.join(", "), id);
 
         let mut builder = sqlx::query_as::<_, Equipment>(&query).bind(now);
 
@@ -155,19 +129,13 @@ impl Repository {
         bind_field!(data.status);
         bind_field!(data.notes);
 
-        builder
-            .fetch_optional(&self.pool)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("Equipment {} not found", id)))
+        builder.fetch_optional(&self.pool).await?.ok_or_else(|| AppError::NotFound(format!("Equipment {} not found", id)))
     }
 
     /// Delete equipment
     #[tracing::instrument(skip(self), err)]
     pub async fn equipment_delete(&self, id: i64) -> AppResult<()> {
-        let result = sqlx::query("DELETE FROM equipment WHERE id = $1")
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
+        let result = sqlx::query("DELETE FROM equipment WHERE id = $1").bind(id).execute(&self.pool).await?;
         if result.rows_affected() == 0 {
             return Err(AppError::NotFound(format!("Equipment {} not found", id)));
         }

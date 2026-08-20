@@ -36,8 +36,10 @@ import {
   PublicEventsPage,
   AboutPage,
   PrivacyPage,
+  ChatPage,
 } from '@/pages';
-import { isLibrarian } from '@/types';
+import { isLibrarian, canUseChat } from '@/types';
+import api from '@/services/api';
 import { FirstSetupGate } from '@/components/first-setup/FirstSetupGate';
 
 const queryClient = new QueryClient({
@@ -90,6 +92,16 @@ function LibrarianRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
 
   if (!isLibrarian(user?.accountType)) {
+    return <Navigate to="/home" replace />;
+  }
+
+  return <>{children}</>;
+}
+
+function ChatRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+
+  if (!canUseChat(user, api.getToken())) {
     return <Navigate to="/home" replace />;
   }
 
@@ -310,6 +322,17 @@ function AppRoutes() {
             <LibrarianRoute>
               <Navigate to="/settings?tab=library" replace />
             </LibrarianRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/chat"
+        element={
+          <ProtectedRoute>
+            <ChatRoute>
+              <ChatPage />
+            </ChatRoute>
           </ProtectedRoute>
         }
       />

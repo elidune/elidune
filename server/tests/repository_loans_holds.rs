@@ -27,9 +27,7 @@ async fn loan_return_atomically_advances_next_hold() {
         "items": [{ "barcode": "REPO-HOLD-001", "borrowable": true }]
     });
 
-    let (status, body) = app
-        .post_json("/api/v1/biblios", &biblio_payload, Some(&admin_token))
-        .await;
+    let (status, body) = app.post_json("/api/v1/biblios", &biblio_payload, Some(&admin_token)).await;
     assert_eq!(status, StatusCode::CREATED, "create biblio: {body}");
     let item_id = fixtures::json_id(&body["biblio"]["items"][0]["id"]);
 
@@ -66,15 +64,9 @@ async fn loan_return_atomically_advances_next_hold() {
         .await
         .expect("checkout to reader A");
 
-    let return_outcome = repo
-        .loans_return(checkout.loan_id)
-        .await
-        .expect("return loan");
+    let return_outcome = repo.loans_return(checkout.loan_id).await.expect("return loan");
 
-    let readied = return_outcome
-        .readied_hold
-        .as_ref()
-        .expect("next hold should become ready in same transaction");
+    let readied = return_outcome.readied_hold.as_ref().expect("next hold should become ready in same transaction");
     assert_eq!(readied.user_id, reader_b_id);
     assert_eq!(readied.id, hold_b.id);
     assert_eq!(readied.status, HoldStatus::Ready);

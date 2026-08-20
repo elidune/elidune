@@ -11,11 +11,7 @@ use crate::repository::stats::executor;
 use super::{cache, query_builder, validator};
 
 /// Execute a flexible stats query with optional Redis caching.
-pub async fn run_stats_query(
-    pool: &PgPool,
-    redis: Option<&RedisService>,
-    body: &StatsBuilderBody,
-) -> AppResult<StatsTableResponse> {
+pub async fn run_stats_query(pool: &PgPool, redis: Option<&RedisService>, body: &StatsBuilderBody) -> AppResult<StatsTableResponse> {
     validator::validate(body)?;
 
     let key = cache::cache_key(body);
@@ -29,15 +25,7 @@ pub async fn run_stats_query(
     let limit = body.limit.unwrap_or(1000).min(10_000);
     let offset = body.offset.unwrap_or(0);
 
-    let response = executor::execute(
-        pool,
-        &built.data_sql,
-        &built.count_sql,
-        &built.binds,
-        limit,
-        offset,
-    )
-    .await?;
+    let response = executor::execute(pool, &built.data_sql, &built.count_sql, &built.binds, limit, offset).await?;
 
     if response.sql_error.is_none() {
         if let Some(r) = redis {

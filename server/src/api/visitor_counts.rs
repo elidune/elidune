@@ -31,21 +31,11 @@ use super::{AuthenticatedUser, ClientIp};
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn list_visitor_counts(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Query(query): Query<VisitorCountQuery>,
-) -> AppResult<Json<Vec<VisitorCount>>> {
+pub async fn list_visitor_counts(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<VisitorCountQuery>) -> AppResult<Json<Vec<VisitorCount>>> {
     claims.require_read_settings()?;
 
-    let start = query
-        .start_date
-        .as_ref()
-        .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
-    let end = query
-        .end_date
-        .as_ref()
-        .and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+    let start = query.start_date.as_ref().and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+    let end = query.end_date.as_ref().and_then(|s| NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
 
     let counts = state.services.visitor_counts.list(start, end).await?;
     Ok(Json(counts))
@@ -101,12 +91,7 @@ pub async fn create_visitor_count(
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn delete_visitor_count(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    ClientIp(ip): ClientIp,
-    Path(id): Path<i64>,
-) -> AppResult<StatusCode> {
+pub async fn delete_visitor_count(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Path(id): Path<i64>) -> AppResult<StatusCode> {
     claims.require_write_settings()?;
     state.services.visitor_counts.delete(id).await?;
     state.services.audit.log(
@@ -125,9 +110,6 @@ pub async fn delete_visitor_count(
 pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::{delete, get, post};
     axum::Router::new()
-        .route(
-            "/visitor-counts",
-            get(list_visitor_counts).post(create_visitor_count),
-        )
+        .route("/visitor-counts", get(list_visitor_counts).post(create_visitor_count))
         .route("/visitor-counts/:id", delete(delete_visitor_count))
 }

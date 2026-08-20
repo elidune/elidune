@@ -1,4 +1,4 @@
-import { readHoldsRightsFromJwt } from '@/utils/jwtRights';
+import { readChatRightsFromJwt, readHoldsRightsFromJwt } from '@/utils/jwtRights';
 
 // Library info types
 export interface LibraryInfo {
@@ -81,6 +81,7 @@ export interface AuthMeRights {
   holdsRights?: string | null;
   /** Legacy alias on some tokens — prefer holdsRights */
   borrowsRights?: string | null;
+  chatRights?: string | null;
 }
 
 // User types
@@ -1006,6 +1007,7 @@ export interface AccountTypeDefinition {
   borrowsRights: string | null;
   settingsRights: string | null;
   eventsRights: string | null;
+  chatRights: string | null;
 }
 
 export type AccountTypeRightLevel = 'n' | 'r' | 'w';
@@ -1020,7 +1022,113 @@ export interface UpdateAccountTypeRequest {
   borrowsRights?: AccountTypeRightLevel | null;
   settingsRights?: AccountTypeRightLevel | null;
   eventsRights?: AccountTypeRightLevel | null;
+  chatRights?: AccountTypeRightLevel | null;
 }
+
+// ─── Chat assistant ────────────────────────────────────────────────
+
+export type LlmProviderKind = 'openaiCompat' | 'anthropic';
+
+export interface LlmProviderPublic {
+  id: string;
+  slug: string;
+  label: string;
+  kind: LlmProviderKind;
+  models: string[];
+  defaultModel?: string | null;
+}
+
+export interface LlmProviderAdmin {
+  id: string;
+  slug: string;
+  label: string;
+  kind: LlmProviderKind;
+  baseUrl: string;
+  apiKeySet: boolean;
+  apiKeyEnv?: string | null;
+  models: string[];
+  defaultModel?: string | null;
+  enabled: boolean;
+  sortOrder: number;
+}
+
+export interface CreateLlmProviderRequest {
+  slug: string;
+  label: string;
+  kind: LlmProviderKind;
+  baseUrl: string;
+  apiKey?: string;
+  apiKeyEnv?: string;
+  models: string[];
+  defaultModel?: string;
+  enabled?: boolean;
+  sortOrder?: number;
+}
+
+export interface UpdateLlmProviderRequest {
+  slug?: string;
+  label?: string;
+  kind?: LlmProviderKind;
+  baseUrl?: string;
+  apiKey?: string;
+  apiKeyEnv?: string;
+  models?: string[];
+  defaultModel?: string;
+  enabled?: boolean;
+  sortOrder?: number;
+}
+
+export interface ChatConversation {
+  id: string;
+  userId: string;
+  title: string;
+  providerId: string;
+  model: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  conversationId: string;
+  role: 'user' | 'assistant' | 'tool' | string;
+  content?: string | null;
+  toolName?: string | null;
+  toolCallId?: string | null;
+  toolArguments?: unknown;
+  toolResult?: unknown;
+  createdAt: string;
+}
+
+export interface ConversationDetail {
+  id: string;
+  userId: string;
+  title: string;
+  providerId: string;
+  model: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: ChatMessage[];
+}
+
+export interface CreateConversationRequest {
+  providerId: string;
+  model?: string;
+  title?: string;
+}
+
+export interface SendChatMessageRequest {
+  content: string;
+  providerId?: string;
+  model?: string;
+}
+
+export type ChatStreamEvent =
+  | { type: 'delta'; text: string }
+  | { type: 'tool.start'; id: string; name: string }
+  | { type: 'tool.result'; id: string; name: string; ok: boolean; summary: string; detail?: string }
+  | { type: 'error'; message: string }
+  | { type: 'done'; assistantMessageId: string; conversationId: string; title: string };
 
 // Account types for permissions
 export type AccountType = 'Guest' | 'Reader' | 'Librarian' | 'Administrator';
@@ -1082,6 +1190,37 @@ export const canViewStats = (accountType?: string): boolean =>
 
 export const canManageSettings = (accountType?: string): boolean =>
   isAdmin(accountType);
+
+function normalizeChatRightsValue(raw: unknown): string | null {
+  const s = raw != null ? String(raw).trim().toLowerCase() : '';
+  return s || null;
+}
+
+export function resolveChatRightsFromProfile(
+  user: Pick<User, 'rights'> | null | undefined,
+): string | null {
+  if (!user?.rights || typeof user.rights !== 'object') return null;
+  const r = user.rights as AuthMeRights;
+  return normalizeChatRightsValue(r.chatRights);
+}
+
+/** Chat assistant: JWT `rights.chatRights` first, then profile. Requires `read` or `write`. */
+export function resolveChatRights(
+  user: Pick<User, 'rights'> | null | undefined,
+  authToken?: string | null,
+): string | null {
+  const fromJwt = authToken ? readChatRightsFromJwt(authToken) : null;
+  const fromProfile = resolveChatRightsFromProfile(user);
+  return fromJwt ?? fromProfile ?? null;
+}
+
+export const canUseChat = (
+  user: Pick<User, 'rights'> | null | undefined,
+  authToken?: string | null,
+): boolean => {
+  const r = resolveChatRights(user, authToken);
+  return r === 'read' || r === 'write';
+};
 
 /** PUT /settings/email-templates/:templateId/:language */
 export interface UpdateEmailTemplateRequest {

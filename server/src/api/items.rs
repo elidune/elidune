@@ -20,10 +20,7 @@ pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::get;
     axum::Router::new()
         .route("/items/barcode/:barcode", get(get_biblio_by_barcode))
-        .route(
-            "/items/:id",
-            get(get_biblio_by_item).put(update_item).delete(delete_item),
-        )
+        .route("/items/:id", get(get_biblio_by_item).put(update_item).delete(delete_item))
 }
 
 /// Get the bibliographic record for a physical copy.
@@ -44,11 +41,7 @@ pub fn router() -> axum::Router<crate::AppState> {
         (status = 410, description = "Bibliographic record is archived", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn get_biblio_by_item(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path(item_id): Path<i64>,
-) -> AppResult<Json<Biblio>> {
+pub async fn get_biblio_by_item(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(item_id): Path<i64>) -> AppResult<Json<Biblio>> {
     claims.require_read_items()?;
     let biblio = state.services.catalog.get_biblio_for_item(item_id).await?;
     Ok(Json(biblio))
@@ -72,17 +65,9 @@ pub async fn get_biblio_by_item(
         (status = 410, description = "Bibliographic record is archived", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn get_biblio_by_barcode(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path(barcode): Path<String>,
-) -> AppResult<Json<Biblio>> {
+pub async fn get_biblio_by_barcode(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(barcode): Path<String>) -> AppResult<Json<Biblio>> {
     claims.require_read_items()?;
-    let biblio = state
-        .services
-        .catalog
-        .get_biblio_for_item_barcode(barcode.as_str())
-        .await?;
+    let biblio = state.services.catalog.get_biblio_for_item_barcode(barcode.as_str()).await?;
     Ok(Json(biblio))
 }
 

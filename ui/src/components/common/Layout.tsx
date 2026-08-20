@@ -22,11 +22,12 @@ import {
   ClipboardList,
   Bookmark,
   BookmarkCheck,
+  MessageSquare,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLibrary } from '@/contexts/LibraryContext';
-import { isLibrarian, isAdmin, canPatronSelfServiceHolds } from '@/types';
+import { isLibrarian, isAdmin, canPatronSelfServiceHolds, canUseChat } from '@/types';
 import api from '@/services/api';
 import { version as uiVersion } from '../../../package.json';
 import {
@@ -76,6 +77,12 @@ export default function Layout({ children }: LayoutProps) {
     { name: t('nav.z3950Search'), href: '/z3950', icon: Globe, show: isLibrarian(user?.accountType) },
     { name: t('nav.importIso'), href: '/import-iso', icon: Upload, show: isLibrarian(user?.accountType) },
     { name: t('nav.events'), href: '/events', icon: CalendarDays, show: true },
+    {
+      name: t('nav.chat'),
+      href: '/chat',
+      icon: MessageSquare,
+      show: canUseChat(user, api.getToken()),
+    },
     { name: t('nav.stats'), href: '/stats', icon: BarChart3, show: isLibrarian(user?.accountType) },
     { name: t('nav.library'), href: '/settings?tab=library', icon: LibraryBig, show: isLibrarian(user?.accountType) && !isAdmin(user?.accountType) },
     { name: t('nav.settings'), href: '/settings', icon: Settings, show: isAdmin(user?.accountType) },

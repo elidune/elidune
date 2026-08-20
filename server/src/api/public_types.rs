@@ -8,10 +8,7 @@ use axum::{
 
 use crate::{
     error::AppResult,
-    models::public_type::{
-        CreatePublicType, PublicType, PublicTypeLoanSettings, ReplacePublicTypeLoanSettingsRequest,
-        UpdatePublicType,
-    },
+    models::public_type::{CreatePublicType, PublicType, PublicTypeLoanSettings, ReplacePublicTypeLoanSettingsRequest, UpdatePublicType},
     services::audit,
 };
 
@@ -31,9 +28,7 @@ use super::{AuthenticatedUser, ClientIp};
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn list_public_types(
-    State(state): State<crate::AppState>,
-) -> AppResult<Json<Vec<PublicType>>> {
+pub async fn list_public_types(State(state): State<crate::AppState>) -> AppResult<Json<Vec<PublicType>>> {
     let types = state.services.public_types.list().await?;
     Ok(Json(types))
 }
@@ -50,10 +45,7 @@ pub async fn list_public_types(
         (status = 404, description = "Not found")
     )
 )]
-pub async fn get_public_type(
-    State(state): State<crate::AppState>,
-    Path(id): Path<i64>,
-) -> AppResult<Json<(PublicType, Vec<PublicTypeLoanSettings>)>> {
+pub async fn get_public_type(State(state): State<crate::AppState>, Path(id): Path<i64>) -> AppResult<Json<(PublicType, Vec<PublicTypeLoanSettings>)>> {
     let public_type = state.services.public_types.get_by_id(id).await?;
     let loan_settings = state.services.public_types.get_loan_settings(id).await?;
     Ok(Json((public_type, loan_settings)))
@@ -168,12 +160,7 @@ pub async fn update_public_type(
         (status = 404, description = "Not found")
     )
 )]
-pub async fn delete_public_type(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    ClientIp(ip): ClientIp,
-    Path(id): Path<i64>,
-) -> AppResult<StatusCode> {
+pub async fn delete_public_type(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Path(id): Path<i64>) -> AppResult<StatusCode> {
     claims.require_write_settings()?;
     match state.services.public_types.delete(id).await {
         Ok(()) => {
@@ -225,12 +212,7 @@ pub async fn update_loan_settings(
     Json(data): Json<ReplacePublicTypeLoanSettingsRequest>,
 ) -> AppResult<Json<Vec<PublicTypeLoanSettings>>> {
     claims.require_write_settings()?;
-    match state
-        .services
-        .public_types
-        .update_loan_settings(id, &data)
-        .await
-    {
+    match state.services.public_types.update_loan_settings(id, &data).await {
         Ok(settings) => {
             state.services.audit.log(
                 audit::event::PUBLIC_TYPE_LOAN_SETTINGS_UPDATED,
@@ -262,15 +244,7 @@ pub async fn update_loan_settings(
 pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::{delete, get, post, put};
     axum::Router::new()
-        .route(
-            "/public-types",
-            get(list_public_types).post(create_public_type),
-        )
-        .route(
-            "/public-types/:id",
-            get(get_public_type)
-                .put(update_public_type)
-                .delete(delete_public_type),
-        )
+        .route("/public-types", get(list_public_types).post(create_public_type))
+        .route("/public-types/:id", get(get_public_type).put(update_public_type).delete(delete_public_type))
         .route("/public-types/:id/loan-settings", put(update_loan_settings))
 }

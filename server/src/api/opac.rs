@@ -45,10 +45,7 @@ pub fn router() -> axum::Router<crate::AppState> {
         (status = 200, description = "Catalog search results", body = PaginatedResponse<BiblioShort>)
     )
 )]
-pub async fn opac_search(
-    State(state): State<crate::AppState>,
-    Query(mut query): Query<BiblioQuery>,
-) -> AppResult<Json<PaginatedResponse<BiblioShort>>> {
+pub async fn opac_search(State(state): State<crate::AppState>, Query(mut query): Query<BiblioQuery>) -> AppResult<Json<PaginatedResponse<BiblioShort>>> {
     // Cap per_page to prevent abuse on public endpoint
     let per_page = query.per_page.unwrap_or(20).min(50);
     let page = query.page.unwrap_or(1).max(1);
@@ -70,10 +67,7 @@ pub async fn opac_search(
         (status = 404, description = "Biblio not found", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn opac_get_biblio(
-    State(state): State<crate::AppState>,
-    Path(biblio_id): Path<i64>,
-) -> AppResult<Json<crate::models::biblio::Biblio>> {
+pub async fn opac_get_biblio(State(state): State<crate::AppState>, Path(biblio_id): Path<i64>) -> AppResult<Json<crate::models::biblio::Biblio>> {
     let biblio = state.services.catalog.get_biblio(biblio_id).await?;
     Ok(Json(biblio))
 }
@@ -88,20 +82,9 @@ pub async fn opac_get_biblio(
         (status = 200, description = "Availability count", body = serde_json::Value)
     )
 )]
-pub async fn opac_availability(
-    State(state): State<crate::AppState>,
-    Path(biblio_id): Path<i64>,
-) -> AppResult<Json<serde_json::Value>> {
-    let active_loans = state
-        .services
-        .loans
-        .count_active_for_biblio(biblio_id)
-        .await?;
-    let hold_count = state
-        .services
-        .holds
-        .count_active_for_biblio(biblio_id)
-        .await?;
+pub async fn opac_availability(State(state): State<crate::AppState>, Path(biblio_id): Path<i64>) -> AppResult<Json<serde_json::Value>> {
+    let active_loans = state.services.loans.count_active_for_biblio(biblio_id).await?;
+    let hold_count = state.services.holds.count_active_for_biblio(biblio_id).await?;
     Ok(Json(serde_json::json!({
         "biblioId": biblio_id.to_string(),
         "activeLoans": active_loans,

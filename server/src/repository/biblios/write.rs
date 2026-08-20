@@ -17,10 +17,7 @@ use crate::{
     models::{
         author::Author,
         author::Function,
-        biblio::{
-            Biblio, BiblioQuery, BiblioShort, Collection, Edition, Isbn, MediaType,
-            MeiliBiblioDocument, Serie,
-        },
+        biblio::{Biblio, BiblioQuery, BiblioShort, Collection, Edition, Isbn, MediaType, MeiliBiblioDocument, Serie},
         import_report::DuplicateCandidate,
         item::Item,
     },
@@ -47,9 +44,7 @@ impl Repository {
             while biblio.series_volume_numbers.len() < biblio.series_ids.len() {
                 biblio.series_volume_numbers.push(None);
             }
-            biblio
-                .series_volume_numbers
-                .truncate(biblio.series_ids.len());
+            biblio.series_volume_numbers.truncate(biblio.series_ids.len());
         }
         Ok(())
     }
@@ -71,24 +66,13 @@ impl Repository {
             while biblio.collection_volume_numbers.len() < biblio.collection_ids.len() {
                 biblio.collection_volume_numbers.push(None);
             }
-            biblio
-                .collection_volume_numbers
-                .truncate(biblio.collection_ids.len());
+            biblio.collection_volume_numbers.truncate(biblio.collection_ids.len());
         }
         Ok(())
     }
     /// Replace `biblio_collections` rows for this biblio within an open transaction.
-    async fn sync_biblio_collections_tx(
-        &self,
-        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        biblio_id: i64,
-        collection_ids: &[i64],
-        volumes: &[Option<i16>],
-    ) -> AppResult<()> {
-        sqlx::query("DELETE FROM biblio_collections WHERE biblio_id = $1")
-            .bind(biblio_id)
-            .execute(&mut **tx)
-            .await?;
+    async fn sync_biblio_collections_tx(&self, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, biblio_id: i64, collection_ids: &[i64], volumes: &[Option<i16>]) -> AppResult<()> {
+        sqlx::query("DELETE FROM biblio_collections WHERE biblio_id = $1").bind(biblio_id).execute(&mut **tx).await?;
 
         let (collection_ids, volumes) = dedupe_junction_links(collection_ids, volumes);
         for (pos, &cid) in collection_ids.iter().enumerate() {
@@ -110,17 +94,8 @@ impl Repository {
     }
 
     /// Replace `biblio_series` rows for this biblio within an open transaction.
-    async fn sync_biblio_series_tx(
-        &self,
-        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        biblio_id: i64,
-        series_ids: &[i64],
-        volumes: &[Option<i16>],
-    ) -> AppResult<()> {
-        sqlx::query("DELETE FROM biblio_series WHERE biblio_id = $1")
-            .bind(biblio_id)
-            .execute(&mut **tx)
-            .await?;
+    async fn sync_biblio_series_tx(&self, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, biblio_id: i64, series_ids: &[i64], volumes: &[Option<i16>]) -> AppResult<()> {
+        sqlx::query("DELETE FROM biblio_series WHERE biblio_id = $1").bind(biblio_id).execute(&mut **tx).await?;
 
         let (series_ids, volumes) = dedupe_junction_links(series_ids, volumes);
         for (pos, &sid) in series_ids.iter().enumerate() {
@@ -196,22 +171,9 @@ impl Repository {
 
         biblio.id = Some(id);
 
-        self.sync_biblio_series_tx(
-            &mut tx,
-            id,
-            &biblio.series_ids,
-            &biblio.series_volume_numbers,
-        )
-        .await?;
-        self.sync_biblio_collections_tx(
-            &mut tx,
-            id,
-            &biblio.collection_ids,
-            &biblio.collection_volume_numbers,
-        )
-        .await?;
-        self.sync_biblio_authors_tx(&mut tx, id, &biblio.authors)
-            .await?;
+        self.sync_biblio_series_tx(&mut tx, id, &biblio.series_ids, &biblio.series_volume_numbers).await?;
+        self.sync_biblio_collections_tx(&mut tx, id, &biblio.collection_ids, &biblio.collection_volume_numbers).await?;
+        self.sync_biblio_authors_tx(&mut tx, id, &biblio.authors).await?;
 
         biblio.marc_record = Some(crate::marc::MarcRecord::from(&*biblio));
         sqlx::query("UPDATE biblios SET marc_record = $1 WHERE id = $2")
@@ -230,10 +192,7 @@ impl Repository {
 
     /// Active biblios with a non-empty ISBN. When `force_rebuild` is false, only rows with `marc_record IS NULL`.
     #[tracing::instrument(skip(self), err)]
-    pub async fn biblios_list_ids_for_z3950_refresh(
-        &self,
-        rebuild_all: bool,
-    ) -> AppResult<Vec<i64>> {
+    pub async fn biblios_list_ids_for_z3950_refresh(&self, rebuild_all: bool) -> AppResult<Vec<i64>> {
         let rows: Vec<(i64,)> = if rebuild_all {
             sqlx::query_as(
                 r#"
@@ -261,11 +220,7 @@ impl Repository {
     }
     /// Update an existing biblio.
     #[tracing::instrument(skip(self), err)]
-    pub async fn biblios_update<'a>(
-        &self,
-        id: i64,
-        biblio: &'a mut Biblio,
-    ) -> AppResult<&'a mut Biblio> {
+    pub async fn biblios_update<'a>(&self, id: i64, biblio: &'a mut Biblio) -> AppResult<&'a mut Biblio> {
         biblio.updated_at = Some(Utc::now());
         biblio.id = Some(id);
 
@@ -295,24 +250,11 @@ impl Repository {
         .execute(&mut *tx)
         .await?;
 
-        self.sync_biblio_series_tx(
-            &mut tx,
-            id,
-            &biblio.series_ids,
-            &biblio.series_volume_numbers,
-        )
-        .await?;
-        self.sync_biblio_collections_tx(
-            &mut tx,
-            id,
-            &biblio.collection_ids,
-            &biblio.collection_volume_numbers,
-        )
-        .await?;
+        self.sync_biblio_series_tx(&mut tx, id, &biblio.series_ids, &biblio.series_volume_numbers).await?;
+        self.sync_biblio_collections_tx(&mut tx, id, &biblio.collection_ids, &biblio.collection_volume_numbers).await?;
 
         if !biblio.authors.is_empty() {
-            self.sync_biblio_authors_tx(&mut tx, id, &biblio.authors)
-                .await?;
+            self.sync_biblio_authors_tx(&mut tx, id, &biblio.authors).await?;
         }
 
         biblio.marc_record = Some(crate::marc::MarcRecord::from(&*biblio));
@@ -333,11 +275,7 @@ impl Repository {
     /// Full bibliographic replace (same column set as [`Self::biblios_create`]), preserving the biblio primary key.
     /// Physical items are **not** modified here — pass the desired `items` slice (typically existing copies) on `biblio`.
     #[tracing::instrument(skip(self), err)]
-    pub async fn biblios_full_bibliographic_replace<'a>(
-        &self,
-        id: i64,
-        biblio: &'a mut Biblio,
-    ) -> AppResult<&'a mut Biblio> {
+    pub async fn biblios_full_bibliographic_replace<'a>(&self, id: i64, biblio: &'a mut Biblio) -> AppResult<&'a mut Biblio> {
         let now = Utc::now();
         biblio.updated_at = Some(now);
         biblio.id = Some(id);
@@ -346,8 +284,7 @@ impl Repository {
         self.resolve_collection_ids_from_biblio(biblio).await?;
         biblio.edition_id = self.process_edition(&biblio.edition).await?;
 
-        let marc_json =
-            serde_json::to_value(&biblio.marc_record).unwrap_or(serde_json::Value::Null);
+        let marc_json = serde_json::to_value(&biblio.marc_record).unwrap_or(serde_json::Value::Null);
 
         let mut tx = self.pool.begin().await?;
 
@@ -404,28 +341,12 @@ impl Repository {
 
         if n == 0 {
             tx.rollback().await?;
-            return Err(AppError::NotFound(format!(
-                "biblio {} not found or archived",
-                id
-            )));
+            return Err(AppError::NotFound(format!("biblio {} not found or archived", id)));
         }
 
-        self.sync_biblio_series_tx(
-            &mut tx,
-            id,
-            &biblio.series_ids,
-            &biblio.series_volume_numbers,
-        )
-        .await?;
-        self.sync_biblio_collections_tx(
-            &mut tx,
-            id,
-            &biblio.collection_ids,
-            &biblio.collection_volume_numbers,
-        )
-        .await?;
-        self.sync_biblio_authors_tx(&mut tx, id, &biblio.authors)
-            .await?;
+        self.sync_biblio_series_tx(&mut tx, id, &biblio.series_ids, &biblio.series_volume_numbers).await?;
+        self.sync_biblio_collections_tx(&mut tx, id, &biblio.collection_ids, &biblio.collection_volume_numbers).await?;
+        self.sync_biblio_authors_tx(&mut tx, id, &biblio.authors).await?;
 
         tx.commit().await?;
 
@@ -439,14 +360,12 @@ impl Repository {
     #[tracing::instrument(skip(self), err)]
     pub async fn biblios_update_marc_record(&self, biblio: &mut Biblio) -> AppResult<()> {
         if biblio.marc_record.is_none() {
-            biblio.marc_record = sqlx::query_scalar::<_, Option<serde_json::Value>>(
-                "SELECT marc_record FROM biblios WHERE id = $1",
-            )
-            .bind(biblio.id.unwrap_or(0))
-            .fetch_optional(&self.pool)
-            .await?
-            .flatten()
-            .and_then(|v| serde_json::from_value::<MarcRecord>(v).ok());
+            biblio.marc_record = sqlx::query_scalar::<_, Option<serde_json::Value>>("SELECT marc_record FROM biblios WHERE id = $1")
+                .bind(biblio.id.unwrap_or(0))
+                .fetch_optional(&self.pool)
+                .await?
+                .flatten()
+                .and_then(|v| serde_json::from_value::<MarcRecord>(v).ok());
         }
 
         biblio.marc_record = Some(MarcRecord::from(&*biblio));
@@ -468,9 +387,7 @@ impl Repository {
 
         if loans.len() > 0 {
             if !force {
-                return Err(AppError::BusinessRule(
-                    "Biblio has borrowed items. Use force=true to delete anyway.".to_string(),
-                ));
+                return Err(AppError::BusinessRule("Biblio has borrowed items. Use force=true to delete anyway.".to_string()));
             } else {
                 for loan_id in loans {
                     self.loans_return(loan_id).await?;
@@ -516,21 +433,13 @@ impl Repository {
         Ok(result.rows_affected() > 0)
     }
     /// Replace all authors for a biblio within an open transaction.
-    async fn sync_biblio_authors_tx(
-        &self,
-        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        biblio_id: i64,
-        authors: &[Author],
-    ) -> AppResult<()> {
+    async fn sync_biblio_authors_tx(&self, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, biblio_id: i64, authors: &[Author]) -> AppResult<()> {
         let mut author_ids: Vec<Option<i64>> = Vec::with_capacity(authors.len());
         for author in authors {
             author_ids.push(self.ensure_author(author).await?);
         }
 
-        sqlx::query("DELETE FROM biblio_authors WHERE biblio_id = $1")
-            .bind(biblio_id)
-            .execute(&mut **tx)
-            .await?;
+        sqlx::query("DELETE FROM biblio_authors WHERE biblio_id = $1").bind(biblio_id).execute(&mut **tx).await?;
 
         for (idx, (author, author_id)) in authors.iter().zip(author_ids.iter()).enumerate() {
             let Some(author_id) = author_id else { continue };
@@ -564,24 +473,20 @@ impl Repository {
             return Ok(None);
         };
 
-        let existing: Option<i64> = sqlx::query_scalar(
-            "SELECT id FROM authors WHERE lastname = $1 AND firstname IS NOT DISTINCT FROM $2",
-        )
-        .bind(lastname)
-        .bind(&author.firstname)
-        .fetch_optional(&self.pool)
-        .await?;
+        let existing: Option<i64> = sqlx::query_scalar("SELECT id FROM authors WHERE lastname = $1 AND firstname IS NOT DISTINCT FROM $2")
+            .bind(lastname)
+            .bind(&author.firstname)
+            .fetch_optional(&self.pool)
+            .await?;
 
         if let Some(id) = existing {
             Ok(Some(id))
         } else {
-            let id = sqlx::query_scalar::<_, i64>(
-                "INSERT INTO authors (lastname, firstname) VALUES ($1, $2) RETURNING id",
-            )
-            .bind(lastname)
-            .bind(&author.firstname)
-            .fetch_one(&self.pool)
-            .await?;
+            let id = sqlx::query_scalar::<_, i64>("INSERT INTO authors (lastname, firstname) VALUES ($1, $2) RETURNING id")
+                .bind(lastname)
+                .bind(&author.firstname)
+                .fetch_one(&self.pool)
+                .await?;
             Ok(Some(id))
         }
     }
@@ -605,24 +510,21 @@ impl Repository {
 
         let key = normalize_key(name);
 
-        let existing: Option<i64> =
-            sqlx::query_scalar("SELECT id FROM series WHERE key = $1 OR name = $2")
-                .bind(&key)
-                .bind(name)
-                .fetch_optional(&self.pool)
-                .await?;
+        let existing: Option<i64> = sqlx::query_scalar("SELECT id FROM series WHERE key = $1 OR name = $2")
+            .bind(&key)
+            .bind(name)
+            .fetch_optional(&self.pool)
+            .await?;
 
         if let Some(id) = existing {
             Ok(Some(id))
         } else {
-            let id = sqlx::query_scalar::<_, i64>(
-                "INSERT INTO series (key, name, issn) VALUES ($1, $2, $3) RETURNING id",
-            )
-            .bind(&key)
-            .bind(name)
-            .bind(&serie.issn)
-            .fetch_one(&self.pool)
-            .await?;
+            let id = sqlx::query_scalar::<_, i64>("INSERT INTO series (key, name, issn) VALUES ($1, $2, $3) RETURNING id")
+                .bind(&key)
+                .bind(name)
+                .bind(&serie.issn)
+                .fetch_one(&self.pool)
+                .await?;
             Ok(Some(id))
         }
     }
@@ -642,12 +544,11 @@ impl Repository {
 
         let key = normalize_key(name);
 
-        let existing: Option<i64> =
-            sqlx::query_scalar("SELECT id FROM collections WHERE key = $1 OR name = $2")
-                .bind(&key)
-                .bind(name)
-                .fetch_optional(&self.pool)
-                .await?;
+        let existing: Option<i64> = sqlx::query_scalar("SELECT id FROM collections WHERE key = $1 OR name = $2")
+            .bind(&key)
+            .bind(name)
+            .fetch_optional(&self.pool)
+            .await?;
 
         if let Some(id) = existing {
             Ok(Some(id))
@@ -680,11 +581,10 @@ impl Repository {
             return Ok(None);
         };
 
-        let existing: Option<i64> =
-            sqlx::query_scalar("SELECT id FROM editions WHERE publisher_name = $1")
-                .bind(publisher_name)
-                .fetch_optional(&self.pool)
-                .await?;
+        let existing: Option<i64> = sqlx::query_scalar("SELECT id FROM editions WHERE publisher_name = $1")
+            .bind(publisher_name)
+            .fetch_optional(&self.pool)
+            .await?;
 
         if let Some(id) = existing {
             Ok(Some(id))
@@ -700,11 +600,7 @@ impl Repository {
     }
     /// Find an active (non-archived) biblio that has the given ISBN.
     #[tracing::instrument(skip(self), err)]
-    pub async fn biblios_find_active_by_isbn(
-        &self,
-        isbn: &str,
-        exclude_id: Option<i64>,
-    ) -> AppResult<Option<i64>> {
+    pub async fn biblios_find_active_by_isbn(&self, isbn: &str, exclude_id: Option<i64>) -> AppResult<Option<i64>> {
         let row: Option<i64> = if let Some(eid) = exclude_id {
             sqlx::query_scalar("SELECT id FROM biblios WHERE isbn = $1 AND archived_at IS NULL AND id != $2 LIMIT 1")
                 .bind(isbn)
@@ -712,21 +608,16 @@ impl Repository {
                 .fetch_optional(&self.pool)
                 .await?
         } else {
-            sqlx::query_scalar(
-                "SELECT id FROM biblios WHERE isbn = $1 AND archived_at IS NULL LIMIT 1",
-            )
-            .bind(isbn)
-            .fetch_optional(&self.pool)
-            .await?
+            sqlx::query_scalar("SELECT id FROM biblios WHERE isbn = $1 AND archived_at IS NULL LIMIT 1")
+                .bind(isbn)
+                .fetch_optional(&self.pool)
+                .await?
         };
         Ok(row)
     }
     /// Find an existing biblio by ISBN for import deduplication.
     #[tracing::instrument(skip(self), err)]
-    pub async fn biblios_find_by_isbn_for_import(
-        &self,
-        isbn: &str,
-    ) -> AppResult<Option<DuplicateCandidate>> {
+    pub async fn biblios_find_by_isbn_for_import(&self, isbn: &str) -> AppResult<Option<DuplicateCandidate>> {
         let row: Option<(i64, Option<chrono::DateTime<Utc>>, i64)> = sqlx::query_as(
             r#"
             SELECT b.id,
@@ -742,22 +633,12 @@ impl Repository {
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(
-            row.map(|(biblio_id, archived_at, item_count)| DuplicateCandidate {
-                biblio_id,
-                archived_at,
-                item_count,
-            }),
-        )
+        Ok(row.map(|(biblio_id, archived_at, item_count)| DuplicateCandidate { biblio_id, archived_at, item_count }))
     }
 
     /// Check if ISBN already exists
     #[tracing::instrument(skip(self), err)]
-    pub async fn biblios_isbn_exists(
-        &self,
-        isbn: &str,
-        exclude_id: Option<i64>,
-    ) -> AppResult<bool> {
+    pub async fn biblios_isbn_exists(&self, isbn: &str, exclude_id: Option<i64>) -> AppResult<bool> {
         let exists: bool = if let Some(id) = exclude_id {
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM biblios WHERE isbn = $1 AND id != $2)")
                 .bind(isbn)
@@ -765,10 +646,7 @@ impl Repository {
                 .fetch_one(&self.pool)
                 .await?
         } else {
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM biblios WHERE isbn = $1)")
-                .bind(isbn)
-                .fetch_one(&self.pool)
-                .await?
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM biblios WHERE isbn = $1)").bind(isbn).fetch_one(&self.pool).await?
         };
 
         Ok(exists)
@@ -777,22 +655,16 @@ impl Repository {
     /// Count non-archived items (physical copies) for a source
     #[tracing::instrument(skip(self), err)]
     pub async fn biblios_count_items_for_source(&self, source_id: i64) -> AppResult<i64> {
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM items WHERE source_id = $1 AND archived_at IS NULL",
-        )
-        .bind(source_id)
-        .fetch_one(&self.pool)
-        .await?;
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM items WHERE source_id = $1 AND archived_at IS NULL")
+            .bind(source_id)
+            .fetch_one(&self.pool)
+            .await?;
         Ok(count)
     }
 
     /// Reassign items (physical copies) from given source IDs to a new source
     #[tracing::instrument(skip(self), err)]
-    pub async fn biblios_reassign_items_source(
-        &self,
-        old_source_ids: &[i64],
-        new_source_id: i64,
-    ) -> AppResult<i64> {
+    pub async fn biblios_reassign_items_source(&self, old_source_ids: &[i64], new_source_id: i64) -> AppResult<i64> {
         let result = sqlx::query("UPDATE items SET source_id = $1 WHERE source_id = ANY($2)")
             .bind(new_source_id)
             .bind(old_source_ids)
@@ -803,11 +675,7 @@ impl Repository {
 
     /// Reassign biblios from given source IDs to a new source (no-op: sources are attached to items)
     #[tracing::instrument(skip(self), err)]
-    pub async fn biblios_reassign_biblios_source(
-        &self,
-        _old_source_ids: &[i64],
-        _new_source_id: i64,
-    ) -> AppResult<i64> {
+    pub async fn biblios_reassign_biblios_source(&self, _old_source_ids: &[i64], _new_source_id: i64) -> AppResult<i64> {
         Ok(0)
     }
 }
