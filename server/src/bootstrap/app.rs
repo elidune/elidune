@@ -80,12 +80,15 @@ impl AppBuildResult {
             services.repository.clone(),
         );
 
+        let mcp_pool = crate::bootstrap::db::try_mcp_pool(&file_config).await;
+
         let state = AppState {
             config: Arc::new(file_config),
             dynamic_config,
             services,
             scheduler_notify,
             event_bus: event_bus_tx,
+            mcp_pool,
         };
 
         let router = if options == AppBuildOptions::default() {

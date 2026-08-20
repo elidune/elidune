@@ -84,6 +84,7 @@ unicode-normalization = "0.1"
 metrics = "0.24"
 metrics-exporter-prometheus = "0.16"
 secrecy = { version = "0.8", features = ["serde"] }
+sqlparser = "0.53"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

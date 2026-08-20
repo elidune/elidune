@@ -216,6 +216,54 @@ pub struct AppConfig {
     pub holds: HoldsConfig,
     #[serde(default)]
     pub meilisearch: Option<MeilisearchConfig>,
+    /// Streamable HTTP MCP (read-only SQL). Disabled only when `enabled = false`.
+    #[serde(default)]
+    pub mcp: McpConfig,
+}
+
+fn default_mcp_enabled() -> bool {
+    true
+}
+
+fn default_mcp_max_rows() -> u32 {
+    200
+}
+
+fn default_mcp_timeout_ms() -> u64 {
+    5000
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct McpConfig {
+    #[serde(default = "default_mcp_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_mcp_max_rows")]
+    pub max_rows: u32,
+    #[serde(default = "default_mcp_timeout_ms")]
+    pub statement_timeout_ms: u64,
+    /// If unset, derived from `database.url` with user/password `elidune_mcp`.
+    #[serde(default)]
+    pub database_url: Option<String>,
+}
+
+impl Default for McpConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_rows: default_mcp_max_rows(),
+            statement_timeout_ms: default_mcp_timeout_ms(),
+            database_url: None,
+        }
+    }
+}
+
+impl McpConfig {
+    /// Explicit MCP URL, or `elidune_mcp:elidune_mcp` substituted into the app URL.
+    pub fn resolved_database_url(&self, app_database_url: &str) -> String {
+        self.database_url
+            .clone()
+            .unwrap_or_else(|| crate::mcp::derive_mcp_database_url(app_database_url))
+    }
 }
 
 impl AppConfig {
@@ -307,6 +355,7 @@ impl AppConfig {
                 ..HoldsConfig::default()
             },
             meilisearch: None,
+            mcp: McpConfig::default(),
         }
     }
 }

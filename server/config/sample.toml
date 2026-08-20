@@ -64,3 +64,10 @@ overridable = true
 url = "http://localhost:7700"
 api_key = "changeme"           # optional — omit if running without auth
 index_name = "items"           # default: "items"
+
+[mcp]
+enabled = true
+max_rows = 200
+statement_timeout_ms = 5000
+# Optional; defaults to database.url with user/password elidune_mcp
+# database_url = "postgres://elidune_mcp:elidune_mcp@localhost:5432/elidune"

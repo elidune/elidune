@@ -5,4 +5,4 @@ pub mod db;
 pub mod logging;
 
 pub use app::{AppBuildResult, ShutdownHandle};
-pub use db::connect_pool;
+pub use db::{connect_mcp_pool, connect_pool, try_mcp_pool};

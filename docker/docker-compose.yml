@@ -86,6 +86,11 @@ services:
       ELIDUNE_MEILISEARCH__API_KEY: ${ELIDUNE_MEILISEARCH__API_KEY:-changeme}
       ELIDUNE_MEILISEARCH__INDEX_NAME: ${ELIDUNE_MEILISEARCH__INDEX_NAME:-items}
 
+      ELIDUNE_MCP__ENABLED: ${ELIDUNE_MCP__ENABLED:-true}
+      ELIDUNE_MCP__MAX_ROWS: ${ELIDUNE_MCP__MAX_ROWS:-200}
+      ELIDUNE_MCP__STATEMENT_TIMEOUT_MS: ${ELIDUNE_MCP__STATEMENT_TIMEOUT_MS:-5000}
+      ELIDUNE_MCP__DATABASE_URL: ${ELIDUNE_MCP__DATABASE_URL:-postgres://elidune_mcp:elidune_mcp@db:5432/elidune}
+
     depends_on:
       db:
         condition: service_healthy

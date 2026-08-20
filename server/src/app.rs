@@ -156,6 +156,7 @@ pub fn build_app_with_options(state: AppState, options: AppBuildOptions) -> Rout
         .merge(api::account_types::router())
         .merge(api::maintenance::router())
         .merge(api::tasks::router())
+        .merge(crate::mcp::router())
         .with_state(state.clone());
 
     let mut app = Router::new()

@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use sqlx::{Pool, Postgres};
 use tokio::sync::{broadcast, Notify};
 
 pub mod api;
@@ -19,6 +20,7 @@ pub mod error;
 pub mod hold_email;
 pub mod inventory_email;
 pub mod marc;
+pub mod mcp;
 pub mod models;
 pub mod repository;
 pub mod services;
@@ -39,4 +41,6 @@ pub struct AppState {
     pub scheduler_notify: Arc<Notify>,
     /// Broadcast channel for real-time SSE events (loan.created, loan.returned, etc.)
     pub event_bus: broadcast::Sender<crate::models::dto::sse::SsePayload>,
+    /// Pool connected as `elidune_mcp` (no table grants). `None` when MCP is disabled.
+    pub mcp_pool: Option<Pool<Postgres>>,
 }

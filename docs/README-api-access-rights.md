@@ -233,3 +233,4 @@ Loan checkout, return, renew, and batch loan operations require **`holds_rights 
 | `GET /audit` | JWT + `require_admin()` |
 | `GET /audit/export` | JWT + `require_admin()` |
 | `POST /maintenance` | Admin (extractor — `AdminUser`) |
+| `POST /mcp` | JWT (full). Read-only SQL; PostgreSQL RLS by account type. See [README-mcp.md](README-mcp.md). |

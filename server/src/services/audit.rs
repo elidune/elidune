@@ -220,6 +220,9 @@ pub mod event {
     pub const SYSTEM_AUDIT_CLEANUP: &str = "system.audit_cleanup";
     pub const SYSTEM_TASK_COMPLETED: &str = "system.task_completed";
     pub const SYSTEM_TASK_FAILED: &str = "system.task_failed";
+
+    /// MCP `query` tool (success and failure).
+    pub const MCP_QUERY: &str = "mcp.query";
 }
 
 pub use crate::models::audit::{AuditLogEntry, AuditLogPage, AuditQueryParams};

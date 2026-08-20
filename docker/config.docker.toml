@@ -58,3 +58,8 @@ url = "http://meilisearch:7700"
 # Must match MEILI_MASTER_KEY in docker-compose (change both in production).
 api_key = "changeme"
 index_name = "items"
+
+[mcp]
+enabled = true
+max_rows = 200
+statement_timeout_ms = 5000

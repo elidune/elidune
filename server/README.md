@@ -253,6 +253,7 @@ src/
 ├── repository/   # SQL access
 ├── services/     # Business logic
 ├── marc/         # MARC translation
+├── mcp/          # Streamable HTTP MCP (read-only SQL)
 ├── config.rs
 ├── error.rs
 └── main.rs
@@ -262,6 +263,7 @@ src/
 
 - [Full Docker all-in-one deployment](README-docker.md)
 - [Reverse proxy: Nginx & Apache](docs/reverse-proxy.md)
+- [MCP read-only SQL server](../docs/README-mcp.md)
 
 ## Public release checklist (maintainers)
 

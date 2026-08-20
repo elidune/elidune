@@ -109,12 +109,15 @@ async fn main() -> anyhow::Result<()> {
         services.repository.clone(),
     );
 
+    let mcp_pool = elidune_server::bootstrap::db::try_mcp_pool(&file_config).await;
+
     let state = AppState {
         config: Arc::new(file_config),
         dynamic_config,
         services: services.clone(),
         scheduler_notify,
         event_bus: event_bus_tx,
+        mcp_pool,
     };
 
     let app = build_app(state);
