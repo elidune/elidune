@@ -80,7 +80,7 @@ request_timeout_secs = 120
 # [[chat.providers]]
 # slug = "ollama"
 # label = "Ollama (local)"
-# kind = "openaiCompat"
+# kind = "ollama"
 # base_url = "http://127.0.0.1:11434/v1"
 # models = ["llama3.2", "mistral"]
 # default_model = "llama3.2"

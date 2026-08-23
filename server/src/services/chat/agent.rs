@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
 use super::llm::{LlmBackend, LlmChatMessage, LlmStreamChunk, LlmToolCall, LlmToolDef};
+use super::build_backend;
 use crate::{
     config::ChatConfig,
     error::{AppError, AppResult},
@@ -62,15 +63,16 @@ pub fn mcp_tool_defs() -> Vec<LlmToolDef> {
 fn build_system_prompt(library_name: &str, claims: &UserClaims) -> String {
     let role = claims.account_type.as_str();
     format!(
-        "Tu es l'assistant conversationnel de la bibliothèque {library_name}. \
-         L'utilisateur connecté a le rôle « {role} » (user_id={}). \
-         Réponds en français, de façon concise et utile.\n\n\
+        "You are the conversational assistant for library {library_name}. \
+         The signed-in user has role \"{role}\" (user_id={}). \
+         Always reply in the same language as the user's latest message. \
+         Be concise and helpful.\n\n\
          {overview}\n\n\
          {tool_policy}\n\n\
-         Ne invente jamais une disponibilité ou un statut : interroge les outils. \
-         Les droits et le RLS filtrent déjà les données (un usager ne voit que ses propres prêts/réservations). \
-         Ne demande jamais de mot de passe ni de secret. \
-         Si tu ne peux pas répondre avec les outils, dis-le clairement.",
+         Never invent availability or status: use the tools. \
+         Permissions and RLS already filter data (a patron only sees their own loans and holds). \
+         Never ask for passwords or secrets. \
+         If you cannot answer with the tools, say so clearly.",
         claims.user_id,
         overview = schema_memo::overview(),
         tool_policy = schema_memo::tool_policy(),
@@ -78,6 +80,9 @@ fn build_system_prompt(library_name: &str, claims: &UserClaims) -> String {
 }
 
 fn history_to_llm(messages: &[ChatMessage], tool_result_max: usize) -> Vec<LlmChatMessage> {
+    use std::collections::HashMap;
+
+    let mut tool_names_by_id: HashMap<String, String> = HashMap::new();
     let mut out = Vec::new();
     let mut i = 0;
     while i < messages.len() {
@@ -110,6 +115,11 @@ fn history_to_llm(messages: &[ChatMessage], tool_result_max: usize) -> Vec<LlmCh
                             })
                         })
                         .collect();
+                    for tc in &tool_calls {
+                        if !tc.id.is_empty() && !tc.name.is_empty() {
+                            tool_names_by_id.insert(tc.id.clone(), tc.name.clone());
+                        }
+                    }
                     out.push(LlmChatMessage {
                         role: "assistant".into(),
                         content: m.content.clone(),
@@ -129,12 +139,17 @@ fn history_to_llm(messages: &[ChatMessage], tool_result_max: usize) -> Vec<LlmCh
             }
             "tool" => {
                 let content = m.tool_result.as_ref().map(|v| truncate_json(v, tool_result_max)).or_else(|| m.content.clone());
+                let name = m
+                    .tool_name
+                    .clone()
+                    .filter(|n| !n.is_empty())
+                    .or_else(|| m.tool_call_id.as_ref().and_then(|id| tool_names_by_id.get(id).cloned()));
                 out.push(LlmChatMessage {
                     role: "tool".into(),
                     content,
                     tool_calls: None,
                     tool_call_id: m.tool_call_id.clone(),
-                    name: m.tool_name.clone(),
+                    name,
                 });
             }
             _ => {}
@@ -165,12 +180,17 @@ fn tool_summary(name: &str, result: &Result<Value, AppError>) -> (bool, String) 
             } else if name == "list_my_loans" {
                 let n = v.get("returned").and_then(|c| c.as_u64()).unwrap_or(0);
                 (true, format!("{n} loans"))
+            } else if name == "list_my_loan_history" {
+                let n = v.get("returned").and_then(|c| c.as_u64()).unwrap_or(0);
+                (true, format!("{n} past loans"))
             } else if name == "list_my_holds" {
                 let n = v.get("holds").and_then(|h| h.as_array()).map(|a| a.len()).unwrap_or(0);
                 (true, format!("{n} holds"))
             } else if name == "search_biblios" {
                 let n = v.get("returned").and_then(|c| c.as_u64()).unwrap_or(0);
                 (true, format!("{n} hits"))
+            } else if name == "get_biblio" {
+                (true, "biblio record".into())
             } else if name == "describe_table" {
                 let n = v.get("columns").and_then(|c| c.as_array()).map(|a| a.len()).unwrap_or(0);
                 (true, format!("{n} columns"))
@@ -226,7 +246,11 @@ pub async fn run_agent_turn(
     let mut history = chat_repo.chat_list_messages(conversation_id).await?;
     let max = chat_cfg.max_history_messages as usize;
     if history.len() > max {
-        history = history.split_off(history.len() - max);
+        let mut start = history.len().saturating_sub(max);
+        while start < history.len() && history[start].role != "user" {
+            start += 1;
+        }
+        history = history.split_off(start);
     }
 
     let mut llm_messages = vec![LlmChatMessage {
@@ -335,6 +359,10 @@ pub async fn run_agent_turn(
                 });
 
                 for tc in tool_calls {
+                    if tc.name.is_empty() {
+                        yield AgentSseEvent::Error { message: "LLM emitted a tool call without a name".into() };
+                        return;
+                    }
                     yield AgentSseEvent::ToolStart { id: tc.id.clone(), name: tc.name.clone() };
 
                     let mcp_result = tools::call_tool(&state, &claims, &tc.name, tc.arguments.clone(), tool_options).await;
@@ -434,36 +462,6 @@ fn truncate_audit(s: &str) -> String {
     }
 }
 
-pub fn build_backend(row: &crate::models::chat::LlmProviderRow, timeout_secs: u64) -> AppResult<Arc<dyn LlmBackend>> {
-    use crate::models::chat::LlmProviderKind;
-
-    let api_key = resolve_api_key(row);
-
-    let kind = LlmProviderKind::from_db(&row.kind).ok_or_else(|| AppError::Internal(format!("Unknown LLM kind: {}", row.kind)))?;
-
-    match kind {
-        LlmProviderKind::OpenaiCompat => Ok(Arc::new(super::openai_compat::OpenAiCompatBackend::new(row.base_url.clone(), api_key, timeout_secs)) as Arc<dyn LlmBackend>),
-        LlmProviderKind::Anthropic => {
-            let key = api_key.ok_or_else(|| AppError::BusinessRule("Anthropic provider requires an API key".into()))?;
-            Ok(Arc::new(super::anthropic::AnthropicBackend::new(row.base_url.clone(), key, timeout_secs)) as Arc<dyn LlmBackend>)
-        }
-    }
-}
-
-pub fn resolve_api_key(row: &crate::models::chat::LlmProviderRow) -> Option<String> {
-    if let Some(ref k) = row.api_key {
-        if !k.is_empty() {
-            return Some(k.clone());
-        }
-    }
-    if let Some(ref env) = row.api_key_env {
-        if !env.is_empty() {
-            return std::env::var(env).ok().filter(|s| !s.is_empty());
-        }
-    }
-    None
-}
-
 pub fn models_from_json(v: &Value) -> Vec<String> {
     v.as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect()).unwrap_or_default()
 }
@@ -490,15 +488,62 @@ mod tests {
     fn system_prompt_prefers_domain_tools() {
         let prompt = build_system_prompt("TestLib", &reader_claims());
         assert!(prompt.contains("list_my_loans"));
+        assert!(prompt.contains("list_my_loan_history"));
         assert!(prompt.contains("list_my_holds"));
         assert!(prompt.contains("search_biblios"));
+        assert!(prompt.contains("get_biblio"));
+        assert!(prompt.contains("abstract"));
         assert!(prompt.contains("loans"));
-        assert!(!prompt.to_lowercase().contains("commence par list_tables"));
+        assert!(prompt.contains("same language as the user's latest message"));
+        assert!(prompt.to_lowercase().contains("starting with list_tables"));
+        assert!(prompt.to_lowercase().contains("not summary"));
     }
 
     #[test]
-    fn mcp_tool_defs_include_list_my_loans() {
+    fn mcp_tool_defs_include_domain_tools() {
         let names: Vec<String> = mcp_tool_defs().into_iter().map(|t| t.name).collect();
         assert!(names.iter().any(|n| n == "list_my_loans"));
+        assert!(names.iter().any(|n| n == "list_my_loan_history"));
+        assert!(names.iter().any(|n| n == "get_biblio"));
+    }
+
+    #[test]
+    fn history_to_llm_backfills_tool_name_from_assistant_tool_calls() {
+        use chrono::Utc;
+        use crate::models::chat::ChatMessage;
+
+        let messages = vec![
+            ChatMessage {
+                id: 1,
+                conversation_id: 1,
+                role: "assistant".into(),
+                content: None,
+                tool_name: None,
+                tool_call_id: None,
+                tool_arguments: Some(json!([{
+                    "id": "call_1",
+                    "name": "list_my_loan_history",
+                    "arguments": {}
+                }])),
+                tool_result: None,
+                created_at: Utc::now(),
+            },
+            ChatMessage {
+                id: 2,
+                conversation_id: 1,
+                role: "tool".into(),
+                content: Some("{}".into()),
+                tool_name: None,
+                tool_call_id: Some("call_1".into()),
+                tool_arguments: None,
+                tool_result: Some(json!({ "loans": [] })),
+                created_at: Utc::now(),
+            },
+        ];
+
+        let llm = history_to_llm(&messages, 4000);
+        assert_eq!(llm.len(), 2);
+        assert_eq!(llm[1].role, "tool");
+        assert_eq!(llm[1].name.as_deref(), Some("list_my_loan_history"));
     }
 }

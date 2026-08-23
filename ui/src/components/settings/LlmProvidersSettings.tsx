@@ -10,14 +10,27 @@ import type { CreateLlmProviderRequest, LlmProviderAdmin, LlmProviderKind } from
 
 const LLM_QUERY_KEY = ['admin', 'llm-providers'];
 
+const KIND_DEFAULTS: Record<LlmProviderKind, { baseUrl: string; models: string[] }> = {
+  openai: { baseUrl: 'https://api.openai.com/v1', models: ['gpt-4o-mini'] },
+  ollama: { baseUrl: 'http://127.0.0.1:11434/v1', models: ['llama3.2'] },
+  gemini: {
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    models: ['gemini-2.5-flash'],
+  },
+  grok: { baseUrl: 'https://api.x.ai/v1', models: ['grok-2-latest'] },
+  anthropic: { baseUrl: 'https://api.anthropic.com/v1', models: ['claude-sonnet-4-20250514'] },
+  openaiCompat: { baseUrl: 'http://127.0.0.1:11434/v1', models: ['llama3.2'] },
+};
+
 function emptyDraft(): CreateLlmProviderRequest {
+  const defaults = KIND_DEFAULTS.ollama;
   return {
     slug: '',
     label: '',
-    kind: 'openaiCompat',
-    baseUrl: 'http://127.0.0.1:11434/v1',
-    models: ['llama3.2'],
-    defaultModel: 'llama3.2',
+    kind: 'ollama',
+    baseUrl: defaults.baseUrl,
+    models: defaults.models,
+    defaultModel: defaults.models[0],
     enabled: true,
     sortOrder: 0,
   };
@@ -236,10 +249,23 @@ function ProviderForm({
         <select
           className={formControlClass()}
           value={value.kind}
-          onChange={(e) => onChange({ kind: e.target.value as LlmProviderKind })}
+          onChange={(e) => {
+            const kind = e.target.value as LlmProviderKind;
+            const defaults = KIND_DEFAULTS[kind];
+            onChange({
+              kind,
+              baseUrl: defaults.baseUrl,
+              models: defaults.models,
+              defaultModel: defaults.models[0],
+            });
+          }}
         >
-          <option value="openaiCompat">OpenAI-compatible</option>
+          <option value="openai">OpenAI</option>
+          <option value="ollama">Ollama</option>
+          <option value="gemini">Gemini</option>
+          <option value="grok">Grok (xAI)</option>
           <option value="anthropic">Anthropic</option>
+          <option value="openaiCompat">OpenAI-compatible (custom)</option>
         </select>
       </div>
       <Input label={t('chat.admin.baseUrl')} value={value.baseUrl} onChange={(e) => onChange({ baseUrl: e.target.value })} />

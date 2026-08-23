@@ -232,3 +232,35 @@ async fn list_my_loans_scoped_to_jwt_user() {
     let loans = structured(&body)["loans"].as_array().expect("loans array");
     assert_eq!(loans.len(), 1, "reader A should see only their loan");
 }
+
+#[tokio::test]
+async fn list_my_loan_history_scoped_to_jwt_user() {
+    let Some((_guard, app)) = spawn_app().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (id_a, token_a) = fixtures::create_reader(&app, &admin_token, "mcphist_a").await;
+    let (id_b, _token_b) = fixtures::create_reader(&app, &admin_token, "mcphist_b").await;
+
+    let pool = app.state.services.repository.pool();
+    sqlx::query(
+        "INSERT INTO loans_archives (user_id, date, returned_at) VALUES ($1, NOW() - INTERVAL '7 days', NOW() - INTERVAL '1 day'), ($2, NOW(), NOW())",
+    )
+    .bind(id_a)
+    .bind(id_b)
+    .execute(pool)
+    .await
+    .expect("seed loan history");
+
+    let (status, body) = mcp_call(
+        &app,
+        Some(&token_a),
+        "tools/call",
+        json!({ "name": "list_my_loan_history", "arguments": { "limit": 5 } }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(!is_tool_error(&body), "{body}");
+    let loans = structured(&body)["loans"].as_array().expect("loans array");
+    assert_eq!(loans.len(), 1, "reader A should see only their archived loan");
+}

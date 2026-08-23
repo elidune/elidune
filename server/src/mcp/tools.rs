@@ -10,6 +10,7 @@ use crate::AppState;
 
 use super::domain;
 use super::executor;
+use super::schema_memo;
 
 const SQL_AUDIT_MAX: usize = 500;
 
@@ -31,16 +32,36 @@ pub struct DescribeArgs {
     pub table_name: String,
 }
 
+fn query_tool_description() -> String {
+    format!(
+        "Run a single read-only SELECT with explicit columns (never SELECT *). Row-level security applies. \
+         Prefer domain tools (list_my_loans, list_my_loan_history, get_biblio, …) when they fit. \
+         Call describe_table before querying unfamiliar columns.\n\n{}",
+        schema_memo::query_digest()
+    )
+}
+
 /// JSON Schema snippets advertised in `tools/list`.
 pub fn tool_defs() -> Value {
     json!([
         {
             "name": "list_my_loans",
-            "description": "List active loans (emprunts en cours) for the connected user only. Use for « mes emprunts », « quels livres ai-je empruntés ». Do NOT use query or list_tables for this.",
+            "description": "List active/current loans for the connected user only (returned_at IS NULL). Use for « mes emprunts en cours ». For past/returned loans use list_my_loan_history. Do NOT use query.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "limit": { "type": "integer", "description": "Max rows (default 25, max 50)" }
+                },
+                "additionalProperties": false
+            }
+        },
+        {
+            "name": "list_my_loan_history",
+            "description": "List returned/past loans for the connected user (loans_archives). Use for « mon dernier emprunt », loan history, reading recommendations based on past borrows. Do NOT use query.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "limit": { "type": "integer", "description": "Max rows (default 10, max 25)" }
                 },
                 "additionalProperties": false
             }
@@ -70,8 +91,20 @@ pub fn tool_defs() -> Value {
             }
         },
         {
+            "name": "get_biblio",
+            "description": "Get a full bibliographic record by id (title, abstract, subject, keywords, authors, …). Use after list_my_loan_history or search_biblios when details are needed. Column abstract holds the summary text (NOT summary).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "biblioId": { "type": "integer", "description": "biblios.id" }
+                },
+                "required": ["biblioId"],
+                "additionalProperties": false
+            }
+        },
+        {
             "name": "schema_overview",
-            "description": "Return the Elidune domain schema map and tool-selection policy. Prefer this over list_tables when unsure which table to use.",
+            "description": "Return the Elidune domain schema map, tool-selection policy, and SQL digest. Prefer this over list_tables when unsure which table/column to use.",
             "inputSchema": {
                 "type": "object",
                 "properties": {},
@@ -89,11 +122,11 @@ pub fn tool_defs() -> Value {
         },
         {
             "name": "describe_table",
-            "description": "Describe columns (types, comments, foreign keys) for one table or view. Example table_name: loans, holds, biblios, items.",
+            "description": "Describe columns (types, comments, foreign keys) for one table or view. Example table_name: loans, loans_archives, biblios, items.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "table_name": { "type": "string", "description": "Table or view name (e.g. loans, biblios, users)" }
+                    "table_name": { "type": "string", "description": "Table or view name (e.g. loans_archives, biblios)" }
                 },
                 "required": ["table_name"],
                 "additionalProperties": false
@@ -101,7 +134,7 @@ pub fn tool_defs() -> Value {
         },
         {
             "name": "query",
-            "description": "Run a single read-only SELECT with explicit columns (never SELECT *). Row-level security applies. Prefer domain tools (list_my_loans, etc.) when they fit.",
+            "description": query_tool_description(),
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -117,8 +150,10 @@ pub fn tool_defs() -> Value {
 pub async fn call_tool(state: &AppState, claims: &UserClaims, name: &str, arguments: Value, options: ToolCallOptions) -> AppResult<Value> {
     match name {
         "list_my_loans" => domain::list_my_loans(state, claims, arguments).await,
+        "list_my_loan_history" => domain::list_my_loan_history(state, claims, arguments).await,
         "list_my_holds" => domain::list_my_holds(state, claims, arguments).await,
         "search_biblios" => domain::search_biblios(state, arguments).await,
+        "get_biblio" => domain::get_biblio(state, arguments).await,
         "schema_overview" => Ok(domain::schema_overview_value()),
         "list_tables" => executor::list_tables(state, claims).await,
         "describe_table" => {
@@ -176,8 +211,10 @@ mod tests {
         let defs = tool_defs();
         let names: Vec<&str> = defs.as_array().unwrap().iter().filter_map(|t| t.get("name").and_then(|n| n.as_str())).collect();
         assert!(names.contains(&"list_my_loans"));
+        assert!(names.contains(&"list_my_loan_history"));
         assert!(names.contains(&"list_my_holds"));
         assert!(names.contains(&"search_biblios"));
+        assert!(names.contains(&"get_biblio"));
         assert!(names.contains(&"schema_overview"));
     }
 
@@ -187,5 +224,22 @@ mod tests {
         let loan = defs.as_array().unwrap().iter().find(|t| t["name"] == "list_my_loans").unwrap();
         let desc = loan["description"].as_str().unwrap();
         assert!(desc.contains("Do NOT use query"));
+        assert!(desc.contains("list_my_loan_history"));
+    }
+
+    #[test]
+    fn query_tool_includes_schema_digest_and_abstract_hint() {
+        let defs = tool_defs();
+        let query = defs.as_array().unwrap().iter().find(|t| t["name"] == "query").unwrap();
+        let desc = query["description"].as_str().unwrap();
+        assert!(desc.contains("loans_archives"));
+        assert!(desc.contains("abstract"));
+        assert!(desc.contains("NOT summary") || desc.contains("not summary"));
+    }
+
+    #[test]
+    fn schema_overview_includes_query_digest() {
+        let v = domain::schema_overview_value();
+        assert!(v.get("queryDigest").and_then(|d| d.as_str()).unwrap_or("").contains("biblios"));
     }
 }

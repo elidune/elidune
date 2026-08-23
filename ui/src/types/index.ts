@@ -1027,7 +1027,7 @@ export interface UpdateAccountTypeRequest {
 
 // ─── Chat assistant ────────────────────────────────────────────────
 
-export type LlmProviderKind = 'openaiCompat' | 'anthropic';
+export type LlmProviderKind = 'openai' | 'ollama' | 'gemini' | 'grok' | 'anthropic' | 'openaiCompat';
 
 export interface LlmProviderPublic {
   id: string;

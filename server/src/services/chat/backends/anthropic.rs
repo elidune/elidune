@@ -10,7 +10,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tokio_util::io::StreamReader;
 
-use super::llm::{LlmBackend, LlmChatMessage, LlmStream, LlmStreamChunk, LlmToolCall, LlmToolDef};
+use super::http::{llm_client, trim_base_url};
+use super::super::llm::{LlmBackend, LlmChatMessage, LlmStream, LlmStreamChunk, LlmToolCall, LlmToolDef};
 use crate::error::{AppError, AppResult};
 
 pub struct AnthropicBackend {
@@ -22,11 +23,9 @@ pub struct AnthropicBackend {
 
 impl AnthropicBackend {
     pub fn new(base_url: String, api_key: String, timeout_secs: u64) -> Self {
-        let client = Client::builder().timeout(std::time::Duration::from_secs(timeout_secs)).build().unwrap_or_else(|_| Client::new());
-        let base = base_url.trim_end_matches('/').to_string();
         Self {
-            client,
-            base_url: base,
+            client: llm_client(timeout_secs),
+            base_url: trim_base_url(&base_url),
             api_key,
             timeout_secs,
         }

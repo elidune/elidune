@@ -7,27 +7,40 @@ use serde_with::{serde_as, DisplayFromStr};
 use sqlx::FromRow;
 use utoipa::ToSchema;
 
-/// LLM backend kind.
+/// LLM backend kind (one variant per supported provider API).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum LlmProviderKind {
+    OpenAi,
+    Ollama,
+    Gemini,
+    Grok,
+    Anthropic,
+    /// Legacy / generic OpenAI-compatible endpoint (custom base URL).
     #[serde(rename = "openaiCompat")]
     OpenaiCompat,
-    Anthropic,
 }
 
 impl LlmProviderKind {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::OpenaiCompat => "openaiCompat",
+            Self::OpenAi => "openai",
+            Self::Ollama => "ollama",
+            Self::Gemini => "gemini",
+            Self::Grok => "grok",
             Self::Anthropic => "anthropic",
+            Self::OpenaiCompat => "openaiCompat",
         }
     }
 
     pub fn from_db(s: &str) -> Option<Self> {
         match s {
-            "openaiCompat" => Some(Self::OpenaiCompat),
+            "openai" => Some(Self::OpenAi),
+            "ollama" => Some(Self::Ollama),
+            "gemini" => Some(Self::Gemini),
+            "grok" => Some(Self::Grok),
             "anthropic" => Some(Self::Anthropic),
+            "openaiCompat" => Some(Self::OpenaiCompat),
             _ => None,
         }
     }
