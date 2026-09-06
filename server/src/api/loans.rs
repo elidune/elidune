@@ -939,7 +939,7 @@ pub async fn mark_loan_claimed_returned(
     Ok(Json(result))
 }
 
-/// Resolve a claims-returned case after an inventory check.
+/// Resolve a claims-returned case after an inventory check. Never bills.
 #[utoipa::path(
     post,
     path = "/loans/{id}/claims-returned/resolve",
@@ -948,9 +948,9 @@ pub async fn mark_loan_claimed_returned(
     params(("id" = i64, Path, description = "Active loan ID")),
     request_body = ResolveClaimsReturnedRequest,
     responses(
-        (status = 200, description = "Claim resolved", body = CirculationExceptionResponse),
+        (status = 200, description = "Claim resolved (no charge)", body = CirculationExceptionResponse),
         (status = 404, description = "Active loan not found"),
-        (status = 422, description = "Inventory check required or invalid transition")
+        (status = 422, description = "Inventory check required, billing rejected, or invalid transition")
     )
 )]
 pub async fn resolve_loan_claims_returned(

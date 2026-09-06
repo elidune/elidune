@@ -10,7 +10,7 @@ use crate::models::{
     fine::Fine,
 };
 
-/// Optional bill when marking lost or resolving a claim as not found.
+/// Optional bill when marking lost (transition effect, not a status).
 #[derive(Debug, Clone, Default, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct MarkLostRequest {
@@ -52,19 +52,16 @@ pub struct MarkClaimedReturnedRequest {
     pub bill: bool,
 }
 
-/// Close a claims-returned case after an inventory check.
+/// Close a claims-returned case after an inventory check. Never bills.
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ResolveClaimsReturnedRequest {
     pub outcome: ClaimsResolveOutcome,
     /// Must be true — claims-returned is never cleared silently.
     pub inventory_checked: bool,
-    /// Allowed only when `outcome` is `notFound` (lost transition effect). Rejected for `found`.
+    /// Must stay false. Escalate via `POST /loans/{id}/lost` if a replacement bill is needed.
     #[serde(default)]
     pub bill: bool,
-    pub amount: Option<Decimal>,
-    #[serde(default = "default_true")]
-    pub use_item_price: bool,
     pub notes: Option<String>,
 }
 

@@ -346,7 +346,7 @@ async fn claimed_returned_stays_open_until_inventory_check() {
 }
 
 #[tokio::test]
-async fn claimed_returned_not_found_marks_lost_and_can_bill() {
+async fn claimed_returned_not_found_marks_lost_without_billing() {
     let Some(app) = TestApp::spawn().await else {
         return;
     };
@@ -365,13 +365,35 @@ async fn claimed_returned_not_found_marks_lost_and_can_bill() {
         .await;
     assert_eq!(status, StatusCode::OK);
 
+    // Resolve is investigation-only: never bill a patron who may have returned the copy.
+    let (bill_status, bill_body) = app
+        .post_json(
+            &format!("/api/v1/loans/{loan_id}/claims-returned/resolve"),
+            &json!({
+                "outcome": "notFound",
+                "inventoryChecked": true,
+                "bill": true,
+                "amount": "30.00"
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(bill_status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        bill_body["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("investigation"),
+        "resolve must not bill: {bill_body}"
+    );
+
     let (status, body) = app
         .post_json(
             &format!("/api/v1/loans/{loan_id}/claims-returned/resolve"),
             &json!({
                 "outcome": "notFound",
                 "inventoryChecked": true,
-                "bill": true
+                "notes": "shelf-check empty"
             }),
             Some(&admin_token),
         )
@@ -380,8 +402,47 @@ async fn claimed_returned_not_found_marks_lost_and_can_bill() {
     assert_eq!(body["outcome"], "claimsResolvedNotFound");
     assert_eq!(body["itemStatus"], "lost");
     assert_eq!(body["loanClosed"], true);
+    assert!(body["charge"].is_null(), "{body}");
+
+    let item = item_copy(&app, &admin_token, item_id).await;
+    assert_eq!(item["circulationStatus"], 1);
+    assert_eq!(item["borrowable"], false);
+}
+
+#[tokio::test]
+async fn claimed_returned_escalates_to_lost_for_billing() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    unlock_admin(&app, &admin_token).await;
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "esclost").await;
+    let (loan_id, item_id) =
+        create_loan_with_priced_item(&app, &admin_token, reader_id, "22.00").await;
+
+    let (status, _) = app
+        .post_json(
+            &format!("/api/v1/loans/{loan_id}/claimed-returned"),
+            &json!({}),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+
+    // Replacement is a lost transition effect, not a claims-returned outcome.
+    let (status, body) = app
+        .post_json(
+            &format!("/api/v1/loans/{loan_id}/lost"),
+            &json!({ "bill": true }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "escalate lost: {body}");
+    assert_eq!(body["outcome"], "lost");
+    assert_eq!(body["itemStatus"], "lost");
+    assert_eq!(body["loanClosed"], true);
     assert_eq!(body["charge"]["chargeType"], "replacement");
-    assert_eq!(decimal_str(&body["charge"]["amount"]), "11.00");
+    assert_eq!(decimal_str(&body["charge"]["amount"]), "22.00");
 
     let item = item_copy(&app, &admin_token, item_id).await;
     assert_eq!(item["circulationStatus"], 1);

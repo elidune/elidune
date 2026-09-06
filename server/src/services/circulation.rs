@@ -189,29 +189,17 @@ impl CirculationService {
             ));
         }
 
-        let (action, outcome, charge_type) = match req.outcome {
+        let (action, outcome) = match req.outcome {
             ClaimsResolveOutcome::Found => (
                 CirculationAction::ResolveFound,
                 CirculationExceptionOutcome::ClaimsResolvedFound,
-                None,
             ),
             ClaimsResolveOutcome::NotFound => (
                 CirculationAction::ResolveNotFound,
                 CirculationExceptionOutcome::ClaimsResolvedNotFound,
-                Some(FineChargeType::Replacement),
             ),
         };
         reject_disallowed_bill(action, req.bill)?;
-
-        let amount = if req.outcome == ClaimsResolveOutcome::NotFound && req.bill {
-            let loan = self.repository.loans_get_by_id(loan_id).await?;
-            Some(
-                self.resolve_replacement_amount(loan.item_id, req.amount, req.use_item_price)
-                    .await?,
-            )
-        } else {
-            None
-        };
 
         let applied = self
             .repository
@@ -219,8 +207,8 @@ impl CirculationService {
                 loan_id,
                 action,
                 disposition: None,
-                bill_amount: amount,
-                charge_type: amount.and(charge_type),
+                bill_amount: None,
+                charge_type: None,
                 notes: req.notes.as_deref(),
             })
             .await?;
@@ -346,7 +334,7 @@ impl CirculationService {
 fn reject_disallowed_bill(action: CirculationAction, bill: bool) -> AppResult<()> {
     if bill && !action.allows_billing() {
         return Err(AppError::BusinessRule(
-            "Billing is only allowed for lost or damaged transitions; claimed-returned is an investigation queue and cannot bill"
+            "Billing is only allowed for lost or damaged transitions; claimed-returned is an investigation queue and cannot bill. Escalate with POST /loans/{id}/lost if a replacement charge is needed"
                 .to_string(),
         ));
     }
