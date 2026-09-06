@@ -48,6 +48,10 @@ impl sqlx::Type<sqlx::Postgres> for FineStatus {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
         <String as sqlx::Type<sqlx::Postgres>>::type_info()
     }
+
+    fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
+        <String as sqlx::Type<sqlx::Postgres>>::compatible(ty)
+    }
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for FineStatus {

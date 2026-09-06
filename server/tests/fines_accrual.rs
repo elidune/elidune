@@ -7,6 +7,20 @@ use common::fixtures;
 use common::TestApp;
 use serde_json::json;
 
+async fn unlock_admin(app: &TestApp, admin_token: &str) {
+    let (status, me) = app.get_json_with_auth("/api/v1/auth/me", admin_token).await;
+    if status != StatusCode::OK {
+        return;
+    }
+    let admin_id = fixtures::json_id(&me["id"]);
+    let _ = app
+        .state
+        .services
+        .users
+        .set_must_change_password(admin_id, false)
+        .await;
+}
+
 fn decimal_str(value: &serde_json::Value) -> String {
     value
         .as_str()
@@ -61,6 +75,7 @@ async fn accrue_single_loan_grace_cap_and_idempotency() {
     };
 
     let admin_token = fixtures::ensure_first_setup(&app).await;
+    unlock_admin(&app, &admin_token).await;
     let (reader_id, reader_token) = fixtures::create_reader(&app, &admin_token, "fineaccrue").await;
     let item_id = seed_catalog(
         &app,
@@ -174,6 +189,7 @@ async fn accrue_batch_all_overdue_via_staff_path() {
     };
 
     let admin_token = fixtures::ensure_first_setup(&app).await;
+    unlock_admin(&app, &admin_token).await;
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "finebatch").await;
     let item_id = seed_catalog(
         &app,
