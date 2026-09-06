@@ -619,6 +619,29 @@ impl Repository {
         Ok(pending)
     }
 
+    /// Whether another patron has a `pending` or `ready` hold on this copy.
+    /// Locks active hold rows so renew serializes with checkout and hold updates.
+    #[tracing::instrument(skip(self, tx), err)]
+    pub async fn holds_has_waiting_patron_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        item_id: i64,
+        borrower_user_id: i64,
+    ) -> AppResult<bool> {
+        let user_ids: Vec<i64> = sqlx::query_scalar(
+            r#"
+            SELECT user_id FROM holds
+            WHERE item_id = $1 AND status IN ('pending', 'ready')
+            ORDER BY CASE status WHEN 'ready' THEN 0 ELSE 1 END, position ASC
+            FOR UPDATE
+            "#,
+        )
+        .bind(item_id)
+        .fetch_all(&mut **tx)
+        .await?;
+        Ok(user_ids.iter().any(|&uid| uid != borrower_user_id))
+    }
+
     /// Same as [`holds_eligible_borrower_for_item`] inside an open transaction.
     /// Locks active hold rows on this copy so checkout and hold updates serialize.
     #[tracing::instrument(skip(self, tx), err)]

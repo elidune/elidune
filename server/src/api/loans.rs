@@ -477,7 +477,8 @@ pub async fn return_loan(
     responses(
         (status = 200, description = "Loan renewed", body = LoanResponse),
         (status = 404, description = "Loan not found"),
-        (status = 409, description = "Max renewals reached or already returned")
+        (status = 409, description = "Max renewals reached or already returned"),
+        (status = 422, description = "Business rule: max renewals reached, already returned, or another patron is waiting in the hold queue")
     )
 )]
 pub async fn renew_loan(
@@ -584,7 +585,8 @@ pub async fn return_loan_by_item(
     responses(
         (status = 200, description = "Loan renewed", body = LoanResponse),
         (status = 404, description = "Item or active loan not found"),
-        (status = 409, description = "Max renewals reached or already returned")
+        (status = 409, description = "Max renewals reached or already returned"),
+        (status = 422, description = "Business rule: max renewals reached, already returned, or another patron is waiting in the hold queue")
     )
 )]
 pub async fn renew_loan_by_item(
