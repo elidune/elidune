@@ -6,10 +6,7 @@ use crate::{
     error::{AppError, AppResult},
     models::{
         dto::holds::{HoldQuota, HoldsPolicy},
-        hold::{
-            CreateHold, Hold, HoldDetails, DEFAULT_MAX_ACTIVE_HOLDS, MAX_MAX_ACTIVE_HOLDS,
-            MIN_MAX_ACTIVE_HOLDS,
-        },
+        hold::{CreateHold, Hold, HoldDetails, MAX_MAX_ACTIVE_HOLDS, MIN_MAX_ACTIVE_HOLDS},
     },
     repository::HoldsRepository,
     services::audit::{self, AuditLogMeta, AuditService},
@@ -233,6 +230,7 @@ fn hold_cap_block_message(active: i64, max: i16) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::hold::DEFAULT_MAX_ACTIVE_HOLDS;
     use async_trait::async_trait;
     use chrono::Utc;
 

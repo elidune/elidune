@@ -23,7 +23,7 @@ use crate::{
 use super::{biblios::PaginatedResponse, AuthenticatedUser, ClientIp, StaffUser};
 
 pub fn router() -> axum::Router<crate::AppState> {
-    use axum::routing::{delete, get, put};
+    use axum::routing::{delete, get};
     axum::Router::new()
         .route("/holds", get(list_holds).post(create_hold))
         .route(
