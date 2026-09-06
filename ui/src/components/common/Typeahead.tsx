@@ -1,4 +1,4 @@
-import { KeyboardEvent, ReactNode, useEffect, useId, useState } from 'react';
+import { KeyboardEvent, ReactNode, useId, useState } from 'react';
 import Input from './Input';
 
 export interface TypeaheadProps<T> {
@@ -38,10 +38,12 @@ export default function Typeahead<T>({
 }: TypeaheadProps<T>) {
   const listId = useId();
   const [activeIndex, setActiveIndex] = useState(-1);
-
-  useEffect(() => {
+  const itemsKey = items.map(getItemId).join('\0');
+  const [prevItemsKey, setPrevItemsKey] = useState(itemsKey);
+  if (itemsKey !== prevItemsKey) {
+    setPrevItemsKey(itemsKey);
     setActiveIndex(-1);
-  }, [items]);
+  }
 
   const open = items.length > 0;
   const activeItem = activeIndex >= 0 ? items[activeIndex] : undefined;
