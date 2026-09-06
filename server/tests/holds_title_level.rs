@@ -177,7 +177,7 @@ async fn promote_title_hold_assigns_returned_copy_fifo() {
 }
 
 #[tokio::test]
-async fn copy_level_hold_precedes_title_hold_on_that_item() {
+async fn biblio_queue_fifo_allocates_returned_copy_to_next_eligible_hold() {
     let Some(app) = TestApp::spawn().await else {
         return;
     };
@@ -196,7 +196,7 @@ async fn copy_level_hold_precedes_title_hold_on_that_item() {
     let (status, title_hold) = place_title_hold(&app, &token_b, reader_b, biblio_id).await;
     assert_eq!(status, StatusCode::CREATED, "title hold: {title_hold}");
 
-    let (status, copy_hold) = app
+    let (status, pinned) = app
         .post_json(
             "/api/v1/holds",
             &json!({
@@ -206,27 +206,82 @@ async fn copy_level_hold_precedes_title_hold_on_that_item() {
             Some(&token_c),
         )
         .await;
-    assert_eq!(status, StatusCode::CREATED, "copy hold: {copy_hold}");
+    assert_eq!(status, StatusCode::CREATED, "pinned copy: {pinned}");
 
+    // One biblio FIFO: the earlier title hold takes the first returned copy.
     return_loan(&app, &admin_token, loan_a).await;
     let repo = app.state.services.repository.as_ref();
-    let copy_after = repo
-        .holds_get_by_id(fixtures::json_id(&copy_hold["id"]))
-        .await
-        .expect("copy hold after first return");
-    assert_eq!(
-        copy_after.status,
-        HoldStatus::Ready,
-        "copy-level hold on the returned item wins"
-    );
-
-    return_loan(&app, &admin_token, loan_b).await;
     let title_after = repo
         .holds_get_by_id(fixtures::json_id(&title_hold["id"]))
         .await
-        .expect("title hold after second return");
+        .expect("title hold after first return");
     assert_eq!(title_after.status, HoldStatus::Ready);
+    assert_eq!(title_after.item_id, Some(item_a));
+
+    return_loan(&app, &admin_token, loan_b).await;
+    let pinned_after = repo
+        .holds_get_by_id(fixtures::json_id(&pinned["id"]))
+        .await
+        .expect("pinned hold after second return");
+    assert_eq!(
+        pinned_after.status,
+        HoldStatus::Pending,
+        "pinned hold still waits for item A; item B is a different copy"
+    );
+    assert_eq!(pinned_after.item_id, Some(item_a));
+}
+
+#[tokio::test]
+async fn pinned_copy_does_not_block_other_copies_in_the_biblio_queue() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_a, _) = fixtures::create_reader(&app, &admin_token, "ttlpins_a").await;
+    let (reader_b, token_b) = fixtures::create_reader(&app, &admin_token, "ttlpins_b").await;
+    let (reader_c, token_c) = fixtures::create_reader(&app, &admin_token, "ttlpins_c").await;
+    let (biblio_id, item_ids) =
+        create_title_with_copies(&app, &admin_token, "Pinned Copy Skip", 2).await;
+    let item_a = item_ids[0];
+    let item_b = item_ids[1];
+
+    let loan_a = checkout(&app, &admin_token, reader_a, item_a).await;
+    let loan_b = checkout(&app, &admin_token, reader_a, item_b).await;
+
+    let (status, pinned) = app
+        .post_json(
+            "/api/v1/holds",
+            &json!({
+                "userId": reader_b.to_string(),
+                "itemId": item_a.to_string()
+            }),
+            Some(&token_b),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "pinned: {pinned}");
+    let (status, title_hold) = place_title_hold(&app, &token_c, reader_c, biblio_id).await;
+    assert_eq!(status, StatusCode::CREATED, "title: {title_hold}");
+
+    return_loan(&app, &admin_token, loan_b).await;
+    let repo = app.state.services.repository.as_ref();
+    let title_after = repo
+        .holds_get_by_id(fixtures::json_id(&title_hold["id"]))
+        .await
+        .expect("title hold");
+    assert_eq!(
+        title_after.status,
+        HoldStatus::Ready,
+        "later title hold takes the copy the pinned patron did not want"
+    );
     assert_eq!(title_after.item_id, Some(item_b));
+
+    return_loan(&app, &admin_token, loan_a).await;
+    let pinned_after = repo
+        .holds_get_by_id(fixtures::json_id(&pinned["id"]))
+        .await
+        .expect("pinned hold");
+    assert_eq!(pinned_after.status, HoldStatus::Ready);
+    assert_eq!(pinned_after.item_id, Some(item_a));
 }
 
 #[tokio::test]

@@ -567,7 +567,7 @@ Each preview item is a **`BiblioShort`-shaped object** (flattened) plus **`valid
 
 List endpoints (`GET /holds`, `GET /items/:id/holds`, `GET /biblios/:id/holds`, `GET /users/:id/holds`) return **`HoldDetails`**. Create/cancel responses use plain **`Hold`** (ids only, no embedded item/user).
 
-See [README-holds.md](README-holds.md) for title-level vs copy-level precedence.
+See [README-holds.md](README-holds.md): one hold type, queue at biblio/notice, copy allocated later.
 
 ### `Hold`
 ```json

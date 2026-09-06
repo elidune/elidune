@@ -336,7 +336,7 @@ pub async fn list_holds_for_item(
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Biblio ID")),
     responses(
-        (status = 200, description = "Hold queue for this title (copy-level then title-level)", body = Vec<HoldDetails>),
+        (status = 200, description = "Hold queue for this bibliographic record (notice-level FIFO)", body = Vec<HoldDetails>),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 404, description = "Biblio not found", body = crate::error::ErrorResponse)
     )

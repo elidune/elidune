@@ -46,7 +46,11 @@ fn assert_already_borrowed(err: AppError) {
 fn assert_duplicate_hold(err: AppError) {
     match err {
         AppError::Conflict(msg) => {
-            assert_eq!(msg, "User already has an active hold for this item");
+            assert!(
+                msg.contains("active hold for this title")
+                    || msg.contains("active hold for this item"),
+                "unexpected conflict: {msg}"
+            );
         }
         other => panic!("expected duplicate hold conflict, got {other:?}"),
     }
@@ -454,7 +458,10 @@ async fn unique_index_rejects_second_active_hold_for_user_item() {
 
     let db = err.as_database_error().expect("database error");
     assert_eq!(db.code().as_deref(), Some("23505"));
-    assert_eq!(db.constraint(), Some("idx_holds_one_active_per_user_item"));
+    assert_eq!(
+        db.constraint(),
+        Some("idx_holds_one_active_per_user_biblio")
+    );
 }
 
 #[tokio::test]

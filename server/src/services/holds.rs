@@ -113,22 +113,13 @@ impl HoldsService {
         }
 
         if let Some(item_id) = data.item_id {
-            if self
-                .repository
-                .holds_has_active_for_user_item(data.user_id, item_id)
-                .await?
-            {
-                return Err(AppError::Conflict(
-                    "User already has an active hold for this item".to_string(),
-                ));
-            }
             let biblio_id = match data.biblio_id {
                 Some(id) => id,
                 None => self.repository.holds_biblio_id_of_item(item_id).await?,
             };
             if self
                 .repository
-                .holds_has_active_title_for_user_biblio(data.user_id, biblio_id)
+                .holds_has_active_for_user_biblio(data.user_id, biblio_id)
                 .await?
             {
                 return Err(AppError::Conflict(

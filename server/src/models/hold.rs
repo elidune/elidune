@@ -141,10 +141,10 @@ pub const DEFAULT_MAX_ACTIVE_HOLDS: i16 = 20;
 pub const MIN_MAX_ACTIVE_HOLDS: i16 = 1;
 pub const MAX_MAX_ACTIVE_HOLDS: i16 = 1000;
 
-/// Create hold request — copy-level (`item_id`) or title-level (`biblio_id`).
+/// Create hold request — same reservation type, queued on the biblio.
 ///
-/// Exactly one of `item_id` / `biblio_id` is required. When both are sent, the
-/// hold is copy-level and `item_id` must belong to `biblio_id`.
+/// `biblio_id` alone waits for any copy. `item_id` pins a specimen on that
+/// title’s queue (staff). When both are sent, the item must belong to the biblio.
 #[serde_as]
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
