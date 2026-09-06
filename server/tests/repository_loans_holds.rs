@@ -411,10 +411,12 @@ async fn concurrent_place_hold_assigns_distinct_positions() {
     )
     .await;
     let repo = app.state.services.repository.as_ref().clone();
+    let hold_req_a = create_hold(reader_a_id, item_id);
+    let hold_req_b = create_hold(reader_b_id, item_id);
 
     let (r1, r2) = tokio::join!(
-        repo.holds_create(&create_hold(reader_a_id, item_id)),
-        repo.holds_create(&create_hold(reader_b_id, item_id)),
+        repo.holds_create(&hold_req_a),
+        repo.holds_create(&hold_req_b),
     );
 
     let hold_a = r1.expect("hold A must succeed");
