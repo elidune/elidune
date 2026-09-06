@@ -48,7 +48,7 @@ async fn test_golden_path_loan_hold_return() {
     let biblio_payload = json!({
         "title": "Golden Path Book",
         "mediaType": "printedText",
-        "lang": "fre",
+        "lang": "french",
         "items": [{
             "barcode": "GP-001",
             "borrowable": true
