@@ -49,8 +49,10 @@ pub enum AppError {
     #[error("Validation error: {0}")]
     Validation(String),
 
+    /// Boxed so `AppError` stays small enough for `Result<T, AppError>`
+    /// (`clippy::result_large_err`, 128-byte threshold).
     #[error("Database error: {0}")]
-    Database(#[from] sqlx::Error),
+    Database(Box<sqlx::Error>),
 
     #[error("Conflict: {0}")]
     Conflict(String),
@@ -67,19 +69,27 @@ pub enum AppError {
     #[error("Business rule violation: {0}")]
     BusinessRule(String),
 
+    /// Confirmation payload is boxed: `BiblioShort` is far larger than the
+    /// `result_large_err` limit and would otherwise inflate every `AppResult`.
     #[error("Duplicate ISBN requires confirmation")]
     DuplicateNeedsConfirmation {
         existing_id: i64,
-        existing_item: BiblioShort,
+        existing_item: Box<BiblioShort>,
         message: String,
     },
 
     #[error("Duplicate barcode requires confirmation")]
     DuplicateBarcodeNeedsConfirmation {
         existing_id: i64,
-        existing_item: ItemShort,
+        existing_item: Box<ItemShort>,
         message: String,
     },
+}
+
+impl From<sqlx::Error> for AppError {
+    fn from(err: sqlx::Error) -> Self {
+        Self::Database(Box::new(err))
+    }
 }
 
 /// Error response body returned for all API errors.
@@ -202,11 +212,11 @@ impl IntoResponse for AppError {
                     crate::models::import_report::DuplicateConfirmationRequired {
                         code: ec::DUPLICATE_ISBN.to_string(),
                         existing_id,
-                        existing_biblio: existing_item,
+                        existing_biblio: *existing_item,
                         message,
                     },
                 );
-                return (StatusCode::CONFLICT, body).into_response();
+                (StatusCode::CONFLICT, body).into_response()
             }
             AppError::DuplicateBarcodeNeedsConfirmation {
                 existing_id,
@@ -216,10 +226,10 @@ impl IntoResponse for AppError {
                 let body = Json(crate::models::import_report::DuplicateItemBarcodeRequired {
                     code: ec::DUPLICATE_BARCODE.to_string(),
                     existing_id,
-                    existing_item,
+                    existing_item: *existing_item,
                     message,
                 });
-                return (StatusCode::CONFLICT, body).into_response();
+                (StatusCode::CONFLICT, body).into_response()
             }
             other => {
                 let fields = other.http_fields();
@@ -228,7 +238,7 @@ impl IntoResponse for AppError {
                     error: fields.label.to_string(),
                     message: fields.message,
                 });
-                return (fields.status, body).into_response();
+                (fields.status, body).into_response()
             }
         }
     }
@@ -256,3 +266,9 @@ impl AppError {
 
 /// Result type alias for application operations
 pub type AppResult<T> = Result<T, AppError>;
+
+/// Guard: keep `AppError` under Clippy's `result_large_err` threshold (128 bytes).
+const _: () = assert!(
+    std::mem::size_of::<AppError>() <= 128,
+    "AppError exceeds 128 bytes; box large variants so AppResult stays cheap to move"
+);

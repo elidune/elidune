@@ -20,10 +20,8 @@ fn config_path_from_args() -> Option<String> {
     let args: Vec<String> = env::args().collect();
     let mut i = 1;
     while i < args.len() {
-        if args[i] == "--config" || args[i] == "-c" {
-            if i + 1 < args.len() {
-                return Some(args[i + 1].clone());
-            }
+        if (args[i] == "--config" || args[i] == "-c") && i + 1 < args.len() {
+            return Some(args[i + 1].clone());
         }
         i += 1;
     }

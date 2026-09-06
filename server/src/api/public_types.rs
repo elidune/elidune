@@ -260,7 +260,7 @@ pub async fn update_loan_settings(
 
 /// Build the public-types routes for this domain.
 pub fn router() -> axum::Router<crate::AppState> {
-    use axum::routing::{delete, get, post, put};
+    use axum::routing::{get, put};
     axum::Router::new()
         .route(
             "/public-types",

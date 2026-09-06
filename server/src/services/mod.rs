@@ -42,8 +42,7 @@ use crate::{
         AccountTypesCatalogRepository, BibliosRepository, CatalogEntitiesRepository,
         EquipmentRepository, EventsServiceRepository, FinesRepository, HoldsRepository,
         InventoryRepository, LoansRepository, LoansServiceRepository, PublicTypesRepository,
-        Repository, SchedulesRepository, SourcesRepository, UsersRepository,
-        VisitorCountsRepository,
+        Repository, SchedulesRepository, SourcesRepository, VisitorCountsRepository,
     },
 };
 
@@ -88,6 +87,7 @@ impl Services {
     }
 
     /// Create all services with the given repository and dynamic config
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         repository: Repository,
         auth_config: UsersConfig,

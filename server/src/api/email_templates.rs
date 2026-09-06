@@ -15,7 +15,7 @@ use utoipa::ToSchema;
 use crate::{
     email_templates::{KNOWN_TEMPLATE_IDS, SUPPORTED_LANGUAGES},
     error::{AppError, AppResult},
-    repository::{EmailTemplateRow, EmailTemplatesRepository},
+    repository::EmailTemplateRow,
     services::audit,
     AppState,
 };

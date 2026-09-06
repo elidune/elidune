@@ -1,5 +1,7 @@
 //! Test data builders for integration tests.
 
+#![allow(dead_code)]
+
 use chrono::NaiveDate;
 use serde_json::json;
 

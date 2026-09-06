@@ -299,6 +299,7 @@ impl Repository {
         add_f!(data.partner_name, "partner_name");
         add_f!(data.description, "description");
         add_f!(data.notes, "notes");
+        let _ = idx;
 
         let query = format!(
             "UPDATE events SET {} WHERE id = {} RETURNING {}",
