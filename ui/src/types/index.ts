@@ -341,6 +341,7 @@ export interface ItemShort {
   barcode?: string | null;
   callNumber?: string | null;
   borrowable?: boolean | null;
+  sourceId?: string | null;
   sourceName?: string | null;
   borrowed?: boolean;
   /** Item-level exception state: 0 available, 1 lost, 2 damaged, 3 claimed-returned. */
@@ -1452,6 +1453,63 @@ export interface HoldQuota {
   maxActiveHolds: number;
   activeHolds: number;
   remaining: number;
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Inter-site item transit (hold fulfillment) — API tag `transits`
+// ──────────────────────────────────────────────────────────────────
+
+/** camelCase wire values from #40 (`inTransit`, not `in_transit`). */
+export type TransitStatus = 'requested' | 'inTransit' | 'received' | 'cancelled';
+
+export interface ItemTransit {
+  id: string;
+  itemId: string;
+  holdId?: string | null;
+  fromSourceId: string;
+  toSourceId: string;
+  status: TransitStatus;
+  notes?: string | null;
+  createdAt: string;
+  shippedAt?: string | null;
+  receivedAt?: string | null;
+  cancelledAt?: string | null;
+  shippedBy?: string | null;
+  receivedBy?: string | null;
+  cancelledBy?: string | null;
+  reversedFromId?: string | null;
+}
+
+/** POST /holds/{id}/transits — allocate a copy toward the hold’s pickup site. */
+export interface CreateTransit {
+  itemId?: string | null;
+  fromSourceId?: string | null;
+  /** Must match hold.pickupSiteId when that field is already set. */
+  toSourceId?: string | null;
+  notes?: string | null;
+  /** Skip `requested` and mark the copy in transit immediately. */
+  ship?: boolean;
+}
+
+/** POST /transits/{id}/ship|receive|cancel */
+export interface TransitActionRequest {
+  notes?: string | null;
+  /** On cancel: open a reverse transit back to the origin. */
+  reverse?: boolean | null;
+}
+
+export interface TransitWithHold {
+  transit: ItemTransit;
+  hold?: Hold | null;
+}
+
+export interface ListTransitsParams {
+  status?: TransitStatus;
+  itemId?: string;
+  holdId?: string;
+  toSourceId?: string;
+  page?: number;
+  perPage?: number;
 }
 
 // ──────────────────────────────────────────────────────────────────

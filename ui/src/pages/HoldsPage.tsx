@@ -2,11 +2,18 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, Bookmark, Plus, Search, AlertCircle } from 'lucide-react';
+import { Ban, Bookmark, Plus, Search, AlertCircle, Truck } from 'lucide-react';
 import { Card, CardHeader, Button, Badge, Table, Input, Pagination, Modal, ConfirmDialog, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, BarcodeScanField } from '@/components/common';
 import HoldMobileCard from '@/components/holds/HoldMobileCard';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
 import HoldExpiresCell from '@/components/holds/HoldExpiresCell';
+import HoldPickupCell from '@/components/holds/HoldPickupCell';
+import HoldTransitActions from '@/components/holds/HoldTransitActions';
+import PickupSiteSelect from '@/components/holds/PickupSiteSelect';
+import TransitActionModals from '@/components/holds/TransitActionModals';
+import { useActiveTransitsQuery } from '@/hooks/holds/useActiveTransitsQuery';
+import { usePickupSiteDraft } from '@/hooks/holds/usePickupSiteDraft';
+import { useTransitActions } from '@/hooks/holds/useTransitActions';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
 import type { Biblio, BiblioShort, Hold, UserShort } from '@/types';
@@ -22,6 +29,7 @@ import {
   type StaffHoldStatusFilter,
 } from '@/utils/holdDisplay';
 import HoldScopeBadge from '@/components/holds/HoldScopeBadge';
+import { indexTransitsByHoldId } from '@/utils/transitDisplay';
 
 function statusBadge(t: (k: string) => string, status: Hold['status']) {
   return (
@@ -48,6 +56,13 @@ export default function HoldsPage() {
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [holdScope, setHoldScope] = useState<HoldPlacementScope>('title');
   const [createNotes, setCreateNotes] = useState('');
+  const { sources, pickupSiteId, setPickupSiteId, missing: pickupMissing } = usePickupSiteDraft(showCreateModal);
+  const transitActions = useTransitActions();
+  const activeTransitsQuery = useActiveTransitsQuery();
+  const transitByHoldId = useMemo(
+    () => indexTransitsByHoldId(activeTransitsQuery.data ?? []),
+    [activeTransitsQuery.data],
+  );
 
   const [createUserDraft, setCreateUserDraft] = useState('');
   const [createUserResults, setCreateUserResults] = useState<UserShort[]>([]);
@@ -137,6 +152,7 @@ export default function HoldsPage() {
     setBiblioPickError(null);
     setCopyBarcode('');
     setBarcodeLookupError(null);
+    setPickupSiteId('');
   };
 
   const resolveCopyBarcode = async (raw: string) => {
@@ -218,6 +234,7 @@ export default function HoldsPage() {
       if (!selectedUserForCreate) throw new Error(t('holds.selectUser'));
       if (!selectedBiblioId) throw new Error(t('holds.selectBiblio'));
       if (pinningCopy && !selectedItemId) throw new Error(t('holds.selectCopy'));
+      if (pickupMissing) throw new Error(t('holds.pickupSiteRequired'));
       return api.createHold(
         buildCreateHold({
           userId: selectedUserForCreate.id,
@@ -225,6 +242,7 @@ export default function HoldsPage() {
           scope: holdScope,
           itemId: selectedItemId,
           notes: createNotes,
+          pickupSiteId,
         }),
       );
     },
@@ -261,6 +279,13 @@ export default function HoldsPage() {
       </Button>
     ) : null;
 
+  const actionCell = (r: Hold) => (
+    <div className="flex flex-wrap justify-end gap-2">
+      <HoldTransitActions hold={r} transit={transitByHoldId.get(r.id)} actions={transitActions} />
+      {cancelCell(r)}
+    </div>
+  );
+
   const columns = [
     {
       key: 'user',
@@ -285,6 +310,13 @@ export default function HoldsPage() {
       render: (r: Hold) => statusBadge(t, r.status),
     },
     {
+      key: 'pickup',
+      header: t('holds.columnPickup'),
+      render: (r: Hold) => (
+        <HoldPickupCell hold={r} sources={sources} transit={transitByHoldId.get(r.id)} />
+      ),
+    },
+    {
       key: 'position',
       header: t('holds.position'),
       render: (r: Hold) => t('holds.queuePosition', { position: r.position }),
@@ -303,7 +335,7 @@ export default function HoldsPage() {
       key: 'actions',
       header: t('common.actions'),
       align: 'right' as const,
-      render: cancelCell,
+      render: actionCell,
     },
   ];
 
@@ -327,13 +359,20 @@ export default function HoldsPage() {
           </h1>
           <p className="text-gray-500 dark:text-gray-400 mt-1">{t('holds.subtitle')}</p>
         </div>
-        <Button
-          variant="primary"
-          leftIcon={<Plus className="h-4 w-4" />}
-          onClick={() => setShowCreateModal(true)}
-        >
-          {t('holds.newHoldButton')}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Link to="/transits">
+            <Button variant="secondary" leftIcon={<Truck className="h-4 w-4" />}>
+              {t('transits.openQueue')}
+            </Button>
+          </Link>
+          <Button
+            variant="primary"
+            leftIcon={<Plus className="h-4 w-4" />}
+            onClick={() => setShowCreateModal(true)}
+          >
+            {t('holds.newHoldButton')}
+          </Button>
+        </div>
       </div>
 
       <Card padding="none" className="flex flex-col min-h-0">
@@ -427,6 +466,15 @@ export default function HoldsPage() {
                         hold={r}
                         emphasizePickup
                         statusBadge={(s) => statusBadge(t, s)}
+                        pickupSources={sources}
+                        transit={transitByHoldId.get(r.id)}
+                        extraActions={
+                          <HoldTransitActions
+                            hold={r}
+                            transit={transitByHoldId.get(r.id)}
+                            actions={transitActions}
+                          />
+                        }
                         onCancel={() => setCancelHoldId(r.id)}
                         cancelPending={cancelMutation.isPending && cancelMutation.variables === r.id}
                       />
@@ -469,6 +517,7 @@ export default function HoldsPage() {
               disabled={
                 !canSubmitCreate ||
                 createMutation.isPending ||
+                pickupMissing ||
                 (createQuotaQuery.data != null && createQuotaQuery.data.remaining <= 0)
               }
               onClick={() => void createMutation.mutateAsync()}
@@ -679,6 +728,14 @@ export default function HoldsPage() {
             )}
           </div>
 
+          <PickupSiteSelect
+            id="desk-pickup-site"
+            sources={sources}
+            value={pickupSiteId}
+            onChange={setPickupSiteId}
+            disabled={createMutation.isPending}
+          />
+
           <Input
             label={t('holds.notesOptional')}
             value={createNotes}
@@ -704,6 +761,7 @@ export default function HoldsPage() {
         message={t('holds.cancelConfirm')}
         confirmVariant="danger"
       />
+      <TransitActionModals actions={transitActions} />
     </div>
   );
 }
