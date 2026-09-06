@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Plus, X, Search } from 'lucide-react';
-import { Input } from '@/components/common';
+import { Button, Input } from '@/components/common';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 
 export interface LinkedEntry {
@@ -43,9 +43,11 @@ export function EntityLinker({
   const [suggestions, setSuggestions] = useState<SuggestedItem[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLUListElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const listId = useId();
 
   const runSearch = useCallback(
     async (q: string) => {
@@ -58,6 +60,7 @@ export function EntityLinker({
       try {
         const results = await onSearch(q);
         setSuggestions(results);
+        setActiveIndex(-1);
         setIsOpen(true);
       } catch {
         setSuggestions([]);
@@ -108,6 +111,7 @@ export function EntityLinker({
     ]);
     setQuery('');
     setSuggestions([]);
+    setActiveIndex(-1);
     setIsOpen(false);
   };
 
@@ -124,6 +128,11 @@ export function EntityLinker({
   const exactMatch = suggestions.find(
     (s) => s.name.toLowerCase() === query.trim().toLowerCase()
   );
+  const createOptionIndex = !exactMatch && query.trim() ? suggestions.length : -1;
+  const optionCount = suggestions.length + (createOptionIndex >= 0 ? 1 : 0);
+  const activeSuggestion = activeIndex >= 0 && activeIndex < suggestions.length
+    ? suggestions[activeIndex]
+    : undefined;
 
   return (
     <div className="space-y-3">
@@ -177,58 +186,102 @@ export function EntityLinker({
               onChange={(e) => setQuery(e.target.value)}
               onFocus={() => query.trim() && setIsOpen(true)}
               onKeyDown={(e) => {
+                if (e.key === 'ArrowDown' && optionCount > 0) {
+                  e.preventDefault();
+                  setIsOpen(true);
+                  setActiveIndex((current) => (current + 1 + optionCount) % optionCount);
+                  return;
+                }
+                if (e.key === 'ArrowUp' && optionCount > 0) {
+                  e.preventDefault();
+                  setIsOpen(true);
+                  setActiveIndex((current) => (current <= 0 ? optionCount - 1 : current - 1));
+                  return;
+                }
                 if (e.key === 'Enter') {
                   e.preventDefault();
-                  if (exactMatch) addEntry(exactMatch);
+                  if (activeSuggestion) addEntry(activeSuggestion);
+                  else if (exactMatch) addEntry(exactMatch);
                   else if (query.trim()) addEntry(null);
                 }
-                if (e.key === 'Escape') setIsOpen(false);
+                if (e.key === 'Escape') {
+                  setIsOpen(false);
+                  setActiveIndex(-1);
+                }
               }}
               placeholder={addLabel}
+              role="combobox"
+              aria-expanded={isOpen}
+              aria-controls={listId}
+              aria-autocomplete="list"
+              aria-activedescendant={
+                activeSuggestion
+                  ? `${listId}-opt-${activeSuggestion.id}`
+                  : activeIndex === createOptionIndex
+                    ? `${listId}-opt-create`
+                    : undefined
+              }
               className={formControlClass({ className: 'w-full pl-9 pr-3' })}
             />
             {isSearching && (
               <div className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
             )}
           </div>
-          <button
+          <Button
             type="button"
+            variant="secondary"
+            size="icon"
             onClick={() => query.trim() && addEntry(exactMatch ?? null)}
-            className="p-2 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300"
             title={addLabel}
+            aria-label={addLabel}
           >
             <Plus className="h-4 w-4" />
-          </button>
+          </Button>
         </div>
 
         {/* Dropdown */}
         {isOpen && (suggestions.length > 0 || query.trim()) && (
-          <div
+          <ul
             ref={dropdownRef}
+            id={listId}
+            role="listbox"
             className="absolute z-50 left-0 right-0 mt-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-56 overflow-y-auto"
           >
-            {suggestions.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onMouseDown={(e) => { e.preventDefault(); addEntry(item); }}
-                className="w-full text-left px-3 py-2 text-sm text-gray-900 dark:text-gray-100 hover:bg-amber-50 dark:hover:bg-amber-900/20 flex items-center gap-2"
-              >
-                <Search className="h-3 w-3 text-gray-400 shrink-0" />
-                {item.name}
-              </button>
+            {suggestions.map((item, index) => (
+              <li key={item.id} role="presentation">
+                <button
+                  id={`${listId}-opt-${item.id}`}
+                  type="button"
+                  role="option"
+                  aria-selected={activeIndex === index}
+                  onMouseDown={(e) => { e.preventDefault(); addEntry(item); }}
+                  className={`w-full text-left px-3 py-2 text-sm text-gray-900 dark:text-gray-100 hover:bg-amber-50 dark:hover:bg-amber-900/20 flex items-center gap-2 ${
+                    activeIndex === index ? 'bg-amber-50 dark:bg-amber-900/20' : ''
+                  }`}
+                >
+                  <Search className="h-3 w-3 text-gray-400 shrink-0" />
+                  {item.name}
+                </button>
+              </li>
             ))}
             {!exactMatch && query.trim() && (
-              <button
-                type="button"
-                onMouseDown={(e) => { e.preventDefault(); addEntry(null); }}
-                className="w-full text-left px-3 py-2 text-sm text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 flex items-center gap-2 border-t border-gray-100 dark:border-gray-800"
-              >
-                <Plus className="h-3 w-3 shrink-0" />
-                {t('catalog.useAndCreate', { name: query.trim() })}
-              </button>
+              <li role="presentation">
+                <button
+                  id={`${listId}-opt-create`}
+                  type="button"
+                  role="option"
+                  aria-selected={activeIndex === createOptionIndex}
+                  onMouseDown={(e) => { e.preventDefault(); addEntry(null); }}
+                  className={`w-full text-left px-3 py-2 text-sm text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 flex items-center gap-2 border-t border-gray-100 dark:border-gray-800 ${
+                    activeIndex === createOptionIndex ? 'bg-amber-50 dark:bg-amber-900/20' : ''
+                  }`}
+                >
+                  <Plus className="h-3 w-3 shrink-0" />
+                  {t('catalog.useAndCreate', { name: query.trim() })}
+                </button>
+              </li>
             )}
-          </div>
+          </ul>
         )}
       </div>
     </div>

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Modal, Button, Input } from '@/components/common';
+import { Modal, Button, Input, Typeahead } from '@/components/common';
 import HoldScopeBadge from '@/components/holds/HoldScopeBadge';
 import { useToast } from '@/contexts/ToastContext';
 import api from '@/services/api';
@@ -325,32 +325,25 @@ export default function PlaceHoldDialog({
             </label>
             {targetMode === 'other' && (
               <div className="pl-6 space-y-2">
-                <Input
+                <Typeahead
                   label={t('users.searchPlaceholder')}
                   value={userSearchDraft}
-                  onChange={(e) => setUserSearchDraft(e.target.value)}
+                  onChange={setUserSearchDraft}
+                  items={visibleUserResults}
+                  getItemId={(u) => u.id}
+                  selectedId={selectedUser?.id}
+                  onSelect={setSelectedUser}
                   placeholder={t('common.search')}
+                  loading={visibleUserSearching}
+                  renderItem={(u) => (
+                    <>
+                      {u.firstname} {u.lastname}
+                      <span className="text-gray-500 ml-2 font-mono text-xs">{u.id}</span>
+                    </>
+                  )}
                 />
                 {visibleUserSearching && (
                   <p className="text-xs text-gray-500">{t('common.loading')}</p>
-                )}
-                {visibleUserResults.length > 0 && (
-                  <ul className="max-h-36 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-200 dark:divide-gray-700">
-                    {visibleUserResults.map((u) => (
-                      <li key={u.id}>
-                        <button
-                          type="button"
-                          className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-800 ${
-                            selectedUser?.id === u.id ? 'bg-indigo-50 dark:bg-indigo-900/30' : ''
-                          }`}
-                          onClick={() => setSelectedUser(u)}
-                        >
-                          {u.firstname} {u.lastname}
-                          <span className="text-gray-500 ml-2 font-mono text-xs">{u.id}</span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
                 )}
                 {selectedUser && (
                   <p className="text-xs text-gray-600 dark:text-gray-400">
