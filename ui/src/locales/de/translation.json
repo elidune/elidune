@@ -81,7 +81,12 @@
     "logout": "Abmelden",
     "about": "Über",
     "privacy": "Datenschutz",
-    "tasks": "Aufgaben"
+    "tasks": "Aufgaben",
+    "sectionCirculation": "Ausleihe",
+    "sectionCataloging": "Katalogisierung",
+    "sectionPatron": "Nutzer",
+    "language": "Sprache",
+    "main": "Hauptnavigation"
   },
   "theme": {
     "light": "Hell",
@@ -95,7 +100,8 @@
     "noSchedule": "Keine Öffnungszeiten",
     "welcome": "willkommen",
     "upcomingEvents": "Kommende Veranstaltungen",
-    "upcomingEventsSubtitle": "Programm und Flyer der Bibliothek"
+    "upcomingEventsSubtitle": "Programm und Flyer der Bibliothek",
+    "statsLoadError": "Statistiken konnten nicht geladen werden."
   },
   "library": {
     "general": {
@@ -1640,7 +1646,13 @@
     "featureRenew": "Ausleihe verlängern",
     "featureHistory": "Ausleihen-Verlauf",
     "featureDigital": "Digitales Dokument",
-    "featureSuggestions": "Dokumentvorschläge"
+    "featureSuggestions": "Dokumentvorschläge",
+    "notForLoan": "Nicht ausleihbar",
+    "unavailable": "Nicht verfügbar",
+    "site": "Standort",
+    "holdsWaiting_one": "{{count}} Vorbestellung wartet",
+    "holdsWaiting_other": "{{count}} Vorbestellungen warten",
+    "readerCatalogSubtitle": "Verfügbarkeit, Signatur und Standort"
   },
   "maintenance": {
     "title": "Dienst nicht verfügbar",

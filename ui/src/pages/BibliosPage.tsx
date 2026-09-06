@@ -205,6 +205,12 @@ export default function BibliosPage() {
 
   const canManage = canManageItems(user?.accountType);
 
+  useEffect(() => {
+    if (!canManage && activeTab !== 'catalog') {
+      setActiveTab('catalog');
+    }
+  }, [canManage, activeTab, setActiveTab]);
+
   const [catalogBiblioToDelete, setCatalogBiblioToDelete] = useState<BiblioShort | null>(null);
   const [catalogDeleteBorrowedError, setCatalogDeleteBorrowedError] = useState(false);
   const [catalogDeleteLoading, setCatalogDeleteLoading] = useState(false);
@@ -447,7 +453,8 @@ export default function BibliosPage() {
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('catalog.pageTitle')}</h1>
       </div>
 
-      {/* Tab navigation */}
+      {/* Tab navigation — staff cataloging only */}
+      {canManage && (
       <div className="border-b border-gray-200 dark:border-gray-700">
         <nav className="-mb-px flex gap-6">
           {([
@@ -470,6 +477,7 @@ export default function BibliosPage() {
           ))}
         </nav>
       </div>
+      )}
 
       {/* Collections tab */}
       {activeTab === 'collections' && (
@@ -626,6 +634,7 @@ export default function BibliosPage() {
                   ))}
                 </select>
               </div>
+              {canManage && (
               <div className="flex flex-col gap-1.5 w-[min(14rem,max-content)] shrink-0">
                 <span
                   id="catalog-include-without-items-label"
@@ -654,6 +663,7 @@ export default function BibliosPage() {
                   </button>
                 </div>
               </div>
+              )}
             </div>
           </div>
         )}

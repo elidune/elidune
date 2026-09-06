@@ -26,7 +26,13 @@ import {
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLibrary } from '@/contexts/LibraryContext';
-import { Card, Badge, Input, Button, LibraryInfoSection } from '@/components/common';
+import { Card, Badge, Input, Button, LibraryInfoSection, LanguageSwitcher } from '@/components/common';
+import {
+  availabilityBadgeVariant,
+  availabilityLabelKey,
+  copyAvailabilityStatus,
+  titleAvailabilityStatus,
+} from '@/utils/opacAvailability';
 import { useLibrarySchedule } from '@/hooks/common/useLibrarySchedule';
 import api from '@/services/api';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
@@ -267,6 +273,12 @@ function BiblioDetailPane({
     staleTime: 5 * 60 * 1000,
   });
 
+  const { data: availability } = useQuery({
+    queryKey: ['opac-availability', biblioId],
+    queryFn: () => api.getOPACAvailability(biblioId),
+    staleTime: 2 * 60 * 1000,
+  });
+
   const authorLine = detail?.authors
     ?.map((a) => [a.firstname, a.lastname].filter(Boolean).join(' '))
     .join(', ');
@@ -368,20 +380,31 @@ function BiblioDetailPane({
             {detail.items && detail.items.length > 0 && (
               <div>
                 <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">{t('items.specimens')}</p>
+                {(availability?.holdCount ?? 0) > 0 && (
+                  <p className="text-xs text-amber-800 dark:text-amber-200 mb-2">
+                    {t('opac.holdsWaiting', { count: availability?.holdCount })}
+                  </p>
+                )}
                 <div className="space-y-1.5">
                   {detail.items.map((item) => {
-                    const available = item.borrowable === true && !item.borrowed;
+                    const status = copyAvailabilityStatus(item);
 
                     return (
-                      <div key={item.id} className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-800/60">
-                        <Badge variant={available ? 'success' : 'danger'} size="sm">
-                          {available ? t('opac.available') : t('opac.borrowed')}
-                        </Badge>
-                        {item.callNumber && (
-                          <span className="font-mono text-xs font-semibold text-gray-800 dark:text-gray-200">{item.callNumber}</span>
-                        )}
+                      <div key={item.id} className="flex flex-col gap-1 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-800/60">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant={availabilityBadgeVariant(status)} size="sm">
+                            {t(availabilityLabelKey(status))}
+                          </Badge>
+                          {item.callNumber && (
+                            <span className="font-mono text-xs font-semibold text-gray-800 dark:text-gray-200">
+                              {t('items.callNumber')}: {item.callNumber}
+                            </span>
+                          )}
+                        </div>
                         {item.sourceName && (
-                          <span className="text-xs text-gray-400 dark:text-gray-500 truncate ml-auto">{item.sourceName}</span>
+                          <p className="text-xs text-gray-600 dark:text-gray-300">
+                            {t('opac.site')}: {item.sourceName}
+                          </p>
                         )}
                       </div>
                     );
@@ -528,6 +551,9 @@ export default function LoginPage() {
             className="absolute -right-4 -top-4 h-48 w-48 sm:h-56 sm:w-56 object-contain opacity-[0.07] dark:opacity-[0.05] select-none pointer-events-none"
           />
           <div className="relative">
+            <div className="mb-4 flex justify-end">
+              <LanguageSwitcher id="opac-language-switcher" className="w-36" />
+            </div>
             <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-white mb-5">
               {libraryInfo?.name?.trim() ||
                 libraryName?.trim() ||
@@ -657,8 +683,6 @@ export default function LoginPage() {
                     'opac.featureReserve',
                     'opac.featureRenew',
                     'opac.featureHistory',
-                    'opac.featureDigital',
-                    'opac.featureSuggestions',
                   ].map((key) => (
                     <div key={key} className="flex items-center gap-2">
                       <div className="w-1 h-1 rounded-full bg-amber-400 dark:bg-amber-600 flex-shrink-0" />
@@ -779,8 +803,6 @@ export default function LoginPage() {
                         ) : (
                           <div>
                             {biblios.map((biblio) => {
-                              const hasAvailable =
-                                biblio.items?.some((i) => i.borrowable === true && !i.borrowed) ?? false;
                               const totalItems = biblio.items?.length ?? 0;
                               const authorName = biblio.author
                                 ? [biblio.author.firstname, biblio.author.lastname].filter(Boolean).join(' ')
@@ -822,8 +844,8 @@ export default function LoginPage() {
                                       {authorName ?? '—'}
                                     </p>
                                     {totalItems > 0 && (
-                                      <Badge variant={hasAvailable ? 'success' : 'danger'} size="sm">
-                                        {hasAvailable ? t('opac.available') : t('opac.borrowed')}
+                                      <Badge variant={availabilityBadgeVariant(titleAvailabilityStatus(biblio.items))} size="sm">
+                                        {t(availabilityLabelKey(titleAvailabilityStatus(biblio.items)))}
                                       </Badge>
                                     )}
                                   </div>

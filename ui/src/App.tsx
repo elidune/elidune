@@ -7,7 +7,7 @@ import ToastContainer from '@/components/common/ToastContainer';
 import { ThemeProvider } from '@/contexts/ThemeContext';
 import { LanguageProvider } from '@/contexts/LanguageContext';
 import { LibraryProvider } from '@/contexts/LibraryContext';
-import { Layout } from '@/components/common';
+import { Layout, PublicPageChrome } from '@/components/common';
 import {
   FirstSetupPage,
   MaintenancePage,
@@ -17,6 +17,7 @@ import {
   MustChangePasswordPage,
   HomePage,
   BibliosPage,
+  ReaderCatalogPage,
   BiblioDetailPage,
   BiblioEditPage,
   BiblioCreatePage,
@@ -49,15 +50,19 @@ const queryClient = new QueryClient({
   },
 });
 
+function FullPageSpinner() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">
+      <div className="h-10 w-10 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+}
+
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
 
   if (isLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-950">
-        <div className="h-10 w-10 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+    return <FullPageSpinner />;
   }
 
   if (!isAuthenticated) {
@@ -72,11 +77,7 @@ function RootPage() {
   const { isAuthenticated, isLoading } = useAuth();
 
   if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-950">
-        <div className="h-10 w-10 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
-      </div>
-    );
+    return <FullPageSpinner />;
   }
 
   if (isAuthenticated) {
@@ -94,6 +95,39 @@ function LibrarianRoute({ children }: { children: React.ReactNode }) {
   }
 
   return <>{children}</>;
+}
+
+function StaffCatalogListRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+
+  if (!isLibrarian(user?.accountType)) {
+    return <Navigate to="/catalog" replace />;
+  }
+
+  return <>{children}</>;
+}
+
+/** Shareable `/events`: guests get public chrome; staff EventsPage stays at `/events/manage`. */
+function EventsEntryPage() {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading) {
+    return <FullPageSpinner />;
+  }
+
+  if (isAuthenticated) {
+    return (
+      <Layout>
+        <PublicEventsPage />
+      </Layout>
+    );
+  }
+
+  return (
+    <PublicPageChrome>
+      <PublicEventsPage />
+    </PublicPageChrome>
+  );
 }
 
 function AppRoutes() {
@@ -118,10 +152,21 @@ function AppRoutes() {
       />
 
       <Route
+        path="/catalog"
+        element={
+          <ProtectedRoute>
+            <ReaderCatalogPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/biblios"
         element={
           <ProtectedRoute>
-            <BibliosPage />
+            <StaffCatalogListRoute>
+              <BibliosPage />
+            </StaffCatalogListRoute>
           </ProtectedRoute>
         }
       />
@@ -294,14 +339,8 @@ function AppRoutes() {
         }
       />
 
-      <Route
-        path="/events"
-        element={
-          <ProtectedRoute>
-            <PublicEventsPage />
-          </ProtectedRoute>
-        }
-      />
+      <Route path="/events" element={<EventsEntryPage />} />
+      <Route path="/public/events" element={<Navigate to="/events" replace />} />
 
       <Route
         path="/library"

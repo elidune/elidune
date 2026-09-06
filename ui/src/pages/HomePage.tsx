@@ -1,14 +1,15 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useQuery } from '@tanstack/react-query';
 import { BookOpen, Users, BookMarked, TrendingUp, ArrowRight, AlertTriangle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLibrary } from '@/contexts/LibraryContext';
-import { Card, CardHeader, Badge, LibraryInfoSection } from '@/components/common';
+import { Card, CardHeader, Badge, LibraryInfoSection, ListSkeleton, QueryErrorBanner } from '@/components/common';
 import { useLibrarySchedule } from '@/hooks/common/useLibrarySchedule';
 import { isLibrarian } from '@/types';
 import api from '@/services/api';
-import type { Stats, Loan } from '@/types';
+import { getApiErrorMessage } from '@/utils/apiError';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
 
@@ -17,29 +18,25 @@ export default function HomePage() {
   const { user } = useAuth();
   const { libraryName, libraryInfo } = useLibrary();
   const { scheduleSlots } = useLibrarySchedule();
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [myLoans, setMyLoans] = useState<Loan[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const staff = isLibrarian(user?.accountType);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [statsData, loansRes] = await Promise.all([
-          isLibrarian(user?.accountType) ? api.getStats() : null,
-          user?.id ? api.getUserLoans(user.id, { page: 1, perPage: 20 }) : null,
-        ]);
-        if (statsData) setStats(statsData);
-        setMyLoans(loansRes?.items ?? []);
-      } catch (error) {
-        console.error('Error fetching data:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+  const statsQuery = useQuery({
+    queryKey: ['home-stats'],
+    queryFn: () => api.getStats(),
+    enabled: staff,
+    staleTime: 60 * 1000,
+  });
 
-    fetchData();
-  }, [user]);
+  const loansQuery = useQuery({
+    queryKey: ['home-my-loans', user?.id],
+    queryFn: () => api.getUserLoans(user!.id, { page: 1, perPage: 20 }),
+    enabled: Boolean(user?.id),
+    staleTime: 60 * 1000,
+  });
 
+  const stats = statsQuery.data ?? null;
+  const myLoans = useMemo(() => loansQuery.data?.items ?? [], [loansQuery.data?.items]);
+  const isLoading = loansQuery.isLoading || (staff && statsQuery.isLoading);
 
   const myLoansSorted = useMemo(() => sortLoansByStartDateAsc(myLoans), [myLoans]);
   const overdueLoans = myLoans.filter((loan) => loan.isOverdue);
@@ -78,8 +75,15 @@ export default function HomePage() {
         </div>
       )}
 
+      {staff && statsQuery.isError && (
+        <QueryErrorBanner
+          message={getApiErrorMessage(statsQuery.error, t) || t('home.statsLoadError')}
+          onRetry={() => void statsQuery.refetch()}
+        />
+      )}
+
       {/* Stats cards (for librarians) */}
-      {isLibrarian(user?.accountType) && stats && (
+      {staff && stats && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard
             icon={BookOpen}
@@ -123,11 +127,18 @@ export default function HomePage() {
           }
         />
 
-        {isLoading ? (
-          <div className="flex justify-center py-8">
-            <div className="h-8 w-8 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
+        {loansQuery.isError && (
+          <div className="mb-3">
+            <QueryErrorBanner
+              message={getApiErrorMessage(loansQuery.error, t) || t('loans.loansLoadError')}
+              onRetry={() => void loansQuery.refetch()}
+            />
           </div>
-        ) : myLoans.length === 0 ? (
+        )}
+
+        {isLoading ? (
+          <ListSkeleton rows={4} />
+        ) : loansQuery.isError ? null : myLoans.length === 0 ? (
           <div className="text-center py-8 text-gray-500 dark:text-gray-400">
             <BookMarked className="h-12 w-12 mx-auto mb-3 opacity-30" />
             <p>{t('loans.noLoans')}</p>
