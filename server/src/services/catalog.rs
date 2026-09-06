@@ -213,6 +213,13 @@ impl CatalogService {
         self.repository.biblios_get_by_id(id).await
     }
 
+    /// Active bibliographic record id for a normalized ISBN, if one exists.
+    pub async fn find_active_biblio_id_by_isbn(&self, isbn: &str) -> AppResult<Option<i64>> {
+        self.repository
+            .biblios_find_active_by_isbn(isbn, None)
+            .await
+    }
+
     /// Get the bibliographic record for a physical copy (`item_id`).
     ///
     /// The returned [`Biblio`].`items` contains **only** that item, not all copies of the record.

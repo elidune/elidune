@@ -202,6 +202,21 @@ pub mod event {
     pub const FINE_RULE_UPDATED: &str = "fine_rule.updated";
     pub const FINE_POLICY_UPDATED: &str = "fine.policy_updated";
 
+    // Acquisitions
+    pub const VENDOR_CREATED: &str = "vendor.created";
+    pub const VENDOR_UPDATED: &str = "vendor.updated";
+    pub const VENDOR_ARCHIVED: &str = "vendor.archived";
+    pub const FUND_CREATED: &str = "fund.created";
+    pub const FUND_UPDATED: &str = "fund.updated";
+    pub const PURCHASE_ORDER_CREATED: &str = "purchase_order.created";
+    pub const PURCHASE_ORDER_UPDATED: &str = "purchase_order.updated";
+    pub const PURCHASE_ORDER_SUBMITTED: &str = "purchase_order.submitted";
+    pub const PURCHASE_ORDER_CANCELLED: &str = "purchase_order.cancelled";
+    pub const PURCHASE_ORDER_RECEIVED: &str = "purchase_order.received";
+    pub const PURCHASE_ORDER_LINE_ADDED: &str = "purchase_order.line_added";
+    pub const PURCHASE_ORDER_LINE_UPDATED: &str = "purchase_order.line_updated";
+    pub const PURCHASE_ORDER_LINE_REMOVED: &str = "purchase_order.line_removed";
+
     // Collections
     pub const COLLECTION_CREATED: &str = "collection.created";
     pub const COLLECTION_UPDATED: &str = "collection.updated";
@@ -420,6 +435,8 @@ mod tests {
         assert_eq!(event::SEARCH_INDEX_SYNC_FAILED, "search.index_sync_failed");
         assert_eq!(event::SYSTEM_TASK_COMPLETED, "system.task_completed");
         assert_eq!(event::COLLECTION_CREATED, "collection.created");
+        assert_eq!(event::PURCHASE_ORDER_RECEIVED, "purchase_order.received");
+        assert_eq!(event::VENDOR_CREATED, "vendor.created");
         assert_eq!(event::FINE_RULE_UPDATED, "fine_rule.updated");
         assert_eq!(
             event::LOAN_FINE_THRESHOLD_OVERRIDDEN,

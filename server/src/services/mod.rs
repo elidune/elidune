@@ -1,6 +1,7 @@
 //! Business logic services
 
 pub mod account_types_catalog;
+pub mod acquisitions;
 pub mod audit;
 pub mod catalog;
 pub mod circulation;
@@ -42,10 +43,11 @@ use crate::{
     dynamic_config::DynamicConfig,
     error::AppResult,
     repository::{
-        AccountTypesCatalogRepository, BibliosRepository, CatalogEntitiesRepository,
-        EquipmentRepository, EventsServiceRepository, FinesRepository, HoldsRepository,
-        InventoryRepository, LoansRepository, LoansServiceRepository, PublicTypesRepository,
-        Repository, SchedulesRepository, SourcesRepository, VisitorCountsRepository,
+        AccountTypesCatalogRepository, AcquisitionsRepository, BibliosRepository,
+        CatalogEntitiesRepository, EquipmentRepository, EventsServiceRepository, FinesRepository,
+        HoldsRepository, InventoryRepository, LoansRepository, LoansServiceRepository,
+        PublicTypesRepository, Repository, SchedulesRepository, SourcesRepository,
+        VisitorCountsRepository,
     },
 };
 
@@ -55,6 +57,7 @@ pub struct Services {
     pub audit: audit::AuditService,
     /// Library account roles (`account_types`) and rights.
     pub account_types_catalog: account_types_catalog::AccountTypesCatalogService,
+    pub acquisitions: acquisitions::AcquisitionsService,
     pub catalog: catalog::CatalogService,
     pub circulation: circulation::CirculationService,
     pub email: email::EmailService,
@@ -158,6 +161,10 @@ impl Services {
             audit: audit_service.clone(),
             account_types_catalog: account_types_catalog::AccountTypesCatalogService::new(
                 repo.clone() as Arc<dyn AccountTypesCatalogRepository>,
+            ),
+            acquisitions: acquisitions::AcquisitionsService::new(
+                repo.clone() as Arc<dyn AcquisitionsRepository>,
+                catalog.clone(),
             ),
             catalog: catalog.clone(),
             circulation: circulation::CirculationService::new(
