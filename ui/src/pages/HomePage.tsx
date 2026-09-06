@@ -35,7 +35,7 @@ export default function HomePage() {
   });
 
   const stats = statsQuery.data ?? null;
-  const myLoans = loansQuery.data?.items ?? [];
+  const myLoans = useMemo(() => loansQuery.data?.items ?? [], [loansQuery.data?.items]);
   const isLoading = loansQuery.isLoading || (staff && statsQuery.isLoading);
 
   const myLoansSorted = useMemo(() => sortLoansByStartDateAsc(myLoans), [myLoans]);
