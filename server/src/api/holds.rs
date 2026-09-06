@@ -103,7 +103,7 @@ pub struct CreateHoldRequest {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub biblio_id: Option<i64>,
-    /// Optional pickup site stub for later transit (#15).
+    /// Pickup site (`sources.id`). Required for inter-site transit.
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub pickup_site_id: Option<i64>,
