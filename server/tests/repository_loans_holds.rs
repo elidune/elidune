@@ -42,6 +42,23 @@ fn assert_already_borrowed(err: AppError) {
     }
 }
 
+fn assert_duplicate_hold(err: AppError) {
+    match err {
+        AppError::Conflict(msg) => {
+            assert_eq!(msg, "User already has an active hold for this item");
+        }
+        other => panic!("expected duplicate hold conflict, got {other:?}"),
+    }
+}
+
+fn create_hold(user_id: i64, item_id: i64) -> CreateHold {
+    CreateHold {
+        user_id,
+        item_id,
+        notes: None,
+    }
+}
+
 #[tokio::test]
 async fn loan_return_atomically_advances_next_hold() {
     let Some(app) = TestApp::spawn().await else {
@@ -297,4 +314,180 @@ async fn concurrent_checkout_respects_hold_queue() {
     let active_ids = repo.loans_get_active_ids_for_item(item_id).await.unwrap();
     let a_loan_id = r_a.unwrap().loan_id;
     assert_eq!(active_ids, vec![a_loan_id]);
+}
+
+#[tokio::test]
+async fn sequential_place_hold_same_user_item_conflicts() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "seqhold_a").await;
+    let item_id =
+        seed_borrowable_item(&app, &admin_token, "SEQ-HOLD-001", "Sequential Hold Test").await;
+    let holds = &app.state.services.holds;
+
+    holds
+        .place_hold(create_hold(reader_id, item_id))
+        .await
+        .expect("first hold");
+
+    let err = holds
+        .place_hold(create_hold(reader_id, item_id))
+        .await
+        .expect_err("second hold must fail");
+    assert_duplicate_hold(err);
+    assert_eq!(
+        app.state
+            .services
+            .repository
+            .holds_count_for_item(item_id)
+            .await
+            .unwrap(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn concurrent_place_hold_same_user_item_only_one_succeeds() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "racehold_dup").await;
+    let item_id = seed_borrowable_item(
+        &app,
+        &admin_token,
+        "RACE-HOLD-DUP",
+        "Concurrent Duplicate Hold",
+    )
+    .await;
+    let holds = app.state.services.holds.clone();
+
+    let (r1, r2) = tokio::join!(
+        holds.place_hold(create_hold(reader_id, item_id)),
+        holds.place_hold(create_hold(reader_id, item_id)),
+    );
+
+    let oks = [&r1, &r2].iter().filter(|r| r.is_ok()).count();
+    assert_eq!(
+        oks, 1,
+        "exactly one concurrent place_hold should succeed: {r1:?} {r2:?}"
+    );
+
+    let err = if r1.is_err() {
+        r1.err().unwrap()
+    } else {
+        r2.err().unwrap()
+    };
+    assert_duplicate_hold(err);
+    assert_eq!(
+        app.state
+            .services
+            .repository
+            .holds_count_for_item(item_id)
+            .await
+            .unwrap(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn concurrent_place_hold_assigns_distinct_positions() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_a_id, _) = fixtures::create_reader(&app, &admin_token, "racehold_pos_a").await;
+    let (reader_b_id, _) = fixtures::create_reader(&app, &admin_token, "racehold_pos_b").await;
+    let item_id = seed_borrowable_item(
+        &app,
+        &admin_token,
+        "RACE-HOLD-POS",
+        "Concurrent Hold Positions",
+    )
+    .await;
+    let repo = app.state.services.repository.as_ref().clone();
+
+    let (r1, r2) = tokio::join!(
+        repo.holds_create(&create_hold(reader_a_id, item_id)),
+        repo.holds_create(&create_hold(reader_b_id, item_id)),
+    );
+
+    let hold_a = r1.expect("hold A must succeed");
+    let hold_b = r2.expect("hold B must succeed");
+    assert_ne!(
+        hold_a.position, hold_b.position,
+        "concurrent place_hold must not assign the same queue position"
+    );
+
+    let mut positions = [hold_a.position, hold_b.position];
+    positions.sort_unstable();
+    assert_eq!(positions, [1, 2]);
+    assert_eq!(repo.holds_count_for_item(item_id).await.unwrap(), 2);
+}
+
+#[tokio::test]
+async fn unique_index_rejects_second_active_hold_for_user_item() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "uniqhold_a").await;
+    let item_id =
+        seed_borrowable_item(&app, &admin_token, "UNIQ-HOLD-001", "Unique Index Hold").await;
+    let pool = app.state.services.repository.pool();
+    let suffix = fixtures::unique_suffix() as i64;
+
+    sqlx::query("INSERT INTO holds (id, user_id, item_id, position) VALUES ($1, $2, $3, 1)")
+        .bind(suffix)
+        .bind(reader_id)
+        .bind(item_id)
+        .execute(pool)
+        .await
+        .expect("first raw insert");
+
+    let err =
+        sqlx::query("INSERT INTO holds (id, user_id, item_id, position) VALUES ($1, $2, $3, 2)")
+            .bind(suffix.wrapping_add(1))
+            .bind(reader_id)
+            .bind(item_id)
+            .execute(pool)
+            .await
+            .expect_err("second active hold must violate unique index");
+
+    let db = err.as_database_error().expect("database error");
+    assert_eq!(db.code().as_deref(), Some("23505"));
+    assert_eq!(db.constraint(), Some("idx_holds_one_active_per_user_item"));
+}
+
+#[tokio::test]
+async fn cancelled_hold_does_not_block_new_active_hold() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "rehold_a").await;
+    let item_id =
+        seed_borrowable_item(&app, &admin_token, "REHOLD-001", "Rehold After Cancel").await;
+    let repo = app.state.services.repository.as_ref().clone();
+
+    let first = repo
+        .holds_create(&create_hold(reader_id, item_id))
+        .await
+        .expect("first hold");
+    repo.holds_cancel(first.id).await.expect("cancel hold");
+
+    let second = repo
+        .holds_create(&create_hold(reader_id, item_id))
+        .await
+        .expect("new hold after cancel must succeed");
+    assert_ne!(first.id, second.id);
+    assert_eq!(second.status, HoldStatus::Pending);
+    assert_eq!(repo.holds_count_for_item(item_id).await.unwrap(), 1);
 }
