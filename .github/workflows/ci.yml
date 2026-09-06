@@ -247,7 +247,7 @@ jobs:
           --lcov
           --output-path lcov.info
           --fail-under-lines 20
-          --ignore-fail
+          --ignore-run-fail
 
   lint-ui:
     name: UI Lint
