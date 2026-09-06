@@ -3,6 +3,7 @@
 pub mod account_types_catalog;
 pub mod audit;
 pub mod catalog;
+pub mod circulation;
 pub mod email_outbox;
 pub mod equipment;
 pub mod event_bus;
@@ -54,6 +55,7 @@ pub struct Services {
     /// Library account roles (`account_types`) and rights.
     pub account_types_catalog: account_types_catalog::AccountTypesCatalogService,
     pub catalog: catalog::CatalogService,
+    pub circulation: circulation::CirculationService,
     pub email: email::EmailService,
     pub equipment: equipment::EquipmentService,
     pub events: events::EventsService,
@@ -156,6 +158,11 @@ impl Services {
                 repo.clone() as Arc<dyn AccountTypesCatalogRepository>,
             ),
             catalog: catalog.clone(),
+            circulation: circulation::CirculationService::new(
+                repo.clone(),
+                audit_service.clone(),
+                event_bus.clone(),
+            ),
             email: email.clone(),
             equipment: equipment::EquipmentService::new(
                 repo.clone() as Arc<dyn EquipmentRepository>

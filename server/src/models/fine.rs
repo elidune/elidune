@@ -8,6 +8,61 @@ use utoipa::ToSchema;
 
 use crate::models::user::UserStatus;
 
+/// Kind of charge stored on a fine row (overdue accrual vs exception bills).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum FineChargeType {
+    #[default]
+    Overdue,
+    Replacement,
+    Damage,
+}
+
+impl FineChargeType {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Overdue => "overdue",
+            Self::Replacement => "replacement",
+            Self::Damage => "damage",
+        }
+    }
+}
+
+impl From<String> for FineChargeType {
+    fn from(s: String) -> Self {
+        match s.as_str() {
+            "replacement" => Self::Replacement,
+            "damage" => Self::Damage,
+            _ => Self::Overdue,
+        }
+    }
+}
+
+impl sqlx::Type<sqlx::Postgres> for FineChargeType {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("varchar")
+    }
+
+    fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
+        <String as sqlx::Type<sqlx::Postgres>>::compatible(ty)
+    }
+}
+
+impl<'r> sqlx::Decode<'r, sqlx::Postgres> for FineChargeType {
+    fn decode(
+        value: sqlx::postgres::PgValueRef<'r>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
+        Ok(Self::from(s))
+    }
+}
+
+impl sqlx::Encode<'_, sqlx::Postgres> for FineChargeType {
+    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
+        <String as sqlx::Encode<sqlx::Postgres>>::encode(self.as_str().to_string(), buf)
+    }
+}
+
 /// Fine status
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
@@ -89,6 +144,9 @@ pub struct Fine {
     pub paid_at: Option<DateTime<Utc>>,
     pub status: FineStatus,
     pub notes: Option<String>,
+    #[serde(default)]
+    #[sqlx(default)]
+    pub charge_type: FineChargeType,
 }
 
 /// Fine rule per media type

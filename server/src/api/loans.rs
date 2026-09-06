@@ -30,6 +30,10 @@ use crate::{
 
 use super::{biblios::PaginatedResponse, AuthenticatedUser, ClientIp, OptionalIdempotencyKey};
 
+pub use crate::models::dto::circulation::{
+    CirculationExceptionResponse, ClaimsReturnedQueueItem, MarkClaimedReturnedRequest,
+    MarkDamagedRequest, MarkLostRequest, ResolveClaimsReturnedRequest,
+};
 pub use crate::models::dto::loans::{LoanSettingsDto as LoanSettings, UpdateLoanSettingsRequest};
 
 /// Build the loans routes for this domain.
@@ -46,9 +50,20 @@ pub fn router() -> axum::Router<crate::AppState> {
             "/loans/send-overdue-reminders",
             post(send_overdue_reminders),
         )
+        .route("/loans/claims-returned", get(list_claims_returned))
         .route("/loans/:id/user", get(get_loan_borrower))
         .route("/loans/:id/return", post(return_loan))
         .route("/loans/:id/renew", post(renew_loan))
+        .route("/loans/:id/lost", post(mark_loan_lost))
+        .route("/loans/:id/damaged", post(mark_loan_damaged))
+        .route(
+            "/loans/:id/claimed-returned",
+            post(mark_loan_claimed_returned),
+        )
+        .route(
+            "/loans/:id/claims-returned/resolve",
+            post(resolve_loan_claims_returned),
+        )
         .route("/loans/items/:item_id/return", post(return_loan_by_item))
         .route("/loans/items/:item_id/renew", post(renew_loan_by_item))
 }
@@ -832,4 +847,152 @@ pub async fn send_overdue_reminders(
     }
 
     Ok(Json(report))
+}
+
+/// Mark the loan's copy lost: close the loan, item not borrowable, optional replacement bill.
+#[utoipa::path(
+    post,
+    path = "/loans/{id}/lost",
+    tag = "loans",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Active loan ID")),
+    request_body = MarkLostRequest,
+    responses(
+        (status = 200, description = "Item marked lost", body = CirculationExceptionResponse),
+        (status = 404, description = "Active loan not found"),
+        (status = 422, description = "Invalid status transition or missing bill amount")
+    )
+)]
+pub async fn mark_loan_lost(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(loan_id): Path<i64>,
+    Json(body): Json<MarkLostRequest>,
+) -> AppResult<Json<CirculationExceptionResponse>> {
+    claims.require_write_loans()?;
+    let result = state
+        .services
+        .circulation
+        .mark_lost(loan_id, body, Some(claims.user_id), ip)
+        .await?;
+    Ok(Json(result))
+}
+
+/// Mark the loan's copy damaged. `disposition` chooses whether the loan is closed.
+#[utoipa::path(
+    post,
+    path = "/loans/{id}/damaged",
+    tag = "loans",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Active loan ID")),
+    request_body = MarkDamagedRequest,
+    responses(
+        (status = 200, description = "Item marked damaged", body = CirculationExceptionResponse),
+        (status = 404, description = "Active loan not found"),
+        (status = 422, description = "Invalid status transition or missing damage fee")
+    )
+)]
+pub async fn mark_loan_damaged(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(loan_id): Path<i64>,
+    Json(body): Json<MarkDamagedRequest>,
+) -> AppResult<Json<CirculationExceptionResponse>> {
+    claims.require_write_loans()?;
+    let result = state
+        .services
+        .circulation
+        .mark_damaged(loan_id, body, Some(claims.user_id), ip)
+        .await?;
+    Ok(Json(result))
+}
+
+/// Flag the loan/item for the claims-returned queue. Does not close the loan.
+#[utoipa::path(
+    post,
+    path = "/loans/{id}/claimed-returned",
+    tag = "loans",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Active loan ID")),
+    request_body = MarkClaimedReturnedRequest,
+    responses(
+        (status = 200, description = "Flagged as claimed returned", body = CirculationExceptionResponse),
+        (status = 404, description = "Active loan not found"),
+        (status = 422, description = "Invalid status transition")
+    )
+)]
+pub async fn mark_loan_claimed_returned(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(loan_id): Path<i64>,
+    Json(body): Json<MarkClaimedReturnedRequest>,
+) -> AppResult<Json<CirculationExceptionResponse>> {
+    claims.require_write_loans()?;
+    let result = state
+        .services
+        .circulation
+        .mark_claimed_returned(loan_id, body, Some(claims.user_id), ip)
+        .await?;
+    Ok(Json(result))
+}
+
+/// Resolve a claims-returned case after an inventory check.
+#[utoipa::path(
+    post,
+    path = "/loans/{id}/claims-returned/resolve",
+    tag = "loans",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Active loan ID")),
+    request_body = ResolveClaimsReturnedRequest,
+    responses(
+        (status = 200, description = "Claim resolved", body = CirculationExceptionResponse),
+        (status = 404, description = "Active loan not found"),
+        (status = 422, description = "Inventory check required or invalid transition")
+    )
+)]
+pub async fn resolve_loan_claims_returned(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(loan_id): Path<i64>,
+    Json(body): Json<ResolveClaimsReturnedRequest>,
+) -> AppResult<Json<CirculationExceptionResponse>> {
+    claims.require_write_loans()?;
+    let result = state
+        .services
+        .circulation
+        .resolve_claims_returned(loan_id, body, Some(claims.user_id), ip)
+        .await?;
+    Ok(Json(result))
+}
+
+/// Staff work queue of items/loans flagged claimed-returned.
+#[utoipa::path(
+    get,
+    path = "/loans/claims-returned",
+    tag = "loans",
+    security(("bearer_auth" = [])),
+    params(OverdueLoansQuery),
+    responses(
+        (status = 200, description = "Claims-returned queue", body = PaginatedResponse<ClaimsReturnedQueueItem>),
+        (status = 403, description = "Insufficient loans write rights")
+    )
+)]
+pub async fn list_claims_returned(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Query(query): Query<OverdueLoansQuery>,
+) -> AppResult<Json<PaginatedResponse<ClaimsReturnedQueueItem>>> {
+    claims.require_write_loans()?;
+    let page = query.page.unwrap_or(1).max(1);
+    let per_page = query.per_page.unwrap_or(20).clamp(1, 200);
+    let (items, total) = state
+        .services
+        .circulation
+        .list_claims_returned(page, per_page)
+        .await?;
+    Ok(Json(PaginatedResponse::new(items, total, page, per_page)))
 }
