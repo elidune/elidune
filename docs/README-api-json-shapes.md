@@ -905,6 +905,9 @@ List responses omit **`attachmentDataBase64`**; **`GET /events/:id`**, **`POST /
 }
 ```
 
+Overridable keys include `email`, `logging`, `reminders`, `audit`, `holds`, and `circulation`.
+`circulation.skip_closed_days` (default `true`) pushes checkout and renew due dates to the next open day using `schedule_slots` and `schedule_closures`.
+
 ### `ReindexSearchResponse`
 ```json
 { "itemsQueued": 1250, "meilisearchAvailable": true }

@@ -25,7 +25,7 @@ use super::{AuthenticatedUser, ClientIp, ValidatedJson};
 #[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigSectionInfo {
-    /// Section key (e.g. "email", "logging", "reminders", "audit", "holds")
+    /// Section key (e.g. "email", "logging", "reminders", "audit", "holds", "circulation")
     pub key: String,
     /// Current effective value (merged file + DB override)
     pub value: Value,

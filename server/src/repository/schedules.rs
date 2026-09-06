@@ -1,10 +1,14 @@
 //! Schedules domain methods on Repository (periods, slots, closures)
 
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use chrono::{NaiveDate, NaiveTime, Utc};
+use sqlx::FromRow;
 
 use super::Repository;
 use crate::{
+    circulation_calendar::{OpeningCalendar, PeriodOpenDays},
     error::{AppError, AppResult},
     models::schedule::{
         CreateScheduleClosure, CreateSchedulePeriod, CreateScheduleSlot, ScheduleClosure,
@@ -424,6 +428,57 @@ impl Repository {
         Ok(row)
     }
 
+    /// Opening calendar covering `[from, to]` from `schedule_periods` / slots / closures.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn schedules_opening_calendar(
+        &self,
+        from: NaiveDate,
+        to: NaiveDate,
+    ) -> AppResult<OpeningCalendar> {
+        let closures: Vec<NaiveDate> = sqlx::query_scalar(
+            "SELECT closure_date FROM schedule_closures WHERE closure_date >= $1 AND closure_date <= $2",
+        )
+        .bind(from)
+        .bind(to)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let rows = sqlx::query_as::<_, PeriodSlotRow>(
+            r#"
+            SELECT sp.id AS period_id, sp.start_date, sp.end_date, ss.day_of_week
+            FROM schedule_periods sp
+            LEFT JOIN schedule_slots ss ON ss.period_id = sp.id
+            WHERE sp.end_date >= $1 AND sp.start_date <= $2
+            ORDER BY sp.start_date DESC, sp.id DESC
+            "#,
+        )
+        .bind(from)
+        .bind(to)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut periods = Vec::new();
+        let mut index: HashMap<i64, usize> = HashMap::new();
+        for row in rows {
+            let idx = *index.entry(row.period_id).or_insert_with(|| {
+                periods.push(PeriodOpenDays::new(
+                    row.start_date,
+                    row.end_date,
+                    std::iter::empty(),
+                ));
+                periods.len() - 1
+            });
+            if let Some(day) = row.day_of_week {
+                periods[idx].open_weekdays.insert(day);
+            }
+        }
+
+        Ok(OpeningCalendar {
+            closures: closures.into_iter().collect(),
+            periods,
+        })
+    }
+
     /// Delete a closure
     #[tracing::instrument(skip(self), err)]
     pub async fn schedules_delete_closure(&self, id: i64) -> AppResult<()> {
@@ -436,4 +491,12 @@ impl Repository {
         }
         Ok(())
     }
+}
+
+#[derive(Debug, FromRow)]
+struct PeriodSlotRow {
+    period_id: i64,
+    start_date: NaiveDate,
+    end_date: NaiveDate,
+    day_of_week: Option<i16>,
 }

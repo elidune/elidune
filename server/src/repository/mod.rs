@@ -84,6 +84,32 @@ impl Repository {
             .unwrap_or_else(|| crate::config::HoldsConfig::default().ready_expiry_days as i32)
     }
 
+    /// Whether checkout/renew should push due dates off closed days (default **true**).
+    pub(crate) fn skip_closed_days(&self) -> bool {
+        self.dynamic_config
+            .as_ref()
+            .map(|dc| dc.read_circulation().skip_closed_days)
+            .unwrap_or_else(|| crate::config::CirculationConfig::default().skip_closed_days)
+    }
+
+    /// `anchor + duration_days`, then the next open day when [`Self::skip_closed_days`] is on.
+    pub(crate) async fn loans_due_at(
+        &self,
+        anchor: chrono::DateTime<chrono::Utc>,
+        duration_days: i16,
+    ) -> crate::error::AppResult<chrono::DateTime<chrono::Utc>> {
+        let candidate = crate::circulation_calendar::raw_due_date(anchor, duration_days);
+        if !self.skip_closed_days() {
+            return Ok(candidate);
+        }
+        let start = candidate.date_naive();
+        let end = start + chrono::Duration::days(crate::circulation_calendar::MAX_LOOKAHEAD_DAYS);
+        let calendar = self.schedules_opening_calendar(start, end).await?;
+        Ok(crate::circulation_calendar::adjust_due_date(
+            candidate, &calendar,
+        ))
+    }
+
     /// Expose the underlying pool for callers that need to begin transactions directly.
     pub fn pool(&self) -> &Pool<Postgres> {
         &self.pool

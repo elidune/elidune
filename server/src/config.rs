@@ -188,6 +188,31 @@ impl Default for HoldsConfig {
     }
 }
 
+fn default_skip_closed_days() -> bool {
+    true
+}
+
+/// Circulation due-date policy (public-library default: skip closed days).
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct CirculationConfig {
+    /// When true, checkout and renew push `expiry_at` to the next open day if the
+    /// computed due date is a weekly closed weekday or a `schedule_closures` day.
+    #[serde(default = "default_skip_closed_days")]
+    pub skip_closed_days: bool,
+    /// Whether this section can be overridden via the DB `settings` table and admin API
+    #[serde(default)]
+    pub overridable: bool,
+}
+
+impl Default for CirculationConfig {
+    fn default() -> Self {
+        Self {
+            skip_closed_days: true,
+            overridable: false,
+        }
+    }
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct MeilisearchConfig {
     /// Meilisearch server URL, e.g. "http://meilisearch:7700"
@@ -214,6 +239,9 @@ pub struct AppConfig {
     /// Holds / physical item queue. Accepts legacy TOML section `[reservations]`.
     #[serde(default, alias = "reservations")]
     pub holds: HoldsConfig,
+    /// Due-date calendar policy. Defaults to skipping closed days (public library).
+    #[serde(default)]
+    pub circulation: CirculationConfig,
     #[serde(default)]
     pub meilisearch: Option<MeilisearchConfig>,
 }
@@ -305,6 +333,10 @@ impl AppConfig {
             holds: HoldsConfig {
                 overridable: true,
                 ..HoldsConfig::default()
+            },
+            circulation: CirculationConfig {
+                overridable: true,
+                ..CirculationConfig::default()
             },
             meilisearch: None,
         }
