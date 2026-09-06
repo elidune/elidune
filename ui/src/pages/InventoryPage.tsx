@@ -29,6 +29,8 @@ import { getApiErrorMessage } from '@/utils/apiError';
 import { useBackgroundTasks } from '@/contexts/BackgroundTasksContext';
 import { formatTaskProgressDetail, taskProgressPercent } from '@/utils/backgroundTaskDisplay';
 import { formControlClass, formTextareaClass, formLabelClass } from '@/utils/formControl';
+import { useResetWhenInactive } from '@/hooks/common/useResetWhenInactive';
+import { deferFromEffect } from '@/utils/deferFromEffect';
 import type {
   InventorySession,
   CreateInventorySession,
@@ -1410,32 +1412,37 @@ function ConsolidationModal({
     !!consolidationTask &&
     (consolidationTask.status === 'pending' || consolidationTask.status === 'running');
 
+  useResetWhenInactive(isOpen, () => {
+    setPage(1);
+    setResult(null);
+    setError(null);
+    setConsolidationTaskId(null);
+  });
+
   useEffect(() => {
     if (!isOpen) {
-      setPage(1);
-      setResult(null);
-      setError(null);
-      setConsolidationTaskId(null);
       settledTaskRef.current = null;
     }
-  }, [isOpen, sessionId]);
+  }, [isOpen]);
 
   useEffect(() => {
     if (!consolidationTask || settledTaskRef.current === consolidationTask.id) return;
-    if (consolidationTask.status === 'completed') {
-      settledTaskRef.current = consolidationTask.id;
-      const data = consolidationTask.result;
-      if (data && typeof data === 'object' && !Array.isArray(data) && 'sessionId' in data) {
-        setResult(data as InventoryConsolidationResult);
-        setError(null);
-        onSuccess(sessionId);
+    if (consolidationTask.status !== 'completed' && consolidationTask.status !== 'failed') return;
+    settledTaskRef.current = consolidationTask.id;
+    return deferFromEffect(() => {
+      if (consolidationTask.status === 'completed') {
+        const data = consolidationTask.result;
+        if (data && typeof data === 'object' && !Array.isArray(data) && 'sessionId' in data) {
+          setResult(data as InventoryConsolidationResult);
+          setError(null);
+          onSuccess(sessionId);
+        } else {
+          setError(t('inventory.consolidationError'));
+        }
       } else {
-        setError(t('inventory.consolidationError'));
+        setError(consolidationTask.error ?? t('inventory.consolidationError'));
       }
-    } else if (consolidationTask.status === 'failed') {
-      settledTaskRef.current = consolidationTask.id;
-      setError(consolidationTask.error ?? t('inventory.consolidationError'));
-    }
+    });
   }, [consolidationTask, onSuccess, sessionId, t]);
 
   const previewQuery = useQuery({

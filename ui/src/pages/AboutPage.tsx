@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Info, ArrowLeft, Code2, Bug, Shield, User, ExternalLink, Package } from 'lucide-react';
 import { Card } from '@/components/common';
 import api from '@/services/api';
+import { deferFromEffect } from '@/utils/deferFromEffect';
 import { version as uiVersion, author as devAuthor, email as devEmail, license as uiLicense, bugs as bugsUrl } from '../../package.json';
 
 interface GithubDep {
@@ -84,7 +85,7 @@ export default function AboutPage() {
       .catch(() => setServerVersion(null));
   }, []);
 
-  useEffect(() => {
+  useEffect(() => deferFromEffect(() => {
     setDepsLoading(true);
 
     Promise.all([
@@ -122,7 +123,7 @@ export default function AboutPage() {
       })
       .catch(() => setDepsError(true))
       .finally(() => setDepsLoading(false));
-  }, []);
+  }), []);
 
 
   return (

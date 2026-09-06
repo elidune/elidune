@@ -7,7 +7,7 @@ use snowflaked::Generator;
 use super::Repository;
 use crate::{
     error::{AppError, AppResult},
-    models::fine::{Fine, FineRule, FineStatus},
+    models::fine::{Fine, FineRule},
 };
 
 #[async_trait]

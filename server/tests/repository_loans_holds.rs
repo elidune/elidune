@@ -7,7 +7,6 @@ use common::fixtures;
 use common::TestApp;
 use elidune_server::models::hold::{CreateHold, HoldStatus};
 use elidune_server::models::loan::CreateLoan;
-use elidune_server::repository::{HoldsRepository, LoansRepository, Repository};
 use serde_json::json;
 
 #[tokio::test]
@@ -23,8 +22,8 @@ async fn loan_return_atomically_advances_next_hold() {
     let biblio_payload = json!({
         "title": "Repo Hold Atomic Test",
         "mediaType": "printedText",
-        "lang": "fre",
-        "items": [{ "barcode": "REPO-HOLD-001", "borrowable": true }]
+        "lang": "french",
+        "items": [{ "barcode": format!("REPO-HOLD-{}", fixtures::unique_suffix()), "borrowable": true }]
     });
 
     let (status, body) = app

@@ -236,6 +236,7 @@ impl AuditService {
 
     /// Fire-and-forget audit log insertion. Never blocks the caller.
     /// Payload is JSON-serialized on the caller stack, then sensitive fields are stripped before insert.
+    #[allow(clippy::too_many_arguments)]
     pub fn log<P: Serialize>(
         &self,
         event_type: &'static str,

@@ -316,6 +316,7 @@ async fn dispatch_maintenance_action(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_z3950_refresh_action(
     repo: &Repository,
     catalog: &CatalogService,

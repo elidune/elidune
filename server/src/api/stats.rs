@@ -287,13 +287,7 @@ pub async fn get_user_stats(
             let sort_by = query.sort_by.unwrap_or(UserStatsSortBy::TotalLoans);
 
             // Apply sane defaults and bounds for limit
-            let mut limit = query.limit.unwrap_or(50);
-            if limit < 1 {
-                limit = 1;
-            }
-            if limit > 1000 {
-                limit = 1000;
-            }
+            let limit = query.limit.unwrap_or(50).clamp(1, 1000);
 
             let users = state.services.stats.get_user_stats(sort_by, limit).await?;
 

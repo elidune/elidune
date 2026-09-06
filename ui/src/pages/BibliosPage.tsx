@@ -13,8 +13,10 @@ import { PUBLIC_TYPE_OPTIONS } from '@/utils/codeLabels';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
 import { LIST_ROW_ICON_BTN, LIST_ROW_ICON_BTN_DANGER } from '@/utils/listRowActionIconClass';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
-import { LoanMediaTypeBadge, mediaTypeIconBadgeBgClass, renderMediaTypeIcon } from '@/utils/mediaTypeIcon';
+import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
+import { mediaTypeIconBadgeBgClass, renderMediaTypeIcon } from '@/utils/mediaTypeIconUtils';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
+import { deferFromEffect } from '@/utils/deferFromEffect';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 type CatalogTab = 'catalog' | 'collections' | 'series';
 
@@ -860,7 +862,7 @@ function CollectionsTab({ canManage, onSelect }: CollectionsTabProps) {
     }
   }, []);
 
-  useEffect(() => { load(search, page); }, [search, page, load]);
+  useEffect(() => deferFromEffect(() => { void load(search, page); }), [search, page, load]);
 
   const handleSearch = () => { setPage(1); setSearch(searchDraft); };
 
@@ -995,9 +997,9 @@ function CollectionsTab({ canManage, onSelect }: CollectionsTabProps) {
                   </div>
                 ) : (
                   <div className="rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden bg-white dark:bg-gray-900 mx-2 sm:mx-4 mb-2 divide-y divide-gray-100 dark:divide-gray-800">
-                    {(data?.items ?? []).map((c) => (
+                    {(data?.items ?? []).map((c, idx) => (
                       <div
-                        key={c.id ?? String(Math.random())}
+                        key={c.id ?? `collection-${idx}`}
                         className="flex items-stretch gap-2 p-4 hover:bg-gray-50 dark:hover:bg-gray-800/50"
                       >
                         <button
@@ -1247,7 +1249,7 @@ function SeriesTab({ canManage, onSelect }: SeriesTabProps) {
     }
   }, []);
 
-  useEffect(() => { load(search, page); }, [search, page, load]);
+  useEffect(() => deferFromEffect(() => { void load(search, page); }), [search, page, load]);
 
   const handleSearch = () => { setPage(1); setSearch(searchDraft); };
 
@@ -1372,9 +1374,9 @@ function SeriesTab({ canManage, onSelect }: SeriesTabProps) {
                   </div>
                 ) : (
                   <div className="rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden bg-white dark:bg-gray-900 mx-2 sm:mx-4 mb-2 divide-y divide-gray-100 dark:divide-gray-800">
-                    {(data?.items ?? []).map((s) => (
+                    {(data?.items ?? []).map((s, idx) => (
                       <div
-                        key={s.id ?? String(Math.random())}
+                        key={s.id ?? `serie-${idx}`}
                         className="flex items-stretch gap-2 p-4 hover:bg-gray-50 dark:hover:bg-gray-800/50"
                       >
                         <button

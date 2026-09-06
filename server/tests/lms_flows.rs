@@ -48,9 +48,9 @@ async fn test_golden_path_loan_hold_return() {
     let biblio_payload = json!({
         "title": "Golden Path Book",
         "mediaType": "printedText",
-        "lang": "fre",
+        "lang": "french",
         "items": [{
-            "barcode": "GP-001",
+            "barcode": format!("GP-{}", fixtures::unique_suffix()),
             "borrowable": true
         }]
     });
@@ -63,19 +63,8 @@ async fn test_golden_path_loan_hold_return() {
 
     let item_id = fixtures::json_id(&biblio["items"][0]["id"]);
 
-    // Reader C places hold (second in queue)
-    let hold_c = json!({ "userId": reader_c_id.to_string(), "itemId": item_id });
-    let (hold_status, hold_body) = app
-        .post_json("/api/v1/holds", &hold_c, Some(&reader_c_token))
-        .await;
-    assert_eq!(
-        hold_status,
-        StatusCode::CREATED,
-        "place hold C: {hold_body}"
-    );
-
-    // Reader B places hold (first in queue)
-    let hold_b = json!({ "userId": reader_b_id.to_string(), "itemId": item_id });
+    // Reader B places hold first (front of queue); C is next.
+    let hold_b = json!({ "userId": reader_b_id.to_string(), "itemId": item_id.to_string() });
     let (hold_b_status, hold_b_body) = app
         .post_json("/api/v1/holds", &hold_b, Some(&reader_b_token))
         .await;
@@ -85,10 +74,20 @@ async fn test_golden_path_loan_hold_return() {
         "place hold B: {hold_b_body}"
     );
 
+    let hold_c = json!({ "userId": reader_c_id.to_string(), "itemId": item_id.to_string() });
+    let (hold_status, hold_body) = app
+        .post_json("/api/v1/holds", &hold_c, Some(&reader_c_token))
+        .await;
+    assert_eq!(
+        hold_status,
+        StatusCode::CREATED,
+        "place hold C: {hold_body}"
+    );
+
     // Checkout to reader B (should fulfill their hold)
     let loan_payload = json!({
         "userId": reader_b_id.to_string(),
-        "itemId": item_id
+        "itemId": item_id.to_string()
     });
     let (loan_status, loan_body) = app
         .post_json("/api/v1/loans", &loan_payload, Some(&admin_token))

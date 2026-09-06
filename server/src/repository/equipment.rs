@@ -130,6 +130,7 @@ impl Repository {
         add_field!(data.quantity, "quantity");
         add_field!(data.status, "status");
         add_field!(data.notes, "notes");
+        let _ = idx;
 
         let query = format!(
             "UPDATE equipment SET {} WHERE id = {} RETURNING *",

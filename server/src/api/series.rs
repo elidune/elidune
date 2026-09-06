@@ -266,7 +266,6 @@ pub async fn delete_serie(
 }
 
 pub fn router() -> Router<crate::AppState> {
-    use axum::routing::{delete, post, put};
     Router::new()
         .route("/series", get(list_series).post(create_serie))
         .route(
