@@ -18,6 +18,7 @@ import OrderAuditPanel from '@/components/acquisitions/OrderAuditPanel';
 import OrderLineEditor from '@/components/acquisitions/OrderLineEditor';
 import OrderStatusBadge from '@/components/acquisitions/OrderStatusBadge';
 import ReceiveOrderDialog from '@/components/acquisitions/ReceiveOrderDialog';
+import ReceivedCopiesPanel, { type ReceivedCopy } from '@/components/acquisitions/ReceivedCopiesPanel';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import {
@@ -33,6 +34,7 @@ import {
   canManageAcquisitions,
   type CreateOrderLine,
   type PurchaseOrderLine,
+  type Biblio,
   type ReceivePurchaseOrder,
 } from '@/types';
 import {
@@ -47,6 +49,7 @@ import {
 } from '@/utils/acquisitionDisplay';
 import { formControlClass, formLabelClass, formTextareaClass } from '@/utils/formControl';
 import { getApiErrorMessage } from '@/utils/apiError';
+import { isReadyToCirculate } from '@/utils/circulationReadiness';
 
 export default function AcquisitionsOrderDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -77,6 +80,7 @@ export default function AcquisitionsOrderDetailPage() {
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [showReceive, setShowReceive] = useState(false);
   const [receiveError, setReceiveError] = useState<string | null>(null);
+  const [receivedCopies, setReceivedCopies] = useState<ReceivedCopy[]>([]);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const invalidate = async () => {
@@ -156,14 +160,38 @@ export default function AcquisitionsOrderDetailPage() {
 
   const receiveMutation = useMutation({
     mutationFn: (data: ReceivePurchaseOrder) => api.receivePurchaseOrder(id!, data),
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
       setShowReceive(false);
       setReceiveError(null);
       void invalidate();
-      const count = result.lines.reduce((n, line) => n + (line.itemIds?.length ?? 0), 0);
+      const ids = result.lines.flatMap((line) => line.itemIds ?? []);
+      let copies: ReceivedCopy[] = [];
+      try {
+        copies = await Promise.all(ids.map(async (itemId) => {
+          const biblio: Biblio = await api.getItem(itemId);
+          const item = biblio.items?.find((copy) => copy.id === itemId) ?? biblio.items?.[0];
+          return {
+            itemId,
+            biblioId: biblio.id ?? item?.biblioId ?? '',
+            title: biblio.title,
+            barcode: item?.barcode,
+            sourceId: item?.sourceId,
+            sourceName: item?.sourceName,
+            price: item?.price,
+            borrowable: item?.borrowable === true,
+          };
+        }));
+      } catch (err) {
+        showToast({ message: getApiErrorMessage(err, t), variant: 'error' });
+      }
+      setReceivedCopies(copies);
+      const incomplete = copies.filter((copy) => !copy.borrowable || !isReadyToCirculate(copy)).length;
       showToast({
-        message: t('acquisitions.receive.success', { count }),
-        variant: 'success',
+        message:
+          incomplete > 0
+            ? t('acquisitions.receive.successIncomplete', { count: ids.length, incomplete })
+            : t('acquisitions.receive.success', { count: ids.length }),
+        variant: incomplete > 0 ? 'info' : 'success',
       });
     },
     onError: (err) => setReceiveError(getApiErrorMessage(err, t)),
@@ -250,6 +278,10 @@ export default function AcquisitionsOrderDetailPage() {
 
       {actionError ? (
         <p role="alert" className="text-sm text-red-600 dark:text-red-400">{actionError}</p>
+      ) : null}
+
+      {receivedCopies.length > 0 ? (
+        <ReceivedCopiesPanel copies={receivedCopies} onDismiss={() => setReceivedCopies([])} />
       ) : null}
 
       <Card className="p-4 space-y-3">

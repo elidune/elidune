@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
   Edit,
@@ -35,6 +35,12 @@ import { useTranslation } from 'react-i18next';
 import { LANG_OPTIONS, FUNCTION_OPTIONS, PUBLIC_TYPE_OPTIONS, getCodeLabel } from '@/utils/codeLabels';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
+import {
+  isCirculationReadinessError,
+  isReadyToCirculate,
+  missingCirculationFields,
+  type CirculationField,
+} from '@/utils/circulationReadiness';
 interface BibliosListCache {
   pages?: Array<{
     items?: Array<{ id?: string | null }>;
@@ -102,6 +108,7 @@ export default function BiblioDetailPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
 
   const {
@@ -137,6 +144,24 @@ export default function BiblioDetailPage() {
 
   const invalidateBiblio = () => {
     if (id) void queryClient.invalidateQueries({ queryKey: ['biblio', id] });
+  };
+
+  const completeItemId = searchParams.get('completeItem');
+  const urlCompleteSpecimen =
+    completeItemId && item?.items
+      ? item.items.find((copy) => copy.id === completeItemId) ?? null
+      : null;
+  const editingSpecimen = selectedSpecimen ?? urlCompleteSpecimen;
+  const editSpecimenOpen = showEditSpecimenModal || urlCompleteSpecimen != null;
+
+  const closeEditSpecimen = () => {
+    setShowEditSpecimenModal(false);
+    setSelectedSpecimen(null);
+    if (searchParams.has('completeItem')) {
+      const next = new URLSearchParams(searchParams);
+      next.delete('completeItem');
+      setSearchParams(next, { replace: true });
+    }
   };
 
   const handleDelete = async (force = false) => {
@@ -766,12 +791,13 @@ export default function BiblioDetailPage() {
 
       {/* Edit specimen modal */}
       <Modal
-        isOpen={showEditSpecimenModal}
-        onClose={() => {
-          setShowEditSpecimenModal(false);
-          setSelectedSpecimen(null);
-        }}
-        title={t('items.editSpecimen')}
+        isOpen={editSpecimenOpen}
+        onClose={closeEditSpecimen}
+        title={
+          editingSpecimen && editingSpecimen.borrowable === false && !isReadyToCirculate(editingSpecimen)
+            ? t('items.completeForCirculation')
+            : t('items.editSpecimen')
+        }
         footer={
           <div className="flex justify-end gap-2">
             <Button type="submit" form="edit-specimen-form" isLoading={isEditSpecimenLoading}>
@@ -780,15 +806,14 @@ export default function BiblioDetailPage() {
           </div>
         }
       >
-        {selectedSpecimen && (
+        {editingSpecimen && (
           <EditSpecimenForm
             formId="edit-specimen-form"
             item={item}
-            specimen={selectedSpecimen}
+            specimen={editingSpecimen}
             onLoadingChange={setIsEditSpecimenLoading}
             onSuccess={() => {
-              setShowEditSpecimenModal(false);
-              setSelectedSpecimen(null);
+              closeEditSpecimen();
               invalidateBiblio();
             }}
           />
@@ -911,6 +936,12 @@ interface SpecimenCardProps {
   onDelete: () => void;
 }
 
+function missingFieldLabel(t: (key: string) => string, field: CirculationField): string {
+  if (field === 'barcode') return t('items.missingBarcode');
+  if (field === 'site') return t('items.missingSite');
+  return t('items.missingPrice');
+}
+
 function SpecimenCard({
   specimen,
   canManage,
@@ -922,28 +953,28 @@ function SpecimenCard({
 }: SpecimenCardProps) {
   // specimen is physical Item
   const { t } = useTranslation();
+  const ready = isReadyToCirculate(specimen);
+  const incomplete = specimen.borrowable === false && !ready;
+  const missing = incomplete ? missingCirculationFields(specimen) : [];
 
-  const getAvailabilityBadge = (borrowed?: boolean) => {
-    if (borrowed === true) return <Badge variant="warning">{t('items.borrowed')}</Badge>;
-    return <Badge variant="success">{t('items.available')}</Badge>;
-  };
-
-  const borrowableBadge =
-    specimen.borrowable == null
-      ? null
-      : specimen.borrowable
-        ? <Badge variant="success">{t('items.borrowableYes')}</Badge>
-        : <Badge variant="danger">{t('items.borrowableNo')}</Badge>;
+  const statusBadge = specimen.borrowed === true
+    ? <Badge variant="warning">{t('items.borrowed')}</Badge>
+    : incomplete
+      ? <Badge variant="warning">{t('items.incompleteNotCirculable')}</Badge>
+      : specimen.borrowable === false
+        ? <Badge variant="danger">{t('items.notCirculable')}</Badge>
+        : specimen.borrowable === true
+          ? <Badge variant="success">{t('items.available')}</Badge>
+          : <Badge variant="success">{t('items.available')}</Badge>;
 
   return (
     <div className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
       <div className="flex items-center justify-between mb-2">
         <p className="font-medium text-gray-900 dark:text-white">
-          {specimen.barcode || t('items.noSpecimens')}
+          {specimen.barcode || t('items.noBarcode')}
         </p>
         <div className="flex items-center gap-2">
-          {getAvailabilityBadge(specimen.borrowed)}
-          {borrowableBadge}
+          {statusBadge}
           {canManage && (
             <div className="flex gap-1">
               <button
@@ -982,6 +1013,22 @@ function SpecimenCard({
       {showBorrower && specimen.borrowed && specimen.loanId && (
         <SpecimenBorrowerLine loanId={specimen.loanId} />
       )}
+
+      {incomplete && missing.length > 0 ? (
+        <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+          {t('items.missingCirculationFields', {
+            fields: missing.map((field) => missingFieldLabel(t, field)).join(', '),
+          })}
+        </p>
+      ) : null}
+
+      {canManage && incomplete ? (
+        <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
+          <Button size="sm" onClick={onEdit}>
+            {t('items.completeForCirculation')}
+          </Button>
+        </div>
+      ) : null}
 
       {showReserveButton && onReserve && (
         <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
@@ -1142,11 +1189,23 @@ function EditSpecimenForm({ formId, item, specimen, onLoadingChange, onSuccess }
     barcode: specimen.barcode || '',
     callNumber: specimen.callNumber || '',
     volumeDesignation: specimen.volumeDesignation || '',
-    borrowable: specimen.borrowable == null ? '' : specimen.borrowable ? 'true' : 'false',
     place: specimen.place != null ? String(specimen.place) : '',
     notes: specimen.notes || '',
     price: specimen.price || '',
+    priceDeferred: false,
     sourceId: specimen.sourceId || '',
+  });
+  const draftReady = isReadyToCirculate({
+    barcode: formData.barcode,
+    sourceId: formData.sourceId,
+    price: formData.price,
+    priceDeferred: formData.priceDeferred,
+  });
+  const draftMissing = missingCirculationFields({
+    barcode: formData.barcode,
+    sourceId: formData.sourceId,
+    price: formData.price,
+    priceDeferred: formData.priceDeferred,
   });
 
   useEffect(() => {
@@ -1174,22 +1233,27 @@ function EditSpecimenForm({ formId, item, specimen, onLoadingChange, onSuccess }
     onLoadingChange(true);
     setError(null);
     try {
+      const ready = isReadyToCirculate({
+        barcode: formData.barcode,
+        sourceId: formData.sourceId,
+        price: formData.price,
+        priceDeferred: formData.priceDeferred,
+      });
       await api.updateItem(specimen.id, {
         barcode: formData.barcode.trim(),
         callNumber: formData.callNumber || undefined,
         volumeDesignation: formData.volumeDesignation || undefined,
-        borrowable:
-          formData.borrowable === ''
-            ? undefined
-            : formData.borrowable === 'true',
+        borrowable: ready,
         place: formData.place ? parseInt(formData.place, 10) : undefined,
         notes: formData.notes || undefined,
-        price: formData.price || undefined,
+        price: formData.priceDeferred ? null : formData.price || undefined,
+        priceDeferred: formData.priceDeferred || undefined,
         sourceId: formData.sourceId || undefined,
       });
       onSuccess();
     } catch (error) {
-      setError(getApiErrorMessage(error, t));
+      const message = getApiErrorMessage(error, t);
+      setError(isCirculationReadinessError(message) ? t('items.cannotMakeBorrowable') : message);
     } finally {
       onLoadingChange(false);
     }
@@ -1248,29 +1312,41 @@ function EditSpecimenForm({ formId, item, specimen, onLoadingChange, onSuccess }
           ))}
         </select>
       </div>
-      <div>
-        <label className={formLabelClass()}>
-          {t('items.borrowable')}
-        </label>
-        <select
-          value={formData.borrowable}
-          onChange={(e) => setFormData({ ...formData, borrowable: e.target.value as '' | 'true' | 'false' })}
-          className={formControlClass({ className: 'w-full' })}
-        >
-          <option value="">{t('items.notSpecified')}</option>
-          <option value="true">{t('items.borrowableYes')}</option>
-          <option value="false">{t('items.borrowableNo')}</option>
-        </select>
-      </div>
-      <Input
-        label={t('items.specimenNotes')}
-        value={formData.notes}
-        onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-      />
       <Input
         label={t('items.specimenPrice')}
         value={formData.price}
         onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+        disabled={formData.priceDeferred}
+      />
+      <label className="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-300">
+        <input
+          type="checkbox"
+          className="mt-1"
+          checked={formData.priceDeferred}
+          onChange={(e) => setFormData({ ...formData, priceDeferred: e.target.checked })}
+        />
+        <span>
+          {t('items.priceDeferred')}
+          <span className="mt-0.5 block text-xs text-gray-500">{t('items.priceDeferredHelp')}</span>
+        </span>
+      </label>
+      {draftReady ? (
+        <p className="text-sm text-green-700 dark:text-green-400">{t('items.willBecomeCirculable')}</p>
+      ) : (
+        <div className="space-y-1">
+          <p className="text-sm text-amber-800 dark:text-amber-300">{t('items.circulationRequirements')}</p>
+          <p className="text-xs text-amber-700 dark:text-amber-400">
+            {t('items.missingCirculationFields', {
+              fields: draftMissing.map((field) => missingFieldLabel(t, field)).join(', '),
+            })}
+          </p>
+          <p className="text-sm text-gray-600 dark:text-gray-400">{t('items.stillIncomplete')}</p>
+        </div>
+      )}
+      <Input
+        label={t('items.specimenNotes')}
+        value={formData.notes}
+        onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
       />
     </form>
   );
