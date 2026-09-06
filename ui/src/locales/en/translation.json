@@ -1094,7 +1094,20 @@
       "renewAtInherit": "Inherit (global)",
       "renewAtEffectiveGlobal": "Effective global rule for this format: {{label}}",
       "renewAtGlobalFallback": "No global rule for this format—the server applies its default (usually from today).",
-      "overrideRenewAtNote": "This setting does not change how existing loans are shown until they are renewed; it drives how the server computes the new due date at renewal time."
+      "overrideRenewAtNote": "This setting does not change how existing loans are shown until they are renewed; it drives how the server computes the new due date at renewal time.",
+      "unpaidFineThreshold": "Unpaid fine threshold override",
+      "unpaidFineThresholdInherit": "Empty = inherit global ({{amount}})",
+      "unpaidFineThresholdInheritEmpty": "Empty = inherit global threshold",
+      "unpaidFineThresholdHelp": "Optional. When set, this audience uses its own limit. Unpaid balance above the amount blocks checkout and renew unless staff force. Empty inherits the global threshold (existing overrides keep their value if left empty on save)."
+    },
+    "finePolicy": {
+      "title": "Unpaid fine threshold",
+      "help": "Unpaid balance above this amount blocks checkout and renew unless staff use force. Paid and waived fines do not count. Default 0 blocks any positive unpaid balance.",
+      "thresholdHint": "Amount in the library currency. 0 blocks any unpaid fine.",
+      "unpaidFineThreshold": "Maximum unpaid balance allowed",
+      "invalidAmount": "Enter a valid amount of 0 or more.",
+      "loadError": "Could not load the unpaid fine threshold.",
+      "saveSuccess": "Unpaid fine threshold saved"
     },
     "accountTypes": {
       "title": "Account types",

@@ -1,19 +1,18 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import { Save, Plus, Trash2, Server, Archive, Pencil, Merge, Package, Check, X, AlertTriangle, Users, ChevronDown, BookOpen, Cog, ScrollText, Shield, Mail, Library } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { LibrarySettingsPanel } from '@/pages/LibraryPage';
-import AdminServerSettings from '@/components/settings/AdminServerSettings';
-import AccountTypesSettings from '@/components/settings/AccountTypesSettings';
-import EmailTemplatesSettings from '@/components/settings/EmailTemplatesSettings';
-import AuditLogViewer from '@/components/settings/AuditLogViewer';
+import FinePolicySettings from '@/components/settings/FinePolicySettings';
 import { Card, CardHeader, Button, Input, Badge, ConfirmDialog } from '@/components/common';
 import api from '@/services/api';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
 import { deferFromEffect } from '@/utils/deferFromEffect';
 import { formControlClass, formLabelClass, formChoiceLabelClass } from '@/utils/formControl';
+import { moneyAmountToInput, parseMoneyAmountInput } from '@/utils/finePolicy';
 import { isAdmin } from '@/types';
+import { useFinePolicyQuery } from '@/hooks/settings/useFinePolicyQuery';
 import type {
   Settings,
   LoanSettings,
@@ -27,6 +26,19 @@ import type {
   CreatePublicType,
   UpdatePublicType,
 } from '@/types';
+
+const AdminServerSettings = lazy(() => import('@/components/settings/AdminServerSettings'));
+const AccountTypesSettings = lazy(() => import('@/components/settings/AccountTypesSettings'));
+const EmailTemplatesSettings = lazy(() => import('@/components/settings/EmailTemplatesSettings'));
+const AuditLogViewer = lazy(() => import('@/components/settings/AuditLogViewer'));
+
+function SettingsTabFallback() {
+  return (
+    <div className="flex items-center justify-center h-64">
+      <div className="h-8 w-8 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+}
 
 const MEDIA_TYPE_VALUES: MediaType[] = [
   'unknown',
@@ -506,6 +518,7 @@ function SourceEditor() {
 // ─── Public Types Editor ───────────────────────────────────────────────────────
 function PublicTypesEditor() {
   const { t } = useTranslation();
+  const { data: finePolicy } = useFinePolicyQuery();
   const [publicTypes, setPublicTypes] = useState<PublicType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -727,7 +740,11 @@ function PublicTypesEditor() {
                   </div>
 
                   {detailsTab === 'general' ? (
-                    <PublicTypeEditForm pt={pt} onSave={(data) => handleUpdate(pt.id, data)} />
+                    <PublicTypeEditForm
+                      pt={pt}
+                      globalThreshold={finePolicy?.unpaidFineThreshold}
+                      onSave={(data) => handleUpdate(pt.id, data)}
+                    />
                   ) : (
                     <LoanOverridesForm
                       publicTypeId={pt.id}
@@ -771,9 +788,11 @@ function PublicTypesEditor() {
 function PublicTypeEditForm({
   pt,
   onSave,
+  globalThreshold,
 }: {
   pt: PublicType;
   onSave: (data: UpdatePublicType) => void;
+  globalThreshold?: string;
 }) {
   const { t } = useTranslation();
   const [form, setForm] = useState({
@@ -785,7 +804,9 @@ function PublicTypeEditForm({
     subscriptionPrice: pt.subscriptionPrice != null ? (pt.subscriptionPrice / 100).toString() : '',
     maxLoans: pt.maxLoans ?? '',
     loanDurationDays: pt.loanDurationDays ?? '',
+    unpaidFineThreshold: moneyAmountToInput(pt.unpaidFineThreshold),
   });
+  const [thresholdError, setThresholdError] = useState<string | null>(null);
 
   return (
     <div className="space-y-3">
@@ -877,6 +898,36 @@ function PublicTypeEditForm({
             className={formControlClass()}
           />
         </div>
+        <div className="flex flex-col gap-1 sm:col-span-2">
+          <label className={formLabelClass({ marginBottom: false })}>
+            {t('settings.publicTypes.unpaidFineThreshold')}
+          </label>
+          <input
+            type="number"
+            min="0"
+            step="0.01"
+            inputMode="decimal"
+            placeholder={
+              globalThreshold
+                ? t('settings.publicTypes.unpaidFineThresholdInherit', { amount: globalThreshold })
+                : t('settings.publicTypes.unpaidFineThresholdInheritEmpty')
+            }
+            value={form.unpaidFineThreshold}
+            onChange={(e) => {
+              setThresholdError(null);
+              setForm((f) => ({ ...f, unpaidFineThreshold: e.target.value }));
+            }}
+            className={formControlClass({ error: !!thresholdError })}
+          />
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            {t('settings.publicTypes.unpaidFineThresholdHelp')}
+          </p>
+          {thresholdError && (
+            <p className="text-xs text-red-600 dark:text-red-400" role="alert">
+              {thresholdError}
+            </p>
+          )}
+        </div>
       </div>
 
       <div className="flex justify-end">
@@ -884,8 +935,13 @@ function PublicTypeEditForm({
           size="sm"
           variant="primary"
           leftIcon={<Save className="h-4 w-4" />}
-          onClick={() =>
-            onSave({
+          onClick={() => {
+            const parsed = parseMoneyAmountInput(form.unpaidFineThreshold, true);
+            if (!parsed.ok) {
+              setThresholdError(t('settings.finePolicy.invalidAmount'));
+              return;
+            }
+            const payload: UpdatePublicType = {
               name: form.name?.trim() || undefined,
               label: form.label?.trim() || undefined,
               subscriptionDurationDays: form.subscriptionDurationDays ? Number(form.subscriptionDurationDays) : null,
@@ -894,8 +950,12 @@ function PublicTypeEditForm({
               subscriptionPrice: form.subscriptionPrice ? Math.round(parseFloat(form.subscriptionPrice) * 100) : null,
               maxLoans: form.maxLoans ? Number(form.maxLoans) : null,
               loanDurationDays: form.loanDurationDays ? Number(form.loanDurationDays) : null,
-            })
-          }
+            };
+            if (parsed.value != null) {
+              payload.unpaidFineThreshold = parsed.value;
+            }
+            onSave(payload);
+          }}
         >
           {t('common.save')}
         </Button>
@@ -1376,6 +1436,8 @@ function LoanOverridesForm({
 
 function PublicTypeCreateModal({ onSave, onCancel }: { onSave: (data: CreatePublicType) => void; onCancel: () => void }) {
   const { t } = useTranslation();
+  const { data: finePolicy } = useFinePolicyQuery();
+  const [thresholdError, setThresholdError] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: '',
     label: '',
@@ -1385,12 +1447,18 @@ function PublicTypeCreateModal({ onSave, onCancel }: { onSave: (data: CreatePubl
     subscriptionPrice: '',
     maxLoans: '',
     loanDurationDays: '',
+    unpaidFineThreshold: '',
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name.trim() || !form.label.trim()) return;
-    onSave({
+    const parsed = parseMoneyAmountInput(form.unpaidFineThreshold, true);
+    if (!parsed.ok) {
+      setThresholdError(t('settings.finePolicy.invalidAmount'));
+      return;
+    }
+    const payload: CreatePublicType = {
       name: form.name.trim(),
       label: form.label.trim(),
       subscriptionDurationDays: form.subscriptionDurationDays ? Number(form.subscriptionDurationDays) : null,
@@ -1399,7 +1467,11 @@ function PublicTypeCreateModal({ onSave, onCancel }: { onSave: (data: CreatePubl
       subscriptionPrice: form.subscriptionPrice ? Math.round(parseFloat(form.subscriptionPrice) * 100) : null,
       maxLoans: form.maxLoans ? Number(form.maxLoans) : null,
       loanDurationDays: form.loanDurationDays ? Number(form.loanDurationDays) : null,
-    });
+    };
+    if (parsed.value != null) {
+      payload.unpaidFineThreshold = parsed.value;
+    }
+    onSave(payload);
   };
 
   return (
@@ -1419,6 +1491,26 @@ function PublicTypeCreateModal({ onSave, onCancel }: { onSave: (data: CreatePubl
             <Input label={t('settings.publicTypes.maxLoans')} type="number" value={form.maxLoans} onChange={(e) => setForm((f) => ({ ...f, maxLoans: e.target.value }))} />
             <Input label={t('settings.publicTypes.loanDurationDays')} type="number" value={form.loanDurationDays} onChange={(e) => setForm((f) => ({ ...f, loanDurationDays: e.target.value }))} />
           </div>
+          <Input
+            label={t('settings.publicTypes.unpaidFineThreshold')}
+            type="number"
+            inputMode="decimal"
+            step="0.01"
+            min="0"
+            value={form.unpaidFineThreshold}
+            error={thresholdError ?? undefined}
+            hint={
+              finePolicy
+                ? t('settings.publicTypes.unpaidFineThresholdInherit', {
+                    amount: finePolicy.unpaidFineThreshold,
+                  })
+                : t('settings.publicTypes.unpaidFineThresholdHelp')
+            }
+            onChange={(e) => {
+              setThresholdError(null);
+              setForm((f) => ({ ...f, unpaidFineThreshold: e.target.value }));
+            }}
+          />
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={onCancel}>{t('common.cancel')}</Button>
             <Button type="submit" variant="primary">{t('common.create')}</Button>
@@ -1881,6 +1973,8 @@ export default function SettingsPage() {
       </Card>
       )}
 
+      {activeTab === 'loans' && <FinePolicySettings />}
+
       {/* Sources */}
       {activeTab === 'sources' && <SourceEditor />}
 
@@ -1888,10 +1982,18 @@ export default function SettingsPage() {
       {activeTab === 'publicTypes' && <PublicTypesEditor />}
 
       {/* Account types (library roles) */}
-      {activeTab === 'accountTypes' && <AccountTypesSettings />}
+      {activeTab === 'accountTypes' && (
+        <Suspense fallback={<SettingsTabFallback />}>
+          <AccountTypesSettings />
+        </Suspense>
+      )}
 
       {/* Email templates */}
-      {activeTab === 'emailTemplates' && <EmailTemplatesSettings />}
+      {activeTab === 'emailTemplates' && (
+        <Suspense fallback={<SettingsTabFallback />}>
+          <EmailTemplatesSettings />
+        </Suspense>
+      )}
 
       {/* Z39.50 servers */}
       {activeTab === 'z3950' && settings && (
@@ -2041,9 +2143,17 @@ export default function SettingsPage() {
       </Card>
       )}
 
-      {activeTab === 'server' && <AdminServerSettings />}
+      {activeTab === 'server' && (
+        <Suspense fallback={<SettingsTabFallback />}>
+          <AdminServerSettings />
+        </Suspense>
+      )}
 
-      {activeTab === 'audit' && <AuditLogViewer />}
+      {activeTab === 'audit' && (
+        <Suspense fallback={<SettingsTabFallback />}>
+          <AuditLogViewer />
+        </Suspense>
+      )}
     </div>
   );
 }

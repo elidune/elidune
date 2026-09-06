@@ -1094,7 +1094,20 @@
       "renewAtInherit": "Heredar (ajuste global)",
       "renewAtEffectiveGlobal": "Regla global efectiva para este formato: {{label}}",
       "renewAtGlobalFallback": "No hay regla global para este formato; el servidor aplica su valor por defecto (habitualmente desde hoy).",
-      "overrideRenewAtNote": "Este ajuste no cambia cómo se muestran los préstamos en curso hasta que se renuevan; controla cómo el servidor calcula la nueva fecha de devolución al renovar."
+      "overrideRenewAtNote": "Este ajuste no cambia cómo se muestran los préstamos en curso hasta que se renuevan; controla cómo el servidor calcula la nueva fecha de devolución al renovar.",
+      "unpaidFineThreshold": "Umbral de multas impagadas (excepción)",
+      "unpaidFineThresholdInherit": "Vacío = heredar el umbral global ({{amount}})",
+      "unpaidFineThresholdInheritEmpty": "Vacío = heredar el umbral global",
+      "unpaidFineThresholdHelp": "Opcional. Si se indica, este público usa su propio límite. Un saldo impagado por encima del importe bloquea el préstamo y la renovación salvo forzado por el personal. Vacío hereda el umbral global (una excepción existente se conserva si el campo queda vacío al guardar)."
+    },
+    "finePolicy": {
+      "title": "Umbral de multas impagadas",
+      "help": "Un saldo impagado por encima de este importe bloquea el préstamo y la renovación, salvo forzado por el personal. Las multas pagadas o condonadas no cuentan. El valor 0 bloquea cualquier saldo impagado positivo.",
+      "thresholdHint": "Importe en la moneda de la biblioteca. 0 bloquea cualquier multa impagada.",
+      "unpaidFineThreshold": "Saldo impagado máximo permitido",
+      "invalidAmount": "Introduzca un importe válido de 0 o más.",
+      "loadError": "No se pudo cargar el umbral de multas impagadas.",
+      "saveSuccess": "Umbral de multas impagadas guardado"
     },
     "accountTypes": {
       "title": "Tipos de cuenta",
