@@ -819,8 +819,8 @@
     "count_plural": "{{count}} loans",
     "returnDate": "Return date",
     "dueToday": "Due today",
-    "dueInDays": "{{count}} day",
-    "dueInDays_plural": "{{count}} days",
+    "dueInDays_one": "{{count}} day",
+    "dueInDays_other": "{{count}} days",
     "overdueDays": "Overdue ({{count}})",
     "renewRemaining": "Renew ({{count}} left)"
   },

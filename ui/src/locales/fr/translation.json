@@ -819,8 +819,8 @@
     "count_plural": "{{count}} emprunts",
     "returnDate": "Date retour",
     "dueToday": "À rendre aujourd'hui",
-    "dueInDays": "{{count}} jour",
-    "dueInDays_plural": "{{count}} jours",
+    "dueInDays_one": "{{count}} jour",
+    "dueInDays_other": "{{count}} jours",
     "overdueDays": "En retard ({{count}})",
     "renewRemaining": "Renouveler ({{count}} restant(s))"
   },

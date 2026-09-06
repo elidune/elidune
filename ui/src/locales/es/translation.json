@@ -819,8 +819,8 @@
     "count_plural": "{{count}} préstamos",
     "returnDate": "Fecha de devolución",
     "dueToday": "Vence hoy",
-    "dueInDays": "{{count}} día",
-    "dueInDays_plural": "{{count}} días",
+    "dueInDays_one": "{{count}} día",
+    "dueInDays_other": "{{count}} días",
     "overdueDays": "Atrasado ({{count}})",
     "renewRemaining": "Renovar ({{count}} restantes)"
   },

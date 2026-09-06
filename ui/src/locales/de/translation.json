@@ -819,8 +819,8 @@
     "count_plural": "{{count}} Ausleihen",
     "returnDate": "Rückgabedatum",
     "dueToday": "Heute fällig",
-    "dueInDays": "{{count}} Tag",
-    "dueInDays_plural": "{{count}} Tage",
+    "dueInDays_one": "{{count}} Tag",
+    "dueInDays_other": "{{count}} Tage",
     "overdueDays": "Überfällig ({{count}})",
     "renewRemaining": "Verlängern (noch {{count}})"
   },
