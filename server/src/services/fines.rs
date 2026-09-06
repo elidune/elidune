@@ -504,7 +504,10 @@ mod tests {
         async fn fines_get_global_unpaid_threshold(&self) -> AppResult<Decimal> {
             Ok(Decimal::ZERO)
         }
-        async fn fines_set_global_unpaid_threshold(&self, threshold: Decimal) -> AppResult<Decimal> {
+        async fn fines_set_global_unpaid_threshold(
+            &self,
+            threshold: Decimal,
+        ) -> AppResult<Decimal> {
             Ok(threshold)
         }
         async fn fines_get_open_for_loan(&self, loan_id: i64) -> AppResult<Option<Fine>> {
