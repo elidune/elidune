@@ -149,11 +149,11 @@ export default function AcquisitionsOrdersPage() {
             aria-label={t('acquisitions.vendors.vendor')}
           >
             <option value="">{t('acquisitions.vendors.all')}</option>
-            {(vendorsQuery.data?.vendors ?? []).map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.name}
-              </option>
-            ))}
+              {(vendorsQuery.data?.vendors ?? []).filter((v) => v.active && !v.archivedAt).map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.name}
+                </option>
+              ))}
           </select>
           <select
             className={`${formControlClass()} md:col-span-2`}
@@ -286,7 +286,7 @@ export default function AcquisitionsOrdersPage() {
               required
             >
               <option value="">{t('common.select')}</option>
-              {(vendorsQuery.data?.vendors ?? []).map((v) => (
+              {(vendorsQuery.data?.vendors ?? []).filter((v) => v.active && !v.archivedAt).map((v) => (
                 <option key={v.id} value={v.id}>
                   {v.name}
                 </option>

@@ -1199,26 +1199,21 @@ export function resolveAcquisitionsRights(
   return resolveAcquisitionsRightsFromProfile(user);
 }
 
-/** Staff acquisitions list/detail (`r` or `w`). Absent claim falls back to librarian. */
+/** Staff acquisitions list/detail (`r` or `w`). Absent claim is deny — distinct from cataloging. */
 export const canViewAcquisitions = (
   user: Pick<User, 'accountType' | 'acquisitionsRights' | 'rights'> | null | undefined,
   authToken?: string | null,
 ): boolean => {
   const level = resolveAcquisitionsRights(user, authToken);
-  if (level === 'r' || level === 'w') return true;
-  if (level === 'n') return false;
-  return isLibrarian(user?.accountType);
+  return level === 'r' || level === 'w';
 };
 
-/** Mutations (vendors/funds/orders/receipt) require write. Absent claim falls back to librarian. */
+/** Mutations (vendors/funds/orders/receipt) require write. Absent claim is deny. */
 export const canManageAcquisitions = (
   user: Pick<User, 'accountType' | 'acquisitionsRights' | 'rights'> | null | undefined,
   authToken?: string | null,
 ): boolean => {
-  const level = resolveAcquisitionsRights(user, authToken);
-  if (level === 'w') return true;
-  if (level === 'n' || level === 'r') return false;
-  return isLibrarian(user?.accountType);
+  return resolveAcquisitionsRights(user, authToken) === 'w';
 };
 
 /** PUT /settings/email-templates/:templateId/:language */

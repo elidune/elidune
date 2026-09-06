@@ -42,6 +42,7 @@ import {
   canSubmitOrder,
   formatMoney,
   lineIntentLabel,
+  lineUpdateNeedsRecreate,
   quantityRemaining,
 } from '@/utils/acquisitionDisplay';
 import { formControlClass, formLabelClass, formTextareaClass } from '@/utils/formControl';
@@ -104,9 +105,13 @@ export default function AcquisitionsOrderDetailPage() {
   });
 
   const lineMutation = useMutation({
-    mutationFn: (data: CreateOrderLine) => {
-      if (lineEditor) return api.updatePurchaseOrderLine(id!, lineEditor.id, data);
-      return api.addPurchaseOrderLine(id!, data);
+    mutationFn: async (data: CreateOrderLine) => {
+      if (!lineEditor) return api.addPurchaseOrderLine(id!, data);
+      if (lineUpdateNeedsRecreate(lineEditor, data)) {
+        await api.deletePurchaseOrderLine(id!, lineEditor.id);
+        return api.addPurchaseOrderLine(id!, data);
+      }
+      return api.updatePurchaseOrderLine(id!, lineEditor.id, data);
     },
     onSuccess: () => {
       setLineEditor(undefined);
@@ -285,6 +290,9 @@ export default function AcquisitionsOrderDetailPage() {
                 {(fundsQuery.data?.funds ?? []).map((f) => (
                   <option key={f.id} value={f.id}>{f.code} · {f.fiscalYear} · {f.name}</option>
                 ))}
+                {order.fundId && !(fundsQuery.data?.funds ?? []).some((f) => f.id === order.fundId) ? (
+                  <option value={order.fundId}>{order.fundCode || order.fundId}</option>
+                ) : null}
               </select>
             </div>
             <Input
@@ -330,7 +338,7 @@ export default function AcquisitionsOrderDetailPage() {
       <Card className="overflow-hidden">
         <div className="flex items-center justify-between gap-3 p-4">
           <div>
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t('acquisitions.lines.title')}</h2>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t('acquisitions.lines.heading')}</h2>
             <p className="text-xs text-gray-500">{t('acquisitions.lines.help')}</p>
           </div>
           {editable ? (

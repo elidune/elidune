@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, Input } from '@/components/common';
 import api from '@/services/api';
+import { moneyInputToApi } from '@/utils/acquisitionDisplay';
 import { formControlClass, formLabelClass, formTextareaClass } from '@/utils/formControl';
+import { getApiErrorMessage } from '@/utils/apiError';
 import type { AcquisitionFund, BiblioShort, CreateOrderLine, PurchaseOrderLine } from '@/types';
 
 type LineIntent = 'biblio' | 'isbn' | 'title';
@@ -35,6 +37,7 @@ export default function OrderLineEditor({
   const [biblioDraft, setBiblioDraft] = useState('');
   const [biblioResults, setBiblioResults] = useState<BiblioShort[]>([]);
   const [biblioSearching, setBiblioSearching] = useState(false);
+  const [biblioSearchError, setBiblioSearchError] = useState<string | null>(null);
   const biblioSeqRef = useRef(0);
   const [selectedBiblio, setSelectedBiblio] = useState<BiblioShort | null>(
     initial?.biblioId
@@ -64,17 +67,19 @@ export default function OrderLineEditor({
         try {
           const res = await api.getBiblios({ freesearch: q, perPage: 12, page: 1 });
           if (seq !== biblioSeqRef.current) return;
+          setBiblioSearchError(null);
           setBiblioResults(res.items);
-        } catch {
+        } catch (err) {
           if (seq !== biblioSeqRef.current) return;
           setBiblioResults([]);
+          setBiblioSearchError(getApiErrorMessage(err, t) || t('acquisitions.lines.biblioLoadError'));
         } finally {
           if (seq === biblioSeqRef.current) setBiblioSearching(false);
         }
       })();
     }, 350);
     return () => window.clearTimeout(timer);
-  }, [biblioDraft, intent]);
+  }, [biblioDraft, intent, t]);
 
   const qty = Number(quantity);
   const canSave =
@@ -101,7 +106,7 @@ export default function OrderLineEditor({
             ? selectedBiblio?.title ?? null
             : null,
       quantity: qty,
-      unitPrice: unitPrice.trim() || null,
+      unitPrice: moneyInputToApi(unitPrice),
       currency: currency.trim().toUpperCase() || 'EUR',
       notes: notes.trim() || null,
     });
@@ -168,6 +173,11 @@ export default function OrderLineEditor({
               />
               {biblioSearching ? (
                 <p className="mt-1 text-xs text-gray-500">{t('common.loading')}</p>
+              ) : null}
+              {biblioSearchError ? (
+                <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">
+                  {biblioSearchError}
+                </p>
               ) : null}
               {biblioResults.length > 0 ? (
                 <ul className="mt-1 max-h-40 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700">

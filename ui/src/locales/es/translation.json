@@ -2036,8 +2036,10 @@
       "cancelled": "Cancelado"
     },
     "lines": {
+      "heading": "Líneas",
       "title": "Título",
       "help": "La recepción crea los ejemplares en el catálogo. No añada copias desde catalogación antes de recibir.",
+      "biblioLoadError": "No se pudo buscar en el catálogo. Apuntar a un título existente requiere permiso de lectura del catálogo.",
       "add": "Añadir línea",
       "addTitle": "Añadir línea",
       "editTitle": "Editar línea",
@@ -2077,6 +2079,7 @@
       "barcode": "Código de barras",
       "source": "Fuente / sede",
       "sourceNone": "Sin sede",
+      "sourcesLoadError": "No se pudieron cargar las sedes. Elegir una sede requiere permiso de lectura del catálogo.",
       "price": "Precio",
       "callNumber": "Signatura",
       "notes": "Notas de recepción",

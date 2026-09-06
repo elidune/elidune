@@ -2036,8 +2036,10 @@
       "cancelled": "Cancelled"
     },
     "lines": {
+      "heading": "Order lines",
       "title": "Title",
       "help": "Receipt creates specimens in the catalog. Do not add copies from cataloging until the order is received.",
+      "biblioLoadError": "Could not search the catalog. Existing-title targeting needs catalog read rights.",
       "add": "Add line",
       "addTitle": "Add order line",
       "editTitle": "Edit order line",
@@ -2077,6 +2079,7 @@
       "barcode": "Barcode",
       "source": "Source / site",
       "sourceNone": "No site",
+      "sourcesLoadError": "Could not load sites. Choosing a site needs catalog read rights.",
       "price": "Price",
       "callNumber": "Call number",
       "notes": "Receipt notes",

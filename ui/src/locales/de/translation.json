@@ -2036,8 +2036,10 @@
       "cancelled": "Storniert"
     },
     "lines": {
+      "heading": "Bestellzeilen",
       "title": "Titel",
       "help": "Der Zugang erzeugt Exemplare im Katalog. Legen Sie Kopien nicht vorher in der Katalogisierung an.",
+      "biblioLoadError": "Katalogsuche fehlgeschlagen. Vorhandene Titel erfordern Leserecht für den Katalog.",
       "add": "Zeile hinzufügen",
       "addTitle": "Bestellzeile hinzufügen",
       "editTitle": "Bestellzeile bearbeiten",
@@ -2077,6 +2079,7 @@
       "barcode": "Barcode",
       "source": "Standort / Quelle",
       "sourceNone": "Kein Standort",
+      "sourcesLoadError": "Standorte konnten nicht geladen werden. Die Standortwahl erfordert Leserecht für den Katalog.",
       "price": "Preis",
       "callNumber": "Signatur",
       "notes": "Zugangsnotiz",

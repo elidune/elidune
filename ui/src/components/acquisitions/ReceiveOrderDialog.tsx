@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { Button, Input, Modal } from '@/components/common';
 import { useSourcesQuery } from '@/hooks/holds/useSourcesQuery';
 import type { PurchaseOrderLine, ReceiveItemSpec, ReceivePurchaseOrder } from '@/types';
-import { formatMoney, lineIntentLabel, quantityRemaining } from '@/utils/acquisitionDisplay';
+import { formatMoney, lineIntentLabel, moneyInputToApi, quantityRemaining } from '@/utils/acquisitionDisplay';
+import { getApiErrorMessage } from '@/utils/apiError';
 import { formControlClass, formLabelClass, formTextareaClass } from '@/utils/formControl';
 
 interface ReceiveDraftLine {
@@ -85,18 +86,21 @@ export default function ReceiveOrderDialog({
     if (isSaving) return;
     const payloadLines = drafts
       .map((d) => {
-        const quantity = Number(d.quantity);
+        const line = lines.find((l) => l.id === d.lineId);
+        const remaining = line ? quantityRemaining(line) : 0;
+        const quantity = Math.min(Number(d.quantity), remaining);
         if (!Number.isInteger(quantity) || quantity < 1) return null;
+        const unitPrice = moneyInputToApi(d.unitPrice);
         const items: ReceiveItemSpec[] = d.items.slice(0, quantity).map((item) => ({
           barcode: item.barcode.trim() || null,
           sourceId: item.sourceId || null,
-          price: item.price.trim() || d.unitPrice.trim() || null,
+          price: moneyInputToApi(item.price) || unitPrice,
           callNumber: item.callNumber.trim() || null,
         }));
         return {
           lineId: d.lineId,
           quantity,
-          unitPrice: d.unitPrice.trim() || null,
+          unitPrice,
           items,
         };
       })
@@ -133,6 +137,11 @@ export default function ReceiveOrderDialog({
     >
       <form id="receive-form" className="space-y-5" onSubmit={handleSubmit}>
         <p className="text-sm text-gray-600 dark:text-gray-400">{t('acquisitions.receive.help')}</p>
+        {sourcesQuery.isError ? (
+          <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+            {getApiErrorMessage(sourcesQuery.error, t) || t('acquisitions.receive.sourcesLoadError')}
+          </p>
+        ) : null}
         {receivable.length === 0 ? (
           <p className="text-sm text-gray-500">{t('acquisitions.receive.nothingLeft')}</p>
         ) : (

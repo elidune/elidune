@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button, Input, Modal } from '@/components/common';
+import { moneyInputToApi } from '@/utils/acquisitionDisplay';
 import { formLabelClass, formTextareaClass } from '@/utils/formControl';
 import type { AcquisitionFund, CreateFund, UpdateFund } from '@/types';
 
@@ -39,7 +40,7 @@ export default function FundFormModal({
       code: code.trim(),
       name: name.trim(),
       fiscalYear: year,
-      allocatedAmount: allocated.trim() || undefined,
+      allocatedAmount: moneyInputToApi(allocated),
       currency: currency.trim().toUpperCase() || 'EUR',
       notes: notes.trim() || null,
     });

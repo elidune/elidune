@@ -6,6 +6,25 @@ export function parseMoney(amount: MoneyAmount | null | undefined): number | nul
   return Number.isFinite(n) ? n : null;
 }
 
+/** Normalize a form amount for the API (`12,50` → `12.50`). Empty → null. */
+export function moneyInputToApi(raw: string | null | undefined): string | null {
+  const s = (raw ?? '').trim().replace(/\s/g, '').replace(',', '.');
+  if (!s) return null;
+  return Number.isFinite(Number(s)) ? s : null;
+}
+
+/** True when a draft line PUT cannot clear fields the API treats as “leave unchanged”. */
+export function lineUpdateNeedsRecreate(
+  initial: Pick<PurchaseOrderLine, 'biblioId' | 'isbn' | 'title' | 'fundId'>,
+  next: { biblioId?: string | null; isbn?: string | null; title?: string | null; fundId?: string | null },
+): boolean {
+  if (initial.biblioId && !next.biblioId) return true;
+  if (initial.isbn?.trim() && !next.isbn?.trim()) return true;
+  if (initial.title?.trim() && !next.title?.trim()) return true;
+  if (initial.fundId && !next.fundId) return true;
+  return false;
+}
+
 export function formatMoney(
   amount: MoneyAmount | null | undefined,
   currency: string | null | undefined,

@@ -2036,8 +2036,10 @@
       "cancelled": "Annulée"
     },
     "lines": {
+      "heading": "Lignes",
       "title": "Titre",
       "help": "La réception crée les exemplaires dans le catalogue. N’ajoutez pas de copies depuis le catalogage avant réception.",
+      "biblioLoadError": "Impossible de chercher dans le catalogue. Cibler une notice existante nécessite un droit de lecture du catalogue.",
       "add": "Ajouter une ligne",
       "addTitle": "Ajouter une ligne",
       "editTitle": "Modifier la ligne",
@@ -2077,6 +2079,7 @@
       "barcode": "Code-barres",
       "source": "Source / site",
       "sourceNone": "Aucun site",
+      "sourcesLoadError": "Impossible de charger les sites. Choisir un site nécessite un droit de lecture du catalogue.",
       "price": "Prix",
       "callNumber": "Cote",
       "notes": "Notes de réception",

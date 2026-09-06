@@ -128,7 +128,15 @@ export default function AcquisitionsVendorsPage() {
                   data={vendors}
                   keyExtractor={(v) => v.id}
                   emptyMessage={t('acquisitions.vendors.empty')}
-                  onRowClick={canWrite ? (v) => { setFormError(null); setFormVendor(v); } : undefined}
+                  onRowClick={
+                    canWrite
+                      ? (v) => {
+                          if (v.archivedAt) return;
+                          setFormError(null);
+                          setFormVendor(v);
+                        }
+                      : undefined
+                  }
                   columns={[
                     { key: 'name', header: t('acquisitions.vendors.name'), render: (v) => v.name },
                     { key: 'code', header: t('acquisitions.vendors.code'), render: (v) => v.code || '—' },
@@ -182,14 +190,24 @@ export default function AcquisitionsVendorsPage() {
                     {vendors.map((v) => (
                       <li key={v.id} className="flex items-start gap-3 px-4 py-3">
                         <Store className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
-                        <button
-                          type="button"
-                          className="min-w-0 flex-1 text-left"
-                          onClick={canWrite ? () => { setFormError(null); setFormVendor(v); } : undefined}
-                        >
-                          <p className="font-medium text-gray-900 dark:text-white">{v.name}</p>
-                          <p className="text-xs text-gray-500">{[v.code, v.email].filter(Boolean).join(' · ') || '—'}</p>
-                        </button>
+                        {canWrite && !v.archivedAt ? (
+                          <button
+                            type="button"
+                            className="min-w-0 flex-1 text-left"
+                            onClick={() => {
+                              setFormError(null);
+                              setFormVendor(v);
+                            }}
+                          >
+                            <p className="font-medium text-gray-900 dark:text-white">{v.name}</p>
+                            <p className="text-xs text-gray-500">{[v.code, v.email].filter(Boolean).join(' · ') || '—'}</p>
+                          </button>
+                        ) : (
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-gray-900 dark:text-white">{v.name}</p>
+                            <p className="text-xs text-gray-500">{[v.code, v.email].filter(Boolean).join(' · ') || '—'}</p>
+                          </div>
+                        )}
                         {canWrite && !v.archivedAt ? (
                           <button
                             type="button"
