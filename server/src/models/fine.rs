@@ -46,7 +46,11 @@ impl From<String> for FineStatus {
 
 impl sqlx::Type<sqlx::Postgres> for FineStatus {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <String as sqlx::Type<sqlx::Postgres>>::type_info()
+        sqlx::postgres::PgTypeInfo::with_name("varchar")
+    }
+
+    fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
+        <String as sqlx::Type<sqlx::Postgres>>::compatible(ty)
     }
 
     fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {

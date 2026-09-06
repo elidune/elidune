@@ -205,7 +205,12 @@ async fn delete_without_loans_scrubs_pii_and_unlinks_history() {
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (reader_id, reader_token) = fixtures::create_reader(&app, &admin_token, "eraseok").await;
-    seed_direct_identifiers(&app, reader_id, "ok").await;
+    seed_direct_identifiers(
+        &app,
+        reader_id,
+        &format!("ok-{}", fixtures::unique_suffix()),
+    )
+    .await;
 
     let item_id = create_borrowable_item(&app, &admin_token, "ERSOK").await;
     let (status, body) = app
@@ -323,7 +328,12 @@ async fn force_delete_with_loans_and_fines_snapshots_then_cuts_identity() {
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "eraseforce").await;
-    seed_direct_identifiers(&app, reader_id, "force").await;
+    seed_direct_identifiers(
+        &app,
+        reader_id,
+        &format!("force-{}", fixtures::unique_suffix()),
+    )
+    .await;
 
     let item_id = create_borrowable_item(&app, &admin_token, "ERFOR").await;
     let (status, body) = app
