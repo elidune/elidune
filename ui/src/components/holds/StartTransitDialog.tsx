@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { Button, Input, Modal } from '@/components/common';
@@ -26,14 +26,16 @@ export default function StartTransitDialog({
   const [itemId, setItemId] = useState(hold?.itemId ?? '');
   const [notes, setNotes] = useState('');
   const [ship, setShip] = useState(false);
-
-  useEffect(() => {
+  const resetKey = `${isOpen}:${hold?.id ?? ''}:${hold?.itemId ?? ''}`;
+  const [seenResetKey, setSeenResetKey] = useState(resetKey);
+  if (resetKey !== seenResetKey) {
+    setSeenResetKey(resetKey);
     if (isOpen) {
       setItemId(hold?.itemId ?? '');
       setNotes('');
       setShip(false);
     }
-  }, [hold?.itemId, isOpen]);
+  }
 
   const biblioId = hold?.biblioId;
   const copiesQuery = useQuery({
