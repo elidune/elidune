@@ -1,17 +1,23 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ban, Bookmark, Plus, Search, AlertCircle } from 'lucide-react';
-import { Card, CardHeader, Button, Badge, Table, Input, Pagination, Modal, ConfirmDialog, ScrollableListRegion, ResponsiveRecordList, ListSkeleton } from '@/components/common';
+import { Card, CardHeader, Button, Badge, Table, Input, Pagination, Modal, ConfirmDialog, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, BarcodeScanField } from '@/components/common';
 import HoldMobileCard from '@/components/holds/HoldMobileCard';
+import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
+import HoldExpiresCell from '@/components/holds/HoldExpiresCell';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
 import type { Biblio, BiblioShort, Hold, UserShort } from '@/types';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { formatUserShortName } from '@/utils/userDisplay';
-import { formControlClass, formLabelClass } from '@/utils/formControl';
-import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
+import { formChoiceLabelClass, formControlClass, formLabelClass } from '@/utils/formControl';
+import {
+  applyStaffHoldList,
+  STAFF_HOLDS_FETCH_CAP,
+  type StaffHoldStatusFilter,
+} from '@/utils/holdDisplay';
 
 function statusBadge(t: (k: string) => string, status: Hold['status']) {
   return (
@@ -20,10 +26,14 @@ function statusBadge(t: (k: string) => string, status: Hold['status']) {
 }
 
 export default function HoldsPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
 
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<StaffHoldStatusFilter>('all');
+  const [copyBarcode, setCopyBarcode] = useState('');
+  const [barcodeLookupError, setBarcodeLookupError] = useState<string | null>(null);
+  const barcodeLookupInFlightRef = useRef(false);
 
   const [biblioDraft, setBiblioDraft] = useState('');
   const [biblioResults, setBiblioResults] = useState<BiblioShort[]>([]);
@@ -41,8 +51,14 @@ export default function HoldsPage() {
 
   const [listPage, setListPage] = useState(1);
   const [listPerPage, setListPerPage] = useState(50);
+  const [prevHoldListControls, setPrevHoldListControls] = useState({ statusFilter, listPerPage });
   const [cancelHoldId, setCancelHoldId] = useState<string | null>(null);
   const [biblioPickError, setBiblioPickError] = useState<string | null>(null);
+
+  if (statusFilter !== prevHoldListControls.statusFilter || listPerPage !== prevHoldListControls.listPerPage) {
+    setPrevHoldListControls({ statusFilter, listPerPage });
+    setListPage(1);
+  }
 
   const biblioQuery = biblioDraft.trim();
   const visibleBiblioResults = biblioQuery ? biblioResults : [];
@@ -112,6 +128,35 @@ export default function HoldsPage() {
     setCreateUserResults([]);
     setSelectedUserForCreate(null);
     setBiblioPickError(null);
+    setCopyBarcode('');
+    setBarcodeLookupError(null);
+  };
+
+  const resolveCopyBarcode = async (raw: string) => {
+    const trimmed = raw.trim();
+    if (!trimmed || barcodeLookupInFlightRef.current) return;
+    barcodeLookupInFlightRef.current = true;
+    setBarcodeLookupError(null);
+    setBiblioPickError(null);
+    try {
+      const biblio = await api.getItemByBarcode(trimmed);
+      const specimen =
+        biblio.items?.find((s) => (s.barcode ?? '').trim() === trimmed && s.id != null) ??
+        biblio.items?.find((s) => s.id != null);
+      if (!specimen?.id) {
+        setBarcodeLookupError(t('holds.copyBarcodeNotFound', { barcode: trimmed }));
+        return;
+      }
+      setSelectedBiblio(biblio);
+      setSelectedItemId(specimen.id);
+      setCopyBarcode('');
+      setBiblioDraft('');
+      setBiblioResults([]);
+    } catch (e: unknown) {
+      setBarcodeLookupError(getApiErrorMessage(e, t) || t('holds.copyBarcodeNotFound', { barcode: trimmed }));
+    } finally {
+      barcodeLookupInFlightRef.current = false;
+    }
   };
 
   const loadBiblio = async (b: BiblioShort) => {
@@ -128,11 +173,11 @@ export default function HoldsPage() {
   };
 
   const activeHoldsQuery = useQuery({
-    queryKey: ['activeHolds', listPage, listPerPage],
+    queryKey: ['activeHolds'],
     queryFn: () =>
       api.getHolds({
-        page: listPage,
-        perPage: Math.min(200, Math.max(1, listPerPage)),
+        page: 1,
+        perPage: STAFF_HOLDS_FETCH_CAP,
         activeOnly: true,
       }),
     staleTime: 30 * 1000,
@@ -200,17 +245,17 @@ export default function HoldsPage() {
     {
       key: 'position',
       header: t('holds.position'),
-      render: (r: Hold) => r.position,
+      render: (r: Hold) => t('holds.queuePosition', { position: r.position }),
     },
     {
       key: 'created',
       header: t('holds.createdAt'),
-      render: (r: Hold) => new Date(r.createdAt).toLocaleString(),
+      render: (r: Hold) => new Date(r.createdAt).toLocaleString(i18n.language),
     },
     {
       key: 'expires',
       header: t('holds.expiresAt'),
-      render: (r: Hold) => (r.expiresAt ? new Date(r.expiresAt).toLocaleString() : '—'),
+      render: (r: Hold) => <HoldExpiresCell hold={r} emphasizePickup />,
     },
     {
       key: 'actions',
@@ -221,7 +266,14 @@ export default function HoldsPage() {
   ];
 
   const listData = activeHoldsQuery.data;
-  const totalPages = Math.max(1, listData?.pageCount ?? 1);
+  const preparedHolds = useMemo(
+    () => applyStaffHoldList(listData?.items ?? [], statusFilter),
+    [listData?.items, statusFilter],
+  );
+  const totalPages = Math.max(1, Math.ceil(preparedHolds.length / listPerPage));
+  const safePage = Math.min(listPage, totalPages);
+  const pageHolds = preparedHolds.slice((safePage - 1) * listPerPage, safePage * listPerPage);
+  const emptyMessage = statusFilter === 'all' ? t('holds.noActiveHolds') : t('holds.noMatchingHolds');
 
   return (
     <div className="space-y-6">
@@ -258,16 +310,39 @@ export default function HoldsPage() {
           <CardHeader
             title={t('holds.activeHoldsTitle')}
             subtitle={
-              listData != null ? t('holds.activeHoldsCount', { total: listData.total }) : undefined
+              listData != null ? t('holds.activeHoldsCount', { total: preparedHolds.length }) : undefined
             }
           />
         </div>
         <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 flex flex-wrap items-end gap-3 flex-shrink-0">
+          <fieldset className="flex flex-wrap gap-4">
+            <legend className="sr-only">{t('holds.staffFilterLegend')}</legend>
+            {(
+              [
+                ['all', 'holds.filterAllActive'],
+                ['ready', 'holds.filterReady'],
+                ['pending', 'holds.filterPending'],
+                ['expiringSoon', 'holds.filterExpiringSoon'],
+              ] as const
+            ).map(([value, key]) => (
+              <label key={value} className={formChoiceLabelClass()}>
+                <input
+                  type="radio"
+                  name="staff-holds-filter"
+                  className="text-indigo-600"
+                  checked={statusFilter === value}
+                  onChange={() => setStatusFilter(value)}
+                />
+                {t(key)}
+              </label>
+            ))}
+          </fieldset>
           <div className="flex flex-col gap-1">
-            <label className={formLabelClass({ marginBottom: false })}>
+            <label className={formLabelClass({ marginBottom: false })} htmlFor="staff-holds-per-page">
               {t('common.perPage')}
             </label>
             <select
+              id="staff-holds-per-page"
               value={listPerPage}
               onChange={(e) => {
                 setListPerPage(Number(e.target.value));
@@ -291,23 +366,24 @@ export default function HoldsPage() {
               desktop={
                 <Table
                   columns={columns}
-                  data={listData?.items ?? []}
+                  data={pageHolds}
+                  emptyMessage={emptyMessage}
                   keyExtractor={(r) => r.id}
                   isLoading={false}
-                  emptyMessage={t('holds.noActiveHolds')}
                 />
               }
               mobile={
-                (listData?.items ?? []).length === 0 ? (
+                pageHolds.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-12 text-gray-500 dark:text-gray-400 px-4">
-                    {t('holds.noActiveHolds')}
+                    {emptyMessage}
                   </div>
                 ) : (
                   <div className="rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden bg-white dark:bg-gray-900 mx-2 sm:mx-4 mb-2">
-                    {(listData?.items ?? []).map((r) => (
+                    {pageHolds.map((r) => (
                       <HoldMobileCard
                         key={r.id}
                         hold={r}
+                        emphasizePickup
                         statusBadge={(s) => statusBadge(t, s)}
                         onCancel={() => setCancelHoldId(r.id)}
                         cancelPending={cancelMutation.isPending && cancelMutation.variables === r.id}
@@ -319,9 +395,9 @@ export default function HoldsPage() {
             />
           )}
         </ScrollableListRegion>
-        {listData != null && listData.total > 0 && (
+        {preparedHolds.length > 0 && (
           <div className="p-4 border-t border-gray-200 dark:border-gray-800 flex-shrink-0">
-            <Pagination currentPage={listPage} totalPages={totalPages} onPageChange={setListPage} />
+            <Pagination currentPage={safePage} totalPages={totalPages} onPageChange={setListPage} />
           </div>
         )}
       </Card>
@@ -358,6 +434,35 @@ export default function HoldsPage() {
       >
         <div className="space-y-4 text-sm">
           <div>
+            <BarcodeScanField
+              label={t('holds.scanCopyBarcode')}
+              value={copyBarcode}
+              onChange={(e) => {
+                setCopyBarcode(e.target.value);
+                if (barcodeLookupError) setBarcodeLookupError(null);
+              }}
+              placeholder={t('holds.copyBarcodePlaceholder')}
+              onCameraScan={(barcode) => {
+                setCopyBarcode(barcode);
+                void resolveCopyBarcode(barcode);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  void resolveCopyBarcode(copyBarcode);
+                }
+              }}
+              scannerTitle={t('holds.scanCopyBarcode')}
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('holds.scanCopyBarcodeHint')}</p>
+            {barcodeLookupError && (
+              <p role="alert" className="text-sm text-red-600 dark:text-red-400 mt-2">
+                {barcodeLookupError}
+              </p>
+            )}
+          </div>
+
+          <div>
             <Input
               label={t('holds.searchBiblio')}
               value={biblioDraft}
@@ -366,7 +471,7 @@ export default function HoldsPage() {
             />
             {visibleBiblioSearching && <p className="text-xs text-gray-500 mt-1">{t('common.loading')}</p>}
             {biblioPickError && (
-              <p className="text-sm text-red-600 dark:text-red-400 mt-2">{biblioPickError}</p>
+              <p role="alert" className="text-sm text-red-600 dark:text-red-400 mt-2">{biblioPickError}</p>
             )}
             {visibleBiblioResults.length > 0 && (
               <ul className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700">
@@ -454,7 +559,7 @@ export default function HoldsPage() {
           />
 
           {createMutation.isError && (
-            <p className="text-sm text-red-600 dark:text-red-400">
+            <p role="alert" className="text-sm text-red-600 dark:text-red-400">
               {getApiErrorMessage(createMutation.error, t) || t('holds.createError')}
             </p>
           )}

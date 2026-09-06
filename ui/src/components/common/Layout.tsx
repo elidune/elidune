@@ -27,6 +27,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLibrary } from '@/contexts/LibraryContext';
 import { isLibrarian, isAdmin, canPatronSelfServiceHolds } from '@/types';
+import { useAccountTypesQuery } from '@/hooks/useAccountTypesQuery';
+import { accountTypeDisplayName } from '@/utils/accountTypeDisplay';
 import api from '@/services/api';
 import { version as uiVersion } from '../../../package.json';
 import {
@@ -43,6 +45,7 @@ export default function Layout({ children }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [serverVersion, setServerVersion] = useState<string | null>(null);
   const { user, logout } = useAuth();
+  const { data: accountTypes = [] } = useAccountTypesQuery();
   const { theme, setTheme } = useTheme();
   const { libraryName } = useLibrary();
   const location = useLocation();
@@ -207,7 +210,7 @@ export default function Layout({ children }: LayoutProps) {
                     {user?.firstname} {user?.lastname}
                   </p>
                   <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                    {user?.accountType}
+                    {accountTypeDisplayName(accountTypes, user?.accountType)}
                   </p>
                 </div>
               </Link>

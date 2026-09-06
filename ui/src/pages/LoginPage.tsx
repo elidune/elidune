@@ -193,25 +193,29 @@ function TwoFactorVerification() {
             autoFocus
           />
         ) : (
-          <div className="flex justify-center gap-2" onPaste={handlePaste}>
-            {code.map((digit, index) => (
-              <input
-                key={index}
-                ref={(el) => { inputRefs.current[index] = el; }}
-                type="text"
-                inputMode="numeric"
-                maxLength={1}
-                value={digit}
-                onChange={(e) => handleCodeChange(index, e.target.value)}
-                onKeyDown={(e) => handleKeyDown(index, e)}
-                className="w-12 h-14 text-center text-2xl font-mono font-bold border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition-colors"
-              />
-            ))}
-          </div>
+          <fieldset className="border-0 p-0 m-0">
+            <legend className="sr-only">{t('auth.2fa.codeLegend')}</legend>
+            <div className="flex justify-center gap-2" onPaste={handlePaste}>
+              {code.map((digit, index) => (
+                <input
+                  key={index}
+                  ref={(el) => { inputRefs.current[index] = el; }}
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={1}
+                  value={digit}
+                  onChange={(e) => handleCodeChange(index, e.target.value)}
+                  onKeyDown={(e) => handleKeyDown(index, e)}
+                  aria-label={t('auth.2fa.digitLabel', { n: index + 1 })}
+                  className="w-12 h-14 text-center text-2xl font-mono font-bold border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition-colors"
+                />
+              ))}
+            </div>
+          </fieldset>
         )}
 
         {error && (
-          <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+          <div role="alert" className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
             <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
           </div>
         )}

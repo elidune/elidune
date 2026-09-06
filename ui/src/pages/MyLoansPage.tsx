@@ -9,6 +9,7 @@ import type { Loan } from '@/types';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
+import { renewalsRemaining } from '@/utils/loanPolicy';
 
 const MY_LOANS_PAGE_SIZE = 20;
 
@@ -143,6 +144,8 @@ function LoanCard({ loan, onRenew, isOverdue = false }: LoanCardProps) {
   const daysUntilDue = Math.ceil(
     (new Date(loan.expiryAt).getTime() - referenceMs) / (1000 * 60 * 60 * 24)
   );
+  /** GET /loans/settings is staff-only; patron list uses the shared default. */
+  const remainingRenewals = renewalsRemaining(loan, []);
 
   return (
     <div
@@ -179,14 +182,10 @@ function LoanCard({ loan, onRenew, isOverdue = false }: LoanCardProps) {
       <div className="flex flex-col sm:items-end gap-2">
         <div className="flex items-center gap-2">
           {isOverdue ? (
-            <Badge variant="danger">
-              {t('loans.overdue')} ({Math.abs(daysUntilDue)})
-            </Badge>
+            <Badge variant="danger">{t('loans.overdueDays', { count: Math.abs(daysUntilDue) })}</Badge>
           ) : daysUntilDue <= 3 ? (
             <Badge variant="warning">
-              {daysUntilDue === 0
-                ? t('loans.dueDate')
-                : `${daysUntilDue} ${t('stats.timeRange.7d').replace('7 ', '')}`}
+              {daysUntilDue === 0 ? t('loans.dueToday') : t('loans.dueInDays', { count: daysUntilDue })}
             </Badge>
           ) : (
             <Badge variant="success">
@@ -195,14 +194,14 @@ function LoanCard({ loan, onRenew, isOverdue = false }: LoanCardProps) {
           )}
         </div>
 
-        {loan.nbRenews < 2 && (
+        {remainingRenewals > 0 && (
           <Button
             size="sm"
             variant="secondary"
             onClick={() => onRenew(loan.id)}
             leftIcon={<RotateCcw className="h-4 w-4" />}
           >
-            {t('loans.renew')} ({2 - loan.nbRenews})
+            {t('loans.renewRemaining', { count: remainingRenewals })}
           </Button>
         )}
       </div>

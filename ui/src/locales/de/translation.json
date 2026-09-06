@@ -365,6 +365,17 @@
     "patronFilterLegend": "Listenfilter",
     "patronCount": "{{total}} Vorbestellung(en)",
     "patronAllSectionTitle": "Verlauf",
+    "staffFilterLegend": "Filter nach Vorbestellungsstatus",
+    "filterAllActive": "Alle aktiven",
+    "filterReady": "Abholbereit",
+    "filterPending": "Ausstehend",
+    "filterExpiringSoon": "Läuft bald ab",
+    "queuePosition": "Position {{position}} in der Warteschlange",
+    "scanCopyBarcode": "Exemplar-Barcode scannen",
+    "scanCopyBarcodeHint": "Exemplar scannen, dann Benutzer wählen. Sie können auch unten im Katalog suchen.",
+    "copyBarcodePlaceholder": "Barcode scannen oder eingeben",
+    "copyBarcodeNotFound": "Kein Exemplar für Barcode {{barcode}} gefunden.",
+    "noMatchingHolds": "Keine Vorbestellungen entsprechen diesem Filter.",
     "statuses": {
       "pending": "Ausstehend",
       "ready": "Abholbereit",
@@ -806,7 +817,12 @@
     "sendRemindersConfirm": "Jetzt Erinnerungs-E-Mails für überfällige Ausleihen senden? Berechtigte Nutzer erhalten eine zusammengefasste E-Mail (je nach Serverregeln).",
     "loanDate": "Ausleihdatum",
     "count_plural": "{{count}} Ausleihen",
-    "returnDate": "Rückgabedatum"
+    "returnDate": "Rückgabedatum",
+    "dueToday": "Heute fällig",
+    "dueInDays_one": "{{count}} Tag",
+    "dueInDays_other": "{{count}} Tage",
+    "overdueDays": "Überfällig ({{count}})",
+    "renewRemaining": "Verlängern (noch {{count}})"
   },
   "settings": {
     "server": {
@@ -1341,7 +1357,9 @@
       "verify": "Verifizieren",
       "useCode": "Authentifizierungscode verwenden",
       "useRecovery": "Wiederherstellungscode verwenden",
-      "backToLogin": "Zurück zur Anmeldung"
+      "backToLogin": "Zurück zur Anmeldung",
+      "codeLegend": "Bestätigungscode",
+      "digitLabel": "Ziffer {{n}} von 6"
     },
     "invalidCredentials": "Ungültige Anmeldedaten",
     "loginTitle": "Elidune",

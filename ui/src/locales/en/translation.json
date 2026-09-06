@@ -365,6 +365,17 @@
     "patronFilterLegend": "List filter",
     "patronCount": "{{total}} hold(s)",
     "patronAllSectionTitle": "History",
+    "staffFilterLegend": "Hold status filter",
+    "filterAllActive": "All active",
+    "filterReady": "Ready",
+    "filterPending": "Pending",
+    "filterExpiringSoon": "Expiring soon",
+    "queuePosition": "Position {{position}} in queue",
+    "scanCopyBarcode": "Scan copy barcode",
+    "scanCopyBarcodeHint": "Scan a copy, then pick a patron. You can also search the catalog below.",
+    "copyBarcodePlaceholder": "Scan or type a barcode",
+    "copyBarcodeNotFound": "No copy found for barcode {{barcode}}.",
+    "noMatchingHolds": "No holds match this filter.",
     "statuses": {
       "pending": "Pending",
       "ready": "Ready for pickup",
@@ -806,7 +817,12 @@
     "sendRemindersConfirm": "Send overdue reminder emails now? Eligible users will receive one email per batch (subject to server rules).",
     "loanDate": "Loan date",
     "count_plural": "{{count}} loans",
-    "returnDate": "Return date"
+    "returnDate": "Return date",
+    "dueToday": "Due today",
+    "dueInDays_one": "{{count}} day",
+    "dueInDays_other": "{{count}} days",
+    "overdueDays": "Overdue ({{count}})",
+    "renewRemaining": "Renew ({{count}} left)"
   },
   "settings": {
     "server": {
@@ -1341,7 +1357,9 @@
       "verify": "Verify",
       "useCode": "Use authenticator code",
       "useRecovery": "Use a recovery code",
-      "backToLogin": "Back to login"
+      "backToLogin": "Back to login",
+      "codeLegend": "Verification code",
+      "digitLabel": "Digit {{n}} of 6"
     },
     "invalidCredentials": "Invalid credentials",
     "loginTitle": "Elidune",
