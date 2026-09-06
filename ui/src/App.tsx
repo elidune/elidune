@@ -38,8 +38,13 @@ import {
   PublicEventsPage,
   AboutPage,
   PrivacyPage,
+  AcquisitionsVendorsPage,
+  AcquisitionsFundsPage,
+  AcquisitionsOrdersPage,
+  AcquisitionsOrderDetailPage,
 } from '@/pages';
-import { isLibrarian } from '@/types';
+import { canViewAcquisitions, isLibrarian } from '@/types';
+import api from '@/services/api';
 import { FirstSetupGate } from '@/components/first-setup/FirstSetupGate';
 
 const queryClient = new QueryClient({
@@ -92,6 +97,16 @@ function LibrarianRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
 
   if (!isLibrarian(user?.accountType)) {
+    return <Navigate to="/home" replace />;
+  }
+
+  return <>{children}</>;
+}
+
+function AcquisitionsRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+
+  if (!canViewAcquisitions(user, api.getToken())) {
     return <Navigate to="/home" replace />;
   }
 
@@ -336,6 +351,61 @@ function AppRoutes() {
             <LibrarianRoute>
               <ImportIsoPage />
             </LibrarianRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/acquisitions"
+        element={
+          <ProtectedRoute>
+            <AcquisitionsRoute>
+              <Navigate to="/acquisitions/orders" replace />
+            </AcquisitionsRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/acquisitions/vendors"
+        element={
+          <ProtectedRoute>
+            <AcquisitionsRoute>
+              <AcquisitionsVendorsPage />
+            </AcquisitionsRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/acquisitions/funds"
+        element={
+          <ProtectedRoute>
+            <AcquisitionsRoute>
+              <AcquisitionsFundsPage />
+            </AcquisitionsRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/acquisitions/orders"
+        element={
+          <ProtectedRoute>
+            <AcquisitionsRoute>
+              <AcquisitionsOrdersPage />
+            </AcquisitionsRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/acquisitions/orders/:id"
+        element={
+          <ProtectedRoute>
+            <AcquisitionsRoute>
+              <AcquisitionsOrderDetailPage />
+            </AcquisitionsRoute>
           </ProtectedRoute>
         }
       />

@@ -23,11 +23,14 @@ import {
   Bookmark,
   BookmarkCheck,
   Truck,
+  ShoppingCart,
+  Store,
+  Wallet,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLibrary } from '@/contexts/LibraryContext';
-import { isLibrarian, isAdmin, canPatronSelfServiceHolds } from '@/types';
+import { isLibrarian, isAdmin, canPatronSelfServiceHolds, canViewAcquisitions } from '@/types';
 import { useAccountTypesQuery } from '@/hooks/useAccountTypesQuery';
 import { accountTypeDisplayName } from '@/utils/accountTypeDisplay';
 import api from '@/services/api';
@@ -57,6 +60,7 @@ export default function Layout({ children }: LayoutProps) {
   const { data: accountTypes = [] } = useAccountTypesQuery();
   const { theme, setTheme } = useTheme();
   const staff = isLibrarian(user?.accountType);
+  const showAcquisitions = canViewAcquisitions(user, api.getToken());
   const { libraryName } = useLibrary();
   const location = useLocation();
   const navigate = useNavigate();
@@ -108,6 +112,15 @@ export default function Layout({ children }: LayoutProps) {
         { name: t('nav.inventory'), href: '/inventory', icon: ClipboardList, show: staff },
         { name: t('nav.z3950Search'), href: '/z3950', icon: Globe, show: staff },
         { name: t('nav.importIso'), href: '/import-iso', icon: Upload, show: staff },
+      ],
+    },
+    {
+      id: 'acquisitions',
+      label: t('nav.sectionAcquisitions'),
+      items: [
+        { name: t('nav.orders'), href: '/acquisitions/orders', icon: ShoppingCart, show: showAcquisitions },
+        { name: t('nav.vendors'), href: '/acquisitions/vendors', icon: Store, show: showAcquisitions },
+        { name: t('nav.funds'), href: '/acquisitions/funds', icon: Wallet, show: showAcquisitions },
       ],
     },
     {
