@@ -12,12 +12,16 @@ import { getApiErrorMessage } from '@/utils/apiError';
 import type { Biblio, BiblioShort, Hold, UserShort } from '@/types';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { formatUserShortName } from '@/utils/userDisplay';
+import { useToast } from '@/contexts/ToastContext';
 import { formChoiceLabelClass, formControlClass, formLabelClass } from '@/utils/formControl';
 import {
   applyStaffHoldList,
+  buildCreateHold,
   STAFF_HOLDS_FETCH_CAP,
+  type HoldPlacementScope,
   type StaffHoldStatusFilter,
 } from '@/utils/holdDisplay';
+import HoldScopeBadge from '@/components/holds/HoldScopeBadge';
 
 function statusBadge(t: (k: string) => string, status: Hold['status']) {
   return (
@@ -27,6 +31,7 @@ function statusBadge(t: (k: string) => string, status: Hold['status']) {
 
 export default function HoldsPage() {
   const { t, i18n } = useTranslation();
+  const { showToast } = useToast();
   const queryClient = useQueryClient();
 
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -41,6 +46,7 @@ export default function HoldsPage() {
   const biblioSeqRef = useRef(0);
   const [selectedBiblio, setSelectedBiblio] = useState<Biblio | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
+  const [holdScope, setHoldScope] = useState<HoldPlacementScope>('title');
   const [createNotes, setCreateNotes] = useState('');
 
   const [createUserDraft, setCreateUserDraft] = useState('');
@@ -123,6 +129,7 @@ export default function HoldsPage() {
     setBiblioResults([]);
     setSelectedBiblio(null);
     setSelectedItemId(null);
+    setHoldScope('title');
     setCreateNotes('');
     setCreateUserDraft('');
     setCreateUserResults([]);
@@ -149,6 +156,7 @@ export default function HoldsPage() {
       }
       setSelectedBiblio(biblio);
       setSelectedItemId(specimen.id);
+      setHoldScope('title');
       setCopyBarcode('');
       setBiblioDraft('');
       setBiblioResults([]);
@@ -164,7 +172,8 @@ export default function HoldsPage() {
     try {
       const full = await api.getBiblio(b.id);
       setSelectedBiblio(full);
-      setSelectedItemId(full.items?.[0]?.id ?? null);
+      setSelectedItemId(null);
+      setHoldScope('title');
       setBiblioDraft('');
       setBiblioResults([]);
     } catch (e: unknown) {
@@ -183,19 +192,52 @@ export default function HoldsPage() {
     staleTime: 30 * 1000,
   });
 
+  const selectedBiblioId = selectedBiblio?.id ?? null;
+  const pinningCopy = holdScope === 'copy';
+  const canSubmitCreate =
+    !!selectedUserForCreate &&
+    !!selectedBiblioId &&
+    (!pinningCopy || !!selectedItemId);
+
+  const biblioQueueQuery = useQuery({
+    queryKey: ['biblioHolds', selectedBiblioId],
+    queryFn: () => api.getBiblioHolds(selectedBiblioId!),
+    enabled: showCreateModal && !!selectedBiblioId,
+    staleTime: 30 * 1000,
+  });
+
+  const createQuotaQuery = useQuery({
+    queryKey: ['holdsQuota', selectedUserForCreate?.id],
+    queryFn: () => api.getHoldQuota(selectedUserForCreate!.id),
+    enabled: showCreateModal && !!selectedUserForCreate?.id,
+    staleTime: 15 * 1000,
+  });
+
   const createMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedUserForCreate || !selectedItemId) throw new Error(t('holds.selectUser'));
-      return api.createHold({
-        userId: selectedUserForCreate.id,
-        itemId: selectedItemId,
-        notes: createNotes.trim() || undefined,
-      });
+      if (!selectedUserForCreate) throw new Error(t('holds.selectUser'));
+      if (!selectedBiblioId) throw new Error(t('holds.selectBiblio'));
+      if (pinningCopy && !selectedItemId) throw new Error(t('holds.selectCopy'));
+      return api.createHold(
+        buildCreateHold({
+          userId: selectedUserForCreate.id,
+          biblioId: selectedBiblioId,
+          scope: holdScope,
+          itemId: selectedItemId,
+          notes: createNotes,
+        }),
+      );
     },
     onSuccess: () => {
+      showToast({
+        variant: 'success',
+        message: pinningCopy ? t('holds.createSuccessPinned') : t('holds.createSuccessTitle'),
+      });
       resetCreateForm();
       setShowCreateModal(false);
       void queryClient.invalidateQueries({ queryKey: ['activeHolds'] });
+      void queryClient.invalidateQueries({ queryKey: ['biblioHolds'] });
+      void queryClient.invalidateQueries({ queryKey: ['holdsQuota'] });
     },
   });
 
@@ -424,7 +466,11 @@ export default function HoldsPage() {
             <Button
               variant="primary"
               isLoading={createMutation.isPending}
-              disabled={!selectedBiblio || !selectedItemId || !selectedUserForCreate}
+              disabled={
+                !canSubmitCreate ||
+                createMutation.isPending ||
+                (createQuotaQuery.data != null && createQuotaQuery.data.remaining <= 0)
+              }
               onClick={() => void createMutation.mutateAsync()}
             >
               {t('holds.confirmReserve')}
@@ -454,7 +500,7 @@ export default function HoldsPage() {
               }}
               scannerTitle={t('holds.scanCopyBarcode')}
             />
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('holds.scanCopyBarcodeHint')}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('holds.scanCopyBarcodeHintTitle')}</p>
             {barcodeLookupError && (
               <p role="alert" className="text-sm text-red-600 dark:text-red-400 mt-2">
                 {barcodeLookupError}
@@ -494,23 +540,104 @@ export default function HoldsPage() {
           </div>
 
           {selectedBiblio && (
-            <div className="space-y-2 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+            <div className="space-y-3 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
               <p className="font-medium text-gray-900 dark:text-white">{selectedBiblio.title}</p>
-              <div className="flex flex-col gap-1">
-                <label className={formLabelClass({ marginBottom: false })}>
-                  {t('holds.pickSpecimen')}
+              <fieldset className="space-y-2">
+                <legend className={formLabelClass({ marginBottom: false })}>
+                  {t('holds.pickScope')}
+                </legend>
+                <label className={formChoiceLabelClass()}>
+                  <input
+                    type="radio"
+                    name="desk-hold-scope"
+                    className="text-indigo-600"
+                    checked={holdScope === 'title'}
+                    onChange={() => setHoldScope('title')}
+                  />
+                  <span>
+                    {t('holds.scopeTitle')}
+                    <span className="block text-xs font-normal text-gray-500 dark:text-gray-400">
+                      {t('holds.scopeTitleHint')}
+                    </span>
+                  </span>
                 </label>
-                <select
-                  value={selectedItemId ?? ''}
-                  onChange={(e) => setSelectedItemId(e.target.value || null)}
-                  className={formControlClass()}
-                >
-                  {(selectedBiblio.items ?? []).map((it) => (
-                    <option key={it.id} value={it.id}>
-                      {it.barcode || it.callNumber || it.id}
-                    </option>
-                  ))}
-                </select>
+                <label className={formChoiceLabelClass()}>
+                  <input
+                    type="radio"
+                    name="desk-hold-scope"
+                    className="text-indigo-600"
+                    checked={holdScope === 'copy'}
+                    disabled={(selectedBiblio.items ?? []).length === 0}
+                    onChange={() => {
+                      setHoldScope('copy');
+                      if (!selectedItemId) {
+                        setSelectedItemId(selectedBiblio.items?.[0]?.id ?? null);
+                      }
+                    }}
+                  />
+                  <span>
+                    {t('holds.scopePinned')}
+                    <span className="block text-xs font-normal text-gray-500 dark:text-gray-400">
+                      {t('holds.scopePinnedHint')}
+                    </span>
+                  </span>
+                </label>
+              </fieldset>
+              {holdScope === 'copy' && (
+                <div className="flex flex-col gap-1">
+                  <label className={formLabelClass({ marginBottom: false })}>
+                    {t('holds.pickSpecimen')}
+                  </label>
+                  <select
+                    value={selectedItemId ?? ''}
+                    onChange={(e) => setSelectedItemId(e.target.value || null)}
+                    className={formControlClass()}
+                  >
+                    <option value="">{t('holds.selectCopy')}</option>
+                    {(selectedBiblio.items ?? []).map((it) => (
+                      <option key={it.id} value={it.id}>
+                        {it.barcode || it.callNumber || it.id}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {createQuotaQuery.data && createQuotaQuery.data.remaining > 0 && (
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {t('holds.quotaRemaining', {
+                    remaining: createQuotaQuery.data.remaining,
+                    max: createQuotaQuery.data.maxActiveHolds,
+                  })}
+                </p>
+              )}
+              {createQuotaQuery.data && createQuotaQuery.data.remaining <= 0 && (
+                <p className="text-sm text-amber-700 dark:text-amber-300">
+                  {t('holds.quotaFull', {
+                    active: createQuotaQuery.data.activeHolds,
+                    max: createQuotaQuery.data.maxActiveHolds,
+                  })}
+                </p>
+              )}
+              <div>
+                <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
+                  {t('holds.biblioQueue')}
+                </p>
+                {biblioQueueQuery.isLoading && (
+                  <p className="text-xs text-gray-500">{t('common.loading')}</p>
+                )}
+                {!biblioQueueQuery.isLoading && (biblioQueueQuery.data?.length ?? 0) === 0 && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{t('holds.biblioQueueEmpty')}</p>
+                )}
+                {(biblioQueueQuery.data?.length ?? 0) > 0 && (
+                  <ol className="list-decimal list-inside space-y-1 text-sm border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2">
+                    {biblioQueueQuery.data!.map((h) => (
+                      <li key={h.id} className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium">{formatUserShortName(h.user) || h.userId}</span>
+                        <HoldScopeBadge hold={h} />
+                      </li>
+                    ))}
+                  </ol>
+                )}
               </div>
             </div>
           )}

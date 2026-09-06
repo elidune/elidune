@@ -1432,9 +1432,9 @@ export interface Hold {
 
 export interface CreateHold {
   userId: string;
-  /** Copy-level hold. Omit when placing a title-level hold. */
+  /** Pinned copy. Omit for a title-level hold. */
   itemId?: string;
-  /** Title-level hold (any copy). Required when `itemId` is omitted. */
+  /** Always sent. Required when `itemId` is omitted. */
   biblioId?: string;
   pickupSiteId?: string | null;
   notes?: string | null;

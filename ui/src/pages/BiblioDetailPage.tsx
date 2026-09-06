@@ -132,6 +132,7 @@ export default function BiblioDetailPage() {
   const [deleteBiblioApiError, setDeleteBiblioApiError] = useState<string | null>(null);
   const [deleteSpecimenApiError, setDeleteSpecimenApiError] = useState<string | null>(null);
   const [reserveSpecimen, setReserveSpecimen] = useState<Item | null>(null);
+  const [holdDialogOpen, setHoldDialogOpen] = useState(false);
   const [showBatchDeleteSpecimens, setShowBatchDeleteSpecimens] = useState(false);
 
   const invalidateBiblio = () => {
@@ -289,6 +290,10 @@ export default function BiblioDetailPage() {
       dateStyle: 'medium',
       timeStyle: 'short',
     });
+  const canPlaceTitleHold =
+    !!user?.id &&
+    !!item.id &&
+    (isLibrarian(user.accountType) || canPatronSelfServiceHolds(user, api.getToken()));
 
   return (
     <div className="space-y-6">
@@ -341,22 +346,38 @@ export default function BiblioDetailPage() {
           </div>
         </div>
 
-        {canManageItems(user?.accountType) && (
-          <div className="flex gap-2">
-            <Button
-              variant="secondary"
-              onClick={() =>
-                navigate(`/biblios/${item.id}/edit`, {
-                  state: savedSearch !== undefined ? { savedSearch } : undefined,
-                })
-              }
-              leftIcon={<Edit className="h-4 w-4" />}
-            >
-              {t('common.edit')}
-            </Button>
-            <Button variant="danger" onClick={() => setShowDeleteModal(true)} leftIcon={<Trash2 className="h-4 w-4" />}>
-              {t('common.delete')}
-            </Button>
+        {(canPlaceTitleHold || canManageItems(user?.accountType)) && (
+          <div className="flex flex-wrap gap-2">
+            {canPlaceTitleHold && (
+              <Button
+                variant="primary"
+                leftIcon={<Bookmark className="h-4 w-4" />}
+                onClick={() => {
+                  setReserveSpecimen(null);
+                  setHoldDialogOpen(true);
+                }}
+              >
+                {t('holds.reserve')}
+              </Button>
+            )}
+            {canManageItems(user?.accountType) && (
+              <>
+                <Button
+                  variant="secondary"
+                  onClick={() =>
+                    navigate(`/biblios/${item.id}/edit`, {
+                      state: savedSearch !== undefined ? { savedSearch } : undefined,
+                    })
+                  }
+                  leftIcon={<Edit className="h-4 w-4" />}
+                >
+                  {t('common.edit')}
+                </Button>
+                <Button variant="danger" onClick={() => setShowDeleteModal(true)} leftIcon={<Trash2 className="h-4 w-4" />}>
+                  {t('common.delete')}
+                </Button>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -497,11 +518,12 @@ export default function BiblioDetailPage() {
                     canManage={canManageItems(user?.accountType)}
                     showBorrower={canManageLoans(user?.accountType)}
                     showReserveButton={
-                      !!user?.id &&
-                      specimen.borrowable !== false &&
-                      (isLibrarian(user.accountType) || canPatronSelfServiceHolds(user, api.getToken()))
+                      canPlaceTitleHold && specimen.borrowable !== false
                     }
-                    onReserve={() => setReserveSpecimen(specimen)}
+                    onReserve={() => {
+                      setReserveSpecimen(specimen);
+                      setHoldDialogOpen(true);
+                    }}
                     onEdit={() => {
                       setSelectedSpecimen(specimen);
                       setShowEditSpecimenModal(true);
@@ -821,17 +843,23 @@ export default function BiblioDetailPage() {
         )}
       </Modal>
 
-      {item && reserveSpecimen && user?.id && (
+      {item && item.id && user?.id && (
         <PlaceHoldDialog
-          open={!!reserveSpecimen}
-          onClose={() => setReserveSpecimen(null)}
-          specimen={reserveSpecimen}
+          open={holdDialogOpen}
+          onClose={() => {
+            setHoldDialogOpen(false);
+            setReserveSpecimen(null);
+          }}
+          biblioId={item.id}
           biblioTitle={item.title || '—'}
+          specimen={reserveSpecimen}
+          pinCopyDefault={!!reserveSpecimen}
           accountType={user.accountType}
           currentUserId={user.id}
           onSuccess={() => {
             invalidateBiblio();
             void queryClient.invalidateQueries({ queryKey: ['my-holds'] });
+            void queryClient.invalidateQueries({ queryKey: ['activeHolds'] });
           }}
         />
       )}
@@ -957,8 +985,8 @@ function SpecimenCard({
 
       {showReserveButton && onReserve && (
         <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
-          <Button size="sm" variant="secondary" leftIcon={<Bookmark className="h-4 w-4" />} onClick={onReserve}>
-            {t('holds.reserve')}
+          <Button size="sm" variant="ghost" leftIcon={<Bookmark className="h-4 w-4" />} onClick={onReserve}>
+            {t('holds.reserveThisCopy')}
           </Button>
         </div>
       )}
