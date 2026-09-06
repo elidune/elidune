@@ -9,6 +9,7 @@ pub mod event_bus;
 pub mod events;
 pub mod fines;
 pub mod holds;
+pub mod idempotency;
 pub mod inventory;
 pub mod library_info;
 pub mod loans;

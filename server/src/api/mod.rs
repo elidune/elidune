@@ -39,7 +39,7 @@ use std::net::SocketAddr;
 use axum::{
     async_trait,
     extract::{ConnectInfo, FromRequest, FromRequestParts, Request},
-    http::{header::AUTHORIZATION, request::Parts},
+    http::{header::AUTHORIZATION, request::Parts, HeaderName},
 };
 use serde::de::DeserializeOwned;
 use validator::Validate;
@@ -49,6 +49,30 @@ use crate::{
     models::user::{UserClaims, SCOPE_CHANGE_PASSWORD},
     AppState,
 };
+
+/// Optional `Idempotency-Key` header for desk mutations (checkout / renew).
+///
+/// Absent header → `None` (handler runs without replay). Present value is
+/// validated when the handler calls [`crate::services::idempotency::execute`].
+pub struct OptionalIdempotencyKey(pub Option<String>);
+
+#[async_trait]
+impl<S> FromRequestParts<S> for OptionalIdempotencyKey
+where
+    S: Send + Sync,
+{
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        const NAME: HeaderName = HeaderName::from_static("idempotency-key");
+        let value = parts
+            .headers
+            .get(&NAME)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned);
+        Ok(Self(value))
+    }
+}
 
 /// Resolved client IP for audit: proxy headers first, then `ConnectInfo` peer address.
 pub struct ClientIp(pub Option<String>);

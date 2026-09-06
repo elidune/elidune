@@ -182,6 +182,7 @@ AUTHOR_FUNCTION_TO_DB = {
 
 TABLES_DROP_ORDER = [
     'audit_log',
+    'idempotency_keys',
     'loans_archives', 'loans', 'loans_settings',
     'biblio_authors',
     'biblio_series',

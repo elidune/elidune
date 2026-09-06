@@ -35,6 +35,7 @@ import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
 import { isSubscriptionExpired } from '@/utils/userSubscription';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
+import { newIdempotencyKey } from '@/utils/idempotency';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
 import LoansMarcExportButton from '@/components/loans/LoansMarcExportButton';
 import { RenewSubscriptionModal, UserEditorForm } from '@/components/users';
@@ -378,7 +379,7 @@ export default function UserDetailPage() {
     setLoanAction({ loanId, op: 'renew' });
     setRenewError('');
     try {
-      await api.renewLoan(loanId);
+      await api.renewLoan(loanId, newIdempotencyKey());
       await refreshLoans();
       showToast({ variant: 'success', message: t('loans.renewSuccess') });
     } catch (error) {
@@ -1175,7 +1176,7 @@ export default function UserDetailPage() {
                 userId: user.id,
                 itemIdentification: ctx.specimenCode,
                 force: true,
-              });
+              }, newIdempotencyKey());
               await refreshLoans();
               showToast({ variant: 'success', message: t('loans.checkoutSuccessShort') });
             } catch (e) {
@@ -1223,7 +1224,7 @@ function BorrowForm({
         userId: userId,
         itemIdentification: specimenCode,
         force: force || undefined,
-      });
+      }, newIdempotencyKey());
       setError('');
       onSuccess();
     } catch (err: unknown) {

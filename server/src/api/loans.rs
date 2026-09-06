@@ -23,11 +23,12 @@ use crate::{
     },
     services::{
         audit::{self},
+        idempotency,
         reminders::{OverdueLoansPage, ReminderReport},
     },
 };
 
-use super::{biblios::PaginatedResponse, AuthenticatedUser, ClientIp};
+use super::{biblios::PaginatedResponse, AuthenticatedUser, ClientIp, OptionalIdempotencyKey};
 
 pub use crate::models::dto::loans::{LoanSettingsDto as LoanSettings, UpdateLoanSettingsRequest};
 
@@ -123,7 +124,7 @@ struct ReminderBatchManualAudit {
 
 /// Loan response with calculated dates
 #[serde_as]
-#[derive(Serialize, ToSchema)]
+#[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct LoanResponse {
     #[serde_as(as = "DisplayFromStr")]
@@ -334,46 +335,85 @@ pub struct GetUserLoansQuery {
     tag = "loans",
     security(("bearer_auth" = [])),
     request_body = CreateLoanRequest,
+    params(
+        ("Idempotency-Key" = Option<String>, Header, description = "Optional 1–255 char key (`A–Z a–z 0–9 _ - . ~`). Same actor+key+payload replays the stored 2xx for 24h. Same key with a different payload returns 409.")
+    ),
     responses(
         (status = 201, description = "Loan created", body = LoanResponse),
         (status = 400, description = "Invalid request"),
         (status = 404, description = "User or specimen not found"),
-        (status = 409, description = "Specimen already borrowed or max loans reached")
+        (status = 409, description = "Specimen already borrowed, max loans reached, or Idempotency-Key conflict")
     )
 )]
 pub async fn create_loan(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     ClientIp(ip): ClientIp,
+    OptionalIdempotencyKey(idempotency_key): OptionalIdempotencyKey,
     Json(request): Json<CreateLoanRequest>,
 ) -> AppResult<(StatusCode, Json<LoanResponse>)> {
     claims.require_write_loans()?;
-    let loan = CreateLoan {
-        user_id: request.user_id,
-        item_id: request.item_id,
-        item_identification: request.item_identification.clone(),
-        force: request.force.unwrap_or(false),
-    };
+    let force = request.force.unwrap_or(false);
+    let fingerprint = serde_json::json!({
+        "op": "loans.create",
+        "userId": request.user_id.to_string(),
+        "itemId": request.item_id.map(|id| id.to_string()),
+        "itemIdentification": request.item_identification,
+        "force": force,
+    });
+
+    let (status, body) = idempotency::execute(
+        state.services.repository.as_ref(),
+        claims.user_id,
+        idempotency_key.as_deref(),
+        "loans.create",
+        &fingerprint,
+        || {
+            let state = state.clone();
+            let ip = ip.clone();
+            let request = CreateLoan {
+                user_id: request.user_id,
+                item_id: request.item_id,
+                item_identification: request.item_identification.clone(),
+                force,
+            };
+            async move { create_loan_inner(state, claims.user_id, ip, request).await }
+        },
+    )
+    .await?;
+    Ok((status, Json(body)))
+}
+
+async fn create_loan_inner(
+    state: crate::AppState,
+    actor_id: i64,
+    ip: Option<String>,
+    loan: CreateLoan,
+) -> AppResult<(StatusCode, LoanResponse)> {
+    let user_id = loan.user_id;
+    let item_id = loan.item_id;
+    let item_identification = loan.item_identification.clone();
+    let force = loan.force;
 
     let outcome = match state
         .services
         .loans
-        .create_loan(loan, Some(claims.user_id), ip.clone())
+        .create_loan(loan, Some(actor_id), ip.clone())
         .await
     {
         Ok(outcome) => outcome,
         Err(e) => {
             state.services.audit.log(
                 audit::event::LOAN_CREATED,
-                Some(claims.user_id),
+                Some(actor_id),
                 Some("loan"),
                 None,
                 ip.clone(),
                 Some(LoanCreatedAudit {
-                    user_id: request.user_id,
-                    item_id: request.item_id,
-                    item_identification: request.item_identification.clone(),
-                    force: request.force.unwrap_or(false),
+                    user_id,
+                    item_id,
+                    item_identification,
+                    force,
                     expiry_at: Utc::now(),
                 }),
                 audit::AuditLogMeta::from_app_error(&e),
@@ -386,15 +426,15 @@ pub async fn create_loan(
 
     state.services.audit.log(
         audit::event::LOAN_CREATED,
-        Some(claims.user_id),
+        Some(actor_id),
         Some("loan"),
         Some(loan_id),
         ip,
         Some(LoanCreatedAudit {
-            user_id: request.user_id,
-            item_id: request.item_id,
-            item_identification: request.item_identification.clone(),
-            force: request.force.unwrap_or(false),
+            user_id,
+            item_id,
+            item_identification,
+            force,
             expiry_at,
         }),
         audit::AuditLogMeta::success(),
@@ -402,11 +442,11 @@ pub async fn create_loan(
 
     Ok((
         StatusCode::CREATED,
-        Json(LoanResponse {
+        LoanResponse {
             id: loan_id,
             expiry_at,
             message: "Item borrowed successfully".to_string(),
-        }),
+        },
     ))
 }
 
@@ -473,11 +513,14 @@ pub async fn return_loan(
     path = "/loans/{id}/renew",
     tag = "loans",
     security(("bearer_auth" = [])),
-    params(("id" = i32, Path, description = "Loan ID")),
+    params(
+        ("id" = i32, Path, description = "Loan ID"),
+        ("Idempotency-Key" = Option<String>, Header, description = "Optional 1–255 char key (`A–Z a–z 0–9 _ - . ~`). Same actor+key+payload replays the stored 2xx for 24h. Same key with a different payload returns 409.")
+    ),
     responses(
         (status = 200, description = "Loan renewed", body = LoanResponse),
         (status = 404, description = "Loan not found"),
-        (status = 409, description = "Max renewals reached or already returned"),
+        (status = 409, description = "Idempotency-Key reused with a different payload"),
         (status = 422, description = "Business rule: max renewals reached, already returned, or another patron is waiting in the hold queue")
     )
 )]
@@ -485,6 +528,7 @@ pub async fn renew_loan(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     ClientIp(ip): ClientIp,
+    OptionalIdempotencyKey(idempotency_key): OptionalIdempotencyKey,
     Path(loan_id): Path<i64>,
 ) -> AppResult<Json<LoanResponse>> {
     let loan = state.services.loans.get_loan(loan_id).await?;
@@ -496,11 +540,38 @@ pub async fn renew_loan(
         ));
     }
 
+    let fingerprint = serde_json::json!({
+        "op": "loans.renew",
+        "loanId": loan_id.to_string(),
+    });
+
+    let (_status, body) = idempotency::execute(
+        state.services.repository.as_ref(),
+        claims.user_id,
+        idempotency_key.as_deref(),
+        "loans.renew",
+        &fingerprint,
+        || {
+            let state = state.clone();
+            let ip = ip.clone();
+            async move { renew_loan_inner(state, claims.user_id, ip, loan_id).await }
+        },
+    )
+    .await?;
+    Ok(Json(body))
+}
+
+async fn renew_loan_inner(
+    state: crate::AppState,
+    actor_id: i64,
+    ip: Option<String>,
+    loan_id: i64,
+) -> AppResult<(StatusCode, LoanResponse)> {
     let (new_expiry_date, renew_count) = state.services.loans.renew_loan(loan_id).await?;
 
     state.services.audit.log(
         audit::event::LOAN_RENEWED,
-        Some(claims.user_id),
+        Some(actor_id),
         Some("loan"),
         Some(loan_id),
         ip,
@@ -511,11 +582,14 @@ pub async fn renew_loan(
         audit::AuditLogMeta::success(),
     );
 
-    Ok(Json(LoanResponse {
-        id: loan_id,
-        expiry_at: new_expiry_date,
-        message: format!("Loan renewed ({} renewals)", renew_count),
-    }))
+    Ok((
+        StatusCode::OK,
+        LoanResponse {
+            id: loan_id,
+            expiry_at: new_expiry_date,
+            message: format!("Loan renewed ({} renewals)", renew_count),
+        },
+    ))
 }
 
 /// Return a borrowed item by item identification (barcode or call number)
@@ -581,11 +655,14 @@ pub async fn return_loan_by_item(
     path = "/loans/items/{item_id}/renew",
     tag = "loans",
     security(("bearer_auth" = [])),
-    params(("item_id" = String, Path, description = "Item barcode or call number")),
+    params(
+        ("item_id" = String, Path, description = "Item barcode or call number"),
+        ("Idempotency-Key" = Option<String>, Header, description = "Optional 1–255 char key (`A–Z a–z 0–9 _ - . ~`). Same actor+key+payload replays the stored 2xx for 24h. Same key with a different payload returns 409.")
+    ),
     responses(
         (status = 200, description = "Loan renewed", body = LoanResponse),
         (status = 404, description = "Item or active loan not found"),
-        (status = 409, description = "Max renewals reached or already returned"),
+        (status = 409, description = "Idempotency-Key reused with a different payload"),
         (status = 422, description = "Business rule: max renewals reached, already returned, or another patron is waiting in the hold queue")
     )
 )]
@@ -593,15 +670,44 @@ pub async fn renew_loan_by_item(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     ClientIp(ip): ClientIp,
+    OptionalIdempotencyKey(idempotency_key): OptionalIdempotencyKey,
     Path(item_id): Path<String>,
 ) -> AppResult<Json<LoanResponse>> {
     claims.require_write_loans()?;
+    let fingerprint = serde_json::json!({
+        "op": "loans.renew_by_item",
+        "itemId": item_id,
+    });
+
+    let (_status, body) = idempotency::execute(
+        state.services.repository.as_ref(),
+        claims.user_id,
+        idempotency_key.as_deref(),
+        "loans.renew_by_item",
+        &fingerprint,
+        || {
+            let state = state.clone();
+            let ip = ip.clone();
+            let item_id = item_id.clone();
+            async move { renew_loan_by_item_inner(state, claims.user_id, ip, item_id).await }
+        },
+    )
+    .await?;
+    Ok(Json(body))
+}
+
+async fn renew_loan_by_item_inner(
+    state: crate::AppState,
+    actor_id: i64,
+    ip: Option<String>,
+    item_id: String,
+) -> AppResult<(StatusCode, LoanResponse)> {
     let (loan_id, new_expiry_date, renew_count) =
         state.services.loans.renew_loan_by_item(&item_id).await?;
 
     state.services.audit.log(
         audit::event::LOAN_RENEWED,
-        Some(claims.user_id),
+        Some(actor_id),
         Some("loan"),
         Some(loan_id),
         ip,
@@ -613,11 +719,14 @@ pub async fn renew_loan_by_item(
         audit::AuditLogMeta::success(),
     );
 
-    Ok(Json(LoanResponse {
-        id: loan_id,
-        expiry_at: new_expiry_date,
-        message: format!("Loan renewed ({} renewals)", renew_count),
-    }))
+    Ok((
+        StatusCode::OK,
+        LoanResponse {
+            id: loan_id,
+            expiry_at: new_expiry_date,
+            message: format!("Loan renewed ({} renewals)", renew_count),
+        },
+    ))
 }
 
 /// Get all overdue loans (admin dashboard)
