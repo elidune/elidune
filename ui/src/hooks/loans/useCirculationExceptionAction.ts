@@ -50,19 +50,21 @@ export function successKeyForOutcome(outcome: CirculationExceptionOutcome): stri
 async function applyException(loanId: string, kind: CirculationExceptionKind, payload: CirculationExceptionSubmit) {
   const notes = emptyToUndef(payload.notes);
   switch (kind) {
-    case 'lost':
-      return api.markLoanLost(loanId, {
-        bill: payload.bill,
-        amount: payload.bill ? emptyToUndef(payload.amount) : undefined,
-        notes,
-      });
-    case 'damaged':
+    case 'lost': {
+      const amount = emptyToUndef(payload.amount);
+      const bill = payload.bill || Boolean(amount);
+      return api.markLoanLost(loanId, { bill, amount: bill ? amount : undefined, notes });
+    }
+    case 'damaged': {
+      const amount = emptyToUndef(payload.amount);
+      const bill = payload.bill || Boolean(amount);
       return api.markLoanDamaged(loanId, {
         disposition: payload.disposition,
-        bill: payload.bill,
-        amount: payload.bill ? emptyToUndef(payload.amount) : undefined,
+        bill,
+        amount: bill ? amount : undefined,
         notes,
       });
+    }
     case 'claimedReturned':
       return api.markLoanClaimedReturned(loanId, { notes });
     case 'resolveFound':

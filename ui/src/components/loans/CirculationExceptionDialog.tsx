@@ -132,22 +132,23 @@ function ExceptionFields({
             />
             {t(kind === 'lost' ? 'loans.exceptions.billReplacement' : 'loans.exceptions.billDamage')}
           </label>
-          {bill && (
-            <Input
-              type="text"
-              inputMode="decimal"
-              label={t('loans.exceptions.amount')}
-              hint={
-                kind === 'lost'
-                  ? t('loans.exceptions.amountHintLost')
-                  : t('loans.exceptions.amountHintDamaged')
-              }
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              disabled={isLoading}
-              error={amountInvalid ? t('loans.exceptions.amountRequired') : undefined}
-            />
-          )}
+          <Input
+            type="text"
+            inputMode="decimal"
+            label={t('loans.exceptions.amount')}
+            hint={
+              kind === 'lost'
+                ? t('loans.exceptions.amountHintLost')
+                : t('loans.exceptions.amountHintDamaged')
+            }
+            value={amount}
+            onChange={(e) => {
+              setAmount(e.target.value);
+              if (e.target.value.trim()) setBill(true);
+            }}
+            disabled={isLoading}
+            error={amountInvalid ? t('loans.exceptions.amountRequired') : undefined}
+          />
         </div>
       )}
 
