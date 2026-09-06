@@ -46,6 +46,7 @@ impl HoldsService {
     }
 
     /// Place a hold — rejects if the user already has a pending/ready hold for this item.
+    /// Uniqueness is also enforced in the database (`idx_holds_one_active_per_user_item`).
     #[tracing::instrument(skip(self), err)]
     pub async fn place_hold(&self, data: CreateHold) -> AppResult<Hold> {
         if self

@@ -420,10 +420,43 @@ impl Repository {
             .ok_or_else(|| AppError::NotFound(format!("Hold {id} not found")))
     }
 
+    /// Place a hold on a physical copy.
+    ///
+    /// Serializes on the item row (`FOR UPDATE`) so concurrent inserts cannot
+    /// assign the same `MAX(position)+1`. Relies on
+    /// `idx_holds_one_active_per_user_item` so the same patron cannot hold the
+    /// same copy twice while status is `pending` or `ready`.
     #[tracing::instrument(skip(self), err)]
     pub async fn holds_create(&self, data: &CreateHold) -> AppResult<Hold> {
         let id = next_id();
-        let row = sqlx::query_as::<_, Hold>(
+        let mut tx = self.pool.begin().await?;
+
+        // Lock the copy so empty-queue first holds also serialize.
+        sqlx::query_scalar::<_, i64>("SELECT id FROM items WHERE id = $1 FOR UPDATE")
+            .bind(data.item_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| AppError::NotFound("Item not found".to_string()))?;
+
+        let already_active: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 FROM holds
+                WHERE user_id = $1 AND item_id = $2 AND status IN ('pending','ready')
+            )
+            "#,
+        )
+        .bind(data.user_id)
+        .bind(data.item_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if already_active {
+            return Err(AppError::Conflict(
+                "User already has an active hold for this item".to_string(),
+            ));
+        }
+
+        let row = match sqlx::query_as::<_, Hold>(
             r#"
             INSERT INTO holds (id, user_id, item_id, position, notes)
             VALUES (
@@ -439,8 +472,19 @@ impl Repository {
         .bind(data.user_id)
         .bind(data.item_id)
         .bind(&data.notes)
-        .fetch_one(&self.pool)
-        .await?;
+        .fetch_one(&mut *tx)
+        .await
+        {
+            Ok(row) => row,
+            Err(e) if is_active_hold_unique_violation(&e) => {
+                return Err(AppError::Conflict(
+                    "User already has an active hold for this item".to_string(),
+                ));
+            }
+            Err(e) => return Err(e.into()),
+        };
+
+        tx.commit().await?;
         Ok(row)
     }
 
@@ -628,5 +672,16 @@ impl Repository {
         .fetch_one(&self.pool)
         .await?;
         Ok(count)
+    }
+}
+
+/// `idx_holds_one_active_per_user_item` — last line of defense if two inserts race.
+fn is_active_hold_unique_violation(err: &sqlx::Error) -> bool {
+    match err {
+        sqlx::Error::Database(db) => {
+            db.code().as_deref() == Some("23505")
+                && db.constraint() == Some("idx_holds_one_active_per_user_item")
+        }
+        _ => false,
     }
 }
