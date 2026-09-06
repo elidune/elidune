@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BookOpen, Calendar, RotateCcw, AlertTriangle } from 'lucide-react';
 import { Card, CardHeader, Button, Badge, Pagination } from '@/components/common';
@@ -21,9 +21,11 @@ export default function MyLoansPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [renewError, setRenewError] = useState('');
 
-  useLayoutEffect(() => {
+  const [prevLoansUserId, setPrevLoansUserId] = useState(user?.id);
+  if (user?.id !== prevLoansUserId) {
+    setPrevLoansUserId(user?.id);
     setLoansPage(1);
-  }, [user?.id]);
+  }
 
   useEffect(() => {
     const fetchLoans = async () => {

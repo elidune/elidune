@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
@@ -63,10 +63,11 @@ export default function AccountTypesSettings() {
   const [savingCode, setSavingCode] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
-
-  useEffect(() => {
+  const [syncedData, setSyncedData] = useState(data);
+  if (data !== syncedData) {
+    setSyncedData(data);
     if (data?.length) setRows(cloneTypes(data));
-  }, [data]);
+  }
 
   const showReloginHint = useCallback(() => {
     setBanner(t('settings.accountTypes.reloginHint'));

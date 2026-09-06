@@ -12,6 +12,7 @@ import { Badge, Button, Modal, ScrollableListRegion, BarcodeScanField } from '@/
 import api from '@/services/api';
 import type { Author, Item } from '@/types';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
+import { useResetWhenInactive } from '@/hooks/common/useResetWhenInactive';
 
 const RESOLVE_DEBOUNCE_MS = 250;
 
@@ -91,18 +92,18 @@ export default function BatchDeleteSpecimensDialog({
     setTimeout(() => inputRef.current?.focus(), 30);
   }, []);
 
+  useResetWhenInactive(isOpen, () => {
+    setBarcode('');
+    setPreview({ kind: 'idle' });
+    setIsDeleting(false);
+  });
+
   useEffect(() => {
     if (isOpen) {
       setTimeout(() => inputRef.current?.focus(), 80);
-    } else {
-      // Reset transient state when closed; keep journal until next open for review.
-      setBarcode('');
-      setPreview({ kind: 'idle' });
-      setIsDeleting(false);
-      if (debounceRef.current != null) {
-        window.clearTimeout(debounceRef.current);
-        debounceRef.current = null;
-      }
+    } else if (debounceRef.current != null) {
+      window.clearTimeout(debounceRef.current);
+      debounceRef.current = null;
     }
   }, [isOpen]);
 

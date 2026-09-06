@@ -16,6 +16,7 @@ import {
 import { Card, Button, Input, Modal } from '@/components/common';
 import api from '@/services/api';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
+import { deferFromEffect } from '@/utils/deferFromEffect';
 import type {
   LibraryInfo,
   SchedulePeriod,
@@ -328,9 +329,7 @@ function HoursTab() {
     }
   }, [t]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => deferFromEffect(() => { void load(); }), [load]);
 
   // ── Period handlers ──────────────────────────────────────────────────────
 
