@@ -2,12 +2,16 @@
 # - API-only (docker/Dockerfile) → ghcr.io/elidune/elidune-server
 # - UI (docker/Dockerfile.ui) → ghcr.io/elidune/elidune-ui
 # - All-in-one (docker/Dockerfile.all-in-one) → ghcr.io/elidune/elidune-all-in-one
+#
+# Tags: :latest on main, :dev on the dev branch, plus :<git-sha> on both.
+# Pushes from dev never overwrite :latest.
 name: Build & Push Docker Image
 
 on:
   push:
     branches:
       - main
+      - dev
     paths:
       - 'server/**'
       - 'ui/**'
@@ -46,12 +50,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ matrix.image }}
+          # Disable implicit :latest; only the explicit raw tag below may add it.
+          flavor: |
+            latest=false
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref_name == 'main' }}
+            type=raw,value=dev,enable=${{ github.ref_name == 'dev' }}
+            type=raw,value=${{ github.sha }}
+
       - name: Build & Push
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ${{ matrix.dockerfile }}
           push: true
-          tags: |
-            ${{ matrix.image }}:latest
-            ${{ matrix.image }}:${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
