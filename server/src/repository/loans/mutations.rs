@@ -369,11 +369,44 @@ impl Repository {
         })
     }
 
-    /// Renew a loan
+    /// Renew a loan.
+    ///
+    /// Serializes on the item row then the loan row (`FOR UPDATE`, same lock order
+    /// as [`Self::loans_create`]) so concurrent renews cannot both pass the max-renewals
+    /// check. Refuses renewal when another patron has an active (`pending`/`ready`) hold
+    /// on the copy.
     pub async fn loans_renew(&self, loan_id: i64) -> AppResult<(DateTime<Utc>, i16)> {
         let now = Utc::now();
+        let mut tx = self.pool.begin().await?;
 
-        let loan = self.loans_get_by_id(loan_id).await?;
+        // Peek item_id without locking so the item row can be locked first
+        // (same order as checkout: item → loan → holds).
+        let item_id: i64 = sqlx::query_scalar("SELECT item_id FROM loans WHERE id = $1")
+            .bind(loan_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Loan with id {loan_id} not found")))?;
+
+        let item_row = sqlx::query(
+            r#"
+            SELECT it.id, b.media_type
+            FROM items it
+            JOIN biblios b ON it.biblio_id = b.id
+            WHERE it.id = $1
+            FOR UPDATE OF it
+            "#,
+        )
+        .bind(item_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Item not found".to_string()))?;
+        let media_type: Option<String> = item_row.get("media_type");
+
+        let loan = sqlx::query_as::<_, Loan>("SELECT * FROM loans WHERE id = $1 FOR UPDATE")
+            .bind(loan_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Loan with id {loan_id} not found")))?;
 
         if loan.returned_at.is_some() {
             return Err(AppError::BusinessRule(
@@ -381,17 +414,20 @@ impl Repository {
             ));
         }
 
-        let item_row = sqlx::query("SELECT b.media_type FROM items it JOIN biblios b ON it.biblio_id = b.id WHERE it.id = $1")
-            .bind(loan.item_id)
-            .fetch_one(&self.pool)
-            .await?;
-
-        let media_type: Option<String> = item_row.get("media_type");
+        if self
+            .holds_has_waiting_patron_tx(&mut tx, loan.item_id, loan.user_id)
+            .await?
+        {
+            return Err(AppError::BusinessRule(
+                "Cannot renew: another patron is waiting in the hold queue for this copy"
+                    .to_string(),
+            ));
+        }
 
         let user_public_type: Option<i64> =
             sqlx::query_scalar::<_, Option<i64>>("SELECT public_type FROM users WHERE id = $1")
                 .bind(loan.user_id)
-                .fetch_optional(&self.pool)
+                .fetch_optional(&mut *tx)
                 .await?
                 .flatten();
 
@@ -420,8 +456,10 @@ impl Repository {
             .bind(now)
             .bind(new_renews)
             .bind(loan_id)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await?;
+
+        tx.commit().await?;
 
         Ok((new_expiry_date, new_renews))
     }
