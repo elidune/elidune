@@ -80,9 +80,9 @@ pub struct Fine {
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub loan_id: i64,
-    #[serde_as(as = "DisplayFromStr")]
-    #[schema(value_type = String)]
-    pub user_id: i64,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub user_id: Option<i64>,
     pub amount: rust_decimal::Decimal,
     pub paid_amount: rust_decimal::Decimal,
     pub created_at: DateTime<Utc>,

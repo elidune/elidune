@@ -6,8 +6,13 @@ Migrates data from the legacy C/XML-RPC PostgreSQL schema to the new Rust schema
 Source schema: legacy database (see elidune-pgdump.sql)
 Target schema: new database (see migrations/001_initial_schema.sql + follow-up migrations,
 including email outbox tables, idx_loans_one_active_per_item,
+<<<<<<< HEAD
 idx_holds_one_active_per_user_item, fines / fine_rules / circulation_settings
 (025), and idx_fines_one_open_per_loan (026))
+=======
+idx_holds_one_active_per_user_item, fines, and loans_archives age_band/loan_year
+up to migration 026)
+>>>>>>> 94b228f (Anonymize patrons for stats instead of leaving residual PII.)
 
 Usage:
     python migrate_data.py --source-db <old_db_url> --target-db <new_db_url>
@@ -227,6 +232,40 @@ def ts_to_datetime(value):
         return datetime.fromtimestamp(numeric, tz=timezone.utc)
     except (ValueError, TypeError, OSError, OverflowError):
         return None
+
+
+def loan_year_from_dt(value):
+    """Calendar year of a loan timestamp, or None."""
+    dt = value if isinstance(value, datetime) else ts_to_datetime(value)
+    return dt.year if dt is not None else None
+
+
+def borrower_age_band(birthdate, on_dt):
+    """Same buckets as server `borrower_age_band` / stats users.age_band."""
+    if birthdate is None or on_dt is None:
+        return None
+    if isinstance(birthdate, datetime):
+        birthdate = birthdate.date()
+    if isinstance(on_dt, datetime):
+        on_date = on_dt.date()
+    elif isinstance(on_dt, date):
+        on_date = on_dt
+    else:
+        return None
+    years = on_date.year - birthdate.year
+    if (on_date.month, on_date.day) < (birthdate.month, birthdate.day):
+        years -= 1
+    if years < 0:
+        return None
+    if years < 18:
+        return '0-17'
+    if years < 30:
+        return '18-29'
+    if years < 50:
+        return '30-49'
+    if years < 65:
+        return '50-64'
+    return '65+'
 
 
 def hash_password(plain, hasher):
@@ -1036,11 +1075,11 @@ def migrate_loans(src, dst, migrated_specimen_ids=None):
     dst_cur = dst.cursor()
 
     # Load user info for archive enrichment
-    src_cur.execute("SELECT id, addr_city, account_type_id, public_type FROM users")
+    src_cur.execute("SELECT id, addr_city, account_type_id, public_type, birthdate FROM users")
     user_info = {}
-    for uid, city, at_id, pt in src_cur.fetchall():
+    for uid, city, at_id, pt, birthdate in src_cur.fetchall():
         at_code = ACCOUNT_TYPE_ID_TO_CODE.get(at_id, 'guest') if at_id else 'guest'
-        user_info[uid] = (city, at_code, pt)
+        user_info[uid] = (city, at_code, pt, birthdate)
 
     # Load public_type FK mapping from target
     dst_cur.execute("SELECT id, name FROM public_types")
@@ -1078,7 +1117,9 @@ def migrate_loans(src, dst, migrated_specimen_ids=None):
             continue
 
         if returned_date_raw and returned_date_raw != 0:
-            city, at_code, pt_raw = user_info.get(user_id, (None, 'guest', None))
+            city, at_code, pt_raw, birthdate = user_info.get(
+                user_id, (None, 'guest', None, None)
+            )
 
             pt_id = None
             if pt_raw is not None:
@@ -1086,40 +1127,50 @@ def migrate_loans(src, dst, migrated_specimen_ids=None):
                 if pt_name:
                     pt_id = pt_name_to_id.get(pt_name)
 
+            loan_dt = ts_to_datetime(vals[4])
             dst_cur.execute("""
                 INSERT INTO loans_archives (
                     id, user_id, item_id, date, nb_renews,
                     expiry_at, returned_at, notes,
-                    borrower_public_type, addr_city, account_type
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    borrower_public_type, addr_city, account_type,
+                    age_band, loan_year
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (id) DO NOTHING
             """, (
                 vals[0], user_id, item_id,
                 vals[4], vals[6], vals[7], vals[9], vals[8],
                 pt_id, city, at_code,
+                borrower_age_band(birthdate, loan_dt),
+                loan_year_from_dt(loan_dt),
             ))
             archived += 1
         else:
             if item_id in seen_active_item_ids:
                 # Extra active loan on the same copy: archive it instead of violating
                 # idx_loans_one_active_per_item.
-                city, at_code, pt_raw = user_info.get(user_id, (None, 'guest', None))
+                city, at_code, pt_raw, birthdate = user_info.get(
+                    user_id, (None, 'guest', None, None)
+                )
                 pt_id = None
                 if pt_raw is not None:
                     pt_name = PUBLIC_TYPE_INT_TO_NAME.get(int(pt_raw))
                     if pt_name:
                         pt_id = pt_name_to_id.get(pt_name)
+                loan_dt = ts_to_datetime(vals[4])
                 dst_cur.execute("""
                     INSERT INTO loans_archives (
                         id, user_id, item_id, date, nb_renews,
                         expiry_at, returned_at, notes,
-                        borrower_public_type, addr_city, account_type
-                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        borrower_public_type, addr_city, account_type,
+                        age_band, loan_year
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (id) DO NOTHING
                 """, (
                     vals[0], user_id, item_id,
                     vals[4], vals[6], vals[7], datetime.now(tz=timezone.utc), vals[8],
                     pt_id, city, at_code,
+                    borrower_age_band(birthdate, loan_dt),
+                    loan_year_from_dt(loan_dt),
                 ))
                 archived += 1
                 continue
@@ -1198,12 +1249,13 @@ def migrate_loans_archives(src, dst, migrated_specimen_ids=None):
             INSERT INTO loans_archives (
                 id, item_id, date, nb_renews, expiry_at,
                 returned_at, notes, borrower_public_type,
-                addr_city, account_type
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                addr_city, account_type, loan_year
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT (id) DO NOTHING
         """, (
             vals[0], item_id, date_val, vals[4], issue_dt,
             returned_dt, vals[7], pt_id, vals[9], at_code,
+            loan_year_from_dt(date_val),
         ))
         migrated += 1
 

@@ -17,8 +17,8 @@ use crate::{
     models::{
         secret::{ExposeSecret, PlaintextPassword},
         user::{
-            AccountTypeSlug, UpdateProfile, User, UserClaims, UserPayload, UserQuery, UserShort,
-            UserStatus, SCOPE_CHANGE_PASSWORD,
+            AccountTypeSlug, UpdateProfile, User, UserClaims, UserErasureResult, UserPayload,
+            UserQuery, UserShort, UserStatus, SCOPE_CHANGE_PASSWORD,
         },
     },
     repository::Repository,
@@ -464,10 +464,37 @@ impl UsersService {
         self.repository.users_update(id, &user, password).await
     }
 
-    /// Delete a user
+    /// Anonymize a patron for stats (PII scrub + history identity cut).
     #[tracing::instrument(skip(self), err)]
-    pub async fn delete_user(&self, id: i64, force: bool) -> AppResult<()> {
+    pub async fn delete_user(&self, id: i64, force: bool) -> AppResult<UserErasureResult> {
         self.repository.users_delete(id, force).await
+    }
+
+    /// Auto-erase patrons whose membership expired at least `years_after_expiry` years ago.
+    /// Skips patrons with active loans (no force). Returns how many were erased.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn auto_erase_expired_patrons(&self, years_after_expiry: u32) -> AppResult<u64> {
+        if years_after_expiry == 0 {
+            return Ok(0);
+        }
+        let ids = self
+            .repository
+            .users_list_due_for_auto_erasure(years_after_expiry)
+            .await?;
+        let mut erased = 0_u64;
+        for id in ids {
+            match self.repository.users_delete(id, false).await {
+                Ok(_) => erased += 1,
+                Err(AppError::BusinessRule(_)) => {
+                    tracing::info!(
+                        user_id = id,
+                        "Skipping auto-erasure: patron still has active loans"
+                    );
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(erased)
     }
 
     /// Update user's own profile (name, password)

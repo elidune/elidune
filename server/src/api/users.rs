@@ -201,12 +201,12 @@ pub async fn update_user(
     security(("bearer_auth" = [])),
     params(
         ("id" = i32, Path, description = "User ID"),
-        ("force" = Option<bool>, Query, description = "Force delete even with active loans")
+        ("force" = Option<bool>, Query, description = "Force anonymize even with active loans (loans are returned first)")
     ),
     responses(
-        (status = 204, description = "User deleted"),
+        (status = 204, description = "Patron anonymized for stats"),
         (status = 404, description = "User not found"),
-        (status = 409, description = "User has active loans")
+        (status = 422, description = "User has active loans")
     )
 )]
 pub async fn delete_user(
@@ -219,14 +219,22 @@ pub async fn delete_user(
     claims.require_write_users()?;
     let force = params.force.unwrap_or(false);
     match state.services.users.delete_user(id, force).await {
-        Ok(()) => {
+        Ok(erasure) => {
             state.services.audit.log(
                 audit::event::USER_DELETED,
                 Some(claims.user_id),
                 Some("user"),
                 Some(id),
                 ip,
-                Some(serde_json::json!({ "id": id, "force": force })),
+                Some(serde_json::json!({
+                    "id": id,
+                    "force": erasure.force,
+                    "anonymized": true,
+                    "loansForceReturned": erasure.loans_force_returned,
+                    "holdsCancelled": erasure.holds_cancelled,
+                    "archivesUnlinked": erasure.archives_unlinked,
+                    "finesUnlinked": erasure.fines_unlinked,
+                })),
                 audit::AuditLogMeta::success(),
             );
             Ok(StatusCode::NO_CONTENT)
@@ -238,7 +246,7 @@ pub async fn delete_user(
                 Some("user"),
                 Some(id),
                 ip.clone(),
-                Some(serde_json::json!({ "id": id, "force": force })),
+                Some(serde_json::json!({ "id": id, "force": force, "anonymized": false })),
                 audit::AuditLogMeta::from_app_error(&e),
             );
             Err(e)

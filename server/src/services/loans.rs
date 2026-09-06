@@ -838,8 +838,15 @@ mod tests {
         ) -> AppResult<User> {
             unimplemented!()
         }
-        async fn users_delete(&self, _: i64, _: bool) -> AppResult<()> {
-            Ok(())
+        async fn users_delete(
+            &self,
+            _: i64,
+            _: bool,
+        ) -> AppResult<crate::models::user::UserErasureResult> {
+            Ok(crate::models::user::UserErasureResult::default())
+        }
+        async fn users_list_due_for_auto_erasure(&self, _: u32) -> AppResult<Vec<i64>> {
+            Ok(Vec::new())
         }
         async fn users_block(&self, _: i64) -> AppResult<User> {
             unimplemented!()

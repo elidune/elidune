@@ -65,6 +65,11 @@ overridable = true
 skip_closed_days = true  # Push checkout/renew due dates to the next open day
 overridable = true
 
+# Patron personal-data retention (RGPD). Desk delete = “anonymize for stats”.
+# 0 disables the daily 04:00 job. A typical public-library value is 3 years after expiry_at.
+[privacy]
+auto_anonymize_years_after_expiry = 0
+
 [meilisearch]
 url = "http://localhost:7700"
 api_key = "changeme"           # optional — omit if running without auth

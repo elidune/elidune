@@ -172,6 +172,27 @@ impl Default for AuditConfig {
     }
 }
 
+fn default_auto_anonymize_years() -> u32 {
+    0
+}
+
+/// Patron personal-data retention (RGPD). `0` disables the auto-erasure job.
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct PrivacyConfig {
+    /// Years after `users.expiry_at` before the scheduler anonymizes remaining patrons.
+    /// Typical municipal-library value is `3`. `0` (default) disables the job.
+    #[serde(default = "default_auto_anonymize_years")]
+    pub auto_anonymize_years_after_expiry: u32,
+}
+
+impl Default for PrivacyConfig {
+    fn default() -> Self {
+        Self {
+            auto_anonymize_years_after_expiry: default_auto_anonymize_years(),
+        }
+    }
+}
+
 fn default_hold_ready_expiry_days() -> u32 {
     7
 }
@@ -252,6 +273,8 @@ pub struct AppConfig {
     pub circulation: CirculationConfig,
     #[serde(default)]
     pub meilisearch: Option<MeilisearchConfig>,
+    #[serde(default)]
+    pub privacy: PrivacyConfig,
 }
 
 impl AppConfig {
@@ -347,6 +370,7 @@ impl AppConfig {
                 ..CirculationConfig::default()
             },
             meilisearch: None,
+            privacy: PrivacyConfig::default(),
         }
     }
 }

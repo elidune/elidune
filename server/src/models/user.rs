@@ -1,6 +1,6 @@
 //! User model and related types
 
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use sqlx::{Decode, Encode, FromRow, Postgres, Type};
@@ -954,5 +954,69 @@ impl UserClaims {
         } else {
             Err(AppError::Authorization("Access denied".to_string()))
         }
+    }
+}
+
+/// Non-identifying counters from patron erasure (never includes erased PII).
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserErasureResult {
+    pub force: bool,
+    pub loans_force_returned: u64,
+    pub holds_cancelled: u64,
+    pub archives_unlinked: u64,
+    pub fines_unlinked: u64,
+}
+
+/// Age band stored on `loans_archives` (same buckets as stats `users.age_band`).
+#[must_use]
+pub fn borrower_age_band(birthdate: NaiveDate, on: NaiveDate) -> Option<&'static str> {
+    let mut years = on.year() - birthdate.year();
+    if on.month() < birthdate.month()
+        || (on.month() == birthdate.month() && on.day() < birthdate.day())
+    {
+        years -= 1;
+    }
+    if years < 0 {
+        return None;
+    }
+    Some(match years {
+        0..=17 => "0-17",
+        18..=29 => "18-29",
+        30..=49 => "30-49",
+        50..=64 => "50-64",
+        _ => "65+",
+    })
+}
+
+#[cfg(test)]
+mod erasure_tests {
+    use super::borrower_age_band;
+    use chrono::NaiveDate;
+
+    fn d(y: i32, m: u32, day: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(y, m, day).expect("valid date")
+    }
+
+    #[test]
+    fn borrower_age_band_matches_stats_buckets() {
+        assert_eq!(
+            borrower_age_band(d(2010, 6, 1), d(2026, 6, 1)),
+            Some("0-17")
+        );
+        assert_eq!(
+            borrower_age_band(d(2000, 6, 1), d(2026, 6, 1)),
+            Some("18-29")
+        );
+        assert_eq!(
+            borrower_age_band(d(1990, 6, 1), d(2026, 6, 1)),
+            Some("30-49")
+        );
+        assert_eq!(
+            borrower_age_band(d(1965, 1, 1), d(2026, 1, 1)),
+            Some("50-64")
+        );
+        assert_eq!(borrower_age_band(d(1950, 1, 1), d(2026, 1, 1)), Some("65+"));
+        assert_eq!(borrower_age_band(d(2030, 1, 1), d(2026, 1, 1)), None);
     }
 }

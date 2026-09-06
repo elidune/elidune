@@ -58,6 +58,9 @@ overridable = true
 skip_closed_days = true
 overridable = true
 
+[privacy]
+auto_anonymize_years_after_expiry = 0
+
 [meilisearch]
 url = "http://meilisearch:7700"
 # Must match MEILI_MASTER_KEY in docker-compose (change both in production).
