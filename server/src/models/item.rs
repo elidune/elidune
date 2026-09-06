@@ -67,6 +67,12 @@ impl Item {
     pub fn is_archived(&self) -> bool {
         self.archived_at.is_some()
     }
+
+    /// Typed item circulation state (lost / damaged / claimed-returned).
+    #[must_use]
+    pub fn circulation_state(&self) -> crate::models::circulation::CirculationStatus {
+        crate::models::circulation::CirculationStatus::from_db(self.circulation_status)
+    }
 }
 
 /// Short item (physical copy) representation for lists

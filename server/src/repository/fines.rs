@@ -10,7 +10,7 @@ use crate::{
     error::{AppError, AppResult},
     models::{
         dto::fines::AccrueOutcome,
-        fine::{Fine, FineAccrualLoan, FineRule},
+        fine::{Fine, FineAccrualLoan, FineChargeType, FineRule},
         user::UserStatus,
     },
 };
@@ -170,8 +170,8 @@ impl Repository {
         let id = next_id();
         let row = sqlx::query_as::<_, Fine>(
             r#"
-            INSERT INTO fines (id, loan_id, user_id, amount, notes)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO fines (id, loan_id, user_id, amount, notes, charge_type)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
             "#,
         )
@@ -180,7 +180,66 @@ impl Repository {
         .bind(user_id)
         .bind(amount)
         .bind(notes)
+        .bind(FineChargeType::Overdue)
         .fetch_one(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    /// Create a charge of an explicit type (replacement / damage / overdue).
+    #[tracing::instrument(skip(self), err)]
+    pub async fn fines_create_charge(
+        &self,
+        loan_id: i64,
+        user_id: i64,
+        amount: Decimal,
+        charge_type: FineChargeType,
+        notes: Option<&str>,
+    ) -> AppResult<Fine> {
+        let id = next_id();
+        let row = sqlx::query_as::<_, Fine>(
+            r#"
+            INSERT INTO fines (id, loan_id, user_id, amount, notes, charge_type)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING *
+            "#,
+        )
+        .bind(id)
+        .bind(loan_id)
+        .bind(user_id)
+        .bind(amount)
+        .bind(notes)
+        .bind(charge_type)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    /// Create a charge inside an open transaction (circulation exceptions).
+    pub async fn fines_create_charge_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        loan_id: i64,
+        user_id: i64,
+        amount: Decimal,
+        charge_type: FineChargeType,
+        notes: Option<&str>,
+    ) -> AppResult<Fine> {
+        let id = next_id();
+        let row = sqlx::query_as::<_, Fine>(
+            r#"
+            INSERT INTO fines (id, loan_id, user_id, amount, notes, charge_type)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING *
+            "#,
+        )
+        .bind(id)
+        .bind(loan_id)
+        .bind(user_id)
+        .bind(amount)
+        .bind(notes)
+        .bind(charge_type)
+        .fetch_one(&mut **tx)
         .await?;
         Ok(row)
     }
@@ -535,7 +594,11 @@ fn is_open_fine_unique_violation(err: &sqlx::Error) -> bool {
     match err {
         sqlx::Error::Database(db) => {
             db.code().as_deref() == Some("23505")
-                && db.constraint() == Some("idx_fines_one_open_per_loan")
+                && matches!(
+                    db.constraint(),
+                    Some("idx_fines_one_open_per_loan")
+                        | Some("idx_fines_one_open_per_loan_charge")
+                )
         }
         _ => false,
     }

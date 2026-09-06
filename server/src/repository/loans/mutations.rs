@@ -41,7 +41,7 @@ impl Repository {
         let item_row = if let Some(id) = loan.item_id {
             sqlx::query(
                 r#"
-                SELECT it.id, it.borrowable, b.media_type
+                SELECT it.id, it.borrowable, it.circulation_status, b.media_type
                 FROM items it
                 JOIN biblios b ON it.biblio_id = b.id
                 WHERE it.id = $1
@@ -54,7 +54,7 @@ impl Repository {
         } else {
             sqlx::query(
                 r#"
-                SELECT it.id, it.borrowable, b.media_type
+                SELECT it.id, it.borrowable, it.circulation_status, b.media_type
                 FROM items it
                 JOIN biblios b ON it.biblio_id = b.id
                 WHERE it.barcode = $1
@@ -69,6 +69,9 @@ impl Repository {
         let item_row = item_row.ok_or_else(|| AppError::NotFound("Item not found".to_string()))?;
         let item_id: i64 = item_row.get("id");
         let borrowable: bool = item_row.get("borrowable");
+        let circulation_status = crate::models::circulation::CirculationStatus::from_db(
+            item_row.get("circulation_status"),
+        );
         let media_type: Option<String> = item_row.get("media_type");
 
         let existing: Option<Loan> = sqlx::query_as::<_, Loan>(
@@ -90,8 +93,22 @@ impl Repository {
                 .await?;
         }
 
-        if !borrowable && !loan.force {
-            return Err(AppError::BusinessRule("Item is not borrowable".to_string()));
+        if (!borrowable || circulation_status.blocks_circulation()) && !loan.force {
+            let msg = match circulation_status {
+                crate::models::circulation::CirculationStatus::Lost => {
+                    "Item is marked lost and is not borrowable"
+                }
+                crate::models::circulation::CirculationStatus::Damaged => {
+                    "Item is marked damaged and is not borrowable"
+                }
+                crate::models::circulation::CirculationStatus::ClaimedReturned => {
+                    "Item is in the claims-returned queue — resolve the claim before circulating"
+                }
+                crate::models::circulation::CirculationStatus::Available => {
+                    "Item is not borrowable"
+                }
+            };
+            return Err(AppError::BusinessRule(msg.to_string()));
         }
 
         let user_public_type: Option<i64> =
@@ -209,7 +226,7 @@ impl Repository {
     }
 
     /// Archive an active loan and delete it. Does not advance the hold queue.
-    async fn loans_archive_and_delete_tx(
+    pub(crate) async fn loans_archive_and_delete_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         loan: &Loan,
@@ -285,6 +302,24 @@ impl Repository {
 
         self.loans_archive_and_delete_tx(&mut tx, &loan, now)
             .await?;
+
+        // A physical return is an inventory check: clear claims-returned so the
+        // copy re-enters the borrowable pool. Damaged / lost stay as set.
+        sqlx::query(
+            r#"
+            UPDATE items SET
+                circulation_status = 0,
+                borrowable = TRUE,
+                updated_at = $2
+            WHERE id = $1
+              AND circulation_status = $3
+            "#,
+        )
+        .bind(loan.item_id)
+        .bind(now)
+        .bind(crate::models::circulation::CirculationStatus::CLAIMED_RETURNED)
+        .execute(&mut *tx)
+        .await?;
 
         let readied_hold = self
             .holds_notify_next_tx(&mut tx, loan.item_id, self.hold_ready_expiry_days())
@@ -398,7 +433,7 @@ impl Repository {
 
         let item_row = sqlx::query(
             r#"
-            SELECT it.id, b.media_type
+            SELECT it.id, it.circulation_status, b.media_type
             FROM items it
             JOIN biblios b ON it.biblio_id = b.id
             WHERE it.id = $1
@@ -410,6 +445,15 @@ impl Repository {
         .await?
         .ok_or_else(|| AppError::NotFound("Item not found".to_string()))?;
         let media_type: Option<String> = item_row.get("media_type");
+        let circulation_status = crate::models::circulation::CirculationStatus::from_db(
+            item_row.get("circulation_status"),
+        );
+        if circulation_status == crate::models::circulation::CirculationStatus::ClaimedReturned {
+            return Err(AppError::BusinessRule(
+                "Cannot renew a loan that is in the claims-returned queue — resolve the claim first"
+                    .to_string(),
+            ));
+        }
 
         let loan = sqlx::query_as::<_, Loan>("SELECT * FROM loans WHERE id = $1 FOR UPDATE")
             .bind(loan_id)

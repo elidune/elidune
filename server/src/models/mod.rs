@@ -5,6 +5,7 @@ pub mod audit;
 pub mod author;
 pub mod biblio;
 pub mod biblio_author;
+pub mod circulation;
 pub mod dto;
 pub mod enums;
 pub mod equipment;

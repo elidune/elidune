@@ -436,6 +436,7 @@ mod tests {
             paid_at: None,
             status: FineStatus::Pending,
             notes: None,
+            charge_type: crate::models::fine::FineChargeType::Overdue,
         }
     }
 
