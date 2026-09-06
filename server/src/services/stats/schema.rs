@@ -374,6 +374,9 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
                 ("returned_at", f("returned_at", "timestamptz", "Return")),
                 ("nb_renews", f("nb_renews", "integer", "Renewals")),
                 ("addr_city", f("addr_city", "text", "Borrower city")),
+                ("account_type", f("account_type", "text", "Account type")),
+                ("age_band", f("age_band", "text", "Age band at loan")),
+                ("loan_year", f("loan_year", "integer", "Loan year")),
             ]),
             relations: HashMap::from([
                 ("users", r("users", "user_id", "id", "Borrower")),

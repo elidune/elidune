@@ -222,6 +222,7 @@ pub mod event {
     pub const SYSTEM_FINES_ACCRUAL_BATCH_COMPLETED: &str = "system.fines_accrual_batch_completed";
     pub const SYSTEM_HOLD_EXPIRY_BATCH_COMPLETED: &str = "system.hold_expiry_batch_completed";
     pub const SYSTEM_AUDIT_CLEANUP: &str = "system.audit_cleanup";
+    pub const SYSTEM_PRIVACY_AUTO_ERASURE: &str = "system.privacy_auto_erasure";
     pub const SYSTEM_TASK_COMPLETED: &str = "system.task_completed";
     pub const SYSTEM_TASK_FAILED: &str = "system.task_failed";
 }
@@ -416,6 +417,10 @@ mod tests {
         assert_eq!(
             event::SYSTEM_FINES_ACCRUAL_BATCH_COMPLETED,
             "system.fines_accrual_batch_completed"
+        );
+        assert_eq!(
+            event::SYSTEM_PRIVACY_AUTO_ERASURE,
+            "system.privacy_auto_erasure"
         );
     }
 }

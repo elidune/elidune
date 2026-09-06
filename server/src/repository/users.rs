@@ -8,8 +8,8 @@ use super::Repository;
 use crate::{
     error::{AppError, AppResult},
     models::user::{
-        AccountTypeSlug, Rights, UpdateProfile, User, UserPayload, UserQuery, UserRights,
-        UserShort, UserStatus,
+        AccountTypeSlug, Rights, UpdateProfile, User, UserErasureResult, UserPayload, UserQuery,
+        UserRights, UserShort, UserStatus,
     },
 };
 
@@ -51,7 +51,9 @@ pub trait UsersRepository: Send + Sync {
         user: &UserPayload,
         password: Option<String>,
     ) -> AppResult<User>;
-    async fn users_delete(&self, id: i64, force: bool) -> AppResult<()>;
+    async fn users_delete(&self, id: i64, force: bool) -> AppResult<UserErasureResult>;
+    async fn users_list_due_for_auto_erasure(&self, years_after_expiry: u32)
+        -> AppResult<Vec<i64>>;
     async fn users_block(&self, id: i64) -> AppResult<User>;
     async fn users_unblock(&self, id: i64) -> AppResult<User>;
     async fn users_update_profile(
@@ -152,8 +154,18 @@ impl UsersRepository for Repository {
     ) -> crate::error::AppResult<User> {
         Repository::users_update(self, id, user, password).await
     }
-    async fn users_delete(&self, id: i64, force: bool) -> crate::error::AppResult<()> {
+    async fn users_delete(
+        &self,
+        id: i64,
+        force: bool,
+    ) -> crate::error::AppResult<crate::models::user::UserErasureResult> {
         Repository::users_delete(self, id, force).await
+    }
+    async fn users_list_due_for_auto_erasure(
+        &self,
+        years_after_expiry: u32,
+    ) -> crate::error::AppResult<Vec<i64>> {
+        Repository::users_list_due_for_auto_erasure(self, years_after_expiry).await
     }
     async fn users_block(&self, id: i64) -> crate::error::AppResult<User> {
         Repository::users_block(self, id).await
@@ -699,42 +711,128 @@ impl Repository {
         self.users_get_by_id(id).await
     }
 
-    /// Delete a user (soft delete: anonymize data and set status to deleted)
+    /// Anonymize a patron for stats: snapshot archive dimensions, null history `user_id`,
+    /// full PII scrub on the `users` row. Does **not** rewrite `users.id`.
+    ///
+    /// # `users` column checklist
+    /// **Scrubbed:** login, password, firstname, lastname, email, addr_street, addr_zip_code,
+    /// addr_city, phone, fee, group_id, barcode, notes, birthdate, language, sex, staff_type,
+    /// hours_per_week, staff_start_date, staff_end_date, two_factor_method, totp_secret,
+    /// recovery_codes, recovery_codes_used.
+    /// **Reset:** receive_reminders=false, two_factor_enabled=false, must_change_password=false,
+    /// token_version+=1, status=deleted, archived_at/update_at=now.
+    /// **Kept (non-identifying / operational):** id, account_type, public_type, created_at, expiry_at.
     #[tracing::instrument(skip(self), err)]
-    pub async fn users_delete(&self, id: i64, force: bool) -> AppResult<()> {
+    pub async fn users_delete(&self, id: i64, force: bool) -> AppResult<UserErasureResult> {
+        let user = self.users_get_by_id(id).await?;
+
         let active_loans = self.loans_get_active_ids_for_user(id).await?;
+        let mut loans_force_returned = 0_u64;
 
         if !active_loans.is_empty() {
             if !force {
                 return Err(AppError::BusinessRule(
                     "User has active loans. Use force=true to delete anyway.".to_string(),
                 ));
-            } else {
-                for loan_id in active_loans {
-                    self.loans_return(loan_id).await?;
-                }
+            }
+            for loan_id in active_loans {
+                self.loans_return(loan_id).await?;
+                loans_force_returned += 1;
             }
         }
 
         // Soft-delete does not remove the `users` row, so ON DELETE CASCADE on `holds` does not run.
         let mut tx = self.pool.begin().await?;
-        sqlx::query("DELETE FROM holds WHERE user_id = $1")
+
+        if let Some(ref email) = user.email {
+            sqlx::query("DELETE FROM email_outbox WHERE status = 'pending' AND to_addr = $1")
+                .bind(email)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        let hold_items: Vec<i64> =
+            sqlx::query_scalar("DELETE FROM holds WHERE user_id = $1 RETURNING item_id")
+                .bind(id)
+                .fetch_all(&mut *tx)
+                .await?;
+        let holds_cancelled = hold_items.len() as u64;
+        let mut seen_items = std::collections::HashSet::new();
+        for item_id in hold_items {
+            if seen_items.insert(item_id) {
+                self.holds_notify_next_tx(&mut tx, item_id, self.hold_ready_expiry_days())
+                    .await?;
+            }
+        }
+
+        let archives_unlinked = sqlx::query(
+            r#"
+            UPDATE loans_archives la
+            SET
+                borrower_public_type = COALESCE(la.borrower_public_type, u.public_type),
+                addr_city = COALESCE(la.addr_city, u.addr_city),
+                account_type = COALESCE(la.account_type, u.account_type),
+                loan_year = COALESCE(la.loan_year, EXTRACT(YEAR FROM la.date)::smallint),
+                age_band = COALESCE(
+                    la.age_band,
+                    CASE
+                        WHEN u.birthdate IS NULL OR la.date IS NULL THEN NULL
+                        WHEN EXTRACT(YEAR FROM AGE(la.date::date, u.birthdate)) < 18 THEN '0-17'
+                        WHEN EXTRACT(YEAR FROM AGE(la.date::date, u.birthdate)) < 30 THEN '18-29'
+                        WHEN EXTRACT(YEAR FROM AGE(la.date::date, u.birthdate)) < 50 THEN '30-49'
+                        WHEN EXTRACT(YEAR FROM AGE(la.date::date, u.birthdate)) < 65 THEN '50-64'
+                        ELSE '65+'
+                    END
+                ),
+                user_id = NULL
+            FROM users u
+            WHERE la.user_id = u.id AND u.id = $1
+            "#,
+        )
+        .bind(id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+
+        let fines_unlinked = sqlx::query("UPDATE fines SET user_id = NULL WHERE user_id = $1")
             .bind(id)
             .execute(&mut *tx)
-            .await?;
+            .await?
+            .rows_affected();
+
         sqlx::query(
             r#"
             UPDATE users SET
                 login = NULL,
+                password = NULL,
                 firstname = NULL,
                 lastname = NULL,
-                password = NULL,
                 email = NULL,
-                phone = NULL,
                 addr_street = NULL,
+                addr_zip_code = NULL,
                 addr_city = NULL,
+                phone = NULL,
+                fee = NULL,
+                group_id = NULL,
+                barcode = NULL,
+                notes = NULL,
+                birthdate = NULL,
+                language = NULL,
+                sex = NULL,
+                staff_type = NULL,
+                hours_per_week = NULL,
+                staff_start_date = NULL,
+                staff_end_date = NULL,
+                receive_reminders = FALSE,
+                two_factor_enabled = FALSE,
+                two_factor_method = NULL,
+                totp_secret = NULL,
+                recovery_codes = NULL,
+                recovery_codes_used = NULL,
+                must_change_password = FALSE,
+                token_version = token_version + 1,
                 status = $1,
-                archived_at = NOW(),
+                archived_at = COALESCE(archived_at, NOW()),
                 update_at = NOW()
             WHERE id = $2
             "#,
@@ -745,7 +843,38 @@ impl Repository {
         .await?;
         tx.commit().await?;
 
-        Ok(())
+        Ok(UserErasureResult {
+            force,
+            loans_force_returned,
+            holds_cancelled,
+            archives_unlinked,
+            fines_unlinked,
+        })
+    }
+
+    /// Memberships expired at least `years_after_expiry` years ago and not yet erased.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn users_list_due_for_auto_erasure(
+        &self,
+        years_after_expiry: u32,
+    ) -> AppResult<Vec<i64>> {
+        if years_after_expiry == 0 {
+            return Ok(Vec::new());
+        }
+        let ids = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT id FROM users
+            WHERE (status IS NULL OR status <> 'deleted')
+              AND expiry_at IS NOT NULL
+              AND expiry_at < NOW() - make_interval(years => $1::int)
+            ORDER BY id
+            LIMIT 500
+            "#,
+        )
+        .bind(i32::try_from(years_after_expiry).unwrap_or(i32::MAX))
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(ids)
     }
 
     /// Block a user

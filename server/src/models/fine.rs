@@ -46,7 +46,7 @@ impl From<String> for FineStatus {
 
 impl sqlx::Type<sqlx::Postgres> for FineStatus {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <String as sqlx::Type<sqlx::Postgres>>::type_info()
+        sqlx::postgres::PgTypeInfo::with_name("varchar")
     }
 
     fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
@@ -80,9 +80,9 @@ pub struct Fine {
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub loan_id: i64,
-    #[serde_as(as = "DisplayFromStr")]
-    #[schema(value_type = String)]
-    pub user_id: i64,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub user_id: Option<i64>,
     pub amount: rust_decimal::Decimal,
     pub paid_amount: rust_decimal::Decimal,
     pub created_at: DateTime<Utc>,

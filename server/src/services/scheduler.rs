@@ -1,10 +1,12 @@
-//! Background scheduler for overdue reminder emails, hold expiry, fine accrual, and audit log cleanup.
+//! Background scheduler for overdue reminder emails, hold expiry, fine accrual,
+//! audit cleanup, and privacy erasure.
 //!
 //! Spawned at startup via `tokio::spawn`. Periodic tasks run concurrently:
 //! - Reminder sending at the configured time of day
 //! - Overdue fine accrual at the same clock (optional, `reminders.accrue_fines`)
 //! - Ready-hold expiry (missed pickup) at 02:00 daily
 //! - Audit log cleanup at 03:00 daily
+//! - Patron auto-erasure after membership expiry at 04:00 daily (when configured)
 
 use std::sync::Arc;
 
@@ -288,6 +290,101 @@ pub fn spawn(
                 }
             }
             operational_metrics::record_scheduler_run("audit_cleanup", Utc::now().timestamp());
+        }
+    });
+
+    // Patron auto-erasure after membership expiry (04:00). Disabled when years == 0.
+    let dc_privacy = dynamic_config.clone();
+    let repo_privacy = repository.clone();
+    let audit_privacy = audit_service.clone();
+    tokio::spawn(async move {
+        tracing::info!("Privacy auto-erasure scheduler started");
+        loop {
+            let sleep_dur = duration_until_next_send("04:00");
+            tokio::time::sleep(sleep_dur).await;
+
+            let years = dc_privacy
+                .file_config
+                .privacy
+                .auto_anonymize_years_after_expiry;
+            if years == 0 {
+                tracing::debug!("Privacy auto-erasure disabled (years=0)");
+                operational_metrics::record_scheduler_run(
+                    "privacy_auto_erasure",
+                    Utc::now().timestamp(),
+                );
+                continue;
+            }
+
+            match repo_privacy.users_list_due_for_auto_erasure(years).await {
+                Ok(ids) => {
+                    let mut erased = 0_u64;
+                    let mut skipped_active_loans = 0_u64;
+                    let mut failed = 0_u64;
+                    for id in ids {
+                        match repo_privacy.users_delete(id, false).await {
+                            Ok(result) => {
+                                erased += 1;
+                                audit_privacy.log(
+                                    audit::event::USER_DELETED,
+                                    None,
+                                    Some("user"),
+                                    Some(id),
+                                    None,
+                                    Some(serde_json::json!({
+                                        "id": id,
+                                        "force": false,
+                                        "anonymized": true,
+                                        "trigger": "retention_job",
+                                        "loansForceReturned": result.loans_force_returned,
+                                        "holdsCancelled": result.holds_cancelled,
+                                        "archivesUnlinked": result.archives_unlinked,
+                                        "finesUnlinked": result.fines_unlinked,
+                                    })),
+                                    audit::AuditLogMeta::success(),
+                                );
+                            }
+                            Err(crate::error::AppError::BusinessRule(_)) => {
+                                skipped_active_loans += 1;
+                            }
+                            Err(e) => {
+                                failed += 1;
+                                tracing::error!(user_id = id, error = %e, "Auto-erasure failed");
+                            }
+                        }
+                    }
+                    audit_privacy.log(
+                        audit::event::SYSTEM_PRIVACY_AUTO_ERASURE,
+                        None,
+                        None,
+                        None,
+                        None,
+                        Some(serde_json::json!({
+                            "yearsAfterExpiry": years,
+                            "erased": erased,
+                            "skippedActiveLoans": skipped_active_loans,
+                            "failed": failed,
+                        })),
+                        audit::AuditLogMeta::success(),
+                    );
+                }
+                Err(e) => {
+                    tracing::error!("Privacy auto-erasure listing failed: {e}");
+                    audit_privacy.log(
+                        audit::event::SYSTEM_PRIVACY_AUTO_ERASURE,
+                        None,
+                        None,
+                        None,
+                        None,
+                        Some(serde_json::json!({ "yearsAfterExpiry": years })),
+                        audit::AuditLogMeta::from_app_error(&e),
+                    );
+                }
+            }
+            operational_metrics::record_scheduler_run(
+                "privacy_auto_erasure",
+                Utc::now().timestamp(),
+            );
         }
     });
 

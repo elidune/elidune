@@ -1,6 +1,6 @@
 //! Loans repository — create, return, and renew mutations.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Datelike, Utc};
 use sqlx::Row;
 
 use super::super::Repository;
@@ -215,22 +215,29 @@ impl Repository {
         loan: &Loan,
         returned_at: DateTime<Utc>,
     ) -> AppResult<()> {
-        let user_row =
-            sqlx::query("SELECT addr_city, account_type, public_type FROM users WHERE id = $1")
-                .bind(loan.user_id)
-                .fetch_optional(&mut **tx)
-                .await?;
+        let user_row = sqlx::query(
+            "SELECT addr_city, account_type, public_type, birthdate FROM users WHERE id = $1",
+        )
+        .bind(loan.user_id)
+        .fetch_optional(&mut **tx)
+        .await?;
 
         let account_type: Option<String> = user_row.as_ref().and_then(|r| r.get("account_type"));
+        let birthdate: Option<chrono::NaiveDate> =
+            user_row.as_ref().and_then(|r| r.get("birthdate"));
+        let age_band = birthdate.and_then(|b| {
+            crate::models::user::borrower_age_band(b, loan.date.date_naive()).map(str::to_string)
+        });
+        let loan_year = i16::try_from(loan.date.year()).ok();
 
         sqlx::query(
             r#"
             INSERT INTO loans_archives (
                 user_id, item_id, date, nb_renews, expiry_at,
                 returned_at, notes, borrower_public_type,
-                addr_city, account_type
+                addr_city, account_type, age_band, loan_year
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             "#,
         )
         .bind(loan.user_id)
@@ -251,6 +258,8 @@ impl Repository {
                 .and_then(|r| r.get::<Option<String>, _>("addr_city")),
         )
         .bind(account_type)
+        .bind(age_band)
+        .bind(loan_year)
         .execute(&mut **tx)
         .await?;
 

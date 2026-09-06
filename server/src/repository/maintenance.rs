@@ -44,8 +44,9 @@ pub trait MaintenanceRepository: Send + Sync {
     async fn maintenance_cleanup_dangling_biblio_collections(&self)
         -> AppResult<MaintenanceDetail>;
 
-    /// Delete soft-deleted user rows, normalize `addr_city`, and set `public_type` from `birthdate`
+    /// Normalize `addr_city` and set `public_type` from `birthdate`
     /// using each `public_types` row's `age_min` / `age_max` (when not null).
+    /// Does not hard-delete anonymized stubs (erasure keeps `users.id`).
     async fn maintenance_cleanup_users(&self) -> AppResult<MaintenanceDetail>;
 }
 
