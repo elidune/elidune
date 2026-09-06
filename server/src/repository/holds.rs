@@ -530,6 +530,28 @@ impl Repository {
         Ok(pending)
     }
 
+    /// Same as [`holds_eligible_borrower_for_item`] inside an open transaction.
+    /// Locks active hold rows on this copy so checkout and hold updates serialize.
+    #[tracing::instrument(skip(self, tx), err)]
+    pub async fn holds_eligible_borrower_for_item_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        item_id: i64,
+    ) -> AppResult<Option<i64>> {
+        let user_ids: Vec<i64> = sqlx::query_scalar(
+            r#"
+            SELECT user_id FROM holds
+            WHERE item_id = $1 AND status IN ('pending', 'ready')
+            ORDER BY CASE status WHEN 'ready' THEN 0 ELSE 1 END, position ASC
+            FOR UPDATE
+            "#,
+        )
+        .bind(item_id)
+        .fetch_all(&mut **tx)
+        .await?;
+        Ok(user_ids.into_iter().next())
+    }
+
     /// Mark the patron’s active hold on this copy as fulfilled (after a normal checkout).
     #[tracing::instrument(skip(self, tx), err)]
     pub async fn holds_fulfill_active_for_user_item_tx(

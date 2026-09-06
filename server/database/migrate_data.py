@@ -5,7 +5,7 @@ Migrates data from the legacy C/XML-RPC PostgreSQL schema to the new Rust schema
 
 Source schema: legacy database (see elidune-pgdump.sql)
 Target schema: new database (see migrations/001_initial_schema.sql + follow-up migrations,
-including email outbox tables up to migration 021)
+including email outbox tables and idx_loans_one_active_per_item up to migration 022)
 
 Usage:
     python migrate_data.py --source-db <old_db_url> --target-db <new_db_url>
@@ -1052,6 +1052,8 @@ def migrate_loans(src, dst, migrated_specimen_ids=None):
     active = 0
     archived = 0
     skipped = 0
+    # Destination enforces at most one active loan per item (idx_loans_one_active_per_item).
+    seen_active_item_ids = set()
 
     for row in borrows:
         vals = list(row)
@@ -1094,6 +1096,30 @@ def migrate_loans(src, dst, migrated_specimen_ids=None):
             ))
             archived += 1
         else:
+            if item_id in seen_active_item_ids:
+                # Extra active loan on the same copy: archive it instead of violating
+                # idx_loans_one_active_per_item.
+                city, at_code, pt_raw = user_info.get(user_id, (None, 'guest', None))
+                pt_id = None
+                if pt_raw is not None:
+                    pt_name = PUBLIC_TYPE_INT_TO_NAME.get(int(pt_raw))
+                    if pt_name:
+                        pt_id = pt_name_to_id.get(pt_name)
+                dst_cur.execute("""
+                    INSERT INTO loans_archives (
+                        id, user_id, item_id, date, nb_renews,
+                        expiry_at, returned_at, notes,
+                        borrower_public_type, addr_city, account_type
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (id) DO NOTHING
+                """, (
+                    vals[0], user_id, item_id,
+                    vals[4], vals[6], vals[7], datetime.now(tz=timezone.utc), vals[8],
+                    pt_id, city, at_code,
+                ))
+                archived += 1
+                continue
+            seen_active_item_ids.add(item_id)
             dst_cur.execute("""
                 INSERT INTO loans (
                     id, user_id, item_id, date, renew_at,

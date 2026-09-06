@@ -11,66 +11,84 @@ use crate::{
         biblio::BiblioShort,
         item::ItemShort,
         loan::{
-            CreateLoan, LoanCreateOutcome, LoanDetails, LoanReturnOutcome, LoanSettingsRenewAt,
+            CreateLoan, Loan, LoanCreateOutcome, LoanDetails, LoanReturnOutcome,
+            LoanSettingsRenewAt,
         },
         user::{UserShort, UserShortRow},
     },
 };
 
 impl Repository {
-    /// Create a new loan
+    /// Create a new loan.
+    ///
+    /// Serializes on the item row (`FOR UPDATE`) and relies on
+    /// `idx_loans_one_active_per_item` so concurrent checkouts cannot create two
+    /// active loans on the same copy. A `force` checkout archives any existing
+    /// active loan in the same transaction (without advancing the hold queue —
+    /// force then cancels active holds).
     pub async fn loans_create(&self, loan: &CreateLoan) -> AppResult<LoanCreateOutcome> {
         let now = Utc::now();
 
-        // Get item (physical copy) ID
-        let item_id = if let Some(id) = loan.item_id {
-            id
-        } else if let Some(ref identification) = loan.item_identification {
-            sqlx::query_scalar::<_, i64>("SELECT id FROM items WHERE barcode = $1")
-                .bind(identification)
-                .fetch_optional(&self.pool)
-                .await?
-                .ok_or_else(|| AppError::NotFound("Item not found".to_string()))?
-        } else {
+        if loan.item_id.is_none() && loan.item_identification.is_none() {
             return Err(AppError::BadRequest(
                 "item_id or item_identification required".to_string(),
             ));
+        }
+
+        let mut tx = self.pool.begin().await?;
+
+        // Lock the physical copy so concurrent checkouts (and hold checks) serialize.
+        let item_row = if let Some(id) = loan.item_id {
+            sqlx::query(
+                r#"
+                SELECT it.id, it.borrowable, b.media_type
+                FROM items it
+                JOIN biblios b ON it.biblio_id = b.id
+                WHERE it.id = $1
+                FOR UPDATE OF it
+                "#,
+            )
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?
+        } else {
+            sqlx::query(
+                r#"
+                SELECT it.id, it.borrowable, b.media_type
+                FROM items it
+                JOIN biblios b ON it.biblio_id = b.id
+                WHERE it.barcode = $1
+                FOR UPDATE OF it
+                "#,
+            )
+            .bind(loan.item_identification.as_deref())
+            .fetch_optional(&mut *tx)
+            .await?
         };
 
-        // Check if item is already borrowed
-        let loan_id: Option<i64> = sqlx::query_scalar::<_, i64>(
-            "SELECT id FROM loans WHERE item_id = $1 AND returned_at IS NULL",
+        let item_row = item_row.ok_or_else(|| AppError::NotFound("Item not found".to_string()))?;
+        let item_id: i64 = item_row.get("id");
+        let borrowable: bool = item_row.get("borrowable");
+        let media_type: Option<String> = item_row.get("media_type");
+
+        let existing: Option<Loan> = sqlx::query_as::<_, Loan>(
+            "SELECT * FROM loans WHERE item_id = $1 AND returned_at IS NULL FOR UPDATE",
         )
         .bind(item_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await?;
 
-        if let Some(loan_id) = loan_id {
+        if let Some(ref existing_loan) = existing {
             if !loan.force {
                 return Err(AppError::BusinessRule(
                     "Item is already borrowed".to_string(),
                 ));
-            } else {
-                // return the loan
-                self.loans_return(loan_id).await?;
             }
+            // Close the previous loan in this transaction. Do not notify the next
+            // hold — force checkout cancels the queue below.
+            self.loans_archive_and_delete_tx(&mut tx, existing_loan, now)
+                .await?;
         }
-
-        // Get item info and loan settings
-        let item_row = sqlx::query(
-            r#"
-            SELECT it.borrowable, b.media_type
-            FROM items it
-            JOIN biblios b ON it.biblio_id = b.id
-            WHERE it.id = $1
-            "#,
-        )
-        .bind(item_id)
-        .fetch_one(&self.pool)
-        .await?;
-
-        let borrowable: bool = item_row.get("borrowable");
-        let media_type: Option<String> = item_row.get("media_type");
 
         if !borrowable && !loan.force {
             return Err(AppError::BusinessRule("Item is not borrowable".to_string()));
@@ -79,7 +97,7 @@ impl Repository {
         let user_public_type: Option<i64> =
             sqlx::query_scalar::<_, Option<i64>>("SELECT public_type FROM users WHERE id = $1")
                 .bind(loan.user_id)
-                .fetch_optional(&self.pool)
+                .fetch_optional(&mut *tx)
                 .await?
                 .flatten();
 
@@ -93,7 +111,7 @@ impl Repository {
             "SELECT COUNT(*) FROM loans WHERE user_id = $1 AND returned_at IS NULL",
         )
         .bind(loan.user_id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await?;
         let current_loans_media: i64 = if let Some(ref mt) = media_type {
             sqlx::query_scalar(
@@ -106,7 +124,7 @@ impl Repository {
             )
             .bind(loan.user_id)
             .bind(mt)
-            .fetch_one(&self.pool)
+            .fetch_one(&mut *tx)
             .await?
         } else {
             0
@@ -137,7 +155,10 @@ impl Repository {
         // Hold queue: only the patron whose turn it is (`ready`, else first `pending`) may borrow,
         // unless staff uses `force=true` (clears active holds on this copy).
         if !loan.force {
-            if let Some(eligible) = self.holds_eligible_borrower_for_item(item_id).await? {
+            if let Some(eligible) = self
+                .holds_eligible_borrower_for_item_tx(&mut tx, item_id)
+                .await?
+            {
                 if eligible != loan.user_id {
                     return Err(AppError::BusinessRule(
                         "This copy has an active hold for another patron — only the queued patron may borrow it, or use force=true to override".to_string(),
@@ -146,9 +167,7 @@ impl Repository {
             }
         }
 
-        let mut tx = self.pool.begin().await?;
-
-        let loan_id = sqlx::query_scalar::<_, i64>(
+        let loan_id = match sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO loans (user_id, item_id, date, expiry_at, nb_renews)
             VALUES ($1, $2, $3, $4, 0)
@@ -160,7 +179,16 @@ impl Repository {
         .bind(now)
         .bind(expiry_at)
         .fetch_one(&mut *tx)
-        .await?;
+        .await
+        {
+            Ok(id) => id,
+            Err(e) if is_active_loan_unique_violation(&e) => {
+                return Err(AppError::BusinessRule(
+                    "Item is already borrowed".to_string(),
+                ));
+            }
+            Err(e) => return Err(e.into()),
+        };
 
         let fulfilled_hold_id = if loan.force {
             self.holds_cancel_active_for_item_tx(&mut tx, item_id)
@@ -180,25 +208,20 @@ impl Repository {
         })
     }
 
-    /// Return a loan (moves it to loans_archives).
-    pub async fn loans_return(&self, loan_id: i64) -> AppResult<LoanReturnOutcome> {
-        let now = Utc::now();
-
-        let loan = self.loans_get_by_id(loan_id).await?;
-
-        if loan.returned_at.is_some() {
-            return Err(AppError::BusinessRule("Loan already returned".to_string()));
-        }
-
+    /// Archive an active loan and delete it. Does not advance the hold queue.
+    async fn loans_archive_and_delete_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        loan: &Loan,
+        returned_at: DateTime<Utc>,
+    ) -> AppResult<()> {
         let user_row =
             sqlx::query("SELECT addr_city, account_type, public_type FROM users WHERE id = $1")
                 .bind(loan.user_id)
-                .fetch_optional(&self.pool)
+                .fetch_optional(&mut **tx)
                 .await?;
 
         let account_type: Option<String> = user_row.as_ref().and_then(|r| r.get("account_type"));
-
-        let mut tx = self.pool.begin().await?;
 
         sqlx::query(
             r#"
@@ -215,7 +238,7 @@ impl Repository {
         .bind(loan.date)
         .bind(loan.nb_renews)
         .bind(loan.expiry_at)
-        .bind(now)
+        .bind(returned_at)
         .bind(&loan.notes)
         .bind(
             user_row
@@ -228,12 +251,30 @@ impl Repository {
                 .and_then(|r| r.get::<Option<String>, _>("addr_city")),
         )
         .bind(account_type)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
 
         sqlx::query("DELETE FROM loans WHERE id = $1")
-            .bind(loan_id)
-            .execute(&mut *tx)
+            .bind(loan.id)
+            .execute(&mut **tx)
+            .await?;
+
+        Ok(())
+    }
+
+    /// Return a loan (moves it to loans_archives).
+    pub async fn loans_return(&self, loan_id: i64) -> AppResult<LoanReturnOutcome> {
+        let now = Utc::now();
+
+        let loan = self.loans_get_by_id(loan_id).await?;
+
+        if loan.returned_at.is_some() {
+            return Err(AppError::BusinessRule("Loan already returned".to_string()));
+        }
+
+        let mut tx = self.pool.begin().await?;
+
+        self.loans_archive_and_delete_tx(&mut tx, &loan, now)
             .await?;
 
         let readied_hold = self
@@ -383,5 +424,16 @@ impl Repository {
             .await?;
 
         Ok((new_expiry_date, new_renews))
+    }
+}
+
+/// `idx_loans_one_active_per_item` — last line of defense if two inserts race.
+fn is_active_loan_unique_violation(err: &sqlx::Error) -> bool {
+    match err {
+        sqlx::Error::Database(db) => {
+            db.code().as_deref() == Some("23505")
+                && db.constraint() == Some("idx_loans_one_active_per_item")
+        }
+        _ => false,
     }
 }
