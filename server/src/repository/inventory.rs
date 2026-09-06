@@ -14,6 +14,8 @@ use crate::{
     },
 };
 
+type ItemBarcodeLookup = (i64, Option<DateTime<Utc>>, Option<i64>, Option<i16>);
+
 #[async_trait]
 pub trait InventoryRepository: Send + Sync {
     async fn inventory_list_sessions_page(
@@ -426,7 +428,7 @@ impl Repository {
     ) -> AppResult<InventoryScan> {
         let session = self.inventory_fetch_session(session_id).await?;
 
-        let row: Option<(i64, Option<DateTime<Utc>>, Option<i64>, Option<i16>)> = sqlx::query_as(
+        let row: Option<ItemBarcodeLookup> = sqlx::query_as(
             "SELECT id, archived_at, source_id, place FROM items WHERE barcode = $1 LIMIT 1",
         )
         .bind(barcode)

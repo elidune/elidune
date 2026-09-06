@@ -13,20 +13,15 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use chrono::Utc;
 use sqlx::types::Json;
-use sqlx::{FromRow, Row};
+use sqlx::FromRow;
 
 use super::Repository;
 use crate::models::item::ItemShort;
 use crate::{
-    error::{AppError, AppResult},
-    marc::MarcRecord,
+    error::AppResult,
     models::{
         author::Author,
-        author::Function,
-        biblio::{
-            Biblio, BiblioQuery, BiblioShort, Collection, Edition, Isbn, MediaType,
-            MeiliBiblioDocument, Serie,
-        },
+        biblio::{Biblio, BiblioQuery, BiblioShort, Isbn, MediaType, MeiliBiblioDocument},
         import_report::DuplicateCandidate,
         item::Item,
     },

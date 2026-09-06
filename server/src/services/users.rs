@@ -4,7 +4,7 @@ use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
-use chrono::{NaiveDate, Utc};
+use chrono::Utc;
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 
 use std::collections::HashSet;
@@ -20,7 +20,6 @@ use crate::{
             AccountTypeSlug, UpdateProfile, User, UserClaims, UserPayload, UserQuery, UserShort,
             UserStatus, SCOPE_CHANGE_PASSWORD,
         },
-        Sex,
     },
     repository::Repository,
 };
@@ -138,7 +137,7 @@ impl UsersService {
                                 AppError::Internal("Invalid TOTP secret format".to_string())
                             })?;
 
-                    let now = Utc::now().timestamp() as i64;
+                    let now = Utc::now().timestamp();
                     // totp_custom(step, digits, secret, time)
                     let totp_code = totp_custom::<sha1::Sha1>(30, 6, &secret_bytes, now as u64);
 
@@ -198,7 +197,7 @@ impl UsersService {
             ));
         }
 
-        if used_codes.contains(&code.to_string()) {
+        if used_codes.contains(code) {
             return Err(AppError::Authentication(
                 "Recovery code has already been used".to_string(),
             ));
@@ -651,6 +650,7 @@ impl UsersService {
     }
 
     /// Generate a cryptographically random alphanumeric password of the given length.
+    #[allow(dead_code)]
     fn generate_random_password(length: usize) -> String {
         use rand::Rng;
         const CHARSET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#%^&*";

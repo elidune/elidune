@@ -123,7 +123,7 @@ pub async fn delete_visitor_count(
 
 /// Build the visitor-counts routes for this domain.
 pub fn router() -> axum::Router<crate::AppState> {
-    use axum::routing::{delete, get, post};
+    use axum::routing::{delete, get};
     axum::Router::new()
         .route(
             "/visitor-counts",

@@ -3,7 +3,6 @@
 //! Both the filter (level) and the output layer (format, destination) are wrapped in
 //! [`reload::Layer`] so every logging option can be changed at runtime via the admin API.
 
-use std::io::Write;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
@@ -17,10 +16,16 @@ use crate::config::LoggingConfig;
 type FilteredRegistry =
     tracing_subscriber::layer::Layered<reload::Layer<EnvFilter, Registry>, Registry>;
 
+type ReloadableOutputLayer = Box<dyn Layer<FilteredRegistry> + Send + Sync>;
+type OutputLayerBuild = (
+    ReloadableOutputLayer,
+    Option<tracing_appender::non_blocking::WorkerGuard>,
+);
+
 /// Hot-reload handles for the global tracing subscriber.
 pub struct LoggingReload {
     filter_handle: reload::Handle<EnvFilter, Registry>,
-    output_handle: reload::Handle<Box<dyn Layer<FilteredRegistry> + Send + Sync>, FilteredRegistry>,
+    output_handle: reload::Handle<ReloadableOutputLayer, FilteredRegistry>,
     appender_guard: RwLock<Option<tracing_appender::non_blocking::WorkerGuard>>,
 }
 
@@ -80,15 +85,7 @@ pub fn init(logging: &LoggingConfig) -> Result<TracingGuard, String> {
     })
 }
 
-fn build_output_layer(
-    logging: &LoggingConfig,
-) -> Result<
-    (
-        Box<dyn Layer<FilteredRegistry> + Send + Sync>,
-        Option<tracing_appender::non_blocking::WorkerGuard>,
-    ),
-    String,
-> {
+fn build_output_layer(logging: &LoggingConfig) -> Result<OutputLayerBuild, String> {
     let log_format = logging.format.as_str();
 
     match logging.output.as_str() {

@@ -1,8 +1,12 @@
 //! Shared harness for in-process HTTP integration tests.
 
+#![allow(dead_code)]
+
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::body::Body;
+use axum::extract::ConnectInfo;
 use axum::http::{Request, Response, StatusCode};
 use axum::Router;
 use http_body_util::BodyExt;
@@ -86,7 +90,10 @@ impl TestApp {
     }
 
     /// Send an HTTP request and return the full response.
-    pub async fn request(&self, req: Request<Body>) -> Response<Body> {
+    pub async fn request(&self, mut req: Request<Body>) -> Response<Body> {
+        // `GovernorLayer` keys on peer IP; oneshot requests have no socket unless we set it.
+        req.extensions_mut()
+            .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 3000))));
         self.router
             .clone()
             .oneshot(req)

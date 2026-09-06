@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use sqlx::{Pool, Postgres};
-use tokio::sync::{broadcast, Notify};
+use tokio::sync::broadcast;
 
 use crate::{
     app::{build_app, build_app_with_options, AppBuildOptions},

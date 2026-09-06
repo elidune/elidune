@@ -24,6 +24,7 @@ pub type LibraryInfoSnapshot = Option<(
 #[async_trait]
 pub trait LibraryInfoRepository: Send + Sync {
     async fn library_info_get(&self) -> AppResult<LibraryInfoSnapshot>;
+    #[allow(clippy::too_many_arguments)]
     async fn library_info_upsert(
         &self,
         name: &Option<String>,
@@ -98,6 +99,7 @@ impl Repository {
     }
 
     /// Upsert library_info (partial update via COALESCE in SQL).
+    #[allow(clippy::too_many_arguments)]
     pub async fn library_info_upsert(
         &self,
         name: &Option<String>,

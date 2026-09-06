@@ -8,16 +8,12 @@ use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use utoipa::ToSchema;
-use z3950_rs::marc_rs::{parse_records, Encoding, MarcFormat, RecordValidationIssue};
+use z3950_rs::marc_rs::parse_records;
 
 use crate::{
     error::{AppError, AppResult},
     marc::{MarcImportPreview, MarcRecord},
-    models::{
-        biblio::{Biblio, BiblioShort},
-        item::Item,
-        MediaType,
-    },
+    models::biblio::Biblio,
 };
 
 use super::{catalog::CatalogService, redis::RedisService, task_manager::TaskHandle};
@@ -121,7 +117,7 @@ impl MarcService {
     /// Returns the generated `batch_id` and the list of preview items.
     #[tracing::instrument(skip(self), err)]
     pub async fn enqueue_unimarc_batch(&self, data: &[u8]) -> AppResult<EnqueueResult> {
-        let records = parse_records(&data)
+        let records = parse_records(data)
             .map_err(|e| AppError::Validation(format!("UNIMARC parse error: {}", e)))?;
 
         let batch_id: i64 = snowflaked::Generator::new(1).generate::<i64>();
@@ -199,10 +195,7 @@ impl MarcService {
             }
         }
 
-        Ok(EnqueueResult {
-            batch_id,
-            previews: previews,
-        })
+        Ok(EnqueueResult { batch_id, previews })
     }
 
     /// List all MARC batches currently cached in Redis.
@@ -307,10 +300,7 @@ impl MarcService {
             previews.push(preview);
         }
 
-        Ok(EnqueueResult {
-            batch_id,
-            previews: previews,
-        })
+        Ok(EnqueueResult { batch_id, previews })
     }
 
     /// Import MARC records from a cached batch into the catalog.

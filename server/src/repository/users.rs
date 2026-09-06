@@ -536,18 +536,18 @@ impl Repository {
         .bind(&user.lastname)
         .bind(&user.email)
         .bind(&user.addr_street)
-        .bind(&user.addr_zip_code)
+        .bind(user.addr_zip_code)
         .bind(&user.addr_city)
         .bind(&user.phone)
-        .bind(&user.birthdate)
+        .bind(user.birthdate)
         .bind(account_type)
         .bind(fee)
-        .bind(&user.public_type)
+        .bind(user.public_type)
         .bind(&user.notes)
-        .bind(&user.group_id)
+        .bind(user.group_id)
         .bind(&user.barcode)
-        .bind(&user.sex)
-        .bind(&user.staff_type)
+        .bind(user.sex)
+        .bind(user.staff_type)
         .bind(hours_pw)
         .bind(staff_start_date)
         .bind(staff_end_date)
@@ -704,7 +704,7 @@ impl Repository {
     pub async fn users_delete(&self, id: i64, force: bool) -> AppResult<()> {
         let active_loans = self.loans_get_active_ids_for_user(id).await?;
 
-        if active_loans.len() > 0 {
+        if !active_loans.is_empty() {
             if !force {
                 return Err(AppError::BusinessRule(
                     "User has active loans. Use force=true to delete anyway.".to_string(),
