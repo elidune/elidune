@@ -88,7 +88,15 @@ pub struct CreateLoanRequest {
     #[schema(value_type = Option<String>)]
     pub item_id: Option<i64>,
     pub item_identification: Option<String>,
-    /// When true, bypasses patron/subscription/limits checks and hold-queue rules; active holds on the copy are cancelled.
+    /// When true, bypasses patron/subscription/limits/unpaid-fine checks and hold-queue rules; active holds on the copy are cancelled.
+    pub force: Option<bool>,
+}
+
+/// Optional staff override for renew.
+#[derive(Debug, Default, Deserialize, ToSchema, IntoParams)]
+#[serde(rename_all = "camelCase")]
+pub struct RenewLoanQuery {
+    /// When true, bypasses account and unpaid-fine threshold checks (staff only; audited).
     pub force: Option<bool>,
 }
 
@@ -342,7 +350,8 @@ pub struct GetUserLoansQuery {
         (status = 201, description = "Loan created", body = LoanResponse),
         (status = 400, description = "Invalid request"),
         (status = 404, description = "User or specimen not found"),
-        (status = 409, description = "Specimen already borrowed, max loans reached, or Idempotency-Key conflict")
+        (status = 409, description = "Specimen already borrowed, max loans reached, or Idempotency-Key conflict"),
+        (status = 422, description = "Business rule: unpaid fines exceed the configured threshold (staff may retry with force=true)")
     )
 )]
 pub async fn create_loan(
@@ -515,13 +524,14 @@ pub async fn return_loan(
     security(("bearer_auth" = [])),
     params(
         ("id" = i32, Path, description = "Loan ID"),
+        RenewLoanQuery,
         ("Idempotency-Key" = Option<String>, Header, description = "Optional 1–255 char key (`A–Z a–z 0–9 _ - . ~`). Same actor+key+payload replays the stored 2xx for 24h. Same key with a different payload returns 409.")
     ),
     responses(
         (status = 200, description = "Loan renewed", body = LoanResponse),
         (status = 404, description = "Loan not found"),
         (status = 409, description = "Idempotency-Key reused with a different payload"),
-        (status = 422, description = "Business rule: max renewals reached, already returned, or another patron is waiting in the hold queue")
+        (status = 422, description = "Business rule: max renewals reached, already returned, hold waiting, or unpaid fines exceed the threshold")
     )
 )]
 pub async fn renew_loan(
@@ -530,19 +540,25 @@ pub async fn renew_loan(
     ClientIp(ip): ClientIp,
     OptionalIdempotencyKey(idempotency_key): OptionalIdempotencyKey,
     Path(loan_id): Path<i64>,
+    Query(query): Query<RenewLoanQuery>,
 ) -> AppResult<Json<LoanResponse>> {
     let loan = state.services.loans.get_loan(loan_id).await?;
     let user_id = loan.user_id;
+    let force = query.force.unwrap_or(false);
 
     if claims.rights.loans_rights.rank() < Rights::Write.rank() && user_id != claims.user_id {
         return Err(AppError::Authorization(
             "Insufficient rights to read loans for another user".into(),
         ));
     }
+    if force {
+        claims.require_write_loans()?;
+    }
 
     let fingerprint = serde_json::json!({
         "op": "loans.renew",
         "loanId": loan_id.to_string(),
+        "force": force,
     });
 
     let (_status, body) = idempotency::execute(
@@ -554,7 +570,7 @@ pub async fn renew_loan(
         || {
             let state = state.clone();
             let ip = ip.clone();
-            async move { renew_loan_inner(state, claims.user_id, ip, loan_id).await }
+            async move { renew_loan_inner(state, claims.user_id, ip, loan_id, force).await }
         },
     )
     .await?;
@@ -566,8 +582,13 @@ async fn renew_loan_inner(
     actor_id: i64,
     ip: Option<String>,
     loan_id: i64,
+    force: bool,
 ) -> AppResult<(StatusCode, LoanResponse)> {
-    let (new_expiry_date, renew_count) = state.services.loans.renew_loan(loan_id).await?;
+    let (new_expiry_date, renew_count) = state
+        .services
+        .loans
+        .renew_loan(loan_id, force, Some(actor_id), ip.clone())
+        .await?;
 
     state.services.audit.log(
         audit::event::LOAN_RENEWED,
@@ -657,13 +678,14 @@ pub async fn return_loan_by_item(
     security(("bearer_auth" = [])),
     params(
         ("item_id" = String, Path, description = "Item barcode or call number"),
+        RenewLoanQuery,
         ("Idempotency-Key" = Option<String>, Header, description = "Optional 1–255 char key (`A–Z a–z 0–9 _ - . ~`). Same actor+key+payload replays the stored 2xx for 24h. Same key with a different payload returns 409.")
     ),
     responses(
         (status = 200, description = "Loan renewed", body = LoanResponse),
         (status = 404, description = "Item or active loan not found"),
         (status = 409, description = "Idempotency-Key reused with a different payload"),
-        (status = 422, description = "Business rule: max renewals reached, already returned, or another patron is waiting in the hold queue")
+        (status = 422, description = "Business rule: max renewals reached, already returned, hold waiting, or unpaid fines exceed the threshold")
     )
 )]
 pub async fn renew_loan_by_item(
@@ -672,11 +694,14 @@ pub async fn renew_loan_by_item(
     ClientIp(ip): ClientIp,
     OptionalIdempotencyKey(idempotency_key): OptionalIdempotencyKey,
     Path(item_id): Path<String>,
+    Query(query): Query<RenewLoanQuery>,
 ) -> AppResult<Json<LoanResponse>> {
     claims.require_write_loans()?;
+    let force = query.force.unwrap_or(false);
     let fingerprint = serde_json::json!({
         "op": "loans.renew_by_item",
         "itemId": item_id,
+        "force": force,
     });
 
     let (_status, body) = idempotency::execute(
@@ -689,7 +714,7 @@ pub async fn renew_loan_by_item(
             let state = state.clone();
             let ip = ip.clone();
             let item_id = item_id.clone();
-            async move { renew_loan_by_item_inner(state, claims.user_id, ip, item_id).await }
+            async move { renew_loan_by_item_inner(state, claims.user_id, ip, item_id, force).await }
         },
     )
     .await?;
@@ -701,9 +726,13 @@ async fn renew_loan_by_item_inner(
     actor_id: i64,
     ip: Option<String>,
     item_id: String,
+    force: bool,
 ) -> AppResult<(StatusCode, LoanResponse)> {
-    let (loan_id, new_expiry_date, renew_count) =
-        state.services.loans.renew_loan_by_item(&item_id).await?;
+    let (loan_id, new_expiry_date, renew_count) = state
+        .services
+        .loans
+        .renew_loan_by_item(&item_id, force, Some(actor_id), ip.clone())
+        .await?;
 
     state.services.audit.log(
         audit::event::LOAN_RENEWED,

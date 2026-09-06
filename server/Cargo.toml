@@ -89,6 +89,7 @@ secrecy = { version = "0.8", features = ["serde"] }
 libc = "0.2"
 
 [dev-dependencies]
+rust_decimal = { version = "1", features = ["serde"] }
 mockall = "0.13"
 tokio-test = "0.4"
 reqwest = { version = "0.12", features = ["json"] }

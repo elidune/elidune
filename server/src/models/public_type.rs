@@ -22,6 +22,8 @@ pub struct PublicType {
     pub age_max: Option<i16>,
     /// Subscription price in cents (e.g. 1500 = 15.00€)
     pub subscription_price: Option<i32>,
+    /// Optional unpaid-fine threshold override. `None` inherits the global circulation policy.
+    pub unpaid_fine_threshold: Option<rust_decimal::Decimal>,
 }
 
 /// Per-media loan settings for a public type: on the default row (`media_type` IS NULL), `nb_max` caps total active loans;
@@ -55,6 +57,8 @@ pub struct CreatePublicType {
     pub age_min: Option<i16>,
     pub age_max: Option<i16>,
     pub subscription_price: Option<i32>,
+    /// Optional unpaid-fine threshold override. `None` inherits the global circulation policy.
+    pub unpaid_fine_threshold: Option<rust_decimal::Decimal>,
 }
 
 /// One row when replacing all loan settings for a public type (`mediaType` null or omitted = default row).
@@ -87,4 +91,6 @@ pub struct UpdatePublicType {
     pub age_min: Option<i16>,
     pub age_max: Option<i16>,
     pub subscription_price: Option<i32>,
+    /// When set, replaces the unpaid-fine threshold override (`None` keeps the current value).
+    pub unpaid_fine_threshold: Option<rust_decimal::Decimal>,
 }

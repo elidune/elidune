@@ -22,6 +22,7 @@ use crate::{
         audit::{self, AuditLogMeta, AuditService},
         email::EmailService,
         event_bus::EventBus,
+        fines::FinesService,
     },
 };
 use z3950_rs::marc_rs::{BinaryWriter, Encoding as MarcEncoding, MarcFormat, XmlWriter};
@@ -29,6 +30,7 @@ use z3950_rs::marc_rs::{BinaryWriter, Encoding as MarcEncoding, MarcFormat, XmlW
 #[derive(Clone)]
 pub struct LoansService {
     repository: Arc<dyn LoansServiceRepository>,
+    fines: FinesService,
     audit: AuditService,
     email: EmailService,
     events: EventBus,
@@ -37,12 +39,14 @@ pub struct LoansService {
 impl LoansService {
     pub fn new(
         repository: Arc<dyn LoansServiceRepository>,
+        fines: FinesService,
         audit: AuditService,
         email: EmailService,
         events: EventBus,
     ) -> Self {
         Self {
             repository,
+            fines,
             audit,
             email,
             events,
@@ -75,11 +79,49 @@ impl LoansService {
             .await
     }
 
+    /// Block checkout/renew when unpaid fines exceed the configured threshold.
+    /// `force=true` bypasses the gate and is audited (actor, unpaid total, threshold).
+    async fn enforce_unpaid_fine_threshold(
+        &self,
+        user_id: i64,
+        public_type_id: Option<i64>,
+        force: bool,
+        operation: &'static str,
+        audit_actor: Option<i64>,
+        client_ip: Option<String>,
+    ) -> AppResult<()> {
+        let check = self
+            .fines
+            .check_unpaid_threshold(user_id, public_type_id)
+            .await?;
+        if !check.blocks_circulation() {
+            return Ok(());
+        }
+        if !force {
+            return Err(AppError::BusinessRule(check.desk_block_message()));
+        }
+        self.audit.log(
+            audit::event::LOAN_FINE_THRESHOLD_OVERRIDDEN,
+            audit_actor,
+            Some("user"),
+            Some(user_id),
+            client_ip,
+            Some(serde_json::json!({
+                "unpaid": check.unpaid,
+                "threshold": check.threshold,
+                "operation": operation,
+            })),
+            AuditLogMeta::success(),
+        );
+        Ok(())
+    }
+
     /// Create a new loan (borrow an item).
     ///
     /// Enforces user-level rules before delegating to the repository:
     /// - blocked users cannot borrow unless `force` is set
     /// - expired subscriptions are rejected unless `force` is set
+    /// - unpaid fines above the configured threshold are rejected unless `force` is set
     ///
     /// The repository enforces the hold queue on the copy: only the patron whose turn it is
     /// (`ready`, else first `pending`) may borrow unless `force=true` (staff clears active holds on that copy).
@@ -113,6 +155,16 @@ impl LoansService {
                 )));
             }
         }
+
+        self.enforce_unpaid_fine_threshold(
+            loan.user_id,
+            user.public_type,
+            loan.force,
+            "checkout",
+            audit_actor,
+            client_ip.clone(),
+        )
+        .await?;
 
         let outcome = self.repository.loans_create(&loan).await?;
         if let Some(item_id) = loan.item_id {
@@ -306,17 +358,32 @@ impl LoansService {
         self.repository.loans_get_borrower_for_loan(loan_id).await
     }
 
-    /// Renew a loan
-    pub async fn renew_loan(&self, loan_id: i64) -> AppResult<(DateTime<Utc>, i16)> {
+    /// Renew a loan. `force` bypasses account and unpaid-fine gates (audited).
+    pub async fn renew_loan(
+        &self,
+        loan_id: i64,
+        force: bool,
+        audit_actor: Option<i64>,
+        client_ip: Option<String>,
+    ) -> AppResult<(DateTime<Utc>, i16)> {
         let loan = self.repository.loans_get_by_id(loan_id).await?;
         let user = self.repository.users_get_by_id(loan.user_id).await?;
 
-        if !user.can_borrow() {
+        if !user.can_borrow() && !force {
             return Err(AppError::BusinessRule(
                 "User account is not active or cannot borrow — use force=true to override"
                     .to_string(),
             ));
         }
+        self.enforce_unpaid_fine_threshold(
+            loan.user_id,
+            user.public_type,
+            force,
+            "renew",
+            audit_actor,
+            client_ip,
+        )
+        .await?;
         self.repository.loans_renew(loan_id).await
     }
 
@@ -324,14 +391,18 @@ impl LoansService {
     pub async fn renew_loan_by_item(
         &self,
         item_identification: &str,
+        force: bool,
+        audit_actor: Option<i64>,
+        client_ip: Option<String>,
     ) -> AppResult<(i64, DateTime<Utc>, i16)> {
         let loan = self
             .repository
             .loans_get_by_item_identification(item_identification)
             .await?;
-        let loan_id = loan.id;
-        let (new_expiry_date, renew_count) = self.repository.loans_renew(loan_id).await?;
-        Ok((loan_id, new_expiry_date, renew_count))
+        let (new_expiry_date, renew_count) = self
+            .renew_loan(loan.id, force, audit_actor, client_ip)
+            .await?;
+        Ok((loan.id, new_expiry_date, renew_count))
     }
 
     /// Count active loans
@@ -530,6 +601,22 @@ mod tests {
         user: Option<User>,
         /// Return value for `loans_create`
         loan_id: i64,
+        /// Active loan returned by `loans_get_by_id` / `loans_get_by_item_identification`
+        loan: Option<crate::models::loan::Loan>,
+    }
+
+    struct FakeFinesRepo {
+        unpaid: rust_decimal::Decimal,
+        threshold: rust_decimal::Decimal,
+    }
+
+    impl Default for FakeFinesRepo {
+        fn default() -> Self {
+            Self {
+                unpaid: rust_decimal::Decimal::ZERO,
+                threshold: rust_decimal::Decimal::ZERO,
+            }
+        }
     }
 
     fn make_user(
@@ -584,7 +671,9 @@ mod tests {
             Ok(())
         }
         async fn loans_get_by_id(&self, _: i64) -> AppResult<crate::models::loan::Loan> {
-            unimplemented!()
+            self.loan
+                .clone()
+                .ok_or_else(|| AppError::NotFound("loan not found".into()))
         }
         async fn loans_get_borrower_for_loan(
             &self,
@@ -596,7 +685,9 @@ mod tests {
             &self,
             _: &str,
         ) -> AppResult<crate::models::loan::Loan> {
-            unimplemented!()
+            self.loan
+                .clone()
+                .ok_or_else(|| AppError::NotFound("loan not found".into()))
         }
         async fn loans_get_for_user(
             &self,
@@ -632,7 +723,7 @@ mod tests {
             unimplemented!()
         }
         async fn loans_renew(&self, _: i64) -> AppResult<(chrono::DateTime<Utc>, i16)> {
-            unimplemented!()
+            Ok((Utc::now() + chrono::Duration::days(21), 1))
         }
         async fn loans_get_settings(&self) -> AppResult<Vec<crate::models::loan::LoanSettings>> {
             Ok(vec![])
@@ -797,14 +888,117 @@ mod tests {
     // LoansServiceRepository has a blanket impl for T: LoansRepository + UsersRepository + Send + Sync,
     // so FakeRepo already implements it — no explicit impl needed.
 
+    #[async_trait::async_trait]
+    impl crate::repository::FinesRepository for FakeFinesRepo {
+        async fn fines_list_for_user(&self, _: i64) -> AppResult<Vec<crate::models::fine::Fine>> {
+            Ok(vec![])
+        }
+        async fn fines_get_by_id(&self, _: i64) -> AppResult<crate::models::fine::Fine> {
+            unimplemented!()
+        }
+        async fn fines_create(
+            &self,
+            _: i64,
+            _: i64,
+            _: rust_decimal::Decimal,
+            _: Option<&str>,
+        ) -> AppResult<crate::models::fine::Fine> {
+            unimplemented!()
+        }
+        async fn fines_pay(
+            &self,
+            _: i64,
+            _: rust_decimal::Decimal,
+            _: Option<&str>,
+        ) -> AppResult<crate::models::fine::Fine> {
+            unimplemented!()
+        }
+        async fn fines_waive(
+            &self,
+            _: i64,
+            _: Option<&str>,
+        ) -> AppResult<crate::models::fine::Fine> {
+            unimplemented!()
+        }
+        async fn fines_list_rules(&self) -> AppResult<Vec<crate::models::fine::FineRule>> {
+            Ok(vec![])
+        }
+        async fn fines_upsert_rule(
+            &self,
+            _: Option<&str>,
+            _: rust_decimal::Decimal,
+            _: Option<rust_decimal::Decimal>,
+            _: i32,
+        ) -> AppResult<crate::models::fine::FineRule> {
+            unimplemented!()
+        }
+        async fn fines_total_unpaid(&self, _: i64) -> AppResult<rust_decimal::Decimal> {
+            Ok(self.unpaid)
+        }
+        async fn fines_get_unpaid_threshold(
+            &self,
+            _: Option<i64>,
+        ) -> AppResult<rust_decimal::Decimal> {
+            Ok(self.threshold)
+        }
+        async fn fines_get_global_unpaid_threshold(&self) -> AppResult<rust_decimal::Decimal> {
+            Ok(self.threshold)
+        }
+        async fn fines_set_global_unpaid_threshold(
+            &self,
+            threshold: rust_decimal::Decimal,
+        ) -> AppResult<rust_decimal::Decimal> {
+            Ok(threshold)
+        }
+    }
+
     fn make_service(user: Option<User>, loan_id: i64) -> LoansService {
+        make_service_with_fines(user, loan_id, FakeFinesRepo::default(), None)
+    }
+
+    fn make_service_with_fines(
+        user: Option<User>,
+        loan_id: i64,
+        fines: FakeFinesRepo,
+        loan: Option<crate::models::loan::Loan>,
+    ) -> LoansService {
         let pool = sqlx::Pool::connect_lazy("postgres://localhost/unused").unwrap();
         let audit = AuditService::new(crate::repository::Repository::new(pool.clone(), None));
         let dynamic_config = crate::DynamicConfig::new(crate::AppConfig::for_test());
         let email = crate::EmailService::new(dynamic_config, pool);
         let (tx, _) = tokio::sync::broadcast::channel(1);
         let events = crate::services::event_bus::EventBus::new(tx);
-        LoansService::new(Arc::new(FakeRepo { user, loan_id }), audit, email, events)
+        LoansService::new(
+            Arc::new(FakeRepo {
+                user,
+                loan_id,
+                loan,
+            }),
+            FinesService::new(Arc::new(fines)),
+            audit,
+            email,
+            events,
+        )
+    }
+
+    fn make_active_loan(id: i64, user_id: i64) -> crate::models::loan::Loan {
+        crate::models::loan::Loan {
+            id,
+            user_id,
+            item_id: 42,
+            date: Utc::now(),
+            renew_at: None,
+            nb_renews: Some(0),
+            expiry_at: Some(Utc::now() + chrono::Duration::days(7)),
+            notes: None,
+            returned_at: None,
+            last_reminder_sent_at: None,
+            reminder_count: None,
+        }
+    }
+
+    fn decimal(s: &str) -> rust_decimal::Decimal {
+        s.parse().expect("decimal")
     }
 
     fn make_loan(user_id: i64, force: bool) -> CreateLoan {
@@ -897,6 +1091,140 @@ mod tests {
         let svc = make_service(Some(user), 103);
         assert!(svc
             .create_loan(make_loan(7, false), None, None)
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_create_loan_unpaid_under_threshold_succeeds() {
+        let user = make_user(8, None, None);
+        let svc = make_service_with_fines(
+            Some(user),
+            104,
+            FakeFinesRepo {
+                unpaid: decimal("4.99"),
+                threshold: decimal("5"),
+            },
+            None,
+        );
+        assert!(svc
+            .create_loan(make_loan(8, false), None, None)
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_create_loan_unpaid_over_threshold_rejected() {
+        let user = make_user(9, None, None);
+        let svc = make_service_with_fines(
+            Some(user),
+            0,
+            FakeFinesRepo {
+                unpaid: decimal("15"),
+                threshold: decimal("10"),
+            },
+            None,
+        );
+        let err = svc
+            .create_loan(make_loan(9, false), None, None)
+            .await
+            .expect_err("over-threshold checkout must fail");
+        match err {
+            AppError::BusinessRule(msg) => {
+                assert!(msg.contains("15"), "{msg}");
+                assert!(msg.contains("10"), "{msg}");
+                assert!(msg.contains("force=true"), "{msg}");
+            }
+            other => panic!("expected BusinessRule, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_create_loan_unpaid_over_threshold_force_succeeds() {
+        let user = make_user(10, None, None);
+        let svc = make_service_with_fines(
+            Some(user),
+            105,
+            FakeFinesRepo {
+                unpaid: decimal("15"),
+                threshold: decimal("10"),
+            },
+            None,
+        );
+        assert!(svc
+            .create_loan(make_loan(10, true), Some(99), Some("127.0.0.1".into()))
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_create_loan_zero_unpaid_never_blocks() {
+        let user = make_user(11, None, None);
+        let svc = make_service_with_fines(
+            Some(user),
+            106,
+            FakeFinesRepo {
+                unpaid: decimal("0"),
+                threshold: decimal("0"),
+            },
+            None,
+        );
+        assert!(svc
+            .create_loan(make_loan(11, false), None, None)
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_renew_loan_unpaid_under_threshold_succeeds() {
+        let user = make_user(12, None, None);
+        let loan = make_active_loan(200, 12);
+        let svc = make_service_with_fines(
+            Some(user),
+            200,
+            FakeFinesRepo {
+                unpaid: decimal("1"),
+                threshold: decimal("5"),
+            },
+            Some(loan),
+        );
+        assert!(svc.renew_loan(200, false, None, None).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_renew_loan_unpaid_over_threshold_rejected() {
+        let user = make_user(13, None, None);
+        let loan = make_active_loan(201, 13);
+        let svc = make_service_with_fines(
+            Some(user),
+            201,
+            FakeFinesRepo {
+                unpaid: decimal("20"),
+                threshold: decimal("0"),
+            },
+            Some(loan),
+        );
+        assert!(matches!(
+            svc.renew_loan(201, false, None, None).await,
+            Err(AppError::BusinessRule(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_renew_loan_unpaid_over_threshold_force_succeeds() {
+        let user = make_user(14, None, None);
+        let loan = make_active_loan(202, 14);
+        let svc = make_service_with_fines(
+            Some(user),
+            202,
+            FakeFinesRepo {
+                unpaid: decimal("20"),
+                threshold: decimal("0"),
+            },
+            Some(loan),
+        );
+        assert!(svc
+            .renew_loan(202, true, Some(99), Some("127.0.0.1".into()))
             .await
             .is_ok());
     }
