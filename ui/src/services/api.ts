@@ -82,6 +82,7 @@ import type {
   CreateHold,
   FinesResponse,
   FineRule,
+  CirculationFinePolicy,
   AccrueLoanResult,
   AccrueBatchReport,
   InventorySession,
@@ -111,6 +112,7 @@ import type {
   UpdateEmailTemplateRequest,
 } from '@/types';
 import { normalizePaginatedResponse } from '@/utils/serverJson';
+import { normalizeFinePolicy } from '@/utils/finePolicy';
 
 function normalizeZ3950ServersPayload(data: unknown): Z3950Server[] {
   if (Array.isArray(data)) return data;
@@ -894,6 +896,18 @@ class ApiService {
       userId,
     });
     return response.data;
+  }
+
+  async getFinePolicy(): Promise<CirculationFinePolicy> {
+    const response = await this.client.get<unknown>('/fines/policy');
+    return normalizeFinePolicy(response.data);
+  }
+
+  async updateFinePolicy(policy: CirculationFinePolicy): Promise<CirculationFinePolicy> {
+    const response = await this.client.put<unknown>('/fines/policy', {
+      unpaidFineThreshold: policy.unpaidFineThreshold,
+    });
+    return normalizeFinePolicy(response.data);
   }
 
   // ─── Inventory ──────────────────────────────────────────────────

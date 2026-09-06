@@ -928,6 +928,8 @@ export interface PublicType {
   subscriptionPrice?: number | null;
   maxLoans?: number | null;
   loanDurationDays?: number | null;
+  /** Override of global unpaid-fine threshold. null inherits circulation policy. */
+  unpaidFineThreshold?: string | null;
 }
 
 /**
@@ -972,6 +974,8 @@ export interface CreatePublicType {
   subscriptionPrice?: number | null;
   maxLoans?: number | null;
   loanDurationDays?: number | null;
+  /** Omit or null to inherit the global circulation policy. */
+  unpaidFineThreshold?: string | null;
 }
 
 export interface UpdatePublicType {
@@ -983,6 +987,11 @@ export interface UpdatePublicType {
   subscriptionPrice?: number | null;
   maxLoans?: number | null;
   loanDurationDays?: number | null;
+  /**
+   * When set, replaces the unpaid-fine threshold override.
+   * Omit to keep the current value (API does not treat null as “inherit”).
+   */
+  unpaidFineThreshold?: string | null;
 }
 
 // Source type
@@ -1385,6 +1394,11 @@ export interface FineRule {
   maxAmount?: string;
   graceDays?: number;
   notes?: string | null;
+}
+
+/** GET/PUT /fines/policy — global unpaid-fine threshold (camelCase). */
+export interface CirculationFinePolicy {
+  unpaidFineThreshold: string;
 }
 
 export type AccrueOutcome =

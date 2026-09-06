@@ -1094,7 +1094,20 @@
       "renewAtInherit": "Hériter (réglage global)",
       "renewAtEffectiveGlobal": "Réglage global effectif pour ce format : {{label}}",
       "renewAtGlobalFallback": "Aucune règle globale pour ce format — le serveur applique son défaut (souvent « à partir d'aujourd'hui »).",
-      "overrideRenewAtNote": "Ce réglage n'altère pas l'affichage des prêts en cours tant qu'ils ne sont pas renouvelés ; il s'applique au calcul de la nouvelle échéance lors du renouvellement côté serveur."
+      "overrideRenewAtNote": "Ce réglage n'altère pas l'affichage des prêts en cours tant qu'ils ne sont pas renouvelés ; il s'applique au calcul de la nouvelle échéance lors du renouvellement côté serveur.",
+      "unpaidFineThreshold": "Seuil d'amendes impayées (dérogation)",
+      "unpaidFineThresholdInherit": "Vide = hériter du seuil global ({{amount}})",
+      "unpaidFineThresholdInheritEmpty": "Vide = hériter du seuil global",
+      "unpaidFineThresholdHelp": "Facultatif. S'il est renseigné, ce public utilise sa propre limite. Un solde impayé au-dessus du montant bloque le prêt et le renouvellement sauf forçage par le personnel. Vide hérite du seuil global (une dérogation existante est conservée si le champ reste vide à l'enregistrement)."
+    },
+    "finePolicy": {
+      "title": "Seuil d'amendes impayées",
+      "help": "Un solde impayé supérieur à ce montant bloque le prêt et le renouvellement, sauf forçage par le personnel. Les amendes payées ou annulées ne comptent pas. La valeur 0 bloque tout solde impayé positif.",
+      "thresholdHint": "Montant dans la devise de la bibliothèque. 0 bloque toute amende impayée.",
+      "unpaidFineThreshold": "Solde impayé maximum autorisé",
+      "invalidAmount": "Saisissez un montant valide supérieur ou égal à 0.",
+      "loadError": "Impossible de charger le seuil d'amendes impayées.",
+      "saveSuccess": "Seuil d'amendes impayées enregistré"
     },
     "accountTypes": {
       "title": "Types de compte",

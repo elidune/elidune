@@ -1094,7 +1094,20 @@
       "renewAtInherit": "Übernehmen (globale Regel)",
       "renewAtEffectiveGlobal": "Gültige globale Regel für dieses Format: {{label}}",
       "renewAtGlobalFallback": "Keine globale Regel für dieses Format—der Server wendet seinen Standard an (meist ab heute).",
-      "overrideRenewAtNote": "Diese Einstellung ändert die Anzeige laufender Ausleihen erst nach einer Verlängerung; sie steuert die Berechnung des neuen Rückgabetermins beim Verlängern auf dem Server."
+      "overrideRenewAtNote": "Diese Einstellung ändert die Anzeige laufender Ausleihen erst nach einer Verlängerung; sie steuert die Berechnung des neuen Rückgabetermins beim Verlängern auf dem Server.",
+      "unpaidFineThreshold": "Schwellenwert für unbezahlte Gebühren (Abweichung)",
+      "unpaidFineThresholdInherit": "Leer = globalen Schwellenwert übernehmen ({{amount}})",
+      "unpaidFineThresholdInheritEmpty": "Leer = globalen Schwellenwert übernehmen",
+      "unpaidFineThresholdHelp": "Optional. Wenn gesetzt, gilt für diese Zielgruppe ein eigener Grenzwert. Ein unbezahlter Saldo über dem Betrag sperrt Ausleihe und Verlängerung, außer bei Personal-Override. Leer übernimmt den globalen Schwellenwert (bestehende Abweichungen bleiben, wenn das Feld beim Speichern leer bleibt)."
+    },
+    "finePolicy": {
+      "title": "Schwellenwert für unbezahlte Gebühren",
+      "help": "Ein unbezahlter Saldo über diesem Betrag sperrt Ausleihe und Verlängerung, außer bei Personal-Override. Bezahlte und erlassene Gebühren zählen nicht. Standard 0 sperrt jeden positiven unbezahlten Saldo.",
+      "thresholdHint": "Betrag in der Währung der Bibliothek. 0 sperrt jede unbezahlte Gebühr.",
+      "unpaidFineThreshold": "Maximal zulässiger unbezahlter Saldo",
+      "invalidAmount": "Geben Sie einen gültigen Betrag von 0 oder mehr ein.",
+      "loadError": "Schwellenwert für unbezahlte Gebühren konnte nicht geladen werden.",
+      "saveSuccess": "Schwellenwert für unbezahlte Gebühren gespeichert"
     },
     "accountTypes": {
       "title": "Kontotypen",
