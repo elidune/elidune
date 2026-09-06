@@ -429,7 +429,7 @@ mod tests {
         Fine {
             id,
             loan_id,
-            user_id,
+            user_id: Some(user_id),
             amount,
             paid_amount: Decimal::ZERO,
             created_at: Utc::now(),
@@ -445,7 +445,7 @@ mod tests {
             let g = self.state.lock().unwrap_or_else(|e| e.into_inner());
             Ok(g.fines
                 .iter()
-                .filter(|f| f.user_id == user_id)
+                .filter(|f| f.user_id == Some(user_id))
                 .cloned()
                 .collect())
         }
