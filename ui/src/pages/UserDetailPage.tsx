@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { lazy, Suspense, useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -19,16 +19,6 @@ import {
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePublicTypesQuery } from '@/hooks/usePublicTypesQuery';
 import { useAccountTypesQuery } from '@/hooks/useAccountTypesQuery';
-import {
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  AreaChart,
-  Area,
-} from 'recharts';
 import { Card, Button, Badge, Modal, Input, Table, ConfirmDialog, MessageModal, ScrollableListRegion, BarcodeScanField } from '@/components/common';
 import api from '@/services/api';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
@@ -57,6 +47,8 @@ import { accountTypeDisplayName } from '@/utils/accountTypeDisplay';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 import { deferFromEffect } from '@/utils/deferFromEffect';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
+
+const LoansAreaChart = lazy(() => import('@/components/stats/LoansAreaChart'));
 
 const USER_LOANS_PAGE_SIZE = 20;
 const USER_HOLDS_PAGE_SIZE = 20;
@@ -750,77 +742,41 @@ export default function UserDetailPage() {
             </div>
           </div>
 
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart
-                data={loanStats.timeSeries.map((item) => ({
-                  date: item.period,
-                  loans: item.loans,
-                  returns: item.returns,
-                }))}
-                margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
-              >
-                <defs>
-                  <linearGradient id="colorUserLoans" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="colorUserReturns" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" />
-                <XAxis
-                  dataKey="date"
-                  tickFormatter={formatStatsDate}
-                  tick={{ fill: 'currentColor', fontSize: 12 }}
-                  className="text-gray-500"
-                />
-                <YAxis tick={{ fill: 'currentColor', fontSize: 12 }} className="text-gray-500" />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: 'var(--tooltip-bg, #fff)',
-                    borderColor: 'var(--tooltip-border, #e5e7eb)',
-                    borderRadius: '0.5rem',
-                  }}
-                  labelFormatter={(label) => {
-                    const labelStr = String(label ?? '');
-                    const interval = userStatsFilters?.interval || 'month';
-                    if (interval === 'week' && /^\d{4}-W\d{2}$/.test(labelStr)) {
-                      const [year, week] = labelStr.split('-W');
-                      return t('stats.weekFormat', { year, week });
-                    }
-                    const date = new Date(labelStr);
-                    if (isNaN(date.getTime())) return labelStr;
-                    return date.toLocaleDateString(i18n.language, {
-                      weekday: interval === 'day' ? 'long' : undefined,
-                      day: 'numeric',
-                      month: 'long',
-                      year: interval === 'year' ? 'numeric' : undefined,
-                    });
-                  }}
-                />
-                <Legend />
-                <Area
-                  type="monotone"
-                  dataKey="loans"
-                  name={t('stats.chart.loans')}
-                  stroke="#6366f1"
-                  strokeWidth={2}
-                  fill="url(#colorUserLoans)"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="returns"
-                  name={t('stats.chart.returns')}
-                  stroke="#10b981"
-                  strokeWidth={2}
-                  fill="url(#colorUserReturns)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center h-72">
+                <div className="h-8 w-8 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
+              </div>
+            }
+          >
+            <LoansAreaChart
+              data={loanStats.timeSeries.map((item) => ({
+                date: item.period,
+                loans: item.loans,
+                returns: item.returns,
+              }))}
+              formatTick={formatStatsDate}
+              formatTooltipLabel={(labelStr) => {
+                const interval = userStatsFilters?.interval || 'month';
+                if (interval === 'week' && /^\d{4}-W\d{2}$/.test(labelStr)) {
+                  const [year, week] = labelStr.split('-W');
+                  return t('stats.weekFormat', { year, week });
+                }
+                const date = new Date(labelStr);
+                if (isNaN(date.getTime())) return labelStr;
+                return date.toLocaleDateString(i18n.language, {
+                  weekday: interval === 'day' ? 'long' : undefined,
+                  day: 'numeric',
+                  month: 'long',
+                  year: interval === 'year' ? 'numeric' : undefined,
+                });
+              }}
+              loansName={t('stats.chart.loans')}
+              returnsName={t('stats.chart.returns')}
+              heightClass="h-72"
+              gradientPrefix="userLoans"
+            />
+          </Suspense>
         </div>
       ) : (
         <p className="text-center text-gray-500 dark:text-gray-400 py-8">{t('users.noStatsAvailable')}</p>
@@ -833,15 +789,16 @@ export default function UserDetailPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div className="flex items-start gap-4">
-          <button
+          <Button
             type="button"
+            variant="ghost"
+            size="icon"
             onClick={() => navigate('/users')}
-            className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
             aria-label={t('common.back')}
             title={t('common.back')}
           >
             <ArrowLeft className="h-5 w-5" />
-          </button>
+          </Button>
           <div className="flex-shrink-0 h-16 w-16 rounded-xl bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center">
             <span className="text-xl font-bold text-indigo-600 dark:text-indigo-400">
               {user.firstname?.[0] || '?'}{user.lastname?.[0] || ''}

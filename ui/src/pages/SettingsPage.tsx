@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import { Save, Plus, Trash2, Server, Archive, Pencil, Merge, Package, Check, X, AlertTriangle, Users, ChevronDown, BookOpen, Cog, ScrollText, Shield, Mail, Library } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
-import { LibrarySettingsPanel } from '@/pages/LibraryPage';
 import FinePolicySettings from '@/components/settings/FinePolicySettings';
 import HoldsPolicySettings from '@/components/settings/HoldsPolicySettings';
 import { Card, CardHeader, Button, Input, Badge, ConfirmDialog } from '@/components/common';
@@ -34,6 +33,9 @@ const AdminServerSettings = lazy(() => import('@/components/settings/AdminServer
 const AccountTypesSettings = lazy(() => import('@/components/settings/AccountTypesSettings'));
 const EmailTemplatesSettings = lazy(() => import('@/components/settings/EmailTemplatesSettings'));
 const AuditLogViewer = lazy(() => import('@/components/settings/AuditLogViewer'));
+const LibrarySettingsPanel = lazy(() =>
+  import('@/pages/LibraryPage').then((mod) => ({ default: mod.LibrarySettingsPanel }))
+);
 
 function SettingsTabFallback() {
   return (
@@ -1871,7 +1873,9 @@ export default function SettingsPage() {
         <Card className="rounded-2xl border-gray-200/80 dark:border-gray-800/80 shadow-sm overflow-hidden">
           <CardHeader title={t('library.title')} subtitle={t('library.subtitle')} />
           <div className="px-4 pb-6 sm:px-6">
-            <LibrarySettingsPanel />
+            <Suspense fallback={<SettingsTabFallback />}>
+              <LibrarySettingsPanel />
+            </Suspense>
           </div>
         </Card>
       )}

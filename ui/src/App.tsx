@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from '@/contexts/AuthContext';
@@ -23,14 +24,11 @@ import {
   BiblioCreatePage,
   InventoryPage,
   UsersPage,
-  UserDetailPage,
   MyLoansPage,
   MyHoldsPage,
   LoansPage,
   HoldsPage,
   TransitsPage,
-  StatsPage,
-  SettingsPage,
   Z3950SearchPage,
   ProfilePage,
   ImportIsoPage,
@@ -46,6 +44,10 @@ import {
 import { canViewAcquisitions, isLibrarian } from '@/types';
 import api from '@/services/api';
 import { FirstSetupGate } from '@/components/first-setup/FirstSetupGate';
+
+const UserDetailPage = lazy(() => import('@/pages/UserDetailPage'));
+const StatsPage = lazy(() => import('@/pages/StatsPage'));
+const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -454,7 +456,9 @@ export default function App() {
                 <LanguageProvider>
                   <BrowserRouter>
                     <FirstSetupGate>
-                      <AppRoutes />
+                      <Suspense fallback={<FullPageSpinner />}>
+                        <AppRoutes />
+                      </Suspense>
                       <ToastContainer />
                     </FirstSetupGate>
                   </BrowserRouter>

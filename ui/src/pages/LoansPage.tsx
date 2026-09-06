@@ -18,7 +18,7 @@ import {
   ClipboardList,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { Card, CardHeader, Button, Badge, Table, Input, MessageModal, ConfirmDialog, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, BarcodeScanField } from '@/components/common';
+import { Card, CardHeader, Button, Badge, Table, MessageModal, ConfirmDialog, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, BarcodeScanField, Typeahead } from '@/components/common';
 import ActiveLoanCard from '@/components/loans/ActiveLoanCard';
 import CirculationExceptionDialog from '@/components/loans/CirculationExceptionDialog';
 import ClaimsReturnedQueue from '@/components/loans/ClaimsReturnedQueue';
@@ -896,50 +896,40 @@ export default function LoansPage() {
 
                     {/* User search */}
                     <div>
-                      <label className={formLabelClass()}>
-                        {t('loans.searchByName')}
-                      </label>
-                      <div className="relative">
-                        <Input
-                          value={userSearchDraft}
-                          onChange={(e) => {
-                            setUserSearchDraft(e.target.value);
-                            setUserSearchError(null);
-                            setUserSelectError(null);
-                          }}
-                          placeholder={t('loans.searchUserPlaceholder')}
-                          leftIcon={<Search className="h-4 w-4" />}
-                          aria-busy={visibleUserSearching}
-                          disabled={isPatronLookupBusy}
-                        />
-                        {visibleUserResults.length > 0 && (
-                          <div className="absolute z-10 w-full mt-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                            {visibleUserResults.map((user) => (
-                              <button
-                                key={user.id}
-                                type="button"
-                                disabled={isPatronLookupBusy}
-                                onClick={() => void handleUserSelect(user)}
-                                className="w-full px-4 py-3 text-left hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-3 disabled:opacity-50"
-                              >
-                                <div className="flex-shrink-0 h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center">
-                                  <span className="text-sm font-medium text-amber-700 dark:text-amber-400">
-                                    {user.firstname?.[0] || '?'}{user.lastname?.[0] || ''}
-                                  </span>
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <p className="font-medium text-gray-900 dark:text-white">
-                                    {user.firstname} {user.lastname}
-                                  </p>
-                                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                                    {user.accountType}
-                                  </p>
-                                </div>
-                              </button>
-                            ))}
-                          </div>
+                      <Typeahead
+                        label={t('loans.searchByName')}
+                        value={userSearchDraft}
+                        onChange={(next) => {
+                          setUserSearchDraft(next);
+                          setUserSearchError(null);
+                          setUserSelectError(null);
+                        }}
+                        items={visibleUserResults}
+                        getItemId={(user) => user.id}
+                        onSelect={(user) => void handleUserSelect(user)}
+                        placeholder={t('loans.searchUserPlaceholder')}
+                        leftIcon={<Search className="h-4 w-4" />}
+                        loading={visibleUserSearching}
+                        disabled={isPatronLookupBusy}
+                        variant="dropdown"
+                        renderItem={(user) => (
+                          <span className="flex items-center gap-3">
+                            <span className="flex-shrink-0 h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center">
+                              <span className="text-sm font-medium text-amber-700 dark:text-amber-400">
+                                {user.firstname?.[0] || '?'}{user.lastname?.[0] || ''}
+                              </span>
+                            </span>
+                            <span className="flex-1 min-w-0">
+                              <span className="block font-medium text-gray-900 dark:text-white">
+                                {user.firstname} {user.lastname}
+                              </span>
+                              <span className="block text-sm text-gray-500 dark:text-gray-400">
+                                {user.accountType}
+                              </span>
+                            </span>
+                          </span>
                         )}
-                      </div>
+                      />
                       {(userSearchError || userSelectError) && (
                         <div
                           role="alert"
@@ -1212,14 +1202,16 @@ export default function LoansPage() {
                         }
                       }}
                       rightIcon={
-                        <button
+                        <Button
                           type="submit"
+                          size="icon"
+                          variant="primary"
                           disabled={isProcessingReturn || !returnBarcodeInput.trim()}
-                          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 disabled:pointer-events-none dark:bg-emerald-500 dark:hover:bg-emerald-600"
                           aria-label={t('common.validate')}
+                          className="bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600"
                         >
                           <Check className="h-4 w-4" />
-                        </button>
+                        </Button>
                       }
                     />
                   </form>
@@ -1904,14 +1896,15 @@ function BorrowForm({
         }}
         rightIcon={
           isInline ? (
-            <button
+            <Button
               type="submit"
+              size="icon"
+              variant="primary"
               disabled={isLoading || !barcodeInput.trim()}
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 disabled:pointer-events-none dark:bg-amber-500 dark:hover:bg-amber-600"
               aria-label={t('common.validate')}
             >
               <Check className="h-4 w-4" />
-            </button>
+            </Button>
           ) : undefined
         }
       />

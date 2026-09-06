@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ban, Bookmark, Plus, Search, AlertCircle, Truck } from 'lucide-react';
-import { Card, CardHeader, Button, Badge, Table, Input, Pagination, Modal, ConfirmDialog, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, BarcodeScanField } from '@/components/common';
+import { Card, CardHeader, Button, Badge, Table, Input, Pagination, Modal, ConfirmDialog, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, BarcodeScanField, Typeahead } from '@/components/common';
 import HoldMobileCard from '@/components/holds/HoldMobileCard';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
 import HoldExpiresCell from '@/components/holds/HoldExpiresCell';
@@ -558,33 +558,27 @@ export default function HoldsPage() {
           </div>
 
           <div>
-            <Input
+            <Typeahead
               label={t('holds.searchBiblio')}
               value={biblioDraft}
-              onChange={(e) => setBiblioDraft(e.target.value)}
+              onChange={setBiblioDraft}
+              items={visibleBiblioResults}
+              getItemId={(b) => b.id}
+              onSelect={(b) => void loadBiblio(b)}
               leftIcon={<Search className="h-4 w-4" />}
+              loading={visibleBiblioSearching}
+              renderItem={(b) => (
+                <>
+                  <span className="font-medium text-gray-900 dark:text-white">{b.title}</span>
+                  {b.isbn && (
+                    <span className="text-gray-500 ml-2 font-mono text-xs">{formatIsbnDisplay(b.isbn)}</span>
+                  )}
+                </>
+              )}
             />
             {visibleBiblioSearching && <p className="text-xs text-gray-500 mt-1">{t('common.loading')}</p>}
             {biblioPickError && (
               <p role="alert" className="text-sm text-red-600 dark:text-red-400 mt-2">{biblioPickError}</p>
-            )}
-            {visibleBiblioResults.length > 0 && (
-              <ul className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700">
-                {visibleBiblioResults.map((b) => (
-                  <li key={b.id}>
-                    <button
-                      type="button"
-                      className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-800"
-                      onClick={() => void loadBiblio(b)}
-                    >
-                      <span className="font-medium text-gray-900 dark:text-white">{b.title}</span>
-                      {b.isbn && (
-                        <span className="text-gray-500 ml-2 font-mono text-xs">{formatIsbnDisplay(b.isbn)}</span>
-                      )}
-                    </button>
-                  </li>
-                ))}
-              </ul>
             )}
           </div>
 
@@ -692,35 +686,28 @@ export default function HoldsPage() {
           )}
 
           <div>
-            <Input
+            <Typeahead
               label={t('holds.pickUser')}
               value={createUserDraft}
-              onChange={(e) => setCreateUserDraft(e.target.value)}
+              onChange={setCreateUserDraft}
+              items={visibleCreateUserResults}
+              getItemId={(u) => u.id}
+              selectedId={selectedUserForCreate?.id}
+              onSelect={(u) => {
+                setSelectedUserForCreate(u);
+                setCreateUserDraft('');
+                setCreateUserResults([]);
+              }}
               placeholder={t('users.searchPlaceholder')}
+              loading={visibleCreateUserSearching}
+              renderItem={(u) => (
+                <>
+                  {u.firstname} {u.lastname}{' '}
+                  <span className="text-gray-500 font-mono text-xs">{u.id}</span>
+                </>
+              )}
             />
             {visibleCreateUserSearching && <p className="text-xs text-gray-500 mt-1">{t('common.loading')}</p>}
-            {visibleCreateUserResults.length > 0 && (
-              <ul className="mt-2 max-h-36 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-200 dark:divide-gray-700">
-                {visibleCreateUserResults.map((u) => (
-                  <li key={u.id}>
-                    <button
-                      type="button"
-                      className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-100 dark:hover:bg-gray-800 ${
-                        selectedUserForCreate?.id === u.id ? 'bg-indigo-50 dark:bg-indigo-900/30' : ''
-                      }`}
-                      onClick={() => {
-                        setSelectedUserForCreate(u);
-                        setCreateUserDraft('');
-                        setCreateUserResults([]);
-                      }}
-                    >
-                      {u.firstname} {u.lastname}{' '}
-                      <span className="text-gray-500 font-mono text-xs">{u.id}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
             {selectedUserForCreate && (
               <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
                 {selectedUserForCreate.firstname} {selectedUserForCreate.lastname}

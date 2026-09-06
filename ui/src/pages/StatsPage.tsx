@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { lazy, Suspense, useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
@@ -14,23 +14,23 @@ import {
   TrendingUp,
   Table2,
 } from 'lucide-react';
-import {
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Legend,
-  ResponsiveContainer,
-  AreaChart,
-  Area,
-} from 'recharts';
 import { Card, CardHeader, Badge, Table, Input, ScrollableListRegion } from '@/components/common';
 import api from '@/services/api';
 import type { Stats, AdvancedStatsParams, MediaType, MediaTypeOption, StatsInterval, UserLoanStats, UserAggregateStats, CatalogStats, CatalogStatsBreakdown } from '@/types';
 import { translateStatLabel } from '@/utils/codeLabels';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 import { deferFromEffect } from '@/utils/deferFromEffect';
-import StatsAdvancedTab from '@/components/stats/StatsAdvancedTab';
+
+const StatsAdvancedTab = lazy(() => import('@/components/stats/StatsAdvancedTab'));
+const LoansAreaChart = lazy(() => import('@/components/stats/LoansAreaChart'));
+
+function StatsPanelFallback() {
+  return (
+    <div className="flex items-center justify-center h-64">
+      <div className="h-8 w-8 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
+    </div>
+  );
+}
 
 // Helper function to get translation key for media type
 function getMediaTypeTranslationKey(mediaType: MediaType | string | null | undefined): string {
@@ -797,77 +797,29 @@ export default function StatsPage() {
               <div className="h-8 w-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
             </div>
           ) : (
-            <div className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={loansTimelineQuery.data ?? []} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="colorLoans" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="colorReturns" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" />
-                  <XAxis
-                    dataKey="date"
-                    tickFormatter={formatDate}
-                    tick={{ fill: 'currentColor', fontSize: 12 }}
-                    className="text-gray-500"
-                  />
-                  <YAxis tick={{ fill: 'currentColor', fontSize: 12 }} className="text-gray-500" />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: 'var(--tooltip-bg, #fff)',
-                      borderColor: 'var(--tooltip-border, #e5e7eb)',
-                      borderRadius: '0.5rem',
-                    }}
-                    labelFormatter={(label) => {
-                      const labelStr = String(label ?? '');
-                      const interval = statsParams?.interval || 'day';
-                      
-                      // Handle ISO week format (YYYY-Www)
-                      if (interval === 'week' && /^\d{4}-W\d{2}$/.test(labelStr)) {
-                        const [year, week] = labelStr.split('-W');
-                        return t('stats.weekFormat', { year, week });
-                      }
-                      
-                      // Try to parse as date
-                      const date = new Date(labelStr);
-                      if (isNaN(date.getTime())) {
-                        return labelStr;
-                      }
-                      
-                      return date.toLocaleDateString(i18n.language, {
-                        weekday: interval === 'day' ? 'long' : undefined,
-                        day: 'numeric',
-                        month: 'long',
-                        year: interval === 'year' ? 'numeric' : undefined,
-                      });
-                    }}
-                  />
-                  <Legend />
-                  <Area
-                    type="monotone"
-                    dataKey="loans"
-                    name={t('stats.chart.loans')}
-                    stroke="#6366f1"
-                    strokeWidth={2}
-                    fill="url(#colorLoans)"
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="returns"
-                    name={t('stats.chart.returns')}
-                    stroke="#10b981"
-                    strokeWidth={2}
-                    fill="url(#colorReturns)"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
+            <Suspense fallback={<StatsPanelFallback />}>
+              <LoansAreaChart
+                data={loansTimelineQuery.data ?? []}
+                formatTick={formatDate}
+                formatTooltipLabel={(labelStr) => {
+                  const currentInterval = statsParams?.interval || 'day';
+                  if (currentInterval === 'week' && /^\d{4}-W\d{2}$/.test(labelStr)) {
+                    const [year, week] = labelStr.split('-W');
+                    return t('stats.weekFormat', { year, week });
+                  }
+                  const date = new Date(labelStr);
+                  if (isNaN(date.getTime())) return labelStr;
+                  return date.toLocaleDateString(i18n.language, {
+                    weekday: currentInterval === 'day' ? 'long' : undefined,
+                    day: 'numeric',
+                    month: 'long',
+                    year: currentInterval === 'year' ? 'numeric' : undefined,
+                  });
+                }}
+                loansName={t('stats.chart.loans')}
+                returnsName={t('stats.chart.returns')}
+              />
+            </Suspense>
           )}
         </div>
 
@@ -930,7 +882,11 @@ export default function StatsPage() {
       </Card>
       )}
 
-      {statsDetailTab === 'advanced' && <StatsAdvancedTab />}
+      {statsDetailTab === 'advanced' && (
+        <Suspense fallback={<StatsPanelFallback />}>
+          <StatsAdvancedTab />
+        </Suspense>
+      )}
         </div>
       </div>
     </div>
