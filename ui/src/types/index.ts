@@ -930,6 +930,8 @@ export interface PublicType {
   loanDurationDays?: number | null;
   /** Override of global unpaid-fine threshold. null inherits circulation policy. */
   unpaidFineThreshold?: string | null;
+  /** Override of global max active holds. null inherits circulation policy. */
+  maxActiveHolds?: number | null;
 }
 
 /**
@@ -976,6 +978,8 @@ export interface CreatePublicType {
   loanDurationDays?: number | null;
   /** Omit or null to inherit the global circulation policy. */
   unpaidFineThreshold?: string | null;
+  /** Omit or null to inherit the global holds policy. */
+  maxActiveHolds?: number | null;
 }
 
 export interface UpdatePublicType {
@@ -992,6 +996,11 @@ export interface UpdatePublicType {
    * Omit to keep the current value (API does not treat null as “inherit”).
    */
   unpaidFineThreshold?: string | null;
+  /**
+   * When set, replaces the max-active-holds override.
+   * Omit to keep the current value (API does not treat null as “inherit”).
+   */
+  maxActiveHolds?: number | null;
 }
 
 // Source type
@@ -1362,6 +1371,20 @@ export interface CreateHold {
   userId: string;
   itemId: string;
   notes?: string | null;
+  force?: boolean;
+}
+
+/** GET/PUT /holds/policy — global max pending+ready holds (camelCase). */
+export interface HoldsPolicy {
+  maxActiveHolds: number;
+}
+
+/** GET /holds/quota — resolved cap and remaining slots for a patron. */
+export interface HoldQuota {
+  userId: string;
+  maxActiveHolds: number;
+  activeHolds: number;
+  remaining: number;
 }
 
 // ──────────────────────────────────────────────────────────────────

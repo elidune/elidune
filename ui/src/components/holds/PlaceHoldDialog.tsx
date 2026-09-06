@@ -50,6 +50,14 @@ export default function PlaceHoldDialog({
     staleTime: 30 * 1000,
   });
 
+  const quotaUserId = staff && targetMode === 'other' ? selectedUser?.id : currentUserId;
+  const { data: quota } = useQuery({
+    queryKey: ['holdsQuota', quotaUserId],
+    queryFn: () => api.getHoldQuota(quotaUserId),
+    enabled: open && !!quotaUserId,
+    staleTime: 15 * 1000,
+  });
+
   useResetWhenInactive(open, () => {
     setNotes('');
     setError(null);
@@ -161,6 +169,12 @@ export default function PlaceHoldDialog({
           )}
           {!borrowed && !(staff && queueAhead > 0) && (
             <p>{t('holds.hintNotifyWhenReady')}</p>
+          )}
+          {quota && quota.remaining > 0 && (
+            <p>{t('holds.quotaRemaining', { remaining: quota.remaining, max: quota.maxActiveHolds })}</p>
+          )}
+          {quota && quota.remaining <= 0 && (
+            <p>{t('holds.quotaFull', { active: quota.activeHolds, max: quota.maxActiveHolds })}</p>
           )}
         </div>
 

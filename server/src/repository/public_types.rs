@@ -124,9 +124,9 @@ impl Repository {
             r#"
             INSERT INTO public_types (
                 name, label, subscription_duration_days, age_min, age_max,
-                subscription_price, unpaid_fine_threshold
+                subscription_price, unpaid_fine_threshold, max_active_holds
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING *
             "#,
         )
@@ -137,6 +137,7 @@ impl Repository {
         .bind(data.age_max)
         .bind(data.subscription_price)
         .bind(data.unpaid_fine_threshold)
+        .bind(data.max_active_holds)
         .fetch_one(&self.pool)
         .await?;
 
@@ -177,14 +178,15 @@ impl Repository {
         let unpaid_fine_threshold = data
             .unpaid_fine_threshold
             .or(existing.unpaid_fine_threshold);
+        let max_active_holds = data.max_active_holds.or(existing.max_active_holds);
 
         sqlx::query_as::<_, PublicType>(
             r#"
             UPDATE public_types SET
                 name = $1, label = $2, subscription_duration_days = $3,
                 age_min = $4, age_max = $5, subscription_price = $6,
-                unpaid_fine_threshold = $7
-            WHERE id = $8
+                unpaid_fine_threshold = $7, max_active_holds = $8
+            WHERE id = $9
             RETURNING *
             "#,
         )
@@ -195,6 +197,7 @@ impl Repository {
         .bind(age_max)
         .bind(subscription_price)
         .bind(unpaid_fine_threshold)
+        .bind(max_active_holds)
         .bind(id)
         .fetch_optional(&self.pool)
         .await?

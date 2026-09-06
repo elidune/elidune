@@ -7,8 +7,8 @@ Source schema: legacy database (see elidune-pgdump.sql)
 Target schema: new database (see migrations/001_initial_schema.sql + follow-up migrations,
 including email outbox tables, idx_loans_one_active_per_item,
 idx_holds_one_active_per_user_item, fines / fine_rules / circulation_settings
-(025), idx_fines_one_open_per_loan (026), and loans_archives age_band/loan_year
-(027))
+(025), idx_fines_one_open_per_loan (026), loans_archives age_band/loan_year
+(027), and circulation_settings / public_types.max_active_holds (028))
 
 Usage:
     python migrate_data.py --source-db <old_db_url> --target-db <new_db_url>

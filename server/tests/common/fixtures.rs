@@ -95,8 +95,21 @@ pub fn unique_suffix() -> u128 {
 
 /// Create a reader user via API; returns (user_id, token).
 pub async fn create_reader(app: &super::TestApp, admin_token: &str, login: &str) -> (i64, String) {
+    create_reader_with_public_type(app, admin_token, login, None).await
+}
+
+/// Create a reader assigned to `public_type_id` (or the seeded adult type when `None`).
+pub async fn create_reader_with_public_type(
+    app: &super::TestApp,
+    admin_token: &str,
+    login: &str,
+    public_type_id: Option<i64>,
+) -> (i64, String) {
     let login = format!("{login}_{}", unique_suffix());
-    let public_type_id = first_public_type_id(app, admin_token).await;
+    let public_type_id = match public_type_id {
+        Some(id) => id,
+        None => first_public_type_id(app, admin_token).await,
+    };
     let payload = json!({
         "login": login,
         "password": "readerpass1234",

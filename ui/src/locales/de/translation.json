@@ -343,6 +343,8 @@
     "hintBorrowed": "Dieses Exemplar ist ausgeliehen. Sie werden benachrichtigt, wenn es für Sie verfügbar ist.",
     "hintQueue": "Weitere Vorbestellungen in der Warteschlange ({{count}} wartend). Sie werden der Reihe nach benachrichtigt; Ihre Position ist etwa {{position}}.",
     "hintNotifyWhenReady": "Sie werden benachrichtigt, wenn das Exemplar für Sie bereitsteht.",
+    "quotaRemaining": "{{remaining}} von {{max}} Vormerkungsplätzen frei.",
+    "quotaFull": "Dieser Benutzer hat die Vormerkungsobergrenze erreicht ({{active}}/{{max}}).",
     "reserveFor": "Vorbestellung für",
     "forMe": "Für mich",
     "forUser": "Für einen Benutzer",
@@ -1098,7 +1100,11 @@
       "unpaidFineThreshold": "Schwellenwert für unbezahlte Gebühren (Abweichung)",
       "unpaidFineThresholdInherit": "Leer = globalen Schwellenwert übernehmen ({{amount}})",
       "unpaidFineThresholdInheritEmpty": "Leer = globalen Schwellenwert übernehmen",
-      "unpaidFineThresholdHelp": "Optional. Wenn gesetzt, gilt für diese Zielgruppe ein eigener Grenzwert. Ein unbezahlter Saldo über dem Betrag sperrt Ausleihe und Verlängerung, außer bei Personal-Override. Leer übernimmt den globalen Schwellenwert (bestehende Abweichungen bleiben, wenn das Feld beim Speichern leer bleibt)."
+      "unpaidFineThresholdHelp": "Optional. Wenn gesetzt, gilt für diese Zielgruppe ein eigener Grenzwert. Ein unbezahlter Saldo über dem Betrag sperrt Ausleihe und Verlängerung, außer bei Personal-Override. Leer übernimmt den globalen Schwellenwert (bestehende Abweichungen bleiben, wenn das Feld beim Speichern leer bleibt).",
+      "maxActiveHolds": "Maximale aktive Vormerkungen (Abweichung)",
+      "maxActiveHoldsInherit": "Leer = globale Obergrenze übernehmen ({{count}})",
+      "maxActiveHoldsInheritEmpty": "Leer = globale Obergrenze übernehmen",
+      "maxActiveHoldsHelp": "Optional. Wenn gesetzt, gilt für diese Zielgruppe eine eigene Obergrenze für ausstehende/bereite Vormerkungen. Leer übernimmt den globalen Standard (bestehende Abweichungen bleiben, wenn das Feld beim Speichern leer bleibt)."
     },
     "finePolicy": {
       "title": "Schwellenwert für unbezahlte Gebühren",
@@ -1108,6 +1114,15 @@
       "invalidAmount": "Geben Sie einen gültigen Betrag von 0 oder mehr ein.",
       "loadError": "Schwellenwert für unbezahlte Gebühren konnte nicht geladen werden.",
       "saveSuccess": "Schwellenwert für unbezahlte Gebühren gespeichert"
+    },
+    "holdsPolicy": {
+      "title": "Maximale gleichzeitige Vormerkungen",
+      "help": "Ein Benutzer darf so viele ausstehende oder bereite Vormerkungen gleichzeitig haben. Zielgruppen können diesen Standard überschreiben. Personal kann über die Obergrenze hinaus erzwingen.",
+      "capHint": "Ganzzahl von 1 bis 1000. Standard ist 20.",
+      "maxActiveHolds": "Maximale aktive Vormerkungen",
+      "invalidCap": "Geben Sie eine ganze Zahl zwischen 1 und 1000 ein.",
+      "loadError": "Vormerkungsobergrenze konnte nicht geladen werden.",
+      "saveSuccess": "Vormerkungsobergrenze gespeichert"
     },
     "accountTypes": {
       "title": "Kontotypen",

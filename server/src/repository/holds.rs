@@ -12,7 +12,7 @@ use crate::{
     error::{AppError, AppResult},
     models::{
         biblio::BiblioShort,
-        hold::{CreateHold, Hold, HoldDetails, HoldStatus},
+        hold::{CreateHold, Hold, HoldDetails, HoldStatus, DEFAULT_MAX_ACTIVE_HOLDS},
         item::ItemShort,
         user::{UserShort, UserShortRow},
     },
@@ -50,6 +50,12 @@ pub trait HoldsRepository: Send + Sync {
     async fn holds_fulfill(&self, id: i64) -> AppResult<Hold>;
     /// First `pending` hold for the item becomes `ready` with `expires_at` set.
     async fn holds_notify_next(&self, item_id: i64, expiry_days: i32) -> AppResult<Option<Hold>>;
+    /// Count of `pending`/`ready` holds for this patron (copy-level).
+    async fn holds_count_active_for_user(&self, user_id: i64) -> AppResult<i64>;
+    /// Effective cap: public-type override when set, else global default.
+    async fn holds_get_max_active_for_user(&self, user_id: i64) -> AppResult<i16>;
+    async fn holds_get_global_max_active(&self) -> AppResult<i16>;
+    async fn holds_set_global_max_active(&self, max_active_holds: i16) -> AppResult<i16>;
 }
 
 #[async_trait::async_trait]
@@ -109,6 +115,18 @@ impl HoldsRepository for Repository {
     }
     async fn holds_notify_next(&self, item_id: i64, expiry_days: i32) -> AppResult<Option<Hold>> {
         Repository::holds_notify_next(self, item_id, expiry_days).await
+    }
+    async fn holds_count_active_for_user(&self, user_id: i64) -> AppResult<i64> {
+        Repository::holds_count_active_for_user(self, user_id).await
+    }
+    async fn holds_get_max_active_for_user(&self, user_id: i64) -> AppResult<i16> {
+        Repository::holds_get_max_active_for_user(self, user_id).await
+    }
+    async fn holds_get_global_max_active(&self) -> AppResult<i16> {
+        Repository::holds_get_global_max_active(self).await
+    }
+    async fn holds_set_global_max_active(&self, max_active_holds: i16) -> AppResult<i16> {
+        Repository::holds_set_global_max_active(self, max_active_holds).await
     }
 }
 
@@ -740,6 +758,67 @@ impl Repository {
         .fetch_one(&self.pool)
         .await?;
         Ok(count)
+    }
+
+    /// Count of this patron's `pending`/`ready` holds (copy-level).
+    #[tracing::instrument(skip(self), err)]
+    pub async fn holds_count_active_for_user(&self, user_id: i64) -> AppResult<i64> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM holds WHERE user_id = $1 AND status IN ('pending','ready')",
+        )
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count)
+    }
+
+    /// Effective cap: public-type override when set, else global default.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn holds_get_max_active_for_user(&self, user_id: i64) -> AppResult<i16> {
+        let max: Option<i16> = sqlx::query_scalar(
+            r#"
+            SELECT COALESCE(
+                (
+                    SELECT pt.max_active_holds
+                    FROM users u
+                    JOIN public_types pt ON pt.id = u.public_type
+                    WHERE u.id = $1 AND pt.max_active_holds IS NOT NULL
+                ),
+                (SELECT max_active_holds FROM circulation_settings WHERE id = 1),
+                $2
+            )
+            "#,
+        )
+        .bind(user_id)
+        .bind(DEFAULT_MAX_ACTIVE_HOLDS)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(max.unwrap_or(DEFAULT_MAX_ACTIVE_HOLDS))
+    }
+
+    #[tracing::instrument(skip(self), err)]
+    pub async fn holds_get_global_max_active(&self) -> AppResult<i16> {
+        let max: Option<i16> =
+            sqlx::query_scalar("SELECT max_active_holds FROM circulation_settings WHERE id = 1")
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(max.unwrap_or(DEFAULT_MAX_ACTIVE_HOLDS))
+    }
+
+    #[tracing::instrument(skip(self), err)]
+    pub async fn holds_set_global_max_active(&self, max_active_holds: i16) -> AppResult<i16> {
+        let max: i16 = sqlx::query_scalar(
+            r#"
+            INSERT INTO circulation_settings (id, max_active_holds)
+            VALUES (1, $1)
+            ON CONFLICT (id) DO UPDATE SET max_active_holds = EXCLUDED.max_active_holds
+            RETURNING max_active_holds
+            "#,
+        )
+        .bind(max_active_holds)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(max)
     }
 }
 

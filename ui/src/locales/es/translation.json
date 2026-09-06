@@ -343,6 +343,8 @@
     "hintBorrowed": "Este ejemplar está prestado. Se le avisará cuando esté disponible para usted.",
     "hintQueue": "Hay otras reservas en cola ({{count}} en espera). Se le avisará por turno; su posición será aproximadamente la {{position}}.",
     "hintNotifyWhenReady": "Se le avisará cuando el ejemplar esté disponible para usted.",
+    "quotaRemaining": "{{remaining}} de {{max}} plazas de reserva disponibles.",
+    "quotaFull": "Este usuario ha alcanzado el tope de reservas ({{active}}/{{max}}).",
     "reserveFor": "Reserva para",
     "forMe": "Para mí",
     "forUser": "Para un usuario",
@@ -1098,7 +1100,11 @@
       "unpaidFineThreshold": "Umbral de multas impagadas (excepción)",
       "unpaidFineThresholdInherit": "Vacío = heredar el umbral global ({{amount}})",
       "unpaidFineThresholdInheritEmpty": "Vacío = heredar el umbral global",
-      "unpaidFineThresholdHelp": "Opcional. Si se indica, este público usa su propio límite. Un saldo impagado por encima del importe bloquea el préstamo y la renovación salvo forzado por el personal. Vacío hereda el umbral global (una excepción existente se conserva si el campo queda vacío al guardar)."
+      "unpaidFineThresholdHelp": "Opcional. Si se indica, este público usa su propio límite. Un saldo impagado por encima del importe bloquea el préstamo y la renovación salvo forzado por el personal. Vacío hereda el umbral global (una excepción existente se conserva si el campo queda vacío al guardar).",
+      "maxActiveHolds": "Tope de reservas activas (excepción)",
+      "maxActiveHoldsInherit": "Vacío = heredar el tope global ({{count}})",
+      "maxActiveHoldsInheritEmpty": "Vacío = heredar el tope global",
+      "maxActiveHoldsHelp": "Opcional. Si se indica, este público usa su propio tope de reservas pendientes/listas. Vacío hereda el valor global (una excepción existente se conserva si el campo queda vacío al guardar)."
     },
     "finePolicy": {
       "title": "Umbral de multas impagadas",
@@ -1108,6 +1114,15 @@
       "invalidAmount": "Introduzca un importe válido de 0 o más.",
       "loadError": "No se pudo cargar el umbral de multas impagadas.",
       "saveSuccess": "Umbral de multas impagadas guardado"
+    },
+    "holdsPolicy": {
+      "title": "Máximo de reservas simultáneas",
+      "help": "Un usuario puede tener como máximo este número de reservas pendientes o listas. Los tipos de público pueden sustituir este valor. El personal puede forzar por encima del tope.",
+      "capHint": "Entero de 1 a 1000. El valor por defecto es 20.",
+      "maxActiveHolds": "Reservas activas máximas",
+      "invalidCap": "Introduzca un número entero entre 1 y 1000.",
+      "loadError": "No se pudo cargar el tope de reservas.",
+      "saveSuccess": "Tope de reservas guardado"
     },
     "accountTypes": {
       "title": "Tipos de cuenta",

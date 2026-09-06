@@ -110,6 +110,12 @@ pub struct HoldDetails {
     pub notes: Option<String>,
 }
 
+/// Default global cap when `circulation_settings` has no row yet.
+pub const DEFAULT_MAX_ACTIVE_HOLDS: i16 = 20;
+/// Inclusive bounds for stored `max_active_holds` values.
+pub const MIN_MAX_ACTIVE_HOLDS: i16 = 1;
+pub const MAX_MAX_ACTIVE_HOLDS: i16 = 1000;
+
 /// Create hold request — `item_id` must be a physical copy ID (`items` table).
 #[serde_as]
 #[derive(Debug, Deserialize, ToSchema)]
@@ -122,4 +128,7 @@ pub struct CreateHold {
     #[schema(value_type = String)]
     pub item_id: i64,
     pub notes: Option<String>,
+    /// Staff-only: place the hold even when the patron is at/over the active-hold cap.
+    #[serde(default)]
+    pub force: bool,
 }

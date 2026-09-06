@@ -80,6 +80,8 @@ import type {
   FirstSetupRequest,
   FirstSetupResponse,
   CreateHold,
+  HoldsPolicy,
+  HoldQuota,
   FinesResponse,
   FineRule,
   CirculationFinePolicy,
@@ -113,6 +115,7 @@ import type {
 } from '@/types';
 import { normalizePaginatedResponse } from '@/utils/serverJson';
 import { normalizeFinePolicy } from '@/utils/finePolicy';
+import { normalizeHoldQuota, normalizeHoldsPolicy } from '@/utils/holdsPolicy';
 
 function normalizeZ3950ServersPayload(data: unknown): Z3950Server[] {
   if (Array.isArray(data)) return data;
@@ -801,8 +804,28 @@ class ApiService {
       userId: data.userId,
       itemId: data.itemId,
       notes: data.notes,
+      force: data.force,
     });
     return response.data;
+  }
+
+  async getHoldsPolicy(): Promise<HoldsPolicy> {
+    const response = await this.client.get<unknown>('/holds/policy');
+    return normalizeHoldsPolicy(response.data);
+  }
+
+  async updateHoldsPolicy(policy: HoldsPolicy): Promise<HoldsPolicy> {
+    const response = await this.client.put<unknown>('/holds/policy', {
+      maxActiveHolds: policy.maxActiveHolds,
+    });
+    return normalizeHoldsPolicy(response.data);
+  }
+
+  async getHoldQuota(userId?: string): Promise<HoldQuota> {
+    const response = await this.client.get<unknown>('/holds/quota', {
+      params: userId ? { userId } : undefined,
+    });
+    return normalizeHoldQuota(response.data);
   }
 
   async cancelHold(holdId: string): Promise<Hold> {

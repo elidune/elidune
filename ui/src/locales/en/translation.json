@@ -343,6 +343,8 @@
     "hintBorrowed": "This copy is currently on loan. You will be notified when it is available for you.",
     "hintQueue": "Other holds are in the queue ({{count}} waiting). You will be notified in turn; your position will be about {{position}}.",
     "hintNotifyWhenReady": "You will be notified when the copy is available for you.",
+    "quotaRemaining": "{{remaining}} of {{max}} hold slots remaining.",
+    "quotaFull": "This patron is at the hold cap ({{active}}/{{max}}).",
     "reserveFor": "Hold for",
     "forMe": "For me",
     "forUser": "For a patron",
@@ -1098,7 +1100,11 @@
       "unpaidFineThreshold": "Unpaid fine threshold override",
       "unpaidFineThresholdInherit": "Empty = inherit global ({{amount}})",
       "unpaidFineThresholdInheritEmpty": "Empty = inherit global threshold",
-      "unpaidFineThresholdHelp": "Optional. When set, this audience uses its own limit. Unpaid balance above the amount blocks checkout and renew unless staff force. Empty inherits the global threshold (existing overrides keep their value if left empty on save)."
+      "unpaidFineThresholdHelp": "Optional. When set, this audience uses its own limit. Unpaid balance above the amount blocks checkout and renew unless staff force. Empty inherits the global threshold (existing overrides keep their value if left empty on save).",
+      "maxActiveHolds": "Max active holds override",
+      "maxActiveHoldsInherit": "Empty = inherit global ({{count}})",
+      "maxActiveHoldsInheritEmpty": "Empty = inherit global hold cap",
+      "maxActiveHoldsHelp": "Optional. When set, this audience uses its own pending/ready hold cap. Empty inherits the global default (an existing override is kept if left empty on save)."
     },
     "finePolicy": {
       "title": "Unpaid fine threshold",
@@ -1108,6 +1114,15 @@
       "invalidAmount": "Enter a valid amount of 0 or more.",
       "loadError": "Could not load the unpaid fine threshold.",
       "saveSuccess": "Unpaid fine threshold saved"
+    },
+    "holdsPolicy": {
+      "title": "Maximum concurrent holds",
+      "help": "A patron may have this many pending or ready holds at once. Public types can override this default. Staff may force a hold past the cap.",
+      "capHint": "Integer from 1 to 1000. Default is 20.",
+      "maxActiveHolds": "Maximum active holds",
+      "invalidCap": "Enter a whole number between 1 and 1000.",
+      "loadError": "Could not load the hold cap.",
+      "saveSuccess": "Hold cap saved"
     },
     "accountTypes": {
       "title": "Account types",
