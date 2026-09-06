@@ -9,9 +9,12 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::{
-    error::AppResult,
+    error::{AppError, AppResult},
     models::{
-        dto::fines::CirculationFinePolicy,
+        dto::fines::{
+            AccrueBatchReport, AccrueFinesRequest, AccrueLoanResult, AccrueOutcome,
+            CirculationFinePolicy,
+        },
         fine::{Fine, FineRule, PayFineRequest, WaiveFineRequest},
     },
     services::audit,
@@ -305,10 +308,161 @@ pub async fn update_fine_policy(
     }
 }
 
+/// Accrue (or refresh) the open fine for one overdue loan.
+#[utoipa::path(
+    post,
+    path = "/loans/{id}/fines/accrue",
+    tag = "fines",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Loan ID")),
+    responses(
+        (status = 200, description = "Fine created or updated from current overdue days", body = AccrueLoanResult),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
+        (status = 403, description = "Staff access required", body = crate::error::ErrorResponse),
+        (status = 404, description = "Loan not found", body = crate::error::ErrorResponse),
+        (status = 422, description = "Not overdue, within grace, or deleted patron", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn accrue_loan_fine(
+    State(state): State<crate::AppState>,
+    StaffUser(claims): StaffUser,
+    ClientIp(ip): ClientIp,
+    Path(loan_id): Path<i64>,
+) -> AppResult<Json<AccrueLoanResult>> {
+    let result = state.services.fines.accrue_loan(loan_id).await?;
+    audit_single_accrue(&state, claims.user_id, ip, &result);
+    accrue_loan_response(result)
+}
+
+/// Accrue overdue fines for one patron (idempotent; one open fine per loan).
+#[utoipa::path(
+    post,
+    path = "/users/{id}/fines/accrue",
+    tag = "fines",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "User ID")),
+    responses(
+        (status = 200, description = "Batch accrue report for the patron", body = AccrueBatchReport),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
+        (status = 403, description = "Staff access required", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn accrue_user_fines(
+    State(state): State<crate::AppState>,
+    StaffUser(claims): StaffUser,
+    ClientIp(ip): ClientIp,
+    Path(user_id): Path<i64>,
+) -> AppResult<Json<AccrueBatchReport>> {
+    let report = state.services.fines.accrue_overdue(Some(user_id)).await?;
+    audit_batch_accrue(&state, Some(claims.user_id), ip, Some(user_id), &report);
+    Ok(Json(report))
+}
+
+/// Accrue overdue fines for all patrons, or one patron when `userId` is set.
+#[utoipa::path(
+    post,
+    path = "/fines/accrue",
+    tag = "fines",
+    security(("bearer_auth" = [])),
+    request_body = AccrueFinesRequest,
+    responses(
+        (status = 200, description = "Batch accrue report", body = AccrueBatchReport),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
+        (status = 403, description = "Staff access required", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn accrue_overdue_fines(
+    State(state): State<crate::AppState>,
+    StaffUser(claims): StaffUser,
+    ClientIp(ip): ClientIp,
+    Json(req): Json<AccrueFinesRequest>,
+) -> AppResult<Json<AccrueBatchReport>> {
+    let report = state.services.fines.accrue_overdue(req.user_id).await?;
+    audit_batch_accrue(&state, Some(claims.user_id), ip, req.user_id, &report);
+    Ok(Json(report))
+}
+
+fn accrue_loan_response(result: AccrueLoanResult) -> AppResult<Json<AccrueLoanResult>> {
+    match result.outcome {
+        AccrueOutcome::Created | AccrueOutcome::Updated | AccrueOutcome::Unchanged => {
+            Ok(Json(result))
+        }
+        AccrueOutcome::SkippedGrace => Err(AppError::BusinessRule(
+            "Fine amount is zero — within grace period".to_string(),
+        )),
+        AccrueOutcome::SkippedNotOverdue => {
+            Err(AppError::BusinessRule("Loan is not overdue".to_string()))
+        }
+        AccrueOutcome::SkippedReturned => {
+            Err(AppError::BusinessRule("Loan has been returned".to_string()))
+        }
+        AccrueOutcome::SkippedDeletedUser => Err(AppError::BusinessRule(
+            "Cannot accrue fines for a deleted patron".to_string(),
+        )),
+    }
+}
+
+fn audit_single_accrue(
+    state: &crate::AppState,
+    actor_id: i64,
+    ip: Option<String>,
+    result: &AccrueLoanResult,
+) {
+    let event = if result.outcome == AccrueOutcome::Created {
+        audit::event::FINE_CREATED
+    } else {
+        audit::event::FINE_ACCRUED
+    };
+    state.services.audit.log(
+        event,
+        Some(actor_id),
+        Some("fine"),
+        result.fine.as_ref().map(|f| f.id),
+        ip,
+        Some(serde_json::json!({
+            "loanId": result.loan_id.to_string(),
+            "userId": result.user_id.to_string(),
+            "outcome": result.outcome,
+            "amount": result.breakdown.as_ref().map(|b| b.amount),
+            "overdueDays": result.breakdown.as_ref().map(|b| b.overdue_days),
+            "billableDays": result.breakdown.as_ref().map(|b| b.billable_days),
+        })),
+        audit::AuditLogMeta::success(),
+    );
+}
+
+fn audit_batch_accrue(
+    state: &crate::AppState,
+    actor_id: Option<i64>,
+    ip: Option<String>,
+    user_id: Option<i64>,
+    report: &AccrueBatchReport,
+) {
+    state.services.audit.log(
+        audit::event::SYSTEM_FINES_ACCRUAL_BATCH_COMPLETED,
+        actor_id,
+        user_id.map(|_| "user"),
+        user_id,
+        ip,
+        Some(serde_json::json!({
+            "created": report.created,
+            "updated": report.updated,
+            "unchanged": report.unchanged,
+            "skipped": report.skipped,
+            "errors": report.errors.len(),
+            "userId": user_id.map(|id| id.to_string()),
+        })),
+        audit::AuditLogMeta::success(),
+    );
+}
+
 pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::{get, post};
     axum::Router::new()
         .route("/users/:id/fines", get(list_user_fines))
+        .route("/users/:id/fines/accrue", post(accrue_user_fines))
+        .route("/loans/:id/fines/accrue", post(accrue_loan_fine))
+        .route("/fines/accrue", post(accrue_overdue_fines))
         .route("/fines/rules", get(list_fine_rules).put(upsert_fine_rule))
         .route(
             "/fines/policy",

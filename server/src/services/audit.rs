@@ -186,6 +186,7 @@ pub mod event {
 
     // Fines
     pub const FINE_CREATED: &str = "fine.created";
+    pub const FINE_ACCRUED: &str = "fine.accrued";
     pub const FINE_PAID: &str = "fine.paid";
     pub const FINE_WAIVED: &str = "fine.waived";
     pub const FINE_RULE_UPDATED: &str = "fine_rule.updated";
@@ -218,6 +219,7 @@ pub mod event {
     // System
     pub const SYSTEM_STARTUP: &str = "system.startup";
     pub const SYSTEM_REMINDERS_BATCH_COMPLETED: &str = "system.reminders_batch_completed";
+    pub const SYSTEM_FINES_ACCRUAL_BATCH_COMPLETED: &str = "system.fines_accrual_batch_completed";
     pub const SYSTEM_HOLD_EXPIRY_BATCH_COMPLETED: &str = "system.hold_expiry_batch_completed";
     pub const SYSTEM_AUDIT_CLEANUP: &str = "system.audit_cleanup";
     pub const SYSTEM_TASK_COMPLETED: &str = "system.task_completed";
@@ -409,6 +411,11 @@ mod tests {
         assert_eq!(
             event::LOAN_FINE_THRESHOLD_OVERRIDDEN,
             "loan.fine_threshold_overridden"
+        );
+        assert_eq!(event::FINE_ACCRUED, "fine.accrued");
+        assert_eq!(
+            event::SYSTEM_FINES_ACCRUAL_BATCH_COMPLETED,
+            "system.fines_accrual_batch_completed"
         );
     }
 }

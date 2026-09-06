@@ -1387,6 +1387,48 @@ export interface FineRule {
   notes?: string | null;
 }
 
+export type AccrueOutcome =
+  | 'created'
+  | 'updated'
+  | 'unchanged'
+  | 'skippedGrace'
+  | 'skippedNotOverdue'
+  | 'skippedReturned'
+  | 'skippedDeletedUser';
+
+export interface AccrualBreakdown {
+  overdueDays: number;
+  graceDays: number;
+  billableDays: number;
+  dailyRate: string;
+  maxAmount?: string | null;
+  amount: string;
+  capped: boolean;
+  mediaType?: string | null;
+}
+
+export interface AccrueLoanResult {
+  outcome: AccrueOutcome;
+  fine?: Fine | null;
+  breakdown?: AccrualBreakdown | null;
+  loanId: string;
+  userId: string;
+}
+
+export interface AccrueBatchError {
+  loanId: string;
+  errorMessage: string;
+}
+
+export interface AccrueBatchReport {
+  created: number;
+  updated: number;
+  unchanged: number;
+  skipped: number;
+  errors: AccrueBatchError[];
+  results: AccrueLoanResult[];
+}
+
 // ──────────────────────────────────────────────────────────────────
 // Inventory / Stock check
 // ──────────────────────────────────────────────────────────────────

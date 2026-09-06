@@ -42,6 +42,7 @@ z3950_cache_ttl_seconds = 604800
 enabled = true
 frequency_days = 7
 send_time = "09:00"
+accrue_fines = true
 smtp_throttle_ms = 100
 overridable = true
 

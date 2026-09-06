@@ -105,6 +105,7 @@ async fn main() -> anyhow::Result<()> {
         services.holds.clone(),
         services.email.clone(),
         services.repository.clone(),
+        services.fines.clone(),
     );
 
     let state = AppState {

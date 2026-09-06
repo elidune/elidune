@@ -1,7 +1,8 @@
-//! Background scheduler for overdue reminder emails, hold expiry, and audit log cleanup.
+//! Background scheduler for overdue reminder emails, hold expiry, fine accrual, and audit log cleanup.
 //!
 //! Spawned at startup via `tokio::spawn`. Periodic tasks run concurrently:
 //! - Reminder sending at the configured time of day
+//! - Overdue fine accrual at the same clock (optional, `reminders.accrue_fines`)
 //! - Ready-hold expiry (missed pickup) at 02:00 daily
 //! - Audit log cleanup at 03:00 daily
 
@@ -16,8 +17,8 @@ use crate::{
     email::EmailService,
     repository::Repository,
     services::{
-        audit, audit::AuditService, email_outbox, holds::HoldsService, operational_metrics,
-        reminders::RemindersService,
+        audit, audit::AuditService, email_outbox, fines::FinesService, holds::HoldsService,
+        operational_metrics, reminders::RemindersService,
     },
 };
 
@@ -30,6 +31,7 @@ pub fn spawn(
     holds_service: HoldsService,
     email_service: EmailService,
     repository: Arc<Repository>,
+    fines_service: FinesService,
 ) -> Arc<Notify> {
     let notify = Arc::new(Notify::new());
 
@@ -107,6 +109,89 @@ pub fn spawn(
                 }
             }
             operational_metrics::record_scheduler_run("reminders", Utc::now().timestamp());
+        }
+    });
+
+    // Overdue fine accrual (same send_time as reminders; optional)
+    let notify_fines = notify.clone();
+    let dc_fines = dynamic_config.clone();
+    let fines_svc = fines_service;
+    let audit_fines = audit_service.clone();
+    tokio::spawn(async move {
+        tracing::info!("Fine accrual scheduler started");
+        loop {
+            let cfg = dc_fines.read_reminders();
+            if !cfg.accrue_fines {
+                tracing::debug!("Fine accrual disabled, sleeping 60s");
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_secs(60)) => {}
+                    _ = notify_fines.notified() => {
+                        tracing::info!("Fine accrual scheduler woken by config change");
+                    }
+                }
+                continue;
+            }
+
+            let sleep_dur = duration_until_next_send(&cfg.send_time);
+            tracing::info!(
+                "Next fine accrual run in {:.1} minutes (at {})",
+                sleep_dur.as_secs_f64() / 60.0,
+                cfg.send_time
+            );
+
+            tokio::select! {
+                _ = tokio::time::sleep(sleep_dur) => {}
+                _ = notify_fines.notified() => {
+                    tracing::info!("Fine accrual scheduler woken early by config change, re-evaluating schedule");
+                    continue;
+                }
+            }
+
+            tracing::info!("Running scheduled overdue fine accrual");
+            match fines_svc.accrue_overdue(None).await {
+                Ok(report) => {
+                    tracing::info!(
+                        "Fine accrual completed: {} created, {} updated, {} unchanged, {} skipped, {} errors",
+                        report.created,
+                        report.updated,
+                        report.unchanged,
+                        report.skipped,
+                        report.errors.len()
+                    );
+                    audit_fines.log(
+                        audit::event::SYSTEM_FINES_ACCRUAL_BATCH_COMPLETED,
+                        None,
+                        None,
+                        None,
+                        None,
+                        Some(serde_json::json!({
+                            "created": report.created,
+                            "updated": report.updated,
+                            "unchanged": report.unchanged,
+                            "skipped": report.skipped,
+                            "errors": report.errors.len(),
+                            "trigger": "scheduler",
+                        })),
+                        audit::AuditLogMeta::success(),
+                    );
+                }
+                Err(e) => {
+                    tracing::error!("Fine accrual batch failed: {}", e);
+                    audit_fines.log(
+                        audit::event::SYSTEM_FINES_ACCRUAL_BATCH_COMPLETED,
+                        None,
+                        None,
+                        None,
+                        None,
+                        Some(serde_json::json!({
+                            "error": e.to_string(),
+                            "trigger": "scheduler",
+                        })),
+                        audit::AuditLogMeta::from_app_error(&e),
+                    );
+                }
+            }
+            operational_metrics::record_scheduler_run("fines_accrual", Utc::now().timestamp());
         }
     });
 

@@ -6,8 +6,10 @@ use serde_with::{serde_as, DisplayFromStr};
 use sqlx::FromRow;
 use utoipa::ToSchema;
 
+use crate::models::user::UserStatus;
+
 /// Fine status
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum FineStatus {
     Pending,
@@ -24,6 +26,10 @@ impl FineStatus {
             Self::Paid => "paid",
             Self::Waived => "waived",
         }
+    }
+
+    pub fn is_open(self) -> bool {
+        matches!(self, Self::Pending | Self::Partial)
     }
 }
 
@@ -105,4 +111,15 @@ pub struct PayFineRequest {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct WaiveFineRequest {
     pub notes: Option<String>,
+}
+
+/// Loan context needed to accrue an overdue fine.
+#[derive(Debug, Clone)]
+pub struct FineAccrualLoan {
+    pub loan_id: i64,
+    pub user_id: i64,
+    pub expiry_at: Option<DateTime<Utc>>,
+    pub returned_at: Option<DateTime<Utc>>,
+    pub media_type: Option<String>,
+    pub user_status: UserStatus,
 }

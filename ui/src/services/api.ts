@@ -82,6 +82,8 @@ import type {
   CreateHold,
   FinesResponse,
   FineRule,
+  AccrueLoanResult,
+  AccrueBatchReport,
   InventorySession,
   CreateInventorySession,
   CreateInventorySessionResponse,
@@ -874,6 +876,23 @@ class ApiService {
 
   async updateFineRules(rules: FineRule[]): Promise<FineRule[]> {
     const response = await this.client.put<FineRule[]>('/fines/rules', rules);
+    return response.data;
+  }
+
+  async accrueLoanFine(loanId: string): Promise<AccrueLoanResult> {
+    const response = await this.client.post<AccrueLoanResult>(`/loans/${loanId}/fines/accrue`);
+    return response.data;
+  }
+
+  async accrueUserFines(userId: string): Promise<AccrueBatchReport> {
+    const response = await this.client.post<AccrueBatchReport>(`/users/${userId}/fines/accrue`);
+    return response.data;
+  }
+
+  async accrueOverdueFines(userId?: string): Promise<AccrueBatchReport> {
+    const response = await this.client.post<AccrueBatchReport>('/fines/accrue', {
+      userId,
+    });
     return response.data;
   }
 

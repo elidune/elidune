@@ -5,8 +5,9 @@ Migrates data from the legacy C/XML-RPC PostgreSQL schema to the new Rust schema
 
 Source schema: legacy database (see elidune-pgdump.sql)
 Target schema: new database (see migrations/001_initial_schema.sql + follow-up migrations,
-including email outbox tables, idx_loans_one_active_per_item, and
-idx_holds_one_active_per_user_item up to migration 023)
+including email outbox tables, idx_loans_one_active_per_item,
+idx_holds_one_active_per_user_item, fines / fine_rules / circulation_settings
+(025), and idx_fines_one_open_per_loan (026))
 
 Usage:
     python migrate_data.py --source-db <old_db_url> --target-db <new_db_url>
