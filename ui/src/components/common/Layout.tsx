@@ -27,7 +27,10 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLibrary } from '@/contexts/LibraryContext';
 import { isLibrarian, isAdmin, canPatronSelfServiceHolds } from '@/types';
+import { useAccountTypesQuery } from '@/hooks/useAccountTypesQuery';
+import { accountTypeDisplayName } from '@/utils/accountTypeDisplay';
 import api from '@/services/api';
+import LanguageSwitcher from './LanguageSwitcher';
 import { version as uiVersion } from '../../../package.json';
 import {
   BackgroundTasksDrawer,
@@ -43,7 +46,9 @@ export default function Layout({ children }: LayoutProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [serverVersion, setServerVersion] = useState<string | null>(null);
   const { user, logout } = useAuth();
+  const { data: accountTypes = [] } = useAccountTypesQuery();
   const { theme, setTheme } = useTheme();
+  const staff = isLibrarian(user?.accountType);
   const { libraryName } = useLibrary();
   const location = useLocation();
   const navigate = useNavigate();
@@ -59,27 +64,66 @@ export default function Layout({ children }: LayoutProps) {
     navigate('/');
   };
 
-  const navigation = [
-    { name: t('nav.home'), href: '/home', icon: Home, show: true },
-    { name: t('nav.catalog'), href: '/biblios', icon: BookOpen, show: true },
-    { name: t('nav.inventory'), href: '/inventory', icon: ClipboardList, show: isLibrarian(user?.accountType) },
-    { name: t('nav.myLoans'), href: '/my-loans', icon: BookMarked, show: true },
+  type NavItem = { name: string; href: string; icon: typeof Home; show: boolean };
+  type NavSection = { id: string; label?: string; items: NavItem[] };
+
+  const navSections: NavSection[] = [
     {
-      name: t('nav.myHolds'),
-      href: '/my-holds',
-      icon: BookmarkCheck,
-      show: canPatronSelfServiceHolds(user, api.getToken()),
+      id: 'top',
+      items: [
+        { name: t('nav.home'), href: '/home', icon: Home, show: true },
+        { name: t('nav.catalog'), href: '/catalog', icon: BookOpen, show: !staff },
+      ],
     },
-    { name: t('nav.loans'), href: '/loans', icon: ArrowLeftRight, show: isLibrarian(user?.accountType) },
-    { name: t('nav.holds'), href: '/holds', icon: Bookmark, show: isLibrarian(user?.accountType) },
-    { name: t('nav.users'), href: '/users', icon: Users, show: isLibrarian(user?.accountType) },
-    { name: t('nav.z3950Search'), href: '/z3950', icon: Globe, show: isLibrarian(user?.accountType) },
-    { name: t('nav.importIso'), href: '/import-iso', icon: Upload, show: isLibrarian(user?.accountType) },
-    { name: t('nav.events'), href: '/events', icon: CalendarDays, show: true },
-    { name: t('nav.stats'), href: '/stats', icon: BarChart3, show: isLibrarian(user?.accountType) },
-    { name: t('nav.library'), href: '/settings?tab=library', icon: LibraryBig, show: isLibrarian(user?.accountType) && !isAdmin(user?.accountType) },
-    { name: t('nav.settings'), href: '/settings', icon: Settings, show: isAdmin(user?.accountType) },
-  ].filter(item => item.show);
+    {
+      id: 'circulation',
+      label: t('nav.sectionCirculation'),
+      items: [
+        { name: t('nav.loans'), href: '/loans', icon: ArrowLeftRight, show: staff },
+        { name: t('nav.holds'), href: '/holds', icon: Bookmark, show: staff },
+        { name: t('nav.users'), href: '/users', icon: Users, show: staff },
+      ],
+    },
+    {
+      id: 'cataloging',
+      label: t('nav.sectionCataloging'),
+      items: [
+        { name: t('nav.catalog'), href: '/biblios', icon: BookOpen, show: staff },
+        { name: t('nav.inventory'), href: '/inventory', icon: ClipboardList, show: staff },
+        { name: t('nav.z3950Search'), href: '/z3950', icon: Globe, show: staff },
+        { name: t('nav.importIso'), href: '/import-iso', icon: Upload, show: staff },
+      ],
+    },
+    {
+      id: 'patron',
+      label: t('nav.sectionPatron'),
+      items: [
+        { name: t('nav.myLoans'), href: '/my-loans', icon: BookMarked, show: true },
+        {
+          name: t('nav.myHolds'),
+          href: '/my-holds',
+          icon: BookmarkCheck,
+          show: canPatronSelfServiceHolds(user, api.getToken()),
+        },
+        { name: t('nav.events'), href: '/events', icon: CalendarDays, show: true },
+      ],
+    },
+    {
+      id: 'admin',
+      items: [
+        { name: t('nav.stats'), href: '/stats', icon: BarChart3, show: staff },
+        {
+          name: t('nav.library'),
+          href: '/settings?tab=library',
+          icon: LibraryBig,
+          show: staff && !isAdmin(user?.accountType),
+        },
+        { name: t('nav.settings'), href: '/settings', icon: Settings, show: isAdmin(user?.accountType) },
+      ],
+    },
+  ]
+    .map((section) => ({ ...section, items: section.items.filter((item) => item.show) }))
+    .filter((section) => section.items.length > 0);
 
   const themeOptions = [
     { value: 'light' as const, icon: Sun, label: t('theme.light') },
@@ -133,31 +177,43 @@ export default function Layout({ children }: LayoutProps) {
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-            {navigation.map((item) => {
-              const isActive =
-                item.href === '/home'
-                  ? location.pathname === '/home'
-                  : item.href.includes('?')
-                    ? `${location.pathname}${location.search}` === item.href
-                    : location.pathname === item.href ||
-                      location.pathname.startsWith(`${item.href}/`);
-              return (
-                <Link
-                  key={item.href}
-                  to={item.href}
-                  onClick={() => setSidebarOpen(false)}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                    isActive
-                      ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                      : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
-                  }`}
-                >
-                  <item.icon className="h-5 w-5" />
-                  {item.name}
-                </Link>
-              );
-            })}
+          <nav aria-label={t('nav.main')} className="flex-1 px-3 py-4 space-y-4 overflow-y-auto">
+            {navSections.map((section) => (
+              <div key={section.id} className="space-y-1">
+                {section.label && (
+                  <p className="px-3 pt-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
+                    {section.label}
+                  </p>
+                )}
+                {section.items.map((item) => {
+                  const isActive =
+                    item.href === '/home'
+                      ? location.pathname === '/home'
+                      : item.href === '/catalog'
+                        ? location.pathname === '/catalog' ||
+                          location.pathname.startsWith('/biblios/')
+                      : item.href.includes('?')
+                        ? `${location.pathname}${location.search}` === item.href
+                        : location.pathname === item.href ||
+                          location.pathname.startsWith(`${item.href}/`);
+                  return (
+                    <Link
+                      key={item.href}
+                      to={item.href}
+                      onClick={() => setSidebarOpen(false)}
+                      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                        isActive
+                          ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                          : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
+                      }`}
+                    >
+                      <item.icon className="h-5 w-5" />
+                      {item.name}
+                    </Link>
+                  );
+                })}
+              </div>
+            ))}
           </nav>
 
           {isLibrarian(user?.accountType) && (
@@ -166,8 +222,9 @@ export default function Layout({ children }: LayoutProps) {
             </div>
           )}
 
-          {/* Theme selector */}
-          <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-800">
+          {/* Theme + language */}
+          <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-800 space-y-2">
+            <LanguageSwitcher id="sidebar-language-switcher" />
             <div className="flex items-center justify-center gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg">
               {themeOptions.map((option) => (
                 <button
@@ -207,7 +264,7 @@ export default function Layout({ children }: LayoutProps) {
                     {user?.firstname} {user?.lastname}
                   </p>
                   <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                    {user?.accountType}
+                    {accountTypeDisplayName(accountTypes, user?.accountType)}
                   </p>
                 </div>
               </Link>

@@ -81,7 +81,12 @@
     "openMenu": "Ouvrir le menu",
     "logout": "Déconnexion",
     "about": "À propos",
-    "privacy": "Confidentialité"
+    "privacy": "Confidentialité",
+    "sectionCirculation": "Circulation",
+    "sectionCataloging": "Catalogage",
+    "sectionPatron": "Usager",
+    "language": "Langue",
+    "main": "Navigation principale"
   },
   "theme": {
     "light": "Clair",
@@ -95,7 +100,8 @@
     "noSchedule": "Aucun horaire disponible",
     "welcome": "bienvenue",
     "upcomingEvents": "Prochains événements",
-    "upcomingEventsSubtitle": "Affiche et flyer de la bibliothèque"
+    "upcomingEventsSubtitle": "Affiche et flyer de la bibliothèque",
+    "statsLoadError": "Impossible de charger les statistiques."
   },
   "library": {
     "general": {
@@ -1622,7 +1628,13 @@
     "featureRenew": "Renouveler un emprunt",
     "featureHistory": "Historique des emprunts",
     "featureDigital": "Documents numériques",
-    "featureSuggestions": "Suggestions de documents"
+    "featureSuggestions": "Suggestions de documents",
+    "notForLoan": "Non empruntable",
+    "unavailable": "Indisponible",
+    "site": "Site",
+    "holdsWaiting_one": "{{count}} réservation en attente",
+    "holdsWaiting_other": "{{count}} réservations en attente",
+    "readerCatalogSubtitle": "Disponibilité, cote et site"
   },
   "maintenance": {
     "title": "Service indisponible",

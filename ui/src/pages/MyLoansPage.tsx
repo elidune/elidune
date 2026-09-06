@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BookOpen, Calendar, RotateCcw, AlertTriangle } from 'lucide-react';
-import { Card, CardHeader, Button, Badge, Pagination } from '@/components/common';
+import { Card, CardHeader, Button, Badge, Pagination, ListSkeleton, QueryErrorBanner } from '@/components/common';
 import LoansMarcExportButton from '@/components/loans/LoansMarcExportButton';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/services/api';
@@ -19,7 +19,9 @@ export default function MyLoansPage() {
   const [loansPage, setLoansPage] = useState(1);
   const [loansTotal, setLoansTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [renewError, setRenewError] = useState('');
+  const [reloadToken, setReloadToken] = useState(0);
 
   const [prevLoansUserId, setPrevLoansUserId] = useState(user?.id);
   if (user?.id !== prevLoansUserId) {
@@ -30,6 +32,8 @@ export default function MyLoansPage() {
   useEffect(() => {
     const fetchLoans = async () => {
       if (!user?.id) return;
+      setIsLoading(true);
+      setLoadError(null);
       try {
         const res = await api.getUserLoans(user.id, {
           page: loansPage,
@@ -38,14 +42,14 @@ export default function MyLoansPage() {
         setLoans(res.items);
         setLoansTotal(res.total);
       } catch (error) {
-        console.error('Error fetching loans:', error);
+        setLoadError(getApiErrorMessage(error, t) || t('loans.loansLoadError'));
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchLoans();
-  }, [user?.id, loansPage]);
+  }, [user?.id, loansPage, reloadToken, t]);
 
   const handleRenewLoan = async (loanId: string) => {
     setRenewError('');
@@ -67,14 +71,6 @@ export default function MyLoansPage() {
 
   const loansSorted = useMemo(() => sortLoansByStartDateAsc(loans), [loans]);
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="h-8 w-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -92,6 +88,13 @@ export default function MyLoansPage() {
         ) : null}
       </div>
 
+      {loadError && (
+        <QueryErrorBanner
+          message={loadError}
+          onRetry={() => setReloadToken((n) => n + 1)}
+        />
+      )}
+
       {/* Renew error */}
       {renewError && (
         <div className="flex items-start gap-3 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl">
@@ -105,7 +108,9 @@ export default function MyLoansPage() {
           title={t('loans.activeLoans')}
           subtitle={t('items.count', { count: loansTotal })}
         />
-        {loans.length === 0 ? (
+        {isLoading ? (
+          <ListSkeleton rows={6} />
+        ) : loadError ? null : loans.length === 0 ? (
           <div className="text-center py-8 text-gray-500 dark:text-gray-400">
             <BookOpen className="h-12 w-12 mx-auto mb-3 opacity-30" />
             <p>{t('loans.noLoans')}</p>
@@ -117,7 +122,7 @@ export default function MyLoansPage() {
             ))}
           </div>
         )}
-        {loansTotal > 0 && (
+        {!loadError && loansTotal > 0 && (
           <div className="pt-4 border-t border-gray-200 dark:border-gray-800">
             <Pagination
               currentPage={loansPage}

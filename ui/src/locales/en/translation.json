@@ -81,7 +81,12 @@
     "logout": "Log out",
     "about": "About",
     "privacy": "Privacy",
-    "tasks": "Tasks"
+    "tasks": "Tasks",
+    "sectionCirculation": "Circulation",
+    "sectionCataloging": "Cataloging",
+    "sectionPatron": "Patron",
+    "language": "Language",
+    "main": "Main navigation"
   },
   "theme": {
     "light": "Light",
@@ -95,7 +100,8 @@
     "noSchedule": "No schedule",
     "welcome": "welcome",
     "upcomingEvents": "Upcoming events",
-    "upcomingEventsSubtitle": "Library programme and flyers"
+    "upcomingEventsSubtitle": "Library programme and flyers",
+    "statsLoadError": "Could not load library statistics."
   },
   "library": {
     "general": {
@@ -1622,7 +1628,13 @@
     "featureRenew": "Renew a loan",
     "featureHistory": "Loan history",
     "featureDigital": "Digital documents",
-    "featureSuggestions": "Document suggestions"
+    "featureSuggestions": "Document suggestions",
+    "notForLoan": "Not for loan",
+    "unavailable": "Unavailable",
+    "site": "Location",
+    "holdsWaiting_one": "{{count}} hold waiting",
+    "holdsWaiting_other": "{{count}} holds waiting",
+    "readerCatalogSubtitle": "Availability, call number, and location"
   },
   "maintenance": {
     "title": "Service unavailable",

@@ -5,7 +5,7 @@ import { KeyRound, ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import axios from 'axios';
 import { useLibrary } from '@/contexts/LibraryContext';
 import api from '@/services/api';
-import { Button, Input, Card } from '@/components/common';
+import { Button, Input, Card, LanguageSwitcher } from '@/components/common';
 import { getApiErrorMessage } from '@/utils/apiError';
 
 export default function ResetPasswordPage() {
@@ -69,6 +69,9 @@ export default function ResetPasswordPage() {
       </div>
 
       <Card className="w-full max-w-md relative">
+        <div className="mb-4 flex justify-end">
+          <LanguageSwitcher id="reset-language-switcher" className="w-36" />
+        </div>
         <div className="mb-6">
           <Link
             to="/"
