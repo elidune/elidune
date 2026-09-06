@@ -7,6 +7,7 @@
 //! like loans or biblios.
 
 pub mod account_types;
+pub mod acquisitions;
 pub mod audit_log;
 pub mod biblios;
 pub mod catalog_entities;
@@ -33,6 +34,7 @@ pub mod visitor_counts;
 pub mod z3950;
 
 pub use account_types::AccountTypesCatalogRepository;
+pub use acquisitions::AcquisitionsRepository;
 pub use audit_log::AuditLogRepository;
 pub use biblios::BibliosRepository;
 pub use catalog_entities::CatalogEntitiesRepository;

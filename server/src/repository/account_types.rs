@@ -42,7 +42,8 @@ impl Repository {
         sqlx::query_as::<_, AccountTypeDefinition>(
             r#"
             SELECT code, name, items_rights, users_rights, loans_rights,
-                   items_archive_rights, holds_rights, settings_rights, events_rights
+                   items_archive_rights, holds_rights, settings_rights, events_rights,
+                   acquisitions_rights
             FROM account_types
             ORDER BY code
             "#,
@@ -56,7 +57,8 @@ impl Repository {
         sqlx::query_as::<_, AccountTypeDefinition>(
             r#"
             SELECT code, name, items_rights, users_rights, loans_rights,
-                   items_archive_rights, holds_rights, settings_rights, events_rights
+                   items_archive_rights, holds_rights, settings_rights, events_rights,
+                   acquisitions_rights
             FROM account_types
             WHERE code = $1
             "#,
@@ -93,6 +95,7 @@ impl Repository {
         add_opt!(data.holds_rights, "holds_rights");
         add_opt!(data.settings_rights, "settings_rights");
         add_opt!(data.events_rights, "events_rights");
+        add_opt!(data.acquisitions_rights, "acquisitions_rights");
 
         if sets.is_empty() {
             return Err(AppError::Validation("No fields to update".to_string()));
@@ -100,7 +103,7 @@ impl Repository {
 
         let q = format!(
             "UPDATE account_types SET {} WHERE code = ${} RETURNING code, name, items_rights, users_rights, loans_rights, \
-             items_archive_rights, holds_rights, settings_rights, events_rights",
+             items_archive_rights, holds_rights, settings_rights, events_rights, acquisitions_rights",
             sets.join(", "),
             idx
         );
@@ -123,6 +126,7 @@ impl Repository {
         bind_opt!(data.holds_rights);
         bind_opt!(data.settings_rights);
         bind_opt!(data.events_rights);
+        bind_opt!(data.acquisitions_rights);
 
         b = b.bind(code);
 

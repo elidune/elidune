@@ -59,6 +59,7 @@ impl AccountTypesCatalogService {
         normalize_holds_right_field(&mut data.holds_rights)?;
         normalize_right_field(&mut data.settings_rights)?;
         normalize_right_field(&mut data.events_rights)?;
+        normalize_right_field(&mut data.acquisitions_rights)?;
 
         self.repository.account_types_update(code, data).await
     }

@@ -657,6 +657,9 @@ pub struct UserRights {
     /// Cultural events (`/events`): read list/detail vs write (create/update/delete/announce).
     #[serde(default)]
     pub events_rights: Rights,
+    /// Acquisitions (`/acquisitions`): vendors, funds, orders, receipt. Distinct from cataloging.
+    #[serde(default)]
+    pub acquisitions_rights: Rights,
 }
 
 impl Default for UserRights {
@@ -668,6 +671,7 @@ impl Default for UserRights {
             holds_rights: Rights::None,
             settings_rights: Rights::None,
             events_rights: Rights::None,
+            acquisitions_rights: Rights::None,
         }
     }
 }
@@ -878,6 +882,26 @@ impl UserClaims {
         }
     }
 
+    pub fn require_read_acquisitions(&self) -> Result<(), AppError> {
+        if self.rights.acquisitions_rights.rank() >= Rights::Read.rank() {
+            Ok(())
+        } else {
+            Err(AppError::Authorization(
+                "Insufficient rights to read acquisitions".to_string(),
+            ))
+        }
+    }
+
+    pub fn require_write_acquisitions(&self) -> Result<(), AppError> {
+        if self.rights.acquisitions_rights.rank() >= Rights::Write.rank() {
+            Ok(())
+        } else {
+            Err(AppError::Authorization(
+                "Insufficient rights to manage acquisitions".to_string(),
+            ))
+        }
+    }
+
     pub fn require_list_holds(&self) -> Result<(), AppError> {
         if self.rights.holds_rights.rank() >= Rights::Read.rank()
             || self.rights.holds_rights == Rights::Own
@@ -996,6 +1020,45 @@ mod erasure_tests {
 
     fn d(y: i32, m: u32, day: u32) -> NaiveDate {
         NaiveDate::from_ymd_opt(y, m, day).expect("valid date")
+    }
+
+    #[test]
+    fn acquisitions_rights_are_distinct_from_cataloging() {
+        use crate::models::user::{AccountTypeSlug, Rights, UserClaims, UserRights};
+
+        let cataloger = UserClaims {
+            sub: "1".into(),
+            user_id: 1,
+            account_type: AccountTypeSlug::Librarian,
+            rights: UserRights {
+                items_rights: Rights::Write,
+                acquisitions_rights: Rights::None,
+                ..UserRights::default()
+            },
+            exp: 0,
+            iat: 0,
+            token_version: 1,
+            scope: None,
+        };
+        assert!(cataloger.require_write_items().is_ok());
+        assert!(cataloger.require_write_acquisitions().is_err());
+
+        let selector = UserClaims {
+            sub: "2".into(),
+            user_id: 2,
+            account_type: AccountTypeSlug::Librarian,
+            rights: UserRights {
+                items_rights: Rights::None,
+                acquisitions_rights: Rights::Write,
+                ..UserRights::default()
+            },
+            exp: 0,
+            iat: 0,
+            token_version: 1,
+            scope: None,
+        };
+        assert!(selector.require_write_acquisitions().is_ok());
+        assert!(selector.require_write_items().is_err());
     }
 
     #[test]

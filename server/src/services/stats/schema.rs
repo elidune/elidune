@@ -315,8 +315,67 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
                     "events_rights",
                     f("events_rights", "text", "Events (n/r/w)"),
                 ),
+                (
+                    "acquisitions_rights",
+                    f("acquisitions_rights", "text", "Acquisitions (n/r/w)"),
+                ),
             ]),
             relations: HashMap::new(),
+        },
+    );
+
+    m.insert(
+        "vendors",
+        EntityDef {
+            table: "vendors",
+            label: "Acquisition vendors",
+            fields: HashMap::from([
+                ("id", f("id", "bigint", "Id")),
+                ("name", f("name", "text", "Name")),
+                ("code", f("code", "text", "Code")),
+                ("active", f("active", "boolean", "Active")),
+            ]),
+            relations: HashMap::new(),
+        },
+    );
+
+    m.insert(
+        "acquisition_funds",
+        EntityDef {
+            table: "acquisition_funds",
+            label: "Acquisition funds",
+            fields: HashMap::from([
+                ("id", f("id", "bigint", "Id")),
+                ("code", f("code", "text", "Fund code")),
+                ("name", f("name", "text", "Name")),
+                ("fiscal_year", f("fiscal_year", "int", "Fiscal year")),
+                (
+                    "allocated_amount",
+                    f("allocated_amount", "numeric", "Allocated"),
+                ),
+                ("currency", f("currency", "text", "Currency")),
+            ]),
+            relations: HashMap::new(),
+        },
+    );
+
+    m.insert(
+        "purchase_orders",
+        EntityDef {
+            table: "purchase_orders",
+            label: "Purchase orders",
+            fields: HashMap::from([
+                ("id", f("id", "bigint", "Id")),
+                ("vendor_id", f("vendor_id", "bigint", "Vendor id")),
+                ("fund_id", f("fund_id", "bigint", "Fund id")),
+                ("order_number", f("order_number", "text", "Order number")),
+                ("status", f("status", "text", "Status")),
+                ("ordered_at", f("ordered_at", "timestamptz", "Ordered at")),
+            ]),
+            relations: HashMap::from([
+                ("vendor", r("vendors", "vendor_id", "id", "Vendor")),
+                ("fund", r("acquisition_funds", "fund_id", "id", "Fund")),
+            ]),
         },
     );
 
