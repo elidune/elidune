@@ -60,6 +60,10 @@ overridable = true
 ready_expiry_days = 7   # Days to pick up a hold after it becomes "ready" (drives expires_at)
 overridable = true
 
+[circulation]
+skip_closed_days = true  # Push checkout/renew due dates to the next open day
+overridable = true
+
 [meilisearch]
 url = "http://localhost:7700"
 api_key = "changeme"           # optional — omit if running without auth

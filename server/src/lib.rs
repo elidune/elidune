@@ -11,6 +11,7 @@ pub mod api;
 pub mod app;
 pub mod auth_policy;
 pub mod bootstrap;
+pub mod circulation_calendar;
 pub mod config;
 pub mod dynamic_config;
 pub mod email;

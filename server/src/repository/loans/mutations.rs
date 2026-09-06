@@ -1,6 +1,6 @@
 //! Loans repository — create, return, and renew mutations.
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use sqlx::Row;
 
 use super::super::Repository;
@@ -105,7 +105,7 @@ impl Repository {
             .resolve_loan_settings(user_public_type, media_type.as_deref())
             .await?;
 
-        let expiry_at = now + Duration::days(duration_days as i64);
+        let expiry_at = self.loans_due_at(now, duration_days).await?;
 
         let current_loans_total: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM loans WHERE user_id = $1 AND returned_at IS NULL",
@@ -448,7 +448,7 @@ impl Repository {
             LoanSettingsRenewAt::Now => now,
             LoanSettingsRenewAt::AtDueDate => loan.expiry_at.unwrap_or(now),
         };
-        let new_expiry_date = anchor + Duration::days(duration_days as i64);
+        let new_expiry_date = self.loans_due_at(anchor, duration_days).await?;
         let new_renews = current_renews + 1;
 
         sqlx::query("UPDATE loans SET expiry_at = $1, renew_at = $2, nb_renews = $3 WHERE id = $4")
