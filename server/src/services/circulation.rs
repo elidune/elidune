@@ -214,7 +214,9 @@ impl CirculationService {
             .await?;
 
         if let Some(ref hold) = applied.readied_hold {
-            self.events.hold_ready(hold.id, hold.user_id, hold.item_id);
+            if let Some(item_id) = hold.item_id {
+                self.events.hold_ready(hold.id, hold.user_id, item_id);
+            }
         }
         if applied.loan_closed {
             self.events
