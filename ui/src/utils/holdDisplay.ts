@@ -37,13 +37,16 @@ export function buildCreateHold(input: {
   scope: HoldPlacementScope;
   itemId?: string | null;
   notes?: string | null;
+  pickupSiteId?: string | null;
 }): CreateHold {
   const notes = input.notes?.trim() || undefined;
+  const pickupSiteId = input.pickupSiteId?.trim() || undefined;
   return {
     userId: input.userId,
     biblioId: input.biblioId,
     itemId: input.scope === 'copy' && input.itemId ? input.itemId : undefined,
     notes,
+    pickupSiteId,
   };
 }
 

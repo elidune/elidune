@@ -22,6 +22,7 @@ import {
   ClipboardList,
   Bookmark,
   BookmarkCheck,
+  Truck,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
@@ -95,6 +96,7 @@ export default function Layout({ children }: LayoutProps) {
       items: [
         { name: t('nav.loans'), href: '/loans', icon: ArrowLeftRight, show: staff },
         { name: t('nav.holds'), href: '/holds', icon: Bookmark, show: staff },
+        { name: t('nav.transits'), href: '/transits', icon: Truck, show: staff },
         { name: t('nav.users'), href: '/users', icon: Users, show: staff },
       ],
     },

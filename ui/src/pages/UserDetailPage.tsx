@@ -38,6 +38,13 @@ import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
 import { isClaimedReturnedLoan } from '@/utils/circulationStatus';
 import { newIdempotencyKey } from '@/utils/idempotency';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
+import HoldPickupCell from '@/components/holds/HoldPickupCell';
+import HoldTransitActions from '@/components/holds/HoldTransitActions';
+import TransitActionModals from '@/components/holds/TransitActionModals';
+import { useActiveTransitsQuery } from '@/hooks/holds/useActiveTransitsQuery';
+import { useSourcesQuery } from '@/hooks/holds/useSourcesQuery';
+import { useTransitActions } from '@/hooks/holds/useTransitActions';
+import { indexTransitsByHoldId } from '@/utils/transitDisplay';
 import LoansMarcExportButton from '@/components/loans/LoansMarcExportButton';
 import CirculationExceptionDialog from '@/components/loans/CirculationExceptionDialog';
 import LoanExceptionActions from '@/components/loans/LoanExceptionActions';
@@ -105,6 +112,14 @@ export default function UserDetailPage() {
   const [showRenewSubscriptionModal, setShowRenewSubscriptionModal] = useState(false);
 
   const [cancellingHoldId, setCancellingHoldId] = useState<string | null>(null);
+  const sourcesQuery = useSourcesQuery();
+  const sources = sourcesQuery.data ?? [];
+  const activeTransitsQuery = useActiveTransitsQuery();
+  const transitByHoldId = useMemo(
+    () => indexTransitsByHoldId(activeTransitsQuery.data ?? []),
+    [activeTransitsQuery.data],
+  );
+  const transitActions = useTransitActions();
 
   const { data: publicTypes = [] } = usePublicTypesQuery();
   const { data: accountTypes = [] } = useAccountTypesQuery();
@@ -602,6 +617,13 @@ export default function UserDetailPage() {
       ),
     },
     {
+      key: 'pickup',
+      header: t('holds.columnPickup'),
+      render: (h: Hold) => (
+        <HoldPickupCell hold={h} sources={sources} transit={transitByHoldId.get(h.id)} />
+      ),
+    },
+    {
       key: 'position',
       header: t('holds.position'),
       render: (h: Hold) => h.position,
@@ -620,18 +642,22 @@ export default function UserDetailPage() {
       key: 'actions',
       header: t('common.actions'),
       align: 'right' as const,
-      render: (h: Hold) =>
-        h.status === 'pending' || h.status === 'ready' ? (
-          <Button
-            size="sm"
-            variant="secondary"
-            leftIcon={<Ban className="h-4 w-4" />}
-            isLoading={cancellingHoldId === h.id}
-            onClick={() => void handleCancelHold(h.id)}
-          >
-            {t('holds.cancelHold')}
-          </Button>
-        ) : null,
+      render: (h: Hold) => (
+        <div className="flex flex-wrap justify-end gap-2">
+          <HoldTransitActions hold={h} transit={transitByHoldId.get(h.id)} actions={transitActions} />
+          {h.status === 'pending' || h.status === 'ready' ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              leftIcon={<Ban className="h-4 w-4" />}
+              isLoading={cancellingHoldId === h.id}
+              onClick={() => void handleCancelHold(h.id)}
+            >
+              {t('holds.cancelHold')}
+            </Button>
+          ) : null}
+        </div>
+      ),
     },
   ];
 
@@ -1212,6 +1238,7 @@ export default function UserDetailPage() {
         onClose={exceptionAction.close}
         onConfirm={(payload) => void exceptionAction.submit(payload)}
       />
+      <TransitActionModals actions={transitActions} />
     </div>
   );
 }

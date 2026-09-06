@@ -18,6 +18,8 @@ import {
 import HoldMobileCard from '@/components/holds/HoldMobileCard';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
 import HoldExpiresCell from '@/components/holds/HoldExpiresCell';
+import HoldPickupCell from '@/components/holds/HoldPickupCell';
+import { useSourcesQuery } from '@/hooks/holds/useSourcesQuery';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
@@ -41,6 +43,8 @@ export default function MyHoldsPage() {
   const [perPage, setPerPage] = useState(PAGE_SIZE_DEFAULT);
   const [activeOnly, setActiveOnly] = useState(true);
   const [cancelHoldId, setCancelHoldId] = useState<string | null>(null);
+  const sourcesQuery = useSourcesQuery();
+  const sources = sourcesQuery.data ?? [];
 
   const [prevHoldFilters, setPrevHoldFilters] = useState({ activeOnly, perPage });
   if (activeOnly !== prevHoldFilters.activeOnly || perPage !== prevHoldFilters.perPage) {
@@ -102,6 +106,11 @@ export default function MyHoldsPage() {
       key: 'status',
       header: t('holds.status'),
       render: (r: Hold) => statusBadge(t, r.status),
+    },
+    {
+      key: 'pickup',
+      header: t('holds.columnPickup'),
+      render: (r: Hold) => <HoldPickupCell hold={r} sources={sources} showTransit={false} />,
     },
     {
       key: 'position',
@@ -232,6 +241,7 @@ export default function MyHoldsPage() {
                         hold={r}
                         showUser={false}
                         emphasizePickup
+                        pickupSources={sources}
                         statusBadge={(s) => statusBadge(t, s)}
                         onCancel={() => setCancelHoldId(r.id)}
                         cancelPending={cancelMutation.isPending && cancelMutation.variables === r.id}

@@ -5,7 +5,8 @@ import { Ban } from 'lucide-react';
 import { Button } from '@/components/common';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
 import HoldExpiresCell from '@/components/holds/HoldExpiresCell';
-import type { Hold } from '@/types';
+import HoldPickupCell from '@/components/holds/HoldPickupCell';
+import type { Hold, ItemTransit, Source } from '@/types';
 import { formatUserShortName } from '@/utils/userDisplay';
 
 interface HoldMobileCardProps {
@@ -17,6 +18,9 @@ interface HoldMobileCardProps {
   showUser?: boolean;
   /** Highlight pickup expiry for ready holds (patron UX). */
   emphasizePickup?: boolean;
+  pickupSources?: Source[];
+  transit?: ItemTransit | null;
+  extraActions?: ReactNode;
 }
 
 export default function HoldMobileCard({
@@ -26,6 +30,9 @@ export default function HoldMobileCard({
   cancelPending,
   showUser = true,
   emphasizePickup = false,
+  pickupSources,
+  transit,
+  extraActions,
 }: HoldMobileCardProps) {
   const { t, i18n } = useTranslation();
   const userLabel = formatUserShortName(hold.user) || hold.userId;
@@ -65,8 +72,17 @@ export default function HoldMobileCard({
         <div className="col-span-2">
           <HoldExpiresCell hold={hold} emphasizePickup={emphasizePickup} showLabel />
         </div>
+        {(hold.pickupSiteId || transit) && (
+          <div className="col-span-2">
+            <span className="text-gray-500 block">{t('holds.columnPickup')}</span>
+            <HoldPickupCell hold={hold} sources={pickupSources} transit={transit} />
+          </div>
+        )}
       </div>
-      {showCancel && (
+      {(extraActions || showCancel) && (
+        <div className="flex flex-wrap gap-2">
+          {extraActions}
+          {showCancel && (
         <Button
           size="sm"
           variant="secondary"
@@ -74,8 +90,10 @@ export default function HoldMobileCard({
           isLoading={cancelPending}
           onClick={onCancel}
         >
-          {t('holds.cancelHold')}
-        </Button>
+            {t('holds.cancelHold')}
+          </Button>
+          )}
+        </div>
       )}
     </div>
   );

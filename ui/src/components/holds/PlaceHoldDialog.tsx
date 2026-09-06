@@ -12,6 +12,8 @@ import { formatUserShortName } from '@/utils/userDisplay';
 import { formChoiceLabelClass } from '@/utils/formControl';
 import { buildCreateHold, type HoldPlacementScope } from '@/utils/holdDisplay';
 import { useResetWhenInactive } from '@/hooks/common/useResetWhenInactive';
+import { usePickupSiteDraft } from '@/hooks/holds/usePickupSiteDraft';
+import PickupSiteSelect from '@/components/holds/PickupSiteSelect';
 
 export interface PlaceHoldDialogProps {
   open: boolean;
@@ -57,6 +59,7 @@ export default function PlaceHoldDialog({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const { sources, pickupSiteId, setPickupSiteId, missing: pickupMissing } = usePickupSiteDraft(open);
   const [userSearchDraft, setUserSearchDraft] = useState('');
   const [userSearchResults, setUserSearchResults] = useState<UserShort[]>([]);
   const [isSearchingUsers, setIsSearchingUsers] = useState(false);
@@ -87,6 +90,7 @@ export default function PlaceHoldDialog({
     setUserSearchResults([]);
     setScope(canPinCopy && pinCopyDefault ? 'copy' : 'title');
     setSubmitting(false);
+    setPickupSiteId('');
   });
 
   const userQuery = userSearchDraft.trim();
@@ -143,6 +147,10 @@ export default function PlaceHoldDialog({
       setError(t('holds.selectCopy'));
       return;
     }
+    if (pickupMissing) {
+      setError(t('holds.pickupSiteRequired'));
+      return;
+    }
     setError(null);
     setSubmitting(true);
     try {
@@ -153,6 +161,7 @@ export default function PlaceHoldDialog({
           scope: pinning ? 'copy' : 'title',
           itemId: pinning ? specimen?.id : undefined,
           notes,
+          pickupSiteId,
         }),
       );
       void queryClient.invalidateQueries({ queryKey: ['biblioHolds', biblioId] });
@@ -189,7 +198,7 @@ export default function PlaceHoldDialog({
             variant="primary"
             onClick={() => void handleConfirm()}
             isLoading={submitting}
-            disabled={submitting || quotaBlocked}
+            disabled={submitting || quotaBlocked || pickupMissing}
           >
             {t('holds.confirmReserve')}
           </Button>
@@ -352,6 +361,13 @@ export default function PlaceHoldDialog({
             )}
           </div>
         )}
+
+        <PickupSiteSelect
+          sources={sources}
+          value={pickupSiteId}
+          onChange={setPickupSiteId}
+          disabled={submitting}
+        />
 
         <Input
           label={t('holds.notesOptional')}

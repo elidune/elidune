@@ -82,6 +82,11 @@ import type {
   CreateHold,
   HoldsPolicy,
   HoldQuota,
+  ItemTransit,
+  CreateTransit,
+  TransitActionRequest,
+  TransitWithHold,
+  ListTransitsParams,
   FinesResponse,
   FineRule,
   CirculationFinePolicy,
@@ -927,6 +932,48 @@ class ApiService {
       },
     });
     return normalizePaginatedResponse<Hold>(response.data);
+  }
+
+  // ─── Inter-site transits (hold fulfillment) ─────────────────────
+
+  async listTransits(params?: ListTransitsParams): Promise<PaginatedResponse<ItemTransit>> {
+    const response = await this.client.get('/transits', { params });
+    return normalizePaginatedResponse<ItemTransit>(response.data);
+  }
+
+  async getTransit(id: string): Promise<TransitWithHold> {
+    const response = await this.client.get<TransitWithHold>(`/transits/${id}`);
+    return response.data;
+  }
+
+  async getHoldTransit(holdId: string): Promise<ItemTransit | null> {
+    const response = await this.client.get<ItemTransit | null>(`/holds/${holdId}/transits`);
+    return response.data ?? null;
+  }
+
+  async getItemTransit(itemId: string): Promise<ItemTransit | null> {
+    const response = await this.client.get<ItemTransit | null>(`/items/${itemId}/transit`);
+    return response.data ?? null;
+  }
+
+  async createHoldTransit(holdId: string, data: CreateTransit): Promise<TransitWithHold> {
+    const response = await this.client.post<TransitWithHold>(`/holds/${holdId}/transits`, data);
+    return response.data;
+  }
+
+  async shipTransit(id: string, data?: TransitActionRequest): Promise<ItemTransit> {
+    const response = await this.client.post<ItemTransit>(`/transits/${id}/ship`, data ?? {});
+    return response.data;
+  }
+
+  async receiveTransit(id: string, data?: TransitActionRequest): Promise<TransitWithHold> {
+    const response = await this.client.post<TransitWithHold>(`/transits/${id}/receive`, data ?? {});
+    return response.data;
+  }
+
+  async cancelTransit(id: string, data?: TransitActionRequest): Promise<TransitWithHold> {
+    const response = await this.client.post<TransitWithHold>(`/transits/${id}/cancel`, data ?? {});
+    return response.data;
   }
 
   // ─── Fines / Penalties ──────────────────────────────────────────
