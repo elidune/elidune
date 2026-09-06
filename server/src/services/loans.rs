@@ -950,6 +950,36 @@ mod tests {
         ) -> AppResult<rust_decimal::Decimal> {
             Ok(threshold)
         }
+        async fn fines_get_open_for_loan(
+            &self,
+            _: i64,
+        ) -> AppResult<Option<crate::models::fine::Fine>> {
+            unimplemented!()
+        }
+        async fn fines_upsert_open(
+            &self,
+            _: i64,
+            _: i64,
+            _: rust_decimal::Decimal,
+            _: Option<&str>,
+        ) -> AppResult<(
+            crate::models::fine::Fine,
+            crate::models::dto::fines::AccrueOutcome,
+        )> {
+            unimplemented!()
+        }
+        async fn fines_get_accrual_loan(
+            &self,
+            _: i64,
+        ) -> AppResult<crate::models::fine::FineAccrualLoan> {
+            unimplemented!()
+        }
+        async fn fines_list_accrual_loans(
+            &self,
+            _: Option<i64>,
+        ) -> AppResult<Vec<crate::models::fine::FineAccrualLoan>> {
+            unimplemented!()
+        }
     }
 
     fn make_service(user: Option<User>, loan_id: i64) -> LoansService {
