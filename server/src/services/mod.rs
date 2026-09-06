@@ -192,7 +192,10 @@ impl Services {
             ),
             redis: redis_service.clone(),
             reminders: reminders_service,
-            holds: holds::HoldsService::new(repo.clone() as Arc<dyn HoldsRepository>),
+            holds: holds::HoldsService::with_audit(
+                repo.clone() as Arc<dyn HoldsRepository>,
+                audit_service.clone(),
+            ),
             schedules: schedules::SchedulesService::new(
                 repo.clone() as Arc<dyn SchedulesRepository>
             ),

@@ -13,18 +13,24 @@ use utoipa::{IntoParams, ToSchema};
 use crate::{
     error::{AppError, AppResult},
     models::{
+        dto::holds::{HoldQuota, HoldsPolicy},
         hold::{CreateHold, Hold, HoldDetails},
         user::Rights,
     },
     services::audit,
 };
 
-use super::{biblios::PaginatedResponse, AuthenticatedUser, ClientIp};
+use super::{biblios::PaginatedResponse, AuthenticatedUser, ClientIp, StaffUser};
 
 pub fn router() -> axum::Router<crate::AppState> {
-    use axum::routing::{delete, get};
+    use axum::routing::{delete, get, put};
     axum::Router::new()
         .route("/holds", get(list_holds).post(create_hold))
+        .route(
+            "/holds/policy",
+            get(get_holds_policy).put(update_holds_policy),
+        )
+        .route("/holds/quota", get(get_hold_quota))
         .route("/holds/:id", delete(cancel_hold))
         .route("/items/:id/holds", get(list_holds_for_item))
         .route("/users/:id/holds", get(list_holds_for_user))
@@ -92,6 +98,8 @@ pub struct CreateHoldRequest {
     #[schema(value_type = String)]
     pub item_id: i64,
     pub notes: Option<String>,
+    /// Staff-only: place the hold even when the patron is at/over the active-hold cap.
+    pub force: Option<bool>,
 }
 
 #[utoipa::path(
@@ -104,7 +112,9 @@ pub struct CreateHoldRequest {
         (status = 201, description = "Hold created", body = Hold),
         (status = 400, description = "Invalid request", body = crate::error::ErrorResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
-        (status = 409, description = "User already has a hold for this item", body = crate::error::ErrorResponse)
+        (status = 403, description = "Insufficient rights or force requires staff", body = crate::error::ErrorResponse),
+        (status = 409, description = "User already has a hold for this item", body = crate::error::ErrorResponse),
+        (status = 422, description = "Business rule: max active holds reached (staff may retry with force=true)")
     )
 )]
 pub async fn create_hold(
@@ -119,12 +129,24 @@ pub async fn create_hold(
             "Insufficient rights to place a hold for another user".into(),
         ));
     }
+    let force = req.force.unwrap_or(false);
+    if force && claims.rights.holds_rights.rank() < Rights::Write.rank() {
+        return Err(AppError::Authorization(
+            "Staff rights required to override the holds cap".into(),
+        ));
+    }
     let data = CreateHold {
         user_id: req.user_id,
         item_id: req.item_id,
         notes: req.notes,
+        force,
     };
-    match state.services.holds.place_hold(data).await {
+    match state
+        .services
+        .holds
+        .place_hold(data, Some(claims.user_id), ip.clone())
+        .await
+    {
         Ok(hold) => {
             state.services.audit.log(
                 audit::event::HOLD_CREATED,
@@ -135,6 +157,7 @@ pub async fn create_hold(
                 Some(serde_json::json!({
                     "user_id": req.user_id,
                     "item_id": req.item_id,
+                    "force": force,
                 })),
                 audit::AuditLogMeta::success(),
             );
@@ -150,12 +173,119 @@ pub async fn create_hold(
                 Some(serde_json::json!({
                     "user_id": req.user_id,
                     "item_id": req.item_id,
+                    "force": force,
                 })),
                 audit::AuditLogMeta::from_app_error(&e),
             );
             Err(e)
         }
     }
+}
+
+/// Query for `GET /holds/quota` (omit `userId` to read the caller's slots).
+#[serde_as]
+#[derive(Debug, Default, Deserialize, ToSchema, IntoParams)]
+#[serde(rename_all = "camelCase")]
+pub struct HoldQuotaQuery {
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub user_id: Option<i64>,
+}
+
+/// Global default max active holds — readable by desk and OPAC patrons who can list holds.
+#[utoipa::path(
+    get,
+    path = "/holds/policy",
+    tag = "holds",
+    security(("bearer_auth" = [])),
+    responses(
+        (status = 200, description = "Global holds policy", body = HoldsPolicy),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn get_holds_policy(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+) -> AppResult<Json<HoldsPolicy>> {
+    claims.require_list_holds()?;
+    Ok(Json(state.services.holds.get_policy().await?))
+}
+
+/// Update the global default max active holds.
+#[utoipa::path(
+    put,
+    path = "/holds/policy",
+    tag = "holds",
+    security(("bearer_auth" = [])),
+    request_body = HoldsPolicy,
+    responses(
+        (status = 200, description = "Holds policy saved", body = HoldsPolicy),
+        (status = 400, description = "Invalid cap", body = crate::error::ErrorResponse),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
+        (status = 403, description = "Staff access required", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn update_holds_policy(
+    State(state): State<crate::AppState>,
+    StaffUser(claims): StaffUser,
+    ClientIp(ip): ClientIp,
+    Json(req): Json<HoldsPolicy>,
+) -> AppResult<Json<HoldsPolicy>> {
+    claims.require_write_settings()?;
+    match state.services.holds.set_policy(req.max_active_holds).await {
+        Ok(policy) => {
+            state.services.audit.log(
+                audit::event::HOLD_POLICY_UPDATED,
+                Some(claims.user_id),
+                Some("circulation_settings"),
+                Some(1),
+                ip,
+                Some(serde_json::json!({
+                    "maxActiveHolds": policy.max_active_holds,
+                })),
+                audit::AuditLogMeta::success(),
+            );
+            Ok(Json(policy))
+        }
+        Err(e) => {
+            state.services.audit.log(
+                audit::event::HOLD_POLICY_UPDATED,
+                Some(claims.user_id),
+                Some("circulation_settings"),
+                Some(1),
+                ip,
+                Some(serde_json::json!({
+                    "maxActiveHolds": req.max_active_holds,
+                })),
+                audit::AuditLogMeta::from_app_error(&e),
+            );
+            Err(e)
+        }
+    }
+}
+
+/// Remaining hold slots for the caller (or a patron, for staff).
+#[utoipa::path(
+    get,
+    path = "/holds/quota",
+    tag = "holds",
+    security(("bearer_auth" = [])),
+    params(HoldQuotaQuery),
+    responses(
+        (status = 200, description = "Resolved hold quota", body = HoldQuota),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
+        (status = 403, description = "Cannot read another user's quota", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn get_hold_quota(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Query(query): Query<HoldQuotaQuery>,
+) -> AppResult<Json<HoldQuota>> {
+    claims.require_list_holds()?;
+    let user_id = query.user_id.unwrap_or(claims.user_id);
+    claims.require_self_or_staff(user_id)?;
+    Ok(Json(state.services.holds.quota_for_user(user_id).await?))
 }
 
 #[utoipa::path(

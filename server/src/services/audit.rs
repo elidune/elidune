@@ -183,6 +183,8 @@ pub mod event {
     pub const HOLD_FULFILLED: &str = "hold.fulfilled";
     pub const HOLD_READY: &str = "hold.ready";
     pub const HOLD_EXPIRED: &str = "hold.expired";
+    pub const HOLD_MAX_OVERRIDDEN: &str = "hold.max_overridden";
+    pub const HOLD_POLICY_UPDATED: &str = "hold.policy_updated";
 
     // Fines
     pub const FINE_CREATED: &str = "fine.created";

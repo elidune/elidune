@@ -91,6 +91,9 @@ use crate::api::{
         // Holds
         holds::list_holds,
         holds::create_hold,
+        holds::get_holds_policy,
+        holds::update_holds_policy,
+        holds::get_hold_quota,
         holds::list_holds_for_item,
         holds::list_holds_for_user,
         holds::cancel_hold,
@@ -279,8 +282,11 @@ use crate::api::{
             // Holds
             crate::models::hold::Hold,
             crate::models::hold::HoldDetails,
+            crate::models::dto::holds::HoldsPolicy,
+            crate::models::dto::holds::HoldQuota,
             holds::CreateHoldRequest,
             holds::ListHoldsQuery,
+            holds::HoldQuotaQuery,
             biblios::PaginatedResponse<crate::models::hold::HoldDetails>,
             biblios::PaginatedResponse<crate::models::inventory::InventorySession>,
             biblios::PaginatedResponse<crate::models::inventory::InventoryScan>,

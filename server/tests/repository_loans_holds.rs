@@ -57,6 +57,7 @@ fn create_hold(user_id: i64, item_id: i64) -> CreateHold {
         user_id,
         item_id,
         notes: None,
+        force: false,
     }
 }
 
@@ -90,6 +91,7 @@ async fn loan_return_atomically_advances_next_hold() {
             user_id: reader_a_id,
             item_id,
             notes: None,
+            force: false,
         })
         .await
         .expect("hold for reader A");
@@ -98,6 +100,7 @@ async fn loan_return_atomically_advances_next_hold() {
             user_id: reader_b_id,
             item_id,
             notes: None,
+            force: false,
         })
         .await
         .expect("hold for reader B");
@@ -288,6 +291,7 @@ async fn concurrent_checkout_respects_hold_queue() {
         user_id: reader_a_id,
         item_id,
         notes: None,
+        force: false,
     })
     .await
     .expect("hold for reader A");
@@ -330,12 +334,12 @@ async fn sequential_place_hold_same_user_item_conflicts() {
     let holds = &app.state.services.holds;
 
     holds
-        .place_hold(create_hold(reader_id, item_id))
+        .place_hold(create_hold(reader_id, item_id), None, None)
         .await
         .expect("first hold");
 
     let err = holds
-        .place_hold(create_hold(reader_id, item_id))
+        .place_hold(create_hold(reader_id, item_id), None, None)
         .await
         .expect_err("second hold must fail");
     assert_duplicate_hold(err);
@@ -368,8 +372,8 @@ async fn concurrent_place_hold_same_user_item_only_one_succeeds() {
     let holds = app.state.services.holds.clone();
 
     let (r1, r2) = tokio::join!(
-        holds.place_hold(create_hold(reader_id, item_id)),
-        holds.place_hold(create_hold(reader_id, item_id)),
+        holds.place_hold(create_hold(reader_id, item_id), None, None),
+        holds.place_hold(create_hold(reader_id, item_id), None, None),
     );
 
     let oks = [&r1, &r2].iter().filter(|r| r.is_ok()).count();
@@ -757,6 +761,7 @@ async fn renew_blocked_when_hold_queue_has_waiting_patron() {
         user_id: reader_b_id,
         item_id,
         notes: None,
+        force: false,
     })
     .await
     .expect("pending hold for reader B");
@@ -802,6 +807,7 @@ async fn renew_blocked_when_ready_hold_exists_for_copy() {
             user_id: reader_b_id,
             item_id,
             notes: None,
+            force: false,
         })
         .await
         .expect("pending hold for reader B");
