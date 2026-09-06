@@ -8,7 +8,7 @@ The hold **queue** is the bibliographic record (notice). There is one reservatio
 |---|---|
 | `biblioId` | Queue unit. Always stored. |
 | `itemId` | Allocation. `null` while waiting for any copy; set when staff pin a specimen or when fulfillment assigns one. |
-| `pickupSiteId` | Pickup site (`sources.id`). When the allocated copy sits at another site, staff ship it via `item_transits`. |
+| `pickupSiteId` | Lives on the hold itself (not a second reservation). Transit moves the allocated copy toward this site, then the hold becomes `ready`. |
 
 `POST /api/v1/holds` with `biblioId` (OPAC / desk title hold) or `itemId` (staff pin a copy). Both create the same row type on the same biblio queue.
 
@@ -21,7 +21,7 @@ When a copy becomes available (loan return, ready-hold cancel, ready-hold expiry
    - unassigned (`itemId` null) — any copy
    - pinned to this specimen — this copy only
 3. Same-site (no `pickupSiteId`, or it matches the copy's current `sourceId`): allocate, `status = ready`, `notifiedAt` / `expiresAt`.
-4. Cross-site: allocate the copy, keep the hold `pending`, create an `item_transits` row (`requested`). Staff ship → `in_transit` (not checkoutable). Receive at pickup marks the hold `ready` and starts expiry.
+4. Cross-site: allocate the copy, keep the hold `pending`, create an `item_transits` row (`requested`) toward **that hold’s** `pickupSiteId`. Staff ship → `in_transit` (not checkoutable). Receive at pickup marks the **same** hold `ready` and starts expiry. No parallel queue.
 
 Cancel of a hold with an in-transit copy frees the reservation and opens a reverse transit back to the origin.
 

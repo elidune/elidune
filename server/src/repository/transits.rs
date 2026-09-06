@@ -279,11 +279,24 @@ impl Repository {
                 "fromSourceId is required when the item has no current site".into(),
             )
         })?;
-        let to_source_id = data.to_source_id.or(hold.pickup_site_id).ok_or_else(|| {
-            AppError::Validation(
-                "toSourceId or hold pickupSiteId is required to start transit".into(),
-            )
-        })?;
+        // Destination is the hold's pickup site — transit is copy movement, not a
+        // second reservation. A missing pickup site may be set once, then lives on the hold.
+        let to_source_id = match (hold.pickup_site_id, data.to_source_id) {
+            (Some(pickup), Some(requested)) if requested != pickup => {
+                return Err(AppError::Validation(
+                    "toSourceId must match the hold pickupSiteId — pickup lives on the reservation"
+                        .to_string(),
+                ));
+            }
+            (Some(pickup), _) => pickup,
+            (None, Some(requested)) => requested,
+            (None, None) => {
+                return Err(AppError::Validation(
+                    "pickupSiteId is required on the hold (or toSourceId to set it) before transit"
+                        .to_string(),
+                ));
+            }
+        };
         self.transits_ensure_source(&mut tx, from_source_id).await?;
         self.transits_ensure_source(&mut tx, to_source_id).await?;
         if from_source_id == to_source_id {
@@ -292,20 +305,19 @@ impl Repository {
             ));
         }
 
-        if hold.item_id.is_none() {
-            sqlx::query("UPDATE holds SET item_id = $1, pickup_site_id = COALESCE(pickup_site_id, $2) WHERE id = $3")
-                .bind(item_id)
-                .bind(to_source_id)
-                .bind(hold_id)
-                .execute(&mut *tx)
-                .await?;
-        } else if hold.pickup_site_id.is_none() {
-            sqlx::query("UPDATE holds SET pickup_site_id = $1 WHERE id = $2")
-                .bind(to_source_id)
-                .bind(hold_id)
-                .execute(&mut *tx)
-                .await?;
-        }
+        sqlx::query(
+            r#"
+            UPDATE holds
+            SET item_id = COALESCE(item_id, $1),
+                pickup_site_id = COALESCE(pickup_site_id, $2)
+            WHERE id = $3
+            "#,
+        )
+        .bind(item_id)
+        .bind(to_source_id)
+        .bind(hold_id)
+        .execute(&mut *tx)
+        .await?;
 
         let transit = self
             .transits_insert_tx(

@@ -130,6 +130,8 @@ pub struct CreateTransit {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub from_source_id: Option<i64>,
+    /// Destination. Must match `hold.pickupSiteId` when that field is already set.
+    /// If the hold has no pickup site yet, this value is stored on the hold.
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub to_source_id: Option<i64>,

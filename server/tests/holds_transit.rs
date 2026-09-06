@@ -308,3 +308,40 @@ async fn loan_return_requests_transit_instead_of_ready() {
     assert_eq!(transit["status"], "requested");
     assert_eq!(fixtures::json_id(&transit["toSourceId"]), pickup);
 }
+
+#[tokio::test]
+async fn transit_destination_must_match_hold_pickup_site() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let origin = create_site(&app, &admin_token, "OriginL").await;
+    let pickup = create_site(&app, &admin_token, "PickupL").await;
+    let other = create_site(&app, &admin_token, "OtherL").await;
+    let (patron_id, patron_token) = fixtures::create_reader(&app, &admin_token, "trnlock").await;
+    let (biblio_id, item_id) =
+        create_copy_at_site(&app, &admin_token, "Transit Pickup Lock", origin).await;
+
+    let hold = place_title_hold(&app, &patron_token, patron_id, biblio_id, pickup).await;
+    let hold_id = fixtures::json_id(&hold["id"]);
+
+    let (status, body) = app
+        .post_json(
+            &format!("/api/v1/holds/{hold_id}/transits"),
+            &json!({
+                "itemId": item_id.to_string(),
+                "toSourceId": other.to_string(),
+                "ship": true
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "mismatch: {body}");
+    assert!(
+        body["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("pickupSiteId"),
+        "expected pickup lock: {body}"
+    );
+}
