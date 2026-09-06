@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import Modal from './Modal';
 import Button from './Button';
@@ -14,6 +15,10 @@ export interface ConfirmDialogProps {
   stackOnTop?: boolean;
   isLoading?: boolean;
   error?: string | null;
+  /** Extra form fields below the billing / confirm copy. */
+  children?: ReactNode;
+  size?: 'sm' | 'md' | 'lg';
+  confirmDisabled?: boolean;
 }
 
 export default function ConfirmDialog({
@@ -28,6 +33,9 @@ export default function ConfirmDialog({
   stackOnTop = false,
   isLoading = false,
   error = null,
+  children,
+  size = 'sm',
+  confirmDisabled = false,
 }: ConfirmDialogProps) {
   const { t } = useTranslation();
   const resolvedTitle = title ?? t('common.confirm');
@@ -37,7 +45,7 @@ export default function ConfirmDialog({
       isOpen={isOpen}
       onClose={onClose}
       title={resolvedTitle}
-      size="sm"
+      size={size}
       stackOnTop={stackOnTop}
       footer={
         <div className="flex justify-end gap-2">
@@ -49,6 +57,7 @@ export default function ConfirmDialog({
             variant={confirmVariant}
             onClick={onConfirm}
             isLoading={isLoading}
+            disabled={confirmDisabled}
           >
             {confirmLabel ?? t('common.confirm')}
           </Button>
@@ -56,6 +65,7 @@ export default function ConfirmDialog({
       }
     >
       <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{message}</p>
+      {children}
       {error ? (
         <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">
           {error}

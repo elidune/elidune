@@ -35,9 +35,13 @@ import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
 import { isSubscriptionExpired } from '@/utils/userSubscription';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
+import { isClaimedReturnedLoan } from '@/utils/circulationStatus';
 import { newIdempotencyKey } from '@/utils/idempotency';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
 import LoansMarcExportButton from '@/components/loans/LoansMarcExportButton';
+import CirculationExceptionDialog from '@/components/loans/CirculationExceptionDialog';
+import LoanExceptionActions from '@/components/loans/LoanExceptionActions';
+import { useCirculationExceptionAction, type CirculationExceptionKind } from '@/hooks/loans/useCirculationExceptionAction';
 import { RenewSubscriptionModal, UserEditorForm } from '@/components/users';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
@@ -76,8 +80,28 @@ export default function UserDetailPage() {
   const [isBorrowLoading, setIsBorrowLoading] = useState(false);
   const [loanDetails, setLoanDetails] = useState<Loan | null>(null);
   const [renewError, setRenewError] = useState('');
-  const [loanAction, setLoanAction] = useState<{ loanId: string; op: 'return' | 'renew' } | null>(null);
+  const [loanAction, setLoanAction] = useState<{ loanId: string; op: 'return' | 'renew' | CirculationExceptionKind } | null>(null);
   const loanActionInFlightRef = useRef(false);
+
+  const { data: claimsIdPage } = useQuery({
+    queryKey: ['loans-claims-returned', 'ids'],
+    queryFn: () => api.getClaimsReturned({ page: 1, perPage: 200 }),
+  });
+  const claimedLoanIds = useMemo(
+    () => new Set((claimsIdPage?.items ?? []).map((row) => row.loanId)),
+    [claimsIdPage],
+  );
+
+  const exceptionAction = useCirculationExceptionAction({
+    setBusy: setLoanAction,
+    onSuccess: () => {
+      if (id) {
+        void queryClient.invalidateQueries({ queryKey: ['user-active-loans', id] });
+        void queryClient.invalidateQueries({ queryKey: ['user-past-loans', id] });
+      }
+    },
+  });
+  const deskBusy = loanAction != null || exceptionAction.target != null;
   const [showRenewSubscriptionModal, setShowRenewSubscriptionModal] = useState(false);
 
   const [cancellingHoldId, setCancellingHoldId] = useState<string | null>(null);
@@ -486,36 +510,52 @@ export default function UserDetailPage() {
       key: 'actions',
       header: t('common.actions'),
       align: 'right' as const,
-      render: (loan: Loan) => (
-        <div className="flex items-center justify-end gap-2 flex-wrap">
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={(e) => {
-              e.stopPropagation();
-              void handleRenewLoan(loan.id);
-            }}
-            leftIcon={<RotateCcw className="h-4 w-4" />}
-            isLoading={loanAction?.loanId === loan.id && loanAction.op === 'renew'}
-            disabled={loanAction != null}
-          >
-            {t('loans.renew')}
-          </Button>
-          <Button
-            size="sm"
-            variant="primary"
-            onClick={(e) => {
-              e.stopPropagation();
-              void handleReturnLoan(loan.id);
-            }}
-            leftIcon={<Check className="h-4 w-4" />}
-            isLoading={loanAction?.loanId === loan.id && loanAction.op === 'return'}
-            disabled={loanAction != null}
-          >
-            {t('loans.return')}
-          </Button>
+      render: (loan: Loan) => {
+        const claimed = isClaimedReturnedLoan(loan, claimedLoanIds);
+        const busy = loanAction?.loanId === loan.id ? loanAction.op : null;
+        return (
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex items-center justify-end gap-2 flex-wrap">
+            {!claimed && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void handleRenewLoan(loan.id);
+                }}
+                leftIcon={<RotateCcw className="h-4 w-4" />}
+                isLoading={busy === 'renew'}
+                disabled={deskBusy}
+              >
+                {t('loans.renew')}
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={(e) => {
+                e.stopPropagation();
+                void handleReturnLoan(loan.id);
+              }}
+              leftIcon={<Check className="h-4 w-4" />}
+              isLoading={busy === 'return'}
+              disabled={deskBusy}
+            >
+              {t('loans.return')}
+            </Button>
+          </div>
+          <LoanExceptionActions
+            loanId={loan.id}
+            loanLabel={loan.biblio.title || undefined}
+            claimedReturned={claimed}
+            disabled={deskBusy}
+            busyKind={busy && busy !== 'return' && busy !== 'renew' ? busy : null}
+            onOpen={(kind, label) => exceptionAction.open({ loanId: loan.id, kind, label })}
+          />
         </div>
-      ),
+        );
+      },
     },
   ];
 
@@ -1163,6 +1203,14 @@ export default function UserDetailPage() {
         onClose={() => setBorrowForceError(null)}
         message={borrowForceError ?? ''}
         stackOnTop
+      />
+
+      <CirculationExceptionDialog
+        target={exceptionAction.target}
+        isLoading={exceptionAction.isLoading}
+        error={exceptionAction.error}
+        onClose={exceptionAction.close}
+        onConfirm={(payload) => void exceptionAction.submit(payload)}
       />
     </div>
   );

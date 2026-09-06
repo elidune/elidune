@@ -15,24 +15,32 @@ import {
   Send,
   FlaskConical,
   ChevronDown,
+  ClipboardList,
 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { Card, CardHeader, Button, Badge, Table, Input, MessageModal, ConfirmDialog, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, BarcodeScanField } from '@/components/common';
 import ActiveLoanCard from '@/components/loans/ActiveLoanCard';
+import CirculationExceptionDialog from '@/components/loans/CirculationExceptionDialog';
+import ClaimsReturnedQueue from '@/components/loans/ClaimsReturnedQueue';
+import LoanExceptionActions from '@/components/loans/LoanExceptionActions';
 import Pagination from '@/components/common/Pagination';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
+import { isClaimedReturnedLoan } from '@/utils/circulationStatus';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
 import { formControlClass, formLabelClass, formChoiceLabelClass } from '@/utils/formControl';
 import { deferFromEffect } from '@/utils/deferFromEffect';
 import { newIdempotencyKey } from '@/utils/idempotency';
+import { useCirculationExceptionAction, type CirculationExceptionKind } from '@/hooks/loans/useCirculationExceptionAction';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import { isAdmin } from '@/types';
 import type { User as UserType, Loan, UserShort, OverdueLoanInfo, ReminderReport } from '@/types';
 
-type TabType = 'borrow' | 'return' | 'overdue';
+type TabType = 'borrow' | 'return' | 'overdue' | 'claims';
+type DeskLoanOp = 'return' | 'renew' | CirculationExceptionKind;
 
 type CheckoutRecap = {
   title: string;
@@ -84,7 +92,7 @@ export default function LoansPage() {
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const userBarcodeInputRef = useRef<HTMLInputElement>(null);
   const [lastCheckout, setLastCheckout] = useState<CheckoutRecap | null>(null);
-  const [borrowLoanAction, setBorrowLoanAction] = useState<{ loanId: string; op: 'return' | 'renew' } | null>(
+  const [borrowLoanAction, setBorrowLoanAction] = useState<{ loanId: string; op: DeskLoanOp } | null>(
     null,
   );
   const [userSearchError, setUserSearchError] = useState<string | null>(null);
@@ -110,9 +118,10 @@ export default function LoansPage() {
   const [overdueData, setOverdueData] = useState<{ loans: OverdueLoanInfo[]; total: number } | null>(null);
   const [overdueLoading, setOverdueLoading] = useState(false);
   const [overdueError, setOverdueError] = useState<string | null>(null);
-  const [overdueLoanAction, setOverdueLoanAction] = useState<{ loanId: string; op: 'return' | 'renew' } | null>(
+  const [overdueLoanAction, setOverdueLoanAction] = useState<{ loanId: string; op: DeskLoanOp } | null>(
     null,
   );
+  const overdueLoanActionInFlightRef = useRef(false);
   /** Keeps <details> open per user after renew/return refresh when they still have overdue loans */
   const [overdueOpenByUser, setOverdueOpenByUser] = useState<Record<string, boolean>>({});
   const [reminderReport, setReminderReport] = useState<ReminderReport | null>(null);
@@ -209,6 +218,8 @@ export default function LoansPage() {
 
   const handleOverdueReturn = useCallback(
     async (loanId: string) => {
+      if (overdueLoanActionInFlightRef.current) return;
+      overdueLoanActionInFlightRef.current = true;
       setOverdueLoanAction({ loanId, op: 'return' });
       try {
         await api.returnLoan(loanId);
@@ -220,6 +231,7 @@ export default function LoansPage() {
         setOverdueError(msg);
         showToast({ variant: 'error', message: msg });
       } finally {
+        overdueLoanActionInFlightRef.current = false;
         setOverdueLoanAction(null);
       }
     },
@@ -228,6 +240,8 @@ export default function LoansPage() {
 
   const handleOverdueRenew = useCallback(
     async (loanId: string) => {
+      if (overdueLoanActionInFlightRef.current) return;
+      overdueLoanActionInFlightRef.current = true;
       setOverdueLoanAction({ loanId, op: 'renew' });
       try {
         await api.renewLoan(loanId, newIdempotencyKey());
@@ -239,11 +253,50 @@ export default function LoansPage() {
         setOverdueError(msg);
         showToast({ variant: 'error', message: msg });
       } finally {
+        overdueLoanActionInFlightRef.current = false;
         setOverdueLoanAction(null);
       }
     },
     [loadOverdue, showToast, t],
   );
+
+  const reloadSelectedUserLoans = useCallback(async () => {
+    if (!selectedUser) return;
+    const res = await api.getUserLoans(selectedUser.id, {
+      page: loansPage,
+      perPage: BORROW_LOANS_PAGE_SIZE,
+    });
+    setLoans(res.items);
+    setLoansTotal(res.total);
+  }, [selectedUser, loansPage]);
+
+  const { data: claimsIdPage } = useQuery({
+    queryKey: ['loans-claims-returned', 'ids'],
+    queryFn: () => api.getClaimsReturned({ page: 1, perPage: 200 }),
+  });
+  const claimedLoanIds = useMemo(
+    () => new Set((claimsIdPage?.items ?? []).map((row) => row.loanId)),
+    [claimsIdPage],
+  );
+
+  const exceptionAction = useCirculationExceptionAction({
+    setBusy: (busy) => {
+      if (activeTab === 'overdue') {
+        setOverdueLoanAction(busy);
+      } else {
+        setBorrowLoanAction(busy);
+      }
+    },
+    onSuccess: async () => {
+      await reloadSelectedUserLoans();
+      if (activeTab === 'overdue') {
+        await loadOverdue();
+      }
+    },
+  });
+  const exceptionOpen = exceptionAction.target != null;
+  const borrowDeskBusy = borrowLoanAction != null || exceptionOpen;
+  const overdueDeskBusy = overdueLoanAction != null || exceptionOpen;
 
   useEffect(() => {
     if (activeTab !== 'overdue') return;
@@ -600,36 +653,52 @@ export default function LoansPage() {
       key: 'actions',
       header: t('common.actions'),
       align: 'right' as const,
-      render: (loan: Loan) => (
-        <div className="flex items-center justify-end gap-2 flex-wrap">
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={(e) => {
-              e.stopPropagation();
-              void handleRenewLoan(loan.id);
-            }}
-            leftIcon={<RotateCcw className="h-4 w-4" />}
-            isLoading={borrowLoanAction?.loanId === loan.id && borrowLoanAction.op === 'renew'}
-            disabled={borrowLoanAction != null}
-          >
-            {t('loans.renew')}
-          </Button>
-          <Button
-            size="sm"
-            variant="primary"
-            onClick={(e) => {
-              e.stopPropagation();
-              void handleReturn(loan.id);
-            }}
-            leftIcon={<Check className="h-4 w-4" />}
-            isLoading={borrowLoanAction?.loanId === loan.id && borrowLoanAction.op === 'return'}
-            disabled={borrowLoanAction != null}
-          >
-            {t('loans.return')}
-          </Button>
+      render: (loan: Loan) => {
+        const claimed = isClaimedReturnedLoan(loan, claimedLoanIds);
+        const busy = borrowLoanAction?.loanId === loan.id ? borrowLoanAction.op : null;
+        return (
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex items-center justify-end gap-2 flex-wrap">
+            {!claimed && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void handleRenewLoan(loan.id);
+                }}
+                leftIcon={<RotateCcw className="h-4 w-4" />}
+                isLoading={busy === 'renew'}
+                disabled={borrowDeskBusy}
+              >
+                {t('loans.renew')}
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={(e) => {
+                e.stopPropagation();
+                void handleReturn(loan.id);
+              }}
+              leftIcon={<Check className="h-4 w-4" />}
+              isLoading={busy === 'return'}
+              disabled={borrowDeskBusy}
+            >
+              {t('loans.return')}
+            </Button>
+          </div>
+          <LoanExceptionActions
+            loanId={loan.id}
+            loanLabel={loan.biblio.title || undefined}
+            claimedReturned={claimed}
+            disabled={borrowDeskBusy}
+            busyKind={busy && busy !== 'return' && busy !== 'renew' ? busy : null}
+            onOpen={(kind, label) => exceptionAction.open({ loanId: loan.id, kind, label })}
+          />
         </div>
-      ),
+        );
+      },
     },
   ];
 
@@ -676,7 +745,7 @@ export default function LoansPage() {
 
       {/* Tabs */}
       <div className="border-b border-gray-200 dark:border-gray-800">
-        <nav className="-mb-px flex space-x-8">
+        <nav className="-mb-px flex space-x-8 overflow-x-auto">
           <button
             onClick={() => {
               setActiveTab('borrow');
@@ -729,6 +798,27 @@ export default function LoansPage() {
             <div className="flex items-center gap-2">
               <Bell className="h-5 w-5" />
               {t('loans.overdueTab')}
+            </div>
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('claims');
+              setReturnResult(null);
+              setReturnError('');
+              setReminderReport(null);
+            }}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'claims'
+                ? 'border-amber-500 text-amber-700 dark:text-amber-400'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <ClipboardList className="h-5 w-5" />
+              {t('loans.exceptions.tabClaims')}
+              {(claimsIdPage?.total ?? 0) > 0 ? (
+                <Badge variant="warning" size="sm">{claimsIdPage?.total}</Badge>
+              ) : null}
             </div>
           </button>
         </nav>
@@ -1026,7 +1116,24 @@ export default function LoansPage() {
                                 returnLoading={
                                   borrowLoanAction?.loanId === loan.id && borrowLoanAction.op === 'return'
                                 }
-                                actionsDisabled={borrowLoanAction != null}
+                                actionsDisabled={borrowDeskBusy}
+                                hideRenew={isClaimedReturnedLoan(loan, claimedLoanIds)}
+                                exceptionActions={
+                                  <LoanExceptionActions
+                                    loanId={loan.id}
+                                    loanLabel={loan.biblio.title || undefined}
+                                    claimedReturned={isClaimedReturnedLoan(loan, claimedLoanIds)}
+                                    disabled={borrowDeskBusy}
+                                    busyKind={
+                                      borrowLoanAction?.loanId === loan.id &&
+                                      borrowLoanAction.op !== 'return' &&
+                                      borrowLoanAction.op !== 'renew'
+                                        ? borrowLoanAction.op
+                                        : null
+                                    }
+                                    onOpen={(kind, label) => exceptionAction.open({ loanId: loan.id, kind, label })}
+                                  />
+                                }
                               />
                             ))}
                           </div>
@@ -1328,10 +1435,17 @@ export default function LoansPage() {
                         <div className="border-t border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-950/40">
                           {userLoans.map((row) => {
                             const late = daysPastDue(row.expiryAt);
+                            const claimed = claimedLoanIds.has(row.loanId);
                             const isReturnLoading =
                               overdueLoanAction?.loanId === row.loanId && overdueLoanAction.op === 'return';
                             const isRenewLoading =
                               overdueLoanAction?.loanId === row.loanId && overdueLoanAction.op === 'renew';
+                            const overdueBusyKind =
+                              overdueLoanAction?.loanId === row.loanId &&
+                              overdueLoanAction.op !== 'return' &&
+                              overdueLoanAction.op !== 'renew'
+                                ? overdueLoanAction.op
+                                : null;
                             return (
                               <div
                                 key={row.loanId}
@@ -1374,37 +1488,49 @@ export default function LoansPage() {
                                       <span className="tabular-nums">{row.reminderCount}</span>
                                     </span>
                                   </div>
-                                  <div className="flex flex-row gap-2 sm:col-start-2 sm:row-start-2">
-                                    <Button
-                                      type="button"
-                                      size="sm"
-                                      variant="ghost"
-                                      className="min-w-0 flex-1 justify-center"
-                                      isLoading={isRenewLoading}
-                                      disabled={isReturnLoading || isRenewLoading}
-                                      leftIcon={<RotateCcw className="h-4 w-4" />}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        void handleOverdueRenew(row.loanId);
-                                      }}
-                                    >
-                                      {t('loans.renew')}
-                                    </Button>
-                                    <Button
-                                      type="button"
-                                      size="sm"
-                                      variant="primary"
-                                      className="min-w-0 flex-1 justify-center"
-                                      isLoading={isReturnLoading}
-                                      disabled={isReturnLoading || isRenewLoading}
-                                      leftIcon={<Check className="h-4 w-4" />}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        void handleOverdueReturn(row.loanId);
-                                      }}
-                                    >
-                                      {t('loans.return')}
-                                    </Button>
+                                  <div className="flex flex-col gap-2 sm:col-start-2 sm:row-start-2">
+                                    <div className="flex flex-row gap-2">
+                                      {!claimed && (
+                                        <Button
+                                          type="button"
+                                          size="sm"
+                                          variant="ghost"
+                                          className="min-w-0 flex-1 justify-center"
+                                          isLoading={isRenewLoading}
+                                          disabled={overdueDeskBusy}
+                                          leftIcon={<RotateCcw className="h-4 w-4" />}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            void handleOverdueRenew(row.loanId);
+                                          }}
+                                        >
+                                          {t('loans.renew')}
+                                        </Button>
+                                      )}
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="primary"
+                                        className="min-w-0 flex-1 justify-center"
+                                        isLoading={isReturnLoading}
+                                        disabled={overdueDeskBusy}
+                                        leftIcon={<Check className="h-4 w-4" />}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          void handleOverdueReturn(row.loanId);
+                                        }}
+                                      >
+                                        {t('loans.return')}
+                                      </Button>
+                                    </div>
+                                    <LoanExceptionActions
+                                      loanId={row.loanId}
+                                      loanLabel={row.title || undefined}
+                                      claimedReturned={claimed}
+                                      disabled={overdueDeskBusy}
+                                      busyKind={overdueBusyKind}
+                                      onOpen={(kind, label) => exceptionAction.open({ loanId: row.loanId, kind, label })}
+                                    />
                                   </div>
                                 </div>
                               </div>
@@ -1451,6 +1577,30 @@ export default function LoansPage() {
           </Card>
         </div>
       )}
+
+      {activeTab === 'claims' && (
+        <ClaimsReturnedQueue
+          disabled={exceptionAction.isLoading || exceptionOpen || borrowLoanAction != null}
+          busyLoanId={exceptionAction.target?.loanId ?? (borrowLoanAction?.loanId ?? overdueLoanAction?.loanId ?? null)}
+          busyKind={
+            exceptionAction.target?.kind ??
+            (borrowLoanAction && borrowLoanAction.op !== 'return' && borrowLoanAction.op !== 'renew'
+              ? borrowLoanAction.op
+              : overdueLoanAction && overdueLoanAction.op !== 'return' && overdueLoanAction.op !== 'renew'
+                ? overdueLoanAction.op
+                : null)
+          }
+          onOpen={(loanId, kind, label) => exceptionAction.open({ loanId, kind, label })}
+        />
+      )}
+
+      <CirculationExceptionDialog
+        target={exceptionAction.target}
+        isLoading={exceptionAction.isLoading}
+        error={exceptionAction.error}
+        onClose={exceptionAction.close}
+        onConfirm={(payload) => void exceptionAction.submit(payload)}
+      />
 
       <MessageModal
         isOpen={messageDialog !== null}

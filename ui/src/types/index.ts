@@ -343,6 +343,8 @@ export interface ItemShort {
   borrowable?: boolean | null;
   sourceName?: string | null;
   borrowed?: boolean;
+  /** Item-level exception state: 0 available, 1 lost, 2 damaged, 3 claimed-returned. */
+  circulationStatus?: number | null;
 }
 
 /** Short bibliographic record as returned in list endpoints */
@@ -463,6 +465,64 @@ export interface UpdateItem {
   notes?: string | null;
   price?: string | null;
   sourceId?: string | null;
+}
+
+// Circulation exceptions (lost / damaged / claimed-returned) — staff desk API
+export type DamageDisposition = 'return' | 'keep';
+export type ClaimsResolveOutcome = 'found' | 'notFound';
+export type CirculationStatusName = 'available' | 'lost' | 'damaged' | 'claimedReturned';
+export type CirculationExceptionOutcome =
+  | 'lost'
+  | 'damaged'
+  | 'claimedReturned'
+  | 'claimsResolvedFound'
+  | 'claimsResolvedNotFound';
+
+export interface MarkLostRequest {
+  bill?: boolean;
+  amount?: string;
+  useItemPrice?: boolean;
+  notes?: string;
+}
+
+export interface MarkDamagedRequest {
+  disposition: DamageDisposition;
+  bill?: boolean;
+  amount?: string;
+  notes?: string;
+}
+
+export interface MarkClaimedReturnedRequest {
+  notes?: string;
+}
+
+export interface ResolveClaimsReturnedRequest {
+  outcome: ClaimsResolveOutcome;
+  inventoryChecked: boolean;
+  notes?: string;
+}
+
+export interface CirculationExceptionResponse {
+  outcome: CirculationExceptionOutcome;
+  itemStatus: CirculationStatusName;
+  borrowable: boolean;
+  loanClosed: boolean;
+  loanId: string;
+  itemId: string;
+  userId: string;
+  charge?: Fine | null;
+}
+
+export interface ClaimsReturnedQueueItem {
+  loanId: string;
+  itemId: string;
+  userId: string;
+  barcode?: string | null;
+  title?: string | null;
+  loanStart: string;
+  expiryAt?: string | null;
+  itemUpdatedAt?: string | null;
+  notes?: string | null;
 }
 
 // Loan types
@@ -1393,6 +1453,8 @@ export interface HoldQuota {
 
 export type FineStatus = 'pending' | 'partial' | 'paid' | 'waived';
 
+export type FineChargeType = 'overdue' | 'replacement' | 'damage';
+
 export interface Fine {
   id: string;
   loanId?: string;
@@ -1403,6 +1465,7 @@ export interface Fine {
   createdAt?: string;
   paidAt?: string | null;
   notes?: string | null;
+  chargeType?: FineChargeType;
 }
 
 export interface FinesResponse {
