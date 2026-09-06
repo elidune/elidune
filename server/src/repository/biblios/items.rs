@@ -124,8 +124,12 @@ impl Repository {
             Some(id)
         } else if let Some(ref name) = item.source_name {
             Some(self.sources_find_or_create_by_name(name).await?)
-        } else if let Some(default) = self.sources_get_default().await? {
-            Some(default.id)
+        } else if item.borrowable {
+            // Incomplete received copies must not inherit the default site.
+            match self.sources_get_default().await? {
+                Some(default) => Some(default.id),
+                None => None,
+            }
         } else {
             None
         };

@@ -499,6 +499,7 @@ impl From<&MarcItem> for Item {
             circulation_status: None,
             notes,
             price: None,
+            price_deferred: false,
             created_at: None,
             updated_at: None,
             archived_at: None,

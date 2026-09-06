@@ -27,11 +27,6 @@ fn next_id() -> i64 {
         .generate::<i64>()
 }
 
-/// Short unique suffix for generated accession barcodes.
-pub fn short_suffix() -> u32 {
-    (next_id() as u64 % 1_000_000) as u32
-}
-
 fn page_offset(page: Option<i64>, per_page: Option<i64>) -> (i64, i64) {
     let page = page.unwrap_or(1).max(1);
     let per_page = per_page.unwrap_or(20).clamp(1, 100);

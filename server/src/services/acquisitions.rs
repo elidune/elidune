@@ -228,26 +228,27 @@ impl AcquisitionsService {
                         source_id: None,
                         source_name: None,
                         price: unit_price.map(|p| p.normalize().to_string()),
+                        price_deferred: false,
                         call_number: None,
                     })
                     .collect(),
             };
 
             let mut item_ids = Vec::with_capacity(specs.len());
-            for (idx, spec) in specs.iter().enumerate() {
+            for spec in specs.iter() {
                 let barcode = spec.barcode.clone().filter(|s| !s.trim().is_empty());
-                let barcode = barcode.or_else(|| {
-                    Some(format!(
-                        "ACQ-{}-{}-{}",
-                        line.id,
-                        line.quantity_received + idx as i32 + 1,
-                        crate::repository::acquisitions::short_suffix()
-                    ))
-                });
                 let price = spec
                     .price
                     .clone()
+                    .filter(|s| !s.trim().is_empty())
                     .or_else(|| unit_price.map(|p| p.normalize().to_string()));
+                let borrowable = Item::ready_to_circulate(
+                    barcode.as_deref(),
+                    spec.source_id,
+                    spec.source_name.as_deref(),
+                    price.as_deref(),
+                    spec.price_deferred,
+                );
 
                 let item = Item {
                     id: None,
@@ -257,13 +258,14 @@ impl AcquisitionsService {
                     call_number: spec.call_number.clone(),
                     volume_designation: None,
                     place: None,
-                    borrowable: true,
+                    borrowable,
                     circulation_status: None,
                     notes: Some(format!(
                         "Received from purchase order {}",
                         detail.order.order_number
                     )),
                     price,
+                    price_deferred: spec.price_deferred,
                     created_at: None,
                     updated_at: None,
                     archived_at: None,

@@ -44,6 +44,10 @@ pub struct Item {
     pub circulation_status: Option<i16>,
     pub notes: Option<String>,
     pub price: Option<String>,
+    /// Write-only: treat a missing price as an explicit deferral when enabling circulation.
+    #[sqlx(default)]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub price_deferred: bool,
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
     pub archived_at: Option<DateTime<Utc>>,
@@ -73,6 +77,27 @@ impl Item {
     pub fn circulation_state(&self) -> crate::models::circulation::CirculationStatus {
         crate::models::circulation::CirculationStatus::from_db(self.circulation_status)
     }
+
+    /// Whether barcode, site, and price (or an explicit deferral) are present.
+    ///
+    /// Used for acquisitions receipt and when enabling circulation on an incomplete copy.
+    #[must_use]
+    pub fn ready_to_circulate(
+        barcode: Option<&str>,
+        source_id: Option<i64>,
+        source_name: Option<&str>,
+        price: Option<&str>,
+        price_deferred: bool,
+    ) -> bool {
+        let barcode_ok = nonempty(barcode).is_some();
+        let site_ok = source_id.is_some() || nonempty(source_name).is_some();
+        let price_ok = price_deferred || nonempty(price).is_some();
+        barcode_ok && site_ok && price_ok
+    }
+}
+
+fn nonempty(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|s| !s.is_empty())
 }
 
 /// Short item (physical copy) representation for lists
@@ -102,5 +127,57 @@ impl From<Item> for ItemShort {
             source_name: item.source_name,
             borrowed: item.borrowed,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Item;
+
+    #[test]
+    fn ready_to_circulate_requires_barcode_site_and_price_or_deferral() {
+        assert!(!Item::ready_to_circulate(None, None, None, None, false));
+        assert!(!Item::ready_to_circulate(
+            Some("B1"),
+            None,
+            None,
+            Some("10.00"),
+            false
+        ));
+        assert!(!Item::ready_to_circulate(
+            Some("B1"),
+            Some(1),
+            None,
+            None,
+            false
+        ));
+        assert!(!Item::ready_to_circulate(
+            None,
+            Some(1),
+            None,
+            Some("10.00"),
+            false
+        ));
+        assert!(Item::ready_to_circulate(
+            Some("B1"),
+            Some(1),
+            None,
+            Some("10.00"),
+            false
+        ));
+        assert!(Item::ready_to_circulate(
+            Some("B1"),
+            None,
+            Some("Main"),
+            None,
+            true
+        ));
+        assert!(!Item::ready_to_circulate(
+            Some("  "),
+            Some(1),
+            None,
+            Some("10.00"),
+            false
+        ));
     }
 }

@@ -408,6 +408,7 @@ impl Repository {
             circulation_status: row.try_get("item_circulation_status").ok().flatten(),
             notes: row.try_get("item_notes").ok().flatten(),
             price: row.try_get("item_price").ok().flatten(),
+            price_deferred: false,
             created_at: row.try_get("item_created_at").ok().flatten(),
             updated_at: row.try_get("item_updated_at").ok().flatten(),
             archived_at: row.try_get("item_archived_at").ok().flatten(),
