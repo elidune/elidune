@@ -483,6 +483,8 @@ impl CatalogService {
             self.ensure_barcode_unique(barcode, Some(item_id)).await?;
         }
 
+        apply_circulation_readiness(item, &existing)?;
+
         let result = self.repository.items_update(item).await?;
         self.sync_index(biblio_id).await;
         Ok((biblio_id, result))
@@ -672,4 +674,43 @@ impl CatalogService {
         tracing::info!("Meilisearch reindex complete: {} documents queued", total);
         Ok((total, true))
     }
+}
+
+fn nonempty_text(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|s| !s.is_empty())
+}
+
+/// Incomplete received copies stay non-circulable until barcode + site + price/deferral.
+/// Completing those fields enables circulation. Exception statuses stay non-borrowable.
+fn apply_circulation_readiness(item: &mut Item, existing: &Item) -> AppResult<()> {
+    if existing.circulation_state().blocks_circulation() {
+        item.borrowable = false;
+        return Ok(());
+    }
+
+    let barcode = nonempty_text(item.barcode.as_deref())
+        .or_else(|| nonempty_text(existing.barcode.as_deref()));
+    let source_id = item.source_id.or(existing.source_id);
+    let source_name = nonempty_text(item.source_name.as_deref())
+        .or_else(|| nonempty_text(existing.source_name.as_deref()));
+    let price =
+        nonempty_text(item.price.as_deref()).or_else(|| nonempty_text(existing.price.as_deref()));
+    let ready =
+        Item::ready_to_circulate(barcode, source_id, source_name, price, item.price_deferred);
+
+    if ready {
+        item.borrowable = true;
+        return Ok(());
+    }
+
+    if item.borrowable && !existing.borrowable {
+        return Err(AppError::BusinessRule(
+            "Item cannot be made borrowable until barcode, site, and price (or an explicit price deferral) are set"
+                .into(),
+        ));
+    }
+    if !existing.borrowable {
+        item.borrowable = false;
+    }
+    Ok(())
 }

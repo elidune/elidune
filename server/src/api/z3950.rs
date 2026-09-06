@@ -86,6 +86,7 @@ impl From<ImportItem> for Item {
             circulation_status: None,
             notes: s.notes,
             price: s.price,
+            price_deferred: false,
             created_at: None,
             updated_at: None,
             archived_at: None,

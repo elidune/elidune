@@ -406,6 +406,9 @@ pub struct ReceiveItemSpec {
     pub source_name: Option<String>,
     #[validate(length(max = 100))]
     pub price: Option<String>,
+    /// Staff explicitly defers recording a price (report later).
+    #[serde(default)]
+    pub price_deferred: bool,
     #[validate(length(max = 200))]
     pub call_number: Option<String>,
 }
