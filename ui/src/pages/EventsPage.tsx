@@ -59,7 +59,7 @@ function yesterdayStr(): string {
 }
 
 export default function EventsPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { data: publicTypes = [] } = usePublicTypesQuery();
 
   const [events, setEvents] = useState<Event[]>([]);
@@ -156,7 +156,7 @@ export default function EventsPage() {
 
   const formatDate = (dateStr: string) => {
     try {
-      return new Date(dateStr + 'T00:00:00').toLocaleDateString();
+      return new Date(dateStr + 'T00:00:00').toLocaleDateString(i18n.language);
     } catch {
       return dateStr;
     }
@@ -399,7 +399,7 @@ export default function EventsPage() {
             <AlertCircle className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
             <p>
               {t('events.announcementAlreadySentBody', {
-                date: new Date(confirmAnnouncementEvent.announcementSentAt).toLocaleString(),
+                date: new Date(confirmAnnouncementEvent.announcementSentAt).toLocaleString(i18n.language),
                 name: confirmAnnouncementEvent.name,
               })}
             </p>

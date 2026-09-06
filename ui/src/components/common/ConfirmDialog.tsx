@@ -13,6 +13,7 @@ export interface ConfirmDialogProps {
   confirmVariant?: 'primary' | 'danger';
   stackOnTop?: boolean;
   isLoading?: boolean;
+  error?: string | null;
 }
 
 export default function ConfirmDialog({
@@ -26,6 +27,7 @@ export default function ConfirmDialog({
   confirmVariant = 'primary',
   stackOnTop = false,
   isLoading = false,
+  error = null,
 }: ConfirmDialogProps) {
   const { t } = useTranslation();
   const resolvedTitle = title ?? t('common.confirm');
@@ -54,6 +56,11 @@ export default function ConfirmDialog({
       }
     >
       <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{message}</p>
+      {error ? (
+        <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">
+          {error}
+        </p>
+      ) : null}
     </Modal>
   );
 }

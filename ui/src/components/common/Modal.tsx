@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
+import { isTopmostDialog, useFocusTrap } from '@/hooks/common/useFocusTrap';
 
 interface ModalProps {
   isOpen: boolean;
@@ -11,29 +12,6 @@ interface ModalProps {
   size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
   /** Renders above other modals (e.g. nested error dialog). */
   stackOnTop?: boolean;
-}
-
-const FOCUSABLE_SELECTOR = [
-  'a[href]',
-  'button:not([disabled])',
-  'textarea:not([disabled])',
-  'input:not([disabled]):not([type="hidden"])',
-  'select:not([disabled])',
-  '[tabindex]:not([tabindex="-1"])',
-].join(',');
-
-function getFocusable(root: HTMLElement): HTMLElement[] {
-  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter((el) => {
-    if (el.getAttribute('aria-hidden') === 'true') return false;
-    if (el.closest('[aria-hidden="true"]')) return false;
-    const style = window.getComputedStyle(el);
-    return style.display !== 'none' && style.visibility !== 'hidden';
-  });
-}
-
-function isTopmostDialog(el: HTMLElement): boolean {
-  const dialogs = document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]');
-  return dialogs[dialogs.length - 1] === el;
 }
 
 export default function Modal({
@@ -48,71 +26,22 @@ export default function Modal({
   const { t } = useTranslation();
   const titleId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
-  const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+
+  useFocusTrap({
+    enabled: isOpen,
+    containerRef: dialogRef,
+    onEscape: onClose,
+    shouldHandle: isTopmostDialog,
+    skipCloseControl: true,
+  });
 
   useEffect(() => {
     if (!isOpen) return;
-
-    previouslyFocusedRef.current = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
-
-    const root = dialogRef.current;
-    if (!root) return;
-
-    const focusInitial = () => {
-      const items = getFocusable(root);
-      const preferred = items.find((el) => el.getAttribute('data-modal-close') !== 'true');
-      (preferred ?? items[0] ?? root).focus();
-    };
-
-    const frame = requestAnimationFrame(focusInitial);
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (!isTopmostDialog(root)) return;
-
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-        return;
-      }
-
-      if (e.key !== 'Tab') return;
-
-      const items = getFocusable(root);
-      if (items.length === 0) {
-        e.preventDefault();
-        return;
-      }
-
-      const first = items[0];
-      const last = items[items.length - 1];
-      const active = document.activeElement;
-
-      if (e.shiftKey) {
-        if (active === first || !root.contains(active)) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else if (active === last || !root.contains(active)) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-
-    document.addEventListener('keydown', handleKeyDown);
     document.body.style.overflow = 'hidden';
-
     return () => {
-      cancelAnimationFrame(frame);
-      document.removeEventListener('keydown', handleKeyDown);
       document.body.style.overflow = '';
-      const prev = previouslyFocusedRef.current;
-      if (prev && document.contains(prev) && typeof prev.focus === 'function') {
-        prev.focus();
-      }
     };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

@@ -86,7 +86,8 @@
     "sectionCataloging": "Catalogage",
     "sectionPatron": "Usager",
     "language": "Langue",
-    "main": "Navigation principale"
+    "main": "Navigation principale",
+    "skipToContent": "Aller au contenu principal"
   },
   "theme": {
     "light": "Clair",
@@ -476,6 +477,7 @@
     "borrowableYes": "Empruntable",
     "borrowableNo": "Non empruntable",
     "volumeDesignation": "Désignation de volume",
+    "volumeDesignationPlaceholder": "ex. t. 2",
     "source": "Source",
     "specimenBarcodeRequired": "Le code-barre est requis",
     "borrowable": "Empruntable",
@@ -803,6 +805,7 @@
     "loansLoadError": "Impossible de charger les emprunts",
     "specimenBarcode": "Code-barre de l'exemplaire",
     "loanDetails": "Détails de l'emprunt",
+    "borrowedSpecimen": "Exemplaire emprunté",
     "status": "Statut",
     "returned": "Retourné",
     "remindersDryRun": "Simulation",

@@ -1058,7 +1058,7 @@ function AddSpecimenForm({ formId, item, onLoadingChange, onSuccess }: AddSpecim
         label={t('items.volumeDesignation')}
         value={formData.volumeDesignation}
         onChange={(e) => setFormData({ ...formData, volumeDesignation: e.target.value })}
-        placeholder="e.g. t. 2"
+        placeholder={t('items.volumeDesignationPlaceholder')}
       />
       <div>
         <label className={formLabelClass()}>
@@ -1200,7 +1200,7 @@ function EditSpecimenForm({ formId, item, specimen, onLoadingChange, onSuccess }
         label={t('items.volumeDesignation')}
         value={formData.volumeDesignation}
         onChange={(e) => setFormData({ ...formData, volumeDesignation: e.target.value })}
-        placeholder="e.g. t. 2"
+        placeholder={t('items.volumeDesignationPlaceholder')}
       />
       <div>
         <label className={formLabelClass()}>

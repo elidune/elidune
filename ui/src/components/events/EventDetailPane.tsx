@@ -39,7 +39,7 @@ export default function EventDetailPane({
   showCloseButton = true,
   listEvent = null,
 }: EventDetailPaneProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { data: publicTypes = [] } = usePublicTypesQuery();
 
   const { data: detail, isLoading } = useQuery({
@@ -152,7 +152,7 @@ export default function EventDetailPane({
                 className="inline-flex max-w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-gray-900 tabular-nums dark:border-gray-700 dark:bg-gray-800/50 dark:text-gray-100"
                 role="status"
                 aria-label={[
-                  formatEventDateOnly(detail.eventDate),
+                  formatEventDateOnly(detail.eventDate, i18n.language),
                   timeRange ? timeRange : null,
                 ]
                   .filter(Boolean)
@@ -160,7 +160,7 @@ export default function EventDetailPane({
               >
                 <span className="inline-flex items-center gap-1.5">
                   <Calendar className="h-4 w-4 shrink-0 text-gray-500 dark:text-gray-400" strokeWidth={2} aria-hidden />
-                  <span className="text-sm font-semibold sm:text-base">{formatEventDateOnly(detail.eventDate)}</span>
+                  <span className="text-sm font-semibold sm:text-base">{formatEventDateOnly(detail.eventDate, i18n.language)}</span>
                 </span>
                 {timeRange ? (
                   <span className="inline-flex items-center gap-1.5 text-gray-700 dark:text-gray-200">
