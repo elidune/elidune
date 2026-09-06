@@ -33,6 +33,7 @@ pub fn router() -> axum::Router<crate::AppState> {
         .route("/holds/quota", get(get_hold_quota))
         .route("/holds/:id", delete(cancel_hold))
         .route("/items/:id/holds", get(list_holds_for_item))
+        .route("/biblios/:id/holds", get(list_holds_for_biblio))
         .route("/users/:id/holds", get(list_holds_for_user))
 }
 
@@ -94,9 +95,18 @@ pub struct CreateHoldRequest {
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub user_id: i64,
-    #[serde_as(as = "DisplayFromStr")]
-    #[schema(value_type = String)]
-    pub item_id: i64,
+    /// Physical copy (`items.id`). Omit for a title-level hold.
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub item_id: Option<i64>,
+    /// Bibliographic record. Required when `itemId` is omitted (title-level hold).
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub biblio_id: Option<i64>,
+    /// Optional pickup site stub for later transit (#15).
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub pickup_site_id: Option<i64>,
     pub notes: Option<String>,
     /// Staff-only: place the hold even when the patron is at/over the active-hold cap.
     pub force: Option<bool>,
@@ -113,7 +123,7 @@ pub struct CreateHoldRequest {
         (status = 400, description = "Invalid request", body = crate::error::ErrorResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 403, description = "Insufficient rights or force requires staff", body = crate::error::ErrorResponse),
-        (status = 409, description = "User already has a hold for this item", body = crate::error::ErrorResponse),
+        (status = 409, description = "User already has a hold for this item or title", body = crate::error::ErrorResponse),
         (status = 422, description = "Business rule: max active holds reached (staff may retry with force=true)")
     )
 )]
@@ -135,9 +145,16 @@ pub async fn create_hold(
             "Staff rights required to override the holds cap".into(),
         ));
     }
+    if req.item_id.is_none() && req.biblio_id.is_none() {
+        return Err(AppError::Validation(
+            "itemId or biblioId is required".into(),
+        ));
+    }
     let data = CreateHold {
         user_id: req.user_id,
         item_id: req.item_id,
+        biblio_id: req.biblio_id,
+        pickup_site_id: req.pickup_site_id,
         notes: req.notes,
         force,
     };
@@ -157,6 +174,7 @@ pub async fn create_hold(
                 Some(serde_json::json!({
                     "user_id": req.user_id,
                     "item_id": req.item_id,
+                    "biblio_id": req.biblio_id,
                     "force": force,
                 })),
                 audit::AuditLogMeta::success(),
@@ -173,6 +191,7 @@ pub async fn create_hold(
                 Some(serde_json::json!({
                     "user_id": req.user_id,
                     "item_id": req.item_id,
+                    "biblio_id": req.biblio_id,
                     "force": force,
                 })),
                 audit::AuditLogMeta::from_app_error(&e),
@@ -307,6 +326,28 @@ pub async fn list_holds_for_item(
 ) -> AppResult<Json<Vec<HoldDetails>>> {
     claims.require_read_holds_staff()?;
     let list = state.services.holds.get_for_item(item_id).await?;
+    Ok(Json(list))
+}
+
+#[utoipa::path(
+    get,
+    path = "/biblios/{id}/holds",
+    tag = "holds",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Biblio ID")),
+    responses(
+        (status = 200, description = "Hold queue for this bibliographic record (notice-level FIFO)", body = Vec<HoldDetails>),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
+        (status = 404, description = "Biblio not found", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn list_holds_for_biblio(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Path(biblio_id): Path<i64>,
+) -> AppResult<Json<Vec<HoldDetails>>> {
+    claims.require_read_holds_staff()?;
+    let list = state.services.holds.get_for_biblio(biblio_id).await?;
     Ok(Json(list))
 }
 

@@ -9,7 +9,8 @@ including email outbox tables, idx_loans_one_active_per_item,
 idx_holds_one_active_per_user_item, fines / fine_rules / circulation_settings
 (025), idx_fines_one_open_per_loan (026), loans_archives age_band/loan_year
 (027), circulation_settings / public_types.max_active_holds (028),
-and fines.charge_type / one-open-per-(loan,charge_type) (029))
+fines.charge_type / one-open-per-(loan,charge_type) (029), and
+title-level holds + pickup_site_id stub (030))
 
 Usage:
     python migrate_data.py --source-db <old_db_url> --target-db <new_db_url>

@@ -37,6 +37,7 @@ pub trait HoldsRepository: Send + Sync {
         active_only: bool,
     ) -> AppResult<(Vec<HoldDetails>, i64)>;
     async fn holds_list_for_item(&self, item_id: i64) -> AppResult<Vec<HoldDetails>>;
+    async fn holds_list_for_biblio(&self, biblio_id: i64) -> AppResult<Vec<HoldDetails>>;
     async fn holds_list_for_user(&self, user_id: i64) -> AppResult<Vec<HoldDetails>>;
     async fn holds_get_by_id(&self, id: i64) -> AppResult<Hold>;
     async fn holds_create(&self, data: &CreateHold) -> AppResult<Hold>;
@@ -46,11 +47,22 @@ pub trait HoldsRepository: Send + Sync {
     async fn holds_count_for_item(&self, item_id: i64) -> AppResult<i64>;
     async fn holds_count_active_for_biblio(&self, biblio_id: i64) -> AppResult<i64>;
     async fn holds_has_active_for_user_item(&self, user_id: i64, item_id: i64) -> AppResult<bool>;
+    async fn holds_has_active_for_user_biblio(
+        &self,
+        user_id: i64,
+        biblio_id: i64,
+    ) -> AppResult<bool>;
+    async fn holds_has_active_title_for_user_biblio(
+        &self,
+        user_id: i64,
+        biblio_id: i64,
+    ) -> AppResult<bool>;
+    async fn holds_biblio_id_of_item(&self, item_id: i64) -> AppResult<i64>;
     async fn holds_get_next_pending(&self, item_id: i64) -> AppResult<Option<Hold>>;
     async fn holds_fulfill(&self, id: i64) -> AppResult<Hold>;
-    /// First `pending` hold for the item becomes `ready` with `expires_at` set.
+    /// First eligible hold for the item (copy-level, else title-level) becomes `ready`.
     async fn holds_notify_next(&self, item_id: i64, expiry_days: i32) -> AppResult<Option<Hold>>;
-    /// Count of `pending`/`ready` holds for this patron (copy-level).
+    /// Count of `pending`/`ready` holds for this patron (copy- and title-level).
     async fn holds_count_active_for_user(&self, user_id: i64) -> AppResult<i64>;
     /// Effective cap: public-type override when set, else global default.
     async fn holds_get_max_active_for_user(&self, user_id: i64) -> AppResult<i16>;
@@ -80,6 +92,9 @@ impl HoldsRepository for Repository {
     async fn holds_list_for_item(&self, item_id: i64) -> AppResult<Vec<HoldDetails>> {
         Repository::holds_list_for_item(self, item_id).await
     }
+    async fn holds_list_for_biblio(&self, biblio_id: i64) -> AppResult<Vec<HoldDetails>> {
+        Repository::holds_list_for_biblio(self, biblio_id).await
+    }
     async fn holds_list_for_user(&self, user_id: i64) -> AppResult<Vec<HoldDetails>> {
         Repository::holds_list_for_user(self, user_id).await
     }
@@ -106,6 +121,23 @@ impl HoldsRepository for Repository {
     }
     async fn holds_has_active_for_user_item(&self, user_id: i64, item_id: i64) -> AppResult<bool> {
         Repository::holds_has_active_for_user_item(self, user_id, item_id).await
+    }
+    async fn holds_has_active_for_user_biblio(
+        &self,
+        user_id: i64,
+        biblio_id: i64,
+    ) -> AppResult<bool> {
+        Repository::holds_has_active_for_user_biblio(self, user_id, biblio_id).await
+    }
+    async fn holds_has_active_title_for_user_biblio(
+        &self,
+        user_id: i64,
+        biblio_id: i64,
+    ) -> AppResult<bool> {
+        Repository::holds_has_active_title_for_user_biblio(self, user_id, biblio_id).await
+    }
+    async fn holds_biblio_id_of_item(&self, item_id: i64) -> AppResult<i64> {
+        Repository::holds_biblio_id_of_item(self, item_id).await
     }
     async fn holds_get_next_pending(&self, item_id: i64) -> AppResult<Option<Hold>> {
         Repository::holds_get_next_pending(self, item_id).await
@@ -218,14 +250,17 @@ impl Repository {
             .collect())
     }
 
-    /// Expand [`Hold`] rows into [`HoldDetails`] with biblio (single copy) and user snapshots.
+    /// Expand [`Hold`] rows into [`HoldDetails`] with biblio and user snapshots.
+    ///
+    /// Title-level pending holds have an empty `biblio.items`. Assigned holds
+    /// embed exactly the trapped copy.
     pub async fn holds_holds_to_details(&self, holds: Vec<Hold>) -> AppResult<Vec<HoldDetails>> {
         if holds.is_empty() {
             return Ok(vec![]);
         }
         let item_ids: Vec<i64> = holds
             .iter()
-            .map(|h| h.item_id)
+            .filter_map(|h| h.item_id)
             .collect::<HashSet<_>>()
             .into_iter()
             .collect();
@@ -235,14 +270,14 @@ impl Repository {
             .collect::<HashSet<_>>()
             .into_iter()
             .collect();
-
-        let item_biblio_map = self.holds_item_biblio_map(&item_ids).await?;
-        let biblio_ids: Vec<i64> = item_biblio_map
-            .values()
-            .map(|(bid, _)| *bid)
+        let biblio_ids: Vec<i64> = holds
+            .iter()
+            .map(|h| h.biblio_id)
             .collect::<HashSet<_>>()
             .into_iter()
             .collect();
+
+        let item_biblio_map = self.holds_item_biblio_map(&item_ids).await?;
         let biblio_meta = self
             .biblios_get_short_metadata_map_by_biblio_ids(&biblio_ids)
             .await?;
@@ -250,16 +285,27 @@ impl Repository {
 
         let mut out = Vec::with_capacity(holds.len());
         for h in holds {
-            let (biblio_id, item_short) = item_biblio_map.get(&h.item_id).ok_or_else(|| {
-                AppError::Internal(format!("Item {} not found for hold {}", h.item_id, h.id))
-            })?;
-            let mut biblio: BiblioShort = biblio_meta.get(biblio_id).cloned().ok_or_else(|| {
-                AppError::Internal(format!("Biblio {} not found for hold {}", biblio_id, h.id))
-            })?;
-            biblio.items = vec![item_short.clone()];
+            let mut biblio: BiblioShort =
+                biblio_meta.get(&h.biblio_id).cloned().ok_or_else(|| {
+                    AppError::Internal(format!(
+                        "Biblio {} not found for hold {}",
+                        h.biblio_id, h.id
+                    ))
+                })?;
+            biblio.items = match h.item_id {
+                Some(item_id) => {
+                    let (_, item_short) = item_biblio_map.get(&item_id).ok_or_else(|| {
+                        AppError::Internal(format!("Item {item_id} not found for hold {}", h.id))
+                    })?;
+                    vec![item_short.clone()]
+                }
+                None => vec![],
+            };
             let user = users_map.get(&h.user_id).cloned();
             out.push(HoldDetails {
                 id: h.id,
+                biblio_id: h.biblio_id,
+                item_id: h.item_id,
                 biblio,
                 user,
                 created_at: h.created_at,
@@ -375,8 +421,10 @@ impl Repository {
 
     /// Same as [`holds_notify_next`] but within an open transaction (atomic with loan return).
     ///
-    /// Locks the item's active queue in the same order as checkout so cancel, expire,
-    /// return, and borrow serialize. Does not promote if a `ready` hold already exists.
+    /// The queue is the bibliographic record. This copy is offered to the next
+    /// pending hold that can take it (unassigned, or already pinned to this
+    /// specimen). `FOR UPDATE SKIP LOCKED` so two concurrent returns cannot
+    /// allocate the same hold. A `ready` hold already on this copy blocks promotion.
     #[tracing::instrument(skip(self, tx), err)]
     pub async fn holds_notify_next_tx(
         &self,
@@ -384,39 +432,53 @@ impl Repository {
         item_id: i64,
         expiry_days: i32,
     ) -> AppResult<Option<Hold>> {
-        let locked: Vec<Hold> = sqlx::query_as(
-            r#"
-            SELECT * FROM holds
-            WHERE item_id = $1 AND status IN ('pending', 'ready')
-            ORDER BY CASE status WHEN 'ready' THEN 0 ELSE 1 END, position ASC
-            FOR UPDATE
-            "#,
+        let biblio_id: i64 =
+            sqlx::query_scalar("SELECT biblio_id FROM items WHERE id = $1 FOR UPDATE")
+                .bind(item_id)
+                .fetch_optional(&mut **tx)
+                .await?
+                .ok_or_else(|| AppError::NotFound("Item not found".to_string()))?;
+
+        let already_ready: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM holds WHERE item_id = $1 AND status = 'ready')",
         )
         .bind(item_id)
-        .fetch_all(&mut **tx)
+        .fetch_one(&mut **tx)
         .await?;
-
-        if locked.iter().any(|h| h.status == HoldStatus::Ready) {
+        if already_ready {
             return Ok(None);
         }
 
-        let Some(next) = locked.into_iter().find(|h| h.status == HoldStatus::Pending) else {
-            return Ok(None);
-        };
-
         let expires_at = Utc::now() + chrono::Duration::days(expiry_days as i64);
+
+        // One biblio FIFO. A pinned copy other than this specimen is skipped,
+        // not a second reservation type.
         let updated = sqlx::query_as::<_, Hold>(
-            r#"UPDATE holds
-               SET status = 'ready', notified_at = NOW(), expires_at = $2
-               WHERE id = $1 AND status = 'pending'
-               RETURNING *"#,
+            r#"
+            UPDATE holds
+            SET item_id = $1,
+                status = 'ready',
+                notified_at = NOW(),
+                expires_at = $3
+            WHERE id = (
+                SELECT id FROM holds
+                WHERE biblio_id = $2
+                  AND status = 'pending'
+                  AND (item_id IS NULL OR item_id = $1)
+                ORDER BY position ASC, created_at ASC
+                FOR UPDATE SKIP LOCKED
+                LIMIT 1
+            )
+            AND status = 'pending'
+            RETURNING *
+            "#,
         )
-        .bind(next.id)
+        .bind(item_id)
+        .bind(biblio_id)
         .bind(expires_at)
         .fetch_optional(&mut **tx)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Pending hold {} not found", next.id)))?;
-        Ok(Some(updated))
+        .await?;
+        Ok(updated)
     }
 
     #[tracing::instrument(skip(self), err)]
@@ -426,6 +488,23 @@ impl Repository {
              ORDER BY position ASC",
         )
         .bind(item_id)
+        .fetch_all(&self.pool)
+        .await?;
+        self.holds_holds_to_details(rows).await
+    }
+
+    /// Active holds on a bibliographic record (single notice-level FIFO).
+    #[tracing::instrument(skip(self), err)]
+    pub async fn holds_list_for_biblio(&self, biblio_id: i64) -> AppResult<Vec<HoldDetails>> {
+        self.biblios_get_by_id(biblio_id).await?;
+        let rows = sqlx::query_as::<_, Hold>(
+            r#"
+            SELECT * FROM holds
+            WHERE biblio_id = $1 AND status IN ('pending','ready')
+            ORDER BY position ASC, created_at ASC
+            "#,
+        )
+        .bind(biblio_id)
         .fetch_all(&self.pool)
         .await?;
         self.holds_holds_to_details(rows).await
@@ -451,66 +530,151 @@ impl Repository {
             .ok_or_else(|| AppError::NotFound(format!("Hold {id} not found")))
     }
 
-    /// Place a hold on a physical copy.
+    /// Place a copy-level or title-level hold.
     ///
-    /// Serializes on the item row (`FOR UPDATE`) so concurrent inserts cannot
-    /// assign the same `MAX(position)+1`. Relies on
-    /// `idx_holds_one_active_per_user_item` so the same patron cannot hold the
-    /// same copy twice while status is `pending` or `ready`.
+    /// Copy-level serializes on the item row; title-level serializes on the
+    /// biblio row. Unique indexes remain the last line of defense.
     #[tracing::instrument(skip(self), err)]
     pub async fn holds_create(&self, data: &CreateHold) -> AppResult<Hold> {
+        match (data.item_id, data.biblio_id) {
+            (None, None) => Err(AppError::Validation(
+                "itemId or biblioId is required".to_string(),
+            )),
+            (Some(item_id), biblio_id) => self.holds_create_copy(data, item_id, biblio_id).await,
+            (None, Some(biblio_id)) => self.holds_create_title(data, biblio_id).await,
+        }
+    }
+
+    async fn holds_create_copy(
+        &self,
+        data: &CreateHold,
+        item_id: i64,
+        requested_biblio_id: Option<i64>,
+    ) -> AppResult<Hold> {
         let id = next_id();
         let mut tx = self.pool.begin().await?;
 
-        // Lock the copy so empty-queue first holds also serialize.
-        sqlx::query_scalar::<_, i64>("SELECT id FROM items WHERE id = $1 FOR UPDATE")
-            .bind(data.item_id)
-            .fetch_optional(&mut *tx)
-            .await?
-            .ok_or_else(|| AppError::NotFound("Item not found".to_string()))?;
+        let biblio_id: i64 = sqlx::query_scalar(
+            "SELECT biblio_id FROM items WHERE id = $1 AND archived_at IS NULL FOR UPDATE",
+        )
+        .bind(item_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Item not found".to_string()))?;
+
+        if requested_biblio_id.is_some_and(|bid| bid != biblio_id) {
+            return Err(AppError::Validation(
+                "itemId does not belong to biblioId".to_string(),
+            ));
+        }
 
         let already_active: bool = sqlx::query_scalar(
             r#"
             SELECT EXISTS(
                 SELECT 1 FROM holds
-                WHERE user_id = $1 AND item_id = $2 AND status IN ('pending','ready')
+                WHERE user_id = $1 AND biblio_id = $2 AND status IN ('pending','ready')
             )
             "#,
         )
         .bind(data.user_id)
-        .bind(data.item_id)
+        .bind(biblio_id)
         .fetch_one(&mut *tx)
         .await?;
         if already_active {
             return Err(AppError::Conflict(
-                "User already has an active hold for this item".to_string(),
+                "User already has an active hold for this title".to_string(),
             ));
         }
 
+        sqlx::query_scalar::<_, i64>("SELECT id FROM biblios WHERE id = $1 FOR UPDATE")
+            .bind(biblio_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| AppError::NotFound("Biblio not found".to_string()))?;
+
         let row = match sqlx::query_as::<_, Hold>(
             r#"
-            INSERT INTO holds (id, user_id, item_id, position, notes)
+            INSERT INTO holds (id, user_id, item_id, biblio_id, pickup_site_id, position, notes)
             VALUES (
-                $1, $2, $3,
+                $1, $2, $3, $4, $5,
                 COALESCE((SELECT MAX(position) FROM holds
-                          WHERE item_id = $3 AND status IN ('pending','ready')), 0) + 1,
-                $4
+                          WHERE biblio_id = $4 AND status IN ('pending','ready')), 0) + 1,
+                $6
             )
             RETURNING *
             "#,
         )
         .bind(id)
         .bind(data.user_id)
-        .bind(data.item_id)
+        .bind(item_id)
+        .bind(biblio_id)
+        .bind(data.pickup_site_id)
         .bind(&data.notes)
         .fetch_one(&mut *tx)
         .await
         {
             Ok(row) => row,
             Err(e) if is_active_hold_unique_violation(&e) => {
-                return Err(AppError::Conflict(
-                    "User already has an active hold for this item".to_string(),
-                ));
+                return Err(AppError::Conflict(active_hold_conflict_message(&e)));
+            }
+            Err(e) => return Err(e.into()),
+        };
+
+        tx.commit().await?;
+        Ok(row)
+    }
+
+    async fn holds_create_title(&self, data: &CreateHold, biblio_id: i64) -> AppResult<Hold> {
+        let id = next_id();
+        let mut tx = self.pool.begin().await?;
+
+        sqlx::query_scalar::<_, i64>("SELECT id FROM biblios WHERE id = $1 FOR UPDATE")
+            .bind(biblio_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| AppError::NotFound("Biblio not found".to_string()))?;
+
+        let already_active: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 FROM holds
+                WHERE user_id = $1 AND biblio_id = $2 AND status IN ('pending','ready')
+            )
+            "#,
+        )
+        .bind(data.user_id)
+        .bind(biblio_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if already_active {
+            return Err(AppError::Conflict(
+                "User already has an active hold for this title".to_string(),
+            ));
+        }
+
+        let row = match sqlx::query_as::<_, Hold>(
+            r#"
+            INSERT INTO holds (id, user_id, item_id, biblio_id, pickup_site_id, position, notes)
+            VALUES (
+                $1, $2, NULL, $3, $4,
+                COALESCE((SELECT MAX(position) FROM holds
+                          WHERE biblio_id = $3 AND status IN ('pending','ready')), 0) + 1,
+                $5
+            )
+            RETURNING *
+            "#,
+        )
+        .bind(id)
+        .bind(data.user_id)
+        .bind(biblio_id)
+        .bind(data.pickup_site_id)
+        .bind(&data.notes)
+        .fetch_one(&mut *tx)
+        .await
+        {
+            Ok(row) => row,
+            Err(e) if is_active_hold_unique_violation(&e) => {
+                return Err(AppError::Conflict(active_hold_conflict_message(&e)));
             }
             Err(e) => return Err(e.into()),
         };
@@ -554,8 +718,10 @@ impl Repository {
         .await?;
 
         if current.status == HoldStatus::Ready {
-            self.holds_notify_next_tx(&mut tx, current.item_id, self.hold_ready_expiry_days())
-                .await?;
+            if let Some(item_id) = current.item_id {
+                self.holds_notify_next_tx(&mut tx, item_id, self.hold_ready_expiry_days())
+                    .await?;
+            }
         }
 
         tx.commit().await?;
@@ -578,8 +744,11 @@ impl Repository {
         let expiry_days = self.hold_ready_expiry_days();
         let mut notified_items = HashSet::new();
         for hold in &expired {
-            if notified_items.insert(hold.item_id) {
-                self.holds_notify_next_tx(&mut tx, hold.item_id, expiry_days)
+            let Some(item_id) = hold.item_id else {
+                continue;
+            };
+            if notified_items.insert(item_id) {
+                self.holds_notify_next_tx(&mut tx, item_id, expiry_days)
                     .await?;
             }
         }
@@ -620,7 +789,7 @@ impl Repository {
             .ok_or_else(|| AppError::NotFound(format!("Hold {id} not found")))
     }
 
-    /// Patron allowed to borrow this copy next: `ready` first, else first `pending` by queue position.
+    /// Patron allowed to borrow this copy next: ready on this specimen, else biblio FIFO.
     #[tracing::instrument(skip(self), err)]
     pub async fn holds_eligible_borrower_for_item(&self, item_id: i64) -> AppResult<Option<i64>> {
         let ready: Option<i64> = sqlx::query_scalar("SELECT user_id FROM holds WHERE item_id = $1 AND status = 'ready' ORDER BY position ASC LIMIT 1")
@@ -630,11 +799,21 @@ impl Repository {
         if ready.is_some() {
             return Ok(ready);
         }
-        let pending: Option<i64> = sqlx::query_scalar("SELECT user_id FROM holds WHERE item_id = $1 AND status = 'pending' ORDER BY position ASC LIMIT 1")
-            .bind(item_id)
-            .fetch_optional(&self.pool)
-            .await?;
-        Ok(pending)
+        let next: Option<i64> = sqlx::query_scalar(
+            r#"
+            SELECT h.user_id FROM holds h
+            JOIN items i ON i.biblio_id = h.biblio_id
+            WHERE i.id = $1
+              AND h.status = 'pending'
+              AND (h.item_id IS NULL OR h.item_id = $1)
+            ORDER BY h.position ASC, h.created_at ASC
+            LIMIT 1
+            "#,
+        )
+        .bind(item_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(next)
     }
 
     /// Whether another patron has a `pending` or `ready` hold on this copy.
@@ -648,10 +827,17 @@ impl Repository {
     ) -> AppResult<bool> {
         let user_ids: Vec<i64> = sqlx::query_scalar(
             r#"
-            SELECT user_id FROM holds
-            WHERE item_id = $1 AND status IN ('pending', 'ready')
-            ORDER BY CASE status WHEN 'ready' THEN 0 ELSE 1 END, position ASC
-            FOR UPDATE
+            SELECT h.user_id FROM holds h
+            JOIN items i ON i.biblio_id = h.biblio_id
+            WHERE i.id = $1
+              AND h.status IN ('pending', 'ready')
+              AND (
+                    (h.status = 'ready' AND h.item_id = $1)
+                    OR (h.status = 'pending' AND (h.item_id IS NULL OR h.item_id = $1))
+                  )
+            ORDER BY CASE h.status WHEN 'ready' THEN 0 ELSE 1 END,
+                     h.position ASC, h.created_at ASC
+            FOR UPDATE OF h
             "#,
         )
         .bind(item_id)
@@ -670,10 +856,17 @@ impl Repository {
     ) -> AppResult<Option<i64>> {
         let user_ids: Vec<i64> = sqlx::query_scalar(
             r#"
-            SELECT user_id FROM holds
-            WHERE item_id = $1 AND status IN ('pending', 'ready')
-            ORDER BY CASE status WHEN 'ready' THEN 0 ELSE 1 END, position ASC
-            FOR UPDATE
+            SELECT h.user_id FROM holds h
+            JOIN items i ON i.biblio_id = h.biblio_id
+            WHERE i.id = $1
+              AND h.status IN ('pending', 'ready')
+              AND (
+                    (h.status = 'ready' AND h.item_id = $1)
+                    OR (h.status = 'pending' AND (h.item_id IS NULL OR h.item_id = $1))
+                  )
+            ORDER BY CASE h.status WHEN 'ready' THEN 0 ELSE 1 END,
+                     h.position ASC, h.created_at ASC
+            FOR UPDATE OF h
             "#,
         )
         .bind(item_id)
@@ -690,11 +883,25 @@ impl Repository {
         user_id: i64,
         item_id: i64,
     ) -> AppResult<Option<i64>> {
-        let hold_id: Option<i64> = sqlx::query_scalar("UPDATE holds SET status = 'fulfilled' WHERE user_id = $1 AND item_id = $2 AND status IN ('pending','ready') RETURNING id")
-            .bind(user_id)
-            .bind(item_id)
-            .fetch_optional(&mut **tx)
-            .await?;
+        let hold_id: Option<i64> = sqlx::query_scalar(
+            r#"
+            UPDATE holds SET status = 'fulfilled', item_id = COALESCE(item_id, $2)
+            WHERE id = (
+                SELECT h.id FROM holds h
+                JOIN items i ON i.id = $2
+                WHERE h.user_id = $1
+                  AND h.status IN ('pending','ready')
+                  AND (h.item_id = $2 OR (h.item_id IS NULL AND h.biblio_id = i.biblio_id))
+                ORDER BY CASE WHEN h.item_id IS NOT NULL THEN 0 ELSE 1 END
+                LIMIT 1
+            )
+            RETURNING id
+            "#,
+        )
+        .bind(user_id)
+        .bind(item_id)
+        .fetch_optional(&mut **tx)
+        .await?;
         Ok(hold_id)
     }
 
@@ -744,14 +951,67 @@ impl Repository {
         Ok(b)
     }
 
-    /// Count active holds across all copies of a bibliographic record.
+    /// Any active hold (copy or title) on this bibliographic record for the patron.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn holds_has_active_for_user_biblio(
+        &self,
+        user_id: i64,
+        biblio_id: i64,
+    ) -> AppResult<bool> {
+        let b: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 FROM holds
+                WHERE user_id = $1 AND biblio_id = $2 AND status IN ('pending','ready')
+            )
+            "#,
+        )
+        .bind(user_id)
+        .bind(biblio_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(b)
+    }
+
+    /// Active title-level hold (unassigned copy) on this bibliographic record.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn holds_has_active_title_for_user_biblio(
+        &self,
+        user_id: i64,
+        biblio_id: i64,
+    ) -> AppResult<bool> {
+        let b: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 FROM holds
+                WHERE user_id = $1 AND biblio_id = $2
+                  AND item_id IS NULL AND status IN ('pending','ready')
+            )
+            "#,
+        )
+        .bind(user_id)
+        .bind(biblio_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(b)
+    }
+
+    #[tracing::instrument(skip(self), err)]
+    pub async fn holds_biblio_id_of_item(&self, item_id: i64) -> AppResult<i64> {
+        sqlx::query_scalar("SELECT biblio_id FROM items WHERE id = $1 AND archived_at IS NULL")
+            .bind(item_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| AppError::NotFound("Item not found".to_string()))
+    }
+
+    /// Count active holds across all copies of a bibliographic record (and title-level).
     #[tracing::instrument(skip(self), err)]
     pub async fn holds_count_active_for_biblio(&self, biblio_id: i64) -> AppResult<i64> {
         let count: i64 = sqlx::query_scalar(
             r#"
-            SELECT COUNT(*)::bigint FROM holds h
-            INNER JOIN items i ON i.id = h.item_id
-            WHERE i.biblio_id = $1 AND h.status IN ('pending','ready')
+            SELECT COUNT(*)::bigint FROM holds
+            WHERE biblio_id = $1 AND status IN ('pending','ready')
             "#,
         )
         .bind(biblio_id)
@@ -760,7 +1020,7 @@ impl Repository {
         Ok(count)
     }
 
-    /// Count of this patron's `pending`/`ready` holds (copy-level).
+    /// Count of this patron's `pending`/`ready` holds (copy- and title-level).
     #[tracing::instrument(skip(self), err)]
     pub async fn holds_count_active_for_user(&self, user_id: i64) -> AppResult<i64> {
         let count: i64 = sqlx::query_scalar(
@@ -822,13 +1082,22 @@ impl Repository {
     }
 }
 
-/// `idx_holds_one_active_per_user_item` — last line of defense if two inserts race.
+/// Unique indexes — last line of defense if two inserts race.
 fn is_active_hold_unique_violation(err: &sqlx::Error) -> bool {
     match err {
         sqlx::Error::Database(db) => {
             db.code().as_deref() == Some("23505")
-                && db.constraint() == Some("idx_holds_one_active_per_user_item")
+                && matches!(
+                    db.constraint(),
+                    Some("idx_holds_one_active_per_user_biblio")
+                        | Some("idx_holds_one_active_per_user_item")
+                        | Some("idx_holds_one_active_title_per_user_biblio")
+                )
         }
         _ => false,
     }
+}
+
+fn active_hold_conflict_message(_err: &sqlx::Error) -> String {
+    "User already has an active hold for this title".to_string()
 }

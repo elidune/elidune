@@ -100,6 +100,7 @@ use crate::api::{
         holds::update_holds_policy,
         holds::get_hold_quota,
         holds::list_holds_for_item,
+        holds::list_holds_for_biblio,
         holds::list_holds_for_user,
         holds::cancel_hold,
         // Inventory (stocktaking)
@@ -483,7 +484,7 @@ use crate::api::{
         (name = "users", description = "User management"),
         (name = "loans", description = "Loan management"),
         (name = "fines", description = "Overdue fines: list, accrue, pay, waive, and rules"),
-        (name = "holds", description = "Physical item hold queue"),
+        (name = "holds", description = "Hold queue: copy-level (itemId) and title-level (biblioId)"),
         (name = "inventory", description = "Stocktaking (inventory) sessions and barcode scans"),
         (name = "z3950", description = "Z39.50 catalog search"),
         (name = "stats", description = "Statistics"),

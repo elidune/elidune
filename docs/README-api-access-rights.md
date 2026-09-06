@@ -164,8 +164,9 @@ Loan checkout, return, renew, and batch loan operations require **`holds_rights 
 | Endpoint | Required auth | Notes |
 |---|---|---|
 | `GET /holds` | JWT + `require_list_holds()` | `read` / `write`: paginated **all** holds. **`own`**: same query, paginated **only the caller's** holds. |
-| `POST /holds` | JWT + `require_create_hold()` | `write`: any `userId`. **`own`**: `userId` must be the caller. **`read`** alone: not allowed. |
+| `POST /holds` | JWT + `require_create_hold()` | `write`: any `userId`. **`own`**: `userId` must be the caller. **`read`** alone: not allowed. Body is copy-level (`itemId`) or title-level (`biblioId`). |
 | `GET /items/:id/holds` | JWT + `require_read_holds_staff()` | Hold queue for the item; not allowed for **`own`**. |
+| `GET /biblios/:id/holds` | JWT + `require_read_holds_staff()` | Notice-level FIFO; not allowed for **`own`**. |
 | `GET /users/:id/holds` | JWT + `require_read_holds_staff()` + `require_read_users()` | Not allowed for **`own`**. |
 | `DELETE /holds/:id` | JWT + `require_cancel_hold()` | `write`: may cancel any user's hold. **`own`**: only own holds. **`read`** alone: not allowed. |
 

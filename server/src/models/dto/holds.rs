@@ -22,7 +22,7 @@ pub struct HoldQuota {
     pub user_id: i64,
     /// Effective cap (public-type override, else global default).
     pub max_active_holds: i16,
-    /// Current `pending` + `ready` copy-level holds.
+    /// Current `pending` + `ready` holds (copy-level and title-level).
     pub active_holds: i64,
     /// Slots left before `place_hold` is refused (`max - active`, floored at 0).
     pub remaining: i64,

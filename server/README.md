@@ -39,7 +39,7 @@ Library management system — JSON REST API written in Rust (Axum, PostgreSQL, R
 
 - **Loans** — Checkout, return, **renew** (by loan or by item), **overdue** listing, **loan settings** (borrow rules).
 - **Batch circulation** — **Batch return** and **batch checkout** for efficiency at the desk.
-- **Holds / reservations** — Place, list, and cancel holds on items and per patron.
+- **Holds / reservations** — Place, list, and cancel copy-level or title-level (biblio) holds.
 - **Reminders** — Trigger **overdue reminder** emails (with configured SMTP).
 - **MARC export** — Export a patron’s **loan history** as MARC for interlibrary loan or archives.
 - **Fines** — Fine rules, list patron fines, **pay** or **waive**; tied to circulation policy.

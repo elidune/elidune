@@ -1,4 +1,4 @@
-//! Hold queue service (physical item holds).
+//! Hold queue service (copy-level and title-level holds).
 
 use std::sync::Arc;
 
@@ -94,9 +94,11 @@ impl HoldsService {
         ))
     }
 
-    /// Place a hold — rejects if the user already has a pending/ready hold for this item,
-    /// or if they are at/over the active-hold cap (unless `force`).
-    /// Uniqueness is also enforced in the database (`idx_holds_one_active_per_user_item`).
+    /// Place a copy-level or title-level hold.
+    ///
+    /// Rejects if the patron already has a conflicting active hold, or if they
+    /// are at/over the active-hold cap (unless `force`). Unique indexes remain
+    /// the last line of defense.
     #[tracing::instrument(skip(self), err)]
     pub async fn place_hold(
         &self,
@@ -104,14 +106,36 @@ impl HoldsService {
         audit_actor: Option<i64>,
         client_ip: Option<String>,
     ) -> AppResult<Hold> {
-        if self
-            .repository
-            .holds_has_active_for_user_item(data.user_id, data.item_id)
-            .await?
-        {
-            return Err(AppError::Conflict(
-                "User already has an active hold for this item".to_string(),
+        if data.item_id.is_none() && data.biblio_id.is_none() {
+            return Err(AppError::Validation(
+                "itemId or biblioId is required".to_string(),
             ));
+        }
+
+        if let Some(item_id) = data.item_id {
+            let biblio_id = match data.biblio_id {
+                Some(id) => id,
+                None => self.repository.holds_biblio_id_of_item(item_id).await?,
+            };
+            if self
+                .repository
+                .holds_has_active_for_user_biblio(data.user_id, biblio_id)
+                .await?
+            {
+                return Err(AppError::Conflict(
+                    "User already has an active hold for this title".to_string(),
+                ));
+            }
+        } else if let Some(biblio_id) = data.biblio_id {
+            if self
+                .repository
+                .holds_has_active_for_user_biblio(data.user_id, biblio_id)
+                .await?
+            {
+                return Err(AppError::Conflict(
+                    "User already has an active hold for this title".to_string(),
+                ));
+            }
         }
 
         self.enforce_max_active_holds(&data, audit_actor, client_ip)
@@ -147,7 +171,8 @@ impl HoldsService {
                 Some(serde_json::json!({
                     "active": active,
                     "max": max,
-                    "itemId": data.item_id.to_string(),
+                    "itemId": data.item_id.map(|id| id.to_string()),
+                    "biblioId": data.biblio_id.map(|id| id.to_string()),
                     "operation": "place_hold",
                 })),
                 AuditLogMeta::success(),
@@ -159,6 +184,11 @@ impl HoldsService {
     #[tracing::instrument(skip(self), err)]
     pub async fn get_for_item(&self, item_id: i64) -> AppResult<Vec<HoldDetails>> {
         self.repository.holds_list_for_item(item_id).await
+    }
+
+    #[tracing::instrument(skip(self), err)]
+    pub async fn get_for_biblio(&self, biblio_id: i64) -> AppResult<Vec<HoldDetails>> {
+        self.repository.holds_list_for_biblio(biblio_id).await
     }
 
     #[tracing::instrument(skip(self), err)]
@@ -278,7 +308,9 @@ mod tests {
             Ok(Hold {
                 id: 1,
                 user_id: data.user_id,
+                biblio_id: data.biblio_id.unwrap_or(1),
                 item_id: data.item_id,
+                pickup_site_id: data.pickup_site_id,
                 position: 1,
                 status: crate::models::hold::HoldStatus::Pending,
                 notes: data.notes.clone(),
@@ -287,7 +319,19 @@ mod tests {
                 expires_at: None,
             })
         }
+        async fn holds_has_active_for_user_biblio(&self, _: i64, _: i64) -> AppResult<bool> {
+            Ok(self.duplicate)
+        }
+        async fn holds_has_active_title_for_user_biblio(&self, _: i64, _: i64) -> AppResult<bool> {
+            Ok(self.duplicate)
+        }
+        async fn holds_biblio_id_of_item(&self, _: i64) -> AppResult<i64> {
+            Ok(1)
+        }
         async fn holds_list_for_item(&self, _: i64) -> AppResult<Vec<HoldDetails>> {
+            Ok(vec![])
+        }
+        async fn holds_list_for_biblio(&self, _: i64) -> AppResult<Vec<HoldDetails>> {
             Ok(vec![])
         }
         async fn holds_list_for_user(&self, _: i64) -> AppResult<Vec<HoldDetails>> {
@@ -297,7 +341,9 @@ mod tests {
             Ok(Hold {
                 id,
                 user_id: self.hold_user_id,
-                item_id: 99,
+                biblio_id: 1,
+                item_id: Some(99),
+                pickup_site_id: None,
                 position: 1,
                 status: crate::models::hold::HoldStatus::Pending,
                 notes: None,
@@ -347,7 +393,9 @@ mod tests {
     fn create_hold(force: bool) -> CreateHold {
         CreateHold {
             user_id: 1,
-            item_id: 42,
+            item_id: Some(42),
+            biblio_id: None,
+            pickup_site_id: None,
             notes: None,
             force,
         }
@@ -377,7 +425,7 @@ mod tests {
             .place_hold(create_hold(false), None, None)
             .await
             .expect("under cap");
-        assert_eq!(hold.item_id, 42);
+        assert_eq!(hold.item_id, Some(42));
     }
 
     #[tokio::test]

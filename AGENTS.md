@@ -38,6 +38,6 @@ cd ui && pnpm lint && pnpm build
 - **Item / Biblio** — bibliographic record
 - **Specimen** — physical copy of an item
 - **Loan** — circulation record
-- **Hold** — reservation queue entry
+- **Hold** — reservation queue entry (copy-level on a specimen, or title-level on a biblio until a copy is assigned)
 
 See the per-component AGENTS.md files for coding conventions, permissions, and i18n rules.

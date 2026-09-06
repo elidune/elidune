@@ -751,14 +751,14 @@ impl Repository {
                 .await?;
         }
 
-        let hold_items: Vec<i64> =
+        let hold_items: Vec<Option<i64>> =
             sqlx::query_scalar("DELETE FROM holds WHERE user_id = $1 RETURNING item_id")
                 .bind(id)
                 .fetch_all(&mut *tx)
                 .await?;
         let holds_cancelled = hold_items.len() as u64;
         let mut seen_items = std::collections::HashSet::new();
-        for item_id in hold_items {
+        for item_id in hold_items.into_iter().flatten() {
             if seen_items.insert(item_id) {
                 self.holds_notify_next_tx(&mut tx, item_id, self.hold_ready_expiry_days())
                     .await?;

@@ -1403,33 +1403,40 @@ export interface EventsListResponse {
 }
 
 // ──────────────────────────────────────────────────────────────────
-// Holds (physical copy queue) — API tag `holds`
+// Holds (copy-level and title-level) — API tag `holds`
 // ──────────────────────────────────────────────────────────────────
 
 export type HoldStatus = 'pending' | 'ready' | 'fulfilled' | 'cancelled' | 'expired';
 
 /**
- * Hold detail rows (GET list endpoints). Aligned with {@link Loan}: `biblio.items`
- * contains exactly one {@link ItemShort} — the reserved specimen.
+ * Hold detail rows (GET list endpoints). `biblio.items` is empty for an
+ * unassigned title-level hold; otherwise exactly one {@link ItemShort}.
  */
 export interface Hold {
   id: string;
   userId: string;
-  itemId: string;
+  biblioId: string;
+  /** Null while a title-level hold is waiting for a copy. */
+  itemId?: string | null;
+  pickupSiteId?: string | null;
   createdAt: string;
   notifiedAt: string | null;
   expiresAt: string | null;
   status: HoldStatus;
   position: number;
   notes: string | null;
-  /** Populated on GET /holds, GET /items/:id/holds, GET /users/:id/holds */
+  /** Populated on GET /holds, GET /items/:id/holds, GET /biblios/:id/holds, GET /users/:id/holds */
   biblio?: BiblioShort | null;
   user?: UserShort | null;
 }
 
 export interface CreateHold {
   userId: string;
-  itemId: string;
+  /** Copy-level hold. Omit when placing a title-level hold. */
+  itemId?: string;
+  /** Title-level hold (any copy). Required when `itemId` is omitted. */
+  biblioId?: string;
+  pickupSiteId?: string | null;
   notes?: string | null;
   force?: boolean;
 }
