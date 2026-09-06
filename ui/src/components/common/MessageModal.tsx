@@ -45,6 +45,7 @@ export default function MessageModal({
       }
     >
       <p
+        role={variant === 'danger' ? 'alert' : undefined}
         className={
           variant === 'danger'
             ? 'text-sm text-red-700 dark:text-red-300 whitespace-pre-wrap'

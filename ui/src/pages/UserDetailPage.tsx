@@ -39,6 +39,7 @@ import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
 import LoansMarcExportButton from '@/components/loans/LoansMarcExportButton';
 import { RenewSubscriptionModal, UserEditorForm } from '@/components/users';
 import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/contexts/ToastContext';
 import { isLibrarian, type User as UserType, type Loan, type LoanStatsResponse, type AdvancedStatsParams, type StatsInterval, type Author, type Hold } from '@/types';
 import { accountTypeDisplayName } from '@/utils/accountTypeDisplay';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
@@ -56,6 +57,7 @@ export default function UserDetailPage() {
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
   const { t, i18n } = useTranslation();
+  const { showToast } = useToast();
   const holdsLoadMoreRef = useRef<HTMLDivElement>(null);
   const activeLoansLoadMoreRef = useRef<HTMLDivElement>(null);
   const pastLoansLoadMoreRef = useRef<HTMLDivElement>(null);
@@ -73,6 +75,8 @@ export default function UserDetailPage() {
   const [isBorrowLoading, setIsBorrowLoading] = useState(false);
   const [loanDetails, setLoanDetails] = useState<Loan | null>(null);
   const [renewError, setRenewError] = useState('');
+  const [loanAction, setLoanAction] = useState<{ loanId: string; op: 'return' | 'renew' } | null>(null);
+  const loanActionInFlightRef = useRef(false);
   const [showRenewSubscriptionModal, setShowRenewSubscriptionModal] = useState(false);
 
   const [cancellingHoldId, setCancellingHoldId] = useState<string | null>(null);
@@ -350,22 +354,40 @@ export default function UserDetailPage() {
   };
 
   const handleReturnLoan = async (loanId: string) => {
+    if (loanActionInFlightRef.current) return;
+    loanActionInFlightRef.current = true;
+    setLoanAction({ loanId, op: 'return' });
+    setRenewError('');
     try {
       await api.returnLoan(loanId);
       await refreshLoans();
+      showToast({ variant: 'success', message: t('loans.returnSuccess') });
     } catch (error) {
-      console.error('Error returning loan:', error);
+      const msg = getApiErrorMessage(error, t) || t('loans.errorReturningLoan');
+      setRenewError(msg);
+      showToast({ variant: 'error', message: msg });
+    } finally {
+      loanActionInFlightRef.current = false;
+      setLoanAction(null);
     }
   };
 
   const handleRenewLoan = async (loanId: string) => {
+    if (loanActionInFlightRef.current) return;
+    loanActionInFlightRef.current = true;
+    setLoanAction({ loanId, op: 'renew' });
     setRenewError('');
     try {
       await api.renewLoan(loanId);
       await refreshLoans();
+      showToast({ variant: 'success', message: t('loans.renewSuccess') });
     } catch (error) {
-      console.error('Error renewing loan:', error);
-      setRenewError(getApiErrorMessage(error, t) || t('loans.errorRenewingLoan'));
+      const msg = getApiErrorMessage(error, t) || t('loans.errorRenewingLoan');
+      setRenewError(msg);
+      showToast({ variant: 'error', message: msg });
+    } finally {
+      loanActionInFlightRef.current = false;
+      setLoanAction(null);
     }
   };
 
@@ -470,9 +492,11 @@ export default function UserDetailPage() {
             variant="ghost"
             onClick={(e) => {
               e.stopPropagation();
-              handleRenewLoan(loan.id);
+              void handleRenewLoan(loan.id);
             }}
             leftIcon={<RotateCcw className="h-4 w-4" />}
+            isLoading={loanAction?.loanId === loan.id && loanAction.op === 'renew'}
+            disabled={loanAction != null}
           >
             {t('loans.renew')}
           </Button>
@@ -481,9 +505,11 @@ export default function UserDetailPage() {
             variant="primary"
             onClick={(e) => {
               e.stopPropagation();
-              handleReturnLoan(loan.id);
+              void handleReturnLoan(loan.id);
             }}
             leftIcon={<Check className="h-4 w-4" />}
+            isLoading={loanAction?.loanId === loan.id && loanAction.op === 'return'}
+            disabled={loanAction != null}
           >
             {t('loans.return')}
           </Button>
@@ -741,8 +767,11 @@ export default function UserDetailPage() {
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div className="flex items-start gap-4">
           <button
+            type="button"
             onClick={() => navigate('/users')}
             className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+            aria-label={t('common.back')}
+            title={t('common.back')}
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
@@ -784,7 +813,7 @@ export default function UserDetailPage() {
             </Button>
           )}
           <Button variant="danger" onClick={() => setShowDeleteModal(true)} leftIcon={<Trash2 className="h-4 w-4" />}>
-            {t('common.delete')}
+            {t('users.anonymize')}
           </Button>
         </div>
       </div>
@@ -843,7 +872,10 @@ export default function UserDetailPage() {
 
           {renewError && detailTab === 'activeLoans' && (
             <div className="px-4 sm:px-6 pt-3 flex-shrink-0">
-              <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 flex items-start gap-2">
+              <div
+                role="alert"
+                className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 flex items-start gap-2"
+              >
                 <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
                 <p className="text-sm font-medium text-red-800 dark:text-red-200">{renewError}</p>
               </div>
@@ -1071,7 +1103,7 @@ export default function UserDetailPage() {
                 isLoading={deleteUserLoading}
                 onClick={() => handleDelete(false)}
               >
-                {t('common.delete')}
+                {t('users.anonymize')}
               </Button>
             )}
           </div>
@@ -1118,6 +1150,7 @@ export default function UserDetailPage() {
           onSuccess={() => {
             setShowBorrowModal(false);
             refreshLoans();
+            showToast({ variant: 'success', message: t('loans.checkoutSuccessShort') });
           }}
           onBusinessRuleViolation={(msg, specimenCode) => {
             setShowBorrowModal(false);
@@ -1144,6 +1177,7 @@ export default function UserDetailPage() {
                 force: true,
               });
               await refreshLoans();
+              showToast({ variant: 'success', message: t('loans.checkoutSuccessShort') });
             } catch (e) {
               setBorrowForceError(getApiErrorMessage(e, t) || t('loans.errorCreatingLoan'));
             }
@@ -1179,6 +1213,7 @@ function BorrowForm({
   onBusinessRuleViolation,
 }: BorrowFormProps) {
   const { t } = useTranslation();
+  const { showToast } = useToast();
   const [specimenCode, setSpecimenCode] = useState('');
   const [error, setError] = useState('');
 
@@ -1203,6 +1238,7 @@ function BorrowForm({
         return;
       }
       setError(displayMsg);
+      showToast({ variant: 'error', message: displayMsg });
     }
   };
 
@@ -1236,7 +1272,9 @@ function BorrowForm({
           if (error) setError('');
         }}
       />
-      {error && <p className="text-sm text-red-600 dark:text-red-400">{error}</p>}
+      {error && (
+        <p role="alert" className="text-sm text-red-600 dark:text-red-400">{error}</p>
+      )}
     </form>
   );
 }

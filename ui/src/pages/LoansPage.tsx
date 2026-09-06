@@ -27,10 +27,18 @@ import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
 import { formControlClass, formLabelClass, formChoiceLabelClass } from '@/utils/formControl';
 import { deferFromEffect } from '@/utils/deferFromEffect';
 import { useAuth } from '@/contexts/AuthContext';
+import { useToast } from '@/contexts/ToastContext';
 import { isAdmin } from '@/types';
 import type { User as UserType, Loan, UserShort, OverdueLoanInfo, ReminderReport } from '@/types';
 
 type TabType = 'borrow' | 'return' | 'overdue';
+
+type CheckoutRecap = {
+  title: string;
+  barcode: string;
+  dueDate: string;
+  patronName: string;
+};
 
 const BORROW_LOANS_PAGE_SIZE = 20;
 
@@ -57,6 +65,7 @@ function daysPastDue(expiryAt: string | null): number {
 export default function LoansPage() {
   const { t, i18n } = useTranslation();
   const { user: authUser } = useAuth();
+  const { showToast } = useToast();
   const userIsAdmin = isAdmin(authUser?.accountType);
   const [activeTab, setActiveTab] = useState<TabType>('borrow');
   
@@ -73,6 +82,18 @@ export default function LoansPage() {
   const [barcodeInput, setBarcodeInput] = useState('');
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const userBarcodeInputRef = useRef<HTMLInputElement>(null);
+  const [lastCheckout, setLastCheckout] = useState<CheckoutRecap | null>(null);
+  const [borrowLoanAction, setBorrowLoanAction] = useState<{ loanId: string; op: 'return' | 'renew' } | null>(
+    null,
+  );
+  const [userSearchError, setUserSearchError] = useState<string | null>(null);
+  const [userSelectError, setUserSelectError] = useState<string | null>(null);
+  const [loansLoadError, setLoansLoadError] = useState<string | null>(null);
+  const [userSearchRetry, setUserSearchRetry] = useState(0);
+  const [loansReloadToken, setLoansReloadToken] = useState(0);
+  const [isPatronLookupBusy, setIsPatronLookupBusy] = useState(false);
+  const patronLookupInFlightRef = useRef(false);
+  const borrowLoanActionInFlightRef = useRef(false);
 
   // Return section state
   const [returnBarcodeInput, setReturnBarcodeInput] = useState('');
@@ -130,6 +151,10 @@ export default function LoansPage() {
     setUserSearchResults([]);
     setBarcodeInput('');
     setRenewError('');
+    setLastCheckout(null);
+    setUserSearchError(null);
+    setUserSelectError(null);
+    setLoansLoadError(null);
     if (userBarcodeInputRef.current) {
       userBarcodeInputRef.current.value = '';
     }
@@ -188,13 +213,16 @@ export default function LoansPage() {
         await api.returnLoan(loanId);
         setOverdueError(null);
         await loadOverdue();
+        showToast({ variant: 'success', message: t('loans.returnSuccess') });
       } catch (e: unknown) {
-        setOverdueError(getApiErrorMessage(e, t) || t('loans.errorReturningLoan'));
+        const msg = getApiErrorMessage(e, t) || t('loans.errorReturningLoan');
+        setOverdueError(msg);
+        showToast({ variant: 'error', message: msg });
       } finally {
         setOverdueLoanAction(null);
       }
     },
-    [loadOverdue, t],
+    [loadOverdue, showToast, t],
   );
 
   const handleOverdueRenew = useCallback(
@@ -204,13 +232,16 @@ export default function LoansPage() {
         await api.renewLoan(loanId);
         setOverdueError(null);
         await loadOverdue();
+        showToast({ variant: 'success', message: t('loans.renewSuccess') });
       } catch (e: unknown) {
-        setOverdueError(getApiErrorMessage(e, t) || t('loans.errorRenewingLoan'));
+        const msg = getApiErrorMessage(e, t) || t('loans.errorRenewingLoan');
+        setOverdueError(msg);
+        showToast({ variant: 'error', message: msg });
       } finally {
         setOverdueLoanAction(null);
       }
     },
-    [loadOverdue, t],
+    [loadOverdue, showToast, t],
   );
 
   useEffect(() => {
@@ -292,6 +323,7 @@ export default function LoansPage() {
     const timer = window.setTimeout(() => {
       const seq = ++userSearchSeqRef.current;
       setIsSearchingUsers(true);
+      setUserSearchError(null);
       void (async () => {
         try {
           const response = await api.getUsers({
@@ -301,9 +333,11 @@ export default function LoansPage() {
           if (seq !== userSearchSeqRef.current) return;
           setUserSearchResults(response.items);
         } catch (error) {
-          console.error('Error searching users:', error);
           if (seq !== userSearchSeqRef.current) return;
           setUserSearchResults([]);
+          const msg = getApiErrorMessage(error, t) || t('loans.userSearchError');
+          setUserSearchError(msg);
+          showToast({ variant: 'error', message: msg });
         } finally {
           if (seq === userSearchSeqRef.current) {
             setIsSearchingUsers(false);
@@ -313,7 +347,7 @@ export default function LoansPage() {
     }, 300);
 
     return () => window.clearTimeout(timer);
-  }, [userSearchDraft]);
+  }, [userSearchDraft, userSearchRetry, showToast, t]);
 
   useEffect(() => {
     if (!selectedUser) {
@@ -322,6 +356,7 @@ export default function LoansPage() {
 
     const loadUserLoans = async () => {
       setIsLoadingLoans(true);
+      setLoansLoadError(null);
       try {
         const res = await api.getUserLoans(selectedUser.id, {
           page: loansPage,
@@ -330,14 +365,16 @@ export default function LoansPage() {
         setLoans(res.items);
         setLoansTotal(res.total);
       } catch (error) {
-        console.error('Error loading loans:', error);
+        const msg = getApiErrorMessage(error, t) || t('loans.loansLoadError');
+        setLoansLoadError(msg);
+        showToast({ variant: 'error', message: msg });
       } finally {
         setIsLoadingLoans(false);
       }
     };
 
     return deferFromEffect(() => { void loadUserLoans(); });
-  }, [selectedUser, loansPage]);
+  }, [selectedUser, loansPage, loansReloadToken, showToast, t]);
 
   const [prevSelectedUser, setPrevSelectedUser] = useState(selectedUser);
   if (selectedUser !== prevSelectedUser) {
@@ -349,20 +386,31 @@ export default function LoansPage() {
   }
 
   const handleUserSelect = async (user: UserShort) => {
+    if (patronLookupInFlightRef.current) return;
+    patronLookupInFlightRef.current = true;
+    setIsPatronLookupBusy(true);
+    setUserSelectError(null);
     try {
       const fullUser = await api.getUser(user.id);
       setSelectedUser(fullUser);
       setLoansPage(1);
+      setLastCheckout(null);
       setUserSearchDraft('');
       setUserSearchResults([]);
     } catch (error) {
-      console.error('Error loading user:', error);
+      const msg = getApiErrorMessage(error, t) || t('loans.userLoadError');
+      setUserSelectError(msg);
+      showToast({ variant: 'error', message: msg });
+    } finally {
+      patronLookupInFlightRef.current = false;
+      setIsPatronLookupBusy(false);
     }
   };
 
   const handleUserBarcodeScan = async (barcode: string) => {
-    if (!barcode.trim()) return;
-
+    if (!barcode.trim() || patronLookupInFlightRef.current) return;
+    patronLookupInFlightRef.current = true;
+    setIsPatronLookupBusy(true);
     try {
       const response = await api.getUsers({
         barcode: barcode.trim(),
@@ -373,17 +421,24 @@ export default function LoansPage() {
         const fullUser = await api.getUser(response.items[0].id);
         setSelectedUser(fullUser);
         setLoansPage(1);
+        setLastCheckout(null);
         setUserSearchDraft('');
         setUserSearchResults([]);
         if (userBarcodeInputRef.current) {
           userBarcodeInputRef.current.value = '';
         }
       } else {
-        setMessageDialog(t('loans.userNotFound', { barcode }));
+        const msg = t('loans.userNotFound', { barcode });
+        setMessageDialog(msg);
+        showToast({ variant: 'error', message: msg });
       }
     } catch (error) {
-      console.error('Error finding user by barcode:', error);
-      setMessageDialog(t('loans.errorFindingUser'));
+      const msg = getApiErrorMessage(error, t) || t('loans.errorFindingUser');
+      setMessageDialog(msg);
+      showToast({ variant: 'error', message: msg });
+    } finally {
+      patronLookupInFlightRef.current = false;
+      setIsPatronLookupBusy(false);
     }
   };
 
@@ -393,7 +448,7 @@ export default function LoansPage() {
     }
 
     try {
-      await api.createLoan({
+      const created = await api.createLoan({
         userId: selectedUser.id,
         itemIdentification: specimenBarcode.trim(),
         force: force || undefined,
@@ -404,6 +459,16 @@ export default function LoansPage() {
       });
       setLoans(res.items);
       setLoansTotal(res.total);
+      const matched = res.items.find((loan) => loan.id === created.id);
+      const title = matched?.biblio.title?.trim() || t('loans.noTitle');
+      const barcode = matched?.itemIdentification?.trim() || specimenBarcode.trim();
+      const dueDate = matched?.expiryAt || created.expiryAt;
+      const patronName = `${selectedUser.firstname} ${selectedUser.lastname}`.trim();
+      setLastCheckout({ title, barcode, dueDate, patronName });
+      showToast({
+        variant: 'success',
+        message: t('loans.checkoutSuccess', { title, patron: patronName }),
+      });
     } catch (error: unknown) {
       const axiosError = error as { response?: { data?: { code?: string; message?: string } } };
       const axiosData = axiosError?.response?.data;
@@ -426,6 +491,10 @@ export default function LoansPage() {
   };
 
   const handleReturn = async (loanId: string) => {
+    if (borrowLoanActionInFlightRef.current) return;
+    borrowLoanActionInFlightRef.current = true;
+    setBorrowLoanAction({ loanId, op: 'return' });
+    setRenewError('');
     try {
       await api.returnLoan(loanId);
       if (selectedUser) {
@@ -436,9 +505,14 @@ export default function LoansPage() {
         setLoans(res.items);
         setLoansTotal(res.total);
       }
+      showToast({ variant: 'success', message: t('loans.returnSuccess') });
     } catch (error: unknown) {
-      console.error('Error returning loan:', error);
-      throw new Error(getApiErrorMessage(error, t) || t('loans.errorReturningLoan'));
+      const msg = getApiErrorMessage(error, t) || t('loans.errorReturningLoan');
+      setRenewError(msg);
+      showToast({ variant: 'error', message: msg });
+    } finally {
+      borrowLoanActionInFlightRef.current = false;
+      setBorrowLoanAction(null);
     }
   };
 
@@ -455,9 +529,11 @@ export default function LoansPage() {
       const result = await api.returnLoanByBarcode(specimenBarcode.trim());
       setReturnResult(result);
       setReturnBarcodeInput('');
+      showToast({ variant: 'success', message: t('loans.returnSuccess') });
     } catch (error: unknown) {
-      console.error('Error returning loan:', error);
-      setReturnError(getApiErrorMessage(error, t) || t('loans.errorReturningLoan'));
+      const msg = getApiErrorMessage(error, t) || t('loans.errorReturningLoan');
+      setReturnError(msg);
+      showToast({ variant: 'error', message: msg });
       requestAnimationFrame(() => {
         const el = returnBarcodeInputRef.current;
         el?.focus();
@@ -530,9 +606,11 @@ export default function LoansPage() {
             variant="ghost"
             onClick={(e) => {
               e.stopPropagation();
-              handleRenewLoan(loan.id);
+              void handleRenewLoan(loan.id);
             }}
             leftIcon={<RotateCcw className="h-4 w-4" />}
+            isLoading={borrowLoanAction?.loanId === loan.id && borrowLoanAction.op === 'renew'}
+            disabled={borrowLoanAction != null}
           >
             {t('loans.renew')}
           </Button>
@@ -541,9 +619,11 @@ export default function LoansPage() {
             variant="primary"
             onClick={(e) => {
               e.stopPropagation();
-              handleReturn(loan.id);
+              void handleReturn(loan.id);
             }}
             leftIcon={<Check className="h-4 w-4" />}
+            isLoading={borrowLoanAction?.loanId === loan.id && borrowLoanAction.op === 'return'}
+            disabled={borrowLoanAction != null}
           >
             {t('loans.return')}
           </Button>
@@ -553,6 +633,9 @@ export default function LoansPage() {
   ];
 
   const handleRenewLoan = async (loanId: string) => {
+    if (borrowLoanActionInFlightRef.current) return;
+    borrowLoanActionInFlightRef.current = true;
+    setBorrowLoanAction({ loanId, op: 'renew' });
     setRenewError('');
     try {
       await api.renewLoan(loanId);
@@ -564,9 +647,14 @@ export default function LoansPage() {
         setLoans(res.items);
         setLoansTotal(res.total);
       }
+      showToast({ variant: 'success', message: t('loans.renewSuccess') });
     } catch (error: unknown) {
-      console.error('Error renewing loan:', error);
-      setRenewError(getApiErrorMessage(error, t) || t('loans.errorRenewingLoan'));
+      const msg = getApiErrorMessage(error, t) || t('loans.errorRenewingLoan');
+      setRenewError(msg);
+      showToast({ variant: 'error', message: msg });
+    } finally {
+      borrowLoanActionInFlightRef.current = false;
+      setBorrowLoanAction(null);
     }
   };
 
@@ -679,9 +767,10 @@ export default function LoansPage() {
                       <form
                         onSubmit={(e) => {
                           e.preventDefault();
+                          if (isPatronLookupBusy) return;
                           const barcode = (e.currentTarget.elements.namedItem('userBarcode') as HTMLInputElement)?.value;
                           if (barcode) {
-                            handleUserBarcodeScan(barcode);
+                            void handleUserBarcodeScan(barcode);
                           }
                         }}
                       >
@@ -691,8 +780,11 @@ export default function LoansPage() {
                           placeholder={t('loans.scanOrEnterBarcode')}
                           leftIcon={<CreditCard className="h-4 w-4" />}
                           autoFocus
+                          disabled={isPatronLookupBusy}
+                          aria-busy={isPatronLookupBusy}
                           scannerTitle={t('loans.scanUserCard')}
                           onCameraScan={(barcode) => {
+                            if (isPatronLookupBusy) return;
                             if (userBarcodeInputRef.current) {
                               userBarcodeInputRef.current.value = barcode;
                             }
@@ -701,9 +793,10 @@ export default function LoansPage() {
                           onKeyDown={(e) => {
                             if (e.key === 'Enter') {
                               e.preventDefault();
+                              if (isPatronLookupBusy) return;
                               const barcode = (e.target as HTMLInputElement).value;
                               if (barcode) {
-                                handleUserBarcodeScan(barcode);
+                                void handleUserBarcodeScan(barcode);
                               }
                             }
                           }}
@@ -719,18 +812,25 @@ export default function LoansPage() {
                       <div className="relative">
                         <Input
                           value={userSearchDraft}
-                          onChange={(e) => setUserSearchDraft(e.target.value)}
+                          onChange={(e) => {
+                            setUserSearchDraft(e.target.value);
+                            setUserSearchError(null);
+                            setUserSelectError(null);
+                          }}
                           placeholder={t('loans.searchUserPlaceholder')}
                           leftIcon={<Search className="h-4 w-4" />}
                           aria-busy={visibleUserSearching}
+                          disabled={isPatronLookupBusy}
                         />
                         {visibleUserResults.length > 0 && (
                           <div className="absolute z-10 w-full mt-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                             {visibleUserResults.map((user) => (
                               <button
                                 key={user.id}
-                                onClick={() => handleUserSelect(user)}
-                                className="w-full px-4 py-3 text-left hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-3"
+                                type="button"
+                                disabled={isPatronLookupBusy}
+                                onClick={() => void handleUserSelect(user)}
+                                className="w-full px-4 py-3 text-left hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-3 disabled:opacity-50"
                               >
                                 <div className="flex-shrink-0 h-10 w-10 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center">
                                   <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400">
@@ -750,6 +850,26 @@ export default function LoansPage() {
                           </div>
                         )}
                       </div>
+                      {(userSearchError || userSelectError) && (
+                        <div
+                          role="alert"
+                          className="mt-2 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 flex flex-col sm:flex-row sm:items-center gap-2"
+                        >
+                          <p className="text-sm font-medium text-red-800 dark:text-red-200 flex-1">
+                            {userSelectError || userSearchError}
+                          </p>
+                          {userSearchError && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => setUserSearchRetry((n) => n + 1)}
+                            >
+                              {t('common.retry')}
+                            </Button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : null}
@@ -784,6 +904,9 @@ export default function LoansPage() {
                           setLoansPage(1);
                           setUserSearchDraft('');
                           setBarcodeInput('');
+                          setLastCheckout(null);
+                          setRenewError('');
+                          setLoansLoadError(null);
                         }}
                         leftIcon={<X className="h-4 w-4" />}
                       >
@@ -836,6 +959,14 @@ export default function LoansPage() {
                         onLoadingChange={setIsBorrowLoading}
                         isLoading={isBorrowLoading}
                       />
+                      {lastCheckout && (
+                        <div className="mt-4">
+                          <p className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+                            {t('loans.checkoutSummaryTitle')}
+                          </p>
+                          <CheckoutRecapPanel recap={lastCheckout} locale={i18n.language} t={t} />
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -861,9 +992,28 @@ export default function LoansPage() {
                     </div>
                   </div>
                   {renewError && (
-                    <div className="mt-3 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 flex items-start gap-2">
+                    <div
+                      role="alert"
+                      className="mt-3 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 flex items-start gap-2"
+                    >
                       <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
                       <p className="text-sm font-medium text-red-800 dark:text-red-200">{renewError}</p>
+                    </div>
+                  )}
+                  {loansLoadError && (
+                    <div
+                      role="alert"
+                      className="mt-3 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 flex flex-col sm:flex-row sm:items-center gap-2"
+                    >
+                      <p className="text-sm font-medium text-red-800 dark:text-red-200 flex-1">{loansLoadError}</p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => setLoansReloadToken((n) => n + 1)}
+                      >
+                        {t('common.retry')}
+                      </Button>
                     </div>
                   )}
                 </div>
@@ -894,6 +1044,13 @@ export default function LoansPage() {
                                 loan={loan}
                                 onRenew={() => void handleRenewLoan(loan.id)}
                                 onReturn={() => void handleReturn(loan.id)}
+                                renewLoading={
+                                  borrowLoanAction?.loanId === loan.id && borrowLoanAction.op === 'renew'
+                                }
+                                returnLoading={
+                                  borrowLoanAction?.loanId === loan.id && borrowLoanAction.op === 'return'
+                                }
+                                actionsDisabled={borrowLoanAction != null}
                               />
                             ))}
                           </div>
@@ -984,7 +1141,10 @@ export default function LoansPage() {
                     />
                   </form>
                   {returnError && (
-                    <div className="mt-3 p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+                    <div
+                      role="alert"
+                      className="mt-3 p-4 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800"
+                    >
                       <div className="flex items-start gap-3">
                         <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
                         <p className="text-sm font-medium text-red-800 dark:text-red-200">{returnError}</p>
@@ -1071,7 +1231,10 @@ export default function LoansPage() {
                 <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">{t('loans.remindersAdminOnly')}</p>
               )}
               {overdueError && (
-                <div className="mt-3 flex items-center gap-2 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-3 py-2.5 text-sm text-red-700 dark:text-red-400">
+                <div
+                  role="alert"
+                  className="mt-3 flex items-center gap-2 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-3 py-2.5 text-sm text-red-700 dark:text-red-400"
+                >
                   <AlertTriangle className="h-4 w-4 shrink-0" />
                   {overdueError}
                 </div>
@@ -1358,6 +1521,80 @@ export default function LoansPage() {
   );
 }
 
+function CheckoutRecapPanel({
+  recap,
+  locale,
+  t,
+}: {
+  recap: CheckoutRecap;
+  locale: string;
+  t: TFunction;
+}) {
+  const df = (iso: string) =>
+    new Date(iso).toLocaleDateString(locale, {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+
+  const initials = recap.patronName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join('')
+    .toUpperCase() || '?';
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-amber-200 bg-white shadow-sm dark:border-amber-900/50 dark:bg-gray-900/40">
+      <div className="flex items-center gap-2.5 border-b border-amber-200/80 bg-amber-50 px-4 py-2 dark:border-amber-900/50 dark:bg-amber-950/25">
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/50">
+          <BookMarked className="h-3.5 w-3.5 text-amber-700 dark:text-amber-400" aria-hidden />
+        </div>
+        <p className="min-w-0 text-sm font-medium leading-snug text-amber-900 dark:text-amber-100">
+          <span className="font-semibold">{t('loans.checkoutSuccessShort')}</span>
+          <span className="font-normal text-amber-800/85 dark:text-amber-200/90">
+            {' '}
+            · {t('loans.checkoutProcessed')}
+          </span>
+        </p>
+      </div>
+      <div className="px-4 py-3 space-y-2">
+        <p className="text-sm font-semibold leading-snug text-gray-900 dark:text-white">
+          {recap.title || t('loans.noTitle')}
+        </p>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600 dark:text-gray-300">
+          <span>
+            <span className="text-gray-400 dark:text-gray-500 uppercase tracking-wide mr-1">
+              {t('loans.specimenBarcode')}
+            </span>
+            <span className="font-mono">{recap.barcode || '—'}</span>
+          </span>
+          <span>
+            <span className="text-gray-400 dark:text-gray-500 uppercase tracking-wide mr-1">
+              {t('loans.dueDate')}
+            </span>
+            <span className="font-semibold tabular-nums text-gray-900 dark:text-white">
+              {df(recap.dueDate)}
+            </span>
+          </span>
+        </div>
+        <div className="flex items-center gap-2 pt-1">
+          <div
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-[10px] font-bold uppercase text-indigo-800 dark:bg-indigo-900/55 dark:text-indigo-200"
+            aria-hidden
+          >
+            {initials}
+          </div>
+          <p className="min-w-0 truncate text-sm font-medium text-gray-900 dark:text-white">
+            {recap.patronName || '—'}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ReturnRecapPanel({
   loan,
   locale,
@@ -1475,12 +1712,15 @@ function BorrowForm({
   isLoading = false,
 }: BorrowFormProps) {
   const { t } = useTranslation();
+  const { showToast } = useToast();
   const [error, setError] = useState('');
+  const borrowInFlightRef = useRef(false);
 
   const runBorrow = async (overrideBarcode?: string) => {
     const code = (overrideBarcode ?? barcodeInput).trim();
-    if (!code) return;
+    if (!code || isLoading || borrowInFlightRef.current) return;
 
+    borrowInFlightRef.current = true;
     setError('');
     onLoadingChange(true);
     try {
@@ -1495,12 +1735,15 @@ function BorrowForm({
         });
       }
     } catch (err: unknown) {
-      setError(getApiErrorMessage(err, t) || t('loans.errorCreatingLoan'));
+      const msg = getApiErrorMessage(err, t) || t('loans.errorCreatingLoan');
+      setError(msg);
+      showToast({ variant: 'error', message: msg });
       setTimeout(() => {
         barcodeInputRef.current?.focus();
         barcodeInputRef.current?.select();
       }, 100);
     } finally {
+      borrowInFlightRef.current = false;
       onLoadingChange(false);
     }
   };
@@ -1547,7 +1790,10 @@ function BorrowForm({
         }
       />
       {error && (
-        <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
+        <div
+          role="alert"
+          className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800"
+        >
           <p className="text-sm font-medium text-red-800 dark:text-red-200">{error}</p>
         </div>
       )}

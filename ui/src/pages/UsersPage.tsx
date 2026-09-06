@@ -241,6 +241,7 @@ export default function UsersPage() {
               type="button"
               className={LIST_ROW_ICON_BTN}
               title={t('common.edit')}
+              aria-label={t('common.edit')}
               onClick={() => navigate(`/users/${user.id}`)}
             >
               <Edit className="h-4 w-4" aria-hidden />
@@ -248,7 +249,8 @@ export default function UsersPage() {
             <button
               type="button"
               className={LIST_ROW_ICON_BTN_DANGER}
-              title={t('common.delete')}
+              title={t('users.anonymize')}
+              aria-label={t('users.anonymize')}
               onClick={() => openDeleteModal(user)}
             >
               <Trash2 className="h-4 w-4" aria-hidden />
@@ -257,6 +259,7 @@ export default function UsersPage() {
               type="button"
               className={LIST_ROW_ICON_BTN_MUTED}
               title={t('users.renewSubscription')}
+              aria-label={t('users.renewSubscription')}
               disabled={renewDisabled}
               onClick={() => {
                 if (!renewDisabled) openRenewModal(user);
@@ -295,7 +298,10 @@ export default function UsersPage() {
 
       <Card padding="none" className="flex flex-col min-h-0">
         {isUsersQueryError && (
-          <div className="mx-4 mt-4 rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+          <div
+            role="alert"
+            className="mx-4 mt-4 rounded-lg border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-950/30 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3"
+          >
             <div className="flex items-start gap-2 flex-1 min-w-0 text-sm text-red-800 dark:text-red-200">
               <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" aria-hidden />
               <span>{getApiErrorMessage(usersQueryError, t)}</span>
@@ -354,7 +360,7 @@ export default function UsersPage() {
                           onDelete={() => openDeleteModal(user)}
                           onRenew={() => openRenewModal(user)}
                           editLabel={t('common.edit')}
-                          deleteLabel={t('common.delete')}
+                          deleteLabel={t('users.anonymize')}
                           renewLabel={t('users.renewSubscription')}
                           actionsAriaLabel={t('common.actions')}
                         />
@@ -414,7 +420,7 @@ export default function UsersPage() {
                 isLoading={deleteUserLoading}
                 onClick={() => void confirmDeleteUser()}
               >
-                {t('common.delete')}
+                {t('users.anonymize')}
               </Button>
             )}
           </div>
@@ -428,7 +434,7 @@ export default function UsersPage() {
               })}
         </p>
         {deleteUserError && (
-          <p className="mt-3 text-sm text-red-600 dark:text-red-400">{deleteUserError}</p>
+          <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{deleteUserError}</p>
         )}
       </Modal>
 

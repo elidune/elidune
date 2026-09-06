@@ -234,7 +234,7 @@ export default function Layout({ children }: LayoutProps) {
             onClick={() => setSidebarOpen(true)}
             aria-controls="main-sidebar"
             aria-expanded={sidebarOpen}
-            aria-label={t('common.actions')}
+            aria-label={t('nav.openMenu')}
             className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
           >
             <Menu className="h-6 w-6" />
