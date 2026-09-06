@@ -456,11 +456,13 @@ export interface CreateItem {
   borrowable?: boolean | null;
   notes?: string | null;
   price?: string | null;
+  /** Write-only: treat a missing price as an explicit deferral when enabling circulation. */
+  priceDeferred?: boolean | null;
   sourceId?: string | null;
   sourceName?: string | null;
 }
 
-/** Payload for PUT /biblios/{id}/items */
+/** Payload for PUT /items/{id} */
 export interface UpdateItem {
   barcode?: string | null;
   callNumber?: string | null;
@@ -469,7 +471,10 @@ export interface UpdateItem {
   borrowable?: boolean | null;
   notes?: string | null;
   price?: string | null;
+  /** Write-only: treat a missing price as an explicit deferral when enabling circulation. */
+  priceDeferred?: boolean | null;
   sourceId?: string | null;
+  sourceName?: string | null;
 }
 
 // Circulation exceptions (lost / damaged / claimed-returned) — staff desk API
@@ -2088,6 +2093,8 @@ export interface ReceiveItemSpec {
   sourceId?: string | null;
   sourceName?: string | null;
   price?: string | null;
+  /** Staff explicitly defers recording a price (report later). */
+  priceDeferred?: boolean;
   callNumber?: string | null;
 }
 
