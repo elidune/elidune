@@ -7,4 +7,5 @@ pub mod library_info;
 pub mod loans;
 pub mod sse;
 pub mod stats;
+pub mod transits;
 pub mod z3950;

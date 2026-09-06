@@ -136,6 +136,7 @@ pub fn build_app_with_options(state: AppState, options: AppBuildOptions) -> Rout
         .merge(api::loans::router())
         .merge(api::batch::router())
         .merge(api::holds::router())
+        .merge(api::transits::router())
         .merge(api::fines::router())
         .merge(api::inventory::router())
         .merge(api::sse::router())

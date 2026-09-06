@@ -306,6 +306,7 @@ impl Repository {
                 id: h.id,
                 biblio_id: h.biblio_id,
                 item_id: h.item_id,
+                pickup_site_id: h.pickup_site_id,
                 biblio,
                 user,
                 created_at: h.created_at,
@@ -449,10 +450,72 @@ impl Repository {
             return Ok(None);
         }
 
-        let expires_at = Utc::now() + chrono::Duration::days(expiry_days as i64);
+        let in_transit: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 FROM item_transits
+                WHERE item_id = $1 AND status IN ('requested', 'in_transit')
+            )
+            "#,
+        )
+        .bind(item_id)
+        .fetch_one(&mut **tx)
+        .await?;
+        if in_transit {
+            return Ok(None);
+        }
+
+        let item_source_id: Option<i64> =
+            sqlx::query_scalar("SELECT source_id FROM items WHERE id = $1")
+                .bind(item_id)
+                .fetch_optional(&mut **tx)
+                .await?
+                .flatten();
 
         // One biblio FIFO. A pinned copy other than this specimen is skipped,
         // not a second reservation type.
+        let next = sqlx::query_as::<_, Hold>(
+            r#"
+            SELECT * FROM holds
+            WHERE biblio_id = $2
+              AND status = 'pending'
+              AND (item_id IS NULL OR item_id = $1)
+            ORDER BY position ASC, created_at ASC
+            FOR UPDATE SKIP LOCKED
+            LIMIT 1
+            "#,
+        )
+        .bind(item_id)
+        .bind(biblio_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+
+        let Some(next) = next else {
+            return Ok(None);
+        };
+
+        let needs_transit = self
+            .transits_maybe_request_for_notify_tx(tx, &next, item_id, item_source_id)
+            .await?;
+
+        if needs_transit {
+            sqlx::query(
+                r#"
+                UPDATE holds
+                SET item_id = $1,
+                    pickup_site_id = COALESCE(pickup_site_id, $3)
+                WHERE id = $2 AND status = 'pending'
+                "#,
+            )
+            .bind(item_id)
+            .bind(next.id)
+            .bind(next.pickup_site_id)
+            .execute(&mut **tx)
+            .await?;
+            return Ok(None);
+        }
+
+        let expires_at = Utc::now() + chrono::Duration::days(expiry_days as i64);
         let updated = sqlx::query_as::<_, Hold>(
             r#"
             UPDATE holds
@@ -460,21 +523,12 @@ impl Repository {
                 status = 'ready',
                 notified_at = NOW(),
                 expires_at = $3
-            WHERE id = (
-                SELECT id FROM holds
-                WHERE biblio_id = $2
-                  AND status = 'pending'
-                  AND (item_id IS NULL OR item_id = $1)
-                ORDER BY position ASC, created_at ASC
-                FOR UPDATE SKIP LOCKED
-                LIMIT 1
-            )
-            AND status = 'pending'
+            WHERE id = $2 AND status = 'pending'
             RETURNING *
             "#,
         )
         .bind(item_id)
-        .bind(biblio_id)
+        .bind(next.id)
         .bind(expires_at)
         .fetch_optional(&mut **tx)
         .await?;
@@ -530,6 +584,28 @@ impl Repository {
             .ok_or_else(|| AppError::NotFound(format!("Hold {id} not found")))
     }
 
+    async fn holds_ensure_pickup_site_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        pickup_site_id: Option<i64>,
+    ) -> AppResult<()> {
+        let Some(site_id) = pickup_site_id else {
+            return Ok(());
+        };
+        let found: Option<i64> = sqlx::query_scalar(
+            "SELECT id FROM sources WHERE id = $1 AND COALESCE(is_archive, 0) = 0",
+        )
+        .bind(site_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+        if found.is_none() {
+            return Err(AppError::Validation(format!(
+                "Pickup site {site_id} not found or archived"
+            )));
+        }
+        Ok(())
+    }
+
     /// Place a copy-level or title-level hold.
     ///
     /// Copy-level serializes on the item row; title-level serializes on the
@@ -567,6 +643,9 @@ impl Repository {
                 "itemId does not belong to biblioId".to_string(),
             ));
         }
+
+        self.holds_ensure_pickup_site_tx(&mut tx, data.pickup_site_id)
+            .await?;
 
         let already_active: bool = sqlx::query_scalar(
             r#"
@@ -633,6 +712,9 @@ impl Repository {
             .fetch_optional(&mut *tx)
             .await?
             .ok_or_else(|| AppError::NotFound("Biblio not found".to_string()))?;
+
+        self.holds_ensure_pickup_site_tx(&mut tx, data.pickup_site_id)
+            .await?;
 
         let already_active: bool = sqlx::query_scalar(
             r#"
@@ -717,7 +799,37 @@ impl Repository {
         .fetch_one(&mut *tx)
         .await?;
 
-        if current.status == HoldStatus::Ready {
+        let active_transit = sqlx::query_as::<_, crate::models::transit::ItemTransit>(
+            r#"
+            SELECT * FROM item_transits
+            WHERE hold_id = $1 AND status IN ('requested', 'in_transit')
+            FOR UPDATE
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let mut reversed = false;
+        if let Some(transit) = active_transit {
+            sqlx::query(
+                r#"
+                UPDATE item_transits
+                SET status = 'cancelled', cancelled_at = NOW()
+                WHERE id = $1 AND status IN ('requested', 'in_transit')
+                "#,
+            )
+            .bind(transit.id)
+            .execute(&mut *tx)
+            .await?;
+            if transit.status == crate::models::transit::TransitStatus::InTransit {
+                self.transits_insert_for_hold_cancel_tx(&mut tx, &transit)
+                    .await?;
+                reversed = true;
+            }
+        }
+
+        if !reversed && matches!(current.status, HoldStatus::Ready | HoldStatus::Pending) {
             if let Some(item_id) = current.item_id {
                 self.holds_notify_next_tx(&mut tx, item_id, self.hold_ready_expiry_days())
                     .await?;

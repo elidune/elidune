@@ -32,6 +32,7 @@ impl EventBus {
             user_id: Some(user_id.to_string()),
             item_id: Some(item_id.to_string()),
             hold_id: None,
+            transit_id: None,
         });
     }
 
@@ -42,6 +43,7 @@ impl EventBus {
             user_id: Some(user_id.to_string()),
             item_id: Some(item_id.to_string()),
             hold_id: None,
+            transit_id: None,
         });
     }
 
@@ -52,6 +54,18 @@ impl EventBus {
             user_id: Some(user_id.to_string()),
             item_id: Some(item_id.to_string()),
             hold_id: Some(hold_id.to_string()),
+            transit_id: None,
+        });
+    }
+
+    pub fn transit_event(&self, event: &str, transit_id: i64, item_id: i64, hold_id: Option<i64>) {
+        self.publish(SsePayload {
+            event: event.into(),
+            loan_id: None,
+            user_id: None,
+            item_id: Some(item_id.to_string()),
+            hold_id: hold_id.map(|id| id.to_string()),
+            transit_id: Some(transit_id.to_string()),
         });
     }
 }
