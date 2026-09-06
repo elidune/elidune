@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Check, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button, Badge } from '@/components/common';
@@ -12,6 +13,8 @@ interface ActiveLoanCardProps {
   renewLoading?: boolean;
   returnLoading?: boolean;
   actionsDisabled?: boolean;
+  hideRenew?: boolean;
+  exceptionActions?: ReactNode;
 }
 
 export default function ActiveLoanCard({
@@ -21,6 +24,8 @@ export default function ActiveLoanCard({
   renewLoading = false,
   returnLoading = false,
   actionsDisabled = false,
+  hideRenew = false,
+  exceptionActions,
 }: ActiveLoanCardProps) {
   const { t, i18n } = useTranslation();
   const specs = loan.biblio?.items;
@@ -69,27 +74,32 @@ export default function ActiveLoanCard({
           {loan.nbRenews}
         </div>
       </div>
-      <div className="flex flex-wrap gap-2">
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={onRenew}
-          leftIcon={<RotateCcw className="h-4 w-4" />}
-          isLoading={renewLoading}
-          disabled={actionsDisabled || renewLoading || returnLoading}
-        >
-          {t('loans.renew')}
-        </Button>
-        <Button
-          size="sm"
-          variant="primary"
-          onClick={onReturn}
-          leftIcon={<Check className="h-4 w-4" />}
-          isLoading={returnLoading}
-          disabled={actionsDisabled || renewLoading || returnLoading}
-        >
-          {t('loans.return')}
-        </Button>
+      <div className="space-y-2">
+        <div className="flex flex-wrap gap-2">
+          {!hideRenew && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onRenew}
+              leftIcon={<RotateCcw className="h-4 w-4" />}
+              isLoading={renewLoading}
+              disabled={actionsDisabled || renewLoading || returnLoading}
+            >
+              {t('loans.renew')}
+            </Button>
+          )}
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={onReturn}
+            leftIcon={<Check className="h-4 w-4" />}
+            isLoading={returnLoading}
+            disabled={actionsDisabled || renewLoading || returnLoading}
+          >
+            {t('loans.return')}
+          </Button>
+        </div>
+        {exceptionActions}
       </div>
     </div>
   );

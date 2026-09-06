@@ -100,6 +100,12 @@ import type {
   ReadingHistoryEntry,
   BatchReturnResponse,
   BatchCreateResponse,
+  MarkLostRequest,
+  MarkDamagedRequest,
+  MarkClaimedReturnedRequest,
+  ResolveClaimsReturnedRequest,
+  CirculationExceptionResponse,
+  ClaimsReturnedQueueItem,
   OPACAvailability,
   Serie,
   CreateSerie,
@@ -779,6 +785,43 @@ class ApiService {
       { params: { dryRun: options?.dryRun === true } }
     );
     return response.data;
+  }
+
+  async markLoanLost(loanId: string, data: MarkLostRequest = {}): Promise<CirculationExceptionResponse> {
+    const response = await this.client.post<CirculationExceptionResponse>(`/loans/${loanId}/lost`, data);
+    return response.data;
+  }
+
+  async markLoanDamaged(loanId: string, data: MarkDamagedRequest): Promise<CirculationExceptionResponse> {
+    const response = await this.client.post<CirculationExceptionResponse>(`/loans/${loanId}/damaged`, data);
+    return response.data;
+  }
+
+  async markLoanClaimedReturned(
+    loanId: string,
+    data: MarkClaimedReturnedRequest = {},
+  ): Promise<CirculationExceptionResponse> {
+    const response = await this.client.post<CirculationExceptionResponse>(
+      `/loans/${loanId}/claimed-returned`,
+      data,
+    );
+    return response.data;
+  }
+
+  async resolveClaimsReturned(
+    loanId: string,
+    data: ResolveClaimsReturnedRequest,
+  ): Promise<CirculationExceptionResponse> {
+    const response = await this.client.post<CirculationExceptionResponse>(
+      `/loans/${loanId}/claims-returned/resolve`,
+      data,
+    );
+    return response.data;
+  }
+
+  async getClaimsReturned(params?: { page?: number; perPage?: number }): Promise<PaginatedResponse<ClaimsReturnedQueueItem>> {
+    const response = await this.client.get('/loans/claims-returned', { params });
+    return normalizePaginatedResponse<ClaimsReturnedQueueItem>(response.data);
   }
 
   // ─── Batch operations ───────────────────────────────────────────
