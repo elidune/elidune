@@ -86,7 +86,8 @@
     "sectionCataloging": "Katalogisierung",
     "sectionPatron": "Nutzer",
     "language": "Sprache",
-    "main": "Hauptnavigation"
+    "main": "Hauptnavigation",
+    "skipToContent": "Zum Hauptinhalt springen"
   },
   "theme": {
     "light": "Hell",
@@ -476,6 +477,7 @@
     "borrowableYes": "Ausleihbar",
     "borrowableNo": "Nicht ausleihbar",
     "volumeDesignation": "Bandbezeichnung",
+    "volumeDesignationPlaceholder": "z. B. Bd. 2",
     "source": "Quelle",
     "specimenBarcodeRequired": "Barcode ist erforderlich",
     "borrowable": "Ausleihbar",
@@ -803,6 +805,7 @@
     "loansLoadError": "Ausleihen konnten nicht geladen werden",
     "specimenBarcode": "Exemplar-Barcode",
     "loanDetails": "Ausleihe-Details",
+    "borrowedSpecimen": "Ausgeliehenes Exemplar",
     "status": "Status",
     "returned": "Zurückgegeben",
     "remindersDryRun": "Probelauf",

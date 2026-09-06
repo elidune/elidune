@@ -88,7 +88,7 @@ function scanResultVariant(
 }
 
 export default function InventoryPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const { trackTask } = useBackgroundTasks();
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -409,7 +409,7 @@ export default function InventoryPage() {
   const openCreateModal = () => {
     const d = new Date();
     const suggested = t('inventory.defaultSessionName', {
-      date: d.toLocaleDateString(undefined, { dateStyle: 'medium' }),
+      date: d.toLocaleDateString(i18n.language, { dateStyle: 'medium' }),
     });
     setCreateName(suggested);
     setCreateLocationFilter('');
@@ -462,7 +462,7 @@ export default function InventoryPage() {
             </h1>
             <p className="text-sm text-gray-500 dark:text-gray-400">
               {sessionStartedAt(activeSession)
-                ? new Date(sessionStartedAt(activeSession)).toLocaleString()
+                ? new Date(sessionStartedAt(activeSession)).toLocaleString(i18n.language)
                 : '—'}
               {activeSession.locationFilter ? ` — ${activeSession.locationFilter}` : ''}
               {' · '}
@@ -872,7 +872,7 @@ export default function InventoryPage() {
                                 </td>
                                 <td className="py-2 pr-3 align-middle text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap text-left">
                                   {scan.scannedAt
-                                    ? new Date(scan.scannedAt).toLocaleString()
+                                    ? new Date(scan.scannedAt).toLocaleString(i18n.language)
                                     : '—'}
                                 </td>
                                 <td className="py-2 pl-3 align-middle text-right">
@@ -1090,7 +1090,7 @@ export default function InventoryPage() {
                       </p>
                       <p className="text-sm text-gray-500 dark:text-gray-400">
                         {sessionStartedAt(session)
-                          ? new Date(sessionStartedAt(session)).toLocaleString()
+                          ? new Date(sessionStartedAt(session)).toLocaleString(i18n.language)
                           : '—'}
                         {session.locationFilter ? ` — ${session.locationFilter}` : ''}
                         {' · '}
@@ -1399,7 +1399,7 @@ function ConsolidationModal({
   onClose: () => void;
   onSuccess: (sessionId: string) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { trackTask, getTask } = useBackgroundTasks();
   const [page, setPage] = useState(1);
   const [result, setResult] = useState<InventoryConsolidationResult | null>(null);
@@ -1677,7 +1677,7 @@ function ConsolidationModal({
                                     {readerName || loan.userEmail || loan.userId}
                                     {loan.expiryAt && (
                                       <span className="block text-gray-500 dark:text-gray-500">
-                                        {new Date(loan.expiryAt).toLocaleDateString()}
+                                        {new Date(loan.expiryAt).toLocaleDateString(i18n.language)}
                                       </span>
                                     )}
                                   </span>

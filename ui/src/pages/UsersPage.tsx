@@ -12,6 +12,7 @@ import {
   Badge,
   SearchInput,
   Modal,
+  ConfirmDialog,
   ScrollableListRegion,
   ResponsiveRecordList,
   ListSkeleton,
@@ -381,7 +382,7 @@ export default function UsersPage() {
         </ScrollableListRegion>
       </Card>
 
-      <Modal
+      <ConfirmDialog
         isOpen={deleteModalUser !== null}
         onClose={() => {
           if (deleteUserLoading) return;
@@ -389,54 +390,22 @@ export default function UsersPage() {
           setDeleteUserForce(false);
           setDeleteUserError(null);
         }}
+        onConfirm={() => {
+          void confirmDeleteUser();
+        }}
         title={t('common.confirm')}
-        size="sm"
-        footer={
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="secondary"
-              onClick={() => {
-                if (deleteUserLoading) return;
-                setDeleteModalUser(null);
-                setDeleteUserForce(false);
-                setDeleteUserError(null);
-              }}
-            >
-              {t('common.cancel')}
-            </Button>
-            {deleteUserForce ? (
-              <Button
-                variant="danger"
-                disabled={deleteUserLoading}
-                isLoading={deleteUserLoading}
-                onClick={() => void confirmDeleteUser()}
-              >
-                {t('users.forceDelete')}
-              </Button>
-            ) : (
-              <Button
-                variant="danger"
-                disabled={deleteUserLoading}
-                isLoading={deleteUserLoading}
-                onClick={() => void confirmDeleteUser()}
-              >
-                {t('users.anonymize')}
-              </Button>
-            )}
-          </div>
-        }
-      >
-        <p className="text-gray-600 dark:text-gray-300">
-          {deleteUserForce
+        message={
+          deleteUserForce
             ? t('users.activeLoansForceDelete')
             : t('users.deleteConfirm', {
                 name: `${deleteModalUser?.firstname ?? ''} ${deleteModalUser?.lastname ?? ''}`.trim() || '—',
-              })}
-        </p>
-        {deleteUserError && (
-          <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{deleteUserError}</p>
-        )}
-      </Modal>
+              })
+        }
+        confirmLabel={deleteUserForce ? t('users.forceDelete') : t('users.anonymize')}
+        confirmVariant="danger"
+        isLoading={deleteUserLoading}
+        error={deleteUserError}
+      />
 
       <RenewSubscriptionModal
         user={renewModalUser}

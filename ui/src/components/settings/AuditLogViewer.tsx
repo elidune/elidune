@@ -103,7 +103,7 @@ function optionalPositiveInt(raw: string): number | undefined {
 }
 
 export default function AuditLogViewer() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [entries, setEntries] = useState<AuditLogEntry[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -505,7 +505,7 @@ export default function AuditLogViewer() {
                         <td className="px-3 py-2">{row.userId ?? '—'}</td>
                         <td className="px-3 py-2 font-mono text-xs">{row.ipAddress ?? '—'}</td>
                         <td className="px-3 py-2 whitespace-nowrap">
-                          {row.createdAt ? new Date(row.createdAt).toLocaleString() : '—'}
+                          {row.createdAt ? new Date(row.createdAt).toLocaleString(i18n.language) : '—'}
                         </td>
                         <td className="px-2 py-2 text-right text-gray-400">
                           <div className="flex justify-end">

@@ -12,7 +12,7 @@ Library management SPA (Elidune) built with React 19 + TypeScript + Vite.
 | Routing | React Router v7 |
 | Server state | TanStack React Query v5 (`staleTime: 5 min, retry: 1`) |
 | HTTP | Axios — single `ApiService` class in `src/services/api.ts` |
-| i18n | i18next + react-i18next — French locale in `src/locales/fr/translation.json` |
+| i18n | i18next + react-i18next — `en` / `fr` / `de` / `es` in `src/locales/{lang}/translation.json` |
 | Icons | lucide-react |
 | Charts | Recharts |
 | Lint | ESLint 9 (`rtk lint`) |
@@ -29,7 +29,7 @@ src/
   components/           # Organized by domain: auth/ common/ items/ loans/ stats/ users/ specimen/
   hooks/                # Organized by domain (same structure as components)
   utils/                # apiError.ts · callNumber.ts · codeLabels.ts
-  locales/fr/           # translation.json (single locale for now)
+  locales/{en,fr,de,es}/  # translation.json — keep keys in sync across locales
 ```
 
 ## Key conventions
@@ -52,8 +52,9 @@ Role hierarchy: `Guest < Reader < Librarian < Administrator`
 
 ### i18n
 - All user-visible strings must go through `useTranslation()` / `t('key')`.
-- Translation keys live in `src/locales/fr/translation.json`.
-- Always add the French translation when adding a new key.
+- Translation keys live in `src/locales/{en,fr,de,es}/translation.json`. Keep the four files in sync (same keys).
+- When adding a key, add it to **en, fr, de, and es** in the same turn.
+- Format dates and date-times with `i18n.language` (`toLocaleDateString(i18n.language)`, `toLocaleString(i18n.language)`). Do not hardcode `'fr-FR'` or rely on the browser default.
 
 ### Contexts
 | Context | Purpose |

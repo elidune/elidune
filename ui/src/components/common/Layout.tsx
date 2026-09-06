@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -36,6 +36,7 @@ import {
   BackgroundTasksDrawer,
   BackgroundTasksNavItem,
 } from './BackgroundTasksPanel';
+import { noModalDialogOpen, useFocusTrap } from '@/hooks/common/useFocusTrap';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -45,6 +46,12 @@ export default function Layout({ children }: LayoutProps) {
   const { t } = useTranslation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [serverVersion, setServerVersion] = useState<string | null>(null);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+  const sidebarShouldHandleTrap = useCallback((root: HTMLElement) => {
+    if (!window.matchMedia('(max-width: 1023px)').matches) return false;
+    return noModalDialogOpen() && root.isConnected;
+  }, []);
   const { user, logout } = useAuth();
   const { data: accountTypes = [] } = useAccountTypesQuery();
   const { theme, setTheme } = useTheme();
@@ -58,6 +65,13 @@ export default function Layout({ children }: LayoutProps) {
       .then((data) => setServerVersion(data.version ?? null))
       .catch(() => setServerVersion(null));
   }, []);
+
+  useFocusTrap({
+    enabled: sidebarOpen,
+    containerRef: sidebarRef,
+    onEscape: closeSidebar,
+    shouldHandle: sidebarShouldHandleTrap,
+  });
 
   const handleLogout = () => {
     logout();
@@ -133,6 +147,12 @@ export default function Layout({ children }: LayoutProps) {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[80] focus:rounded-lg focus:bg-amber-600 focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-white focus:shadow-lg"
+      >
+        {t('nav.skipToContent')}
+      </a>
       {/* Mobile sidebar backdrop */}
       {sidebarOpen && (
         <div
@@ -145,6 +165,7 @@ export default function Layout({ children }: LayoutProps) {
       {/* Sidebar */}
       <aside
         id="main-sidebar"
+        ref={sidebarRef}
         className={`fixed top-0 left-0 z-50 h-full w-64 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 transform transition-transform duration-300 lg:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
@@ -307,7 +328,13 @@ export default function Layout({ children }: LayoutProps) {
         <BackgroundTasksDrawer />
 
         {/* Page content */}
-        <main className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4 lg:p-6">{children}</main>
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4 lg:p-6 outline-none"
+        >
+          {children}
+        </main>
 
         {/* Footer */}
         <footer className="border-t border-gray-200 dark:border-gray-800 py-3 px-4 lg:px-6 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-xs text-gray-400 dark:text-gray-500">

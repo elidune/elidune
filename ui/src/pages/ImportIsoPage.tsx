@@ -1406,7 +1406,7 @@ export default function ImportIsoPage() {
               setExpandedRecordId(isExpanded ? null : record.id);
             }}
             className="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-500 dark:text-gray-400"
-            aria-label={isExpanded ? 'Collapse' : 'Expand'}
+            aria-label={isExpanded ? t('common.collapseSection') : t('common.expandSection')}
           >
             {isExpanded ? (
               <ChevronDown className="h-4 w-4" />

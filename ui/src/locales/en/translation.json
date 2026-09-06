@@ -86,7 +86,8 @@
     "sectionCataloging": "Cataloging",
     "sectionPatron": "Patron",
     "language": "Language",
-    "main": "Main navigation"
+    "main": "Main navigation",
+    "skipToContent": "Skip to main content"
   },
   "theme": {
     "light": "Light",
@@ -476,6 +477,7 @@
     "borrowableYes": "Borrowable",
     "borrowableNo": "Not borrowable",
     "volumeDesignation": "Volume designation",
+    "volumeDesignationPlaceholder": "e.g. t. 2",
     "source": "Source",
     "specimenBarcodeRequired": "Barcode is required",
     "borrowable": "Borrowable",
@@ -803,6 +805,7 @@
     "loansLoadError": "Could not load loans",
     "specimenBarcode": "Specimen barcode",
     "loanDetails": "Loan details",
+    "borrowedSpecimen": "Borrowed copy",
     "status": "Status",
     "returned": "Returned",
     "remindersDryRun": "Dry run",

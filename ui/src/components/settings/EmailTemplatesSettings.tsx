@@ -24,7 +24,7 @@ import {
 } from '@/utils/emailTemplatesConstants';
 
 export default function EmailTemplatesSettings() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { language: uiLanguage } = useLanguage();
@@ -336,7 +336,7 @@ export default function EmailTemplatesSettings() {
               {detail.updatedAt ? (
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   {t('settings.emailTemplates.updatedAt')}{' '}
-                  {new Date(detail.updatedAt).toLocaleString()}
+                  {new Date(detail.updatedAt).toLocaleString(i18n.language)}
                 </p>
               ) : null}
 

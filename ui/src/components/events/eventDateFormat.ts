@@ -20,9 +20,9 @@ export function formatEventMonthYearHeading(dateStr: string, locale: string): st
   return d.toLocaleDateString(locale, { month: 'long', year: 'numeric' });
 }
 
-export function formatEventDateOnly(dateStr: string): string {
+export function formatEventDateOnly(dateStr: string, locale: string): string {
   try {
-    return new Date(`${dateStr}T00:00:00`).toLocaleDateString();
+    return new Date(`${dateStr}T00:00:00`).toLocaleDateString(locale);
   } catch {
     return dateStr;
   }

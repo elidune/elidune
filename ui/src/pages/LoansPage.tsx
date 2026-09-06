@@ -579,14 +579,14 @@ export default function LoansPage() {
       key: 'date',
       header: t('loans.borrowDate'),
       render: (loan: Loan) =>
-        new Date(loan.startDate).toLocaleDateString('fr-FR'),
+        new Date(loan.startDate).toLocaleDateString(i18n.language),
     },
     {
       key: 'expiryAt',
       header: t('loans.dueDate'),
       render: (loan: Loan) => (
         <div className="flex items-center gap-2">
-          <span>{new Date(loan.expiryAt).toLocaleDateString('fr-FR')}</span>
+          <span>{new Date(loan.expiryAt).toLocaleDateString(i18n.language)}</span>
           {loan.isOverdue && <Badge variant="danger">{t('loans.overdue')}</Badge>}
         </div>
       ),
@@ -686,7 +686,7 @@ export default function LoansPage() {
             }}
             className={`py-4 px-1 border-b-2 font-medium text-sm ${
               activeTab === 'borrow'
-                ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                ? 'border-amber-500 text-amber-700 dark:text-amber-400'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
             }`}
           >
@@ -704,7 +704,7 @@ export default function LoansPage() {
             }}
             className={`py-4 px-1 border-b-2 font-medium text-sm ${
               activeTab === 'return'
-                ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                ? 'border-amber-500 text-amber-700 dark:text-amber-400'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
             }`}
           >
@@ -722,7 +722,7 @@ export default function LoansPage() {
             }}
             className={`py-4 px-1 border-b-2 font-medium text-sm ${
               activeTab === 'overdue'
-                ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                ? 'border-amber-500 text-amber-700 dark:text-amber-400'
                 : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
             }`}
           >
@@ -737,12 +737,12 @@ export default function LoansPage() {
       {/* Borrow Tab */}
       {activeTab === 'borrow' && (
         <div className="space-y-6">
-          {/* Step 1 — Find patron */}
+          {!selectedUser && (
           <Card>
             <div className="flex flex-col gap-6">
               <div className="flex gap-4">
                 <div
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-base font-bold text-white shadow-md dark:bg-indigo-500"
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-500 text-base font-bold text-white shadow-md dark:bg-amber-600"
                   aria-hidden
                 >
                   1
@@ -757,8 +757,7 @@ export default function LoansPage() {
                 </div>
               </div>
 
-              <div className="sm:ml-2 sm:border-l-2 sm:border-indigo-200 sm:pl-6 sm:dark:border-indigo-800">
-                {!selectedUser ? (
+              <div className="sm:ml-2 sm:border-l-2 sm:border-amber-200 sm:pl-6 sm:dark:border-amber-800">
                   <div className="space-y-5">
                     {/* User barcode scan */}
                     <div>
@@ -833,8 +832,8 @@ export default function LoansPage() {
                                 onClick={() => void handleUserSelect(user)}
                                 className="w-full px-4 py-3 text-left hover:bg-gray-100 dark:hover:bg-gray-800 flex items-center gap-3 disabled:opacity-50"
                               >
-                                <div className="flex-shrink-0 h-10 w-10 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center">
-                                  <span className="text-sm font-medium text-indigo-600 dark:text-indigo-400">
+                                <div className="flex-shrink-0 h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center">
+                                  <span className="text-sm font-medium text-amber-700 dark:text-amber-400">
                                     {user.firstname?.[0] || '?'}{user.lastname?.[0] || ''}
                                   </span>
                                 </div>
@@ -873,105 +872,81 @@ export default function LoansPage() {
                       )}
                     </div>
                   </div>
-                ) : null}
-
-                {selectedUser ? (
-                  <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-800 dark:bg-indigo-900/20">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="flex-shrink-0 h-12 w-12 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center">
-                          <span className="text-lg font-bold text-indigo-600 dark:text-indigo-400">
-                            {selectedUser.firstname?.[0] || '?'}{selectedUser.lastname?.[0] || ''}
-                          </span>
-                        </div>
-                        <div className="min-w-0">
-                          <p className="font-semibold text-gray-900 dark:text-white truncate">
-                            {selectedUser.firstname} {selectedUser.lastname}
-                          </p>
-                          <p className="text-sm text-gray-500 dark:text-gray-400">
-                            {selectedUser.accountType}
-                            {selectedUser.barcode && ` · ${t('profile.barcode')}: ${selectedUser.barcode}`}
-                          </p>
-                        </div>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="shrink-0"
-                        onClick={() => {
-                          setSelectedUser(null);
-                          setLoans([]);
-                          setLoansTotal(0);
-                          setLoansPage(1);
-                          setUserSearchDraft('');
-                          setBarcodeInput('');
-                          setLastCheckout(null);
-                          setRenewError('');
-                          setLoansLoadError(null);
-                        }}
-                        leftIcon={<X className="h-4 w-4" />}
-                      >
-                        {t('common.clear')}
-                      </Button>
-                    </div>
-                    {overdueLoans.length > 0 && (
-                      <div className="mt-3 flex items-center gap-2 text-amber-600 dark:text-amber-400">
-                        <AlertTriangle className="h-4 w-4 shrink-0" />
-                        <span className="text-sm">
-                          {t('loans.overdueCount', { count: overdueLoans.length })}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                ) : null}
               </div>
             </div>
           </Card>
+          )}
 
           {selectedUser && (
             <>
-              {/* Step 2 — Check out specimen */}
-              <Card className="border-amber-200/80 shadow-sm dark:border-amber-900/40">
-                <div className="flex flex-col gap-5 sm:flex-row sm:gap-6">
-                  <div
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-amber-500 text-base font-bold text-white shadow-md dark:bg-amber-600"
-                    aria-hidden
-                  >
-                    2
+              <Card
+                padding="sm"
+                className="sticky top-0 z-20 border-amber-200/80 bg-white/95 shadow-md backdrop-blur-sm dark:border-amber-900/40 dark:bg-gray-900/95"
+              >
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-sm font-bold text-amber-800 dark:bg-amber-900/55 dark:text-amber-200">
+                        {selectedUser.firstname?.[0] || '?'}
+                        {selectedUser.lastname?.[0] || ''}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold text-gray-900 dark:text-white">
+                          {selectedUser.firstname} {selectedUser.lastname}
+                        </p>
+                        <p className="truncate text-xs text-gray-500 dark:text-gray-400">
+                          {selectedUser.accountType}
+                          {selectedUser.barcode && ` · ${selectedUser.barcode}`}
+                          {overdueLoans.length > 0 &&
+                            ` · ${t('loans.overdueCount', { count: overdueLoans.length })}`}
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="shrink-0"
+                      onClick={() => {
+                        setSelectedUser(null);
+                        setLoans([]);
+                        setLoansTotal(0);
+                        setLoansPage(1);
+                        setUserSearchDraft('');
+                        setBarcodeInput('');
+                        setLastCheckout(null);
+                        setRenewError('');
+                        setLoansLoadError(null);
+                      }}
+                      leftIcon={<X className="h-4 w-4" />}
+                    >
+                      {t('common.clear')}
+                    </Button>
                   </div>
-                  <div className="min-w-0 flex-1 space-y-4">
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2 flex-wrap">
-                        <BookMarked className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0" />
-                        {t('loans.borrow')}
-                      </h3>
-                      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 leading-relaxed max-w-2xl">
-                        {t('loans.borrowSectionHint')}
-                      </p>
-                    </div>
-                    <div className="max-w-2xl">
-                      <BorrowForm
-                        formId="loans-borrow-inline-form"
-                        variant="inline"
-                        onBorrow={handleBorrow}
-                        barcodeInput={barcodeInput}
-                        setBarcodeInput={setBarcodeInput}
-                        barcodeInputRef={barcodeInputRef}
-                        onLoadingChange={setIsBorrowLoading}
-                        isLoading={isBorrowLoading}
-                      />
-                      {lastCheckout && (
-                        <div className="mt-4">
-                          <p className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-                            {t('loans.checkoutSummaryTitle')}
-                          </p>
-                          <CheckoutRecapPanel recap={lastCheckout} locale={i18n.language} t={t} />
-                        </div>
-                      )}
-                    </div>
+                  <div className="max-w-2xl">
+                    <p className="mb-1.5 text-xs font-medium text-gray-600 dark:text-gray-400">
+                      {t('loans.borrow')}
+                    </p>
+                    <BorrowForm
+                      formId="loans-borrow-inline-form"
+                      variant="inline"
+                      onBorrow={handleBorrow}
+                      barcodeInput={barcodeInput}
+                      setBarcodeInput={setBarcodeInput}
+                      barcodeInputRef={barcodeInputRef}
+                      onLoadingChange={setIsBorrowLoading}
+                      isLoading={isBorrowLoading}
+                    />
                   </div>
                 </div>
               </Card>
+              {lastCheckout && (
+                <div>
+                  <p className="mb-2 text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {t('loans.checkoutSummaryTitle')}
+                  </p>
+                  <CheckoutRecapPanel recap={lastCheckout} locale={i18n.language} t={t} />
+                </div>
+              )}
 
               {/* Step 3 — Active loans list */}
               <Card padding="none" className="flex flex-col min-h-0">

@@ -792,7 +792,7 @@ export default function UserDetailPage() {
                 return pt ? <Badge variant="info">{pt.label}</Badge> : null;
               })()}
               {overdueLoans.length > 0 && (
-                <Badge variant="danger">{overdueLoans.length} retard{overdueLoans.length > 1 ? 's' : ''}</Badge>
+                <Badge variant="danger">{t('loans.overdueCount', { count: overdueLoans.length })}</Badge>
               )}
             </div>
           </div>
@@ -846,7 +846,7 @@ export default function UserDetailPage() {
                       onClick={() => setDetailTab(tab.id)}
                       className={`px-3 py-1.5 text-sm font-medium rounded-md whitespace-nowrap ${
                         detailTab === tab.id
-                          ? 'bg-white dark:bg-gray-800 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                          ? 'bg-white dark:bg-gray-800 text-amber-700 dark:text-amber-400 shadow-sm'
                           : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
                       }`}
                     >
@@ -1019,25 +1019,25 @@ export default function UserDetailPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Début</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">{t('loans.loanDate')}</p>
                 <p className="text-gray-900 dark:text-white">
-                  {new Date(loanDetails.startDate).toLocaleDateString('fr-FR')}
+                  {new Date(loanDetails.startDate).toLocaleDateString(i18n.language)}
                 </p>
               </div>
               <div>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  {loanDetails.returnedAt ? 'Retour' : 'Échéance'}
+                  {loanDetails.returnedAt ? t('loans.returnDate') : t('loans.dueDate')}
                 </p>
                 <p className="text-gray-900 dark:text-white">
                   {loanDetails.returnedAt
-                    ? new Date(loanDetails.returnedAt).toLocaleDateString('fr-FR')
-                    : new Date(loanDetails.expiryAt).toLocaleDateString('fr-FR')}
+                    ? new Date(loanDetails.returnedAt).toLocaleDateString(i18n.language)
+                    : new Date(loanDetails.expiryAt).toLocaleDateString(i18n.language)}
                 </p>
               </div>
             </div>
 
             <div className="pt-2 border-t border-gray-200 dark:border-gray-800">
-              <p className="text-xs text-gray-500 dark:text-gray-400">Exemplaire emprunté</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t('loans.borrowedSpecimen')}</p>
               {(() => {
                 const ident = loanDetails.itemIdentification;
                 const spec = loanDetails.biblio?.items?.find(
@@ -1051,11 +1051,11 @@ export default function UserDetailPage() {
                       {t('items.barcode')}: <span className="font-mono">{barcode}</span>
                     </p>
                     <p className="text-sm text-gray-700 dark:text-gray-300">
-                      Source: <span className="font-medium">{sourceName}</span>
+                      {t('items.source')}: <span className="font-medium">{sourceName}</span>
                     </p>
                     {spec?.callNumber && (
                       <p className="text-sm text-gray-700 dark:text-gray-300">
-                        Cote: <span className="font-mono">{spec.callNumber}</span>
+                        {t('items.callNumber')}: <span className="font-mono">{spec.callNumber}</span>
                       </p>
                     )}
                   </div>
@@ -1066,61 +1066,31 @@ export default function UserDetailPage() {
         )}
       </Modal>
 
-      {/* Delete confirmation modal */}
-      <Modal
+      <ConfirmDialog
         isOpen={showDeleteModal}
         onClose={() => {
           if (deleteUserLoading) return;
           setShowDeleteModal(false);
           setDeleteUserActiveLoansError(false);
         }}
+        onConfirm={() => {
+          void handleDelete(deleteUserActiveLoansError);
+        }}
         title={t('common.confirm')}
-        size="sm"
-        footer={
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="secondary"
-              onClick={() => {
-                if (deleteUserLoading) return;
-                setShowDeleteModal(false);
-                setDeleteUserActiveLoansError(false);
-              }}
-            >
-              {t('common.cancel')}
-            </Button>
-            {deleteUserActiveLoansError ? (
-              <Button
-                variant="danger"
-                disabled={deleteUserLoading}
-                isLoading={deleteUserLoading}
-                onClick={() => handleDelete(true)}
-              >
-                {t('users.forceDelete')}
-              </Button>
-            ) : (
-              <Button
-                variant="danger"
-                disabled={deleteUserLoading}
-                isLoading={deleteUserLoading}
-                onClick={() => handleDelete(false)}
-              >
-                {t('users.anonymize')}
-              </Button>
-            )}
-          </div>
-        }
-      >
-        <p className="text-gray-600 dark:text-gray-300">
-          {deleteUserActiveLoansError
+        message={
+          deleteUserActiveLoansError
             ? t('users.activeLoansForceDelete')
-            : t('users.deleteConfirm', { name: `${user.firstname} ${user.lastname}`.trim() })}
-          {!deleteUserActiveLoansError && activeLoansTotal > 0 && (
-            <span className="block mt-2 text-amber-600 dark:text-amber-400">
-              {t('users.hasLoansWarning', { count: activeLoansTotal })}
-            </span>
-          )}
-        </p>
-      </Modal>
+            : [
+                t('users.deleteConfirm', { name: `${user.firstname} ${user.lastname}`.trim() }),
+                activeLoansTotal > 0 ? t('users.hasLoansWarning', { count: activeLoansTotal }) : null,
+              ]
+                .filter(Boolean)
+                .join('\n\n')
+        }
+        confirmLabel={deleteUserActiveLoansError ? t('users.forceDelete') : t('users.anonymize')}
+        confirmVariant="danger"
+        isLoading={deleteUserLoading}
+      />
 
       <RenewSubscriptionModal
         user={showRenewSubscriptionModal && user ? user : null}
@@ -1139,7 +1109,7 @@ export default function UserDetailPage() {
         footer={
           <div className="flex justify-end gap-2">
             <Button type="submit" form="borrow-user-form" isLoading={isBorrowLoading}>
-              Emprunter
+              {t('loans.borrow')}
             </Button>
           </div>
         }

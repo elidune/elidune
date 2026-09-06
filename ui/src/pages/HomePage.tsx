@@ -14,7 +14,7 @@ import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
 
 export default function HomePage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const { libraryName, libraryInfo } = useLibrary();
   const { scheduleSlots } = useLibrarySchedule();
@@ -156,7 +156,7 @@ export default function HomePage() {
                     {loan.biblio.title}
                   </p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {t('loans.dueDate')}: {new Date(loan.expiryAt).toLocaleDateString()}
+                    {t('loans.dueDate')}: {new Date(loan.expiryAt).toLocaleDateString(i18n.language)}
                   </p>
                 </div>
                 {loan.isOverdue && (
