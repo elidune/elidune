@@ -1,8 +1,5 @@
-<<<<<<< HEAD
-//! Background scheduler for overdue reminder emails, hold expiry, fine accrual, and audit log cleanup.
-=======
-//! Background scheduler for overdue reminder emails, hold expiry, audit cleanup, and privacy erasure.
->>>>>>> 94b228f (Anonymize patrons for stats instead of leaving residual PII.)
+//! Background scheduler for overdue reminder emails, hold expiry, fine accrual,
+//! audit cleanup, and privacy erasure.
 //!
 //! Spawned at startup via `tokio::spawn`. Periodic tasks run concurrently:
 //! - Reminder sending at the configured time of day

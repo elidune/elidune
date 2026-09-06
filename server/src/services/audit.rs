@@ -413,16 +413,14 @@ mod tests {
             event::LOAN_FINE_THRESHOLD_OVERRIDDEN,
             "loan.fine_threshold_overridden"
         );
-<<<<<<< HEAD
         assert_eq!(event::FINE_ACCRUED, "fine.accrued");
         assert_eq!(
             event::SYSTEM_FINES_ACCRUAL_BATCH_COMPLETED,
             "system.fines_accrual_batch_completed"
-=======
+        );
         assert_eq!(
             event::SYSTEM_PRIVACY_AUTO_ERASURE,
             "system.privacy_auto_erasure"
->>>>>>> 94b228f (Anonymize patrons for stats instead of leaving residual PII.)
         );
     }
 }
