@@ -103,6 +103,7 @@ export default function UserListCard({
           type="button"
           className={LIST_ROW_ICON_BTN}
           title={editLabel}
+          aria-label={editLabel}
           onClick={(e) => {
             e.stopPropagation();
             onEdit();
@@ -114,6 +115,7 @@ export default function UserListCard({
           type="button"
           className={LIST_ROW_ICON_BTN_DANGER}
           title={deleteLabel}
+          aria-label={deleteLabel}
           onClick={(e) => {
             e.stopPropagation();
             onDelete();
@@ -125,6 +127,7 @@ export default function UserListCard({
           type="button"
           className={LIST_ROW_ICON_BTN_MUTED}
           title={renewLabel}
+          aria-label={renewLabel}
           disabled={renewDisabled}
           onClick={(e) => {
             e.stopPropagation();

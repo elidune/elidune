@@ -42,7 +42,7 @@ export default function ToastContainer() {
         return (
           <div
             key={toast.id}
-            role="status"
+            role={toast.variant === 'error' ? 'alert' : 'status'}
             className={`pointer-events-auto flex items-start gap-2 rounded-lg border px-3 py-2.5 shadow-lg ${styles.container}`}
           >
             <Icon

@@ -919,16 +919,20 @@ function SpecimenCard({
           {canManage && (
             <div className="flex gap-1">
               <button
+                type="button"
                 onClick={onEdit}
                 className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400"
                 title={t('common.edit')}
+                aria-label={t('common.edit')}
               >
                 <Edit className="h-4 w-4" />
               </button>
               <button
+                type="button"
                 onClick={onDelete}
                 className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-red-600 dark:text-red-400"
                 title={t('common.delete')}
+                aria-label={t('common.delete')}
               >
                 <Trash2 className="h-4 w-4" />
               </button>

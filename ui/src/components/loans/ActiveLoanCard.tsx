@@ -9,9 +9,19 @@ interface ActiveLoanCardProps {
   loan: Loan;
   onRenew: () => void;
   onReturn: () => void;
+  renewLoading?: boolean;
+  returnLoading?: boolean;
+  actionsDisabled?: boolean;
 }
 
-export default function ActiveLoanCard({ loan, onRenew, onReturn }: ActiveLoanCardProps) {
+export default function ActiveLoanCard({
+  loan,
+  onRenew,
+  onReturn,
+  renewLoading = false,
+  returnLoading = false,
+  actionsDisabled = false,
+}: ActiveLoanCardProps) {
   const { t, i18n } = useTranslation();
   const specs = loan.biblio?.items;
   const spec = specs?.length ? (specs.find((s) => s.borrowed) ?? specs[0]) : null;
@@ -60,10 +70,24 @@ export default function ActiveLoanCard({ loan, onRenew, onReturn }: ActiveLoanCa
         </div>
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" variant="ghost" onClick={onRenew} leftIcon={<RotateCcw className="h-4 w-4" />}>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={onRenew}
+          leftIcon={<RotateCcw className="h-4 w-4" />}
+          isLoading={renewLoading}
+          disabled={actionsDisabled || renewLoading || returnLoading}
+        >
           {t('loans.renew')}
         </Button>
-        <Button size="sm" variant="primary" onClick={onReturn} leftIcon={<Check className="h-4 w-4" />}>
+        <Button
+          size="sm"
+          variant="primary"
+          onClick={onReturn}
+          leftIcon={<Check className="h-4 w-4" />}
+          isLoading={returnLoading}
+          disabled={actionsDisabled || renewLoading || returnLoading}
+        >
           {t('loans.return')}
         </Button>
       </div>
