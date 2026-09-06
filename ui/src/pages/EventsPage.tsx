@@ -22,6 +22,7 @@ import { usePublicTypesQuery } from '@/hooks/usePublicTypesQuery';
 import { eventPublicTypeDisplayLabel } from '@/utils/eventPublicType';
 import { fileToAttachmentInput, base64ToDataUrl, isImageMime } from '@/utils/eventAttachment';
 import { formControlClass, formTextareaClass, formLabelClass, formChoiceLabelClass } from '@/utils/formControl';
+import { deferFromEffect } from '@/utils/deferFromEffect';
 import EventAttachmentLead from '@/components/events/EventAttachmentLead';
 
 const EVENTS_PER_PAGE = 20;
@@ -127,9 +128,7 @@ export default function EventsPage() {
     }
   }, [showPast, currentPage]);
 
-  useEffect(() => {
-    fetchEvents();
-  }, [fetchEvents]);
+  useEffect(() => deferFromEffect(() => { void fetchEvents(); }), [fetchEvents]);
 
   const handleTogglePast = () => {
     setShowPast((p) => !p);
@@ -523,10 +522,12 @@ function EventForm({ formId, initialValues, onLoadingChange, onSuccess }: EventF
     };
   }, [attachmentPreviewUrl]);
 
-  useEffect(() => {
+  const [prevEventId, setPrevEventId] = useState(initialValues?.id);
+  if (initialValues?.id !== prevEventId) {
+    setPrevEventId(initialValues?.id);
     setAttachmentFile(null);
     setRemoveAttachment(false);
-  }, [initialValues?.id]);
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

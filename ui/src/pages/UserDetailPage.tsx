@@ -42,6 +42,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { isLibrarian, type User as UserType, type Loan, type LoanStatsResponse, type AdvancedStatsParams, type StatsInterval, type Author, type Hold } from '@/types';
 import { accountTypeDisplayName } from '@/utils/accountTypeDisplay';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
+import { deferFromEffect } from '@/utils/deferFromEffect';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
 
 const USER_LOANS_PAGE_SIZE = 20;
@@ -194,12 +195,9 @@ export default function UserDetailPage() {
     void queryClient.invalidateQueries({ queryKey: ['user-holds', user.id] });
   };
 
-  // Init default filters when stats tab is active
-  useEffect(() => {
-    if (detailTab === 'stats' && user && !userStatsFilters) {
-      setUserStatsFilters(getDefaultStatsFilters());
-    }
-  }, [detailTab, user, userStatsFilters]);
+  if (detailTab === 'stats' && user && !userStatsFilters) {
+    setUserStatsFilters(getDefaultStatsFilters());
+  }
 
   // Fetch stats when filters or user change
   useEffect(() => {
@@ -245,8 +243,8 @@ export default function UserDetailPage() {
       }
     };
 
-    fetchStats();
-  }, [detailTab, user, userStatsFilters]);
+    return deferFromEffect(() => { void fetchStats(); });
+  }, [detailTab, user, userStatsFilters, totalLoansAllTime]);
 
   const formatStatsDate = (dateStr: string) => {
     const interval = userStatsFilters?.interval || 'month';

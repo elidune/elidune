@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   User,
@@ -75,22 +75,21 @@ export default function ProfilePage() {
   const [twoFAError, setTwoFAError] = useState('');
   const [copiedRecoveryCodes, setCopiedRecoveryCodes] = useState(false);
 
-  // Initialize form data when user changes
-  useEffect(() => {
-    if (user) {
-      setProfileData({
-        firstname: user.firstname || '',
-        lastname: user.lastname || '',
-        email: user.email || '',
-        phone: user.phone || '',
-        login: user.login || user.username || '',
-        addrStreet: user.addrStreet || '',
-        addrZipCode: user.addrZipCode?.toString() || '',
-        addrCity: user.addrCity || '',
-        birthdate: user.birthdate || '',
-      });
-    }
-  }, [user]);
+  const [prevProfileUser, setPrevProfileUser] = useState(user);
+  if (user && user !== prevProfileUser) {
+    setPrevProfileUser(user);
+    setProfileData({
+      firstname: user.firstname || '',
+      lastname: user.lastname || '',
+      email: user.email || '',
+      phone: user.phone || '',
+      login: user.login || user.username || '',
+      addrStreet: user.addrStreet || '',
+      addrZipCode: user.addrZipCode?.toString() || '',
+      addrCity: user.addrCity || '',
+      birthdate: user.birthdate || '',
+    });
+  }
 
   const handleProfileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -135,13 +135,12 @@ export function useEliduneMaintenance() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (activeZ3950Servers.length === 0) return;
-    setZ3950ServerId((prev) => {
-      if (prev && activeZ3950Servers.some((s) => s.id === prev)) return prev;
-      return activeZ3950Servers[0].id;
-    });
-  }, [activeZ3950Servers]);
+  if (activeZ3950Servers.length > 0) {
+    const stillValid = z3950ServerId && activeZ3950Servers.some((s) => s.id === z3950ServerId);
+    if (!stillValid) {
+      setZ3950ServerId(activeZ3950Servers[0].id);
+    }
+  }
 
   const runDumpDownload = async () => {
     setDatabaseError(null);

@@ -160,7 +160,7 @@ function marcPreviewToParsedRecord(item: MarcImportPreview, index: number): Pars
 type MarcFormat = 'UNIMARC' | 'MARC21';
 
 function getDuplicateConfirmationRequired(error: unknown): DuplicateConfirmationRequired | null {
-  const ax = error as AxiosError<any>;
+  const ax = error as AxiosError<unknown>;
   if (ax?.response?.status !== 409) return null;
   const data = ax.response?.data as Partial<DuplicateConfirmationRequired> | undefined;
   if (!data) return null;
@@ -263,6 +263,7 @@ type MarcImportTaskContext = { mode: 'all' };
 
 import { formatMarcTaskProgressMessage } from '@/utils/backgroundTaskDisplay';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
+import { deferFromEffect } from '@/utils/deferFromEffect';
 function getSubfield(fieldData: string, code: string, delimiter = SUBFIELD_DELIMITER): string | undefined {
   const parts = fieldData.split(delimiter);
   for (const part of parts) {
@@ -685,14 +686,18 @@ export default function ImportIsoPage() {
         setReplaceConfirmModal(null);
       }
     },
-    [records, t],
+    [records, t, setReplaceConfirmError, setReplaceConfirmModal, setSingleErrorModal],
   );
 
-  const marcImportHandlersRef = useRef({
-    onProgress: (_task: BackgroundTask) => {},
-    onSettled: (_task: BackgroundTask) => {},
+  const marcImportHandlersRef = useRef<{
+    onProgress: (task: BackgroundTask) => void;
+    onSettled: (task: BackgroundTask) => void;
+  }>({
+    onProgress: () => {},
+    onSettled: () => {},
   });
 
+  useEffect(() => {
   marcImportHandlersRef.current = {
     onProgress: (task) => {
       setRecoveredTask((prev) => (prev && prev.id === task.id ? task : prev));
@@ -793,6 +798,7 @@ export default function ImportIsoPage() {
       setIsImporting(false);
     },
   };
+  });
 
   const importTask = useBackgroundTask('marcBatchImport', {
     storageKey: MARC_IMPORT_TASK_KEY,
@@ -806,14 +812,12 @@ export default function ImportIsoPage() {
       const data = await api.getSources(false);
       setSources(data.map((s) => ({ ...s, id: String(s.id) })));
       // Do not preselect any source; user must choose for import
-    } catch (e) {
+    } catch {
       setSourcesError(t('importMarc.sourcesError'));
     }
   }, [t]);
 
-  useEffect(() => {
-    fetchSources();
-  }, [fetchSources]);
+  useEffect(() => deferFromEffect(() => { void fetchSources(); }), [fetchSources]);
 
   // Restore any in-progress batch import task from localStorage
   useEffect(() => {
@@ -865,18 +869,19 @@ export default function ImportIsoPage() {
 
   useEffect(() => {
     if (importMode === 'batch' && records.length === 0) {
-      fetchMarcBatches();
+      return deferFromEffect(() => { void fetchMarcBatches(); });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [importMode]);
 
-  // Reset pagination and counters whenever a new batch is loaded
-  useEffect(() => {
+  const [prevImportFileName, setPrevImportFileName] = useState(fileName);
+  if (fileName !== prevImportFileName) {
+    setPrevImportFileName(fileName);
     setCurrentPage(1);
     setExpandedRecordId(null);
     setSuccessCount(0);
     setImportProgress({ current: 0, total: 0 });
-  }, [fileName]);
+  }
 
   useEffect(() => {
     if (!replaceConfirmModal) return;
@@ -919,7 +924,7 @@ export default function ImportIsoPage() {
       setSelectedSourceId(String(created.id));
       setNewSourceName('');
       setShowAddSource(false);
-    } catch (err) {
+    } catch {
       setSourcesError(t('importMarc.sourceCreateError'));
     } finally {
       setAddSourceLoading(false);
@@ -991,7 +996,7 @@ export default function ImportIsoPage() {
           setBatchId(newBatchId);
         }
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error parsing file:', error);
       setParseError(t('importMarc.readError'));
     } finally {
@@ -1087,7 +1092,6 @@ export default function ImportIsoPage() {
   const completeImportWithItemId = async (
     record: ParsedRecord,
     itemId: string,
-    _importReport: ImportReport
   ) => {
     if (has9xxFields(record)) {
       const specimenData = buildSpecimenFrom9xx(record);
@@ -1159,17 +1163,17 @@ export default function ImportIsoPage() {
 
     try {
       // Legacy path (MARCXML client-side parsing → /biblios)
-      const { biblio, importReport } = await api.createBiblio(buildItemPayload(record));
-      if (biblio.id != null) await completeImportWithItemId(record, biblio.id, importReport);
+      const { biblio } = await api.createBiblio(buildItemPayload(record));
+      if (biblio.id != null) await completeImportWithItemId(record, biblio.id);
     } catch (error) {
       const confirm = getDuplicateConfirmationRequired(error);
       if (confirm) {
         if (options?.autoReplaceOnDuplicate && confirm.existingId) {
           try {
-            const { biblio, importReport } = await api.createBiblio(buildItemPayload(record), {
+            const { biblio } = await api.createBiblio(buildItemPayload(record), {
               confirmReplaceExistingId: confirm.existingId,
             });
-            if (biblio.id != null) await completeImportWithItemId(record, biblio.id, importReport);
+            if (biblio.id != null) await completeImportWithItemId(record, biblio.id);
             return;
           } catch (retryError) {
             const errorMessage = getApiErrorMessage(retryError, t);
@@ -1187,10 +1191,10 @@ export default function ImportIsoPage() {
         }
         if (options?.allowDuplicateIsbn) {
           try {
-            const { biblio, importReport } = await api.createBiblio(buildItemPayload(record), {
+            const { biblio } = await api.createBiblio(buildItemPayload(record), {
               allowDuplicateIsbn: true,
             });
-            if (biblio.id != null) await completeImportWithItemId(record, biblio.id, importReport);
+            if (biblio.id != null) await completeImportWithItemId(record, biblio.id);
             return;
           } catch (retryError) {
             const errorMessage = getApiErrorMessage(retryError, t);
@@ -1260,10 +1264,10 @@ export default function ImportIsoPage() {
         setReplaceConfirmModal(null);
         return;
       }
-      const { biblio, importReport } = await api.createBiblio(buildItemPayload(record), {
+      const { biblio } = await api.createBiblio(buildItemPayload(record), {
         confirmReplaceExistingId: existingId,
       });
-      if (biblio.id != null) await completeImportWithItemId(record, biblio.id, importReport);
+      if (biblio.id != null) await completeImportWithItemId(record, biblio.id);
       setReplaceConfirmModal(null);
     } catch (err) {
       console.error('Error confirming replace existing item:', err);
@@ -1292,10 +1296,10 @@ export default function ImportIsoPage() {
         setReplaceConfirmModal(null);
         return;
       }
-      const { biblio, importReport } = await api.createBiblio(buildItemPayload(record), {
+      const { biblio } = await api.createBiblio(buildItemPayload(record), {
         allowDuplicateIsbn: true,
       });
-      if (biblio.id != null) await completeImportWithItemId(record, biblio.id, importReport);
+      if (biblio.id != null) await completeImportWithItemId(record, biblio.id);
       setReplaceConfirmModal(null);
     } catch (err) {
       console.error('Error creating item with duplicate ISBN:', err);
