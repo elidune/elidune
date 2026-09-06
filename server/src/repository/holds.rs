@@ -524,7 +524,7 @@ impl Repository {
 
         let current = sqlx::query_as::<_, Hold>("SELECT * FROM holds WHERE id = $1 FOR UPDATE")
             .bind(id)
-            .fetch_optional(&mut **tx)
+            .fetch_optional(&mut *tx)
             .await?
             .ok_or_else(|| AppError::NotFound(format!("Hold {id} not found")))?;
 
@@ -532,7 +532,7 @@ impl Repository {
             "UPDATE holds SET status = 'cancelled' WHERE id = $1 RETURNING *",
         )
         .bind(id)
-        .fetch_one(&mut **tx)
+        .fetch_one(&mut *tx)
         .await?;
 
         if current.status == HoldStatus::Ready {
@@ -554,7 +554,7 @@ impl Repository {
              WHERE status = 'ready' AND expires_at < NOW()
              RETURNING *",
         )
-        .fetch_all(&mut **tx)
+        .fetch_all(&mut *tx)
         .await?;
 
         let expiry_days = self.hold_ready_expiry_days();
