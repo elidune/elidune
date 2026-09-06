@@ -15,6 +15,20 @@ fn decimal_str(value: &serde_json::Value) -> String {
         .unwrap_or_else(|| value.to_string().trim_matches('"').to_string())
 }
 
+async fn unlock_admin(app: &TestApp, admin_token: &str) {
+    let (status, me) = app.get_json_with_auth("/api/v1/auth/me", admin_token).await;
+    if status != StatusCode::OK {
+        return;
+    }
+    let admin_id = fixtures::json_id(&me["id"]);
+    let _ = app
+        .state
+        .services
+        .users
+        .set_must_change_password(admin_id, false)
+        .await;
+}
+
 async fn create_loan_with_priced_item(
     app: &TestApp,
     admin_token: &str,
@@ -80,7 +94,9 @@ async fn mark_lost_closes_loan_bills_item_price_and_blocks_checkout() {
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
+    unlock_admin(&app, &admin_token).await;
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "lostreader").await;
+    let (other_id, _) = fixtures::create_reader(&app, &admin_token, "lostother").await;
     let (loan_id, item_id) =
         create_loan_with_priced_item(&app, &admin_token, reader_id, "15.00").await;
 
@@ -114,7 +130,7 @@ async fn mark_lost_closes_loan_bills_item_price_and_blocks_checkout() {
         .post_json(
             "/api/v1/loans",
             &json!({
-                "userId": reader_id.to_string(),
+                "userId": other_id.to_string(),
                 "itemId": item_id.to_string()
             }),
             Some(&admin_token),
@@ -145,7 +161,9 @@ async fn mark_damaged_return_vs_keep_and_damage_charge() {
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
+    unlock_admin(&app, &admin_token).await;
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "dmgreader").await;
+    let (keep_reader_id, _) = fixtures::create_reader(&app, &admin_token, "dmgkeep").await;
 
     let (return_loan_id, return_item_id) =
         create_loan_with_priced_item(&app, &admin_token, reader_id, "20.00").await;
@@ -172,7 +190,7 @@ async fn mark_damaged_return_vs_keep_and_damage_charge() {
     assert_eq!(returned["borrowable"], false);
 
     let (keep_loan_id, keep_item_id) =
-        create_loan_with_priced_item(&app, &admin_token, reader_id, "20.00").await;
+        create_loan_with_priced_item(&app, &admin_token, keep_reader_id, "20.00").await;
     let (status, body) = app
         .post_json(
             &format!("/api/v1/loans/{keep_loan_id}/damaged"),
@@ -188,7 +206,10 @@ async fn mark_damaged_return_vs_keep_and_damage_charge() {
     assert_eq!(kept["borrowed"], true);
 
     let (loans_status, loans_body) = app
-        .get_json_with_auth(&format!("/api/v1/users/{reader_id}/loans"), &admin_token)
+        .get_json_with_auth(
+            &format!("/api/v1/users/{keep_reader_id}/loans"),
+            &admin_token,
+        )
         .await;
     assert_eq!(loans_status, StatusCode::OK);
     let active: Vec<_> = loans_body["items"]
@@ -208,6 +229,7 @@ async fn claimed_returned_stays_open_until_inventory_check() {
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
+    unlock_admin(&app, &admin_token).await;
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "claimreader").await;
     let (loan_id, item_id) =
         create_loan_with_priced_item(&app, &admin_token, reader_id, "9.99").await;
@@ -293,6 +315,7 @@ async fn claimed_returned_not_found_marks_lost_and_can_bill() {
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
+    unlock_admin(&app, &admin_token).await;
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "notfoundr").await;
     let (loan_id, item_id) =
         create_loan_with_priced_item(&app, &admin_token, reader_id, "11.00").await;
@@ -335,6 +358,7 @@ async fn replacement_charge_coexists_with_open_overdue_fine() {
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
+    unlock_admin(&app, &admin_token).await;
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "bothfines").await;
     let (loan_id, _) = create_loan_with_priced_item(&app, &admin_token, reader_id, "8.00").await;
 
@@ -380,6 +404,7 @@ async fn physical_return_clears_claims_returned_without_resolve_endpoint() {
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
+    unlock_admin(&app, &admin_token).await;
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "retclaim").await;
     let (loan_id, item_id) =
         create_loan_with_priced_item(&app, &admin_token, reader_id, "4.00").await;
