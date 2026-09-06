@@ -147,6 +147,7 @@ impl Services {
             audit_service.clone(),
             dynamic_config.clone(),
         );
+        let fines_service = fines::FinesService::new(repo.clone() as Arc<dyn FinesRepository>);
 
         Ok(Self {
             repository: repo.clone(),
@@ -164,7 +165,7 @@ impl Services {
                 email.clone(),
                 audit_service.clone(),
             ),
-            fines: fines::FinesService::new(repo.clone() as Arc<dyn FinesRepository>),
+            fines: fines_service.clone(),
             inventory: inventory::InventoryService::new(
                 repo.clone() as Arc<dyn InventoryRepository>,
                 repo.clone() as Arc<dyn SourcesRepository>,
@@ -175,6 +176,7 @@ impl Services {
             library_info: library_info::LibraryInfoService::new(repository.clone()),
             loans: loans::LoansService::new(
                 loans_repo,
+                fines_service,
                 audit_service.clone(),
                 email.clone(),
                 event_bus,

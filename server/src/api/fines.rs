@@ -10,7 +10,10 @@ use utoipa::ToSchema;
 
 use crate::{
     error::AppResult,
-    models::fine::{Fine, FineRule, PayFineRequest, WaiveFineRequest},
+    models::{
+        dto::fines::CirculationFinePolicy,
+        fine::{Fine, FineRule, PayFineRequest, WaiveFineRequest},
+    },
     services::audit,
 };
 
@@ -225,11 +228,92 @@ pub async fn upsert_fine_rule(
     }
 }
 
+/// Get the global unpaid-fine threshold used by checkout and renew.
+#[utoipa::path(
+    get,
+    path = "/fines/policy",
+    tag = "fines",
+    security(("bearer_auth" = [])),
+    responses(
+        (status = 200, description = "Global circulation fine policy", body = CirculationFinePolicy),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
+        (status = 403, description = "Insufficient permissions", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn get_fine_policy(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+) -> AppResult<Json<CirculationFinePolicy>> {
+    claims.require_read_settings()?;
+    Ok(Json(state.services.fines.get_policy().await?))
+}
+
+/// Update the global unpaid-fine threshold.
+#[utoipa::path(
+    put,
+    path = "/fines/policy",
+    tag = "fines",
+    security(("bearer_auth" = [])),
+    request_body = CirculationFinePolicy,
+    responses(
+        (status = 200, description = "Circulation fine policy saved", body = CirculationFinePolicy),
+        (status = 400, description = "Invalid threshold", body = crate::error::ErrorResponse),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
+        (status = 403, description = "Staff access required", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn update_fine_policy(
+    State(state): State<crate::AppState>,
+    StaffUser(claims): StaffUser,
+    ClientIp(ip): ClientIp,
+    Json(req): Json<CirculationFinePolicy>,
+) -> AppResult<Json<CirculationFinePolicy>> {
+    match state
+        .services
+        .fines
+        .set_policy(req.unpaid_fine_threshold)
+        .await
+    {
+        Ok(policy) => {
+            state.services.audit.log(
+                audit::event::FINE_POLICY_UPDATED,
+                Some(claims.user_id),
+                Some("circulation_settings"),
+                Some(1),
+                ip,
+                Some(serde_json::json!({
+                    "unpaidFineThreshold": policy.unpaid_fine_threshold,
+                })),
+                audit::AuditLogMeta::success(),
+            );
+            Ok(Json(policy))
+        }
+        Err(e) => {
+            state.services.audit.log(
+                audit::event::FINE_POLICY_UPDATED,
+                Some(claims.user_id),
+                Some("circulation_settings"),
+                Some(1),
+                ip,
+                Some(serde_json::json!({
+                    "unpaidFineThreshold": req.unpaid_fine_threshold,
+                })),
+                audit::AuditLogMeta::from_app_error(&e),
+            );
+            Err(e)
+        }
+    }
+}
+
 pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::{get, post};
     axum::Router::new()
         .route("/users/:id/fines", get(list_user_fines))
         .route("/fines/rules", get(list_fine_rules).put(upsert_fine_rule))
+        .route(
+            "/fines/policy",
+            get(get_fine_policy).put(update_fine_policy),
+        )
         .route("/fines/:id/pay", post(pay_fine))
         .route("/fines/:id/waive", post(waive_fine))
 }

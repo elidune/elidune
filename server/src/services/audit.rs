@@ -101,6 +101,7 @@ pub mod event {
     pub const LOAN_CREATED: &str = "loan.created";
     pub const LOAN_RETURNED: &str = "loan.returned";
     pub const LOAN_RENEWED: &str = "loan.renewed";
+    pub const LOAN_FINE_THRESHOLD_OVERRIDDEN: &str = "loan.fine_threshold_overridden";
 
     // Sources
     pub const SOURCE_CREATED: &str = "source.created";
@@ -188,6 +189,7 @@ pub mod event {
     pub const FINE_PAID: &str = "fine.paid";
     pub const FINE_WAIVED: &str = "fine.waived";
     pub const FINE_RULE_UPDATED: &str = "fine_rule.updated";
+    pub const FINE_POLICY_UPDATED: &str = "fine.policy_updated";
 
     // Collections
     pub const COLLECTION_CREATED: &str = "collection.created";
@@ -404,5 +406,9 @@ mod tests {
         assert_eq!(event::SYSTEM_TASK_COMPLETED, "system.task_completed");
         assert_eq!(event::COLLECTION_CREATED, "collection.created");
         assert_eq!(event::FINE_RULE_UPDATED, "fine_rule.updated");
+        assert_eq!(
+            event::LOAN_FINE_THRESHOLD_OVERRIDDEN,
+            "loan.fine_threshold_overridden"
+        );
     }
 }

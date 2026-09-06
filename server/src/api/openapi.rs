@@ -7,7 +7,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 use crate::api::{
     account_types, admin_config, audit, auth, biblios, collections, email_templates, equipment,
-    events, first_setup, health, holds, inventory, items, library_info, loans, maintenance,
+    events, fines, first_setup, health, holds, inventory, items, library_info, loans, maintenance,
     metrics, opac, public_types, schedules, series, sources, stats, tasks, users, visitor_counts,
     z3950,
 };
@@ -187,6 +187,15 @@ use crate::api::{
         // Audit
         audit::get_audit_log,
         audit::export_audit_log,
+        // Public types
+        // Fines
+        fines::list_user_fines,
+        fines::pay_fine,
+        fines::waive_fine,
+        fines::list_fine_rules,
+        fines::upsert_fine_rule,
+        fines::get_fine_policy,
+        fines::update_fine_policy,
         // Public types
         public_types::list_public_types,
         public_types::get_public_type,
@@ -404,6 +413,14 @@ use crate::api::{
             crate::models::audit::AuditLogPage,
             crate::models::audit::AuditLogEntry,
             // Public types
+            crate::models::fine::Fine,
+            crate::models::fine::FineStatus,
+            crate::models::fine::FineRule,
+            crate::models::fine::PayFineRequest,
+            crate::models::fine::WaiveFineRequest,
+            fines::UpsertFineRuleRequest,
+            fines::UnpaidFinesSummary,
+            crate::models::dto::fines::CirculationFinePolicy,
             crate::models::public_type::PublicType,
             crate::models::loan::LoanSettingsRenewAt,
             crate::models::public_type::PublicTypeLoanSettings,

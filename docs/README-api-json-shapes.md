@@ -642,6 +642,15 @@ List endpoints (`GET /holds`, `GET /items/:id/holds`, `GET /users/:id/holds`) re
 { "totalUnpaid": "3.50", "fines": [...Fine...] }
 ```
 
+### `CirculationFinePolicy` (GET/PUT /fines/policy)
+```json
+{ "unpaidFineThreshold": "10.00" }
+```
+
+Global unpaid-balance gate for **checkout** and **renew**. Default `0` blocks any positive unpaid remainder. Paid and waived fines do not count. A public type may set `unpaidFineThreshold` to override this value for that audience.
+
+When the patron is over the threshold, `POST /loans` and `POST /loans/:id/renew` return **422** with a desk-facing message (amount due + that staff can retry with `force=true`). A successful force override writes audit event `loan.fine_threshold_overridden` (`actor`, `unpaid`, `threshold`, `operation`).
+
 ---
 
 ## Inventory (`/api/v1/inventory`)

@@ -6,9 +6,41 @@ use rust_decimal::Decimal;
 
 use crate::{
     error::{AppError, AppResult},
-    models::fine::{Fine, FineRule},
+    models::{
+        dto::fines::CirculationFinePolicy,
+        fine::{Fine, FineRule},
+    },
     repository::FinesRepository,
 };
+
+/// Result of comparing a patron's unpaid balance to the configured threshold.
+///
+/// `#18` writes pending fines through [`FinesService::accrue`] (grace-period and
+/// zero-amount cases never create an unpaid row). Checkout/renew (#10) only read
+/// [`FinesService::total_unpaid`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnpaidThresholdCheck {
+    pub unpaid: Decimal,
+    pub threshold: Decimal,
+}
+
+impl UnpaidThresholdCheck {
+    /// Block when the unpaid remainder is strictly above the threshold.
+    /// A zero unpaid balance never blocks (including grace-period / zero-amount cases).
+    #[must_use]
+    pub fn blocks_circulation(&self) -> bool {
+        self.unpaid > Decimal::ZERO && self.unpaid > self.threshold
+    }
+
+    /// Desk-facing refusal: amount due and that staff can force.
+    #[must_use]
+    pub fn desk_block_message(&self) -> String {
+        format!(
+            "Unpaid fines of {} exceed the {} threshold — pay or waive the balance, or use force=true to override",
+            self.unpaid, self.threshold
+        )
+    }
+}
 
 #[derive(Clone)]
 pub struct FinesService {
@@ -89,6 +121,46 @@ impl FinesService {
         self.repository.fines_total_unpaid(user_id).await
     }
 
+    /// Global unpaid-fine threshold (public-type overrides are applied in
+    /// [`Self::check_unpaid_threshold`]).
+    #[tracing::instrument(skip(self), err)]
+    pub async fn get_policy(&self) -> AppResult<CirculationFinePolicy> {
+        Ok(CirculationFinePolicy {
+            unpaid_fine_threshold: self.repository.fines_get_global_unpaid_threshold().await?,
+        })
+    }
+
+    /// Replace the global unpaid-fine threshold.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn set_policy(&self, threshold: Decimal) -> AppResult<CirculationFinePolicy> {
+        if threshold < Decimal::ZERO {
+            return Err(AppError::Validation(
+                "Unpaid fine threshold cannot be negative".to_string(),
+            ));
+        }
+        Ok(CirculationFinePolicy {
+            unpaid_fine_threshold: self
+                .repository
+                .fines_set_global_unpaid_threshold(threshold)
+                .await?,
+        })
+    }
+
+    /// Compare this patron's unpaid balance to the effective threshold
+    /// (public-type override, else global).
+    #[tracing::instrument(skip(self), err)]
+    pub async fn check_unpaid_threshold(
+        &self,
+        user_id: i64,
+        public_type_id: Option<i64>,
+    ) -> AppResult<UnpaidThresholdCheck> {
+        let (unpaid, threshold) = tokio::try_join!(
+            self.repository.fines_total_unpaid(user_id),
+            self.repository.fines_get_unpaid_threshold(public_type_id),
+        )?;
+        Ok(UnpaidThresholdCheck { unpaid, threshold })
+    }
+
     /// List fine rules
     #[tracing::instrument(skip(self), err)]
     pub async fn list_rules(&self) -> AppResult<Vec<FineRule>> {
@@ -112,5 +184,46 @@ impl FinesService {
         self.repository
             .fines_upsert_rule(media_type, daily_rate, max_amount, grace_days)
             .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    fn d(s: &str) -> Decimal {
+        Decimal::from_str(s).expect("decimal")
+    }
+
+    fn check(unpaid: &str, threshold: &str) -> UnpaidThresholdCheck {
+        UnpaidThresholdCheck {
+            unpaid: d(unpaid),
+            threshold: d(threshold),
+        }
+    }
+
+    #[test]
+    fn zero_unpaid_never_blocks() {
+        assert!(!check("0", "0").blocks_circulation());
+        assert!(!check("0", "10").blocks_circulation());
+    }
+
+    #[test]
+    fn unpaid_at_threshold_does_not_block() {
+        assert!(!check("10", "10").blocks_circulation());
+    }
+
+    #[test]
+    fn unpaid_above_threshold_blocks() {
+        let over = check("10.01", "10");
+        assert!(over.blocks_circulation());
+        assert!(over.desk_block_message().contains("10.01"));
+        assert!(over.desk_block_message().contains("force=true"));
+    }
+
+    #[test]
+    fn unpaid_under_threshold_does_not_block() {
+        assert!(!check("4.99", "5").blocks_circulation());
     }
 }

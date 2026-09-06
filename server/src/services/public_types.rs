@@ -43,10 +43,12 @@ impl PublicTypesService {
 
     #[tracing::instrument(skip(self), err)]
     pub async fn create(&self, data: &CreatePublicType) -> AppResult<PublicType> {
+        validate_unpaid_fine_threshold(data.unpaid_fine_threshold)?;
         self.repository.public_types_create(data).await
     }
 
     pub async fn update(&self, id: i64, data: &UpdatePublicType) -> AppResult<PublicType> {
+        validate_unpaid_fine_threshold(data.unpaid_fine_threshold)?;
         self.repository.public_types_update(id, data).await
     }
 
@@ -67,6 +69,15 @@ impl PublicTypesService {
             .public_types_replace_loan_settings(public_type_id, &body.settings)
             .await
     }
+}
+
+fn validate_unpaid_fine_threshold(threshold: Option<rust_decimal::Decimal>) -> AppResult<()> {
+    if threshold.is_some_and(|t| t < rust_decimal::Decimal::ZERO) {
+        return Err(AppError::Validation(
+            "Unpaid fine threshold cannot be negative".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn validate_replace_public_type_loan_settings(

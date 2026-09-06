@@ -192,6 +192,35 @@ impl TestApp {
         (status, json)
     }
 
+    /// PUT JSON helper.
+    pub async fn put_json(
+        &self,
+        uri: &str,
+        body: &serde_json::Value,
+        auth_token: Option<&str>,
+    ) -> (StatusCode, serde_json::Value) {
+        let mut builder = Request::builder().method("PUT").uri(uri);
+        if let Some(token) = auth_token {
+            builder = builder.header("Authorization", format!("Bearer {token}"));
+        }
+        let response = self
+            .request(
+                builder
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await;
+        let status = response.status();
+        let bytes = response.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = if bytes.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null)
+        };
+        (status, json)
+    }
+
     /// POST with empty body.
     pub async fn post_empty(
         &self,
