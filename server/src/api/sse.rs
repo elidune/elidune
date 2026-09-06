@@ -30,6 +30,7 @@ pub use crate::models::dto::sse::SsePayload;
 /// - `loan.returned` — a specimen was returned
 /// - `loan.renewed` — a loan was renewed
 /// - `hold.ready` — a hold is ready for pickup
+/// - `transit.requested` / `transit.shipped` / `transit.received` / `transit.cancelled` — hold fulfillment movement
 #[utoipa::path(
     get,
     path = "/events/stream",

@@ -93,6 +93,18 @@ impl Repository {
                 .await?;
         }
 
+        if let Some(transit) = self.transits_active_for_item_tx(&mut tx, item_id).await? {
+            if transit.status.blocks_checkout(loan.force) {
+                return Err(AppError::BusinessRule(
+                    "Item is in transit to another site and cannot be checked out".to_string(),
+                ));
+            }
+            if loan.force {
+                self.transits_cancel_active_for_item_tx(&mut tx, item_id, None)
+                    .await?;
+            }
+        }
+
         if (!borrowable || circulation_status.blocks_circulation()) && !loan.force {
             let msg = match circulation_status {
                 crate::models::circulation::CirculationStatus::Lost => {

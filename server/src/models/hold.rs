@@ -125,6 +125,9 @@ pub struct HoldDetails {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub item_id: Option<i64>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub pickup_site_id: Option<i64>,
     pub biblio: BiblioShort,
     pub user: Option<UserShort>,
     pub created_at: DateTime<Utc>,
@@ -158,7 +161,7 @@ pub struct CreateHold {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub biblio_id: Option<i64>,
-    /// Optional pickup site (#15 transit hook). Stored, unused until sites exist.
+    /// Pickup site (`sources.id`). When different from the copy's current site, fulfillment uses transit.
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub pickup_site_id: Option<i64>,

@@ -8,8 +8,8 @@ use utoipa_swagger_ui::SwaggerUi;
 use crate::api::{
     account_types, admin_config, audit, auth, biblios, collections, email_templates, equipment,
     events, fines, first_setup, health, holds, inventory, items, library_info, loans, maintenance,
-    metrics, opac, public_types, schedules, series, sources, stats, tasks, users, visitor_counts,
-    z3950,
+    metrics, opac, public_types, schedules, series, sources, stats, tasks, transits, users,
+    visitor_counts, z3950,
 };
 
 #[derive(OpenApi)]
@@ -103,6 +103,14 @@ use crate::api::{
         holds::list_holds_for_biblio,
         holds::list_holds_for_user,
         holds::cancel_hold,
+        transits::list_transits,
+        transits::get_transit,
+        transits::get_hold_transit,
+        transits::get_item_transit,
+        transits::create_hold_transit,
+        transits::ship_transit,
+        transits::receive_transit,
+        transits::cancel_transit,
         // Inventory (stocktaking)
         inventory::list_sessions,
         inventory::create_session,
@@ -305,6 +313,13 @@ use crate::api::{
             holds::CreateHoldRequest,
             holds::ListHoldsQuery,
             holds::HoldQuotaQuery,
+            crate::models::transit::ItemTransit,
+            crate::models::transit::TransitStatus,
+            crate::models::transit::CreateTransit,
+            crate::models::transit::TransitActionRequest,
+            crate::models::transit::TransitWithHold,
+            crate::models::dto::transits::ListTransitsQuery,
+            biblios::PaginatedResponse<crate::models::transit::ItemTransit>,
             biblios::PaginatedResponse<crate::models::hold::HoldDetails>,
             biblios::PaginatedResponse<crate::models::inventory::InventorySession>,
             biblios::PaginatedResponse<crate::models::inventory::InventoryScan>,
@@ -485,6 +500,7 @@ use crate::api::{
         (name = "loans", description = "Loan management"),
         (name = "fines", description = "Overdue fines: list, accrue, pay, waive, and rules"),
         (name = "holds", description = "Hold queue: copy-level (itemId) and title-level (biblioId)"),
+        (name = "transits", description = "Inter-site item transit for hold fulfillment"),
         (name = "inventory", description = "Stocktaking (inventory) sessions and barcode scans"),
         (name = "z3950", description = "Z39.50 catalog search"),
         (name = "stats", description = "Statistics"),

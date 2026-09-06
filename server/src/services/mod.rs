@@ -26,6 +26,7 @@ pub mod search;
 pub mod sources;
 pub mod stats;
 pub mod task_manager;
+pub mod transits;
 pub mod users;
 pub mod visitor_counts;
 pub mod z3950;
@@ -73,6 +74,7 @@ pub struct Services {
     pub search: Option<Arc<search::MeilisearchService>>,
     pub sources: sources::SourcesService,
     pub stats: stats::StatsService,
+    pub transits: transits::TransitsService,
     /// Background task registry (MARC imports, maintenance, …).
     pub tasks: task_manager::TaskManager,
     pub users: users::UsersService,
@@ -186,7 +188,7 @@ impl Services {
                 fines_service,
                 audit_service.clone(),
                 email.clone(),
-                event_bus,
+                event_bus.clone(),
             ),
             maintenance: maintenance_service::MaintenanceService::new(
                 catalog.clone(),
@@ -209,6 +211,12 @@ impl Services {
             search: search_service,
             sources: sources::SourcesService::new(repo.clone() as Arc<dyn SourcesRepository>),
             stats: stats::StatsService::new(repository.clone(), redis_service.clone()),
+            transits: transits::TransitsService::new(
+                repo.clone(),
+                audit_service.clone(),
+                event_bus,
+                email,
+            ),
             tasks: task_manager::TaskManager::new(redis_service.clone()),
             users: users::UsersService::new(repository.clone(), auth_config, redis_service.clone()),
             visitor_counts: visitor_counts::VisitorCountsService::new(

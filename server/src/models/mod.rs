@@ -22,6 +22,7 @@ pub mod secret;
 pub mod source;
 pub mod stats_builder;
 pub mod task;
+pub mod transit;
 pub mod user;
 pub mod visitor_count;
 

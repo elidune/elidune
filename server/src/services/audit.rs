@@ -189,6 +189,10 @@ pub mod event {
     pub const HOLD_EXPIRED: &str = "hold.expired";
     pub const HOLD_MAX_OVERRIDDEN: &str = "hold.max_overridden";
     pub const HOLD_POLICY_UPDATED: &str = "hold.policy_updated";
+    pub const TRANSIT_REQUESTED: &str = "transit.requested";
+    pub const TRANSIT_SHIPPED: &str = "transit.shipped";
+    pub const TRANSIT_RECEIVED: &str = "transit.received";
+    pub const TRANSIT_CANCELLED: &str = "transit.cancelled";
 
     // Fines
     pub const FINE_CREATED: &str = "fine.created";
@@ -405,6 +409,8 @@ mod tests {
     fn internal_audit_event_constants_have_expected_values() {
         assert_eq!(event::EMAIL_HOLD_READY_SENT, "email.hold_ready_sent");
         assert_eq!(event::HOLD_READY, "hold.ready");
+        assert_eq!(event::TRANSIT_SHIPPED, "transit.shipped");
+        assert_eq!(event::TRANSIT_RECEIVED, "transit.received");
         assert_eq!(
             event::SYSTEM_HOLD_EXPIRY_BATCH_COMPLETED,
             "system.hold_expiry_batch_completed"
