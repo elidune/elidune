@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BookOpen, Calendar, RotateCcw, AlertTriangle } from 'lucide-react';
 import { Card, CardHeader, Button, Badge, Pagination, ListSkeleton, QueryErrorBanner } from '@/components/common';
@@ -9,6 +9,7 @@ import type { Loan } from '@/types';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
+import { newIdempotencyKey } from '@/utils/idempotency';
 import { renewalsRemaining } from '@/utils/loanPolicy';
 
 const MY_LOANS_PAGE_SIZE = 20;
@@ -52,10 +53,14 @@ export default function MyLoansPage() {
     fetchLoans();
   }, [user?.id, loansPage, reloadToken, t]);
 
+  const renewInFlightRef = useRef(false);
+
   const handleRenewLoan = async (loanId: string) => {
+    if (renewInFlightRef.current) return;
+    renewInFlightRef.current = true;
     setRenewError('');
     try {
-      await api.renewLoan(loanId);
+      await api.renewLoan(loanId, newIdempotencyKey());
       if (user?.id) {
         const res = await api.getUserLoans(user.id, {
           page: loansPage,
@@ -67,6 +72,8 @@ export default function MyLoansPage() {
     } catch (error) {
       console.error('Error renewing loan:', error);
       setRenewError(getApiErrorMessage(error, t) || t('loans.errorRenewingLoan'));
+    } finally {
+      renewInFlightRef.current = false;
     }
   };
 

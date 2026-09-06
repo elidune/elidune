@@ -26,6 +26,7 @@ import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
 import { formControlClass, formLabelClass, formChoiceLabelClass } from '@/utils/formControl';
 import { deferFromEffect } from '@/utils/deferFromEffect';
+import { newIdempotencyKey } from '@/utils/idempotency';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import { isAdmin } from '@/types';
@@ -229,7 +230,7 @@ export default function LoansPage() {
     async (loanId: string) => {
       setOverdueLoanAction({ loanId, op: 'renew' });
       try {
-        await api.renewLoan(loanId);
+        await api.renewLoan(loanId, newIdempotencyKey());
         setOverdueError(null);
         await loadOverdue();
         showToast({ variant: 'success', message: t('loans.renewSuccess') });
@@ -452,7 +453,7 @@ export default function LoansPage() {
         userId: selectedUser.id,
         itemIdentification: specimenBarcode.trim(),
         force: force || undefined,
-      });
+      }, newIdempotencyKey());
       const res = await api.getUserLoans(selectedUser.id, {
         page: loansPage,
         perPage: BORROW_LOANS_PAGE_SIZE,
@@ -638,7 +639,7 @@ export default function LoansPage() {
     setBorrowLoanAction({ loanId, op: 'renew' });
     setRenewError('');
     try {
-      await api.renewLoan(loanId);
+      await api.renewLoan(loanId, newIdempotencyKey());
       if (selectedUser) {
         const res = await api.getUserLoans(selectedUser.id, {
           page: loansPage,

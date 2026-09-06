@@ -129,9 +129,24 @@ impl TestApp {
         body: &serde_json::Value,
         auth_token: Option<&str>,
     ) -> (StatusCode, serde_json::Value) {
+        self.post_json_with_headers(uri, body, auth_token, &[])
+            .await
+    }
+
+    /// POST JSON with extra headers (e.g. `Idempotency-Key`).
+    pub async fn post_json_with_headers(
+        &self,
+        uri: &str,
+        body: &serde_json::Value,
+        auth_token: Option<&str>,
+        headers: &[(&str, &str)],
+    ) -> (StatusCode, serde_json::Value) {
         let mut builder = Request::builder().method("POST").uri(uri);
         if let Some(token) = auth_token {
             builder = builder.header("Authorization", format!("Bearer {token}"));
+        }
+        for (name, value) in headers {
+            builder = builder.header(*name, *value);
         }
         let response = self
             .request(
@@ -183,9 +198,22 @@ impl TestApp {
         uri: &str,
         auth_token: Option<&str>,
     ) -> (StatusCode, serde_json::Value) {
+        self.post_empty_with_headers(uri, auth_token, &[]).await
+    }
+
+    /// POST empty body with extra headers (e.g. `Idempotency-Key`).
+    pub async fn post_empty_with_headers(
+        &self,
+        uri: &str,
+        auth_token: Option<&str>,
+        headers: &[(&str, &str)],
+    ) -> (StatusCode, serde_json::Value) {
         let mut builder = Request::builder().method("POST").uri(uri);
         if let Some(token) = auth_token {
             builder = builder.header("Authorization", format!("Bearer {token}"));
+        }
+        for (name, value) in headers {
+            builder = builder.header(*name, *value);
         }
         let response = self.request(builder.body(Body::empty()).unwrap()).await;
         let status = response.status();

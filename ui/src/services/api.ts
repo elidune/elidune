@@ -1,4 +1,5 @@
 import axios, { AxiosError, AxiosInstance } from 'axios';
+import { IDEMPOTENCY_HEADER, newIdempotencyKey } from '@/utils/idempotency';
 import type {
   LoginRequest,
   LoginResponse,
@@ -713,13 +714,19 @@ class ApiService {
     }
   }
 
+  private idempotencyConfig(idempotencyKey?: string) {
+    return {
+      headers: { [IDEMPOTENCY_HEADER]: idempotencyKey ?? newIdempotencyKey() },
+    };
+  }
+
   async createLoan(data: {
     userId: string;
     itemId?: string;
     itemIdentification?: string;
     force?: boolean;
-  }): Promise<{ id: string; expiryAt: string; message: string }> {
-    const response = await this.client.post('/loans', data);
+  }, idempotencyKey?: string): Promise<{ id: string; expiryAt: string; message: string }> {
+    const response = await this.client.post('/loans', data, this.idempotencyConfig(idempotencyKey));
     return response.data;
   }
 
@@ -728,8 +735,8 @@ class ApiService {
     return response.data;
   }
 
-  async renewLoan(loanId: string): Promise<{ id: string; expiryAt: string; message: string }> {
-    const response = await this.client.post(`/loans/${loanId}/renew`);
+  async renewLoan(loanId: string, idempotencyKey?: string): Promise<{ id: string; expiryAt: string; message: string }> {
+    const response = await this.client.post(`/loans/${loanId}/renew`, undefined, this.idempotencyConfig(idempotencyKey));
     return response.data;
   }
 
@@ -738,8 +745,12 @@ class ApiService {
     return response.data;
   }
 
-  async renewLoanByBarcode(itemBarcode: string): Promise<{ id: string; expiryAt: string; message: string }> {
-    const response = await this.client.post(`/loans/items/${itemBarcode}/renew`);
+  async renewLoanByBarcode(itemBarcode: string, idempotencyKey?: string): Promise<{ id: string; expiryAt: string; message: string }> {
+    const response = await this.client.post(
+      `/loans/items/${itemBarcode}/renew`,
+      undefined,
+      this.idempotencyConfig(idempotencyKey),
+    );
     return response.data;
   }
 
