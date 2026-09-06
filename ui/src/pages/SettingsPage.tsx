@@ -5,14 +5,17 @@ import { Save, Plus, Trash2, Server, Archive, Pencil, Merge, Package, Check, X, 
 import { useAuth } from '@/contexts/AuthContext';
 import { LibrarySettingsPanel } from '@/pages/LibraryPage';
 import FinePolicySettings from '@/components/settings/FinePolicySettings';
+import HoldsPolicySettings from '@/components/settings/HoldsPolicySettings';
 import { Card, CardHeader, Button, Input, Badge, ConfirmDialog } from '@/components/common';
 import api from '@/services/api';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
 import { deferFromEffect } from '@/utils/deferFromEffect';
 import { formControlClass, formLabelClass, formChoiceLabelClass } from '@/utils/formControl';
 import { moneyAmountToInput, parseMoneyAmountInput } from '@/utils/finePolicy';
+import { holdCapToInput, parseHoldCapInput } from '@/utils/holdsPolicy';
 import { isAdmin } from '@/types';
 import { useFinePolicyQuery } from '@/hooks/settings/useFinePolicyQuery';
+import { useHoldsPolicyQuery } from '@/hooks/settings/useHoldsPolicyQuery';
 import type {
   Settings,
   LoanSettings,
@@ -519,6 +522,7 @@ function SourceEditor() {
 function PublicTypesEditor() {
   const { t } = useTranslation();
   const { data: finePolicy } = useFinePolicyQuery();
+  const { data: holdsPolicy } = useHoldsPolicyQuery();
   const [publicTypes, setPublicTypes] = useState<PublicType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -743,6 +747,7 @@ function PublicTypesEditor() {
                     <PublicTypeEditForm
                       pt={pt}
                       globalThreshold={finePolicy?.unpaidFineThreshold}
+                      globalMaxActiveHolds={holdsPolicy?.maxActiveHolds}
                       onSave={(data) => handleUpdate(pt.id, data)}
                     />
                   ) : (
@@ -789,12 +794,16 @@ function PublicTypeEditForm({
   pt,
   onSave,
   globalThreshold,
+  globalMaxActiveHolds,
 }: {
   pt: PublicType;
   onSave: (data: UpdatePublicType) => void;
   globalThreshold?: string;
+  globalMaxActiveHolds?: number;
 }) {
   const { t } = useTranslation();
+  const [capError, setCapError] = useState<string | null>(null);
+  const [thresholdError, setThresholdError] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: pt.name,
     label: pt.label,
@@ -805,8 +814,8 @@ function PublicTypeEditForm({
     maxLoans: pt.maxLoans ?? '',
     loanDurationDays: pt.loanDurationDays ?? '',
     unpaidFineThreshold: moneyAmountToInput(pt.unpaidFineThreshold),
+    maxActiveHolds: holdCapToInput(pt.maxActiveHolds),
   });
-  const [thresholdError, setThresholdError] = useState<string | null>(null);
 
   return (
     <div className="space-y-3">
@@ -928,6 +937,37 @@ function PublicTypeEditForm({
             </p>
           )}
         </div>
+        <div className="flex flex-col gap-1 sm:col-span-2">
+          <label className={formLabelClass({ marginBottom: false })}>
+            {t('settings.publicTypes.maxActiveHolds')}
+          </label>
+          <input
+            type="number"
+            min="1"
+            max="1000"
+            step="1"
+            inputMode="numeric"
+            placeholder={
+              globalMaxActiveHolds != null
+                ? t('settings.publicTypes.maxActiveHoldsInherit', { count: globalMaxActiveHolds })
+                : t('settings.publicTypes.maxActiveHoldsInheritEmpty')
+            }
+            value={form.maxActiveHolds}
+            onChange={(e) => {
+              setCapError(null);
+              setForm((f) => ({ ...f, maxActiveHolds: e.target.value }));
+            }}
+            className={formControlClass({ error: !!capError })}
+          />
+          <p className="text-xs text-gray-500 dark:text-gray-400">
+            {t('settings.publicTypes.maxActiveHoldsHelp')}
+          </p>
+          {capError && (
+            <p className="text-xs text-red-600 dark:text-red-400" role="alert">
+              {capError}
+            </p>
+          )}
+        </div>
       </div>
 
       <div className="flex justify-end">
@@ -936,9 +976,14 @@ function PublicTypeEditForm({
           variant="primary"
           leftIcon={<Save className="h-4 w-4" />}
           onClick={() => {
-            const parsed = parseMoneyAmountInput(form.unpaidFineThreshold, true);
-            if (!parsed.ok) {
+            const parsedThreshold = parseMoneyAmountInput(form.unpaidFineThreshold, true);
+            if (!parsedThreshold.ok) {
               setThresholdError(t('settings.finePolicy.invalidAmount'));
+              return;
+            }
+            const parsedCap = parseHoldCapInput(form.maxActiveHolds, true);
+            if (!parsedCap.ok) {
+              setCapError(t('settings.holdsPolicy.invalidCap'));
               return;
             }
             const payload: UpdatePublicType = {
@@ -951,8 +996,11 @@ function PublicTypeEditForm({
               maxLoans: form.maxLoans ? Number(form.maxLoans) : null,
               loanDurationDays: form.loanDurationDays ? Number(form.loanDurationDays) : null,
             };
-            if (parsed.value != null) {
-              payload.unpaidFineThreshold = parsed.value;
+            if (parsedThreshold.value != null) {
+              payload.unpaidFineThreshold = parsedThreshold.value;
+            }
+            if (parsedCap.value != null) {
+              payload.maxActiveHolds = parsedCap.value;
             }
             onSave(payload);
           }}
@@ -1437,7 +1485,9 @@ function LoanOverridesForm({
 function PublicTypeCreateModal({ onSave, onCancel }: { onSave: (data: CreatePublicType) => void; onCancel: () => void }) {
   const { t } = useTranslation();
   const { data: finePolicy } = useFinePolicyQuery();
+  const { data: holdsPolicy } = useHoldsPolicyQuery();
   const [thresholdError, setThresholdError] = useState<string | null>(null);
+  const [capError, setCapError] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: '',
     label: '',
@@ -1448,14 +1498,20 @@ function PublicTypeCreateModal({ onSave, onCancel }: { onSave: (data: CreatePubl
     maxLoans: '',
     loanDurationDays: '',
     unpaidFineThreshold: '',
+    maxActiveHolds: '',
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name.trim() || !form.label.trim()) return;
-    const parsed = parseMoneyAmountInput(form.unpaidFineThreshold, true);
-    if (!parsed.ok) {
+    const parsedThreshold = parseMoneyAmountInput(form.unpaidFineThreshold, true);
+    if (!parsedThreshold.ok) {
       setThresholdError(t('settings.finePolicy.invalidAmount'));
+      return;
+    }
+    const parsedCap = parseHoldCapInput(form.maxActiveHolds, true);
+    if (!parsedCap.ok) {
+      setCapError(t('settings.holdsPolicy.invalidCap'));
       return;
     }
     const payload: CreatePublicType = {
@@ -1468,8 +1524,11 @@ function PublicTypeCreateModal({ onSave, onCancel }: { onSave: (data: CreatePubl
       maxLoans: form.maxLoans ? Number(form.maxLoans) : null,
       loanDurationDays: form.loanDurationDays ? Number(form.loanDurationDays) : null,
     };
-    if (parsed.value != null) {
-      payload.unpaidFineThreshold = parsed.value;
+    if (parsedThreshold.value != null) {
+      payload.unpaidFineThreshold = parsedThreshold.value;
+    }
+    if (parsedCap.value != null) {
+      payload.maxActiveHolds = parsedCap.value;
     }
     onSave(payload);
   };
@@ -1509,6 +1568,27 @@ function PublicTypeCreateModal({ onSave, onCancel }: { onSave: (data: CreatePubl
             onChange={(e) => {
               setThresholdError(null);
               setForm((f) => ({ ...f, unpaidFineThreshold: e.target.value }));
+            }}
+          />
+          <Input
+            label={t('settings.publicTypes.maxActiveHolds')}
+            type="number"
+            inputMode="numeric"
+            min="1"
+            max="1000"
+            step="1"
+            value={form.maxActiveHolds}
+            error={capError ?? undefined}
+            hint={
+              holdsPolicy
+                ? t('settings.publicTypes.maxActiveHoldsInherit', {
+                    count: holdsPolicy.maxActiveHolds,
+                  })
+                : t('settings.publicTypes.maxActiveHoldsHelp')
+            }
+            onChange={(e) => {
+              setCapError(null);
+              setForm((f) => ({ ...f, maxActiveHolds: e.target.value }));
             }}
           />
           <div className="flex justify-end gap-2 pt-2">
@@ -1795,6 +1875,8 @@ export default function SettingsPage() {
           </div>
         </Card>
       )}
+
+      {activeTab === 'loans' && <HoldsPolicySettings />}
 
       {/* Loan settings */}
       {activeTab === 'loans' && settings && (

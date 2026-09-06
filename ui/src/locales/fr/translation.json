@@ -343,6 +343,8 @@
     "hintBorrowed": "Cet exemplaire est actuellement emprunté. Vous serez averti lorsqu'il sera disponible pour vous.",
     "hintQueue": "D'autres réservations sont en file ({{count}} en attente). Vous serez notifié à votre tour ; votre position sera environ la {{position}}e.",
     "hintNotifyWhenReady": "Vous serez notifié lorsque l'exemplaire sera disponible pour vous.",
+    "quotaRemaining": "{{remaining}} créneau(x) de réservation restant(s) sur {{max}}.",
+    "quotaFull": "Cet usager a atteint le plafond de réservations ({{active}}/{{max}}).",
     "reserveFor": "Réservation pour",
     "forMe": "Pour moi",
     "forUser": "Pour un usager",
@@ -1098,7 +1100,11 @@
       "unpaidFineThreshold": "Seuil d'amendes impayées (dérogation)",
       "unpaidFineThresholdInherit": "Vide = hériter du seuil global ({{amount}})",
       "unpaidFineThresholdInheritEmpty": "Vide = hériter du seuil global",
-      "unpaidFineThresholdHelp": "Facultatif. S'il est renseigné, ce public utilise sa propre limite. Un solde impayé au-dessus du montant bloque le prêt et le renouvellement sauf forçage par le personnel. Vide hérite du seuil global (une dérogation existante est conservée si le champ reste vide à l'enregistrement)."
+      "unpaidFineThresholdHelp": "Facultatif. S'il est renseigné, ce public utilise sa propre limite. Un solde impayé au-dessus du montant bloque le prêt et le renouvellement sauf forçage par le personnel. Vide hérite du seuil global (une dérogation existante est conservée si le champ reste vide à l'enregistrement).",
+      "maxActiveHolds": "Plafond de réservations actives (dérogation)",
+      "maxActiveHoldsInherit": "Vide = hériter du plafond global ({{count}})",
+      "maxActiveHoldsInheritEmpty": "Vide = hériter du plafond global",
+      "maxActiveHoldsHelp": "Facultatif. S'il est renseigné, ce public a son propre plafond de réservations en attente/disponibles. Vide hérite du défaut global (une dérogation existante est conservée si le champ reste vide à l'enregistrement)."
     },
     "finePolicy": {
       "title": "Seuil d'amendes impayées",
@@ -1108,6 +1114,15 @@
       "invalidAmount": "Saisissez un montant valide supérieur ou égal à 0.",
       "loadError": "Impossible de charger le seuil d'amendes impayées.",
       "saveSuccess": "Seuil d'amendes impayées enregistré"
+    },
+    "holdsPolicy": {
+      "title": "Plafond de réservations simultanées",
+      "help": "Un usager peut avoir au plus ce nombre de réservations en attente ou disponibles. Les types de public peuvent déroger à ce défaut. Le personnel peut forcer au-delà du plafond.",
+      "capHint": "Entier de 1 à 1000. Défaut : 20.",
+      "maxActiveHolds": "Réservations actives maximum",
+      "invalidCap": "Saisissez un entier entre 1 et 1000.",
+      "loadError": "Impossible de charger le plafond de réservations.",
+      "saveSuccess": "Plafond de réservations enregistré"
     },
     "accountTypes": {
       "title": "Types de compte",
