@@ -17,6 +17,7 @@ import {
 } from '@/components/common';
 import HoldMobileCard from '@/components/holds/HoldMobileCard';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
+import HoldExpiresCell from '@/components/holds/HoldExpiresCell';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
@@ -78,27 +79,6 @@ export default function MyHoldsPage() {
     return <Navigate to="/" replace />;
   }
 
-  const expiresCell = (r: Hold) => {
-    const line = r.expiresAt ? new Date(r.expiresAt).toLocaleString(i18n.language) : '—';
-    const ready = r.status === 'ready' && r.expiresAt;
-    return (
-      <div
-        className={
-          ready
-            ? 'rounded-md px-2 py-1.5 -mx-1 bg-amber-50 dark:bg-amber-900/25 border border-amber-200 dark:border-amber-800'
-            : ''
-        }
-      >
-        <span className={ready ? 'font-semibold text-amber-900 dark:text-amber-100' : ''}>{line}</span>
-        {ready && (
-          <p className="text-xs mt-1 text-amber-800 dark:text-amber-200/90 leading-snug">
-            {t('holds.pickupDeadlineHint')}
-          </p>
-        )}
-      </div>
-    );
-  };
-
   const cancelCell = (r: Hold) =>
     r.status === 'pending' || r.status === 'ready' ? (
       <Button
@@ -126,7 +106,7 @@ export default function MyHoldsPage() {
     {
       key: 'position',
       header: t('holds.position'),
-      render: (r: Hold) => r.position,
+      render: (r: Hold) => t('holds.queuePosition', { position: r.position }),
     },
     {
       key: 'created',
@@ -136,7 +116,7 @@ export default function MyHoldsPage() {
     {
       key: 'expires',
       header: t('holds.expiresAt'),
-      render: expiresCell,
+      render: (r: Hold) => <HoldExpiresCell hold={r} emphasizePickup />,
     },
     {
       key: 'actions',

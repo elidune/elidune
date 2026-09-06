@@ -365,6 +365,17 @@
     "patronFilterLegend": "Filtro de lista",
     "patronCount": "{{total}} reserva(s)",
     "patronAllSectionTitle": "Historial",
+    "staffFilterLegend": "Filtro de estado de reservas",
+    "filterAllActive": "Todas las activas",
+    "filterReady": "Listas",
+    "filterPending": "Pendientes",
+    "filterExpiringSoon": "Caducan pronto",
+    "queuePosition": "Posición {{position}} en la cola",
+    "scanCopyBarcode": "Escanear código de barras del ejemplar",
+    "scanCopyBarcodeHint": "Escanee un ejemplar y luego elija un usuario. También puede buscar en el catálogo más abajo.",
+    "copyBarcodePlaceholder": "Escanear o escribir un código de barras",
+    "copyBarcodeNotFound": "No se encontró ningún ejemplar para el código {{barcode}}.",
+    "noMatchingHolds": "Ninguna reserva coincide con este filtro.",
     "statuses": {
       "pending": "Pendiente",
       "ready": "Listo para recogida",
@@ -806,7 +817,12 @@
     "sendRemindersConfirm": "¿Enviar ahora los correos de recordatorio por retraso? Los usuarios elegibles recibirán un correo agrupado (según las reglas del servidor).",
     "loanDate": "Fecha de préstamo",
     "count_plural": "{{count}} préstamos",
-    "returnDate": "Fecha de devolución"
+    "returnDate": "Fecha de devolución",
+    "dueToday": "Vence hoy",
+    "dueInDays": "{{count}} día",
+    "dueInDays_plural": "{{count}} días",
+    "overdueDays": "Atrasado ({{count}})",
+    "renewRemaining": "Renovar ({{count}} restantes)"
   },
   "settings": {
     "server": {
@@ -1341,7 +1357,9 @@
       "verify": "Verificar",
       "useCode": "Usar código de autenticación",
       "useRecovery": "Usar código de recuperación",
-      "backToLogin": "Volver al inicio de sesión"
+      "backToLogin": "Volver al inicio de sesión",
+      "codeLegend": "Código de verificación",
+      "digitLabel": "Dígito {{n}} de 6"
     },
     "invalidCredentials": "Credenciales incorrectas",
     "loginTitle": "Elidune",

@@ -365,6 +365,17 @@
     "patronFilterLegend": "Affichage de la liste",
     "patronCount": "{{total}} réservation(s)",
     "patronAllSectionTitle": "Historique",
+    "staffFilterLegend": "Filtre de statut des réservations",
+    "filterAllActive": "Toutes en cours",
+    "filterReady": "Prêtes",
+    "filterPending": "En attente",
+    "filterExpiringSoon": "Expire bientôt",
+    "queuePosition": "Position {{position}} dans la file",
+    "scanCopyBarcode": "Scanner le code-barres de l'exemplaire",
+    "scanCopyBarcodeHint": "Scannez un exemplaire, puis choisissez un usager. Vous pouvez aussi chercher dans le catalogue ci-dessous.",
+    "copyBarcodePlaceholder": "Scanner ou saisir un code-barres",
+    "copyBarcodeNotFound": "Aucun exemplaire trouvé pour le code-barres {{barcode}}.",
+    "noMatchingHolds": "Aucune réservation ne correspond à ce filtre.",
     "statuses": {
       "pending": "En attente",
       "ready": "Disponible au retrait",
@@ -806,7 +817,12 @@
     "sendRemindersConfirm": "Envoyer maintenant les e-mails de rappel pour les retards ? Les usagers éligibles recevront un e-mail regroupé (selon les règles du serveur).",
     "loanDate": "Date emprunt",
     "count_plural": "{{count}} emprunts",
-    "returnDate": "Date retour"
+    "returnDate": "Date retour",
+    "dueToday": "À rendre aujourd'hui",
+    "dueInDays": "{{count}} jour",
+    "dueInDays_plural": "{{count}} jours",
+    "overdueDays": "En retard ({{count}})",
+    "renewRemaining": "Renouveler ({{count}} restant(s))"
   },
   "settings": {
     "server": {
@@ -1341,7 +1357,9 @@
       "verify": "Vérifier",
       "useCode": "Utiliser le code d'authentification",
       "useRecovery": "Utiliser un code de récupération",
-      "backToLogin": "Retour à la connexion"
+      "backToLogin": "Retour à la connexion",
+      "codeLegend": "Code de vérification",
+      "digitLabel": "Chiffre {{n}} sur 6"
     },
     "invalidCredentials": "Identifiants incorrects",
     "loginTitle": "Elidune",
