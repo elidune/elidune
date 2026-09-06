@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Save } from 'lucide-react';
 import { Card, CardHeader, Button, Input } from '@/components/common';
@@ -6,6 +6,7 @@ import { useToast } from '@/contexts/ToastContext';
 import { useFinePolicyQuery, useUpdateFinePolicyMutation } from '@/hooks/settings/useFinePolicyQuery';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { moneyAmountToInput, parseMoneyAmountInput } from '@/utils/finePolicy';
+import type { CirculationFinePolicy } from '@/types';
 
 export default function FinePolicySettings() {
   const { t } = useTranslation();
@@ -14,13 +15,14 @@ export default function FinePolicySettings() {
   const updatePolicy = useUpdateFinePolicyMutation();
   const [draft, setDraft] = useState('0.00');
   const [fieldError, setFieldError] = useState<string | null>(null);
-
-  useEffect(() => {
+  const [syncedPolicy, setSyncedPolicy] = useState<CirculationFinePolicy | undefined>(data);
+  if (data !== syncedPolicy) {
+    setSyncedPolicy(data);
     if (data) {
       setDraft(moneyAmountToInput(data.unpaidFineThreshold) || '0.00');
       setFieldError(null);
     }
-  }, [data]);
+  }
 
   const handleSave = async () => {
     const parsed = parseMoneyAmountInput(draft, false);
