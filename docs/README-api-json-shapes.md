@@ -651,6 +651,47 @@ Global unpaid-balance gate for **checkout** and **renew**. Default `0` blocks an
 
 When the patron is over the threshold, `POST /loans` and `POST /loans/:id/renew` return **422** with a desk-facing message (amount due + that staff can retry with `force=true`). A successful force override writes audit event `loan.fine_threshold_overridden` (`actor`, `unpaid`, `threshold`, `operation`).
 
+### Accrue (staff)
+
+| Method | Path | Body | Response |
+|--------|------|------|----------|
+| `POST` | `/loans/:id/fines/accrue` | — | `AccrueLoanResult` |
+| `POST` | `/users/:id/fines/accrue` | — | `AccrueBatchReport` |
+| `POST` | `/fines/accrue` | `{ "userId": "…" }` optional | `AccrueBatchReport` |
+
+Policy: **one open (`pending`/`partial`) fine per loan**. Repeating accrue recalculates `amount` from overdue days vs the rule (grace, daily rate, cap). It does not insert a second open row.
+
+`outcome` values: `created` | `updated` | `unchanged` | `skippedGrace` | `skippedNotOverdue` | `skippedReturned` | `skippedDeletedUser`
+
+Single-loan accrue returns **422** for skip outcomes (grace, not overdue, returned, deleted patron). Batch endpoints always return **200** and count skips.
+
+### `AccrueLoanResult`
+```json
+{
+  "outcome": "created",
+  "loanId": "927364819265437700",
+  "userId": "927364819265437697",
+  "fine": { "id": "927364819265437702", "amount": "3.50", "status": "pending" },
+  "breakdown": {
+    "overdueDays": 10,
+    "graceDays": 3,
+    "billableDays": 7,
+    "dailyRate": "0.50",
+    "maxAmount": "10.00",
+    "amount": "3.50",
+    "capped": false,
+    "mediaType": "printedText"
+  }
+}
+```
+
+### `AccrueBatchReport`
+```json
+{ "created": 1, "updated": 0, "unchanged": 0, "skipped": 0, "errors": [], "results": [...AccrueLoanResult...] }
+```
+
+A scheduled job (`reminders.accrue_fines`, same `send_time` as overdue reminders) runs the all-overdue batch and writes `system.fines_accrual_batch_completed`.
+
 ---
 
 ## Inventory (`/api/v1/inventory`)

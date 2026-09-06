@@ -106,6 +106,10 @@ fn default_reminder_time() -> String {
     "09:00".to_string()
 }
 
+fn default_accrue_fines() -> bool {
+    true
+}
+
 fn default_smtp_throttle_ms() -> u64 {
     100
 }
@@ -121,6 +125,9 @@ pub struct RemindersConfig {
     /// Time of day to send reminders automatically (HH:MM, 24h)
     #[serde(default = "default_reminder_time")]
     pub send_time: String,
+    /// When true, the scheduler accrues overdue fines after the reminder clock.
+    #[serde(default = "default_accrue_fines")]
+    pub accrue_fines: bool,
     /// Delay in milliseconds between each email send to avoid SMTP rate limits
     #[serde(default = "default_smtp_throttle_ms")]
     pub smtp_throttle_ms: u64,
@@ -149,6 +156,7 @@ impl Default for RemindersConfig {
             enabled: true,
             frequency_days: 7,
             send_time: "09:00".to_string(),
+            accrue_fines: true,
             smtp_throttle_ms: 100,
             overridable: false,
         }

@@ -178,6 +178,9 @@ Loan checkout, return, renew, and batch loan operations require **`holds_rights 
 | `PUT /fines/rules` | Staff |
 | `GET /fines/policy` | JWT + `require_read_settings()` |
 | `PUT /fines/policy` | Staff |
+| `POST /loans/:id/fines/accrue` | Staff |
+| `POST /users/:id/fines/accrue` | Staff |
+| `POST /fines/accrue` | Staff |
 | `POST /fines/:id/pay` | Staff |
 | `POST /fines/:id/waive` | Staff |
 

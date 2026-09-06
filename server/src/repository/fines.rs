@@ -3,11 +3,16 @@
 use async_trait::async_trait;
 use rust_decimal::Decimal;
 use snowflaked::Generator;
+use sqlx::Row;
 
 use super::Repository;
 use crate::{
     error::{AppError, AppResult},
-    models::fine::{Fine, FineRule},
+    models::{
+        dto::fines::AccrueOutcome,
+        fine::{Fine, FineAccrualLoan, FineRule},
+        user::UserStatus,
+    },
 };
 
 #[async_trait]
@@ -35,6 +40,19 @@ pub trait FinesRepository: Send + Sync {
     async fn fines_get_unpaid_threshold(&self, public_type_id: Option<i64>) -> AppResult<Decimal>;
     async fn fines_get_global_unpaid_threshold(&self) -> AppResult<Decimal>;
     async fn fines_set_global_unpaid_threshold(&self, threshold: Decimal) -> AppResult<Decimal>;
+    async fn fines_get_open_for_loan(&self, loan_id: i64) -> AppResult<Option<Fine>>;
+    async fn fines_upsert_open(
+        &self,
+        loan_id: i64,
+        user_id: i64,
+        amount: Decimal,
+        notes: Option<&str>,
+    ) -> AppResult<(Fine, AccrueOutcome)>;
+    async fn fines_get_accrual_loan(&self, loan_id: i64) -> AppResult<FineAccrualLoan>;
+    async fn fines_list_accrual_loans(
+        &self,
+        user_id: Option<i64>,
+    ) -> AppResult<Vec<FineAccrualLoan>>;
 }
 
 #[async_trait::async_trait]
@@ -83,6 +101,27 @@ impl FinesRepository for Repository {
     }
     async fn fines_set_global_unpaid_threshold(&self, threshold: Decimal) -> AppResult<Decimal> {
         Repository::fines_set_global_unpaid_threshold(self, threshold).await
+    }
+    async fn fines_get_open_for_loan(&self, loan_id: i64) -> AppResult<Option<Fine>> {
+        Repository::fines_get_open_for_loan(self, loan_id).await
+    }
+    async fn fines_upsert_open(
+        &self,
+        loan_id: i64,
+        user_id: i64,
+        amount: Decimal,
+        notes: Option<&str>,
+    ) -> AppResult<(Fine, AccrueOutcome)> {
+        Repository::fines_upsert_open(self, loan_id, user_id, amount, notes).await
+    }
+    async fn fines_get_accrual_loan(&self, loan_id: i64) -> AppResult<FineAccrualLoan> {
+        Repository::fines_get_accrual_loan(self, loan_id).await
+    }
+    async fn fines_list_accrual_loans(
+        &self,
+        user_id: Option<i64>,
+    ) -> AppResult<Vec<FineAccrualLoan>> {
+        Repository::fines_list_accrual_loans(self, user_id).await
     }
 }
 
@@ -331,5 +370,173 @@ impl Repository {
         .fetch_one(&self.pool)
         .await?;
         Ok(total)
+    }
+
+    /// Open (pending/partial) fine for a loan, if any.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn fines_get_open_for_loan(&self, loan_id: i64) -> AppResult<Option<Fine>> {
+        let row = sqlx::query_as::<_, Fine>(
+            "SELECT * FROM fines WHERE loan_id = $1 AND status IN ('pending','partial') LIMIT 1",
+        )
+        .bind(loan_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    /// Insert or refresh the single open fine for a loan.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn fines_upsert_open(
+        &self,
+        loan_id: i64,
+        user_id: i64,
+        amount: Decimal,
+        notes: Option<&str>,
+    ) -> AppResult<(Fine, AccrueOutcome)> {
+        if let Some(existing) = self.fines_get_open_for_loan(loan_id).await? {
+            if existing.amount == amount && existing.notes.as_deref() == notes {
+                return Ok((existing, AccrueOutcome::Unchanged));
+            }
+            let updated = self
+                .fines_update_open_amount(existing.id, amount, notes)
+                .await?;
+            return Ok((updated, AccrueOutcome::Updated));
+        }
+
+        match self.fines_create(loan_id, user_id, amount, notes).await {
+            Ok(created) => Ok((created, AccrueOutcome::Created)),
+            Err(AppError::Database(e)) if is_open_fine_unique_violation(&e) => {
+                let existing = self
+                    .fines_get_open_for_loan(loan_id)
+                    .await?
+                    .ok_or_else(|| {
+                        AppError::Conflict(format!(
+                            "Open fine for loan {loan_id} raced and then disappeared"
+                        ))
+                    })?;
+                if existing.amount == amount && existing.notes.as_deref() == notes {
+                    return Ok((existing, AccrueOutcome::Unchanged));
+                }
+                let updated = self
+                    .fines_update_open_amount(existing.id, amount, notes)
+                    .await?;
+                Ok((updated, AccrueOutcome::Updated))
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn fines_update_open_amount(
+        &self,
+        id: i64,
+        amount: Decimal,
+        notes: Option<&str>,
+    ) -> AppResult<Fine> {
+        sqlx::query_as::<_, Fine>(
+            r#"
+            UPDATE fines SET
+                amount = $2,
+                notes  = COALESCE($3, notes),
+                status = CASE
+                    WHEN paid_amount >= $2 THEN 'paid'
+                    WHEN paid_amount > 0 THEN 'partial'
+                    ELSE 'pending'
+                END,
+                paid_at = CASE WHEN paid_amount >= $2 THEN NOW() ELSE NULL END
+            WHERE id = $1
+            RETURNING *
+            "#,
+        )
+        .bind(id)
+        .bind(amount)
+        .bind(notes)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Fine {id} not found")))
+    }
+
+    /// Loan + media type + patron status for a single accrue.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn fines_get_accrual_loan(&self, loan_id: i64) -> AppResult<FineAccrualLoan> {
+        let row = sqlx::query(
+            r#"
+            SELECT
+                l.id AS loan_id,
+                l.user_id,
+                l.expiry_at,
+                l.returned_at,
+                b.media_type,
+                u.status AS user_status
+            FROM loans l
+            JOIN items it ON l.item_id = it.id
+            JOIN biblios b ON it.biblio_id = b.id
+            JOIN users u ON l.user_id = u.id
+            WHERE l.id = $1
+            "#,
+        )
+        .bind(loan_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Loan {loan_id} not found")))?;
+
+        Ok(accrual_loan_from_row(&row))
+    }
+
+    /// Unreturned overdue loans eligible for accrual (skips deleted patrons).
+    #[tracing::instrument(skip(self), err)]
+    pub async fn fines_list_accrual_loans(
+        &self,
+        user_id: Option<i64>,
+    ) -> AppResult<Vec<FineAccrualLoan>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                l.id AS loan_id,
+                l.user_id,
+                l.expiry_at,
+                l.returned_at,
+                b.media_type,
+                u.status AS user_status
+            FROM loans l
+            JOIN items it ON l.item_id = it.id
+            JOIN biblios b ON it.biblio_id = b.id
+            JOIN users u ON l.user_id = u.id
+            WHERE l.returned_at IS NULL
+              AND l.expiry_at < NOW()
+              AND (u.status IS NULL OR u.status <> 'deleted')
+              AND ($1::bigint IS NULL OR l.user_id = $1)
+            ORDER BY l.expiry_at ASC
+            "#,
+        )
+        .bind(user_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.iter().map(accrual_loan_from_row).collect())
+    }
+}
+
+fn accrual_loan_from_row(row: &sqlx::postgres::PgRow) -> FineAccrualLoan {
+    let status: Option<String> = row.get("user_status");
+    FineAccrualLoan {
+        loan_id: row.get("loan_id"),
+        user_id: row.get("user_id"),
+        expiry_at: row.get("expiry_at"),
+        returned_at: row.get("returned_at"),
+        media_type: row.get("media_type"),
+        user_status: status
+            .as_deref()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(UserStatus::Active),
+    }
+}
+
+fn is_open_fine_unique_violation(err: &sqlx::Error) -> bool {
+    match err {
+        sqlx::Error::Database(db) => {
+            db.code().as_deref() == Some("23505")
+                && db.constraint() == Some("idx_fines_one_open_per_loan")
+        }
+        _ => false,
     }
 }

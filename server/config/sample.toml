@@ -49,6 +49,7 @@ z3950_cache_ttl_seconds = 604800  # 7 days in seconds
 enabled = true
 frequency_days = 7      # Minimum days between two reminders for the same loan
 send_time = "09:00"     # HH:MM (24h) when the scheduler sends reminders
+accrue_fines = true     # Nightly overdue fine accrual (idempotent, one open fine per loan)
 smtp_throttle_ms = 100  # Delay between individual emails (ms)
 overridable = true
 

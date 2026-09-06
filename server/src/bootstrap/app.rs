@@ -78,6 +78,7 @@ impl AppBuildResult {
             services.holds.clone(),
             services.email.clone(),
             services.repository.clone(),
+            services.fines.clone(),
         );
 
         let state = AppState {
