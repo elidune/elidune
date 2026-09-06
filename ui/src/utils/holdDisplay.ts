@@ -1,4 +1,4 @@
-import type { Hold, ItemShort } from '@/types';
+import type { CreateHold, Hold, ItemShort } from '@/types';
 
 /** Staff `/holds` status chips. List is already active-only from the API. */
 export type StaffHoldStatusFilter = 'all' | 'ready' | 'pending' | 'expiringSoon';
@@ -9,7 +9,45 @@ export const HOLD_EXPIRING_SOON_MS = 48 * 60 * 60 * 1000;
 /** Max rows fetched so staff filters/sort can run on the full active queue. */
 export const STAFF_HOLDS_FETCH_CAP = 200;
 
-/** The held specimen: server sends exactly one entry in `biblio.items`. */
+/** Title-level until fulfillment assigns a copy (`itemId` null). */
+export function isTitleLevelHold(h: Hold): boolean {
+  return h.itemId == null || h.itemId === '';
+}
+
+/** Pending hold with a pinned specimen on the same biblio FIFO. */
+export function isPinnedCopyHold(h: Hold): boolean {
+  return !isTitleLevelHold(h) && h.status === 'pending';
+}
+
+/** Display kind: unassigned title queue vs staff-pinned copy vs allocated copy. */
+export type HoldScopeKind = 'title' | 'pinned' | 'allocated';
+
+export function holdScopeKind(h: Hold): HoldScopeKind {
+  if (isTitleLevelHold(h)) return 'title';
+  if (h.status === 'pending') return 'pinned';
+  return 'allocated';
+}
+
+export type HoldPlacementScope = 'title' | 'copy';
+
+/** Always send `biblioId`; set `itemId` only when pinning a copy. */
+export function buildCreateHold(input: {
+  userId: string;
+  biblioId: string;
+  scope: HoldPlacementScope;
+  itemId?: string | null;
+  notes?: string | null;
+}): CreateHold {
+  const notes = input.notes?.trim() || undefined;
+  return {
+    userId: input.userId,
+    biblioId: input.biblioId,
+    itemId: input.scope === 'copy' && input.itemId ? input.itemId : undefined,
+    notes,
+  };
+}
+
+/** The held specimen: empty for an unassigned title-level hold. */
 export function holdSpecimenItem(h: Hold): ItemShort | undefined {
   return h.biblio?.items?.[0];
 }
@@ -21,10 +59,8 @@ export function holdPrimaryDocumentLabel(h: Hold): string {
   return spec?.barcode?.trim() || spec?.callNumber?.trim() || h.itemId || h.biblioId;
 }
 
-/** Shown under the title when the API sends a document title. */
+/** Barcode / call number when a copy is pinned or allocated. */
 export function holdSecondaryDocumentLabel(h: Hold): string | null {
-  const title = h.biblio?.title?.trim();
-  if (!title) return null;
   const spec = holdSpecimenItem(h);
   const sub = spec?.barcode?.trim() || spec?.callNumber?.trim() || h.itemId || null;
   return sub || null;

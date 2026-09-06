@@ -1,11 +1,12 @@
 import { Link } from 'react-router-dom';
 import type { Hold } from '@/types';
 import { holdPrimaryDocumentLabel, holdSecondaryDocumentLabel } from '@/utils/holdDisplay';
+import HoldScopeBadge from '@/components/holds/HoldScopeBadge';
 
 export default function HoldDocumentCell({ hold }: { hold: Hold }) {
   const sub = holdSecondaryDocumentLabel(hold);
   const primary = holdPrimaryDocumentLabel(hold);
-  const biblioId = hold.biblio?.id;
+  const biblioId = hold.biblio?.id ?? hold.biblioId;
 
   const lines = (
     <>
@@ -18,7 +19,10 @@ export default function HoldDocumentCell({ hold }: { hold: Hold }) {
       >
         {primary}
       </div>
-      {sub && <div className="text-xs text-gray-500 dark:text-gray-400 font-mono mt-0.5">{sub}</div>}
+      <div className="flex flex-wrap items-center gap-2 mt-0.5">
+        <HoldScopeBadge hold={hold} />
+        {sub && <div className="text-xs text-gray-500 dark:text-gray-400 font-mono">{sub}</div>}
+      </div>
     </>
   );
 
