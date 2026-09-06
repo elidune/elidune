@@ -248,6 +248,22 @@ async fn claimed_returned_stays_open_until_inventory_check() {
     assert_eq!(body["borrowable"], false);
     assert!(body["charge"].is_null());
 
+    let (bill_status, bill_body) = app
+        .post_json(
+            &format!("/api/v1/loans/{loan_id}/claimed-returned"),
+            &json!({ "bill": true, "notes": "must not charge" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(bill_status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        bill_body["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("investigation"),
+        "claimed-returned must refuse billing: {bill_body}"
+    );
+
     let item = item_copy(&app, &admin_token, item_id).await;
     assert_eq!(item["circulationStatus"], 3);
     assert_eq!(item["borrowed"], true);
@@ -286,6 +302,26 @@ async fn claimed_returned_stays_open_until_inventory_check() {
         )
         .await;
     assert_eq!(renew_status, StatusCode::UNPROCESSABLE_ENTITY);
+
+    let (found_bill_status, found_bill_body) = app
+        .post_json(
+            &format!("/api/v1/loans/{loan_id}/claims-returned/resolve"),
+            &json!({
+                "outcome": "found",
+                "inventoryChecked": true,
+                "bill": true
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(found_bill_status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(
+        found_bill_body["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("investigation"),
+        "found must not bill: {found_bill_body}"
+    );
 
     let (found_status, found_body) = app
         .post_json(

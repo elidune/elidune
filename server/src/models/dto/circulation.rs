@@ -42,10 +42,14 @@ pub struct MarkDamagedRequest {
 }
 
 /// Flag an active loan/item for the claims-returned queue. Does not close the loan.
+/// Investigation only — `bill` is rejected if true.
 #[derive(Debug, Clone, Default, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct MarkClaimedReturnedRequest {
     pub notes: Option<String>,
+    /// Must stay false. Claimed-returned never bills (patron may have returned the copy).
+    #[serde(default)]
+    pub bill: bool,
 }
 
 /// Close a claims-returned case after an inventory check.
@@ -55,7 +59,7 @@ pub struct ResolveClaimsReturnedRequest {
     pub outcome: ClaimsResolveOutcome,
     /// Must be true — claims-returned is never cleared silently.
     pub inventory_checked: bool,
-    /// Replacement bill when `outcome` is `notFound`.
+    /// Allowed only when `outcome` is `notFound` (lost transition effect). Rejected for `found`.
     #[serde(default)]
     pub bill: bool,
     pub amount: Option<Decimal>,

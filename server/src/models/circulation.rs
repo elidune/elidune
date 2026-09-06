@@ -138,6 +138,16 @@ impl CirculationAction {
     pub fn notify_holds(self) -> bool {
         matches!(self, Self::ResolveFound)
     }
+
+    /// Billing is a lost/damaged *transition effect*, never a claimed-returned status.
+    /// `ResolveNotFound` is a lost transition after inventory confirmed the copy is missing.
+    #[must_use]
+    pub fn allows_billing(self) -> bool {
+        matches!(
+            self,
+            Self::MarkLost | Self::MarkDamaged | Self::ResolveNotFound
+        )
+    }
 }
 
 #[cfg(test)]
@@ -253,5 +263,14 @@ mod tests {
                 .expect("escalate"),
             CirculationStatus::Lost
         );
+    }
+
+    #[test]
+    fn billing_only_for_lost_and_damaged_transitions() {
+        assert!(CirculationAction::MarkLost.allows_billing());
+        assert!(CirculationAction::MarkDamaged.allows_billing());
+        assert!(CirculationAction::ResolveNotFound.allows_billing());
+        assert!(!CirculationAction::ClaimReturned.allows_billing());
+        assert!(!CirculationAction::ResolveFound.allows_billing());
     }
 }

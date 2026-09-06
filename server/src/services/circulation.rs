@@ -1,7 +1,9 @@
 //! Staff circulation exceptions: lost, damaged, claimed-returned.
 //!
 //! Item status is the state machine. The loan is archived or left open
-//! according to the action; billing reuses the fines table with a charge type.
+//! according to the action. Billing is a lost/damaged *transition effect*
+//! (never encoded as status). Claimed-returned is investigation only and
+//! cannot bill — the patron may have returned the copy.
 
 use std::sync::Arc;
 
@@ -142,6 +144,7 @@ impl CirculationService {
         actor: Option<i64>,
         client_ip: Option<String>,
     ) -> AppResult<CirculationExceptionResponse> {
+        reject_disallowed_bill(CirculationAction::ClaimReturned, req.bill)?;
         let applied = self
             .repository
             .circulation_apply(CirculationApplyParams {
@@ -198,6 +201,7 @@ impl CirculationService {
                 Some(FineChargeType::Replacement),
             ),
         };
+        reject_disallowed_bill(action, req.bill)?;
 
         let amount = if req.outcome == ClaimsResolveOutcome::NotFound && req.bill {
             let loan = self.repository.loans_get_by_id(loan_id).await?;
@@ -337,6 +341,16 @@ impl CirculationService {
             );
         }
     }
+}
+
+fn reject_disallowed_bill(action: CirculationAction, bill: bool) -> AppResult<()> {
+    if bill && !action.allows_billing() {
+        return Err(AppError::BusinessRule(
+            "Billing is only allowed for lost or damaged transitions; claimed-returned is an investigation queue and cannot bill"
+                .to_string(),
+        ));
+    }
+    Ok(())
 }
 
 fn to_response(
