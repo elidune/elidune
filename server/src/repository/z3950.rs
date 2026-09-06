@@ -56,6 +56,7 @@ impl From<Z3950ServerRecordRow> for Z3950ServerRecord {
 
 /// DB access for `z3950servers`. Implemented by [`Repository`].
 #[async_trait]
+#[allow(clippy::too_many_arguments)]
 pub trait Z3950Repository: Send + Sync {
     async fn z3950_servers_list_all(&self) -> AppResult<Vec<Z3950ServerRecord>>;
     async fn z3950_servers_list_active_for_search(
@@ -176,6 +177,7 @@ impl Repository {
         Ok(rows.into_iter().map(Into::into).collect())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn z3950_server_update(
         &self,
         id: i64,
@@ -212,6 +214,7 @@ impl Repository {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn z3950_server_insert(
         &self,
         name: &str,

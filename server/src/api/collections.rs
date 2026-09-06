@@ -268,7 +268,6 @@ pub async fn delete_collection(
 }
 
 pub fn router() -> Router<crate::AppState> {
-    use axum::routing::{delete, post, put};
     Router::new()
         .route(
             "/collections",

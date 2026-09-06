@@ -7,15 +7,13 @@ pub mod translator;
 
 pub use translator::{biblio_items_to_marc_items, marc_record_for_loan_export};
 
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
-use serde_with::DisplayFromStr;
 use utoipa::ToSchema;
 use z3950_rs::marc_rs::RecordValidationIssue;
 pub use z3950_rs::marc_rs::{MarcFormat, Record as MarcRecord};
 
-use crate::models::{biblio::Isbn, Author, BiblioShort, ItemShort, MediaType};
+use crate::models::BiblioShort;
 
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

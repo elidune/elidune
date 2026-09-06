@@ -17,7 +17,7 @@ use super::{biblios::PaginatedResponse, AuthenticatedUser, ClientIp, ValidatedJs
 
 /// Build the users routes for this domain.
 pub fn router() -> axum::Router<crate::AppState> {
-    use axum::routing::{delete, get, put};
+    use axum::routing::{get, put};
     axum::Router::new()
         .route("/users", get(list_users).post(create_user))
         .route(

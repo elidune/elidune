@@ -14,8 +14,10 @@ use crate::error::AppError;
 /// User rights levels (DB single-letter codes; holds domain also uses `o` = own).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum Rights {
     #[serde(alias = "None")]
+    #[default]
     None,
     #[serde(alias = "Own")]
     Own,
@@ -54,12 +56,6 @@ impl From<Option<String>> for Rights {
         s.and_then(|s| s.chars().next())
             .map(Rights::from)
             .unwrap_or(Rights::None)
-    }
-}
-
-impl Default for Rights {
-    fn default() -> Self {
-        Rights::None
     }
 }
 
@@ -109,13 +105,13 @@ impl std::str::FromStr for AccountTypeSlug {
 
 impl From<String> for AccountTypeSlug {
     fn from(s: String) -> Self {
-        s.parse().unwrap_or_else(|_| AccountTypeSlug::Guest)
+        s.parse().unwrap_or(AccountTypeSlug::Guest)
     }
 }
 
 impl From<&str> for AccountTypeSlug {
     fn from(s: &str) -> Self {
-        s.parse().unwrap_or_else(|_| AccountTypeSlug::Guest)
+        s.parse().unwrap_or(AccountTypeSlug::Guest)
     }
 }
 
@@ -193,20 +189,20 @@ impl std::str::FromStr for FeeSlug {
 
 impl From<String> for FeeSlug {
     fn from(s: String) -> Self {
-        s.parse().unwrap_or_else(|_| FeeSlug::Free)
+        s.parse().unwrap_or(FeeSlug::Free)
     }
 }
 
 impl From<Option<String>> for FeeSlug {
     fn from(s: Option<String>) -> Self {
-        s.map(|s| s.parse().unwrap_or_else(|_| FeeSlug::Free))
+        s.map(|s| s.parse().unwrap_or(FeeSlug::Free))
             .unwrap_or(FeeSlug::Free)
     }
 }
 
 impl From<&str> for FeeSlug {
     fn from(s: &str) -> Self {
-        s.parse().unwrap_or_else(|_| FeeSlug::Free)
+        s.parse().unwrap_or(FeeSlug::Free)
     }
 }
 
@@ -705,9 +701,10 @@ impl UserClaims {
 
     fn hs256_header() -> jsonwebtoken::Header {
         use jsonwebtoken::{Algorithm, Header};
-        let mut header = Header::default();
-        header.alg = Algorithm::HS256;
-        header
+        Header {
+            alg: Algorithm::HS256,
+            ..Default::default()
+        }
     }
 
     fn hs256_validation() -> jsonwebtoken::Validation {

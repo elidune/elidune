@@ -85,7 +85,7 @@ impl CatalogService {
             let existing_biblio = self.repository.biblios_get_short_by_id(existing_id).await?;
             return Err(AppError::DuplicateNeedsConfirmation {
                 existing_id,
-                existing_item: existing_biblio,
+                existing_item: Box::new(existing_biblio),
                 message: format!(
                     "A biblio with ISBN {} already exists (id={}). \
                      Resend with confirm_replace_existing_id={} to merge it.",
@@ -110,7 +110,7 @@ impl CatalogService {
         {
             return Err(AppError::DuplicateBarcodeNeedsConfirmation {
                 existing_id: existing.id,
-                existing_item: existing,
+                existing_item: Box::new(existing),
                 message: format!("An item with barcode {} already exists.", barcode),
             });
         }
@@ -172,7 +172,7 @@ impl CatalogService {
     /// if Meilisearch is unavailable or not configured.
     #[tracing::instrument(skip(self), err)]
     pub async fn search_biblios(&self, query: &BiblioQuery) -> AppResult<(Vec<BiblioShort>, i64)> {
-        if let (Some(ref fs), Some(ref svc)) = (query.freesearch.as_deref(), &self.search) {
+        if let (Some(fs), Some(ref svc)) = (query.freesearch.as_deref(), &self.search) {
             if !fs.trim().is_empty() {
                 let filters = SearchFilters {
                     media_type: query.media_type.clone(),
@@ -310,7 +310,7 @@ impl CatalogService {
                         self.repository.biblios_get_short_by_id(existing_id).await?;
                     return Err(AppError::DuplicateNeedsConfirmation {
                         existing_id,
-                        existing_item: existing_biblio,
+                        existing_item: Box::new(existing_biblio),
                         message: format!(
                             "A biblio with ISBN {} already exists (id={}). \
                              Resend with confirm_replace_existing_id={} to merge it.",

@@ -18,7 +18,7 @@ use super::{AuthenticatedUser, ClientIp};
 
 /// Build the sources routes for this domain.
 pub fn router() -> axum::Router<crate::AppState> {
-    use axum::routing::{get, post, put};
+    use axum::routing::{get, post};
     axum::Router::new()
         .route("/sources", get(list_sources).post(create_source))
         .route("/sources/merge", post(merge_sources))

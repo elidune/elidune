@@ -301,7 +301,7 @@ pub async fn load_marc(
         .await
         .map_err(|e| AppError::BadRequest(format!("Multipart error: {}", e)))?
     {
-        if field.name().as_deref() == Some("file") {
+        if field.name() == Some("file") {
             let bytes = field
                 .bytes()
                 .await

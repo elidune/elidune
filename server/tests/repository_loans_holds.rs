@@ -7,7 +7,6 @@ use common::fixtures;
 use common::TestApp;
 use elidune_server::models::hold::{CreateHold, HoldStatus};
 use elidune_server::models::loan::CreateLoan;
-use elidune_server::repository::{HoldsRepository, LoansRepository, Repository};
 use serde_json::json;
 
 #[tokio::test]

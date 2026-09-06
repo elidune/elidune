@@ -17,8 +17,6 @@ use crate::{
     },
 };
 
-use std::str::FromStr;
-
 impl From<z3950_rs::marc_rs::record::Relator> for Function {
     fn from(r: z3950_rs::marc_rs::record::Relator) -> Self {
         use z3950_rs::marc_rs::record::Relator as R;
@@ -263,7 +261,7 @@ fn sync_note<F>(notes: &mut Vec<Note>, matcher: F, new_note: Note)
 where
     F: Fn(&Note) -> bool,
 {
-    if let Some(pos) = notes.iter().position(|n| matcher(n)) {
+    if let Some(pos) = notes.iter().position(matcher) {
         notes[pos] = new_note;
     } else {
         notes.push(new_note);
@@ -298,7 +296,6 @@ impl From<MarcRecord> for Biblio {
         // --- Authors: personal entries only ---
         let authors: Vec<Author> = record
             .authors()
-            .into_iter()
             .filter_map(|a| match a {
                 Agent::Person(person) => Some(Author {
                     id: 0,
@@ -584,8 +581,8 @@ impl From<&Biblio> for MarcRecord {
 
         // Collections (e.g. UNIMARC 461) — [`LinkType::SetLevel`], same as import fallback for `Collection`.
         for c in &item.collections {
-            let has_title = c.name.as_ref().map_or(false, |t| !t.is_empty());
-            if !has_title && c.id.is_none() && c.key.as_ref().map_or(true, |k| k.is_empty()) {
+            let has_title = c.name.as_ref().is_some_and(|t| !t.is_empty());
+            if !has_title && c.id.is_none() && c.key.as_ref().is_none_or(|k| k.is_empty()) {
                 continue;
             }
             let identifier =
@@ -791,12 +788,14 @@ mod tests {
 
     #[test]
     fn test_dewey_from_marc_record() {
-        let mut record = MarcRecord::default();
-        record.indexing = Indexing {
-            classifications: vec![Classification {
-                scheme: ClassificationScheme::Dewey,
-                number: "843.914".to_string(),
-            }],
+        let record = MarcRecord {
+            indexing: Indexing {
+                classifications: vec![Classification {
+                    scheme: ClassificationScheme::Dewey,
+                    number: "843.914".to_string(),
+                }],
+                ..Default::default()
+            },
             ..Default::default()
         };
 

@@ -1,26 +1,15 @@
 //! Biblios repository — search operations.
 
-use std::collections::HashMap;
-
 use chrono::Utc;
-use sqlx::types::Json;
-use sqlx::{FromRow, Row};
+use sqlx::FromRow;
 
 use super::super::Repository;
 use super::{like_escape, BiblioShortRow};
-use crate::models::item::ItemShort;
 use crate::{
-    error::{AppError, AppResult},
-    marc::MarcRecord,
+    error::AppResult,
     models::{
         author::Author,
-        author::Function,
-        biblio::{
-            Biblio, BiblioQuery, BiblioShort, Collection, Edition, Isbn, MediaType,
-            MeiliBiblioDocument, Serie,
-        },
-        import_report::DuplicateCandidate,
-        item::Item,
+        biblio::{BiblioQuery, BiblioShort, Isbn, MediaType},
     },
 };
 
@@ -38,7 +27,6 @@ impl Repository {
         #[derive(Debug)]
         enum Param {
             Text(String),
-            I16(i16),
             I64(i64),
         }
 
@@ -254,7 +242,6 @@ impl Repository {
         for p in &params {
             match p {
                 Param::Text(s) => pg_args.add(s.clone()),
-                Param::I16(v) => pg_args.add(*v),
                 Param::I64(v) => pg_args.add(*v),
             }
         }

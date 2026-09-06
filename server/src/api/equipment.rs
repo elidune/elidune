@@ -216,7 +216,7 @@ pub async fn delete_equipment(
 
 /// Build the equipment routes for this domain.
 pub fn router() -> axum::Router<crate::AppState> {
-    use axum::routing::{delete, get, post, put};
+    use axum::routing::get;
     axum::Router::new()
         .route("/equipment", get(list_equipment).post(create_equipment))
         .route(
