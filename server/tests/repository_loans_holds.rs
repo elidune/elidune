@@ -8,6 +8,7 @@ use common::TestApp;
 use elidune_server::error::AppError;
 use elidune_server::models::hold::{CreateHold, HoldStatus};
 use elidune_server::models::loan::CreateLoan;
+use elidune_server::repository::Repository;
 use serde_json::json;
 
 async fn seed_borrowable_item(app: &TestApp, admin_token: &str, barcode: &str, title: &str) -> i64 {
@@ -492,4 +493,161 @@ async fn cancelled_hold_does_not_block_new_active_hold() {
     assert_ne!(first.id, second.id);
     assert_eq!(second.status, HoldStatus::Pending);
     assert_eq!(repo.holds_count_for_item(item_id).await.unwrap(), 1);
+}
+
+async fn seed_ready_then_pending(
+    app: &TestApp,
+    admin_token: &str,
+    barcode: &str,
+    title: &str,
+    login_a: &str,
+    login_b: &str,
+) -> (Repository, i64, i64) {
+    let (reader_a_id, _) = fixtures::create_reader(app, admin_token, login_a).await;
+    let (reader_b_id, _) = fixtures::create_reader(app, admin_token, login_b).await;
+    let item_id = seed_borrowable_item(app, admin_token, barcode, title).await;
+    let repo = app.state.services.repository.as_ref().clone();
+
+    let hold_a = repo
+        .holds_create(&create_hold(reader_a_id, item_id))
+        .await
+        .expect("hold for first patron");
+    let hold_b = repo
+        .holds_create(&create_hold(reader_b_id, item_id))
+        .await
+        .expect("hold for next patron");
+
+    repo.holds_mark_ready(hold_a.id, 7)
+        .await
+        .expect("first hold becomes ready");
+
+    (repo, hold_a.id, hold_b.id)
+}
+
+#[tokio::test]
+async fn cancel_ready_hold_atomically_advances_next_pending() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (repo, ready_id, next_id) = seed_ready_then_pending(
+        &app,
+        &admin_token,
+        "CANCEL-READY-001",
+        "Cancel Ready Advances Queue",
+        "cancelready_a",
+        "cancelready_b",
+    )
+    .await;
+
+    let cancelled = repo
+        .holds_cancel(ready_id)
+        .await
+        .expect("cancel ready hold");
+    assert_eq!(cancelled.status, HoldStatus::Cancelled);
+
+    let next = repo
+        .holds_get_by_id(next_id)
+        .await
+        .expect("next hold still exists");
+    assert_eq!(
+        next.status,
+        HoldStatus::Ready,
+        "cancelling a ready hold must promote the next pending patron"
+    );
+    assert!(next.notified_at.is_some());
+    assert!(next.expires_at.is_some());
+}
+
+#[tokio::test]
+async fn expire_ready_hold_atomically_advances_next_pending() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (repo, ready_id, next_id) = seed_ready_then_pending(
+        &app,
+        &admin_token,
+        "EXPIRE-READY-001",
+        "Expire Ready Advances Queue",
+        "expireready_a",
+        "expireready_b",
+    )
+    .await;
+
+    sqlx::query("UPDATE holds SET expires_at = NOW() - interval '1 hour' WHERE id = $1")
+        .bind(ready_id)
+        .execute(repo.pool())
+        .await
+        .expect("make ready hold overdue");
+
+    let expired_ids = repo
+        .holds_expire_overdue()
+        .await
+        .expect("expire overdue ready holds");
+    assert!(
+        expired_ids.contains(&ready_id),
+        "overdue ready hold must be expired: {expired_ids:?}"
+    );
+
+    let expired = repo
+        .holds_get_by_id(ready_id)
+        .await
+        .expect("expired hold still exists");
+    assert_eq!(expired.status, HoldStatus::Expired);
+
+    let next = repo
+        .holds_get_by_id(next_id)
+        .await
+        .expect("next hold still exists");
+    assert_eq!(
+        next.status,
+        HoldStatus::Ready,
+        "expiring a ready hold must promote the next pending patron"
+    );
+    assert!(next.notified_at.is_some());
+    assert!(next.expires_at.is_some());
+}
+
+#[tokio::test]
+async fn cancel_pending_hold_does_not_ready_next_while_ready_exists() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (repo, ready_id, pending_id) = seed_ready_then_pending(
+        &app,
+        &admin_token,
+        "CANCEL-PENDING-001",
+        "Cancel Pending Does Not Double Ready",
+        "cancelpend_a",
+        "cancelpend_b",
+    )
+    .await;
+
+    let (reader_c_id, _) = fixtures::create_reader(&app, &admin_token, "cancelpend_c").await;
+    let item_id = repo.holds_get_by_id(ready_id).await.unwrap().item_id;
+    let hold_c = repo
+        .holds_create(&create_hold(reader_c_id, item_id))
+        .await
+        .expect("third pending hold");
+
+    let cancelled = repo
+        .holds_cancel(pending_id)
+        .await
+        .expect("cancel pending hold");
+    assert_eq!(cancelled.status, HoldStatus::Cancelled);
+
+    let still_ready = repo.holds_get_by_id(ready_id).await.unwrap();
+    assert_eq!(still_ready.status, HoldStatus::Ready);
+
+    let third = repo.holds_get_by_id(hold_c.id).await.unwrap();
+    assert_eq!(
+        third.status,
+        HoldStatus::Pending,
+        "cancelling a pending hold must not mark another patron ready"
+    );
 }

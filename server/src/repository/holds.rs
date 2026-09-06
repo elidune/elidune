@@ -12,7 +12,7 @@ use crate::{
     error::{AppError, AppResult},
     models::{
         biblio::BiblioShort,
-        hold::{CreateHold, Hold, HoldDetails},
+        hold::{CreateHold, Hold, HoldDetails, HoldStatus},
         item::ItemShort,
         user::{UserShort, UserShortRow},
     },
@@ -347,14 +347,18 @@ impl Repository {
         item_id: i64,
         expiry_days: i32,
     ) -> AppResult<Option<Hold>> {
-        let next = self.holds_get_next_pending(item_id).await?;
-        if let Some(ref r) = next {
-            self.holds_mark_ready(r.id, expiry_days).await?;
-        }
+        let mut tx = self.pool.begin().await?;
+        let next = self
+            .holds_notify_next_tx(&mut tx, item_id, expiry_days)
+            .await?;
+        tx.commit().await?;
         Ok(next)
     }
 
     /// Same as [`holds_notify_next`] but within an open transaction (atomic with loan return).
+    ///
+    /// Locks the item's active queue in the same order as checkout so cancel, expire,
+    /// return, and borrow serialize. Does not promote if a `ready` hold already exists.
     #[tracing::instrument(skip(self, tx), err)]
     pub async fn holds_notify_next_tx(
         &self,
@@ -362,30 +366,39 @@ impl Repository {
         item_id: i64,
         expiry_days: i32,
     ) -> AppResult<Option<Hold>> {
-        let next = sqlx::query_as::<_, Hold>(
-            "SELECT * FROM holds WHERE item_id = $1 AND status = 'pending'
-             ORDER BY position ASC LIMIT 1",
+        let locked: Vec<Hold> = sqlx::query_as(
+            r#"
+            SELECT * FROM holds
+            WHERE item_id = $1 AND status IN ('pending', 'ready')
+            ORDER BY CASE status WHEN 'ready' THEN 0 ELSE 1 END, position ASC
+            FOR UPDATE
+            "#,
         )
         .bind(item_id)
-        .fetch_optional(&mut **tx)
+        .fetch_all(&mut **tx)
         .await?;
 
-        if let Some(ref r) = next {
-            let expires_at = Utc::now() + chrono::Duration::days(expiry_days as i64);
-            let updated = sqlx::query_as::<_, Hold>(
-                r#"UPDATE holds
-                   SET status = 'ready', notified_at = NOW(), expires_at = $2
-                   WHERE id = $1 AND status = 'pending'
-                   RETURNING *"#,
-            )
-            .bind(r.id)
-            .bind(expires_at)
-            .fetch_optional(&mut **tx)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("Pending hold {} not found", r.id)))?;
-            return Ok(Some(updated));
+        if locked.iter().any(|h| h.status == HoldStatus::Ready) {
+            return Ok(None);
         }
-        Ok(None)
+
+        let Some(next) = locked.into_iter().find(|h| h.status == HoldStatus::Pending) else {
+            return Ok(None);
+        };
+
+        let expires_at = Utc::now() + chrono::Duration::days(expiry_days as i64);
+        let updated = sqlx::query_as::<_, Hold>(
+            r#"UPDATE holds
+               SET status = 'ready', notified_at = NOW(), expires_at = $2
+               WHERE id = $1 AND status = 'pending'
+               RETURNING *"#,
+        )
+        .bind(next.id)
+        .bind(expires_at)
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Pending hold {} not found", next.id)))?;
+        Ok(Some(updated))
     }
 
     #[tracing::instrument(skip(self), err)]
@@ -504,25 +517,57 @@ impl Repository {
         .ok_or_else(|| AppError::NotFound(format!("Pending hold {id} not found")))
     }
 
+    /// Cancel a hold. If it was `ready`, promote the next pending patron in the same transaction.
     #[tracing::instrument(skip(self), err)]
     pub async fn holds_cancel(&self, id: i64) -> AppResult<Hold> {
-        sqlx::query_as::<_, Hold>("UPDATE holds SET status = 'cancelled' WHERE id = $1 RETURNING *")
+        let mut tx = self.pool.begin().await?;
+
+        let current = sqlx::query_as::<_, Hold>("SELECT * FROM holds WHERE id = $1 FOR UPDATE")
             .bind(id)
-            .fetch_optional(&self.pool)
+            .fetch_optional(&mut *tx)
             .await?
-            .ok_or_else(|| AppError::NotFound(format!("Hold {id} not found")))
+            .ok_or_else(|| AppError::NotFound(format!("Hold {id} not found")))?;
+
+        let cancelled = sqlx::query_as::<_, Hold>(
+            "UPDATE holds SET status = 'cancelled' WHERE id = $1 RETURNING *",
+        )
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        if current.status == HoldStatus::Ready {
+            self.holds_notify_next_tx(&mut tx, current.item_id, self.hold_ready_expiry_days())
+                .await?;
+        }
+
+        tx.commit().await?;
+        Ok(cancelled)
     }
 
+    /// Expire overdue `ready` holds and, per affected item, promote the next pending patron.
     #[tracing::instrument(skip(self), err)]
     pub async fn holds_expire_overdue(&self) -> AppResult<Vec<i64>> {
-        let ids = sqlx::query_scalar::<_, i64>(
+        let mut tx = self.pool.begin().await?;
+
+        let expired: Vec<Hold> = sqlx::query_as(
             "UPDATE holds SET status = 'expired'
              WHERE status = 'ready' AND expires_at < NOW()
-             RETURNING id",
+             RETURNING *",
         )
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await?;
-        Ok(ids)
+
+        let expiry_days = self.hold_ready_expiry_days();
+        let mut notified_items = HashSet::new();
+        for hold in &expired {
+            if notified_items.insert(hold.item_id) {
+                self.holds_notify_next_tx(&mut tx, hold.item_id, expiry_days)
+                    .await?;
+            }
+        }
+
+        tx.commit().await?;
+        Ok(expired.into_iter().map(|h| h.id).collect())
     }
 
     #[tracing::instrument(skip(self), err)]
