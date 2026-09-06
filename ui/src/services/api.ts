@@ -846,6 +846,8 @@ class ApiService {
     const response = await this.client.post<Hold>('/holds', {
       userId: data.userId,
       itemId: data.itemId,
+      biblioId: data.biblioId,
+      pickupSiteId: data.pickupSiteId,
       notes: data.notes,
       force: data.force,
     });
@@ -878,6 +880,11 @@ class ApiService {
 
   async getItemHolds(itemId: string): Promise<Hold[]> {
     const response = await this.client.get<Hold[]>(`/items/${itemId}/holds`);
+    return response.data;
+  }
+
+  async getBiblioHolds(biblioId: string): Promise<Hold[]> {
+    const response = await this.client.get<Hold[]>(`/biblios/${biblioId}/holds`);
     return response.data;
   }
 

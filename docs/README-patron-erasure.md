@@ -48,7 +48,7 @@ Pending `email_outbox` rows addressed to the patron’s email are deleted.
 |-------|--------|
 | `loans_archives` | Fill missing dims, then `user_id = NULL` |
 | `fines` | `user_id = NULL` (FK `ON DELETE SET NULL`) |
-| `holds` | Deleted; next pending hold on each item is notified |
+| `holds` | Deleted; next pending hold on each assigned copy is notified (title-level rows with no copy are dropped) |
 | `loans` | None left after a normal delete; `force` returns them into archives first |
 
 ## Archive stats dimensions

@@ -178,23 +178,13 @@ async fn place_hold_over_cap_is_rejected() {
     app.state
         .services
         .repository
-        .holds_create(&CreateHold {
-            user_id: reader_id,
-            item_id: first,
-            notes: None,
-            force: false,
-        })
+        .holds_create(&CreateHold::for_item(reader_id, first))
         .await
         .expect("seed hold 1");
     app.state
         .services
         .repository
-        .holds_create(&CreateHold {
-            user_id: reader_id,
-            item_id: second,
-            notes: None,
-            force: false,
-        })
+        .holds_create(&CreateHold::for_item(reader_id, second))
         .await
         .expect("seed hold 2");
 

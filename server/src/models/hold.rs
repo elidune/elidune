@@ -1,4 +1,4 @@
-//! Hold (physical item queue) model
+//! Hold (physical item / title queue) model
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -69,7 +69,10 @@ impl sqlx::Encode<'_, sqlx::Postgres> for HoldStatus {
     }
 }
 
-/// Hold row from database (`holds` table). `item_id` references `items.id`.
+/// Hold row from database (`holds` table).
+///
+/// Copy-level holds have `item_id` set. Title-level holds keep `item_id` NULL
+/// until fulfillment assigns a concrete copy and moves the row to `ready`.
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -82,7 +85,13 @@ pub struct Hold {
     pub user_id: i64,
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
-    pub item_id: i64,
+    pub biblio_id: i64,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub item_id: Option<i64>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub pickup_site_id: Option<i64>,
     pub created_at: DateTime<Utc>,
     pub notified_at: Option<DateTime<Utc>>,
     pub expires_at: Option<DateTime<Utc>>,
@@ -91,8 +100,18 @@ pub struct Hold {
     pub notes: Option<String>,
 }
 
+impl Hold {
+    /// Title-level until a concrete copy is assigned.
+    #[must_use]
+    pub fn is_title_level(&self) -> bool {
+        self.item_id.is_none()
+    }
+}
+
 /// Hold with bibliographic context and user details.
-/// `biblio.items` contains exactly the physical copy this hold is queued on.
+///
+/// `biblio.items` is empty for an unassigned title-level hold, otherwise the
+/// single physical copy this hold is queued on or trapped for.
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -100,6 +119,12 @@ pub struct HoldDetails {
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub id: i64,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub biblio_id: i64,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub item_id: Option<i64>,
     pub biblio: BiblioShort,
     pub user: Option<UserShort>,
     pub created_at: DateTime<Utc>,
@@ -116,7 +141,10 @@ pub const DEFAULT_MAX_ACTIVE_HOLDS: i16 = 20;
 pub const MIN_MAX_ACTIVE_HOLDS: i16 = 1;
 pub const MAX_MAX_ACTIVE_HOLDS: i16 = 1000;
 
-/// Create hold request — `item_id` must be a physical copy ID (`items` table).
+/// Create hold request — copy-level (`item_id`) or title-level (`biblio_id`).
+///
+/// Exactly one of `item_id` / `biblio_id` is required. When both are sent, the
+/// hold is copy-level and `item_id` must belong to `biblio_id`.
 #[serde_as]
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -124,11 +152,49 @@ pub struct CreateHold {
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub user_id: i64,
-    #[serde_as(as = "DisplayFromStr")]
-    #[schema(value_type = String)]
-    pub item_id: i64,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub item_id: Option<i64>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub biblio_id: Option<i64>,
+    /// Optional pickup site (#15 transit hook). Stored, unused until sites exist.
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub pickup_site_id: Option<i64>,
     pub notes: Option<String>,
     /// Staff-only: place the hold even when the patron is at/over the active-hold cap.
     #[serde(default)]
     pub force: bool,
+}
+
+impl CreateHold {
+    #[must_use]
+    pub fn for_item(user_id: i64, item_id: i64) -> Self {
+        Self {
+            user_id,
+            item_id: Some(item_id),
+            biblio_id: None,
+            pickup_site_id: None,
+            notes: None,
+            force: false,
+        }
+    }
+
+    #[must_use]
+    pub fn for_biblio(user_id: i64, biblio_id: i64) -> Self {
+        Self {
+            user_id,
+            item_id: None,
+            biblio_id: Some(biblio_id),
+            pickup_site_id: None,
+            notes: None,
+            force: false,
+        }
+    }
+
+    #[must_use]
+    pub fn is_title_level(&self) -> bool {
+        self.item_id.is_none()
+    }
 }

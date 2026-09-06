@@ -18,7 +18,7 @@ export function holdPrimaryDocumentLabel(h: Hold): string {
   const title = h.biblio?.title?.trim();
   if (title) return title;
   const spec = holdSpecimenItem(h);
-  return spec?.barcode?.trim() || spec?.callNumber?.trim() || h.itemId;
+  return spec?.barcode?.trim() || spec?.callNumber?.trim() || h.itemId || h.biblioId;
 }
 
 /** Shown under the title when the API sends a document title. */
@@ -26,7 +26,7 @@ export function holdSecondaryDocumentLabel(h: Hold): string | null {
   const title = h.biblio?.title?.trim();
   if (!title) return null;
   const spec = holdSpecimenItem(h);
-  const sub = spec?.barcode?.trim() || spec?.callNumber?.trim() || h.itemId;
+  const sub = spec?.barcode?.trim() || spec?.callNumber?.trim() || h.itemId || null;
   return sub || null;
 }
 

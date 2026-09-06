@@ -565,14 +565,18 @@ Each preview item is a **`BiblioShort`-shaped object** (flattened) plus **`valid
 
 ## Holds (`/api/v1/holds`)
 
-List endpoints (`GET /holds`, `GET /items/:id/holds`, `GET /users/:id/holds`) return **`HoldDetails`**. Create/cancel responses use plain **`Hold`** (ids only, no embedded item/user).
+List endpoints (`GET /holds`, `GET /items/:id/holds`, `GET /biblios/:id/holds`, `GET /users/:id/holds`) return **`HoldDetails`**. Create/cancel responses use plain **`Hold`** (ids only, no embedded item/user).
+
+See [README-holds.md](README-holds.md) for title-level vs copy-level precedence.
 
 ### `Hold`
 ```json
 {
   "id": "927364819265437701",
   "userId": "927364819265437697",
+  "biblioId": "718273645564928000",
   "itemId": "818273645564928001",
+  "pickupSiteId": null,
   "createdAt": "2026-03-24T10:00:00Z",
   "notifiedAt": null,
   "expiresAt": null,
@@ -582,12 +586,14 @@ List endpoints (`GET /holds`, `GET /items/:id/holds`, `GET /users/:id/holds`) re
 }
 ```
 
-`status` values: `pending` | `ready` | `fulfilled` | `cancelled` | `expired`
+`itemId` is `null` for an unassigned title-level hold. `status` values: `pending` | `ready` | `fulfilled` | `cancelled` | `expired`
 
 ### `HoldDetails`
 ```json
 {
   "id": "927364819265437701",
+  "biblioId": "718273645564928000",
+  "itemId": null,
   "biblio": { ...BiblioShort... },
   "user": { ...UserShort... },
   "createdAt": "2026-03-24T10:00:00Z",
@@ -599,12 +605,20 @@ List endpoints (`GET /holds`, `GET /items/:id/holds`, `GET /users/:id/holds`) re
 }
 ```
 
-`biblio.items` has exactly **one** `ItemShort` (the copy this hold is on).
+`biblio.items` is empty while the hold is title-level and unassigned; after a copy is trapped it has exactly **one** `ItemShort`.
 
 ### `CreateHold`
 ```json
 { "userId": "927364819265437697", "itemId": "818273645564928001", "notes": null }
 ```
+
+Title-level (any copy of the bibliographic record):
+
+```json
+{ "userId": "927364819265437697", "biblioId": "718273645564928000", "notes": null }
+```
+
+Exactly one of `itemId` / `biblioId` is required. `pickupSiteId` is optional (transit hook, `#15`).
 
 ---
 

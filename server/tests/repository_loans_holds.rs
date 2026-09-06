@@ -53,12 +53,7 @@ fn assert_duplicate_hold(err: AppError) {
 }
 
 fn create_hold(user_id: i64, item_id: i64) -> CreateHold {
-    CreateHold {
-        user_id,
-        item_id,
-        notes: None,
-        force: false,
-    }
+    CreateHold::for_item(user_id, item_id)
 }
 
 #[tokio::test]
@@ -87,21 +82,11 @@ async fn loan_return_atomically_advances_next_hold() {
     let repo = app.state.services.repository.as_ref().clone();
 
     let hold_a = repo
-        .holds_create(&CreateHold {
-            user_id: reader_a_id,
-            item_id,
-            notes: None,
-            force: false,
-        })
+        .holds_create(&CreateHold::for_item(reader_a_id, item_id))
         .await
         .expect("hold for reader A");
     let hold_b = repo
-        .holds_create(&CreateHold {
-            user_id: reader_b_id,
-            item_id,
-            notes: None,
-            force: false,
-        })
+        .holds_create(&CreateHold::for_item(reader_b_id, item_id))
         .await
         .expect("hold for reader B");
 
@@ -287,14 +272,9 @@ async fn concurrent_checkout_respects_hold_queue() {
     let item_id = seed_borrowable_item(&app, &admin_token, "HOLD-RACE-001", "Hold Race Loan").await;
     let repo = app.state.services.repository.as_ref().clone();
 
-    repo.holds_create(&CreateHold {
-        user_id: reader_a_id,
-        item_id,
-        notes: None,
-        force: false,
-    })
-    .await
-    .expect("hold for reader A");
+    repo.holds_create(&CreateHold::for_item(reader_a_id, item_id))
+        .await
+        .expect("hold for reader A");
 
     let loan_a = create_loan(reader_a_id, item_id, false);
     let loan_b = create_loan(reader_b_id, item_id, false);
@@ -450,22 +430,27 @@ async fn unique_index_rejects_second_active_hold_for_user_item() {
     let pool = app.state.services.repository.pool();
     let suffix = fixtures::unique_suffix() as i64;
 
-    sqlx::query("INSERT INTO holds (id, user_id, item_id, position) VALUES ($1, $2, $3, 1)")
-        .bind(suffix)
-        .bind(reader_id)
-        .bind(item_id)
-        .execute(pool)
-        .await
-        .expect("first raw insert");
+    sqlx::query(
+        "INSERT INTO holds (id, user_id, item_id, biblio_id, position)
+         SELECT $1, $2, $3, biblio_id, 1 FROM items WHERE id = $3",
+    )
+    .bind(suffix)
+    .bind(reader_id)
+    .bind(item_id)
+    .execute(pool)
+    .await
+    .expect("first raw insert");
 
-    let err =
-        sqlx::query("INSERT INTO holds (id, user_id, item_id, position) VALUES ($1, $2, $3, 2)")
-            .bind(suffix.wrapping_add(1))
-            .bind(reader_id)
-            .bind(item_id)
-            .execute(pool)
-            .await
-            .expect_err("second active hold must violate unique index");
+    let err = sqlx::query(
+        "INSERT INTO holds (id, user_id, item_id, biblio_id, position)
+             SELECT $1, $2, $3, biblio_id, 2 FROM items WHERE id = $3",
+    )
+    .bind(suffix.wrapping_add(1))
+    .bind(reader_id)
+    .bind(item_id)
+    .execute(pool)
+    .await
+    .expect_err("second active hold must violate unique index");
 
     let db = err.as_database_error().expect("database error");
     assert_eq!(db.code().as_deref(), Some("23505"));
@@ -633,7 +618,12 @@ async fn cancel_pending_hold_does_not_ready_next_while_ready_exists() {
     .await;
 
     let (reader_c_id, _) = fixtures::create_reader(&app, &admin_token, "cancelpend_c").await;
-    let item_id = repo.holds_get_by_id(ready_id).await.unwrap().item_id;
+    let item_id = repo
+        .holds_get_by_id(ready_id)
+        .await
+        .unwrap()
+        .item_id
+        .expect("ready hold has a copy");
     let hold_c = repo
         .holds_create(&create_hold(reader_c_id, item_id))
         .await
@@ -757,14 +747,9 @@ async fn renew_blocked_when_hold_queue_has_waiting_patron() {
         .await
         .expect("checkout to reader A");
 
-    repo.holds_create(&CreateHold {
-        user_id: reader_b_id,
-        item_id,
-        notes: None,
-        force: false,
-    })
-    .await
-    .expect("pending hold for reader B");
+    repo.holds_create(&CreateHold::for_item(reader_b_id, item_id))
+        .await
+        .expect("pending hold for reader B");
 
     let err = repo
         .loans_renew(checkout.loan_id)
@@ -803,12 +788,7 @@ async fn renew_blocked_when_ready_hold_exists_for_copy() {
         .expect("checkout to reader A");
 
     let hold = repo
-        .holds_create(&CreateHold {
-            user_id: reader_b_id,
-            item_id,
-            notes: None,
-            force: false,
-        })
+        .holds_create(&CreateHold::for_item(reader_b_id, item_id))
         .await
         .expect("pending hold for reader B");
     repo.holds_mark_ready(hold.id, 7)
