@@ -78,6 +78,20 @@ const AUDIT_EVENT_PRESETS: { domainKey: string; types: string[] }[] = [
     domainKey: 'settings.audit.presetDomainMaintenance',
     types: ['maintenance.run', 'system.reminders_batch_completed'],
   },
+  {
+    domainKey: 'settings.audit.presetDomainAcquisitions',
+    types: [
+      'vendor.created',
+      'vendor.updated',
+      'vendor.archived',
+      'fund.created',
+      'fund.updated',
+      'purchase_order.created',
+      'purchase_order.submitted',
+      'purchase_order.received',
+      'purchase_order.cancelled',
+    ],
+  },
 ];
 
 function cloneFilters(f: AppliedAuditFilters): AppliedAuditFilters {

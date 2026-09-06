@@ -123,6 +123,24 @@ import type {
   EmailTemplateListItem,
   EmailTemplateDetail,
   UpdateEmailTemplateRequest,
+  AcquisitionVendor,
+  CreateVendor,
+  UpdateVendor,
+  VendorListResponse,
+  AcquisitionFund,
+  CreateFund,
+  UpdateFund,
+  FundListResponse,
+  PurchaseOrderDetail,
+  PurchaseOrderLine,
+  PurchaseOrderListResponse,
+  PurchaseOrderStatus,
+  CreatePurchaseOrder,
+  UpdatePurchaseOrder,
+  CreateOrderLine,
+  UpdateOrderLine,
+  ReceivePurchaseOrder,
+  ReceivePurchaseOrderResult,
 } from '@/types';
 import { normalizePaginatedResponse } from '@/utils/serverJson';
 import { normalizeFinePolicy } from '@/utils/finePolicy';
@@ -1899,6 +1917,141 @@ class ApiService {
       this.setToken(body.token);
     }
     return body;
+  }
+
+  // ─── Acquisitions ────────────────────────────────────────────────
+
+  async getVendors(params?: {
+    q?: string;
+    includeArchived?: boolean;
+    page?: number;
+    perPage?: number;
+  }): Promise<VendorListResponse> {
+    const response = await this.client.get<VendorListResponse>('/acquisitions/vendors', { params });
+    return response.data;
+  }
+
+  async getVendor(id: string): Promise<AcquisitionVendor> {
+    const response = await this.client.get<AcquisitionVendor>(`/acquisitions/vendors/${id}`);
+    return response.data;
+  }
+
+  async createVendor(data: CreateVendor): Promise<AcquisitionVendor> {
+    const response = await this.client.post<AcquisitionVendor>('/acquisitions/vendors', data);
+    return response.data;
+  }
+
+  async updateVendor(id: string, data: UpdateVendor): Promise<AcquisitionVendor> {
+    const response = await this.client.put<AcquisitionVendor>(`/acquisitions/vendors/${id}`, data);
+    return response.data;
+  }
+
+  async archiveVendor(id: string): Promise<void> {
+    await this.client.delete(`/acquisitions/vendors/${id}`);
+  }
+
+  async getFunds(params?: {
+    q?: string;
+    fiscalYear?: number;
+    page?: number;
+    perPage?: number;
+  }): Promise<FundListResponse> {
+    const response = await this.client.get<FundListResponse>('/acquisitions/funds', { params });
+    return response.data;
+  }
+
+  async getFund(id: string): Promise<AcquisitionFund> {
+    const response = await this.client.get<AcquisitionFund>(`/acquisitions/funds/${id}`);
+    return response.data;
+  }
+
+  async createFund(data: CreateFund): Promise<AcquisitionFund> {
+    const response = await this.client.post<AcquisitionFund>('/acquisitions/funds', data);
+    return response.data;
+  }
+
+  async updateFund(id: string, data: UpdateFund): Promise<AcquisitionFund> {
+    const response = await this.client.put<AcquisitionFund>(`/acquisitions/funds/${id}`, data);
+    return response.data;
+  }
+
+  async getPurchaseOrders(params?: {
+    q?: string;
+    status?: PurchaseOrderStatus;
+    vendorId?: string;
+    fundId?: string;
+    page?: number;
+    perPage?: number;
+  }): Promise<PurchaseOrderListResponse> {
+    const response = await this.client.get<PurchaseOrderListResponse>('/acquisitions/orders', {
+      params,
+    });
+    return response.data;
+  }
+
+  async getPurchaseOrder(id: string): Promise<PurchaseOrderDetail> {
+    const response = await this.client.get<PurchaseOrderDetail>(`/acquisitions/orders/${id}`);
+    return response.data;
+  }
+
+  async createPurchaseOrder(data: CreatePurchaseOrder): Promise<PurchaseOrderDetail> {
+    const response = await this.client.post<PurchaseOrderDetail>('/acquisitions/orders', data);
+    return response.data;
+  }
+
+  async updatePurchaseOrder(id: string, data: UpdatePurchaseOrder): Promise<PurchaseOrderDetail> {
+    const response = await this.client.put<PurchaseOrderDetail>(`/acquisitions/orders/${id}`, data);
+    return response.data;
+  }
+
+  async addPurchaseOrderLine(orderId: string, data: CreateOrderLine): Promise<PurchaseOrderLine> {
+    const response = await this.client.post<PurchaseOrderLine>(
+      `/acquisitions/orders/${orderId}/lines`,
+      data,
+    );
+    return response.data;
+  }
+
+  async updatePurchaseOrderLine(
+    orderId: string,
+    lineId: string,
+    data: UpdateOrderLine,
+  ): Promise<PurchaseOrderLine> {
+    const response = await this.client.put<PurchaseOrderLine>(
+      `/acquisitions/orders/${orderId}/lines/${lineId}`,
+      data,
+    );
+    return response.data;
+  }
+
+  async deletePurchaseOrderLine(orderId: string, lineId: string): Promise<void> {
+    await this.client.delete(`/acquisitions/orders/${orderId}/lines/${lineId}`);
+  }
+
+  async submitPurchaseOrder(id: string): Promise<PurchaseOrderDetail> {
+    const response = await this.client.post<PurchaseOrderDetail>(`/acquisitions/orders/${id}/submit`);
+    return response.data;
+  }
+
+  async cancelPurchaseOrder(id: string): Promise<PurchaseOrderDetail> {
+    const response = await this.client.post<PurchaseOrderDetail>(`/acquisitions/orders/${id}/cancel`);
+    return response.data;
+  }
+
+  async receivePurchaseOrder(
+    id: string,
+    data: ReceivePurchaseOrder,
+  ): Promise<ReceivePurchaseOrderResult> {
+    const response = await this.client.post<ReceivePurchaseOrderResult>(
+      `/acquisitions/orders/${id}/receive`,
+      data,
+    );
+    return response.data;
+  }
+
+  async getPurchaseOrderAudit(id: string): Promise<AuditLogPage> {
+    const response = await this.client.get<AuditLogPage>(`/acquisitions/orders/${id}/audit`);
+    return response.data;
   }
 }
 

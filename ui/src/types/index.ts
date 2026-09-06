@@ -1,4 +1,4 @@
-import { readHoldsRightsFromJwt } from '@/utils/jwtRights';
+import { readAcquisitionsRightsFromJwt, readHoldsRightsFromJwt } from '@/utils/jwtRights';
 
 // Library info types
 export interface LibraryInfo {
@@ -81,6 +81,8 @@ export interface AuthMeRights {
   holdsRights?: string | null;
   /** Legacy alias on some tokens — prefer holdsRights */
   borrowsRights?: string | null;
+  /** Acquisitions (`n`/`r`/`w` or `none`/`read`/`write`) — distinct from cataloging. */
+  acquisitionsRights?: string | null;
 }
 
 // User types
@@ -100,6 +102,8 @@ export interface User {
    * Patron self-service uses `own`.
    */
   holdsRights?: string | null;
+  /** Acquisitions permission when exposed on the profile (`n`/`r`/`w` or `none`/`read`/`write`). */
+  acquisitionsRights?: string | null;
   rights?: AuthMeRights | null;
   // Address fields
   addrStreet?: string;
@@ -1085,6 +1089,8 @@ export interface AccountTypeDefinition {
   borrowsRights: string | null;
   settingsRights: string | null;
   eventsRights: string | null;
+  /** Present after the acquisitions domain lands (`n`/`r`/`w`). */
+  acquisitionsRights?: string | null;
 }
 
 export type AccountTypeRightLevel = 'n' | 'r' | 'w';
@@ -1099,6 +1105,7 @@ export interface UpdateAccountTypeRequest {
   borrowsRights?: AccountTypeRightLevel | null;
   settingsRights?: AccountTypeRightLevel | null;
   eventsRights?: AccountTypeRightLevel | null;
+  acquisitionsRights?: AccountTypeRightLevel | null;
 }
 
 // Account types for permissions
@@ -1161,6 +1168,58 @@ export const canViewStats = (accountType?: string): boolean =>
 
 export const canManageSettings = (accountType?: string): boolean =>
   isAdmin(accountType);
+
+/** Normalized acquisitions level: `n` | `r` | `w`. */
+export function normalizeAcquisitionsRightsLevel(raw: unknown): AccountTypeRightLevel | null {
+  const s = raw != null ? String(raw).trim().toLowerCase() : '';
+  if (s === 'n' || s === 'none') return 'n';
+  if (s === 'r' || s === 'read') return 'r';
+  if (s === 'w' || s === 'write') return 'w';
+  return null;
+}
+
+export function resolveAcquisitionsRightsFromProfile(
+  user: Pick<User, 'acquisitionsRights' | 'rights'> | null | undefined,
+): AccountTypeRightLevel | null {
+  if (!user) return null;
+  const nested = user.rights && typeof user.rights === 'object' ? user.rights : null;
+  return normalizeAcquisitionsRightsLevel(nested?.acquisitionsRights ?? user.acquisitionsRights);
+}
+
+/**
+ * Effective acquisitions permission: JWT `rights.acquisitionsRights` first,
+ * then GET /auth/me fields when present.
+ */
+export function resolveAcquisitionsRights(
+  user: Pick<User, 'acquisitionsRights' | 'rights'> | null | undefined,
+  authToken?: string | null,
+): AccountTypeRightLevel | null {
+  const fromJwt = authToken ? readAcquisitionsRightsFromJwt(authToken) : null;
+  if (fromJwt) return fromJwt;
+  return resolveAcquisitionsRightsFromProfile(user);
+}
+
+/** Staff acquisitions list/detail (`r` or `w`). Absent claim falls back to librarian. */
+export const canViewAcquisitions = (
+  user: Pick<User, 'accountType' | 'acquisitionsRights' | 'rights'> | null | undefined,
+  authToken?: string | null,
+): boolean => {
+  const level = resolveAcquisitionsRights(user, authToken);
+  if (level === 'r' || level === 'w') return true;
+  if (level === 'n') return false;
+  return isLibrarian(user?.accountType);
+};
+
+/** Mutations (vendors/funds/orders/receipt) require write. Absent claim falls back to librarian. */
+export const canManageAcquisitions = (
+  user: Pick<User, 'accountType' | 'acquisitionsRights' | 'rights'> | null | undefined,
+  authToken?: string | null,
+): boolean => {
+  const level = resolveAcquisitionsRights(user, authToken);
+  if (level === 'w') return true;
+  if (level === 'n' || level === 'r') return false;
+  return isLibrarian(user?.accountType);
+};
 
 /** PUT /settings/email-templates/:templateId/:language */
 export interface UpdateEmailTemplateRequest {
@@ -1868,4 +1927,211 @@ export interface FirstSetupResponse {
   expiresIn: number;
   user: LoginResponse['user'];
   libraryInfo: LibraryInfo;
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Acquisitions (vendors, yearly funds, purchase orders, receipt)
+// ──────────────────────────────────────────────────────────────────
+
+export type PurchaseOrderStatus = 'draft' | 'ordered' | 'partial' | 'received' | 'cancelled';
+
+/** rust_decimal may serialize as a number or a string. */
+export type MoneyAmount = string | number;
+
+export interface AcquisitionVendor {
+  id: string;
+  name: string;
+  code?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  notes?: string | null;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt?: string | null;
+}
+
+export interface CreateVendor {
+  name: string;
+  code?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  notes?: string | null;
+  active?: boolean | null;
+}
+
+export interface UpdateVendor {
+  name?: string | null;
+  code?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  notes?: string | null;
+  active?: boolean | null;
+}
+
+export interface VendorListResponse {
+  vendors: AcquisitionVendor[];
+  total: number;
+}
+
+export interface AcquisitionFund {
+  id: string;
+  code: string;
+  name: string;
+  fiscalYear: number;
+  allocatedAmount: MoneyAmount;
+  currency: string;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  committed: MoneyAmount;
+  spent: MoneyAmount;
+  available: MoneyAmount;
+}
+
+export interface CreateFund {
+  code: string;
+  name: string;
+  fiscalYear: number;
+  allocatedAmount?: MoneyAmount | null;
+  currency?: string | null;
+  notes?: string | null;
+}
+
+export interface UpdateFund {
+  code?: string | null;
+  name?: string | null;
+  fiscalYear?: number | null;
+  allocatedAmount?: MoneyAmount | null;
+  currency?: string | null;
+  notes?: string | null;
+}
+
+export interface FundListResponse {
+  funds: AcquisitionFund[];
+  total: number;
+}
+
+export interface PurchaseOrder {
+  id: string;
+  vendorId: string;
+  fundId?: string | null;
+  orderNumber: string;
+  status: PurchaseOrderStatus;
+  notes?: string | null;
+  orderedAt?: string | null;
+  createdBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  vendorName?: string | null;
+  fundCode?: string | null;
+}
+
+export interface PurchaseOrderLine {
+  id: string;
+  purchaseOrderId: string;
+  fundId?: string | null;
+  biblioId?: string | null;
+  isbn?: string | null;
+  title?: string | null;
+  quantityOrdered: number;
+  quantityReceived: number;
+  unitPrice?: MoneyAmount | null;
+  currency: string;
+  notes?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PurchaseOrderDetail {
+  order: PurchaseOrder;
+  lines: PurchaseOrderLine[];
+}
+
+export interface CreateOrderLine {
+  fundId?: string | null;
+  biblioId?: string | null;
+  isbn?: string | null;
+  title?: string | null;
+  quantity: number;
+  unitPrice?: MoneyAmount | null;
+  currency?: string | null;
+  notes?: string | null;
+}
+
+export interface UpdateOrderLine {
+  fundId?: string | null;
+  biblioId?: string | null;
+  isbn?: string | null;
+  title?: string | null;
+  quantity?: number | null;
+  unitPrice?: MoneyAmount | null;
+  currency?: string | null;
+  notes?: string | null;
+}
+
+export interface CreatePurchaseOrder {
+  vendorId: string;
+  fundId?: string | null;
+  orderNumber?: string | null;
+  notes?: string | null;
+  lines?: CreateOrderLine[] | null;
+}
+
+export interface UpdatePurchaseOrder {
+  vendorId?: string | null;
+  fundId?: string | null;
+  orderNumber?: string | null;
+  notes?: string | null;
+}
+
+export interface ReceiveItemSpec {
+  barcode?: string | null;
+  sourceId?: string | null;
+  sourceName?: string | null;
+  price?: string | null;
+  callNumber?: string | null;
+}
+
+export interface ReceiveOrderLine {
+  lineId: string;
+  quantity: number;
+  unitPrice?: MoneyAmount | null;
+  items?: ReceiveItemSpec[] | null;
+}
+
+export interface ReceivePurchaseOrder {
+  notes?: string | null;
+  lines: ReceiveOrderLine[];
+}
+
+export interface Receipt {
+  id: string;
+  purchaseOrderId: string;
+  receivedAt: string;
+  receivedBy?: string | null;
+  notes?: string | null;
+  createdAt: string;
+}
+
+export interface ReceiptLineResult {
+  id: string;
+  purchaseOrderLineId: string;
+  quantity: number;
+  unitPrice?: MoneyAmount | null;
+  itemIds: string[];
+}
+
+export interface ReceivePurchaseOrderResult {
+  receipt: Receipt;
+  lines: ReceiptLineResult[];
+  order: PurchaseOrderDetail;
+}
+
+export interface PurchaseOrderListResponse {
+  orders: PurchaseOrder[];
+  total: number;
 }
