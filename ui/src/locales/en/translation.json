@@ -1565,8 +1565,8 @@
       "loading": "Loading technical information...",
       "error": "Unable to load technical information",
       "techInfo": "Technical information",
-      "frontendStack": "Interface (elidune-ui)",
-      "backendStack": "Server (elidune-server)",
+      "frontendStack": "Interface",
+      "backendStack": "Server",
       "bugReport": "Report a bug",
       "bugReportLink": "Open an issue on GitHub"
     },
