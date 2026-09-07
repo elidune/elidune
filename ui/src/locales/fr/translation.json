@@ -1565,8 +1565,8 @@
       "loading": "Chargement des informations techniques...",
       "error": "Impossible de charger les informations techniques",
       "techInfo": "Informations techniques",
-      "frontendStack": "Interface (elidune-ui)",
-      "backendStack": "Serveur (elidune-server)",
+      "frontendStack": "Interface",
+      "backendStack": "Serveur",
       "bugReport": "Signaler un bug",
       "bugReportLink": "Ouvrir une issue sur GitHub"
     },
