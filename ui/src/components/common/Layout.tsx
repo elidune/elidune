@@ -34,7 +34,6 @@ import { isLibrarian, isAdmin, canPatronSelfServiceHolds, canViewAcquisitions } 
 import { useAccountTypesQuery } from '@/hooks/useAccountTypesQuery';
 import { accountTypeDisplayName } from '@/utils/accountTypeDisplay';
 import api from '@/services/api';
-import LanguageSwitcher from './LanguageSwitcher';
 import { version as uiVersion } from '../../../package.json';
 import {
   BackgroundTasksDrawer,
@@ -258,9 +257,8 @@ export default function Layout({ children }: LayoutProps) {
             </div>
           )}
 
-          {/* Theme + language */}
+          {/* Theme */}
           <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-800 space-y-2">
-            <LanguageSwitcher id="sidebar-language-switcher" />
             <div className="flex items-center justify-center gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg">
               {themeOptions.map((option) => (
                 <button

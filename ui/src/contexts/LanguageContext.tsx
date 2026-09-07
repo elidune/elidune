@@ -4,6 +4,7 @@ import {
   SUPPORTED_LANGUAGES,
   LANGUAGE_NAMES,
   LANGUAGE_FLAGS,
+  I18N_STORAGE_KEY,
   fromI18nLanguage,
   fromServerLanguage,
   toServerLanguage,
@@ -22,30 +23,61 @@ interface LanguageContextType {
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
+function persistLanguage(lang: SupportedLanguage) {
+  try {
+    localStorage.setItem(I18N_STORAGE_KEY, lang);
+  } catch {
+    // Ignore quota / private-mode failures.
+  }
+}
+
+function clearPersistedLanguage() {
+  try {
+    localStorage.removeItem(I18N_STORAGE_KEY);
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+function browserLanguage(): SupportedLanguage {
+  return fromI18nLanguage(typeof navigator !== 'undefined' ? navigator.language : undefined);
+}
+
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const { i18n } = useTranslation();
-  const { user, isAuthenticated, refreshProfile } = useAuth();
+  const { user, isAuthenticated, isLoading, refreshProfile } = useAuth();
   const language = fromI18nLanguage(i18n.resolvedLanguage ?? i18n.language);
 
-  // Sync language with user profile when authenticated
   useEffect(() => {
+    if (isLoading) return;
+
     if (isAuthenticated && user?.language) {
       const userLang = fromServerLanguage(user.language);
-      const currentLang = fromI18nLanguage(i18n.resolvedLanguage ?? i18n.language);
       if (!userLang) return;
+      const currentLang = fromI18nLanguage(i18n.resolvedLanguage ?? i18n.language);
       if (SUPPORTED_LANGUAGES.includes(userLang) && userLang !== currentLang) {
-        i18n.changeLanguage(userLang);
+        void i18n.changeLanguage(userLang);
+      }
+      persistLanguage(userLang);
+      return;
+    }
+
+    if (!isAuthenticated) {
+      clearPersistedLanguage();
+      const nextLang = browserLanguage();
+      const currentLang = fromI18nLanguage(i18n.resolvedLanguage ?? i18n.language);
+      if (nextLang !== currentLang) {
+        void i18n.changeLanguage(nextLang);
       }
     }
-  }, [isAuthenticated, user?.language, i18n]);
+  }, [isLoading, isAuthenticated, user?.language, i18n]);
 
   const setLanguage = useCallback(async (lang: SupportedLanguage) => {
     if (!SUPPORTED_LANGUAGES.includes(lang)) return;
 
     await i18n.changeLanguage(lang);
-    localStorage.setItem('i18nextLng', lang);
+    persistLanguage(lang);
 
-    // Save to server if authenticated
     if (isAuthenticated) {
       try {
         await api.updateProfile({ language: toServerLanguage(lang) });
@@ -78,4 +110,3 @@ export function useLanguage() {
   }
   return context;
 }
-

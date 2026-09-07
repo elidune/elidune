@@ -1,7 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useLibrary } from '@/contexts/LibraryContext';
-import LanguageSwitcher from './LanguageSwitcher';
 
 interface PublicPageChromeProps {
   children: React.ReactNode;
@@ -22,15 +21,12 @@ export default function PublicPageChrome({ children }: PublicPageChromeProps) {
               {libraryName ?? 'Elidune'}
             </span>
           </Link>
-          <div className="ml-auto flex items-center gap-3">
-            <LanguageSwitcher id="public-language-switcher" className="w-36" />
-            <Link
-              to="/"
-              className="text-sm font-medium text-amber-600 dark:text-amber-400 hover:underline whitespace-nowrap"
-            >
-              {t('auth.loginButton')}
-            </Link>
-          </div>
+          <Link
+            to="/"
+            className="ml-auto text-sm font-medium text-amber-600 dark:text-amber-400 hover:underline whitespace-nowrap"
+          >
+            {t('auth.loginButton')}
+          </Link>
         </div>
       </header>
       <main className="flex min-h-0 flex-1 flex-col p-4 lg:p-6">{children}</main>

@@ -71,10 +71,31 @@ export function toServerLanguage(value: SupportedLanguage): string {
   return SUPPORTED_TO_SERVER_LANGUAGE[value];
 }
 
+export const I18N_STORAGE_KEY = 'i18nextLng';
+
 export function fromI18nLanguage(value: string | null | undefined): SupportedLanguage {
   if (!value) return 'en';
   const normalized = value.toLowerCase().split('-')[0] as SupportedLanguage;
   return SUPPORTED_LANGUAGES.includes(normalized) ? normalized : 'en';
+}
+
+/** True when a session token is already in localStorage (i18n init is before AuthContext). */
+function hasStoredAuthToken(): boolean {
+  try {
+    return typeof localStorage !== 'undefined' && !!localStorage.getItem('auth_token');
+  } catch {
+    return false;
+  }
+}
+
+const isAuthenticatedAtInit = hasStoredAuthToken();
+
+if (!isAuthenticatedAtInit) {
+  try {
+    localStorage.removeItem(I18N_STORAGE_KEY);
+  } catch {
+    // Ignore quota / private-mode failures; detection still uses navigator.
+  }
 }
 
 export const LANGUAGE_NAMES: Record<SupportedLanguage, string> = {
@@ -104,16 +125,23 @@ i18n
   .init({
     resources,
     fallbackLng: 'en',
-    supportedLngs: SUPPORTED_LANGUAGES,
-    
+    supportedLngs: [...SUPPORTED_LANGUAGES],
+    // Map navigator values like `fr-FR` onto supported `fr` (not fallback `en`).
+    nonExplicitSupportedLngs: true,
+    load: 'languageOnly',
+
     interpolation: {
       escapeValue: false, // React already escapes
     },
 
     detection: {
-      order: ['localStorage', 'navigator', 'htmlTag'],
-      lookupLocalStorage: 'i18nextLng',
-      caches: ['localStorage'],
+      // Anonymous: browser locale only. Authenticated: last profile language (localStorage)
+      // until LanguageContext applies user.language from the server.
+      order: isAuthenticatedAtInit
+        ? ['localStorage', 'navigator', 'htmlTag']
+        : ['navigator', 'htmlTag'],
+      lookupLocalStorage: I18N_STORAGE_KEY,
+      caches: isAuthenticatedAtInit ? ['localStorage'] : [],
     },
 
     react: {

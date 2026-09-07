@@ -1,5 +1,4 @@
 export { default as Layout } from './Layout';
-export { default as LanguageSwitcher } from './LanguageSwitcher';
 export { default as PublicPageChrome } from './PublicPageChrome';
 export { default as QueryErrorBanner } from './QueryErrorBanner';
 export { default as Button } from './Button';

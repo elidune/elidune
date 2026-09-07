@@ -26,7 +26,7 @@ import {
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLibrary } from '@/contexts/LibraryContext';
-import { Card, Badge, Input, Button, LibraryInfoSection, LanguageSwitcher } from '@/components/common';
+import { Card, Badge, Input, Button, LibraryInfoSection } from '@/components/common';
 import {
   availabilityBadgeVariant,
   availabilityLabelKey,
@@ -551,9 +551,6 @@ export default function LoginPage() {
             className="absolute -right-4 -top-4 h-48 w-48 sm:h-56 sm:w-56 object-contain opacity-[0.07] dark:opacity-[0.05] select-none pointer-events-none"
           />
           <div className="relative">
-            <div className="mb-4 flex justify-end">
-              <LanguageSwitcher id="opac-language-switcher" className="w-36" />
-            </div>
             <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-white mb-5">
               {libraryInfo?.name?.trim() ||
                 libraryName?.trim() ||
