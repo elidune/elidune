@@ -33,7 +33,7 @@ export default function BiblioEditPage() {
     enabled: Boolean(id),
   });
 
-  if (!canManageItems(user?.accountType)) {
+  if (!canManageItems(user, api.getToken())) {
     return id ? <Navigate to={`/biblios/${id}`} replace /> : <Navigate to="/biblios" replace />;
   }
 

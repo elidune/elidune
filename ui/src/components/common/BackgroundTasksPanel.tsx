@@ -13,7 +13,8 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { useBackgroundTasks } from '@/contexts/BackgroundTasksContext';
 import type { BackgroundTask } from '@/types';
-import { isLibrarian } from '@/types';
+import { canManageItems, isLibrarian } from '@/types';
+import api from '@/services/api';
 import {
   formatTaskProgressDetail,
   formatTaskResultSummary,
@@ -22,6 +23,12 @@ import {
   taskKindLabel,
   taskProgressPercent,
 } from '@/utils/backgroundTaskDisplay';
+
+function showBackgroundTasks(
+  user: (Parameters<typeof canManageItems>[0] & { accountType?: string }) | null | undefined,
+): boolean {
+  return canManageItems(user, api.getToken()) || isLibrarian(user?.accountType);
+}
 
 function TaskRow({ task }: { task: BackgroundTask }) {
   const { t } = useTranslation();
@@ -102,7 +109,7 @@ export function BackgroundTasksNavItem({
   const { user } = useAuth();
   const { activeCount, unreadCount, drawerOpen, toggleDrawer } = useBackgroundTasks();
 
-  if (!isLibrarian(user?.accountType)) return null;
+  if (!showBackgroundTasks(user)) return null;
 
   const showActiveBadge = activeCount > 0;
   const showUnreadBadge = !showActiveBadge && unreadCount > 0;
@@ -193,7 +200,7 @@ export function BackgroundTasksDrawer() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [drawerOpen, setDrawerOpen]);
 
-  if (!isLibrarian(user?.accountType) || !drawerOpen) return null;
+  if (!showBackgroundTasks(user) || !drawerOpen) return null;
 
   return (
     <>

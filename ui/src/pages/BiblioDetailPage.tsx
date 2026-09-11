@@ -25,7 +25,7 @@ import CallNumberField from '@/components/specimen/CallNumberField';
 import { buildSuggestedCallNumber, validateCallNumber } from '@/utils/callNumber';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 import { useAuth } from '@/contexts/AuthContext';
-import { canManageItems, canManageLoans, canPatronSelfServiceHolds, isLibrarian, type MediaType } from '@/types';
+import { canManageItems, canManageLoans, canManageStaffHolds, canPatronSelfServiceHolds, canViewStaffHolds, type MediaType } from '@/types';
 import SpecimenBorrowerLine from '@/components/specimen/SpecimenBorrowerLine';
 import PlaceHoldDialog from '@/components/holds/PlaceHoldDialog';
 import BatchDeleteSpecimensDialog from '@/components/specimen/BatchDeleteSpecimensDialog';
@@ -315,10 +315,15 @@ export default function BiblioDetailPage() {
       dateStyle: 'medium',
       timeStyle: 'short',
     });
+  const token = api.getToken();
+  const canEditCatalog = canManageItems(user, token);
+  const canSeeBorrower = canManageLoans(user, token);
   const canPlaceTitleHold =
     !!user?.id &&
     !!item.id &&
-    (isLibrarian(user.accountType) || canPatronSelfServiceHolds(user, api.getToken()));
+    (canManageStaffHolds(user, token) ||
+      canViewStaffHolds(user, token) ||
+      canPatronSelfServiceHolds(user, token));
 
   return (
     <div className="space-y-6">
@@ -371,7 +376,7 @@ export default function BiblioDetailPage() {
           </div>
         </div>
 
-        {(canPlaceTitleHold || canManageItems(user?.accountType)) && (
+        {(canPlaceTitleHold || canEditCatalog) && (
           <div className="flex flex-wrap gap-2">
             {canPlaceTitleHold && (
               <Button
@@ -385,7 +390,7 @@ export default function BiblioDetailPage() {
                 {t('holds.reserve')}
               </Button>
             )}
-            {canManageItems(user?.accountType) && (
+            {canEditCatalog && (
               <>
                 <Button
                   variant="secondary"
@@ -510,7 +515,7 @@ export default function BiblioDetailPage() {
               title={t('items.specimens')}
               subtitle={t('items.specimenCount', { count: item.items?.length ?? 0 })}
               action={
-                canManageItems(user?.accountType) && (
+                canEditCatalog && (
                   <div className="flex flex-wrap items-center gap-2">
                     {(item.items?.length ?? 0) > 0 && (
                       <Button
@@ -540,8 +545,8 @@ export default function BiblioDetailPage() {
                   <SpecimenCard
                     key={specimen.id}
                     specimen={specimen}
-                    canManage={canManageItems(user?.accountType)}
-                    showBorrower={canManageLoans(user?.accountType)}
+                    canManage={canEditCatalog}
+                    showBorrower={canSeeBorrower}
                     showReserveButton={
                       canPlaceTitleHold && specimen.borrowable !== false
                     }

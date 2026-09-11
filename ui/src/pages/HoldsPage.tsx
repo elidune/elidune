@@ -17,9 +17,11 @@ import { useTransitActions } from '@/hooks/holds/useTransitActions';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
 import type { Biblio, BiblioShort, Hold, UserShort } from '@/types';
+import { canManageStaffHolds } from '@/types';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { formatUserShortName } from '@/utils/userDisplay';
 import { useToast } from '@/contexts/ToastContext';
+import { useAuth } from '@/contexts/AuthContext';
 import { formChoiceLabelClass, formControlClass, formLabelClass } from '@/utils/formControl';
 import {
   applyStaffHoldList,
@@ -41,6 +43,8 @@ export default function HoldsPage() {
   const { t, i18n } = useTranslation();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const canWriteHolds = canManageStaffHolds(user, api.getToken());
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StaffHoldStatusFilter>('all');
@@ -267,7 +271,7 @@ export default function HoldsPage() {
   });
 
   const cancelCell = (r: Hold) =>
-    r.status === 'pending' || r.status === 'ready' ? (
+    canWriteHolds && (r.status === 'pending' || r.status === 'ready') ? (
       <Button
         size="sm"
         variant="secondary"
@@ -365,13 +369,15 @@ export default function HoldsPage() {
               {t('transits.openQueue')}
             </Button>
           </Link>
-          <Button
-            variant="primary"
-            leftIcon={<Plus className="h-4 w-4" />}
-            onClick={() => setShowCreateModal(true)}
-          >
-            {t('holds.newHoldButton')}
-          </Button>
+          {canWriteHolds && (
+            <Button
+              variant="primary"
+              leftIcon={<Plus className="h-4 w-4" />}
+              onClick={() => setShowCreateModal(true)}
+            >
+              {t('holds.newHoldButton')}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -493,7 +499,7 @@ export default function HoldsPage() {
       </Card>
 
       <Modal
-        isOpen={showCreateModal}
+        isOpen={showCreateModal && canWriteHolds}
         onClose={() => {
           setShowCreateModal(false);
           resetCreateForm();

@@ -4,14 +4,15 @@ import { CalendarDays } from 'lucide-react';
 import { Card, Button } from '@/components/common';
 import PublicEventsPanel from '@/components/events/PublicEventsPanel';
 import { useAuth } from '@/contexts/AuthContext';
-import { isLibrarian } from '@/types';
+import { canManageEvents } from '@/types';
+import api from '@/services/api';
 
 export default function PublicEventsPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  const canManage = isLibrarian(user?.accountType);
+  const canManage = canManageEvents(user, api.getToken());
 
   return (
     <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col gap-4">

@@ -1,4 +1,14 @@
-import { readAcquisitionsRightsFromJwt, readHoldsRightsFromJwt } from '@/utils/jwtRights';
+import {
+  hasMinRightsLevel,
+  normalizeRightsLevel,
+  readAcquisitionsRightsFromJwt,
+  readDomainRightFromJwt,
+  type RightsDomain,
+  type RightsLevel,
+} from '@/utils/jwtRights';
+
+export type { RightsDomain, RightsLevel };
+export { hasMinRightsLevel, normalizeRightsLevel, readDomainRightFromJwt };
 
 // Library info types
 export interface LibraryInfo {
@@ -78,9 +88,14 @@ export interface CreateScheduleClosure {
 
 /** Nested permission bag on GET /auth/me (matches JWT `rights` when exposed). */
 export interface AuthMeRights {
+  itemsRights?: string | null;
+  usersRights?: string | null;
+  loansRights?: string | null;
   holdsRights?: string | null;
   /** Legacy alias on some tokens — prefer holdsRights */
   borrowsRights?: string | null;
+  settingsRights?: string | null;
+  eventsRights?: string | null;
   /** Acquisitions (`n`/`r`/`w` or `none`/`read`/`write`) — distinct from cataloging. */
   acquisitionsRights?: string | null;
 }
@@ -102,6 +117,11 @@ export interface User {
    * Patron self-service uses `own`.
    */
   holdsRights?: string | null;
+  itemsRights?: string | null;
+  usersRights?: string | null;
+  loansRights?: string | null;
+  settingsRights?: string | null;
+  eventsRights?: string | null;
   /** Acquisitions permission when exposed on the profile (`n`/`r`/`w` or `none`/`read`/`write`). */
   acquisitionsRights?: string | null;
   rights?: AuthMeRights | null;
@@ -1126,24 +1146,122 @@ export const isLibrarian = (accountType?: string): boolean => {
   return normalized === 'admin' || normalized === 'librarian';
 };
 
-export const canManageItems = (accountType?: string): boolean =>
-  isLibrarian(accountType);
+/** Profile fields that may carry domain rights (flat or nested `rights`). */
+export type RightsBearer = Pick<
+  User,
+  | 'holdsRights'
+  | 'itemsRights'
+  | 'usersRights'
+  | 'loansRights'
+  | 'settingsRights'
+  | 'eventsRights'
+  | 'acquisitionsRights'
+  | 'rights'
+>;
 
-export const canManageUsers = (accountType?: string): boolean =>
-  isLibrarian(accountType);
+const PROFILE_FLAT_KEYS: Record<RightsDomain, keyof RightsBearer> = {
+  items: 'itemsRights',
+  users: 'usersRights',
+  loans: 'loansRights',
+  holds: 'holdsRights',
+  settings: 'settingsRights',
+  events: 'eventsRights',
+  acquisitions: 'acquisitionsRights',
+};
 
-export const canManageLoans = (accountType?: string): boolean =>
-  isLibrarian(accountType);
+function pickFromAuthMeRights(bag: AuthMeRights | null | undefined, domain: RightsDomain): unknown {
+  if (!bag) return undefined;
+  switch (domain) {
+    case 'items':
+      return bag.itemsRights;
+    case 'users':
+      return bag.usersRights;
+    case 'loans':
+      return bag.loansRights;
+    case 'holds':
+      return bag.holdsRights ?? bag.borrowsRights;
+    case 'settings':
+      return bag.settingsRights;
+    case 'events':
+      return bag.eventsRights;
+    case 'acquisitions':
+      return bag.acquisitionsRights;
+  }
+}
+
+/** Domain right from profile only (`none` | `own` | `read` | `write`). */
+export function resolveDomainRightFromProfile(
+  user: RightsBearer | null | undefined,
+  domain: RightsDomain,
+): RightsLevel | null {
+  if (!user) return null;
+  const nested = user.rights && typeof user.rights === 'object' ? user.rights : null;
+  const flatKey = PROFILE_FLAT_KEYS[domain];
+  const flat = user[flatKey];
+  return normalizeRightsLevel(pickFromAuthMeRights(nested, domain) ?? flat);
+}
+
+/**
+ * Effective domain permission: JWT `rights.*` first (available right after login),
+ * then GET /auth/me fields when present.
+ */
+export function resolveDomainRight(
+  user: RightsBearer | null | undefined,
+  domain: RightsDomain,
+  authToken?: string | null,
+): RightsLevel | null {
+  const fromJwt = authToken ? readDomainRightFromJwt(authToken, domain) : null;
+  if (fromJwt) return fromJwt;
+  return resolveDomainRightFromProfile(user, domain);
+}
+
+export function hasDomainRight(
+  user: RightsBearer | null | undefined,
+  domain: RightsDomain,
+  required: RightsLevel,
+  authToken?: string | null,
+): boolean {
+  return hasMinRightsLevel(resolveDomainRight(user, domain, authToken), required);
+}
+
+/** Catalog mutate (create/edit biblio & items, Z39.50 import write). */
+export const canManageItems = (
+  user: RightsBearer | null | undefined,
+  authToken?: string | null,
+): boolean => hasDomainRight(user, 'items', 'write', authToken);
+
+/** Staff catalog list/detail when JWT grants catalog read. */
+export const canReadItems = (
+  user: RightsBearer | null | undefined,
+  authToken?: string | null,
+): boolean => hasDomainRight(user, 'items', 'read', authToken);
+
+export const canManageUsers = (
+  user: RightsBearer | null | undefined,
+  authToken?: string | null,
+): boolean => hasDomainRight(user, 'users', 'write', authToken);
+
+export const canReadUsers = (
+  user: RightsBearer | null | undefined,
+  authToken?: string | null,
+): boolean => hasDomainRight(user, 'users', 'read', authToken);
+
+/** Circulation desk ops (checkout / return / renew) — matches `require_write_loans`. */
+export const canManageLoans = (
+  user: RightsBearer | null | undefined,
+  authToken?: string | null,
+): boolean => hasDomainRight(user, 'loans', 'write', authToken);
+
+export const canReadLoans = (
+  user: RightsBearer | null | undefined,
+  authToken?: string | null,
+): boolean => hasDomainRight(user, 'loans', 'read', authToken);
 
 /** Normalized holds level from profile only (`none` | `own` | `read` | `write`). */
 export function resolveHoldsRightsFromProfile(
   user: Pick<User, 'holdsRights' | 'rights'> | null | undefined,
 ): string | null {
-  if (!user) return null;
-  const nested = user.rights && typeof user.rights === 'object' ? user.rights : null;
-  const raw = nested?.holdsRights ?? nested?.borrowsRights ?? user.holdsRights;
-  const s = raw != null ? String(raw).trim().toLowerCase() : '';
-  return s || null;
+  return resolveDomainRightFromProfile(user, 'holds');
 }
 
 /**
@@ -1154,9 +1272,7 @@ export function resolveHoldsRights(
   user: Pick<User, 'holdsRights' | 'rights'> | null | undefined,
   authToken?: string | null,
 ): string | null {
-  const fromJwt = authToken ? readHoldsRightsFromJwt(authToken) : null;
-  const fromProfile = resolveHoldsRightsFromProfile(user);
-  return fromJwt ?? fromProfile ?? null;
+  return resolveDomainRight(user, 'holds', authToken);
 }
 
 /** Personal holds UI (Mes réservations, réserver un exemplaire) for `own`, `read`, or `write`. */
@@ -1168,27 +1284,48 @@ export const canPatronSelfServiceHolds = (
   return r === 'own' || r === 'read' || r === 'write';
 };
 
-export const canViewStats = (accountType?: string): boolean =>
-  isLibrarian(accountType);
+/** Staff holds desk list/queues — `holdsRights` ≥ read (`own` alone is insufficient). */
+export const canViewStaffHolds = (
+  user: RightsBearer | null | undefined,
+  authToken?: string | null,
+): boolean => hasDomainRight(user, 'holds', 'read', authToken);
 
-export const canManageSettings = (accountType?: string): boolean =>
-  isAdmin(accountType);
+/** Create/cancel holds for others — `holdsRights` ≥ write. */
+export const canManageStaffHolds = (
+  user: RightsBearer | null | undefined,
+  authToken?: string | null,
+): boolean => hasDomainRight(user, 'holds', 'write', authToken);
+
+/** Stats overview — catalog read is the common gate for `/stats` entry. */
+export const canViewStats = (
+  user: RightsBearer | null | undefined,
+  authToken?: string | null,
+): boolean => hasDomainRight(user, 'items', 'read', authToken);
+
+/** Full settings mutate (non-admin tabs still need admin where API uses require_admin). */
+export const canManageSettings = (
+  user: RightsBearer | null | undefined,
+  authToken?: string | null,
+): boolean => hasDomainRight(user, 'settings', 'write', authToken);
+
+export const canManageEvents = (
+  user: RightsBearer | null | undefined,
+  authToken?: string | null,
+): boolean => hasDomainRight(user, 'events', 'write', authToken);
 
 /** Normalized acquisitions level: `n` | `r` | `w`. */
 export function normalizeAcquisitionsRightsLevel(raw: unknown): AccountTypeRightLevel | null {
-  const s = raw != null ? String(raw).trim().toLowerCase() : '';
-  if (s === 'n' || s === 'none') return 'n';
-  if (s === 'r' || s === 'read') return 'r';
-  if (s === 'w' || s === 'write') return 'w';
+  const level = normalizeRightsLevel(raw);
+  if (level === 'none') return 'n';
+  if (level === 'read') return 'r';
+  if (level === 'write') return 'w';
   return null;
 }
 
 export function resolveAcquisitionsRightsFromProfile(
   user: Pick<User, 'acquisitionsRights' | 'rights'> | null | undefined,
 ): AccountTypeRightLevel | null {
-  if (!user) return null;
-  const nested = user.rights && typeof user.rights === 'object' ? user.rights : null;
-  return normalizeAcquisitionsRightsLevel(nested?.acquisitionsRights ?? user.acquisitionsRights);
+  return normalizeAcquisitionsRightsLevel(resolveDomainRightFromProfile(user, 'acquisitions'));
 }
 
 /**
