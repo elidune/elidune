@@ -26,7 +26,7 @@ src/
   types/index.ts        # All shared types + permission helpers
   contexts/             # AuthContext, ThemeContext, LanguageContext, LibraryContext
   pages/                # One file per page (large files are normal here)
-  components/           # Organized by domain: auth/ common/ items/ loans/ stats/ users/ specimen/
+  components/           # Organized by domain: auth/ common/ items/ loans/ stats/ users/ specimen/ (legacy folder name for Item UI)
   hooks/                # Organized by domain (same structure as components)
   utils/                # apiError.ts · callNumber.ts · codeLabels.ts
   locales/fr/           # translation.json (single locale for now)
@@ -88,8 +88,8 @@ rtk tsc           # Type-check only (token-optimised)
 
 ## Important domain notes
 
-- An **Item** is a bibliographic record; a **Specimen** is a physical copy of an item.
-- `ItemShort.specimens` replaces the deprecated `nb_specimens` / `nb_available` fields.
+- A **Biblio** is a bibliographic record; an **Item** is a physical copy of a biblio. **Specimen** is a retired synonym — prefer Item (legacy UI folder/i18n keys may still say specimen).
+- `BiblioShort.items` is the list of physical copies (replaces deprecated count fields).
 - `MediaType` values are camelCase strings matching the server enum (e.g. `printedText`, `videoDvd`).
 - `day_of_week` in schedule slots: `0 = Monday`, `6 = Sunday`.
 - Loan overdue status is provided directly by the API (`is_overdue`); don't recompute it client-side.
