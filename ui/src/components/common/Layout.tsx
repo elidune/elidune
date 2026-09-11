@@ -30,7 +30,16 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLibrary } from '@/contexts/LibraryContext';
-import { isLibrarian, isAdmin, canPatronSelfServiceHolds, canViewAcquisitions } from '@/types';
+import {
+  isLibrarian,
+  isAdmin,
+  canPatronSelfServiceHolds,
+  canViewAcquisitions,
+  canManageLoans,
+  canViewStaffHolds,
+  canReadItems,
+  canManageItems,
+} from '@/types';
 import { useAccountTypesQuery } from '@/hooks/useAccountTypesQuery';
 import { accountTypeDisplayName } from '@/utils/accountTypeDisplay';
 import api from '@/services/api';
@@ -58,8 +67,13 @@ export default function Layout({ children }: LayoutProps) {
   const { user, logout } = useAuth();
   const { data: accountTypes = [] } = useAccountTypesQuery();
   const { theme, setTheme } = useTheme();
+  const token = api.getToken();
   const staff = isLibrarian(user?.accountType);
-  const showAcquisitions = canViewAcquisitions(user, api.getToken());
+  const showAcquisitions = canViewAcquisitions(user, token);
+  const showLoansDesk = canManageLoans(user, token);
+  const showHoldsDesk = canViewStaffHolds(user, token);
+  const showCatalogRead = canReadItems(user, token);
+  const showCatalogWrite = canManageItems(user, token);
   const { libraryName } = useLibrary();
   const location = useLocation();
   const navigate = useNavigate();
@@ -90,15 +104,15 @@ export default function Layout({ children }: LayoutProps) {
       id: 'top',
       items: [
         { name: t('nav.home'), href: '/home', icon: Home, show: true },
-        { name: t('nav.catalog'), href: '/catalog', icon: BookOpen, show: !staff },
+        { name: t('nav.catalog'), href: '/catalog', icon: BookOpen, show: !showCatalogRead || !staff },
       ],
     },
     {
       id: 'circulation',
       label: t('nav.sectionCirculation'),
       items: [
-        { name: t('nav.loans'), href: '/loans', icon: ArrowLeftRight, show: staff },
-        { name: t('nav.holds'), href: '/holds', icon: Bookmark, show: staff },
+        { name: t('nav.loans'), href: '/loans', icon: ArrowLeftRight, show: showLoansDesk },
+        { name: t('nav.holds'), href: '/holds', icon: Bookmark, show: showHoldsDesk },
         { name: t('nav.transits'), href: '/transits', icon: Truck, show: staff },
         { name: t('nav.users'), href: '/users', icon: Users, show: staff },
       ],
@@ -107,10 +121,10 @@ export default function Layout({ children }: LayoutProps) {
       id: 'cataloging',
       label: t('nav.sectionCataloging'),
       items: [
-        { name: t('nav.catalog'), href: '/biblios', icon: BookOpen, show: staff },
+        { name: t('nav.catalog'), href: '/biblios', icon: BookOpen, show: showCatalogRead },
         { name: t('nav.inventory'), href: '/inventory', icon: ClipboardList, show: staff },
-        { name: t('nav.z3950Search'), href: '/z3950', icon: Globe, show: staff },
-        { name: t('nav.importIso'), href: '/import-iso', icon: Upload, show: staff },
+        { name: t('nav.z3950Search'), href: '/z3950', icon: Globe, show: showCatalogRead },
+        { name: t('nav.importIso'), href: '/import-iso', icon: Upload, show: showCatalogWrite },
       ],
     },
     {
@@ -131,7 +145,7 @@ export default function Layout({ children }: LayoutProps) {
           name: t('nav.myHolds'),
           href: '/my-holds',
           icon: BookmarkCheck,
-          show: canPatronSelfServiceHolds(user, api.getToken()),
+          show: canPatronSelfServiceHolds(user, token),
         },
         { name: t('nav.events'), href: '/events', icon: CalendarDays, show: true },
       ],
