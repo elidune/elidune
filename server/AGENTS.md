@@ -37,12 +37,12 @@ src/
 
 | Concept | Description |
 |---|---|
-| **Item** | Bibliographic record (book, DVD, etc.) with ISBN, authors, series, etc. |
-| **Specimen** | Physical copy of an item (barcode, call number, borrowable flag) |
-| **Loan** | Borrowing of a specimen by a user |
+| **Biblio** | Bibliographic record (book, DVD, etc.) with ISBN, authors, series, etc. |
+| **Item** | Physical copy of a biblio (barcode, call number, borrowable flag). Retired synonym: Specimen — do not use in new docs/code. |
+| **Loan** | Borrowing of an item by a user |
 | **Source** | Z39.50 or external catalog source for importing records |
-| **PublicType** | Audience classification for items (e.g. youth, adult) |
-| **MARC** | `src/marc/translator.rs` converts `z3950_rs::MarcRecord` → `Item + Vec<Specimen>` |
+| **PublicType** | Audience classification for biblios (e.g. youth, adult) |
+| **MARC** | `src/marc/translator.rs` converts `z3950_rs::MarcRecord` → `Biblio` (+ local `Item`s) |
 
 ---
 
@@ -61,7 +61,7 @@ AppError::BusinessRule("max loans reached".into())// → 422
 
 Special variants for UI confirmation flows:
 - `AppError::DuplicateNeedsConfirmation` — returns 409 with `DuplicateConfirmationRequired` body
-- `AppError::DuplicateBarcodeNeedsConfirmation` — same pattern for specimen barcodes
+- `AppError::DuplicateBarcodeNeedsConfirmation` — same pattern for item barcodes
 
 ---
 
@@ -135,7 +135,7 @@ Dynamic (DB-overridable) settings are in `DynamicConfig` / `dynamic_config.rs`.
 
 | Service | Responsibility |
 |---|---|
-| `catalog` | Item/specimen CRUD, search, import (with optional Meilisearch) |
+| `catalog` | Biblio/item CRUD, search, import (with optional Meilisearch) |
 | `loans` | Borrow/return flow, loan rules |
 | `users` | Auth (JWT + TOTP), user management |
 | `marc` | Z39.50 import pipeline (fetch → translate → catalog) |

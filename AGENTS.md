@@ -35,8 +35,8 @@ cd ui && pnpm lint && pnpm build
 
 ## Domain vocabulary
 
-- **Item / Biblio** — bibliographic record
-- **Specimen** — physical copy of an item
+- **Biblio** — bibliographic record
+- **Item** — physical copy of a biblio (retired synonym: Specimen — do not use in new docs/code)
 - **Loan** — circulation record
 - **Hold** — reservation queue entry
 
