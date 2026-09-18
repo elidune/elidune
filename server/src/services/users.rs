@@ -467,6 +467,17 @@ impl UsersService {
                 "guardian must be an active patron".into(),
             ));
         }
+        if let Some(public_type_id) = guardian.public_type {
+            let pt = self
+                .repository
+                .public_types_get_by_id(public_type_id)
+                .await?;
+            if !crate::models::public_type::PublicType::can_be_legal_guardian(&pt.name) {
+                return Err(AppError::Validation(
+                    "guardian must be a major patron (not child or school)".into(),
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -474,7 +485,7 @@ impl UsersService {
         if self.public_type_requires_guardian(user.public_type).await? {
             let Some(guardian_id) = user.guardian_id else {
                 return Err(AppError::Validation(
-                    "guardianId is required for child and school patrons".into(),
+                    "guardianId is required for child patrons".into(),
                 ));
             };
             self.validate_guardian(None, guardian_id).await?;

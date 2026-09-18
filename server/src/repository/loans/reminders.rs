@@ -105,7 +105,8 @@ const OVERDUE_SELECT: &str = r#"
 "#;
 
 /// Same as [`OVERDUE_SELECT`], but name/email/language come from the legal guardian
-/// when `user_guardians` has a row for the borrower. Grouping stays on `l.user_id`.
+/// when the borrower is a `child` with a `user_guardians` row. `school` and other
+/// types keep the borrower's own contact. Grouping stays on `l.user_id`.
 const REMINDER_SELECT: &str = r#"
                 l.id as loan_id,
                 l.user_id,
@@ -138,8 +139,9 @@ impl Repository {
     /// A loan is only eligible for `reminder_count + 1` (no skip, no double-send).
     ///
     /// Recipient contact (email, name, language, `receive_reminders`) is the
-    /// legal guardian when `user_guardians` links the borrower; otherwise the
-    /// borrower. Eligibility grouping remains per borrower (`l.user_id`).
+    /// legal guardian when the borrower is a `child` with a `user_guardians`
+    /// row; otherwise the borrower (`school` included). Grouping remains per
+    /// borrower (`l.user_id`).
     pub async fn loans_get_overdue_for_reminders(
         &self,
         delays: ReminderTierDelays,
@@ -154,7 +156,8 @@ impl Repository {
             JOIN items it ON l.item_id = it.id
             JOIN biblios b ON it.biblio_id = b.id
             JOIN users u ON l.user_id = u.id
-            LEFT JOIN user_guardians ug ON ug.child_id = u.id
+            LEFT JOIN public_types pt ON pt.id = u.public_type
+            LEFT JOIN user_guardians ug ON ug.child_id = u.id AND pt.name = 'child'
             LEFT JOIN users g ON g.id = ug.guardian_id
             WHERE l.returned_at IS NULL
               AND l.expiry_at < NOW()

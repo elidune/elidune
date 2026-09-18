@@ -144,7 +144,7 @@ pub async fn post_first_setup(
         ));
     }
 
-    // Prefer `adult`: seed order puts `child` first, and child/school enrolment
+    // Prefer `adult`: seed order puts `child` first, and child enrolment
     // requires a legal guardian (POST /users).
     let default_public_type: i64 = match repo.public_types_find_id_by_name("adult").await? {
         Some(id) => id,

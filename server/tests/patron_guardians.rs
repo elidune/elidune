@@ -1,4 +1,5 @@
-//! Legal guardian for minor patrons (`child` / `school`) — part of #54.
+//! Legal guardian for `child` patrons — part of #54.
+//! `school` is a collectivity and does not require a guardian.
 
 mod common;
 
@@ -26,17 +27,66 @@ async fn create_child_without_guardian_is_rejected() {
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
-    reject_minor_without_guardian(&app, &admin_token, "child").await;
+    reject_child_without_guardian(&app, &admin_token).await;
 }
 
 #[tokio::test]
-async fn create_school_without_guardian_is_rejected() {
+async fn create_school_without_guardian_succeeds() {
     let _guard = test_guard().await;
     let Some(app) = TestApp::spawn().await else {
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
-    reject_minor_without_guardian(&app, &admin_token, "school").await;
+    let school_type = fixtures::public_type_id_by_name(&app, &admin_token, "school").await;
+    let login = format!("school_{}", fixtures::unique_suffix());
+    let (status, body) = app
+        .post_json(
+            "/api/v1/users",
+            &json!({
+                "login": login,
+                "password": "readerpass1234",
+                "firstname": "College",
+                "lastname": login,
+                "email": format!("{login}@school.local"),
+                "accountType": "reader",
+                "publicType": school_type.to_string(),
+                "sex": "m",
+                "birthdate": "1990-01-01",
+                "addrCity": "Paris"
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "enrol school without guardian: {body}"
+    );
+    assert!(
+        body["guardianId"].is_null(),
+        "school must not require a guardian: {body}"
+    );
+}
+
+#[tokio::test]
+async fn child_or_school_cannot_be_the_guardian() {
+    let _guard = test_guard().await;
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (adult_id, _) = fixtures::create_reader(&app, &admin_token, "adult_g").await;
+    let child_id = create_child_with_guardian(
+        &app,
+        &admin_token,
+        adult_id,
+        &format!("ward_{}@child.local", fixtures::unique_suffix()),
+    )
+    .await;
+    reject_non_major_guardian(&app, &admin_token, child_id, "child").await;
+
+    let school_id = create_school_without_guardian(&app, &admin_token).await;
+    reject_non_major_guardian(&app, &admin_token, school_id, "school").await;
 }
 
 #[tokio::test]
@@ -100,8 +150,7 @@ async fn overdue_reminders_for_a_minor_go_to_the_guardian() {
     let child_email = format!("child_{suffix}@test.local");
 
     let (guardian_id, _) = create_reader_with_email(&app, &admin_token, "g", &guardian_email).await;
-    let child_id =
-        create_minor_with_guardian(&app, &admin_token, guardian_id, "child", &child_email).await;
+    let child_id = create_child_with_guardian(&app, &admin_token, guardian_id, &child_email).await;
 
     let loan_a = insert_overdue_loan(&repo, child_id, 40, 0).await;
     let loan_b = insert_overdue_loan(&repo, child_id, 40, 0).await;
@@ -127,9 +176,9 @@ async fn overdue_reminders_for_a_minor_go_to_the_guardian() {
     let _ = (loan_a, loan_b);
 }
 
-async fn reject_minor_without_guardian(app: &TestApp, admin_token: &str, type_name: &str) {
-    let public_type = fixtures::public_type_id_by_name(app, admin_token, type_name).await;
-    let login = format!("{type_name}_{}", fixtures::unique_suffix());
+async fn reject_child_without_guardian(app: &TestApp, admin_token: &str) {
+    let public_type = fixtures::public_type_id_by_name(app, admin_token, "child").await;
+    let login = format!("child_{}", fixtures::unique_suffix());
     let (status, body) = app
         .post_json(
             "/api/v1/users",
@@ -151,13 +200,72 @@ async fn reject_minor_without_guardian(app: &TestApp, admin_token: &str, type_na
     assert_eq!(
         status,
         StatusCode::BAD_REQUEST,
-        "enrol {type_name} without guardian: {body}"
+        "enrol child without guardian: {body}"
     );
     let message = body["message"].as_str().unwrap_or("");
     assert!(
-        message.contains("guardianId"),
-        "error must mention guardianId: {body}"
+        message.contains("guardianId") && message.contains("child") && !message.contains("school"),
+        "error must mention child only: {body}"
     );
+}
+
+async fn reject_non_major_guardian(app: &TestApp, admin_token: &str, guardian_id: i64, kind: &str) {
+    let child_type = fixtures::public_type_id_by_name(app, admin_token, "child").await;
+    let login = format!("ward_{kind}_{}", fixtures::unique_suffix());
+    let (status, body) = app
+        .post_json(
+            "/api/v1/users",
+            &json!({
+                "login": login,
+                "password": "readerpass1234",
+                "firstname": "Ward",
+                "lastname": login,
+                "email": format!("{login}@child.local"),
+                "accountType": "reader",
+                "publicType": child_type.to_string(),
+                "sex": "f",
+                "birthdate": "2015-06-01",
+                "addrCity": "Paris",
+                "guardianId": guardian_id.to_string()
+            }),
+            Some(admin_token),
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "{kind} must not be accepted as guardian: {body}"
+    );
+    let message = body["message"].as_str().unwrap_or("");
+    assert!(
+        message.contains("major") || message.contains("child") || message.contains("school"),
+        "error must reject a non-major guardian: {body}"
+    );
+}
+
+async fn create_school_without_guardian(app: &TestApp, admin_token: &str) -> i64 {
+    let school_type = fixtures::public_type_id_by_name(app, admin_token, "school").await;
+    let login = format!("school_{}", fixtures::unique_suffix());
+    let (status, body) = app
+        .post_json(
+            "/api/v1/users",
+            &json!({
+                "login": login,
+                "password": "readerpass1234",
+                "firstname": "College",
+                "lastname": login,
+                "email": format!("{login}@school.local"),
+                "accountType": "reader",
+                "publicType": school_type.to_string(),
+                "sex": "m",
+                "birthdate": "1990-01-01",
+                "addrCity": "Paris"
+            }),
+            Some(admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "create school: {body}");
+    fixtures::json_id(&body["id"])
 }
 
 async fn create_reader_with_email(
@@ -190,15 +298,14 @@ async fn create_reader_with_email(
     (fixtures::json_id(&body["id"]), login)
 }
 
-async fn create_minor_with_guardian(
+async fn create_child_with_guardian(
     app: &TestApp,
     admin_token: &str,
     guardian_id: i64,
-    type_name: &str,
     email: &str,
 ) -> i64 {
-    let public_type = fixtures::public_type_id_by_name(app, admin_token, type_name).await;
-    let login = format!("{type_name}_{}", fixtures::unique_suffix());
+    let public_type = fixtures::public_type_id_by_name(app, admin_token, "child").await;
+    let login = format!("child_{}", fixtures::unique_suffix());
     let (status, body) = app
         .post_json(
             "/api/v1/users",

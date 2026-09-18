@@ -428,7 +428,7 @@ pub struct User {
     #[serde(skip_serializing)]
     pub token_version: i64,
     /// Linked legal guardian (`user_guardians.guardian_id`). Required when `publicType`
-    /// is `child` or `school`. Stored as a patron-to-patron relation, not a `users` column.
+    /// is `child`. Stored as a patron-to-patron relation, not a `users` column.
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub guardian_id: Option<i64>,
@@ -551,7 +551,7 @@ pub struct UserPayload {
     pub staff_end_date: Option<String>,
     /// Membership / subscription expiry (UTC); borrowing may be denied after this date.
     pub expiry_at: Option<DateTime<Utc>>,
-    /// Legal guardian patron id. Required on create when `publicType` is `child` or `school`.
+    /// Legal guardian patron id. Required on create when `publicType` is `child`.
     /// On update, omit to leave the link unchanged; send a new id to replace it.
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]

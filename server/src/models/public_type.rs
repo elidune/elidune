@@ -29,10 +29,17 @@ pub struct PublicType {
 }
 
 impl PublicType {
-    /// Seeded `child` and `school` types require a linked legal guardian (another patron).
+    /// Seeded `child` (a person under 18) requires a linked legal guardian.
+    /// `school` is a collectivity and does not.
     #[must_use]
     pub fn requires_legal_guardian(name: &str) -> bool {
-        matches!(name, "child" | "school")
+        name == "child"
+    }
+
+    /// A guardian must be a major patron: not `child` and not `school`.
+    #[must_use]
+    pub fn can_be_legal_guardian(name: &str) -> bool {
+        !matches!(name, "child" | "school")
     }
 }
 
@@ -114,11 +121,20 @@ mod tests {
     use super::PublicType;
 
     #[test]
-    fn child_and_school_require_a_legal_guardian() {
+    fn only_child_requires_a_legal_guardian() {
         assert!(PublicType::requires_legal_guardian("child"));
-        assert!(PublicType::requires_legal_guardian("school"));
+        assert!(!PublicType::requires_legal_guardian("school"));
         assert!(!PublicType::requires_legal_guardian("adult"));
         assert!(!PublicType::requires_legal_guardian("staff"));
         assert!(!PublicType::requires_legal_guardian("senior"));
+    }
+
+    #[test]
+    fn child_and_school_cannot_be_a_legal_guardian() {
+        assert!(!PublicType::can_be_legal_guardian("child"));
+        assert!(!PublicType::can_be_legal_guardian("school"));
+        assert!(PublicType::can_be_legal_guardian("adult"));
+        assert!(PublicType::can_be_legal_guardian("staff"));
+        assert!(PublicType::can_be_legal_guardian("senior"));
     }
 }
