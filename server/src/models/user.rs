@@ -357,6 +357,7 @@ impl From<UserRow> for User {
             receive_reminders: row.receive_reminders.unwrap_or(true),
             must_change_password: row.must_change_password.unwrap_or(false),
             token_version: row.token_version,
+            guardian_id: None,
         }
     }
 }
@@ -426,6 +427,11 @@ pub struct User {
     /// Incremented on password, role, or 2FA changes to revoke existing JWTs.
     #[serde(skip_serializing)]
     pub token_version: i64,
+    /// Linked legal guardian (`user_guardians.guardian_id`). Required when `publicType`
+    /// is `child` or `school`. Stored as a patron-to-patron relation, not a `users` column.
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub guardian_id: Option<i64>,
 }
 
 impl User {
@@ -545,6 +551,11 @@ pub struct UserPayload {
     pub staff_end_date: Option<String>,
     /// Membership / subscription expiry (UTC); borrowing may be denied after this date.
     pub expiry_at: Option<DateTime<Utc>>,
+    /// Legal guardian patron id. Required on create when `publicType` is `child` or `school`.
+    /// On update, omit to leave the link unchanged; send a new id to replace it.
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub guardian_id: Option<i64>,
 }
 
 impl UserPayload {

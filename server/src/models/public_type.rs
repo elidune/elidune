@@ -28,6 +28,14 @@ pub struct PublicType {
     pub max_active_holds: Option<i16>,
 }
 
+impl PublicType {
+    /// Seeded `child` and `school` types require a linked legal guardian (another patron).
+    #[must_use]
+    pub fn requires_legal_guardian(name: &str) -> bool {
+        matches!(name, "child" | "school")
+    }
+}
+
 /// Per-media loan settings for a public type: on the default row (`media_type` IS NULL), `nb_max` caps total active loans;
 /// on a medium-specific row, `nb_max` caps loans for that medium.
 #[serde_as]
@@ -99,4 +107,18 @@ pub struct UpdatePublicType {
     pub unpaid_fine_threshold: Option<rust_decimal::Decimal>,
     /// When set, replaces the max-active-holds override (`None` keeps the current value).
     pub max_active_holds: Option<i16>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PublicType;
+
+    #[test]
+    fn child_and_school_require_a_legal_guardian() {
+        assert!(PublicType::requires_legal_guardian("child"));
+        assert!(PublicType::requires_legal_guardian("school"));
+        assert!(!PublicType::requires_legal_guardian("adult"));
+        assert!(!PublicType::requires_legal_guardian("staff"));
+        assert!(!PublicType::requires_legal_guardian("senior"));
+    }
 }

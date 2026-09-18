@@ -144,9 +144,14 @@ pub async fn post_first_setup(
         ));
     }
 
-    let default_public_type: i64 = repo.public_types_first_id().await?.ok_or_else(|| {
-        AppError::Internal("No public_type row found; run database migrations first".into())
-    })?;
+    // Prefer `adult`: seed order puts `child` first, and child/school enrolment
+    // requires a legal guardian (POST /users).
+    let default_public_type: i64 = match repo.public_types_find_id_by_name("adult").await? {
+        Some(id) => id,
+        None => repo.public_types_first_id().await?.ok_or_else(|| {
+            AppError::Internal("No public_type row found; run database migrations first".into())
+        })?,
+    };
 
     let addr_city = body
         .library

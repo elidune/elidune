@@ -252,7 +252,35 @@ impl Repository {
         .await?
         .ok_or_else(|| AppError::NotFound(format!("User with id {} not found", id)))?;
 
-        Ok(user_row.into())
+        let mut user: User = user_row.into();
+        user.guardian_id = self.users_guardian_id(id).await?;
+        Ok(user)
+    }
+
+    /// Legal guardian of `child_id`, if a `user_guardians` row exists.
+    pub async fn users_guardian_id(&self, child_id: i64) -> AppResult<Option<i64>> {
+        Ok(sqlx::query_scalar::<_, i64>(
+            "SELECT guardian_id FROM user_guardians WHERE child_id = $1",
+        )
+        .bind(child_id)
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
+    /// Insert or replace the unique guardian for `child_id`.
+    pub async fn users_set_guardian(&self, child_id: i64, guardian_id: i64) -> AppResult<()> {
+        sqlx::query(
+            r#"
+            INSERT INTO user_guardians (child_id, guardian_id)
+            VALUES ($1, $2)
+            ON CONFLICT (child_id) DO UPDATE SET guardian_id = EXCLUDED.guardian_id
+            "#,
+        )
+        .bind(child_id)
+        .bind(guardian_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     /// Get user by login (primary authentication method)
@@ -524,6 +552,7 @@ impl Repository {
             .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
         let hours_pw = user.hours_per_week.map(|v| v as f32);
 
+        let mut tx = self.pool.begin().await?;
         let id = sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO users (
@@ -569,8 +598,23 @@ impl Repository {
         .bind(now)
         .bind(user.expiry_at)
         .bind(true)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *tx)
         .await?;
+
+        if let Some(guardian_id) = user.guardian_id {
+            sqlx::query(
+                r#"
+                INSERT INTO user_guardians (child_id, guardian_id)
+                VALUES ($1, $2)
+                "#,
+            )
+            .bind(id)
+            .bind(guardian_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        tx.commit().await?;
 
         self.users_get_by_id(id).await
     }
@@ -708,6 +752,10 @@ impl Repository {
         }
 
         builder.execute(&self.pool).await?;
+
+        if let Some(guardian_id) = user.guardian_id {
+            self.users_set_guardian(id, guardian_id).await?;
+        }
 
         self.users_get_by_id(id).await
     }

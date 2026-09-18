@@ -68,6 +68,11 @@ pub async fn ensure_first_setup(app: &super::TestApp) -> String {
 }
 
 async fn first_public_type_id(app: &super::TestApp, admin_token: &str) -> i64 {
+    public_type_id_by_name(app, admin_token, "adult").await
+}
+
+/// Resolve a seeded public type id by `name` (`child`, `adult`, `school`, …).
+pub async fn public_type_id_by_name(app: &super::TestApp, admin_token: &str, name: &str) -> i64 {
     let (status, body) = app
         .get_json_with_auth("/api/v1/public-types", admin_token)
         .await;
@@ -77,11 +82,10 @@ async fn first_public_type_id(app: &super::TestApp, admin_token: &str) -> i64 {
         "list public types: {body}"
     );
     let types = body.as_array().expect("public types array");
-    assert!(!types.is_empty(), "expected seeded public types");
     let chosen = types
         .iter()
-        .find(|t| t["name"] == "adult")
-        .unwrap_or(&types[0]);
+        .find(|t| t["name"] == name)
+        .unwrap_or_else(|| panic!("expected public type {name}"));
     json_id(&chosen["id"])
 }
 

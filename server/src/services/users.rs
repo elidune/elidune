@@ -434,7 +434,54 @@ impl UsersService {
 
         user.login = Some(login);
 
+        self.ensure_guardian_on_create(&user).await?;
+
         self.repository.users_create(&user, password).await
+    }
+
+    async fn public_type_requires_guardian(&self, public_type_id: Option<i64>) -> AppResult<bool> {
+        let Some(id) = public_type_id else {
+            return Ok(false);
+        };
+        let pt = self.repository.public_types_get_by_id(id).await?;
+        Ok(crate::models::public_type::PublicType::requires_legal_guardian(&pt.name))
+    }
+
+    async fn validate_guardian(&self, child_id: Option<i64>, guardian_id: i64) -> AppResult<()> {
+        if child_id == Some(guardian_id) {
+            return Err(AppError::Validation(
+                "guardianId cannot be the same patron".into(),
+            ));
+        }
+        let guardian = match self.repository.users_get_by_id(guardian_id).await {
+            Ok(u) => u,
+            Err(AppError::NotFound(_)) => {
+                return Err(AppError::Validation(
+                    "guardianId does not refer to an existing patron".into(),
+                ));
+            }
+            Err(e) => return Err(e),
+        };
+        if !guardian.is_active() {
+            return Err(AppError::Validation(
+                "guardian must be an active patron".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    async fn ensure_guardian_on_create(&self, user: &UserPayload) -> AppResult<()> {
+        if self.public_type_requires_guardian(user.public_type).await? {
+            let Some(guardian_id) = user.guardian_id else {
+                return Err(AppError::Validation(
+                    "guardianId is required for child and school patrons".into(),
+                ));
+            };
+            self.validate_guardian(None, guardian_id).await?;
+        } else if let Some(guardian_id) = user.guardian_id {
+            self.validate_guardian(None, guardian_id).await?;
+        }
+        Ok(())
     }
 
     /// Update an existing user
@@ -452,6 +499,10 @@ impl UsersService {
             }
         }
         // Email is optional, no uniqueness check needed
+
+        if let Some(guardian_id) = user.guardian_id {
+            self.validate_guardian(Some(id), guardian_id).await?;
+        }
 
         // Hash password if provided
         let password = if let Some(ref password) = user.password {

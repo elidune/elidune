@@ -664,6 +664,7 @@ mod tests {
             receive_reminders: true,
             must_change_password: false,
             token_version: 0,
+            guardian_id: None,
         }
     }
 
