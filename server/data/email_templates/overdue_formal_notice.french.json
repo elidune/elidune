@@ -1,0 +1,6 @@
+{
+  "name": "Mise en demeure — prêt en retard",
+  "subject": "Mise en demeure : documents en retard",
+  "body_plain": "Bonjour {{firstname}} {{lastname}},\n\nCeci est une mise en demeure : les documents suivants restent en retard :\n\n{{loans_list}}\n\nMerci de les retourner sans délai.\n\nCordialement,\nL'équipe de la bibliothèque",
+  "body_html": "<html><body style=\"font-family: Arial, sans-serif; color: #333;\">\n<p>Bonjour <strong>{{firstname}} {{lastname}}</strong>,</p>\n<p>Ceci est une <strong>mise en demeure</strong> : les documents suivants restent <strong>en retard</strong> :</p>\n{{loans_table_html}}\n<p>Merci de les retourner sans délai.</p>\n<p>Cordialement,<br><em>L'équipe de la bibliothèque</em></p>\n</body></html>"
+}

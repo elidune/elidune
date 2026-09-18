@@ -30,6 +30,8 @@ pub const KNOWN_TEMPLATE_IDS: &[&str] = &[
     "hold_ready",
     "inventory_loan_closed",
     "overdue_reminder",
+    "overdue_second_reminder",
+    "overdue_formal_notice",
     "event_announcement",
 ];
 

@@ -195,6 +195,7 @@ impl DynamicConfig {
                 db_overrides.push(key);
             }
         }
+        effective.reminders.normalize_tier_enabled();
 
         Arc::new(Self {
             inner: RwLock::new(DynamicConfigInner {
@@ -281,7 +282,9 @@ impl DynamicConfig {
     }
 
     pub fn read_reminders(&self) -> RemindersConfig {
-        self.inner.read().unwrap().reminders.clone()
+        let mut cfg = self.inner.read().unwrap().reminders.clone();
+        cfg.normalize_tier_enabled();
+        cfg
     }
 
     pub fn read_audit(&self) -> AuditConfig {
@@ -330,8 +333,9 @@ impl DynamicConfig {
                 self.reload_logging();
             }
             Section::Reminders => {
-                let cfg: RemindersConfig = serde_json::from_value(value)
+                let mut cfg: RemindersConfig = serde_json::from_value(value)
                     .map_err(|e| AppError::BadRequest(format!("Invalid reminders config: {e}")))?;
+                cfg.normalize_tier_enabled();
                 validate_reminders_config(&cfg)?;
                 self.inner.write().unwrap().reminders = cfg;
             }
@@ -501,6 +505,44 @@ fn validate_reminders_config(cfg: &RemindersConfig) -> AppResult<()> {
             "reminders.frequency_days must be at least 1".to_string(),
         ));
     }
+    for (name, days) in [
+        (
+            "reminders.first_reminder_delay_days",
+            cfg.first_reminder_delay_days,
+        ),
+        (
+            "reminders.second_reminder_delay_days",
+            cfg.second_reminder_delay_days,
+        ),
+        (
+            "reminders.formal_notice_delay_days",
+            cfg.formal_notice_delay_days,
+        ),
+    ] {
+        if days > 3650 {
+            return Err(AppError::BadRequest(format!(
+                "{name} must be between 0 and 3650"
+            )));
+        }
+    }
+    for (name, value) in [
+        (
+            "reminders.first_reminder_template",
+            cfg.first_reminder_template.as_str(),
+        ),
+        (
+            "reminders.second_reminder_template",
+            cfg.second_reminder_template.as_str(),
+        ),
+        (
+            "reminders.formal_notice_template",
+            cfg.formal_notice_template.as_str(),
+        ),
+    ] {
+        if value.trim().is_empty() {
+            return Err(AppError::BadRequest(format!("{name} must not be empty")));
+        }
+    }
     let hhmm = Regex::new(r"^\d{2}:\d{2}$").unwrap();
     if !hhmm.is_match(&cfg.send_time) {
         return Err(AppError::BadRequest(
@@ -534,4 +576,44 @@ fn validate_holds_config(cfg: &HoldsConfig) -> AppResult<()> {
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::AppConfig;
+    use serde_json::json;
+
+    #[test]
+    fn disabling_second_reminder_on_write_also_disables_formal_notice() {
+        let dc = DynamicConfig::new(AppConfig::for_test());
+        let mut value = serde_json::to_value(dc.read_reminders()).expect("serialize");
+        value["second_reminder_enabled"] = json!(false);
+        value["formal_notice_enabled"] = json!(true);
+
+        dc.update_section("reminders", value).expect("update");
+
+        let saved = dc.read_reminders();
+        assert!(!saved.second_reminder_enabled);
+        assert!(
+            !saved.formal_notice_enabled,
+            "a disabled second reminder must turn the formal notice off"
+        );
+        assert!(saved.first_reminder_enabled);
+    }
+
+    #[test]
+    fn disabling_first_reminder_on_write_disables_the_rest() {
+        let dc = DynamicConfig::new(AppConfig::for_test());
+        let mut value = serde_json::to_value(dc.read_reminders()).expect("serialize");
+        value["first_reminder_enabled"] = json!(false);
+
+        dc.update_section("reminders", value).expect("update");
+
+        let saved = dc.read_reminders();
+        assert!(!saved.first_reminder_enabled);
+        assert!(!saved.second_reminder_enabled);
+        assert!(!saved.formal_notice_enabled);
+        assert_eq!(saved.max_sendable_reminder_count(), 0);
+    }
 }

@@ -1,0 +1,6 @@
+{
+  "name": "Deuxième rappel de prêt en retard",
+  "subject": "Deuxième rappel : documents en retard",
+  "body_plain": "Bonjour {{firstname}} {{lastname}},\n\nCeci est un deuxième rappel : les documents suivants sont toujours en retard :\n\n{{loans_list}}\n\nMerci de les retourner dès que possible.\n\nCordialement,\nL'équipe de la bibliothèque",
+  "body_html": "<html><body style=\"font-family: Arial, sans-serif; color: #333;\">\n<p>Bonjour <strong>{{firstname}} {{lastname}}</strong>,</p>\n<p>Ceci est un <strong>deuxième rappel</strong> : les documents suivants sont toujours <strong>en retard</strong> :</p>\n{{loans_table_html}}\n<p>Merci de les retourner dès que possible.</p>\n<p>Cordialement,<br><em>L'équipe de la bibliothèque</em></p>\n</body></html>"
+}

@@ -177,6 +177,7 @@ jobs:
           --test repository_loans_holds
           --test security_rbac
           --test email_outbox
+          --test graduated_reminders
           -- --nocapture
 
   coverage:
@@ -244,6 +245,7 @@ jobs:
           --test repository_loans_holds
           --test security_rbac
           --test email_outbox
+          --test graduated_reminders
           --lcov
           --output-path lcov.info
           --fail-under-lines 20

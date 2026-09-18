@@ -963,6 +963,33 @@ List responses omit **`attachmentDataBase64`**; **`GET /events/:id`**, **`POST /
 Overridable keys include `email`, `logging`, `reminders`, `audit`, `holds`, and `circulation`.
 `circulation.skip_closed_days` (default `true`) pushes checkout and renew due dates to the next open day using `schedule_slots` and `schedule_closures`.
 
+### `reminders` section (`GET/PUT/DELETE /admin/config/reminders`)
+
+Snake_case keys (same as the TOML file). `PUT` replaces the whole section. A disabled tier turns off every later tier on write (no holes).
+
+```json
+{
+  "enabled": true,
+  "frequency_days": 7,
+  "first_reminder_delay_days": 7,
+  "second_reminder_delay_days": 14,
+  "formal_notice_delay_days": 21,
+  "first_reminder_template": "overdue_reminder",
+  "second_reminder_template": "overdue_second_reminder",
+  "formal_notice_template": "overdue_formal_notice",
+  "first_reminder_enabled": true,
+  "second_reminder_enabled": true,
+  "formal_notice_enabled": true,
+  "send_time": "09:00",
+  "accrue_fines": true,
+  "smtp_throttle_ms": 100,
+  "overridable": true
+}
+```
+
+Tier delays are days after the due date. Templates are ids from `GET /settings/email-templates`.
+`frequency_days` is kept so existing payloads still deserialize; sending uses the three tier delays.
+
 ### `ReindexSearchResponse`
 ```json
 { "itemsQueued": 1250, "meilisearchAvailable": true }
@@ -1223,20 +1250,30 @@ See [README-background-tasks.md](README-background-tasks.md) for full polling gu
 
 ## Reminders
 
-### `ReminderReport` (response to POST /loans/reminders)
+### `ReminderReport` (response to `POST /loans/send-overdue-reminders`)
 ```json
 {
   "dryRun": false,
   "emailsSent": 18,
   "loansReminded": 18,
   "details": [
-    { "userId": "...", "email": "jdoe@example.com", "firstname": "Jean", "lastname": "Doe", "loanCount": 2 }
+    {
+      "userId": "...",
+      "email": "jdoe@example.com",
+      "firstname": "Jean",
+      "lastname": "Doe",
+      "loanCount": 2,
+      "tier": "first",
+      "templateId": "overdue_reminder"
+    }
   ],
   "errors": [
     { "userId": "...", "email": "noreply@example.com", "errorMessage": "Invalid email address" }
   ]
 }
 ```
+
+`tier` is the notice that was queued (or would be queued on `dryRun=true`): `first` | `second` | `formalNotice`. Same-tier loans for one patron share one mail.
 
 ### `OverdueLoanInfo` (entries in GET /loans/overdue)
 ```json
@@ -1251,11 +1288,14 @@ See [README-background-tasks.md](README-background-tasks.md) for full polling gu
   "authors": "Victor Hugo",
   "itemBarcode": "978-2-07-123456-7",
   "loanDate": "2026-02-01T10:00:00Z",
-  "issueAt": "2026-03-01T10:00:00Z",
+  "expiryAt": "2026-03-01T10:00:00Z",
   "lastReminderSentAt": null,
-  "reminderCount": 0
+  "reminderCount": 0,
+  "nextReminderTier": "first"
 }
 ```
+
+`nextReminderTier` is `first` | `second` | `formalNotice` | `null`. `null` means sending has stopped (formal notice already sent, highest enabled tier already sent, or the item is lost / claimed-returned). The send action uses this field to show which tier is next; it does not skip a disabled or already-sent tier.
 
 ### `OverdueLoansPage`
 ```json

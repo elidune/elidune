@@ -756,7 +756,7 @@ mod tests {
         }
         async fn loans_get_overdue_for_reminders(
             &self,
-            _: u32,
+            _: crate::repository::loans::ReminderTierDelays,
         ) -> AppResult<Vec<crate::repository::loans::OverdueLoanRow>> {
             Ok(vec![])
         }

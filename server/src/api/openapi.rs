@@ -374,6 +374,7 @@ use crate::api::{
             crate::services::reminders::ReminderReport,
             crate::services::reminders::ReminderDetail,
             crate::services::reminders::ReminderError,
+            crate::services::reminders::ReminderTier,
             crate::services::reminders::OverdueLoansPage,
             crate::services::reminders::OverdueLoanInfo,
             // Z39.50

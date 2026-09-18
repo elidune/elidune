@@ -47,7 +47,16 @@ z3950_cache_ttl_seconds = 604800  # 7 days in seconds
 
 [reminders]
 enabled = true
-frequency_days = 7      # Minimum days between two reminders for the same loan
+frequency_days = 7      # Legacy: kept for existing admin-config payloads
+first_reminder_delay_days = 7       # Days after due date before 1st reminder
+second_reminder_delay_days = 14     # Days after due date before 2nd reminder
+formal_notice_delay_days = 21       # Days after due date before formal notice
+first_reminder_template = "overdue_reminder"
+second_reminder_template = "overdue_second_reminder"
+formal_notice_template = "overdue_formal_notice"
+first_reminder_enabled = true
+second_reminder_enabled = true
+formal_notice_enabled = true
 send_time = "09:00"     # HH:MM (24h) when the scheduler sends reminders
 accrue_fines = true     # Nightly overdue fine accrual (idempotent, one open fine per loan)
 smtp_throttle_ms = 100  # Delay between individual emails (ms)
