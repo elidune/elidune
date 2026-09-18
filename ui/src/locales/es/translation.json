@@ -910,6 +910,12 @@
     "neverReminded": "Nunca",
     "lastReminderAt": "Último recordatorio",
     "reminderCount": "Recordatorios enviados",
+    "nextReminderTier": {
+      "first": "1.er aviso",
+      "second": "2.º aviso",
+      "formalNotice": "Requerimiento",
+      "none": "Sin más aviso"
+    },
     "overdueTotal": "{{total}} préstamo(s) atrasado(s) en total",
     "sendRemindersConfirm": "¿Enviar ahora los correos de recordatorio por retraso? Los usuarios elegibles recibirán un correo agrupado (según las reglas del servidor).",
     "loanDate": "Fecha de préstamo",
@@ -1012,6 +1018,7 @@
       "frequencyDays": "Días mín. entre recordatorios (por préstamo)",
       "sendTime": "Hora diaria de envío (HH:MM)",
       "smtpThrottleMs": "Retraso entre envíos (ms)",
+      "reminderTiersHint": "Los plazos y plantillas del 1.º, 2.º aviso y del requerimiento están en Ajustes de préstamo.",
       "retentionDays": "Retención de auditoría (días)",
       "readyExpiryDays": "Días para recoger el ejemplar tras la notificación (reserva «lista»)",
       "holdsOverridable": "Permitir sobrescribir esta sección en la base de datos",
@@ -1251,6 +1258,22 @@
       "invalidCap": "Introduzca un número entero entre 1 y 1000.",
       "loadError": "No se pudo cargar el tope de reservas.",
       "saveSuccess": "Tope de reservas guardado"
+    },
+    "overdueReminders": {
+      "title": "Recordatorios de retraso",
+      "help": "Tres avisos después de la fecha de vencimiento. Cada fila tiene un interruptor, un plazo en días y una plantilla de correo. Un aviso posterior solo puede activarse si todos los anteriores están activos.",
+      "chainHint": "Un nivel desactivado detiene la cadena. Un préstamo que ya está en el nivel activo más alto no recibe otro aviso.",
+      "delayDays": "Días después del vencimiento",
+      "template": "Plantilla de correo",
+      "first": "1.er aviso",
+      "second": "2.º aviso",
+      "formalNotice": "Requerimiento",
+      "formalNoticeHint": "Solo notificación. No bloquea la cuenta del usuario.",
+      "invalidDelay": "Introduzca un número entero de días entre 0 y 3650.",
+      "invalidTemplate": "Elija una plantilla de correo.",
+      "loadError": "No se pudieron cargar los recordatorios de retraso.",
+      "saveSuccess": "Recordatorios de retraso guardados",
+      "notOverridable": "Esta sección no se puede cambiar desde la interfaz."
     },
     "accountTypes": {
       "title": "Tipos de cuenta",

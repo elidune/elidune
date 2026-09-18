@@ -910,6 +910,12 @@
     "neverReminded": "Nie",
     "lastReminderAt": "Letzte Erinnerung",
     "reminderCount": "Erinnerungen gesendet",
+    "nextReminderTier": {
+      "first": "1. Erinnerung",
+      "second": "2. Erinnerung",
+      "formalNotice": "Mahnung",
+      "none": "Keine weitere Erinnerung"
+    },
     "overdueTotal": "{{total}} überfällige Ausleihen gesamt",
     "sendRemindersConfirm": "Jetzt Erinnerungs-E-Mails für überfällige Ausleihen senden? Berechtigte Nutzer erhalten eine zusammengefasste E-Mail (je nach Serverregeln).",
     "loanDate": "Ausleihdatum",
@@ -1012,6 +1018,7 @@
       "frequencyDays": "Min. Tage zwischen Erinnerungen (pro Ausleihe)",
       "sendTime": "Tägliche Sendezeit (HH:MM)",
       "smtpThrottleMs": "Pause zwischen Sends (ms)",
+      "reminderTiersHint": "Fristen und Vorlagen für 1., 2. Erinnerung und Mahnung stehen unter Ausleiheinstellungen.",
       "retentionDays": "Audit-Aufbewahrung (Tage)",
       "readyExpiryDays": "Tage zur Abholung des Exemplars nach Benachrichtigung („bereit“)",
       "holdsOverridable": "Überschreiben dieses Abschnitts in der Datenbank erlauben",
@@ -1251,6 +1258,22 @@
       "invalidCap": "Geben Sie eine ganze Zahl zwischen 1 und 1000 ein.",
       "loadError": "Vormerkungsobergrenze konnte nicht geladen werden.",
       "saveSuccess": "Vormerkungsobergrenze gespeichert"
+    },
+    "overdueReminders": {
+      "title": "Überfälligkeitserinnerungen",
+      "help": "Drei Hinweise nach dem Fälligkeitsdatum. Jede Zeile hat einen Schalter, eine Frist in Tagen und eine E-Mail-Vorlage. Ein späterer Hinweis kann nur eingeschaltet werden, wenn alle früheren eingeschaltet sind.",
+      "chainHint": "Ein ausgeschalteter Schritt beendet die Kette. Eine Ausleihe, die bereits den höchsten aktiven Schritt erreicht hat, wird nicht erneut erinnert.",
+      "delayDays": "Tage nach Fälligkeit",
+      "template": "E-Mail-Vorlage",
+      "first": "1. Erinnerung",
+      "second": "2. Erinnerung",
+      "formalNotice": "Mahnung",
+      "formalNoticeHint": "Nur Benachrichtigung. Das Konto wird nicht gesperrt.",
+      "invalidDelay": "Geben Sie eine ganze Zahl von 0 bis 3650 Tagen ein.",
+      "invalidTemplate": "Wählen Sie eine E-Mail-Vorlage.",
+      "loadError": "Überfälligkeitserinnerungen konnten nicht geladen werden.",
+      "saveSuccess": "Überfälligkeitserinnerungen gespeichert",
+      "notOverridable": "Dieser Abschnitt kann in der Oberfläche nicht geändert werden."
     },
     "accountTypes": {
       "title": "Kontotypen",

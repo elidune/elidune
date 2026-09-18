@@ -33,6 +33,7 @@ import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
 import { formControlClass, formLabelClass, formChoiceLabelClass } from '@/utils/formControl';
 import { deferFromEffect } from '@/utils/deferFromEffect';
 import { newIdempotencyKey } from '@/utils/idempotency';
+import { nextReminderTierFromCount } from '@/utils/reminderPolicy';
 import { useCirculationExceptionAction, type CirculationExceptionKind } from '@/hooks/loans/useCirculationExceptionAction';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
@@ -1428,6 +1429,7 @@ export default function LoansPage() {
                           {userLoans.map((row) => {
                             const late = daysPastDue(row.expiryAt);
                             const claimed = claimedLoanIds.has(row.loanId);
+                            const nextTier = nextReminderTierFromCount(row.reminderCount);
                             const isReturnLoading =
                               overdueLoanAction?.loanId === row.loanId && overdueLoanAction.op === 'return';
                             const isRenewLoading =
@@ -1477,7 +1479,11 @@ export default function LoansPage() {
                                       }
                                     >
                                       <Bell className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                                      <span className="tabular-nums">{row.reminderCount}</span>
+                                      <span>
+                                        {nextTier
+                                          ? t(`loans.nextReminderTier.${nextTier}`)
+                                          : t('loans.nextReminderTier.none')}
+                                      </span>
                                     </span>
                                   </div>
                                   <div className="flex flex-col gap-2 sm:col-start-2 sm:row-start-2">
