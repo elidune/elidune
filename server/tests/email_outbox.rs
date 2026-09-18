@@ -59,7 +59,9 @@ async fn overdue_reminder_enqueue_reserves_loans_until_sent() {
     assert_eq!(reserved, loan_ids);
 
     let eligible = repo
-        .loans_get_overdue_for_reminders(7)
+        .loans_get_overdue_for_reminders(
+            elidune_server::repository::loans::ReminderTierDelays::default(),
+        )
         .await
         .expect("overdue query");
     assert!(
@@ -89,14 +91,16 @@ async fn overdue_reminder_enqueue_reserves_loans_until_sent() {
     assert_eq!(reminder_count, 1);
 
     let eligible_after = repo
-        .loans_get_overdue_for_reminders(7)
+        .loans_get_overdue_for_reminders(
+            elidune_server::repository::loans::ReminderTierDelays::default(),
+        )
         .await
         .expect("overdue query after sent");
     assert!(
         eligible_after
             .iter()
             .all(|row| !loan_ids.contains(&row.loan_id)),
-        "loans stay excluded until frequency window elapses after reminder tracking update"
+        "loans stay excluded until the next tier's delay is reached after reminder tracking update"
     );
 }
 
@@ -269,7 +273,9 @@ async fn process_outbox_batch_marks_invalid_body_failed_and_releases_loans() {
         .is_empty());
 
     let eligible = repo
-        .loans_get_overdue_for_reminders(7)
+        .loans_get_overdue_for_reminders(
+            elidune_server::repository::loans::ReminderTierDelays::default(),
+        )
         .await
         .expect("eligible after failure");
     assert!(
@@ -426,7 +432,9 @@ async fn api_send_overdue_reminders_enqueues_and_reserves_loans() {
     assert_eq!(body["dryRun"], false);
 
     let eligible = repo
-        .loans_get_overdue_for_reminders(7)
+        .loans_get_overdue_for_reminders(
+            elidune_server::repository::loans::ReminderTierDelays::default(),
+        )
         .await
         .expect("eligible after enqueue");
     assert!(

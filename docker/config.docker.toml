@@ -41,6 +41,15 @@ z3950_cache_ttl_seconds = 604800
 [reminders]
 enabled = true
 frequency_days = 7
+first_reminder_delay_days = 7
+second_reminder_delay_days = 14
+formal_notice_delay_days = 21
+first_reminder_template = "overdue_reminder"
+second_reminder_template = "overdue_second_reminder"
+formal_notice_template = "overdue_formal_notice"
+first_reminder_enabled = true
+second_reminder_enabled = true
+formal_notice_enabled = true
 send_time = "09:00"
 accrue_fines = true
 smtp_throttle_ms = 100

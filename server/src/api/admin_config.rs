@@ -134,10 +134,17 @@ pub async fn update_config_section(
     // Validate and apply in memory
     dynamic.update_section(&section, body.value.clone())?;
 
+    let persisted = if section == "reminders" {
+        // Persist the coerced section so a disabled tier also stores later tiers as off.
+        dynamic.get_section_value(&section)?
+    } else {
+        body.value.clone()
+    };
+
     state
         .services
         .minimal_repository()
-        .settings_upsert_section(&section, &body.value)
+        .settings_upsert_section(&section, &persisted)
         .await
         .map_err(|e| AppError::Internal(format!("persist config section: {e}")))?;
 

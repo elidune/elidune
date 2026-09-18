@@ -17,7 +17,7 @@ use crate::{
     },
 };
 
-pub use reminders::OverdueLoanRow;
+pub use reminders::{OverdueLoanRow, ReminderTierDelays};
 
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
@@ -60,7 +60,7 @@ pub trait LoansRepository: Send + Sync {
     async fn loans_count_active_for_user(&self, user_id: i64) -> AppResult<i64>;
     async fn loans_get_overdue_for_reminders(
         &self,
-        frequency_days: u32,
+        delays: ReminderTierDelays,
     ) -> AppResult<Vec<OverdueLoanRow>>;
     async fn loans_get_overdue(
         &self,
@@ -185,9 +185,9 @@ impl LoansRepository for Repository {
     }
     async fn loans_get_overdue_for_reminders(
         &self,
-        frequency_days: u32,
+        delays: ReminderTierDelays,
     ) -> crate::error::AppResult<Vec<OverdueLoanRow>> {
-        Repository::loans_get_overdue_for_reminders(self, frequency_days).await
+        Repository::loans_get_overdue_for_reminders(self, delays).await
     }
     async fn loans_get_overdue(
         &self,

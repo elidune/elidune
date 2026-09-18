@@ -5,6 +5,39 @@ use sqlx::Row;
 
 use super::super::Repository;
 use crate::error::AppResult;
+use crate::models::circulation::CirculationStatus;
+
+/// Per-tier delays (days after due date) used to select the next reminder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReminderTierDelays {
+    pub first_days: u32,
+    pub second_days: u32,
+    pub formal_notice_days: u32,
+    /// Exclusive upper bound on `reminder_count` (highest enabled tier).
+    pub max_count: i32,
+}
+
+impl Default for ReminderTierDelays {
+    fn default() -> Self {
+        Self {
+            first_days: 7,
+            second_days: 14,
+            formal_notice_days: 21,
+            max_count: 3,
+        }
+    }
+}
+
+impl ReminderTierDelays {
+    pub fn from_config(cfg: &crate::config::RemindersConfig) -> Self {
+        Self {
+            first_days: cfg.first_reminder_delay_days,
+            second_days: cfg.second_reminder_delay_days,
+            formal_notice_days: cfg.formal_notice_delay_days,
+            max_count: cfg.max_sendable_reminder_count(),
+        }
+    }
+}
 
 /// A flat row from overdue loan queries, used by the reminders service and API
 #[derive(Debug, Clone)]
@@ -23,17 +56,32 @@ pub struct OverdueLoanRow {
     pub title: Option<String>,
     pub authors: Option<String>,
     pub item_barcode: Option<String>,
+    pub circulation_status: Option<i16>,
 }
 
-impl Repository {
-    /// Get overdue loans eligible for reminder emails.
-    pub async fn loans_get_overdue_for_reminders(
-        &self,
-        frequency_days: u32,
-    ) -> AppResult<Vec<OverdueLoanRow>> {
-        let rows = sqlx::query(
-            r#"
-            SELECT
+impl OverdueLoanRow {
+    fn from_row(row: sqlx::postgres::PgRow) -> Self {
+        Self {
+            loan_id: row.get("loan_id"),
+            user_id: row.get("user_id"),
+            loan_date: row.get("loan_date"),
+            expiry_at: row.get("expiry_at"),
+            last_reminder_sent_at: row.get("last_reminder_sent_at"),
+            reminder_count: row.get::<Option<i32>, _>("reminder_count").unwrap_or(0),
+            firstname: row.get("firstname"),
+            lastname: row.get("lastname"),
+            user_email: row.get("user_email"),
+            user_language: row.get::<Option<String>, _>("user_language"),
+            biblio_id: row.get("biblio_id"),
+            title: row.get("title"),
+            authors: row.get("authors"),
+            item_barcode: row.get("item_barcode"),
+            circulation_status: row.try_get("circulation_status").ok().flatten(),
+        }
+    }
+}
+
+const OVERDUE_SELECT: &str = r#"
                 l.id as loan_id,
                 l.user_id,
                 l.date as loan_date,
@@ -52,16 +100,39 @@ impl Repository {
                     JOIN authors a ON a.id = ba.author_id
                     WHERE ba.biblio_id = b.id
                 ) as authors,
-                it.barcode as item_barcode
+                it.barcode as item_barcode,
+                it.circulation_status
+"#;
+
+impl Repository {
+    /// Get overdue loans eligible for the next reminder tier.
+    ///
+    /// Excludes returned loans, lost / claimed-returned items, loans that have
+    /// already received the formal notice (`reminder_count >= 3`), and loans
+    /// reserved by a pending outbox row. Delays are days after `expiry_at`.
+    /// A loan is only eligible for `reminder_count + 1` (no skip, no double-send).
+    pub async fn loans_get_overdue_for_reminders(
+        &self,
+        delays: ReminderTierDelays,
+    ) -> AppResult<Vec<OverdueLoanRow>> {
+        let lost = CirculationStatus::LOST;
+        let claimed = CirculationStatus::CLAIMED_RETURNED;
+        let sql = format!(
+            r#"
+            SELECT
+                {OVERDUE_SELECT}
             FROM loans l
             JOIN items it ON l.item_id = it.id
             JOIN biblios b ON it.biblio_id = b.id
             JOIN users u ON l.user_id = u.id
             WHERE l.returned_at IS NULL
               AND l.expiry_at < NOW()
+              AND COALESCE(l.reminder_count, 0) < $6
+              AND COALESCE(it.circulation_status, 0) NOT IN ($4, $5)
               AND (
-                  l.last_reminder_sent_at IS NULL
-                  OR l.last_reminder_sent_at < NOW() - ($1 || ' days')::INTERVAL
+                  (COALESCE(l.reminder_count, 0) = 0 AND l.expiry_at <= NOW() - ($1 || ' days')::INTERVAL)
+                  OR (COALESCE(l.reminder_count, 0) = 1 AND l.expiry_at <= NOW() - ($2 || ' days')::INTERVAL)
+                  OR (COALESCE(l.reminder_count, 0) = 2 AND l.expiry_at <= NOW() - ($3 || ' days')::INTERVAL)
               )
               AND u.email IS NOT NULL
               AND u.email != ''
@@ -74,31 +145,19 @@ impl Repository {
                     AND o.status = 'pending'
               )
             ORDER BY u.id, l.expiry_at
-            "#,
-        )
-        .bind(frequency_days as i64)
-        .fetch_all(&self.pool)
-        .await?;
+            "#
+        );
+        let rows = sqlx::query(&sql)
+            .bind(delays.first_days as i64)
+            .bind(delays.second_days as i64)
+            .bind(delays.formal_notice_days as i64)
+            .bind(lost)
+            .bind(claimed)
+            .bind(delays.max_count)
+            .fetch_all(&self.pool)
+            .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(|row| OverdueLoanRow {
-                loan_id: row.get("loan_id"),
-                user_id: row.get("user_id"),
-                loan_date: row.get("loan_date"),
-                expiry_at: row.get("expiry_at"),
-                last_reminder_sent_at: row.get("last_reminder_sent_at"),
-                reminder_count: row.get::<Option<i32>, _>("reminder_count").unwrap_or(0),
-                firstname: row.get("firstname"),
-                lastname: row.get("lastname"),
-                user_email: row.get("user_email"),
-                user_language: row.get::<Option<String>, _>("user_language"),
-                biblio_id: row.get("biblio_id"),
-                title: row.get("title"),
-                authors: row.get("authors"),
-                item_barcode: row.get("item_barcode"),
-            })
-            .collect())
+        Ok(rows.into_iter().map(OverdueLoanRow::from_row).collect())
     }
 
     /// Get all overdue loans for the admin dashboard (paginated).
@@ -115,28 +174,10 @@ impl Repository {
         .fetch_one(&self.pool)
         .await?;
 
-        let rows = sqlx::query(
+        let sql = format!(
             r#"
             SELECT
-                l.id as loan_id,
-                l.user_id,
-                l.date as loan_date,
-                l.expiry_at,
-                l.last_reminder_sent_at,
-                l.reminder_count,
-                u.firstname,
-                u.lastname,
-                u.email as user_email,
-                u.language as user_language,
-                b.id as biblio_id,
-                b.title,
-                (
-                    SELECT string_agg(a.lastname || ' ' || COALESCE(a.firstname, ''), ', ' ORDER BY ba.position)
-                    FROM biblio_authors ba
-                    JOIN authors a ON a.id = ba.author_id
-                    WHERE ba.biblio_id = b.id
-                ) as authors,
-                it.barcode as item_barcode
+                {OVERDUE_SELECT}
             FROM loans l
             JOIN items it ON l.item_id = it.id
             JOIN biblios b ON it.biblio_id = b.id
@@ -145,32 +186,15 @@ impl Repository {
               AND l.expiry_at < NOW()
             ORDER BY l.expiry_at ASC
             LIMIT $1 OFFSET $2
-            "#,
-        )
-        .bind(per_page)
-        .bind(offset)
-        .fetch_all(&self.pool)
-        .await?;
+            "#
+        );
+        let rows = sqlx::query(&sql)
+            .bind(per_page)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
 
-        let loans = rows
-            .into_iter()
-            .map(|row| OverdueLoanRow {
-                loan_id: row.get("loan_id"),
-                user_id: row.get("user_id"),
-                loan_date: row.get("loan_date"),
-                expiry_at: row.get("expiry_at"),
-                last_reminder_sent_at: row.get("last_reminder_sent_at"),
-                reminder_count: row.get::<Option<i32>, _>("reminder_count").unwrap_or(0),
-                firstname: row.get("firstname"),
-                lastname: row.get("lastname"),
-                user_email: row.get("user_email"),
-                user_language: row.get::<Option<String>, _>("user_language"),
-                biblio_id: row.get("biblio_id"),
-                title: row.get("title"),
-                authors: row.get("authors"),
-                item_barcode: row.get("item_barcode"),
-            })
-            .collect();
+        let loans = rows.into_iter().map(OverdueLoanRow::from_row).collect();
 
         Ok((loans, total))
     }

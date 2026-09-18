@@ -102,6 +102,30 @@ fn default_reminder_frequency() -> u32 {
     7
 }
 
+fn default_first_reminder_delay_days() -> u32 {
+    7
+}
+
+fn default_second_reminder_delay_days() -> u32 {
+    14
+}
+
+fn default_formal_notice_delay_days() -> u32 {
+    21
+}
+
+fn default_first_reminder_template() -> String {
+    "overdue_reminder".to_string()
+}
+
+fn default_second_reminder_template() -> String {
+    "overdue_second_reminder".to_string()
+}
+
+fn default_formal_notice_template() -> String {
+    "overdue_formal_notice".to_string()
+}
+
 fn default_reminder_time() -> String {
     "09:00".to_string()
 }
@@ -119,9 +143,37 @@ pub struct RemindersConfig {
     /// Whether the automatic reminder scheduler is enabled
     #[serde(default = "default_reminders_enabled")]
     pub enabled: bool,
-    /// Minimum days between two reminders for the same loan
+    /// Legacy field kept so existing admin-config payloads still deserialize.
+    /// Sending uses the three tier delays below (days after the due date).
     #[serde(default = "default_reminder_frequency")]
     pub frequency_days: u32,
+    /// Days after due date before the first reminder may be sent.
+    #[serde(default = "default_first_reminder_delay_days")]
+    pub first_reminder_delay_days: u32,
+    /// Days after due date before the second reminder may be sent.
+    #[serde(default = "default_second_reminder_delay_days")]
+    pub second_reminder_delay_days: u32,
+    /// Days after due date before the formal notice may be sent.
+    #[serde(default = "default_formal_notice_delay_days")]
+    pub formal_notice_delay_days: u32,
+    /// Email template id for the first reminder (`GET/PUT /settings/email-templates`).
+    #[serde(default = "default_first_reminder_template")]
+    pub first_reminder_template: String,
+    /// Email template id for the second reminder.
+    #[serde(default = "default_second_reminder_template")]
+    pub second_reminder_template: String,
+    /// Email template id for the formal notice (notification only; does not block the account).
+    #[serde(default = "default_formal_notice_template")]
+    pub formal_notice_template: String,
+    /// When false, the first reminder is not sent and later tiers are off.
+    #[serde(default = "default_reminders_enabled")]
+    pub first_reminder_enabled: bool,
+    /// When false, the second reminder is not sent and the formal notice is off.
+    #[serde(default = "default_reminders_enabled")]
+    pub second_reminder_enabled: bool,
+    /// When false, the formal notice is not sent. The highest still-enabled tier is last.
+    #[serde(default = "default_reminders_enabled")]
+    pub formal_notice_enabled: bool,
     /// Time of day to send reminders automatically (HH:MM, 24h)
     #[serde(default = "default_reminder_time")]
     pub send_time: String,
@@ -155,10 +207,48 @@ impl Default for RemindersConfig {
         Self {
             enabled: true,
             frequency_days: 7,
+            first_reminder_delay_days: 7,
+            second_reminder_delay_days: 14,
+            formal_notice_delay_days: 21,
+            first_reminder_template: "overdue_reminder".to_string(),
+            second_reminder_template: "overdue_second_reminder".to_string(),
+            formal_notice_template: "overdue_formal_notice".to_string(),
+            first_reminder_enabled: true,
+            second_reminder_enabled: true,
+            formal_notice_enabled: true,
             send_time: "09:00".to_string(),
             accrue_fines: true,
             smtp_throttle_ms: 100,
             overridable: false,
+        }
+    }
+}
+
+impl RemindersConfig {
+    /// A disabled tier turns off every later tier so the chain has no holes.
+    pub fn normalize_tier_enabled(&mut self) {
+        if !self.first_reminder_enabled {
+            self.second_reminder_enabled = false;
+            self.formal_notice_enabled = false;
+        } else if !self.second_reminder_enabled {
+            self.formal_notice_enabled = false;
+        }
+    }
+
+    /// Exclusive upper bound on `loans.reminder_count` for sendable tiers.
+    /// `0` means no tier is enabled.
+    #[must_use]
+    pub fn max_sendable_reminder_count(&self) -> i32 {
+        let mut cfg = self.clone();
+        cfg.normalize_tier_enabled();
+        if !cfg.first_reminder_enabled {
+            0
+        } else if !cfg.second_reminder_enabled {
+            1
+        } else if !cfg.formal_notice_enabled {
+            2
+        } else {
+            3
         }
     }
 }
@@ -358,6 +448,7 @@ impl AppConfig {
             },
             reminders: RemindersConfig {
                 enabled: false,
+                overridable: true,
                 ..RemindersConfig::default()
             },
             audit: AuditConfig::default(),
