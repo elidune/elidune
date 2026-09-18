@@ -19,8 +19,10 @@ import {
   ChevronDown,
   type LucideIcon,
 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardHeader, Button, Input, Badge, ConfirmDialog } from '@/components/common';
 import { useEliduneMaintenance } from '@/hooks/settings/useEliduneMaintenance';
+import { REMINDERS_CONFIG_QUERY_KEY } from '@/hooks/settings/useRemindersConfigQuery';
 import {
   EliduneMaintenanceBanners,
   EliduneCatalogMaintenancePanel,
@@ -116,6 +118,7 @@ const GENERAL_SECTION_ICONS: Record<AdminConfigSectionKey, LucideIcon> = {
 
 export default function AdminServerSettings() {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const serverSub = useMemo((): ServerSubTab => {
     const raw = searchParams.get('serverSub');
@@ -245,6 +248,9 @@ export default function AdminServerSettings() {
         return [...rest, updated].sort((a, b) => a.key.localeCompare(b.key));
       });
       syncFormFromSection(key, updated.value);
+      if (key === 'reminders') {
+        void queryClient.invalidateQueries({ queryKey: REMINDERS_CONFIG_QUERY_KEY });
+      }
       showOk(t('settings.server.saveSuccess', { section: key }));
     } catch (e: unknown) {
       setError(getApiErrorMessage(e, t) || t('settings.server.saveError'));
@@ -276,6 +282,9 @@ export default function AdminServerSettings() {
         return [...rest, updated].sort((a, b) => a.key.localeCompare(b.key));
       });
       syncFormFromSection(key, updated.value);
+      if (key === 'reminders') {
+        void queryClient.invalidateQueries({ queryKey: REMINDERS_CONFIG_QUERY_KEY });
+      }
       showOk(t('settings.server.resetSuccess', { section: key }));
     } catch (e: unknown) {
       setError(getApiErrorMessage(e, t) || t('settings.server.resetError'));
@@ -391,7 +400,7 @@ export default function AdminServerSettings() {
               overridden={remindersMeta.overridden}
               overridable={remindersMeta.overridable}
             >
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                 <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
                   <input
                     type="checkbox"
@@ -402,19 +411,6 @@ export default function AdminServerSettings() {
                   />
                   {t('settings.server.remindersEnabled')}
                 </label>
-                <Input
-                  label={t('settings.server.frequencyDays')}
-                  type="number"
-                  min={1}
-                  value={str(num(remindersValue.frequency_days, 7))}
-                  onChange={(e) =>
-                    setRemindersValue((v) => ({
-                      ...v,
-                      frequency_days: parseInt(e.target.value, 10) || 1,
-                    }))
-                  }
-                  disabled={!remindersMeta.overridable}
-                />
                 <Input
                   label={t('settings.server.sendTime')}
                   value={str(remindersValue.send_time) || '09:00'}
@@ -436,6 +432,9 @@ export default function AdminServerSettings() {
                   disabled={!remindersMeta.overridable}
                 />
               </div>
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {t('settings.server.reminderTiersHint')}
+              </p>
               <div className="flex flex-wrap gap-2 pt-1">
                 <Button
                   size="sm"

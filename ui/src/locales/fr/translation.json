@@ -910,6 +910,12 @@
     "neverReminded": "Jamais",
     "lastReminderAt": "Dernier rappel",
     "reminderCount": "Rappels envoyés",
+    "nextReminderTier": {
+      "first": "1er rappel",
+      "second": "2e rappel",
+      "formalNotice": "Mise en demeure",
+      "none": "Plus de rappel"
+    },
     "overdueTotal": "{{total}} prêt(s) en retard au total",
     "sendRemindersConfirm": "Envoyer maintenant les e-mails de rappel pour les retards ? Les usagers éligibles recevront un e-mail regroupé (selon les règles du serveur).",
     "loanDate": "Date emprunt",
@@ -1012,6 +1018,7 @@
       "frequencyDays": "Jours min entre rappels (par prêt)",
       "sendTime": "Heure d'envoi quotidienne (HH:MM)",
       "smtpThrottleMs": "Délai entre envois (ms)",
+      "reminderTiersHint": "Les délais et modèles du 1er rappel, du 2e rappel et de la mise en demeure sont dans l’onglet Paramètres de prêt.",
       "retentionDays": "Rétention de l'audit (jours)",
       "readyExpiryDays": "Jours pour retirer l'exemplaire après notification (réservation « prête »)",
       "holdsOverridable": "Autoriser la surcharge de cette section en base",
@@ -1251,6 +1258,22 @@
       "invalidCap": "Saisissez un entier entre 1 et 1000.",
       "loadError": "Impossible de charger le plafond de réservations.",
       "saveSuccess": "Plafond de réservations enregistré"
+    },
+    "overdueReminders": {
+      "title": "Rappels de retard",
+      "help": "Trois avis après la date d’échéance. Chaque ligne a un interrupteur, un délai en jours et un modèle d’e-mail. Un avis ultérieur ne peut être activé que si tous les avis précédents le sont.",
+      "chainHint": "Un palier désactivé arrête la chaîne. Un prêt déjà au palier actif le plus élevé n’est pas relancé.",
+      "delayDays": "Jours après l’échéance",
+      "template": "Modèle d’e-mail",
+      "first": "1er rappel",
+      "second": "2e rappel",
+      "formalNotice": "Mise en demeure",
+      "formalNoticeHint": "Notification uniquement. Elle ne bloque pas le compte de l’usager.",
+      "invalidDelay": "Saisissez un nombre entier de jours entre 0 et 3650.",
+      "invalidTemplate": "Choisissez un modèle d’e-mail.",
+      "loadError": "Impossible de charger les paramètres des rappels de retard.",
+      "saveSuccess": "Paramètres des rappels de retard enregistrés",
+      "notOverridable": "Cette section ne peut pas être modifiée depuis l’interface."
     },
     "accountTypes": {
       "title": "Types de compte",

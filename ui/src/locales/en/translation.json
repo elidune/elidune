@@ -910,6 +910,12 @@
     "neverReminded": "Never",
     "lastReminderAt": "Last reminder",
     "reminderCount": "Reminders sent",
+    "nextReminderTier": {
+      "first": "First reminder",
+      "second": "Second reminder",
+      "formalNotice": "Formal notice",
+      "none": "No further reminder"
+    },
     "overdueTotal": "{{total}} overdue loan(s) total",
     "sendRemindersConfirm": "Send overdue reminder emails now? Eligible users will receive one email per batch (subject to server rules).",
     "loanDate": "Loan date",
@@ -1012,6 +1018,7 @@
       "frequencyDays": "Min days between reminders (per loan)",
       "sendTime": "Daily send time (HH:MM)",
       "smtpThrottleMs": "Delay between sends (ms)",
+      "reminderTiersHint": "First, second, and formal-notice delays and templates are on the Loan settings tab.",
       "retentionDays": "Audit retention (days)",
       "readyExpiryDays": "Days to pick up the copy after notification (“ready” hold)",
       "holdsOverridable": "Allow overriding this section in the database",
@@ -1251,6 +1258,22 @@
       "invalidCap": "Enter a whole number between 1 and 1000.",
       "loadError": "Could not load the hold cap.",
       "saveSuccess": "Hold cap saved"
+    },
+    "overdueReminders": {
+      "title": "Overdue reminders",
+      "help": "Three notices after the due date. Each row has an on/off switch, a delay in days, and an email template. Turning a later notice on is only possible when every earlier notice is on.",
+      "chainHint": "A switched-off tier stops the chain. A loan already at the highest active tier is not reminded again.",
+      "delayDays": "Days after due date",
+      "template": "Email template",
+      "first": "First reminder",
+      "second": "Second reminder",
+      "formalNotice": "Formal notice",
+      "formalNoticeHint": "Notification only. It does not block the patron’s account.",
+      "invalidDelay": "Enter a whole number of days from 0 to 3650.",
+      "invalidTemplate": "Choose an email template.",
+      "loadError": "Could not load overdue reminder settings.",
+      "saveSuccess": "Overdue reminder settings saved",
+      "notOverridable": "This section cannot be changed from the interface."
     },
     "accountTypes": {
       "title": "Account types",

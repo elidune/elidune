@@ -5,6 +5,7 @@ import { Save, Plus, Trash2, Server, Archive, Pencil, Merge, Package, Check, X, 
 import { useAuth } from '@/contexts/AuthContext';
 import FinePolicySettings from '@/components/settings/FinePolicySettings';
 import HoldsPolicySettings from '@/components/settings/HoldsPolicySettings';
+import OverdueRemindersSettings from '@/components/settings/OverdueRemindersSettings';
 import { Card, CardHeader, Button, Input, Badge, ConfirmDialog } from '@/components/common';
 import api from '@/services/api';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
@@ -1881,6 +1882,7 @@ export default function SettingsPage() {
       )}
 
       {activeTab === 'loans' && <HoldsPolicySettings />}
+      {activeTab === 'loans' && <OverdueRemindersSettings />}
 
       {/* Loan settings */}
       {activeTab === 'loans' && settings && (

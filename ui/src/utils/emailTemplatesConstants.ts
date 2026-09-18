@@ -49,7 +49,9 @@ export const EMAIL_TEMPLATE_VARIABLES: Record<string, string[]> = {
   recovery_code: ['code'],
   password_reset: ['token', 'reset_url'],
   hold_ready: ['firstname', 'lastname', 'title', 'barcode_line', 'barcode_line_html', 'expires_at'],
-  overdue_reminder: ['firstname', 'lastname', 'loans_list', 'loans_table_html'],
+      overdue_reminder: ['firstname', 'lastname', 'loans_list', 'loans_table_html'],
+      overdue_second_reminder: ['firstname', 'lastname', 'loans_list', 'loans_table_html'],
+      overdue_formal_notice: ['firstname', 'lastname', 'loans_list', 'loans_table_html'],
   event_announcement: [
     'firstname',
     'event_name',

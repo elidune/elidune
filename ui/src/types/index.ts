@@ -1273,6 +1273,27 @@ export interface AdminConfigResponse {
   sections: ConfigSectionInfo[];
 }
 
+/** Graduated overdue notice: 1st, 2nd, then formal notice (mise en demeure). */
+export type ReminderTierId = 'first' | 'second' | 'formalNotice';
+
+/** GET/PUT /admin/config section `reminders` (wire format is snake_case). */
+export interface RemindersConfig {
+  enabled: boolean;
+  frequencyDays: number;
+  firstReminderDelayDays: number;
+  secondReminderDelayDays: number;
+  formalNoticeDelayDays: number;
+  firstReminderTemplate: string;
+  secondReminderTemplate: string;
+  formalNoticeTemplate: string;
+  firstReminderEnabled: boolean;
+  secondReminderEnabled: boolean;
+  formalNoticeEnabled: boolean;
+  sendTime: string;
+  accrueFines: boolean;
+  smtpThrottleMs: number;
+}
+
 /** POST /admin/reindex-search */
 export interface ReindexSearchResponse {
   itemsQueued: number;
