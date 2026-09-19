@@ -942,6 +942,7 @@ def migrate_specimens(src, dst, skipped_biblio_ids=None):
     Target columns (items table):
         id, biblio_id, source_id, barcode, call_number, place,
         borrowable (bool), circulation_status, notes, price,
+        weeding_status defaults to on_shelf (orthogonal to archived_at / circulation_status),
         updated_at (timestamptz), archived_at (timestamptz), created_at (timestamptz)
 
     Barcode: empty/whitespace -> NULL. Duplicate non-null barcodes (legacy data): keep first

@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use snowflaked::Generator;
-use sqlx::Postgres;
+use sqlx::{Postgres, Row};
 
 use std::collections::{HashMap, HashSet};
 
@@ -215,6 +215,7 @@ impl Repository {
                 barcode: r.barcode,
                 call_number: r.call_number,
                 borrowable: r.borrowable,
+                weeding_status: crate::models::item::WeedingStatus::OnShelf,
                 source_name: r.source_name,
                 borrowed: r.borrowed,
             };
@@ -433,12 +434,24 @@ impl Repository {
         item_id: i64,
         expiry_days: i32,
     ) -> AppResult<Option<Hold>> {
-        let biblio_id: i64 =
-            sqlx::query_scalar("SELECT biblio_id FROM items WHERE id = $1 FOR UPDATE")
-                .bind(item_id)
-                .fetch_optional(&mut **tx)
-                .await?
-                .ok_or_else(|| AppError::NotFound("Item not found".to_string()))?;
+        let item_row = sqlx::query(
+            r#"
+            SELECT biblio_id, archived_at, weeding_status
+            FROM items
+            WHERE id = $1
+            FOR UPDATE
+            "#,
+        )
+        .bind(item_id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound("Item not found".to_string()))?;
+        let biblio_id: i64 = item_row.get("biblio_id");
+        let archived_at: Option<chrono::DateTime<chrono::Utc>> = item_row.get("archived_at");
+        let weeding_status: crate::models::item::WeedingStatus = item_row.get("weeding_status");
+        if archived_at.is_some() || weeding_status.blocks_circulation() {
+            return Ok(None);
+        }
 
         let already_ready: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM holds WHERE item_id = $1 AND status = 'ready')",
@@ -630,13 +643,20 @@ impl Repository {
         let id = next_id();
         let mut tx = self.pool.begin().await?;
 
-        let biblio_id: i64 = sqlx::query_scalar(
-            "SELECT biblio_id FROM items WHERE id = $1 AND archived_at IS NULL FOR UPDATE",
+        let item_row = sqlx::query(
+            "SELECT biblio_id, weeding_status FROM items WHERE id = $1 AND archived_at IS NULL FOR UPDATE",
         )
         .bind(item_id)
         .fetch_optional(&mut *tx)
         .await?
         .ok_or_else(|| AppError::NotFound("Item not found".to_string()))?;
+        let biblio_id: i64 = item_row.get("biblio_id");
+        let weeding_status: crate::models::item::WeedingStatus = item_row.get("weeding_status");
+        if weeding_status.blocks_circulation() {
+            return Err(AppError::BusinessRule(
+                crate::models::item::WeedingStatus::HOLD_BLOCKED.to_string(),
+            ));
+        }
 
         if requested_biblio_id.is_some_and(|bid| bid != biblio_id) {
             return Err(AppError::Validation(
@@ -712,6 +732,31 @@ impl Repository {
             .fetch_optional(&mut *tx)
             .await?
             .ok_or_else(|| AppError::NotFound("Biblio not found".to_string()))?;
+
+        let has_item: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM items WHERE biblio_id = $1 AND archived_at IS NULL)",
+        )
+        .bind(biblio_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        let has_circulable: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 FROM items
+                WHERE biblio_id = $1
+                  AND archived_at IS NULL
+                  AND weeding_status <> 'withdrawn'
+            )
+            "#,
+        )
+        .bind(biblio_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if has_item && !has_circulable {
+            return Err(AppError::BusinessRule(
+                crate::models::item::WeedingStatus::TITLE_HOLD_BLOCKED.to_string(),
+            ));
+        }
 
         self.holds_ensure_pickup_site_tx(&mut tx, data.pickup_site_id)
             .await?;
@@ -1017,7 +1062,8 @@ impl Repository {
         Ok(hold_id)
     }
 
-    /// Cancel every active hold on this copy (used when staff checks out with `force` or removes the item).
+    /// Cancel every active hold on this copy (used when staff checks out with `force`).
+    /// Does not advance the queue — the copy is about to be charged, not freed.
     #[tracing::instrument(skip(self, tx), err)]
     pub async fn holds_cancel_active_for_item_tx(
         &self,
@@ -1031,14 +1077,69 @@ impl Repository {
         Ok(r.rows_affected())
     }
 
-    /// Cancel active holds on one copy (e.g. item withdrawn from circulation).
+    /// Offer the next pending hold a circulable copy of this title, skipping `exclude_item_id`.
+    /// Title-level holds stay pending when no sibling can fulfill them.
+    #[tracing::instrument(skip(self, tx), err)]
+    pub async fn holds_notify_next_available_copy_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        biblio_id: i64,
+        exclude_item_id: Option<i64>,
+    ) -> AppResult<Option<Hold>> {
+        let candidates: Vec<i64> = sqlx::query_scalar(
+            r#"
+            SELECT i.id FROM items i
+            WHERE i.biblio_id = $1
+              AND ($2::bigint IS NULL OR i.id <> $2)
+              AND i.archived_at IS NULL
+              AND i.weeding_status <> 'withdrawn'
+              AND i.borrowable = TRUE
+              AND COALESCE(i.circulation_status, 0) = 0
+              AND NOT EXISTS (
+                  SELECT 1 FROM loans l
+                  WHERE l.item_id = i.id AND l.returned_at IS NULL
+              )
+            ORDER BY i.id
+            "#,
+        )
+        .bind(biblio_id)
+        .bind(exclude_item_id)
+        .fetch_all(&mut **tx)
+        .await?;
+
+        let expiry_days = self.hold_ready_expiry_days();
+        for candidate_id in candidates {
+            if let Some(hold) = self
+                .holds_notify_next_tx(tx, candidate_id, expiry_days)
+                .await?
+            {
+                return Ok(Some(hold));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Cancel active holds that target this copy and advance the title queue onto a sibling.
+    /// Title-level holds (`item_id` NULL) are left in place.
     #[tracing::instrument(skip(self), err)]
     pub async fn holds_cancel_active_for_item(&self, item_id: i64) -> AppResult<u64> {
-        let r = sqlx::query("UPDATE holds SET status = 'cancelled' WHERE item_id = $1 AND status IN ('pending','ready')")
-            .bind(item_id)
-            .execute(&self.pool)
+        let mut tx = self.pool.begin().await?;
+        let biblio_id: Option<i64> =
+            sqlx::query_scalar("SELECT biblio_id FROM items WHERE id = $1")
+                .bind(item_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        let cancelled = self
+            .holds_cancel_active_for_item_tx(&mut tx, item_id)
             .await?;
-        Ok(r.rows_affected())
+        if cancelled > 0 {
+            if let Some(biblio_id) = biblio_id {
+                self.holds_notify_next_available_copy_tx(&mut tx, biblio_id, Some(item_id))
+                    .await?;
+            }
+        }
+        tx.commit().await?;
+        Ok(cancelled)
     }
 
     /// Whether the user already has a `pending` or `ready` hold on this copy.

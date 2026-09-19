@@ -262,6 +262,8 @@ impl AcquisitionsService {
                     place: None,
                     borrowable,
                     circulation_status: None,
+                    weeding_status: crate::models::item::WeedingStatus::OnShelf,
+                    weeding_reason: None,
                     notes: Some(format!(
                         "Received from purchase order {}",
                         detail.order.order_number
@@ -439,6 +441,7 @@ fn stub_biblio(title: String, isbn: Option<Isbn>) -> Biblio {
         created_at: None,
         updated_at: None,
         archived_at: None,
+        weeding_status: crate::models::item::WeedingStatus::OnShelf,
         authors: Vec::new(),
         series: Vec::new(),
         collections: Vec::new(),

@@ -101,6 +101,13 @@ pub trait BibliosRepository: Send + Sync {
     ) -> AppResult<bool>;
     async fn items_get_by_barcode(&self, barcode: &str) -> AppResult<Option<(i64, bool)>>;
     async fn items_reactivate(&self, item_id: i64, biblio_id: i64, item: &Item) -> AppResult<Item>;
+    /// Set weeding status. Withdrawn cancels item-targeted holds and advances the queue.
+    async fn items_set_weeding(
+        &self,
+        item_id: i64,
+        status: crate::models::item::WeedingStatus,
+        reason: Option<String>,
+    ) -> AppResult<Item>;
     async fn biblios_find_active_by_isbn(
         &self,
         isbn: &str,
@@ -281,6 +288,14 @@ impl BibliosRepository for Repository {
     ) -> crate::error::AppResult<crate::models::item::Item> {
         Repository::items_reactivate(self, item_id, biblio_id, item).await
     }
+    async fn items_set_weeding(
+        &self,
+        item_id: i64,
+        status: crate::models::item::WeedingStatus,
+        reason: Option<String>,
+    ) -> crate::error::AppResult<crate::models::item::Item> {
+        Repository::items_set_weeding(self, item_id, status, reason).await
+    }
     async fn biblios_find_active_by_isbn(
         &self,
         isbn: &str,
@@ -376,6 +391,8 @@ pub(crate) struct ItemShortRow {
     barcode: Option<String>,
     call_number: Option<String>,
     borrowable: bool,
+    #[sqlx(default)]
+    weeding_status: crate::models::item::WeedingStatus,
     source_name: Option<String>,
     borrowed: bool,
 }
@@ -387,6 +404,7 @@ impl From<ItemShortRow> for ItemShort {
             barcode: r.barcode,
             call_number: r.call_number,
             borrowable: r.borrowable,
+            weeding_status: r.weeding_status,
             source_name: r.source_name,
             borrowed: r.borrowed,
         }
@@ -404,6 +422,7 @@ impl From<BiblioShortRow> for BiblioShort {
             status: r.status,
             is_valid: r.is_valid,
             archived_at: r.archived_at,
+            weeding_status: crate::models::item::WeedingStatus::OnShelf,
             author: r.author.map(|j| j.0),
             items: Vec::new(),
         }

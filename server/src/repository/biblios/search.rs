@@ -284,10 +284,11 @@ impl Repository {
                     status: r.status,
                     is_valid: r.is_valid,
                     archived_at: r.archived_at,
+                    weeding_status: crate::models::item::WeedingStatus::OnShelf,
                     author: r.author.map(|j| j.0),
                     items: Vec::new(),
                 };
-                short.items = items_map.get(&short.id).cloned().unwrap_or_default();
+                short.set_items(items_map.get(&short.id).cloned().unwrap_or_default());
                 short
             })
             .collect();
@@ -335,7 +336,7 @@ impl Repository {
             .into_iter()
             .map(|r| {
                 let mut short = BiblioShort::from(r);
-                short.items = items_map.get(&short.id).cloned().unwrap_or_default();
+                short.set_items(items_map.get(&short.id).cloned().unwrap_or_default());
                 short
             })
             .collect();
@@ -386,7 +387,7 @@ impl Repository {
             .into_iter()
             .map(|r| {
                 let mut short = BiblioShort::from(r);
-                short.items = items_map.get(&short.id).cloned().unwrap_or_default();
+                short.set_items(items_map.get(&short.id).cloned().unwrap_or_default());
                 short
             })
             .collect();

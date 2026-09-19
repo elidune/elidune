@@ -56,6 +56,7 @@ use crate::api::{
         items::get_biblio_by_barcode,
         items::update_item,
         items::delete_item,
+        items::set_item_weeding,
         // Users
         users::list_users,
         users::get_user,
@@ -287,6 +288,8 @@ use crate::api::{
             // Items (physical copies)
             crate::models::item::Item,
             crate::models::item::ItemShort,
+            crate::models::item::WeedingStatus,
+            crate::models::dto::weeding::SetWeedingRequest,
             // Pagination
             biblios::PaginatedResponse<crate::models::biblio::BiblioShort>,
             biblios::PaginatedResponse<crate::models::user::UserShort>,

@@ -100,6 +100,7 @@ pub mod event {
     pub const ITEM_MARKED_DAMAGED: &str = "item.marked_damaged";
     pub const ITEM_CLAIMED_RETURNED: &str = "item.claimed_returned";
     pub const ITEM_CLAIMS_RETURNED_RESOLVED: &str = "item.claims_returned_resolved";
+    pub const ITEM_WEEDING_UPDATED: &str = "item.weeding_updated";
 
     // Loans
     pub const LOAN_CREATED: &str = "loan.created";

@@ -40,7 +40,7 @@ pub use import_report::{
     DuplicateCandidate, DuplicateConfirmationRequired, DuplicateItemBarcodeRequired, ImportAction,
     ImportReport,
 };
-pub use item::{Item, ItemShort};
+pub use item::{Item, ItemShort, WeedingStatus};
 pub use loan::{Loan, LoanDetails};
 pub use schedule::{ScheduleClosure, SchedulePeriod, ScheduleSlot};
 pub use secret::PlaintextPassword;

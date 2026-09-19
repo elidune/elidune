@@ -51,7 +51,19 @@ impl Repository {
                 EXISTS (
                     SELECT 1 FROM items it_act
                     WHERE it_act.biblio_id = b.id AND it_act.archived_at IS NULL
-                ) AS has_active_items
+                ) AS has_active_items,
+                (
+                    EXISTS (
+                        SELECT 1 FROM items it_w
+                        WHERE it_w.biblio_id = b.id AND it_w.archived_at IS NULL
+                    )
+                    AND NOT EXISTS (
+                        SELECT 1 FROM items it_c
+                        WHERE it_c.biblio_id = b.id
+                          AND it_c.archived_at IS NULL
+                          AND it_c.weeding_status <> 'withdrawn'
+                    )
+                ) AS is_withdrawn
             FROM biblios b
             LEFT JOIN biblio_authors ba ON ba.biblio_id = b.id
             LEFT JOIN authors a ON a.id = ba.author_id
@@ -120,7 +132,19 @@ impl Repository {
                 EXISTS (
                     SELECT 1 FROM items it_act
                     WHERE it_act.biblio_id = b.id AND it_act.archived_at IS NULL
-                ) AS has_active_items
+                ) AS has_active_items,
+                (
+                    EXISTS (
+                        SELECT 1 FROM items it_w
+                        WHERE it_w.biblio_id = b.id AND it_w.archived_at IS NULL
+                    )
+                    AND NOT EXISTS (
+                        SELECT 1 FROM items it_c
+                        WHERE it_c.biblio_id = b.id
+                          AND it_c.archived_at IS NULL
+                          AND it_c.weeding_status <> 'withdrawn'
+                    )
+                ) AS is_withdrawn
             FROM biblios b
             LEFT JOIN biblio_authors ba ON ba.biblio_id = b.id
             LEFT JOIN authors a ON a.id = ba.author_id

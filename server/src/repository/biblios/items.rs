@@ -12,25 +12,30 @@ use crate::{
 };
 
 use super::ItemShortRow;
+use crate::models::item::WeedingStatus;
 
-impl Repository {
-    /// Get items (physical copies) for a biblio (excludes archived items)
-    #[tracing::instrument(skip(self), err)]
-    pub async fn biblios_get_items(&self, biblio_id: i64) -> AppResult<Vec<Item>> {
-        let items = sqlx::query_as::<_, Item>(
-            r#"
+const ITEM_SELECT: &str = r#"
             SELECT i.id, i.biblio_id, i.source_id, i.barcode, i.call_number, i.volume_designation,
                    i.place, i.borrowable, i.circulation_status, i.notes, i.price,
+                   i.weeding_status, i.weeding_reason,
                    i.created_at, i.updated_at, i.archived_at,
                    so.name as source_name,
                    EXISTS(SELECT 1 FROM loans l WHERE l.item_id = i.id AND l.returned_at IS NULL) as borrowed,
                    (SELECT l.id FROM loans l WHERE l.item_id = i.id AND l.returned_at IS NULL ORDER BY l.id DESC LIMIT 1) as loan_id
             FROM items i
             LEFT JOIN sources so ON i.source_id = so.id
+"#;
+
+impl Repository {
+    /// Get items (physical copies) for a biblio (excludes archived items)
+    #[tracing::instrument(skip(self), err)]
+    pub async fn biblios_get_items(&self, biblio_id: i64) -> AppResult<Vec<Item>> {
+        let items = sqlx::query_as::<_, Item>(&format!(
+            "{ITEM_SELECT}
             WHERE i.biblio_id = $1 AND i.archived_at IS NULL
             ORDER BY i.barcode
-            "#,
-        )
+            "
+        ))
         .bind(biblio_id)
         .fetch_all(&self.pool)
         .await?;
@@ -41,19 +46,11 @@ impl Repository {
     /// Get one active item by id (same row shape as [`biblios_get_items`]).
     #[tracing::instrument(skip(self), err)]
     pub async fn items_get_active_by_id(&self, item_id: i64) -> AppResult<Item> {
-        sqlx::query_as::<_, Item>(
-            r#"
-            SELECT i.id, i.biblio_id, i.source_id, i.barcode, i.call_number, i.volume_designation,
-                   i.place, i.borrowable, i.circulation_status, i.notes, i.price,
-                   i.created_at, i.updated_at, i.archived_at,
-                   so.name as source_name,
-                   EXISTS(SELECT 1 FROM loans l WHERE l.item_id = i.id AND l.returned_at IS NULL) as borrowed,
-                   (SELECT l.id FROM loans l WHERE l.item_id = i.id AND l.returned_at IS NULL ORDER BY l.id DESC LIMIT 1) as loan_id
-            FROM items i
-            LEFT JOIN sources so ON i.source_id = so.id
+        sqlx::query_as::<_, Item>(&format!(
+            "{ITEM_SELECT}
             WHERE i.id = $1 AND i.archived_at IS NULL
-            "#,
-        )
+            "
+        ))
         .bind(item_id)
         .fetch_optional(&self.pool)
         .await?
@@ -63,19 +60,11 @@ impl Repository {
     /// Get one active item by barcode (same row shape as [`items_get_active_by_id`]).
     #[tracing::instrument(skip(self), err)]
     pub async fn items_get_active_by_barcode(&self, barcode: &str) -> AppResult<Item> {
-        sqlx::query_as::<_, Item>(
-            r#"
-            SELECT i.id, i.biblio_id, i.source_id, i.barcode, i.call_number, i.volume_designation,
-                   i.place, i.borrowable, i.circulation_status, i.notes, i.price,
-                   i.created_at, i.updated_at, i.archived_at,
-                   so.name as source_name,
-                   EXISTS(SELECT 1 FROM loans l WHERE l.item_id = i.id AND l.returned_at IS NULL) as borrowed,
-                   (SELECT l.id FROM loans l WHERE l.item_id = i.id AND l.returned_at IS NULL ORDER BY l.id DESC LIMIT 1) as loan_id
-            FROM items i
-            LEFT JOIN sources so ON i.source_id = so.id
+        sqlx::query_as::<_, Item>(&format!(
+            "{ITEM_SELECT}
             WHERE i.barcode = $1 AND i.archived_at IS NULL
-            "#,
-        )
+            "
+        ))
         .bind(barcode)
         .fetch_optional(&self.pool)
         .await?
@@ -94,6 +83,7 @@ impl Repository {
         let rows: Vec<ItemShortRow> = sqlx::query_as(
             r#"
             SELECT i.biblio_id, i.id, i.barcode, i.call_number, i.borrowable,
+                   i.weeding_status,
                    so.name as source_name,
                    EXISTS(SELECT 1 FROM loans l WHERE l.item_id = i.id AND l.returned_at IS NULL) as borrowed
             FROM items i
@@ -328,6 +318,7 @@ impl Repository {
             }
         }
 
+        // Cancel copy-targeted holds and advance the title queue onto a sibling.
         self.holds_cancel_active_for_item(id).await?;
 
         sqlx::query("UPDATE items SET archived_at = $1, updated_at = $1, barcode = CONCAT('ARCH_', id::text, '_', COALESCE(barcode, '')) WHERE id = $2 AND archived_at IS NULL")
@@ -416,19 +407,11 @@ impl Repository {
         .execute(&self.pool)
         .await?;
 
-        sqlx::query_as::<_, Item>(
-            r#"
-            SELECT i.id, i.biblio_id, i.source_id, i.barcode, i.call_number, i.volume_designation,
-                   i.place, i.borrowable, i.circulation_status, i.notes, i.price,
-                   i.created_at, i.updated_at, i.archived_at,
-                   so.name as source_name,
-                   EXISTS(SELECT 1 FROM loans l WHERE l.item_id = i.id AND l.returned_at IS NULL) as borrowed,
-                   (SELECT l.id FROM loans l WHERE l.item_id = i.id AND l.returned_at IS NULL ORDER BY l.id DESC LIMIT 1) as loan_id
-            FROM items i
-            LEFT JOIN sources so ON i.source_id = so.id
+        sqlx::query_as::<_, Item>(&format!(
+            "{ITEM_SELECT}
             WHERE i.id = $1
-            "#,
-        )
+            "
+        ))
         .bind(item_id)
         .fetch_one(&self.pool)
         .await
@@ -474,5 +457,61 @@ impl Repository {
             .await?
         };
         Ok(row.map(ItemShort::from))
+    }
+
+    /// Set weeding status. Withdrawn cancels item-targeted holds and advances the queue.
+    /// Does not touch `archived_at` or circulation exceptions.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn items_set_weeding(
+        &self,
+        item_id: i64,
+        status: WeedingStatus,
+        reason: Option<String>,
+    ) -> AppResult<Item> {
+        let reason = reason
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        if reason.as_ref().is_some_and(|s| s.chars().count() > 200) {
+            return Err(AppError::Validation(
+                "Weeding reason must be at most 200 characters".to_string(),
+            ));
+        }
+
+        let mut tx = self.pool.begin().await?;
+        let biblio_id: i64 = sqlx::query_scalar(
+            "SELECT biblio_id FROM items WHERE id = $1 AND archived_at IS NULL FOR UPDATE",
+        )
+        .bind(item_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))?;
+
+        sqlx::query(
+            r#"
+            UPDATE items
+            SET weeding_status = $2,
+                weeding_reason = $3,
+                updated_at = NOW()
+            WHERE id = $1 AND archived_at IS NULL
+            "#,
+        )
+        .bind(item_id)
+        .bind(status)
+        .bind(&reason)
+        .execute(&mut *tx)
+        .await?;
+
+        if status == WeedingStatus::Withdrawn {
+            let cancelled = self
+                .holds_cancel_active_for_item_tx(&mut tx, item_id)
+                .await?;
+            if cancelled > 0 {
+                self.holds_notify_next_available_copy_tx(&mut tx, biblio_id, Some(item_id))
+                    .await?;
+            }
+        }
+
+        tx.commit().await?;
+        self.items_get_active_by_id(item_id).await
     }
 }
