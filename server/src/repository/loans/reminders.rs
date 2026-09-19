@@ -104,6 +104,32 @@ const OVERDUE_SELECT: &str = r#"
                 it.circulation_status
 "#;
 
+/// Same as [`OVERDUE_SELECT`], but name/email/language come from the legal guardian
+/// when the borrower is a `child` with a `user_guardians` row. `school` and other
+/// types keep the borrower's own contact. Grouping stays on `l.user_id`.
+const REMINDER_SELECT: &str = r#"
+                l.id as loan_id,
+                l.user_id,
+                l.date as loan_date,
+                l.expiry_at,
+                l.last_reminder_sent_at,
+                l.reminder_count,
+                CASE WHEN g.id IS NOT NULL THEN g.firstname ELSE u.firstname END as firstname,
+                CASE WHEN g.id IS NOT NULL THEN g.lastname ELSE u.lastname END as lastname,
+                CASE WHEN g.id IS NOT NULL THEN g.email ELSE u.email END as user_email,
+                CASE WHEN g.id IS NOT NULL THEN g.language ELSE u.language END as user_language,
+                b.id as biblio_id,
+                b.title,
+                (
+                    SELECT string_agg(a.lastname || ' ' || COALESCE(a.firstname, ''), ', ' ORDER BY ba.position)
+                    FROM biblio_authors ba
+                    JOIN authors a ON a.id = ba.author_id
+                    WHERE ba.biblio_id = b.id
+                ) as authors,
+                it.barcode as item_barcode,
+                it.circulation_status
+"#;
+
 impl Repository {
     /// Get overdue loans eligible for the next reminder tier.
     ///
@@ -111,6 +137,11 @@ impl Repository {
     /// already received the formal notice (`reminder_count >= 3`), and loans
     /// reserved by a pending outbox row. Delays are days after `expiry_at`.
     /// A loan is only eligible for `reminder_count + 1` (no skip, no double-send).
+    ///
+    /// Recipient contact (email, name, language, `receive_reminders`) is the
+    /// legal guardian when the borrower is a `child` with a `user_guardians`
+    /// row; otherwise the borrower (`school` included). Grouping remains per
+    /// borrower (`l.user_id`).
     pub async fn loans_get_overdue_for_reminders(
         &self,
         delays: ReminderTierDelays,
@@ -120,11 +151,14 @@ impl Repository {
         let sql = format!(
             r#"
             SELECT
-                {OVERDUE_SELECT}
+                {REMINDER_SELECT}
             FROM loans l
             JOIN items it ON l.item_id = it.id
             JOIN biblios b ON it.biblio_id = b.id
             JOIN users u ON l.user_id = u.id
+            LEFT JOIN public_types pt ON pt.id = u.public_type
+            LEFT JOIN user_guardians ug ON ug.child_id = u.id AND pt.name = 'child'
+            LEFT JOIN users g ON g.id = ug.guardian_id
             WHERE l.returned_at IS NULL
               AND l.expiry_at < NOW()
               AND COALESCE(l.reminder_count, 0) < $6
@@ -134,9 +168,14 @@ impl Repository {
                   OR (COALESCE(l.reminder_count, 0) = 1 AND l.expiry_at <= NOW() - ($2 || ' days')::INTERVAL)
                   OR (COALESCE(l.reminder_count, 0) = 2 AND l.expiry_at <= NOW() - ($3 || ' days')::INTERVAL)
               )
-              AND u.email IS NOT NULL
-              AND u.email != ''
-              AND u.receive_reminders = TRUE
+              AND CASE
+                    WHEN g.id IS NOT NULL THEN (
+                        g.email IS NOT NULL AND g.email <> '' AND g.receive_reminders = TRUE
+                    )
+                    ELSE (
+                        u.email IS NOT NULL AND u.email <> '' AND u.receive_reminders = TRUE
+                    )
+                  END
               AND NOT EXISTS (
                   SELECT 1
                   FROM email_outbox_reminder_loans rl

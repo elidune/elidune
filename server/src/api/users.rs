@@ -101,7 +101,7 @@ pub async fn get_user(
     request_body = UserPayload,
     responses(
         (status = 201, description = "User created", body = User),
-        (status = 400, description = "Invalid input"),
+        (status = 400, description = "Invalid input, including missing guardianId for child patrons"),
         (status = 409, description = "Login already exists")
     )
 )]

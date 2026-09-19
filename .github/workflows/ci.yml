@@ -178,6 +178,7 @@ jobs:
           --test security_rbac
           --test email_outbox
           --test graduated_reminders
+          --test patron_guardians
           -- --nocapture
 
   coverage:
@@ -246,6 +247,7 @@ jobs:
           --test security_rbac
           --test email_outbox
           --test graduated_reminders
+          --test patron_guardians
           --lcov
           --output-path lcov.info
           --fail-under-lines 20
