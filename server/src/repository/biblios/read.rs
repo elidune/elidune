@@ -55,6 +55,7 @@ impl Repository {
             .await?;
 
         biblio.items = self.biblios_get_items(id).await?;
+        biblio.refresh_weeding_status();
 
         Ok(biblio)
     }
@@ -205,7 +206,7 @@ impl Repository {
         let items_map = self
             .biblios_get_items_short_by_biblio_ids(&[short.id])
             .await?;
-        short.items = items_map.get(&short.id).cloned().unwrap_or_default();
+        short.set_items(items_map.get(&short.id).cloned().unwrap_or_default());
         Ok(short)
     }
 
@@ -257,7 +258,7 @@ impl Repository {
             .map(|r| {
                 let pos = id_to_index.get(&r.id).copied().unwrap_or(usize::MAX);
                 let mut short = BiblioShort::from(r);
-                short.items = items_map.get(&short.id).cloned().unwrap_or_default();
+                short.set_items(items_map.get(&short.id).cloned().unwrap_or_default());
                 (pos, short)
             })
             .collect();

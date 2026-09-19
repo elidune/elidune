@@ -8,4 +8,5 @@ pub mod loans;
 pub mod sse;
 pub mod stats;
 pub mod transits;
+pub mod weeding;
 pub mod z3950;

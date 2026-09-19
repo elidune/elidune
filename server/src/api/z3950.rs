@@ -84,6 +84,8 @@ impl From<ImportItem> for Item {
             place: s.place,
             borrowable,
             circulation_status: None,
+            weeding_status: crate::models::item::WeedingStatus::OnShelf,
+            weeding_reason: None,
             notes: s.notes,
             price: s.price,
             price_deferred: false,

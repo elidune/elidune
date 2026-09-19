@@ -41,7 +41,7 @@ impl Repository {
         let item_row = if let Some(id) = loan.item_id {
             sqlx::query(
                 r#"
-                SELECT it.id, it.borrowable, it.circulation_status, b.media_type
+                SELECT it.id, it.borrowable, it.circulation_status, it.weeding_status, b.media_type
                 FROM items it
                 JOIN biblios b ON it.biblio_id = b.id
                 WHERE it.id = $1
@@ -54,7 +54,7 @@ impl Repository {
         } else {
             sqlx::query(
                 r#"
-                SELECT it.id, it.borrowable, it.circulation_status, b.media_type
+                SELECT it.id, it.borrowable, it.circulation_status, it.weeding_status, b.media_type
                 FROM items it
                 JOIN biblios b ON it.biblio_id = b.id
                 WHERE it.barcode = $1
@@ -72,7 +72,14 @@ impl Repository {
         let circulation_status = crate::models::circulation::CirculationStatus::from_db(
             item_row.get("circulation_status"),
         );
+        let weeding_status: crate::models::item::WeedingStatus = item_row.get("weeding_status");
         let media_type: Option<String> = item_row.get("media_type");
+
+        if weeding_status.blocks_circulation() {
+            return Err(AppError::BusinessRule(
+                crate::models::item::WeedingStatus::CHECKOUT_BLOCKED.to_string(),
+            ));
+        }
 
         let existing: Option<Loan> = sqlx::query_as::<_, Loan>(
             "SELECT * FROM loans WHERE item_id = $1 AND returned_at IS NULL FOR UPDATE",
@@ -387,6 +394,7 @@ impl Repository {
             barcode: biblio_row.get("item_barcode"),
             call_number: biblio_row.get("item_call_number"),
             borrowable: biblio_row.get("item_borrowable"),
+            weeding_status: crate::models::item::WeedingStatus::OnShelf,
             source_name: biblio_row.get("item_source_name"),
             borrowed: true,
         };
@@ -408,6 +416,7 @@ impl Repository {
                 status: 0,
                 is_valid: Some(true),
                 archived_at: None,
+                weeding_status: crate::models::item::WeedingStatus::OnShelf,
                 author: biblio_row
                     .get::<Option<serde_json::Value>, _>("author")
                     .and_then(|v| serde_json::from_value(v).ok()),
@@ -445,7 +454,7 @@ impl Repository {
 
         let item_row = sqlx::query(
             r#"
-            SELECT it.id, it.circulation_status, b.media_type
+            SELECT it.id, it.circulation_status, it.weeding_status, b.media_type
             FROM items it
             JOIN biblios b ON it.biblio_id = b.id
             WHERE it.id = $1
@@ -460,6 +469,12 @@ impl Repository {
         let circulation_status = crate::models::circulation::CirculationStatus::from_db(
             item_row.get("circulation_status"),
         );
+        let weeding_status: crate::models::item::WeedingStatus = item_row.get("weeding_status");
+        if weeding_status.blocks_circulation() {
+            return Err(AppError::BusinessRule(
+                crate::models::item::WeedingStatus::RENEW_BLOCKED.to_string(),
+            ));
+        }
         if circulation_status == crate::models::circulation::CirculationStatus::ClaimedReturned {
             return Err(AppError::BusinessRule(
                 "Cannot renew a loan that is in the claims-returned queue — resolve the claim first"

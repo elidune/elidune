@@ -456,6 +456,11 @@ pub struct Biblio {
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
     pub archived_at: Option<DateTime<Utc>>,
+    /// Derived from remaining copies: `withdrawn` only when every non-archived item is withdrawn.
+    /// Not stored; independent of `archived_at`.
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub weeding_status: crate::models::item::WeedingStatus,
     // Relations (loaded separately)
     #[sqlx(skip)]
     #[serde(default)]
@@ -494,6 +499,10 @@ pub struct BiblioShort {
     pub status: i16,
     pub is_valid: Option<bool>,
     pub archived_at: Option<DateTime<Utc>>,
+    /// Derived from remaining copies. Independent of `archived_at`.
+    #[sqlx(skip)]
+    #[serde(default)]
+    pub weeding_status: crate::models::item::WeedingStatus,
     pub author: Option<Author>,
     pub items: Vec<ItemShort>,
 }
@@ -509,9 +518,29 @@ impl From<Biblio> for BiblioShort {
             status: 0,
             is_valid: biblio.is_valid,
             archived_at: biblio.archived_at,
+            weeding_status: biblio.weeding_status,
             author: biblio.authors.first().cloned(),
             items: biblio.items.into_iter().map(ItemShort::from).collect(),
         }
+    }
+}
+
+impl Biblio {
+    /// Mark the record withdrawn when every remaining copy is withdrawn.
+    pub fn refresh_weeding_status(&mut self) {
+        self.weeding_status = crate::models::item::WeedingStatus::for_copies(
+            self.items.iter().map(|item| item.weeding_status),
+        );
+    }
+}
+
+impl BiblioShort {
+    /// Attach copies and derive the biblio-level weeding mark.
+    pub fn set_items(&mut self, items: Vec<ItemShort>) {
+        self.weeding_status = crate::models::item::WeedingStatus::for_copies(
+            items.iter().map(|item| item.weeding_status),
+        );
+        self.items = items;
     }
 }
 
@@ -604,6 +633,9 @@ pub struct MeiliBiblioDocument {
     pub is_archived: bool,
     /// True when the biblio has at least one non-archived (`items.archived_at IS NULL`) linked item.
     pub has_active_items: bool,
+    /// True when every non-archived item is withdrawn (record stays findable).
+    #[sqlx(default)]
+    pub is_withdrawn: bool,
 }
 
 /// Query/list parameters for series.
@@ -793,6 +825,7 @@ mod tests {
             status: 0,
             is_valid: None,
             archived_at: None,
+            weeding_status: crate::models::item::WeedingStatus::OnShelf,
             author: None,
             items: Vec::new(),
         };

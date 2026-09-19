@@ -88,6 +88,7 @@ mod tests {
                 status: 0,
                 is_valid: None,
                 archived_at: None,
+                weeding_status: crate::models::item::WeedingStatus::OnShelf,
                 author: None,
                 items: Vec::new(),
             },

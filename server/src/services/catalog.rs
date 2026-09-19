@@ -11,7 +11,7 @@ use crate::{
             CreateSerie, Serie, SerieQuery, UpdateCollection, UpdateSerie,
         },
         import_report::{ImportAction, ImportReport},
-        item::Item,
+        item::{Item, WeedingStatus},
     },
     repository::{BibliosRepository, CatalogEntitiesRepository},
     services::audit::{self, AuditLogMeta, AuditService},
@@ -501,6 +501,24 @@ impl CatalogService {
         self.repository.items_delete(item_id, force).await?;
         self.sync_index(biblio_id).await;
         Ok(biblio_id)
+    }
+
+    /// Set weeding status on a physical copy. Does not archive the item or the biblio.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn set_item_weeding(
+        &self,
+        item_id: i64,
+        status: WeedingStatus,
+        reason: Option<String>,
+    ) -> AppResult<Item> {
+        let item = self
+            .repository
+            .items_set_weeding(item_id, status, reason)
+            .await?;
+        if let Some(biblio_id) = item.biblio_id {
+            self.sync_index(biblio_id).await;
+        }
+        Ok(item)
     }
 
     /// Archive a bibliographic record when it has no active copies left.

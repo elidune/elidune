@@ -406,6 +406,10 @@ impl Repository {
             place: row.try_get("item_place").ok().flatten(),
             borrowable: row.try_get("item_borrowable").unwrap_or(true),
             circulation_status: row.try_get("item_circulation_status").ok().flatten(),
+            weeding_status: row
+                .try_get("item_weeding_status")
+                .unwrap_or(crate::models::item::WeedingStatus::OnShelf),
+            weeding_reason: row.try_get("item_weeding_reason").ok().flatten(),
             notes: row.try_get("item_notes").ok().flatten(),
             price: row.try_get("item_price").ok().flatten(),
             price_deferred: false,
@@ -453,6 +457,7 @@ impl Repository {
             created_at: row.try_get("biblio_created_at").ok().flatten(),
             updated_at: row.try_get("biblio_updated_at").ok().flatten(),
             archived_at: row.try_get("biblio_archived_at").ok().flatten(),
+            weeding_status: crate::models::item::WeedingStatus::OnShelf,
             authors,
             series,
             collections,
@@ -483,6 +488,7 @@ impl Repository {
                     barcode: row.get("item_barcode"),
                     call_number: row.get("item_call_number"),
                     borrowable: row.get("item_borrowable"),
+                    weeding_status: crate::models::item::WeedingStatus::OnShelf,
                     source_name: row.get("item_source_name"),
                     borrowed: true,
                 };
@@ -507,6 +513,7 @@ impl Repository {
                         status: 0,
                         is_valid: Some(true),
                         archived_at: None,
+                        weeding_status: crate::models::item::WeedingStatus::OnShelf,
                         author: row
                             .get::<Option<serde_json::Value>, _>("author")
                             .and_then(|v| serde_json::from_value(v).ok()),

@@ -10,6 +10,7 @@ use serde::Deserialize;
 use crate::{
     error::AppResult,
     models::biblio::Biblio,
+    models::dto::weeding::SetWeedingRequest,
     models::item::Item,
     services::audit::{self},
 };
@@ -17,13 +18,14 @@ use crate::{
 use super::{AuthenticatedUser, ClientIp, ValidatedJson};
 
 pub fn router() -> axum::Router<crate::AppState> {
-    use axum::routing::get;
+    use axum::routing::{get, post};
     axum::Router::new()
         .route("/items/barcode/:barcode", get(get_biblio_by_barcode))
         .route(
             "/items/:id",
             get(get_biblio_by_item).put(update_item).delete(delete_item),
         )
+        .route("/items/:id/weeding", post(set_item_weeding))
 }
 
 /// Get the bibliographic record for a physical copy.
@@ -203,4 +205,70 @@ pub async fn delete_item(
 #[serde(rename_all = "camelCase")]
 pub struct DeleteItemParams {
     pub force: Option<bool>,
+}
+
+/// Set weeding status on a physical copy. Candidate stays circulable; withdrawn is not.
+#[utoipa::path(
+    post,
+    path = "/items/{id}/weeding",
+    tag = "items",
+    security(("bearer_auth" = [])),
+    params(
+        ("id" = i64, Path, description = "Physical copy (item) ID")
+    ),
+    request_body = SetWeedingRequest,
+    responses(
+        (status = 200, description = "Weeding status updated", body = Item),
+        (status = 400, description = "Validation error", body = crate::error::ErrorResponse),
+        (status = 404, description = "Item not found or archived", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn set_item_weeding(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(item_id): Path<i64>,
+    ValidatedJson(body): ValidatedJson<SetWeedingRequest>,
+) -> AppResult<Json<Item>> {
+    claims.require_write_items()?;
+    match state
+        .services
+        .catalog
+        .set_item_weeding(item_id, body.status, body.reason.clone())
+        .await
+    {
+        Ok(item) => {
+            state.services.audit.log(
+                audit::event::ITEM_WEEDING_UPDATED,
+                Some(claims.user_id),
+                Some("item"),
+                Some(item_id),
+                ip.clone(),
+                Some(serde_json::json!({
+                    "itemId": item_id.to_string(),
+                    "status": body.status,
+                    "reason": body.reason,
+                    "archivedAt": item.archived_at,
+                })),
+                audit::AuditLogMeta::success(),
+            );
+            Ok(Json(item))
+        }
+        Err(e) => {
+            state.services.audit.log(
+                audit::event::ITEM_WEEDING_UPDATED,
+                Some(claims.user_id),
+                Some("item"),
+                Some(item_id),
+                ip,
+                Some(serde_json::json!({
+                    "itemId": item_id.to_string(),
+                    "status": body.status,
+                    "reason": body.reason,
+                })),
+                audit::AuditLogMeta::from_app_error(&e),
+            );
+            Err(e)
+        }
+    }
 }

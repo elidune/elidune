@@ -97,6 +97,7 @@ impl MeilisearchService {
             "dewey",
             "is_archived",
             "has_active_items",
+            "is_withdrawn",
         ];
         match index.set_filterable_attributes(&filterable).await {
             Ok(_) => {}
