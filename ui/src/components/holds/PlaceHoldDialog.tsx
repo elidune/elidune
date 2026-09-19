@@ -7,6 +7,7 @@ import { useToast } from '@/contexts/ToastContext';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { isLibrarian } from '@/types';
+import { isItemWithdrawn } from '@/utils/weeding';
 import type { Item, UserShort } from '@/types';
 import { formatUserShortName } from '@/utils/userDisplay';
 import { formChoiceLabelClass } from '@/utils/formControl';
@@ -46,7 +47,7 @@ export default function PlaceHoldDialog({
   const { showToast } = useToast();
   const queryClient = useQueryClient();
   const staff = isLibrarian(accountType);
-  const canPinCopy = !!specimen?.id;
+  const canPinCopy = !!specimen?.id && !isItemWithdrawn(specimen);
   const defaultScope: HoldPlacementScope = canPinCopy && pinCopyDefault ? 'copy' : 'title';
   const [scope, setScope] = useState<HoldPlacementScope>(defaultScope);
   const [scopeForOpen, setScopeForOpen] = useState(open);

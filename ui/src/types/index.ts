@@ -341,6 +341,19 @@ export interface UpdateCollection {
   issn?: string | null;
 }
 
+/** Item weeding lifecycle. JSON camelCase. Orthogonal to circulation exceptions and archivedAt. */
+export type ItemWeedingStatus = 'onShelf' | 'candidate' | 'withdrawn';
+
+/** Derived biblio weeding mark: withdrawn only when every remaining copy is withdrawn. */
+export type BiblioWeedingStatus = 'onShelf' | 'withdrawn';
+
+/** POST /items/{id}/weeding — do not send weeding fields on PUT /items. */
+export interface SetItemWeeding {
+  status: ItemWeedingStatus;
+  /** Optional short reason (max 200 characters). */
+  reason?: string;
+}
+
 /** Simplified physical copy (Item) as returned inside BiblioShort */
 export interface ItemShort {
   id: string;
@@ -352,6 +365,7 @@ export interface ItemShort {
   borrowed?: boolean;
   /** Item-level exception state: 0 available, 1 lost, 2 damaged, 3 claimed-returned. */
   circulationStatus?: number | null;
+  weedingStatus?: ItemWeedingStatus | null;
 }
 
 /** Short bibliographic record as returned in list endpoints */
@@ -365,6 +379,8 @@ export interface BiblioShort {
   isLocal?: number | null;
   isValid?: number | null;
   archivedAt?: string | null;
+  /** Derived: withdrawn only when every remaining copy is withdrawn. */
+  weedingStatus?: BiblioWeedingStatus | null;
   /** Simplified list of physical items (replaces nb_items / nb_available) */
   items?: ItemShort[];
   author?: Author | null;
@@ -387,6 +403,8 @@ export interface Item {
   createdAt?: string | null;
   updatedAt?: string | null;
   archivedAt?: string | null;
+  weedingStatus?: ItemWeedingStatus | null;
+  weedingReason?: string | null;
   sourceName?: string | null;
   borrowed?: boolean;
   /** Active loan id when borrowed (staff circulation lookup). */
@@ -431,6 +449,8 @@ export interface Biblio {
   createdAt?: string | null;
   updatedAt?: string | null;
   archivedAt?: string | null;
+  /** Derived: withdrawn only when every remaining copy is withdrawn. */
+  weedingStatus?: BiblioWeedingStatus | null;
   authors?: Author[];
   series?: Serie[];
   collections?: Collection[];
