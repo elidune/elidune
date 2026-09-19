@@ -2160,3 +2160,38 @@ export interface PurchaseOrderListResponse {
   orders: PurchaseOrder[];
   total: number;
 }
+
+export type PurchaseSuggestionStatus = 'proposed' | 'accepted' | 'refused';
+
+/** Patron title proposal. Accept opens a draft purchase-order intent (no biblio, no item). */
+export interface PurchaseSuggestion {
+  id: string;
+  proposedBy: string;
+  proposedByName?: string | null;
+  title: string;
+  author: string;
+  comment?: string | null;
+  status: PurchaseSuggestionStatus;
+  staffNote?: string | null;
+  reviewedBy?: string | null;
+  reviewedAt?: string | null;
+  purchaseOrderId?: string | null;
+  purchaseOrderLineId?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreatePurchaseSuggestion {
+  title: string;
+  author: string;
+  comment?: string | null;
+}
+
+export interface ReviewPurchaseSuggestion {
+  staffNote?: string | null;
+}
+
+export interface PurchaseSuggestionListResponse {
+  suggestions: PurchaseSuggestion[];
+  total: number;
+}

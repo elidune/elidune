@@ -1,8 +1,9 @@
-import type { PurchaseOrderStatus } from '@/types';
+import type { PurchaseOrderStatus, PurchaseSuggestionStatus } from '@/types';
 
 export const ACQUISITIONS_VENDORS_KEY = ['acquisitions', 'vendors'] as const;
 export const ACQUISITIONS_FUNDS_KEY = ['acquisitions', 'funds'] as const;
 export const ACQUISITIONS_ORDERS_KEY = ['acquisitions', 'orders'] as const;
+export const PURCHASE_SUGGESTIONS_KEY = ['suggestions'] as const;
 
 export function vendorsQueryKey(params: {
   q?: string;
@@ -39,4 +40,12 @@ export function orderDetailQueryKey(id: string) {
 
 export function orderAuditQueryKey(id: string) {
   return [...ACQUISITIONS_ORDERS_KEY, id, 'audit'] as const;
+}
+
+export function suggestionsQueryKey(params: {
+  status?: PurchaseSuggestionStatus;
+  page: number;
+  perPage: number;
+}) {
+  return [...PURCHASE_SUGGESTIONS_KEY, params] as const;
 }

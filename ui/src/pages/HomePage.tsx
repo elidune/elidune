@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
-import { BookOpen, Users, BookMarked, TrendingUp, ArrowRight, AlertTriangle } from 'lucide-react';
+import { BookOpen, Users, BookMarked, TrendingUp, ArrowRight, AlertTriangle, Lightbulb } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLibrary } from '@/contexts/LibraryContext';
 import { Card, CardHeader, Badge, LibraryInfoSection, ListSkeleton, QueryErrorBanner } from '@/components/common';
@@ -111,6 +111,25 @@ export default function HomePage() {
           />
         </div>
       )}
+
+      <Card>
+        <CardHeader
+          title={t('acquisitions.suggestions.patronTitle')}
+          subtitle={t('acquisitions.suggestions.homeHelp')}
+          action={
+            <Link
+              to="/profile#suggestions"
+              className="text-sm text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1"
+            >
+              {t('common.view')} <ArrowRight className="h-4 w-4" />
+            </Link>
+          }
+        />
+        <div className="flex items-start gap-3 text-sm text-gray-600 dark:text-gray-400">
+          <Lightbulb className="h-5 w-5 shrink-0 text-amber-600" />
+          <p>{t('acquisitions.suggestions.patronSubtitle')}</p>
+        </div>
+      </Card>
 
       {/* My loans */}
       <Card>

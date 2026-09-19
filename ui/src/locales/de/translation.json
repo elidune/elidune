@@ -92,7 +92,8 @@
     "sectionAcquisitions": "Erwerbung",
     "orders": "Bestellungen",
     "vendors": "Lieferanten",
-    "funds": "Etats"
+    "funds": "Etats",
+    "suggestions": "Anschaffungsvorschläge"
   },
   "theme": {
     "light": "Hell",
@@ -2152,6 +2153,43 @@
       "help": "Bestell- und Zugangsereignisse zu dieser Bestellung.",
       "empty": "Noch keine Auditereignisse zu dieser Bestellung.",
       "errorLoad": "Audit konnte nicht geladen werden."
+    },
+    "suggestions": {
+      "title": "Anschaffungsvorschläge",
+      "subtitle": "Nutzer schlagen Titel vor. Annehmen öffnet eine Bestellabsicht — kein eingegangenes Exemplar.",
+      "patronTitle": "Einen Titel vorschlagen",
+      "patronSubtitle": "Schlagen Sie der Bibliothek einen Titel zum Kauf vor.",
+      "homeHelp": "Bitten Sie die Bibliothek, einen Kauf zu prüfen.",
+      "staffHelp": "Annehmen erstellt einen Bestellentwurf mit einer Position (kein Titeldatensatz, kein Exemplar). Lieferant und weitere Angaben ergänzen Sie auf der bestehenden Bestellseite.",
+      "formTitle": "Titel",
+      "formAuthor": "Autor",
+      "formComment": "Kommentar (optional)",
+      "submit": "Vorschlag senden",
+      "submitted": "Vorschlag gesendet",
+      "myList": "Ihre Vorschläge",
+      "emptyMine": "Sie haben noch keinen Titel vorgeschlagen.",
+      "empty": "Keine Anschaffungsvorschläge.",
+      "errorLoad": "Anschaffungsvorschläge konnten nicht geladen werden.",
+      "proposedBy": "Vorgeschlagen von",
+      "staffNote": "Interne Notiz (optional)",
+      "staffNoteLabel": "Interne Notiz",
+      "accept": "Annehmen",
+      "refuse": "Ablehnen",
+      "acceptTitle": "Vorschlag annehmen",
+      "refuseTitle": "Vorschlag ablehnen",
+      "acceptConfirm": "Damit wird eine Bestellabsicht als Entwurf geöffnet. Es wird weder ein Titeldatensatz noch ein Exemplar angelegt. Lieferant und Details ergänzen Sie auf der Bestellseite.",
+      "refuseConfirm": "Der Vorschlag bleibt abgelehnt. Es wird keine Bestellung erstellt.",
+      "accepted": "Vorschlag angenommen — Bestellentwurf geöffnet",
+      "refused": "Vorschlag abgelehnt",
+      "openOrder": "Bestellentwurf öffnen",
+      "allStatuses": "Alle Status",
+      "titleRequired": "Titel ist erforderlich",
+      "authorRequired": "Autor ist erforderlich"
+    },
+    "suggestionStatuses": {
+      "proposed": "Vorgeschlagen",
+      "accepted": "Angenommen",
+      "refused": "Abgelehnt"
     }
   }
 }

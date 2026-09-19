@@ -141,6 +141,11 @@ import type {
   UpdateOrderLine,
   ReceivePurchaseOrder,
   ReceivePurchaseOrderResult,
+  PurchaseSuggestion,
+  PurchaseSuggestionListResponse,
+  PurchaseSuggestionStatus,
+  CreatePurchaseSuggestion,
+  ReviewPurchaseSuggestion,
 } from '@/types';
 import { normalizePaginatedResponse } from '@/utils/serverJson';
 import { normalizeFinePolicy } from '@/utils/finePolicy';
@@ -2051,6 +2056,49 @@ class ApiService {
 
   async getPurchaseOrderAudit(id: string): Promise<AuditLogPage> {
     const response = await this.client.get<AuditLogPage>(`/acquisitions/orders/${id}/audit`);
+    return response.data;
+  }
+
+  async getPurchaseSuggestions(params?: {
+    status?: PurchaseSuggestionStatus;
+    page?: number;
+    perPage?: number;
+  }): Promise<PurchaseSuggestionListResponse> {
+    const response = await this.client.get<PurchaseSuggestionListResponse>('/suggestions', {
+      params,
+    });
+    return response.data;
+  }
+
+  async getPurchaseSuggestion(id: string): Promise<PurchaseSuggestion> {
+    const response = await this.client.get<PurchaseSuggestion>(`/suggestions/${id}`);
+    return response.data;
+  }
+
+  async createPurchaseSuggestion(data: CreatePurchaseSuggestion): Promise<PurchaseSuggestion> {
+    const response = await this.client.post<PurchaseSuggestion>('/suggestions', data);
+    return response.data;
+  }
+
+  async acceptPurchaseSuggestion(
+    id: string,
+    data?: ReviewPurchaseSuggestion,
+  ): Promise<PurchaseSuggestion> {
+    const response = await this.client.post<PurchaseSuggestion>(
+      `/suggestions/${id}/accept`,
+      data ?? {},
+    );
+    return response.data;
+  }
+
+  async refusePurchaseSuggestion(
+    id: string,
+    data?: ReviewPurchaseSuggestion,
+  ): Promise<PurchaseSuggestion> {
+    const response = await this.client.post<PurchaseSuggestion>(
+      `/suggestions/${id}/refuse`,
+      data ?? {},
+    );
     return response.data;
   }
 }

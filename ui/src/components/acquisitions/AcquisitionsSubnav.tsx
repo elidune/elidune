@@ -5,6 +5,7 @@ const LINKS = [
   { to: '/acquisitions/orders', key: 'nav.orders' },
   { to: '/acquisitions/vendors', key: 'nav.vendors' },
   { to: '/acquisitions/funds', key: 'nav.funds' },
+  { to: '/acquisitions/suggestions', key: 'nav.suggestions' },
 ] as const;
 
 export default function AcquisitionsSubnav() {

@@ -28,3 +28,4 @@ export { default as AcquisitionsVendorsPage } from './AcquisitionsVendorsPage';
 export { default as AcquisitionsFundsPage } from './AcquisitionsFundsPage';
 export { default as AcquisitionsOrdersPage } from './AcquisitionsOrdersPage';
 export { default as AcquisitionsOrderDetailPage } from './AcquisitionsOrderDetailPage';
+export { default as AcquisitionsSuggestionsPage } from './AcquisitionsSuggestionsPage';

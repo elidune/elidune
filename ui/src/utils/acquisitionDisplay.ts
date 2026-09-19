@@ -1,4 +1,9 @@
-import type { MoneyAmount, PurchaseOrderLine, PurchaseOrderStatus } from '@/types';
+import type {
+  MoneyAmount,
+  PurchaseOrderLine,
+  PurchaseOrderStatus,
+  PurchaseSuggestionStatus,
+} from '@/types';
 
 export function parseMoney(amount: MoneyAmount | null | undefined): number | null {
   if (amount == null || amount === '') return null;
@@ -88,3 +93,18 @@ export const ORDER_STATUSES: PurchaseOrderStatus[] = [
   'received',
   'cancelled',
 ];
+
+export const SUGGESTION_STATUSES: PurchaseSuggestionStatus[] = [
+  'proposed',
+  'accepted',
+  'refused',
+];
+
+export function suggestionStatusBadgeVariant(
+  status: PurchaseSuggestionStatus,
+): 'default' | 'success' | 'warning' | 'danger' | 'info' {
+  if (status === 'accepted') return 'success';
+  if (status === 'proposed') return 'warning';
+  if (status === 'refused') return 'danger';
+  return 'default';
+}

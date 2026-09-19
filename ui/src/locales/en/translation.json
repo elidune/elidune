@@ -92,7 +92,8 @@
     "sectionAcquisitions": "Acquisitions",
     "orders": "Orders",
     "vendors": "Vendors",
-    "funds": "Funds"
+    "funds": "Funds",
+    "suggestions": "Purchase suggestions"
   },
   "theme": {
     "light": "Light",
@@ -2152,6 +2153,43 @@
       "help": "Order and receipt events for this purchase order.",
       "empty": "No audit events for this order yet.",
       "errorLoad": "Could not load the order audit."
+    },
+    "suggestions": {
+      "title": "Purchase suggestions",
+      "subtitle": "Patrons propose titles. Accept opens a draft order intent — not a received copy.",
+      "patronTitle": "Suggest a title",
+      "patronSubtitle": "Propose a title for the library to consider buying.",
+      "homeHelp": "Ask the library to consider a purchase.",
+      "staffHelp": "Accept creates a draft purchase order with one line (no bibliographic record, no item). Finish the vendor and other details on the existing order screen.",
+      "formTitle": "Title",
+      "formAuthor": "Author",
+      "formComment": "Comment (optional)",
+      "submit": "Submit suggestion",
+      "submitted": "Suggestion sent",
+      "myList": "Your suggestions",
+      "emptyMine": "You have not suggested a title yet.",
+      "empty": "No purchase suggestions.",
+      "errorLoad": "Could not load purchase suggestions.",
+      "proposedBy": "Proposed by",
+      "staffNote": "Staff note (optional)",
+      "staffNoteLabel": "Staff note",
+      "accept": "Accept",
+      "refuse": "Refuse",
+      "acceptTitle": "Accept suggestion",
+      "refuseTitle": "Refuse suggestion",
+      "acceptConfirm": "This opens a draft purchase-order intent. No bibliographic record or item is created. You will finish the vendor and details on the order screen.",
+      "refuseConfirm": "The suggestion will stay refused. No order is created.",
+      "accepted": "Suggestion accepted — draft order opened",
+      "refused": "Suggestion refused",
+      "openOrder": "Open draft order",
+      "allStatuses": "All statuses",
+      "titleRequired": "Title is required",
+      "authorRequired": "Author is required"
+    },
+    "suggestionStatuses": {
+      "proposed": "Proposed",
+      "accepted": "Accepted",
+      "refused": "Refused"
     }
   }
 }
