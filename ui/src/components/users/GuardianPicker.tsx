@@ -42,8 +42,6 @@ export default function GuardianPicker({
     const q = draft.trim();
     if (!q) {
       seqRef.current += 1;
-      setResults([]);
-      setSearching(false);
       return;
     }
 
@@ -113,6 +111,12 @@ export default function GuardianPicker({
           setDraft('');
           setResults([]);
         }}
+        renderItem={(u) => (
+          <>
+            {formatUserShortName(u)}{' '}
+            <span className="text-gray-500 font-mono text-xs">{u.id}</span>
+          </>
+        )}
         placeholder={t('users.searchPlaceholder')}
         leftIcon={<Search className="h-4 w-4" />}
         loading={visibleSearching}
