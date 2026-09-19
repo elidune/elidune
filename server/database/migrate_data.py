@@ -12,8 +12,9 @@ idx_holds_one_active_per_user_item, fines / fine_rules / circulation_settings
 fines.charge_type / one-open-per-(loan,charge_type) (029), and
 title-level holds + pickup_site_id stub (030),
 item_transits + holds.pickup_site_id FK to sources (031),
-acquisitions vendors/funds/orders/receipts + account_types.acquisitions_rights (032).
-Legacy source DBs have no acquisitions tables; those are created by SQL migrations only.)
+acquisitions vendors/funds/orders/receipts + account_types.acquisitions_rights (032),
+user_guardians (033), purchase_suggestions + nullable purchase_orders.vendor_id (034).
+Legacy source DBs have no acquisitions or suggestion tables; those are created by SQL migrations only.)
 
 Usage:
     python migrate_data.py --source-db <old_db_url> --target-db <new_db_url>

@@ -156,9 +156,9 @@ pub struct PurchaseOrder {
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub id: i64,
-    #[serde_as(as = "DisplayFromStr")]
-    #[schema(value_type = String)]
-    pub vendor_id: i64,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub vendor_id: Option<i64>,
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub fund_id: Option<i64>,
@@ -507,5 +507,134 @@ pub struct FundListResponse {
 #[serde(rename_all = "camelCase")]
 pub struct PurchaseOrderListResponse {
     pub orders: Vec<PurchaseOrder>,
+    pub total: i64,
+}
+
+/// Patron purchase-suggestion lifecycle (own states only).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum PurchaseSuggestionStatus {
+    #[default]
+    Proposed,
+    Accepted,
+    Refused,
+}
+
+impl PurchaseSuggestionStatus {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Proposed => "proposed",
+            Self::Accepted => "accepted",
+            Self::Refused => "refused",
+        }
+    }
+}
+
+impl From<&str> for PurchaseSuggestionStatus {
+    fn from(s: &str) -> Self {
+        match s {
+            "accepted" => Self::Accepted,
+            "refused" => Self::Refused,
+            _ => Self::Proposed,
+        }
+    }
+}
+
+impl From<String> for PurchaseSuggestionStatus {
+    fn from(s: String) -> Self {
+        Self::from(s.as_str())
+    }
+}
+
+impl sqlx::Type<sqlx::Postgres> for PurchaseSuggestionStatus {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        sqlx::postgres::PgTypeInfo::with_name("varchar")
+    }
+
+    fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
+        <String as sqlx::Type<sqlx::Postgres>>::compatible(ty)
+    }
+}
+
+impl<'r> sqlx::Decode<'r, sqlx::Postgres> for PurchaseSuggestionStatus {
+    fn decode(
+        value: sqlx::postgres::PgValueRef<'r>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
+        Ok(Self::from(s.as_str()))
+    }
+}
+
+impl sqlx::Encode<'_, sqlx::Postgres> for PurchaseSuggestionStatus {
+    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
+        <String as sqlx::Encode<sqlx::Postgres>>::encode(self.as_str().to_string(), buf)
+    }
+}
+
+/// Patron title proposal. Accept opens a draft purchase-order line (intent).
+#[serde_as]
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PurchaseSuggestion {
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub id: i64,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub proposed_by: i64,
+    #[sqlx(default)]
+    pub proposed_by_name: Option<String>,
+    pub title: String,
+    pub author: String,
+    pub comment: Option<String>,
+    pub status: PurchaseSuggestionStatus,
+    pub staff_note: Option<String>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub reviewed_by: Option<i64>,
+    pub reviewed_at: Option<DateTime<Utc>>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub purchase_order_id: Option<i64>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub purchase_order_line_id: Option<i64>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Patron form: title, author, optional comment.
+#[derive(Debug, Clone, Serialize, Deserialize, Validate, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CreatePurchaseSuggestion {
+    #[validate(length(min = 1, max = 500))]
+    pub title: String,
+    #[validate(length(min = 1, max = 300))]
+    pub author: String,
+    #[validate(length(max = 2000))]
+    pub comment: Option<String>,
+}
+
+/// Staff accept / refuse payload.
+#[derive(Debug, Clone, Serialize, Deserialize, Validate, ToSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewPurchaseSuggestion {
+    pub staff_note: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, IntoParams, ToSchema, Default)]
+#[serde(rename_all = "camelCase")]
+#[into_params(parameter_in = Query)]
+pub struct PurchaseSuggestionQuery {
+    pub status: Option<PurchaseSuggestionStatus>,
+    pub page: Option<i64>,
+    pub per_page: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PurchaseSuggestionListResponse {
+    pub suggestions: Vec<PurchaseSuggestion>,
     pub total: i64,
 }

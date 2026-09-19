@@ -8,10 +8,12 @@ use crate::{
     error::{AppError, AppResult},
     models::{
         acquisition::{
-            AcquisitionFund, CreateFund, CreateOrderLine, CreatePurchaseOrder, CreateVendor,
-            FundQuery, PurchaseOrder, PurchaseOrderDetail, PurchaseOrderLine, PurchaseOrderQuery,
+            AcquisitionFund, CreateFund, CreateOrderLine, CreatePurchaseOrder,
+            CreatePurchaseSuggestion, CreateVendor, FundQuery, PurchaseOrder, PurchaseOrderDetail,
+            PurchaseOrderLine, PurchaseOrderQuery, PurchaseSuggestion, PurchaseSuggestionQuery,
             ReceiptLineResult, ReceiveItemSpec, ReceivePurchaseOrder, ReceivePurchaseOrderResult,
-            UpdateFund, UpdateOrderLine, UpdatePurchaseOrder, UpdateVendor, Vendor, VendorQuery,
+            ReviewPurchaseSuggestion, UpdateFund, UpdateOrderLine, UpdatePurchaseOrder,
+            UpdateVendor, Vendor, VendorQuery,
         },
         biblio::{Biblio, Isbn, MediaType},
         item::Item,
@@ -364,6 +366,48 @@ impl AcquisitionsService {
         created
             .id
             .ok_or_else(|| AppError::Internal("Created biblio is missing id".into()))
+    }
+
+    pub async fn list_suggestions(
+        &self,
+        query: &PurchaseSuggestionQuery,
+        proposed_by: Option<i64>,
+    ) -> AppResult<(Vec<PurchaseSuggestion>, i64)> {
+        self.repository.suggestions_list(query, proposed_by).await
+    }
+
+    pub async fn get_suggestion(&self, id: i64) -> AppResult<PurchaseSuggestion> {
+        self.repository.suggestions_get(id).await
+    }
+
+    pub async fn create_suggestion(
+        &self,
+        proposed_by: i64,
+        data: &CreatePurchaseSuggestion,
+    ) -> AppResult<PurchaseSuggestion> {
+        self.repository.suggestions_create(proposed_by, data).await
+    }
+
+    pub async fn accept_suggestion(
+        &self,
+        id: i64,
+        reviewed_by: i64,
+        data: &ReviewPurchaseSuggestion,
+    ) -> AppResult<PurchaseSuggestion> {
+        self.repository
+            .suggestions_accept(id, reviewed_by, data)
+            .await
+    }
+
+    pub async fn refuse_suggestion(
+        &self,
+        id: i64,
+        reviewed_by: i64,
+        data: &ReviewPurchaseSuggestion,
+    ) -> AppResult<PurchaseSuggestion> {
+        self.repository
+            .suggestions_refuse(id, reviewed_by, data)
+            .await
     }
 }
 

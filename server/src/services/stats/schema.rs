@@ -360,6 +360,38 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
     );
 
     m.insert(
+        "purchase_suggestions",
+        EntityDef {
+            table: "purchase_suggestions",
+            label: "Patron purchase suggestions",
+            fields: HashMap::from([
+                ("id", f("id", "bigint", "Id")),
+                ("proposed_by", f("proposed_by", "bigint", "Patron id")),
+                ("title", f("title", "text", "Title")),
+                ("author", f("author", "text", "Author")),
+                (
+                    "status",
+                    f("status", "text", "proposed / accepted / refused"),
+                ),
+                (
+                    "purchase_order_id",
+                    f("purchase_order_id", "bigint", "Opened order id"),
+                ),
+            ]),
+            relations: HashMap::from([
+                (
+                    "proposer",
+                    r("users", "proposed_by", "id", "Proposing patron"),
+                ),
+                (
+                    "order",
+                    r("purchase_orders", "purchase_order_id", "id", "Order intent"),
+                ),
+            ]),
+        },
+    );
+
+    m.insert(
         "purchase_orders",
         EntityDef {
             table: "purchase_orders",

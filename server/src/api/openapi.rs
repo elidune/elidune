@@ -8,8 +8,8 @@ use utoipa_swagger_ui::SwaggerUi;
 use crate::api::{
     account_types, acquisitions, admin_config, audit, auth, biblios, collections, email_templates,
     equipment, events, fines, first_setup, health, holds, inventory, items, library_info, loans,
-    maintenance, metrics, opac, public_types, schedules, series, sources, stats, tasks, transits,
-    users, visitor_counts, z3950,
+    maintenance, metrics, opac, public_types, schedules, series, sources, stats, suggestions,
+    tasks, transits, users, visitor_counts, z3950,
 };
 
 #[derive(OpenApi)]
@@ -217,6 +217,11 @@ use crate::api::{
         acquisitions::cancel_order,
         acquisitions::receive_order,
         acquisitions::order_audit,
+        suggestions::create_suggestion,
+        suggestions::list_suggestions,
+        suggestions::get_suggestion,
+        suggestions::accept_suggestion,
+        suggestions::refuse_suggestion,
         // Library account types (roles / rights)
         account_types::list_account_types,
         account_types::get_account_type,
@@ -491,6 +496,12 @@ use crate::api::{
             crate::models::acquisition::ReceivePurchaseOrderResult,
             crate::models::acquisition::Receipt,
             crate::models::acquisition::ReceiptLineResult,
+            crate::models::acquisition::PurchaseSuggestionStatus,
+            crate::models::acquisition::PurchaseSuggestion,
+            crate::models::acquisition::CreatePurchaseSuggestion,
+            crate::models::acquisition::ReviewPurchaseSuggestion,
+            crate::models::acquisition::PurchaseSuggestionQuery,
+            crate::models::acquisition::PurchaseSuggestionListResponse,
             // Admin config
             admin_config::ConfigResponse,
             admin_config::ConfigSectionInfo,
@@ -559,6 +570,7 @@ use crate::api::{
         (name = "equipment", description = "Library equipment management"),
         (name = "events", description = "Cultural events and school visits"),
         (name = "acquisitions", description = "Vendors, yearly funds, purchase orders, and receipt (creates catalog items only at receipt)"),
+        (name = "suggestions", description = "Patron purchase suggestions: propose a title; staff accept opens a draft order intent (no biblio, no item)"),
         (name = "account_types", description = "Library account types (guest, reader, librarian, admin, group) and per-domain rights"),
         (name = "library_info", description = "Library global information (name, address, phones, email)"),
         (name = "email_templates", description = "Editable email templates exposed to the Settings UI"),
