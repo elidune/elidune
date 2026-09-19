@@ -30,6 +30,7 @@ pub mod series;
 pub mod sources;
 pub mod sse;
 pub mod stats;
+pub mod suggestions;
 pub mod tasks;
 pub mod transits;
 pub mod users;

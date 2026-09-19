@@ -216,6 +216,9 @@ pub mod event {
     pub const PURCHASE_ORDER_LINE_ADDED: &str = "purchase_order.line_added";
     pub const PURCHASE_ORDER_LINE_UPDATED: &str = "purchase_order.line_updated";
     pub const PURCHASE_ORDER_LINE_REMOVED: &str = "purchase_order.line_removed";
+    pub const PURCHASE_SUGGESTION_CREATED: &str = "purchase_suggestion.created";
+    pub const PURCHASE_SUGGESTION_ACCEPTED: &str = "purchase_suggestion.accepted";
+    pub const PURCHASE_SUGGESTION_REFUSED: &str = "purchase_suggestion.refused";
 
     // Collections
     pub const COLLECTION_CREATED: &str = "collection.created";

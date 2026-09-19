@@ -10,10 +10,11 @@ use super::Repository;
 use crate::{
     error::{AppError, AppResult},
     models::acquisition::{
-        AcquisitionFund, CreateFund, CreateOrderLine, CreatePurchaseOrder, CreateVendor, FundQuery,
-        PurchaseOrder, PurchaseOrderLine, PurchaseOrderQuery, PurchaseOrderStatus, Receipt,
-        ReceiveOrderLine, UpdateFund, UpdateOrderLine, UpdatePurchaseOrder, UpdateVendor, Vendor,
-        VendorQuery,
+        AcquisitionFund, CreateFund, CreateOrderLine, CreatePurchaseOrder,
+        CreatePurchaseSuggestion, CreateVendor, FundQuery, PurchaseOrder, PurchaseOrderLine,
+        PurchaseOrderQuery, PurchaseOrderStatus, PurchaseSuggestion, PurchaseSuggestionQuery,
+        PurchaseSuggestionStatus, Receipt, ReceiveOrderLine, ReviewPurchaseSuggestion, UpdateFund,
+        UpdateOrderLine, UpdatePurchaseOrder, UpdateVendor, Vendor, VendorQuery,
     },
 };
 
@@ -82,8 +83,17 @@ const ORDER_SELECT: &str = r#"
            v.name AS vendor_name,
            f.code AS fund_code
     FROM purchase_orders o
-    JOIN vendors v ON v.id = o.vendor_id
+    LEFT JOIN vendors v ON v.id = o.vendor_id
     LEFT JOIN acquisition_funds f ON f.id = o.fund_id
+"#;
+
+const SUGGESTION_SELECT: &str = r#"
+    SELECT s.id, s.proposed_by, s.title, s.author, s.comment, s.status, s.staff_note,
+           s.reviewed_by, s.reviewed_at, s.purchase_order_id, s.purchase_order_line_id,
+           s.created_at, s.updated_at,
+           NULLIF(TRIM(BOTH FROM CONCAT_WS(' ', u.firstname, u.lastname)), '') AS proposed_by_name
+    FROM purchase_suggestions s
+    LEFT JOIN users u ON u.id = s.proposed_by
 "#;
 
 /// `(receipt_line_id, purchase_order_line_id, quantity, unit_price, item_ids)`.
@@ -137,6 +147,30 @@ pub trait AcquisitionsRepository: Send + Sync {
     ) -> AppResult<Receipt>;
     async fn orders_set_line_biblio(&self, line_id: i64, biblio_id: i64) -> AppResult<()>;
     async fn receipt_line_results(&self, receipt_id: i64) -> AppResult<Vec<ReceiptLinePersist>>;
+
+    async fn suggestions_list(
+        &self,
+        query: &PurchaseSuggestionQuery,
+        proposed_by: Option<i64>,
+    ) -> AppResult<(Vec<PurchaseSuggestion>, i64)>;
+    async fn suggestions_get(&self, id: i64) -> AppResult<PurchaseSuggestion>;
+    async fn suggestions_create(
+        &self,
+        proposed_by: i64,
+        data: &CreatePurchaseSuggestion,
+    ) -> AppResult<PurchaseSuggestion>;
+    async fn suggestions_accept(
+        &self,
+        id: i64,
+        reviewed_by: i64,
+        data: &ReviewPurchaseSuggestion,
+    ) -> AppResult<PurchaseSuggestion>;
+    async fn suggestions_refuse(
+        &self,
+        id: i64,
+        reviewed_by: i64,
+        data: &ReviewPurchaseSuggestion,
+    ) -> AppResult<PurchaseSuggestion>;
 }
 
 #[async_trait]
@@ -237,6 +271,39 @@ impl AcquisitionsRepository for Repository {
     }
     async fn receipt_line_results(&self, receipt_id: i64) -> AppResult<Vec<ReceiptLinePersist>> {
         Repository::receipt_line_ids_for_receipt(self, receipt_id).await
+    }
+    async fn suggestions_list(
+        &self,
+        query: &PurchaseSuggestionQuery,
+        proposed_by: Option<i64>,
+    ) -> AppResult<(Vec<PurchaseSuggestion>, i64)> {
+        Repository::suggestions_list(self, query, proposed_by).await
+    }
+    async fn suggestions_get(&self, id: i64) -> AppResult<PurchaseSuggestion> {
+        Repository::suggestions_get(self, id).await
+    }
+    async fn suggestions_create(
+        &self,
+        proposed_by: i64,
+        data: &CreatePurchaseSuggestion,
+    ) -> AppResult<PurchaseSuggestion> {
+        Repository::suggestions_create(self, proposed_by, data).await
+    }
+    async fn suggestions_accept(
+        &self,
+        id: i64,
+        reviewed_by: i64,
+        data: &ReviewPurchaseSuggestion,
+    ) -> AppResult<PurchaseSuggestion> {
+        Repository::suggestions_accept(self, id, reviewed_by, data).await
+    }
+    async fn suggestions_refuse(
+        &self,
+        id: i64,
+        reviewed_by: i64,
+        data: &ReviewPurchaseSuggestion,
+    ) -> AppResult<PurchaseSuggestion> {
+        Repository::suggestions_refuse(self, id, reviewed_by, data).await
     }
 }
 
@@ -514,7 +581,7 @@ impl Repository {
         let total = sqlx::query_scalar::<_, i64>(
             r#"
             SELECT COUNT(*) FROM purchase_orders o
-            JOIN vendors v ON v.id = o.vendor_id
+            LEFT JOIN vendors v ON v.id = o.vendor_id
             WHERE ($1::text IS NULL OR o.status = $1)
               AND ($2::bigint IS NULL OR o.vendor_id = $2)
               AND ($3::bigint IS NULL OR o.fund_id = $3)
@@ -776,6 +843,11 @@ impl Repository {
             ));
         }
         let lines = self.orders_list_lines(id).await?;
+        if order.vendor_id.is_none() {
+            return Err(AppError::BusinessRule(
+                "Assign a vendor before submitting this purchase order".into(),
+            ));
+        }
         if lines.is_empty() {
             return Err(AppError::Validation(
                 "A purchase order must have at least one line before it is submitted".into(),
@@ -979,6 +1051,238 @@ impl Repository {
             out.push((id, po_line_id, qty, price, item_ids));
         }
         Ok(out)
+    }
+
+    pub async fn suggestions_list(
+        &self,
+        query: &PurchaseSuggestionQuery,
+        proposed_by: Option<i64>,
+    ) -> AppResult<(Vec<PurchaseSuggestion>, i64)> {
+        let (limit, offset) = page_offset(query.page, query.per_page);
+        let status = query.status.map(|s| s.as_str().to_string());
+
+        let total = sqlx::query_scalar::<_, i64>(
+            r#"
+            SELECT COUNT(*) FROM purchase_suggestions
+            WHERE ($1::text IS NULL OR status = $1)
+              AND ($2::bigint IS NULL OR proposed_by = $2)
+            "#,
+        )
+        .bind(&status)
+        .bind(proposed_by)
+        .fetch_one(&self.pool)
+        .await?;
+
+        let sql = format!(
+            "{SUGGESTION_SELECT}
+             WHERE ($1::text IS NULL OR s.status = $1)
+               AND ($2::bigint IS NULL OR s.proposed_by = $2)
+             ORDER BY s.created_at DESC
+             LIMIT $3 OFFSET $4"
+        );
+        let suggestions = sqlx::query_as::<_, PurchaseSuggestion>(&sql)
+            .bind(&status)
+            .bind(proposed_by)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok((suggestions, total))
+    }
+
+    pub async fn suggestions_get(&self, id: i64) -> AppResult<PurchaseSuggestion> {
+        let sql = format!("{SUGGESTION_SELECT} WHERE s.id = $1");
+        sqlx::query_as::<_, PurchaseSuggestion>(&sql)
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Purchase suggestion {id} not found")))
+    }
+
+    pub async fn suggestions_create(
+        &self,
+        proposed_by: i64,
+        data: &CreatePurchaseSuggestion,
+    ) -> AppResult<PurchaseSuggestion> {
+        let title = data.title.trim();
+        let author = data.author.trim();
+        if title.is_empty() {
+            return Err(AppError::Validation("title is required".into()));
+        }
+        if author.is_empty() {
+            return Err(AppError::Validation("author is required".into()));
+        }
+        let id = next_id();
+        let now = Utc::now();
+        sqlx::query(
+            r#"
+            INSERT INTO purchase_suggestions
+                (id, proposed_by, title, author, comment, status, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, $5, 'proposed', $6, $6)
+            "#,
+        )
+        .bind(id)
+        .bind(proposed_by)
+        .bind(title)
+        .bind(author)
+        .bind(empty_to_none(data.comment.as_deref()))
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
+        self.suggestions_get(id).await
+    }
+
+    pub async fn suggestions_accept(
+        &self,
+        id: i64,
+        reviewed_by: i64,
+        data: &ReviewPurchaseSuggestion,
+    ) -> AppResult<PurchaseSuggestion> {
+        let mut tx = self.pool.begin().await?;
+        let current = sqlx::query_as::<_, PurchaseSuggestion>(
+            "SELECT s.*, NULL::text AS proposed_by_name FROM purchase_suggestions s WHERE s.id = $1 FOR UPDATE",
+        )
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Purchase suggestion {id} not found")))?;
+
+        match current.status {
+            PurchaseSuggestionStatus::Accepted => {
+                return Err(AppError::Conflict(
+                    "This suggestion has already been accepted".into(),
+                ));
+            }
+            PurchaseSuggestionStatus::Refused => {
+                return Err(AppError::BusinessRule(
+                    "Refused suggestions stay refused".into(),
+                ));
+            }
+            PurchaseSuggestionStatus::Proposed => {}
+        }
+
+        let now = Utc::now();
+        let year = now.year();
+        let order_id = next_id();
+        let order_number = format!("PO-{year}-{order_id}");
+        let order_notes = format!("Opened from patron purchase suggestion {id}");
+        sqlx::query(
+            r#"
+            INSERT INTO purchase_orders
+                (id, vendor_id, fund_id, order_number, status, notes, created_by, created_at, updated_at)
+            VALUES ($1, NULL, NULL, $2, 'draft', $3, $4, $5, $5)
+            "#,
+        )
+        .bind(order_id)
+        .bind(&order_number)
+        .bind(&order_notes)
+        .bind(reviewed_by)
+        .bind(now)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_unique_order)?;
+
+        let mut line_notes = format!("Author: {}", current.author);
+        if let Some(comment) = current
+            .comment
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            line_notes.push_str("\nPatron comment: ");
+            line_notes.push_str(comment);
+        }
+        let line = insert_order_line_tx(
+            &mut tx,
+            order_id,
+            &CreateOrderLine {
+                fund_id: None,
+                biblio_id: None,
+                isbn: None,
+                title: Some(current.title.clone()),
+                quantity: 1,
+                unit_price: None,
+                currency: None,
+                notes: Some(line_notes),
+            },
+        )
+        .await?;
+
+        sqlx::query(
+            r#"
+            UPDATE purchase_suggestions SET
+                status = 'accepted',
+                staff_note = $2,
+                reviewed_by = $3,
+                reviewed_at = $4,
+                purchase_order_id = $5,
+                purchase_order_line_id = $6,
+                updated_at = $4
+            WHERE id = $1
+            "#,
+        )
+        .bind(id)
+        .bind(empty_to_none(data.staff_note.as_deref()))
+        .bind(reviewed_by)
+        .bind(now)
+        .bind(order_id)
+        .bind(line.id)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        self.suggestions_get(id).await
+    }
+
+    pub async fn suggestions_refuse(
+        &self,
+        id: i64,
+        reviewed_by: i64,
+        data: &ReviewPurchaseSuggestion,
+    ) -> AppResult<PurchaseSuggestion> {
+        let mut tx = self.pool.begin().await?;
+        let current = sqlx::query_as::<_, PurchaseSuggestion>(
+            "SELECT s.*, NULL::text AS proposed_by_name FROM purchase_suggestions s WHERE s.id = $1 FOR UPDATE",
+        )
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Purchase suggestion {id} not found")))?;
+
+        match current.status {
+            PurchaseSuggestionStatus::Accepted => {
+                return Err(AppError::BusinessRule(
+                    "Accepted suggestions cannot be refused".into(),
+                ));
+            }
+            PurchaseSuggestionStatus::Refused => {
+                return Err(AppError::Conflict(
+                    "This suggestion has already been refused".into(),
+                ));
+            }
+            PurchaseSuggestionStatus::Proposed => {}
+        }
+
+        let now = Utc::now();
+        sqlx::query(
+            r#"
+            UPDATE purchase_suggestions SET
+                status = 'refused',
+                staff_note = $2,
+                reviewed_by = $3,
+                reviewed_at = $4,
+                updated_at = $4
+            WHERE id = $1
+            "#,
+        )
+        .bind(id)
+        .bind(empty_to_none(data.staff_note.as_deref()))
+        .bind(reviewed_by)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        self.suggestions_get(id).await
     }
 }
 

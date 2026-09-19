@@ -155,6 +155,7 @@ pub fn build_app_with_options(state: AppState, options: AppBuildOptions) -> Rout
         .merge(api::equipment::router())
         .merge(api::events::router())
         .merge(api::acquisitions::router())
+        .merge(api::suggestions::router())
         .merge(api::account_types::router())
         .merge(api::maintenance::router())
         .merge(api::tasks::router())
