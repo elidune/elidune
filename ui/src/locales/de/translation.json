@@ -666,7 +666,20 @@
     "cityPostalLookupPlaceholder": "z. B. Annecy oder Annecy (74000)",
     "communeSearchEmpty": "Keine passende Gemeinde",
     "communeSearchLoading": "Suche…",
-    "detailNotFound": "Benutzer nicht gefunden"
+    "detailNotFound": "Benutzer nicht gefunden",
+    "legalGuardian": "Erziehungsberechtigte Person",
+    "legalGuardianHelp": "Mahnungen für dieses Kind gehen an diese Person.",
+    "legalGuardianSearch": "Vorhandene volljährige Person suchen",
+    "legalGuardianReplace": "Durch eine andere volljährige Person ersetzen",
+    "openPatronFile": "Akte öffnen",
+    "guardianFallback": "Benutzer {{id}}",
+    "guardianErrors": {
+      "required": "Für ein Kind ist eine erziehungsberechtigte Person erforderlich.",
+      "notMajor": "Die erziehungsberechtigte Person muss volljährig sein (kein Kind, keine Schule).",
+      "samePatron": "Eine Person kann nicht die eigene erziehungsberechtigte Person sein.",
+      "notFound": "Diese Person wurde nicht gefunden. Wählen Sie eine vorhandene volljährige Person.",
+      "inactive": "Die erziehungsberechtigte Person muss ein aktives Konto haben."
+    }
   },
   "z3950": {
     "dataFound": "Daten gefunden und Felder ausgefüllt!",

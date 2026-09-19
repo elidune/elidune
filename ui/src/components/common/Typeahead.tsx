@@ -14,6 +14,9 @@ export interface TypeaheadProps<T> {
   disabled?: boolean;
   loading?: boolean;
   selectedId?: string | null;
+  required?: boolean;
+  error?: string;
+  hint?: string;
   /** `dropdown` overlays results; `stack` lists them below the field. */
   variant?: 'dropdown' | 'stack';
 }
@@ -34,6 +37,9 @@ export default function Typeahead<T>({
   disabled,
   loading,
   selectedId,
+  required,
+  error,
+  hint,
   variant = 'stack',
 }: TypeaheadProps<T>) {
   const listId = useId();
@@ -112,6 +118,9 @@ export default function Typeahead<T>({
         placeholder={placeholder}
         leftIcon={leftIcon}
         disabled={disabled}
+        required={required}
+        error={error}
+        hint={hint}
         aria-busy={loading}
         role="combobox"
         aria-expanded={open}

@@ -666,7 +666,20 @@
     "cityPostalLookupPlaceholder": "e.g. Annecy or Annecy (74000)",
     "communeSearchEmpty": "No matching municipality",
     "communeSearchLoading": "Searching…",
-    "detailNotFound": "Patron not found"
+    "detailNotFound": "Patron not found",
+    "legalGuardian": "Legal guardian",
+    "legalGuardianHelp": "Overdue mail for this child goes to this person.",
+    "legalGuardianSearch": "Search an existing adult patron",
+    "legalGuardianReplace": "Replace with another adult patron",
+    "openPatronFile": "Open file",
+    "guardianFallback": "Patron {{id}}",
+    "guardianErrors": {
+      "required": "A legal guardian is required for a child.",
+      "notMajor": "The guardian must be an adult patron (not a child or a school).",
+      "samePatron": "A patron cannot be their own legal guardian.",
+      "notFound": "That guardian was not found. Choose an existing adult patron.",
+      "inactive": "The guardian must be an active patron."
+    }
   },
   "z3950": {
     "dataFound": "Data found and fields prefilled!",

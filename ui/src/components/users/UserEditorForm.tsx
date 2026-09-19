@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, ChevronDown, ChevronRight, Loader2, Mail, MapPin, Phone } from 'lucide-react';
 import { Input } from '@/components/common';
+import GuardianPicker from '@/components/users/GuardianPicker';
 import api from '@/services/api';
-import type { AccountTypeDefinition, PublicType, User } from '@/types';
+import type { AccountTypeDefinition, PublicType, User, UserShort } from '@/types';
 import { defaultAccountTypeCode } from '@/utils/accountTypeDisplay';
-import { getApiErrorMessage } from '@/utils/apiError';
+import { getApiErrorMessage, getApiErrorRawMessage } from '@/utils/apiError';
 import { SEX_OPTIONS } from '@/utils/codeLabels';
 import { searchFrenchCommunePicks } from '@/utils/frenchCommuneSearch';
 import { formControlClass, formLabelClass, formTextareaClass } from '@/utils/formControl';
+import { guardianValidationI18nKey, publicTypeRequiresGuardian } from '@/utils/legalGuardian';
 import {
   defaultExpiryDateInputOneYearFromNow,
   dateInputToIsoEndOfDayUtc,
@@ -37,6 +40,7 @@ export type UserFormData = {
   accountType: string;
   expiryUnlimited: boolean;
   expiryAt: string;
+  guardianId: string;
 };
 
 type UserRequiredField =
@@ -47,7 +51,8 @@ type UserRequiredField =
   | 'publicType'
   | 'accountType'
   | 'sex'
-  | 'addrCity';
+  | 'addrCity'
+  | 'guardianId';
 
 function formatCityPostalLine(city: string, zip: string): string {
   const c = city.trim();
@@ -77,6 +82,7 @@ function emptyFormData(accountTypes: AccountTypeDefinition[]): UserFormData {
     accountType: defaultAccountTypeCode(accountTypes),
     expiryUnlimited: false,
     expiryAt: defaultExpiryDateInputOneYearFromNow(),
+    guardianId: '',
   };
 }
 
@@ -102,6 +108,7 @@ function formDataFromUser(user: User): UserFormData {
     expiryAt: user.expiryAt
       ? toDateInputValue(new Date(user.expiryAt))
       : defaultExpiryDateInputOneYearFromNow(),
+    guardianId: user.guardianId ? String(user.guardianId) : '',
   };
 }
 
@@ -202,6 +209,22 @@ export default function UserEditorForm({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [subscriptionOpen, setSubscriptionOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
+  const [pickedGuardian, setPickedGuardian] = useState<UserShort | null>(null);
+
+  const guardianQuery = useQuery({
+    queryKey: ['user', formData.guardianId],
+    queryFn: () => api.getUser(formData.guardianId),
+    enabled: Boolean(formData.guardianId),
+  });
+
+  const selectedGuardian: UserShort | null = (() => {
+    if (!formData.guardianId) return null;
+    if (pickedGuardian?.id === formData.guardianId) return pickedGuardian;
+    if (guardianQuery.data?.id === formData.guardianId) return guardianQuery.data;
+    return { id: formData.guardianId };
+  })();
+
+  const showGuardianField = publicTypeRequiresGuardian(publicTypes, formData.publicType);
 
   const [cityPostalField, setCityPostalField] = useState(() =>
     mode === 'edit' && user
@@ -270,6 +293,9 @@ export default function UserEditorForm({
     if (!fd.publicType.trim()) err.publicType = requiredMsg;
     if (!fd.sex.trim()) err.sex = requiredMsg;
     if (!fd.addrCity.trim()) err.addrCity = requiredMsg;
+    if (publicTypeRequiresGuardian(publicTypes, fd.publicType) && !fd.guardianId.trim()) {
+      err.guardianId = t('users.guardianErrors.required');
+    }
 
     const code = fd.accountType.trim();
     const listed =
@@ -314,6 +340,9 @@ export default function UserEditorForm({
     onLoadingChange(true);
     try {
       const base = buildPayload(formData);
+      if (publicTypeRequiresGuardian(publicTypes, formData.publicType) && formData.guardianId) {
+        base.guardianId = formData.guardianId;
+      }
       if (mode === 'create') {
         const createData: Record<string, unknown> = {
           ...base,
@@ -333,7 +362,15 @@ export default function UserEditorForm({
       }
     } catch (error) {
       console.error(mode === 'create' ? 'Error creating user:' : 'Error updating user:', error);
-      setSubmitError(getApiErrorMessage(error, t));
+      const raw = getApiErrorRawMessage(error);
+      const guardianKey = guardianValidationI18nKey(raw);
+      if (guardianKey) {
+        setSubmitError(t(guardianKey));
+      } else if (raw && /guardian/i.test(raw)) {
+        setSubmitError(raw);
+      } else {
+        setSubmitError(getApiErrorMessage(error, t));
+      }
     } finally {
       onLoadingChange(false);
     }
@@ -471,6 +508,7 @@ export default function UserEditorForm({
               onChange={(e) => {
                 setFormData({ ...formData, publicType: e.target.value });
                 clearFieldError('publicType');
+                clearFieldError('guardianId');
               }}
               required
               aria-required="true"
@@ -524,6 +562,20 @@ export default function UserEditorForm({
             {fieldErrors.sex && <p className="mt-1 text-sm text-red-600 dark:text-red-400">{fieldErrors.sex}</p>}
           </div>
         </div>
+        {showGuardianField && (
+          <GuardianPicker
+            value={selectedGuardian}
+            onChange={(u) => {
+              setPickedGuardian(u);
+              setFormData((prev) => ({ ...prev, guardianId: u.id }));
+              clearFieldError('guardianId');
+            }}
+            publicTypes={publicTypes}
+            excludeUserId={user?.id}
+            error={fieldErrors.guardianId}
+            showFileLink={mode === 'edit'}
+          />
+        )}
       </section>
 
       <section className={sectionClass}>

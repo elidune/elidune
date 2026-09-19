@@ -10,6 +10,16 @@ export function getApiErrorCode(error: unknown): string | null {
   return null;
 }
 
+/** Server `message` / `error` body text, if present. */
+export function getApiErrorRawMessage(error: unknown): string | null {
+  const data = (error as AxiosError<ApiError>)?.response?.data;
+  if (!data || typeof data !== 'object' || isBlobLike(data)) return null;
+  const d = data as ApiError;
+  if (typeof d.message === 'string' && d.message.trim()) return d.message.trim();
+  if (typeof d.error === 'string' && d.error.trim()) return d.error.trim();
+  return null;
+}
+
 function isBlobLike(data: unknown): data is Blob {
   return typeof Blob !== 'undefined' && data instanceof Blob;
 }

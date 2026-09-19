@@ -666,7 +666,20 @@
     "cityPostalLookupPlaceholder": "p. ej. Annecy o Annecy (74000)",
     "communeSearchEmpty": "Ningún municipio coincidente",
     "communeSearchLoading": "Buscando…",
-    "detailNotFound": "Usuario no encontrado"
+    "detailNotFound": "Usuario no encontrado",
+    "legalGuardian": "Tutor legal",
+    "legalGuardianHelp": "Los avisos de retraso de este menor se envían a esta persona.",
+    "legalGuardianSearch": "Buscar un usuario mayor de edad existente",
+    "legalGuardianReplace": "Sustituir por otro usuario mayor de edad",
+    "openPatronFile": "Abrir ficha",
+    "guardianFallback": "Usuario {{id}}",
+    "guardianErrors": {
+      "required": "Un tutor legal es obligatorio para un menor.",
+      "notMajor": "El tutor debe ser un usuario mayor de edad (ni menor ni centro escolar).",
+      "samePatron": "Un usuario no puede ser su propio tutor legal.",
+      "notFound": "No se encontró ese tutor. Elija un usuario mayor de edad existente.",
+      "inactive": "El tutor debe ser un usuario activo."
+    }
   },
   "z3950": {
     "dataFound": "¡Datos encontrados y campos rellenados!",
