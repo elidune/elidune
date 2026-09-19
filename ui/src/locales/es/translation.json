@@ -92,7 +92,8 @@
     "sectionAcquisitions": "Adquisiciones",
     "orders": "Pedidos",
     "vendors": "Proveedores",
-    "funds": "Fondos"
+    "funds": "Fondos",
+    "suggestions": "Sugerencias de compra"
   },
   "theme": {
     "light": "Claro",
@@ -2152,6 +2153,43 @@
       "help": "Eventos de pedido y recepción de este pedido.",
       "empty": "Aún no hay eventos de auditoría para este pedido.",
       "errorLoad": "No se pudo cargar la auditoría."
+    },
+    "suggestions": {
+      "title": "Sugerencias de compra",
+      "subtitle": "Los usuarios proponen títulos. Aceptar abre una intención de pedido — no un ejemplar recibido.",
+      "patronTitle": "Sugerir un título",
+      "patronSubtitle": "Proponga un título para que la biblioteca valore comprarlo.",
+      "homeHelp": "Pida a la biblioteca que considere una compra.",
+      "staffHelp": "Aceptar crea un pedido en borrador con una línea (sin registro bibliográfico ni ejemplar). Complete el proveedor y el resto en la pantalla de pedido existente.",
+      "formTitle": "Título",
+      "formAuthor": "Autor",
+      "formComment": "Comentario (opcional)",
+      "submit": "Enviar sugerencia",
+      "submitted": "Sugerencia enviada",
+      "myList": "Sus sugerencias",
+      "emptyMine": "Aún no ha sugerido ningún título.",
+      "empty": "No hay sugerencias de compra.",
+      "errorLoad": "No se pudieron cargar las sugerencias de compra.",
+      "proposedBy": "Propuesto por",
+      "staffNote": "Nota del personal (opcional)",
+      "staffNoteLabel": "Nota del personal",
+      "accept": "Aceptar",
+      "refuse": "Rechazar",
+      "acceptTitle": "Aceptar sugerencia",
+      "refuseTitle": "Rechazar sugerencia",
+      "acceptConfirm": "Esto abre una intención de pedido en borrador. No se crea registro bibliográfico ni ejemplar. Completará el proveedor y los detalles en la pantalla del pedido.",
+      "refuseConfirm": "La sugerencia permanecerá rechazada. No se crea ningún pedido.",
+      "accepted": "Sugerencia aceptada — pedido en borrador abierto",
+      "refused": "Sugerencia rechazada",
+      "openOrder": "Abrir pedido en borrador",
+      "allStatuses": "Todos los estados",
+      "titleRequired": "El título es obligatorio",
+      "authorRequired": "El autor es obligatorio"
+    },
+    "suggestionStatuses": {
+      "proposed": "Propuesta",
+      "accepted": "Aceptada",
+      "refused": "Rechazada"
     }
   }
 }

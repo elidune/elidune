@@ -92,7 +92,8 @@
     "sectionAcquisitions": "Acquisitions",
     "orders": "Commandes",
     "vendors": "Fournisseurs",
-    "funds": "Budgets"
+    "funds": "Budgets",
+    "suggestions": "Suggestions d’achat"
   },
   "theme": {
     "light": "Clair",
@@ -2152,6 +2153,43 @@
       "help": "Événements de commande et de réception pour ce bon.",
       "empty": "Aucun événement d’audit pour cette commande.",
       "errorLoad": "Impossible de charger l’audit."
+    },
+    "suggestions": {
+      "title": "Suggestions d’achat",
+      "subtitle": "Les usagers proposent un titre. Accepter ouvre une intention de commande — pas un exemplaire reçu.",
+      "patronTitle": "Suggérer un titre",
+      "patronSubtitle": "Proposez un titre à la bibliothèque.",
+      "homeHelp": "Demandez à la bibliothèque d’envisager un achat.",
+      "staffHelp": "Accepter crée un bon de commande brouillon avec une ligne (ni notice, ni exemplaire). Complétez le fournisseur et le reste sur l’écran de commande existant.",
+      "formTitle": "Titre",
+      "formAuthor": "Auteur",
+      "formComment": "Commentaire (optionnel)",
+      "submit": "Envoyer la suggestion",
+      "submitted": "Suggestion envoyée",
+      "myList": "Vos suggestions",
+      "emptyMine": "Vous n’avez pas encore suggéré de titre.",
+      "empty": "Aucune suggestion d’achat.",
+      "errorLoad": "Impossible de charger les suggestions d’achat.",
+      "proposedBy": "Proposé par",
+      "staffNote": "Note interne (optionnelle)",
+      "staffNoteLabel": "Note interne",
+      "accept": "Accepter",
+      "refuse": "Refuser",
+      "acceptTitle": "Accepter la suggestion",
+      "refuseTitle": "Refuser la suggestion",
+      "acceptConfirm": "Cela ouvre une intention de commande brouillon. Aucune notice ni aucun exemplaire n’est créé. Vous finaliserez le fournisseur et les détails sur l’écran de commande.",
+      "refuseConfirm": "La suggestion restera refusée. Aucune commande n’est créée.",
+      "accepted": "Suggestion acceptée — bon brouillon ouvert",
+      "refused": "Suggestion refusée",
+      "openOrder": "Ouvrir le bon brouillon",
+      "allStatuses": "Tous les statuts",
+      "titleRequired": "Le titre est obligatoire",
+      "authorRequired": "L’auteur est obligatoire"
+    },
+    "suggestionStatuses": {
+      "proposed": "Proposée",
+      "accepted": "Acceptée",
+      "refused": "Refusée"
     }
   }
 }

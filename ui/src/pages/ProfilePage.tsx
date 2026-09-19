@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Card, CardHeader, Button, Input, Modal } from '@/components/common';
+import PatronSuggestionsSection from '@/components/suggestions/PatronSuggestionsSection';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import api from '@/services/api';
@@ -224,6 +225,8 @@ export default function ProfilePage() {
           {t('profile.subtitle')}
         </p>
       </div>
+
+      <PatronSuggestionsSection />
 
       {/* Profile card */}
       <Card>

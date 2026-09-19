@@ -40,6 +40,7 @@ import {
   AcquisitionsFundsPage,
   AcquisitionsOrdersPage,
   AcquisitionsOrderDetailPage,
+  AcquisitionsSuggestionsPage,
 } from '@/pages';
 import { canViewAcquisitions, isLibrarian } from '@/types';
 import api from '@/services/api';
@@ -407,6 +408,17 @@ function AppRoutes() {
           <ProtectedRoute>
             <AcquisitionsRoute>
               <AcquisitionsOrderDetailPage />
+            </AcquisitionsRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/acquisitions/suggestions"
+        element={
+          <ProtectedRoute>
+            <AcquisitionsRoute>
+              <AcquisitionsSuggestionsPage />
             </AcquisitionsRoute>
           </ProtectedRoute>
         }
