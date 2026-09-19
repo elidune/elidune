@@ -143,7 +143,18 @@ export default function AcquisitionsSuggestionsPage() {
                   keyExtractor={(row) => row.id}
                   emptyMessage={t('acquisitions.suggestions.empty')}
                   columns={[
-                    { key: 'title', header: t('acquisitions.suggestions.formTitle'), render: (row) => row.title },
+                    {
+                      key: 'title',
+                      header: t('acquisitions.suggestions.formTitle'),
+                      render: (row) => (
+                        <div>
+                          <p className="font-medium text-gray-900 dark:text-white">{row.title}</p>
+                          {row.comment ? (
+                            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{row.comment}</p>
+                          ) : null}
+                        </div>
+                      ),
+                    },
                     { key: 'author', header: t('acquisitions.suggestions.formAuthor'), render: (row) => row.author },
                     {
                       key: 'proposedBy',
