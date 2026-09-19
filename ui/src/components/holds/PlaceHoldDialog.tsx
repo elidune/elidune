@@ -6,7 +6,7 @@ import HoldScopeBadge from '@/components/holds/HoldScopeBadge';
 import { useToast } from '@/contexts/ToastContext';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
-import { isLibrarian } from '@/types';
+import { canManageStaffHolds, canViewStaffHolds } from '@/types';
 import type { Item, UserShort } from '@/types';
 import { formatUserShortName } from '@/utils/userDisplay';
 import { formChoiceLabelClass } from '@/utils/formControl';
@@ -24,6 +24,7 @@ export interface PlaceHoldDialogProps {
   specimen?: Item | null;
   /** Pre-select “this copy” when opening from a specimen row. */
   pinCopyDefault?: boolean;
+  /** @deprecated Prefer rights via JWT; kept for call-site compatibility. */
   accountType?: string;
   currentUserId: string;
   onSuccess?: () => void;
@@ -38,14 +39,15 @@ export default function PlaceHoldDialog({
   biblioTitle,
   specimen,
   pinCopyDefault = false,
-  accountType,
   currentUserId,
   onSuccess,
 }: PlaceHoldDialogProps) {
   const { t } = useTranslation();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
-  const staff = isLibrarian(accountType);
+  const token = api.getToken();
+  const canStaffWrite = canManageStaffHolds(undefined, token);
+  const canStaffRead = canViewStaffHolds(undefined, token);
   const canPinCopy = !!specimen?.id;
   const defaultScope: HoldPlacementScope = canPinCopy && pinCopyDefault ? 'copy' : 'title';
   const [scope, setScope] = useState<HoldPlacementScope>(defaultScope);
@@ -69,11 +71,11 @@ export default function PlaceHoldDialog({
   const { data: queue = [], isLoading: queueLoading } = useQuery({
     queryKey: ['biblioHolds', biblioId],
     queryFn: () => api.getBiblioHolds(biblioId),
-    enabled: open && staff && !!biblioId,
+    enabled: open && canStaffRead && !!biblioId,
     staleTime: 30 * 1000,
   });
 
-  const quotaUserId = staff && targetMode === 'other' ? selectedUser?.id : currentUserId;
+  const quotaUserId = canStaffWrite && targetMode === 'other' ? selectedUser?.id : currentUserId;
   const { data: quota } = useQuery({
     queryKey: ['holdsQuota', quotaUserId],
     queryFn: () => api.getHoldQuota(quotaUserId),
@@ -131,7 +133,7 @@ export default function PlaceHoldDialog({
   const quotaBlocked = quota != null && quota.remaining <= 0;
 
   const resolveTargetUserId = (): string | null => {
-    if (!staff) return currentUserId;
+    if (!canStaffWrite) return currentUserId;
     if (targetMode === 'self') return currentUserId;
     return selectedUser?.id ?? null;
   };
@@ -253,22 +255,22 @@ export default function PlaceHoldDialog({
           </fieldset>
         )}
 
-        {staff && queueLoading && (
+        {canStaffRead && queueLoading && (
           <p className="text-gray-500">{t('common.loading')}</p>
         )}
 
         <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 space-y-1">
           {pinning && borrowed && <p>{t('holds.hintBorrowed')}</p>}
-          {!pinning && staff && queueAhead > 0 && (
+          {!pinning && canStaffRead && queueAhead > 0 && (
             <p>{t('holds.hintTitleQueue', { count: queueAhead, position: nextPosition })}</p>
           )}
-          {pinning && staff && queueAhead > 0 && (
+          {pinning && canStaffRead && queueAhead > 0 && (
             <p>{t('holds.hintQueue', { count: queueAhead, position: nextPosition })}</p>
           )}
-          {!pinning && !(staff && queueAhead > 0) && (
+          {!pinning && !(canStaffRead && queueAhead > 0) && (
             <p>{t('holds.hintNotifyWhenReadyTitle')}</p>
           )}
-          {pinning && !(staff && queueAhead > 0) && !borrowed && (
+          {pinning && !(canStaffRead && queueAhead > 0) && !borrowed && (
             <p>{t('holds.hintNotifyWhenReady')}</p>
           )}
           {quota && quota.remaining > 0 && (
@@ -279,7 +281,7 @@ export default function PlaceHoldDialog({
           )}
         </div>
 
-        {staff && queueAhead > 0 && !queueLoading && (
+        {canStaffRead && queueAhead > 0 && !queueLoading && (
           <div className="space-y-1">
             <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
               {t('holds.biblioQueue')}
@@ -295,7 +297,7 @@ export default function PlaceHoldDialog({
           </div>
         )}
 
-        {staff && (
+        {canStaffWrite && (
           <div className="space-y-2">
             <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
               {t('holds.reserveFor')}

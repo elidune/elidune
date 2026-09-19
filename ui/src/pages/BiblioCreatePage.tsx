@@ -134,7 +134,7 @@ export default function BiblioCreatePage() {
     }
   };
 
-  if (!canManageItems(user?.accountType)) {
+  if (!canManageItems(user, api.getToken())) {
     return <Navigate to="/biblios" replace />;
   }
 

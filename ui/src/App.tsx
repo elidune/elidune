@@ -41,7 +41,17 @@ import {
   AcquisitionsOrdersPage,
   AcquisitionsOrderDetailPage,
 } from '@/pages';
-import { canViewAcquisitions, isLibrarian } from '@/types';
+import {
+  canManageItems,
+  canManageLoans,
+  canReadItems,
+  canViewAcquisitions,
+  canViewStaffHolds,
+  isLibrarian,
+  type RightsLevel,
+  type RightsDomain,
+  hasDomainRight,
+} from '@/types';
 import api from '@/services/api';
 import { FirstSetupGate } from '@/components/first-setup/FirstSetupGate';
 
@@ -95,11 +105,33 @@ function RootPage() {
   return <LoginPage />;
 }
 
+/** Coarse staff role gate — prefer `RightsRoute` for domain desks. */
 function LibrarianRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
 
   if (!isLibrarian(user?.accountType)) {
     return <Navigate to="/home" replace />;
+  }
+
+  return <>{children}</>;
+}
+
+/** JWT domain-rights gate (API source of truth). */
+function RightsRoute({
+  children,
+  domain,
+  minLevel,
+  fallback = '/home',
+}: {
+  children: React.ReactNode;
+  domain: RightsDomain;
+  minLevel: RightsLevel;
+  fallback?: string;
+}) {
+  const { user } = useAuth();
+
+  if (!hasDomainRight(user, domain, minLevel, api.getToken())) {
+    return <Navigate to={fallback} replace />;
   }
 
   return <>{children}</>;
@@ -118,8 +150,38 @@ function AcquisitionsRoute({ children }: { children: React.ReactNode }) {
 function StaffCatalogListRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
 
-  if (!isLibrarian(user?.accountType)) {
+  if (!canReadItems(user, api.getToken())) {
     return <Navigate to="/catalog" replace />;
+  }
+
+  return <>{children}</>;
+}
+
+function CatalogWriteRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+
+  if (!canManageItems(user, api.getToken())) {
+    return <Navigate to="/biblios" replace />;
+  }
+
+  return <>{children}</>;
+}
+
+function LoansDeskRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+
+  if (!canManageLoans(user, api.getToken())) {
+    return <Navigate to="/home" replace />;
+  }
+
+  return <>{children}</>;
+}
+
+function HoldsDeskRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+
+  if (!canViewStaffHolds(user, api.getToken())) {
+    return <Navigate to="/home" replace />;
   }
 
   return <>{children}</>;
@@ -193,9 +255,9 @@ function AppRoutes() {
         path="/biblios/new"
         element={
           <ProtectedRoute>
-            <LibrarianRoute>
+            <CatalogWriteRoute>
               <BiblioCreatePage />
-            </LibrarianRoute>
+            </CatalogWriteRoute>
           </ProtectedRoute>
         }
       />
@@ -204,9 +266,9 @@ function AppRoutes() {
         path="/biblios/:id/edit"
         element={
           <ProtectedRoute>
-            <LibrarianRoute>
+            <CatalogWriteRoute>
               <BiblioEditPage />
-            </LibrarianRoute>
+            </CatalogWriteRoute>
           </ProtectedRoute>
         }
       />
@@ -215,7 +277,9 @@ function AppRoutes() {
         path="/biblios/:id"
         element={
           <ProtectedRoute>
-            <BiblioDetailPage />
+            <RightsRoute domain="items" minLevel="read" fallback="/catalog">
+              <BiblioDetailPage />
+            </RightsRoute>
           </ProtectedRoute>
         }
       />
@@ -253,9 +317,9 @@ function AppRoutes() {
         path="/loans"
         element={
           <ProtectedRoute>
-            <LibrarianRoute>
+            <LoansDeskRoute>
               <LoansPage />
-            </LibrarianRoute>
+            </LoansDeskRoute>
           </ProtectedRoute>
         }
       />
@@ -264,9 +328,9 @@ function AppRoutes() {
         path="/holds"
         element={
           <ProtectedRoute>
-            <LibrarianRoute>
+            <HoldsDeskRoute>
               <HoldsPage />
-            </LibrarianRoute>
+            </HoldsDeskRoute>
           </ProtectedRoute>
         }
       />
@@ -339,9 +403,9 @@ function AppRoutes() {
         path="/z3950"
         element={
           <ProtectedRoute>
-            <LibrarianRoute>
+            <RightsRoute domain="items" minLevel="read">
               <Z3950SearchPage />
-            </LibrarianRoute>
+            </RightsRoute>
           </ProtectedRoute>
         }
       />
@@ -350,9 +414,9 @@ function AppRoutes() {
         path="/import-iso"
         element={
           <ProtectedRoute>
-            <LibrarianRoute>
+            <CatalogWriteRoute>
               <ImportIsoPage />
-            </LibrarianRoute>
+            </CatalogWriteRoute>
           </ProtectedRoute>
         }
       />
@@ -416,9 +480,9 @@ function AppRoutes() {
         path="/events/manage"
         element={
           <ProtectedRoute>
-            <LibrarianRoute>
+            <RightsRoute domain="events" minLevel="write">
               <EventsPage />
-            </LibrarianRoute>
+            </RightsRoute>
           </ProtectedRoute>
         }
       />

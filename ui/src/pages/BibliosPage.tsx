@@ -203,7 +203,7 @@ export default function BibliosPage() {
   const items = data?.pages.flatMap((p) => p.items) ?? [];
   const totalItems = data?.pages[0]?.total ?? 0;
 
-  const canManage = canManageItems(user?.accountType);
+  const canManage = canManageItems(user, api.getToken());
 
   useEffect(() => {
     if (!canManage && activeTab !== 'catalog') {
@@ -538,7 +538,7 @@ export default function BibliosPage() {
             {t('items.count', { count: totalItems })}
           </p>
         </div>
-        {canManageItems(user?.accountType) && (
+        {canManage && (
           <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="secondary"
