@@ -7,6 +7,7 @@ import BiblioCatalogItemCard from '@/components/items/BiblioCatalogItemCard';
 import BatchDeleteSpecimensDialog from '@/components/specimen/BatchDeleteSpecimensDialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { canManageItems, type MediaType, type MediaTypeOption, type Serie, type Collection } from '@/types';
+import { isBiblioWithdrawn, isCopyAvailable, isItemWithdrawn } from '@/utils/weeding';
 import api from '@/services/api';
 import type { BiblioShort, Author, PaginatedResponse } from '@/types';
 import { PUBLIC_TYPE_OPTIONS } from '@/utils/codeLabels';
@@ -341,10 +342,13 @@ export default function BibliosPage() {
   const getCatalogRowStatusBadge = (row: BiblioShort) => {
     const list = row.items ?? [];
     if (list.length === 0) return null;
+    if (isBiblioWithdrawn(row) || list.every((s) => isItemWithdrawn(s))) {
+      return <Badge variant="danger">{t('weeding.status.withdrawn')}</Badge>;
+    }
     if (list.every((s) => s.borrowed === true)) {
       return <Badge variant="warning">{t('items.borrowed')}</Badge>;
     }
-    if (list.some((s) => s.borrowable === true && !s.borrowed)) {
+    if (list.some((s) => isCopyAvailable(s))) {
       return <Badge variant="success">{t('items.available')}</Badge>;
     }
     return <Badge>{t('items.unavailable')}</Badge>;
@@ -383,7 +387,7 @@ export default function BibliosPage() {
       render: (item: BiblioShort) => {
         const list = item.items ?? [];
         const total = list.length;
-        const available = list.filter((s) => s.borrowable === true && !s.borrowed).length;
+        const available = list.filter((s) => isCopyAvailable(s)).length;
         if (total === 0) return <span className="text-gray-500 dark:text-gray-400">-</span>;
         return (
           <span className="text-gray-600 dark:text-gray-300">

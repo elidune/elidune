@@ -616,6 +616,24 @@
     "biblioNotFound": "Document non trouvé",
     "notValidated": "Non validé"
   },
+  "weeding": {
+    "label": "Désherbage",
+    "reason": "Motif",
+    "reasonPlaceholder": "Motif court facultatif",
+    "hint": "Un candidat reste en rayon et peut encore circuler. Un exemplaire sorti ne peut plus être prêté, renouvelé ou réservé. La notice reste.",
+    "actionOnShelf": "Remettre en rayon",
+    "actionCandidate": "Marquer comme candidat",
+    "actionWithdrawn": "Sortir cet exemplaire",
+    "blockedCheckout": "Cet exemplaire est sorti et ne peut pas être prêté.",
+    "blockedRenew": "Cet exemplaire est sorti et ne peut pas être renouvelé.",
+    "blockedHold": "Cet exemplaire est sorti et ne peut pas être réservé.",
+    "blockedTitleHold": "Aucun exemplaire circulable ne reste pour cette notice.",
+    "status": {
+      "onShelf": "En rayon",
+      "candidate": "Candidat au désherbage",
+      "withdrawn": "Sorti"
+    }
+  },
   "users": {
     "searchPlaceholder": "Rechercher par nom, prénom ou code-barre...",
     "renewSubscriptionModalTitle": "Renouveler l'abonnement ?",
@@ -1845,6 +1863,7 @@
     "featureDigital": "Documents numériques",
     "featureSuggestions": "Suggestions de documents",
     "notForLoan": "Non empruntable",
+    "withdrawn": "Sorti",
     "unavailable": "Indisponible",
     "site": "Site",
     "holdsWaiting_one": "{{count}} réservation en attente",

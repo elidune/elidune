@@ -41,6 +41,7 @@ import type {
   CreateBiblioItemInput,
   CreateItem,
   UpdateItem,
+  SetItemWeeding,
   EnqueueResult,
   MarcImportPreview,
   RecordValidationIssue,
@@ -632,6 +633,12 @@ class ApiService {
   /** `PUT /items/:id` — path id is authoritative; body may omit `id` or match the path. */
   async updateItem(itemId: string, data: UpdateItem): Promise<Item> {
     const response = await this.client.put<Item>(`/items/${itemId}`, data);
+    return response.data;
+  }
+
+  /** `POST /items/:id/weeding` — dedicated write; do not send weeding on PUT /items. */
+  async setItemWeeding(itemId: string, data: SetItemWeeding): Promise<Item> {
+    const response = await this.client.post<Item>(`/items/${itemId}/weeding`, data);
     return response.data;
   }
 

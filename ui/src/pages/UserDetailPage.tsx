@@ -22,6 +22,7 @@ import { useAccountTypesQuery } from '@/hooks/useAccountTypesQuery';
 import { Card, Button, Badge, Modal, Input, Table, ConfirmDialog, MessageModal, ScrollableListRegion, BarcodeScanField } from '@/components/common';
 import api from '@/services/api';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
+import { isWeedingServerMessage } from '@/utils/weeding';
 import { isSubscriptionExpired } from '@/utils/userSubscription';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
@@ -1236,6 +1237,11 @@ function BorrowForm({
       const rawMessage = typeof axiosData?.message === 'string' ? axiosData.message : '';
       const displayMsg = getApiErrorMessage(err, t) || t('loans.errorCreatingLoan');
       const confirmMsg = rawMessage || displayMsg;
+      if (isWeedingServerMessage(rawMessage)) {
+        setError(displayMsg);
+        showToast({ variant: 'error', message: displayMsg });
+        return;
+      }
       if (errorCode === 'business_rule_violation' && !force) {
         onBusinessRuleViolation?.(confirmMsg, specimenCode.trim());
         return;

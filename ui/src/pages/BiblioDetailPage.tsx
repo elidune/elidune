@@ -29,8 +29,10 @@ import { canManageItems, canManageLoans, canPatronSelfServiceHolds, isLibrarian,
 import SpecimenBorrowerLine from '@/components/specimen/SpecimenBorrowerLine';
 import PlaceHoldDialog from '@/components/holds/PlaceHoldDialog';
 import BatchDeleteSpecimensDialog from '@/components/specimen/BatchDeleteSpecimensDialog';
+import WeedingStatusControl from '@/components/items/WeedingStatusControl';
 import api from '@/services/api';
 import type { Biblio, Item, Author, Source } from '@/types';
+import { isCopyOfferable, isItemWithdrawn, isTitleWithdrawn } from '@/utils/weeding';
 import { useTranslation } from 'react-i18next';
 import { LANG_OPTIONS, FUNCTION_OPTIONS, PUBLIC_TYPE_OPTIONS, getCodeLabel } from '@/utils/codeLabels';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
@@ -318,6 +320,7 @@ export default function BiblioDetailPage() {
   const canPlaceTitleHold =
     !!user?.id &&
     !!item.id &&
+    !isTitleWithdrawn(item) &&
     (isLibrarian(user.accountType) || canPatronSelfServiceHolds(user, api.getToken()));
 
   return (
@@ -367,6 +370,9 @@ export default function BiblioDetailPage() {
                 </Badge>
               )}
               {item.isValid === 0 && <Badge variant="warning">{t('items.notValidated')}</Badge>}
+              {isTitleWithdrawn(item) && (
+                <Badge variant="danger">{t('weeding.status.withdrawn')}</Badge>
+              )}
             </div>
           </div>
         </div>
@@ -542,13 +548,12 @@ export default function BiblioDetailPage() {
                     specimen={specimen}
                     canManage={canManageItems(user?.accountType)}
                     showBorrower={canManageLoans(user?.accountType)}
-                    showReserveButton={
-                      canPlaceTitleHold && specimen.borrowable !== false
-                    }
+                    showReserveButton={canPlaceTitleHold && isCopyOfferable(specimen)}
                     onReserve={() => {
                       setReserveSpecimen(specimen);
                       setHoldDialogOpen(true);
                     }}
+                    onUpdated={invalidateBiblio}
                     onEdit={() => {
                       setSelectedSpecimen(specimen);
                       setShowEditSpecimenModal(true);
@@ -932,6 +937,7 @@ interface SpecimenCardProps {
   showBorrower?: boolean;
   showReserveButton?: boolean;
   onReserve?: () => void;
+  onUpdated?: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }
@@ -948,6 +954,7 @@ function SpecimenCard({
   showBorrower,
   showReserveButton,
   onReserve,
+  onUpdated,
   onEdit,
   onDelete,
 }: SpecimenCardProps) {
@@ -957,14 +964,15 @@ function SpecimenCard({
   const incomplete = specimen.borrowable === false && !ready;
   const missing = incomplete ? missingCirculationFields(specimen) : [];
 
-  const statusBadge = specimen.borrowed === true
-    ? <Badge variant="warning">{t('items.borrowed')}</Badge>
-    : incomplete
-      ? <Badge variant="warning">{t('items.incompleteNotCirculable')}</Badge>
-      : specimen.borrowable === false
-        ? <Badge variant="danger">{t('items.notCirculable')}</Badge>
-        : specimen.borrowable === true
-          ? <Badge variant="success">{t('items.available')}</Badge>
+  const withdrawn = isItemWithdrawn(specimen);
+  const statusBadge = withdrawn
+    ? <Badge variant="danger">{t('weeding.status.withdrawn')}</Badge>
+    : specimen.borrowed === true
+      ? <Badge variant="warning">{t('items.borrowed')}</Badge>
+      : incomplete
+        ? <Badge variant="warning">{t('items.incompleteNotCirculable')}</Badge>
+        : specimen.borrowable === false
+          ? <Badge variant="danger">{t('items.notCirculable')}</Badge>
           : <Badge variant="success">{t('items.available')}</Badge>;
 
   return (
@@ -1037,6 +1045,8 @@ function SpecimenCard({
           </Button>
         </div>
       )}
+
+      <WeedingStatusControl item={specimen} canManage={canManage} onUpdated={onUpdated} />
     </div>
   );
 }

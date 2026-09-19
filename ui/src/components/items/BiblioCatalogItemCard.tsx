@@ -1,5 +1,6 @@
 import { ChevronRight, Edit, Trash2 } from 'lucide-react';
 import type { BiblioShort, Author } from '@/types';
+import { isCopyAvailable } from '@/utils/weeding';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { LIST_ROW_ICON_BTN, LIST_ROW_ICON_BTN_DANGER } from '@/utils/listRowActionIconClass';
 
@@ -36,7 +37,7 @@ export default function BiblioCatalogItemCard({
 }: BiblioCatalogItemCardProps) {
   const list = item.items ?? [];
   const total = list.length;
-  const available = list.filter((s) => s.borrowable === true && !s.borrowed).length;
+  const available = list.filter((s) => isCopyAvailable(s)).length;
   const specimensText =
     total === 0 ? '—' : `${available}/${total}`;
 

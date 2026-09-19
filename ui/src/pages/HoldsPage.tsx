@@ -30,6 +30,7 @@ import {
 } from '@/utils/holdDisplay';
 import HoldScopeBadge from '@/components/holds/HoldScopeBadge';
 import { indexTransitsByHoldId } from '@/utils/transitDisplay';
+import { isItemWithdrawn, isTitleWithdrawn } from '@/utils/weeding';
 
 function statusBadge(t: (k: string) => string, status: Hold['status']) {
   return (
@@ -171,11 +172,22 @@ export default function HoldsPage() {
         return;
       }
       setSelectedBiblio(biblio);
-      setSelectedItemId(specimen.id);
-      setHoldScope('title');
       setCopyBarcode('');
       setBiblioDraft('');
       setBiblioResults([]);
+      if (isTitleWithdrawn(biblio)) {
+        setSelectedItemId(null);
+        setHoldScope('title');
+        setBarcodeLookupError(t('weeding.blockedTitleHold'));
+        return;
+      }
+      if (isItemWithdrawn(specimen)) {
+        setSelectedItemId(null);
+        setHoldScope('title');
+        return;
+      }
+      setSelectedItemId(specimen.id);
+      setHoldScope('title');
     } catch (e: unknown) {
       setBarcodeLookupError(getApiErrorMessage(e, t) || t('holds.copyBarcodeNotFound', { barcode: trimmed }));
     } finally {
@@ -192,6 +204,9 @@ export default function HoldsPage() {
       setHoldScope('title');
       setBiblioDraft('');
       setBiblioResults([]);
+      if (isTitleWithdrawn(full)) {
+        setBiblioPickError(t('weeding.blockedTitleHold'));
+      }
     } catch (e: unknown) {
       setBiblioPickError(getApiErrorMessage(e, t));
     }
@@ -210,9 +225,15 @@ export default function HoldsPage() {
 
   const selectedBiblioId = selectedBiblio?.id ?? null;
   const pinningCopy = holdScope === 'copy';
+  const offerableCopies = (selectedBiblio?.items ?? []).filter((it) => !isItemWithdrawn(it));
+  const selectedCopyWithdrawn = pinningCopy && isItemWithdrawn(
+    selectedBiblio?.items?.find((it) => it.id === selectedItemId),
+  );
   const canSubmitCreate =
     !!selectedUserForCreate &&
     !!selectedBiblioId &&
+    !isTitleWithdrawn(selectedBiblio) &&
+    !selectedCopyWithdrawn &&
     (!pinningCopy || !!selectedItemId);
 
   const biblioQueueQuery = useQuery({
@@ -595,6 +616,7 @@ export default function HoldsPage() {
                     name="desk-hold-scope"
                     className="text-indigo-600"
                     checked={holdScope === 'title'}
+                    disabled={isTitleWithdrawn(selectedBiblio)}
                     onChange={() => setHoldScope('title')}
                   />
                   <span>
@@ -610,11 +632,11 @@ export default function HoldsPage() {
                     name="desk-hold-scope"
                     className="text-indigo-600"
                     checked={holdScope === 'copy'}
-                    disabled={(selectedBiblio.items ?? []).length === 0}
+                    disabled={offerableCopies.length === 0}
                     onChange={() => {
                       setHoldScope('copy');
-                      if (!selectedItemId) {
-                        setSelectedItemId(selectedBiblio.items?.[0]?.id ?? null);
+                      if (!selectedItemId || isItemWithdrawn(selectedBiblio.items?.find((it) => it.id === selectedItemId))) {
+                        setSelectedItemId(offerableCopies[0]?.id ?? null);
                       }
                     }}
                   />
@@ -637,7 +659,7 @@ export default function HoldsPage() {
                     className={formControlClass()}
                   >
                     <option value="">{t('holds.selectCopy')}</option>
-                    {(selectedBiblio.items ?? []).map((it) => (
+                    {offerableCopies.map((it) => (
                       <option key={it.id} value={it.id}>
                         {it.barcode || it.callNumber || it.id}
                       </option>

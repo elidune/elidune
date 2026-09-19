@@ -616,6 +616,24 @@
     "biblioNotFound": "Registro no encontrado",
     "notValidated": "No validado"
   },
+  "weeding": {
+    "label": "Expurgo",
+    "reason": "Motivo",
+    "reasonPlaceholder": "Motivo breve opcional",
+    "hint": "Un candidato sigue en estantería y puede circular. Un ejemplar retirado no admite préstamo, renovación ni reserva. El registro bibliográfico permanece.",
+    "actionOnShelf": "Devolver a estantería",
+    "actionCandidate": "Marcar como candidato",
+    "actionWithdrawn": "Retirar este ejemplar",
+    "blockedCheckout": "Este ejemplar está retirado y no se puede prestar.",
+    "blockedRenew": "Este ejemplar está retirado y no se puede renovar.",
+    "blockedHold": "Este ejemplar está retirado y no se puede reservar.",
+    "blockedTitleHold": "No quedan ejemplares circulables de este título.",
+    "status": {
+      "onShelf": "En estantería",
+      "candidate": "Candidato a expurgo",
+      "withdrawn": "Retirado"
+    }
+  },
   "users": {
     "searchPlaceholder": "Buscar por nombre, apellido o código de barras...",
     "renewSubscriptionModalTitle": "¿Renovar la suscripción?",
@@ -1845,6 +1863,7 @@
     "featureDigital": "Documentos digitales",
     "featureSuggestions": "Sugerencias de documentos",
     "notForLoan": "No prestable",
+    "withdrawn": "Retirado",
     "unavailable": "No disponible",
     "site": "Sede",
     "holdsWaiting_one": "{{count}} reserva en espera",

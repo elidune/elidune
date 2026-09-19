@@ -26,6 +26,7 @@ import LoanExceptionActions from '@/components/loans/LoanExceptionActions';
 import Pagination from '@/components/common/Pagination';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
+import { isWeedingServerMessage } from '@/utils/weeding';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
 import { isClaimedReturnedLoan } from '@/utils/circulationStatus';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
@@ -531,6 +532,9 @@ export default function LoansPage() {
       const rawMessage = typeof axiosData?.message === 'string' ? axiosData.message : '';
       const displayMsg = getApiErrorMessage(error, t) || t('loans.errorCreatingLoan');
       const confirmMsg = rawMessage || displayMsg;
+      if (isWeedingServerMessage(rawMessage)) {
+        throw error;
+      }
       if (errorCode === 'business_rule_violation' && !force) {
         setBarcodeInput('');
         const ok = await new Promise<boolean>((resolve) => {

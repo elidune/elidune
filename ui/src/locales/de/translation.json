@@ -616,6 +616,24 @@
     "biblioNotFound": "Titeldatensatz nicht gefunden",
     "notValidated": "Nicht validiert"
   },
+  "weeding": {
+    "label": "Aussonderung",
+    "reason": "Grund",
+    "reasonPlaceholder": "Kurzer optionaler Grund",
+    "hint": "Ein Kandidat bleibt im Regal und kann weiter ausgeliehen werden. Ein ausgeschiedenes Exemplar kann nicht mehr ausgeliehen, verlängert oder vorgemerkt werden. Der Titeldatensatz bleibt.",
+    "actionOnShelf": "Zurück ins Regal",
+    "actionCandidate": "Als Kandidat markieren",
+    "actionWithdrawn": "Dieses Exemplar ausscheiden",
+    "blockedCheckout": "Dieses Exemplar ist ausgeschieden und kann nicht ausgeliehen werden.",
+    "blockedRenew": "Dieses Exemplar ist ausgeschieden und kann nicht verlängert werden.",
+    "blockedHold": "Dieses Exemplar ist ausgeschieden und kann nicht vorgemerkt werden.",
+    "blockedTitleHold": "Für diesen Titel sind keine ausleihbaren Exemplare mehr vorhanden.",
+    "status": {
+      "onShelf": "Im Regal",
+      "candidate": "Aussonderungskandidat",
+      "withdrawn": "Ausgeschieden"
+    }
+  },
   "users": {
     "searchPlaceholder": "Nach Name, Vorname oder Barcode suchen...",
     "renewSubscriptionModalTitle": "Abonnement verlängern?",
@@ -1845,6 +1863,7 @@
     "featureDigital": "Digitales Dokument",
     "featureSuggestions": "Dokumentvorschläge",
     "notForLoan": "Nicht ausleihbar",
+    "withdrawn": "Ausgeschieden",
     "unavailable": "Nicht verfügbar",
     "site": "Standort",
     "holdsWaiting_one": "{{count}} Vorbestellung wartet",

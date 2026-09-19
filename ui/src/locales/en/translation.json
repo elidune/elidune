@@ -616,6 +616,24 @@
     "biblioNotFound": "Record not found",
     "notValidated": "Not validated"
   },
+  "weeding": {
+    "label": "Weeding",
+    "reason": "Reason",
+    "reasonPlaceholder": "Optional short reason",
+    "hint": "A candidate stays on the shelf and can still circulate. Withdrawn stops checkout, renew, and holds on this copy. The title record remains.",
+    "actionOnShelf": "Back on shelf",
+    "actionCandidate": "Mark as candidate",
+    "actionWithdrawn": "Withdraw this copy",
+    "blockedCheckout": "This copy is withdrawn and cannot be checked out.",
+    "blockedRenew": "This copy is withdrawn and cannot be renewed.",
+    "blockedHold": "This copy is withdrawn and cannot be placed on hold.",
+    "blockedTitleHold": "No circulable copies remain for this title.",
+    "status": {
+      "onShelf": "On shelf",
+      "candidate": "Weeding candidate",
+      "withdrawn": "Withdrawn"
+    }
+  },
   "users": {
     "searchPlaceholder": "Search by name, first name or barcode...",
     "renewSubscriptionModalTitle": "Renew subscription?",
@@ -1845,6 +1863,7 @@
     "featureDigital": "Digital documents",
     "featureSuggestions": "Document suggestions",
     "notForLoan": "Not for loan",
+    "withdrawn": "Withdrawn",
     "unavailable": "Unavailable",
     "site": "Location",
     "holdsWaiting_one": "{{count}} hold waiting",

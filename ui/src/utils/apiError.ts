@@ -1,6 +1,7 @@
 import type { TFunction } from 'i18next';
 import type { AxiosError } from 'axios';
 import type { ApiError } from '@/types';
+import { weedingServerMessageI18nKey } from '@/utils/weeding';
 
 export function getApiErrorCode(error: unknown): string | null {
   const data = (error as AxiosError<ApiError>)?.response?.data;
@@ -84,6 +85,12 @@ export function getApiErrorMessage(error: unknown, t: TFunction): string {
 
   if (status === 429) {
     return t('errors.tooManyRequests');
+  }
+
+  const weedingKey = weedingServerMessageI18nKey(getApiErrorRawMessage(error));
+  if (weedingKey !== null) {
+    const fromWeeding = translateKey(t, weedingKey);
+    if (fromWeeding !== null) return fromWeeding;
   }
 
   const code = getApiErrorCode(error);
