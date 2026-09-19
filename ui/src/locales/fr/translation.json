@@ -666,7 +666,20 @@
     "subscriptionExpired": "Abonnement expiré",
     "subscriptionValidUntil": "Jusqu'au {{date}}",
     "count_plural": "{{count}} usagers",
-    "detailNotFound": "Usager non trouvé"
+    "detailNotFound": "Usager non trouvé",
+    "legalGuardian": "Responsable légal",
+    "legalGuardianHelp": "Les relances de retard de cet enfant sont envoyées à cette personne.",
+    "legalGuardianSearch": "Rechercher un usager majeur existant",
+    "legalGuardianReplace": "Remplacer par un autre usager majeur",
+    "openPatronFile": "Ouvrir la fiche",
+    "guardianFallback": "Usager {{id}}",
+    "guardianErrors": {
+      "required": "Un responsable légal est obligatoire pour un enfant.",
+      "notMajor": "Le responsable doit être un usager majeur (ni enfant, ni établissement scolaire).",
+      "samePatron": "Un usager ne peut pas être son propre responsable légal.",
+      "notFound": "Ce responsable est introuvable. Choisissez un usager majeur existant.",
+      "inactive": "Le responsable doit être un usager actif."
+    }
   },
   "z3950": {
     "dataFound": "Données trouvées et champs préremplis !",

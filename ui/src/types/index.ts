@@ -133,6 +133,8 @@ export interface User {
   hoursPerWeek?: number | null;
   staffStartDate?: string | null;
   staffEndDate?: string | null;
+  /** Linked legal guardian patron id. Required when public type is `child`. */
+  guardianId?: string | null;
 }
 
 // Update profile request type
