@@ -153,6 +153,7 @@ pub async fn create_user(
     request_body = UserPayload,
     responses(
         (status = 200, description = "User updated", body = User),
+        (status = 400, description = "Invalid input, including clearing guardianId while the patron remains a child"),
         (status = 404, description = "User not found")
     )
 )]

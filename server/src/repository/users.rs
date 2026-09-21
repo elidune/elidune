@@ -8,8 +8,8 @@ use super::Repository;
 use crate::{
     error::{AppError, AppResult},
     models::user::{
-        AccountTypeSlug, Rights, UpdateProfile, User, UserErasureResult, UserPayload, UserQuery,
-        UserRights, UserShort, UserStatus,
+        AccountTypeSlug, GuardianIdPatch, Rights, UpdateProfile, User, UserErasureResult,
+        UserPayload, UserQuery, UserRights, UserShort, UserStatus,
     },
 };
 
@@ -280,6 +280,15 @@ impl Repository {
         .bind(guardian_id)
         .execute(&self.pool)
         .await?;
+        Ok(())
+    }
+
+    /// Remove the legal guardian link for `child_id`, if any.
+    pub async fn users_clear_guardian(&self, child_id: i64) -> AppResult<()> {
+        sqlx::query("DELETE FROM user_guardians WHERE child_id = $1")
+            .bind(child_id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
@@ -601,7 +610,7 @@ impl Repository {
         .fetch_one(&mut *tx)
         .await?;
 
-        if let Some(guardian_id) = user.guardian_id {
+        if let Some(guardian_id) = user.guardian_id.as_id() {
             sqlx::query(
                 r#"
                 INSERT INTO user_guardians (child_id, guardian_id)
@@ -753,8 +762,14 @@ impl Repository {
 
         builder.execute(&self.pool).await?;
 
-        if let Some(guardian_id) = user.guardian_id {
-            self.users_set_guardian(id, guardian_id).await?;
+        match user.guardian_id {
+            GuardianIdPatch::Set(guardian_id) => {
+                self.users_set_guardian(id, guardian_id).await?;
+            }
+            GuardianIdPatch::Clear => {
+                self.users_clear_guardian(id).await?;
+            }
+            GuardianIdPatch::Unspecified => {}
         }
 
         self.users_get_by_id(id).await

@@ -17,8 +17,8 @@ use crate::{
     models::{
         secret::{ExposeSecret, PlaintextPassword},
         user::{
-            AccountTypeSlug, UpdateProfile, User, UserClaims, UserErasureResult, UserPayload,
-            UserQuery, UserShort, UserStatus, SCOPE_CHANGE_PASSWORD,
+            AccountTypeSlug, GuardianIdPatch, UpdateProfile, User, UserClaims, UserErasureResult,
+            UserPayload, UserQuery, UserShort, UserStatus, SCOPE_CHANGE_PASSWORD,
         },
     },
     repository::Repository,
@@ -483,14 +483,42 @@ impl UsersService {
 
     async fn ensure_guardian_on_create(&self, user: &UserPayload) -> AppResult<()> {
         if self.public_type_requires_guardian(user.public_type).await? {
-            let Some(guardian_id) = user.guardian_id else {
+            let Some(guardian_id) = user.guardian_id.as_id() else {
                 return Err(AppError::Validation(
                     "guardianId is required for child patrons".into(),
                 ));
             };
             self.validate_guardian(None, guardian_id).await?;
-        } else if let Some(guardian_id) = user.guardian_id {
+        } else if let Some(guardian_id) = user.guardian_id.as_id() {
             self.validate_guardian(None, guardian_id).await?;
+        }
+        Ok(())
+    }
+
+    async fn ensure_guardian_on_update(
+        &self,
+        id: i64,
+        existing: &User,
+        user: &UserPayload,
+    ) -> AppResult<()> {
+        let resulting_type = user.public_type.or(existing.public_type);
+        let requires = self.public_type_requires_guardian(resulting_type).await?;
+
+        match user.guardian_id {
+            GuardianIdPatch::Set(guardian_id) => {
+                self.validate_guardian(Some(id), guardian_id).await?;
+            }
+            GuardianIdPatch::Clear if requires => {
+                return Err(AppError::Validation(
+                    "guardianId is required for child patrons".into(),
+                ));
+            }
+            GuardianIdPatch::Unspecified if requires && existing.guardian_id.is_none() => {
+                return Err(AppError::Validation(
+                    "guardianId is required for child patrons".into(),
+                ));
+            }
+            GuardianIdPatch::Clear | GuardianIdPatch::Unspecified => {}
         }
         Ok(())
     }
@@ -501,7 +529,7 @@ impl UsersService {
         // user.validate_required_patron_fields()?;
 
         // Check if user exists
-        self.repository.users_get_by_id(id).await?;
+        let existing = self.repository.users_get_by_id(id).await?;
 
         // Check if login already exists for another user (login is required and unique)
         if let Some(ref login) = user.login {
@@ -511,9 +539,7 @@ impl UsersService {
         }
         // Email is optional, no uniqueness check needed
 
-        if let Some(guardian_id) = user.guardian_id {
-            self.validate_guardian(Some(id), guardian_id).await?;
-        }
+        self.ensure_guardian_on_update(id, &existing, &user).await?;
 
         // Hash password if provided
         let password = if let Some(ref password) = user.password {
