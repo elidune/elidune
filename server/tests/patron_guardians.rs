@@ -1,4 +1,4 @@
-//! Legal guardian for `child` patrons — part of #54.
+//! Legal guardian for `child` patrons — part of #54 / #67.
 //! `school` is a collectivity and does not require a guardian.
 
 mod common;
@@ -174,6 +174,169 @@ async fn overdue_reminders_for_a_minor_go_to_the_guardian() {
     assert_eq!(fixtures::json_id(&to_guardian.unwrap()["userId"]), child_id);
 
     let _ = (loan_a, loan_b);
+}
+
+#[tokio::test]
+async fn update_child_can_replace_guardian() {
+    let _guard = test_guard().await;
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (first_id, _) = fixtures::create_reader(&app, &admin_token, "g1").await;
+    let (second_id, _) = fixtures::create_reader(&app, &admin_token, "g2").await;
+    let child_id = create_child_with_guardian(
+        &app,
+        &admin_token,
+        first_id,
+        &format!("ward_rep_{}@child.local", fixtures::unique_suffix()),
+    )
+    .await;
+
+    let (status, body) = app
+        .put_json(
+            &format!("/api/v1/users/{child_id}"),
+            &json!({ "guardianId": second_id.to_string() }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "replace guardian: {body}");
+    assert_eq!(
+        body["guardianId"].as_str().unwrap_or(""),
+        second_id.to_string(),
+        "replace must persist the new guardian: {body}"
+    );
+
+    let got = get_user(&app, &admin_token, child_id).await;
+    assert_eq!(
+        got["guardianId"].as_str().unwrap_or(""),
+        second_id.to_string(),
+        "GET must show the replacement guardian: {got}"
+    );
+}
+
+#[tokio::test]
+async fn update_child_cannot_clear_guardian() {
+    let _guard = test_guard().await;
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (guardian_id, _) = fixtures::create_reader(&app, &admin_token, "gkeep").await;
+    let child_id = create_child_with_guardian(
+        &app,
+        &admin_token,
+        guardian_id,
+        &format!("ward_clr_{}@child.local", fixtures::unique_suffix()),
+    )
+    .await;
+
+    let (status, body) = app
+        .put_json(
+            &format!("/api/v1/users/{child_id}"),
+            &json!({ "guardianId": null }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "clear while child must be rejected: {body}"
+    );
+    let message = body["message"].as_str().unwrap_or("");
+    assert!(
+        message.contains("guardianId") && message.contains("child") && !message.contains("school"),
+        "error must mention child only: {body}"
+    );
+
+    let got = get_user(&app, &admin_token, child_id).await;
+    assert_eq!(
+        got["guardianId"].as_str().unwrap_or(""),
+        guardian_id.to_string(),
+        "failed clear must leave the guardian unchanged: {got}"
+    );
+}
+
+#[tokio::test]
+async fn update_can_clear_guardian_when_leaving_child() {
+    let _guard = test_guard().await;
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (guardian_id, _) = fixtures::create_reader(&app, &admin_token, "gleave").await;
+    let child_id = create_child_with_guardian(
+        &app,
+        &admin_token,
+        guardian_id,
+        &format!("ward_leave_{}@child.local", fixtures::unique_suffix()),
+    )
+    .await;
+    let adult_type = fixtures::public_type_id_by_name(&app, &admin_token, "adult").await;
+
+    let (status, body) = app
+        .put_json(
+            &format!("/api/v1/users/{child_id}"),
+            &json!({
+                "publicType": adult_type.to_string(),
+                "guardianId": null
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "clear guardian when leaving child: {body}"
+    );
+    assert!(
+        body["guardianId"].is_null(),
+        "guardian must be cleared after leaving child: {body}"
+    );
+    assert_eq!(
+        fixtures::json_id(&body["publicType"]),
+        adult_type,
+        "public type must become adult: {body}"
+    );
+}
+
+#[tokio::test]
+async fn update_child_omitting_guardian_keeps_link() {
+    let _guard = test_guard().await;
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (guardian_id, _) = fixtures::create_reader(&app, &admin_token, "gomit").await;
+    let child_id = create_child_with_guardian(
+        &app,
+        &admin_token,
+        guardian_id,
+        &format!("ward_omit_{}@child.local", fixtures::unique_suffix()),
+    )
+    .await;
+
+    let (status, body) = app
+        .put_json(
+            &format!("/api/v1/users/{child_id}"),
+            &json!({ "firstname": "StillMinor" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "omit guardian on update: {body}");
+    assert_eq!(
+        body["guardianId"].as_str().unwrap_or(""),
+        guardian_id.to_string(),
+        "omitting guardianId must leave the link unchanged: {body}"
+    );
+}
+
+async fn get_user(app: &TestApp, admin_token: &str, id: i64) -> serde_json::Value {
+    let (status, body) = app
+        .get_json_with_auth(&format!("/api/v1/users/{id}"), admin_token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "get user {id}: {body}");
+    body
 }
 
 async fn reject_child_without_guardian(app: &TestApp, admin_token: &str) {

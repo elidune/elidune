@@ -1,7 +1,7 @@
 //! User model and related types
 
 use chrono::{DateTime, Datelike, NaiveDate, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_with::{serde_as, DisplayFromStr};
 use sqlx::{Decode, Encode, FromRow, Postgres, Type};
 use utoipa::{IntoParams, ToSchema};
@@ -507,6 +507,92 @@ pub struct UserQuery {
     pub per_page: Option<i64>,
 }
 
+/// `guardianId` on create/update payloads.
+///
+/// Distinguishes omit (no change on update) from JSON `null` (clear the link).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ToSchema)]
+pub enum GuardianIdPatch {
+    /// Field omitted.
+    #[default]
+    Unspecified,
+    /// Explicit `null` (or empty string): clear the guardian link.
+    Clear,
+    /// Set or replace with this patron id.
+    Set(i64),
+}
+
+impl GuardianIdPatch {
+    #[must_use]
+    pub fn is_unspecified(&self) -> bool {
+        matches!(self, Self::Unspecified)
+    }
+
+    #[must_use]
+    pub fn as_id(&self) -> Option<i64> {
+        match self {
+            Self::Set(id) => Some(*id),
+            Self::Unspecified | Self::Clear => None,
+        }
+    }
+}
+
+impl Serialize for GuardianIdPatch {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Unspecified | Self::Clear => serializer.serialize_none(),
+            Self::Set(id) => serializer.serialize_str(&id.to_string()),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for GuardianIdPatch {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct Visitor;
+
+        impl serde::de::Visitor<'_> for Visitor {
+            type Value = GuardianIdPatch;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a patron id string, or null to clear")
+            }
+
+            fn visit_unit<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+                Ok(GuardianIdPatch::Clear)
+            }
+
+            fn visit_none<E: serde::de::Error>(self) -> Result<Self::Value, E> {
+                Ok(GuardianIdPatch::Clear)
+            }
+
+            fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<Self::Value, E> {
+                let v = v.trim();
+                if v.is_empty() {
+                    return Ok(GuardianIdPatch::Clear);
+                }
+                v.parse::<i64>()
+                    .map(GuardianIdPatch::Set)
+                    .map_err(|_| E::custom("guardianId must be a patron id"))
+            }
+
+            fn visit_string<E: serde::de::Error>(self, v: String) -> Result<Self::Value, E> {
+                self.visit_str(&v)
+            }
+
+            fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<Self::Value, E> {
+                Ok(GuardianIdPatch::Set(v))
+            }
+
+            fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<Self::Value, E> {
+                i64::try_from(v)
+                    .map(GuardianIdPatch::Set)
+                    .map_err(|_| E::custom("guardianId out of range"))
+            }
+        }
+
+        deserializer.deserialize_any(Visitor)
+    }
+}
+
 /// User create/update body. On create and on admin update (`PUT /users/:id`), the following
 /// fields are required: `login`, `firstname`, `lastname`, `sex`, `birthdate`, `publicType`, `addrCity`.
 #[serde_as]
@@ -552,10 +638,11 @@ pub struct UserPayload {
     /// Membership / subscription expiry (UTC); borrowing may be denied after this date.
     pub expiry_at: Option<DateTime<Utc>>,
     /// Legal guardian patron id. Required on create when `publicType` is `child`.
-    /// On update, omit to leave the link unchanged; send a new id to replace it.
-    #[serde_as(as = "Option<DisplayFromStr>")]
+    /// On update: omit to leave the link unchanged; send a new id to replace it;
+    /// send `null` to clear (rejected with 400 while the resulting type is still `child`).
+    #[serde(default, skip_serializing_if = "GuardianIdPatch::is_unspecified")]
     #[schema(value_type = Option<String>)]
-    pub guardian_id: Option<i64>,
+    pub guardian_id: GuardianIdPatch,
 }
 
 impl UserPayload {
@@ -1092,5 +1179,21 @@ mod erasure_tests {
         );
         assert_eq!(borrower_age_band(d(1950, 1, 1), d(2026, 1, 1)), Some("65+"));
         assert_eq!(borrower_age_band(d(2030, 1, 1), d(2026, 1, 1)), None);
+    }
+
+    #[test]
+    fn guardian_id_patch_distinguishes_omit_null_and_set() {
+        use super::{GuardianIdPatch, UserPayload};
+
+        let omitted: UserPayload = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert_eq!(omitted.guardian_id, GuardianIdPatch::Unspecified);
+
+        let cleared: UserPayload =
+            serde_json::from_value(serde_json::json!({ "guardianId": null })).unwrap();
+        assert_eq!(cleared.guardian_id, GuardianIdPatch::Clear);
+
+        let set: UserPayload =
+            serde_json::from_value(serde_json::json!({ "guardianId": "42" })).unwrap();
+        assert_eq!(set.guardian_id, GuardianIdPatch::Set(42));
     }
 }
