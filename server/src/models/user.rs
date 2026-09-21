@@ -661,7 +661,7 @@ pub struct UserRights {
     pub items_rights: Rights,
     pub users_rights: Rights,
     pub loans_rights: Rights,
-    /// Holds + circulation (loans checkout/return): `n` / `o` / `r` / `w` from `account_types.holds_rights`.
+    /// Holds + item transits: `n` / `o` / `r` / `w` from `account_types.holds_rights`. Circulation uses `loans_rights`.
     #[serde(rename = "holdsRights", alias = "borrowsRights")]
     pub holds_rights: Rights,
     pub settings_rights: Rights,
@@ -811,7 +811,7 @@ impl UserClaims {
         }
     }
 
-    /// Circulation (check out / return / renew) and full holds management.
+    /// Holds management and item transits (`holds_rights >= write`). Circulation uses `require_write_loans`.
     pub fn require_write_holds(&self) -> Result<(), AppError> {
         if self.rights.holds_rights.rank() >= Rights::Write.rank() {
             Ok(())
