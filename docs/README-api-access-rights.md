@@ -13,9 +13,11 @@ This document lists API endpoints and their required authentication/authorizatio
 
 JWT rights fields in `UserRights` (JSON camelCase, e.g. `holdsRights`): `items_rights`, `users_rights`, `loans_rights`, `holds_rights`, `settings_rights`, `events_rights`.
 
-For `items_rights`, `users_rights`, `loans_rights`, `settings_rights`, and `events_rights`, the level is **`none` \| `read` \| `write`** (from DB letters `n` / `r` / `w`). Checks use ordering: none < read < write.
+For `items_rights`, `users_rights`, `settings_rights`, and `events_rights`, the level is **`none` \| `read` \| `write`** (from DB letters `n` / `r` / `w`). Checks use ordering: none < read < write.
 
-**`holds_rights`** (DB column `account_types.holds_rights`) uses **`n` \| `o` \| `r` \| `w`**: **none**, **own** (self-service holds only), **read** (staff: queues and global hold lists), **write** (full circulation + holds management). Ordering for checks: none < own < read < write.  
+**`loans_rights`** (DB column `account_types.loans_rights`) is the circulation gate. Helper checks use **`none` \| `read` \| `write`** (`n` / `r` / `w`): none < read < write. Seeded `reader` / `group` rows store **`o` (own)**; that letter maps to `Rights::Own`, which ranks **below read** and does **not** satisfy `require_read_loans()` / `require_write_loans()`. Self-service renew of the caller’s own loan is a separate borrower-id check, not `Own >= read`.
+
+**`holds_rights`** (DB column `account_types.holds_rights`) uses **`n` \| `o` \| `r` \| `w`**: **none**, **own** (self-service holds only), **read** (staff: queues and global hold lists), **write** (holds management and item transits). It does **not** authorize loan checkout, return, renew, or loan batches. Ordering for checks: none < own < read < write.  
 Serialized JWT claims use `holdsRights`; **`borrowsRights`** is still accepted as a **deserialize alias** for backward compatibility.
 
 Helpers on `UserClaims`:
@@ -27,7 +29,8 @@ Helpers on `UserClaims`:
 | `require_read_users()` | `users_rights >= read` |
 | `require_write_users()` | `users_rights >= write` |
 | `require_read_loans()` | `loans_rights >= read` |
-| `require_write_holds()` | `holds_rights >= write` (circulation: checkout, return, renew, loan batches) |
+| `require_write_loans()` | `loans_rights >= write` (circulation: checkout, return, renew, exceptions, loan batches) |
+| `require_write_holds()` | `holds_rights >= write` (holds management and item transits) |
 | `require_read_holds_staff()` | `holds_rights >= read` (not satisfied by **`own`** alone) |
 | `require_list_holds()` | `holds_rights >= read` **or** `holds_rights == own` |
 | `require_create_hold()` | `holds_rights >= write` **or** `holds_rights == own` |
@@ -139,25 +142,36 @@ All auth routes are rate-limited via GovernorLayer.
 | `DELETE /users/:id` | JWT + `require_write_users()` |
 | `PUT /users/:id/account-type` | JWT + `require_admin()` |
 | `PUT /users/:id/force-password-change` | JWT + `require_admin()` |
-| `GET /users/:id/loans` | JWT + `require_read_users()` |
+| `GET /users/:id/loans` | JWT + `require_self_or_staff(id)`; other users also need `loans_rights >= read` |
+| `GET /users/:id/loans/export` | JWT + `require_self_or_staff(id)` |
 | `GET /users/:id/holds` | JWT + `require_read_holds_staff()` + `require_read_users()` |
 | `GET /users/:id/fines` | JWT + `require_read_users()` |
 
 ## Loans and circulation
 
-Loan checkout, return, renew, and batch loan operations require **`holds_rights >= write`** (same column as holds).
+Loan checkout, return, renew, exceptions, and batch loan operations require **`loans_rights`** (not `holds_rights`).
 
 | Endpoint | Required auth |
 |---|---|
-| `POST /loans` | JWT + `require_write_holds()` |
-| `POST /loans/:id/return` | JWT + `require_write_holds()` |
-| `POST /loans/:id/renew` | JWT + `require_write_holds()` |
-| `POST /loans/items/:item_id/return` | JWT + `require_write_holds()` |
-| `POST /loans/items/:item_id/renew` | JWT + `require_write_holds()` |
+| `GET /loans/settings` | JWT + `require_read_settings()` |
+| `PUT /loans/settings` | JWT + `require_write_settings()` |
+| `POST /loans` | JWT + `require_write_loans()` |
+| `GET /loans/:id/user` | JWT + `require_write_loans()` |
+| `POST /loans/:id/return` | JWT + `require_write_loans()` |
+| `POST /loans/:id/renew` | JWT: caller is the borrower, or `loans_rights >= write`; `force` requires `require_write_loans()` |
+| `POST /loans/items/:item_id/return` | JWT + `require_write_loans()` |
+| `POST /loans/items/:item_id/renew` | JWT + `require_write_loans()` |
 | `GET /loans/overdue` | JWT + `require_read_loans()` |
 | `POST /loans/send-overdue-reminders` | JWT + `require_admin()` |
-| `POST /loans/batch-return` | JWT + `require_write_holds()` |
-| `POST /loans/batch-create` | JWT + `require_write_holds()` |
+| `POST /loans/batch-return` | JWT + `require_write_loans()` |
+| `POST /loans/batch-create` | JWT + `require_write_loans()` |
+| `GET /loans/claims-returned` | JWT + `require_write_loans()` |
+| `POST /loans/:id/lost` | JWT + `require_write_loans()` |
+| `POST /loans/:id/damaged` | JWT + `require_write_loans()` |
+| `POST /loans/:id/claimed-returned` | JWT + `require_write_loans()` |
+| `POST /loans/:id/claims-returned/resolve` | JWT + `require_write_loans()` |
+| `GET /users/:id/loans` | JWT + `require_self_or_staff(id)`; other users also need `loans_rights >= read` |
+| `GET /users/:id/loans/export` | JWT + `require_self_or_staff(id)` |
 
 ## Holds
 
