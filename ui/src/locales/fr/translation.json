@@ -171,7 +171,9 @@
     "partnerName": "Partenaire",
     "targetPublicLabel": "Public cible",
     "targetPublic": {
-      "all": "Tous les publics"
+      "all": "Tous les publics",
+      "childGuardianHint": "Envoyé au tuteur légal",
+      "allChildGuardianNote": "Les invitations des enfants sont envoyées à leurs tuteurs légaux."
     },
     "targetPublicHint": "Cochez « Tous les publics », ou un ou plusieurs publics.",
     "targetPublicRequired": "Sélectionnez au moins un public, ou Tous les publics.",

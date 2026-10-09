@@ -171,7 +171,9 @@
     "partnerName": "Partner",
     "targetPublicLabel": "Zielgruppe",
     "targetPublic": {
-      "all": "Alle Zielgruppen"
+      "all": "Alle Zielgruppen",
+      "childGuardianHint": "An den gesetzlichen Vertreter gesendet",
+      "allChildGuardianNote": "Einladungen für Kinder werden an ihre gesetzlichen Vertreter gesendet."
     },
     "targetPublicHint": "Wählen Sie „Alle Zielgruppen“ oder eine oder mehrere Zielgruppen.",
     "targetPublicRequired": "Wählen Sie mindestens eine Zielgruppe oder Alle Zielgruppen.",

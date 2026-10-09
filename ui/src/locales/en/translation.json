@@ -171,7 +171,9 @@
     "partnerName": "Partner",
     "targetPublicLabel": "Target audience",
     "targetPublic": {
-      "all": "All audiences"
+      "all": "All audiences",
+      "childGuardianHint": "Sent to the legal guardian",
+      "allChildGuardianNote": "Children's invitations are sent to their legal guardians."
     },
     "targetPublicHint": "Choose All audiences, or one or more specific audiences.",
     "targetPublicRequired": "Select at least one audience, or All audiences.",
