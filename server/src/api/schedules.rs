@@ -21,7 +21,7 @@ use super::{AuthenticatedUser, ClientIp};
 
 /// Build the schedules routes for this domain.
 pub fn router() -> axum::Router<crate::AppState> {
-    use axum::routing::{delete, get, post, put};
+    use axum::routing::{delete, get, put};
     axum::Router::new()
         .route("/schedules/periods", get(list_periods).post(create_period))
         .route(

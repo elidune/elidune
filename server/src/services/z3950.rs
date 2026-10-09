@@ -10,13 +10,8 @@ use crate::{
     error::{AppError, AppResult},
     models::dto::z3950::{ImportItem, Z3950SearchQuery, Z3950ServerConfig},
     models::secret::optional_exposed_string,
-    models::secret::plaintext_password,
     models::PlaintextPassword,
-    models::{
-        biblio::{Biblio, Isbn},
-        import_report::{ImportAction, ImportReport},
-        item::Item,
-    },
+    models::{biblio::Biblio, import_report::ImportReport, item::Item},
     repository::Repository,
     services::catalog::CatalogService,
     services::redis::RedisService,
@@ -115,7 +110,7 @@ impl Z3950Service {
                 server.name
             );
 
-            match self.query_server(server, &query).await {
+            match self.query_server(server, query).await {
                 Ok(records) => {
                     tracing::info!("Server {} returned {} records", server.name, records.len());
 
@@ -304,7 +299,7 @@ impl Z3950Service {
 
         // Store record
         redis::cmd("SETEX")
-            .arg(&Self::get_redis_key(&id))
+            .arg(Self::get_redis_key(&id))
             .arg(self.cache_ttl_seconds)
             .arg(&json_str)
             .query_async::<_, ()>(&mut conn)
@@ -320,8 +315,6 @@ impl Z3950Service {
         // Convert to ItemRemoteShort (return string key for API)
         Ok(id.to_string())
     }
-
-    /// Search in cached items from Redis
 
     /// Import a record from Z39.50 cache into local catalog.
     /// Applies ISBN deduplication via CatalogService::create_biblio; then creates physical items when action is Created.

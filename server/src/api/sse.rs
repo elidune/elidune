@@ -14,7 +14,6 @@ use axum::{
         IntoResponse,
     },
 };
-use serde::Serialize;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_stream::StreamExt;
 

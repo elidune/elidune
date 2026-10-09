@@ -1,5 +1,7 @@
 //! Shared harness for in-process HTTP integration tests.
 
+#![allow(dead_code)]
+
 use std::sync::Arc;
 
 use axum::body::Body;

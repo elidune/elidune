@@ -18,11 +18,7 @@ use utoipa::{IntoParams, ToSchema};
 use crate::{
     error::{AppError, AppResult},
     models::{
-        biblio::MediaType,
-        loan::{
-            CreateLoan, LoanDetails, LoanMarcExportEncoding, LoanMarcExportFormat,
-            LoanSettingsRenewAt,
-        },
+        loan::{CreateLoan, LoanDetails, LoanMarcExportEncoding, LoanMarcExportFormat},
         user::{Rights, UserShort},
     },
     services::{
@@ -37,7 +33,7 @@ pub use crate::models::dto::loans::{LoanSettingsDto as LoanSettings, UpdateLoanS
 
 /// Build the loans routes for this domain.
 pub fn router() -> axum::Router<crate::AppState> {
-    use axum::routing::{get, post, put};
+    use axum::routing::{get, post};
     axum::Router::new()
         .route("/loans", post(create_loan))
         .route(

@@ -1,28 +1,15 @@
 //! Biblios repository — write operations.
 
-//! Biblios repository — read operations.
-
-use std::collections::HashMap;
-
 use chrono::Utc;
-use sqlx::types::Json;
-use sqlx::{FromRow, Row};
 
 use super::super::Repository;
-use super::BiblioShortRow;
-use crate::models::item::ItemShort;
 use crate::{
     error::{AppError, AppResult},
     marc::MarcRecord,
     models::{
         author::Author,
-        author::Function,
-        biblio::{
-            Biblio, BiblioQuery, BiblioShort, Collection, Edition, Isbn, MediaType,
-            MeiliBiblioDocument, Serie,
-        },
+        biblio::{Biblio, Collection, Edition, Serie},
         import_report::DuplicateCandidate,
-        item::Item,
     },
 };
 
@@ -172,10 +159,10 @@ impl Repository {
             "#,
         )
         .bind(&biblio.media_type)
-        .bind(&biblio.isbn.as_ref().map(|i| i.to_string()))
+        .bind(biblio.isbn.as_ref().map(|i| i.to_string()))
         .bind(&biblio.publication_date)
-        .bind(&biblio.lang)
-        .bind(&biblio.lang_orig)
+        .bind(biblio.lang)
+        .bind(biblio.lang_orig)
         .bind(&biblio.title)
         .bind(&biblio.subject)
         .bind(&biblio.dewey)
@@ -188,9 +175,9 @@ impl Repository {
         .bind(&biblio.notes)
         .bind(&biblio.keywords)
         .bind(biblio.is_valid.unwrap_or(true))
-        .bind(&biblio.edition_id)
-        .bind(&biblio.created_at)
-        .bind(&biblio.updated_at)
+        .bind(biblio.edition_id)
+        .bind(biblio.created_at)
+        .bind(biblio.updated_at)
         .fetch_one(&mut *tx)
         .await?;
 
@@ -287,10 +274,10 @@ impl Repository {
             "#,
         )
         .bind(&biblio.media_type)
-        .bind(&biblio.isbn.as_ref().map(|i| i.to_string()))
+        .bind(biblio.isbn.as_ref().map(|i| i.to_string()))
         .bind(&biblio.title)
-        .bind(&biblio.edition_id)
-        .bind(&biblio.updated_at)
+        .bind(biblio.edition_id)
+        .bind(biblio.updated_at)
         .bind(id)
         .execute(&mut *tx)
         .await?;
@@ -378,10 +365,10 @@ impl Repository {
             "#,
         )
         .bind(&biblio.media_type)
-        .bind(&biblio.isbn.as_ref().map(|i| i.to_string()))
+        .bind(biblio.isbn.as_ref().map(|i| i.to_string()))
         .bind(&biblio.publication_date)
-        .bind(&biblio.lang)
-        .bind(&biblio.lang_orig)
+        .bind(biblio.lang)
+        .bind(biblio.lang_orig)
         .bind(&biblio.title)
         .bind(&biblio.subject)
         .bind(&biblio.dewey)
@@ -394,8 +381,8 @@ impl Repository {
         .bind(&biblio.notes)
         .bind(&biblio.keywords)
         .bind(biblio.is_valid.unwrap_or(true))
-        .bind(&biblio.edition_id)
-        .bind(&biblio.updated_at)
+        .bind(biblio.edition_id)
+        .bind(biblio.updated_at)
         .bind(&marc_json)
         .bind(id)
         .execute(&mut *tx)
@@ -466,7 +453,7 @@ impl Repository {
 
         let loans = self.loans_get_active_ids_for_biblio(id).await?;
 
-        if loans.len() > 0 {
+        if !loans.is_empty() {
             if !force {
                 return Err(AppError::BusinessRule(
                     "Biblio has borrowed items. Use force=true to delete anyway.".to_string(),
@@ -544,7 +531,7 @@ impl Repository {
             )
             .bind(biblio_id)
             .bind(author_id)
-            .bind(&author.function)
+            .bind(author.function)
             .bind(0i16)
             .bind((idx + 1) as i16)
             .execute(&mut **tx)

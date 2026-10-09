@@ -7,8 +7,7 @@
 use crate::models::item::ItemShort;
 use crate::models::{Author, Language};
 use chrono::{DateTime, Utc};
-use serde::de::Visitor;
-use serde::{de::Error as SerdeError, Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use sqlx::FromRow;
 use utoipa::{IntoParams, ToSchema};
@@ -139,7 +138,9 @@ impl sqlx::Encode<'_, sqlx::Postgres> for Isbn {
 /// Biblio operational status (independent of archival)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[repr(i16)]
+#[derive(Default)]
 pub enum BiblioStatus {
+    #[default]
     Active = 0,
     Unavailable = 1,
 }
@@ -150,12 +151,6 @@ impl From<i16> for BiblioStatus {
             1 => BiblioStatus::Unavailable,
             _ => BiblioStatus::Active,
         }
-    }
-}
-
-impl Default for BiblioStatus {
-    fn default() -> Self {
-        BiblioStatus::Active
     }
 }
 
