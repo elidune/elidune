@@ -35,6 +35,13 @@ import { useTranslation } from 'react-i18next';
 import { LANG_OPTIONS, FUNCTION_OPTIONS, PUBLIC_TYPE_OPTIONS, getCodeLabel } from '@/utils/codeLabels';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
+interface BibliosListCache {
+  pages?: Array<{
+    items?: Array<{ id?: string | null }>;
+    total?: number;
+  }>;
+}
+
 // Helper function to get translation key for media type
 function getMediaTypeTranslationKey(mediaType: MediaType | string | null | undefined): string {
   if (!mediaType) return 'unknown';
@@ -139,13 +146,13 @@ export default function BiblioDetailPage() {
     try {
       await api.deleteBiblio(item.id, force);
       // Ensure deleted biblio disappears from cached catalog searches immediately.
-      queryClient.setQueriesData({ queryKey: ['biblios'] }, (old: any) => {
+      queryClient.setQueriesData({ queryKey: ['biblios'] }, (old: BibliosListCache | undefined) => {
         if (!old?.pages?.length) return old;
         return {
           ...old,
-          pages: old.pages.map((p: any) => {
+          pages: old.pages.map((p) => {
             if (!p?.items?.length) return p;
-            const nextItems = p.items.filter((it: any) => it?.id !== item.id);
+            const nextItems = p.items.filter((it) => it?.id !== item.id);
             const nextTotal = typeof p.total === 'number' ? Math.max(0, p.total - (p.items.length - nextItems.length)) : p.total;
             return { ...p, items: nextItems, total: nextTotal };
           }),

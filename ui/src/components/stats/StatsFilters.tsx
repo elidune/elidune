@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { isAdmin, type MediaType, type MediaTypeOption } from '@/types';
 import api from '@/services/api';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
+import { deferFromEffect } from '@/utils/deferFromEffect';
 import type { StatsInterval, AdvancedStatsParams, UserShort } from '@/types';
 
 interface StatsFiltersProps {
@@ -60,13 +61,14 @@ export default function StatsFilters({ onFiltersChange }: StatsFiltersProps) {
   ];
 
   useEffect(() => {
-    if (isUserAdmin && showFilters) {
+    if (!isUserAdmin || !showFilters) return;
+    return deferFromEffect(() => {
       setIsLoadingUsers(true);
       api.getUsers({ perPage: 100 })
         .then((response) => setUsers(response.items))
         .catch((error) => console.error('Error fetching users:', error))
         .finally(() => setIsLoadingUsers(false));
-    }
+    });
   }, [isUserAdmin, showFilters]);
 
   useEffect(() => {

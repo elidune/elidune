@@ -189,18 +189,14 @@ export default function UserEditorForm({
     mode === 'edit' && user ? formDataFromUser(user) : emptyFormData(accountTypes)
   );
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- full `user` would refire on unrelated updates
-  useEffect(() => {
-    if (!accountTypes.length) return;
-    setFormData((fd) => {
-      const listed = accountTypes.some((a) => a.code.toLowerCase() === fd.accountType.toLowerCase());
-      if (listed) return fd;
-      if (mode === 'edit' && user && fd.accountType === (user.accountType ?? '').trim().toLowerCase()) {
-        return fd;
-      }
-      return { ...fd, accountType: defaultAccountTypeCode(accountTypes) };
-    });
-  }, [accountTypes, mode, user?.accountType, user?.id]);
+  if (accountTypes.length) {
+    const listed = accountTypes.some((a) => a.code.toLowerCase() === formData.accountType.toLowerCase());
+    const keepUnlistedEdit =
+      mode === 'edit' && user && formData.accountType === (user.accountType ?? '').trim().toLowerCase();
+    if (!listed && !keepUnlistedEdit) {
+      setFormData({ ...formData, accountType: defaultAccountTypeCode(accountTypes) });
+    }
+  }
 
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<UserRequiredField, string>>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -227,17 +223,16 @@ export default function UserEditorForm({
     return () => document.removeEventListener('mousedown', onDocMouseDown);
   }, []);
 
+  const committedCityPostal = formatCityPostalLine(formData.addrCity, formData.addrZipCode);
+  const rawCityPostal = cityPostalField.trim();
+  const communeLookupActive = rawCityPostal.length >= 2 && rawCityPostal !== committedCityPostal;
+  const visibleCommunePicks = communeLookupActive ? communePicks : [];
+  const visibleCommuneLoading = communeLookupActive ? communeLookupLoading : false;
+
   useEffect(() => {
     const committed = formatCityPostalLine(formData.addrCity, formData.addrZipCode);
     const raw = cityPostalField.trim();
-    if (raw !== '' && raw === committed) {
-      setCommunePicks([]);
-      setCommuneLookupLoading(false);
-      return;
-    }
-    if (raw.length < 2) {
-      setCommunePicks([]);
-      setCommuneLookupLoading(false);
+    if (raw === '' || raw === committed || raw.length < 2) {
       return;
     }
     const ac = new AbortController();
@@ -356,7 +351,6 @@ export default function UserEditorForm({
     setCommuneListOpen(false);
   };
 
-  const committedCityPostal = formatCityPostalLine(formData.addrCity, formData.addrZipCode);
   const isCityPostalSearchMode =
     cityPostalField.trim() === '' || cityPostalField.trim() !== committedCityPostal;
   const showCommuneSuggestions =
@@ -600,7 +594,7 @@ export default function UserEditorForm({
                   className: 'w-full pr-9',
                 })}
               />
-              {communeLookupLoading && (
+              {visibleCommuneLoading && (
                 <div className="absolute inset-y-0 right-2 flex items-center pointer-events-none" aria-hidden>
                   <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
                 </div>
@@ -616,12 +610,12 @@ export default function UserEditorForm({
                 className="absolute z-[100] mt-1 max-h-44 w-full overflow-auto rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 py-1 shadow-lg"
                 role="listbox"
               >
-                {communeLookupLoading && communePicks.length === 0 ? (
+                {visibleCommuneLoading && visibleCommunePicks.length === 0 ? (
                   <li className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">{t('users.communeSearchLoading')}</li>
-                ) : communePicks.length === 0 ? (
+                ) : visibleCommunePicks.length === 0 ? (
                   <li className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">{t('users.communeSearchEmpty')}</li>
                 ) : (
-                  communePicks.map((pick) => (
+                  visibleCommunePicks.map((pick) => (
                     <li key={`${pick.city}-${pick.zip}-${pick.label}`} role="option">
                       <button
                         type="button"

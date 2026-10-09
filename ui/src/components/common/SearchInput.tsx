@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Search, X } from 'lucide-react';
 import { formControlClass } from '@/utils/formControl';
@@ -26,19 +26,34 @@ export default function SearchInput({
 }: SearchInputProps) {
   const { t } = useTranslation();
   const [localValue, setLocalValue] = useState(value);
+  const [prevValue, setPrevValue] = useState(value);
+  if (value !== prevValue) {
+    setPrevValue(value);
+    setLocalValue(value);
+  }
   const effectivePlaceholder = placeholder ?? t('common.search');
   const effectiveSubmitLabel = submitLabel ?? t('common.search');
 
+  const onChangeRef = useRef(onChange);
+  const debounceMsRef = useRef(debounceMs);
   useEffect(() => {
-    setLocalValue(value);
-  }, [value]);
+    onChangeRef.current = onChange;
+    debounceMsRef.current = debounceMs;
+  }, [onChange, debounceMs]);
 
-  const debouncedOnChange = useCallback(
-    debounce((val: string) => {
-      onChange(val);
-    }, debounceMs),
-    [onChange, debounceMs]
-  );
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, []);
+
+  const debouncedOnChange = useCallback((val: string) => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    timeoutRef.current = setTimeout(() => {
+      onChangeRef.current(val);
+    }, debounceMsRef.current);
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = e.target.value;
@@ -101,16 +116,3 @@ export default function SearchInput({
     </div>
   );
 }
-
-function debounce<T extends (...args: Parameters<T>) => void>(
-  fn: T,
-  delay: number
-): (...args: Parameters<T>) => void {
-  let timeoutId: ReturnType<typeof setTimeout>;
-  return (...args: Parameters<T>) => {
-    clearTimeout(timeoutId);
-    timeoutId = setTimeout(() => fn(...args), delay);
-  };
-}
-
-

@@ -25,6 +25,7 @@ import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
 import { formControlClass, formLabelClass, formChoiceLabelClass } from '@/utils/formControl';
+import { deferFromEffect } from '@/utils/deferFromEffect';
 import { useAuth } from '@/contexts/AuthContext';
 import { isAdmin } from '@/types';
 import type { User as UserType, Loan, UserShort, OverdueLoanInfo, ReminderReport } from '@/types';
@@ -214,13 +215,14 @@ export default function LoansPage() {
 
   useEffect(() => {
     if (activeTab !== 'overdue') return;
-    void loadOverdue();
+    return deferFromEffect(() => { void loadOverdue(); });
   }, [activeTab, loadOverdue]);
 
   const overdueByUser = useMemo(() => {
-    if (!overdueData?.loans.length) return [];
+    const loans = overdueData?.loans;
+    if (!loans?.length) return [];
     const m = new Map<string, OverdueLoanInfo[]>();
-    for (const loan of overdueData.loans) {
+    for (const loan of loans) {
       const list = m.get(loan.userId) ?? [];
       list.push(loan);
       m.set(loan.userId, list);
@@ -230,9 +232,12 @@ export default function LoansPage() {
       const fb = `${b[1][0]?.lastname ?? ''} ${b[1][0]?.firstname ?? ''}`.trim();
       return fa.localeCompare(fb, undefined, { sensitivity: 'base' });
     });
-  }, [overdueData?.loans]);
+  }, [overdueData]);
 
-  useEffect(() => {
+  const overdueUserIds = overdueByUser.map(([uid]) => uid).join('\0');
+  const [prevOverdueUserIds, setPrevOverdueUserIds] = useState(overdueUserIds);
+  if (overdueUserIds !== prevOverdueUserIds) {
+    setPrevOverdueUserIds(overdueUserIds);
     setOverdueOpenByUser((prev) => {
       const next: Record<string, boolean> = {};
       for (const [uid, loans] of overdueByUser) {
@@ -242,7 +247,7 @@ export default function LoansPage() {
       }
       return next;
     });
-  }, [overdueByUser]);
+  }
 
   const overdueTotalPages = overdueData
     ? Math.max(1, Math.ceil(overdueData.total / overduePerPage))
@@ -273,12 +278,14 @@ export default function LoansPage() {
 
   const userSearchSeqRef = useRef(0);
 
+  const userQuery = userSearchDraft.trim();
+  const visibleUserResults = userQuery ? userSearchResults : [];
+  const visibleUserSearching = userQuery ? isSearchingUsers : false;
+
   useEffect(() => {
     const query = userSearchDraft.trim();
     if (!query) {
       userSearchSeqRef.current += 1;
-      setUserSearchResults([]);
-      setIsSearchingUsers(false);
       return;
     }
 
@@ -310,8 +317,6 @@ export default function LoansPage() {
 
   useEffect(() => {
     if (!selectedUser) {
-      setLoans([]);
-      setLoansTotal(0);
       return;
     }
 
@@ -331,8 +336,17 @@ export default function LoansPage() {
       }
     };
 
-    loadUserLoans();
+    return deferFromEffect(() => { void loadUserLoans(); });
   }, [selectedUser, loansPage]);
+
+  const [prevSelectedUser, setPrevSelectedUser] = useState(selectedUser);
+  if (selectedUser !== prevSelectedUser) {
+    setPrevSelectedUser(selectedUser);
+    if (!selectedUser) {
+      setLoans([]);
+      setLoansTotal(0);
+    }
+  }
 
   const handleUserSelect = async (user: UserShort) => {
     try {
@@ -708,11 +722,11 @@ export default function LoansPage() {
                           onChange={(e) => setUserSearchDraft(e.target.value)}
                           placeholder={t('loans.searchUserPlaceholder')}
                           leftIcon={<Search className="h-4 w-4" />}
-                          aria-busy={isSearchingUsers}
+                          aria-busy={visibleUserSearching}
                         />
-                        {userSearchResults.length > 0 && (
+                        {visibleUserResults.length > 0 && (
                           <div className="absolute z-10 w-full mt-1 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                            {userSearchResults.map((user) => (
+                            {visibleUserResults.map((user) => (
                               <button
                                 key={user.id}
                                 onClick={() => handleUserSelect(user)}

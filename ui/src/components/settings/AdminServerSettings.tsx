@@ -28,6 +28,7 @@ import {
 } from '@/components/settings/EliduneMaintenancePanels';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
+import { deferFromEffect } from '@/utils/deferFromEffect';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 import { LOG_ROTATION_OPTIONS, type AdminConfigSectionKey, type ConfigSectionInfo } from '@/types';
 
@@ -224,9 +225,7 @@ export default function AdminServerSettings() {
     }
   }, [t, applySectionsToForms]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useEffect(() => deferFromEffect(() => { void load(); }), [load]);
 
   const getMeta = (key: AdminConfigSectionKey) =>
     pickSection(sections, key) ?? {

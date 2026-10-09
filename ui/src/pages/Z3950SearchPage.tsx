@@ -25,7 +25,7 @@ import type { AxiosError } from 'axios';
 
 
 function getDuplicateConfirmationRequired(error: unknown): DuplicateConfirmationRequired | null {
-  const ax = error as AxiosError<any>;
+  const ax = error as AxiosError<unknown>;
   if (ax?.response?.status !== 409) return null;
   const data = ax.response?.data as Partial<DuplicateConfirmationRequired> | undefined;
   if (!data) return null;

@@ -19,6 +19,8 @@ import {
   isTaskActive,
   taskKindLabel,
 } from '@/utils/backgroundTaskDisplay';
+import { useResetWhenInactive } from '@/hooks/common/useResetWhenInactive';
+import { deferFromEffect } from '@/utils/deferFromEffect';
 
 const BASE_MS = 500;
 const MAX_MS = 5_000;
@@ -227,17 +229,23 @@ export function BackgroundTasksProvider({ children }: { children: ReactNode }) {
     }
   }, [enabled, trackTask, showToast]);
 
+  useResetWhenInactive(enabled, () => {
+    setTasksById({});
+    setDrawerOpen(false);
+    setUnreadCount(0);
+  });
+
   useEffect(() => {
     if (!enabled) {
       stopAllPolling();
-      setTasksById({});
-      setDrawerOpen(false);
-      setUnreadCount(0);
       startToastedRef.current.clear();
       return;
     }
-    void refreshTasks();
+    const cancel = deferFromEffect(() => {
+      void refreshTasks();
+    });
     return () => {
+      cancel();
       stopAllPolling();
     };
   }, [enabled, refreshTasks, stopAllPolling]);
