@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal, Input, Button, MessageModal } from '@/components/common';
 import api from '@/services/api';
@@ -34,15 +34,21 @@ export default function RenewSubscriptionModal({
   onSuccess,
 }: RenewSubscriptionModalProps) {
   const { t } = useTranslation();
-  const [renewExpiryDate, setRenewExpiryDate] = useState('');
+  const proposedExpiry = user
+    ? toDateInputValue(new Date(computeRenewedExpiryAt(user.expiryAt, user.createdAt)))
+    : '';
+  const [renewExpiryDate, setRenewExpiryDate] = useState(proposedExpiry);
+  const [prevUser, setPrevUser] = useState(user);
+  if (user !== prevUser) {
+    setPrevUser(user);
+    if (user) {
+      setRenewExpiryDate(
+        toDateInputValue(new Date(computeRenewedExpiryAt(user.expiryAt, user.createdAt))),
+      );
+    }
+  }
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!user) return;
-    const proposedIso = computeRenewedExpiryAt(user.expiryAt, user.createdAt);
-    setRenewExpiryDate(toDateInputValue(new Date(proposedIso)));
-  }, [user]);
 
   const handleConfirm = async () => {
     if (!user) return;

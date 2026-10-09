@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Info, Save } from 'lucide-react';
@@ -77,26 +77,28 @@ export default function EmailTemplatesSettings() {
     [grouped]
   );
 
-  useEffect(() => {
-    if (!list.length || selectedTemplateId) return;
+  if (list.length && !selectedTemplateId) {
     const t0 = templateIds[0];
-    if (!t0) return;
-    setSelectedTemplateId(t0);
-    const langs = languagesForTemplate(t0);
-    setSelectedLanguage(
-      langs.includes(preferredEditLanguage) ? preferredEditLanguage : (langs[0] ?? 'french')
-    );
-  }, [list.length, selectedTemplateId, templateIds, languagesForTemplate, preferredEditLanguage]);
+    if (t0) {
+      setSelectedTemplateId(t0);
+      const langs = languagesForTemplate(t0);
+      setSelectedLanguage(
+        langs.includes(preferredEditLanguage) ? preferredEditLanguage : (langs[0] ?? 'french')
+      );
+    }
+  }
 
-  useEffect(() => {
-    if (!selectedTemplateId) return;
+  if (selectedTemplateId) {
     const langs = languagesForTemplate(selectedTemplateId);
-    if (!langs.length) return;
-    if (selectedLanguage && langs.includes(selectedLanguage as EmailTemplateEditLanguage)) return;
-    setSelectedLanguage(
-      langs.includes(preferredEditLanguage) ? preferredEditLanguage : (langs[0] ?? null)
-    );
-  }, [selectedTemplateId, selectedLanguage, languagesForTemplate, preferredEditLanguage]);
+    if (
+      langs.length &&
+      !(selectedLanguage && langs.includes(selectedLanguage as EmailTemplateEditLanguage))
+    ) {
+      setSelectedLanguage(
+        langs.includes(preferredEditLanguage) ? preferredEditLanguage : (langs[0] ?? null)
+      );
+    }
+  }
 
   const {
     data: detail,
@@ -113,13 +115,14 @@ export default function EmailTemplatesSettings() {
     enabled: !!selectedTemplateId && !!selectedLanguage,
   });
 
-  useEffect(() => {
-    if (!detail) return;
+  const [syncedDetail, setSyncedDetail] = useState(detail);
+  if (detail && detail !== syncedDetail) {
+    setSyncedDetail(detail);
     setSubject(detail.subject ?? '');
     setBodyPlain(detail.bodyPlain ?? '');
     setBodyHtml(detail.bodyHtml ?? '');
     setSaveError(null);
-  }, [detail]);
+  }
 
   const pickTemplate = useCallback(
     (tid: string) => {

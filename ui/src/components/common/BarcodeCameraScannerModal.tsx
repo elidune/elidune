@@ -10,6 +10,8 @@ import {
   stopMediaStream,
   type CameraBlockReason,
 } from '@/utils/cameraSupport';
+import { useResetWhenInactive } from '@/hooks/common/useResetWhenInactive';
+import { deferFromEffect } from '@/utils/deferFromEffect';
 
 interface BarcodeCameraScannerModalProps {
   isOpen: boolean;
@@ -118,23 +120,29 @@ export default function BarcodeCameraScannerModal({
     }
   }, [initialStream, startLiveScan, t]);
 
+  useResetWhenInactive(isOpen, () => {
+    setError(null);
+    setStarting(false);
+    setDecodingPhoto(false);
+    setBlockReason(null);
+    setLiveUnavailable(false);
+  });
+
   useEffect(() => {
     if (!isOpen) {
       stopScanner();
-      setError(null);
-      setStarting(false);
-      setDecodingPhoto(false);
-      setBlockReason(null);
-      setLiveUnavailable(false);
       return;
     }
 
     scannedRef.current = false;
-    setError(null);
-    setBlockReason(getCameraBlockReason());
-    void tryStartLiveCamera();
+    const cancel = deferFromEffect(() => {
+      setError(null);
+      setBlockReason(getCameraBlockReason());
+      void tryStartLiveCamera();
+    });
 
     return () => {
+      cancel();
       stopScanner();
     };
   }, [isOpen, tryStartLiveCamera, stopScanner]);

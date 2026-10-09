@@ -29,6 +29,7 @@ import api from '@/services/api';
 import type { Stats, AdvancedStatsParams, MediaType, MediaTypeOption, StatsInterval, UserLoanStats, UserAggregateStats, CatalogStats, CatalogStatsBreakdown } from '@/types';
 import { translateStatLabel } from '@/utils/codeLabels';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
+import { deferFromEffect } from '@/utils/deferFromEffect';
 import StatsAdvancedTab from '@/components/stats/StatsAdvancedTab';
 
 // Helper function to get translation key for media type
@@ -230,8 +231,6 @@ export default function StatsPage() {
       return;
     }
 
-    setIsLoadingUsers(true);
-
     const fetchUserStats = async () => {
       try {
         if (userStatsMode === 'aggregate') {
@@ -282,7 +281,10 @@ export default function StatsPage() {
       }
     };
 
-    fetchUserStats();
+    return deferFromEffect(() => {
+      setIsLoadingUsers(true);
+      void fetchUserStats();
+    });
   }, [statsDetailTab, userStatsMode, userSortBy, userStatsLimit, userStatsLeaderboardYear, userStatsAggregateYear]);
 
   const formatDate = (dateStr: string) => {

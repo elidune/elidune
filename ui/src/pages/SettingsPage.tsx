@@ -11,6 +11,7 @@ import AuditLogViewer from '@/components/settings/AuditLogViewer';
 import { Card, CardHeader, Button, Input, Badge, ConfirmDialog } from '@/components/common';
 import api from '@/services/api';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
+import { deferFromEffect } from '@/utils/deferFromEffect';
 import { formControlClass, formLabelClass, formChoiceLabelClass } from '@/utils/formControl';
 import { isAdmin } from '@/types';
 import type {
@@ -122,7 +123,7 @@ function SourceEditor() {
     }
   }, [showArchived, t]);
 
-  useEffect(() => { fetchSources(); }, [fetchSources]);
+  useEffect(() => deferFromEffect(() => { void fetchSources(); }), [fetchSources]);
 
   const handleRenameStart = (source: Source) => {
     clearMessages();
@@ -537,9 +538,7 @@ function PublicTypesEditor() {
     }
   }, [t]);
 
-  useEffect(() => {
-    fetchPublicTypes();
-  }, [fetchPublicTypes]);
+  useEffect(() => deferFromEffect(() => { void fetchPublicTypes(); }), [fetchPublicTypes]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1180,7 +1179,10 @@ function LoanOverridesForm({
     [overrides],
   );
 
-  useEffect(() => {
+  const [syncedOverrideKey, setSyncedOverrideKey] = useState(`${publicTypeId}:${overridesSig}`);
+  const overrideKey = `${publicTypeId}:${overridesSig}`;
+  if (overrideKey !== syncedOverrideKey) {
+    setSyncedOverrideKey(overrideKey);
     setRows(
       overrides.map((o) => ({
         key: o.mediaType == null ? 'row-default' : `row-${o.mediaType}`,
@@ -1192,7 +1194,7 @@ function LoanOverridesForm({
         renewMode: o.renewAt == null ? 'inherit' : o.renewAt,
       })),
     );
-  }, [publicTypeId, overridesSig]);
+  }
 
   const sortedRows = useMemo(() => sortOverrideUiRows(rows), [rows]);
 
@@ -1475,41 +1477,42 @@ export default function SettingsPage() {
     );
   };
 
+  const tabParam = searchParams.get('tab');
+  const nextSettingsTab: SettingsTab | null =
+    tabParam === 'maintenance'
+      ? 'server'
+      : tabParam && SETTINGS_TAB_IDS.includes(tabParam as SettingsTab)
+        ? (!isAdminUser && tabParam !== 'library' ? 'library' : (tabParam as SettingsTab))
+        : !isAdminUser
+          ? 'library'
+          : !tabParam
+            ? 'loans'
+            : null;
+  if (nextSettingsTab && nextSettingsTab !== activeTab) {
+    setActiveTab(nextSettingsTab);
+  }
+
   useEffect(() => {
-    const p = searchParams.get('tab');
-    if (p === 'maintenance') {
-      setActiveTab('server');
-      setSearchParams(
-        (prev) => {
-          const n = new URLSearchParams(prev);
-          n.set('tab', 'server');
-          if (!n.get('serverSub')) {
-            n.set('serverSub', 'database');
-          }
-          return n;
-        },
-        { replace: true },
-      );
-      return;
-    }
-    const isValid = p && SETTINGS_TAB_IDS.includes(p as SettingsTab);
-    if (isValid) {
-      const id = p as SettingsTab;
-      if (!isAdminUser && id !== 'library') {
-        setActiveTab('library');
-      } else {
-        setActiveTab(id);
-      }
-    } else if (!isAdminUser) {
-      setActiveTab('library');
-    } else if (!p) {
-      setActiveTab('loans');
-    }
-  }, [searchParams, isAdminUser]);
+    if (searchParams.get('tab') !== 'maintenance') return;
+    setSearchParams(
+      (prev) => {
+        const n = new URLSearchParams(prev);
+        n.set('tab', 'server');
+        if (!n.get('serverSub')) {
+          n.set('serverSub', 'database');
+        }
+        return n;
+      },
+      { replace: true },
+    );
+  }, [searchParams, setSearchParams]);
+
+  if (!isAdminUser && isLoading) {
+    setIsLoading(false);
+  }
 
   useEffect(() => {
     if (!isAdminUser) {
-      setIsLoading(false);
       return;
     }
     const fetchSettings = async () => {
@@ -1539,7 +1542,7 @@ export default function SettingsPage() {
       }
     };
 
-    void fetchSettings();
+    return deferFromEffect(() => { void fetchSettings(); });
   }, [isAdminUser]);
 
   const handleSave = async () => {
