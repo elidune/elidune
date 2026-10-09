@@ -13,6 +13,15 @@ use crate::{
     repository::Repository,
 };
 
+use std::collections::HashMap;
+
+type ItemCounts = (i64, i64, i64);
+type CountsByLabel = HashMap<String, ItemCounts>;
+type CountsByMedia = HashMap<String, CountsByLabel>;
+type SourceMediaAudienceStats = HashMap<i64, (String, CountsByMedia)>;
+type SourceMediaStats = HashMap<i64, (String, CountsByLabel)>;
+type LoansBySourceMediaAudience = HashMap<i64, HashMap<String, HashMap<String, i64>>>;
+
 /// Filter for GET /stats (optional year, time interval, public_type, media_type).
 /// When set, item stats are computed as of reference_date and filtered by public_type/media_type.
 #[derive(Debug)]
@@ -1000,10 +1009,7 @@ impl Repository {
                 .fetch_all(pool)
                 .await?;
 
-                let mut source_map: HashMap<
-                    i64,
-                    (String, HashMap<String, HashMap<String, (i64, i64, i64)>>),
-                > = HashMap::new();
+                let mut source_map: SourceMediaAudienceStats = HashMap::new();
                 for row in &rows {
                     let sid: i64 = row.get("source_id");
                     let sname: String = row.get("source_name");
@@ -1108,8 +1114,7 @@ impl Repository {
                 .fetch_all(pool)
                 .await?;
 
-                let mut source_map: HashMap<i64, (String, HashMap<String, (i64, i64, i64)>)> =
-                    HashMap::new();
+                let mut source_map: SourceMediaStats = HashMap::new();
                 for row in &rows {
                     let sid: i64 = row.get("source_id");
                     let sname: String = row.get("source_name");
@@ -1188,8 +1193,7 @@ impl Repository {
                 .fetch_all(pool)
                 .await?;
 
-                let mut source_map: HashMap<i64, (String, HashMap<String, (i64, i64, i64)>)> =
-                    HashMap::new();
+                let mut source_map: SourceMediaStats = HashMap::new();
                 for row in &rows {
                     let sid: i64 = row.get("source_id");
                     let sname: String = row.get("source_name");
@@ -1464,7 +1468,7 @@ impl Repository {
         .await?;
 
         // source_id → media_type → public_type → count
-        let mut loan_map: HashMap<i64, HashMap<String, HashMap<String, i64>>> = HashMap::new();
+        let mut loan_map: LoansBySourceMediaAudience = HashMap::new();
         for row in &loan_rows {
             let sid: i64 = row.get("source_id");
             let mt: String = row.get("media_type");

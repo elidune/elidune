@@ -7,7 +7,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
-use utoipa::{IntoParams, ToSchema};
+use utoipa::ToSchema;
 
 use crate::{
     error::AppResult,
@@ -19,7 +19,7 @@ use super::{AuthenticatedUser, ClientIp};
 
 /// Build the Z39.50 routes for this domain.
 pub fn router() -> axum::Router<crate::AppState> {
-    use axum::routing::{get, post, put};
+    use axum::routing::{get, post};
     axum::Router::new()
         .route("/z3950/search", get(search))
         .route("/z3950/import", post(import_record))

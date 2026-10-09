@@ -14,6 +14,7 @@ use crate::{
 /// DB access for `audit_log`. Implemented by [`Repository`].
 #[async_trait]
 pub trait AuditLogRepository: Send + Sync {
+    #[allow(clippy::too_many_arguments)]
     async fn audit_insert(
         &self,
         event_type: &str,
@@ -91,6 +92,7 @@ impl AuditLogRepository for Repository {
 
 impl Repository {
     /// Insert one audit row (used from async tasks).
+    #[allow(clippy::too_many_arguments)]
     pub async fn audit_insert(
         &self,
         event_type: &str,

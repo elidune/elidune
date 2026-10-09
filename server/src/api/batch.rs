@@ -1,6 +1,6 @@
 //! Batch operations API — bulk loan returns and creations for scanner workflows
 
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
