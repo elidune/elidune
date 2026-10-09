@@ -891,7 +891,7 @@ mod tests {
             &self,
             _: bool,
             _: &[String],
-        ) -> AppResult<Vec<crate::repository::users::AnnouncementCandidate>> {
+        ) -> AppResult<Vec<crate::repository::users::AnnouncementRecipient>> {
             Ok(vec![])
         }
         async fn users_hold_ready_contact(

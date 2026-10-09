@@ -23,44 +23,151 @@ pub struct UserEmailTarget {
     pub language: Option<String>,
 }
 
-/// Patron selected for an event announcement.
-/// The query already applies `receive_reminders` and the audience filter.
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub struct AnnouncementCandidate {
+/// Child named on a guardian's announcement. Empty for a direct send.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnnouncementChild {
+    pub id: i64,
+    pub firstname: Option<String>,
+    pub lastname: Option<String>,
+}
+
+/// One announcement email. `children` lists every targeted child this recipient
+/// stands in for, and is empty when the patron is emailed directly.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AnnouncementRecipient {
     pub id: i64,
     pub email: Option<String>,
     pub firstname: Option<String>,
     pub lastname: Option<String>,
     pub language: Option<String>,
-    /// `public_types.name` for the patron, when set.
-    pub public_type_name: Option<String>,
-    /// Existing email opt-in (`users.receive_reminders`). There is no separate GDPR consent column.
-    pub receive_reminders: bool,
+    pub children: Vec<AnnouncementChild>,
+}
+
+/// Flat row from [`ANNOUNCEMENT_RECIPIENTS_SQL`] before grouping.
+/// `child_id` is null for a direct send and set when the row routes one child.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub(crate) struct AnnouncementRecipientRow {
+    id: i64,
+    email: Option<String>,
+    firstname: Option<String>,
+    lastname: Option<String>,
+    language: Option<String>,
+    child_id: Option<i64>,
+    child_firstname: Option<String>,
+    child_lastname: Option<String>,
 }
 
 /// SQL for [`Repository::users_list_announcement_recipients`].
+///
 /// `$1::boolean` is all-audiences (no type filter). `$2::text[]` is the audience names.
+/// Direct rows are non-`child` patrons. Each active `child` in the audience adds a row
+/// for their major guardian (`user_guardians`). Consent, email, and deletion are checked
+/// on the recipient, never on the child. [`group_announcement_recipients`] collapses
+/// these rows to one recipient.
 pub(crate) const ANNOUNCEMENT_RECIPIENTS_SQL: &str = r#"
-SELECT DISTINCT
-       u.id,
-       u.email,
-       u.firstname,
-       u.lastname,
-       u.language,
-       pt.name AS public_type_name,
-       u.receive_reminders
-FROM users u
-LEFT JOIN public_types pt ON pt.id = u.public_type
-WHERE u.receive_reminders = TRUE
-  AND u.email IS NOT NULL
-  AND u.email <> ''
-  AND (u.status IS NULL OR u.status <> 'deleted')
-  -- Temporary until guardian routing (#59): do not email minors directly.
-  -- IS DISTINCT FROM keeps patrons with no public type on both audience paths.
-  AND pt.name IS DISTINCT FROM 'child'
-  AND ($1::boolean OR pt.name = ANY($2::text[]))
-ORDER BY u.id
+SELECT
+    id,
+    email,
+    firstname,
+    lastname,
+    language,
+    child_id,
+    child_firstname,
+    child_lastname
+FROM (
+    SELECT
+        u.id,
+        u.email,
+        u.firstname,
+        u.lastname,
+        u.language,
+        NULL::bigint AS child_id,
+        NULL::text AS child_firstname,
+        NULL::text AS child_lastname
+    FROM users u
+    LEFT JOIN public_types pt ON pt.id = u.public_type
+    WHERE u.receive_reminders = TRUE
+      AND u.email IS NOT NULL
+      AND u.email <> ''
+      AND (u.status IS NULL OR u.status <> 'deleted')
+      AND pt.name IS DISTINCT FROM 'child'
+      AND ($1::boolean OR pt.name = ANY($2::text[]))
+
+    UNION ALL
+
+    SELECT
+        g.id,
+        g.email,
+        g.firstname,
+        g.lastname,
+        g.language,
+        c.id AS child_id,
+        c.firstname AS child_firstname,
+        c.lastname AS child_lastname
+    FROM users c
+    JOIN public_types cpt ON cpt.id = c.public_type AND cpt.name = 'child'
+    JOIN user_guardians ug ON ug.child_id = c.id
+    JOIN users g ON g.id = ug.guardian_id
+    LEFT JOIN public_types gpt ON gpt.id = g.public_type
+    WHERE (c.status IS NULL OR c.status <> 'deleted')
+      AND ($1::boolean OR cpt.name = ANY($2::text[]))
+      AND g.receive_reminders = TRUE
+      AND g.email IS NOT NULL
+      AND g.email <> ''
+      AND (g.status IS NULL OR g.status <> 'deleted')
+      AND gpt.name IS DISTINCT FROM 'child'
+      AND gpt.name IS DISTINCT FROM 'school'
+) AS announcement_recipients
+ORDER BY id, child_id NULLS FIRST
 "#;
+
+/// Collapse SQL rows into one recipient per patron.
+///
+/// A null `child_id` is a direct send. Several children of the same guardian,
+/// or a guardian who is also targeted directly, become one recipient whose
+/// `children` lists each child once, ordered by id. Recipient order is first-seen.
+pub(crate) fn group_announcement_recipients(
+    rows: Vec<AnnouncementRecipientRow>,
+) -> Vec<AnnouncementRecipient> {
+    let mut order: Vec<i64> = Vec::new();
+    let mut by_id: std::collections::HashMap<i64, AnnouncementRecipient> =
+        std::collections::HashMap::new();
+
+    for row in rows {
+        let id = row.id;
+        if let std::collections::hash_map::Entry::Vacant(slot) = by_id.entry(id) {
+            order.push(id);
+            slot.insert(AnnouncementRecipient {
+                id,
+                email: row.email,
+                firstname: row.firstname,
+                lastname: row.lastname,
+                language: row.language,
+                children: Vec::new(),
+            });
+        }
+        if let Some(child_id) = row.child_id {
+            if let Some(recipient) = by_id.get_mut(&id) {
+                if !recipient.children.iter().any(|child| child.id == child_id) {
+                    recipient.children.push(AnnouncementChild {
+                        id: child_id,
+                        firstname: row.child_firstname,
+                        lastname: row.child_lastname,
+                    });
+                }
+            }
+        }
+    }
+
+    let mut recipients: Vec<AnnouncementRecipient> = order
+        .into_iter()
+        .filter_map(|id| by_id.remove(&id))
+        .collect();
+    for recipient in &mut recipients {
+        recipient.children.sort_by_key(|child| child.id);
+    }
+    recipients
+}
 
 /// Patron fields for hold-ready notification email.
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -119,14 +226,15 @@ pub trait UsersRepository: Send + Sync {
         &self,
         public_type: Option<i64>,
     ) -> AppResult<Vec<UserEmailTarget>>;
-    /// Patrons who should receive an event announcement.
+    /// Patrons who should receive an event announcement, one entry per recipient.
     /// `all_audiences` skips the type filter. Otherwise `public_types.name` must be in `audience_names`.
-    /// Always requires `receive_reminders` (provisional opt-in; no separate GDPR column).
+    /// A `child` is not emailed; their major guardian is, when the child is still active.
+    /// Consent is the recipient's `receive_reminders` (provisional opt-in; no separate GDPR column).
     async fn users_list_announcement_recipients(
         &self,
         all_audiences: bool,
         audience_names: &[String],
-    ) -> AppResult<Vec<AnnouncementCandidate>>;
+    ) -> AppResult<Vec<AnnouncementRecipient>>;
     async fn users_count(&self) -> AppResult<i64>;
     async fn users_set_must_change_password(&self, id: i64, value: bool) -> AppResult<()>;
     async fn users_hold_ready_contact(
@@ -270,7 +378,7 @@ impl UsersRepository for Repository {
         &self,
         all_audiences: bool,
         audience_names: &[String],
-    ) -> crate::error::AppResult<Vec<AnnouncementCandidate>> {
+    ) -> crate::error::AppResult<Vec<AnnouncementRecipient>> {
         Repository::users_list_announcement_recipients(self, all_audiences, audience_names).await
     }
     async fn users_count(&self) -> crate::error::AppResult<i64> {
@@ -1195,24 +1303,25 @@ impl Repository {
         Ok(rows)
     }
 
-    /// Patrons who should receive an event announcement, filtered in SQL.
+    /// Patrons who should receive an event announcement, filtered and routed in SQL.
     ///
     /// `$1` is all-audiences: when true there is no public-type filter.
-    /// Otherwise `public_types.name` must be in `$2`. `receive_reminders` is always required.
-    /// One row per user (`SELECT DISTINCT`). Provisional consent is `users.receive_reminders`.
-    /// `public_types.name = 'child'` is excluded on every path until guardian routing (#59).
+    /// Otherwise `public_types.name` must be in `$2`. The recipient's `receive_reminders`
+    /// is required. A `child` is never the recipient: each active child in the audience
+    /// is attached to their guardian from `user_guardians`. Rows are grouped so a guardian
+    /// of several children, or a guardian who is also targeted directly, is returned once.
     #[tracing::instrument(skip(self, audience_names), err)]
     pub async fn users_list_announcement_recipients(
         &self,
         all_audiences: bool,
         audience_names: &[String],
-    ) -> AppResult<Vec<AnnouncementCandidate>> {
-        let rows = sqlx::query_as::<_, AnnouncementCandidate>(ANNOUNCEMENT_RECIPIENTS_SQL)
+    ) -> AppResult<Vec<AnnouncementRecipient>> {
+        let rows = sqlx::query_as::<_, AnnouncementRecipientRow>(ANNOUNCEMENT_RECIPIENTS_SQL)
             .bind(all_audiences)
             .bind(audience_names)
             .fetch_all(&self.pool)
             .await?;
-        Ok(rows)
+        Ok(group_announcement_recipients(rows))
     }
 
     pub async fn users_hold_ready_contact(
@@ -1231,24 +1340,119 @@ impl Repository {
 
 #[cfg(test)]
 mod announcement_recipient_sql_tests {
-    use super::ANNOUNCEMENT_RECIPIENTS_SQL;
+    use super::{
+        group_announcement_recipients, AnnouncementRecipientRow, ANNOUNCEMENT_RECIPIENTS_SQL,
+    };
+
+    fn row(id: i64, child: Option<(i64, &str, &str)>) -> AnnouncementRecipientRow {
+        let (child_id, child_firstname, child_lastname) = match child {
+            Some((child_id, first, last)) => (
+                Some(child_id),
+                Some(first.to_string()),
+                Some(last.to_string()),
+            ),
+            None => (None, None, None),
+        };
+        AnnouncementRecipientRow {
+            id,
+            email: Some(format!("user{id}@test.local")),
+            firstname: Some(format!("Patron{id}")),
+            lastname: Some("Test".into()),
+            language: Some("french".into()),
+            child_id,
+            child_firstname,
+            child_lastname,
+        }
+    }
 
     #[test]
-    fn filters_consent_and_audience_in_sql() {
+    fn filters_consent_audience_and_guardian_routing_in_sql() {
         let sql = ANNOUNCEMENT_RECIPIENTS_SQL;
-        assert!(sql.contains("SELECT DISTINCT"), "one row per user");
         assert!(
             sql.contains("u.receive_reminders = TRUE"),
-            "provisional opt-in stays in the query"
+            "direct opt-in stays in the query"
         );
         assert!(
-            sql.contains("$1::boolean OR pt.name = ANY($2::text[])"),
-            "all-audiences skips the type filter; otherwise match public_types.name"
+            sql.contains("g.receive_reminders = TRUE"),
+            "guardian opt-in is what counts for a child"
         );
-        assert!(sql.contains("LEFT JOIN public_types"));
+        assert!(
+            !sql.contains("c.receive_reminders"),
+            "the child's own opt-in is not consulted"
+        );
+        assert!(sql.contains("JOIN user_guardians ug ON ug.child_id = c.id"));
+        assert!(sql.contains("cpt.name = 'child'"));
         assert!(
             sql.contains("pt.name IS DISTINCT FROM 'child'"),
-            "minors stay out of both audience paths until guardian routing"
+            "a child is not a direct recipient"
         );
+        assert!(sql.contains("(c.status IS NULL OR c.status <> 'deleted')"));
+        assert!(sql.contains("(g.status IS NULL OR g.status <> 'deleted')"));
+        assert!(sql.contains("g.email IS NOT NULL"));
+        assert!(sql.contains("g.email <> ''"));
+        assert!(sql.contains("gpt.name IS DISTINCT FROM 'child'"));
+        assert!(sql.contains("gpt.name IS DISTINCT FROM 'school'"));
+        assert!(sql.contains("$1::boolean OR pt.name = ANY($2::text[])"));
+        assert!(sql.contains("$1::boolean OR cpt.name = ANY($2::text[])"));
+        assert!(
+            !sql.contains("Temporary until guardian routing"),
+            "the provisional exclusion is replaced by guardian routing"
+        );
+    }
+
+    #[test]
+    fn direct_send_has_no_children() {
+        let grouped = group_announcement_recipients(vec![row(1, None), row(2, None)]);
+        assert_eq!(grouped.len(), 2);
+        assert!(grouped
+            .iter()
+            .all(|recipient| recipient.children.is_empty()));
+        assert_eq!(grouped[0].id, 1);
+        assert_eq!(grouped[1].id, 2);
+    }
+
+    #[test]
+    fn guardian_of_several_children_is_one_recipient() {
+        let grouped = group_announcement_recipients(vec![
+            row(10, Some((3, "Noe", "Martin"))),
+            row(10, Some((2, "Lea", "Martin"))),
+            row(10, Some((2, "Lea", "Martin"))),
+        ]);
+        assert_eq!(grouped.len(), 1);
+        assert_eq!(grouped[0].id, 10);
+        assert_eq!(grouped[0].email.as_deref(), Some("user10@test.local"));
+        let names: Vec<_> = grouped[0]
+            .children
+            .iter()
+            .map(|child| {
+                (
+                    child.id,
+                    child.firstname.as_deref(),
+                    child.lastname.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                (2, Some("Lea"), Some("Martin")),
+                (3, Some("Noe"), Some("Martin"))
+            ]
+        );
+    }
+
+    #[test]
+    fn guardian_who_is_also_targeted_stays_one_recipient() {
+        let grouped = group_announcement_recipients(vec![
+            row(7, None),
+            row(7, Some((4, "Ada", "Lovelace"))),
+            row(8, None),
+        ]);
+        assert_eq!(grouped.len(), 2);
+        assert_eq!(grouped[0].id, 7);
+        assert_eq!(grouped[0].children.len(), 1);
+        assert_eq!(grouped[0].children[0].id, 4);
+        assert_eq!(grouped[0].children[0].firstname.as_deref(), Some("Ada"));
+        assert!(grouped[1].children.is_empty());
     }
 }
