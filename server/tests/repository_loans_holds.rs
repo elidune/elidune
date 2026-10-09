@@ -22,7 +22,7 @@ async fn loan_return_atomically_advances_next_hold() {
     let biblio_payload = json!({
         "title": "Repo Hold Atomic Test",
         "mediaType": "printedText",
-        "lang": "fre",
+        "lang": "french",
         "items": [{ "barcode": "REPO-HOLD-001", "borrowable": true }]
     });
 
