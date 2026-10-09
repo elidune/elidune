@@ -23,7 +23,7 @@ async fn loan_return_atomically_advances_next_hold() {
         "title": "Repo Hold Atomic Test",
         "mediaType": "printedText",
         "lang": "french",
-        "items": [{ "barcode": "REPO-HOLD-001", "borrowable": true }]
+        "items": [{ "barcode": format!("REPO-HOLD-{}", fixtures::unique_suffix()), "borrowable": true }]
     });
 
     let (status, body) = app
