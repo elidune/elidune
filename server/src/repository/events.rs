@@ -167,13 +167,14 @@ async fn replace_audiences_tx(
 }
 
 fn map_audience_fk(err: sqlx::Error, name: &str) -> AppError {
-    let message = err.to_string();
-    if message.contains("event_audiences_audience_fkey") || message.contains("foreign key") {
+    let unknown_audience = err.as_database_error().and_then(|db| db.constraint())
+        == Some("event_audiences_audience_fkey");
+    if unknown_audience {
         AppError::Validation(format!(
             "Unknown public_type name {name:?} (must match public_types.name)"
         ))
     } else {
-        AppError::Database(err)
+        AppError::from(err)
     }
 }
 

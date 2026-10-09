@@ -241,9 +241,10 @@ pub async fn delete_event(
 }
 
 /// Send an announcement email to patrons in any selected audience (`publicTypes`), once each.
-/// `allAudiences: true` includes every patron with an email.
-/// Patrons with `receiveReminders: false` are skipped: that is the only email opt-in on this branch
-/// (there is no separate GDPR communications-consent column).
+/// Recipients are chosen in SQL: `receiveReminders` must be true, and either `allAudiences`
+/// is set or the patron's public type is one of `publicTypes`.
+/// `receiveReminders` is the only email opt-in on this branch (there is no separate GDPR
+/// communications-consent column).
 ///
 /// The default `event_announcement` template is used unless `subject`/`body_plain`
 /// (and optionally `body_html`) are supplied in the request body, in which case the

@@ -45,8 +45,7 @@ async fn migration_copies_null_and_single_public_type() {
         .await
         .expect("migrate");
 
-    let mut conn = pool.acquire().await.expect("acquire");
-    let mut tx = conn.begin().await.expect("begin");
+    let mut tx = pool.begin().await.expect("begin");
 
     sqlx::query(
         r#"

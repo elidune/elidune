@@ -171,6 +171,8 @@ impl TestApp {
     }
 
     /// PUT JSON helper.
+    /// Not called by every integration binary that compiles this module.
+    #[allow(dead_code)]
     pub async fn put_json(
         &self,
         uri: &str,

@@ -19,7 +19,7 @@ use crate::{
         },
         Language,
     },
-    repository::{events::EventAnnualStats, users::AnnouncementCandidate, EventsServiceRepository},
+    repository::{events::EventAnnualStats, EventsServiceRepository},
     services::{
         audit::{self, AuditService},
         email::EmailService,
@@ -171,8 +171,9 @@ impl EventsService {
 
     /// Send an announcement email to patrons in any selected audience, once each.
     ///
-    /// `all_audiences` includes every patron with an email. Otherwise the patron's
-    /// `public_types.name` must be one of the event audiences.
+    /// Recipients are selected in SQL: `receive_reminders` is required, and either
+    /// `all_audiences` is set or `public_types.name` is one of the event audiences.
+    /// Each user is returned once.
     ///
     /// `main` has no dedicated GDPR communications-consent column. The only email
     /// opt-in is `users.receive_reminders` (overdue reminders, default true). Patrons
@@ -227,9 +228,10 @@ impl EventsService {
             .map(|d| format!("<p>{}</p>", d.replace('\n', "<br>")))
             .unwrap_or_default();
 
-        let candidates = self.repository.users_list_announcement_candidates().await?;
-        let targets =
-            select_announcement_recipients(candidates, event.all_audiences, &event.public_types);
+        let targets = self
+            .repository
+            .users_list_announcement_recipients(event.all_audiences, &event.public_types)
+            .await?;
 
         let mut emails_sent: u32 = 0;
         let mut skipped: u32 = 0;
@@ -460,38 +462,6 @@ fn validate_audience_selection(
     })
 }
 
-/// Patrons who should receive one announcement.
-///
-/// Includes a patron when they opted in (`receive_reminders`) and either the event
-/// targets every audience or their public type name is in `audience_names`.
-/// The same user id is returned at most once.
-pub fn select_announcement_recipients(
-    candidates: Vec<AnnouncementCandidate>,
-    all_audiences: bool,
-    audience_names: &[String],
-) -> Vec<AnnouncementCandidate> {
-    let mut seen = std::collections::HashSet::new();
-    let mut selected = Vec::new();
-    for candidate in candidates {
-        if !candidate.receive_reminders {
-            continue;
-        }
-        if !all_audiences {
-            let Some(name) = candidate.public_type_name.as_deref() else {
-                continue;
-            };
-            if !audience_names.iter().any(|audience| audience == name) {
-                continue;
-            }
-        }
-        if !seen.insert(candidate.id) {
-            continue;
-        }
-        selected.push(candidate);
-    }
-    selected
-}
-
 fn decode_event_attachment_input(
     input: &EventAttachmentInput,
 ) -> AppResult<(Vec<u8>, String, String)> {
@@ -543,7 +513,6 @@ fn normalize_mime_type(mime: &str) -> String {
 #[cfg(test)]
 mod audience_tests {
     use super::*;
-    use crate::repository::users::AnnouncementCandidate;
 
     fn create_body(json: &str) -> CreateEvent {
         serde_json::from_str(json).expect("create event json")
@@ -551,22 +520,6 @@ mod audience_tests {
 
     fn update_body(json: &str) -> UpdateEvent {
         serde_json::from_str(json).expect("update event json")
-    }
-
-    fn candidate(
-        id: i64,
-        public_type_name: Option<&str>,
-        receive_reminders: bool,
-    ) -> AnnouncementCandidate {
-        AnnouncementCandidate {
-            id,
-            email: Some(format!("user{id}@example.test")),
-            firstname: Some("Pat".into()),
-            lastname: None,
-            language: Some("english".into()),
-            public_type_name: public_type_name.map(str::to_string),
-            receive_reminders,
-        }
     }
 
     #[test]
@@ -638,34 +591,19 @@ mod audience_tests {
     }
 
     #[test]
-    fn recipients_union_dedup_and_consent() {
-        let candidates = vec![
-            candidate(1, Some("child"), true),
-            candidate(1, Some("child"), true),
-            candidate(2, Some("adult"), true),
-            candidate(3, Some("adult"), false),
-            candidate(4, Some("school"), true),
-            candidate(5, None, true),
-        ];
-        let selected = select_announcement_recipients(
-            candidates,
-            false,
-            &["child".to_string(), "adult".to_string()],
+    fn migration_036_keeps_legacy_public_type_column() {
+        let sql = include_str!("../../migrations/036_events_audiences.sql");
+        let upper = sql.to_ascii_uppercase();
+        assert!(
+            !upper.contains("DROP COLUMN"),
+            "legacy public_type stays until a later migration"
         );
-        let ids: Vec<i64> = selected.iter().map(|row| row.id).collect();
-        assert_eq!(ids, vec![1, 2]);
-    }
-
-    #[test]
-    fn all_audiences_includes_every_opted_in_patron_once() {
-        let candidates = vec![
-            candidate(1, Some("child"), true),
-            candidate(1, Some("child"), true),
-            candidate(2, None, true),
-            candidate(3, Some("adult"), false),
-        ];
-        let selected = select_announcement_recipients(candidates, true, &[]);
-        let ids: Vec<i64> = selected.iter().map(|row| row.id).collect();
-        assert_eq!(ids, vec![1, 2]);
+        assert!(
+            !upper.contains("DROP CONSTRAINT"),
+            "legacy public_type FK stays until a later migration"
+        );
+        assert!(sql.contains("CREATE TABLE IF NOT EXISTS event_audiences"));
+        assert!(sql.contains("ADD COLUMN IF NOT EXISTS all_audiences"));
+        assert!(sql.contains("WHERE public_type IS NULL"));
     }
 }
