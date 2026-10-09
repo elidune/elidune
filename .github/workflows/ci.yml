@@ -179,6 +179,7 @@ jobs:
           --test email_outbox
           --test graduated_reminders
           --test patron_guardians
+          --test event_audiences
           -- --nocapture
 
   coverage:
@@ -248,6 +249,7 @@ jobs:
           --test email_outbox
           --test graduated_reminders
           --test patron_guardians
+          --test event_audiences
           --lcov
           --output-path lcov.info
           --fail-under-lines 20

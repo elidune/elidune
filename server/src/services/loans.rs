@@ -887,6 +887,13 @@ mod tests {
         ) -> AppResult<Vec<crate::repository::users::UserEmailTarget>> {
             Ok(vec![])
         }
+        async fn users_list_announcement_recipients(
+            &self,
+            _: bool,
+            _: &[String],
+        ) -> AppResult<Vec<crate::repository::users::AnnouncementCandidate>> {
+            Ok(vec![])
+        }
         async fn users_hold_ready_contact(
             &self,
             _: i64,

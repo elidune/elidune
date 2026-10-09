@@ -204,7 +204,7 @@ TABLES_DROP_ORDER = [
     'account_types',
     'visitor_counts',
     'schedule_slots', 'schedule_closures', 'schedule_periods',
-    'equipment', 'events',
+    'equipment', 'event_audiences', 'events',
     # Seeded at server startup from data/email_templates/*.json (includes localized `name` column).
     'email_templates',
     'email_outbox_event_announcements',

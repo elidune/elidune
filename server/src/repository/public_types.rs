@@ -219,6 +219,24 @@ impl Repository {
             )));
         }
 
+        let event_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)
+            FROM event_audiences ea
+            JOIN public_types pt ON pt.name = ea.audience
+            WHERE pt.id = $1
+            "#,
+        )
+        .bind(id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        if event_count > 0 {
+            return Err(AppError::BusinessRule(format!(
+                "Cannot delete public type: {event_count} event audience link(s) still reference it"
+            )));
+        }
+
         let result = sqlx::query("DELETE FROM public_types WHERE id = $1")
             .bind(id)
             .execute(&self.pool)
