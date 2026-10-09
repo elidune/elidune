@@ -520,8 +520,10 @@ fn sanitize_attachment_filename(name: &str) -> String {
 }
 
 /// Plain and HTML blocks naming the children a guardian email concerns.
-/// Empty for a direct send. English when the recipient language is `english`;
-/// French otherwise, matching the `event_announcement` template cascade.
+/// Empty for a direct send. The intro follows [`Language`]: English, German,
+/// and Spanish each have a sentence; every other value (missing, unknown, or
+/// a language without a packaged template) uses French, matching the
+/// `event_announcement` cascade in [`crate::email_templates`].
 pub(crate) fn announcement_children_fragments(
     language: Option<&str>,
     children: &[AnnouncementChild],
@@ -534,20 +536,22 @@ pub(crate) fn announcement_children_fragments(
         .map(child_display_name)
         .collect::<Vec<_>>()
         .join(", ");
-    let english = language.is_some_and(|lang| Language::from(lang) == Language::English);
-    if english {
-        (
-            format!("\nThis invitation concerns: {names}.\n"),
-            format!("<p>This invitation concerns: {}.</p>", html_escape(&names)),
-        )
-    } else {
-        (
-            format!("\nCette invitation concerne : {names}.\n"),
-            format!(
-                "<p>Cette invitation concerne : {}.</p>",
-                html_escape(&names)
-            ),
-        )
+    let intro = children_intro(language);
+    (
+        format!("\n{intro} {names}.\n"),
+        format!("<p>{intro} {}.</p>", html_escape(&names)),
+    )
+}
+
+/// Localized intro for [`announcement_children_fragments`].
+/// Resolved with [`Language::from`], so aliases (`deu`, `spa`, …) match the
+/// rest of the server. French is the fallback.
+fn children_intro(language: Option<&str>) -> &'static str {
+    match language.map(Language::from).unwrap_or(Language::French) {
+        Language::English => "This invitation concerns:",
+        Language::German => "Diese Einladung betrifft:",
+        Language::Spanish => "Esta invitación se refiere a:",
+        _ => "Cette invitation concerne :",
     }
 }
 
@@ -732,6 +736,50 @@ mod children_fragment_tests {
         assert!(plain.contains("This invitation concerns: Ada Lovelace & Co."));
         assert!(html.contains("This invitation concerns: Ada Lovelace &amp; Co."));
         assert!(!html.contains("Lovelace & Co"));
+    }
+
+    #[test]
+    fn german_block_names_every_child() {
+        for lang in ["german", "deu", "ger", "langDe", "3"] {
+            let (plain, html) =
+                announcement_children_fragments(Some(lang), &[child(5, "Lea", "Martin")]);
+            assert!(
+                plain.contains("Diese Einladung betrifft: Lea Martin."),
+                "{lang}: {plain}"
+            );
+            assert!(html.contains("<p>Diese Einladung betrifft: Lea Martin.</p>"));
+            assert!(!plain.contains("Cette invitation concerne"));
+            assert!(!plain.contains("This invitation concerns"));
+        }
+    }
+
+    #[test]
+    fn spanish_block_names_every_child() {
+        for lang in ["spanish", "spa", "langEs", "5"] {
+            let (plain, html) =
+                announcement_children_fragments(Some(lang), &[child(6, "Lea", "Martin")]);
+            assert!(
+                plain.contains("Esta invitación se refiere a: Lea Martin."),
+                "{lang}: {plain}"
+            );
+            assert!(html.contains("<p>Esta invitación se refiere a: Lea Martin.</p>"));
+            assert!(!plain.contains("Cette invitation concerne"));
+            assert!(!plain.contains("This invitation concerns"));
+        }
+    }
+
+    #[test]
+    fn unknown_language_falls_back_to_french() {
+        for lang in [None, Some("unknown"), Some("italian"), Some("not-a-language")] {
+            let (plain, html) = announcement_children_fragments(lang, &[child(7, "Lea", "Martin")]);
+            assert!(
+                plain.contains("Cette invitation concerne : Lea Martin."),
+                "{lang:?}: {plain}"
+            );
+            assert!(html.contains("<p>Cette invitation concerne : Lea Martin.</p>"));
+            assert!(!plain.contains("Diese Einladung betrifft"));
+            assert!(!plain.contains("Esta invitación"));
+        }
     }
 
     #[test]
