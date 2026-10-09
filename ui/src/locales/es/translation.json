@@ -171,7 +171,9 @@
     "partnerName": "Socio",
     "targetPublicLabel": "Público objetivo",
     "targetPublic": {
-      "all": "Todas las audiencias"
+      "all": "Todas las audiencias",
+      "childGuardianHint": "Enviado al tutor legal",
+      "allChildGuardianNote": "Las invitaciones de los niños se envían a sus tutores legales."
     },
     "targetPublicHint": "Marque «Todas las audiencias» o una o varias audiencias.",
     "targetPublicRequired": "Seleccione al menos una audiencia, o Todas las audiencias.",

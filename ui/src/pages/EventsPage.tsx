@@ -20,6 +20,7 @@ import api from '@/services/api';
 import type { Event, CreateEvent, UpdateEvent } from '@/types';
 import { usePublicTypesQuery } from '@/hooks/usePublicTypesQuery';
 import { eventAudienceDisplayLabel } from '@/utils/eventPublicType';
+import { CHILD_PUBLIC_TYPE_NAME } from '@/utils/legalGuardian';
 import { fileToAttachmentInput, base64ToDataUrl, isImageMime } from '@/utils/eventAttachment';
 import { formControlClass, formTextareaClass, formLabelClass, formChoiceLabelClass } from '@/utils/formControl';
 import { deferFromEffect } from '@/utils/deferFromEffect';
@@ -590,6 +591,8 @@ function EventForm({ formId, initialValues, onLoadingChange, onSuccess }: EventF
   };
 
   const schoolVisit = formData.eventType === '1';
+  const childGuardianHintId = `${formId}-child-guardian-hint`;
+  const allAudiencesGuardianNoteId = `${formId}-all-audiences-guardian-note`;
 
   return (
     <form id={formId} onSubmit={handleSubmit} className="space-y-4">
@@ -672,6 +675,7 @@ function EventForm({ formId, initialValues, onLoadingChange, onSuccess }: EventF
             <input
               type="checkbox"
               checked={formData.allAudiences}
+              aria-describedby={formData.allAudiences ? allAudiencesGuardianNoteId : undefined}
               onChange={(e) => {
                 const checked = e.target.checked;
                 setAudienceError(null);
@@ -684,31 +688,50 @@ function EventForm({ formId, initialValues, onLoadingChange, onSuccess }: EventF
             />
             {t('events.targetPublic.all')}
           </label>
+          {formData.allAudiences && (
+            <p
+              id={allAudiencesGuardianNoteId}
+              className="mt-1 ml-6 text-xs font-normal leading-snug text-gray-500 dark:text-gray-400"
+            >
+              {t('events.targetPublic.allChildGuardianNote')}
+            </p>
+          )}
           <div className="mt-2 flex flex-col gap-1.5">
-            {publicTypes.map((pt) => (
-              <label
-                key={pt.id}
-                className={formChoiceLabelClass(formData.allAudiences ? 'opacity-60' : '')}
-              >
-                <input
-                  type="checkbox"
-                  disabled={formData.allAudiences}
-                  checked={!formData.allAudiences && formData.publicTypes.includes(pt.name)}
-                  onChange={(e) => {
-                    const checked = e.target.checked;
-                    setAudienceError(null);
-                    setFormData((current) => ({
-                      ...current,
-                      allAudiences: false,
-                      publicTypes: checked
-                        ? [...current.publicTypes, pt.name]
-                        : current.publicTypes.filter((name) => name !== pt.name),
-                    }));
-                  }}
-                />
-                {pt.label}
-              </label>
-            ))}
+            {publicTypes.map((pt) => {
+              const isChild = pt.name === CHILD_PUBLIC_TYPE_NAME;
+              return (
+                <div key={pt.id}>
+                  <label className={formChoiceLabelClass(formData.allAudiences ? 'opacity-60' : '')}>
+                    <input
+                      type="checkbox"
+                      disabled={formData.allAudiences}
+                      checked={!formData.allAudiences && formData.publicTypes.includes(pt.name)}
+                      aria-describedby={isChild ? childGuardianHintId : undefined}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setAudienceError(null);
+                        setFormData((current) => ({
+                          ...current,
+                          allAudiences: false,
+                          publicTypes: checked
+                            ? [...current.publicTypes, pt.name]
+                            : current.publicTypes.filter((name) => name !== pt.name),
+                        }));
+                      }}
+                    />
+                    {pt.label}
+                  </label>
+                  {isChild && (
+                    <p
+                      id={childGuardianHintId}
+                      className="ml-6 text-xs font-normal leading-snug text-gray-500 dark:text-gray-400"
+                    >
+                      {t('events.targetPublic.childGuardianHint')}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
           </div>
           {audienceError && (
             <p className="mt-1 text-sm text-red-600 dark:text-red-400">{audienceError}</p>
