@@ -445,6 +445,7 @@ async fn api_send_event_announcement_enqueues_outbox_rows() {
     let admin_token = admin_token(&app).await;
     let repo = app.state.services.repository.as_ref().clone();
     let event_id = seed_event(&repo, "API announcement event").await;
+    seed_opted_in_patron(&repo).await;
 
     let payload = json!({
         "subject": "Library event",
@@ -647,8 +648,10 @@ async fn seed_overdue_loan(repo: &Repository) -> (Vec<i64>, String) {
 async fn seed_event(repo: &Repository, name: &str) -> i64 {
     sqlx::query_scalar(
         r#"
-        INSERT INTO events (id, name, event_type, event_date, created_at, update_at)
-        VALUES ($1, $2, 6, CURRENT_DATE, NOW(), NOW())
+        INSERT INTO events (
+            id, name, event_type, event_date, all_audiences, created_at, update_at
+        )
+        VALUES ($1, $2, 6, CURRENT_DATE, TRUE, NOW(), NOW())
         RETURNING id
         "#,
     )
@@ -657,6 +660,27 @@ async fn seed_event(repo: &Repository, name: &str) -> i64 {
     .fetch_one(repo.pool())
     .await
     .expect("insert event")
+}
+
+/// Patron with an email and `receive_reminders`, so an all-audiences announcement has a recipient.
+async fn seed_opted_in_patron(repo: &Repository) {
+    let suffix = Utc::now().timestamp_micros();
+    sqlx::query(
+        r#"
+        INSERT INTO users (
+            id, login, password, firstname, lastname, email, account_type,
+            sex, birthdate, language, receive_reminders, token_version, created_at, update_at
+        )
+        VALUES ($1, $2, 'hash', 'Patron', 'Announce', $3, 'reader',
+                'm', '1990-01-01', 'french', TRUE, 0, NOW(), NOW())
+        "#,
+    )
+    .bind(snowflake())
+    .bind(format!("announce_user_{suffix}"))
+    .bind(format!("announce-{suffix}@test.local"))
+    .execute(repo.pool())
+    .await
+    .expect("insert announcement patron");
 }
 
 async fn insert_raw_outbox(repo: &Repository, to: &str, body: &str, attempts: i32) -> i64 {
