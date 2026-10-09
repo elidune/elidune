@@ -55,6 +55,9 @@ WHERE u.receive_reminders = TRUE
   AND u.email IS NOT NULL
   AND u.email <> ''
   AND (u.status IS NULL OR u.status <> 'deleted')
+  -- Temporary until guardian routing (#59): do not email minors directly.
+  -- IS DISTINCT FROM keeps patrons with no public type on both audience paths.
+  AND pt.name IS DISTINCT FROM 'child'
   AND ($1::boolean OR pt.name = ANY($2::text[]))
 ORDER BY u.id
 "#;
@@ -1197,6 +1200,7 @@ impl Repository {
     /// `$1` is all-audiences: when true there is no public-type filter.
     /// Otherwise `public_types.name` must be in `$2`. `receive_reminders` is always required.
     /// One row per user (`SELECT DISTINCT`). Provisional consent is `users.receive_reminders`.
+    /// `public_types.name = 'child'` is excluded on every path until guardian routing (#59).
     #[tracing::instrument(skip(self, audience_names), err)]
     pub async fn users_list_announcement_recipients(
         &self,
@@ -1242,5 +1246,9 @@ mod announcement_recipient_sql_tests {
             "all-audiences skips the type filter; otherwise match public_types.name"
         );
         assert!(sql.contains("LEFT JOIN public_types"));
+        assert!(
+            sql.contains("pt.name IS DISTINCT FROM 'child'"),
+            "minors stay out of both audience paths until guardian routing"
+        );
     }
 }

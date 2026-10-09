@@ -173,7 +173,7 @@ impl EventsService {
     ///
     /// Recipients are selected in SQL: `receive_reminders` is required, and either
     /// `all_audiences` is set or `public_types.name` is one of the event audiences.
-    /// Each user is returned once.
+    /// Each user is returned once. `child` patrons are excluded until guardian routing (#59).
     ///
     /// `main` has no dedicated GDPR communications-consent column. The only email
     /// opt-in is `users.receive_reminders` (overdue reminders, default true). Patrons
