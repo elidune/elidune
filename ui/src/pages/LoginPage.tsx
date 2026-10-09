@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useNavigate, Navigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
@@ -30,6 +30,7 @@ import { Card, Badge, Input, Button, LibraryInfoSection } from '@/components/com
 import { useLibrarySchedule } from '@/hooks/common/useLibrarySchedule';
 import api from '@/services/api';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
+import { deferFromEffect } from '@/utils/deferFromEffect';
 import type { MediaType } from '@/types';
 import PublicEventsPanel from '@/components/events/PublicEventsPanel';
 
@@ -432,12 +433,14 @@ export default function LoginPage() {
     staleTime: 2 * 60 * 1000,
   });
 
-  const biblios = opacData?.items ?? [];
+  const biblios = useMemo(() => opacData?.items ?? [], [opacData?.items]);
   const opacBiblioIds = biblios.map((b) => b.id).join(',');
 
-  useEffect(() => {
+  const [prevOpacFilters, setPrevOpacFilters] = useState({ activeSearch, activeMediaType });
+  if (activeSearch !== prevOpacFilters.activeSearch || activeMediaType !== prevOpacFilters.activeMediaType) {
+    setPrevOpacFilters({ activeSearch, activeMediaType });
     setOpacPage(1);
-  }, [activeSearch, activeMediaType]);
+  }
 
   useEffect(() => {
     userDismissedBiblioSelectionRef.current = false;
@@ -445,19 +448,20 @@ export default function LoginPage() {
 
   // Default selection: first row of the current page; keep current row if it stays on the page.
   useEffect(() => {
-    if (resultsTab !== 'catalog' || !hasQuery) return;
-    if (opacLoading) return;
-    if (biblios.length === 0) {
-      setSelectedBiblioId(null);
-      return;
-    }
-    setSelectedBiblioId((prev) => {
-      if (prev && biblios.some((b) => b.id === prev)) return prev;
-      if (prev === null && userDismissedBiblioSelectionRef.current) return null;
-      userDismissedBiblioSelectionRef.current = false;
-      return biblios[0]!.id;
+    if (resultsTab !== 'catalog' || !hasQuery || opacLoading) return;
+    return deferFromEffect(() => {
+      if (biblios.length === 0) {
+        setSelectedBiblioId(null);
+        return;
+      }
+      setSelectedBiblioId((prev) => {
+        if (prev && biblios.some((b) => b.id === prev)) return prev;
+        if (prev === null && userDismissedBiblioSelectionRef.current) return null;
+        userDismissedBiblioSelectionRef.current = false;
+        return biblios[0]!.id;
+      });
     });
-  }, [resultsTab, hasQuery, opacLoading, opacBiblioIds, opacPage]);
+  }, [resultsTab, hasQuery, opacLoading, opacBiblioIds, opacPage, biblios]);
 
   // Ctrl/Cmd+K focuses the search bar; Escape clears catalog selection overlay
   useEffect(() => {

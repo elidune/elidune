@@ -7,6 +7,7 @@ import { getApiErrorMessage } from '@/utils/apiError';
 import { isLibrarian } from '@/types';
 import type { Item, UserShort } from '@/types';
 import { formatUserShortName } from '@/utils/userDisplay';
+import { useResetWhenInactive } from '@/hooks/common/useResetWhenInactive';
 
 export interface PlaceHoldDialogProps {
   open: boolean;
@@ -49,23 +50,23 @@ export default function PlaceHoldDialog({
     staleTime: 30 * 1000,
   });
 
-  useEffect(() => {
-    if (!open) {
-      setNotes('');
-      setError(null);
-      setTargetMode('self');
-      setSelectedUser(null);
-      setUserSearchDraft('');
-      setUserSearchResults([]);
-    }
-  }, [open]);
+  useResetWhenInactive(open, () => {
+    setNotes('');
+    setError(null);
+    setTargetMode('self');
+    setSelectedUser(null);
+    setUserSearchDraft('');
+    setUserSearchResults([]);
+  });
+
+  const userQuery = userSearchDraft.trim();
+  const visibleUserResults = userQuery ? userSearchResults : [];
+  const visibleUserSearching = userQuery ? isSearchingUsers : false;
 
   useEffect(() => {
     const query = userSearchDraft.trim();
     if (!query) {
       userSearchSeqRef.current += 1;
-      setUserSearchResults([]);
-      setIsSearchingUsers(false);
       return;
     }
 
@@ -209,12 +210,12 @@ export default function PlaceHoldDialog({
                   onChange={(e) => setUserSearchDraft(e.target.value)}
                   placeholder={t('common.search')}
                 />
-                {isSearchingUsers && (
+                {visibleUserSearching && (
                   <p className="text-xs text-gray-500">{t('common.loading')}</p>
                 )}
-                {userSearchResults.length > 0 && (
+                {visibleUserResults.length > 0 && (
                   <ul className="max-h-36 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-200 dark:divide-gray-700">
-                    {userSearchResults.map((u) => (
+                    {visibleUserResults.map((u) => (
                       <li key={u.id}>
                         <button
                           type="button"

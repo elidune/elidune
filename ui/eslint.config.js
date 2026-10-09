@@ -20,4 +20,25 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    // Provider + hook in one file is the standard React context pattern.
+    // Fast Refresh still remounts the provider; hooks are not components.
+    files: ['src/contexts/**/*.{ts,tsx}'],
+    rules: {
+      'react-refresh/only-export-components': [
+        'error',
+        {
+          allowConstantExport: true,
+          allowExportNames: [
+            'useAuth',
+            'useTheme',
+            'useLanguage',
+            'useLibrary',
+            'useToast',
+            'useBackgroundTasks',
+          ],
+        },
+      ],
+    },
+  },
 ])

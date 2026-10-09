@@ -337,11 +337,13 @@ export default function BiblioEditorForm({
   ]);
 
   const formDataRef = useRef(formData);
-  formDataRef.current = formData;
   const linkedCollectionsRef = useRef(linkedCollections);
-  linkedCollectionsRef.current = linkedCollections;
   const linkedSeriesRef = useRef(linkedSeries);
-  linkedSeriesRef.current = linkedSeries;
+  useEffect(() => {
+    formDataRef.current = formData;
+    linkedCollectionsRef.current = linkedCollections;
+    linkedSeriesRef.current = linkedSeries;
+  }, [formData, linkedCollections, linkedSeries]);
 
   const sectionOpen = (id: CollapsibleSectionId) => openSections[id] === true;
   const toggleSection = (id: CollapsibleSectionId) => {
@@ -360,13 +362,11 @@ export default function BiblioEditorForm({
     fetchServers();
   }, []);
 
-  useEffect(() => {
-    setZ3950SelectedServerId((prev) => {
-      if (z3950Servers.length === 0) return null;
-      if (prev && z3950Servers.some((s) => s.id === prev)) return prev;
-      return z3950Servers[0].id;
-    });
-  }, [z3950Servers]);
+  if (z3950Servers.length === 0) {
+    if (z3950SelectedServerId !== null) setZ3950SelectedServerId(null);
+  } else if (!z3950SelectedServerId || !z3950Servers.some((s) => s.id === z3950SelectedServerId)) {
+    setZ3950SelectedServerId(z3950Servers[0].id);
+  }
 
   useEffect(() => {
     if (!z3950ServerMenuOpen) return;
@@ -601,11 +601,9 @@ export default function BiblioEditorForm({
 
   const z3950AutocompleteDisabled = isSearchingZ3950 || !z3950CanSearch;
 
-  useEffect(() => {
-    if (z3950AutocompleteDisabled) {
-      setZ3950ServerMenuOpen(false);
-    }
-  }, [z3950AutocompleteDisabled]);
+  if (z3950AutocompleteDisabled && z3950ServerMenuOpen) {
+    setZ3950ServerMenuOpen(false);
+  }
 
   const z3950PickTotalPages =
     z3950PickList && z3950PickList.length > 1

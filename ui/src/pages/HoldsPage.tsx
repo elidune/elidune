@@ -44,12 +44,14 @@ export default function HoldsPage() {
   const [cancelHoldId, setCancelHoldId] = useState<string | null>(null);
   const [biblioPickError, setBiblioPickError] = useState<string | null>(null);
 
+  const biblioQuery = biblioDraft.trim();
+  const visibleBiblioResults = biblioQuery ? biblioResults : [];
+  const visibleBiblioSearching = biblioQuery ? biblioSearching : false;
+
   useEffect(() => {
     const q = biblioDraft.trim();
     if (!q) {
       biblioSeqRef.current += 1;
-      setBiblioResults([]);
-      setBiblioSearching(false);
       return;
     }
     const timer = window.setTimeout(() => {
@@ -71,12 +73,14 @@ export default function HoldsPage() {
     return () => window.clearTimeout(timer);
   }, [biblioDraft]);
 
+  const createUserQuery = createUserDraft.trim();
+  const visibleCreateUserResults = createUserQuery ? createUserResults : [];
+  const visibleCreateUserSearching = createUserQuery ? createUserSearching : false;
+
   useEffect(() => {
     const q = createUserDraft.trim();
     if (!q) {
       createUserSeqRef.current += 1;
-      setCreateUserResults([]);
-      setCreateUserSearching(false);
       return;
     }
     const timer = window.setTimeout(() => {
@@ -360,13 +364,13 @@ export default function HoldsPage() {
               onChange={(e) => setBiblioDraft(e.target.value)}
               leftIcon={<Search className="h-4 w-4" />}
             />
-            {biblioSearching && <p className="text-xs text-gray-500 mt-1">{t('common.loading')}</p>}
+            {visibleBiblioSearching && <p className="text-xs text-gray-500 mt-1">{t('common.loading')}</p>}
             {biblioPickError && (
               <p className="text-sm text-red-600 dark:text-red-400 mt-2">{biblioPickError}</p>
             )}
-            {biblioResults.length > 0 && (
+            {visibleBiblioResults.length > 0 && (
               <ul className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700">
-                {biblioResults.map((b) => (
+                {visibleBiblioResults.map((b) => (
                   <li key={b.id}>
                     <button
                       type="button"
@@ -413,10 +417,10 @@ export default function HoldsPage() {
               onChange={(e) => setCreateUserDraft(e.target.value)}
               placeholder={t('users.searchPlaceholder')}
             />
-            {createUserSearching && <p className="text-xs text-gray-500 mt-1">{t('common.loading')}</p>}
-            {createUserResults.length > 0 && (
+            {visibleCreateUserSearching && <p className="text-xs text-gray-500 mt-1">{t('common.loading')}</p>}
+            {visibleCreateUserResults.length > 0 && (
               <ul className="mt-2 max-h-36 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-200 dark:divide-gray-700">
-                {createUserResults.map((u) => (
+                {visibleCreateUserResults.map((u) => (
                   <li key={u.id}>
                     <button
                       type="button"

@@ -13,6 +13,7 @@ import { Card, CardHeader, Button, Input } from '@/components/common';
 import { Pagination } from '@/components/common';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
+import { deferFromEffect } from '@/utils/deferFromEffect';
 import { formControlClass, formLabelClass, formChoiceLabelClass } from '@/utils/formControl';
 import type { AuditLogEntry } from '@/types';
 
@@ -114,10 +115,11 @@ export default function AuditLogViewer() {
   const [draft, setDraft] = useState<AppliedAuditFilters>(() => cloneFilters(EMPTY_FILTERS));
   const [applied, setApplied] = useState<AppliedAuditFilters>(() => cloneFilters(EMPTY_FILTERS));
   const [expandedId, setExpandedId] = useState<number | null>(null);
-
-  useEffect(() => {
+  const [listEpoch, setListEpoch] = useState({ page, perPage, applied });
+  if (page !== listEpoch.page || perPage !== listEpoch.perPage || applied !== listEpoch.applied) {
+    setListEpoch({ page, perPage, applied });
     setExpandedId(null);
-  }, [page, perPage, applied]);
+  }
 
   const applyQuick = useCallback((patch: Partial<AppliedAuditFilters>) => {
     setApplied((a) => ({ ...a, ...patch }));
@@ -160,9 +162,7 @@ export default function AuditLogViewer() {
     }
   }, [t, page, perPage, listParamsBase]);
 
-  useEffect(() => {
-    void fetchEntries();
-  }, [fetchEntries]);
+  useEffect(() => deferFromEffect(() => { void fetchEntries(); }), [fetchEntries]);
 
   const applyFilters = () => {
     setApplied(cloneFilters(draft));

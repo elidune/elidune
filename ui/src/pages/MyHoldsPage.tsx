@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -41,9 +41,11 @@ export default function MyHoldsPage() {
   const [activeOnly, setActiveOnly] = useState(true);
   const [cancelHoldId, setCancelHoldId] = useState<string | null>(null);
 
-  useEffect(() => {
+  const [prevHoldFilters, setPrevHoldFilters] = useState({ activeOnly, perPage });
+  if (activeOnly !== prevHoldFilters.activeOnly || perPage !== prevHoldFilters.perPage) {
+    setPrevHoldFilters({ activeOnly, perPage });
     setPage(1);
-  }, [activeOnly, perPage]);
+  }
 
   const listQuery = useQuery({
     queryKey: ['my-holds', page, perPage, activeOnly],
