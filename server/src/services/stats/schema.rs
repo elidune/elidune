@@ -350,8 +350,12 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
                     f("attendees_count", "integer", "Attendees"),
                 ),
                 (
-                    "public_type",
-                    f("public_type", "text", "Target audience (public_types.name)"),
+                    "all_audiences",
+                    f(
+                        "all_audiences",
+                        "boolean",
+                        "True when the event targets every audience (see event_audiences)",
+                    ),
                 ),
                 ("school_name", f("school_name", "text", "School")),
                 ("students_count", f("students_count", "integer", "Students")),

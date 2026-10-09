@@ -159,6 +159,8 @@
     "targetPublic": {
       "all": "All audiences"
     },
+    "targetPublicHint": "Choose All audiences, or one or more specific audiences.",
+    "targetPublicRequired": "Select at least one audience, or All audiences.",
     "attendeesCount": "Number of attendees",
     "schoolName": "School",
     "className": "Class",

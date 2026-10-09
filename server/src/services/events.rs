@@ -14,7 +14,9 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use crate::{
     error::{AppError, AppResult},
     models::{
-        event::{CreateEvent, Event, EventAttachmentInput, EventQuery, UpdateEvent},
+        event::{
+            AudienceSelection, CreateEvent, Event, EventAttachmentInput, EventQuery, UpdateEvent,
+        },
         Language,
     },
     repository::{events::EventAnnualStats, EventsServiceRepository},
@@ -99,18 +101,27 @@ impl EventsService {
 
     #[tracing::instrument(skip(self), err)]
     pub async fn create(&self, data: &CreateEvent) -> AppResult<Event> {
-        Self::validate_public_type_name(&*self.repository, data.public_type.as_ref()).await?;
+        let audiences = resolve_create_audiences(data).map_err(AudienceInputError::into_app)?;
+        self.validate_audience_names(&audiences.public_types)
+            .await?;
         let attachment = match &data.attachment {
             Some(a) => Some(decode_event_attachment_input(a)?),
             None => None,
         };
-        let event = self.repository.events_create(data, attachment).await?;
+        let event = self
+            .repository
+            .events_create(data, &audiences, attachment)
+            .await?;
         self.enrich_with_attachment_base64(event).await
     }
 
     #[tracing::instrument(skip(self), err)]
     pub async fn update(&self, id: i64, data: &UpdateEvent) -> AppResult<Event> {
-        Self::validate_public_type_name(&*self.repository, data.public_type.as_ref()).await?;
+        let audiences = resolve_update_audiences(data).map_err(AudienceInputError::into_app)?;
+        if let Some(selection) = &audiences {
+            self.validate_audience_names(&selection.public_types)
+                .await?;
+        }
         let remove = data.remove_attachment == Some(true);
         let new_attachment = if !remove {
             match &data.attachment {
@@ -121,7 +132,7 @@ impl EventsService {
             None
         };
 
-        let mut event = self.repository.events_update(id, data).await?;
+        let mut event = self.repository.events_update(id, data, audiences).await?;
 
         event = if remove {
             self.repository.events_delete_attachment(id).await?
@@ -158,8 +169,15 @@ impl EventsService {
         self.repository.events_annual_stats(year).await
     }
 
-    /// Send an announcement email for an event to all users whose `users.public_type`
-    /// matches the event's `public_type` (`public_types.name`), or everyone if it is NULL.
+    /// Send an announcement email to patrons in any selected audience, once each.
+    ///
+    /// Recipients are selected in SQL: `receive_reminders` is required, and either
+    /// `all_audiences` is set or `public_types.name` is one of the event audiences.
+    /// Each user is returned once.
+    ///
+    /// `main` has no dedicated GDPR communications-consent column. The only email
+    /// opt-in is `users.receive_reminders` (overdue reminders, default true). Patrons
+    /// with that flag false are not notified. No new consent model is introduced.
     ///
     /// If the request provides `subject`/`body_plain`/`body_html`, those are used
     /// directly instead of the template.
@@ -210,24 +228,9 @@ impl EventsService {
             .map(|d| format!("<p>{}</p>", d.replace('\n', "<br>")))
             .unwrap_or_default();
 
-        let audience_id = match event.public_type.as_deref() {
-            None => None,
-            Some(name) => Some(
-                self.repository
-                    .public_types_find_id_by_name(name.trim())
-                    .await?
-                    .ok_or_else(|| {
-                        AppError::Internal(format!(
-                            "event {} references missing public_type name {:?}",
-                            event_id, name
-                        ))
-                    })?,
-            ),
-        };
-
         let targets = self
             .repository
-            .users_get_emails_by_public_type(audience_id)
+            .users_list_announcement_recipients(event.all_audiences, &event.public_types)
             .await?;
 
         let mut emails_sent: u32 = 0;
@@ -352,25 +355,111 @@ impl EventsService {
         })
     }
 
-    async fn validate_public_type_name(
-        repository: &dyn EventsServiceRepository,
-        public_type: Option<&String>,
-    ) -> AppResult<()> {
-        let Some(raw) = public_type else {
-            return Ok(());
-        };
-        let name = raw.trim();
-        if name.is_empty() {
-            return Err(AppError::Validation("public_type must not be blank".into()));
-        }
-        let exists = repository.public_types_find_id_by_name(name).await?;
-        if exists.is_none() {
-            return Err(AppError::Validation(format!(
-                "Unknown public_type name {name:?} (must match public_types.name)"
-            )));
+    async fn validate_audience_names(&self, names: &[String]) -> AppResult<()> {
+        for name in names {
+            let exists = self.repository.public_types_find_id_by_name(name).await?;
+            if exists.is_none() {
+                return Err(AppError::Validation(format!(
+                    "Unknown public_type name {name:?} (must match public_types.name)"
+                )));
+            }
         }
         Ok(())
     }
+}
+
+/// Why an audience payload was rejected. Mapped to [`AppError::Validation`] at the service boundary.
+#[derive(Debug, PartialEq, Eq)]
+pub enum AudienceInputError {
+    Empty,
+    Combined,
+}
+
+impl AudienceInputError {
+    fn into_app(self) -> AppError {
+        match self {
+            Self::Empty => AppError::Validation(
+                "Select at least one audience, or set allAudiences to true".into(),
+            ),
+            Self::Combined => {
+                AppError::Validation("allAudiences cannot be combined with publicTypes".into())
+            }
+        }
+    }
+}
+
+/// Build the audience selection for a create request.
+pub fn resolve_create_audiences(
+    data: &CreateEvent,
+) -> Result<AudienceSelection, AudienceInputError> {
+    let names = match &data.public_types {
+        Some(list) => normalize_audience_names(list),
+        None => legacy_public_type_names(data.public_type.as_deref()),
+    };
+    validate_audience_selection(data.all_audiences, names)
+}
+
+/// Audience replacement for an update. `None` means the stored audiences stay as they are.
+pub fn resolve_update_audiences(
+    data: &UpdateEvent,
+) -> Result<Option<AudienceSelection>, AudienceInputError> {
+    let legacy = data
+        .public_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty());
+    let touched = data.all_audiences.is_some() || data.public_types.is_some() || legacy.is_some();
+    if !touched {
+        return Ok(None);
+    }
+    let all_audiences = data.all_audiences.unwrap_or(false);
+    let names = if let Some(list) = &data.public_types {
+        normalize_audience_names(list)
+    } else if let Some(name) = legacy {
+        vec![name.to_string()]
+    } else {
+        Vec::new()
+    };
+    Ok(Some(validate_audience_selection(all_audiences, names)?))
+}
+
+fn normalize_audience_names(names: &[String]) -> Vec<String> {
+    let mut out = Vec::new();
+    for raw in names {
+        let name = raw.trim();
+        if name.is_empty() || out.iter().any(|existing: &String| existing == name) {
+            continue;
+        }
+        out.push(name.to_string());
+    }
+    out
+}
+
+fn legacy_public_type_names(public_type: Option<&str>) -> Vec<String> {
+    match public_type.map(str::trim).filter(|name| !name.is_empty()) {
+        Some(name) => vec![name.to_string()],
+        None => Vec::new(),
+    }
+}
+
+fn validate_audience_selection(
+    all_audiences: bool,
+    public_types: Vec<String>,
+) -> Result<AudienceSelection, AudienceInputError> {
+    if all_audiences && !public_types.is_empty() {
+        return Err(AudienceInputError::Combined);
+    }
+    if !all_audiences && public_types.is_empty() {
+        return Err(AudienceInputError::Empty);
+    }
+    Ok(AudienceSelection {
+        all_audiences,
+        public_types: if all_audiences {
+            Vec::new()
+        } else {
+            public_types
+        },
+    })
 }
 
 fn decode_event_attachment_input(
@@ -419,4 +508,102 @@ fn normalize_mime_type(mime: &str) -> String {
         return "application/octet-stream".to_string();
     }
     s.chars().take(255).collect()
+}
+
+#[cfg(test)]
+mod audience_tests {
+    use super::*;
+
+    fn create_body(json: &str) -> CreateEvent {
+        serde_json::from_str(json).expect("create event json")
+    }
+
+    fn update_body(json: &str) -> UpdateEvent {
+        serde_json::from_str(json).expect("update event json")
+    }
+
+    #[test]
+    fn rejects_empty_audience_selection() {
+        let created = create_body(r#"{"name":"Talk","eventDate":"2026-05-01"}"#);
+        let err = resolve_create_audiences(&created).unwrap_err();
+        assert_eq!(err, AudienceInputError::Empty);
+
+        let cleared = update_body(r#"{"allAudiences":false,"publicTypes":[]}"#);
+        let err = resolve_update_audiences(&cleared).unwrap_err();
+        assert_eq!(err, AudienceInputError::Empty);
+    }
+
+    #[test]
+    fn explicit_all_audiences_stores_no_names() {
+        let created =
+            create_body(r#"{"name":"Talk","eventDate":"2026-05-01","allAudiences":true}"#);
+        let selection = resolve_create_audiences(&created).unwrap();
+        assert!(selection.all_audiences);
+        assert!(selection.public_types.is_empty());
+
+        let with_empty_list = create_body(
+            r#"{"name":"Talk","eventDate":"2026-05-01","allAudiences":true,"publicTypes":[]}"#,
+        );
+        let selection = resolve_create_audiences(&with_empty_list).unwrap();
+        assert!(selection.all_audiences);
+    }
+
+    #[test]
+    fn rejects_all_audiences_combined_with_names() {
+        let created = create_body(
+            r#"{"name":"Talk","eventDate":"2026-05-01","allAudiences":true,"publicTypes":["adult"]}"#,
+        );
+        assert_eq!(
+            resolve_create_audiences(&created),
+            Err(AudienceInputError::Combined)
+        );
+    }
+
+    #[test]
+    fn legacy_public_type_maps_to_one_element_list() {
+        let created =
+            create_body(r#"{"name":"Talk","eventDate":"2026-05-01","publicType":" adult "}"#);
+        let selection = resolve_create_audiences(&created).unwrap();
+        assert!(!selection.all_audiences);
+        assert_eq!(selection.public_types, vec!["adult".to_string()]);
+
+        let updated = update_body(r#"{"publicType":"child"}"#);
+        let selection = resolve_update_audiences(&updated).unwrap().unwrap();
+        assert_eq!(selection.public_types, vec!["child".to_string()]);
+    }
+
+    #[test]
+    fn multi_audience_create_dedupes_names() {
+        let created = create_body(
+            r#"{"name":"Talk","eventDate":"2026-05-01","publicTypes":["child"," adult ","child",""]}"#,
+        );
+        let selection = resolve_create_audiences(&created).unwrap();
+        assert_eq!(
+            selection.public_types,
+            vec!["child".to_string(), "adult".to_string()]
+        );
+    }
+
+    #[test]
+    fn update_without_audience_fields_leaves_them_unchanged() {
+        let updated = update_body(r#"{"name":"Renamed"}"#);
+        assert!(resolve_update_audiences(&updated).unwrap().is_none());
+    }
+
+    #[test]
+    fn migration_036_keeps_legacy_public_type_column() {
+        let sql = include_str!("../../migrations/036_events_audiences.sql");
+        let upper = sql.to_ascii_uppercase();
+        assert!(
+            !upper.contains("DROP COLUMN"),
+            "legacy public_type stays until a later migration"
+        );
+        assert!(
+            !upper.contains("DROP CONSTRAINT"),
+            "legacy public_type FK stays until a later migration"
+        );
+        assert!(sql.contains("CREATE TABLE IF NOT EXISTS event_audiences"));
+        assert!(sql.contains("ADD COLUMN IF NOT EXISTS all_audiences"));
+        assert!(sql.contains("WHERE public_type IS NULL"));
+    }
 }

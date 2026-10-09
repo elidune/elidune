@@ -159,6 +159,8 @@
     "targetPublic": {
       "all": "Tous les publics"
     },
+    "targetPublicHint": "Cochez « Tous les publics », ou un ou plusieurs publics.",
+    "targetPublicRequired": "Sélectionnez au moins un public, ou Tous les publics.",
     "attendeesCount": "Nombre de participants",
     "schoolName": "École",
     "className": "Classe",

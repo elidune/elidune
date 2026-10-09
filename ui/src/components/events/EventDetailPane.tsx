@@ -16,7 +16,7 @@ import type { Event } from '@/types';
 import api from '@/services/api';
 import { base64ToDataUrl, isImageMime } from '@/utils/eventAttachment';
 import { usePublicTypesQuery } from '@/hooks/usePublicTypesQuery';
-import { eventPublicTypeDisplayLabel } from '@/utils/eventPublicType';
+import { eventAudienceDisplayLabel } from '@/utils/eventPublicType';
 import { EVENT_TYPE_COLORS, EVENT_TYPE_KEYS } from './eventDisplayConstants';
 import { formatEventDateOnly } from './eventDateFormat';
 import { eventTimesFromRow, formatEventTimeRange } from '@/utils/eventTimes';
@@ -58,7 +58,9 @@ export default function EventDetailPane({
       : '';
 
   const targetLabel =
-    detail != null ? eventPublicTypeDisplayLabel(detail.publicType, publicTypes) : null;
+    detail != null
+      ? eventAudienceDisplayLabel(detail, publicTypes, t('events.targetPublic.all'))
+      : null;
 
   const detailTimes = detail ? eventTimesFromRow(detail) : { startTime: null, endTime: null };
   const listTimes = listEvent ? eventTimesFromRow(listEvent) : { startTime: null, endTime: null };
@@ -85,7 +87,7 @@ export default function EventDetailPane({
       value: detail.partnerName,
     });
   }
-  if (targetLabel) {
+  if (targetLabel && targetLabel !== '—') {
     secondaryLines.push({
       icon: UserCircle,
       label: t('events.targetPublicLabel'),

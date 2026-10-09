@@ -23,6 +23,42 @@ pub struct UserEmailTarget {
     pub language: Option<String>,
 }
 
+/// Patron selected for an event announcement.
+/// The query already applies `receive_reminders` and the audience filter.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct AnnouncementCandidate {
+    pub id: i64,
+    pub email: Option<String>,
+    pub firstname: Option<String>,
+    pub lastname: Option<String>,
+    pub language: Option<String>,
+    /// `public_types.name` for the patron, when set.
+    pub public_type_name: Option<String>,
+    /// Existing email opt-in (`users.receive_reminders`). There is no separate GDPR consent column.
+    pub receive_reminders: bool,
+}
+
+/// SQL for [`Repository::users_list_announcement_recipients`].
+/// `$1::boolean` is all-audiences (no type filter). `$2::text[]` is the audience names.
+pub(crate) const ANNOUNCEMENT_RECIPIENTS_SQL: &str = r#"
+SELECT DISTINCT
+       u.id,
+       u.email,
+       u.firstname,
+       u.lastname,
+       u.language,
+       pt.name AS public_type_name,
+       u.receive_reminders
+FROM users u
+LEFT JOIN public_types pt ON pt.id = u.public_type
+WHERE u.receive_reminders = TRUE
+  AND u.email IS NOT NULL
+  AND u.email <> ''
+  AND (u.status IS NULL OR u.status <> 'deleted')
+  AND ($1::boolean OR pt.name = ANY($2::text[]))
+ORDER BY u.id
+"#;
+
 /// Patron fields for hold-ready notification email.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct HoldReadyUserContact {
@@ -78,6 +114,14 @@ pub trait UsersRepository: Send + Sync {
         &self,
         public_type: Option<i64>,
     ) -> AppResult<Vec<UserEmailTarget>>;
+    /// Patrons who should receive an event announcement.
+    /// `all_audiences` skips the type filter. Otherwise `public_types.name` must be in `audience_names`.
+    /// Always requires `receive_reminders` (provisional opt-in; no separate GDPR column).
+    async fn users_list_announcement_recipients(
+        &self,
+        all_audiences: bool,
+        audience_names: &[String],
+    ) -> AppResult<Vec<AnnouncementCandidate>>;
     async fn users_count(&self) -> AppResult<i64>;
     async fn users_set_must_change_password(&self, id: i64, value: bool) -> AppResult<()>;
     async fn users_hold_ready_contact(
@@ -206,6 +250,13 @@ impl UsersRepository for Repository {
         public_type: Option<i64>,
     ) -> crate::error::AppResult<Vec<UserEmailTarget>> {
         Repository::users_get_emails_by_public_type(self, public_type).await
+    }
+    async fn users_list_announcement_recipients(
+        &self,
+        all_audiences: bool,
+        audience_names: &[String],
+    ) -> crate::error::AppResult<Vec<AnnouncementCandidate>> {
+        Repository::users_list_announcement_recipients(self, all_audiences, audience_names).await
     }
     async fn users_count(&self) -> crate::error::AppResult<i64> {
         Repository::users_count(self).await
@@ -948,6 +999,25 @@ impl Repository {
         Ok(rows)
     }
 
+    /// Patrons who should receive an event announcement, filtered in SQL.
+    ///
+    /// `$1` is all-audiences: when true there is no public-type filter.
+    /// Otherwise `public_types.name` must be in `$2`. `receive_reminders` is always required.
+    /// One row per user (`SELECT DISTINCT`). Provisional consent is `users.receive_reminders`.
+    #[tracing::instrument(skip(self, audience_names), err)]
+    pub async fn users_list_announcement_recipients(
+        &self,
+        all_audiences: bool,
+        audience_names: &[String],
+    ) -> AppResult<Vec<AnnouncementCandidate>> {
+        let rows = sqlx::query_as::<_, AnnouncementCandidate>(ANNOUNCEMENT_RECIPIENTS_SQL)
+            .bind(all_audiences)
+            .bind(audience_names)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows)
+    }
+
     pub async fn users_hold_ready_contact(
         &self,
         user_id: i64,
@@ -959,5 +1029,25 @@ impl Repository {
         .fetch_optional(&self.pool)
         .await
         .map_err(Into::into)
+    }
+}
+
+#[cfg(test)]
+mod announcement_recipient_sql_tests {
+    use super::ANNOUNCEMENT_RECIPIENTS_SQL;
+
+    #[test]
+    fn filters_consent_and_audience_in_sql() {
+        let sql = ANNOUNCEMENT_RECIPIENTS_SQL;
+        assert!(sql.contains("SELECT DISTINCT"), "one row per user");
+        assert!(
+            sql.contains("u.receive_reminders = TRUE"),
+            "provisional opt-in stays in the query"
+        );
+        assert!(
+            sql.contains("$1::boolean OR pt.name = ANY($2::text[])"),
+            "all-audiences skips the type filter; otherwise match public_types.name"
+        );
+        assert!(sql.contains("LEFT JOIN public_types"));
     }
 }
