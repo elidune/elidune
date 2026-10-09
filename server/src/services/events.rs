@@ -770,7 +770,12 @@ mod children_fragment_tests {
 
     #[test]
     fn unknown_language_falls_back_to_french() {
-        for lang in [None, Some("unknown"), Some("italian"), Some("not-a-language")] {
+        for lang in [
+            None,
+            Some("unknown"),
+            Some("italian"),
+            Some("not-a-language"),
+        ] {
             let (plain, html) = announcement_children_fragments(lang, &[child(7, "Lea", "Martin")]);
             assert!(
                 plain.contains("Cette invitation concerne : Lea Martin."),
