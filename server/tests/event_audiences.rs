@@ -119,7 +119,10 @@ async fn event_audiences_create_update_read_and_reject_empty() {
     let Some(app) = TestApp::spawn().await else {
         return;
     };
+    // Shared CI database: first-setup may already have run, and requests need a peer
+    // address for the rate limiter. `ensure_first_setup` and `TestApp::request` cover both.
     let token = fixtures::ensure_first_setup(&app).await;
+    let suffix = fixtures::unique_suffix();
 
     let (status, types_body) = app.get_json_with_auth("/api/v1/public-types", &token).await;
     assert_eq!(status, StatusCode::OK, "public types: {types_body}");
@@ -140,7 +143,7 @@ async fn event_audiences_create_update_read_and_reject_empty() {
         .post_json(
             "/api/v1/events",
             &json!({
-                "name": "No audience",
+                "name": format!("No audience {suffix}"),
                 "eventDate": "2026-09-01",
                 "allAudiences": false,
                 "publicTypes": []
@@ -158,7 +161,7 @@ async fn event_audiences_create_update_read_and_reject_empty() {
         .post_json(
             "/api/v1/events",
             &json!({
-                "name": "Legacy single",
+                "name": format!("Legacy single {suffix}"),
                 "eventDate": "2026-09-02",
                 "publicType": first
             }),
@@ -174,7 +177,7 @@ async fn event_audiences_create_update_read_and_reject_empty() {
         .post_json(
             "/api/v1/events",
             &json!({
-                "name": "Two audiences",
+                "name": format!("Two audiences {suffix}"),
                 "eventDate": "2026-09-03",
                 "publicTypes": [first, second, first]
             }),
@@ -214,7 +217,10 @@ async fn event_audiences_create_update_read_and_reject_empty() {
     assert_eq!(all_body["publicTypes"], json!([]));
 
     let (list_status, list_body) = app
-        .get_json_with_auth("/api/v1/events?perPage=100", &token)
+        .get_json_with_auth(
+            "/api/v1/events?startDate=2026-09-03&endDate=2026-09-03&perPage=100",
+            &token,
+        )
         .await;
     assert_eq!(list_status, StatusCode::OK, "list: {list_body}");
     let listed = list_body["events"]
