@@ -19,6 +19,18 @@ use crate::{
     models::Language,
 };
 
+/// One generator per process. A fresh `Generator` starts its sequence at 0, so
+/// two processes using the same instance mint the same id in the same millisecond
+/// and the outbox insert fails. The instance is the process id.
+fn next_outbox_id() -> i64 {
+    static IDS: std::sync::LazyLock<std::sync::Mutex<snowflaked::Generator>> =
+        std::sync::LazyLock::new(|| {
+            let instance = (std::process::id() as u16) & 0x03FF;
+            std::sync::Mutex::new(snowflaked::Generator::new(instance))
+        });
+    IDS.lock().unwrap_or_else(|err| err.into_inner()).generate()
+}
+
 #[derive(Clone)]
 pub struct EmailService {
     dynamic_config: Arc<DynamicConfig>,
@@ -121,7 +133,7 @@ impl EmailService {
         body_plain: &str,
         body_html: &str,
     ) -> AppResult<i64> {
-        let id: i64 = snowflaked::Generator::new(4).generate();
+        let id = next_outbox_id();
         let body = serde_json::json!({
             "plain": body_plain,
             "html": body_html,
@@ -156,7 +168,7 @@ impl EmailService {
         loan_ids: &[i64],
     ) -> AppResult<i64> {
         let mut tx = self.pool.begin().await.map_err(AppError::from)?;
-        let id: i64 = snowflaked::Generator::new(4).generate();
+        let id = next_outbox_id();
         let body = serde_json::json!({
             "plain": body_plain,
             "html": body_html,
@@ -206,7 +218,7 @@ impl EmailService {
         event_id: i64,
     ) -> AppResult<i64> {
         let mut tx = self.pool.begin().await.map_err(AppError::from)?;
-        let id: i64 = snowflaked::Generator::new(4).generate();
+        let id = next_outbox_id();
         let body = serde_json::json!({
             "plain": body_plain,
             "html": body_html,

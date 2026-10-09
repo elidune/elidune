@@ -39,6 +39,8 @@ pub fn first_setup_payload() -> serde_json::Value {
 ///
 /// Parallel integration tests share one database, so first-setup can race.
 /// If another test already completed bootstrap, fall through to admin login.
+/// Login waits until `must_change_password` is cleared: a login in that window
+/// returns a password-change token that cannot create patrons.
 pub async fn ensure_first_setup(app: &super::TestApp) -> String {
     let (_, health) = app.get_json("/api/v1/health").await;
     if health["setup"]["needFirstSetup"].as_bool() == Some(true) {
@@ -53,6 +55,8 @@ pub async fn ensure_first_setup(app: &super::TestApp) -> String {
         }
     }
 
+    wait_until_admin_can_authenticate(app).await;
+
     let (status, body) = app
         .post_json(
             "/api/v1/auth/login",
@@ -65,6 +69,21 @@ pub async fn ensure_first_setup(app: &super::TestApp) -> String {
         .as_str()
         .expect("token in login response")
         .to_string()
+}
+
+async fn wait_until_admin_can_authenticate(app: &super::TestApp) {
+    for _ in 0..50 {
+        let pending: Option<bool> =
+            sqlx::query_scalar("SELECT must_change_password FROM users WHERE login = 'testadmin'")
+                .fetch_optional(app.state.services.repository.pool())
+                .await
+                .expect("read admin password flag");
+        if pending == Some(false) {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    panic!("testadmin was not ready for a full session");
 }
 
 async fn first_public_type_id(app: &super::TestApp, admin_token: &str) -> i64 {
