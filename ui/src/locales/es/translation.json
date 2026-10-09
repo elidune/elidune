@@ -173,6 +173,8 @@
     "targetPublic": {
       "all": "Todas las audiencias"
     },
+    "targetPublicHint": "Marque «Todas las audiencias» o una o varias audiencias.",
+    "targetPublicRequired": "Seleccione al menos una audiencia, o Todas las audiencias.",
     "attendeesCount": "Número de asistentes",
     "schoolName": "Escuela",
     "className": "Clase",

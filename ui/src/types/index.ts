@@ -1452,6 +1452,11 @@ export interface Event {
   className?: string | null;
   attendeesCount?: number | null;
   studentsCount?: number | null;
+  /** True when the event targets every audience. Mutually exclusive with `publicTypes`. */
+  allAudiences?: boolean;
+  /** Selected audience names (`public_types.name`). Empty when `allAudiences` is true. */
+  publicTypes?: string[];
+  /** @deprecated Legacy single audience. Prefer `publicTypes`. */
   publicType?: string | null;
   notes?: string | null;
   announcementSentAt?: string | null;
@@ -1477,6 +1482,9 @@ export interface CreateEvent {
   className?: string | null;
   attendeesCount?: number | null;
   studentsCount?: number | null;
+  allAudiences?: boolean;
+  publicTypes?: string[];
+  /** @deprecated Send `publicTypes` instead. Mapped server-side to a one-element list. */
   publicType?: string | null;
   notes?: string | null;
   attachment?: EventAttachmentInput | null;
@@ -1494,6 +1502,9 @@ export interface UpdateEvent {
   className?: string | null;
   attendeesCount?: number | null;
   studentsCount?: number | null;
+  allAudiences?: boolean | null;
+  publicTypes?: string[] | null;
+  /** @deprecated Send `publicTypes` instead. */
   publicType?: string | null;
   notes?: string | null;
   attachment?: EventAttachmentInput | null;

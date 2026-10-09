@@ -173,6 +173,8 @@
     "targetPublic": {
       "all": "Alle Zielgruppen"
     },
+    "targetPublicHint": "Wählen Sie „Alle Zielgruppen“ oder eine oder mehrere Zielgruppen.",
+    "targetPublicRequired": "Wählen Sie mindestens eine Zielgruppe oder Alle Zielgruppen.",
     "attendeesCount": "Anzahl der Teilnehmer",
     "schoolName": "Schule",
     "className": "Klasse",

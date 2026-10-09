@@ -4,7 +4,7 @@ import type { Event, PublicType } from '@/types';
 import { formatEventListWhenCaption } from './eventDateFormat';
 import { EVENT_TYPE_COLORS, EVENT_TYPE_KEYS } from './eventDisplayConstants';
 import { eventTimesFromRow } from '@/utils/eventTimes';
-import { eventPublicTypeDisplayLabel } from '@/utils/eventPublicType';
+import { eventAudienceDisplayLabel } from '@/utils/eventPublicType';
 
 export interface PublicEventDetailsContentProps {
   event: Event;
@@ -36,7 +36,11 @@ export default function PublicEventDetailsContent({
     startTime,
     endTime,
   );
-  const targetLabel = eventPublicTypeDisplayLabel(event.publicType, publicTypes);
+  const targetLabel = eventAudienceDisplayLabel(
+    event,
+    publicTypes,
+    t('events.targetPublic.all'),
+  );
   const description = event.description?.trim() || null;
   const notes = event.notes?.trim() || null;
   const bodyText = description || notes;
@@ -80,7 +84,7 @@ export default function PublicEventDetailsContent({
             <Tag className="h-3 w-3 shrink-0" aria-hidden />
             <span className="min-w-0 break-words">{t(typeKey)}</span>
           </span>
-          {targetLabel && (
+          {targetLabel !== '—' && (
             <span
               className={`max-w-full break-words rounded-md bg-amber-100/90 px-2 py-0.5 font-medium text-amber-900 ring-1 ring-amber-300/70 dark:bg-amber-950/50 dark:text-amber-100 dark:ring-amber-700/70 ${
                 isOverlay ? 'text-xs' : 'text-[11px]'
