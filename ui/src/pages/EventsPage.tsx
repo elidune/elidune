@@ -19,7 +19,7 @@ import { Card, Button, Table, Pagination, Modal, Input, ConfirmDialog, Scrollabl
 import api from '@/services/api';
 import type { Event, CreateEvent, UpdateEvent } from '@/types';
 import { usePublicTypesQuery } from '@/hooks/usePublicTypesQuery';
-import { eventPublicTypeDisplayLabel } from '@/utils/eventPublicType';
+import { eventAudienceDisplayLabel } from '@/utils/eventPublicType';
 import { fileToAttachmentInput, base64ToDataUrl, isImageMime } from '@/utils/eventAttachment';
 import { formControlClass, formTextareaClass, formLabelClass, formChoiceLabelClass } from '@/utils/formControl';
 import EventAttachmentLead from '@/components/events/EventAttachmentLead';
@@ -234,14 +234,11 @@ export default function EventsPage() {
     {
       key: 'publicType',
       header: t('events.targetPublicLabel'),
-      render: (event: Event) => {
-        const label = eventPublicTypeDisplayLabel(event.publicType, publicTypes);
-        return (
-          <span className="text-sm text-gray-700 dark:text-gray-300">
-            {label ?? t('events.targetPublic.all')}
-          </span>
-        );
-      },
+      render: (event: Event) => (
+        <span className="text-sm text-gray-700 dark:text-gray-300">
+          {eventAudienceDisplayLabel(event, publicTypes, t('events.targetPublic.all'))}
+        </span>
+      ),
     },
     {
       key: 'actions',
@@ -494,9 +491,13 @@ function EventForm({ formId, initialValues, onLoadingChange, onSuccess }: EventF
     className: initialValues?.className ?? '',
     attendeesCount: initialValues?.attendeesCount != null ? String(initialValues.attendeesCount) : '',
     studentsCount: initialValues?.studentsCount != null ? String(initialValues.studentsCount) : '',
-    publicType: initialValues?.publicType?.trim() ? initialValues.publicType : '',
+    allAudiences: initialValues?.allAudiences === true,
+    publicTypes: initialValues?.allAudiences
+      ? []
+      : [...(initialValues?.publicTypes ?? [])],
     notes: initialValues?.notes ?? '',
   });
+  const [audienceError, setAudienceError] = useState<string | null>(null);
 
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
   const [removeAttachment, setRemoveAttachment] = useState(false);
@@ -530,6 +531,11 @@ function EventForm({ formId, initialValues, onLoadingChange, onSuccess }: EventF
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!formData.allAudiences && formData.publicTypes.length === 0) {
+      setAudienceError(t('events.targetPublicRequired'));
+      return;
+    }
+    setAudienceError(null);
     onLoadingChange(true);
     try {
       const common = {
@@ -544,7 +550,8 @@ function EventForm({ formId, initialValues, onLoadingChange, onSuccess }: EventF
         className: formData.className || null,
         attendeesCount: formData.attendeesCount !== '' ? Number(formData.attendeesCount) : null,
         studentsCount: formData.studentsCount !== '' ? Number(formData.studentsCount) : null,
-        publicType: formData.publicType.trim() !== '' ? formData.publicType.trim() : null,
+        allAudiences: formData.allAudiences,
+        publicTypes: formData.allAudiences ? [] : formData.publicTypes,
         notes: formData.notes || null,
       };
 
@@ -566,7 +573,8 @@ function EventForm({ formId, initialValues, onLoadingChange, onSuccess }: EventF
           className: common.className,
           attendeesCount: common.attendeesCount,
           studentsCount: common.studentsCount,
-          publicType: common.publicType,
+          allAudiences: common.allAudiences,
+          publicTypes: common.publicTypes,
           notes: common.notes,
         };
         if (attachmentFile) c.attachment = await fileToAttachmentInput(attachmentFile);
@@ -652,23 +660,59 @@ function EventForm({ formId, initialValues, onLoadingChange, onSuccess }: EventF
         {t('events.audienceInfo')}
       </h4>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div>
-          <label className={formLabelClass()}>
+        <fieldset>
+          <legend className={formLabelClass()}>
             {t('events.targetPublicLabel')}
+          </legend>
+          <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
+            {t('events.targetPublicHint')}
+          </p>
+          <label className={formChoiceLabelClass()}>
+            <input
+              type="checkbox"
+              checked={formData.allAudiences}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                setAudienceError(null);
+                setFormData((current) => ({
+                  ...current,
+                  allAudiences: checked,
+                  publicTypes: checked ? [] : current.publicTypes,
+                }));
+              }}
+            />
+            {t('events.targetPublic.all')}
           </label>
-          <select
-            value={formData.publicType}
-            onChange={(e) => setFormData({ ...formData, publicType: e.target.value })}
-            className={formControlClass({ className: 'w-full' })}
-          >
-            <option value="">{t('events.targetPublic.all')}</option>
+          <div className="mt-2 flex flex-col gap-1.5">
             {publicTypes.map((pt) => (
-              <option key={pt.id} value={pt.name}>
+              <label
+                key={pt.id}
+                className={formChoiceLabelClass(formData.allAudiences ? 'opacity-60' : '')}
+              >
+                <input
+                  type="checkbox"
+                  disabled={formData.allAudiences}
+                  checked={!formData.allAudiences && formData.publicTypes.includes(pt.name)}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setAudienceError(null);
+                    setFormData((current) => ({
+                      ...current,
+                      allAudiences: false,
+                      publicTypes: checked
+                        ? [...current.publicTypes, pt.name]
+                        : current.publicTypes.filter((name) => name !== pt.name),
+                    }));
+                  }}
+                />
                 {pt.label}
-              </option>
+              </label>
             ))}
-          </select>
-        </div>
+          </div>
+          {audienceError && (
+            <p className="mt-1 text-sm text-red-600 dark:text-red-400">{audienceError}</p>
+          )}
+        </fieldset>
         <Input
           label={t('events.attendeesCount')}
           type="number"

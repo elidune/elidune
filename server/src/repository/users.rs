@@ -23,6 +23,20 @@ pub struct UserEmailTarget {
     pub language: Option<String>,
 }
 
+/// Patron row considered for an event announcement, before audience and consent filtering.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct AnnouncementCandidate {
+    pub id: i64,
+    pub email: Option<String>,
+    pub firstname: Option<String>,
+    pub lastname: Option<String>,
+    pub language: Option<String>,
+    /// `public_types.name` for the patron, when set.
+    pub public_type_name: Option<String>,
+    /// Existing email opt-in (`users.receive_reminders`). There is no separate GDPR consent column.
+    pub receive_reminders: bool,
+}
+
 /// Patron fields for hold-ready notification email.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct HoldReadyUserContact {
@@ -78,6 +92,8 @@ pub trait UsersRepository: Send + Sync {
         &self,
         public_type: Option<i64>,
     ) -> AppResult<Vec<UserEmailTarget>>;
+    /// Active patrons with a non-empty email, including audience name and the reminder opt-in flag.
+    async fn users_list_announcement_candidates(&self) -> AppResult<Vec<AnnouncementCandidate>>;
     async fn users_count(&self) -> AppResult<i64>;
     async fn users_set_must_change_password(&self, id: i64, value: bool) -> AppResult<()>;
     async fn users_hold_ready_contact(
@@ -206,6 +222,11 @@ impl UsersRepository for Repository {
         public_type: Option<i64>,
     ) -> crate::error::AppResult<Vec<UserEmailTarget>> {
         Repository::users_get_emails_by_public_type(self, public_type).await
+    }
+    async fn users_list_announcement_candidates(
+        &self,
+    ) -> crate::error::AppResult<Vec<AnnouncementCandidate>> {
+        Repository::users_list_announcement_candidates(self).await
     }
     async fn users_count(&self) -> crate::error::AppResult<i64> {
         Repository::users_count(self).await
@@ -945,6 +966,34 @@ impl Repository {
             .fetch_all(&self.pool)
             .await?
         };
+        Ok(rows)
+    }
+
+    /// Patrons eligible to be considered for an event announcement email.
+    /// Audience matching and the `receive_reminders` opt-in are applied by the events service.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn users_list_announcement_candidates(
+        &self,
+    ) -> AppResult<Vec<AnnouncementCandidate>> {
+        let rows = sqlx::query_as::<_, AnnouncementCandidate>(
+            r#"
+            SELECT u.id,
+                   u.email,
+                   u.firstname,
+                   u.lastname,
+                   u.language,
+                   pt.name AS public_type_name,
+                   u.receive_reminders
+            FROM users u
+            LEFT JOIN public_types pt ON pt.id = u.public_type
+            WHERE u.email IS NOT NULL
+              AND u.email <> ''
+              AND (u.status IS NULL OR u.status <> 'deleted')
+            ORDER BY u.id
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
         Ok(rows)
     }
 

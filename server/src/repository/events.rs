@@ -7,13 +7,13 @@ use sqlx::Row;
 use super::Repository;
 use crate::{
     error::{AppError, AppResult},
-    models::event::{CreateEvent, Event, EventQuery, UpdateEvent},
+    models::event::{AudienceSelection, CreateEvent, Event, EventQuery, UpdateEvent},
 };
 
 /// Columns for [`Event`] mapping (excludes `attachment_data` BYTEA; exposes `attachment_size`).
 const EVENT_COLUMNS: &str = r#"
   id, name, event_type, event_date, start_time, end_time,
-  attendees_count, public_type, school_name, class_name, students_count,
+  attendees_count, all_audiences, school_name, class_name, students_count,
   partner_name, description, notes, created_at, update_at, announcement_sent_at,
   attachment_filename,
   attachment_mime_type,
@@ -28,9 +28,15 @@ pub trait EventsRepository: Send + Sync {
     async fn events_create(
         &self,
         data: &CreateEvent,
+        audiences: &AudienceSelection,
         attachment: Option<(Vec<u8>, String, String)>,
     ) -> AppResult<Event>;
-    async fn events_update(&self, id: i64, data: &UpdateEvent) -> AppResult<Event>;
+    async fn events_update(
+        &self,
+        id: i64,
+        data: &UpdateEvent,
+        audiences: Option<AudienceSelection>,
+    ) -> AppResult<Event>;
     async fn events_set_announcement_sent_at(&self, id: i64) -> AppResult<()>;
     async fn events_delete(&self, id: i64) -> AppResult<()>;
     async fn events_put_attachment(
@@ -85,16 +91,18 @@ impl EventsRepository for super::Repository {
     async fn events_create(
         &self,
         data: &crate::models::event::CreateEvent,
+        audiences: &crate::models::event::AudienceSelection,
         attachment: Option<(Vec<u8>, String, String)>,
     ) -> crate::error::AppResult<crate::models::event::Event> {
-        super::Repository::events_create(self, data, attachment).await
+        super::Repository::events_create(self, data, audiences, attachment).await
     }
     async fn events_update(
         &self,
         id: i64,
         data: &crate::models::event::UpdateEvent,
+        audiences: Option<crate::models::event::AudienceSelection>,
     ) -> crate::error::AppResult<crate::models::event::Event> {
-        super::Repository::events_update(self, id, data).await
+        super::Repository::events_update(self, id, data, audiences).await
     }
     async fn events_set_announcement_sent_at(&self, id: i64) -> crate::error::AppResult<()> {
         super::Repository::events_set_announcement_sent_at(self, id).await
@@ -128,7 +136,77 @@ impl EventsRepository for super::Repository {
     }
 }
 
+async fn replace_audiences_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    event_id: i64,
+    audiences: &AudienceSelection,
+) -> AppResult<()> {
+    sqlx::query("UPDATE events SET all_audiences = $1 WHERE id = $2")
+        .bind(audiences.all_audiences)
+        .bind(event_id)
+        .execute(&mut **tx)
+        .await?;
+    sqlx::query("DELETE FROM event_audiences WHERE event_id = $1")
+        .bind(event_id)
+        .execute(&mut **tx)
+        .await?;
+    if audiences.all_audiences {
+        return Ok(());
+    }
+    for name in &audiences.public_types {
+        sqlx::query(
+            "INSERT INTO event_audiences (event_id, audience) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        )
+        .bind(event_id)
+        .bind(name)
+        .execute(&mut **tx)
+        .await
+        .map_err(|err| map_audience_fk(err, name))?;
+    }
+    Ok(())
+}
+
+fn map_audience_fk(err: sqlx::Error, name: &str) -> AppError {
+    let message = err.to_string();
+    if message.contains("event_audiences_audience_fkey") || message.contains("foreign key") {
+        AppError::Validation(format!(
+            "Unknown public_type name {name:?} (must match public_types.name)"
+        ))
+    } else {
+        AppError::Database(err)
+    }
+}
+
 impl Repository {
+    /// Fill `public_types` from `event_audiences` (ordered by name).
+    async fn attach_public_types(&self, events: &mut [Event]) -> AppResult<()> {
+        if events.is_empty() {
+            return Ok(());
+        }
+        let ids: Vec<i64> = events.iter().map(|event| event.id).collect();
+        let rows = sqlx::query_as::<_, (i64, String)>(
+            r#"
+            SELECT event_id, audience
+            FROM event_audiences
+            WHERE event_id = ANY($1)
+            ORDER BY audience
+            "#,
+        )
+        .bind(&ids)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut by_event: std::collections::HashMap<i64, Vec<String>> =
+            std::collections::HashMap::new();
+        for (event_id, audience) in rows {
+            by_event.entry(event_id).or_default().push(audience);
+        }
+        for event in events.iter_mut() {
+            event.public_types = by_event.remove(&event.id).unwrap_or_default();
+        }
+        Ok(())
+    }
+
     /// List events with optional filters and pagination
     #[tracing::instrument(skip(self), err)]
     pub async fn events_list(&self, query: &EventQuery) -> AppResult<(Vec<Event>, i64)> {
@@ -197,7 +275,8 @@ impl Repository {
             builder = builder.bind(et);
         }
 
-        let rows = builder.fetch_all(&self.pool).await?;
+        let mut rows = builder.fetch_all(&self.pool).await?;
+        self.attach_public_types(&mut rows).await?;
         Ok((rows, total))
     }
 
@@ -205,11 +284,14 @@ impl Repository {
     #[tracing::instrument(skip(self), err)]
     pub async fn events_get_by_id(&self, id: i64) -> AppResult<Event> {
         let q = format!("SELECT {} FROM events WHERE id = $1", EVENT_COLUMNS);
-        sqlx::query_as::<_, Event>(&q)
+        let mut event = sqlx::query_as::<_, Event>(&q)
             .bind(id)
             .fetch_optional(&self.pool)
             .await?
-            .ok_or_else(|| AppError::NotFound(format!("Event {} not found", id)))
+            .ok_or_else(|| AppError::NotFound(format!("Event {} not found", id)))?;
+        self.attach_public_types(std::slice::from_mut(&mut event))
+            .await?;
+        Ok(event)
     }
 
     /// Create an event
@@ -217,6 +299,7 @@ impl Repository {
     pub async fn events_create(
         &self,
         data: &CreateEvent,
+        audiences: &AudienceSelection,
         attachment: Option<(Vec<u8>, String, String)>,
     ) -> AppResult<Event> {
         let event_date = NaiveDate::parse_from_str(&data.event_date, "%Y-%m-%d")
@@ -239,7 +322,7 @@ impl Repository {
             r#"
             INSERT INTO events (
                 name, event_type, event_date, start_time, end_time,
-                attendees_count, public_type,
+                attendees_count, all_audiences,
                 school_name, class_name, students_count,
                 partner_name, description, notes,
                 attachment_data, attachment_filename, attachment_mime_type
@@ -248,6 +331,8 @@ impl Repository {
             "#,
             EVENT_COLUMNS
         );
+
+        let mut tx = self.pool.begin().await?;
         let row = sqlx::query_as::<_, Event>(&sql)
             .bind(&data.name)
             .bind(data.event_type.unwrap_or(0))
@@ -255,7 +340,7 @@ impl Repository {
             .bind(start_time)
             .bind(end_time)
             .bind(data.attendees_count)
-            .bind(data.public_type.as_ref().map(|s| s.trim()))
+            .bind(audiences.all_audiences)
             .bind(&data.school_name)
             .bind(&data.class_name)
             .bind(data.students_count)
@@ -265,14 +350,22 @@ impl Repository {
             .bind(att_data.as_deref())
             .bind(att_name.as_ref())
             .bind(att_mime.as_ref())
-            .fetch_one(&self.pool)
+            .fetch_one(&mut *tx)
             .await?;
-        Ok(row)
+        replace_audiences_tx(&mut tx, row.id, audiences).await?;
+        tx.commit().await?;
+
+        self.events_get_by_id(row.id).await
     }
 
     /// Update an event
     #[tracing::instrument(skip(self), err)]
-    pub async fn events_update(&self, id: i64, data: &UpdateEvent) -> AppResult<Event> {
+    pub async fn events_update(
+        &self,
+        id: i64,
+        data: &UpdateEvent,
+        audiences: Option<AudienceSelection>,
+    ) -> AppResult<Event> {
         let now = Utc::now();
         let mut sets = vec!["update_at = $1".to_string()];
         let mut idx = 2;
@@ -292,7 +385,6 @@ impl Repository {
         add_f!(data.start_time, "start_time");
         add_f!(data.end_time, "end_time");
         add_f!(data.attendees_count, "attendees_count");
-        add_f!(data.public_type, "public_type");
         add_f!(data.school_name, "school_name");
         add_f!(data.class_name, "class_name");
         add_f!(data.students_count, "students_count");
@@ -343,9 +435,6 @@ impl Repository {
             builder = builder.bind(end_time);
         }
         bind_f!(data.attendees_count);
-        if data.public_type.is_some() {
-            builder = builder.bind(data.public_type.as_ref().map(|s| s.trim()));
-        }
         bind_f!(data.school_name);
         bind_f!(data.class_name);
         bind_f!(data.students_count);
@@ -353,10 +442,16 @@ impl Repository {
         bind_f!(data.description);
         bind_f!(data.notes);
 
-        builder
-            .fetch_optional(&self.pool)
+        let mut tx = self.pool.begin().await?;
+        let updated = builder
+            .fetch_optional(&mut *tx)
             .await?
-            .ok_or_else(|| AppError::NotFound(format!("Event {} not found", id)))
+            .ok_or_else(|| AppError::NotFound(format!("Event {} not found", id)))?;
+        if let Some(selection) = audiences.as_ref() {
+            replace_audiences_tx(&mut tx, updated.id, selection).await?;
+        }
+        tx.commit().await?;
+        self.events_get_by_id(id).await
     }
 
     /// Set the announcement_sent_at timestamp on an event
@@ -403,14 +498,17 @@ impl Repository {
             "#,
             EVENT_COLUMNS
         );
-        sqlx::query_as::<_, Event>(&sql)
+        let mut event = sqlx::query_as::<_, Event>(&sql)
             .bind(id)
             .bind(data)
             .bind(filename)
             .bind(mime_type)
             .fetch_optional(&self.pool)
             .await?
-            .ok_or_else(|| AppError::NotFound(format!("Event {} not found", id)))
+            .ok_or_else(|| AppError::NotFound(format!("Event {} not found", id)))?;
+        self.attach_public_types(std::slice::from_mut(&mut event))
+            .await?;
+        Ok(event)
     }
 
     /// Remove the event attachment.
@@ -428,11 +526,14 @@ impl Repository {
             "#,
             EVENT_COLUMNS
         );
-        sqlx::query_as::<_, Event>(&sql)
+        let mut event = sqlx::query_as::<_, Event>(&sql)
             .bind(id)
             .fetch_optional(&self.pool)
             .await?
-            .ok_or_else(|| AppError::NotFound(format!("Event {} not found", id)))
+            .ok_or_else(|| AppError::NotFound(format!("Event {} not found", id)))?;
+        self.attach_public_types(std::slice::from_mut(&mut event))
+            .await?;
+        Ok(event)
     }
 
     /// Load raw attachment bytes and metadata when present.
