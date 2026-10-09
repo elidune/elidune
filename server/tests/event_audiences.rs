@@ -247,57 +247,31 @@ async fn event_audiences_create_update_read_and_reject_empty() {
     }
 }
 
-/// Child patrons are not emailed until guardian routing (#59) exists.
+/// A child-only event emails the guardian once and names the child.
+/// The child's own `receive_reminders` does not matter.
 #[tokio::test]
-async fn child_only_event_enqueues_no_announcement() {
+async fn child_only_event_emails_the_guardian_and_names_the_child() {
     let Some(app) = TestApp::spawn().await else {
         return;
     };
     let token = fixtures::ensure_first_setup(&app).await;
     let suffix = fixtures::unique_suffix();
     let (guardian_id, _) = fixtures::create_reader(&app, &token, "announce_guard").await;
-    let child_type = fixtures::public_type_id_by_name(&app, &token, "child").await;
-    let child_email = format!("child_{suffix}@test.local");
-    let login = format!("child_{suffix}");
-    let (status, body) = app
-        .post_json(
-            "/api/v1/users",
-            &json!({
-                "login": login,
-                "password": "readerpass1234",
-                "firstname": "Minor",
-                "lastname": login,
-                "email": child_email,
-                "accountType": "reader",
-                "publicType": child_type.to_string(),
-                "sex": "f",
-                "birthdate": "2016-04-01",
-                "addrCity": "Paris",
-                "guardianId": guardian_id.to_string()
-            }),
-            Some(&token),
-        )
-        .await;
-    assert_eq!(status, StatusCode::CREATED, "create child: {body}");
-    let child_id = fixtures::json_id(&body["id"]);
-
-    let opted_in: bool = sqlx::query_scalar(
-        r#"
-        SELECT u.receive_reminders
-        FROM users u
-        JOIN public_types pt ON pt.id = u.public_type
-        WHERE u.id = $1 AND pt.name = 'child' AND u.email = $2
-        "#,
+    let guardian_email = patron_email(&app, &token, guardian_id).await;
+    let (child_id, child_email) = create_child(
+        &app,
+        &token,
+        guardian_id,
+        "Lea",
+        &format!("Martin{suffix}"),
+        &format!("child_{suffix}"),
     )
-    .bind(child_id)
-    .bind(&child_email)
-    .fetch_one(app.state.services.repository.pool())
-    .await
-    .expect("child opted in");
-    assert!(
-        opted_in,
-        "child fixture must match the pre-exclusion recipient query"
-    );
+    .await;
+    sqlx::query("UPDATE users SET receive_reminders = FALSE WHERE id = $1")
+        .bind(child_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("clear child opt-in");
 
     let event_id = create_event(
         &app,
@@ -308,18 +282,246 @@ async fn child_only_event_enqueues_no_announcement() {
     )
     .await;
 
-    let (status, body) = send_announcement(&app, &token, event_id).await;
+    let (status, body) = send_template_announcement(&app, &token, event_id).await;
     assert_eq!(status, StatusCode::OK, "send child announcement: {body}");
-    assert_eq!(
-        body["emailsSent"], 0,
-        "child audience must enqueue nothing: {body}"
+    let mailed = outbox_bodies_for(&app, event_id, &guardian_email).await;
+    assert_eq!(mailed.len(), 1, "guardian gets one email: {mailed:?}");
+    assert!(
+        mailed[0].contains(&format!("Lea Martin{suffix}")),
+        "email must name the child: {}",
+        mailed[0]
     );
-    assert_eq!(pending_announcement_count(&app, event_id).await, 0);
+    assert!(
+        mailed[0].contains("Cette invitation concerne"),
+        "default language is french: {}",
+        mailed[0]
+    );
     assert_eq!(
         outbox_rows_for(&app, event_id, &child_email).await,
         0,
         "child address must not be queued"
     );
+}
+
+/// One guardian, two targeted children: a single email names both.
+#[tokio::test]
+async fn guardian_of_two_children_gets_one_email_naming_both() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let token = fixtures::ensure_first_setup(&app).await;
+    let suffix = fixtures::unique_suffix();
+    let (guardian_id, _) = fixtures::create_reader(&app, &token, "announce_two").await;
+    let guardian_email = patron_email(&app, &token, guardian_id).await;
+    let _ = create_child(
+        &app,
+        &token,
+        guardian_id,
+        "Lea",
+        &format!("One{suffix}"),
+        &format!("child_a_{suffix}"),
+    )
+    .await;
+    let _ = create_child(
+        &app,
+        &token,
+        guardian_id,
+        "Noe",
+        &format!("Two{suffix}"),
+        &format!("child_b_{suffix}"),
+    )
+    .await;
+
+    let event_id = create_event(
+        &app,
+        &token,
+        &format!("Two children {suffix}"),
+        "2026-11-03",
+        json!({ "publicTypes": ["child"] }),
+    )
+    .await;
+
+    let (status, body) = send_template_announcement(&app, &token, event_id).await;
+    assert_eq!(status, StatusCode::OK, "send: {body}");
+    let mailed = outbox_bodies_for(&app, event_id, &guardian_email).await;
+    assert_eq!(mailed.len(), 1, "one email for both children: {mailed:?}");
+    assert!(
+        mailed[0].contains(&format!("Lea One{suffix}")),
+        "missing first child: {}",
+        mailed[0]
+    );
+    assert!(
+        mailed[0].contains(&format!("Noe Two{suffix}")),
+        "missing second child: {}",
+        mailed[0]
+    );
+}
+
+/// A guardian who is also in the audience still receives a single email.
+#[tokio::test]
+async fn guardian_also_in_the_audience_gets_one_email() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let token = fixtures::ensure_first_setup(&app).await;
+    let suffix = fixtures::unique_suffix();
+    let (guardian_id, _) = fixtures::create_reader(&app, &token, "announce_both").await;
+    let guardian_email = patron_email(&app, &token, guardian_id).await;
+    let _ = create_child(
+        &app,
+        &token,
+        guardian_id,
+        "Ada",
+        &format!("Both{suffix}"),
+        &format!("child_both_{suffix}"),
+    )
+    .await;
+
+    let event_id = create_event(
+        &app,
+        &token,
+        &format!("Adult and child {suffix}"),
+        "2026-11-04",
+        json!({ "publicTypes": ["adult", "child"] }),
+    )
+    .await;
+
+    let (status, body) = send_template_announcement(&app, &token, event_id).await;
+    assert_eq!(status, StatusCode::OK, "send: {body}");
+    let mailed = outbox_bodies_for(&app, event_id, &guardian_email).await;
+    assert_eq!(
+        mailed.len(),
+        1,
+        "direct match and guardian route collapse to one email: {mailed:?}"
+    );
+    assert!(
+        mailed[0].contains(&format!("Ada Both{suffix}")),
+        "the one email still names the child: {}",
+        mailed[0]
+    );
+}
+
+/// An erased child does not cause an email to their guardian.
+#[tokio::test]
+async fn erased_child_does_not_email_the_guardian() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let token = fixtures::ensure_first_setup(&app).await;
+    let suffix = fixtures::unique_suffix();
+    let (guardian_id, _) = fixtures::create_reader(&app, &token, "announce_erased_child").await;
+    let guardian_email = patron_email(&app, &token, guardian_id).await;
+    let (child_id, _) = create_child(
+        &app,
+        &token,
+        guardian_id,
+        "Gone",
+        &format!("Erased{suffix}"),
+        &format!("child_erased_{suffix}"),
+    )
+    .await;
+
+    let (status, body) = app
+        .delete_with_auth(&format!("/api/v1/users/{child_id}"), &token)
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "erase child: {body}");
+
+    let event_id = create_event(
+        &app,
+        &token,
+        &format!("Erased child {suffix}"),
+        "2026-11-05",
+        json!({ "publicTypes": ["child"] }),
+    )
+    .await;
+
+    let (status, body) = send_template_announcement(&app, &token, event_id).await;
+    assert_eq!(status, StatusCode::OK, "send: {body}");
+    assert_eq!(
+        outbox_rows_for(&app, event_id, &guardian_email).await,
+        0,
+        "erased child must not route to the guardian"
+    );
+}
+
+/// The guardian's opt-in is required. The child's opt-in is not a substitute.
+#[tokio::test]
+async fn guardian_without_consent_gets_nothing() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let token = fixtures::ensure_first_setup(&app).await;
+    let suffix = fixtures::unique_suffix();
+    let (guardian_id, _) = fixtures::create_reader(&app, &token, "announce_nocon").await;
+    let guardian_email = patron_email(&app, &token, guardian_id).await;
+    let (_, child_email) = create_child(
+        &app,
+        &token,
+        guardian_id,
+        "Mia",
+        &format!("NoCon{suffix}"),
+        &format!("child_nocon_{suffix}"),
+    )
+    .await;
+    sqlx::query("UPDATE users SET receive_reminders = FALSE WHERE id = $1")
+        .bind(guardian_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("clear guardian opt-in");
+
+    let event_id = create_event(
+        &app,
+        &token,
+        &format!("No consent {suffix}"),
+        "2026-11-06",
+        json!({ "publicTypes": ["child"] }),
+    )
+    .await;
+
+    let (status, body) = send_template_announcement(&app, &token, event_id).await;
+    assert_eq!(status, StatusCode::OK, "send: {body}");
+    assert_eq!(outbox_rows_for(&app, event_id, &guardian_email).await, 0);
+    assert_eq!(outbox_rows_for(&app, event_id, &child_email).await, 0);
+}
+
+/// A targeted child with no guardian link is not emailed, and nobody else is on their behalf.
+#[tokio::test]
+async fn child_without_guardian_gets_nothing() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let token = fixtures::ensure_first_setup(&app).await;
+    let suffix = fixtures::unique_suffix();
+    let (guardian_id, _) = fixtures::create_reader(&app, &token, "announce_nolink").await;
+    let guardian_email = patron_email(&app, &token, guardian_id).await;
+    let (child_id, child_email) = create_child(
+        &app,
+        &token,
+        guardian_id,
+        "Orphan",
+        &format!("NoLink{suffix}"),
+        &format!("child_nolink_{suffix}"),
+    )
+    .await;
+    sqlx::query("DELETE FROM user_guardians WHERE child_id = $1")
+        .bind(child_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("drop guardian link");
+
+    let event_id = create_event(
+        &app,
+        &token,
+        &format!("No guardian {suffix}"),
+        "2026-11-07",
+        json!({ "publicTypes": ["child"] }),
+    )
+    .await;
+
+    let (status, body) = send_template_announcement(&app, &token, event_id).await;
+    assert_eq!(status, StatusCode::OK, "send: {body}");
+    assert_eq!(outbox_rows_for(&app, event_id, &guardian_email).await, 0);
+    assert_eq!(outbox_rows_for(&app, event_id, &child_email).await, 0);
 }
 
 /// Erasure sets `status = deleted` and `receive_reminders = false`. That user stays out
@@ -402,6 +604,61 @@ async fn create_event(
     fixtures::json_id(&body["id"])
 }
 
+async fn create_child(
+    app: &TestApp,
+    token: &str,
+    guardian_id: i64,
+    firstname: &str,
+    lastname: &str,
+    login_prefix: &str,
+) -> (i64, String) {
+    let child_type = fixtures::public_type_id_by_name(app, token, "child").await;
+    let login = format!("{login_prefix}_{}", fixtures::unique_suffix());
+    let email = format!("{login}@test.local");
+    let (status, body) = app
+        .post_json(
+            "/api/v1/users",
+            &json!({
+                "login": login,
+                "password": "readerpass1234",
+                "firstname": firstname,
+                "lastname": lastname,
+                "email": email,
+                "accountType": "reader",
+                "publicType": child_type.to_string(),
+                "sex": "f",
+                "birthdate": "2016-04-01",
+                "addrCity": "Paris",
+                "guardianId": guardian_id.to_string()
+            }),
+            Some(token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "create child: {body}");
+    (fixtures::json_id(&body["id"]), email)
+}
+
+async fn patron_email(app: &TestApp, token: &str, user_id: i64) -> String {
+    let (status, user) = app
+        .get_json_with_auth(&format!("/api/v1/users/{user_id}"), token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "read patron: {user}");
+    user["email"].as_str().expect("patron email").to_string()
+}
+
+async fn send_template_announcement(
+    app: &TestApp,
+    token: &str,
+    event_id: i64,
+) -> (StatusCode, serde_json::Value) {
+    app.post_json(
+        &format!("/api/v1/events/{event_id}/send-announcement"),
+        &json!({}),
+        Some(token),
+    )
+    .await
+}
+
 async fn send_announcement(
     app: &TestApp,
     token: &str,
@@ -419,13 +676,21 @@ async fn send_announcement(
     .await
 }
 
-async fn pending_announcement_count(app: &TestApp, event_id: i64) -> i64 {
-    app.state
-        .services
-        .repository
-        .email_outbox_pending_event_announcement_count(event_id)
-        .await
-        .expect("pending announcement count")
+async fn outbox_bodies_for(app: &TestApp, event_id: i64, email: &str) -> Vec<String> {
+    sqlx::query_scalar(
+        r#"
+        SELECT o.body
+        FROM email_outbox o
+        JOIN email_outbox_event_announcements ea ON ea.outbox_id = o.id
+        WHERE ea.event_id = $1 AND o.to_addr = $2
+        ORDER BY o.id
+        "#,
+    )
+    .bind(event_id)
+    .bind(email)
+    .fetch_all(app.state.services.repository.pool())
+    .await
+    .expect("outbox bodies")
 }
 
 async fn outbox_rows_for(app: &TestApp, event_id: i64, email: &str) -> i64 {

@@ -19,7 +19,7 @@ use crate::{
         },
         Language,
     },
-    repository::{events::EventAnnualStats, EventsServiceRepository},
+    repository::{events::EventAnnualStats, users::AnnouncementChild, EventsServiceRepository},
     services::{
         audit::{self, AuditService},
         email::EmailService,
@@ -171,16 +171,19 @@ impl EventsService {
 
     /// Send an announcement email to patrons in any selected audience, once each.
     ///
-    /// Recipients are selected in SQL: `receive_reminders` is required, and either
-    /// `all_audiences` is set or `public_types.name` is one of the event audiences.
-    /// Each user is returned once. `child` patrons are excluded until guardian routing (#59).
+    /// Recipients are selected in SQL. A non-`child` patron is emailed directly when
+    /// `receive_reminders` is set and either `all_audiences` is set or their public
+    /// type is one of the event audiences. A `child` is never emailed: each active
+    /// child is routed to their major guardian, and that guardian's own
+    /// `receive_reminders` is the opt-in. One email is sent per recipient. When the
+    /// recipient stands in for one or more children, the message names them.
     ///
     /// `main` has no dedicated GDPR communications-consent column. The only email
-    /// opt-in is `users.receive_reminders` (overdue reminders, default true). Patrons
-    /// with that flag false are not notified. No new consent model is introduced.
+    /// opt-in is `users.receive_reminders` (overdue reminders, default true).
     ///
     /// If the request provides `subject`/`body_plain`/`body_html`, those are used
-    /// directly instead of the template.
+    /// directly instead of the template. A guardian message still names the children
+    /// when that text does not already include them.
     #[tracing::instrument(skip(self), err)]
     pub async fn send_announcement(
         &self,
@@ -237,8 +240,8 @@ impl EventsService {
         let mut skipped: u32 = 0;
         let mut errors: Vec<AnnouncementError> = Vec::new();
 
-        for user in &targets {
-            let email_addr = match &user.email {
+        for recipient in &targets {
+            let email_addr = match &recipient.email {
                 Some(e) if !e.is_empty() => e.clone(),
                 _ => {
                     skipped += 1;
@@ -246,9 +249,12 @@ impl EventsService {
                 }
             };
 
-            let firstname = user.firstname.as_deref().unwrap_or("");
+            let firstname = recipient.firstname.as_deref().unwrap_or("");
+            let (children_line, children_block) =
+                announcement_children_fragments(recipient.language.as_deref(), &recipient.children);
+            let child_ids: Vec<i64> = recipient.children.iter().map(|child| child.id).collect();
 
-            let (subject, body_plain, body_html) =
+            let (subject, mut body_plain, mut body_html) =
                 if payload.subject.is_some() || payload.body_plain.is_some() {
                     // Use caller-supplied content
                     let subj = payload
@@ -269,11 +275,11 @@ impl EventsService {
                         });
                     (subj, plain, html)
                 } else {
-                    let lang = user.language.as_deref().map(Language::from);
+                    let lang = recipient.language.as_deref().map(Language::from);
                     match self.email.load_template("event_announcement", lang).await {
                         Err(e) => {
                             errors.push(AnnouncementError {
-                                user_id: user.id,
+                                user_id: recipient.id,
                                 email: email_addr.clone(),
                                 error_message: format!("Template load error: {}", e),
                             });
@@ -289,12 +295,21 @@ impl EventsService {
                                 ("start_time_row", &start_time_row),
                                 ("description_line", &description_plain),
                                 ("description_block", &description_block),
+                                ("children_line", &children_line),
+                                ("children_block", &children_block),
                             ];
                             let (s, p, h) = email_templates::substitute(&template, &vars);
                             (s, p, h)
                         }
                     }
                 };
+            append_children_if_unnamed(
+                &mut body_plain,
+                &mut body_html,
+                &children_line,
+                &children_block,
+                &recipient.children,
+            );
 
             match self
                 .email
@@ -316,10 +331,11 @@ impl EventsService {
                         Some(event_id),
                         client_ip.clone(),
                         Some(serde_json::json!({
-                            "user_id": user.id,
+                            "user_id": recipient.id,
                             "email": email_addr,
                             "event_name": event.name,
                             "outbox_id": outbox_id,
+                            "child_ids": child_ids,
                         })),
                         audit::AuditLogMeta::success(),
                     );
@@ -332,14 +348,15 @@ impl EventsService {
                         Some(event_id),
                         client_ip.clone(),
                         Some(serde_json::json!({
-                            "user_id": user.id,
+                            "user_id": recipient.id,
                             "email": email_addr.clone(),
                             "event_name": event.name,
+                            "child_ids": child_ids,
                         })),
                         audit::AuditLogMeta::from_app_error(&e),
                     );
                     errors.push(AnnouncementError {
-                        user_id: user.id,
+                        user_id: recipient.id,
                         email: email_addr,
                         error_message: e.to_string(),
                     });
@@ -502,6 +519,76 @@ fn sanitize_attachment_filename(name: &str) -> String {
     }
 }
 
+/// Plain and HTML blocks naming the children a guardian email concerns.
+/// Empty for a direct send. English when the recipient language is `english`;
+/// French otherwise, matching the `event_announcement` template cascade.
+pub(crate) fn announcement_children_fragments(
+    language: Option<&str>,
+    children: &[AnnouncementChild],
+) -> (String, String) {
+    if children.is_empty() {
+        return (String::new(), String::new());
+    }
+    let names = children
+        .iter()
+        .map(child_display_name)
+        .collect::<Vec<_>>()
+        .join(", ");
+    let english = language.is_some_and(|lang| Language::from(lang) == Language::English);
+    if english {
+        (
+            format!("\nThis invitation concerns: {names}.\n"),
+            format!("<p>This invitation concerns: {}.</p>", html_escape(&names)),
+        )
+    } else {
+        (
+            format!("\nCette invitation concerne : {names}.\n"),
+            format!(
+                "<p>Cette invitation concerne : {}.</p>",
+                html_escape(&names)
+            ),
+        )
+    }
+}
+
+fn child_display_name(child: &AnnouncementChild) -> String {
+    let first = child.firstname.as_deref().unwrap_or("").trim();
+    let last = child.lastname.as_deref().unwrap_or("").trim();
+    match (first.is_empty(), last.is_empty()) {
+        (false, false) => format!("{first} {last}"),
+        (false, true) => first.to_string(),
+        (true, false) => last.to_string(),
+        (true, true) => format!("#{}", child.id),
+    }
+}
+
+fn html_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// Append the localized children block when a stored or custom body does not
+/// already name every child (older templates omit `{{children_line}}`).
+fn append_children_if_unnamed(
+    plain: &mut String,
+    html: &mut String,
+    line: &str,
+    block: &str,
+    children: &[AnnouncementChild],
+) {
+    let unnamed = children.iter().any(|child| {
+        let name = child_display_name(child);
+        !plain.contains(&name)
+    });
+    if unnamed {
+        plain.push_str(line);
+        html.push_str(block);
+    }
+}
+
 fn normalize_mime_type(mime: &str) -> String {
     let s = mime.trim();
     if s.is_empty() {
@@ -605,5 +692,57 @@ mod audience_tests {
         assert!(sql.contains("CREATE TABLE IF NOT EXISTS event_audiences"));
         assert!(sql.contains("ADD COLUMN IF NOT EXISTS all_audiences"));
         assert!(sql.contains("WHERE public_type IS NULL"));
+    }
+}
+
+#[cfg(test)]
+mod children_fragment_tests {
+    use super::{announcement_children_fragments, append_children_if_unnamed, AnnouncementChild};
+
+    fn child(id: i64, first: &str, last: &str) -> AnnouncementChild {
+        AnnouncementChild {
+            id,
+            firstname: Some(first.into()),
+            lastname: Some(last.into()),
+        }
+    }
+
+    #[test]
+    fn direct_send_has_an_empty_block() {
+        let (plain, html) = announcement_children_fragments(Some("french"), &[]);
+        assert_eq!(plain, "");
+        assert_eq!(html, "");
+    }
+
+    #[test]
+    fn french_block_names_every_child() {
+        let (plain, html) = announcement_children_fragments(
+            Some("french"),
+            &[child(2, "Lea", "Martin"), child(3, "Noe", "Martin")],
+        );
+        assert!(plain.contains("Cette invitation concerne : Lea Martin, Noe Martin."));
+        assert!(html.contains("Cette invitation concerne : Lea Martin, Noe Martin."));
+        assert!(!plain.contains("This invitation concerns"));
+    }
+
+    #[test]
+    fn english_block_names_every_child_and_escapes_html() {
+        let (plain, html) =
+            announcement_children_fragments(Some("english"), &[child(4, "Ada", "Lovelace & Co")]);
+        assert!(plain.contains("This invitation concerns: Ada Lovelace & Co."));
+        assert!(html.contains("This invitation concerns: Ada Lovelace &amp; Co."));
+        assert!(!html.contains("Lovelace & Co"));
+    }
+
+    #[test]
+    fn unnamed_children_are_appended_once() {
+        let children = vec![child(2, "Lea", "Martin")];
+        let (line, block) = announcement_children_fragments(Some("english"), &children);
+        let mut plain = "Hello.".to_string();
+        let mut html = "<p>Hello.</p>".to_string();
+        append_children_if_unnamed(&mut plain, &mut html, &line, &block, &children);
+        append_children_if_unnamed(&mut plain, &mut html, &line, &block, &children);
+        assert_eq!(plain.matches("Lea Martin").count(), 1);
+        assert!(html.contains("Lea Martin"));
     }
 }

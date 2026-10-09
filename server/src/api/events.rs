@@ -241,14 +241,17 @@ pub async fn delete_event(
 }
 
 /// Send an announcement email to patrons in any selected audience (`publicTypes`), once each.
-/// Recipients are chosen in SQL: `receiveReminders` must be true, and either `allAudiences`
-/// is set or the patron's public type is one of `publicTypes`.
+/// Recipients are chosen in SQL. A non-child patron is emailed when `receiveReminders` is
+/// true and either `allAudiences` is set or their public type is one of `publicTypes`.
+/// A child is not emailed: the message goes to their legal guardian, using the guardian's
+/// `receiveReminders`, and names the child or children concerned.
 /// `receiveReminders` is the only email opt-in on this branch (there is no separate GDPR
 /// communications-consent column).
 ///
 /// The default `event_announcement` template is used unless `subject`/`body_plain`
 /// (and optionally `body_html`) are supplied in the request body, in which case the
-/// supplied text overrides the template entirely.
+/// supplied text overrides the template. A guardian message still names the children
+/// when that text does not already include them.
 #[utoipa::path(
     post,
     path = "/events/{id}/send-announcement",
