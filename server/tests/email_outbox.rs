@@ -147,11 +147,31 @@ async fn event_announcement_pending_count_tracks_outbox_rows() {
     let event_id = seed_event(&repo, "Outbox test event").await;
 
     let outbox_a = email
-        .enqueue_event_announcement("a@test.local", "Event", "plain", "<p>html</p>", event_id)
+        .enqueue_event_announcement(
+            "a@test.local",
+            "Event",
+            "plain",
+            "<p>html</p>",
+            event_id,
+            elidune_server::email::EventAnnouncementExtras {
+                headers: &[],
+                migration_notice_user_id: None,
+            },
+        )
         .await
         .expect("enqueue a");
     let outbox_b = email
-        .enqueue_event_announcement("b@test.local", "Event", "plain", "<p>html</p>", event_id)
+        .enqueue_event_announcement(
+            "b@test.local",
+            "Event",
+            "plain",
+            "<p>html</p>",
+            event_id,
+            elidune_server::email::EventAnnouncementExtras {
+                headers: &[],
+                migration_notice_user_id: None,
+            },
+        )
         .await
         .expect("enqueue b");
 
@@ -677,10 +697,12 @@ async fn seed_opted_in_patron(repo: &Repository) {
         r#"
         INSERT INTO users (
             id, login, password, firstname, lastname, email, account_type,
-            sex, birthdate, language, receive_reminders, token_version, created_at, update_at
+            sex, birthdate, language, receive_reminders, token_version, created_at, update_at,
+            events_consent_at, events_consent_source, events_consent_changed_at
         )
         VALUES ($1, $2, 'hash', 'Patron', 'Announce', $3, 'reader',
-                'm', '1990-01-01', 'french', TRUE, 0, NOW(), NOW())
+                'm', '1990-01-01', 'french', TRUE, 0, NOW(), NOW(),
+                NOW(), 'desk', NOW())
         "#,
     )
     .bind(snowflake())

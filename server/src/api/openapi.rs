@@ -197,6 +197,8 @@ use crate::api::{
         events::update_event,
         events::delete_event,
         events::send_event_announcement,
+        events::count_announcement_recipients,
+        events::unsubscribe_events,
         // Acquisitions
         acquisitions::list_vendors,
         acquisitions::get_vendor,
@@ -471,6 +473,9 @@ use crate::api::{
             events::EventsListResponse,
             crate::services::events::SendAnnouncementRequest,
             crate::services::events::AnnouncementReport,
+            crate::api::events::AnnouncementRecipientCount,
+            crate::api::events::UnsubscribeEventsRequest,
+            crate::models::user::EventsConsentSource,
             crate::services::events::AnnouncementError,
             // Acquisitions
             crate::models::acquisition::Vendor,

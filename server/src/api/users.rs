@@ -9,7 +9,10 @@ use serde::Deserialize;
 
 use crate::{
     error::AppResult,
-    models::user::{UpdateAccountType, UpdateProfile, User, UserPayload, UserQuery, UserShort},
+    models::user::{
+        EventsConsentSource, UpdateAccountType, UpdateProfile, User, UserPayload, UserQuery,
+        UserShort,
+    },
     services::audit,
 };
 
@@ -113,7 +116,12 @@ pub async fn create_user(
 ) -> AppResult<(StatusCode, Json<User>)> {
     claims.require_write_users()?;
     let for_audit = user.clone();
-    match state.services.users.create_user(user).await {
+    match state
+        .services
+        .users
+        .create_user(user, EventsConsentSource::Desk)
+        .await
+    {
         Ok(created) => {
             state.services.audit.log(
                 audit::event::USER_CREATED,
@@ -166,7 +174,12 @@ pub async fn update_user(
 ) -> AppResult<Json<User>> {
     claims.require_write_users()?;
     let audit_payload = user.clone();
-    match state.services.users.update_user(id, user).await {
+    match state
+        .services
+        .users
+        .update_user(id, user, EventsConsentSource::Desk)
+        .await
+    {
         Ok(updated) => {
             state.services.audit.log(
                 audit::event::USER_UPDATED,

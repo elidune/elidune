@@ -41,6 +41,8 @@ pub struct AnnouncementRecipient {
     pub lastname: Option<String>,
     pub language: Option<String>,
     pub children: Vec<AnnouncementChild>,
+    /// True when this recipient still needs the one-time migration explanation.
+    pub include_migration_notice: bool,
 }
 
 /// Flat row from [`ANNOUNCEMENT_RECIPIENTS_SQL`] before grouping.
@@ -55,6 +57,7 @@ pub(crate) struct AnnouncementRecipientRow {
     child_id: Option<i64>,
     child_firstname: Option<String>,
     child_lastname: Option<String>,
+    include_migration_notice: bool,
 }
 
 /// SQL for [`Repository::users_list_announcement_recipients`].
@@ -62,7 +65,8 @@ pub(crate) struct AnnouncementRecipientRow {
 /// `$1::boolean` is all-audiences (no type filter). `$2::text[]` is the audience names.
 /// Direct rows are non-`child` patrons. Each active `child` in the audience adds a row
 /// for their major guardian (`user_guardians`). Consent, email, and deletion are checked
-/// on the recipient, never on the child. [`group_announcement_recipients`] collapses
+/// on the recipient, never on the child. A child routed to a guardian uses the
+/// guardian's `events_consent_at`. [`group_announcement_recipients`] collapses
 /// these rows to one recipient.
 pub(crate) const ANNOUNCEMENT_RECIPIENTS_SQL: &str = r#"
 SELECT
@@ -73,7 +77,8 @@ SELECT
     language,
     child_id,
     child_firstname,
-    child_lastname
+    child_lastname,
+    include_migration_notice
 FROM (
     SELECT
         u.id,
@@ -83,10 +88,11 @@ FROM (
         u.language,
         NULL::bigint AS child_id,
         NULL::text AS child_firstname,
-        NULL::text AS child_lastname
+        NULL::text AS child_lastname,
+        (u.events_consent_source = 'migration' AND u.events_consent_notice_at IS NULL) AS include_migration_notice
     FROM users u
     LEFT JOIN public_types pt ON pt.id = u.public_type
-    WHERE u.receive_reminders = TRUE
+    WHERE u.events_consent_at IS NOT NULL
       AND u.email IS NOT NULL
       AND u.email <> ''
       AND (u.status IS NULL OR u.status <> 'deleted')
@@ -103,7 +109,8 @@ FROM (
         g.language,
         c.id AS child_id,
         c.firstname AS child_firstname,
-        c.lastname AS child_lastname
+        c.lastname AS child_lastname,
+        (g.events_consent_source = 'migration' AND g.events_consent_notice_at IS NULL) AS include_migration_notice
     FROM users c
     JOIN public_types cpt ON cpt.id = c.public_type AND cpt.name = 'child'
     JOIN user_guardians ug ON ug.child_id = c.id
@@ -111,7 +118,7 @@ FROM (
     LEFT JOIN public_types gpt ON gpt.id = g.public_type
     WHERE (c.status IS NULL OR c.status <> 'deleted')
       AND ($1::boolean OR cpt.name = ANY($2::text[]))
-      AND g.receive_reminders = TRUE
+      AND g.events_consent_at IS NOT NULL
       AND g.email IS NOT NULL
       AND g.email <> ''
       AND (g.status IS NULL OR g.status <> 'deleted')
@@ -135,16 +142,25 @@ pub(crate) fn group_announcement_recipients(
 
     for row in rows {
         let id = row.id;
-        if let std::collections::hash_map::Entry::Vacant(slot) = by_id.entry(id) {
-            order.push(id);
-            slot.insert(AnnouncementRecipient {
-                id,
-                email: row.email,
-                firstname: row.firstname,
-                lastname: row.lastname,
-                language: row.language,
-                children: Vec::new(),
-            });
+        let notice = row.include_migration_notice;
+        match by_id.entry(id) {
+            std::collections::hash_map::Entry::Vacant(slot) => {
+                order.push(id);
+                slot.insert(AnnouncementRecipient {
+                    id,
+                    email: row.email,
+                    firstname: row.firstname,
+                    lastname: row.lastname,
+                    language: row.language,
+                    children: Vec::new(),
+                    include_migration_notice: notice,
+                });
+            }
+            std::collections::hash_map::Entry::Occupied(mut slot) => {
+                if notice {
+                    slot.get_mut().include_migration_notice = true;
+                }
+            }
         }
         if let Some(child_id) = row.child_id {
             if let Some(recipient) = by_id.get_mut(&id) {
@@ -229,7 +245,8 @@ pub trait UsersRepository: Send + Sync {
     /// Patrons who should receive an event announcement, one entry per recipient.
     /// `all_audiences` skips the type filter. Otherwise `public_types.name` must be in `audience_names`.
     /// A `child` is not emailed; their major guardian is, when the child is still active.
-    /// Consent is the recipient's `receive_reminders` (provisional opt-in; no separate GDPR column).
+    /// Consent is `events_consent_at IS NOT NULL` on the adult recipient, or on the
+    /// guardian when a child is routed. The child's own consent is not consulted.
     async fn users_list_announcement_recipients(
         &self,
         all_audiences: bool,
@@ -945,9 +962,11 @@ impl Repository {
     /// addr_city, phone, fee, group_id, barcode, notes, birthdate, language, sex, staff_type,
     /// hours_per_week, staff_start_date, staff_end_date, two_factor_method, totp_secret,
     /// recovery_codes, recovery_codes_used.
-    /// **Reset:** receive_reminders=false, two_factor_enabled=false, must_change_password=false,
+    /// **Reset:** receive_reminders=false, events_consent_at=null, events_consent_source=null,
+    /// events_consent_notice_at=null, two_factor_enabled=false, must_change_password=false,
     /// token_version+=1, status=deleted, archived_at/update_at=now.
     /// **Kept (non-identifying / operational):** id, account_type, public_type, created_at, expiry_at.
+    /// `events_consent_changed_at` is refreshed so the withdrawal stays auditable.
     #[tracing::instrument(skip(self), err)]
     pub async fn users_delete(&self, id: i64, force: bool) -> AppResult<UserErasureResult> {
         let user = self.users_get_by_id(id).await?;
@@ -1050,6 +1069,10 @@ impl Repository {
                 staff_start_date = NULL,
                 staff_end_date = NULL,
                 receive_reminders = FALSE,
+                events_consent_at = NULL,
+                events_consent_source = NULL,
+                events_consent_changed_at = NOW(),
+                events_consent_notice_at = NULL,
                 two_factor_enabled = FALSE,
                 two_factor_method = NULL,
                 totp_secret = NULL,
@@ -1202,9 +1225,88 @@ impl Repository {
             builder = builder.bind(false);
         }
 
-        builder.execute(&self.pool).await?;
+        // Consent-only profile edits have no column in this statement.
+        if !sets.is_empty() {
+            builder.execute(&self.pool).await?;
+        }
 
         self.users_get_by_id(id).await
+    }
+
+    /// Record an event-announcement consent change.
+    ///
+    /// Granting consent keeps the existing timestamp and source when the patron
+    /// is already consented. Withdrawing consent clears the timestamp, stores
+    /// `source` (the route that recorded the withdrawal), and refreshes
+    /// `events_consent_changed_at`.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn users_set_events_consent(
+        &self,
+        id: i64,
+        grant: bool,
+        source: &str,
+    ) -> AppResult<()> {
+        if grant {
+            sqlx::query(
+                r#"
+                UPDATE users SET
+                    events_consent_changed_at = CASE
+                        WHEN events_consent_at IS NULL THEN NOW()
+                        ELSE events_consent_changed_at
+                    END,
+                    events_consent_source = CASE
+                        WHEN events_consent_at IS NULL THEN $2
+                        ELSE events_consent_source
+                    END,
+                    events_consent_at = COALESCE(events_consent_at, NOW())
+                WHERE id = $1
+                "#,
+            )
+            .bind(id)
+            .bind(source)
+            .execute(&self.pool)
+            .await?;
+        } else {
+            sqlx::query(
+                r#"
+                UPDATE users SET
+                    events_consent_at = NULL,
+                    events_consent_source = $2,
+                    events_consent_changed_at = NOW()
+                WHERE id = $1
+                "#,
+            )
+            .bind(id)
+            .bind(source)
+            .execute(&self.pool)
+            .await?;
+        }
+        Ok(())
+    }
+
+    /// Withdraw event-announcement consent from the public unsubscribe endpoint.
+    ///
+    /// A patron who is already withdrawn stays that way: the stored source and
+    /// change timestamp are left as they are, and the caller still returns success.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn users_unsubscribe_events(&self, id: i64) -> AppResult<()> {
+        sqlx::query(
+            r#"
+            UPDATE users SET
+                events_consent_at = NULL,
+                events_consent_source = 'unsubscribe',
+                events_consent_changed_at = NOW()
+            WHERE id = $1
+              AND (
+                    events_consent_at IS NOT NULL
+                    OR events_consent_source IS DISTINCT FROM 'unsubscribe'
+                  )
+            "#,
+        )
+        .bind(id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 
     /// Update user's account type (admin only)
@@ -1306,10 +1408,11 @@ impl Repository {
     /// Patrons who should receive an event announcement, filtered and routed in SQL.
     ///
     /// `$1` is all-audiences: when true there is no public-type filter.
-    /// Otherwise `public_types.name` must be in `$2`. The recipient's `receive_reminders`
-    /// is required. A `child` is never the recipient: each active child in the audience
-    /// is attached to their guardian from `user_guardians`. Rows are grouped so a guardian
-    /// of several children, or a guardian who is also targeted directly, is returned once.
+    /// Otherwise `public_types.name` must be in `$2`. The recipient's `events_consent_at`
+    /// must be set. A `child` is never the recipient: each active child in the audience
+    /// is attached to their guardian from `user_guardians`, and the guardian's consent
+    /// is required. Rows are grouped so a guardian of several children, or a guardian
+    /// who is also targeted directly, is returned once.
     #[tracing::instrument(skip(self, audience_names), err)]
     pub async fn users_list_announcement_recipients(
         &self,
@@ -1362,6 +1465,7 @@ mod announcement_recipient_sql_tests {
             child_id,
             child_firstname,
             child_lastname,
+            include_migration_notice: false,
         }
     }
 
@@ -1369,16 +1473,20 @@ mod announcement_recipient_sql_tests {
     fn filters_consent_audience_and_guardian_routing_in_sql() {
         let sql = ANNOUNCEMENT_RECIPIENTS_SQL;
         assert!(
-            sql.contains("u.receive_reminders = TRUE"),
-            "direct opt-in stays in the query"
+            sql.contains("u.events_consent_at IS NOT NULL"),
+            "direct consent stays in the query"
         );
         assert!(
-            sql.contains("g.receive_reminders = TRUE"),
-            "guardian opt-in is what counts for a child"
+            sql.contains("g.events_consent_at IS NOT NULL"),
+            "guardian consent is what counts for a child"
         );
         assert!(
-            !sql.contains("c.receive_reminders"),
-            "the child's own opt-in is not consulted"
+            !sql.contains("c.events_consent_at"),
+            "the child's own consent is not consulted"
+        );
+        assert!(
+            !sql.contains("receive_reminders"),
+            "overdue-reminder opt-in is not the announcement filter"
         );
         assert!(sql.contains("JOIN user_guardians ug ON ug.child_id = c.id"));
         assert!(sql.contains("cpt.name = 'child'"));

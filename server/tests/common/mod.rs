@@ -71,6 +71,7 @@ impl TestApp {
                 None,
                 email_service,
                 event_bus,
+                config.public_base_url(),
             )
             .await
             .expect("create services"),

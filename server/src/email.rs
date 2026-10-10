@@ -31,6 +31,15 @@ fn next_outbox_id() -> i64 {
     IDS.lock().unwrap_or_else(|err| err.into_inner()).generate()
 }
 
+/// Headers and the optional migration-notice stamp stored with a queued announcement.
+pub struct EventAnnouncementExtras<'a> {
+    /// `List-Unsubscribe` and `List-Unsubscribe-Post`, applied when the outbox worker sends.
+    pub headers: &'a [(&'a str, &'a str)],
+    /// Patron id whose `events_consent_notice_at` is set in the same transaction.
+    /// `None` leaves the timestamp unchanged.
+    pub migration_notice_user_id: Option<i64>,
+}
+
 #[derive(Clone)]
 pub struct EmailService {
     dynamic_config: Arc<DynamicConfig>,
@@ -209,6 +218,12 @@ impl EmailService {
     }
 
     /// Queue an event-announcement email and reserve the event linkage until delivery is settled.
+    ///
+    /// `extras.headers` are stored with the body and applied when the outbox worker
+    /// sends (`List-Unsubscribe` / `List-Unsubscribe-Post`). When
+    /// `extras.migration_notice_user_id` is set, `events_consent_notice_at` is stamped
+    /// in the same transaction once the row is queued, and only while the source is
+    /// still `migration` and the notice timestamp is null.
     pub async fn enqueue_event_announcement(
         &self,
         to: &str,
@@ -216,12 +231,19 @@ impl EmailService {
         body_plain: &str,
         body_html: &str,
         event_id: i64,
+        extras: EventAnnouncementExtras<'_>,
     ) -> AppResult<i64> {
         let mut tx = self.pool.begin().await.map_err(AppError::from)?;
         let id = next_outbox_id();
+        let header_json: Vec<serde_json::Value> = extras
+            .headers
+            .iter()
+            .map(|(name, value)| serde_json::json!({ "name": name, "value": value }))
+            .collect();
         let body = serde_json::json!({
             "plain": body_plain,
             "html": body_html,
+            "headers": header_json,
         })
         .to_string();
 
@@ -252,6 +274,22 @@ impl EmailService {
         .await
         .map_err(AppError::from)?;
 
+        if let Some(user_id) = extras.migration_notice_user_id {
+            sqlx::query(
+                r#"
+                UPDATE users
+                SET events_consent_notice_at = NOW()
+                WHERE id = $1
+                  AND events_consent_source = 'migration'
+                  AND events_consent_notice_at IS NULL
+                "#,
+            )
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(AppError::from)?;
+        }
+
         tx.commit().await.map_err(AppError::from)?;
         Ok(id)
     }
@@ -264,6 +302,19 @@ impl EmailService {
         body_plain: &str,
         body_html: &str,
     ) -> AppResult<()> {
+        self.send_email_with_headers(to, subject, body_plain, body_html, &[])
+            .await
+    }
+
+    /// Send with extra headers (announcement `List-Unsubscribe` / one-click post).
+    pub async fn send_email_with_headers(
+        &self,
+        to: &str,
+        subject: &str,
+        body_plain: &str,
+        body_html: &str,
+        headers: &[(String, String)],
+    ) -> AppResult<()> {
         let config = self.dynamic_config.read_email();
 
         let from_name = config.smtp_from_name.as_deref().unwrap_or("Elidune");
@@ -273,10 +324,18 @@ impl EmailService {
         let to_mailbox = Mailbox::from_str(to)
             .map_err(|e| AppError::Internal(format!("Invalid to address: {}", e)))?;
 
-        let email = Message::builder()
+        let mut builder = Message::builder()
             .from(from_mailbox)
             .to(to_mailbox)
-            .subject(subject)
+            .subject(subject);
+        for (name, value) in headers {
+            builder = match name.as_str() {
+                "List-Unsubscribe" => builder.header(ListUnsubscribe(value.clone())),
+                "List-Unsubscribe-Post" => builder.header(ListUnsubscribePost(value.clone())),
+                _ => builder,
+            };
+        }
+        let email = builder
             .multipart(
                 MultiPart::alternative()
                     .singlepart(
@@ -316,5 +375,39 @@ impl EmailService {
             .map_err(|e| AppError::Internal(format!("Failed to send email: {}", e)))?;
 
         Ok(())
+    }
+}
+
+#[derive(Clone)]
+struct ListUnsubscribe(String);
+
+#[derive(Clone)]
+struct ListUnsubscribePost(String);
+
+impl lettre::message::header::Header for ListUnsubscribe {
+    fn name() -> lettre::message::header::HeaderName {
+        lettre::message::header::HeaderName::new_from_ascii_str("List-Unsubscribe")
+    }
+
+    fn parse(s: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(Self(s.to_string()))
+    }
+
+    fn display(&self) -> lettre::message::header::HeaderValue {
+        lettre::message::header::HeaderValue::new(Self::name(), self.0.clone())
+    }
+}
+
+impl lettre::message::header::Header for ListUnsubscribePost {
+    fn name() -> lettre::message::header::HeaderName {
+        lettre::message::header::HeaderName::new_from_ascii_str("List-Unsubscribe-Post")
+    }
+
+    fn parse(s: &str) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(Self(s.to_string()))
+    }
+
+    fn display(&self) -> lettre::message::header::HeaderValue {
+        lettre::message::header::HeaderValue::new(Self::name(), self.0.clone())
     }
 }

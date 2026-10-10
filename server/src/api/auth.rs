@@ -1,7 +1,7 @@
 //! Authentication endpoints
 
 use axum::{extract::State, Json};
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use utoipa::ToSchema;
@@ -10,6 +10,7 @@ use validator::Validate;
 use crate::error::AppResult;
 #[allow(unused_imports)] // Used in utoipa macros
 use crate::error::ErrorResponse;
+use crate::models::user::EventsConsentSource;
 use crate::models::Language;
 use crate::models::PlaintextPassword;
 use crate::services::audit;
@@ -126,6 +127,12 @@ pub struct UserInfo {
     pub account_type: String,
     /// Preferred language
     pub language: Language,
+    /// Derived: `eventsConsentAt` is set.
+    pub events_consent: bool,
+    /// When the patron consented to event announcements. Null means no consent.
+    pub events_consent_at: Option<DateTime<Utc>>,
+    /// Route that recorded the latest consent change.
+    pub events_consent_source: Option<EventsConsentSource>,
 }
 
 /// Login endpoint - authenticate and get JWT token
@@ -273,6 +280,9 @@ pub async fn login(
             birthdate: user.birthdate,
             account_type: user.account_type.to_string(),
             language: user.language.unwrap_or(Language::French),
+            events_consent: user.events_consent,
+            events_consent_at: user.events_consent_at,
+            events_consent_source: user.events_consent_source,
         },
         requires_2fa,
         two_factor_method,
@@ -311,6 +321,9 @@ pub async fn me(
         birthdate: user.birthdate,
         account_type: user.account_type.to_string(),
         language: user.language.unwrap_or(Language::French),
+        events_consent: user.events_consent,
+        events_consent_at: user.events_consent_at,
+        events_consent_source: user.events_consent_source,
     }))
 }
 

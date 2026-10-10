@@ -8,6 +8,11 @@ port = 8080
 # auth_rate_burst = 2
 # public_rate_per_second = 30
 # public_rate_burst = 100
+# Public UI origin for links in outbound email. No trailing slash.
+# Announcements link to {public_base_url}/events/unsubscribe?token=…
+# List-Unsubscribe uses {public_base_url}/api/v1/events/unsubscribe?token=…
+# When unset, both use http://{host}:{port} (0.0.0.0 and :: become localhost).
+# public_base_url = "https://library.example.org"
 
 [database]
 url = "postgres://elidune:elidune@localhost:5432/elidune"
