@@ -32,6 +32,14 @@ fn backfill_sql_opts_in_active_non_children_without_using_reminders() {
         !lower.contains("birthdate"),
         "age is not how this codebase identifies a child account"
     );
+    assert!(
+        sql.contains("u.account_type NOT IN ('librarian', 'admin')"),
+        "staff logins are account_types.code, stored on users.account_type"
+    );
+    assert!(
+        lower.contains("u.expiry_at is not null") && lower.contains("interval '1 year'"),
+        "only a subscription that ended more than one year ago is excluded"
+    );
 }
 
 #[tokio::test]
@@ -120,6 +128,84 @@ async fn backfill_sets_consent_for_active_non_children_only() {
     assert!(!consent_at_present(&app, child).await);
     assert!(consent_source(&app, deleted).await.is_none());
     assert!(!consent_at_present(&app, deleted).await);
+}
+
+#[tokio::test]
+async fn backfill_skips_librarian_and_admin_accounts() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    // Bootstrap before inserting patrons. A non-empty `users` table makes
+    // `POST /first_setup` refuse, and the other integration tests share this database.
+    let _token = fixtures::ensure_first_setup(&app).await;
+    let suffix = fixtures::unique_suffix();
+    let librarian =
+        insert_backfill_case(&app, &format!("bf_lib_{suffix}"), "librarian", None).await;
+    let admin = insert_backfill_case(&app, &format!("bf_admin_{suffix}"), "admin", None).await;
+
+    clear_and_backfill(&app, &[librarian, admin]).await;
+
+    assert!(consent_source(&app, librarian).await.is_none());
+    assert!(!consent_at_present(&app, librarian).await);
+    assert!(consent_source(&app, admin).await.is_none());
+    assert!(!consent_at_present(&app, admin).await);
+}
+
+#[tokio::test]
+async fn backfill_skips_subscription_expired_more_than_one_year_ago() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let _token = fixtures::ensure_first_setup(&app).await;
+    let suffix = fixtures::unique_suffix();
+    let expired = insert_backfill_case(
+        &app,
+        &format!("bf_old_{suffix}"),
+        "reader",
+        Some(chrono::Utc::now() - chrono::Duration::days(400)),
+    )
+    .await;
+
+    clear_and_backfill(&app, &[expired]).await;
+
+    assert!(consent_source(&app, expired).await.is_none());
+    assert!(!consent_at_present(&app, expired).await);
+}
+
+#[tokio::test]
+async fn backfill_includes_subscription_expired_less_than_one_year_ago() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let _token = fixtures::ensure_first_setup(&app).await;
+    let suffix = fixtures::unique_suffix();
+    let recent = insert_backfill_case(
+        &app,
+        &format!("bf_recent_{suffix}"),
+        "reader",
+        Some(chrono::Utc::now() - chrono::Duration::days(200)),
+    )
+    .await;
+
+    clear_and_backfill(&app, &[recent]).await;
+
+    assert_eq!(consent_source(&app, recent).await, Some("migration".into()));
+    assert!(consent_at_present(&app, recent).await);
+}
+
+#[tokio::test]
+async fn backfill_includes_null_expiry() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let _token = fixtures::ensure_first_setup(&app).await;
+    let suffix = fixtures::unique_suffix();
+    let open = insert_backfill_case(&app, &format!("bf_open_{suffix}"), "reader", None).await;
+
+    clear_and_backfill(&app, &[open]).await;
+
+    assert_eq!(consent_source(&app, open).await, Some("migration".into()));
+    assert!(consent_at_present(&app, open).await);
 }
 
 #[tokio::test]
@@ -531,6 +617,47 @@ fn scoped_backfill_sql() -> String {
         .join("\n");
     let statement = statement.trim().trim_end_matches(';').trim();
     format!("{statement}\n  AND u.id = ANY($1::bigint[])")
+}
+
+async fn clear_and_backfill(app: &TestApp, ids: &[i64]) {
+    sqlx::query(
+        "UPDATE users SET events_consent_at = NULL, events_consent_source = NULL, events_consent_changed_at = NULL, events_consent_notice_at = NULL WHERE id = ANY($1::bigint[])",
+    )
+    .bind(ids)
+    .execute(app.state.services.repository.pool())
+    .await
+    .expect("clear consent");
+
+    sqlx::query(&scoped_backfill_sql())
+        .bind(ids)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("backfill");
+}
+
+async fn insert_backfill_case(
+    app: &TestApp,
+    login: &str,
+    account_type: &str,
+    expiry_at: Option<chrono::DateTime<chrono::Utc>>,
+) -> i64 {
+    sqlx::query_scalar(
+        r#"
+        INSERT INTO users (
+            login, firstname, lastname, email, account_type, status,
+            receive_reminders, sex, birthdate, expiry_at, token_version, created_at, update_at
+        )
+        VALUES ($1, 'Back', 'Fill', $2, $3, 'active', TRUE, 'm', '1990-01-01', $4, 0, NOW(), NOW())
+        RETURNING id
+        "#,
+    )
+    .bind(login)
+    .bind(format!("{login}@test.local"))
+    .bind(account_type)
+    .bind(expiry_at)
+    .fetch_one(app.state.services.repository.pool())
+    .await
+    .expect("insert backfill case")
 }
 
 async fn insert_patron(

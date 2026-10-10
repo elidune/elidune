@@ -25,15 +25,26 @@ ALTER TABLE users
 
 -- BEGIN EVENTS CONSENT BACKFILL
 -- Active = not deleted (same predicate as announcement recipient selection).
--- Adult = public type is not the seeded `child` name. Birthdate is not used.
--- NULL public type and non-child types (adult, school, staff, senior) are included.
--- receive_reminders is intentionally not consulted.
+-- A child is public_types.name = 'child'. Birthdate is not used.
+-- NULL public type and non-child public types (adult, school, staff, senior) are included.
+-- The public-type name "staff" is not an account type and stays included.
+-- Staff logins are excluded: users.account_type references account_types.code,
+-- and codes 'librarian' and 'admin' are not opted in. They can opt in later from their profile.
+-- A subscription that ended more than one year ago is excluded
+-- (expiry_at IS NOT NULL AND expiry_at < NOW() - INTERVAL '1 year').
+-- NULL expiry_at stays included. An expiry less than one year ago stays included.
+-- The overdue-reminder preference is intentionally not consulted.
 UPDATE users AS u
 SET
     events_consent_at = NOW(),
     events_consent_source = 'migration',
     events_consent_changed_at = NOW()
 WHERE (u.status IS NULL OR u.status <> 'deleted')
+  AND u.account_type NOT IN ('librarian', 'admin')
+  AND NOT (
+      u.expiry_at IS NOT NULL
+      AND u.expiry_at < NOW() - INTERVAL '1 year'
+  )
   AND NOT EXISTS (
       SELECT 1
       FROM public_types AS pt

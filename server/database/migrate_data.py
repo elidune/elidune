@@ -645,6 +645,9 @@ def migrate_users(src, dst, hash_passwords=True):
 
     # Mirror migration 037: active non-child accounts are opted in.
     # Child = public_types.name 'child'. Deleted accounts are skipped.
+    # Staff logins (account_types.code librarian or admin) are skipped.
+    # A subscription that ended more than one year ago is skipped.
+    # NULL expiry_at is included. An expiry less than one year ago is included.
     # Rows that already have a consent timestamp or source are left alone,
     # so a re-run does not undo a later withdrawal.
     dst_cur.execute("""
@@ -656,6 +659,11 @@ def migrate_users(src, dst, hash_passwords=True):
         WHERE (u.status IS NULL OR u.status <> 'deleted')
           AND u.events_consent_at IS NULL
           AND u.events_consent_source IS NULL
+          AND u.account_type NOT IN ('librarian', 'admin')
+          AND NOT (
+              u.expiry_at IS NOT NULL
+              AND u.expiry_at < NOW() - INTERVAL '1 year'
+          )
           AND NOT EXISTS (
               SELECT 1
               FROM public_types AS pt
