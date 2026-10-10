@@ -2,20 +2,25 @@
 
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{header, StatusCode},
+    response::{IntoResponse, Response},
     Json,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::{
-    error::AppResult,
+    error::{AppError, AppResult},
+    events_consent,
     models::event::{CreateEvent, Event, EventQuery, UpdateEvent},
     services::{
         audit,
         events::{AnnouncementReport, SendAnnouncementRequest},
     },
 };
+
+#[allow(unused_imports)]
+use crate::error::ErrorResponse;
 
 use super::{AuthenticatedUser, ClientIp};
 
@@ -32,6 +37,35 @@ pub fn router() -> axum::Router<crate::AppState> {
             "/events/:id/send-announcement",
             post(send_event_announcement),
         )
+        .route(
+            "/events/:id/announcement-recipients/count",
+            get(count_announcement_recipients),
+        )
+}
+
+/// Public unsubscribe route (no login). Mounted on the public rate limiter.
+///
+/// The confirmation page is the UI at `/events/unsubscribe`. This route only
+/// performs the withdrawal, so a mail prefetch cannot opt the patron out.
+pub fn public_router() -> axum::Router<crate::AppState> {
+    use axum::routing::post;
+    axum::Router::new().route("/events/unsubscribe", post(unsubscribe_events))
+}
+
+/// Distinct patrons who would receive an announcement for this event.
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct AnnouncementRecipientCount {
+    /// Recipients after guardian routing. A guardian of several children counts once.
+    pub count: i64,
+}
+
+/// JSON body for `POST /events/unsubscribe`.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct UnsubscribeEventsRequest {
+    /// Signed token from the email link (`/events/unsubscribe?token=`).
+    pub token: String,
 }
 
 /// Paginated events response
@@ -241,12 +275,15 @@ pub async fn delete_event(
 }
 
 /// Send an announcement email to patrons in any selected audience (`publicTypes`), once each.
-/// Recipients are chosen in SQL. A non-child patron is emailed when `receiveReminders` is
-/// true and either `allAudiences` is set or their public type is one of `publicTypes`.
+/// Recipients are chosen in SQL. A non-child patron is emailed when `eventsConsentAt` is
+/// set and either `allAudiences` is set or their public type is one of `publicTypes`.
 /// A child is not emailed: the message goes to their legal guardian, using the guardian's
-/// `receiveReminders`, and names the child or children concerned.
-/// `receiveReminders` is the only email opt-in on this branch (there is no separate GDPR
-/// communications-consent column).
+/// `eventsConsentAt`, and names the child or children concerned.
+/// The child's own consent is ignored. `receiveReminders` is not consulted.
+///
+/// Each message includes an unsubscribe link. The first message queued for a patron whose
+/// consent source is `migration` and who has not yet received the notice also explains
+/// the opt-in.
 ///
 /// The default `event_announcement` template is used unless `subject`/`body_plain`
 /// (and optionally `body_html`) are supplied in the request body, in which case the
@@ -281,4 +318,136 @@ pub async fn send_event_announcement(
         .send_announcement(id, &payload, Some(claims.user_id), ip)
         .await?;
     Ok(Json(report))
+}
+
+/// Count patrons who would receive an announcement for this event.
+///
+/// Same SQL as `POST /events/{id}/send-announcement`: audience filter, guardian
+/// routing, and `eventsConsentAt` on the adult or the guardian. Requires write
+/// access to events, the same permission as sending.
+#[utoipa::path(
+    get,
+    path = "/events/{id}/announcement-recipients/count",
+    tag = "events",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Event ID")),
+    responses(
+        (status = 200, description = "Distinct recipient count", body = AnnouncementRecipientCount),
+        (status = 401, description = "Not authenticated", body = ErrorResponse),
+        (status = 403, description = "Insufficient permissions", body = ErrorResponse),
+        (status = 404, description = "Not found", body = ErrorResponse),
+    )
+)]
+pub async fn count_announcement_recipients(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Path(id): Path<i64>,
+) -> AppResult<Json<AnnouncementRecipientCount>> {
+    claims.require_write_events()?;
+    let count = state
+        .services
+        .events
+        .count_announcement_recipients(id)
+        .await?;
+    Ok(Json(AnnouncementRecipientCount { count }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UnsubscribeQuery {
+    token: Option<String>,
+}
+
+/// Withdraw event-announcement consent. No login.
+///
+/// The UI posts JSON `{ "token" }` from `/events/unsubscribe` after the patron
+/// clicks. RFC 8058 one-click posts `List-Unsubscribe=One-Click` to the
+/// `List-Unsubscribe` URL, which carries `?token=`. A second call for a patron
+/// who is already withdrawn returns 204.
+#[utoipa::path(
+    post,
+    path = "/events/unsubscribe",
+    tag = "events",
+    params(("token" = Option<String>, Query, description = "Signed token. Required for RFC 8058 one-click; the JSON body carries it otherwise.")),
+    request_body(content = UnsubscribeEventsRequest, description = "JSON token from the UI. Omit when posting the one-click form body.", content_type = "application/json"),
+    responses(
+        (status = 204, description = "Consent withdrawn, or already withdrawn"),
+        (status = 400, description = "Invalid request"),
+    )
+)]
+pub async fn unsubscribe_events(
+    State(state): State<crate::AppState>,
+    headers: axum::http::HeaderMap,
+    Query(query): Query<UnsubscribeQuery>,
+    body: axum::body::Bytes,
+) -> Response {
+    let content_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    let Some(token) = unsubscribe_token(content_type, query.token.as_deref(), &body) else {
+        return invalid_unsubscribe();
+    };
+    let Some(user_id) = events_consent::verify(state.config.users.jwt_secret.as_bytes(), &token)
+    else {
+        return invalid_unsubscribe();
+    };
+    match state.services.users.get_by_id(user_id).await {
+        Ok(_) => {}
+        Err(AppError::NotFound(_)) => return invalid_unsubscribe(),
+        Err(err) => return err.into_response(),
+    }
+    if let Err(err) = state
+        .services
+        .repository
+        .users_unsubscribe_events(user_id)
+        .await
+    {
+        return err.into_response();
+    }
+    StatusCode::NO_CONTENT.into_response()
+}
+
+/// JSON `{ "token" }`, or `?token=` together with the RFC 8058 form body.
+fn unsubscribe_token(content_type: &str, query_token: Option<&str>, body: &[u8]) -> Option<String> {
+    let text = std::str::from_utf8(body).ok()?;
+    let json = content_type
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .eq_ignore_ascii_case("application/json")
+        || text.trim_start().starts_with('{');
+    if json {
+        let parsed: UnsubscribeEventsRequest = serde_json::from_slice(body).ok()?;
+        let token = parsed.token.trim();
+        if token.is_empty() {
+            return None;
+        }
+        return Some(token.to_string());
+    }
+    let query_token = query_token
+        .map(str::trim)
+        .filter(|token| !token.is_empty())?;
+    if is_one_click_body(text) {
+        Some(query_token.to_string())
+    } else {
+        None
+    }
+}
+
+fn is_one_click_body(body: &str) -> bool {
+    let trimmed = body.trim();
+    trimmed == "List-Unsubscribe=One-Click"
+        || trimmed
+            .split('&')
+            .any(|pair| pair.trim() == "List-Unsubscribe=One-Click")
+}
+
+fn invalid_unsubscribe() -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+        events_consent::INVALID_REQUEST,
+    )
+        .into_response()
 }

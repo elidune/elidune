@@ -180,6 +180,7 @@ jobs:
           --test graduated_reminders
           --test patron_guardians
           --test event_audiences
+          --test events_consent
           -- --nocapture
 
   coverage:
@@ -250,6 +251,7 @@ jobs:
           --test graduated_reminders
           --test patron_guardians
           --test event_audiences
+          --test events_consent
           --lcov
           --output-path lcov.info
           --fail-under-lines 20

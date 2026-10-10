@@ -13,6 +13,7 @@ use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 
 use crate::{
     error::{AppError, AppResult},
+    events_consent,
     models::{
         event::{
             AudienceSelection, CreateEvent, Event, EventAttachmentInput, EventQuery, UpdateEvent,
@@ -67,6 +68,10 @@ pub struct EventsService {
     repository: Arc<dyn EventsServiceRepository>,
     email: EmailService,
     audit: AuditService,
+    /// HMAC key for announcement unsubscribe tokens (the JWT secret).
+    unsubscribe_secret: String,
+    /// Absolute origin used in unsubscribe links, without a trailing slash.
+    public_base_url: String,
 }
 
 impl EventsService {
@@ -74,11 +79,15 @@ impl EventsService {
         repository: Arc<dyn EventsServiceRepository>,
         email: EmailService,
         audit: AuditService,
+        unsubscribe_secret: String,
+        public_base_url: String,
     ) -> Self {
         Self {
             repository,
             email,
             audit,
+            unsubscribe_secret,
+            public_base_url,
         }
     }
 
@@ -169,17 +178,33 @@ impl EventsService {
         self.repository.events_annual_stats(year).await
     }
 
+    /// How many distinct recipients `send_announcement` would queue for this event.
+    ///
+    /// Uses the same recipient query as sending: audience filter, guardian routing,
+    /// and `events_consent_at IS NOT NULL` on the adult or on the guardian.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn count_announcement_recipients(&self, event_id: i64) -> AppResult<i64> {
+        let event = self.repository.events_get_by_id(event_id).await?;
+        let targets = self
+            .repository
+            .users_list_announcement_recipients(event.all_audiences, &event.public_types)
+            .await?;
+        i64::try_from(targets.len())
+            .map_err(|_| AppError::Internal("announcement recipient count exceeds i64".into()))
+    }
+
     /// Send an announcement email to patrons in any selected audience, once each.
     ///
     /// Recipients are selected in SQL. A non-`child` patron is emailed directly when
-    /// `receive_reminders` is set and either `all_audiences` is set or their public
+    /// `events_consent_at` is set and either `all_audiences` is set or their public
     /// type is one of the event audiences. A `child` is never emailed: each active
     /// child is routed to their major guardian, and that guardian's own
-    /// `receive_reminders` is the opt-in. One email is sent per recipient. When the
+    /// `events_consent_at` is the opt-in. One email is sent per recipient. When the
     /// recipient stands in for one or more children, the message names them.
     ///
-    /// `main` has no dedicated GDPR communications-consent column. The only email
-    /// opt-in is `users.receive_reminders` (overdue reminders, default true).
+    /// Every message includes an unsubscribe link. The first message queued for a
+    /// patron whose consent source is `migration` and whose notice timestamp is still
+    /// null also explains why they were opted in. `receive_reminders` is not consulted.
     ///
     /// If the request provides `subject`/`body_plain`/`body_html`, those are used
     /// directly instead of the template. A guardian message still names the children
@@ -310,6 +335,31 @@ impl EventsService {
                 &children_block,
                 &recipient.children,
             );
+            let (ui_unsubscribe_url, api_unsubscribe_url) =
+                match self.unsubscribe_urls(recipient.id) {
+                    Ok(urls) => urls,
+                    Err(e) => {
+                        errors.push(AnnouncementError {
+                            user_id: recipient.id,
+                            email: email_addr.clone(),
+                            error_message: e.to_string(),
+                        });
+                        continue;
+                    }
+                };
+            events_consent::append_announcement_footer(
+                &mut body_plain,
+                &mut body_html,
+                recipient.language.as_deref(),
+                recipient.include_migration_notice,
+                &ui_unsubscribe_url,
+            );
+            let header_values = events_consent::list_unsubscribe_headers(&api_unsubscribe_url);
+            let headers: Vec<(&str, &str)> = header_values
+                .iter()
+                .map(|(name, value)| (*name, value.as_str()))
+                .collect();
+            let notice_user = recipient.include_migration_notice.then_some(recipient.id);
 
             match self
                 .email
@@ -319,6 +369,10 @@ impl EventsService {
                     &body_plain,
                     &body_html,
                     event_id,
+                    crate::email::EventAnnouncementExtras {
+                        headers: &headers,
+                        migration_notice_user_id: notice_user,
+                    },
                 )
                 .await
             {
@@ -370,6 +424,19 @@ impl EventsService {
             skipped,
             errors,
         })
+    }
+
+    /// UI page the patron opens, and the API URL used by `List-Unsubscribe`.
+    ///
+    /// Both sit on [`Self::public_base_url`]: nginx (and the Vite dev proxy) serve
+    /// the SPA and `/api/v1` from the same origin.
+    fn unsubscribe_urls(&self, user_id: i64) -> AppResult<(String, String)> {
+        let token = events_consent::sign(self.unsubscribe_secret.as_bytes(), user_id)?;
+        let base = &self.public_base_url;
+        Ok((
+            format!("{base}/events/unsubscribe?token={token}"),
+            format!("{base}/api/v1/events/unsubscribe?token={token}"),
+        ))
     }
 
     async fn validate_audience_names(&self, names: &[String]) -> AppResult<()> {

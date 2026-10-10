@@ -665,6 +665,9 @@ mod tests {
             must_change_password: false,
             token_version: 0,
             guardian_id: None,
+            events_consent: false,
+            events_consent_at: None,
+            events_consent_source: None,
         }
     }
 

@@ -16,9 +16,17 @@ const MAX_ATTEMPTS: i32 = 5;
 const DEFAULT_BATCH_SIZE: i64 = 20;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct OutboxHeader {
+    name: String,
+    value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct OutboxBody {
     plain: String,
     html: String,
+    #[serde(default)]
+    headers: Vec<OutboxHeader>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -86,8 +94,19 @@ pub async fn process_outbox_batch(
             }
         };
 
+        let headers: Vec<(String, String)> = body
+            .headers
+            .iter()
+            .map(|header| (header.name.clone(), header.value.clone()))
+            .collect();
         match email
-            .send_email_with_html(&row.to_addr, &row.subject, &body.plain, &body.html)
+            .send_email_with_headers(
+                &row.to_addr,
+                &row.subject,
+                &body.plain,
+                &body.html,
+                &headers,
+            )
             .await
         {
             Ok(()) => {
@@ -278,5 +297,15 @@ mod tests {
         let body: OutboxBody = serde_json::from_str(raw).expect("parse");
         assert_eq!(body.plain, "hello");
         assert_eq!(body.html, "<p>hello</p>");
+        assert!(body.headers.is_empty());
+    }
+
+    #[test]
+    fn outbox_body_keeps_list_unsubscribe_headers() {
+        let raw = r#"{"plain":"hi","html":"<p>hi</p>","headers":[{"name":"List-Unsubscribe","value":"<https://example/unsub>"}]}"#;
+        let body: OutboxBody = serde_json::from_str(raw).expect("parse");
+        assert_eq!(body.headers.len(), 1);
+        assert_eq!(body.headers[0].name, "List-Unsubscribe");
+        assert_eq!(body.headers[0].value, "<https://example/unsub>");
     }
 }

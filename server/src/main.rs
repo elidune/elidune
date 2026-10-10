@@ -81,6 +81,7 @@ async fn main() -> anyhow::Result<()> {
         file_config.meilisearch.clone(),
         email_service,
         event_bus,
+        file_config.public_base_url(),
     )
     .await
     .expect("Failed to create services");

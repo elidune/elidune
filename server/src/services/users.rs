@@ -17,8 +17,9 @@ use crate::{
     models::{
         secret::{ExposeSecret, PlaintextPassword},
         user::{
-            AccountTypeSlug, GuardianIdPatch, UpdateProfile, User, UserClaims, UserErasureResult,
-            UserPayload, UserQuery, UserShort, UserStatus, SCOPE_CHANGE_PASSWORD,
+            AccountTypeSlug, EventsConsentSource, GuardianIdPatch, UpdateProfile, User, UserClaims,
+            UserErasureResult, UserPayload, UserQuery, UserShort, UserStatus,
+            SCOPE_CHANGE_PASSWORD,
         },
     },
     repository::Repository,
@@ -401,9 +402,17 @@ impl UsersService {
         self.repository.users_search(query).await
     }
 
-    /// Create a new user
+    /// Create a new user.
+    ///
+    /// `consent_source` is chosen by the caller from the route (`desk` for staff
+    /// create, `registration` for a future self-registration handler). It is
+    /// stored only when `events_consent` is present and the patron is not a child.
     #[tracing::instrument(skip(self), err)]
-    pub async fn create_user(&self, mut user: UserPayload) -> AppResult<User> {
+    pub async fn create_user(
+        &self,
+        mut user: UserPayload,
+        consent_source: EventsConsentSource,
+    ) -> AppResult<User> {
         user.validate_required_patron_fields()?;
 
         let login = user
@@ -436,7 +445,35 @@ impl UsersService {
 
         self.ensure_guardian_on_create(&user).await?;
 
-        self.repository.users_create(&user, password).await
+        let requested_consent = user.events_consent;
+        let public_type = user.public_type;
+        let created = self.repository.users_create(&user, password).await?;
+        self.record_events_consent(created.id, public_type, requested_consent, consent_source)
+            .await?;
+        self.repository.users_get_by_id(created.id).await
+    }
+
+    /// Apply `events_consent` unless the patron is a child.
+    ///
+    /// Child accounts do not store announcement consent. The field is ignored
+    /// (the request still succeeds) because the guardian's consent is what the
+    /// recipient query checks.
+    async fn record_events_consent(
+        &self,
+        user_id: i64,
+        public_type_id: Option<i64>,
+        requested: Option<bool>,
+        source: EventsConsentSource,
+    ) -> AppResult<()> {
+        let Some(granted) = requested else {
+            return Ok(());
+        };
+        if self.public_type_requires_guardian(public_type_id).await? {
+            return Ok(());
+        }
+        self.repository
+            .users_set_events_consent(user_id, granted, source.as_db_str())
+            .await
     }
 
     async fn public_type_requires_guardian(&self, public_type_id: Option<i64>) -> AppResult<bool> {
@@ -523,9 +560,16 @@ impl UsersService {
         Ok(())
     }
 
-    /// Update an existing user
+    /// Update an existing user.
+    ///
+    /// `consent_source` is `desk` for staff `PUT /users/{id}`.
     #[tracing::instrument(skip(self), err)]
-    pub async fn update_user(&self, id: i64, user: UserPayload) -> AppResult<User> {
+    pub async fn update_user(
+        &self,
+        id: i64,
+        user: UserPayload,
+        consent_source: EventsConsentSource,
+    ) -> AppResult<User> {
         // user.validate_required_patron_fields()?;
 
         // Check if user exists
@@ -541,6 +585,9 @@ impl UsersService {
 
         self.ensure_guardian_on_update(id, &existing, &user).await?;
 
+        let resulting_type = user.public_type.or(existing.public_type);
+        let requested_consent = user.events_consent;
+
         // Hash password if provided
         let password = if let Some(ref password) = user.password {
             validate_password_strength(password.expose_secret().as_str())?;
@@ -549,7 +596,10 @@ impl UsersService {
             None
         };
 
-        self.repository.users_update(id, &user, password).await
+        self.repository.users_update(id, &user, password).await?;
+        self.record_events_consent(id, resulting_type, requested_consent, consent_source)
+            .await?;
+        self.repository.users_get_by_id(id).await
     }
 
     /// Anonymize a patron for stats (PII scrub + history identity cut).
@@ -616,6 +666,9 @@ impl UsersService {
             }
         }
 
+        let requested_consent = profile.events_consent;
+        let public_type = user.public_type;
+
         // Hash new password if provided
         let password = if let Some(ref new_password) = profile.new_password {
             validate_password_strength(new_password.expose_secret().as_str())?;
@@ -627,7 +680,15 @@ impl UsersService {
         // Update only allowed fields
         self.repository
             .users_update_profile(user_id, &profile, password)
-            .await
+            .await?;
+        self.record_events_consent(
+            user_id,
+            public_type,
+            requested_consent,
+            EventsConsentSource::Profile,
+        )
+        .await?;
+        self.repository.users_get_by_id(user_id).await
     }
 
     /// Update user's account type (admin only)

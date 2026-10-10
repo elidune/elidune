@@ -24,6 +24,13 @@ pub struct ServerConfig {
     /// Burst size for public endpoint rate limiter (default: 100).
     #[serde(default)]
     pub public_rate_burst: Option<u32>,
+    /// Public origin of the UI (no trailing slash). Announcement emails link to
+    /// `{public_base_url}/events/unsubscribe?token=…`. `List-Unsubscribe` uses
+    /// `{public_base_url}/api/v1/events/unsubscribe?token=…` on the same origin.
+    /// When unset, both use `http://{host}:{port}`, with `0.0.0.0` and `::`
+    /// rewritten to `localhost`.
+    #[serde(default)]
+    pub public_base_url: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -411,6 +418,22 @@ impl AppConfig {
         Ok(())
     }
 
+    /// Public UI origin used in announcement emails, without a trailing slash.
+    #[must_use]
+    pub fn public_base_url(&self) -> String {
+        if let Some(configured) = self.server.public_base_url.as_deref() {
+            let trimmed = configured.trim().trim_end_matches('/');
+            if !trimmed.is_empty() {
+                return trimmed.to_string();
+            }
+        }
+        let host = match self.server.host.as_str() {
+            "0.0.0.0" | "::" | "" => "localhost",
+            other => other,
+        };
+        format!("http://{host}:{}", self.server.port)
+    }
+
     /// Minimal configuration for integration tests (uses `DATABASE_URL` / `REDIS_URL` env vars).
     pub fn for_test() -> Self {
         let database_url = std::env::var("DATABASE_URL")
@@ -476,6 +499,7 @@ impl Default for ServerConfig {
             auth_rate_burst: None,
             public_rate_per_second: None,
             public_rate_burst: None,
+            public_base_url: None,
         }
     }
 }
