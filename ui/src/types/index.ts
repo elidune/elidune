@@ -135,7 +135,28 @@ export interface User {
   staffEndDate?: string | null;
   /** Linked legal guardian patron id. Required when public type is `child`. */
   guardianId?: string | null;
+  /**
+   * Opt-in for the events programme. CamelCase JSON (`eventsConsent`).
+   * Absent on child accounts: the guardian's consent applies.
+   */
+  eventsConsent?: boolean;
+  /** When the current consent value was recorded. Null when never set. */
+  eventsConsentAt?: string | null;
+  /**
+   * Who recorded the consent. The client never sends this; the server derives it.
+   * `signup` is accepted as an alias of `registration`.
+   */
+  eventsConsentSource?: EventsConsentSource | null;
 }
+
+/** Server values for `eventsConsentSource` (camelCase JSON). */
+export type EventsConsentSource =
+  | 'migration'
+  | 'registration'
+  | 'signup'
+  | 'desk'
+  | 'profile'
+  | 'unsubscribe';
 
 // Update profile request type
 export interface UpdateProfileRequest {
@@ -151,6 +172,8 @@ export interface UpdateProfileRequest {
   currentPassword?: string;
   newPassword?: string;
   language?: string;
+  /** Events programme opt-in. The server sets the source from this route. */
+  eventsConsent?: boolean;
 }
 
 /** First-login / forced password change via POST /auth/change-password */
@@ -1468,6 +1491,15 @@ export interface Event {
   attachmentSize?: number | null;
   /** Present on GET single / POST / PUT responses when a file is stored. */
   attachmentDataBase64?: string | null;
+}
+
+/**
+ * Patrons who would receive an event announcement (opted-in recipients only).
+ * Provisional #75 shape: `{ count }` (also accepts `recipientCount`).
+ */
+export interface AnnouncementRecipientCount {
+  count?: number;
+  recipientCount?: number;
 }
 
 export interface CreateEvent {

@@ -221,6 +221,51 @@
       "other": "Sonstige"
     }
   },
+  "eventsConsent": {
+    "legend": "Veranstaltungsprogramm erhalten",
+    "yes": "Ja",
+    "no": "Nein",
+    "hint": "Gelegentliche E-Mails zu Veranstaltungen der Bibliothek. Sie können diese Wahl jederzeit ändern.",
+    "childNotice": "Kinderkonto: es gilt die Einwilligung der erziehungsberechtigten Person.",
+    "openGuardianFile": "Akte der erziehungsberechtigten Person öffnen",
+    "status": {
+      "migration": "Bei der Migration automatisch aktiviert",
+      "migrationOn": "Bei der Migration automatisch aktiviert ({{date}})",
+      "deskGiven": "An der Theke erteilt am {{date}}",
+      "deskDeclined": "An der Theke abgelehnt am {{date}}",
+      "deskGivenNoDate": "An der Theke erteilt",
+      "deskDeclinedNoDate": "An der Theke abgelehnt",
+      "registrationGiven": "Bei der Anmeldung erteilt am {{date}}",
+      "registrationDeclined": "Bei der Anmeldung abgelehnt am {{date}}",
+      "registrationGivenNoDate": "Bei der Anmeldung erteilt",
+      "registrationDeclinedNoDate": "Bei der Anmeldung abgelehnt",
+      "profileGiven": "Im Profil geändert am {{date}}",
+      "profileDeclined": "Im Profil deaktiviert am {{date}}",
+      "profileGivenNoDate": "Im Profil geändert",
+      "profileDeclinedNoDate": "Im Profil deaktiviert",
+      "unsubscribe": "Über einen E-Mail-Link beendet am {{date}}",
+      "unsubscribeNoDate": "Über einen E-Mail-Link beendet",
+      "givenOn": "Erteilt am {{date}}",
+      "declinedOn": "Abgelehnt am {{date}}"
+    },
+    "recipientCount_one": "{{count}} Nutzer erhält diese Ankündigung.",
+    "recipientCount_other": "{{count}} Nutzer erhalten diese Ankündigung.",
+    "recipientCountZero": "Niemand erhält diese Ankündigung. Prüfen Sie, ob Nutzer das Veranstaltungsprogramm akzeptiert haben.",
+    "recipientCountLoading": "Anzahl der Empfänger wird ermittelt…",
+    "recipientCountError": "Die Empfängerzahl konnte nicht geladen werden. Sie können die Ankündigung trotzdem senden.",
+    "confirmSendTitle": "Ankündigung senden?",
+    "confirmSendBody": "Diese E-Mail geht nur an Nutzer, die das Veranstaltungsprogramm akzeptiert haben.",
+    "unsubscribe": {
+      "title": "Veranstaltungsankündigungen abbestellen",
+      "explain": "Sie sind dabei, E-Mails zum Veranstaltungsprogramm abzubestellen. Mahnungen bei überfälligen Ausleihen bleiben davon unberührt. Es ändert sich nichts, bevor Sie bestätigen.",
+      "confirm": "Veranstaltungsankündigungen abbestellen",
+      "success": "Sie erhalten keine Veranstaltungsankündigungen mehr. Sie können sie im Profil oder an der Theke wieder aktivieren.",
+      "invalid": "Dieser Link ist ungültig oder abgelaufen. Melden Sie sich an und ändern Sie Ihr Profil, oder fragen Sie an der Theke.",
+      "missing": "Diesem Link fehlt der Bestätigungscode.",
+      "error": "Der Vorgang ist fehlgeschlagen. Bitte versuchen Sie es erneut.",
+      "backHome": "Zurück zur Bibliothek"
+    }
+  },
   "profile": {
     "notes": "Anmerkungen",
     "firstName": "Vorname",

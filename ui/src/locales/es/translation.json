@@ -221,6 +221,51 @@
       "other": "Otro"
     }
   },
+  "eventsConsent": {
+    "legend": "Recibir el programa de actividades",
+    "yes": "Sí",
+    "no": "No",
+    "hint": "Correos ocasionales sobre las actividades de la biblioteca. Puede cambiar esta elección en cualquier momento.",
+    "childNotice": "Cuenta infantil: se aplica el consentimiento del tutor legal.",
+    "openGuardianFile": "Abrir la ficha del tutor",
+    "status": {
+      "migration": "Activado automáticamente durante la migración",
+      "migrationOn": "Activado automáticamente durante la migración ({{date}})",
+      "deskGiven": "Dado en el mostrador el {{date}}",
+      "deskDeclined": "Rechazado en el mostrador el {{date}}",
+      "deskGivenNoDate": "Dado en el mostrador",
+      "deskDeclinedNoDate": "Rechazado en el mostrador",
+      "registrationGiven": "Dado en el registro el {{date}}",
+      "registrationDeclined": "Rechazado en el registro el {{date}}",
+      "registrationGivenNoDate": "Dado en el registro",
+      "registrationDeclinedNoDate": "Rechazado en el registro",
+      "profileGiven": "Actualizado en el perfil el {{date}}",
+      "profileDeclined": "Desactivado en el perfil el {{date}}",
+      "profileGivenNoDate": "Actualizado en el perfil",
+      "profileDeclinedNoDate": "Desactivado en el perfil",
+      "unsubscribe": "Detenido desde un enlace del correo el {{date}}",
+      "unsubscribeNoDate": "Detenido desde un enlace del correo",
+      "givenOn": "Dado el {{date}}",
+      "declinedOn": "Rechazado el {{date}}"
+    },
+    "recipientCount_one": "{{count}} usuario recibirá este anuncio.",
+    "recipientCount_other": "{{count}} usuarios recibirán este anuncio.",
+    "recipientCountZero": "Ningún usuario recibirá este anuncio. Compruebe que haya usuarios que hayan aceptado el programa de actividades.",
+    "recipientCountLoading": "Contando los usuarios que recibirán este anuncio…",
+    "recipientCountError": "No se pudo cargar el número de destinatarios. Aun así puede enviar el anuncio.",
+    "confirmSendTitle": "¿Enviar el anuncio?",
+    "confirmSendBody": "Este correo solo llega a quienes aceptaron el programa de actividades.",
+    "unsubscribe": {
+      "title": "Dejar de recibir anuncios de actividades",
+      "explain": "Va a dejar de recibir correos del programa de actividades. Los recordatorios de préstamos vencidos no cambian. No se modifica nada hasta que confirme.",
+      "confirm": "Dejar de recibir anuncios de actividades",
+      "success": "Ya no recibirá anuncios de actividades. Puede volver a activarlos en su perfil o en el mostrador.",
+      "invalid": "Este enlace no es válido o ha caducado. Inicie sesión y actualice su perfil, o pregunte en el mostrador.",
+      "missing": "A este enlace le falta el código de confirmación.",
+      "error": "La operación ha fallado. Inténtelo de nuevo.",
+      "backHome": "Volver a la biblioteca"
+    }
+  },
   "profile": {
     "notes": "Notas",
     "firstName": "Nombre",

@@ -221,6 +221,51 @@
       "other": "Autre"
     }
   },
+  "eventsConsent": {
+    "legend": "Recevoir le programme des événements",
+    "yes": "Oui",
+    "no": "Non",
+    "hint": "Des courriels occasionnels sur les événements de la bibliothèque. Vous pouvez modifier ce choix à tout moment.",
+    "childNotice": "Compte enfant : le consentement du tuteur légal s'applique.",
+    "openGuardianFile": "Ouvrir la fiche du tuteur",
+    "status": {
+      "migration": "Activé automatiquement lors de la migration",
+      "migrationOn": "Activé automatiquement lors de la migration ({{date}})",
+      "deskGiven": "Donné à l'accueil le {{date}}",
+      "deskDeclined": "Refusé à l'accueil le {{date}}",
+      "deskGivenNoDate": "Donné à l'accueil",
+      "deskDeclinedNoDate": "Refusé à l'accueil",
+      "registrationGiven": "Donné à l'inscription le {{date}}",
+      "registrationDeclined": "Refusé à l'inscription le {{date}}",
+      "registrationGivenNoDate": "Donné à l'inscription",
+      "registrationDeclinedNoDate": "Refusé à l'inscription",
+      "profileGiven": "Modifié dans le profil le {{date}}",
+      "profileDeclined": "Désactivé dans le profil le {{date}}",
+      "profileGivenNoDate": "Modifié dans le profil",
+      "profileDeclinedNoDate": "Désactivé dans le profil",
+      "unsubscribe": "Arrêté depuis un lien du courriel le {{date}}",
+      "unsubscribeNoDate": "Arrêté depuis un lien du courriel",
+      "givenOn": "Donné le {{date}}",
+      "declinedOn": "Refusé le {{date}}"
+    },
+    "recipientCount_one": "{{count}} usager recevra cette annonce.",
+    "recipientCount_other": "{{count}} usagers recevront cette annonce.",
+    "recipientCountZero": "Aucun usager ne recevra cette annonce. Vérifiez que des usagers ont accepté le programme des événements.",
+    "recipientCountLoading": "Calcul du nombre d'usagers qui recevront cette annonce…",
+    "recipientCountError": "Le nombre de destinataires n'a pas pu être chargé. Vous pouvez tout de même envoyer l'annonce.",
+    "confirmSendTitle": "Envoyer l'annonce ?",
+    "confirmSendBody": "Ce courriel est envoyé uniquement aux usagers qui ont accepté le programme des événements.",
+    "unsubscribe": {
+      "title": "Arrêter les annonces d'événements",
+      "explain": "Vous êtes sur le point d'arrêter les courriels du programme des événements. Les rappels de retard ne sont pas concernés. Rien n'est modifié tant que vous n'avez pas confirmé.",
+      "confirm": "Arrêter les annonces d'événements",
+      "success": "Vous ne recevrez plus les annonces d'événements. Vous pouvez les réactiver depuis votre profil ou à l'accueil.",
+      "invalid": "Ce lien est invalide ou a expiré. Connectez-vous pour modifier votre profil, ou demandez à l'accueil.",
+      "missing": "Ce lien ne contient pas de code de confirmation.",
+      "error": "L'opération a échoué. Réessayez dans un instant.",
+      "backHome": "Retour à la bibliothèque"
+    }
+  },
   "profile": {
     "notes": "Notes",
     "firstName": "Prénom",

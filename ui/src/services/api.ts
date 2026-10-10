@@ -65,6 +65,7 @@ import type {
   OverdueLoansPage,
   ReminderReport,
   Event,
+  AnnouncementRecipientCount,
   EventsListResponse,
   CreateEvent,
   UpdateEvent,
@@ -333,6 +334,17 @@ function normalizeEnqueueResult(
   return { batchId: data.batchId, previews };
 }
 
+function readRecipientCount(data: AnnouncementRecipientCount | number | null | undefined): number {
+  if (typeof data === 'number' && Number.isFinite(data)) return data;
+  if (data && typeof data === 'object') {
+    if (typeof data.count === 'number' && Number.isFinite(data.count)) return data.count;
+    if (typeof data.recipientCount === 'number' && Number.isFinite(data.recipientCount)) {
+      return data.recipientCount;
+    }
+  }
+  return 0;
+}
+
 const API_BASE_URL = '/api/v1';
 
 /** Dump / restore can take a long time (large DB, pg_dump / psql). */
@@ -380,6 +392,11 @@ class ApiService {
       return false;
     }
     if (method === 'post' && url.includes('/auth/reset-password')) {
+      return false;
+    }
+
+    // Public events unsubscribe: an invalid token is 401 and must stay on the page.
+    if (method === 'post' && url.includes('/events/unsubscribe')) {
       return false;
     }
 
@@ -1835,6 +1852,26 @@ class ApiService {
 
   async sendEventAnnouncement(id: string): Promise<void> {
     await this.client.post(`/events/${id}/send-announcement`, {});
+  }
+
+  /**
+   * Patrons who would actually receive this announcement.
+   * Provisional path until the #75 server PR defines the exact route.
+   * Accepts `{ count }`, `{ recipientCount }`, or a bare number.
+   */
+  async getEventAnnouncementRecipientCount(id: string): Promise<number> {
+    const response = await this.client.get<AnnouncementRecipientCount | number>(
+      `/events/${id}/announcement-recipients/count`
+    );
+    return readRecipientCount(response.data);
+  }
+
+  /**
+   * Confirm opt-out from the email link. The signed token is the only credential.
+   * Provisional path until the #75 server PR defines the exact route.
+   */
+  async unsubscribeFromEvents(token: string): Promise<void> {
+    await this.client.post('/events/unsubscribe', { token });
   }
 
   // ─── Library info ─────────────────────────────────────────────────

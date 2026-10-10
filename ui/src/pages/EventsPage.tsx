@@ -24,6 +24,7 @@ import { CHILD_PUBLIC_TYPE_NAME } from '@/utils/legalGuardian';
 import { fileToAttachmentInput, base64ToDataUrl, isImageMime } from '@/utils/eventAttachment';
 import { formControlClass, formTextareaClass, formLabelClass, formChoiceLabelClass } from '@/utils/formControl';
 import { deferFromEffect } from '@/utils/deferFromEffect';
+import AnnouncementSendDialog from '@/components/events/AnnouncementSendDialog';
 import EventAttachmentLead from '@/components/events/EventAttachmentLead';
 
 const EVENTS_PER_PAGE = 20;
@@ -106,11 +107,7 @@ export default function EventsPage() {
 
   const handleSendAnnouncement = (event: Event, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (event.announcementSentAt) {
-      setConfirmAnnouncementEvent(event);
-    } else {
-      doSendAnnouncement(event);
-    }
+    setConfirmAnnouncementEvent(event);
   };
 
   const fetchEvents = useCallback(async () => {
@@ -367,43 +364,19 @@ export default function EventsPage() {
         />
       </Modal>
 
-      {/* Announcement re-send confirmation modal */}
-      <Modal
-        isOpen={!!confirmAnnouncementEvent}
-        onClose={() => setConfirmAnnouncementEvent(null)}
-        title={t('events.announcementAlreadySentTitle')}
-        size="sm"
-        footer={
-          <div className="flex justify-end gap-2">
-            <Button variant="secondary" onClick={() => setConfirmAnnouncementEvent(null)}>
-              {t('common.cancel')}
-            </Button>
-            <Button
-              onClick={() => {
-                if (confirmAnnouncementEvent) {
-                  doSendAnnouncement(confirmAnnouncementEvent);
-                }
-                setConfirmAnnouncementEvent(null);
-              }}
-              leftIcon={<Mail className="h-4 w-4" />}
-            >
-              {t('events.sendAnywayBtn')}
-            </Button>
-          </div>
+      <AnnouncementSendDialog
+        event={confirmAnnouncementEvent}
+        isSending={
+          confirmAnnouncementEvent != null &&
+          announcementState[confirmAnnouncementEvent.id] === 'loading'
         }
-      >
-        {confirmAnnouncementEvent?.announcementSentAt && (
-          <div className="flex items-start gap-3 text-sm text-gray-700 dark:text-gray-300">
-            <AlertCircle className="h-5 w-5 text-amber-500 flex-shrink-0 mt-0.5" />
-            <p>
-              {t('events.announcementAlreadySentBody', {
-                date: new Date(confirmAnnouncementEvent.announcementSentAt).toLocaleString(i18n.language),
-                name: confirmAnnouncementEvent.name,
-              })}
-            </p>
-          </div>
-        )}
-      </Modal>
+        onClose={() => setConfirmAnnouncementEvent(null)}
+        onConfirm={(event) => {
+          void doSendAnnouncement(event).finally(() => {
+            setConfirmAnnouncementEvent((current) => (current?.id === event.id ? null : current));
+          });
+        }}
+      />
 
       <ConfirmDialog
         isOpen={eventPendingDelete !== null}

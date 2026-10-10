@@ -33,6 +33,7 @@ import {
   ProfilePage,
   ImportIsoPage,
   EventsPage,
+  UnsubscribeEventsPage,
   PublicEventsPage,
   AboutPage,
   PrivacyPage,
@@ -435,6 +436,7 @@ function AppRoutes() {
         }
       />
 
+      <Route path="/events/unsubscribe" element={<UnsubscribeEventsPage />} />
       <Route path="/events" element={<EventsEntryPage />} />
       <Route path="/public/events" element={<Navigate to="/events" replace />} />
 

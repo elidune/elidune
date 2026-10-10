@@ -23,31 +23,42 @@ import {
 import { QRCodeSVG } from 'qrcode.react';
 import { Card, CardHeader, Button, Input, Modal } from '@/components/common';
 import PatronSuggestionsSection from '@/components/suggestions/PatronSuggestionsSection';
+import EventsConsentFields from '@/components/users/EventsConsentFields';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
+import { usePublicTypesQuery } from '@/hooks/usePublicTypesQuery';
 import api from '@/services/api';
 import type { SupportedLanguage } from '@/locales';
-import type { TwoFactorMethod } from '@/types';
+import { isLibrarian, type TwoFactorMethod, type User as UserProfile } from '@/types';
+import { publicTypeRequiresGuardian } from '@/utils/legalGuardian';
 import { OCCUPATION_OPTIONS } from '@/utils/codeLabels';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
+
+function profileFormFromUser(user: UserProfile | null) {
+  return {
+    firstname: user?.firstname || '',
+    lastname: user?.lastname || '',
+    email: user?.email || '',
+    phone: user?.phone || '',
+    login: user?.login || user?.username || '',
+    addrStreet: user?.addrStreet || '',
+    addrZipCode: user?.addrZipCode?.toString() || '',
+    addrCity: user?.addrCity || '',
+    birthdate: user?.birthdate || '',
+    eventsConsent: user?.eventsConsent === true,
+  };
+}
 
 export default function ProfilePage() {
   const { t } = useTranslation();
   const { user, refreshProfile } = useAuth();
   const { language, setLanguage, availableLanguages, languageNames, languageFlags } = useLanguage();
+  const { data: publicTypes = [], isLoading: publicTypesLoading } = usePublicTypesQuery();
+  const isChildAccount = publicTypeRequiresGuardian(publicTypes, user?.publicType);
+  const childAccountPending = Boolean(user?.publicType) && publicTypesLoading;
 
   // Profile form state
-  const [profileData, setProfileData] = useState({
-    firstname: '',
-    lastname: '',
-    email: '',
-    phone: '',
-    login: '',
-    addrStreet: '',
-    addrZipCode: '',
-    addrCity: '',
-    birthdate: '',
-  });
+  const [profileData, setProfileData] = useState(() => profileFormFromUser(user));
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState(false);
   const [profileError, setProfileError] = useState('');
@@ -79,17 +90,7 @@ export default function ProfilePage() {
   const [prevProfileUser, setPrevProfileUser] = useState(user);
   if (user && user !== prevProfileUser) {
     setPrevProfileUser(user);
-    setProfileData({
-      firstname: user.firstname || '',
-      lastname: user.lastname || '',
-      email: user.email || '',
-      phone: user.phone || '',
-      login: user.login || user.username || '',
-      addrStreet: user.addrStreet || '',
-      addrZipCode: user.addrZipCode?.toString() || '',
-      addrCity: user.addrCity || '',
-      birthdate: user.birthdate || '',
-    });
+    setProfileData(profileFormFromUser(user));
   }
 
   const handleProfileSubmit = async (e: React.FormEvent) => {
@@ -111,6 +112,7 @@ export default function ProfilePage() {
         addrZipCode: profileData.addrZipCode ? parseInt(profileData.addrZipCode, 10) : undefined,
         addrCity: profileData.addrCity || undefined,
         birthdate: profileData.birthdate || undefined,
+        ...(isChildAccount || childAccountPending ? {} : { eventsConsent: profileData.eventsConsent }),
       });
       await refreshProfile();
       setProfileSuccess(true);
@@ -283,6 +285,22 @@ export default function ProfilePage() {
                   leftIcon={<Mail className="h-4 w-4" />}
                 />
               </div>
+
+              {childAccountPending ? null : (
+                <EventsConsentFields
+                  name="profile-events-consent"
+                  value={profileData.eventsConsent}
+                  onChange={(next) => setProfileData({ ...profileData, eventsConsent: next })}
+                  isChild={isChildAccount}
+                  guardianId={user?.guardianId}
+                  showGuardianLink={isLibrarian(user?.accountType)}
+                  recorded={{
+                    consent: user?.eventsConsent,
+                    at: user?.eventsConsentAt,
+                    source: user?.eventsConsentSource,
+                  }}
+                />
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Input
