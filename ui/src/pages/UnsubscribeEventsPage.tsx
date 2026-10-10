@@ -9,8 +9,6 @@ import api from '@/services/api';
 
 type UnsubscribeState = 'ready' | 'submitting' | 'success' | 'invalid' | 'error';
 
-const INVALID_TOKEN_STATUSES = new Set([400, 401, 403, 404, 410, 422]);
-
 export default function UnsubscribeEventsPage() {
   const { t } = useTranslation();
   const { libraryName } = useLibrary();
@@ -25,10 +23,10 @@ export default function UnsubscribeEventsPage() {
     }
     setState('submitting');
     try {
-      await api.unsubscribeFromEvents(token);
-      setState('success');
+      const status = await api.unsubscribeFromEvents(token);
+      setState(status === 204 ? 'success' : 'error');
     } catch (error) {
-      if (axios.isAxiosError(error) && INVALID_TOKEN_STATUSES.has(error.response?.status ?? 0)) {
+      if (axios.isAxiosError(error) && error.response?.status === 400) {
         setState('invalid');
       } else {
         setState('error');

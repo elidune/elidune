@@ -334,15 +334,10 @@ function normalizeEnqueueResult(
   return { batchId: data.batchId, previews };
 }
 
-function readRecipientCount(data: AnnouncementRecipientCount | number | null | undefined): number {
-  if (typeof data === 'number' && Number.isFinite(data)) return data;
-  if (data && typeof data === 'object') {
-    if (typeof data.count === 'number' && Number.isFinite(data.count)) return data.count;
-    if (typeof data.recipientCount === 'number' && Number.isFinite(data.recipientCount)) {
-      return data.recipientCount;
-    }
-  }
-  return 0;
+function readRecipientCount(data: AnnouncementRecipientCount | null | undefined): number {
+  const count = data?.count;
+  if (typeof count === 'number' && Number.isFinite(count)) return count;
+  throw new Error('announcement recipient count missing');
 }
 
 const API_BASE_URL = '/api/v1';
@@ -1854,13 +1849,9 @@ class ApiService {
     await this.client.post(`/events/${id}/send-announcement`, {});
   }
 
-  /**
-   * Patrons who would actually receive this announcement.
-   * Provisional path until the #75 server PR defines the exact route.
-   * Accepts `{ count }`, `{ recipientCount }`, or a bare number.
-   */
+  /** Patrons who would actually receive this announcement. Body is `{ count }`. */
   async getEventAnnouncementRecipientCount(id: string): Promise<number> {
-    const response = await this.client.get<AnnouncementRecipientCount | number>(
+    const response = await this.client.get<AnnouncementRecipientCount>(
       `/events/${id}/announcement-recipients/count`
     );
     return readRecipientCount(response.data);
@@ -1868,10 +1859,11 @@ class ApiService {
 
   /**
    * Confirm opt-out from the email link. The signed token is the only credential.
-   * Provisional path until the #75 server PR defines the exact route.
+   * `204` on success, `400` when the token is invalid or expired.
    */
-  async unsubscribeFromEvents(token: string): Promise<void> {
-    await this.client.post('/events/unsubscribe', { token });
+  async unsubscribeFromEvents(token: string): Promise<number> {
+    const response = await this.client.post('/events/unsubscribe', { token });
+    return response.status;
   }
 
   // ─── Library info ─────────────────────────────────────────────────

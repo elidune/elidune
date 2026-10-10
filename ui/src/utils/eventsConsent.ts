@@ -4,21 +4,18 @@ import type { EventsConsentSource } from '@/types';
 const KNOWN_SOURCES: readonly EventsConsentSource[] = [
   'migration',
   'registration',
-  'signup',
   'desk',
   'profile',
   'unsubscribe',
 ];
 
-/** `signup` (issue decision) and `registration` (API contract) are the same moment. */
 export function normalizeEventsConsentSource(
   value: string | null | undefined
-): Exclude<EventsConsentSource, 'signup'> | null {
+): EventsConsentSource | null {
   if (!value) return null;
   const normalized = value.trim().toLowerCase();
   if (!(KNOWN_SOURCES as readonly string[]).includes(normalized)) return null;
-  if (normalized === 'signup') return 'registration';
-  return normalized as Exclude<EventsConsentSource, 'signup'>;
+  return normalized as EventsConsentSource;
 }
 
 function formatConsentDate(at: string | null | undefined, language: string): string {

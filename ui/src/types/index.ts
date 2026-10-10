@@ -144,7 +144,7 @@ export interface User {
   eventsConsentAt?: string | null;
   /**
    * Who recorded the consent. The client never sends this; the server derives it.
-   * `signup` is accepted as an alias of `registration`.
+   * `registration` | `desk` | `profile` | `migration` | `unsubscribe`.
    */
   eventsConsentSource?: EventsConsentSource | null;
 }
@@ -153,7 +153,6 @@ export interface User {
 export type EventsConsentSource =
   | 'migration'
   | 'registration'
-  | 'signup'
   | 'desk'
   | 'profile'
   | 'unsubscribe';
@@ -1493,13 +1492,9 @@ export interface Event {
   attachmentDataBase64?: string | null;
 }
 
-/**
- * Patrons who would receive an event announcement (opted-in recipients only).
- * Provisional #75 shape: `{ count }` (also accepts `recipientCount`).
- */
+/** `GET /events/{id}/announcement-recipients/count` — opted-in recipients only. */
 export interface AnnouncementRecipientCount {
-  count?: number;
-  recipientCount?: number;
+  count: number;
 }
 
 export interface CreateEvent {
