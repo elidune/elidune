@@ -56,6 +56,7 @@ impl AppBuildResult {
                 file_config.meilisearch.clone(),
                 email_service,
                 event_bus,
+                file_config.public_base_url(),
             )
             .await?,
         );

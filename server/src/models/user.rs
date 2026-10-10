@@ -316,6 +316,14 @@ pub struct UserRow {
     receive_reminders: Option<bool>,
     must_change_password: Option<bool>,
     token_version: i64,
+    events_consent_at: Option<DateTime<Utc>>,
+    events_consent_source: Option<String>,
+    /// Last consent change. Kept on withdrawal for audit. Not part of the public read model.
+    #[allow(dead_code)]
+    events_consent_changed_at: Option<DateTime<Utc>>,
+    /// When the one-time migration explanation was queued. Not part of the public read model.
+    #[allow(dead_code)]
+    events_consent_notice_at: Option<DateTime<Utc>>,
 }
 
 impl From<UserRow> for User {
@@ -358,6 +366,60 @@ impl From<UserRow> for User {
             must_change_password: row.must_change_password.unwrap_or(false),
             token_version: row.token_version,
             guardian_id: None,
+            events_consent: row.events_consent_at.is_some(),
+            events_consent_at: row.events_consent_at,
+            events_consent_source: row
+                .events_consent_source
+                .as_deref()
+                .and_then(EventsConsentSource::parse),
+        }
+    }
+}
+
+/// Who recorded an event-announcement consent change.
+///
+/// The client never sends this value. The route stamps it:
+/// a future self-registration handler uses `registration`,
+/// `POST /users` and `PUT /users/{id}` use `desk`,
+/// `PUT /auth/profile` uses `profile`,
+/// the migration backfill uses `migration`,
+/// and `POST /events/unsubscribe` uses `unsubscribe`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub enum EventsConsentSource {
+    #[serde(rename = "registration")]
+    Registration,
+    #[serde(rename = "desk")]
+    Desk,
+    #[serde(rename = "profile")]
+    Profile,
+    #[serde(rename = "migration")]
+    Migration,
+    #[serde(rename = "unsubscribe")]
+    Unsubscribe,
+}
+
+impl EventsConsentSource {
+    #[must_use]
+    pub fn as_db_str(self) -> &'static str {
+        match self {
+            Self::Registration => "registration",
+            Self::Desk => "desk",
+            Self::Profile => "profile",
+            Self::Migration => "migration",
+            Self::Unsubscribe => "unsubscribe",
+        }
+    }
+
+    /// Parse the database CHECK values. Unknown strings are rejected.
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "registration" => Some(Self::Registration),
+            "desk" => Some(Self::Desk),
+            "profile" => Some(Self::Profile),
+            "migration" => Some(Self::Migration),
+            "unsubscribe" => Some(Self::Unsubscribe),
+            _ => None,
         }
     }
 }
@@ -427,6 +489,12 @@ pub struct User {
     /// Incremented on password, role, or 2FA changes to revoke existing JWTs.
     #[serde(skip_serializing)]
     pub token_version: i64,
+    /// Derived: `events_consent_at IS NOT NULL`. False for a child, whose consent is not stored.
+    pub events_consent: bool,
+    /// When the patron consented to event announcements. Null means no consent.
+    pub events_consent_at: Option<DateTime<Utc>>,
+    /// Route that recorded the latest consent change. Null when consent was never set.
+    pub events_consent_source: Option<EventsConsentSource>,
     /// Linked legal guardian (`user_guardians.guardian_id`). Required when `publicType`
     /// is `child`. Stored as a patron-to-patron relation, not a `users` column.
     #[serde_as(as = "Option<DisplayFromStr>")]
@@ -643,6 +711,15 @@ pub struct UserPayload {
     #[serde(default, skip_serializing_if = "GuardianIdPatch::is_unspecified")]
     #[schema(value_type = Option<String>)]
     pub guardian_id: GuardianIdPatch,
+    /// Event-announcement opt-in. Absent on create means no consent.
+    /// On update, absent leaves the stored choice unchanged.
+    /// `true` when already consented does not reset `eventsConsentAt`.
+    /// `false` clears `eventsConsentAt`, keeps this route as `eventsConsentSource`,
+    /// and refreshes the change timestamp.
+    /// Ignored when the patron's public type is `child`: consent belongs to the guardian
+    /// and is not stored on the child. Sending the field for a child does not fail the request.
+    #[serde(default)]
+    pub events_consent: Option<bool>,
 }
 
 impl UserPayload {
@@ -732,6 +809,12 @@ pub struct UpdateProfile {
     pub new_password: Option<PlaintextPassword>,
     /// Preferred language
     pub language: Option<Language>,
+    /// Event-announcement opt-in edited by the patron.
+    /// Absent leaves the stored choice unchanged.
+    /// Ignored when this patron's public type is `child` (consent belongs to the guardian).
+    /// The server stamps source `profile`.
+    #[serde(default)]
+    pub events_consent: Option<bool>,
 }
 
 /// Update account type request (admin only)

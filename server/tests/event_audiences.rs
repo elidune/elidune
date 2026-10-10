@@ -257,6 +257,7 @@ async fn child_only_event_emails_the_guardian_and_names_the_child() {
     let token = fixtures::ensure_first_setup(&app).await;
     let suffix = fixtures::unique_suffix();
     let (guardian_id, _) = fixtures::create_reader(&app, &token, "announce_guard").await;
+    grant_events_consent(&app, guardian_id).await;
     let guardian_email = patron_email(&app, &token, guardian_id).await;
     let (child_id, child_email) = create_child(
         &app,
@@ -312,6 +313,7 @@ async fn guardian_of_two_children_gets_one_email_naming_both() {
     let token = fixtures::ensure_first_setup(&app).await;
     let suffix = fixtures::unique_suffix();
     let (guardian_id, _) = fixtures::create_reader(&app, &token, "announce_two").await;
+    grant_events_consent(&app, guardian_id).await;
     let guardian_email = patron_email(&app, &token, guardian_id).await;
     let _ = create_child(
         &app,
@@ -366,6 +368,7 @@ async fn guardian_also_in_the_audience_gets_one_email() {
     let token = fixtures::ensure_first_setup(&app).await;
     let suffix = fixtures::unique_suffix();
     let (guardian_id, _) = fixtures::create_reader(&app, &token, "announce_both").await;
+    grant_events_consent(&app, guardian_id).await;
     let guardian_email = patron_email(&app, &token, guardian_id).await;
     let _ = create_child(
         &app,
@@ -444,7 +447,7 @@ async fn erased_child_does_not_email_the_guardian() {
     );
 }
 
-/// The guardian's opt-in is required. The child's opt-in is not a substitute.
+/// The guardian's event consent is required. `receive_reminders` and the child's consent are not substitutes.
 #[tokio::test]
 async fn guardian_without_consent_gets_nothing() {
     let Some(app) = TestApp::spawn().await else {
@@ -454,7 +457,7 @@ async fn guardian_without_consent_gets_nothing() {
     let suffix = fixtures::unique_suffix();
     let (guardian_id, _) = fixtures::create_reader(&app, &token, "announce_nocon").await;
     let guardian_email = patron_email(&app, &token, guardian_id).await;
-    let (_, child_email) = create_child(
+    let (child_id, child_email) = create_child(
         &app,
         &token,
         guardian_id,
@@ -463,11 +466,20 @@ async fn guardian_without_consent_gets_nothing() {
         &format!("child_nocon_{suffix}"),
     )
     .await;
-    sqlx::query("UPDATE users SET receive_reminders = FALSE WHERE id = $1")
-        .bind(guardian_id)
-        .execute(app.state.services.repository.pool())
-        .await
-        .expect("clear guardian opt-in");
+    sqlx::query(
+        "UPDATE users SET receive_reminders = TRUE, events_consent_at = NULL, events_consent_source = NULL WHERE id = $1",
+    )
+    .bind(guardian_id)
+    .execute(app.state.services.repository.pool())
+    .await
+    .expect("clear guardian event consent");
+    sqlx::query(
+        "UPDATE users SET events_consent_at = NOW(), events_consent_source = 'desk', events_consent_changed_at = NOW() WHERE id = $1",
+    )
+    .bind(child_id)
+    .execute(app.state.services.repository.pool())
+    .await
+    .expect("child consent must not count");
 
     let event_id = create_event(
         &app,
@@ -558,13 +570,15 @@ async fn erased_patron_receives_no_announcement() {
     assert!(!receive_reminders);
     assert!(stored_email.is_none(), "erasure clears email");
 
-    // Put the address back so a dropped status/consent filter would enqueue this patron.
-    sqlx::query("UPDATE users SET email = $1 WHERE id = $2")
-        .bind(&email)
-        .bind(reader_id)
-        .execute(app.state.services.repository.pool())
-        .await
-        .expect("restore email");
+    // Put the address and consent back so a dropped status filter would enqueue this patron.
+    sqlx::query(
+        "UPDATE users SET email = $1, events_consent_at = NOW(), events_consent_source = 'desk', events_consent_changed_at = NOW() WHERE id = $2",
+    )
+    .bind(&email)
+    .bind(reader_id)
+    .execute(app.state.services.repository.pool())
+    .await
+    .expect("restore email and consent");
 
     let event_id = create_event(
         &app,
@@ -636,6 +650,16 @@ async fn create_child(
         .await;
     assert_eq!(status, StatusCode::CREATED, "create child: {body}");
     (fixtures::json_id(&body["id"]), email)
+}
+
+async fn grant_events_consent(app: &TestApp, user_id: i64) {
+    sqlx::query(
+        "UPDATE users SET events_consent_at = NOW(), events_consent_source = 'desk', events_consent_changed_at = NOW() WHERE id = $1",
+    )
+    .bind(user_id)
+    .execute(app.state.services.repository.pool())
+    .await
+    .expect("grant events consent");
 }
 
 async fn patron_email(app: &TestApp, token: &str, user_id: i64) -> String {

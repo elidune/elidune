@@ -105,6 +105,7 @@ impl Services {
         meilisearch_config: Option<MeilisearchConfig>,
         email_service: Arc<crate::email::EmailService>,
         event_bus: event_bus::EventBus,
+        public_base_url: String,
     ) -> AppResult<Self> {
         // Wrap the concrete repository in an Arc so it can be coerced to trait objects.
         let repo = Arc::new(repository.clone());
@@ -180,6 +181,8 @@ impl Services {
                 repo.clone() as Arc<dyn EventsServiceRepository>,
                 email.clone(),
                 audit_service.clone(),
+                auth_config.jwt_secret.clone(),
+                public_base_url,
             ),
             fines: fines_service.clone(),
             inventory: inventory::InventoryService::new(

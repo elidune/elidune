@@ -643,6 +643,27 @@ def migrate_users(src, dst, hash_passwords=True):
         ))
         migrated += 1
 
+    # Mirror migration 037: active non-child accounts are opted in.
+    # Child = public_types.name 'child'. Deleted accounts are skipped.
+    # Rows that already have a consent timestamp or source are left alone,
+    # so a re-run does not undo a later withdrawal.
+    dst_cur.execute("""
+        UPDATE users AS u
+        SET
+            events_consent_at = NOW(),
+            events_consent_source = 'migration',
+            events_consent_changed_at = NOW()
+        WHERE (u.status IS NULL OR u.status <> 'deleted')
+          AND u.events_consent_at IS NULL
+          AND u.events_consent_source IS NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM public_types AS pt
+              WHERE pt.id = u.public_type
+                AND pt.name = 'child'
+          )
+    """)
+
     dst.commit()
     parts = [f"{migrated} users migrated"]
     if hash_passwords:

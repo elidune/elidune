@@ -12,7 +12,7 @@ use crate::{
     error::{AppError, AppResult},
     models::{
         secret::optional_exposed_string,
-        user::{AccountTypeSlug, UpdateProfile},
+        user::{AccountTypeSlug, EventsConsentSource, UpdateProfile},
         Language, PlaintextPassword, Sex,
     },
     services::audit,
@@ -95,6 +95,7 @@ fn profile_language_only(lang: Language) -> UpdateProfile {
         current_password: None,
         new_password: None,
         language: Some(lang),
+        events_consent: None,
     }
 }
 
@@ -188,7 +189,11 @@ pub async fn post_first_setup(
         ..Default::default()
     };
 
-    let created = state.services.users.create_user(user_payload).await?;
+    let created = state
+        .services
+        .users
+        .create_user(user_payload, EventsConsentSource::Desk)
+        .await?;
     state
         .services
         .users
@@ -255,6 +260,9 @@ pub async fn post_first_setup(
                 birthdate: user.birthdate,
                 account_type: user.account_type.to_string(),
                 language: user.language.unwrap_or(Language::French),
+                events_consent: user.events_consent,
+                events_consent_at: user.events_consent_at,
+                events_consent_source: user.events_consent_source,
             },
             library_info,
         }),

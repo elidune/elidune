@@ -117,6 +117,7 @@ pub fn build_app_with_options(state: AppState, options: AppBuildOptions) -> Rout
         .merge(api::opac::router())
         .merge(api::covers::router())
         .merge(api::library_info::router_public())
+        .merge(api::events::public_router())
         .layer(GovernorLayer {
             config: public_governor_conf,
         });
