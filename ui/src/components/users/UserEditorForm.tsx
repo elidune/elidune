@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, ChevronDown, ChevronRight, Loader2, Mail, MapPin, Phone } from 'lucide-react';
 import { Input } from '@/components/common';
+import EventsConsentFields from '@/components/users/EventsConsentFields';
 import GuardianPicker from '@/components/users/GuardianPicker';
 import api from '@/services/api';
 import type { AccountTypeDefinition, PublicType, User, UserShort } from '@/types';
@@ -41,6 +42,8 @@ export type UserFormData = {
   expiryUnlimited: boolean;
   expiryAt: string;
   guardianId: string;
+  /** Sent as `eventsConsent`. Defaults to false (No) until the desk chooses Yes. */
+  eventsConsent: boolean;
 };
 
 type UserRequiredField =
@@ -83,6 +86,7 @@ function emptyFormData(accountTypes: AccountTypeDefinition[]): UserFormData {
     expiryUnlimited: false,
     expiryAt: defaultExpiryDateInputOneYearFromNow(),
     guardianId: '',
+    eventsConsent: false,
   };
 }
 
@@ -109,6 +113,7 @@ function formDataFromUser(user: User): UserFormData {
       ? toDateInputValue(new Date(user.expiryAt))
       : defaultExpiryDateInputOneYearFromNow(),
     guardianId: user.guardianId ? String(user.guardianId) : '',
+    eventsConsent: user.eventsConsent === true,
   };
 }
 
@@ -342,6 +347,8 @@ export default function UserEditorForm({
       const base = buildPayload(formData);
       if (publicTypeRequiresGuardian(publicTypes, formData.publicType) && formData.guardianId) {
         base.guardianId = formData.guardianId;
+      } else if (!publicTypeRequiresGuardian(publicTypes, formData.publicType)) {
+        base.eventsConsent = formData.eventsConsent;
       }
       if (mode === 'create') {
         const createData: Record<string, unknown> = {
@@ -461,6 +468,24 @@ export default function UserEditorForm({
           />
         </div>
       </section>
+
+      <EventsConsentFields
+        name={`${formId}-events-consent`}
+        value={formData.eventsConsent}
+        onChange={(next) => setFormData((prev) => ({ ...prev, eventsConsent: next }))}
+        isChild={showGuardianField}
+        guardianId={formData.guardianId}
+        showGuardianLink={mode === 'edit'}
+        recorded={
+          mode === 'edit' && user
+            ? {
+                consent: user.eventsConsent,
+                at: user.eventsConsentAt,
+                source: user.eventsConsentSource,
+              }
+            : null
+        }
+      />
 
       <section className={sectionClass}>
         <h4 className={sectionTitleClass}>{t('users.additionalInfo')}</h4>

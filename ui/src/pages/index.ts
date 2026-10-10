@@ -21,6 +21,7 @@ export { default as Z3950SearchPage } from './Z3950SearchPage';
 export { default as ProfilePage } from './ProfilePage';
 export { default as ImportIsoPage } from './ImportIsoPage';
 export { default as EventsPage } from './EventsPage';
+export { default as UnsubscribeEventsPage } from './UnsubscribeEventsPage';
 export { default as PublicEventsPage } from './PublicEventsPage';
 export { default as AboutPage } from './AboutPage';
 export { default as PrivacyPage } from './PrivacyPage';

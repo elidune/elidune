@@ -221,6 +221,51 @@
       "other": "Other"
     }
   },
+  "eventsConsent": {
+    "legend": "Receive the events programme",
+    "yes": "Yes",
+    "no": "No",
+    "hint": "Occasional emails about library events. You can change this choice at any time.",
+    "childNotice": "This is a child account. The legal guardian's consent applies.",
+    "openGuardianFile": "Open the guardian's file",
+    "status": {
+      "migration": "Enabled automatically during migration",
+      "migrationOn": "Enabled automatically during migration ({{date}})",
+      "deskGiven": "Given at the desk on {{date}}",
+      "deskDeclined": "Declined at the desk on {{date}}",
+      "deskGivenNoDate": "Given at the desk",
+      "deskDeclinedNoDate": "Declined at the desk",
+      "registrationGiven": "Given at registration on {{date}}",
+      "registrationDeclined": "Declined at registration on {{date}}",
+      "registrationGivenNoDate": "Given at registration",
+      "registrationDeclinedNoDate": "Declined at registration",
+      "profileGiven": "Updated in the profile on {{date}}",
+      "profileDeclined": "Turned off in the profile on {{date}}",
+      "profileGivenNoDate": "Updated in the profile",
+      "profileDeclinedNoDate": "Turned off in the profile",
+      "unsubscribe": "Stopped from an email link on {{date}}",
+      "unsubscribeNoDate": "Stopped from an email link",
+      "givenOn": "Given on {{date}}",
+      "declinedOn": "Declined on {{date}}"
+    },
+    "recipientCount_one": "{{count}} patron will receive this announcement.",
+    "recipientCount_other": "{{count}} patrons will receive this announcement.",
+    "recipientCountZero": "No patron will receive this announcement. Check that patrons have opted in to the events programme.",
+    "recipientCountLoading": "Counting patrons who will receive this announcement…",
+    "recipientCountError": "The number of recipients could not be loaded. You can still send the announcement.",
+    "confirmSendTitle": "Send the announcement?",
+    "confirmSendBody": "This email goes only to patrons who opted in to the events programme.",
+    "unsubscribe": {
+      "title": "Stop event announcements",
+      "explain": "You are about to stop emails about the library events programme. Overdue reminders are not affected. Nothing changes until you confirm.",
+      "confirm": "Stop event announcements",
+      "success": "You will no longer receive event announcements. You can opt in again from your profile or at the desk.",
+      "invalid": "This link is invalid or has expired. Sign in and update your profile, or ask at the desk.",
+      "missing": "This link is missing its confirmation code.",
+      "error": "This could not be completed. Try again in a moment.",
+      "backHome": "Back to the library"
+    }
+  },
   "profile": {
     "notes": "Notes",
     "firstName": "First name",

@@ -65,6 +65,7 @@ import type {
   OverdueLoansPage,
   ReminderReport,
   Event,
+  AnnouncementRecipientCount,
   EventsListResponse,
   CreateEvent,
   UpdateEvent,
@@ -333,6 +334,12 @@ function normalizeEnqueueResult(
   return { batchId: data.batchId, previews };
 }
 
+function readRecipientCount(data: AnnouncementRecipientCount | null | undefined): number {
+  const count = data?.count;
+  if (typeof count === 'number' && Number.isFinite(count)) return count;
+  throw new Error('announcement recipient count missing');
+}
+
 const API_BASE_URL = '/api/v1';
 
 /** Dump / restore can take a long time (large DB, pg_dump / psql). */
@@ -380,6 +387,11 @@ class ApiService {
       return false;
     }
     if (method === 'post' && url.includes('/auth/reset-password')) {
+      return false;
+    }
+
+    // Public events unsubscribe: an invalid token is 401 and must stay on the page.
+    if (method === 'post' && url.includes('/events/unsubscribe')) {
       return false;
     }
 
@@ -1835,6 +1847,23 @@ class ApiService {
 
   async sendEventAnnouncement(id: string): Promise<void> {
     await this.client.post(`/events/${id}/send-announcement`, {});
+  }
+
+  /** Patrons who would actually receive this announcement. Body is `{ count }`. */
+  async getEventAnnouncementRecipientCount(id: string): Promise<number> {
+    const response = await this.client.get<AnnouncementRecipientCount>(
+      `/events/${id}/announcement-recipients/count`
+    );
+    return readRecipientCount(response.data);
+  }
+
+  /**
+   * Confirm opt-out from the email link. The signed token is the only credential.
+   * `204` on success, `400` when the token is invalid or expired.
+   */
+  async unsubscribeFromEvents(token: string): Promise<number> {
+    const response = await this.client.post('/events/unsubscribe', { token });
+    return response.status;
   }
 
   // ─── Library info ─────────────────────────────────────────────────
