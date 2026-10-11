@@ -217,9 +217,9 @@ impl Repository {
             .await?
             .ok_or_else(|| AppError::NotFound(format!("Hold {hold_id} not found")))?;
 
-        if !matches!(hold.status, HoldStatus::Pending) {
+        if !matches!(hold.status, HoldStatus::Pending | HoldStatus::ToPick) {
             return Err(AppError::BusinessRule(
-                "Transit can only start from a pending hold".to_string(),
+                "Transit can only start from a pending or to_pick hold".to_string(),
             ));
         }
 
@@ -309,7 +309,9 @@ impl Repository {
             r#"
             UPDATE holds
             SET item_id = COALESCE(item_id, $1),
-                pickup_site_id = COALESCE(pickup_site_id, $2)
+                pickup_site_id = COALESCE(pickup_site_id, $2),
+                status = CASE WHEN status = 'to_pick' THEN 'pending' ELSE status END,
+                pick_started_at = CASE WHEN status = 'to_pick' THEN NULL ELSE pick_started_at END
             WHERE id = $3
             "#,
         )
@@ -458,13 +460,14 @@ impl Repository {
             match hold {
                 Some(h) if h.status == HoldStatus::Pending => {
                     let expiry_days = self.hold_ready_expiry_days();
-                    let ready = sqlx::query_as::<_, Hold>(
+                    match sqlx::query_as::<_, Hold>(
                         r#"
                         UPDATE holds
                         SET item_id = COALESCE(item_id, $2),
                             status = 'ready',
                             notified_at = NOW(),
-                            expires_at = NOW() + ($3::int * INTERVAL '1 day')
+                            expires_at = NOW() + ($3::int * INTERVAL '1 day'),
+                            pick_started_at = NULL
                         WHERE id = $1 AND status = 'pending'
                         RETURNING *
                         "#,
@@ -473,8 +476,16 @@ impl Repository {
                     .bind(current.item_id)
                     .bind(expiry_days)
                     .fetch_optional(&mut *tx)
-                    .await?;
-                    ready
+                    .await
+                    {
+                        Ok(ready) => ready,
+                        Err(e) if super::holds::is_exclusive_assignment_violation(&e) => {
+                            return Err(AppError::Conflict(
+                                "This copy is already assigned to another hold".to_string(),
+                            ));
+                        }
+                        Err(e) => return Err(e.into()),
+                    }
                 }
                 other => other,
             }

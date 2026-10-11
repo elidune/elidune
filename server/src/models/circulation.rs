@@ -50,12 +50,17 @@ pub enum CirculationStatus {
     Lost,
     Damaged,
     ClaimedReturned,
+    /// Missing from the shelf during a pick. Not lendable and not assignable to a hold.
+    /// A scan returns it to [`Self::Available`]; lost uses the existing lost transition.
+    #[serde(rename = "toSearch")]
+    ToSearch,
 }
 
 impl CirculationStatus {
     pub const LOST: i16 = 1;
     pub const DAMAGED: i16 = 2;
     pub const CLAIMED_RETURNED: i16 = 3;
+    pub const TO_SEARCH: i16 = 4;
 
     #[must_use]
     pub fn from_db(value: Option<i16>) -> Self {
@@ -63,6 +68,7 @@ impl CirculationStatus {
             Some(Self::LOST) => Self::Lost,
             Some(Self::DAMAGED) => Self::Damaged,
             Some(Self::CLAIMED_RETURNED) => Self::ClaimedReturned,
+            Some(Self::TO_SEARCH) => Self::ToSearch,
             _ => Self::Available,
         }
     }
@@ -74,6 +80,7 @@ impl CirculationStatus {
             Self::Lost => Self::LOST,
             Self::Damaged => Self::DAMAGED,
             Self::ClaimedReturned => Self::CLAIMED_RETURNED,
+            Self::ToSearch => Self::TO_SEARCH,
         }
     }
 
@@ -91,7 +98,7 @@ impl CirculationStatus {
     pub fn transition(self, action: CirculationAction) -> Result<Self, &'static str> {
         match (self, action) {
             (
-                Self::Available | Self::Damaged | Self::ClaimedReturned,
+                Self::Available | Self::Damaged | Self::ClaimedReturned | Self::ToSearch,
                 CirculationAction::MarkLost,
             ) => Ok(Self::Lost),
             (Self::Lost, CirculationAction::MarkLost) => Err("Item is already marked lost"),
@@ -102,12 +109,15 @@ impl CirculationStatus {
             (Self::ClaimedReturned, CirculationAction::MarkDamaged) => {
                 Err("Resolve the claims-returned case before marking the item damaged")
             }
+            (Self::ToSearch, CirculationAction::MarkDamaged) => {
+                Err("Clear the missing-shelf search before marking the item damaged")
+            }
             (Self::Available, CirculationAction::ClaimReturned) => Ok(Self::ClaimedReturned),
             (Self::ClaimedReturned, CirculationAction::ClaimReturned) => {
                 Err("Item is already in the claims-returned queue")
             }
-            (Self::Lost | Self::Damaged, CirculationAction::ClaimReturned) => {
-                Err("Cannot flag claims-returned on a lost or damaged item")
+            (Self::Lost | Self::Damaged | Self::ToSearch, CirculationAction::ClaimReturned) => {
+                Err("Cannot flag claims-returned on a lost, damaged, or missing-shelf item")
             }
             (Self::ClaimedReturned, CirculationAction::ResolveFound) => Ok(Self::Available),
             (Self::ClaimedReturned, CirculationAction::ResolveNotFound) => Ok(Self::Lost),
@@ -169,6 +179,10 @@ mod tests {
         assert_eq!(
             CirculationStatus::from_db(Some(3)),
             CirculationStatus::ClaimedReturned
+        );
+        assert_eq!(
+            CirculationStatus::from_db(Some(4)),
+            CirculationStatus::ToSearch
         );
         assert_eq!(
             CirculationStatus::from_db(Some(99)),

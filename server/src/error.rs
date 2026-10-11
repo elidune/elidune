@@ -32,6 +32,8 @@ pub mod error_code {
     pub const DUPLICATE_ISBN: &str = "duplicate_isbn_needs_confirmation";
     pub const DUPLICATE_BARCODE: &str = "duplicate_barcode_needs_confirmation";
     pub const RATE_LIMITED: &str = "rate_limited";
+    /// Checkout of a copy that is `to_pick` for a different patron.
+    pub const ITEM_TO_PICK_FOR_OTHER: &str = "item_to_pick_for_other";
 }
 
 /// Main application error type
@@ -95,6 +97,14 @@ pub enum AppError {
     /// Temporary auth throttle. `retry_after` is seconds for `Retry-After`.
     #[error("Rate limited, retry after {retry_after}s")]
     RateLimited { retry_after: u64 },
+
+    /// Copy is on the shelf-pick list for another patron. `force=true` still overrides.
+    #[error("This copy is on the pick list for another patron")]
+    ItemToPickForOther {
+        hold_id: i64,
+        user_id: i64,
+        user_name: String,
+    },
 }
 
 impl From<sqlx::Error> for AppError {
@@ -142,6 +152,25 @@ pub fn rate_limited_response(retry_after_secs: u64) -> Response {
         response.headers_mut().insert(header::RETRY_AFTER, value);
     }
     response
+}
+
+/// Patron waiting on a `to_pick` copy, for the desk warning.
+#[derive(Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemToPickDetails {
+    pub hold_id: String,
+    pub user_id: String,
+    pub user_name: String,
+}
+
+/// Checkout refused because the copy is `to_pick` for someone else.
+#[derive(Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemToPickForOtherResponse {
+    pub code: String,
+    pub error: String,
+    pub message: String,
+    pub details: ItemToPickDetails,
 }
 
 struct HttpErrorFields {
@@ -247,6 +276,14 @@ impl AppError {
                 label: "Too Many Requests",
                 message: format!("Too many attempts. Try again in {retry_after} seconds."),
             },
+            AppError::ItemToPickForOther { .. } => HttpErrorFields {
+                status: StatusCode::UNPROCESSABLE_ENTITY,
+                code: ec::ITEM_TO_PICK_FOR_OTHER,
+                label: "Business Rule Violation",
+                message:
+                    "This copy is on the pick list for another patron — use force=true to override"
+                        .to_string(),
+            },
         }
     }
 }
@@ -285,6 +322,24 @@ impl IntoResponse for AppError {
                 (StatusCode::CONFLICT, body).into_response()
             }
             AppError::RateLimited { retry_after } => rate_limited_response(retry_after),
+            AppError::ItemToPickForOther {
+                hold_id,
+                user_id,
+                user_name,
+            } => {
+                let body = Json(ItemToPickForOtherResponse {
+                    code: ec::ITEM_TO_PICK_FOR_OTHER.to_string(),
+                    error: "Business Rule Violation".to_string(),
+                    message: "This copy is on the pick list for another patron — use force=true to override"
+                        .to_string(),
+                    details: ItemToPickDetails {
+                        hold_id: hold_id.to_string(),
+                        user_id: user_id.to_string(),
+                        user_name,
+                    },
+                });
+                (StatusCode::UNPROCESSABLE_ENTITY, body).into_response()
+            }
             other => {
                 let fields = other.http_fields();
                 let body = Json(ErrorResponse {

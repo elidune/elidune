@@ -103,7 +103,9 @@ pub struct CreateLoanRequest {
     #[schema(value_type = Option<String>)]
     pub item_id: Option<i64>,
     pub item_identification: Option<String>,
-    /// When true, bypasses patron/subscription/limits/unpaid-fine checks and hold-queue rules; active holds on the copy are cancelled.
+    /// When true, bypasses patron/subscription/limits/unpaid-fine checks and hold-queue rules.
+    /// Pinned `pending`/`ready` holds on the copy are cancelled. A `to_pick` hold is released
+    /// back to `pending`, or reassigned to another shelf copy.
     pub force: Option<bool>,
 }
 
@@ -157,11 +159,25 @@ pub struct LoanResponse {
     pub message: String,
 }
 
-/// Return response with loan details
+/// Return response. `loan` is set when a loan was closed. `hold` is set when a
+/// shelf `to_pick` copy was checked in or a missing copy was found.
+/// `status` is `returned`, `ready`, `in_transit`, or `available`.
+/// `destinationSiteId` / `destinationSiteName` are set when status is `in_transit`.
+#[serde_as]
 #[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct ReturnResponse {
     pub status: String,
-    pub loan: LoanDetails,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loan: Option<LoanDetails>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hold: Option<crate::models::hold::Hold>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub destination_site_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destination_site_name: Option<String>,
 }
 
 /// Query parameters for overdue loans list
@@ -527,7 +543,10 @@ pub async fn return_loan(
 
     Ok(Json(ReturnResponse {
         status: "returned".to_string(),
-        loan,
+        loan: Some(loan),
+        hold: None,
+        destination_site_id: None,
+        destination_site_name: None,
     }))
 }
 
@@ -628,7 +647,7 @@ async fn renew_loan_inner(
     ))
 }
 
-/// Return a borrowed item by item identification (barcode or call number)
+/// Check in a barcode. Returns an active loan, or completes a `to_pick` hold on a shelf copy.
 #[utoipa::path(
     post,
     path = "/loans/items/{item_id}/return",
@@ -636,7 +655,7 @@ async fn renew_loan_inner(
     security(("bearer_auth" = [])),
     params(("item_id" = String, Path, description = "Item barcode or call number")),
     responses(
-        (status = 200, description = "Item returned", body = ReturnResponse),
+        (status = 200, description = "Item returned, or a to_pick hold checked in", body = ReturnResponse),
         (status = 404, description = "Item or active loan not found"),
         (status = 409, description = "Already returned")
     )
@@ -654,20 +673,34 @@ pub async fn return_loan_by_item(
         .return_loan_by_item(&item_id, Some(claims.user_id), ip.clone())
         .await
     {
-        Ok(loan) => {
-            let loan_id = loan.id;
-            state.services.audit.log(
-                audit::event::LOAN_RETURNED,
-                Some(claims.user_id),
-                Some("loan"),
-                Some(loan_id),
-                ip,
-                Some((item_id.as_str(), &loan)),
-                audit::AuditLogMeta::success(),
-            );
+        Ok(check_in) => {
+            if let Some(ref loan) = check_in.loan {
+                let loan_id = loan.id;
+                state.services.audit.log(
+                    audit::event::LOAN_RETURNED,
+                    Some(claims.user_id),
+                    Some("loan"),
+                    Some(loan_id),
+                    ip,
+                    Some((item_id.as_str(), loan)),
+                    audit::AuditLogMeta::success(),
+                );
+            }
+            let status = if check_in.loan.is_some() {
+                "returned"
+            } else if check_in.transit_started {
+                "in_transit"
+            } else if check_in.hold.is_some() {
+                "ready"
+            } else {
+                "available"
+            };
             Ok(Json(ReturnResponse {
-                status: "returned".to_string(),
-                loan,
+                status: status.to_string(),
+                loan: check_in.loan,
+                hold: check_in.hold,
+                destination_site_id: check_in.destination_site_id,
+                destination_site_name: check_in.destination_site_name,
             }))
         }
         Err(e) => {

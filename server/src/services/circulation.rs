@@ -361,13 +361,20 @@ fn to_response(
 
 #[cfg(test)]
 mod tests {
-    use crate::models::circulation::CirculationStatus;
+    use crate::models::circulation::{CirculationAction, CirculationStatus};
 
     #[test]
     fn lost_and_damaged_are_non_borrowable() {
         assert!(CirculationStatus::Lost.blocks_circulation());
         assert!(CirculationStatus::Damaged.blocks_circulation());
         assert!(CirculationStatus::ClaimedReturned.blocks_circulation());
+        assert!(CirculationStatus::ToSearch.blocks_circulation());
+        assert_eq!(
+            CirculationStatus::ToSearch
+                .transition(CirculationAction::MarkLost)
+                .unwrap(),
+            CirculationStatus::Lost
+        );
         assert!(!CirculationStatus::Available.blocks_circulation());
     }
 }

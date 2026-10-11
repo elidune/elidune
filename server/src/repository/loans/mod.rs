@@ -48,6 +48,16 @@ pub trait LoansRepository: Send + Sync {
     ) -> AppResult<Vec<LoanMarcExportRow>>;
     async fn loans_create(&self, loan: &CreateLoan) -> AppResult<LoanCreateOutcome>;
     async fn loans_return(&self, loan_id: i64) -> AppResult<LoanReturnOutcome>;
+    /// Barcode is not on loan. Completes a `to_pick` hold when this copy is assigned to one.
+    async fn loans_complete_to_pick_by_identification(
+        &self,
+        identification: &str,
+    ) -> AppResult<Option<crate::models::dto::holds::ToPickCompletion>>;
+    /// Barcode of a `to_search` copy. Clears the missing state and runs the return queue.
+    async fn loans_recover_to_search_by_identification(
+        &self,
+        identification: &str,
+    ) -> AppResult<Option<crate::models::dto::holds::ShelfFound>>;
     async fn loans_renew(&self, loan_id: i64) -> AppResult<(DateTime<Utc>, i16)>;
     async fn loans_get_settings(&self) -> AppResult<Vec<LoanSettings>>;
     async fn loans_count_active(&self) -> AppResult<i64>;
@@ -139,6 +149,18 @@ impl LoansRepository for Repository {
     }
     async fn loans_return(&self, loan_id: i64) -> crate::error::AppResult<LoanReturnOutcome> {
         Repository::loans_return(self, loan_id).await
+    }
+    async fn loans_complete_to_pick_by_identification(
+        &self,
+        identification: &str,
+    ) -> crate::error::AppResult<Option<crate::models::dto::holds::ToPickCompletion>> {
+        Repository::holds_complete_to_pick_by_identification(self, identification).await
+    }
+    async fn loans_recover_to_search_by_identification(
+        &self,
+        identification: &str,
+    ) -> crate::error::AppResult<Option<crate::models::dto::holds::ShelfFound>> {
+        Repository::holds_recover_to_search_by_identification(self, identification).await
     }
     async fn loans_renew(
         &self,

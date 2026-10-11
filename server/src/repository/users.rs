@@ -1029,17 +1029,25 @@ impl Repository {
                 .await?;
         }
 
-        let hold_items: Vec<Option<i64>> =
-            sqlx::query_scalar("DELETE FROM holds WHERE user_id = $1 RETURNING item_id")
+        let hold_items: Vec<(Option<i64>, String)> =
+            sqlx::query_as("DELETE FROM holds WHERE user_id = $1 RETURNING item_id, status")
                 .bind(id)
                 .fetch_all(&mut *tx)
                 .await?;
         let holds_cancelled = hold_items.len() as u64;
         let mut seen_items = std::collections::HashSet::new();
-        for item_id in hold_items.into_iter().flatten() {
+        for (item_id, status) in hold_items {
+            let Some(item_id) = item_id else {
+                continue;
+            };
             if seen_items.insert(item_id) {
-                self.holds_notify_next_tx(&mut tx, item_id, self.hold_ready_expiry_days())
-                    .await?;
+                if status == crate::models::hold::HoldStatus::ToPick.as_str() {
+                    self.holds_offer_shelf_copy_to_next_pending_tx(&mut tx, item_id)
+                        .await?;
+                } else {
+                    self.holds_notify_next_tx(&mut tx, item_id, self.hold_ready_expiry_days())
+                        .await?;
+                }
             }
         }
 
