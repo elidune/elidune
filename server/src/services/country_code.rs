@@ -3,14 +3,15 @@
 //! Free-text values saved before the country select ("France", "france", "états-unis")
 //! are mapped to a code when the name is known with certainty. A 2-letter token is
 //! kept only when it is a country in the shared zone table (`fr` → `FR`). The
-//! non-ISO tokens `uk` and `el` are aliases for GB and GR. Anything else is rejected
-//! on update. Migration `043_library_country_iso.sql` applies the same rules and
+//! non-ISO token `uk` is an alias for GB. Language codes `el` and `en` are not
+//! countries and are rejected, as is any other unrecognized value.
+//! Migration `043_library_country_iso.sql` applies the same rules and
 //! sets every unrecognized `addr_country` to NULL. It does not change the zone column.
 
 use crate::error::{AppError, AppResult};
 
 /// Lowercased French and English names, sorted for binary search.
-/// `uk` → GB, `el` → GR. `en` is not mapped: it is a language code, not a country.
+/// `uk` → GB. `el` and `en` are not mapped: they are language codes, not countries.
 pub const COUNTRY_ALIASES: &[(&str, &str)] = &[
     ("afghanistan", "AF"),
     ("afrique du sud", "ZA"),
@@ -127,7 +128,6 @@ pub const COUNTRY_ALIASES: &[(&str, &str)] = &[
     ("ecuador", "EC"),
     ("egypt", "EG"),
     ("egypte", "EG"),
-    ("el", "GR"),
     ("el salvador", "SV"),
     ("emirats arabes unis", "AE"),
     ("england", "GB"),
@@ -506,7 +506,6 @@ mod tests {
             ("UK", "GB"),
             ("England", "GB"),
             ("royaume-uni", "GB"),
-            ("el", "GR"),
             ("Allemagne", "DE"),
             ("de", "DE"),
         ] {
@@ -519,6 +518,8 @@ mod tests {
         assert!(normalize_country_code("Narnia").is_err());
         assert!(normalize_country_code("XX").is_err());
         assert!(normalize_country_code("en").is_err());
+        assert!(normalize_country_code("el").is_err());
+        assert!(normalize_country_code("EL").is_err());
         assert!(normalize_country_code("   ").is_err());
         assert!(normalize_country_code("").is_err());
     }
