@@ -89,6 +89,8 @@ pub trait LoansRepository: Send + Sync {
         renew_window_days: i16,
     ) -> AppResult<()>;
     async fn loans_settings_delete_rows(&self) -> AppResult<()>;
+    /// IANA timezone name from library settings (default `Europe/Paris`).
+    async fn library_timezone_name(&self) -> AppResult<String>;
 }
 
 /// Combined repository trait used by [`crate::services::loans::LoansService`].
@@ -244,6 +246,9 @@ impl LoansRepository for Repository {
     }
     async fn loans_settings_delete_rows(&self) -> crate::error::AppResult<()> {
         Repository::loans_settings_delete_rows(self).await
+    }
+    async fn library_timezone_name(&self) -> crate::error::AppResult<String> {
+        Repository::library_timezone_name(self).await
     }
 }
 

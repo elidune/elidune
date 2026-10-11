@@ -15,6 +15,8 @@ pub struct LibraryInfo {
     pub addr_country: Option<String>,
     pub phones: Vec<String>,
     pub email: Option<String>,
+    /// IANA timezone name (for example `Europe/Paris`).
+    pub timezone: String,
     pub updated_at: Option<DateTime<Utc>>,
 }
 
@@ -29,4 +31,6 @@ pub struct UpdateLibraryInfoRequest {
     pub addr_country: Option<String>,
     pub phones: Option<Vec<String>>,
     pub email: Option<String>,
+    /// IANA timezone name. Omitted fields are left unchanged. Invalid names return 400 `invalid_timezone`.
+    pub timezone: Option<String>,
 }
