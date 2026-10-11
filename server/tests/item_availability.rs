@@ -665,7 +665,31 @@ async fn reader_search_hides_staff_fields_and_to_search() {
     assert_state(find_copy(hit, hidden.item_id), "unavailable", false);
 }
 
-fn assert_no_patron_secrets(user: &Value) {
+fn assert_no_login_anywhere(body: &Value) {
+    fn walk(value: &Value, path: &str) {
+        match value {
+            Value::Object(map) => {
+                assert!(
+                    !map.contains_key("login"),
+                    "reader JSON has login at {path}: {value}"
+                );
+                for (key, child) in map {
+                    walk(child, &format!("{path}.{key}"));
+                }
+            }
+            Value::Array(items) => {
+                for (index, child) in items.iter().enumerate() {
+                    walk(child, &format!("{path}[{index}]"));
+                }
+            }
+            _ => {}
+        }
+    }
+    walk(body, "$");
+}
+
+fn assert_public_patron(user: &Value) {
+    assert!(user.is_object(), "public patron: {user}");
     assert!(
         user.get("login").is_none(),
         "public patron has login: {user}"
@@ -741,25 +765,39 @@ async fn reader_patron_summary_omits_login_staff_picker_includes_it() {
         .get_json_with_auth(&format!("/api/v1/users/{reader_id}/loans"), &reader_token)
         .await;
     assert_eq!(status, StatusCode::OK, "reader loans: {loans}");
-    let embedded = &loans["items"]
-        .as_array()
-        .expect("loans")
-        .first()
-        .expect("loan")["user"];
-    assert!(embedded.is_object(), "loan patron: {embedded}");
-    assert_no_patron_secrets(embedded);
+    assert!(
+        !loans["items"].as_array().expect("loans").is_empty(),
+        "{loans}"
+    );
+    assert_no_login_anywhere(&loans);
 
     place_title(&app, &admin_token, reader_id, biblio_id).await;
     let (status, holds) = app
         .get_json_with_auth("/api/v1/holds?perPage=50", &reader_token)
         .await;
     assert_eq!(status, StatusCode::OK, "reader holds: {holds}");
+    assert_no_login_anywhere(&holds);
     let hold_user = &holds["items"]
         .as_array()
         .expect("holds")
         .iter()
         .find(|row| fixtures::json_id(&row["userId"]) == reader_id)
         .expect("reader hold")["user"];
-    assert!(hold_user.is_object(), "hold patron: {hold_user}");
-    assert_no_patron_secrets(hold_user);
+    assert_public_patron(hold_user);
+
+    let (status, staff_holds) = app
+        .get_json_with_auth(&format!("/api/v1/users/{reader_id}/holds"), &admin_token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "staff holds: {staff_holds}");
+    let staff_user = &staff_holds
+        .as_array()
+        .expect("holds")
+        .iter()
+        .find(|row| fixtures::json_id(&row["userId"]) == reader_id)
+        .expect("staff hold")["user"];
+    assert_eq!(staff_user["login"], login);
+    assert!(
+        staff_user.get("barcode").is_none() || staff_user["barcode"].is_null(),
+        "card number stays off embedded hold patrons: {staff_user}"
+    );
 }
