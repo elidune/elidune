@@ -187,11 +187,11 @@ export interface ChangePasswordRequest {
   newPassword: string;
 }
 
-/** POST /auth/request-password-reset (public, no JWT) */
+/** POST /auth/request-password-reset (public, no JWT).
+ * The server builds the email link from PUBLIC_BASE_URL; the client does not send a URL.
+ */
 export interface RequestPasswordResetRequest {
   identifier: string;
-  /** Full URL template; must contain literal `<token>` if provided. */
-  resetUrl?: string;
 }
 
 /** POST /auth/reset-password (public, no JWT) */
