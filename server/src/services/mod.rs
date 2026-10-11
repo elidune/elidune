@@ -6,6 +6,7 @@ pub mod audit;
 pub mod calendar;
 pub mod catalog;
 pub mod circulation;
+pub mod country_code;
 pub mod email_outbox;
 pub mod equipment;
 pub mod event_bus;

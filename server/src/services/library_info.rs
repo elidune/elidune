@@ -4,7 +4,10 @@ use crate::{
     error::AppResult,
     models::dto::library_info::{LibraryInfo, UpdateLibraryInfoRequest},
     repository::Repository,
-    services::calendar::{self, DEFAULT_TIMEZONE},
+    services::{
+        calendar::{self, DEFAULT_TIMEZONE},
+        country_code,
+    },
 };
 
 #[derive(Clone)]
@@ -77,6 +80,7 @@ impl LibraryInfoService {
             Some(name) => Some(calendar::parse_timezone(name)?.name().to_string()),
             None => None,
         };
+        let addr_country = country_code::normalize_optional_country(req.addr_country)?;
 
         self.repository
             .library_info_upsert(
@@ -85,7 +89,7 @@ impl LibraryInfoService {
                 &req.addr_line2,
                 &req.addr_postcode,
                 &req.addr_city,
-                &req.addr_country,
+                &addr_country,
                 phones_json,
                 &req.email,
                 &timezone,

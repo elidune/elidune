@@ -13,13 +13,17 @@ import {
   Check,
   Phone,
 } from 'lucide-react';
-import { Card, Button, Input, Modal, TimezoneSelect } from '@/components/common';
+import { Card, Button, Input, Modal, CountrySelect, LibraryTimezoneControl } from '@/components/common';
 import api from '@/services/api';
 import { useLibraryInfoQuery, useUpdateLibraryInfoMutation } from '@/hooks/common/useLibraryInfoQuery';
 import { getApiErrorMessage, libraryInfoTimezoneFieldError } from '@/utils/apiError';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 import { deferFromEffect } from '@/utils/deferFromEffect';
-import { DEFAULT_LIBRARY_TIMEZONE } from '@/utils/timeZones';
+import {
+  applyCountryChange,
+  countryCodeFromStored,
+  DEFAULT_LIBRARY_TIMEZONE,
+} from '@/utils/countryTimezone';
 import type {
   LibraryInfo,
   SchedulePeriod,
@@ -52,7 +56,7 @@ function libraryInfoToForm(info: LibraryInfo | undefined): LibraryGeneralForm {
     addrLine2: info?.addrLine2 ?? '',
     addrPostcode: info?.addrPostcode ?? '',
     addrCity: info?.addrCity ?? '',
-    addrCountry: info?.addrCountry ?? '',
+    addrCountry: countryCodeFromStored(info?.addrCountry),
     email: info?.email ?? '',
     phones: info?.phones ?? [],
     timezone: info?.timezone?.trim() || DEFAULT_LIBRARY_TIMEZONE,
@@ -69,6 +73,7 @@ function GeneralTab() {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [timezoneError, setTimezoneError] = useState<string | null>(null);
+  const [countryError, setCountryError] = useState<string | null>(null);
 
   // Seed from a cache hit on the first render. Synced starts unset so a library
   // info payload already in the query cache is copied into the draft (same class
@@ -80,13 +85,19 @@ function GeneralTab() {
     if (data) {
       setForm(libraryInfoToForm(data));
       setTimezoneError(null);
+      setCountryError(null);
     }
   }
 
   const handleSave = async () => {
     setSaveError(null);
     setTimezoneError(null);
+    setCountryError(null);
     setSaveSuccess(false);
+    if (!/^[A-Z]{2}$/.test(form.addrCountry)) {
+      setCountryError(t('library.general.countryRequired'));
+      return;
+    }
     try {
       await updateLibraryInfo.mutateAsync({
         name: form.name || null,
@@ -94,7 +105,7 @@ function GeneralTab() {
         addrLine2: form.addrLine2 || null,
         addrPostcode: form.addrPostcode || null,
         addrCity: form.addrCity || null,
-        addrCountry: form.addrCountry || null,
+        addrCountry: form.addrCountry,
         email: form.email || null,
         phones: form.phones.filter(Boolean),
         timezone: form.timezone.trim() || DEFAULT_LIBRARY_TIMEZONE,
@@ -194,23 +205,37 @@ function GeneralTab() {
             {field('library.general.zipCode', 'addrPostcode', { placeholder: '75001' })}
             {field('library.general.city', 'addrCity', { placeholder: 'Paris' })}
           </div>
-          {field('library.general.country', 'addrCountry', { placeholder: 'France' })}
+          <CountrySelect
+            label={t('library.general.country')}
+            value={form.addrCountry}
+            required
+            error={countryError ?? undefined}
+            placeholder={t('library.general.countryPlaceholder')}
+            onChange={(code) => {
+              setForm((current) => {
+                const next = applyCountryChange(
+                  { country: current.addrCountry, timezone: current.timezone },
+                  code,
+                );
+                return { ...current, addrCountry: next.country, timezone: next.timezone };
+              });
+              if (countryError) setCountryError(null);
+              if (timezoneError) setTimezoneError(null);
+            }}
+          />
+          <LibraryTimezoneControl
+            country={form.addrCountry}
+            timezone={form.timezone}
+            error={timezoneError ?? undefined}
+            onTimezoneChange={(timezone) => {
+              setForm((current) => ({ ...current, timezone }));
+              if (timezoneError) setTimezoneError(null);
+            }}
+          />
         </div>
 
         {/* Email */}
         {field('library.general.email', 'email', { type: 'email', placeholder: 'contact@bibliotheque.fr' })}
-
-        <TimezoneSelect
-          label={t('library.general.timezone')}
-          hint={t('library.general.timezoneHelp')}
-          placeholder={DEFAULT_LIBRARY_TIMEZONE}
-          value={form.timezone}
-          error={timezoneError ?? undefined}
-          onChange={(timezone) => {
-            setForm((current) => ({ ...current, timezone }));
-            if (timezoneError) setTimezoneError(null);
-          }}
-        />
 
         {/* Phones */}
         <div>

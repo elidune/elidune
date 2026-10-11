@@ -130,8 +130,11 @@
       "phones": "Téléphones",
       "addPhone": "Ajouter un numéro",
       "noPhones": "Aucun numéro de téléphone",
+      "countryPlaceholder": "Choisir un pays",
+      "countryRequired": "Le pays est obligatoire.",
       "timezone": "Fuseau horaire",
-      "timezoneHelp": "Les dates des avis et des e-mails envoyés aux usagers utilisent ce fuseau horaire."
+      "timezoneDerived": "Fuseau horaire : {{zone}} ({{offset}}), déduit du pays.",
+      "timezoneMismatch": "Ne correspond pas au pays"
     },
     "tabs": {
       "hours": "Horaires d'ouverture",

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Building2, UserCircle, Mail, Sparkles, ChevronRight, ChevronLeft } from 'lucide-react';
-import { Card, Button, Input } from '@/components/common';
+import { Card, Button, Input, CountrySelect, LibraryTimezoneControl } from '@/components/common';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLibrary } from '@/contexts/LibraryContext';
 import api from '@/services/api';
@@ -11,6 +11,7 @@ import { getApiErrorMessage } from '@/utils/apiError';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 import type { FirstSetupRequest, UpdateLibraryInfoRequest, FirstSetupEmailOverride } from '@/types';
 import { toServerLanguage, type SupportedLanguage } from '@/locales';
+import { applyCountryChange, DEFAULT_LIBRARY_TIMEZONE } from '@/utils/countryTimezone';
 
 const STEPS = 4;
 
@@ -43,6 +44,7 @@ export default function FirstSetupPage() {
     addrCountry: string;
     email: string;
     phones: string[];
+    timezone: string;
   }>({
     name: '',
     addrLine1: '',
@@ -52,6 +54,7 @@ export default function FirstSetupPage() {
     addrCountry: '',
     email: '',
     phones: [],
+    timezone: DEFAULT_LIBRARY_TIMEZONE,
   });
 
   const [admin, setAdmin] = useState({
@@ -83,9 +86,10 @@ export default function FirstSetupPage() {
       addrLine2: library.addrLine2.trim() || null,
       addrPostcode: library.addrPostcode.trim() || null,
       addrCity: library.addrCity.trim() || null,
-      addrCountry: library.addrCountry.trim() || null,
+      addrCountry: library.addrCountry || null,
       email: library.email.trim() || null,
       phones: library.phones.filter((p) => p.trim() !== ''),
+      timezone: library.addrCountry ? library.timezone : null,
     };
   }, [library]);
 
@@ -103,6 +107,9 @@ export default function FirstSetupPage() {
     if (s === 1) {
       if (!hasLibraryIdentity(libraryPayload)) {
         return t('firstSetup.validation.libraryIdentity');
+      }
+      if (!library.addrCountry) {
+        return t('library.general.countryRequired');
       }
     }
     if (s === 2) {
@@ -141,6 +148,11 @@ export default function FirstSetupPage() {
     }
     if (!hasLibraryIdentity(libraryPayload)) {
       setLocalError(t('firstSetup.validation.libraryIdentity'));
+      setStep(1);
+      return;
+    }
+    if (!library.addrCountry) {
+      setLocalError(t('library.general.countryRequired'));
       setStep(1);
       return;
     }
@@ -232,11 +244,6 @@ export default function FirstSetupPage() {
                 onChange={(v) => setLibrary((s) => ({ ...s, name: v }))}
               />
               <Field
-                label={t('firstSetup.fields.addrCity')}
-                value={library.addrCity}
-                onChange={(v) => setLibrary((s) => ({ ...s, addrCity: v }))}
-              />
-              <Field
                 label={t('firstSetup.fields.addrLine1')}
                 value={library.addrLine1}
                 onChange={(v) => setLibrary((s) => ({ ...s, addrLine1: v }))}
@@ -253,11 +260,31 @@ export default function FirstSetupPage() {
                   onChange={(v) => setLibrary((s) => ({ ...s, addrPostcode: v }))}
                 />
                 <Field
-                  label={t('firstSetup.fields.addrCountry')}
-                  value={library.addrCountry}
-                  onChange={(v) => setLibrary((s) => ({ ...s, addrCountry: v }))}
+                  label={t('firstSetup.fields.addrCity')}
+                  value={library.addrCity}
+                  onChange={(v) => setLibrary((s) => ({ ...s, addrCity: v }))}
                 />
               </div>
+              <CountrySelect
+                label={t('firstSetup.fields.addrCountry')}
+                value={library.addrCountry}
+                required
+                placeholder={t('library.general.countryPlaceholder')}
+                onChange={(code) =>
+                  setLibrary((current) => {
+                    const next = applyCountryChange(
+                      { country: current.addrCountry, timezone: current.timezone },
+                      code,
+                    );
+                    return { ...current, addrCountry: next.country, timezone: next.timezone };
+                  })
+                }
+              />
+              <LibraryTimezoneControl
+                country={library.addrCountry}
+                timezone={library.timezone}
+                onTimezoneChange={(timezone) => setLibrary((current) => ({ ...current, timezone }))}
+              />
               <Field
                 label={t('firstSetup.fields.libraryEmail')}
                 type="email"

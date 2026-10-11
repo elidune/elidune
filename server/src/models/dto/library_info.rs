@@ -12,6 +12,7 @@ pub struct LibraryInfo {
     pub addr_line2: Option<String>,
     pub addr_postcode: Option<String>,
     pub addr_city: Option<String>,
+    /// ISO 3166-1 alpha-2 code (for example `FR`). Unmapped legacy free text may still be stored.
     pub addr_country: Option<String>,
     pub phones: Vec<String>,
     pub email: Option<String>,
@@ -28,6 +29,9 @@ pub struct UpdateLibraryInfoRequest {
     pub addr_line2: Option<String>,
     pub addr_postcode: Option<String>,
     pub addr_city: Option<String>,
+    /// Country. French and English names are stored as ISO 3166-1 alpha-2 (`France` → `FR`).
+    /// A 2-letter code is uppercased. Any other non-empty value is a 400 `validation_error`.
+    /// Omitted or blank leaves the stored value unchanged.
     pub addr_country: Option<String>,
     pub phones: Option<Vec<String>>,
     pub email: Option<String>,

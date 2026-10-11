@@ -130,8 +130,11 @@
       "phones": "Telefonnummern",
       "addPhone": "Nummer hinzufügen",
       "noPhones": "Keine Telefonnummer",
+      "countryPlaceholder": "Land auswählen",
+      "countryRequired": "Das Land ist erforderlich.",
       "timezone": "Zeitzone",
-      "timezoneHelp": "Datumsangaben in Benachrichtigungen und E-Mails an Benutzer verwenden diese Zeitzone."
+      "timezoneDerived": "Zeitzone: {{zone}} ({{offset}}), aus dem Land abgeleitet.",
+      "timezoneMismatch": "Entspricht nicht dem Land"
     },
     "tabs": {
       "hours": "Öffnungszeiten",

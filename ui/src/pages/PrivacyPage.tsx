@@ -5,6 +5,7 @@ import { Shield, ArrowLeft, Mail, Phone, MapPin, Building2 } from 'lucide-react'
 import { Card } from '@/components/common';
 import api from '@/services/api';
 import type { LibraryInfo } from '@/types';
+import { formatCountryName } from '@/utils/countryTimezone';
 
 function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -32,7 +33,7 @@ export default function PrivacyPage() {
       info.addrLine1,
       info.addrLine2,
       [info.addrPostcode, info.addrCity].filter(Boolean).join(' '),
-      info.addrCountry,
+      formatCountryName(info.addrCountry, i18n.language),
     ].filter(Boolean);
     return parts;
   };
