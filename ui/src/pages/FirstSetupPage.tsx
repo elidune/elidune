@@ -11,7 +11,7 @@ import { getApiErrorMessage } from '@/utils/apiError';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 import type { FirstSetupRequest, UpdateLibraryInfoRequest, FirstSetupEmailOverride } from '@/types';
 import { toServerLanguage, type SupportedLanguage } from '@/locales';
-import { applyCountryChange, DEFAULT_LIBRARY_TIMEZONE } from '@/utils/countryTimezone';
+import { applyCountryChange, timezoneChoiceRequired } from '@/utils/countryTimezone';
 
 const STEPS = 4;
 
@@ -54,7 +54,7 @@ export default function FirstSetupPage() {
     addrCountry: '',
     email: '',
     phones: [],
-    timezone: DEFAULT_LIBRARY_TIMEZONE,
+    timezone: '',
   });
 
   const [admin, setAdmin] = useState({
@@ -89,7 +89,7 @@ export default function FirstSetupPage() {
       addrCountry: library.addrCountry || null,
       email: library.email.trim() || null,
       phones: library.phones.filter((p) => p.trim() !== ''),
-      timezone: library.addrCountry ? library.timezone : null,
+      timezone: library.addrCountry ? library.timezone.trim() || null : null,
     };
   }, [library]);
 
@@ -110,6 +110,9 @@ export default function FirstSetupPage() {
       }
       if (!library.addrCountry) {
         return t('library.general.countryRequired');
+      }
+      if (timezoneChoiceRequired(library.addrCountry, library.timezone)) {
+        return t('library.general.timezoneRequired');
       }
     }
     if (s === 2) {
@@ -153,6 +156,11 @@ export default function FirstSetupPage() {
     }
     if (!library.addrCountry) {
       setLocalError(t('library.general.countryRequired'));
+      setStep(1);
+      return;
+    }
+    if (timezoneChoiceRequired(library.addrCountry, library.timezone)) {
+      setLocalError(t('library.general.timezoneRequired'));
       setStep(1);
       return;
     }

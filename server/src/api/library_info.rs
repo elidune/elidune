@@ -50,7 +50,7 @@ pub async fn get_library_info(
     request_body = UpdateLibraryInfoRequest,
     responses(
         (status = 200, description = "Library information updated", body = LibraryInfo),
-        (status = 400, description = "Invalid IANA timezone (`invalid_timezone`), timezone outside the country (`timezone_country_mismatch`), or unrecognized country (`validation_error`)", body = ErrorResponse),
+        (status = 400, description = "Invalid IANA timezone (`invalid_timezone`), timezone outside the country (`timezone_country_mismatch`), missing timezone for a multi-zone country (`timezone_required`), or unrecognized country (`validation_error`)", body = ErrorResponse),
         (status = 403, description = "Insufficient permissions")
     )
 )]

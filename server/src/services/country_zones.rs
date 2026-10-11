@@ -1,9 +1,11 @@
 //! Country → IANA zone list shared with the UI.
 //!
 //! chrono-tz 0.10 exposes timezone names and offsets only. It has no country
-//! filter, so the list is generated once from tzdata `zone1970.tab` by
-//! `ui/scripts/generate-country-timezones.mjs`. The JSON file is the single
-//! source: the UI imports it, and this module embeds the same bytes.
+//! filter, so the list is generated once from tzdata `zone.tab` (checked
+//! against `iso3166.tab`) by `ui/scripts/generate-country-timezones.mjs`.
+//! The JSON file is the single source: the UI imports it, and this module
+//! embeds the same bytes. A country with one zone uses that zone. A country
+//! with several zones has no default.
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -45,13 +47,25 @@ pub fn timezone_belongs_to_country(timezone: &str, country: &str) -> bool {
         .is_some_and(|zones| zones.iter().any(|zone| zone == timezone))
 }
 
-/// Default zone for `country`: the first entry in the shared table.
+/// Zones listed for `country`, in `zone.tab` order. Empty when the code is unknown.
 #[must_use]
-pub fn default_timezone_for_country(country: &str) -> Option<&'static str> {
+pub fn zones_for_country(country: &str) -> &'static [String] {
     let country = country.trim().to_ascii_uppercase();
     zones_by_country()
         .get(&country)
-        .and_then(|zones| zones.first().map(String::as_str))
+        .map(Vec::as_slice)
+        .unwrap_or(&[])
+}
+
+/// The only zone of a single-zone country.
+#[must_use]
+pub fn single_zone_for_country(country: &str) -> Option<&'static str> {
+    let zones = zones_for_country(country);
+    if zones.len() == 1 {
+        Some(zones[0].as_str())
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -59,17 +73,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn france_has_a_single_zone_and_the_united_states_default_to_new_york() {
+    fn france_has_one_zone_and_territories_keep_their_own() {
         assert!(is_known_country_code("FR"));
         assert!(is_known_country_code("fr"));
         assert!(!is_known_country_code("XX"));
         assert!(!is_known_country_code("en"));
-        assert_eq!(default_timezone_for_country("FR"), Some("Europe/Paris"));
+        assert!(!is_known_country_code("el"));
+        assert_eq!(single_zone_for_country("FR"), Some("Europe/Paris"));
         assert!(timezone_belongs_to_country("Europe/Paris", "FR"));
         assert!(!timezone_belongs_to_country("America/New_York", "FR"));
-        assert_eq!(default_timezone_for_country("US"), Some("America/New_York"));
+        assert!(zones_for_country("US").len() > 1);
+        assert_eq!(single_zone_for_country("US"), None);
         assert!(timezone_belongs_to_country("America/Chicago", "US"));
+        assert!(timezone_belongs_to_country("America/New_York", "US"));
         assert!(!timezone_belongs_to_country("Europe/Paris", "US"));
+        assert_eq!(single_zone_for_country("RE"), Some("Indian/Reunion"));
+        assert_eq!(single_zone_for_country("GP"), Some("America/Guadeloupe"));
+        assert_eq!(single_zone_for_country("MQ"), Some("America/Martinique"));
+    }
+
+    #[test]
+    fn every_zone_parses_with_the_embedded_chrono_tz() {
+        for (country, zones) in zones_by_country() {
+            assert!(!zones.is_empty(), "{country} has no zones");
+            for zone in zones {
+                assert!(
+                    zone.parse::<chrono_tz::Tz>().is_ok(),
+                    "{zone} ({country}) is not a chrono-tz timezone"
+                );
+            }
+        }
     }
 
     #[test]

@@ -133,8 +133,10 @@
       "countryPlaceholder": "Choisir un pays",
       "countryRequired": "Le pays est obligatoire.",
       "timezone": "Fuseau horaire",
+      "timezonePlaceholder": "Choisir un fuseau horaire",
       "timezoneDerived": "Fuseau horaire : {{zone}} ({{offset}}), déduit du pays.",
-      "timezoneMismatch": "Ne correspond pas au pays"
+      "timezoneMismatch": "Ne correspond pas au pays",
+      "timezoneRequired": "Choisissez un fuseau horaire pour ce pays."
     },
     "tabs": {
       "hours": "Horaires d'ouverture",
@@ -1803,7 +1805,8 @@
       "internal_error": "Erreur interne du serveur. Veuillez réessayer plus tard.",
       "rate_limited": "Trop de tentatives. Veuillez patienter avant de réessayer.",
       "invalid_timezone": "Fuseau horaire inconnu. Choisissez un nom IANA, par exemple Europe/Paris.",
-      "timezone_country_mismatch": "Ce fuseau horaire ne correspond pas au pays sélectionné."
+      "timezone_country_mismatch": "Ce fuseau horaire ne correspond pas au pays sélectionné.",
+      "timezone_required": "Choisissez un fuseau horaire pour ce pays."
     }
   },
   "inventory": {

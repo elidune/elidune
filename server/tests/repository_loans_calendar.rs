@@ -467,6 +467,31 @@ async fn library_country_must_be_iso_and_timezone_must_belong_to_it() {
     let (status, body) = app
         .put_json(
             "/api/v1/library-info",
+            &json!({ "timezone": "" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, axum::http::StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["code"], "timezone_required");
+
+    let (status, body) = app
+        .put_json(
+            "/api/v1/library-info",
+            &json!({ "addrCountry": "DE" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, axum::http::StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["code"], "timezone_required");
+
+    let (status, body) = app.get_json("/api/v1/library-info").await;
+    assert_eq!(status, axum::http::StatusCode::OK, "{body}");
+    assert_eq!(body["addrCountry"], "US");
+    assert_eq!(body["timezone"], "America/Chicago");
+
+    let (status, body) = app
+        .put_json(
+            "/api/v1/library-info",
             &json!({ "addrCountry": "FR", "timezone": "America/New_York" }),
             Some(&admin_token),
         )
@@ -492,6 +517,26 @@ async fn library_country_must_be_iso_and_timezone_must_belong_to_it() {
         )
         .await;
     assert_eq!(status, axum::http::StatusCode::OK, "restore: {body}");
+    assert_eq!(body["addrCountry"], "FR");
+    assert_eq!(body["timezone"], "Europe/Paris");
+
+    let (status, body) = app
+        .put_json(
+            "/api/v1/library-info",
+            &json!({ "addrCountry": "US", "timezone": "America/Chicago" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, axum::http::StatusCode::OK, "{body}");
+
+    let (status, body) = app
+        .put_json(
+            "/api/v1/library-info",
+            &json!({ "addrCountry": "FR", "timezone": "" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, axum::http::StatusCode::OK, "{body}");
     assert_eq!(body["addrCountry"], "FR");
     assert_eq!(body["timezone"], "Europe/Paris");
 }

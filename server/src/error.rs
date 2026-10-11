@@ -25,6 +25,8 @@ pub mod error_code {
     pub const INVALID_TIMEZONE: &str = "invalid_timezone";
     /// Timezone is a known IANA name but not one of the country's zones.
     pub const TIMEZONE_COUNTRY_MISMATCH: &str = "timezone_country_mismatch";
+    /// A country with several zones was saved without choosing one.
+    pub const TIMEZONE_REQUIRED: &str = "timezone_required";
     pub const DATABASE: &str = "database_error";
     pub const CONFLICT: &str = "conflict";
     pub const BAD_REQUEST: &str = "bad_request";
@@ -65,6 +67,10 @@ pub enum AppError {
     /// Timezone is not one of the selected country's zones (HTTP 400, `timezone_country_mismatch`).
     #[error("{0}")]
     TimezoneCountryMismatch(String),
+
+    /// Multi-zone country saved without a timezone (HTTP 400, `timezone_required`).
+    #[error("{0}")]
+    TimezoneRequired(String),
 
     /// Boxed so `AppError` stays small enough for `Result<T, AppError>`
     /// (`clippy::result_large_err`, 128-byte threshold).
@@ -240,6 +246,12 @@ impl AppError {
             AppError::TimezoneCountryMismatch(msg) => HttpErrorFields {
                 status: StatusCode::BAD_REQUEST,
                 code: ec::TIMEZONE_COUNTRY_MISMATCH,
+                label: "Validation Error",
+                message: msg.clone(),
+            },
+            AppError::TimezoneRequired(msg) => HttpErrorFields {
+                status: StatusCode::BAD_REQUEST,
+                code: ec::TIMEZONE_REQUIRED,
                 label: "Validation Error",
                 message: msg.clone(),
             },

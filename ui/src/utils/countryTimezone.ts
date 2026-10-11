@@ -2,9 +2,6 @@ import { COUNTRY_ZONES, type CountryZone } from '@/data/countryTimezones';
 
 export type { CountryZone };
 
-/** Fallback when a library has no country yet (migration 042). */
-export const DEFAULT_LIBRARY_TIMEZONE = 'Europe/Paris';
-
 export function isKnownCountryCode(code: string): boolean {
   return Object.prototype.hasOwnProperty.call(COUNTRY_ZONES, code.toUpperCase());
 }
@@ -21,9 +18,9 @@ export function zonesForCountry(code: string): readonly CountryZone[] {
   return COUNTRY_ZONES[code.toUpperCase()] ?? [];
 }
 
-/** First zone in the generated table (the country's main zone). */
-export function defaultTimezoneForCountry(code: string): string | null {
-  return zonesForCountry(code)[0]?.id ?? null;
+/** A multi-zone country still needs an explicit zone. */
+export function timezoneChoiceRequired(country: string, timezone: string): boolean {
+  return zonesForCountry(country).length > 1 && !timezone.trim();
 }
 
 export function timezoneBelongsToCountry(timezone: string, code: string): boolean {
@@ -39,17 +36,19 @@ export function timezoneMismatchesCountry(timezone: string, code: string): boole
 }
 
 /**
- * Picking another country replaces the zone with that country's default.
  * The same country leaves the current zone alone, including a mismatch.
+ * A country with one zone selects that zone. A country with several zones
+ * clears the choice so the user must pick one.
  */
 export function applyCountryChange(
   current: { country: string; timezone: string },
   nextCountry: string,
 ): { country: string; timezone: string } {
   if (nextCountry === current.country) return current;
+  const zones = zonesForCountry(nextCountry);
   return {
     country: nextCountry,
-    timezone: defaultTimezoneForCountry(nextCountry) ?? current.timezone,
+    timezone: zones.length === 1 ? zones[0].id : '',
   };
 }
 

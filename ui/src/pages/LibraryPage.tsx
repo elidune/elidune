@@ -22,7 +22,7 @@ import { deferFromEffect } from '@/utils/deferFromEffect';
 import {
   applyCountryChange,
   countryCodeFromStored,
-  DEFAULT_LIBRARY_TIMEZONE,
+  timezoneChoiceRequired,
 } from '@/utils/countryTimezone';
 import type {
   LibraryInfo,
@@ -59,7 +59,7 @@ function libraryInfoToForm(info: LibraryInfo | undefined): LibraryGeneralForm {
     addrCountry: countryCodeFromStored(info?.addrCountry),
     email: info?.email ?? '',
     phones: info?.phones ?? [],
-    timezone: info?.timezone?.trim() || DEFAULT_LIBRARY_TIMEZONE,
+    timezone: info?.timezone?.trim() ?? '',
   };
 }
 
@@ -98,6 +98,10 @@ function GeneralTab() {
       setCountryError(t('library.general.countryRequired'));
       return;
     }
+    if (timezoneChoiceRequired(form.addrCountry, form.timezone)) {
+      setTimezoneError(t('library.general.timezoneRequired'));
+      return;
+    }
     try {
       await updateLibraryInfo.mutateAsync({
         name: form.name || null,
@@ -108,7 +112,7 @@ function GeneralTab() {
         addrCountry: form.addrCountry,
         email: form.email || null,
         phones: form.phones.filter(Boolean),
-        timezone: form.timezone.trim() || DEFAULT_LIBRARY_TIMEZONE,
+        timezone: form.timezone.trim() || null,
       });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);

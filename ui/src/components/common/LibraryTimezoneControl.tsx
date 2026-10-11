@@ -22,8 +22,8 @@ function optionLabel(zone: CountryZone, language: string): string {
 
 /**
  * Time zone tied to the selected country.
- * One zone: a read-only derived hint. Several zones: a short select.
- * A saved zone from another country stays selected and shows a warning.
+ * One zone: a read-only derived hint. Several zones: a required select that
+ * starts empty. A saved zone from another country stays selected and shows a warning.
  */
 export default function LibraryTimezoneControl({
   country,
@@ -63,8 +63,12 @@ export default function LibraryTimezoneControl({
         value={timezone}
         onChange={(event) => onTimezoneChange(event.target.value)}
         className={formControlClass({ error: !!error, className: 'w-full' })}
+        required={zones.length > 1}
         aria-invalid={error || mismatch ? true : undefined}
       >
+        {zones.length > 1 && (
+          <option value="">{t('library.general.timezonePlaceholder')}</option>
+        )}
         {options.map((zone) => (
           <option key={zone.id} value={zone.id}>
             {optionLabel(zone, language)}
