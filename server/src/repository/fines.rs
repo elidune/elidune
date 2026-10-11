@@ -525,7 +525,8 @@ impl Repository {
                 l.expiry_at,
                 l.returned_at,
                 b.media_type,
-                u.status AS user_status
+                u.status AS user_status,
+                it.source_id AS site_id
             FROM loans l
             JOIN items it ON l.item_id = it.id
             JOIN biblios b ON it.biblio_id = b.id
@@ -555,7 +556,8 @@ impl Repository {
                 l.expiry_at,
                 l.returned_at,
                 b.media_type,
-                u.status AS user_status
+                u.status AS user_status,
+                it.source_id AS site_id
             FROM loans l
             JOIN items it ON l.item_id = it.id
             JOIN biblios b ON it.biblio_id = b.id
@@ -587,6 +589,7 @@ fn accrual_loan_from_row(row: &sqlx::postgres::PgRow) -> FineAccrualLoan {
             .as_deref()
             .and_then(|s| s.parse().ok())
             .unwrap_or(UserStatus::Active),
+        site_id: row.get("site_id"),
     }
 }
 

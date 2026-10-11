@@ -1,6 +1,6 @@
 //! Schedules domain methods on Repository (periods, slots, closures)
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use async_trait::async_trait;
 use chrono::{NaiveDate, NaiveTime, Utc};
@@ -358,7 +358,9 @@ impl Repository {
         let end = NaiveDate::from_ymd_opt(year, 12, 31).unwrap();
 
         // Count closure days in the year
-        let closures: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM schedule_closures WHERE closure_date >= $1 AND closure_date <= $2")
+        let closures: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM schedule_closures WHERE source_id IS NULL AND closure_date >= $1 AND closure_date <= $2",
+        )
             .bind(start)
             .bind(end)
             .fetch_one(&self.pool)
@@ -418,11 +420,23 @@ impl Repository {
         let date = NaiveDate::parse_from_str(&data.closure_date, "%Y-%m-%d")
             .map_err(|_| AppError::Validation("Invalid closure_date".to_string()))?;
 
+        if let Some(site_id) = data.source_id {
+            let exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sources WHERE id = $1)")
+                    .bind(site_id)
+                    .fetch_one(&self.pool)
+                    .await?;
+            if !exists {
+                return Err(AppError::NotFound(format!("Site {site_id} not found")));
+            }
+        }
+
         let row = sqlx::query_as::<_, ScheduleClosure>(
-            "INSERT INTO schedule_closures (closure_date, reason) VALUES ($1, $2) RETURNING *",
+            "INSERT INTO schedule_closures (closure_date, reason, source_id) VALUES ($1, $2, $3) RETURNING *",
         )
         .bind(date)
         .bind(&data.reason)
+        .bind(data.source_id)
         .fetch_one(&self.pool)
         .await?;
         Ok(row)
@@ -435,13 +449,28 @@ impl Repository {
         from: NaiveDate,
         to: NaiveDate,
     ) -> AppResult<OpeningCalendar> {
-        let closures: Vec<NaiveDate> = sqlx::query_scalar(
-            "SELECT closure_date FROM schedule_closures WHERE closure_date >= $1 AND closure_date <= $2",
+        let closure_rows = sqlx::query_as::<_, ClosureRow>(
+            "SELECT closure_date, source_id FROM schedule_closures WHERE closure_date >= $1 AND closure_date <= $2",
         )
         .bind(from)
         .bind(to)
         .fetch_all(&self.pool)
         .await?;
+        let mut closures = HashSet::new();
+        let mut site_closures: HashMap<i64, HashSet<NaiveDate>> = HashMap::new();
+        for row in closure_rows {
+            match row.source_id {
+                Some(site_id) => {
+                    site_closures
+                        .entry(site_id)
+                        .or_default()
+                        .insert(row.closure_date);
+                }
+                None => {
+                    closures.insert(row.closure_date);
+                }
+            }
+        }
 
         let rows = sqlx::query_as::<_, PeriodSlotRow>(
             r#"
@@ -474,7 +503,8 @@ impl Repository {
         }
 
         Ok(OpeningCalendar {
-            closures: closures.into_iter().collect(),
+            closures,
+            site_closures,
             periods,
         })
     }
@@ -491,6 +521,12 @@ impl Repository {
         }
         Ok(())
     }
+}
+
+#[derive(Debug, FromRow)]
+struct ClosureRow {
+    closure_date: NaiveDate,
+    source_id: Option<i64>,
 }
 
 #[derive(Debug, FromRow)]

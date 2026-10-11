@@ -219,7 +219,7 @@ impl EventsService {
     ) -> AppResult<AnnouncementReport> {
         let event = self.repository.events_get_by_id(event_id).await?;
 
-        let event_date = event.event_date.format("%d/%m/%Y").to_string();
+        let event_date = crate::services::calendar::format_calendar_date(event.event_date);
         let event_type_label = match event.event_type {
             0 => "Animation",
             1 => "Visite scolaire / School visit",
@@ -232,7 +232,12 @@ impl EventsService {
 
         let start_time_plain = event
             .start_time
-            .map(|t| format!("\nHeure / Time: {}", t.format("%H:%M")))
+            .map(|t| {
+                format!(
+                    "\nHeure / Time: {}",
+                    crate::services::calendar::format_clock(t)
+                )
+            })
             .unwrap_or_default();
         let start_time_row = event
             .start_time
@@ -240,7 +245,7 @@ impl EventsService {
                 format!(
                     "<tr><td style=\"padding:6px 12px;font-weight:bold;background:#f7f7f7;border:1px solid #e2e8f0\">Heure / Time</td>\
                  <td style=\"padding:6px 12px;border:1px solid #e2e8f0\">{}</td></tr>",
-                    t.format("%H:%M")
+                    crate::services::calendar::format_clock(t)
                 )
             })
             .unwrap_or_default();
