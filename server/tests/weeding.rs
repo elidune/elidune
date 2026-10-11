@@ -378,10 +378,10 @@ async fn withdraw_advances_hold_queue_and_keeps_title_holds_on_siblings() {
     );
 
     let (status, all_holds) = app
-        .get_json_with_auth("/api/v1/holds?activeOnly=false&perPage=50", &admin_token)
+        .get_json_with_auth(&format!("/api/v1/users/{reader_b}/holds"), &admin_token)
         .await;
-    assert_eq!(status, StatusCode::OK, "all holds: {all_holds}");
-    let entries = all_holds["items"].as_array().expect("paginated items");
+    assert_eq!(status, StatusCode::OK, "holds for B: {all_holds}");
+    let entries = all_holds.as_array().expect("user holds");
     let cancelled_b = entries
         .iter()
         .find(|h| fixtures::json_id(&h["id"]) == hold_b_id)

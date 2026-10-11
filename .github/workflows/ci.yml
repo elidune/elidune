@@ -175,6 +175,9 @@ jobs:
           cargo test
           --test lms_flows
           --test repository_loans_holds
+          --test repository_loans_calendar
+          --test fines_circulation
+          --test idempotency_loans
           --test security_rbac
           --test email_outbox
           --test graduated_reminders
@@ -182,6 +185,10 @@ jobs:
           --test event_audiences
           --test events_consent
           --test auth_rate_limit
+          --test password_reset
+          --test weeding
+          --test holds_max_active
+          --test holds_title_level
           -- --nocapture
 
   coverage:
@@ -247,6 +254,9 @@ jobs:
           --lib
           --test lms_flows
           --test repository_loans_holds
+          --test repository_loans_calendar
+          --test fines_circulation
+          --test idempotency_loans
           --test security_rbac
           --test email_outbox
           --test graduated_reminders
@@ -254,6 +264,10 @@ jobs:
           --test event_audiences
           --test events_consent
           --test auth_rate_limit
+          --test password_reset
+          --test weeding
+          --test holds_max_active
+          --test holds_title_level
           --lcov
           --output-path lcov.info
           --fail-under-lines 20

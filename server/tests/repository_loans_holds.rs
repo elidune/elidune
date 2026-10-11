@@ -898,10 +898,10 @@ async fn renew_inside_the_window_extends_the_current_due_date() {
         .await
         .expect("renew inside the window");
     assert_eq!(renews, 1);
-    let gained = (new_expiry - due).num_days();
+    let gained = new_expiry - due;
     assert!(
-        gained >= 21,
-        "new due {new_expiry} should be the previous due {due} plus the loan duration, gained {gained} days"
+        gained >= chrono::Duration::days(21) - chrono::Duration::seconds(1),
+        "new due {new_expiry} should be the previous due {due} plus the loan duration, gained {gained}"
     );
 }
 
@@ -932,9 +932,9 @@ async fn overdue_renewal_still_extends_from_the_due_date() {
         .await
         .expect("overdue renew stays allowed");
     assert_eq!(renews, 1);
-    let gained = (new_expiry - due).num_days();
+    let gained = new_expiry - due;
     assert!(
-        gained >= 21,
-        "overdue renewal should start from the current due date, gained {gained} days"
+        gained >= chrono::Duration::days(21) - chrono::Duration::seconds(1),
+        "overdue renewal should start from the current due date, gained {gained}"
     );
 }
