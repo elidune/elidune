@@ -20,6 +20,7 @@ import type { Biblio, BiblioShort, Hold, UserShort } from '@/types';
 import PatronLink from '@/components/users/PatronLink';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { patronId } from '@/utils/patronLink';
+import PatronOptionLabel from '@/components/users/PatronOptionLabel';
 import { formatUserShortName } from '@/utils/userDisplay';
 import { useToast } from '@/contexts/ToastContext';
 import { formChoiceLabelClass, formControlClass, formLabelClass } from '@/utils/formControl';
@@ -731,17 +732,12 @@ export default function HoldsPage() {
               }}
               placeholder={t('users.searchPlaceholder')}
               loading={visibleCreateUserSearching}
-              renderItem={(u) => (
-                <>
-                  {u.firstname} {u.lastname}{' '}
-                  <span className="text-gray-500 font-mono text-xs">{u.id}</span>
-                </>
-              )}
+              renderItem={(u) => <PatronOptionLabel user={u} />}
             />
             {visibleCreateUserSearching && <p className="text-xs text-gray-500 mt-1">{t('common.loading')}</p>}
             {selectedUserForCreate && (
               <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
-                {selectedUserForCreate.firstname} {selectedUserForCreate.lastname}
+                <PatronOptionLabel user={selectedUserForCreate} />
               </p>
             )}
           </div>

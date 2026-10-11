@@ -204,6 +204,10 @@ export interface UserShort {
   id: string;
   firstname?: string | null;
   lastname?: string | null;
+  /** Sign-in name, when the list payload includes it. */
+  login?: string | null;
+  /** Library card number, when the list payload includes it. */
+  barcode?: string | null;
   accountType?: string | null;
   publicType?: string | null;
   nbLoans?: number | null;

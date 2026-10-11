@@ -518,6 +518,8 @@ pub struct UserShortRow {
     id: i64,
     firstname: Option<String>,
     lastname: Option<String>,
+    login: Option<String>,
+    barcode: Option<String>,
     account_type: Option<String>,
     public_type: Option<i64>,
     nb_loans: Option<i64>,
@@ -533,6 +535,8 @@ impl From<UserShortRow> for UserShort {
             id: row.id,
             firstname: row.firstname,
             lastname: row.lastname,
+            login: row.login,
+            barcode: row.barcode,
             account_type: row
                 .account_type
                 .map(|s| s.parse().unwrap_or(AccountTypeSlug::Guest)),
@@ -556,6 +560,12 @@ pub struct UserShort {
     pub id: i64,
     pub firstname: Option<String>,
     pub lastname: Option<String>,
+    /// Sign-in name. Patron pickers show this beside the display name.
+    #[serde(default)]
+    pub login: Option<String>,
+    /// Library card number. Shown when `login` is empty.
+    #[serde(default)]
+    pub barcode: Option<String>,
     pub account_type: Option<AccountTypeSlug>,
     pub public_type: Option<i64>,
     pub nb_loans: Option<i64>,

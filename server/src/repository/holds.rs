@@ -262,7 +262,7 @@ impl Repository {
         }
         let rows: Vec<UserShortRow> = sqlx::query_as(
             r#"
-            SELECT u.id, u.firstname, u.lastname, u.account_type, u.public_type,
+            SELECT u.id, u.firstname, u.lastname, u.login, u.barcode, u.account_type, u.public_type,
                    (SELECT COUNT(*)::bigint FROM loans l WHERE l.user_id = u.id AND l.returned_at IS NULL) AS nb_loans,
                    (SELECT COUNT(*)::bigint FROM loans l WHERE l.user_id = u.id AND l.returned_at IS NULL AND l.expiry_at < NOW()) AS nb_late_loans,
                    u.status, u.created_at, u.expiry_at

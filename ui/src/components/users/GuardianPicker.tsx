@@ -6,6 +6,7 @@ import { Typeahead } from '@/components/common';
 import api from '@/services/api';
 import type { PublicType, UserShort } from '@/types';
 import { isEligibleGuardianCandidate } from '@/utils/legalGuardian';
+import PatronOptionLabel from '@/components/users/PatronOptionLabel';
 import { formatUserShortName } from '@/utils/userDisplay';
 
 export interface GuardianPickerProps {
@@ -111,12 +112,7 @@ export default function GuardianPicker({
           setDraft('');
           setResults([]);
         }}
-        renderItem={(u) => (
-          <>
-            {formatUserShortName(u)}{' '}
-            <span className="text-gray-500 font-mono text-xs">{u.id}</span>
-          </>
-        )}
+        renderItem={(u) => <PatronOptionLabel user={u} />}
         placeholder={t('users.searchPlaceholder')}
         leftIcon={<Search className="h-4 w-4" />}
         loading={visibleSearching}

@@ -73,13 +73,13 @@ export default function Modal({
       >
         {/* Header — title centered; chrome LTR so close stays visual right under dir=rtl */}
         <div
-          className="flex shrink-0 items-center gap-2 border-b border-gray-200 px-6 py-4 dark:border-gray-800"
+          className="flex shrink-0 items-start gap-2 border-b border-gray-200 px-6 py-4 dark:border-gray-800"
           dir="ltr"
         >
           <div className="h-9 w-9 shrink-0" aria-hidden />
           <h2
             id={titleId}
-            className="min-w-0 flex-1 truncate text-center text-lg font-semibold text-gray-900 dark:text-white"
+            className="min-w-0 flex-1 break-words py-1 text-balance text-center text-lg font-semibold leading-snug text-gray-900 dark:text-white"
             dir="auto"
           >
             {title}

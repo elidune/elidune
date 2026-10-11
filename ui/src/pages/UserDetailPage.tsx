@@ -23,6 +23,7 @@ import { useAccountTypesQuery } from '@/hooks/useAccountTypesQuery';
 import { Card, Button, Badge, Modal, Input, Table, ConfirmDialog, MessageModal, ScrollableListRegion, BarcodeScanField } from '@/components/common';
 import api from '@/services/api';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
+import { renewedUntilMessage } from '@/utils/localeDate';
 import { isWeedingServerMessage } from '@/utils/weeding';
 import { isSubscriptionExpired } from '@/utils/userSubscription';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
@@ -441,9 +442,12 @@ export default function UserDetailPage() {
     setLoanAction({ loanId, op: 'renew' });
     setRenewError('');
     try {
-      await api.renewLoan(loanId, newIdempotencyKey());
+      const renewed = await api.renewLoan(loanId, newIdempotencyKey());
       await refreshLoans();
-      showToast({ variant: 'success', message: t('loans.renewSuccess') });
+      showToast({
+        variant: 'success',
+        message: renewedUntilMessage(renewed.expiryAt, t, i18n.language),
+      });
     } catch (error) {
       const msg = getApiErrorMessage(error, t) || t('loans.errorRenewingLoan');
       setRenewError(msg);

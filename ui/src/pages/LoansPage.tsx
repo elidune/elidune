@@ -27,6 +27,7 @@ import ToPickForceLoanDialog from '@/components/loans/ToPickForceLoanDialog';
 import Pagination from '@/components/common/Pagination';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
+import { renewedUntilMessage } from '@/utils/localeDate';
 import { patronId } from '@/utils/patronLink';
 import { isWeedingServerMessage } from '@/utils/weeding';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
@@ -47,6 +48,7 @@ import { newIdempotencyKey } from '@/utils/idempotency';
 import { nextReminderTierFromCount } from '@/utils/reminderPolicy';
 import { useCirculationExceptionAction, type CirculationExceptionKind } from '@/hooks/loans/useCirculationExceptionAction';
 import { useAuth } from '@/contexts/AuthContext';
+import PatronOptionLabel from '@/components/users/PatronOptionLabel';
 import { useToast } from '@/contexts/ToastContext';
 import { isAdmin } from '@/types';
 import type { User as UserType, Loan, UserShort, OverdueLoanInfo, ReminderReport } from '@/types';
@@ -261,10 +263,13 @@ export default function LoansPage() {
       overdueLoanActionInFlightRef.current = true;
       setOverdueLoanAction({ loanId, op: 'renew' });
       try {
-        await api.renewLoan(loanId, newIdempotencyKey());
+        const renewed = await api.renewLoan(loanId, newIdempotencyKey());
         setOverdueError(null);
         await loadOverdue();
-        showToast({ variant: 'success', message: t('loans.renewSuccess') });
+        showToast({
+          variant: 'success',
+          message: renewedUntilMessage(renewed.expiryAt, t, i18n.language),
+        });
       } catch (e: unknown) {
         const msg = getApiErrorMessage(e, t) || t('loans.errorRenewingLoan');
         setOverdueError(msg);
@@ -274,7 +279,7 @@ export default function LoansPage() {
         setOverdueLoanAction(null);
       }
     },
-    [loadOverdue, showToast, t],
+    [i18n.language, loadOverdue, showToast, t],
   );
 
   const reloadSelectedUserLoans = useCallback(async () => {
@@ -753,7 +758,7 @@ export default function LoansPage() {
     setBorrowLoanAction({ loanId, op: 'renew' });
     setRenewError('');
     try {
-      await api.renewLoan(loanId, newIdempotencyKey());
+      const renewed = await api.renewLoan(loanId, newIdempotencyKey());
       if (selectedUser) {
         const res = await api.getUserLoans(selectedUser.id, {
           page: loansPage,
@@ -762,7 +767,10 @@ export default function LoansPage() {
         setLoans(res.items);
         setLoansTotal(res.total);
       }
-      showToast({ variant: 'success', message: t('loans.renewSuccess') });
+      showToast({
+        variant: 'success',
+        message: renewedUntilMessage(renewed.expiryAt, t, i18n.language),
+      });
     } catch (error: unknown) {
       const msg = getApiErrorMessage(error, t) || t('loans.errorRenewingLoan');
       setRenewError(msg);
@@ -965,12 +973,14 @@ export default function LoansPage() {
                               </span>
                             </span>
                             <span className="flex-1 min-w-0">
-                              <span className="block font-medium text-gray-900 dark:text-white">
-                                {user.firstname} {user.lastname}
+                              <span className="block">
+                                <PatronOptionLabel user={user} />
                               </span>
-                              <span className="block text-sm text-gray-500 dark:text-gray-400">
-                                {user.accountType}
-                              </span>
+                              {user.accountType ? (
+                                <span className="block text-sm text-gray-500 dark:text-gray-400">
+                                  {user.accountType}
+                                </span>
+                              ) : null}
                             </span>
                           </span>
                         )}

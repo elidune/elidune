@@ -2,11 +2,13 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BookOpen, Calendar, RotateCcw, AlertTriangle } from 'lucide-react';
 import { Card, CardHeader, Button, Badge, Pagination, ListSkeleton, QueryErrorBanner } from '@/components/common';
+import { useToast } from '@/contexts/ToastContext';
 import LoansMarcExportButton from '@/components/loans/LoansMarcExportButton';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/services/api';
 import type { Loan } from '@/types';
 import { getApiErrorMessage } from '@/utils/apiError';
+import { renewedUntilMessage } from '@/utils/localeDate';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
 import { newIdempotencyKey } from '@/utils/idempotency';
@@ -15,7 +17,8 @@ import { renewalsRemaining } from '@/utils/loanPolicy';
 const MY_LOANS_PAGE_SIZE = 20;
 
 export default function MyLoansPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const { showToast } = useToast();
   const { user } = useAuth();
   const [loans, setLoans] = useState<Loan[]>([]);
   const [loansPage, setLoansPage] = useState(1);
@@ -60,7 +63,11 @@ export default function MyLoansPage() {
     renewInFlightRef.current = true;
     setRenewError('');
     try {
-      await api.renewLoan(loanId, newIdempotencyKey());
+      const renewed = await api.renewLoan(loanId, newIdempotencyKey());
+      showToast({
+        variant: 'success',
+        message: renewedUntilMessage(renewed.expiryAt, t, i18n.language),
+      });
       if (user?.id) {
         const res = await api.getUserLoans(user.id, {
           page: loansPage,

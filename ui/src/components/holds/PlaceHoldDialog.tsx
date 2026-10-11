@@ -10,6 +10,7 @@ import { isLibrarian } from '@/types';
 import { isItemWithdrawn } from '@/utils/weeding';
 import type { Item, UserShort } from '@/types';
 import { patronId } from '@/utils/patronLink';
+import PatronOptionLabel from '@/components/users/PatronOptionLabel';
 import { formatUserShortName } from '@/utils/userDisplay';
 import { formChoiceLabelClass } from '@/utils/formControl';
 import { buildCreateHold, type HoldPlacementScope } from '@/utils/holdDisplay';
@@ -339,19 +340,14 @@ export default function PlaceHoldDialog({
                   onSelect={setSelectedUser}
                   placeholder={t('common.search')}
                   loading={visibleUserSearching}
-                  renderItem={(u) => (
-                    <>
-                      {u.firstname} {u.lastname}
-                      <span className="text-gray-500 ml-2 font-mono text-xs">{u.id}</span>
-                    </>
-                  )}
+                  renderItem={(u) => <PatronOptionLabel user={u} />}
                 />
                 {visibleUserSearching && (
                   <p className="text-xs text-gray-500">{t('common.loading')}</p>
                 )}
                 {selectedUser && (
                   <p className="text-xs text-gray-600 dark:text-gray-400">
-                    {t('holds.selectedUser')}: {selectedUser.firstname} {selectedUser.lastname}
+                    {t('holds.selectedUser')}: <PatronOptionLabel user={selectedUser} />
                   </p>
                 )}
               </div>
