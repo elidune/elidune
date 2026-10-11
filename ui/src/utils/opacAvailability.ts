@@ -1,8 +1,9 @@
 import type { ItemWeedingStatus } from '@/types';
+import { isItemToSearch } from '@/utils/circulationStatus';
 import { isItemWithdrawn } from '@/utils/weeding';
 
 /** Copy-level status derived only from existing OPAC/item fields. */
-export type OpacCopyStatus = 'available' | 'borrowed' | 'notForLoan' | 'withdrawn' | 'unavailable';
+export type OpacCopyStatus = 'available' | 'borrowed' | 'notForLoan' | 'withdrawn' | 'toSearch' | 'unavailable';
 export type AvailabilityBadgeVariant = 'default' | 'success' | 'warning' | 'danger' | 'info';
 
 export interface OpacCopyLike {
@@ -11,11 +12,13 @@ export interface OpacCopyLike {
   callNumber?: string | null;
   sourceName?: string | null;
   weedingStatus?: ItemWeedingStatus | null;
+  circulationStatus?: number | string | null;
 }
 
 export function copyAvailabilityStatus(item: OpacCopyLike): OpacCopyStatus {
   if (item.borrowed) return 'borrowed';
   if (isItemWithdrawn(item)) return 'withdrawn';
+  if (isItemToSearch(item)) return 'toSearch';
   if (item.borrowable === false) return 'notForLoan';
   if (item.borrowable === true) return 'available';
   return 'unavailable';
@@ -27,6 +30,7 @@ export function titleAvailabilityStatus(items?: OpacCopyLike[] | null): OpacCopy
   const statuses = items.map(copyAvailabilityStatus);
   if (statuses.some((s) => s === 'available')) return 'available';
   if (statuses.some((s) => s === 'borrowed')) return 'borrowed';
+  if (statuses.some((s) => s === 'toSearch')) return 'toSearch';
   if (statuses.some((s) => s === 'notForLoan')) return 'notForLoan';
   if (statuses.some((s) => s === 'withdrawn')) return 'withdrawn';
   return 'unavailable';
@@ -42,6 +46,8 @@ export function availabilityLabelKey(status: OpacCopyStatus): string {
       return 'opac.notForLoan';
     case 'withdrawn':
       return 'opac.withdrawn';
+    case 'toSearch':
+      return 'opac.toSearch';
     default:
       return 'opac.unavailable';
   }
@@ -57,6 +63,8 @@ export function availabilityBadgeVariant(status: OpacCopyStatus): AvailabilityBa
       return 'warning';
     case 'withdrawn':
       return 'danger';
+    case 'toSearch':
+      return 'warning';
     default:
       return 'default';
   }

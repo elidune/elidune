@@ -1,4 +1,5 @@
 import type { BiblioWeedingStatus, ItemWeedingStatus } from '@/types';
+import { isItemToSearch } from '@/utils/circulationStatus';
 
 export const ITEM_WEEDING_STATUSES: readonly ItemWeedingStatus[] = [
   'onShelf',
@@ -49,8 +50,9 @@ export function isCopyAvailable(item?: {
   weedingStatus?: ItemWeedingStatus | null;
   borrowable?: boolean | null;
   borrowed?: boolean;
+  circulationStatus?: number | string | null;
 } | null): boolean {
-  if (!item || isItemWithdrawn(item) || item.borrowed) return false;
+  if (!item || isItemWithdrawn(item) || item.borrowed || isItemToSearch(item)) return false;
   return item.borrowable === true;
 }
 

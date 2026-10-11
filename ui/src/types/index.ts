@@ -385,8 +385,11 @@ export interface ItemShort {
   sourceId?: string | null;
   sourceName?: string | null;
   borrowed?: boolean;
-  /** Item-level exception state: 0 available, 1 lost, 2 damaged, 3 claimed-returned. */
-  circulationStatus?: number | null;
+  /**
+   * Item circulation state. Numbers: 0 available, 1 lost, 2 damaged, 3 claimed-returned, 4 to search.
+   * The circulation enum JSON name is `toSearch` when that status is serialized on its own.
+   */
+  circulationStatus?: number | string | null;
   weedingStatus?: ItemWeedingStatus | null;
 }
 
@@ -419,7 +422,8 @@ export interface Item {
   volumeDesignation?: string | null;
   place?: number | null;
   borrowable?: boolean | null;
-  circulationStatus?: number | null;
+  /** See {@link ItemShort.circulationStatus}. */
+  circulationStatus?: number | string | null;
   notes?: string | null;
   price?: string | null;
   createdAt?: string | null;
@@ -988,7 +992,8 @@ export type ApiErrorCode =
   | 'z3950_error'
   | 'database_error'
   | 'internal_error'
-  | 'rate_limited';
+  | 'rate_limited'
+  | 'item_to_pick_for_other';
 
 // Settings — renewal anchoring (serialized wire values: now, at_due_date)
 export type LoanSettingsRenewAt = 'now' | 'at_due_date';
@@ -1553,7 +1558,7 @@ export interface EventsListResponse {
 // Holds (copy-level and title-level) — API tag `holds`
 // ──────────────────────────────────────────────────────────────────
 
-export type HoldStatus = 'pending' | 'ready' | 'fulfilled' | 'cancelled' | 'expired';
+export type HoldStatus = 'pending' | 'to_pick' | 'ready' | 'fulfilled' | 'cancelled' | 'expired';
 
 /**
  * Hold detail rows (GET list endpoints). `biblio.items` is empty for an
@@ -1586,6 +1591,41 @@ export interface CreateHold {
   pickupSiteId?: string | null;
   notes?: string | null;
   force?: boolean;
+}
+
+/**
+ * One shelf row from `GET /holds/pick-list`.
+ * Normalized from the frozen contract (`holdId`, `userName`, `pickDueAt`, `overdue`)
+ * and from the current #104 payload (`id`, `patronFirstname` / `patronLastname`).
+ */
+export interface HoldPickListRow {
+  holdId: string;
+  itemId: string;
+  barcode: string | null;
+  callNumber: string | null;
+  title: string | null;
+  userId: string;
+  userName: string;
+  pickupSiteId: string | null;
+  pickupSiteName: string | null;
+  pickStartedAt: string | null;
+  pickDueAt: string | null;
+  overdue: boolean;
+}
+
+/** Desk check-in of a barcode (`POST /loans/items/{barcode}/return`). */
+export interface ItemCheckIn {
+  status: string;
+  loan?: Loan | null;
+  hold?: Hold | null;
+  userId?: string | null;
+  userName?: string | null;
+  patronName?: string | null;
+  destinationSiteName?: string | null;
+  pickupSiteName?: string | null;
+  destinationSiteId?: string | null;
+  pickupSiteId?: string | null;
+  transitStarted?: boolean;
 }
 
 /** GET/PUT /holds/policy — global max pending+ready holds (camelCase). */

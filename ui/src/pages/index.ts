@@ -16,6 +16,7 @@ export { default as MyLoansPage } from './MyLoansPage';
 export { default as MyHoldsPage } from './MyHoldsPage';
 export { default as LoansPage } from './LoansPage';
 export { default as HoldsPage } from './HoldsPage';
+export { default as PickListPage } from './PickListPage';
 export { default as TransitsPage } from './TransitsPage';
 export { default as Z3950SearchPage } from './Z3950SearchPage';
 export { default as ProfilePage } from './ProfilePage';

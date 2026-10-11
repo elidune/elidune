@@ -23,12 +23,21 @@ import ActiveLoanCard from '@/components/loans/ActiveLoanCard';
 import CirculationExceptionDialog from '@/components/loans/CirculationExceptionDialog';
 import ClaimsReturnedQueue from '@/components/loans/ClaimsReturnedQueue';
 import LoanExceptionActions from '@/components/loans/LoanExceptionActions';
+import ToPickForceLoanDialog from '@/components/loans/ToPickForceLoanDialog';
 import Pagination from '@/components/common/Pagination';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { isWeedingServerMessage } from '@/utils/weeding';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
 import { isClaimedReturnedLoan } from '@/utils/circulationStatus';
+import {
+  CheckoutDeclined,
+  interpretPickCheckIn,
+  isCheckoutDeclined,
+  readItemToPickForOther,
+  type PickCheckInNotice,
+} from '@/utils/toPickDesk';
+import { sourceLabel } from '@/utils/transitDisplay';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
 import { formControlClass, formLabelClass, formChoiceLabelClass } from '@/utils/formControl';
@@ -42,6 +51,9 @@ import { isAdmin } from '@/types';
 import type { User as UserType, Loan, UserShort, OverdueLoanInfo, ReminderReport } from '@/types';
 
 type TabType = 'borrow' | 'return' | 'overdue' | 'claims';
+type ReturnView =
+  | { kind: 'loan'; loan: Loan }
+  | { kind: 'pick'; notice: PickCheckInNotice };
 type DeskLoanOp = 'return' | 'renew' | CirculationExceptionKind;
 
 type CheckoutRecap = {
@@ -109,7 +121,7 @@ export default function LoansPage() {
   // Return section state
   const [returnBarcodeInput, setReturnBarcodeInput] = useState('');
   const returnBarcodeInputRef = useRef<HTMLInputElement>(null);
-  const [returnResult, setReturnResult] = useState<{ status: string; loan: Loan } | null>(null);
+  const [returnResult, setReturnResult] = useState<ReturnView | null>(null);
   const [isProcessingReturn, setIsProcessingReturn] = useState(false);
   const [returnError, setReturnError] = useState('');
   const [renewError, setRenewError] = useState('');
@@ -131,6 +143,8 @@ export default function LoansPage() {
   const [sendRemindersConfirmOpen, setSendRemindersConfirmOpen] = useState(false);
   const [forceBorrowDialog, setForceBorrowDialog] = useState<{ message: string } | null>(null);
   const forceBorrowResolveRef = useRef<((v: boolean) => void) | null>(null);
+  const [toPickForceDialog, setToPickForceDialog] = useState<{ patronName: string | null } | null>(null);
+  const toPickResolveRef = useRef<((v: boolean) => void) | null>(null);
 
   /** Restore keyboard/scanner focus to the visible barcode field after dialogs close. */
   const focusScanInput = useCallback(() => {
@@ -535,6 +549,16 @@ export default function LoansPage() {
       if (isWeedingServerMessage(rawMessage)) {
         throw error;
       }
+      const toPick = readItemToPickForOther(error);
+      if (toPick && !force) {
+        setBarcodeInput('');
+        const ok = await new Promise<boolean>((resolve) => {
+          setToPickForceDialog({ patronName: toPick.userName });
+          toPickResolveRef.current = resolve;
+        });
+        if (!ok) throw new CheckoutDeclined();
+        return handleBorrow(specimenBarcode, true);
+      }
       if (errorCode === 'business_rule_violation' && !force) {
         setBarcodeInput('');
         const ok = await new Promise<boolean>((resolve) => {
@@ -586,9 +610,23 @@ export default function LoansPage() {
 
     try {
       const result = await api.returnLoanByBarcode(specimenBarcode.trim());
-      setReturnResult(result);
+      const pick = interpretPickCheckIn(result);
+      if (pick) {
+        const notice = await resolvePickNotice(pick);
+        setReturnResult({ kind: 'pick', notice });
+        const message =
+          notice.kind === 'ready'
+            ? t('loans.pickReady', { patron: notice.patronName?.trim() || t('loans.pickPatronUnknown') })
+            : t('loans.pickTransit', { site: notice.siteName?.trim() || t('loans.pickSiteUnknown') });
+        showToast({ variant: 'success', message });
+      } else if (result.loan) {
+        setReturnResult({ kind: 'loan', loan: result.loan });
+        showToast({ variant: 'success', message: t('loans.returnSuccess') });
+      } else {
+        setReturnResult(null);
+        showToast({ variant: 'success', message: t('loans.returnSuccess') });
+      }
       setReturnBarcodeInput('');
-      showToast({ variant: 'success', message: t('loans.returnSuccess') });
     } catch (error: unknown) {
       const msg = getApiErrorMessage(error, t) || t('loans.errorReturningLoan');
       setReturnError(msg);
@@ -1268,8 +1306,11 @@ export default function LoansPage() {
                 </div>
               )}
 
-              {returnResult && (
+              {returnResult?.kind === 'loan' && (
                 <ReturnRecapPanel loan={returnResult.loan} locale={i18n.language} t={t} />
+              )}
+              {returnResult?.kind === 'pick' && (
+                <PickCheckInBanner notice={returnResult.notice} t={t} />
               )}
             </div>
           </Card>
@@ -1645,6 +1686,65 @@ export default function LoansPage() {
         message={forceBorrowDialog?.message ?? ''}
         stackOnTop
       />
+
+      <ToPickForceLoanDialog
+        isOpen={toPickForceDialog !== null}
+        patronName={toPickForceDialog?.patronName ?? null}
+        onCancel={() => {
+          setToPickForceDialog(null);
+          toPickResolveRef.current?.(false);
+          toPickResolveRef.current = null;
+          focusScanInput();
+        }}
+        onForce={() => {
+          setToPickForceDialog(null);
+          toPickResolveRef.current?.(true);
+          toPickResolveRef.current = null;
+          focusScanInput();
+        }}
+      />
+    </div>
+  );
+}
+
+async function resolvePickNotice(notice: PickCheckInNotice): Promise<PickCheckInNotice> {
+  let patronName = notice.patronName;
+  let siteName = notice.siteName;
+  if (notice.kind === 'ready' && !patronName && notice.userId) {
+    try {
+      const user = await api.getUser(notice.userId);
+      const joined = [user.firstname, user.lastname].filter(Boolean).join(' ').trim();
+      patronName = joined || null;
+    } catch {
+      patronName = null;
+    }
+  }
+  if (notice.kind === 'transit' && !siteName && notice.siteId) {
+    try {
+      const sources = await api.getSources(false);
+      siteName = sourceLabel(sources, notice.siteId);
+    } catch {
+      siteName = null;
+    }
+  }
+  return { ...notice, patronName, siteName };
+}
+
+function PickCheckInBanner({ notice, t }: { notice: PickCheckInNotice; t: TFunction }) {
+  const ready = notice.kind === 'ready';
+  const message = ready
+    ? t('loans.pickReady', { patron: notice.patronName?.trim() || t('loans.pickPatronUnknown') })
+    : t('loans.pickTransit', { site: notice.siteName?.trim() || t('loans.pickSiteUnknown') });
+  return (
+    <div
+      role="status"
+      className={`rounded-xl border px-4 py-4 text-base font-semibold ${
+        ready
+          ? 'border-emerald-200 bg-emerald-50 text-emerald-950 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-100'
+          : 'border-amber-200 bg-amber-50 text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100'
+      }`}
+    >
+      {message}
     </div>
   );
 }
@@ -1863,6 +1963,7 @@ function BorrowForm({
         });
       }
     } catch (err: unknown) {
+      if (isCheckoutDeclined(err)) return;
       const msg = getApiErrorMessage(err, t) || t('loans.errorCreatingLoan');
       setError(msg);
       showToast({ variant: 'error', message: msg });

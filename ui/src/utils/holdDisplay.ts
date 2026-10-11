@@ -1,7 +1,7 @@
 import type { CreateHold, Hold, ItemShort } from '@/types';
 
 /** Staff `/holds` status chips. List is already active-only from the API. */
-export type StaffHoldStatusFilter = 'all' | 'ready' | 'pending' | 'expiringSoon';
+export type StaffHoldStatusFilter = 'all' | 'ready' | 'pending' | 'toPick' | 'expiringSoon';
 
 /** Ready holds whose pickup deadline falls in this window are “expiring soon”. */
 export const HOLD_EXPIRING_SOON_MS = 48 * 60 * 60 * 1000;
@@ -86,6 +86,8 @@ export function matchesStaffHoldFilter(
       return hold.status === 'ready';
     case 'pending':
       return hold.status === 'pending';
+    case 'toPick':
+      return hold.status === 'to_pick';
     case 'expiringSoon':
       return isHoldExpiringSoon(hold, nowMs);
     case 'all':
