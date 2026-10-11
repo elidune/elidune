@@ -1,11 +1,15 @@
 //! Email notification when a hold becomes `ready` (after a loan return).
 
+use chrono::{DateTime, Utc};
+use chrono_tz::Tz;
+
 use crate::{
     email::EmailService,
     email_templates,
     error::AppResult,
     models::{hold::Hold, loan::LoanDetails, Language},
     repository::users::HoldReadyUserContact,
+    services::calendar,
 };
 
 /// Queue a "hold ready" email for the patron via the outbox. No-op if user has no email.
@@ -15,6 +19,7 @@ pub async fn send_hold_ready(
     contact: Option<HoldReadyUserContact>,
     hold: &Hold,
     loan_details: &LoanDetails,
+    zone: Tz,
 ) -> AppResult<()> {
     let Some(row) = contact else {
         tracing::warn!(
@@ -62,6 +67,7 @@ pub async fn send_hold_ready(
             lang,
             title,
             barcode,
+            zone,
         },
     )
     .await
@@ -75,6 +81,7 @@ pub async fn send_hold_ready_simple(
     hold: &Hold,
     title: &str,
     barcode: Option<&str>,
+    zone: Tz,
 ) -> AppResult<()> {
     let Some(row) = contact else {
         return Ok(());
@@ -97,9 +104,18 @@ pub async fn send_hold_ready_simple(
             lang,
             title,
             barcode,
+            zone,
         },
     )
     .await
+}
+
+/// Pickup deadline shown to the patron, in the library timezone.
+#[must_use]
+pub fn format_pickup_deadline(expires_at: Option<DateTime<Utc>>, zone: Tz) -> String {
+    expires_at
+        .map(|instant| calendar::format_patron_datetime(zone, instant))
+        .unwrap_or_else(|| "—".to_string())
 }
 
 struct HoldReadyMail<'a> {
@@ -109,6 +125,7 @@ struct HoldReadyMail<'a> {
     lang: Option<Language>,
     title: &'a str,
     barcode: Option<&'a str>,
+    zone: Tz,
 }
 
 async fn enqueue_hold_ready(
@@ -125,10 +142,7 @@ async fn enqueue_hold_ready(
         .map(|b| format!("Barcode: <code>{b}</code>"))
         .unwrap_or_default();
 
-    let expires_at = hold
-        .expires_at
-        .map(|d| d.format("%d/%m/%Y %H:%M UTC").to_string())
-        .unwrap_or_else(|| "—".to_string());
+    let expires_at = format_pickup_deadline(hold.expires_at, mail.zone);
 
     let template = email_svc.load_template("hold_ready", mail.lang).await?;
     let vars: Vec<(&str, &str)> = vec![
@@ -145,4 +159,35 @@ async fn enqueue_hold_ready(
         .enqueue(mail.to, &subject, &body_plain, &body_html)
         .await
         .map(|_| ())
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::TimeZone;
+
+    use super::*;
+
+    #[test]
+    fn pickup_deadline_is_library_local_time_not_utc() {
+        let zone = chrono_tz::Europe::Paris;
+        let expires = Utc.with_ymd_and_hms(2026, 7, 15, 22, 30, 0).unwrap();
+        let label = format_pickup_deadline(Some(expires), zone);
+        assert_eq!(label, "16/07/2026 00:30");
+        assert!(!label.contains("UTC"));
+    }
+
+    #[test]
+    fn pickup_deadline_crosses_the_paris_dst_boundary() {
+        let zone = chrono_tz::Europe::Paris;
+        let before = Utc.with_ymd_and_hms(2026, 3, 29, 0, 30, 0).unwrap();
+        let after = Utc.with_ymd_and_hms(2026, 3, 29, 1, 30, 0).unwrap();
+        assert_eq!(
+            format_pickup_deadline(Some(before), zone),
+            "29/03/2026 01:30"
+        );
+        assert_eq!(
+            format_pickup_deadline(Some(after), zone),
+            "29/03/2026 03:30"
+        );
+    }
 }

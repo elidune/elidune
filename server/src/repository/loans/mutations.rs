@@ -41,7 +41,8 @@ impl Repository {
         let item_row = if let Some(id) = loan.item_id {
             sqlx::query(
                 r#"
-                SELECT it.id, it.borrowable, it.circulation_status, it.weeding_status, b.media_type
+                SELECT it.id, it.borrowable, it.circulation_status, it.weeding_status,
+                       it.source_id, b.media_type
                 FROM items it
                 JOIN biblios b ON it.biblio_id = b.id
                 WHERE it.id = $1
@@ -54,7 +55,8 @@ impl Repository {
         } else {
             sqlx::query(
                 r#"
-                SELECT it.id, it.borrowable, it.circulation_status, it.weeding_status, b.media_type
+                SELECT it.id, it.borrowable, it.circulation_status, it.weeding_status,
+                       it.source_id, b.media_type
                 FROM items it
                 JOIN biblios b ON it.biblio_id = b.id
                 WHERE it.barcode = $1
@@ -144,7 +146,8 @@ impl Repository {
             .resolve_loan_settings(user_public_type, media_type.as_deref())
             .await?;
 
-        let expiry_at = self.loans_due_at(now, duration_days).await?;
+        let site_id: Option<i64> = item_row.get("source_id");
+        let expiry_at = self.loans_due_at(now, duration_days, site_id).await?;
 
         let current_loans_total: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM loans WHERE user_id = $1 AND returned_at IS NULL",
@@ -467,7 +470,7 @@ impl Repository {
 
         let item_row = sqlx::query(
             r#"
-            SELECT it.id, it.circulation_status, it.weeding_status, b.media_type
+            SELECT it.id, it.circulation_status, it.weeding_status, it.source_id, b.media_type
             FROM items it
             JOIN biblios b ON it.biblio_id = b.id
             WHERE it.id = $1
@@ -479,6 +482,7 @@ impl Repository {
         .await?
         .ok_or_else(|| AppError::NotFound("Item not found".to_string()))?;
         let media_type: Option<String> = item_row.get("media_type");
+        let site_id: Option<i64> = item_row.get("source_id");
         let circulation_status = crate::models::circulation::CirculationStatus::from_db(
             item_row.get("circulation_status"),
         );
@@ -544,8 +548,9 @@ impl Repository {
         let opens_at = renewal_opens_at(current_expiry, renew_window_days);
         // Overdue loans are already inside the window; other gates (holds, fines, max renewals) still apply.
         if now < opens_at {
+            let zone = self.library_zone().await?;
             return Err(AppError::RenewalTooEarly(renewal_too_early_message(
-                opens_at,
+                opens_at, zone,
             )));
         }
 
@@ -553,7 +558,7 @@ impl Repository {
             LoanSettingsRenewAt::Now => now,
             LoanSettingsRenewAt::AtDueDate => current_expiry,
         };
-        let new_expiry_date = self.loans_due_at(anchor, duration_days).await?;
+        let new_expiry_date = self.loans_due_at(anchor, duration_days, site_id).await?;
         if new_expiry_date <= current_expiry {
             return Err(AppError::BusinessRule(
                 "Renewal would not move the due date, so it was not counted".to_string(),
@@ -585,12 +590,15 @@ pub fn renewal_opens_at(due: DateTime<Utc>, window_days: i16) -> DateTime<Utc> {
     due - Duration::days(days)
 }
 
-/// Client message for [`AppError::RenewalTooEarly`]. Includes the calendar date renewal opens.
+/// Client message for [`AppError::RenewalTooEarly`].
+///
+/// The date is the library-local civil date, still written `YYYY-MM-DD` so the UI
+/// can parse it (`renewalTooEarlyOpenDate`).
 #[must_use]
-pub fn renewal_too_early_message(opens_at: DateTime<Utc>) -> String {
+pub fn renewal_too_early_message(opens_at: DateTime<Utc>, zone: chrono_tz::Tz) -> String {
     format!(
         "Renewal is too early. Renewal is possible from {}.",
-        opens_at.format("%Y-%m-%d")
+        crate::services::calendar::format_patron_iso_date(zone, opens_at)
     )
 }
 
@@ -619,7 +627,7 @@ mod renewal_window_tests {
             opens.date_naive(),
             chrono::NaiveDate::from_ymd_opt(2026, 10, 25).unwrap()
         );
-        let message = renewal_too_early_message(opens);
+        let message = renewal_too_early_message(opens, chrono_tz::Europe::Paris);
         assert!(message.contains("2026-10-25"));
         assert!(due > opens);
         assert_eq!(renewal_opens_at(due, 0), due);
