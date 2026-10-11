@@ -85,23 +85,33 @@ pub async fn batch_return(
             .return_loan_by_item(barcode, Some(claims.user_id), ip.clone())
             .await
         {
-            Ok(loan) => {
-                state.services.audit.log(
-                    audit::event::LOAN_RETURNED,
-                    Some(claims.user_id),
-                    Some("loan"),
-                    Some(loan.id),
-                    ip.clone(),
-                    Some(serde_json::json!({ "barcode": barcode, "batch": true })),
-                    audit::AuditLogMeta::success(),
-                );
-                returned += 1;
-                results.push(BatchReturnItemResult {
-                    barcode: barcode.clone(),
-                    loan: Some(loan),
-                    success: true,
-                    error: None,
-                });
+            Ok(check_in) => {
+                if let Some(loan) = check_in.loan {
+                    state.services.audit.log(
+                        audit::event::LOAN_RETURNED,
+                        Some(claims.user_id),
+                        Some("loan"),
+                        Some(loan.id),
+                        ip.clone(),
+                        Some(serde_json::json!({ "barcode": barcode, "batch": true })),
+                        audit::AuditLogMeta::success(),
+                    );
+                    returned += 1;
+                    results.push(BatchReturnItemResult {
+                        barcode: barcode.clone(),
+                        loan: Some(loan),
+                        success: true,
+                        error: None,
+                    });
+                } else {
+                    returned += 1;
+                    results.push(BatchReturnItemResult {
+                        barcode: barcode.clone(),
+                        loan: None,
+                        success: true,
+                        error: None,
+                    });
+                }
             }
             Err(e) => {
                 errors += 1;

@@ -130,7 +130,11 @@ async fn pickup_site_is_stored_on_title_hold() {
 
     let hold = place_title_hold(&app, &reader_token, reader_id, biblio_id, pickup).await;
     assert_eq!(fixtures::json_id(&hold["pickupSiteId"]), pickup);
-    assert!(hold["itemId"].is_null());
+    assert_eq!(hold["status"], "to_pick");
+    assert!(
+        !hold["itemId"].is_null(),
+        "shelf copy at the pickup site is assigned"
+    );
 }
 
 #[tokio::test]
