@@ -515,11 +515,34 @@ impl Repository {
         version.ok_or_else(|| AppError::NotFound(format!("User with id {} not found", id)))
     }
 
+    /// Current password-reset link generation. A mismatch rejects the JWT.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn users_get_password_reset_nonce(&self, id: i64) -> AppResult<i64> {
+        let nonce: Option<i64> =
+            sqlx::query_scalar("SELECT password_reset_nonce FROM users WHERE id = $1")
+                .bind(id)
+                .fetch_optional(&self.pool)
+                .await?;
+        nonce.ok_or_else(|| AppError::NotFound(format!("User with id {id} not found")))
+    }
+
+    /// Issue a new reset generation and return it. Older reset JWTs no longer match.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn users_bump_password_reset_nonce(&self, id: i64) -> AppResult<i64> {
+        let nonce: Option<i64> = sqlx::query_scalar(
+            "UPDATE users SET password_reset_nonce = password_reset_nonce + 1 WHERE id = $1 RETURNING password_reset_nonce",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        nonce.ok_or_else(|| AppError::NotFound(format!("User with id {id} not found")))
+    }
+
     /// Update user password directly (used for password reset flow).
     /// Also clears the must_change_password flag and bumps `token_version`.
     #[tracing::instrument(skip(self), err)]
     pub async fn users_update_password(&self, id: i64, password_hash: &str) -> AppResult<()> {
-        let result = sqlx::query("UPDATE users SET password = $1, must_change_password = FALSE, token_version = token_version + 1, update_at = NOW() WHERE id = $2")
+        let result = sqlx::query("UPDATE users SET password = $1, must_change_password = FALSE, token_version = token_version + 1, password_reset_nonce = password_reset_nonce + 1, update_at = NOW() WHERE id = $2")
             .bind(password_hash)
             .bind(id)
             .execute(&self.pool)
@@ -865,6 +888,7 @@ impl Repository {
         let bumps_token_version = password.is_some() || user.account_type.is_some();
         if password.is_some() {
             sets.push(format!("password = ${}", param_idx));
+            sets.push("password_reset_nonce = password_reset_nonce + 1".to_string());
         }
         if bumps_token_version {
             sets.push("token_version = token_version + 1".to_string());
@@ -1187,6 +1211,7 @@ impl Repository {
             // Changing password clears the forced-change flag
             sets.push(format!("must_change_password = ${}", param_idx));
             sets.push("token_version = token_version + 1".to_string());
+            sets.push("password_reset_nonce = password_reset_nonce + 1".to_string());
         }
 
         let query = format!(

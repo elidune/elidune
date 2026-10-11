@@ -524,6 +524,7 @@ def migrate_users(src, dst, hash_passwords=True):
 
     Target adds: status, language, 2FA fields (defaults), must_change_password,
                  token_version (default 0, migration 018),
+                 password_reset_nonce (default 0, migration 039)
     """
     print("Migrating users...")
 
