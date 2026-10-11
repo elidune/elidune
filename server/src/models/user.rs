@@ -517,6 +517,8 @@ impl User {
 pub struct UserShortRow {
     id: i64,
     login: Option<String>,
+    /// Present only on the staff user-search query. Other summaries leave it empty.
+    #[sqlx(default)]
     barcode: Option<String>,
     firstname: Option<String>,
     lastname: Option<String>,
@@ -561,7 +563,7 @@ pub struct UserShort {
     /// Carried for [`crate::models::catalog_view::UserShortStaff`]. Not part of this type's JSON.
     #[serde(skip)]
     pub login: Option<String>,
-    /// Card number carried for [`crate::models::catalog_view::UserShortStaff`]. Not part of this type's JSON.
+    /// Card number for the staff user list. Not part of this type's JSON.
     #[serde(skip)]
     pub barcode: Option<String>,
     pub firstname: Option<String>,

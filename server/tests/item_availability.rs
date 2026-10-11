@@ -676,7 +676,7 @@ fn assert_no_patron_secrets(user: &Value) {
     );
 }
 
-/// Staff patron pickers receive `login` and `barcode`. Reader loan and hold rows do not.
+/// Staff patron search returns `login` and `barcode`. Reader loan and hold rows do not.
 #[tokio::test]
 async fn reader_patron_summary_omits_login_staff_picker_includes_it() {
     let Some(app) = TestApp::spawn().await else {

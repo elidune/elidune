@@ -552,7 +552,7 @@ pub struct UserShortStaff {
     #[schema(value_type = String)]
     pub id: i64,
     pub login: Option<String>,
-    /// Library card number. Patron pickers show this when `login` is empty.
+    /// Library card number. The staff patron picker shows this when `login` is empty.
     pub barcode: Option<String>,
     pub firstname: Option<String>,
     pub lastname: Option<String>,
