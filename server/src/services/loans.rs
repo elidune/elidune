@@ -27,6 +27,14 @@ use crate::{
 };
 use z3950_rs::marc_rs::{BinaryWriter, Encoding as MarcEncoding, MarcFormat, XmlWriter};
 
+/// Desk scan of a barcode: either a loan return or completion of a `to_pick` hold.
+#[derive(Debug, Clone)]
+pub struct ItemCheckIn {
+    pub loan: Option<LoanDetails>,
+    pub hold: Option<crate::models::hold::Hold>,
+    pub transit_started: bool,
+}
+
 #[derive(Clone)]
 pub struct LoansService {
     repository: Arc<dyn LoansServiceRepository>,
@@ -204,22 +212,102 @@ impl LoansService {
         Ok(outcome.details)
     }
 
-    /// Return a borrowed item by item identification (barcode or call number)
+    /// Check in a barcode. An active loan is returned. A shelf copy assigned as
+    /// `to_pick` becomes `ready` (same site, patron notified) or starts transit.
     pub async fn return_loan_by_item(
         &self,
         item_identification: &str,
         audit_actor: Option<i64>,
         client_ip: Option<String>,
-    ) -> AppResult<LoanDetails> {
-        let loan = self
+    ) -> AppResult<ItemCheckIn> {
+        match self
             .repository
             .loans_get_by_item_identification(item_identification)
-            .await?;
-        let mut outcome = self.repository.loans_return(loan.id).await?;
-        outcome.hold_ready_email = self.send_hold_ready_email(&outcome).await;
-        self.publish_return_events(&outcome);
-        self.audit_return_side_effects(audit_actor, client_ip, &outcome);
-        Ok(outcome.details)
+            .await
+        {
+            Ok(loan) => {
+                let mut outcome = self.repository.loans_return(loan.id).await?;
+                outcome.hold_ready_email = self.send_hold_ready_email(&outcome).await;
+                self.publish_return_events(&outcome);
+                self.audit_return_side_effects(audit_actor, client_ip, &outcome);
+                Ok(ItemCheckIn {
+                    loan: Some(outcome.details),
+                    hold: None,
+                    transit_started: false,
+                })
+            }
+            Err(AppError::NotFound(_)) => {
+                let Some(done) = self
+                    .repository
+                    .loans_complete_to_pick_by_identification(item_identification)
+                    .await?
+                else {
+                    return Err(AppError::NotFound(format!(
+                        "No active loan found for item {item_identification}"
+                    )));
+                };
+                if !done.transit_started {
+                    self.notify_picked_hold_ready(
+                        &done.hold,
+                        done.title.as_deref().unwrap_or("(unknown title)"),
+                        done.barcode.as_deref(),
+                        audit_actor,
+                        client_ip,
+                    )
+                    .await;
+                }
+                Ok(ItemCheckIn {
+                    loan: None,
+                    hold: Some(done.hold),
+                    transit_started: done.transit_started,
+                })
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    async fn notify_picked_hold_ready(
+        &self,
+        hold: &crate::models::hold::Hold,
+        title: &str,
+        barcode: Option<&str>,
+        audit_actor: Option<i64>,
+        client_ip: Option<String>,
+    ) {
+        self.audit.log(
+            audit::event::HOLD_READY,
+            audit_actor,
+            Some("hold"),
+            Some(hold.id),
+            client_ip.clone(),
+            Some(serde_json::json!({
+                "user_id": hold.user_id,
+                "item_id": hold.item_id,
+                "expires_at": hold.expires_at,
+                "trigger": "pick_check_in",
+            })),
+            AuditLogMeta::success(),
+        );
+        if let Some(item_id) = hold.item_id {
+            self.events.hold_ready(hold.id, hold.user_id, item_id);
+        }
+        let contact = self
+            .repository
+            .users_hold_ready_contact(hold.user_id)
+            .await
+            .ok()
+            .flatten();
+        if let Err(e) =
+            crate::hold_email::send_hold_ready_simple(&self.email, contact, hold, title, barcode)
+                .await
+        {
+            tracing::warn!(
+                target: "loans",
+                error = %e,
+                hold_id = hold.id,
+                "Failed to queue hold ready email after pick check-in"
+            );
+        }
     }
 
     async fn send_hold_ready_email(
@@ -727,6 +815,12 @@ mod tests {
         }
         async fn loans_return(&self, _: i64) -> AppResult<LoanReturnOutcome> {
             unimplemented!()
+        }
+        async fn loans_complete_to_pick_by_identification(
+            &self,
+            _: &str,
+        ) -> AppResult<Option<crate::models::dto::holds::ToPickCompletion>> {
+            Ok(None)
         }
         async fn loans_renew(&self, _: i64) -> AppResult<(chrono::DateTime<Utc>, i16)> {
             Ok((Utc::now() + chrono::Duration::days(21), 1))

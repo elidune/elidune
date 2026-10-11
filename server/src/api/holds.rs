@@ -13,7 +13,7 @@ use utoipa::{IntoParams, ToSchema};
 use crate::{
     error::{AppError, AppResult},
     models::{
-        dto::holds::{HoldQuota, HoldsPolicy},
+        dto::holds::{HoldPickListItem, HoldQuota, HoldsPolicy},
         hold::{CreateHold, Hold, HoldDetails},
         user::Rights,
     },
@@ -26,6 +26,7 @@ pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::{delete, get};
     axum::Router::new()
         .route("/holds", get(list_holds).post(create_hold))
+        .route("/holds/pick-list", get(list_pick_list))
         .route(
             "/holds/policy",
             get(get_holds_policy).put(update_holds_policy),
@@ -37,6 +38,37 @@ pub fn router() -> axum::Router<crate::AppState> {
         .route("/users/:id/holds", get(list_holds_for_user))
 }
 
+/// Query for `GET /holds/pick-list`. `siteId` is the copy's current branch.
+#[serde_as]
+#[derive(Debug, Default, Deserialize, ToSchema, IntoParams)]
+#[serde(rename_all = "camelCase")]
+pub struct PickListQuery {
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub site_id: Option<i64>,
+}
+
+/// Shelf copies waiting to be pulled (`to_pick`). Staff only.
+#[utoipa::path(
+    get,
+    path = "/holds/pick-list",
+    tag = "holds",
+    security(("bearer_auth" = [])),
+    params(PickListQuery),
+    responses(
+        (status = 200, description = "Copies to pull from the shelf", body = [HoldPickListItem]),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
+        (status = 403, description = "Staff access required", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn list_pick_list(
+    State(state): State<crate::AppState>,
+    StaffUser(_claims): StaffUser,
+    Query(query): Query<PickListQuery>,
+) -> AppResult<Json<Vec<HoldPickListItem>>> {
+    Ok(Json(state.services.holds.list_pick(query.site_id).await?))
+}
+
 /// Query parameters for `GET /holds` (global list).
 #[derive(Debug, Deserialize, ToSchema, IntoParams)]
 #[serde(rename_all = "camelCase")]
@@ -45,7 +77,7 @@ pub struct ListHoldsQuery {
     pub page: Option<i64>,
     /// Page size (default 50, max 200)
     pub per_page: Option<i64>,
-    /// If true, only `pending` and `ready` holds (ongoing).
+    /// If true, only `pending`, `to_pick`, and `ready` holds (ongoing).
     pub active_only: Option<bool>,
 }
 

@@ -97,6 +97,7 @@ use crate::api::{
         fines::accrue_overdue_fines,
         // Holds
         holds::list_holds,
+        holds::list_pick_list,
         holds::create_hold,
         holds::get_holds_policy,
         holds::update_holds_policy,
@@ -344,6 +345,8 @@ use crate::api::{
             crate::models::dto::holds::HoldQuota,
             holds::CreateHoldRequest,
             holds::ListHoldsQuery,
+            holds::PickListQuery,
+            crate::models::dto::holds::HoldPickListItem,
             holds::HoldQuotaQuery,
             crate::models::transit::ItemTransit,
             crate::models::transit::TransitStatus,

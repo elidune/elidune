@@ -182,6 +182,7 @@ jobs:
           --test event_audiences
           --test events_consent
           --test auth_rate_limit
+          --test holds_to_pick
           -- --nocapture
 
   coverage:
@@ -254,6 +255,7 @@ jobs:
           --test event_audiences
           --test events_consent
           --test auth_rate_limit
+          --test holds_to_pick
           --lcov
           --output-path lcov.info
           --fail-under-lines 20

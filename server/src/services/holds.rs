@@ -144,7 +144,7 @@ impl HoldsService {
         self.repository.holds_create(&data).await
     }
 
-    /// Cap of `pending`/`ready` holds by patron category. `force=true` bypasses and is audited.
+    /// Cap of active holds (`pending` / `to_pick` / `ready`) by patron category. `force=true` bypasses and is audited.
     async fn enforce_max_active_holds(
         &self,
         data: &CreateHold,
@@ -230,7 +230,16 @@ impl HoldsService {
         self.repository.holds_count_for_item(item_id).await
     }
 
-    /// Active holds (`pending` / `ready`) across all copies of a biblio.
+    /// Staff shelf-pick list (`to_pick`), optionally limited to the copy's current site.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn list_pick(
+        &self,
+        site_id: Option<i64>,
+    ) -> AppResult<Vec<crate::models::dto::holds::HoldPickListItem>> {
+        self.repository.holds_list_pick(site_id).await
+    }
+
+    /// Active holds (`pending` / `to_pick` / `ready`) across all copies of a biblio.
     #[tracing::instrument(skip(self), err)]
     pub async fn count_active_for_biblio(&self, biblio_id: i64) -> AppResult<i64> {
         self.repository
@@ -253,7 +262,7 @@ pub(crate) fn validate_max_active_holds(max: Option<i16>) -> AppResult<()> {
 
 fn hold_cap_block_message(active: i64, max: i16) -> String {
     format!(
-        "Maximum of {max} active holds reached ({active} pending/ready) — cancel a hold or use force=true to override"
+        "Maximum of {max} active holds reached ({active} pending/to_pick/ready) — cancel a hold or use force=true to override"
     )
 }
 
@@ -387,6 +396,12 @@ mod tests {
         }
         async fn holds_set_global_max_active(&self, max_active_holds: i16) -> AppResult<i16> {
             Ok(max_active_holds)
+        }
+        async fn holds_list_pick(
+            &self,
+            _: Option<i64>,
+        ) -> AppResult<Vec<crate::models::dto::holds::HoldPickListItem>> {
+            Ok(vec![])
         }
     }
 

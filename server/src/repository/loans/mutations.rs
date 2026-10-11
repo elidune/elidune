@@ -188,8 +188,9 @@ impl Repository {
             return Err(AppError::BusinessRule(msg));
         }
 
-        // Hold queue: only the patron whose turn it is (`ready`, else first `pending`) may borrow,
-        // unless staff uses `force=true` (clears active holds on this copy).
+        // Only a hold assigned to this copy (`ready`, `to_pick`, or a pinned `pending`)
+        // reserves it. An unassigned title hold does not. `force=true` clears pinned
+        // holds and releases a `to_pick` assignment back to the queue.
         if !loan.force {
             if let Some(eligible) = self
                 .holds_eligible_borrower_for_item_tx(&mut tx, item_id)
@@ -438,8 +439,8 @@ impl Repository {
     ///
     /// Serializes on the item row then the loan row (`FOR UPDATE`, same lock order
     /// as [`Self::loans_create`]) so concurrent renews cannot both pass the max-renewals
-    /// check. Refuses renewal when another patron has an active (`pending`/`ready`) hold
-    /// on the copy.
+    /// check. Refuses renewal when another patron has a hold assigned to this copy
+    /// (`pending` pin, `to_pick`, or `ready`). An unassigned title hold does not block renewal.
     pub async fn loans_renew(&self, loan_id: i64) -> AppResult<(DateTime<Utc>, i16)> {
         let now = Utc::now();
         let mut tx = self.pool.begin().await?;

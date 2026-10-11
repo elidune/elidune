@@ -217,9 +217,9 @@ impl Repository {
             .await?
             .ok_or_else(|| AppError::NotFound(format!("Hold {hold_id} not found")))?;
 
-        if !matches!(hold.status, HoldStatus::Pending) {
+        if !matches!(hold.status, HoldStatus::Pending | HoldStatus::ToPick) {
             return Err(AppError::BusinessRule(
-                "Transit can only start from a pending hold".to_string(),
+                "Transit can only start from a pending or to_pick hold".to_string(),
             ));
         }
 
@@ -309,7 +309,8 @@ impl Repository {
             r#"
             UPDATE holds
             SET item_id = COALESCE(item_id, $1),
-                pickup_site_id = COALESCE(pickup_site_id, $2)
+                pickup_site_id = COALESCE(pickup_site_id, $2),
+                status = CASE WHEN status = 'to_pick' THEN 'pending' ELSE status END
             WHERE id = $3
             "#,
         )

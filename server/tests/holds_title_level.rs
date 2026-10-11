@@ -103,7 +103,7 @@ async fn create_capped_public_type(app: &TestApp, admin_token: &str, cap: i16) -
 }
 
 #[tokio::test]
-async fn place_title_level_hold_leaves_item_unassigned() {
+async fn place_title_hold_with_shelf_copy_is_to_pick() {
     let Some(app) = TestApp::spawn().await else {
         return;
     };
@@ -114,11 +114,12 @@ async fn place_title_level_hold_leaves_item_unassigned() {
     let (status, body) = place_title_hold(&app, &reader_token, reader_id, biblio_id).await;
     assert_eq!(status, StatusCode::CREATED, "place title hold: {body}");
     assert!(
-        body["itemId"].is_null(),
-        "title hold must not assign a copy: {body}"
+        !body["itemId"].is_null(),
+        "shelf copy must be assigned: {body}"
     );
     assert_eq!(fixtures::json_id(&body["biblioId"]), biblio_id);
-    assert_eq!(body["status"], "pending");
+    assert_eq!(body["status"], "to_pick");
+    assert!(body["notifiedAt"].is_null(), "no notice while on the shelf");
 
     let (status, queue) = app
         .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}/holds"), &admin_token)
@@ -126,7 +127,7 @@ async fn place_title_level_hold_leaves_item_unassigned() {
     assert_eq!(status, StatusCode::OK, "title queue: {queue}");
     let rows = queue.as_array().expect("queue array");
     assert_eq!(rows.len(), 1);
-    assert!(rows[0]["itemId"].is_null());
+    assert_eq!(rows[0]["status"], "to_pick");
     assert_eq!(
         fixtures::json_id(&rows[0]["id"]),
         fixtures::json_id(&body["id"])
@@ -147,6 +148,8 @@ async fn promote_title_hold_assigns_returned_copy_fifo() {
     let item_a = item_ids[0];
 
     let loan_id = checkout(&app, &admin_token, reader_a, item_a).await;
+    // Both copies must be out, otherwise the first title hold captures the shelf copy.
+    checkout(&app, &admin_token, reader_a, item_ids[1]).await;
 
     let (status, hold_b) = place_title_hold(&app, &token_b, reader_b, biblio_id).await;
     assert_eq!(status, StatusCode::CREATED, "hold B: {hold_b}");
@@ -353,7 +356,6 @@ async fn cancel_pending_title_hold() {
         .await;
     assert_eq!(status, StatusCode::OK, "cancel: {cancelled}");
     assert_eq!(cancelled["status"], "cancelled");
-    assert!(cancelled["itemId"].is_null());
 
     let (status, queue) = app
         .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}/holds"), &admin_token)
@@ -524,6 +526,6 @@ async fn repository_title_hold_create_helper_matches_api() {
         .await
         .expect("repo title hold");
     assert_eq!(hold.biblio_id, biblio_id);
-    assert!(hold.item_id.is_none());
-    assert_eq!(hold.status, HoldStatus::Pending);
+    assert!(hold.item_id.is_some(), "shelf copy is assigned");
+    assert_eq!(hold.status, HoldStatus::ToPick);
 }

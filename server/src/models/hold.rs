@@ -14,6 +14,9 @@ use crate::models::user::UserShort;
 #[serde(rename_all = "lowercase")]
 pub enum HoldStatus {
     Pending,
+    /// Copy assigned and still on the shelf. Staff pull it; the patron is not notified yet.
+    #[serde(rename = "to_pick")]
+    ToPick,
     Ready,
     Fulfilled,
     Cancelled,
@@ -24,17 +27,25 @@ impl HoldStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Pending => "pending",
+            Self::ToPick => "to_pick",
             Self::Ready => "ready",
             Self::Fulfilled => "fulfilled",
             Self::Cancelled => "cancelled",
             Self::Expired => "expired",
         }
     }
+
+    /// Counts toward the active-hold cap and the one-hold-per-title uniqueness rule.
+    #[must_use]
+    pub fn is_active(&self) -> bool {
+        matches!(self, Self::Pending | Self::ToPick | Self::Ready)
+    }
 }
 
 impl From<String> for HoldStatus {
     fn from(s: String) -> Self {
         match s.as_str() {
+            "to_pick" => Self::ToPick,
             "ready" => Self::Ready,
             "fulfilled" => Self::Fulfilled,
             "cancelled" => Self::Cancelled,
@@ -71,8 +82,10 @@ impl sqlx::Encode<'_, sqlx::Postgres> for HoldStatus {
 
 /// Hold row from database (`holds` table).
 ///
-/// Copy-level holds have `item_id` set. Title-level holds keep `item_id` NULL
-/// until fulfillment assigns a concrete copy and moves the row to `ready`.
+/// Copy-level holds have `item_id` set. An unassigned title hold keeps
+/// `item_id` NULL (`pending`) until a copy is allocated: `to_pick` when a shelf
+/// copy is captured at placement, or `ready` / transit when a returned copy is
+/// already in staff hands.
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 #[serde(rename_all = "camelCase")]
