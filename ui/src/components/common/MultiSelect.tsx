@@ -301,7 +301,7 @@ export default function MultiSelect({
           aria-autocomplete="list"
           aria-activedescendant={open ? activeOptionId : undefined}
           aria-describedby={describedBy}
-          className="h-7 min-w-[6rem] flex-1 border-0 bg-transparent p-0 text-sm text-gray-900 outline-none placeholder:text-gray-400 focus:ring-0 dark:text-gray-100 dark:placeholder:text-gray-500"
+          className="embedded-field h-7 min-w-[6rem] flex-1 border-0 bg-transparent p-0 text-sm text-gray-900 shadow-none outline-none ring-0 placeholder:text-gray-400 focus:border-0 focus:shadow-none focus:outline-none focus:ring-0 focus-visible:border-0 focus-visible:shadow-none focus-visible:outline-none focus-visible:ring-0 dark:text-gray-100 dark:placeholder:text-gray-500"
           onChange={(event) => {
             setQuery(event.target.value);
             setOpen(true);
