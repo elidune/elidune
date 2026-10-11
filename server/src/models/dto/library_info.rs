@@ -12,6 +12,7 @@ pub struct LibraryInfo {
     pub addr_line2: Option<String>,
     pub addr_postcode: Option<String>,
     pub addr_city: Option<String>,
+    /// ISO 3166-1 alpha-2 code (for example `FR`). Unmapped legacy free text may still be stored.
     pub addr_country: Option<String>,
     pub phones: Vec<String>,
     pub email: Option<String>,
@@ -28,9 +29,17 @@ pub struct UpdateLibraryInfoRequest {
     pub addr_line2: Option<String>,
     pub addr_postcode: Option<String>,
     pub addr_city: Option<String>,
+    /// Country. French and English names are stored as ISO 3166-1 alpha-2 (`France` → `FR`).
+    /// A 2-letter code is kept only when it is in the shared zone table. Any other non-empty
+    /// value is a 400 `validation_error`. Omitted or blank leaves the stored value unchanged.
+    /// When a country is in effect, `timezone` must be one of that country's zones
+    /// (`timezone_country_mismatch`). A country with one zone stores that zone when
+    /// `timezone` is omitted or blank. A country with several zones has no default:
+    /// a missing choice is 400 `timezone_required`.
     pub addr_country: Option<String>,
     pub phones: Option<Vec<String>>,
     pub email: Option<String>,
-    /// IANA timezone name. Omitted fields are left unchanged. Invalid names return 400 `invalid_timezone`.
+    /// IANA timezone name. Omitted fields are left unchanged unless the country
+    /// requires a choice. Invalid names return 400 `invalid_timezone`.
     pub timezone: Option<String>,
 }

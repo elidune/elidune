@@ -382,11 +382,12 @@ async fn library_timezone_round_trip_rejects_unknown_iana_names() {
     let (status, body) = app
         .put_json(
             "/api/v1/library-info",
-            &json!({ "timezone": "America/New_York" }),
+            &json!({ "addrCountry": "US", "timezone": "America/New_York" }),
             Some(&admin_token),
         )
         .await;
     assert_eq!(status, axum::http::StatusCode::OK, "{body}");
+    assert_eq!(body["addrCountry"], "US");
     assert_eq!(body["timezone"], "America/New_York");
 
     let (status, body) = app.get_json("/api/v1/library-info").await;
@@ -396,7 +397,7 @@ async fn library_timezone_round_trip_rejects_unknown_iana_names() {
     let (status, body) = app
         .put_json(
             "/api/v1/library-info",
-            &json!({ "name": body["name"], "timezone": "Europe/Paris" }),
+            &json!({ "name": body["name"], "addrCountry": "FR", "timezone": "Europe/Paris" }),
             Some(&admin_token),
         )
         .await;
@@ -405,6 +406,138 @@ async fn library_timezone_round_trip_rejects_unknown_iana_names() {
         axum::http::StatusCode::OK,
         "restore timezone: {body}"
     );
+    assert_eq!(body["timezone"], "Europe/Paris");
+}
+
+#[tokio::test]
+async fn library_country_must_be_iso_and_timezone_must_belong_to_it() {
+    let _guard = CALENDAR_LOCK.lock().await;
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+
+    let (status, body) = app
+        .put_json(
+            "/api/v1/library-info",
+            &json!({ "addrCountry": "France", "timezone": "Europe/Paris" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, axum::http::StatusCode::OK, "{body}");
+    assert_eq!(body["addrCountry"], "FR");
+    assert_eq!(body["timezone"], "Europe/Paris");
+
+    let (status, body) = app
+        .put_json(
+            "/api/v1/library-info",
+            &json!({ "addrCountry": "US", "timezone": "America/Chicago" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, axum::http::StatusCode::OK, "{body}");
+    assert_eq!(body["addrCountry"], "US");
+    assert_eq!(body["timezone"], "America/Chicago");
+
+    let (status, body) = app
+        .put_json(
+            "/api/v1/library-info",
+            &json!({ "addrCountry": "Narnia" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, axum::http::StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["code"], "validation_error");
+
+    let (status, body) = app
+        .put_json(
+            "/api/v1/library-info",
+            &json!({ "addrCountry": "XX" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, axum::http::StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["code"], "validation_error");
+
+    let (status, body) = app.get_json("/api/v1/library-info").await;
+    assert_eq!(status, axum::http::StatusCode::OK, "{body}");
+    assert_eq!(body["addrCountry"], "US");
+    assert_eq!(body["timezone"], "America/Chicago");
+
+    let (status, body) = app
+        .put_json(
+            "/api/v1/library-info",
+            &json!({ "timezone": "" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, axum::http::StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["code"], "timezone_required");
+
+    let (status, body) = app
+        .put_json(
+            "/api/v1/library-info",
+            &json!({ "addrCountry": "DE" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, axum::http::StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["code"], "timezone_required");
+
+    let (status, body) = app.get_json("/api/v1/library-info").await;
+    assert_eq!(status, axum::http::StatusCode::OK, "{body}");
+    assert_eq!(body["addrCountry"], "US");
+    assert_eq!(body["timezone"], "America/Chicago");
+
+    let (status, body) = app
+        .put_json(
+            "/api/v1/library-info",
+            &json!({ "addrCountry": "FR", "timezone": "America/New_York" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, axum::http::StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["code"], "timezone_country_mismatch");
+
+    let (status, body) = app
+        .put_json(
+            "/api/v1/library-info",
+            &json!({ "timezone": "Europe/Paris" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, axum::http::StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["code"], "timezone_country_mismatch");
+
+    let (status, body) = app
+        .put_json(
+            "/api/v1/library-info",
+            &json!({ "addrCountry": "FR", "timezone": "Europe/Paris" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, axum::http::StatusCode::OK, "restore: {body}");
+    assert_eq!(body["addrCountry"], "FR");
+    assert_eq!(body["timezone"], "Europe/Paris");
+
+    let (status, body) = app
+        .put_json(
+            "/api/v1/library-info",
+            &json!({ "addrCountry": "US", "timezone": "America/Chicago" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, axum::http::StatusCode::OK, "{body}");
+
+    let (status, body) = app
+        .put_json(
+            "/api/v1/library-info",
+            &json!({ "addrCountry": "FR", "timezone": "" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, axum::http::StatusCode::OK, "{body}");
+    assert_eq!(body["addrCountry"], "FR");
     assert_eq!(body["timezone"], "Europe/Paris");
 }
 

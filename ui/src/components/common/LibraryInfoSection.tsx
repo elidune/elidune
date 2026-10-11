@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { MapPin, Phone, Mail, Clock, ExternalLink, Contact } from 'lucide-react';
 import Card, { CardHeader } from './Card';
 import type { LibraryInfo, ScheduleSlot } from '@/types';
+import { formatCountryName } from '@/utils/countryTimezone';
 
 const DAYS = [0, 1, 2, 3, 4, 5, 6] as const;
 
@@ -19,13 +20,13 @@ export default function LibraryInfoSection({
   canManage = false,
   className = '',
 }: LibraryInfoSectionProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   const addressParts = [
     info?.addrLine1,
     info?.addrLine2,
     [info?.addrPostcode, info?.addrCity].filter(Boolean).join(' '),
-    info?.addrCountry,
+    formatCountryName(info?.addrCountry, i18n.language),
   ].filter(Boolean) as string[];
 
   const slotsByDay = Object.fromEntries(slots.map((s) => [s.dayOfWeek, s]));

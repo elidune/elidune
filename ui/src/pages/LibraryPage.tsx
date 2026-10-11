@@ -13,10 +13,17 @@ import {
   Check,
   Phone,
 } from 'lucide-react';
-import { Card, Button, Input, Modal } from '@/components/common';
+import { Card, Button, Input, Modal, CountrySelect, LibraryTimezoneControl } from '@/components/common';
 import api from '@/services/api';
+import { useLibraryInfoQuery, useUpdateLibraryInfoMutation } from '@/hooks/common/useLibraryInfoQuery';
+import { getApiErrorMessage, libraryInfoTimezoneFieldError } from '@/utils/apiError';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 import { deferFromEffect } from '@/utils/deferFromEffect';
+import {
+  applyCountryChange,
+  countryCodeFromStored,
+  timezoneChoiceRequired,
+} from '@/utils/countryTimezone';
 import type {
   LibraryInfo,
   SchedulePeriod,
@@ -30,87 +37,93 @@ import type {
 
 const DAYS_OF_WEEK = [0, 1, 2, 3, 4, 5, 6] as const;
 
+interface LibraryGeneralForm {
+  name: string;
+  addrLine1: string;
+  addrLine2: string;
+  addrPostcode: string;
+  addrCity: string;
+  addrCountry: string;
+  email: string;
+  phones: string[];
+  timezone: string;
+}
+
+function libraryInfoToForm(info: LibraryInfo | undefined): LibraryGeneralForm {
+  return {
+    name: info?.name ?? '',
+    addrLine1: info?.addrLine1 ?? '',
+    addrLine2: info?.addrLine2 ?? '',
+    addrPostcode: info?.addrPostcode ?? '',
+    addrCity: info?.addrCity ?? '',
+    addrCountry: countryCodeFromStored(info?.addrCountry),
+    email: info?.email ?? '',
+    phones: info?.phones ?? [],
+    timezone: info?.timezone?.trim() ?? '',
+  };
+}
+
 // ─── General Tab ─────────────────────────────────────────────────────────────
 
 function GeneralTab() {
   const { t } = useTranslation();
+  const { data, isLoading, isError, refetch } = useLibraryInfoQuery();
+  const updateLibraryInfo = useUpdateLibraryInfoMutation();
 
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [timezoneError, setTimezoneError] = useState<string | null>(null);
+  const [countryError, setCountryError] = useState<string | null>(null);
 
-  const [form, setForm] = useState<{
-    name: string;
-    addrLine1: string;
-    addrLine2: string;
-    addrPostcode: string;
-    addrCity: string;
-    addrCountry: string;
-    email: string;
-    phones: string[];
-  }>({
-    name: '',
-    addrLine1: '',
-    addrLine2: '',
-    addrPostcode: '',
-    addrCity: '',
-    addrCountry: '',
-    email: '',
-    phones: [],
-  });
-
-  const populate = useCallback((info: LibraryInfo) => {
-    setForm({
-      name: info.name ?? '',
-      addrLine1: info.addrLine1 ?? '',
-      addrLine2: info.addrLine2 ?? '',
-      addrPostcode: info.addrPostcode ?? '',
-      addrCity: info.addrCity ?? '',
-      addrCountry: info.addrCountry ?? '',
-      email: info.email ?? '',
-      phones: info.phones ?? [],
-    });
-  }, []);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const info = await api.getLibraryInfo();
-        populate(info);
-      } catch {
-        setLoadError(t('errors.generic'));
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [populate, t]);
+  // Seed from a cache hit on the first render. Synced starts unset so a library
+  // info payload already in the query cache is copied into the draft (same class
+  // of bug as the settings forms: initialising the synced ref to `data` skips it).
+  const [form, setForm] = useState<LibraryGeneralForm>(() => libraryInfoToForm(data));
+  const [syncedInfo, setSyncedInfo] = useState<LibraryInfo | undefined>(undefined);
+  if (data !== syncedInfo) {
+    setSyncedInfo(data);
+    if (data) {
+      setForm(libraryInfoToForm(data));
+      setTimezoneError(null);
+      setCountryError(null);
+    }
+  }
 
   const handleSave = async () => {
-    setSaving(true);
     setSaveError(null);
+    setTimezoneError(null);
+    setCountryError(null);
     setSaveSuccess(false);
+    if (!/^[A-Z]{2}$/.test(form.addrCountry)) {
+      setCountryError(t('library.general.countryRequired'));
+      return;
+    }
+    if (timezoneChoiceRequired(form.addrCountry, form.timezone)) {
+      setTimezoneError(t('library.general.timezoneRequired'));
+      return;
+    }
     try {
-      const updated = await api.updateLibraryInfo({
+      await updateLibraryInfo.mutateAsync({
         name: form.name || null,
         addrLine1: form.addrLine1 || null,
         addrLine2: form.addrLine2 || null,
         addrPostcode: form.addrPostcode || null,
         addrCity: form.addrCity || null,
-        addrCountry: form.addrCountry || null,
+        addrCountry: form.addrCountry,
         email: form.email || null,
         phones: form.phones.filter(Boolean),
+        timezone: form.timezone.trim() || null,
       });
-      populate(updated);
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
-    } catch {
-      setSaveError(t('errors.generic'));
-    } finally {
-      setSaving(false);
+    } catch (err: unknown) {
+      const timezoneMessage = libraryInfoTimezoneFieldError(err, t);
+      if (timezoneMessage) setTimezoneError(timezoneMessage);
+      else setSaveError(getApiErrorMessage(err, t));
     }
   };
+
+  const saving = updateLibraryInfo.isPending;
 
   const setPhone = (index: number, value: string) => {
     setForm((f) => {
@@ -143,7 +156,7 @@ function GeneralTab() {
     </div>
   );
 
-  if (loading) {
+  if (isLoading && !data) {
     return (
       <Card padding="none">
         <div className="flex justify-center py-12">
@@ -153,10 +166,15 @@ function GeneralTab() {
     );
   }
 
-  if (loadError) {
+  if (isError && !data) {
     return (
       <Card padding="none">
-        <div className="p-6 text-center text-red-600 dark:text-red-400 text-sm">{loadError}</div>
+        <div className="p-6 text-center space-y-3">
+          <p className="text-red-600 dark:text-red-400 text-sm">{t('errors.generic')}</p>
+          <Button size="sm" variant="ghost" onClick={() => void refetch()}>
+            {t('common.retry')}
+          </Button>
+        </div>
       </Card>
     );
   }
@@ -191,7 +209,33 @@ function GeneralTab() {
             {field('library.general.zipCode', 'addrPostcode', { placeholder: '75001' })}
             {field('library.general.city', 'addrCity', { placeholder: 'Paris' })}
           </div>
-          {field('library.general.country', 'addrCountry', { placeholder: 'France' })}
+          <CountrySelect
+            label={t('library.general.country')}
+            value={form.addrCountry}
+            required
+            error={countryError ?? undefined}
+            placeholder={t('library.general.countryPlaceholder')}
+            onChange={(code) => {
+              setForm((current) => {
+                const next = applyCountryChange(
+                  { country: current.addrCountry, timezone: current.timezone },
+                  code,
+                );
+                return { ...current, addrCountry: next.country, timezone: next.timezone };
+              });
+              if (countryError) setCountryError(null);
+              if (timezoneError) setTimezoneError(null);
+            }}
+          />
+          <LibraryTimezoneControl
+            country={form.addrCountry}
+            timezone={form.timezone}
+            error={timezoneError ?? undefined}
+            onTimezoneChange={(timezone) => {
+              setForm((current) => ({ ...current, timezone }));
+              if (timezoneError) setTimezoneError(null);
+            }}
+          />
         </div>
 
         {/* Email */}
