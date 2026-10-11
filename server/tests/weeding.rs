@@ -307,15 +307,28 @@ async fn withdraw_advances_hold_queue_and_keeps_title_holds_on_siblings() {
     assert_eq!(status, StatusCode::CREATED, "checkout A: {loan_body}");
     let loan_id = fixtures::json_id(&loan_body["id"]);
 
-    let (status, hold_b) = place_title_hold(&app, &token_b, reader_b, biblio_id).await;
-    assert_eq!(status, StatusCode::CREATED, "title hold B: {hold_b}");
-    let hold_b_id = fixtures::json_id(&hold_b["id"]);
-    assert!(hold_b["itemId"].is_null());
+    let (status, pinned) = app
+        .post_json(
+            "/api/v1/holds",
+            &json!({
+                "userId": reader_b.to_string(),
+                "itemId": item_a.to_string()
+            }),
+            Some(&token_b),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "pinned hold: {pinned}");
+    let pinned_id = fixtures::json_id(&pinned["id"]);
 
-    let (status, hold_c) = place_title_hold(&app, &token_c, reader_c, biblio_id).await;
-    assert_eq!(status, StatusCode::CREATED, "title hold C: {hold_c}");
-    let hold_c_id = fixtures::json_id(&hold_c["id"]);
-    assert!(hold_c["itemId"].is_null());
+    let (status, title_hold) = place_title_hold(&app, &token_c, reader_c, biblio_id).await;
+    assert_eq!(status, StatusCode::CREATED, "title hold: {title_hold}");
+    let title_id = fixtures::json_id(&title_hold["id"]);
+    assert_eq!(title_hold["status"], "to_pick");
+    assert_eq!(
+        fixtures::json_id(&title_hold["itemId"]),
+        item_b,
+        "title hold captures the shelf sibling"
+    );
 
     let (status, ret) = app
         .post_empty(
@@ -324,18 +337,6 @@ async fn withdraw_advances_hold_queue_and_keeps_title_holds_on_siblings() {
         )
         .await;
     assert_eq!(status, StatusCode::OK, "return A: {ret}");
-
-    let (status, queue) = app
-        .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}/holds"), &admin_token)
-        .await;
-    assert_eq!(status, StatusCode::OK, "queue after return: {queue}");
-    let rows = queue.as_array().expect("queue");
-    let ready = rows
-        .iter()
-        .find(|h| fixtures::json_id(&h["id"]) == hold_b_id)
-        .expect("B still in queue");
-    assert_eq!(ready["status"], "ready");
-    assert_eq!(fixtures::json_id(&ready["itemId"]), item_a);
 
     let (status, wd) = set_weeding(
         &app,
@@ -355,7 +356,7 @@ async fn withdraw_advances_hold_queue_and_keeps_title_holds_on_siblings() {
     let rows = after.as_array().expect("queue");
     assert!(
         rows.iter()
-            .all(|h| fixtures::json_id(&h["id"]) != hold_b_id),
+            .all(|h| fixtures::json_id(&h["id"]) != pinned_id),
         "ready hold on withdrawn copy must leave the active queue: {after}"
     );
     assert!(
@@ -363,32 +364,23 @@ async fn withdraw_advances_hold_queue_and_keeps_title_holds_on_siblings() {
             .all(|h| h["itemId"].is_null() || fixtures::json_id(&h["itemId"]) != item_a),
         "no active hold may stay pinned to the withdrawn copy: {after}"
     );
-    let promoted = rows
+    let kept = rows
         .iter()
-        .find(|h| fixtures::json_id(&h["id"]) == hold_c_id)
-        .expect("title-level hold C must remain (sibling can fulfill)");
-    assert_eq!(
-        promoted["status"], "ready",
-        "queue must advance onto the sibling: {after}"
-    );
-    assert_eq!(
-        fixtures::json_id(&promoted["itemId"]),
-        item_b,
-        "next patron must be offered the remaining copy: {after}"
-    );
+        .find(|h| fixtures::json_id(&h["id"]) == title_id)
+        .expect("title hold on the sibling must remain");
+    assert_eq!(kept["status"], "to_pick");
+    assert_eq!(fixtures::json_id(&kept["itemId"]), item_b);
 
-    let (status, all_holds) = app
-        .get_json_with_auth(&format!("/api/v1/users/{reader_b}/holds"), &admin_token)
-        .await;
-    assert_eq!(status, StatusCode::OK, "holds for B: {all_holds}");
-    let entries = all_holds.as_array().expect("user holds");
-    let cancelled_b = entries
-        .iter()
-        .find(|h| fixtures::json_id(&h["id"]) == hold_b_id)
-        .expect("cancelled hold B");
+    let cancelled = app
+        .state
+        .services
+        .repository
+        .holds_get_by_id(pinned_id)
+        .await
+        .expect("cancelled pinned hold");
     assert_eq!(
-        cancelled_b["status"], "cancelled",
-        "B ready hold cancelled: {cancelled_b}"
+        cancelled.status,
+        elidune_server::models::hold::HoldStatus::Cancelled
     );
 }
 

@@ -88,7 +88,9 @@ pub fn next_reminder_tier(
     cfg: &RemindersConfig,
 ) -> Option<ReminderTier> {
     match CirculationStatus::from_db(circulation_status) {
-        CirculationStatus::Lost | CirculationStatus::ClaimedReturned => None,
+        CirculationStatus::Lost
+        | CirculationStatus::ClaimedReturned
+        | CirculationStatus::ToSearch => None,
         _ => {
             let next = ReminderTier::from_count(reminder_count)?;
             next.is_enabled(cfg).then_some(next)

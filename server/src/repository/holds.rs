@@ -21,7 +21,7 @@ use crate::{
 #[async_trait]
 pub trait HoldsRepository: Send + Sync {
     /// All holds, newest first, with total count (for pagination).
-    /// When `active_only`, only `pending` and `ready` rows.
+    /// When `active_only`, only `pending`, `to_pick`, and `ready` rows.
     async fn holds_list_all(
         &self,
         page: i64,
@@ -62,8 +62,21 @@ pub trait HoldsRepository: Send + Sync {
     async fn holds_fulfill(&self, id: i64) -> AppResult<Hold>;
     /// First eligible hold for the item (copy-level, else title-level) becomes `ready`.
     async fn holds_notify_next(&self, item_id: i64, expiry_days: i32) -> AppResult<Option<Hold>>;
-    /// Count of `pending`/`ready` holds for this patron (copy- and title-level).
+    /// Count of `pending`/`to_pick`/`ready` holds for this patron (copy- and title-level).
     async fn holds_count_active_for_user(&self, user_id: i64) -> AppResult<i64>;
+    /// Staff shelf-pick list: `to_pick` holds, optionally limited to the copy's current site.
+    async fn holds_list_pick(
+        &self,
+        site_id: Option<i64>,
+    ) -> AppResult<Vec<crate::models::dto::holds::HoldPickListItem>>;
+    /// Days before a pick-list row is overdue. Does not expire the hold.
+    async fn holds_get_pick_delay_days(&self) -> AppResult<i16>;
+    async fn holds_set_pick_delay_days(&self, pick_delay_days: i16) -> AppResult<i16>;
+    /// Copy was not on the shelf. Marks it `to_search` and reassigns or releases the hold.
+    async fn holds_pick_not_found(
+        &self,
+        id: i64,
+    ) -> AppResult<crate::models::dto::holds::PickNotFoundOutcome>;
     /// Effective cap: public-type override when set, else global default.
     async fn holds_get_max_active_for_user(&self, user_id: i64) -> AppResult<i16>;
     async fn holds_get_global_max_active(&self) -> AppResult<i16>;
@@ -159,6 +172,24 @@ impl HoldsRepository for Repository {
     }
     async fn holds_set_global_max_active(&self, max_active_holds: i16) -> AppResult<i16> {
         Repository::holds_set_global_max_active(self, max_active_holds).await
+    }
+    async fn holds_list_pick(
+        &self,
+        site_id: Option<i64>,
+    ) -> AppResult<Vec<crate::models::dto::holds::HoldPickListItem>> {
+        Repository::holds_list_pick(self, site_id).await
+    }
+    async fn holds_get_pick_delay_days(&self) -> AppResult<i16> {
+        Repository::holds_get_pick_delay_days(self).await
+    }
+    async fn holds_set_pick_delay_days(&self, pick_delay_days: i16) -> AppResult<i16> {
+        Repository::holds_set_pick_delay_days(self, pick_delay_days).await
+    }
+    async fn holds_pick_not_found(
+        &self,
+        id: i64,
+    ) -> AppResult<crate::models::dto::holds::PickNotFoundOutcome> {
+        Repository::holds_pick_not_found(self, id).await
     }
 }
 
@@ -332,12 +363,12 @@ impl Repository {
     ) -> AppResult<(Vec<HoldDetails>, i64)> {
         let (total, rows) = if active_only {
             let total: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*)::bigint FROM holds WHERE status IN ('pending','ready')",
+                "SELECT COUNT(*)::bigint FROM holds WHERE status IN ('pending','to_pick','ready')",
             )
             .fetch_one(&self.pool)
             .await?;
             let offset = (page - 1).max(0) * per_page;
-            let rows = sqlx::query_as::<_, Hold>("SELECT * FROM holds WHERE status IN ('pending','ready') ORDER BY created_at ASC LIMIT $1 OFFSET $2")
+            let rows = sqlx::query_as::<_, Hold>("SELECT * FROM holds WHERE status IN ('pending','to_pick','ready') ORDER BY created_at ASC LIMIT $1 OFFSET $2")
                 .bind(per_page)
                 .bind(offset)
                 .fetch_all(&self.pool)
@@ -371,13 +402,13 @@ impl Repository {
         active_only: bool,
     ) -> AppResult<(Vec<HoldDetails>, i64)> {
         let (total, rows) = if active_only {
-            let total: i64 = sqlx::query_scalar("SELECT COUNT(*)::bigint FROM holds WHERE user_id = $1 AND status IN ('pending','ready')")
+            let total: i64 = sqlx::query_scalar("SELECT COUNT(*)::bigint FROM holds WHERE user_id = $1 AND status IN ('pending','to_pick','ready')")
                 .bind(user_id)
                 .fetch_one(&self.pool)
                 .await?;
             let offset = (page - 1).max(0) * per_page;
             let rows = sqlx::query_as::<_, Hold>(
-                "SELECT * FROM holds WHERE user_id = $1 AND status IN ('pending','ready') \
+                "SELECT * FROM holds WHERE user_id = $1 AND status IN ('pending','to_pick','ready') \
                  ORDER BY created_at ASC LIMIT $2 OFFSET $3",
             )
             .bind(user_id)
@@ -455,7 +486,7 @@ impl Repository {
         }
 
         let already_ready: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM holds WHERE item_id = $1 AND status = 'ready')",
+            "SELECT EXISTS(SELECT 1 FROM holds WHERE item_id = $1 AND status IN ('ready','to_pick'))",
         )
         .bind(item_id)
         .fetch_one(&mut **tx)
@@ -530,13 +561,15 @@ impl Repository {
         }
 
         let expires_at = Utc::now() + chrono::Duration::days(expiry_days as i64);
-        let updated = sqlx::query_as::<_, Hold>(
+        savepoint(tx).await?;
+        let updated = match sqlx::query_as::<_, Hold>(
             r#"
             UPDATE holds
             SET item_id = $1,
                 status = 'ready',
                 notified_at = NOW(),
-                expires_at = $3
+                expires_at = $3,
+                pick_started_at = NULL
             WHERE id = $2 AND status = 'pending'
             RETURNING *
             "#,
@@ -545,14 +578,30 @@ impl Repository {
         .bind(next.id)
         .bind(expires_at)
         .fetch_optional(&mut **tx)
-        .await?;
+        .await
+        {
+            Ok(row) => {
+                release_savepoint(tx).await?;
+                row
+            }
+            Err(e) if is_exclusive_assignment_violation(&e) => {
+                rollback_savepoint(tx).await?;
+                tracing::warn!(
+                    item_id,
+                    hold_id = next.id,
+                    "hold assignment lost a race on idx_holds_one_exclusive_assignment_per_item"
+                );
+                return Ok(None);
+            }
+            Err(e) => return Err(e.into()),
+        };
         Ok(updated)
     }
 
     #[tracing::instrument(skip(self), err)]
     pub async fn holds_list_for_item(&self, item_id: i64) -> AppResult<Vec<HoldDetails>> {
         let rows = sqlx::query_as::<_, Hold>(
-            "SELECT * FROM holds WHERE item_id = $1 AND status IN ('pending','ready')
+            "SELECT * FROM holds WHERE item_id = $1 AND status IN ('pending','to_pick','ready')
              ORDER BY position ASC",
         )
         .bind(item_id)
@@ -568,7 +617,7 @@ impl Repository {
         let rows = sqlx::query_as::<_, Hold>(
             r#"
             SELECT * FROM holds
-            WHERE biblio_id = $1 AND status IN ('pending','ready')
+            WHERE biblio_id = $1 AND status IN ('pending','to_pick','ready')
             ORDER BY position ASC, created_at ASC
             "#,
         )
@@ -672,7 +721,7 @@ impl Repository {
             r#"
             SELECT EXISTS(
                 SELECT 1 FROM holds
-                WHERE user_id = $1 AND biblio_id = $2 AND status IN ('pending','ready')
+                WHERE user_id = $1 AND biblio_id = $2 AND status IN ('pending','to_pick','ready')
             )
             "#,
         )
@@ -698,7 +747,7 @@ impl Repository {
             VALUES (
                 $1, $2, $3, $4, $5,
                 COALESCE((SELECT MAX(position) FROM holds
-                          WHERE biblio_id = $4 AND status IN ('pending','ready')), 0) + 1,
+                          WHERE biblio_id = $4 AND status IN ('pending','to_pick','ready')), 0) + 1,
                 $6
             )
             RETURNING *
@@ -766,7 +815,7 @@ impl Repository {
             r#"
             SELECT EXISTS(
                 SELECT 1 FROM holds
-                WHERE user_id = $1 AND biblio_id = $2 AND status IN ('pending','ready')
+                WHERE user_id = $1 AND biblio_id = $2 AND status IN ('pending','to_pick','ready')
             )
             "#,
         )
@@ -780,35 +829,677 @@ impl Repository {
             ));
         }
 
-        let row = match sqlx::query_as::<_, Hold>(
+        // Capture a shelf copy now, but do not notify: it is still on the shelf.
+        // A unique violation on the assigned copy retries the next candidate.
+        let mut excluded: Vec<i64> = Vec::new();
+        let row = loop {
+            savepoint(&mut tx).await?;
+            let shelf_item_id = match self
+                .holds_lock_eligible_shelf_copy_tx(
+                    &mut tx,
+                    biblio_id,
+                    &excluded,
+                    data.pickup_site_id,
+                )
+                .await
+            {
+                Ok(id) => id,
+                Err(e) => {
+                    rollback_savepoint(&mut tx).await?;
+                    return Err(e);
+                }
+            };
+            let status = if shelf_item_id.is_some() {
+                HoldStatus::ToPick.as_str()
+            } else {
+                HoldStatus::Pending.as_str()
+            };
+            match self
+                .holds_insert_title_row(&mut tx, id, data, biblio_id, shelf_item_id, status)
+                .await
+            {
+                Ok(row) => {
+                    release_savepoint(&mut tx).await?;
+                    break row;
+                }
+                Err(e) if is_exclusive_assignment_violation(&e) => {
+                    rollback_savepoint(&mut tx).await?;
+                    if let Some(taken) = shelf_item_id {
+                        excluded.push(taken);
+                        if excluded.len() < 16 {
+                            continue;
+                        }
+                    }
+                    // No further candidate: leave the hold unassigned.
+                    savepoint(&mut tx).await?;
+                    match self
+                        .holds_insert_title_row(
+                            &mut tx,
+                            id,
+                            data,
+                            biblio_id,
+                            None,
+                            HoldStatus::Pending.as_str(),
+                        )
+                        .await
+                    {
+                        Ok(row) => {
+                            release_savepoint(&mut tx).await?;
+                            break row;
+                        }
+                        Err(e) if is_active_hold_unique_violation(&e) => {
+                            return Err(AppError::Conflict(active_hold_conflict_message(&e)));
+                        }
+                        Err(e) => return Err(e.into()),
+                    }
+                }
+                Err(e) if is_active_hold_unique_violation(&e) => {
+                    return Err(AppError::Conflict(active_hold_conflict_message(&e)));
+                }
+                Err(e) => return Err(e.into()),
+            }
+        };
+
+        tx.commit().await?;
+        Ok(row)
+    }
+
+    async fn holds_insert_title_row(
+        &self,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        id: i64,
+        data: &CreateHold,
+        biblio_id: i64,
+        shelf_item_id: Option<i64>,
+        status: &str,
+    ) -> Result<Hold, sqlx::Error> {
+        sqlx::query_as::<_, Hold>(
             r#"
-            INSERT INTO holds (id, user_id, item_id, biblio_id, pickup_site_id, position, notes)
+            INSERT INTO holds (
+                id, user_id, item_id, biblio_id, pickup_site_id, position, notes, status, pick_started_at
+            )
             VALUES (
-                $1, $2, NULL, $3, $4,
+                $1, $2, $3, $4, $5,
                 COALESCE((SELECT MAX(position) FROM holds
-                          WHERE biblio_id = $3 AND status IN ('pending','ready')), 0) + 1,
-                $5
+                          WHERE biblio_id = $4 AND status IN ('pending','to_pick','ready')), 0) + 1,
+                $6, $7,
+                CASE WHEN $7 = 'to_pick' THEN NOW() ELSE NULL END
             )
             RETURNING *
             "#,
         )
         .bind(id)
         .bind(data.user_id)
+        .bind(shelf_item_id)
         .bind(biblio_id)
         .bind(data.pickup_site_id)
         .bind(&data.notes)
-        .fetch_one(&mut *tx)
+        .bind(status)
+        .fetch_one(&mut **tx)
+        .await
+    }
+
+    /// Lock one shelf copy that can be assigned to a title hold.
+    ///
+    /// Eligible: not archived, not withdrawn, borrowable (reception complete),
+    /// circulation available (not `to_search` / lost / damaged), not on loan,
+    /// not already reserved, not in transit. Prefer the pickup site so a later
+    /// check-in does not have to transit. `FOR UPDATE SKIP LOCKED` so a checkout
+    /// holding the row is skipped.
+    async fn holds_lock_eligible_shelf_copy_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        biblio_id: i64,
+        exclude_item_ids: &[i64],
+        prefer_source_id: Option<i64>,
+    ) -> AppResult<Option<i64>> {
+        let item_id: Option<i64> = sqlx::query_scalar(
+            r#"
+            SELECT i.id
+            FROM items i
+            WHERE i.biblio_id = $1
+              AND NOT (i.id = ANY($2::bigint[]))
+              AND i.archived_at IS NULL
+              AND i.weeding_status <> 'withdrawn'
+              AND i.borrowable = TRUE
+              AND COALESCE(i.circulation_status, 0) = 0
+              AND NOT EXISTS (
+                  SELECT 1 FROM loans l
+                  WHERE l.item_id = i.id AND l.returned_at IS NULL
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM holds h
+                  WHERE h.item_id = i.id
+                    AND h.status IN ('pending','to_pick','ready')
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM item_transits t
+                  WHERE t.item_id = i.id AND t.status IN ('requested', 'in_transit')
+              )
+            ORDER BY
+              CASE WHEN $3::bigint IS NOT NULL AND i.source_id = $3 THEN 0 ELSE 1 END,
+              i.id
+            LIMIT 1
+            FOR UPDATE OF i SKIP LOCKED
+            "#,
+        )
+        .bind(biblio_id)
+        .bind(exclude_item_ids)
+        .bind(prefer_source_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+        Ok(item_id)
+    }
+
+    /// Move `to_pick` holds off this copy back to the title queue, then capture
+    /// another shelf copy when one is free. Used by forced checkout and withdraw.
+    async fn holds_release_to_pick_assignments_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        item_id: i64,
+    ) -> AppResult<()> {
+        let holds = sqlx::query_as::<_, Hold>(
+            "SELECT * FROM holds WHERE item_id = $1 AND status = 'to_pick' FOR UPDATE",
+        )
+        .bind(item_id)
+        .fetch_all(&mut **tx)
+        .await?;
+
+        for hold in holds {
+            sqlx::query(
+                "UPDATE holds SET status = 'pending', item_id = NULL, pick_started_at = NULL WHERE id = $1 AND status = 'to_pick'",
+            )
+            .bind(hold.id)
+            .execute(&mut **tx)
+            .await?;
+            self.holds_reassign_pending_to_shelf_tx(
+                tx,
+                hold.id,
+                hold.biblio_id,
+                &[item_id],
+                hold.pickup_site_id,
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    /// Claim the next eligible shelf copy for a pending unassigned hold.
+    /// Unique violations skip that copy and try the next one.
+    async fn holds_reassign_pending_to_shelf_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        hold_id: i64,
+        biblio_id: i64,
+        exclude_item_ids: &[i64],
+        prefer_source_id: Option<i64>,
+    ) -> AppResult<Option<i64>> {
+        let mut excluded = exclude_item_ids.to_vec();
+        for _ in 0..16 {
+            savepoint(tx).await?;
+            let Some(other) = self
+                .holds_lock_eligible_shelf_copy_tx(tx, biblio_id, &excluded, prefer_source_id)
+                .await?
+            else {
+                release_savepoint(tx).await?;
+                return Ok(None);
+            };
+            match sqlx::query(
+                r#"
+                UPDATE holds
+                SET item_id = $2, status = 'to_pick', pick_started_at = NOW()
+                WHERE id = $1 AND status = 'pending' AND item_id IS NULL
+                "#,
+            )
+            .bind(hold_id)
+            .bind(other)
+            .execute(&mut **tx)
+            .await
+            {
+                Ok(result) => {
+                    release_savepoint(tx).await?;
+                    if result.rows_affected() == 0 {
+                        return Ok(None);
+                    }
+                    return Ok(Some(other));
+                }
+                Err(e) if is_exclusive_assignment_violation(&e) => {
+                    rollback_savepoint(tx).await?;
+                    excluded.push(other);
+                }
+                Err(e) => return Err(e.into()),
+            }
+        }
+        Ok(None)
+    }
+
+    /// Give this on-shelf copy to the oldest unassigned title hold as `to_pick`.
+    pub(crate) async fn holds_offer_shelf_copy_to_next_pending_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        item_id: i64,
+    ) -> AppResult<Option<Hold>> {
+        let biblio_id: Option<i64> =
+            sqlx::query_scalar("SELECT biblio_id FROM items WHERE id = $1")
+                .bind(item_id)
+                .fetch_optional(&mut **tx)
+                .await?
+                .flatten();
+        let Some(biblio_id) = biblio_id else {
+            return Ok(None);
+        };
+        let eligible: Option<i64> = sqlx::query_scalar(
+            r#"
+            SELECT i.id
+            FROM items i
+            WHERE i.id = $1
+              AND i.archived_at IS NULL
+              AND i.weeding_status <> 'withdrawn'
+              AND i.borrowable = TRUE
+              AND COALESCE(i.circulation_status, 0) = 0
+              AND NOT EXISTS (
+                  SELECT 1 FROM loans l
+                  WHERE l.item_id = i.id AND l.returned_at IS NULL
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM holds h
+                  WHERE h.item_id = i.id
+                    AND h.status IN ('pending','to_pick','ready')
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM item_transits t
+                  WHERE t.item_id = i.id AND t.status IN ('requested', 'in_transit')
+              )
+            FOR UPDATE OF i SKIP LOCKED
+            "#,
+        )
+        .bind(item_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+        if eligible.is_none() {
+            return Ok(None);
+        }
+
+        let next = sqlx::query_as::<_, Hold>(
+            r#"
+            SELECT * FROM holds
+            WHERE biblio_id = $1
+              AND status = 'pending'
+              AND item_id IS NULL
+            ORDER BY position ASC, created_at ASC
+            FOR UPDATE SKIP LOCKED
+            LIMIT 1
+            "#,
+        )
+        .bind(biblio_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+        let Some(next) = next else {
+            return Ok(None);
+        };
+        savepoint(tx).await?;
+        let updated = match sqlx::query_as::<_, Hold>(
+            r#"
+            UPDATE holds
+            SET item_id = $2, status = 'to_pick', pick_started_at = NOW()
+            WHERE id = $1 AND status = 'pending' AND item_id IS NULL
+            RETURNING *
+            "#,
+        )
+        .bind(next.id)
+        .bind(item_id)
+        .fetch_optional(&mut **tx)
         .await
         {
-            Ok(row) => row,
-            Err(e) if is_active_hold_unique_violation(&e) => {
-                return Err(AppError::Conflict(active_hold_conflict_message(&e)));
+            Ok(row) => {
+                release_savepoint(tx).await?;
+                row
+            }
+            Err(e) if is_exclusive_assignment_violation(&e) => {
+                rollback_savepoint(tx).await?;
+                return Ok(None);
             }
             Err(e) => return Err(e.into()),
         };
+        Ok(updated)
+    }
 
+    /// Staff scanned a `to_pick` copy. Same site → `ready`. Other site → transit.
+    async fn holds_complete_to_pick_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        item_id: i64,
+    ) -> AppResult<Option<(Hold, bool)>> {
+        let hold = sqlx::query_as::<_, Hold>(
+            r#"
+            SELECT * FROM holds
+            WHERE item_id = $1 AND status = 'to_pick'
+            ORDER BY position ASC, created_at ASC
+            LIMIT 1
+            FOR UPDATE
+            "#,
+        )
+        .bind(item_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+        let Some(hold) = hold else {
+            return Ok(None);
+        };
+
+        let item_source_id: Option<i64> =
+            sqlx::query_scalar("SELECT source_id FROM items WHERE id = $1")
+                .bind(item_id)
+                .fetch_optional(&mut **tx)
+                .await?
+                .flatten();
+
+        let needs_transit = self
+            .transits_maybe_request_for_notify_tx(tx, &hold, item_id, item_source_id)
+            .await?;
+        if needs_transit {
+            let updated = sqlx::query_as::<_, Hold>(
+                r#"
+                UPDATE holds
+                SET status = 'pending', pick_started_at = NULL
+                WHERE id = $1 AND status = 'to_pick'
+                RETURNING *
+                "#,
+            )
+            .bind(hold.id)
+            .fetch_optional(&mut **tx)
+            .await?;
+            return Ok(updated.map(|h| (h, true)));
+        }
+
+        let expires_at = Utc::now() + chrono::Duration::days(self.hold_ready_expiry_days() as i64);
+        let updated = match sqlx::query_as::<_, Hold>(
+            r#"
+            UPDATE holds
+            SET status = 'ready', notified_at = NOW(), expires_at = $2, pick_started_at = NULL
+            WHERE id = $1 AND status = 'to_pick'
+            RETURNING *
+            "#,
+        )
+        .bind(hold.id)
+        .bind(expires_at)
+        .fetch_optional(&mut **tx)
+        .await
+        {
+            Ok(row) => row,
+            Err(e) if is_exclusive_assignment_violation(&e) => {
+                return Err(AppError::Conflict(
+                    "This copy is already assigned to another hold".to_string(),
+                ));
+            }
+            Err(e) => return Err(e.into()),
+        };
+        Ok(updated.map(|h| (h, false)))
+    }
+
+    /// Check in a barcode that is not on loan. Completes a `to_pick` hold when one is assigned.
+    pub async fn holds_complete_to_pick_by_identification(
+        &self,
+        identification: &str,
+    ) -> AppResult<Option<crate::models::dto::holds::ToPickCompletion>> {
+        let mut tx = self.pool.begin().await?;
+        let item: Option<(i64, Option<String>, Option<String>)> = sqlx::query_as(
+            r#"
+            SELECT i.id, i.barcode, b.title
+            FROM items i
+            JOIN biblios b ON b.id = i.biblio_id
+            WHERE i.barcode = $1 AND i.archived_at IS NULL
+            FOR UPDATE OF i
+            "#,
+        )
+        .bind(identification)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some((item_id, barcode, title)) = item else {
+            return Ok(None);
+        };
+        let Some((hold, transit_started)) =
+            self.holds_complete_to_pick_tx(&mut tx, item_id).await?
+        else {
+            return Ok(None);
+        };
+        let (destination_site_id, destination_site_name) = if transit_started {
+            destination_site(&mut tx, hold.pickup_site_id).await?
+        } else {
+            (None, None)
+        };
         tx.commit().await?;
-        Ok(row)
+        Ok(Some(crate::models::dto::holds::ToPickCompletion {
+            hold,
+            title,
+            barcode,
+            transit_started,
+            destination_site_id,
+            destination_site_name,
+        }))
+    }
+
+    /// `to_pick` holds for the staff pick list. `site_id` is the copy's current site.
+    /// Sorted by call number. `overdue` is informational; nothing expires automatically.
+    pub async fn holds_list_pick(
+        &self,
+        site_id: Option<i64>,
+    ) -> AppResult<Vec<crate::models::dto::holds::HoldPickListItem>> {
+        let delay = self.holds_get_pick_delay_days().await?;
+        let rows = sqlx::query(
+            r#"
+            SELECT
+                h.id AS hold_id,
+                h.item_id,
+                i.barcode,
+                i.call_number,
+                b.title,
+                h.user_id,
+                COALESCE(
+                    NULLIF(btrim(concat_ws(' ', u.firstname, u.lastname)), ''),
+                    h.user_id::text
+                ) AS user_name,
+                h.pickup_site_id,
+                pickup.name AS pickup_site_name,
+                COALESCE(h.pick_started_at, h.created_at) AS pick_started_at,
+                COALESCE(h.pick_started_at, h.created_at)
+                    + make_interval(days => $2::int) AS pick_due_at,
+                (COALESCE(h.pick_started_at, h.created_at)
+                    + make_interval(days => $2::int)) < NOW() AS overdue
+            FROM holds h
+            JOIN items i ON i.id = h.item_id
+            JOIN biblios b ON b.id = h.biblio_id
+            LEFT JOIN users u ON u.id = h.user_id
+            LEFT JOIN sources pickup ON pickup.id = h.pickup_site_id
+            WHERE h.status = 'to_pick'
+              AND ($1::bigint IS NULL OR i.source_id = $1)
+            ORDER BY i.call_number ASC NULLS LAST, h.id ASC
+            "#,
+        )
+        .bind(site_id)
+        .bind(i32::from(delay))
+        .fetch_all(&self.pool)
+        .await?;
+
+        let items = rows
+            .iter()
+            .map(|row| crate::models::dto::holds::HoldPickListItem {
+                hold_id: row.get("hold_id"),
+                item_id: row.get("item_id"),
+                barcode: row.get("barcode"),
+                call_number: row.get("call_number"),
+                title: row.get::<Option<String>, _>("title").unwrap_or_default(),
+                user_id: row.get("user_id"),
+                user_name: row.get("user_name"),
+                pickup_site_id: row.get("pickup_site_id"),
+                pickup_site_name: row.get("pickup_site_name"),
+                pick_started_at: row.get("pick_started_at"),
+                pick_due_at: row.get("pick_due_at"),
+                overdue: row.get("overdue"),
+            })
+            .collect();
+        Ok(items)
+    }
+
+    /// Staff could not find the assigned copy. The copy becomes `to_search`
+    /// (not lendable, not assignable). The hold moves to another shelf copy
+    /// as `to_pick`, or back to `pending` when none is free.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn holds_pick_not_found(
+        &self,
+        id: i64,
+    ) -> AppResult<crate::models::dto::holds::PickNotFoundOutcome> {
+        let mut tx = self.pool.begin().await?;
+        let hold = sqlx::query_as::<_, Hold>("SELECT * FROM holds WHERE id = $1 FOR UPDATE")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Hold {id} not found")))?;
+        if hold.status != HoldStatus::ToPick {
+            return Err(AppError::BusinessRule(
+                "Only a to_pick hold can be marked not found on the shelf".to_string(),
+            ));
+        }
+        let Some(item_id) = hold.item_id else {
+            return Err(AppError::BusinessRule(
+                "to_pick hold has no assigned copy".to_string(),
+            ));
+        };
+
+        let marked = sqlx::query(
+            r#"
+            UPDATE items
+            SET circulation_status = $2, borrowable = FALSE, updated_at = NOW()
+            WHERE id = $1 AND archived_at IS NULL
+            "#,
+        )
+        .bind(item_id)
+        .bind(crate::models::circulation::CirculationStatus::TO_SEARCH)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if marked == 0 {
+            return Err(AppError::NotFound(format!("Item {item_id} not found")));
+        }
+
+        sqlx::query(
+            r#"
+            UPDATE holds
+            SET status = 'pending', item_id = NULL, pick_started_at = NULL
+            WHERE id = $1 AND status = 'to_pick'
+            "#,
+        )
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+
+        self.holds_reassign_pending_to_shelf_tx(
+            &mut tx,
+            id,
+            hold.biblio_id,
+            &[item_id],
+            hold.pickup_site_id,
+        )
+        .await?;
+
+        let updated = sqlx::query_as::<_, Hold>("SELECT * FROM holds WHERE id = $1")
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(crate::models::dto::holds::PickNotFoundOutcome {
+            hold: updated,
+            item_id,
+        })
+    }
+
+    /// Scan of a copy that was marked missing (`to_search`). Returns it to the
+    /// shelf and offers it to the queue the same way a return does (`ready` or transit).
+    pub async fn holds_recover_to_search_by_identification(
+        &self,
+        identification: &str,
+    ) -> AppResult<Option<crate::models::dto::holds::ShelfFound>> {
+        let mut tx = self.pool.begin().await?;
+        let item: Option<ToSearchItemRow> = sqlx::query_as(
+            r#"
+            SELECT i.id, i.barcode, b.title, i.circulation_status
+            FROM items i
+            JOIN biblios b ON b.id = i.biblio_id
+            WHERE i.barcode = $1 AND i.archived_at IS NULL
+            FOR UPDATE OF i
+            "#,
+        )
+        .bind(identification)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(item) = item else {
+            return Ok(None);
+        };
+        let item_id = item.id;
+        let barcode = item.barcode;
+        let title = item.title;
+        let status = item.circulation_status;
+        if crate::models::circulation::CirculationStatus::from_db(status)
+            != crate::models::circulation::CirculationStatus::ToSearch
+        {
+            return Ok(None);
+        }
+
+        sqlx::query(
+            r#"
+            UPDATE items
+            SET circulation_status = 0, borrowable = TRUE, updated_at = NOW()
+            WHERE id = $1
+            "#,
+        )
+        .bind(item_id)
+        .execute(&mut *tx)
+        .await?;
+
+        let readied = self
+            .holds_notify_next_tx(&mut tx, item_id, self.hold_ready_expiry_days())
+            .await?;
+        let transit: Option<(i64, Option<String>)> = sqlx::query_as(
+            r#"
+            SELECT t.to_source_id, src.name
+            FROM item_transits t
+            LEFT JOIN sources src ON src.id = t.to_source_id
+            WHERE t.item_id = $1 AND t.status IN ('requested', 'in_transit')
+            LIMIT 1
+            "#,
+        )
+        .bind(item_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let hold = if readied.is_some() {
+            readied
+        } else if transit.is_some() {
+            sqlx::query_as::<_, Hold>(
+                r#"
+                SELECT * FROM holds
+                WHERE item_id = $1 AND status = 'pending'
+                ORDER BY position ASC, created_at ASC
+                LIMIT 1
+                "#,
+            )
+            .bind(item_id)
+            .fetch_optional(&mut *tx)
+            .await?
+        } else {
+            None
+        };
+        let (destination_site_id, destination_site_name) = match transit {
+            Some((site_id, name)) => (Some(site_id), name),
+            None => (None, None),
+        };
+        tx.commit().await?;
+        Ok(Some(crate::models::dto::holds::ShelfFound {
+            hold,
+            title,
+            barcode,
+            transit_started: destination_site_id.is_some(),
+            destination_site_id,
+            destination_site_name,
+        }))
     }
 
     #[tracing::instrument(skip(self), err)]
@@ -827,7 +1518,9 @@ impl Repository {
         .ok_or_else(|| AppError::NotFound(format!("Pending hold {id} not found")))
     }
 
-    /// Cancel a hold. If it was `ready`, promote the next pending patron in the same transaction.
+    /// Cancel a hold. A `ready` (or in-transit `pending`) hold promotes the next
+    /// patron on that copy. A `to_pick` hold frees the shelf copy for the next
+    /// unassigned title hold, still as `to_pick` (no notification).
     #[tracing::instrument(skip(self), err)]
     pub async fn holds_cancel(&self, id: i64) -> AppResult<Hold> {
         let mut tx = self.pool.begin().await?;
@@ -875,7 +1568,14 @@ impl Repository {
             }
         }
 
-        if !reversed && matches!(current.status, HoldStatus::Ready | HoldStatus::Pending) {
+        if current.status == HoldStatus::ToPick {
+            // The copy is still on the shelf. Offer it to the next unassigned
+            // title hold as `to_pick`, without notifying anyone.
+            if let Some(item_id) = current.item_id {
+                self.holds_offer_shelf_copy_to_next_pending_tx(&mut tx, item_id)
+                    .await?;
+            }
+        } else if !reversed && matches!(current.status, HoldStatus::Ready | HoldStatus::Pending) {
             if let Some(item_id) = current.item_id {
                 self.holds_notify_next_tx(&mut tx, item_id, self.hold_ready_expiry_days())
                     .await?;
@@ -918,7 +1618,7 @@ impl Repository {
     #[tracing::instrument(skip(self), err)]
     pub async fn holds_count_for_item(&self, item_id: i64) -> AppResult<i64> {
         let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM holds WHERE item_id = $1 AND status IN ('pending','ready')",
+            "SELECT COUNT(*) FROM holds WHERE item_id = $1 AND status IN ('pending','to_pick','ready')",
         )
         .bind(item_id)
         .fetch_one(&self.pool)
@@ -957,14 +1657,15 @@ impl Repository {
         if ready.is_some() {
             return Ok(ready);
         }
+        // Only a hold already assigned to this copy reserves it. An unassigned
+        // title hold waits for the next return and does not block shelf copies.
         let next: Option<i64> = sqlx::query_scalar(
             r#"
             SELECT h.user_id FROM holds h
-            JOIN items i ON i.biblio_id = h.biblio_id
-            WHERE i.id = $1
-              AND h.status = 'pending'
-              AND (h.item_id IS NULL OR h.item_id = $1)
-            ORDER BY h.position ASC, h.created_at ASC
+            WHERE h.item_id = $1
+              AND h.status IN ('pending','to_pick','ready')
+            ORDER BY CASE h.status WHEN 'ready' THEN 0 WHEN 'to_pick' THEN 1 ELSE 2 END,
+                     h.position ASC, h.created_at ASC
             LIMIT 1
             "#,
         )
@@ -974,8 +1675,9 @@ impl Repository {
         Ok(next)
     }
 
-    /// Whether another patron has a `pending` or `ready` hold on this copy.
-    /// Locks active hold rows so renew serializes with checkout and hold updates.
+    /// Whether another patron has a hold assigned to this copy (`pending` pin, `to_pick`, or `ready`).
+    /// An unassigned title hold does not block renewal. Locks those rows so renew
+    /// serializes with checkout and hold updates.
     #[tracing::instrument(skip(self, tx), err)]
     pub async fn holds_has_waiting_patron_tx(
         &self,
@@ -986,14 +1688,9 @@ impl Repository {
         let user_ids: Vec<i64> = sqlx::query_scalar(
             r#"
             SELECT h.user_id FROM holds h
-            JOIN items i ON i.biblio_id = h.biblio_id
-            WHERE i.id = $1
-              AND h.status IN ('pending', 'ready')
-              AND (
-                    (h.status = 'ready' AND h.item_id = $1)
-                    OR (h.status = 'pending' AND (h.item_id IS NULL OR h.item_id = $1))
-                  )
-            ORDER BY CASE h.status WHEN 'ready' THEN 0 ELSE 1 END,
+            WHERE h.item_id = $1
+              AND h.status IN ('pending','to_pick','ready')
+            ORDER BY CASE h.status WHEN 'ready' THEN 0 WHEN 'to_pick' THEN 1 ELSE 2 END,
                      h.position ASC, h.created_at ASC
             FOR UPDATE OF h
             "#,
@@ -1015,14 +1712,9 @@ impl Repository {
         let user_ids: Vec<i64> = sqlx::query_scalar(
             r#"
             SELECT h.user_id FROM holds h
-            JOIN items i ON i.biblio_id = h.biblio_id
-            WHERE i.id = $1
-              AND h.status IN ('pending', 'ready')
-              AND (
-                    (h.status = 'ready' AND h.item_id = $1)
-                    OR (h.status = 'pending' AND (h.item_id IS NULL OR h.item_id = $1))
-                  )
-            ORDER BY CASE h.status WHEN 'ready' THEN 0 ELSE 1 END,
+            WHERE h.item_id = $1
+              AND h.status IN ('pending','to_pick','ready')
+            ORDER BY CASE h.status WHEN 'ready' THEN 0 WHEN 'to_pick' THEN 1 ELSE 2 END,
                      h.position ASC, h.created_at ASC
             FOR UPDATE OF h
             "#,
@@ -1048,7 +1740,7 @@ impl Repository {
                 SELECT h.id FROM holds h
                 JOIN items i ON i.id = $2
                 WHERE h.user_id = $1
-                  AND h.status IN ('pending','ready')
+                  AND h.status IN ('pending','to_pick','ready')
                   AND (h.item_id = $2 OR (h.item_id IS NULL AND h.biblio_id = i.biblio_id))
                 ORDER BY CASE WHEN h.item_id IS NOT NULL THEN 0 ELSE 1 END
                 LIMIT 1
@@ -1071,6 +1763,10 @@ impl Repository {
         tx: &mut sqlx::Transaction<'_, Postgres>,
         item_id: i64,
     ) -> AppResult<u64> {
+        self.holds_release_to_pick_assignments_tx(tx, item_id)
+            .await?;
+        // `to_pick` rows were detached above. Cancel only holds still pinned here
+        // (`ready`, or a copy-level `pending`).
         let r = sqlx::query("UPDATE holds SET status = 'cancelled' WHERE item_id = $1 AND status IN ('pending','ready')")
             .bind(item_id)
             .execute(&mut **tx)
@@ -1154,7 +1850,7 @@ impl Repository {
             r#"
             SELECT EXISTS(
                 SELECT 1 FROM holds
-                WHERE user_id = $1 AND item_id = $2 AND status IN ('pending','ready')
+                WHERE user_id = $1 AND item_id = $2 AND status IN ('pending','to_pick','ready')
             )
             "#,
         )
@@ -1176,7 +1872,7 @@ impl Repository {
             r#"
             SELECT EXISTS(
                 SELECT 1 FROM holds
-                WHERE user_id = $1 AND biblio_id = $2 AND status IN ('pending','ready')
+                WHERE user_id = $1 AND biblio_id = $2 AND status IN ('pending','to_pick','ready')
             )
             "#,
         )
@@ -1199,7 +1895,7 @@ impl Repository {
             SELECT EXISTS(
                 SELECT 1 FROM holds
                 WHERE user_id = $1 AND biblio_id = $2
-                  AND item_id IS NULL AND status IN ('pending','ready')
+                  AND item_id IS NULL AND status IN ('pending','to_pick','ready')
             )
             "#,
         )
@@ -1225,7 +1921,7 @@ impl Repository {
         let count: i64 = sqlx::query_scalar(
             r#"
             SELECT COUNT(*)::bigint FROM holds
-            WHERE biblio_id = $1 AND status IN ('pending','ready')
+            WHERE biblio_id = $1 AND status IN ('pending','to_pick','ready')
             "#,
         )
         .bind(biblio_id)
@@ -1238,7 +1934,7 @@ impl Repository {
     #[tracing::instrument(skip(self), err)]
     pub async fn holds_count_active_for_user(&self, user_id: i64) -> AppResult<i64> {
         let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM holds WHERE user_id = $1 AND status IN ('pending','ready')",
+            "SELECT COUNT(*) FROM holds WHERE user_id = $1 AND status IN ('pending','to_pick','ready')",
         )
         .bind(user_id)
         .fetch_one(&self.pool)
@@ -1293,6 +1989,116 @@ impl Repository {
         .fetch_one(&self.pool)
         .await?;
         Ok(max)
+    }
+
+    #[tracing::instrument(skip(self), err)]
+    pub async fn holds_get_pick_delay_days(&self) -> AppResult<i16> {
+        let days: Option<i16> =
+            sqlx::query_scalar("SELECT pick_delay_days FROM circulation_settings WHERE id = 1")
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(days.unwrap_or(crate::models::hold::DEFAULT_PICK_DELAY_DAYS))
+    }
+
+    #[tracing::instrument(skip(self), err)]
+    pub async fn holds_set_pick_delay_days(&self, pick_delay_days: i16) -> AppResult<i16> {
+        let days: i16 = sqlx::query_scalar(
+            r#"
+            INSERT INTO circulation_settings (id, pick_delay_days)
+            VALUES (1, $1)
+            ON CONFLICT (id) DO UPDATE SET pick_delay_days = EXCLUDED.pick_delay_days
+            RETURNING pick_delay_days
+            "#,
+        )
+        .bind(pick_delay_days)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(days)
+    }
+
+    /// Winning reservation on this copy, if any, with the patron display name.
+    pub async fn holds_item_reserve_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        item_id: i64,
+    ) -> AppResult<Option<(i64, i64, HoldStatus, String)>> {
+        let row = sqlx::query_as(
+            r#"
+            SELECT h.id, h.user_id, h.status,
+                   COALESCE(
+                       NULLIF(btrim(concat_ws(' ', u.firstname, u.lastname)), ''),
+                       h.user_id::text
+                   )
+            FROM holds h
+            LEFT JOIN users u ON u.id = h.user_id
+            WHERE h.item_id = $1
+              AND h.status IN ('pending','to_pick','ready')
+            ORDER BY CASE h.status WHEN 'ready' THEN 0 WHEN 'to_pick' THEN 1 ELSE 2 END,
+                     h.position ASC, h.created_at ASC
+            LIMIT 1
+            FOR UPDATE OF h
+            "#,
+        )
+        .bind(item_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+        Ok(row)
+    }
+}
+
+/// Unique indexes — last line of defense if two inserts race.
+const HOLD_ASSIGN_SAVEPOINT: &str = "hold_assign_copy";
+
+#[derive(sqlx::FromRow)]
+struct ToSearchItemRow {
+    id: i64,
+    barcode: Option<String>,
+    title: Option<String>,
+    circulation_status: Option<i16>,
+}
+
+async fn savepoint(tx: &mut sqlx::Transaction<'_, Postgres>) -> AppResult<()> {
+    sqlx::query(&format!("SAVEPOINT {HOLD_ASSIGN_SAVEPOINT}"))
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+async fn release_savepoint(tx: &mut sqlx::Transaction<'_, Postgres>) -> AppResult<()> {
+    sqlx::query(&format!("RELEASE SAVEPOINT {HOLD_ASSIGN_SAVEPOINT}"))
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+async fn rollback_savepoint(tx: &mut sqlx::Transaction<'_, Postgres>) -> AppResult<()> {
+    sqlx::query(&format!("ROLLBACK TO SAVEPOINT {HOLD_ASSIGN_SAVEPOINT}"))
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+async fn destination_site(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    site_id: Option<i64>,
+) -> AppResult<(Option<i64>, Option<String>)> {
+    let Some(site_id) = site_id else {
+        return Ok((None, None));
+    };
+    let name: Option<String> = sqlx::query_scalar("SELECT name FROM sources WHERE id = $1")
+        .bind(site_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+    Ok((Some(site_id), name))
+}
+
+pub(super) fn is_exclusive_assignment_violation(err: &sqlx::Error) -> bool {
+    match err {
+        sqlx::Error::Database(db) => {
+            db.code().as_deref() == Some("23505")
+                && db.constraint() == Some("idx_holds_one_exclusive_assignment_per_item")
+        }
+        _ => false,
     }
 }
 
