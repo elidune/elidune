@@ -13,10 +13,15 @@ port = 8080
 # (several desks behind one NAT).
 # auth_ip_per_minute = 30
 # auth_ip_burst = 30
-# Per login/email: 5 failures per 15 minutes. Temporary block, not an account lockout.
+# Per login/email: 5 failed sign-ins per 15 minutes. Password-reset requests do
+# not use this counter. Temporary block, not an account lockout.
 # Staff clear it with DELETE /api/v1/auth/rate-limit/{login} (librarian/admin, users write).
 # auth_identifier_max_failures = 5
 # auth_identifier_window_secs = 900
+# Password-reset requests: 3 per hour per login/email, on top of the per-IP cap.
+# Over the quota the API still returns the generic 200 and sends no mail.
+# auth_password_reset_max = 3
+# auth_password_reset_window_secs = 3600
 # Authenticated /auth/me, /auth/profile, … keyed by user id. Not the strict IP cap.
 # auth_session_per_minute = 120
 # auth_session_burst = 60

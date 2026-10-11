@@ -319,3 +319,134 @@ async fn missing_template_and_public_base_url_sends_nothing_and_stays_generic() 
         "no email when the link cannot be built"
     );
 }
+
+fn reset_options(login_max: u32, reset_max: u32) -> elidune_server::AppBuildOptions {
+    let mut options = elidune_server::AppBuildOptions::for_tests();
+    options.auth_identifier_max_failures = Some(login_max);
+    options.auth_identifier_window_secs = Some(900);
+    options.auth_password_reset_max = Some(reset_max);
+    options.auth_password_reset_window_secs = Some(3600);
+    options
+}
+
+#[tokio::test]
+async fn five_reset_requests_do_not_block_login() {
+    let (port, mail) = spawn_smtp();
+    let Some(app) = TestApp::spawn_with_config(
+        config_for_reset(None, Some(PUBLIC_BASE), port),
+        reset_options(3, 10),
+    )
+    .await
+    else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (_, login) = reader_login(&app, &admin_token, "resetlogin").await;
+
+    for _ in 0..5 {
+        let (status, body) = app
+            .post_json(
+                "/api/v1/auth/request-password-reset",
+                &json!({ "identifier": login }),
+                None,
+            )
+            .await;
+        assert_accepted(status, &body);
+        mail.recv_timeout(Duration::from_secs(5))
+            .expect("each request under the reset quota sends mail");
+    }
+
+    let (status, body) = app
+        .post_json(
+            "/api/v1/auth/login",
+            &json!({ "username": login, "password": "readerpass1234" }),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body.get("token").is_some(), "{body}");
+}
+
+#[tokio::test]
+async fn fourth_reset_request_sends_no_mail_and_stays_generic() {
+    let (port, mail) = spawn_smtp();
+    let Some(app) = TestApp::spawn_with_config(
+        config_for_reset(None, Some(PUBLIC_BASE), port),
+        reset_options(100, 3),
+    )
+    .await
+    else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (user_id, login) = reader_login(&app, &admin_token, "resetcap").await;
+
+    for _ in 0..3 {
+        let (status, body) = app
+            .post_json(
+                "/api/v1/auth/request-password-reset",
+                &json!({ "identifier": login }),
+                None,
+            )
+            .await;
+        assert_accepted(status, &body);
+        mail.recv_timeout(Duration::from_secs(5))
+            .expect("mail within the quota");
+    }
+    let nonce = reset_nonce(&app, user_id).await;
+
+    let (status, body) = app
+        .post_json(
+            "/api/v1/auth/request-password-reset",
+            &json!({ "identifier": login }),
+            None,
+        )
+        .await;
+    assert_accepted(status, &body);
+    assert_ne!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(reset_nonce(&app, user_id).await, nonce, "no token issued");
+    assert!(
+        mail.recv_timeout(Duration::from_millis(400)).is_err(),
+        "quota must not send another email"
+    );
+}
+
+#[tokio::test]
+async fn unknown_account_gets_the_same_generic_success() {
+    let (port, mail) = spawn_smtp();
+    let Some(app) = TestApp::spawn_with_config(
+        config_for_reset(None, Some(PUBLIC_BASE), port),
+        reset_options(100, 10),
+    )
+    .await
+    else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (_, login) = reader_login(&app, &admin_token, "resetknown").await;
+
+    let (known_status, known_body) = app
+        .post_json(
+            "/api/v1/auth/request-password-reset",
+            &json!({ "identifier": login }),
+            None,
+        )
+        .await;
+    assert_accepted(known_status, &known_body);
+    mail.recv_timeout(Duration::from_secs(5))
+        .expect("known account is mailed");
+
+    let (status, body) = app
+        .post_json(
+            "/api/v1/auth/request-password-reset",
+            &json!({ "identifier": "nobody-quota@example.com" }),
+            None,
+        )
+        .await;
+    assert_accepted(status, &body);
+    assert_eq!(body, known_body);
+    assert!(
+        mail.recv_timeout(Duration::from_millis(400)).is_err(),
+        "unknown account sends no mail"
+    );
+}

@@ -651,4 +651,23 @@ mod tests {
             "{description}"
         );
     }
+
+    #[test]
+    fn password_reset_request_documents_only_the_generic_response() {
+        let doc = ApiDoc::openapi();
+        let value = serde_json::to_value(&doc).expect("openapi json");
+        let paths = value["paths"].as_object().expect("paths");
+        let (_path, item) = paths
+            .iter()
+            .find(|(path, _)| path.ends_with("request-password-reset"))
+            .expect("request-password-reset");
+        let responses = &item["post"]["responses"];
+        assert!(responses.get("404").is_none(), "{responses}");
+        assert!(responses.get("429").is_none(), "{responses}");
+        let description = responses["200"]["description"].as_str().unwrap_or("");
+        assert!(
+            description.to_ascii_lowercase().contains("generic"),
+            "{description}"
+        );
+    }
 }

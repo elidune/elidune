@@ -12,8 +12,8 @@ use tower_http::trace::TraceLayer;
 
 use crate::error::rate_limited_response;
 use crate::rate_limit::{
-    parse_trusted_proxies, replenish_period, AuthAttemptLimiter, SessionKeyExtractor,
-    TrustedProxyKeyExtractor,
+    parse_trusted_proxies, replenish_period, AuthAttemptLimiter, PasswordResetAttemptLimiter,
+    SessionKeyExtractor, TrustedProxyKeyExtractor,
 };
 use crate::{api, config::AppConfig, AppState};
 
@@ -28,6 +28,10 @@ pub struct AppBuildOptions {
     pub auth_identifier_max_failures: Option<u32>,
     /// Override per-identifier window, in seconds. `None` uses `AppConfig`.
     pub auth_identifier_window_secs: Option<u64>,
+    /// Override password-reset request quota. `None` uses `AppConfig`.
+    pub auth_password_reset_max: Option<u32>,
+    /// Override password-reset window, in seconds. `None` uses `AppConfig`.
+    pub auth_password_reset_window_secs: Option<u64>,
     /// Override authenticated auth-route quota (requests per minute, per user). `None` uses `AppConfig`.
     pub auth_session_per_minute: Option<u64>,
     /// Override authenticated auth-route burst. `None` uses `AppConfig`.
@@ -51,6 +55,8 @@ impl Default for AppBuildOptions {
             auth_ip_burst: None,
             auth_identifier_max_failures: None,
             auth_identifier_window_secs: None,
+            auth_password_reset_max: None,
+            auth_password_reset_window_secs: None,
             auth_session_per_minute: None,
             auth_session_burst: None,
             public_per_minute: None,
@@ -70,6 +76,8 @@ impl AppBuildOptions {
             auth_ip_burst: Some(10_000),
             auth_identifier_max_failures: Some(100_000),
             auth_identifier_window_secs: Some(60),
+            auth_password_reset_max: Some(10_000),
+            auth_password_reset_window_secs: Some(3600),
             auth_session_per_minute: Some(10_000),
             auth_session_burst: Some(10_000),
             public_per_minute: Some(10_000),
@@ -114,6 +122,15 @@ pub fn build_app_with_options(state: AppState, options: AppBuildOptions) -> Rout
             .unwrap_or(server_cfg.auth_identifier_window_secs)
             .max(1),
     );
+    let reset_max = options
+        .auth_password_reset_max
+        .unwrap_or(server_cfg.auth_password_reset_max);
+    let reset_window = Duration::from_secs(
+        options
+            .auth_password_reset_window_secs
+            .unwrap_or(server_cfg.auth_password_reset_window_secs)
+            .max(1),
+    );
 
     let trusted = match parse_trusted_proxies(server_cfg.trusted_proxies.as_deref()) {
         Ok(nets) => Arc::new(nets),
@@ -121,6 +138,7 @@ pub fn build_app_with_options(state: AppState, options: AppBuildOptions) -> Rout
     };
     let jwt_secret: Arc<str> = Arc::from(state.config.users.jwt_secret.as_str());
     let attempts = Arc::new(AuthAttemptLimiter::new(identifier_max, identifier_window));
+    let resets = Arc::new(PasswordResetAttemptLimiter::new(reset_max, reset_window));
 
     let auth_ip_governor: &'static _ = Box::leak(Box::new(finish_ip_governor(
         auth_ip_per_minute,
@@ -144,12 +162,14 @@ pub fn build_app_with_options(state: AppState, options: AppBuildOptions) -> Rout
         let session_limiter = session_governor.limiter().clone();
         let public_limiter = public_governor.limiter().clone();
         let attempts_cleanup = Arc::clone(&attempts);
+        let resets_cleanup = Arc::clone(&resets);
         std::thread::spawn(move || loop {
             std::thread::sleep(Duration::from_secs(60));
             auth_limiter.retain_recent();
             session_limiter.retain_recent();
             public_limiter.retain_recent();
             attempts_cleanup.prune();
+            resets_cleanup.prune();
         });
     }
 
@@ -159,13 +179,15 @@ pub fn build_app_with_options(state: AppState, options: AppBuildOptions) -> Rout
         .layer(GovernorLayer {
             config: auth_ip_governor,
         })
-        .layer(Extension(Arc::clone(&attempts)));
+        .layer(Extension(Arc::clone(&attempts)))
+        .layer(Extension(Arc::clone(&resets)));
 
     let session_router = api::auth::session_router()
         .layer(GovernorLayer {
             config: session_governor,
         })
-        .layer(Extension(attempts));
+        .layer(Extension(attempts))
+        .layer(Extension(resets));
 
     let public_router = Router::new()
         .merge(api::opac::router())

@@ -17,7 +17,7 @@ use crate::error::{ErrorResponse, RateLimitedBody};
 use crate::models::user::EventsConsentSource;
 use crate::models::Language;
 use crate::models::PlaintextPassword;
-use crate::rate_limit::{normalize_identifier, AuthAttemptLimiter};
+use crate::rate_limit::{normalize_identifier, AuthAttemptLimiter, PasswordResetAttemptLimiter};
 use crate::services::audit;
 
 use super::ClientIp;
@@ -350,10 +350,10 @@ pub async fn login(
     }))
 }
 
-/// Clear the temporary per-identifier auth block for a login or email.
+/// Clear the temporary per-identifier sign-in block and reset-request quota.
 ///
 /// Librarian or admin, with `users_rights` write. The value is normalized
-/// the same way as login and password-reset attempts (trim + lowercase).
+/// the same way as login attempts (trim + lowercase).
 #[utoipa::path(
     delete,
     path = "/auth/rate-limit/{login}",
@@ -373,6 +373,7 @@ pub async fn clear_auth_rate_limit(
     StaffUser(claims): StaffUser,
     ClientIp(ip): ClientIp,
     Extension(attempts): Extension<Arc<AuthAttemptLimiter>>,
+    Extension(resets): Extension<Arc<PasswordResetAttemptLimiter>>,
     Path(login): Path<String>,
 ) -> AppResult<StatusCode> {
     claims.require_write_users()?;
@@ -381,6 +382,7 @@ pub async fn clear_auth_rate_limit(
         return Err(AppError::Validation("login is required".to_string()));
     }
     attempts.clear(&identifier);
+    resets.clear(&identifier);
     state.services.audit.log(
         audit::event::AUTH_RATE_LIMIT_CLEARED,
         Some(claims.user_id),
@@ -601,18 +603,22 @@ pub async fn verify_recovery(
     tag = "auth",
     request_body = RequestPasswordResetRequest,
     responses(
-        (status = 200, description = "Reset email sent", body = RequestPasswordResetResponse),
-        (status = 400, description = "Invalid input (for example no email on the account)", body = ErrorResponse),
-        (status = 404, description = "No account for this login or email", body = ErrorResponse)
+        (status = 200, description = "Generic acceptance. The same response is returned whether or not an account exists, mail was sent, or the reset quota is exhausted.", body = RequestPasswordResetResponse),
+        (status = 400, description = "Malformed input", body = ErrorResponse)
     )
 )]
 pub async fn request_password_reset(
     State(state): State<crate::AppState>,
     ClientIp(ip): ClientIp,
+    Extension(resets): Extension<Arc<PasswordResetAttemptLimiter>>,
     ValidatedJson(request): ValidatedJson<RequestPasswordResetRequest>,
 ) -> AppResult<Json<RequestPasswordResetResponse>> {
-    // Per-identifier login failures are not counted here. A reset request must
-    // not lock sign-in. `request.reset_url` is ignored, including for logging.
+    // Sign-in failures are not counted here. `request.reset_url` is ignored.
+    if resets.retry_after(&request.identifier).is_some() {
+        return Ok(password_reset_accepted());
+    }
+    resets.record(&request.identifier);
+
     let public_base = crate::password_reset_link::configured_public_base(&state.config.server);
     let link = match crate::password_reset_link::plan_password_reset_link(
         state.config.users.password_reset_url_template.as_deref(),
@@ -625,11 +631,20 @@ pub async fn request_password_reset(
         }
     };
 
-    let (email, token, lang, user_id) = state
+    let (email, token, lang, user_id) = match state
         .services
         .users
         .request_password_reset(&request.identifier)
-        .await?;
+        .await
+    {
+        Ok(issued) => issued,
+        // Same body as success so the route does not reveal whether the account exists.
+        Err(AppError::NotFound(_)) => return Ok(password_reset_accepted()),
+        Err(AppError::Validation(message)) if message.contains("No email") => {
+            return Ok(password_reset_accepted());
+        }
+        Err(err) => return Err(err),
+    };
 
     let reset_url = crate::password_reset_link::render_password_reset_url(&link, &token);
 

@@ -333,6 +333,52 @@ impl AuthAttemptLimiter {
     }
 }
 
+/// Password-reset requests, keyed `reset:{normalized identifier}`.
+///
+/// Separate from [`AuthAttemptLimiter`] so requesting a reset link cannot
+/// fill the sign-in failure window. The HTTP handler answers with the same
+/// generic 200 once the quota is full; this type only tracks the window.
+#[derive(Debug)]
+pub struct PasswordResetAttemptLimiter {
+    inner: AuthAttemptLimiter,
+}
+
+impl PasswordResetAttemptLimiter {
+    #[must_use]
+    pub fn new(max_requests: u32, window: Duration) -> Self {
+        Self {
+            inner: AuthAttemptLimiter::new(max_requests, window),
+        }
+    }
+
+    fn key(identifier: &str) -> String {
+        let id = normalize_identifier(identifier);
+        if id.is_empty() {
+            String::new()
+        } else {
+            format!("reset:{id}")
+        }
+    }
+
+    /// Seconds until another reset request is inside the quota, when full.
+    #[must_use]
+    pub fn retry_after(&self, identifier: &str) -> Option<u64> {
+        self.inner.retry_after(&Self::key(identifier))
+    }
+
+    pub fn record(&self, identifier: &str) {
+        self.inner.record_failure(&Self::key(identifier));
+    }
+
+    pub fn clear(&self, identifier: &str) {
+        self.inner.clear(&Self::key(identifier));
+    }
+
+    pub fn prune(&self) {
+        self.inner.prune();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -540,6 +586,20 @@ mod tests {
         assert_eq!(limiter.retry_after(&victim), None);
         limiter.clear("");
         limiter.prune();
+    }
+
+    #[test]
+    fn reset_requests_use_their_own_counter() {
+        let login = AuthAttemptLimiter::new(3, Duration::from_secs(900));
+        let resets = PasswordResetAttemptLimiter::new(3, Duration::from_secs(3600));
+        for _ in 0..3 {
+            assert_eq!(resets.retry_after(" Ada@Example.com "), None);
+            resets.record(" Ada@Example.com ");
+        }
+        assert!(resets.retry_after("ada@example.com").is_some());
+        assert_eq!(login.retry_after("ada@example.com"), None);
+        resets.clear("ADA@example.com");
+        assert_eq!(resets.retry_after("ada@example.com"), None);
     }
 
     #[test]

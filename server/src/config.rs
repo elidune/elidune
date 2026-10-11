@@ -27,15 +27,25 @@ pub struct ServerConfig {
     /// Burst for [`Self::auth_ip_per_minute`]. Default: 30.
     #[serde(default = "default_auth_ip_burst")]
     pub auth_ip_burst: u32,
-    /// Failed login / password-reset attempts allowed per identifier inside
-    /// [`Self::auth_identifier_window_secs`]. Default: 5. A temporary block,
-    /// not an account lockout.
+    /// Failed sign-in attempts, and failed password-reset token submissions,
+    /// allowed per identifier inside [`Self::auth_identifier_window_secs`].
+    /// Default: 5. Password-reset *requests* use [`Self::auth_password_reset_max`]
+    /// instead. A temporary block, not an account lockout.
     #[serde(default = "default_auth_identifier_max_failures")]
     pub auth_identifier_max_failures: u32,
     /// Sliding window for the per-identifier auth attempt limit, in seconds.
     /// Default: 900 (15 minutes).
     #[serde(default = "default_auth_identifier_window_secs")]
     pub auth_identifier_window_secs: u64,
+    /// Password-reset emails allowed per identifier inside
+    /// [`Self::auth_password_reset_window_secs`]. Default: 3. On top of the
+    /// per-IP cap. Past the quota the API still returns the generic 200 and
+    /// sends no mail.
+    #[serde(default = "default_auth_password_reset_max")]
+    pub auth_password_reset_max: u32,
+    /// Sliding window for password-reset requests, in seconds. Default: 3600.
+    #[serde(default = "default_auth_password_reset_window_secs")]
+    pub auth_password_reset_window_secs: u64,
     /// Requests per minute on authenticated auth routes (`/auth/me`,
     /// `/auth/profile`, …), keyed by user id. Default: 120.
     #[serde(default = "default_auth_session_per_minute")]
@@ -148,6 +158,14 @@ fn default_auth_identifier_max_failures() -> u32 {
 
 fn default_auth_identifier_window_secs() -> u64 {
     15 * 60
+}
+
+fn default_auth_password_reset_max() -> u32 {
+    3
+}
+
+fn default_auth_password_reset_window_secs() -> u64 {
+    60 * 60
 }
 
 fn default_auth_session_per_minute() -> u64 {
@@ -620,6 +638,8 @@ impl Default for ServerConfig {
             auth_ip_burst: default_auth_ip_burst(),
             auth_identifier_max_failures: default_auth_identifier_max_failures(),
             auth_identifier_window_secs: default_auth_identifier_window_secs(),
+            auth_password_reset_max: default_auth_password_reset_max(),
+            auth_password_reset_window_secs: default_auth_password_reset_window_secs(),
             auth_session_per_minute: default_auth_session_per_minute(),
             auth_session_burst: default_auth_session_burst(),
             public_per_minute: default_public_per_minute(),
