@@ -12,18 +12,44 @@ pub struct ServerConfig {
     /// When absent or empty, all origins are allowed (development mode).
     #[serde(default)]
     pub cors_origins: Option<Vec<String>>,
-    /// Requests per second allowed per IP on auth endpoints (default: 4).
+    /// Reverse proxies allowed to supply the client address.
+    /// Comma-separated CIDRs or single IPs (for example `127.0.0.1/32,10.0.0.0/8`).
+    /// Environment: `ELIDUNE_SERVER__TRUSTED_PROXIES`.
+    /// Unset or empty: `X-Forwarded-For`, `X-Real-IP`, and `Forwarded` are ignored
+    /// and the TCP peer is the client.
     #[serde(default)]
-    pub auth_rate_per_second: Option<u64>,
-    /// Burst size for auth endpoint rate limiter (default: 2).
-    #[serde(default)]
-    pub auth_rate_burst: Option<u32>,
-    /// Sustained requests per second per IP on public (OPAC/covers) endpoints (default: 30).
-    #[serde(default)]
-    pub public_rate_per_second: Option<u64>,
-    /// Burst size for public endpoint rate limiter (default: 100).
-    #[serde(default)]
-    pub public_rate_burst: Option<u32>,
+    pub trusted_proxies: Option<String>,
+    /// Strict per-IP ceiling on unauthenticated auth routes (login, 2FA,
+    /// password reset, first setup), in requests per minute. Default: 30,
+    /// sized for several desks behind one NAT.
+    #[serde(default = "default_auth_ip_per_minute")]
+    pub auth_ip_per_minute: u64,
+    /// Burst for [`Self::auth_ip_per_minute`]. Default: 30.
+    #[serde(default = "default_auth_ip_burst")]
+    pub auth_ip_burst: u32,
+    /// Failed login / password-reset attempts allowed per identifier inside
+    /// [`Self::auth_identifier_window_secs`]. Default: 5. A temporary block,
+    /// not an account lockout.
+    #[serde(default = "default_auth_identifier_max_failures")]
+    pub auth_identifier_max_failures: u32,
+    /// Sliding window for the per-identifier auth attempt limit, in seconds.
+    /// Default: 900 (15 minutes).
+    #[serde(default = "default_auth_identifier_window_secs")]
+    pub auth_identifier_window_secs: u64,
+    /// Requests per minute on authenticated auth routes (`/auth/me`,
+    /// `/auth/profile`, …), keyed by user id. Default: 120.
+    #[serde(default = "default_auth_session_per_minute")]
+    pub auth_session_per_minute: u64,
+    /// Burst for [`Self::auth_session_per_minute`]. Default: 60.
+    #[serde(default = "default_auth_session_burst")]
+    pub auth_session_burst: u32,
+    /// Public OPAC / covers / library-info requests per minute per client IP.
+    /// Default: 600.
+    #[serde(default = "default_public_per_minute")]
+    pub public_per_minute: u64,
+    /// Burst for [`Self::public_per_minute`]. Default: 120.
+    #[serde(default = "default_public_burst")]
+    pub public_burst: u32,
     /// Public origin of the UI (no trailing slash). Announcement emails link to
     /// `{public_base_url}/events/unsubscribe?token=…`. `List-Unsubscribe` uses
     /// `{public_base_url}/api/v1/events/unsubscribe?token=…` on the same origin.
@@ -95,6 +121,38 @@ pub struct RedisConfig {
 
 fn default_z3950_cache_ttl() -> u64 {
     7 * 24 * 3600
+}
+
+fn default_auth_ip_per_minute() -> u64 {
+    30
+}
+
+fn default_auth_ip_burst() -> u32 {
+    30
+}
+
+fn default_auth_identifier_max_failures() -> u32 {
+    5
+}
+
+fn default_auth_identifier_window_secs() -> u64 {
+    15 * 60
+}
+
+fn default_auth_session_per_minute() -> u64 {
+    120
+}
+
+fn default_auth_session_burst() -> u32 {
+    60
+}
+
+fn default_public_per_minute() -> u64 {
+    600
+}
+
+fn default_public_burst() -> u32 {
+    120
 }
 
 fn default_meili_index() -> String {
@@ -495,10 +553,15 @@ impl Default for ServerConfig {
             host: "0.0.0.0".to_string(),
             port: 8080,
             cors_origins: None,
-            auth_rate_per_second: None,
-            auth_rate_burst: None,
-            public_rate_per_second: None,
-            public_rate_burst: None,
+            trusted_proxies: None,
+            auth_ip_per_minute: default_auth_ip_per_minute(),
+            auth_ip_burst: default_auth_ip_burst(),
+            auth_identifier_max_failures: default_auth_identifier_max_failures(),
+            auth_identifier_window_secs: default_auth_identifier_window_secs(),
+            auth_session_per_minute: default_auth_session_per_minute(),
+            auth_session_burst: default_auth_session_burst(),
+            public_per_minute: default_public_per_minute(),
+            public_burst: default_public_burst(),
             public_base_url: None,
         }
     }

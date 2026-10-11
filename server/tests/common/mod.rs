@@ -28,8 +28,14 @@ pub struct TestApp {
 }
 
 impl TestApp {
-    /// Build a test app. Skips the test when `DATABASE_URL` is unset and `CI` is not set.
+    /// Build a test app with permissive rate limits.
+    /// Skips the test when `DATABASE_URL` is unset and `CI` is not set.
     pub async fn spawn() -> Option<Self> {
+        Self::spawn_with_options(AppBuildOptions::for_tests()).await
+    }
+
+    /// Build a test app with explicit router options (rate-limit tests).
+    pub async fn spawn_with_options(options: AppBuildOptions) -> Option<Self> {
         if std::env::var("DATABASE_URL").is_err() && std::env::var("CI").is_err() {
             eprintln!("Skipping integration test: DATABASE_URL not set");
             return None;
@@ -85,7 +91,7 @@ impl TestApp {
             event_bus: event_bus_tx,
         };
 
-        let router = build_app_with_options(state.clone(), AppBuildOptions::for_tests());
+        let router = build_app_with_options(state.clone(), options);
 
         Some(Self { router, state })
     }

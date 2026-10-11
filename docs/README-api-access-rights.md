@@ -57,7 +57,13 @@ Helpers on `UserClaims`:
 
 ## Auth
 
-All auth routes are rate-limited via GovernorLayer.
+`POST /auth/login`, `POST /auth/verify-2fa`, `POST /auth/verify-recovery`, `POST /auth/request-password-reset`, `POST /auth/reset-password`, and `POST /first_setup` share a strict per-client-IP quota (`auth_ip_per_minute` / `auth_ip_burst`, default 30 requests/minute and burst 30). Login and password reset are also limited per targeted identifier (default 5 failures in 15 minutes). That block is temporary.
+
+`GET /auth/me`, `PUT /auth/profile`, and the other authenticated auth routes are not on that strict limiter. They use a separate per-user quota (`auth_session_per_minute` / `auth_session_burst`, default 120/minute and burst 60).
+
+A blocked request is `429` with `Retry-After` (seconds) and JSON `{ "code": "rate_limited", "retryAfter": <seconds>, "error", "message" }`.
+
+The client IP is the TCP peer unless `server.trusted_proxies` (`ELIDUNE_SERVER__TRUSTED_PROXIES`, comma-separated CIDRs) contains that peer. Only then are `X-Forwarded-For` (right to left, skipping trusted hops), `X-Real-IP`, and `Forwarded` consulted.
 
 | Endpoint | Required auth |
 |---|---|
@@ -71,6 +77,7 @@ All auth routes are rate-limited via GovernorLayer.
 | `POST /auth/setup-2fa` | JWT (full) |
 | `POST /auth/disable-2fa` | JWT (full) |
 | `POST /auth/change-password` | JWT (password-change scope) |
+| `DELETE /auth/rate-limit/{login}` | Staff + `require_write_users()` |
 
 ## OPAC and public catalog
 

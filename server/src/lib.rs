@@ -22,6 +22,7 @@ pub mod hold_email;
 pub mod inventory_email;
 pub mod marc;
 pub mod models;
+pub mod rate_limit;
 pub mod repository;
 pub mod services;
 

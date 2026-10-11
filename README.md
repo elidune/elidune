@@ -51,6 +51,7 @@ See [docs/README-docker.md](docs/README-docker.md) for ports, volumes, GHCR imag
 - **Runtime:** nginx serves the SPA and reverse-proxies `/api` to the Axum API (same-origin). The API does not serve static UI assets.
 - **API base path:** `/api/v1` (relative URL in the SPA — no build-time API URL required).
 - **First setup:** no default admin; the UI wizard drives `POST /api/v1/first_setup`.
+- **Auth rate limits:** login, 2FA, password reset, and first setup are capped per client IP (default 30/minute, burst 30) and per login (5 failures / 15 minutes). `GET /auth/me` is not on that strict cap. Behind nginx, set `ELIDUNE_SERVER__TRUSTED_PROXIES` to the proxy CIDR so `X-Forwarded-For` is used only from that proxy. Staff clear a temporary block with `DELETE /api/v1/auth/rate-limit/{login}`.
 
 ## Agent / contributor guides
 

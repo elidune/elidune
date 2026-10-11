@@ -3,11 +3,26 @@
 [server]
 host = "0.0.0.0"
 port = 8080
-# Optional rate limits (per IP): auth = login/register; public = OPAC, covers, library-info GET
-# auth_rate_per_second = 4
-# auth_rate_burst = 2
-# public_rate_per_second = 30
-# public_rate_burst = 100
+# Reverse proxies that may set X-Forwarded-For / X-Real-IP / Forwarded.
+# Comma-separated CIDRs. Unset: those headers are ignored and the TCP peer is the client.
+# Env: ELIDUNE_SERVER__TRUSTED_PROXIES=127.0.0.1/32,::1/128
+# trusted_proxies = "127.0.0.1/32, ::1/128"
+#
+# Quotas are requests per minute (plus a burst), not tower_governor's "one token every N seconds".
+# Strict per-IP cap for login, 2FA, password reset, and first setup. Default 30/min, burst 30
+# (several desks behind one NAT).
+# auth_ip_per_minute = 30
+# auth_ip_burst = 30
+# Per login/email: 5 failures per 15 minutes. Temporary block, not an account lockout.
+# Staff clear it with DELETE /api/v1/auth/rate-limit/{login} (librarian/admin, users write).
+# auth_identifier_max_failures = 5
+# auth_identifier_window_secs = 900
+# Authenticated /auth/me, /auth/profile, … keyed by user id. Not the strict IP cap.
+# auth_session_per_minute = 120
+# auth_session_burst = 60
+# Public OPAC, covers, library-info GET.
+# public_per_minute = 600
+# public_burst = 120
 # Public UI origin for links in outbound email. No trailing slash.
 # Announcements link to {public_base_url}/events/unsubscribe?token=…
 # List-Unsubscribe uses {public_base_url}/api/v1/events/unsubscribe?token=…

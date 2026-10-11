@@ -106,6 +106,8 @@ docker compose --env-file docker/.env -f docker/docker-compose.all-in-one.yml up
 
 **Application settings (`ELIDUNE_*`)** — The server loads `config/default.toml` inside the image, then **environment variables** override that config. Naming follows the `ELIDUNE_` prefix and nested sections use double underscores, matching `server/src/config.rs` (e.g. `ELIDUNE_SERVER__PORT`, `ELIDUNE_USERS__JWT_SECRET`, `ELIDUNE_DATABASE__URL`).
 
+**Client IP (`ELIDUNE_SERVER__TRUSTED_PROXIES`)** — Comma-separated CIDRs of reverse proxies allowed to send `X-Forwarded-For`. The multi-service stack pins the UI container at `172.30.78.10` and defaults this variable to `172.30.78.10/32`. The all-in-one image defaults to `127.0.0.1/32,::1/128` because its nginx talks to the API on localhost. Nginx sample configs forward `X-Forwarded-For` and `X-Real-IP`. Auth quotas are requests per minute (`ELIDUNE_SERVER__AUTH_IP_PER_MINUTE`, default 30, burst `ELIDUNE_SERVER__AUTH_IP_BURST`). Desk staff clear a temporary login block with `DELETE /api/v1/auth/rate-limit/{login}`.
+
 **Do not set empty values** for optional settings: empty strings can break deserialization. Omit the variable to use the default from the compose file or TOML.
 
 **All-in-one variables** — See `docker/.env.example` for every variable referenced by `docker-compose.all-in-one.yml`, with comments. At minimum, change **`ELIDUNE_USERS__JWT_SECRET`** and **`ELIDUNE_MEILISEARCH__API_KEY`** (the compose file sets `MEILI_MASTER_KEY` from the same value as the API key).

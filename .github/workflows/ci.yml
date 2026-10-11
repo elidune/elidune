@@ -181,6 +181,7 @@ jobs:
           --test patron_guardians
           --test event_audiences
           --test events_consent
+          --test auth_rate_limit
           -- --nocapture
 
   coverage:
@@ -252,6 +253,7 @@ jobs:
           --test patron_guardians
           --test event_audiences
           --test events_consent
+          --test auth_rate_limit
           --lcov
           --output-path lcov.info
           --fail-under-lines 20

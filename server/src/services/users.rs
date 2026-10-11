@@ -759,6 +759,26 @@ impl UsersService {
         Ok((email.to_string(), token, user.language, user.id))
     }
 
+    /// Login (`sub`) carried by a valid password-reset token, when the signature checks out.
+    #[must_use]
+    pub fn reset_token_login(&self, token: &str) -> Option<String> {
+        let token_data = decode::<PasswordResetClaims>(
+            token,
+            &DecodingKey::from_secret(self.config.jwt_secret.as_bytes()),
+            &Validation::default(),
+        )
+        .ok()?;
+        if token_data.claims.purpose != "password_reset" {
+            return None;
+        }
+        let login = token_data.claims.sub.trim();
+        if login.is_empty() {
+            None
+        } else {
+            Some(login.to_string())
+        }
+    }
+
     /// Reset password using a reset token and a new password.
     #[tracing::instrument(skip(self), err)]
     pub async fn reset_password(

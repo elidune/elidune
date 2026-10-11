@@ -173,6 +173,38 @@ Reload: `sudo apachectl configtest && sudo systemctl reload apache2`.
 
 ---
 
+## Client IP and rate limits
+
+Elidune rate-limits login by the TCP peer address. It reads `X-Forwarded-For`, `X-Real-IP`, or `Forwarded` only when that peer is listed in `server.trusted_proxies`.
+
+Set the list to the proxy that opens the TCP connection to the API, as comma-separated CIDRs:
+
+```bash
+# Env name (overrides TOML): ELIDUNE_SERVER__TRUSTED_PROXIES
+# All-in-one image: nginx in the same container connects to 127.0.0.1:8080
+ELIDUNE_SERVER__TRUSTED_PROXIES=127.0.0.1/32,::1/128
+```
+
+`X-Forwarded-For` is walked from the right. Trusted hops are skipped. The first address that is not a trusted proxy is the client. A client that is not itself a trusted proxy cannot pick its own address by sending the header.
+
+Nginx in this repo already sends the header:
+
+```nginx
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+```
+
+Leave `trusted_proxies` empty when nothing sits in front of the API. Forged forwarding headers are then ignored.
+
+A full identifier block (`429`, `Retry-After`, `"code": "rate_limited"`) lasts only for the attempt window (default 15 minutes). Desk staff with users write rights clear it immediately:
+
+```http
+DELETE /api/v1/auth/rate-limit/{login}
+Authorization: Bearer <staff token>
+```
+
+`{login}` is the patron login or email, matched case-insensitively.
+
 ## Notes
 
 - **CORS:** If the browser calls the API on another origin, set `[server].cors_origins` in TOML to your frontend origin(s) for production.

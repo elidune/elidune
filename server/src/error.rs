@@ -1,7 +1,7 @@
 //! Error types for Elidune server
 
 use axum::{
-    http::StatusCode,
+    http::{header, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -29,6 +29,7 @@ pub mod error_code {
     pub const BUSINESS_RULE: &str = "business_rule_violation";
     pub const DUPLICATE_ISBN: &str = "duplicate_isbn_needs_confirmation";
     pub const DUPLICATE_BARCODE: &str = "duplicate_barcode_needs_confirmation";
+    pub const RATE_LIMITED: &str = "rate_limited";
 }
 
 /// Main application error type
@@ -84,6 +85,10 @@ pub enum AppError {
         existing_item: Box<ItemShort>,
         message: String,
     },
+
+    /// Temporary auth throttle. `retry_after` is seconds for `Retry-After`.
+    #[error("Rate limited, retry after {retry_after}s")]
+    RateLimited { retry_after: u64 },
 }
 
 impl From<sqlx::Error> for AppError {
@@ -101,6 +106,36 @@ pub struct ErrorResponse {
     pub error: String,
     /// Detailed error message
     pub message: String,
+}
+
+/// `429` body. Same fields as [`ErrorResponse`] plus `retryAfter` seconds.
+#[derive(Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct RateLimitedBody {
+    /// Always `"rate_limited"`.
+    pub code: String,
+    /// Human-readable category (`"Too Many Requests"`).
+    pub error: String,
+    /// How long the client should wait, in words.
+    pub message: String,
+    /// Seconds until the client may retry. Matches the `Retry-After` header.
+    pub retry_after: u64,
+}
+
+/// `429` with `Retry-After` and a JSON body `{ code: "rate_limited", retryAfter }`.
+pub fn rate_limited_response(retry_after_secs: u64) -> Response {
+    let secs = retry_after_secs.max(1);
+    let body = Json(RateLimitedBody {
+        code: error_code::RATE_LIMITED.to_string(),
+        error: "Too Many Requests".to_string(),
+        message: format!("Too many attempts. Try again in {secs} seconds."),
+        retry_after: secs,
+    });
+    let mut response = (StatusCode::TOO_MANY_REQUESTS, body).into_response();
+    if let Ok(value) = HeaderValue::from_str(&secs.to_string()) {
+        response.headers_mut().insert(header::RETRY_AFTER, value);
+    }
+    response
 }
 
 struct HttpErrorFields {
@@ -194,6 +229,12 @@ impl AppError {
                 label: "Conflict",
                 message: String::new(),
             },
+            AppError::RateLimited { retry_after } => HttpErrorFields {
+                status: StatusCode::TOO_MANY_REQUESTS,
+                code: ec::RATE_LIMITED,
+                label: "Too Many Requests",
+                message: format!("Too many attempts. Try again in {retry_after} seconds."),
+            },
         }
     }
 }
@@ -231,6 +272,7 @@ impl IntoResponse for AppError {
                 });
                 (StatusCode::CONFLICT, body).into_response()
             }
+            AppError::RateLimited { retry_after } => rate_limited_response(retry_after),
             other => {
                 let fields = other.http_fields();
                 let body = Json(ErrorResponse {
