@@ -23,6 +23,7 @@
     "hideFilters": "Masquer les filtres",
     "showFilters": "Afficher les filtres",
     "select": "Sélectionner",
+    "removeNamed": "Retirer {{name}}",
     "back": "Retour",
     "name": "Nom",
     "create": "Créer",
@@ -175,7 +176,8 @@
       "childGuardianHint": "Envoyé au tuteur légal",
       "allChildGuardianNote": "Les invitations des enfants sont envoyées à leurs tuteurs légaux."
     },
-    "targetPublicHint": "Cochez « Tous les publics », ou un ou plusieurs publics.",
+    "targetPublicHint": "Choisissez « Tous les publics », ou un ou plusieurs publics.",
+    "targetPublicPlaceholder": "Sélectionner des publics",
     "targetPublicRequired": "Sélectionnez au moins un public, ou Tous les publics.",
     "attendeesCount": "Nombre de participants",
     "schoolName": "École",
@@ -1371,7 +1373,7 @@
         "usersRights": "Usagers",
         "loansRights": "Prêts",
         "itemsArchiveRights": "Archives",
-        "borrowsRights": "Emprunts",
+        "holdsRights": "Réservations",
         "settingsRights": "Paramètres",
         "eventsRights": "Événements",
         "acquisitionsRights": "Acquisitions"
@@ -1379,6 +1381,7 @@
       "level": {
         "none": "—",
         "n": "Aucun (n)",
+        "o": "Soi (o)",
         "r": "Lecture (r)",
         "w": "Écriture (w)"
       }

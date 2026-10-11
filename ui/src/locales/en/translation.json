@@ -23,6 +23,7 @@
     "hideFilters": "Hide filters",
     "showFilters": "Show filters",
     "select": "Select",
+    "removeNamed": "Remove {{name}}",
     "back": "Back",
     "name": "Name",
     "create": "Create",
@@ -176,6 +177,7 @@
       "allChildGuardianNote": "Children's invitations are sent to their legal guardians."
     },
     "targetPublicHint": "Choose All audiences, or one or more specific audiences.",
+    "targetPublicPlaceholder": "Select audiences",
     "targetPublicRequired": "Select at least one audience, or All audiences.",
     "attendeesCount": "Number of attendees",
     "schoolName": "School",
@@ -1371,7 +1373,7 @@
         "usersRights": "Users",
         "loansRights": "Loans",
         "itemsArchiveRights": "Archive",
-        "borrowsRights": "Borrows",
+        "holdsRights": "Holds",
         "settingsRights": "Settings",
         "eventsRights": "Events",
         "acquisitionsRights": "Acquisitions"
@@ -1379,6 +1381,7 @@
       "level": {
         "none": "—",
         "n": "None (n)",
+        "o": "Own (o)",
         "r": "Read (r)",
         "w": "Write (w)"
       }

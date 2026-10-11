@@ -52,6 +52,20 @@ body {
   box-shadow: 0 0 0 2px var(--focus-ring-offset);
 }
 
+/*
+ * Text field embedded in a composite control (multi-select).
+ * Unlayered so it wins over the shared focus rule above; the outer box owns border and ring.
+ */
+input.embedded-field,
+input.embedded-field:focus,
+input.embedded-field:focus-visible {
+  outline: none;
+  outline-offset: 0;
+  box-shadow: none;
+  border: 0;
+  background-color: transparent;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 8px;

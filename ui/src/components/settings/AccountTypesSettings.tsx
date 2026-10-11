@@ -10,14 +10,14 @@ import { ACCOUNT_TYPES_QUERY_KEY, useAccountTypesQuery } from '@/hooks/useAccoun
 import { getApiErrorMessage } from '@/utils/apiError';
 import { formControlClass } from '@/utils/formControl';
 import { isAdmin } from '@/types';
-import type { AccountTypeDefinition, AccountTypeRightLevel, UpdateAccountTypeRequest } from '@/types';
+import type { AccountTypeDefinition, UpdateAccountTypeRequest } from '@/types';
 
 const RIGHT_FIELDS = [
   'itemsRights',
   'usersRights',
   'loansRights',
   'itemsArchiveRights',
-  'borrowsRights',
+  'holdsRights',
   'settingsRights',
   'eventsRights',
   'acquisitionsRights',
@@ -31,7 +31,7 @@ function cloneTypes(list: AccountTypeDefinition[]): AccountTypeDefinition[] {
 
 function normRight(v: string | null | undefined): string {
   const s = (v ?? '').trim().toLowerCase();
-  return s === 'n' || s === 'r' || s === 'w' ? s : '';
+  return s === 'n' || s === 'o' || s === 'r' || s === 'w' ? s : '';
 }
 
 function buildAccountTypeUpdate(
@@ -45,8 +45,11 @@ function buildAccountTypeUpdate(
   for (const k of RIGHT_FIELDS) {
     const o = normRight(orig[k]);
     const n = normRight(next[k]);
-    if (o !== n) {
-      body[k] = n === '' ? null : (n as AccountTypeRightLevel);
+    if (o === n) continue;
+    if (k === 'holdsRights') {
+      body.holdsRights = n === '' ? null : (n as 'n' | 'o' | 'r' | 'w');
+    } else if (n === '' || n === 'n' || n === 'r' || n === 'w') {
+      body[k] = n === '' ? null : n;
     }
   }
   if (Object.keys(body).length === 0) return null;
@@ -60,7 +63,12 @@ export default function AccountTypesSettings() {
   const canEdit = isAdmin(user?.accountType);
 
   const { data, isLoading, isError } = useAccountTypesQuery();
-  const [rows, setRows] = useState<AccountTypeDefinition[]>([]);
+  // The shell already loads this query, so the tab often mounts with a cached
+  // array. Seed rows from that first payload; the adjust-during-render path
+  // only runs when the reference changes later (save/refetch).
+  const [rows, setRows] = useState<AccountTypeDefinition[]>(() =>
+    data?.length ? cloneTypes(data) : []
+  );
   const [savingCode, setSavingCode] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
@@ -190,12 +198,12 @@ export default function AccountTypesSettings() {
                   <td className="py-2 pr-2 min-w-[8rem]">
                     {canEdit ? (
                       <Input
-                        value={row.name}
+                        value={row.name ?? ''}
                         onChange={(e) => updateRow(row.code, { name: e.target.value })}
                         className="text-sm py-1.5"
                       />
                     ) : (
-                      <span className="text-gray-900 dark:text-white">{row.name}</span>
+                      <span className="text-gray-900 dark:text-white">{row.name || '—'}</span>
                     )}
                   </td>
                   {RIGHT_FIELDS.map((field) => (
@@ -214,6 +222,9 @@ export default function AccountTypesSettings() {
                         >
                           <option value="">{t('settings.accountTypes.level.none')}</option>
                           <option value="n">{t('settings.accountTypes.level.n')}</option>
+                          {(field === 'holdsRights' || normRight(row[field]) === 'o') && (
+                            <option value="o">{t('settings.accountTypes.level.o')}</option>
+                          )}
                           <option value="r">{t('settings.accountTypes.level.r')}</option>
                           <option value="w">{t('settings.accountTypes.level.w')}</option>
                         </select>

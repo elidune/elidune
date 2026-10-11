@@ -15,19 +15,21 @@ import {
   CheckCircle,
   AlertCircle,
 } from 'lucide-react';
-import { Card, Button, Table, Pagination, Modal, Input, ConfirmDialog, ScrollableListRegion } from '@/components/common';
+import { Card, Button, Table, Pagination, Modal, Input, MultiSelect, ConfirmDialog, ScrollableListRegion } from '@/components/common';
 import api from '@/services/api';
 import type { Event, CreateEvent, UpdateEvent } from '@/types';
 import { usePublicTypesQuery } from '@/hooks/usePublicTypesQuery';
 import { eventAudienceDisplayLabel } from '@/utils/eventPublicType';
 import { CHILD_PUBLIC_TYPE_NAME } from '@/utils/legalGuardian';
 import { fileToAttachmentInput, base64ToDataUrl, isImageMime } from '@/utils/eventAttachment';
-import { formControlClass, formTextareaClass, formLabelClass, formChoiceLabelClass } from '@/utils/formControl';
+import { formChoiceControlClass, formControlClass, formTextareaClass, formLabelClass, formChoiceLabelClass } from '@/utils/formControl';
 import { deferFromEffect } from '@/utils/deferFromEffect';
 import AnnouncementSendDialog from '@/components/events/AnnouncementSendDialog';
 import EventAttachmentLead from '@/components/events/EventAttachmentLead';
 
 const EVENTS_PER_PAGE = 20;
+/** Sentinel option value for the mutually exclusive "All audiences" choice. Not a public-type name. */
+const ALL_AUDIENCES_VALUE = '__all_audiences__';
 
 // eventType: 0=animation, 1=school_visit, 2=exhibition, 3=conference, 4=workshop, 5=show, 6=other
 const EVENT_TYPES = [
@@ -564,8 +566,16 @@ function EventForm({ formId, initialValues, onLoadingChange, onSuccess }: EventF
   };
 
   const schoolVisit = formData.eventType === '1';
-  const childGuardianHintId = `${formId}-child-guardian-hint`;
-  const allAudiencesGuardianNoteId = `${formId}-all-audiences-guardian-note`;
+  const childSelected = formData.publicTypes.includes(CHILD_PUBLIC_TYPE_NAME);
+  const guardianNote = formData.allAudiences
+    ? t('events.targetPublic.allChildGuardianNote')
+    : childSelected
+      ? t('events.targetPublic.childGuardianHint')
+      : undefined;
+  const audienceOptions = [
+    { value: ALL_AUDIENCES_VALUE, label: t('events.targetPublic.all') },
+    ...publicTypes.map((pt) => ({ value: pt.name, label: pt.label })),
+  ];
 
   return (
     <form id={formId} onSubmit={handleSubmit} className="space-y-4">
@@ -637,79 +647,27 @@ function EventForm({ formId, initialValues, onLoadingChange, onSuccess }: EventF
         {t('events.audienceInfo')}
       </h4>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <fieldset>
-          <legend className={formLabelClass()}>
-            {t('events.targetPublicLabel')}
-          </legend>
-          <p className="mb-2 text-xs text-gray-500 dark:text-gray-400">
-            {t('events.targetPublicHint')}
-          </p>
-          <label className={formChoiceLabelClass()}>
-            <input
-              type="checkbox"
-              checked={formData.allAudiences}
-              aria-describedby={formData.allAudiences ? allAudiencesGuardianNoteId : undefined}
-              onChange={(e) => {
-                const checked = e.target.checked;
-                setAudienceError(null);
-                setFormData((current) => ({
-                  ...current,
-                  allAudiences: checked,
-                  publicTypes: checked ? [] : current.publicTypes,
-                }));
-              }}
-            />
-            {t('events.targetPublic.all')}
-          </label>
-          {formData.allAudiences && (
-            <p
-              id={allAudiencesGuardianNoteId}
-              className="mt-1 ml-6 text-xs font-normal leading-snug text-gray-500 dark:text-gray-400"
-            >
-              {t('events.targetPublic.allChildGuardianNote')}
-            </p>
-          )}
-          <div className="mt-2 flex flex-col gap-1.5">
-            {publicTypes.map((pt) => {
-              const isChild = pt.name === CHILD_PUBLIC_TYPE_NAME;
-              return (
-                <div key={pt.id}>
-                  <label className={formChoiceLabelClass(formData.allAudiences ? 'opacity-60' : '')}>
-                    <input
-                      type="checkbox"
-                      disabled={formData.allAudiences}
-                      checked={!formData.allAudiences && formData.publicTypes.includes(pt.name)}
-                      aria-describedby={isChild ? childGuardianHintId : undefined}
-                      onChange={(e) => {
-                        const checked = e.target.checked;
-                        setAudienceError(null);
-                        setFormData((current) => ({
-                          ...current,
-                          allAudiences: false,
-                          publicTypes: checked
-                            ? [...current.publicTypes, pt.name]
-                            : current.publicTypes.filter((name) => name !== pt.name),
-                        }));
-                      }}
-                    />
-                    {pt.label}
-                  </label>
-                  {isChild && (
-                    <p
-                      id={childGuardianHintId}
-                      className="ml-6 text-xs font-normal leading-snug text-gray-500 dark:text-gray-400"
-                    >
-                      {t('events.targetPublic.childGuardianHint')}
-                    </p>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          {audienceError && (
-            <p className="mt-1 text-sm text-red-600 dark:text-red-400">{audienceError}</p>
-          )}
-        </fieldset>
+        <MultiSelect
+          id={`${formId}-audience`}
+          label={t('events.targetPublicLabel')}
+          placeholder={t('events.targetPublicPlaceholder')}
+          hint={t('events.targetPublicHint')}
+          note={guardianNote}
+          error={audienceError ?? undefined}
+          required
+          options={audienceOptions}
+          exclusiveValue={ALL_AUDIENCES_VALUE}
+          value={formData.allAudiences ? [ALL_AUDIENCES_VALUE] : formData.publicTypes}
+          onChange={(next) => {
+            const all = next.includes(ALL_AUDIENCES_VALUE);
+            setAudienceError(null);
+            setFormData((current) => ({
+              ...current,
+              allAudiences: all,
+              publicTypes: all ? [] : next.filter((name) => name !== ALL_AUDIENCES_VALUE),
+            }));
+          }}
+        />
         <Input
           label={t('events.attendeesCount')}
           type="number"
@@ -761,7 +719,11 @@ function EventForm({ formId, initialValues, onLoadingChange, onSuccess }: EventF
           ref={fileInputRef}
           type="file"
           accept="image/*,application/pdf"
-          className="block w-full text-sm text-gray-600 dark:text-gray-400 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-amber-50 file:text-amber-800 dark:file:bg-amber-900/40 dark:file:text-amber-200"
+          className={formControlClass({
+            autoHeight: true,
+            className:
+              'w-full cursor-pointer text-sm text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-amber-50 file:px-3 file:py-1 file:text-sm file:font-medium file:text-amber-800 hover:file:bg-amber-100 dark:text-gray-400 dark:file:bg-amber-900/40 dark:file:text-amber-200 dark:hover:file:bg-amber-900/60',
+          })}
           onChange={(e) => {
             const f = e.target.files?.[0];
             setAttachmentFile(f ?? null);
@@ -773,6 +735,7 @@ function EventForm({ formId, initialValues, onLoadingChange, onSuccess }: EventF
             <input
               type="checkbox"
               checked={removeAttachment}
+              className={formChoiceControlClass('rounded')}
               onChange={(e) => {
                 setRemoveAttachment(e.target.checked);
                 if (e.target.checked) {

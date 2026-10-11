@@ -3,6 +3,7 @@ export { default as PublicPageChrome } from './PublicPageChrome';
 export { default as QueryErrorBanner } from './QueryErrorBanner';
 export { default as Button } from './Button';
 export { default as Input } from './Input';
+export { default as MultiSelect } from './MultiSelect';
 export { default as Typeahead } from './Typeahead';
 export { default as Card, CardHeader } from './Card';
 export { default as Modal } from './Modal';
