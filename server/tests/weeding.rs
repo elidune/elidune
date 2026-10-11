@@ -486,3 +486,58 @@ async fn weeding_is_orthogonal_to_circulation_exceptions_and_archived_at() {
     assert!(copy["archivedAt"].is_null());
 }
 
+#[tokio::test]
+async fn readers_and_opac_do_not_see_weeding_reason() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    unlock_admin(&app, &admin_token).await;
+    let (_, reader_token) = fixtures::create_reader(&app, &admin_token, "wdhide").await;
+    let (biblio_id, item_ids) =
+        create_title_with_copies(&app, &admin_token, "Hidden Weeding", 1).await;
+    let item_id = item_ids[0];
+
+    let (status, body) = set_weeding(
+        &app,
+        &admin_token,
+        item_id,
+        "candidate",
+        "internal discard note",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "mark candidate: {body}");
+    sqlx::query("UPDATE items SET notes = 'staff copy note' WHERE id = $1")
+        .bind(item_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("set copy notes");
+
+    let (status, staff) = app
+        .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}"), &admin_token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "staff biblio: {staff}");
+    assert_eq!(staff["items"][0]["weedingReason"], "internal discard note");
+    assert_eq!(staff["items"][0]["weedingStatus"], "candidate");
+    assert_eq!(staff["items"][0]["notes"], "staff copy note");
+    assert!(staff.get("weedingStatus").is_some());
+
+    let (status, reader) = app
+        .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}"), &reader_token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "reader biblio: {reader}");
+    assert!(reader["items"][0].get("weedingReason").is_none());
+    assert!(reader["items"][0].get("weedingStatus").is_none());
+    assert!(reader["items"][0].get("notes").is_none());
+    assert!(reader.get("weedingStatus").is_none());
+    assert!(reader.get("weedingReason").is_none());
+
+    let (status, opac) = app
+        .get_json(&format!("/api/v1/opac/biblios/{biblio_id}"))
+        .await;
+    assert_eq!(status, StatusCode::OK, "opac biblio: {opac}");
+    assert!(opac["items"][0].get("weedingReason").is_none());
+    assert!(opac["items"][0].get("weedingStatus").is_none());
+    assert!(opac["items"][0].get("notes").is_none());
+    assert!(opac.get("weedingStatus").is_none());
+}

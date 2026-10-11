@@ -203,6 +203,33 @@ fn nonempty(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|s| !s.is_empty())
 }
 
+/// Remove staff-only weeding details from a catalog JSON value.
+///
+/// Drops `weedingStatus` and `weedingReason` on the record and on each copy.
+/// Copy `notes` are removed as well. Bibliographic `notes` (records that carry
+/// `mediaType`) stay.
+pub fn strip_weeding_fields(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Array(items) => {
+            for item in items {
+                strip_weeding_fields(item);
+            }
+        }
+        serde_json::Value::Object(obj) => {
+            obj.remove("weedingStatus");
+            obj.remove("weedingReason");
+            let is_copy = obj.contains_key("borrowable") && !obj.contains_key("mediaType");
+            if is_copy {
+                obj.remove("notes");
+            }
+            if let Some(items) = obj.get_mut("items") {
+                strip_weeding_fields(items);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Short item (physical copy) representation for lists
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]

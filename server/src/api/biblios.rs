@@ -13,9 +13,10 @@ use utoipa::ToSchema;
 
 use crate::{
     error::{AppError, AppResult},
+    models::item::strip_weeding_fields,
     models::task::TaskKind,
     models::{
-        biblio::{Biblio, BiblioQuery, BiblioShort},
+        biblio::{Biblio, BiblioQuery},
         import_report::ImportReport,
         item::Item,
     },
@@ -74,6 +75,18 @@ where
     pub page_count: i64,
 }
 
+pub(crate) fn catalog_json(
+    value: impl Serialize,
+    include_weeding: bool,
+) -> AppResult<Json<serde_json::Value>> {
+    let mut body = serde_json::to_value(value)
+        .map_err(|err| AppError::Internal(format!("serialize catalog: {err}")))?;
+    if !include_weeding {
+        strip_weeding_fields(&mut body);
+    }
+    Ok(Json(body))
+}
+
 impl<T: for<'a> ToSchema<'a>> PaginatedResponse<T> {
     /// Construct a paginated response, calculating `page_count` automatically.
     pub fn new(items: Vec<T>, total: i64, page: i64, per_page: i64) -> Self {
@@ -121,14 +134,17 @@ pub async fn list_biblios(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     Query(query): Query<BiblioQuery>,
-) -> AppResult<Json<PaginatedResponse<BiblioShort>>> {
+) -> AppResult<Json<serde_json::Value>> {
     claims.require_read_items()?;
 
     let (biblios, total) = state.services.catalog.search_biblios(&query).await?;
     let page = query.page.unwrap_or(1);
     let per_page = query.per_page.unwrap_or(20);
 
-    Ok(Json(PaginatedResponse::new(biblios, total, page, per_page)))
+    catalog_json(
+        PaginatedResponse::new(biblios, total, page, per_page),
+        claims.is_librarian(),
+    )
 }
 
 /// Get biblio details by ID
@@ -151,11 +167,11 @@ pub async fn get_biblio(
     AuthenticatedUser(claims): AuthenticatedUser,
     Path(id): Path<i64>,
     Query(_query): Query<GetBiblioQuery>,
-) -> AppResult<Json<Biblio>> {
+) -> AppResult<Json<serde_json::Value>> {
     claims.require_read_items()?;
 
     let biblio = state.services.catalog.get_biblio(id).await?;
-    Ok(Json(biblio))
+    catalog_json(biblio, claims.is_librarian())
 }
 
 /// Query params for create biblio
@@ -593,11 +609,11 @@ pub async fn list_items(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     Path(biblio_id): Path<i64>,
-) -> AppResult<Json<Vec<Item>>> {
+) -> AppResult<Json<serde_json::Value>> {
     claims.require_read_items()?;
 
     let items = state.services.catalog.get_items(biblio_id).await?;
-    Ok(Json(items))
+    catalog_json(items, claims.is_librarian())
 }
 
 /// Create a new physical item for a bibliographic record

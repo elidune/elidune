@@ -11,7 +11,7 @@ use axum::{
 use crate::{
     api::biblios::PaginatedResponse,
     error::AppResult,
-    models::biblio::{BiblioQuery, BiblioShort},
+    models::biblio::BiblioQuery,
 };
 
 pub fn router() -> axum::Router<crate::AppState> {
@@ -48,7 +48,7 @@ pub fn router() -> axum::Router<crate::AppState> {
 pub async fn opac_search(
     State(state): State<crate::AppState>,
     Query(mut query): Query<BiblioQuery>,
-) -> AppResult<Json<PaginatedResponse<BiblioShort>>> {
+) -> AppResult<Json<serde_json::Value>> {
     // Cap per_page to prevent abuse on public endpoint
     let per_page = query.per_page.unwrap_or(20).min(50);
     let page = query.page.unwrap_or(1).max(1);
@@ -56,7 +56,10 @@ pub async fn opac_search(
     query.page = Some(page);
 
     let (biblios, total) = state.services.catalog.search_biblios(&query).await?;
-    Ok(Json(PaginatedResponse::new(biblios, total, page, per_page)))
+    super::biblios::catalog_json(
+        PaginatedResponse::new(biblios, total, page, per_page),
+        false,
+    )
 }
 
 /// Get a single bibliographic record by ID — public
@@ -73,9 +76,9 @@ pub async fn opac_search(
 pub async fn opac_get_biblio(
     State(state): State<crate::AppState>,
     Path(biblio_id): Path<i64>,
-) -> AppResult<Json<crate::models::biblio::Biblio>> {
+) -> AppResult<Json<serde_json::Value>> {
     let biblio = state.services.catalog.get_biblio(biblio_id).await?;
-    Ok(Json(biblio))
+    super::biblios::catalog_json(biblio, false)
 }
 
 /// Get availability for a bibliographic record (how many physical copies are available)
