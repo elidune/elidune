@@ -1373,7 +1373,7 @@
         "usersRights": "Usagers",
         "loansRights": "Prêts",
         "itemsArchiveRights": "Archives",
-        "borrowsRights": "Emprunts",
+        "holdsRights": "Réservations",
         "settingsRights": "Paramètres",
         "eventsRights": "Événements",
         "acquisitionsRights": "Acquisitions"
@@ -1381,6 +1381,7 @@
       "level": {
         "none": "—",
         "n": "Aucun (n)",
+        "o": "Soi (o)",
         "r": "Lecture (r)",
         "w": "Écriture (w)"
       }

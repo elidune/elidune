@@ -1127,15 +1127,17 @@ export interface Source {
   default?: boolean;
 }
 
-/** Library role with permission flags — GET /account-types (camelCase). */
+/** Library role with permission flags — GET /account-types (camelCase JSON array). */
 export interface AccountTypeDefinition {
   code: string;
-  name: string;
+  /** Nullable in the API (`account_types.name`). */
+  name: string | null;
   itemsRights: string | null;
   usersRights: string | null;
   loansRights: string | null;
   itemsArchiveRights: string | null;
-  borrowsRights: string | null;
+  /** Holds + transits. Server values: `n` / `o` / `r` / `w`. */
+  holdsRights: string | null;
   settingsRights: string | null;
   eventsRights: string | null;
   /** Present after the acquisitions domain lands (`n`/`r`/`w`). */
@@ -1144,14 +1146,17 @@ export interface AccountTypeDefinition {
 
 export type AccountTypeRightLevel = 'n' | 'r' | 'w';
 
-/** PUT /account-types/:code — partial body; each right must be n, r, w, or null when clearing. */
+/** Holds rights include `o` (own). Other domains accept `n` / `r` / `w` on PUT. */
+export type AccountTypeHoldsRightLevel = AccountTypeRightLevel | 'o';
+
+/** PUT /account-types/:code — partial body. Omit a field to leave it unchanged. */
 export interface UpdateAccountTypeRequest {
   name?: string;
   itemsRights?: AccountTypeRightLevel | null;
   usersRights?: AccountTypeRightLevel | null;
   loansRights?: AccountTypeRightLevel | null;
   itemsArchiveRights?: AccountTypeRightLevel | null;
-  borrowsRights?: AccountTypeRightLevel | null;
+  holdsRights?: AccountTypeHoldsRightLevel | null;
   settingsRights?: AccountTypeRightLevel | null;
   eventsRights?: AccountTypeRightLevel | null;
   acquisitionsRights?: AccountTypeRightLevel | null;

@@ -1373,7 +1373,7 @@
         "usersRights": "Benutzer",
         "loansRights": "Ausleihen",
         "itemsArchiveRights": "Archiv",
-        "borrowsRights": "Entlehnungen",
+        "holdsRights": "Vorbestellungen",
         "settingsRights": "Einstellungen",
         "eventsRights": "Veranstaltungen",
         "acquisitionsRights": "Erwerbung"
@@ -1381,6 +1381,7 @@
       "level": {
         "none": "—",
         "n": "Keine (n)",
+        "o": "Eigene (o)",
         "r": "Lesen (r)",
         "w": "Schreiben (w)"
       }
