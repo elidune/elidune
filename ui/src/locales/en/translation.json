@@ -129,7 +129,9 @@
       "addrLine2Placeholder": "Building, floor...",
       "phones": "Phone numbers",
       "addPhone": "Add number",
-      "noPhones": "No phone number"
+      "noPhones": "No phone number",
+      "timezone": "Time zone",
+      "timezoneHelp": "Dates in notices and emails sent to patrons use this time zone."
     },
     "tabs": {
       "hours": "Opening hours",
@@ -1796,7 +1798,8 @@
       "z3950_error": "Error during Z39.50 search.",
       "database_error": "Database error. Please try again later.",
       "internal_error": "Internal server error. Please try again later.",
-      "rate_limited": "Too many attempts. Please wait before trying again."
+      "rate_limited": "Too many attempts. Please wait before trying again.",
+      "invalid_timezone": "Unknown time zone. Choose an IANA name such as Europe/Paris."
     }
   },
   "inventory": {

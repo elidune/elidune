@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import api from '@/services/api';
 import type { LibraryInfo, ScheduleSlot } from '@/types';
+import { useLibraryInfoQuery } from '@/hooks/common/useLibraryInfoQuery';
 
 const STORAGE_KEY = 'elidune_library_name';
 
@@ -21,40 +22,22 @@ const LibraryContext = createContext<LibraryContextValue>({
 });
 
 export function LibraryProvider({ children }: { children: React.ReactNode }) {
-  const [libraryName, setLibraryName] = useState<string | null>(() =>
-    localStorage.getItem(STORAGE_KEY)
-  );
-  const [libraryInfo, setLibraryInfo] = useState<LibraryInfo | null>(null);
+  const { data: libraryInfo, refetch: refetchLibraryInfo } = useLibraryInfoQuery();
+  const [storedName] = useState<string | null>(() => localStorage.getItem(STORAGE_KEY));
   const [scheduleSlots, setScheduleSlots] = useState<ScheduleSlot[]>([]);
-  const refreshLibraryInfoInFlightRef = useRef<Promise<void> | null>(null);
   const refreshScheduleInFlightRef = useRef<Promise<void> | null>(null);
+  const libraryName = libraryInfo !== undefined ? (libraryInfo.name ?? null) : storedName;
+
+  useEffect(() => {
+    if (libraryInfo === undefined) return;
+    const name = libraryInfo.name ?? null;
+    if (name) localStorage.setItem(STORAGE_KEY, name);
+    else localStorage.removeItem(STORAGE_KEY);
+  }, [libraryInfo]);
 
   const refreshLibraryInfo = useCallback(async () => {
-    if (refreshLibraryInfoInFlightRef.current) {
-      return refreshLibraryInfoInFlightRef.current;
-    }
-    const request = (async () => {
-      try {
-        const info = await api.getLibraryInfo();
-        setLibraryInfo(info);
-        const name = info.name ?? null;
-        setLibraryName(name);
-        if (name) localStorage.setItem(STORAGE_KEY, name);
-        else localStorage.removeItem(STORAGE_KEY);
-      } catch {
-        // non-fatal
-      } finally {
-        refreshLibraryInfoInFlightRef.current = null;
-      }
-    })();
-    refreshLibraryInfoInFlightRef.current = request;
-    return request;
-  }, []);
-
-  // GET /library-info is public — fetch on mount regardless of auth state
-  useEffect(() => {
-    void refreshLibraryInfo();
-  }, [refreshLibraryInfo]);
+    await refetchLibraryInfo();
+  }, [refetchLibraryInfo]);
 
   const refreshSchedule = useCallback(async () => {
     if (refreshScheduleInFlightRef.current) {
@@ -90,7 +73,13 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <LibraryContext.Provider
-      value={{ libraryName, libraryInfo, scheduleSlots, refreshSchedule, refreshLibraryInfo }}
+      value={{
+        libraryName,
+        libraryInfo: libraryInfo ?? null,
+        scheduleSlots,
+        refreshSchedule,
+        refreshLibraryInfo,
+      }}
     >
       {children}
     </LibraryContext.Provider>

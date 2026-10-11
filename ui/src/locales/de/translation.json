@@ -129,7 +129,9 @@
       "addrLine2Placeholder": "Gebäude, Etage...",
       "phones": "Telefonnummern",
       "addPhone": "Nummer hinzufügen",
-      "noPhones": "Keine Telefonnummer"
+      "noPhones": "Keine Telefonnummer",
+      "timezone": "Zeitzone",
+      "timezoneHelp": "Datumsangaben in Benachrichtigungen und E-Mails an Benutzer verwenden diese Zeitzone."
     },
     "tabs": {
       "hours": "Öffnungszeiten",
@@ -1796,7 +1798,8 @@
       "z3950_error": "Fehler bei der Z39.50-Suche.",
       "database_error": "Datenbankfehler. Bitte versuchen Sie es später erneut.",
       "internal_error": "Interner Serverfehler. Bitte versuchen Sie es später erneut.",
-      "rate_limited": "Zu viele Versuche. Bitte warten Sie, bevor Sie es erneut versuchen."
+      "rate_limited": "Zu viele Versuche. Bitte warten Sie, bevor Sie es erneut versuchen.",
+      "invalid_timezone": "Unbekannte Zeitzone. Wählen Sie einen IANA-Namen, zum Beispiel Europe/Paris."
     }
   },
   "inventory": {

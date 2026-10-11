@@ -20,6 +20,15 @@ export function getHttpStatus(error: unknown): number | null {
   return typeof status === 'number' ? status : null;
 }
 
+/**
+ * Field message for PUT /library-info 400 `invalid_timezone`.
+ * Returns null for every other failure so the form can keep a generic banner.
+ */
+export function libraryInfoTimezoneFieldError(error: unknown, t: TFunction): string | null {
+  if (getApiErrorCode(error) !== 'invalid_timezone') return null;
+  return t('errors.apiCode.invalid_timezone');
+}
+
 export function getApiErrorCode(error: unknown): string | null {
   const data = asAxiosError(error)?.response?.data;
   if (typeof data?.code === 'string' && data.code.trim() !== '') {

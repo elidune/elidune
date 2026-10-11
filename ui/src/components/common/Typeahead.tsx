@@ -17,6 +17,8 @@ export interface TypeaheadProps<T> {
   required?: boolean;
   error?: string;
   hint?: string;
+  onFocus?: () => void;
+  onBlur?: () => void;
   /** `dropdown` overlays results; `stack` lists them below the field. */
   variant?: 'dropdown' | 'stack';
 }
@@ -40,6 +42,8 @@ export default function Typeahead<T>({
   required,
   error,
   hint,
+  onFocus,
+  onBlur,
   variant = 'stack',
 }: TypeaheadProps<T>) {
   const listId = useId();
@@ -121,6 +125,8 @@ export default function Typeahead<T>({
         required={required}
         error={error}
         hint={hint}
+        onFocus={onFocus}
+        onBlur={onBlur}
         aria-busy={loading}
         role="combobox"
         aria-expanded={open}
@@ -142,6 +148,7 @@ export default function Typeahead<T>({
                   role="option"
                   aria-selected={selected || active}
                   disabled={disabled}
+                  onMouseDown={(event) => event.preventDefault()}
                   onClick={() => onSelect(item)}
                   className={`${optionBase} ${
                     selected ? 'bg-amber-50 dark:bg-amber-900/30' : ''

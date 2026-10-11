@@ -10,6 +10,8 @@ export interface LibraryInfo {
   addrCountry?: string | null;
   email?: string | null;
   phones: string[];
+  /** IANA time zone name (for example `Europe/Paris`). */
+  timezone: string;
   updatedAt?: string | null;
 }
 
@@ -22,6 +24,8 @@ export interface UpdateLibraryInfoRequest {
   addrCountry?: string | null;
   email?: string | null;
   phones?: string[] | null;
+  /** IANA time zone name. Omitted values are left unchanged. */
+  timezone?: string | null;
 }
 
 // Schedule types

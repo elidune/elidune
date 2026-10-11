@@ -129,7 +129,9 @@
       "addrLine2Placeholder": "Edificio, piso...",
       "phones": "Teléfonos",
       "addPhone": "Añadir número",
-      "noPhones": "Ningún número de teléfono"
+      "noPhones": "Ningún número de teléfono",
+      "timezone": "Zona horaria",
+      "timezoneHelp": "Las fechas de los avisos y de los correos enviados a los usuarios usan esta zona horaria."
     },
     "tabs": {
       "hours": "Horario de apertura",
@@ -1796,7 +1798,8 @@
       "z3950_error": "Error durante la búsqueda Z39.50.",
       "database_error": "Error de base de datos. Inténtelo de nuevo más tarde.",
       "internal_error": "Error interno del servidor. Inténtelo de nuevo más tarde.",
-      "rate_limited": "Demasiados intentos. Espere antes de volver a intentarlo."
+      "rate_limited": "Demasiados intentos. Espere antes de volver a intentarlo.",
+      "invalid_timezone": "Zona horaria desconocida. Elija un nombre IANA, por ejemplo Europe/Paris."
     }
   },
   "inventory": {
