@@ -4,6 +4,7 @@ import { ArrowLeft, AlertCircle, RefreshCw } from 'lucide-react';
 import { Button, Card } from '@/components/common';
 import { useAuth } from '@/contexts/AuthContext';
 import { canManageItems } from '@/types';
+import { isBiblioStaffView } from '@/utils/catalogView';
 import api from '@/services/api';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
@@ -68,7 +69,7 @@ export default function BiblioEditPage() {
     );
   }
 
-  if (!item) {
+  if (!item || !isBiblioStaffView(item)) {
     return (
       <div className="text-center py-12 text-gray-500 dark:text-gray-400">
         {t('errors.notFound')}

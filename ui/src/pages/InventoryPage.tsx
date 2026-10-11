@@ -38,9 +38,6 @@ import type {
   InventoryScan,
   InventoryScanResultCode,
   InventoryConsolidationResult,
-  Author,
-  Biblio,
-  Item,
   Source,
 } from '@/types';
 
@@ -1224,7 +1221,7 @@ export default function InventoryPage() {
   );
 }
 
-function formatInventoryAuthors(authors?: Author[] | null): string {
+function formatInventoryAuthors(authors?: Array<{ id?: string | null; firstname?: string | null; lastname?: string | null }> | null): string {
   if (!authors?.length) return '';
   const seen = new Set<string>();
   const parts: string[] = [];
@@ -1239,8 +1236,20 @@ function formatInventoryAuthors(authors?: Author[] | null): string {
   return parts.join(', ');
 }
 
-function findSpecimenInBiblio(biblio: Biblio, itemId: string): Item | undefined {
-  return biblio.items?.find((i) => i.id != null && String(i.id) === String(itemId));
+function findSpecimenInBiblio(
+  biblio: {
+    items: Array<{
+      id: string | null;
+      barcode: string | null;
+      callNumber: string | null;
+      volumeDesignation: string | null;
+      place: number | null;
+      sourceName: string | null;
+    }>;
+  },
+  itemId: string,
+) {
+  return biblio.items.find((i) => i.id != null && String(i.id) === String(itemId));
 }
 
 function InventoryExpandContent({

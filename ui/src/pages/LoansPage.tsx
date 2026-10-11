@@ -52,6 +52,7 @@ import PatronOptionLabel from '@/components/users/PatronOptionLabel';
 import { useToast } from '@/contexts/ToastContext';
 import { isAdmin } from '@/types';
 import type { User as UserType, Loan, UserShort, OverdueLoanInfo, ReminderReport } from '@/types';
+import { isLoanDetailsStaff } from '@/utils/catalogView';
 
 type TabType = 'borrow' | 'return' | 'overdue' | 'claims';
 type ReturnView =
@@ -288,7 +289,7 @@ export default function LoansPage() {
       page: loansPage,
       perPage: BORROW_LOANS_PAGE_SIZE,
     });
-    setLoans(res.items);
+    setLoans(res.items.filter(isLoanDetailsStaff));
     setLoansTotal(res.total);
   }, [selectedUser, loansPage]);
 
@@ -439,7 +440,7 @@ export default function LoansPage() {
           page: loansPage,
           perPage: BORROW_LOANS_PAGE_SIZE,
         });
-        setLoans(res.items);
+        setLoans(res.items.filter(isLoanDetailsStaff));
         setLoansTotal(res.total);
       } catch (error) {
         const msg = getApiErrorMessage(error, t) || t('loans.loansLoadError');
@@ -534,7 +535,7 @@ export default function LoansPage() {
         page: loansPage,
         perPage: BORROW_LOANS_PAGE_SIZE,
       });
-      setLoans(res.items);
+      setLoans(res.items.filter(isLoanDetailsStaff));
       setLoansTotal(res.total);
       const matched = res.items.find((loan) => loan.id === created.id);
       const title = matched?.biblio.title?.trim() || t('loans.noTitle');
@@ -592,7 +593,7 @@ export default function LoansPage() {
           page: loansPage,
           perPage: BORROW_LOANS_PAGE_SIZE,
         });
-        setLoans(res.items);
+        setLoans(res.items.filter(isLoanDetailsStaff));
         setLoansTotal(res.total);
       }
       showToast({ variant: 'success', message: t('loans.returnSuccess') });
@@ -764,7 +765,7 @@ export default function LoansPage() {
           page: loansPage,
           perPage: BORROW_LOANS_PAGE_SIZE,
         });
-        setLoans(res.items);
+        setLoans(res.items.filter(isLoanDetailsStaff));
         setLoansTotal(res.total);
       }
       showToast({

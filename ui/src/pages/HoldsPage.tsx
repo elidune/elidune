@@ -16,7 +16,8 @@ import { usePickupSiteDraft } from '@/hooks/holds/usePickupSiteDraft';
 import { useTransitActions } from '@/hooks/holds/useTransitActions';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
-import type { Biblio, BiblioShort, Hold, UserShort } from '@/types';
+import type { BiblioShort, BiblioStaffView, Hold, HoldListItem, UserShort } from '@/types';
+import { isBiblioStaffView, isItemStaffView } from '@/utils/catalogView';
 import PatronLink from '@/components/users/PatronLink';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { patronId } from '@/utils/patronLink';
@@ -55,7 +56,7 @@ export default function HoldsPage() {
   const [biblioResults, setBiblioResults] = useState<BiblioShort[]>([]);
   const [biblioSearching, setBiblioSearching] = useState(false);
   const biblioSeqRef = useRef(0);
-  const [selectedBiblio, setSelectedBiblio] = useState<Biblio | null>(null);
+  const [selectedBiblio, setSelectedBiblio] = useState<BiblioStaffView | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [holdScope, setHoldScope] = useState<HoldPlacementScope>('title');
   const [createNotes, setCreateNotes] = useState('');
@@ -173,6 +174,10 @@ export default function HoldsPage() {
         setBarcodeLookupError(t('holds.copyBarcodeNotFound', { barcode: trimmed }));
         return;
       }
+      if (!isBiblioStaffView(biblio) || !isItemStaffView(specimen)) {
+        setBarcodeLookupError(t('holds.copyBarcodeNotFound', { barcode: trimmed }));
+        return;
+      }
       setSelectedBiblio(biblio);
       setCopyBarcode('');
       setBiblioDraft('');
@@ -201,6 +206,10 @@ export default function HoldsPage() {
     setBiblioPickError(null);
     try {
       const full = await api.getBiblio(b.id);
+      if (!isBiblioStaffView(full)) {
+        setBiblioPickError(t('holds.copyBarcodeNotFound', { barcode: b.title ?? b.id }));
+        return;
+      }
       setSelectedBiblio(full);
       setSelectedItemId(null);
       setHoldScope('title');
@@ -289,7 +298,7 @@ export default function HoldsPage() {
     },
   });
 
-  const cancelCell = (r: Hold) =>
+  const cancelCell = (r: HoldListItem) =>
     r.status === 'pending' || r.status === 'ready' ? (
       <Button
         size="sm"
@@ -302,7 +311,7 @@ export default function HoldsPage() {
       </Button>
     ) : null;
 
-  const actionCell = (r: Hold) => (
+  const actionCell = (r: HoldListItem) => (
     <div className="flex flex-wrap justify-end gap-2">
       <HoldTransitActions hold={r} transit={transitByHoldId.get(r.id)} actions={transitActions} />
       {cancelCell(r)}
@@ -313,7 +322,7 @@ export default function HoldsPage() {
     {
       key: 'user',
       header: t('holds.columnUser'),
-      render: (r: Hold) => {
+      render: (r: HoldListItem) => {
         const id = patronId(r.userId, r.user?.id);
         const label = formatUserShortName(r.user) || id || '—';
         return (
@@ -330,34 +339,34 @@ export default function HoldsPage() {
     {
       key: 'item',
       header: t('holds.columnDocument'),
-      render: (r: Hold) => <HoldDocumentCell hold={r} />,
+      render: (r: HoldListItem) => <HoldDocumentCell hold={r} />,
     },
     {
       key: 'status',
       header: t('holds.status'),
-      render: (r: Hold) => statusBadge(t, r.status),
+      render: (r: HoldListItem) => statusBadge(t, r.status),
     },
     {
       key: 'pickup',
       header: t('holds.columnPickup'),
-      render: (r: Hold) => (
+      render: (r: HoldListItem) => (
         <HoldPickupCell hold={r} sources={sources} transit={transitByHoldId.get(r.id)} />
       ),
     },
     {
       key: 'position',
       header: t('holds.position'),
-      render: (r: Hold) => t('holds.queuePosition', { position: r.position }),
+      render: (r: HoldListItem) => t('holds.queuePosition', { position: r.position }),
     },
     {
       key: 'created',
       header: t('holds.createdAt'),
-      render: (r: Hold) => new Date(r.createdAt).toLocaleString(i18n.language),
+      render: (r: HoldListItem) => new Date(r.createdAt).toLocaleString(i18n.language),
     },
     {
       key: 'expires',
       header: t('holds.expiresAt'),
-      render: (r: Hold) => <HoldExpiresCell hold={r} emphasizePickup />,
+      render: (r: HoldListItem) => <HoldExpiresCell hold={r} emphasizePickup />,
     },
     {
       key: 'actions',
@@ -668,7 +677,7 @@ export default function HoldsPage() {
                   >
                     <option value="">{t('holds.selectCopy')}</option>
                     {offerableCopies.map((it) => (
-                      <option key={it.id} value={it.id}>
+                      <option key={it.id ?? it.barcode ?? ''} value={it.id ?? ''}>
                         {it.barcode || it.callNumber || it.id}
                       </option>
                     ))}

@@ -6,13 +6,13 @@ import PatronLink from '@/components/users/PatronLink';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
 import HoldExpiresCell from '@/components/holds/HoldExpiresCell';
 import HoldPickupCell from '@/components/holds/HoldPickupCell';
-import type { Hold, ItemTransit, Source } from '@/types';
+import type { HoldListItem, ItemTransit, Source } from '@/types';
 import { patronId } from '@/utils/patronLink';
 import { formatUserShortName } from '@/utils/userDisplay';
 
 interface HoldMobileCardProps {
-  hold: Hold;
-  statusBadge: (status: Hold['status']) => ReactNode;
+  hold: HoldListItem;
+  statusBadge: (status: HoldListItem['status']) => ReactNode;
   onCancel: () => void;
   cancelPending: boolean;
   /** When false, omit patron name (self-service list). Default true. */

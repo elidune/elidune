@@ -4,11 +4,11 @@ import { useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
 import { useToast } from '@/contexts/ToastContext';
 import { getApiErrorMessage } from '@/utils/apiError';
-import type { CreateTransit, Hold, ItemTransit } from '@/types';
+import type { CreateTransit, HoldListItem, ItemTransit } from '@/types';
 import { ACTIVE_TRANSITS_QUERY_KEY } from '@/hooks/holds/useActiveTransitsQuery';
 
 export type PendingTransitAction =
-  | { kind: 'start'; hold: Hold }
+  | { kind: 'start'; hold: HoldListItem }
   | { kind: 'ship'; transit: ItemTransit }
   | { kind: 'receive'; transit: ItemTransit }
   | { kind: 'cancel'; transit: ItemTransit };

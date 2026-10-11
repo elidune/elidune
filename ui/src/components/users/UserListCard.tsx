@@ -35,7 +35,7 @@ export default function UserListCard({
   actionsAriaLabel,
 }: UserListCardProps) {
   const { t, i18n } = useTranslation();
-  const loanCount = user.loans?.length ?? user.nbLoans ?? 0;
+  const loanCount = user.nbLoans ?? 0;
   const renewDisabled = !isSubscriptionExpired(user.expiryAt);
   const accountLabel = accountTypeDisplayName(accountTypes, user.accountType);
   const publicLabel = user.publicType

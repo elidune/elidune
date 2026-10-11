@@ -49,6 +49,7 @@ import { RenewSubscriptionModal, UserEditorForm } from '@/components/users';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import { canManageUsers, isLibrarian, type User as UserType, type Loan, type LoanStatsResponse, type AdvancedStatsParams, type StatsInterval, type Author, type Hold } from '@/types';
+import { isLoanDetailsStaff } from '@/utils/catalogView';
 import { accountTypeDisplayName } from '@/utils/accountTypeDisplay';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 import { deferFromEffect } from '@/utils/deferFromEffect';
@@ -180,7 +181,10 @@ export default function UserDetailPage() {
     enabled: !!id && detailTab === 'activeLoans',
   });
   const activeLoans = useMemo(
-    () => sortLoansByStartDateAsc(activeLoansPages?.pages.flatMap((p) => p.items) ?? []),
+    () =>
+      sortLoansByStartDateAsc(
+        (activeLoansPages?.pages.flatMap((p) => p.items) ?? []).filter(isLoanDetailsStaff),
+      ),
     [activeLoansPages],
   );
   const activeLoansTotal = activeLoansPages?.pages[0]?.total ?? 0;
@@ -206,7 +210,7 @@ export default function UserDetailPage() {
     },
     enabled: !!id && detailTab === 'pastLoans',
   });
-  const pastLoans = pastLoansPages?.pages.flatMap((p) => p.items) ?? [];
+  const pastLoans = (pastLoansPages?.pages.flatMap((p) => p.items) ?? []).filter(isLoanDetailsStaff);
 
   useEffect(() => {
     const el = activeLoansLoadMoreRef.current;
@@ -1117,7 +1121,7 @@ export default function UserDetailPage() {
                   (s) => (s.barcode != null && ident != null && s.barcode === ident) || s.id === ident
                 );
                 const barcode = spec?.barcode ?? ident ?? '-';
-                const sourceName = spec?.sourceName ?? loanDetails.biblio.sourceName ?? '-';
+                const sourceName = spec?.sourceName ?? '-';
                 return (
                   <div className="mt-1 space-y-1">
                     <p className="text-sm text-gray-700 dark:text-gray-300">

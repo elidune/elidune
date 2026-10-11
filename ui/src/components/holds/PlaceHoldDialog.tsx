@@ -7,8 +7,9 @@ import { useToast } from '@/contexts/ToastContext';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { isLibrarian } from '@/types';
+import { isItemStaffView } from '@/utils/catalogView';
 import { isItemWithdrawn } from '@/utils/weeding';
-import type { Item, UserShort } from '@/types';
+import type { ItemPublicView, ItemStaffView, UserShort } from '@/types';
 import { patronId } from '@/utils/patronLink';
 import PatronOptionLabel from '@/components/users/PatronOptionLabel';
 import { formatUserShortName } from '@/utils/userDisplay';
@@ -24,7 +25,7 @@ export interface PlaceHoldDialogProps {
   biblioId: string;
   biblioTitle: string;
   /** When set, staff/patrons may pin this copy instead of any copy. */
-  specimen?: Item | null;
+  specimen?: ItemStaffView | ItemPublicView | null;
   /** Pre-select “this copy” when opening from a specimen row. */
   pinCopyDefault?: boolean;
   accountType?: string;
@@ -49,7 +50,9 @@ export default function PlaceHoldDialog({
   const { showToast } = useToast();
   const queryClient = useQueryClient();
   const staff = isLibrarian(accountType);
-  const canPinCopy = !!specimen?.id && !isItemWithdrawn(specimen);
+  const canPinCopy =
+    !!specimen?.id &&
+    (isItemStaffView(specimen) ? !isItemWithdrawn(specimen) : true);
   const defaultScope: HoldPlacementScope = canPinCopy && pinCopyDefault ? 'copy' : 'title';
   const [scope, setScope] = useState<HoldPlacementScope>(defaultScope);
   const [scopeForOpen, setScopeForOpen] = useState(open);

@@ -466,6 +466,7 @@
     "pickUser": "Rechercher un usager",
     "cancelConfirm": "Annuler cette réservation ?",
     "noHolds": "Aucune réservation.",
+    "pickupBefore": "À retirer avant le {{date}}",
     "pickupDeadlineHint": "Retirez l'exemplaire avant cette date (la réservation peut expirer ensuite).",
     "patronTitle": "Mes réservations",
     "patronSubtitle": "Suivez la file, les statuts et les délais de retrait pour vos réservations de notice et d'exemplaire.",
@@ -546,6 +547,15 @@
       "cancelled": "Annulé"
     }
   },
+  "availability": {
+    "available": "Disponible",
+    "onHold": "Réservé",
+    "inTransit": "En transit",
+    "onLoan": "En prêt",
+    "toSearch": "À rechercher",
+    "unavailable": "Indisponible",
+    "reservedFor": "Réservé pour {{name}}"
+  },
   "items": {
     "specimens": "Exemplaires",
     "mediaType": {
@@ -616,7 +626,8 @@
     "createdAt": "Création",
     "updatedAt": "Dernière modification",
     "keywordsAndSubject": "Mots-clés et sujet",
-    "specimenCount": "{{count}} exemplaire",
+    "specimenCount_one": "{{count}} exemplaire",
+    "specimenCount_other": "{{count}} exemplaires",
     "noSpecimens": "Aucun exemplaire enregistré",
     "forceDeleteItem": "Forcer la suppression",
     "itemBorrowedForceDelete": "Ce document a des exemplaires empruntés. Forcer la suppression malgré tout ?",
@@ -657,7 +668,8 @@
     "allTypes": "Tous les types",
     "unavailable": "Indisponible",
     "author": "Auteur",
-    "count": "{{count}} document",
+    "count_one": "{{count}} document",
+    "count_other": "{{count}} documents",
     "searchPlaceholder": "Rechercher par titre, auteur, ISBN...",
     "allPublicTypes": "Tous les publics",
     "advancedSearch": "Recherche avancée",
@@ -665,8 +677,8 @@
     "title": "Catalogue",
     "noItems": "Aucun document trouvé",
     "volume": "Volume {{number}}",
-    "specimenCount_plural": "{{count}} exemplaires",
-    "count_plural": "{{count}} documents",
+    "availableCopies_one": "{{count}} exemplaire",
+    "availableCopies_other": "{{count}} exemplaires",
     "batchDeleteScan": {
       "openButton": "Supprimer par scan",
       "title": "Supprimer des exemplaires par scan",
@@ -987,13 +999,13 @@
     "renewalPossibleFrom": "Prolongation possible à partir du {{date}}",
     "renewalTooEarly": "La prolongation n'est pas encore ouverte.",
     "renewalRefusal": {
-      "account_blocked": "Ce compte ne peut pas emprunter.",
-      "fines_over_threshold": "Les amendes impayées dépassent le seuil de prolongation.",
+      "account_blocked": "Votre compte ne permet pas de prolonger pour le moment, contactez la bibliothèque",
+      "fines_over_threshold": "Amendes impayées au-dessus du seuil autorisé",
       "withdrawn": "Cet exemplaire est retiré et ne peut pas être prolongé.",
       "claimed_returned": "Ce prêt est dans la file des retours déclarés.",
       "hold_waiting": "Un autre lecteur attend ce titre.",
       "max_renewals": "Plus aucune prolongation possible.",
-      "renewal_too_early": "Prolongation possible à partir du {{date}}."
+      "renewal_too_early": "Prolongation possible à partir du {{date}}"
     },
     "title": "Emprunts",
     "subtitle": "Gérer les emprunts et retours",

@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { Button, Input, Modal } from '@/components/common';
 import api from '@/services/api';
-import type { CreateTransit, Hold, Item } from '@/types';
+import type { CreateTransit, HoldListItem } from '@/types';
 import { formChoiceLabelClass, formControlClass, formLabelClass } from '@/utils/formControl';
 import { copyAlreadyAtPickupSite } from '@/utils/transitDisplay';
 
@@ -15,7 +15,7 @@ export default function StartTransitDialog({
   onClose,
   onConfirm,
 }: {
-  hold: Hold | null;
+  hold: HoldListItem | null;
   isOpen: boolean;
   isLoading: boolean;
   error?: string | null;
@@ -45,7 +45,7 @@ export default function StartTransitDialog({
     staleTime: 60 * 1000,
   });
 
-  const copies: Item[] = copiesQuery.data?.items ?? [];
+  const copies = copiesQuery.data?.items ?? [];
   const pinned = hold?.itemId ?? '';
   const selectedCopy = pinned || itemId;
   const selectedSourceId = copies.find((c) => c.id === selectedCopy)?.sourceId;
@@ -100,7 +100,7 @@ export default function StartTransitDialog({
               >
                 <option value="">{t('holds.selectCopy')}</option>
                 {copies.map((it) => (
-                  <option key={it.id} value={it.id} disabled={it.borrowed === true}>
+                  <option key={it.id ?? it.barcode ?? it.callNumber ?? ''} value={it.id ?? ''} disabled={it.borrowed === true || it.id == null}>
                     {it.barcode || it.callNumber || it.id}
                     {it.sourceName ? ` — ${it.sourceName}` : ''}
                     {it.borrowed ? ` (${t('holds.hintBorrowed')})` : ''}
