@@ -1,4 +1,4 @@
-import type { ItemAvailability, ItemWeedingStatus, PublicItemAvailability } from '@/types';
+import type { ItemAvailability, ItemPublicAvailability, ItemWeedingStatus } from '@/types';
 import { CIRCULATION_STATUS } from '@/utils/circulationStatus';
 import { isItemWithdrawn } from '@/utils/weeding';
 
@@ -40,12 +40,12 @@ export function normalizeAvailability(
   return 'unavailable';
 }
 
-export function availabilityLabelKey(status: ItemAvailability | PublicItemAvailability): string {
+export function availabilityLabelKey(status: ItemAvailability | ItemPublicAvailability): string {
   return `availability.${status}`;
 }
 
 export function availabilityBadgeVariant(
-  status: ItemAvailability | PublicItemAvailability,
+  status: ItemAvailability | ItemPublicAvailability,
 ): AvailabilityBadgeVariant {
   switch (status) {
     case 'available':

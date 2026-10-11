@@ -395,11 +395,11 @@ export type ItemAvailability =
   | 'unavailable';
 
 /**
- * Public, OPAC, and reader copy availability.
- * `toSearch` is not part of this enum: the server returns it as `unavailable`,
- * with no reason. These responses never include `holdUserId` or `holdUserName`.
+ * Availability on `ItemPublicView` / `ItemShortPublic` (`ItemPublicAvailability`).
+ * Staff `toSearch` and `unavailable` both serialize as `unavailable`. No reason
+ * and no `holdUserId` / `holdUserName`.
  */
-export type PublicItemAvailability = Exclude<ItemAvailability, 'toSearch'>;
+export type ItemPublicAvailability = Exclude<ItemAvailability, 'toSearch'>;
 
 /** Derived biblio weeding mark: withdrawn only when every remaining copy is withdrawn. */
 export type BiblioWeedingStatus = 'onShelf' | 'withdrawn';
@@ -438,20 +438,22 @@ export interface ItemShort {
 }
 
 /**
- * Public/OPAC/reader copy embedded in catalog lists.
- * No patron identity and no `toSearch` value.
+ * Copy embedded in a reader or OPAC list. Mirrors `ItemShortPublic`.
+ * No weeding, circulation reason, or hold patron.
  */
-export interface PublicItemShort {
+export interface ItemShortPublic {
   id: string;
   barcode?: string | null;
   callNumber?: string | null;
-  borrowable?: boolean | null;
-  sourceId?: string | null;
+  borrowable: boolean;
   sourceName?: string | null;
-  borrowed?: boolean;
-  availability: PublicItemAvailability;
+  borrowed: boolean;
+  availability: ItemPublicAvailability;
   canHoldItem: boolean;
 }
+
+/** Staff list copy. Mirrors `ItemShortStaff`. */
+export type ItemShortStaff = ItemShort;
 
 /** Short bibliographic record as returned in list endpoints */
 export interface BiblioShort {
@@ -472,9 +474,21 @@ export interface BiblioShort {
   sourceName?: string | null;
 }
 
-/** OPAC/reader search hit. Copies use {@link PublicItemShort}. */
-export interface PublicBiblioShort extends Omit<BiblioShort, 'items' | 'weedingStatus'> {
-  items?: PublicItemShort[];
+/** Staff search hit. Mirrors `BiblioShortStaff`. */
+export type BiblioShortStaff = BiblioShort;
+
+/** OPAC/reader search hit. Mirrors `BiblioShortPublic`. No weeding mark. */
+export interface BiblioShortPublic {
+  id: string;
+  mediaType?: MediaType | string | null;
+  isbn?: string | null;
+  title?: string | null;
+  date?: string | null;
+  status?: number | null;
+  isValid?: number | null;
+  archivedAt?: string | null;
+  author?: Author | null;
+  items?: ItemShortPublic[];
 }
 
 /** Full physical copy (exemplaire) */
@@ -510,19 +524,30 @@ export interface Item {
   holdUserName?: string | null;
 }
 
+/** Staff notice copy. Mirrors `ItemStaffView` (weeding, circulation, loan, hold patron). */
+export type ItemStaffView = Item;
+
 /**
- * Public/OPAC/reader copy on a bibliographic notice.
- * `availability` is never `toSearch`. Patron identity is omitted.
+ * Reader/OPAC notice copy. Mirrors `ItemPublicView`.
+ * No notes, weeding, circulation status, loan id, or hold patron.
+ * `availability` is never `toSearch`.
  */
-export interface PublicItem {
-  id: string;
+export interface ItemPublicView {
+  id?: string | null;
   biblioId?: string | null;
+  sourceId?: string | null;
   barcode?: string | null;
   callNumber?: string | null;
   volumeDesignation?: string | null;
+  place?: number | null;
+  borrowable: boolean;
+  price?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  archivedAt?: string | null;
   sourceName?: string | null;
-  borrowed?: boolean;
-  availability: PublicItemAvailability;
+  borrowed: boolean;
+  availability: ItemPublicAvailability;
   canHoldItem: boolean;
 }
 
@@ -577,9 +602,44 @@ export interface Biblio {
   marcRecord?: unknown;
 }
 
-/** OPAC/reader bibliographic notice. Copies use {@link PublicItem}. */
-export interface PublicBiblio extends Omit<Biblio, 'items' | 'weedingStatus'> {
-  items?: PublicItem[];
+/** Staff bibliographic notice. Mirrors `BiblioStaffView`. */
+export type BiblioStaffView = Biblio;
+
+/**
+ * Reader/OPAC bibliographic notice. Mirrors `BiblioPublicView`.
+ * Bibliographic notes and the weeding mark are omitted.
+ */
+export interface BiblioPublicView {
+  id?: string | null;
+  mediaType?: MediaType | string | null;
+  isbn?: string | null;
+  title?: string | null;
+  subject?: string | null;
+  dewey?: string | null;
+  audienceType?: string | null;
+  lang?: string | null;
+  langOrig?: string | null;
+  publicationDate?: string | null;
+  pageExtent?: string | null;
+  format?: string | null;
+  tableOfContents?: string | null;
+  accompanyingMaterial?: string | null;
+  abstract?: string | null;
+  keywords?: string | string[] | null;
+  isValid?: number | null;
+  seriesIds?: string[];
+  seriesVolumeNumbers?: (number | null)[];
+  editionId?: string | null;
+  collectionIds?: string[];
+  collectionVolumeNumbers?: (number | null)[];
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  archivedAt?: string | null;
+  authors?: Author[];
+  series?: Serie[];
+  collections?: Collection[];
+  edition?: Edition | null;
+  items?: ItemPublicView[];
 }
 
 /** Physical item data when creating a Biblio in one request (POST /biblios with items) */

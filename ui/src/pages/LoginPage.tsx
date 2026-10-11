@@ -367,13 +367,6 @@ function BiblioDetailPane({
               </div>
             )}
 
-            {detail.notes && (
-              <div>
-                <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">{t('profile.notes')}</p>
-                <p className="text-gray-600 dark:text-gray-400">{detail.notes}</p>
-              </div>
-            )}
-
             {detail.items && detail.items.length > 0 && (
               <div>
                 <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">{t('items.specimens')}</p>
