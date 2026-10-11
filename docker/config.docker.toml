@@ -75,5 +75,5 @@ auto_anonymize_years_after_expiry = 0
 [meilisearch]
 url = "http://meilisearch:7700"
 # Must match MEILI_MASTER_KEY in docker-compose (change both in production).
-api_key = "changeme"
+api_key = "change-this-meili-key"
 index_name = "items"

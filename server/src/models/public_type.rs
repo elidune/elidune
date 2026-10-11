@@ -100,25 +100,41 @@ pub struct ReplacePublicTypeLoanSettingsRequest {
     pub settings: Vec<PublicTypeLoanSettingInput>,
 }
 
-/// Update public type request
+/// Update public type request.
+///
+/// Nullable overrides use `Option<Option<T>>`: omit the field to keep the stored
+/// value, send JSON `null` to clear it (inherit the global cap / threshold).
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdatePublicType {
     pub name: Option<String>,
     pub label: Option<String>,
-    pub subscription_duration_days: Option<i32>,
-    pub age_min: Option<i16>,
-    pub age_max: Option<i16>,
-    pub subscription_price: Option<i32>,
-    /// When set, replaces the unpaid-fine threshold override (`None` keeps the current value).
-    pub unpaid_fine_threshold: Option<rust_decimal::Decimal>,
-    /// When set, replaces the max-active-holds override (`None` keeps the current value).
-    pub max_active_holds: Option<i16>,
+    #[serde(default, with = "serde_with::rust::double_option")]
+    pub subscription_duration_days: Option<Option<i32>>,
+    #[serde(default, with = "serde_with::rust::double_option")]
+    pub age_min: Option<Option<i16>>,
+    #[serde(default, with = "serde_with::rust::double_option")]
+    pub age_max: Option<Option<i16>>,
+    #[serde(default, with = "serde_with::rust::double_option")]
+    pub subscription_price: Option<Option<i32>>,
+    /// `null` clears the override so the global unpaid-fine threshold applies.
+    #[serde(default, with = "serde_with::rust::double_option")]
+    pub unpaid_fine_threshold: Option<Option<rust_decimal::Decimal>>,
+    /// `null` clears the override so the global active-hold cap applies.
+    #[serde(default, with = "serde_with::rust::double_option")]
+    pub max_active_holds: Option<Option<i16>>,
+}
+
+pub(crate) fn merge_nullable<T>(incoming: Option<Option<T>>, existing: Option<T>) -> Option<T> {
+    match incoming {
+        Some(value) => value,
+        None => existing,
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::PublicType;
+    use super::{PublicType, UpdatePublicType};
 
     #[test]
     fn only_child_requires_a_legal_guardian() {
@@ -136,5 +152,26 @@ mod tests {
         assert!(PublicType::can_be_legal_guardian("adult"));
         assert!(PublicType::can_be_legal_guardian("staff"));
         assert!(PublicType::can_be_legal_guardian("senior"));
+    }
+
+    #[test]
+    fn explicit_null_clears_nullable_overrides_and_omission_does_not() {
+        let omitted: UpdatePublicType = serde_json::from_str("{}").expect("empty object");
+        assert!(omitted.max_active_holds.is_none());
+        assert!(omitted.unpaid_fine_threshold.is_none());
+        assert!(omitted.subscription_duration_days.is_none());
+        assert!(omitted.age_min.is_none());
+        assert!(omitted.subscription_price.is_none());
+
+        let cleared: UpdatePublicType = serde_json::from_str(
+            r#"{"maxActiveHolds":null,"unpaidFineThreshold":null,"ageMax":null}"#,
+        )
+        .expect("nulls");
+        assert_eq!(cleared.max_active_holds, Some(None));
+        assert_eq!(cleared.unpaid_fine_threshold, Some(None));
+        assert_eq!(cleared.age_max, Some(None));
+
+        let set: UpdatePublicType = serde_json::from_str(r#"{"maxActiveHolds":7}"#).expect("value");
+        assert_eq!(set.max_active_holds, Some(Some(7)));
     }
 }

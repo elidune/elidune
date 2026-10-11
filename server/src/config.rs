@@ -59,10 +59,20 @@ pub struct ServerConfig {
     pub public_base_url: Option<String>,
 }
 
+fn default_max_connections() -> u32 {
+    10
+}
+
+fn default_min_connections() -> u32 {
+    2
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DatabaseConfig {
     pub url: String,
+    #[serde(default = "default_max_connections")]
     pub max_connections: u32,
+    #[serde(default = "default_min_connections")]
     pub min_connections: u32,
 }
 
@@ -476,6 +486,49 @@ impl AppConfig {
         Ok(())
     }
 
+    /// Warning when outbound mail is configured but links would point at this machine.
+    ///
+    /// Email is treated as enabled when `smtp_host` is non-empty.
+    #[must_use]
+    pub fn email_public_base_url_warning(&self) -> Option<&'static str> {
+        if self.email.smtp_host.trim().is_empty() {
+            return None;
+        }
+        let configured = self
+            .server
+            .public_base_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        match configured {
+            None => Some(
+                "ELIDUNE_SERVER__PUBLIC_BASE_URL is unset while email is enabled; outgoing links fall back to localhost. Set the public UI origin before sending mail.",
+            ),
+            Some(url) if public_base_url_is_local(url) => Some(
+                "ELIDUNE_SERVER__PUBLIC_BASE_URL points at localhost while email is enabled; mail links will not work for patrons. Set the public UI origin.",
+            ),
+            Some(_) => None,
+        }
+    }
+
+    /// Meilisearch production mode rejects master keys shorter than 16 bytes.
+    pub fn validate_meilisearch_key(&self) -> Result<(), String> {
+        let Some(meili) = &self.meilisearch else {
+            return Ok(());
+        };
+        let Some(key) = meili.api_key.as_deref() else {
+            return Ok(());
+        };
+        let key = key.trim();
+        if key.is_empty() || key.len() >= 16 {
+            return Ok(());
+        }
+        Err(format!(
+            "meilisearch.api_key is {} bytes; Meilisearch production mode requires at least 16. Set ELIDUNE_MEILISEARCH__API_KEY to a longer key.",
+            key.len()
+        ))
+    }
+
     /// Public UI origin used in announcement emails, without a trailing slash.
     #[must_use]
     pub fn public_base_url(&self) -> String {
@@ -547,6 +600,14 @@ impl AppConfig {
     }
 }
 
+fn public_base_url_is_local(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    lower.contains("://localhost")
+        || lower.contains("://127.0.0.1")
+        || lower.contains("://[::1]")
+        || lower.contains("://0.0.0.0")
+}
+
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
@@ -577,5 +638,47 @@ impl Default for LoggingConfig {
             file_rotation: None,
             overridable: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AppConfig, DatabaseConfig, MeilisearchConfig};
+
+    #[test]
+    fn database_pool_sizes_default_when_omitted() {
+        let db: DatabaseConfig =
+            serde_json::from_str(r#"{"url":"postgres://localhost/elidune"}"#).expect("db config");
+        assert_eq!(db.max_connections, 10);
+        assert_eq!(db.min_connections, 2);
+    }
+
+    #[test]
+    fn warns_when_mail_is_enabled_without_a_public_origin() {
+        let mut cfg = AppConfig::for_test();
+        assert!(cfg.email_public_base_url_warning().is_none());
+        cfg.email.smtp_host = "smtp.example.com".into();
+        let unset = cfg.email_public_base_url_warning().expect("unset warning");
+        assert!(unset.contains("unset"));
+        cfg.server.public_base_url = Some("http://localhost:8181".into());
+        let local = cfg
+            .email_public_base_url_warning()
+            .expect("localhost warning");
+        assert!(local.contains("localhost"));
+        cfg.server.public_base_url = Some("https://library.example.org".into());
+        assert!(cfg.email_public_base_url_warning().is_none());
+    }
+
+    #[test]
+    fn short_meilisearch_key_is_rejected() {
+        let mut cfg = AppConfig::for_test();
+        assert!(cfg.validate_meilisearch_key().is_ok());
+        cfg.meilisearch = Some(MeilisearchConfig {
+            url: "http://127.0.0.1:7700".into(),
+            api_key: Some("changeme".into()),
+            index_name: "items".into(),
+        });
+        let err = cfg.validate_meilisearch_key().expect_err("short key");
+        assert!(err.contains("16"), "{err}");
     }
 }

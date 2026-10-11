@@ -9,7 +9,6 @@ use serde::Deserialize;
 
 use crate::{
     error::AppResult,
-    models::biblio::Biblio,
     models::dto::weeding::SetWeedingRequest,
     models::item::Item,
     services::audit::{self},
@@ -50,10 +49,10 @@ pub async fn get_biblio_by_item(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     Path(item_id): Path<i64>,
-) -> AppResult<Json<Biblio>> {
+) -> AppResult<Json<serde_json::Value>> {
     claims.require_read_items()?;
     let biblio = state.services.catalog.get_biblio_for_item(item_id).await?;
-    Ok(Json(biblio))
+    super::biblios::catalog_json(biblio, claims.is_librarian())
 }
 
 /// Get the bibliographic record for a physical copy identified by barcode.
@@ -78,14 +77,14 @@ pub async fn get_biblio_by_barcode(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     Path(barcode): Path<String>,
-) -> AppResult<Json<Biblio>> {
+) -> AppResult<Json<serde_json::Value>> {
     claims.require_read_items()?;
     let biblio = state
         .services
         .catalog
         .get_biblio_for_item_barcode(barcode.as_str())
         .await?;
-    Ok(Json(biblio))
+    super::biblios::catalog_json(biblio, claims.is_librarian())
 }
 
 /// Update a physical item. The path id is authoritative.

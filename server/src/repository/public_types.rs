@@ -144,7 +144,7 @@ impl Repository {
         sqlx::query(
             r#"
             INSERT INTO public_type_loan_settings (public_type_id, media_type, duration, nb_max, nb_renews, renew_at)
-            SELECT $1, NULL, 21, 5, 2, 'now'
+            SELECT $1, NULL, 21, 5, 2, 'at_due_date'
             WHERE NOT EXISTS (
                 SELECT 1 FROM public_type_loan_settings x
                 WHERE x.public_type_id = $1 AND x.media_type IS NULL
@@ -169,16 +169,24 @@ impl Repository {
 
         let name = data.name.as_deref().unwrap_or(&existing.name);
         let label = data.label.as_deref().unwrap_or(&existing.label);
-        let subscription_duration_days = data
-            .subscription_duration_days
-            .or(existing.subscription_duration_days);
-        let age_min = data.age_min.or(existing.age_min);
-        let age_max = data.age_max.or(existing.age_max);
-        let subscription_price = data.subscription_price.or(existing.subscription_price);
-        let unpaid_fine_threshold = data
-            .unpaid_fine_threshold
-            .or(existing.unpaid_fine_threshold);
-        let max_active_holds = data.max_active_holds.or(existing.max_active_holds);
+        let subscription_duration_days = crate::models::public_type::merge_nullable(
+            data.subscription_duration_days,
+            existing.subscription_duration_days,
+        );
+        let age_min = crate::models::public_type::merge_nullable(data.age_min, existing.age_min);
+        let age_max = crate::models::public_type::merge_nullable(data.age_max, existing.age_max);
+        let subscription_price = crate::models::public_type::merge_nullable(
+            data.subscription_price,
+            existing.subscription_price,
+        );
+        let unpaid_fine_threshold = crate::models::public_type::merge_nullable(
+            data.unpaid_fine_threshold,
+            existing.unpaid_fine_threshold,
+        );
+        let max_active_holds = crate::models::public_type::merge_nullable(
+            data.max_active_holds,
+            existing.max_active_holds,
+        );
 
         sqlx::query_as::<_, PublicType>(
             r#"

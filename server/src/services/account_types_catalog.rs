@@ -70,7 +70,7 @@ fn normalize_right_field(field: &mut Option<String>) -> AppResult<()> {
         let t = raw.trim();
         if t.len() != 1 {
             return Err(AppError::Validation(
-                "each rights field must be exactly one character: n, r, or w".to_string(),
+                "each rights field must be exactly one character: n, o, r, or w".to_string(),
             ));
         }
         let c = t
@@ -78,9 +78,9 @@ fn normalize_right_field(field: &mut Option<String>) -> AppResult<()> {
             .next()
             .expect("length checked")
             .to_ascii_lowercase();
-        if !matches!(c, 'n' | 'r' | 'w') {
+        if !matches!(c, 'n' | 'o' | 'r' | 'w') {
             return Err(AppError::Validation(
-                "rights must be n (none), r (read), or w (write)".to_string(),
+                "rights must be n (none), o (own), r (read), or w (write)".to_string(),
             ));
         }
         *field = Some(c.to_string());
@@ -109,4 +109,18 @@ fn normalize_holds_right_field(field: &mut Option<String>) -> AppResult<()> {
         *field = Some(c.to_string());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_right_field;
+
+    #[test]
+    fn users_and_loans_rights_accept_own() {
+        let mut own = Some("O".into());
+        normalize_right_field(&mut own).expect("o is valid");
+        assert_eq!(own.as_deref(), Some("o"));
+        let mut bad = Some("x".into());
+        assert!(normalize_right_field(&mut bad).is_err());
+    }
 }

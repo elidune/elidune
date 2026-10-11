@@ -205,7 +205,16 @@ async fn renew_skips_holiday() {
         .await
         .expect("checkout");
 
-    let holiday = (Utc::now() + Duration::days(21)).date_naive();
+    // Inside the renewal window. The new due date is this expiry plus the loan duration.
+    let due = Utc::now() + Duration::days(2);
+    sqlx::query("UPDATE loans SET expiry_at = $2 WHERE id = $1")
+        .bind(checkout.loan_id)
+        .bind(due)
+        .execute(repo.pool())
+        .await
+        .expect("move due date into the renewal window");
+
+    let holiday = (due + Duration::days(21)).date_naive();
     repo.schedules_create_closure(&CreateScheduleClosure {
         closure_date: holiday.to_string(),
         reason: Some("renew holiday".into()),
@@ -213,9 +222,7 @@ async fn renew_skips_holiday() {
     .await
     .expect("create closure");
 
-    let before = Utc::now();
     let (new_expiry, renews) = repo.loans_renew(checkout.loan_id).await.expect("renew");
-    let after = Utc::now();
 
     assert_eq!(renews, 1);
     assert_ne!(
@@ -229,13 +236,11 @@ async fn renew_skips_holiday() {
         0..=6,
     )
     .with_closure(holiday);
-    let expected: std::collections::HashSet<_> = [before, after]
-        .into_iter()
-        .map(|t| expected_after_raw(t + Duration::days(21), &calendar))
-        .collect();
-    assert!(
-        expected.contains(&new_expiry.date_naive()),
-        "renewed expiry {} not in {expected:?}",
+    let expected = expected_after_raw(due + Duration::days(21), &calendar);
+    assert_eq!(
+        new_expiry.date_naive(),
+        expected,
+        "renewed expiry {} should be current due + duration, skipping {holiday}",
         new_expiry.date_naive()
     );
 }

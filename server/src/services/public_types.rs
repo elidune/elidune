@@ -49,8 +49,8 @@ impl PublicTypesService {
     }
 
     pub async fn update(&self, id: i64, data: &UpdatePublicType) -> AppResult<PublicType> {
-        validate_unpaid_fine_threshold(data.unpaid_fine_threshold)?;
-        super::holds::validate_max_active_holds(data.max_active_holds)?;
+        validate_unpaid_fine_threshold(data.unpaid_fine_threshold.flatten())?;
+        super::holds::validate_max_active_holds(data.max_active_holds.flatten())?;
         self.repository.public_types_update(id, data).await
     }
 
