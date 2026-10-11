@@ -21,7 +21,7 @@ export default function PatronLink({
 }: PatronLinkProps) {
   const id = patronId(userId, fallbackId);
   if (!id) {
-    return <span className={className}>{children}</span>;
+    return <span className="text-gray-900 dark:text-white">{children}</span>;
   }
   return (
     <Link className={className} to={`/users/${id}`} onClick={onClick}>
