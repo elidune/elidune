@@ -304,3 +304,50 @@ async fn public_type_override_is_tighter_than_global() {
         "public-type cap: {body}"
     );
 }
+
+#[tokio::test]
+async fn explicit_null_clears_public_type_hold_cap_and_fine_threshold() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let public_type_id = create_capped_public_type(&app, &admin_token, 7).await;
+
+    let (status, body) = app
+        .put_json(
+            &format!("/api/v1/public-types/{public_type_id}"),
+            &json!({ "unpaidFineThreshold": "4.50" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "set fine threshold: {body}");
+    assert_eq!(body["maxActiveHolds"], 7);
+    assert_eq!(body["unpaidFineThreshold"], "4.50");
+
+    let (status, body) = app
+        .put_json(
+            &format!("/api/v1/public-types/{public_type_id}"),
+            &json!({ "name": body["name"] }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "omit overrides: {body}");
+    assert_eq!(body["maxActiveHolds"], 7, "omitted field must stay: {body}");
+
+    let (status, cleared) = app
+        .put_json(
+            &format!("/api/v1/public-types/{public_type_id}"),
+            &json!({ "maxActiveHolds": null, "unpaidFineThreshold": null }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "clear overrides: {cleared}");
+    assert!(
+        cleared["maxActiveHolds"].is_null(),
+        "maxActiveHolds should inherit the global cap: {cleared}"
+    );
+    assert!(
+        cleared["unpaidFineThreshold"].is_null(),
+        "unpaidFineThreshold should inherit the global policy: {cleared}"
+    );
+}
