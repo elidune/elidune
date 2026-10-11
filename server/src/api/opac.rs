@@ -8,11 +8,7 @@ use axum::{
     Json,
 };
 
-use crate::{
-    api::biblios::PaginatedResponse,
-    error::AppResult,
-    models::biblio::BiblioQuery,
-};
+use crate::{api::biblios::PaginatedResponse, error::AppResult, models::biblio::BiblioQuery};
 
 pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::get;
