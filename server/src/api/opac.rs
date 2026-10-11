@@ -38,7 +38,7 @@ pub fn router() -> axum::Router<crate::AppState> {
         ("per_page" = Option<i64>, Query, description = "Items per page (default 20, max 50)")
     ),
     responses(
-        (status = 200, description = "Catalog search results", body = PaginatedResponse<BiblioShort>)
+        (status = 200, description = "Catalog search results. Embedded copies include server-computed `availability` and `canHoldItem`. Patron identity is omitted.", body = PaginatedResponse<BiblioShort>)
     )
 )]
 pub async fn opac_search(
@@ -65,7 +65,7 @@ pub async fn opac_search(
     tag = "opac",
     params(("id" = i64, Path, description = "Biblio ID")),
     responses(
-        (status = 200, description = "Bibliographic record details", body = crate::models::biblio::Biblio),
+        (status = 200, description = "Bibliographic record details. Each copy includes server-computed `availability` and `canHoldItem`. Patron identity is omitted.", body = crate::models::biblio::Biblio),
         (status = 404, description = "Biblio not found", body = crate::error::ErrorResponse)
     )
 )]

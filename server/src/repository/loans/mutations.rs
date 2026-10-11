@@ -400,14 +400,26 @@ impl Repository {
 
         let user: Option<UserShort> = user_short_row.map(|r| r.into());
 
+        let borrowable: bool = biblio_row.get("item_borrowable");
+        let weeding_status = crate::models::item::WeedingStatus::OnShelf;
+        let (availability, can_hold_item) = crate::models::item::ItemAvailability::local_pair(
+            true,
+            borrowable,
+            None,
+            weeding_status,
+        );
         let item_short = ItemShort {
             id: biblio_row.get("item_copy_id"),
             barcode: biblio_row.get("item_barcode"),
             call_number: biblio_row.get("item_call_number"),
-            borrowable: biblio_row.get("item_borrowable"),
-            weeding_status: crate::models::item::WeedingStatus::OnShelf,
+            borrowable,
+            weeding_status,
             source_name: biblio_row.get("item_source_name"),
             borrowed: true,
+            availability,
+            can_hold_item,
+            hold_user_id: None,
+            hold_user_name: None,
         };
 
         let details = LoanDetails {

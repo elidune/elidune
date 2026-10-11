@@ -488,6 +488,9 @@ impl From<&MarcItem> for Item {
             (None, Some(doc)) => Some(doc.clone()),
             (None, None) => None,
         };
+        let weeding_status = crate::models::item::WeedingStatus::OnShelf;
+        let (availability, can_hold_item) =
+            crate::models::item::ItemAvailability::local_pair(false, true, None, weeding_status);
         Item {
             id: None,
             biblio_id: None,
@@ -498,7 +501,7 @@ impl From<&MarcItem> for Item {
             place: None,
             borrowable: true,
             circulation_status: None,
-            weeding_status: crate::models::item::WeedingStatus::OnShelf,
+            weeding_status,
             weeding_reason: None,
             notes,
             price: None,
@@ -509,6 +512,10 @@ impl From<&MarcItem> for Item {
             source_name: s.library.clone(),
             borrowed: false,
             loan_id: None,
+            availability,
+            can_hold_item,
+            hold_user_id: None,
+            hold_user_name: None,
         }
     }
 }

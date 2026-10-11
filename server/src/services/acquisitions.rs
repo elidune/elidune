@@ -252,6 +252,14 @@ impl AcquisitionsService {
                     spec.price_deferred,
                 );
 
+                let weeding_status = crate::models::item::WeedingStatus::OnShelf;
+                let (availability, can_hold_item) =
+                    crate::models::item::ItemAvailability::local_pair(
+                        false,
+                        borrowable,
+                        None,
+                        weeding_status,
+                    );
                 let item = Item {
                     id: None,
                     biblio_id: Some(biblio_id),
@@ -262,7 +270,7 @@ impl AcquisitionsService {
                     place: None,
                     borrowable,
                     circulation_status: None,
-                    weeding_status: crate::models::item::WeedingStatus::OnShelf,
+                    weeding_status,
                     weeding_reason: None,
                     notes: Some(format!(
                         "Received from purchase order {}",
@@ -276,6 +284,10 @@ impl AcquisitionsService {
                     source_name: spec.source_name.clone(),
                     borrowed: false,
                     loan_id: None,
+                    availability,
+                    can_hold_item,
+                    hold_user_id: None,
+                    hold_user_name: None,
                 };
 
                 let created_item = self.catalog.create_item(biblio_id, item).await?;

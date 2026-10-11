@@ -39,7 +39,7 @@ pub fn router() -> axum::Router<crate::AppState> {
         ("id" = i64, Path, description = "Physical copy (item) ID")
     ),
     responses(
-        (status = 200, description = "Biblio with a single item entry", body = Biblio),
+        (status = 200, description = "Biblio with a single item entry. The copy includes server-computed `availability` and `canHoldItem`. Staff responses add `holdUserId` and `holdUserName` when `availability` is `onHold`.", body = Biblio),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 404, description = "Item not found or archived", body = crate::error::ErrorResponse),
         (status = 410, description = "Bibliographic record is archived", body = crate::error::ErrorResponse)
@@ -67,7 +67,7 @@ pub async fn get_biblio_by_item(
         ("barcode" = String, Path, description = "Physical copy barcode (exact match)")
     ),
     responses(
-        (status = 200, description = "Biblio with a single item entry", body = Biblio),
+        (status = 200, description = "Biblio with a single item entry. The copy includes server-computed `availability` and `canHoldItem`. Staff responses add `holdUserId` and `holdUserName` when `availability` is `onHold`.", body = Biblio),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 404, description = "No active item with this barcode", body = crate::error::ErrorResponse),
         (status = 410, description = "Bibliographic record is archived", body = crate::error::ErrorResponse)

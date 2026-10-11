@@ -112,7 +112,12 @@ pub async fn get_serie_biblios(
 ) -> AppResult<Json<Vec<BiblioShort>>> {
     claims.require_read_items()?;
     state.services.catalog.get_serie(id).await?;
-    let biblios = state.services.catalog.get_biblios_by_series(id).await?;
+    let mut biblios = state.services.catalog.get_biblios_by_series(id).await?;
+    if !claims.is_librarian() {
+        for biblio in &mut biblios {
+            biblio.redact_hold_patrons();
+        }
+    }
     Ok(Json(biblios))
 }
 

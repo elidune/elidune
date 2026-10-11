@@ -13,7 +13,7 @@ use utoipa::ToSchema;
 
 use crate::{
     error::{AppError, AppResult},
-    models::item::strip_weeding_fields,
+    models::item::{strip_hold_patron_fields, strip_weeding_fields},
     models::task::TaskKind,
     models::{
         biblio::{Biblio, BiblioQuery},
@@ -75,14 +75,20 @@ where
     pub page_count: i64,
 }
 
+/// Serialize a catalog payload.
+///
+/// `staff` keeps weeding details and, when a copy is `onHold`, `holdUserId` /
+/// `holdUserName`. Readers and the OPAC receive the same `availability` without
+/// patron identity.
 pub(crate) fn catalog_json(
     value: impl Serialize,
-    include_weeding: bool,
+    staff: bool,
 ) -> AppResult<Json<serde_json::Value>> {
     let mut body = serde_json::to_value(value)
         .map_err(|err| AppError::Internal(format!("serialize catalog: {err}")))?;
-    if !include_weeding {
+    if !staff {
         strip_weeding_fields(&mut body);
+        strip_hold_patron_fields(&mut body);
     }
     Ok(Json(body))
 }
@@ -126,7 +132,7 @@ impl<T: for<'a> ToSchema<'a>> PaginatedResponse<T> {
         ("perPage" = Option<i64>, Query, description = "Items per page (default: 20)")
     ),
     responses(
-        (status = 200, description = "List of bibliographic records", body = PaginatedResponse<BiblioShort>),
+        (status = 200, description = "List of bibliographic records. Embedded copies include server-computed `availability` and `canHoldItem`. Staff responses add `holdUserId` and `holdUserName` when `availability` is `onHold`.", body = PaginatedResponse<BiblioShort>),
         (status = 401, description = "Not authenticated")
     )
 )]
@@ -158,7 +164,7 @@ pub async fn list_biblios(
         ("full_record" = Option<bool>, Query, description = "If true, include full MARC record data")
     ),
     responses(
-        (status = 200, description = "Bibliographic record details", body = Biblio),
+        (status = 200, description = "Bibliographic record details. Each copy includes server-computed `availability` and `canHoldItem`. Staff responses add `holdUserId` and `holdUserName` when `availability` is `onHold`.", body = Biblio),
         (status = 404, description = "Biblio not found")
     )
 )]
@@ -601,7 +607,7 @@ pub struct DeleteBiblioParams {
         ("id" = i64, Path, description = "Biblio ID")
     ),
     responses(
-        (status = 200, description = "List of physical items (copies)", body = Vec<Item>),
+        (status = 200, description = "List of physical items (copies), each with server-computed `availability` and `canHoldItem`. Staff responses add `holdUserId` and `holdUserName` when `availability` is `onHold`.", body = Vec<Item>),
         (status = 404, description = "Biblio not found")
     )
 )]

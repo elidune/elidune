@@ -241,14 +241,25 @@ impl Repository {
         let mut m = HashMap::with_capacity(rows.len());
         for r in rows {
             let id = r.id;
+            let weeding_status = crate::models::item::WeedingStatus::OnShelf;
+            let (availability, can_hold_item) = crate::models::item::ItemAvailability::local_pair(
+                r.borrowed,
+                r.borrowable,
+                None,
+                weeding_status,
+            );
             let item = ItemShort {
                 id: r.id,
                 barcode: r.barcode,
                 call_number: r.call_number,
                 borrowable: r.borrowable,
-                weeding_status: crate::models::item::WeedingStatus::OnShelf,
+                weeding_status,
                 source_name: r.source_name,
                 borrowed: r.borrowed,
+                availability,
+                can_hold_item,
+                hold_user_id: None,
+                hold_user_name: None,
             };
             m.insert(id, (r.biblio_id, item));
         }
