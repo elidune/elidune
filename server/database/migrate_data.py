@@ -12,6 +12,7 @@ idx_holds_one_active_per_user_item, fines / fine_rules / circulation_settings
 fines.charge_type / one-open-per-(loan,charge_type) (029), and
 title-level holds + pickup_site_id stub (030),
 holds.status to_pick + holds_status_chk (038),
+holds exclusive assignment index, pick_started_at, pick_delay_days, circulation to_search (039),
 item_transits + holds.pickup_site_id FK to sources (031),
 acquisitions vendors/funds/orders/receipts + account_types.acquisitions_rights (032),
 user_guardians (033), purchase_suggestions + nullable purchase_orders.vendor_id (034).

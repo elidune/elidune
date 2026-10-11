@@ -160,7 +160,10 @@ pub struct LoanResponse {
 }
 
 /// Return response. `loan` is set when a loan was closed. `hold` is set when a
-/// shelf `to_pick` copy was checked in (`status` is `ready` or `in_transit`).
+/// shelf `to_pick` copy was checked in or a missing copy was found.
+/// `status` is `returned`, `ready`, `in_transit`, or `available`.
+/// `destinationSiteId` / `destinationSiteName` are set when status is `in_transit`.
+#[serde_as]
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ReturnResponse {
@@ -169,6 +172,12 @@ pub struct ReturnResponse {
     pub loan: Option<LoanDetails>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hold: Option<crate::models::hold::Hold>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub destination_site_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destination_site_name: Option<String>,
 }
 
 /// Query parameters for overdue loans list
@@ -536,6 +545,8 @@ pub async fn return_loan(
         status: "returned".to_string(),
         loan: Some(loan),
         hold: None,
+        destination_site_id: None,
+        destination_site_name: None,
     }))
 }
 
@@ -679,13 +690,17 @@ pub async fn return_loan_by_item(
                 "returned"
             } else if check_in.transit_started {
                 "in_transit"
-            } else {
+            } else if check_in.hold.is_some() {
                 "ready"
+            } else {
+                "available"
             };
             Ok(Json(ReturnResponse {
                 status: status.to_string(),
                 loan: check_in.loan,
                 hold: check_in.hold,
+                destination_site_id: check_in.destination_site_id,
+                destination_site_name: check_in.destination_site_name,
             }))
         }
         Err(e) => {

@@ -279,12 +279,18 @@ async fn unassigned_copies_stay_lendable_and_to_pick_copy_is_reserved() {
         StatusCode::UNPROCESSABLE_ENTITY,
         "reserved: {blocked}"
     );
+    assert_eq!(blocked["code"], "item_to_pick_for_other", "{blocked}");
+    assert_eq!(
+        fixtures::json_id(&blocked["details"]["holdId"]),
+        fixtures::json_id(&hold["id"])
+    );
+    assert_eq!(fixtures::json_id(&blocked["details"]["userId"]), holder_id);
     assert!(
-        blocked["message"]
+        blocked["details"]["userName"]
             .as_str()
             .unwrap_or_default()
-            .contains("force=true"),
-        "desk can override: {blocked}"
+            .starts_with("Reader "),
+        "desk can name the patron: {blocked}"
     );
 }
 
@@ -383,18 +389,40 @@ async fn pick_list_lists_to_pick_rows_and_filters_by_copy_site() {
     let rows = list.as_array().expect("array");
     let row = rows
         .iter()
-        .find(|r| fixtures::json_id(&r["id"]) == hold_id)
+        .find(|r| fixtures::json_id(&r["holdId"]) == hold_id)
         .expect("row");
+    let mut keys: Vec<_> = row.as_object().expect("object").keys().cloned().collect();
+    keys.sort();
+    assert_eq!(
+        keys,
+        vec![
+            "barcode",
+            "callNumber",
+            "holdId",
+            "itemId",
+            "overdue",
+            "pickDueAt",
+            "pickStartedAt",
+            "pickupSiteId",
+            "pickupSiteName",
+            "title",
+            "userId",
+            "userName",
+        ]
+    );
     assert_eq!(row["barcode"], barcode);
     assert_eq!(row["callNumber"], "843 MIS");
-    assert_eq!(row["place"], 12);
     assert_eq!(row["title"], "Pick List Title");
     assert_eq!(fixtures::json_id(&row["userId"]), reader_id);
-    assert_eq!(row["patronFirstname"], "Reader");
-    assert!(row["patronLastname"].is_string());
-    assert_eq!(fixtures::json_id(&row["siteId"]), here);
+    assert!(row["userName"]
+        .as_str()
+        .unwrap_or_default()
+        .starts_with("Reader "));
     assert_eq!(fixtures::json_id(&row["pickupSiteId"]), pickup);
     assert!(row["pickupSiteName"].is_string());
+    assert!(row["pickStartedAt"].is_string());
+    assert!(row["pickDueAt"].is_string());
+    assert_eq!(row["overdue"], false);
 
     let (status, other) = app
         .get_json_with_auth(
@@ -406,7 +434,7 @@ async fn pick_list_lists_to_pick_rows_and_filters_by_copy_site() {
     let other_rows = other.as_array().expect("array");
     assert!(other_rows
         .iter()
-        .all(|r| fixtures::json_id(&r["id"]) != hold_id));
+        .all(|r| fixtures::json_id(&r["holdId"]) != hold_id));
 }
 
 #[tokio::test]
@@ -447,6 +475,8 @@ async fn scan_at_other_pickup_site_starts_transit_without_notice() {
         .await;
     assert_eq!(status, StatusCode::OK, "scan: {scan}");
     assert_eq!(scan["status"], "in_transit");
+    assert_eq!(fixtures::json_id(&scan["destinationSiteId"]), pickup);
+    assert!(scan["destinationSiteName"].is_string());
     assert_eq!(scan["hold"]["status"], "pending");
     assert!(scan["hold"]["notifiedAt"].is_null());
     assert_eq!(outbox_count(&app, &email).await, before);
@@ -478,4 +508,230 @@ async fn copy_not_yet_borrowable_is_not_captured() {
     let hold = place_title(&app, &reader_token, reader_id, biblio_id, None).await;
     assert_eq!(hold["status"], "pending");
     assert!(hold["itemId"].is_null());
+}
+
+async fn item_flags(app: &TestApp, item_id: i64) -> (i16, bool) {
+    let row: (Option<i16>, bool) =
+        sqlx::query_as("SELECT circulation_status, borrowable FROM items WHERE id = $1")
+            .bind(item_id)
+            .fetch_one(app.state.services.repository.pool())
+            .await
+            .expect("item");
+    (row.0.unwrap_or(0), row.1)
+}
+
+#[tokio::test]
+async fn concurrent_title_holds_assign_the_single_shelf_copy_once() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (first_id, _) = fixtures::create_reader(&app, &admin_token, "racep1").await;
+    let (second_id, _) = fixtures::create_reader(&app, &admin_token, "racep2").await;
+    let barcode = format!("RACE-{}", fixtures::unique_suffix());
+    let (biblio_id, copies) = create_title(
+        &app,
+        &admin_token,
+        "One Shelf Race",
+        vec![shelf_copy(&barcode)],
+    )
+    .await;
+    let repo = app.state.services.repository.clone();
+    let first = elidune_server::models::hold::CreateHold::for_biblio(first_id, biblio_id);
+    let second = elidune_server::models::hold::CreateHold::for_biblio(second_id, biblio_id);
+    let (r1, r2) = tokio::join!(repo.holds_create(&first), repo.holds_create(&second));
+    let h1 = r1.expect("first place");
+    let h2 = r2.expect("second place");
+    let picks = [&h1, &h2]
+        .iter()
+        .filter(|h| h.status == elidune_server::models::hold::HoldStatus::ToPick)
+        .count();
+    let waiting = [&h1, &h2]
+        .iter()
+        .filter(|h| h.status == elidune_server::models::hold::HoldStatus::Pending)
+        .count();
+    assert_eq!(picks, 1, "exactly one to_pick: {h1:?} {h2:?}");
+    assert_eq!(waiting, 1, "the other stays pending: {h1:?} {h2:?}");
+    let assigned_item = h1.item_id.or(h2.item_id);
+    assert_eq!(assigned_item, Some(copies[0].id));
+    assert!(h1.item_id.is_none() || h2.item_id.is_none());
+}
+
+#[tokio::test]
+async fn pick_not_found_reassigns_and_hides_the_missing_copy() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (holder_id, holder_token) = fixtures::create_reader(&app, &admin_token, "miss2").await;
+    let (other_id, _) = fixtures::create_reader(&app, &admin_token, "miss2o").await;
+    let suffix = fixtures::unique_suffix();
+    let (biblio_id, copies) = create_title(
+        &app,
+        &admin_token,
+        "Two Copies Missing",
+        vec![
+            shelf_copy(&format!("MSA-{suffix}")),
+            shelf_copy(&format!("MSB-{suffix}")),
+        ],
+    )
+    .await;
+    let hold = place_title(&app, &holder_token, holder_id, biblio_id, None).await;
+    let hold_id = fixtures::json_id(&hold["id"]);
+    let assigned = fixtures::json_id(&hold["itemId"]);
+    let other = copies
+        .iter()
+        .find(|c| c.id != assigned)
+        .expect("sibling")
+        .id;
+
+    let (status, body) = app
+        .post_empty(
+            &format!("/api/v1/holds/{hold_id}/pick-not-found"),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "pick-not-found: {body}");
+    assert_eq!(body["status"], "to_pick");
+    assert_eq!(fixtures::json_id(&body["itemId"]), other);
+    assert_ne!(fixtures::json_id(&body["itemId"]), assigned);
+
+    let (circulation, borrowable) = item_flags(&app, assigned).await;
+    assert_eq!(circulation, 4, "to_search");
+    assert!(!borrowable);
+    let (status, blocked) = checkout(&app, &admin_token, other_id, assigned, false).await;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "missing not lendable: {blocked}"
+    );
+    let (status, sibling) = checkout(&app, &admin_token, other_id, other, false).await;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "reassigned copy stays reserved: {sibling}"
+    );
+    assert_eq!(sibling["code"], "item_to_pick_for_other");
+
+    let (only_id, only_token) = fixtures::create_reader(&app, &admin_token, "miss1").await;
+    let (stranger, _) = fixtures::create_reader(&app, &admin_token, "miss1o").await;
+    let only_barcode = format!("ONLYM-{suffix}");
+    let (biblio_only, only_copies) = create_title(
+        &app,
+        &admin_token,
+        "Only Copy Missing",
+        vec![shelf_copy(&only_barcode)],
+    )
+    .await;
+    let hold = place_title(&app, &only_token, only_id, biblio_only, None).await;
+    let hold_id = fixtures::json_id(&hold["id"]);
+    let item_id = only_copies[0].id;
+    let (status, body) = app
+        .post_empty(
+            &format!("/api/v1/holds/{hold_id}/pick-not-found"),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "only copy: {body}");
+    assert_eq!(body["status"], "pending");
+    assert!(body["itemId"].is_null());
+    let (status, blocked) = checkout(&app, &admin_token, stranger, item_id, false).await;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "still not lendable: {blocked}"
+    );
+
+    let (status, scan) = app
+        .post_empty(
+            &format!("/api/v1/loans/items/{only_barcode}/return"),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "found scan: {scan}");
+    assert_eq!(scan["status"], "ready");
+    assert_eq!(scan["hold"]["status"], "ready");
+    assert_eq!(fixtures::json_id(&scan["hold"]["itemId"]), item_id);
+    let (circulation, borrowable) = item_flags(&app, item_id).await;
+    assert_eq!(circulation, 0);
+    assert!(borrowable);
+    let stored = hold_row(&app, hold_id).await;
+    assert_eq!(
+        stored.status,
+        elidune_server::models::hold::HoldStatus::Ready
+    );
+    assert_eq!(stored.item_id, Some(item_id));
+}
+
+#[tokio::test]
+async fn pick_list_overdue_follows_pick_delay_without_expiring() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_id, reader_token) = fixtures::create_reader(&app, &admin_token, "delayp").await;
+    let suffix = fixtures::unique_suffix();
+    let early = format!("AAA-{suffix}");
+    let late = format!("ZZZ-{suffix}");
+    let (biblio_a, _) = create_title(
+        &app,
+        &admin_token,
+        "Delay A",
+        vec![json!({ "barcode": early, "borrowable": true, "callNumber": early })],
+    )
+    .await;
+    let (biblio_b, _) = create_title(
+        &app,
+        &admin_token,
+        "Delay B",
+        vec![json!({ "barcode": late, "borrowable": true, "callNumber": late })],
+    )
+    .await;
+    let (other_id, other_token) = fixtures::create_reader(&app, &admin_token, "delayq").await;
+    let older = place_title(&app, &reader_token, reader_id, biblio_a, None).await;
+    let newer = place_title(&app, &other_token, other_id, biblio_b, None).await;
+    let older_id = fixtures::json_id(&older["id"]);
+    let newer_id = fixtures::json_id(&newer["id"]);
+    sqlx::query("UPDATE holds SET pick_started_at = NOW() - INTERVAL '3 days' WHERE id = $1")
+        .bind(older_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("backdate");
+
+    let (status, policy) = app
+        .get_json_with_auth("/api/v1/holds/policy", &admin_token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "policy: {policy}");
+    assert_eq!(policy["pickDelayDays"], 2);
+
+    let (status, list) = app
+        .get_json_with_auth("/api/v1/holds/pick-list", &admin_token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "list: {list}");
+    let rows = list.as_array().expect("array");
+    let ours: Vec<_> = rows
+        .iter()
+        .filter(|r| {
+            let id = fixtures::json_id(&r["holdId"]);
+            id == older_id || id == newer_id
+        })
+        .collect();
+    assert_eq!(ours.len(), 2);
+    assert_eq!(ours[0]["callNumber"], early);
+    assert_eq!(ours[1]["callNumber"], late);
+    let older_row = ours
+        .iter()
+        .find(|r| fixtures::json_id(&r["holdId"]) == older_id)
+        .unwrap();
+    let newer_row = ours
+        .iter()
+        .find(|r| fixtures::json_id(&r["holdId"]) == newer_id)
+        .unwrap();
+    assert_eq!(older_row["overdue"], true);
+    assert_eq!(newer_row["overdue"], false);
+    let stored = hold_row(&app, older_id).await;
+    assert_eq!(
+        stored.status,
+        elidune_server::models::hold::HoldStatus::ToPick
+    );
 }

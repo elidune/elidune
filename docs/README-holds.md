@@ -28,6 +28,12 @@ Staff check the copy in on the existing return scan (`POST /api/v1/loans/items/{
 
 A returned copy is already in staff hands, so it is **not** `to_pick`. It follows the fulfillment rules below.
 
+`POST /api/v1/holds/{id}/pick-not-found` (staff) means the copy was not on the shelf. The copy's `circulation_status` becomes `toSearch` (not lendable, not assignable). The hold is reassigned to another eligible shelf copy as `to_pick`, or returns to `pending` when none is free. A later scan of that barcode clears `toSearch` and runs the normal return path (`ready` or transit). Declaring the copy lost still uses the existing lost transition.
+
+`circulation_settings.pick_delay_days` (`pickDelayDays` on `GET`/`PUT /holds/policy`, default 2) flags pick-list rows overdue. It does not expire or cancel the hold.
+
+Checkout of a `to_pick` copy by another patron is `422` with code `item_to_pick_for_other` and `details.holdId`, `details.userId`, `details.userName`. `force=true` still releases the assignment.
+
 ## Who may borrow a shelf copy
 
 A hold reserves only the copy it is assigned to (`to_pick`, `ready`, or a `pending` hold pinned to that `itemId`). An unassigned `pending` title hold does not make every copy unloanable. The queue takes the next returned copy. A copy already `to_pick` or `ready` for someone is reserved for them: checkout by another patron is the existing 422, overridable with `force=true`. Force releases that `to_pick` assignment back to `pending`, or onto another shelf copy as `to_pick`, instead of cancelling the patron's place.

@@ -23,10 +23,11 @@ use crate::{
 use super::{biblios::PaginatedResponse, AuthenticatedUser, ClientIp, StaffUser};
 
 pub fn router() -> axum::Router<crate::AppState> {
-    use axum::routing::{delete, get};
+    use axum::routing::{delete, get, post};
     axum::Router::new()
         .route("/holds", get(list_holds).post(create_hold))
         .route("/holds/pick-list", get(list_pick_list))
+        .route("/holds/:id/pick-not-found", post(pick_not_found))
         .route(
             "/holds/policy",
             get(get_holds_policy).put(update_holds_policy),
@@ -67,6 +68,59 @@ pub async fn list_pick_list(
     Query(query): Query<PickListQuery>,
 ) -> AppResult<Json<Vec<HoldPickListItem>>> {
     Ok(Json(state.services.holds.list_pick(query.site_id).await?))
+}
+
+/// The assigned copy was not on the shelf. Staff only.
+#[utoipa::path(
+    post,
+    path = "/holds/{id}/pick-not-found",
+    tag = "holds",
+    security(("bearer_auth" = [])),
+    params(("id" = String, Path, description = "Hold id")),
+    responses(
+        (status = 200, description = "Copy marked to_search; hold reassigned or released", body = Hold),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
+        (status = 403, description = "Staff access required", body = crate::error::ErrorResponse),
+        (status = 404, description = "Hold not found", body = crate::error::ErrorResponse),
+        (status = 422, description = "Hold is not to_pick", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn pick_not_found(
+    State(state): State<crate::AppState>,
+    StaffUser(claims): StaffUser,
+    ClientIp(ip): ClientIp,
+    Path(id): Path<i64>,
+) -> AppResult<Json<Hold>> {
+    match state.services.holds.pick_not_found(id).await {
+        Ok(outcome) => {
+            state.services.audit.log(
+                audit::event::ITEM_MARKED_TO_SEARCH,
+                Some(claims.user_id),
+                Some("item"),
+                Some(outcome.item_id),
+                ip.clone(),
+                Some(serde_json::json!({
+                    "holdId": outcome.hold.id.to_string(),
+                    "status": outcome.hold.status,
+                    "reassignedItemId": outcome.hold.item_id.map(|v| v.to_string()),
+                })),
+                audit::AuditLogMeta::success(),
+            );
+            Ok(Json(outcome.hold))
+        }
+        Err(e) => {
+            state.services.audit.log(
+                audit::event::ITEM_MARKED_TO_SEARCH,
+                Some(claims.user_id),
+                Some("hold"),
+                Some(id),
+                ip,
+                None::<()>,
+                audit::AuditLogMeta::from_app_error(&e),
+            );
+            Err(e)
+        }
+    }
 }
 
 /// Query parameters for `GET /holds` (global list).
@@ -283,7 +337,12 @@ pub async fn update_holds_policy(
     Json(req): Json<HoldsPolicy>,
 ) -> AppResult<Json<HoldsPolicy>> {
     claims.require_write_settings()?;
-    match state.services.holds.set_policy(req.max_active_holds).await {
+    match state
+        .services
+        .holds
+        .set_policy(req.max_active_holds, req.pick_delay_days)
+        .await
+    {
         Ok(policy) => {
             state.services.audit.log(
                 audit::event::HOLD_POLICY_UPDATED,
@@ -293,6 +352,7 @@ pub async fn update_holds_policy(
                 ip,
                 Some(serde_json::json!({
                     "maxActiveHolds": policy.max_active_holds,
+                    "pickDelayDays": policy.pick_delay_days,
                 })),
                 audit::AuditLogMeta::success(),
             );
@@ -307,6 +367,7 @@ pub async fn update_holds_policy(
                 ip,
                 Some(serde_json::json!({
                     "maxActiveHolds": req.max_active_holds,
+                    "pickDelayDays": req.pick_delay_days,
                 })),
                 audit::AuditLogMeta::from_app_error(&e),
             );

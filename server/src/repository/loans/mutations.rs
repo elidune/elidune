@@ -123,6 +123,9 @@ impl Repository {
                 crate::models::circulation::CirculationStatus::ClaimedReturned => {
                     "Item is in the claims-returned queue — resolve the claim before circulating"
                 }
+                crate::models::circulation::CirculationStatus::ToSearch => {
+                    "Item is missing from the shelf and is not borrowable"
+                }
                 crate::models::circulation::CirculationStatus::Available => {
                     "Item is not borrowable"
                 }
@@ -189,14 +192,21 @@ impl Repository {
         }
 
         // Only a hold assigned to this copy (`ready`, `to_pick`, or a pinned `pending`)
-        // reserves it. An unassigned title hold does not. `force=true` clears pinned
-        // holds and releases a `to_pick` assignment back to the queue.
+        // reserves it. An unassigned title hold does not. A `to_pick` copy for another
+        // patron is a distinct desk warning. `force=true` clears pinned holds and
+        // releases a `to_pick` assignment back to the queue.
         if !loan.force {
-            if let Some(eligible) = self
-                .holds_eligible_borrower_for_item_tx(&mut tx, item_id)
-                .await?
+            if let Some((hold_id, user_id, status, user_name)) =
+                self.holds_item_reserve_tx(&mut tx, item_id).await?
             {
-                if eligible != loan.user_id {
+                if user_id != loan.user_id {
+                    if status == crate::models::hold::HoldStatus::ToPick {
+                        return Err(AppError::ItemToPickForOther {
+                            hold_id,
+                            user_id,
+                            user_name,
+                        });
+                    }
                     return Err(AppError::BusinessRule(
                         "This copy has an active hold for another patron — only the queued patron may borrow it, or use force=true to override".to_string(),
                     ));

@@ -370,16 +370,17 @@ async fn withdraw_advances_hold_queue_and_keeps_title_holds_on_siblings() {
     assert_eq!(kept["status"], "to_pick");
     assert_eq!(fixtures::json_id(&kept["itemId"]), item_b);
 
-    let (status, all_holds) = app
-        .get_json_with_auth("/api/v1/holds?activeOnly=false&perPage=50", &admin_token)
-        .await;
-    assert_eq!(status, StatusCode::OK, "all holds: {all_holds}");
-    let entries = all_holds["items"].as_array().expect("paginated items");
-    let cancelled = entries
-        .iter()
-        .find(|h| fixtures::json_id(&h["id"]) == pinned_id)
+    let cancelled = app
+        .state
+        .services
+        .repository
+        .holds_get_by_id(pinned_id)
+        .await
         .expect("cancelled pinned hold");
-    assert_eq!(cancelled["status"], "cancelled");
+    assert_eq!(
+        cancelled.status,
+        elidune_server::models::hold::HoldStatus::Cancelled
+    );
 }
 
 #[tokio::test]

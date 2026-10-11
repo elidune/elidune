@@ -111,6 +111,8 @@ pub struct Hold {
     pub status: HoldStatus,
     pub position: i32,
     pub notes: Option<String>,
+    /// When the current `to_pick` assignment started. Null for every other status.
+    pub pick_started_at: Option<DateTime<Utc>>,
 }
 
 impl Hold {
@@ -153,6 +155,9 @@ pub struct HoldDetails {
 
 /// Default global cap when `circulation_settings` has no row yet.
 pub const DEFAULT_MAX_ACTIVE_HOLDS: i16 = 20;
+
+/// Days before a `to_pick` row is flagged overdue on the pick list. No auto-expiry.
+pub const DEFAULT_PICK_DELAY_DAYS: i16 = 2;
 /// Inclusive bounds for stored `max_active_holds` values.
 pub const MIN_MAX_ACTIVE_HOLDS: i16 = 1;
 pub const MAX_MAX_ACTIVE_HOLDS: i16 = 1000;

@@ -65,19 +65,40 @@ impl HoldsService {
     pub async fn get_policy(&self) -> AppResult<HoldsPolicy> {
         Ok(HoldsPolicy {
             max_active_holds: self.repository.holds_get_global_max_active().await?,
+            pick_delay_days: Some(self.repository.holds_get_pick_delay_days().await?),
         })
     }
 
-    /// Replace the global default max active holds.
+    /// Replace the global default max active holds and, when set, the pick delay.
     #[tracing::instrument(skip(self), err)]
-    pub async fn set_policy(&self, max_active_holds: i16) -> AppResult<HoldsPolicy> {
+    pub async fn set_policy(
+        &self,
+        max_active_holds: i16,
+        pick_delay_days: Option<i16>,
+    ) -> AppResult<HoldsPolicy> {
         validate_max_active_holds(Some(max_active_holds))?;
+        let delay = if let Some(days) = pick_delay_days {
+            validate_pick_delay_days(days)?;
+            self.repository.holds_set_pick_delay_days(days).await?
+        } else {
+            self.repository.holds_get_pick_delay_days().await?
+        };
         Ok(HoldsPolicy {
             max_active_holds: self
                 .repository
                 .holds_set_global_max_active(max_active_holds)
                 .await?,
+            pick_delay_days: Some(delay),
         })
+    }
+
+    /// Copy missing from the shelf: mark `to_search` and reassign or release the hold.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn pick_not_found(
+        &self,
+        id: i64,
+    ) -> AppResult<crate::models::dto::holds::PickNotFoundOutcome> {
+        self.repository.holds_pick_not_found(id).await
     }
 
     /// Resolved cap, used count, and remaining slots for a patron.
@@ -260,6 +281,15 @@ pub(crate) fn validate_max_active_holds(max: Option<i16>) -> AppResult<()> {
     Ok(())
 }
 
+fn validate_pick_delay_days(days: i16) -> AppResult<()> {
+    if !(0..=365).contains(&days) {
+        return Err(AppError::Validation(
+            "pickDelayDays must be between 0 and 365".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 fn hold_cap_block_message(active: i64, max: i16) -> String {
     format!(
         "Maximum of {max} active holds reached ({active} pending/to_pick/ready) — cancel a hold or use force=true to override"
@@ -326,6 +356,7 @@ mod tests {
                 created_at: Utc::now(),
                 notified_at: None,
                 expires_at: None,
+                pick_started_at: None,
             })
         }
         async fn holds_has_active_for_user_biblio(&self, _: i64, _: i64) -> AppResult<bool> {
@@ -359,6 +390,7 @@ mod tests {
                 created_at: Utc::now(),
                 notified_at: None,
                 expires_at: None,
+                pick_started_at: None,
             })
         }
         async fn holds_cancel(&self, id: i64) -> AppResult<Hold> {
@@ -402,6 +434,21 @@ mod tests {
             _: Option<i64>,
         ) -> AppResult<Vec<crate::models::dto::holds::HoldPickListItem>> {
             Ok(vec![])
+        }
+        async fn holds_get_pick_delay_days(&self) -> AppResult<i16> {
+            Ok(crate::models::hold::DEFAULT_PICK_DELAY_DAYS)
+        }
+        async fn holds_set_pick_delay_days(&self, days: i16) -> AppResult<i16> {
+            Ok(days)
+        }
+        async fn holds_pick_not_found(
+            &self,
+            id: i64,
+        ) -> AppResult<crate::models::dto::holds::PickNotFoundOutcome> {
+            Ok(crate::models::dto::holds::PickNotFoundOutcome {
+                hold: self.holds_get_by_id(id).await?,
+                item_id: 1,
+            })
         }
     }
 
@@ -508,12 +555,19 @@ mod tests {
     #[tokio::test]
     async fn set_policy_rejects_out_of_range() {
         let svc = HoldsService::new(Arc::new(FakeHoldsRepo::ok()));
-        let err = svc.set_policy(0).await.unwrap_err();
+        let err = svc.set_policy(0, None).await.unwrap_err();
         assert!(matches!(err, AppError::Validation(_)));
-        let err = svc.set_policy(1001).await.unwrap_err();
+        let err = svc.set_policy(1001, None).await.unwrap_err();
         assert!(matches!(err, AppError::Validation(_)));
-        let policy = svc.set_policy(DEFAULT_MAX_ACTIVE_HOLDS).await.expect("ok");
+        let policy = svc
+            .set_policy(DEFAULT_MAX_ACTIVE_HOLDS, None)
+            .await
+            .expect("ok");
         assert_eq!(policy.max_active_holds, DEFAULT_MAX_ACTIVE_HOLDS);
+        assert_eq!(
+            policy.pick_delay_days,
+            Some(crate::models::hold::DEFAULT_PICK_DELAY_DAYS)
+        );
     }
 
     #[tokio::test]

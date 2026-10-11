@@ -98,6 +98,7 @@ use crate::api::{
         // Holds
         holds::list_holds,
         holds::list_pick_list,
+        holds::pick_not_found,
         holds::create_hold,
         holds::get_holds_policy,
         holds::update_holds_policy,

@@ -27,12 +27,14 @@ use crate::{
 };
 use z3950_rs::marc_rs::{BinaryWriter, Encoding as MarcEncoding, MarcFormat, XmlWriter};
 
-/// Desk scan of a barcode: either a loan return or completion of a `to_pick` hold.
+/// Desk scan of a barcode: a loan return, a `to_pick` check-in, or a found `to_search` copy.
 #[derive(Debug, Clone)]
 pub struct ItemCheckIn {
     pub loan: Option<LoanDetails>,
     pub hold: Option<crate::models::hold::Hold>,
     pub transit_started: bool,
+    pub destination_site_id: Option<i64>,
+    pub destination_site_name: Option<String>,
 }
 
 #[derive(Clone)]
@@ -234,33 +236,76 @@ impl LoansService {
                     loan: Some(outcome.details),
                     hold: None,
                     transit_started: false,
+                    destination_site_id: None,
+                    destination_site_name: None,
                 })
             }
             Err(AppError::NotFound(_)) => {
-                let Some(done) = self
+                if let Some(done) = self
                     .repository
                     .loans_complete_to_pick_by_identification(item_identification)
                     .await?
-                else {
-                    return Err(AppError::NotFound(format!(
-                        "No active loan found for item {item_identification}"
-                    )));
-                };
-                if !done.transit_started {
-                    self.notify_picked_hold_ready(
-                        &done.hold,
-                        done.title.as_deref().unwrap_or("(unknown title)"),
-                        done.barcode.as_deref(),
-                        audit_actor,
-                        client_ip,
-                    )
-                    .await;
+                {
+                    if !done.transit_started {
+                        self.notify_picked_hold_ready(
+                            &done.hold,
+                            done.title.as_deref().unwrap_or("(unknown title)"),
+                            done.barcode.as_deref(),
+                            audit_actor,
+                            client_ip,
+                        )
+                        .await;
+                    }
+                    return Ok(ItemCheckIn {
+                        loan: None,
+                        hold: Some(done.hold),
+                        transit_started: done.transit_started,
+                        destination_site_id: done.destination_site_id,
+                        destination_site_name: done.destination_site_name,
+                    });
                 }
-                Ok(ItemCheckIn {
-                    loan: None,
-                    hold: Some(done.hold),
-                    transit_started: done.transit_started,
-                })
+                if let Some(found) = self
+                    .repository
+                    .loans_recover_to_search_by_identification(item_identification)
+                    .await?
+                {
+                    if let Some(hold) = found.hold.as_ref() {
+                        if !found.transit_started
+                            && hold.status == crate::models::hold::HoldStatus::Ready
+                        {
+                            self.notify_picked_hold_ready(
+                                hold,
+                                found.title.as_deref().unwrap_or("(unknown title)"),
+                                found.barcode.as_deref(),
+                                audit_actor,
+                                client_ip.clone(),
+                            )
+                            .await;
+                        }
+                    }
+                    self.audit.log(
+                        audit::event::ITEM_FOUND_ON_SHELF,
+                        audit_actor,
+                        Some("item"),
+                        found.hold.as_ref().and_then(|h| h.item_id),
+                        client_ip,
+                        Some(serde_json::json!({
+                            "found": true,
+                            "barcode": item_identification,
+                        })),
+                        AuditLogMeta::success(),
+                    );
+                    return Ok(ItemCheckIn {
+                        loan: None,
+                        hold: found.hold,
+                        transit_started: found.transit_started,
+                        destination_site_id: found.destination_site_id,
+                        destination_site_name: found.destination_site_name,
+                    });
+                }
+                Err(AppError::NotFound(format!(
+                    "No active loan found for item {item_identification}"
+                )))
             }
             Err(e) => Err(e),
         }
@@ -820,6 +865,12 @@ mod tests {
             &self,
             _: &str,
         ) -> AppResult<Option<crate::models::dto::holds::ToPickCompletion>> {
+            Ok(None)
+        }
+        async fn loans_recover_to_search_by_identification(
+            &self,
+            _: &str,
+        ) -> AppResult<Option<crate::models::dto::holds::ShelfFound>> {
             Ok(None)
         }
         async fn loans_renew(&self, _: i64) -> AppResult<(chrono::DateTime<Utc>, i16)> {
