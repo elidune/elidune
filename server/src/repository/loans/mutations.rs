@@ -199,8 +199,9 @@ impl Repository {
         // patron is a distinct desk warning. `force=true` clears pinned holds and
         // releases a `to_pick` assignment back to the queue.
         if !loan.force {
-            if let Some((hold_id, user_id, status, user_name)) =
-                self.holds_item_reserve_tx(&mut tx, item_id).await?
+            if let Some((hold_id, user_id, status, user_name)) = self
+                .holds_assigned_hold_blocks_lending_tx(&mut tx, item_id)
+                .await?
             {
                 if user_id != loan.user_id {
                     if status == crate::models::hold::HoldStatus::ToPick {
@@ -390,7 +391,7 @@ impl Repository {
 
         let user_short_row = sqlx::query_as::<_, UserShortRow>(
             r#"
-            SELECT u.id, u.firstname, u.lastname, u.account_type, u.public_type,
+            SELECT u.id, u.login, u.firstname, u.lastname, u.account_type, u.public_type,
                    u.status, u.created_at, u.expiry_at,
                    0::bigint as nb_loans, 0::bigint as nb_late_loans
             FROM users u
@@ -464,8 +465,9 @@ impl Repository {
     ///
     /// Serializes on the item row then the loan row (`FOR UPDATE`, same lock order
     /// as [`Self::loans_create`]) so concurrent renews cannot both pass the max-renewals
-    /// check. Refuses renewal when another patron has a hold assigned to this copy
-    /// (`pending` pin, `to_pick`, or `ready`). An unassigned title hold does not block renewal.
+    /// check. Refuses renewal when another patron has a hold this loan could satisfy
+    /// (unassigned title hold, or a hold on this copy). A hold already assigned to a
+    /// different copy does not block renewal.
     pub async fn loans_renew(&self, loan_id: i64) -> AppResult<(DateTime<Utc>, i16)> {
         let now = Utc::now();
         let mut tx = self.pool.begin().await?;
@@ -522,7 +524,7 @@ impl Repository {
         }
 
         if self
-            .holds_has_waiting_patron_tx(&mut tx, loan.item_id, loan.user_id)
+            .holds_waiting_hold_blocks_renewal_tx(&mut tx, loan.item_id, loan.user_id)
             .await?
         {
             return Err(AppError::BusinessRule(

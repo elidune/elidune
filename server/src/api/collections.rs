@@ -11,10 +11,10 @@ use serde::Serialize;
 use utoipa::ToSchema;
 
 use crate::{
+    api::biblios::BiblioShortListResponse,
     error::AppResult,
-    models::biblio::{
-        BiblioShort, Collection, CollectionQuery, CreateCollection, UpdateCollection,
-    },
+    models::biblio::{Collection, CollectionQuery, CreateCollection, UpdateCollection},
+    models::catalog_view::{BiblioShortPublic, BiblioShortStaff},
     services::audit,
 };
 
@@ -103,7 +103,7 @@ pub async fn get_collection(
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Collection ID")),
     responses(
-        (status = 200, description = "Biblios in this collection", body = Vec<BiblioShort>),
+        (status = 200, description = "Biblios in this collection. Librarians and admins receive `BiblioShortStaff`. Readers receive `BiblioShortPublic`.", body = BiblioShortListResponse),
         (status = 404, description = "Not found"),
     )
 )]
@@ -111,16 +111,16 @@ pub async fn get_collection_biblios(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     Path(id): Path<i64>,
-) -> AppResult<Json<Vec<BiblioShort>>> {
+) -> AppResult<Json<BiblioShortListResponse>> {
     claims.require_read_items()?;
     state.services.catalog.get_collection(id).await?;
-    let mut biblios = state.services.catalog.get_biblios_by_collection(id).await?;
-    if !claims.is_librarian() {
-        for biblio in &mut biblios {
-            biblio.redact_hold_patrons();
-        }
-    }
-    Ok(Json(biblios))
+    let biblios = state.services.catalog.get_biblios_by_collection(id).await?;
+    let body = if claims.is_librarian() {
+        BiblioShortListResponse::Staff(biblios.into_iter().map(BiblioShortStaff::from).collect())
+    } else {
+        BiblioShortListResponse::Public(biblios.into_iter().map(BiblioShortPublic::from).collect())
+    };
+    Ok(Json(body))
 }
 
 /// Create a new collection.

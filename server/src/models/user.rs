@@ -516,6 +516,7 @@ impl User {
 #[derive(Debug, Clone, FromRow)]
 pub struct UserShortRow {
     id: i64,
+    login: Option<String>,
     firstname: Option<String>,
     lastname: Option<String>,
     account_type: Option<String>,
@@ -531,6 +532,7 @@ impl From<UserShortRow> for UserShort {
     fn from(row: UserShortRow) -> Self {
         UserShort {
             id: row.id,
+            login: row.login,
             firstname: row.firstname,
             lastname: row.lastname,
             account_type: row
@@ -554,6 +556,9 @@ pub struct UserShort {
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub id: i64,
+    /// Carried for [`crate::models::catalog_view::UserShortStaff`]. Not part of this type's JSON.
+    #[serde(skip)]
+    pub login: Option<String>,
     pub firstname: Option<String>,
     pub lastname: Option<String>,
     pub account_type: Option<AccountTypeSlug>,

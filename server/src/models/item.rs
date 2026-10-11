@@ -103,12 +103,12 @@ impl sqlx::Encode<'_, sqlx::Postgres> for WeedingStatus {
     }
 }
 
-/// Computed availability of one physical copy.
+/// Staff availability of one physical copy.
 ///
 /// The server decides this. Clients must not infer it from `borrowed`,
-/// `borrowable`, or `circulationStatus`. Staff and readers receive the same
-/// value. `holdUserId` and `holdUserName` are added only on staff responses,
-/// and only when the value is `onHold`.
+/// `borrowable`, or `circulationStatus`. Readers and the OPAC receive
+/// [`crate::models::catalog_view::ItemPublicAvailability`] instead: `toSearch`
+/// and `unavailable` are both `unavailable`, with no reason.
 ///
 /// Precedence, first match wins:
 ///
@@ -358,55 +358,6 @@ fn nonempty(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|s| !s.is_empty())
 }
 
-/// Remove patron identity from a catalog JSON value.
-///
-/// Drops `holdUserId` and `holdUserName` at every level. Availability itself
-/// stays. Staff responses skip this.
-pub fn strip_hold_patron_fields(value: &mut serde_json::Value) {
-    match value {
-        serde_json::Value::Array(items) => {
-            for item in items {
-                strip_hold_patron_fields(item);
-            }
-        }
-        serde_json::Value::Object(obj) => {
-            obj.remove("holdUserId");
-            obj.remove("holdUserName");
-            for child in obj.values_mut() {
-                strip_hold_patron_fields(child);
-            }
-        }
-        _ => {}
-    }
-}
-
-/// Remove staff-only weeding details from a catalog JSON value.
-///
-/// Drops `weedingStatus` and `weedingReason` on the record and on each copy.
-/// Copy `notes` are removed as well. Bibliographic `notes` (records that carry
-/// `mediaType`) stay.
-pub fn strip_weeding_fields(value: &mut serde_json::Value) {
-    match value {
-        serde_json::Value::Array(items) => {
-            for item in items {
-                strip_weeding_fields(item);
-            }
-        }
-        serde_json::Value::Object(obj) => {
-            obj.remove("weedingStatus");
-            obj.remove("weedingReason");
-            let is_copy = obj.contains_key("borrowable") && !obj.contains_key("mediaType");
-            if is_copy {
-                obj.remove("notes");
-            }
-            if let Some(items) = obj.get_mut("items") {
-                strip_weeding_fields(items);
-            }
-        }
-        _ => {}
-    }
-}
-
 /// Short item (physical copy) representation for lists
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
@@ -433,13 +384,13 @@ pub struct ItemShort {
     #[sqlx(default)]
     #[serde(default)]
     pub can_hold_item: bool,
-    /// Staff only, and only when [`Self::availability`] is [`ItemAvailability::OnHold`].
+    /// Present on staff catalog views only, and only when [`Self::availability`] is [`ItemAvailability::OnHold`].
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     #[sqlx(default)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hold_user_id: Option<i64>,
-    /// Staff only, and only when [`Self::availability`] is [`ItemAvailability::OnHold`].
+    /// Present on staff catalog views only, and only when [`Self::availability`] is [`ItemAvailability::OnHold`].
     #[sqlx(default)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hold_user_name: Option<String>,
@@ -465,7 +416,7 @@ impl From<Item> for ItemShort {
 
 #[cfg(test)]
 mod tests {
-    use super::{strip_hold_patron_fields, Item, ItemAvailability, WeedingStatus};
+    use super::{Item, ItemAvailability, WeedingStatus};
 
     #[test]
     fn weeding_candidate_circulates_withdrawn_blocks() {
@@ -591,21 +542,5 @@ mod tests {
 
         let json = serde_json::to_value(ItemAvailability::OnHold).unwrap();
         assert_eq!(json, "onHold");
-    }
-
-    #[test]
-    fn strip_hold_patron_fields_keeps_availability() {
-        let mut body = serde_json::json!({
-            "items": [{
-                "availability": "onHold",
-                "canHoldItem": false,
-                "holdUserId": "42",
-                "holdUserName": "Ada Lovelace"
-            }]
-        });
-        strip_hold_patron_fields(&mut body);
-        assert_eq!(body["items"][0]["availability"], "onHold");
-        assert!(body["items"][0].get("holdUserId").is_none());
-        assert!(body["items"][0].get("holdUserName").is_none());
     }
 }

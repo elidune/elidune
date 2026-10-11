@@ -9,9 +9,9 @@ use serde::Deserialize;
 
 use crate::{
     error::AppResult,
+    models::catalog_view::UserShortStaff,
     models::user::{
         EventsConsentSource, UpdateAccountType, UpdateProfile, User, UserPayload, UserQuery,
-        UserShort,
     },
     services::audit,
 };
@@ -52,7 +52,7 @@ pub fn router() -> axum::Router<crate::AppState> {
         ("per_page" = Option<i64>, Query, description = "Items per page")
     ),
     responses(
-        (status = 200, description = "List of users", body = PaginatedResponse<UserShort>),
+        (status = 200, description = "List of users. Staff summary includes `login`.", body = PaginatedResponse<UserShortStaff>),
         (status = 401, description = "Not authenticated")
     )
 )]
@@ -60,14 +60,19 @@ pub async fn list_users(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     Query(query): Query<UserQuery>,
-) -> AppResult<Json<PaginatedResponse<UserShort>>> {
+) -> AppResult<Json<PaginatedResponse<UserShortStaff>>> {
     claims.require_read_users()?;
 
     let (users, total) = state.services.users.search_users(&query).await?;
     let page = query.page.unwrap_or(1);
     let per_page = query.per_page.unwrap_or(20);
 
-    Ok(Json(PaginatedResponse::new(users, total, page, per_page)))
+    Ok(Json(PaginatedResponse::new(
+        users.into_iter().map(UserShortStaff::from).collect(),
+        total,
+        page,
+        per_page,
+    )))
 }
 
 /// Get user details by ID
