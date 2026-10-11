@@ -74,6 +74,13 @@ impl From<ImportItem> for Item {
             .and_then(|st| st.parse::<i16>().ok())
             .map(|v| v == 98)
             .unwrap_or(true);
+        let weeding_status = crate::models::item::WeedingStatus::OnShelf;
+        let (availability, can_hold_item) = crate::models::item::ItemAvailability::local_pair(
+            false,
+            borrowable,
+            None,
+            weeding_status,
+        );
         Item {
             id: None,
             biblio_id: None,
@@ -84,7 +91,7 @@ impl From<ImportItem> for Item {
             place: s.place,
             borrowable,
             circulation_status: None,
-            weeding_status: crate::models::item::WeedingStatus::OnShelf,
+            weeding_status,
             weeding_reason: None,
             notes: s.notes,
             price: s.price,
@@ -95,6 +102,10 @@ impl From<ImportItem> for Item {
             source_name: None,
             borrowed: false,
             loan_id: None,
+            availability,
+            can_hold_item,
+            hold_user_id: None,
+            hold_user_name: None,
         }
     }
 }

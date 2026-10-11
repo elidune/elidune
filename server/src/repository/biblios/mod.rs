@@ -395,6 +395,10 @@ pub(crate) struct ItemShortRow {
     weeding_status: crate::models::item::WeedingStatus,
     source_name: Option<String>,
     borrowed: bool,
+    availability: crate::models::item::ItemAvailability,
+    can_hold_item: bool,
+    hold_user_id: Option<i64>,
+    hold_user_name: Option<String>,
 }
 
 impl From<ItemShortRow> for ItemShort {
@@ -407,6 +411,10 @@ impl From<ItemShortRow> for ItemShort {
             weeding_status: r.weeding_status,
             source_name: r.source_name,
             borrowed: r.borrowed,
+            availability: r.availability,
+            can_hold_item: r.can_hold_item,
+            hold_user_id: r.hold_user_id,
+            hold_user_name: r.hold_user_name,
         }
     }
 }

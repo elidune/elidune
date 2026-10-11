@@ -17,6 +17,7 @@ use crate::{
     },
 };
 
+pub use crate::renewal::renewal_opens_at;
 pub use reminders::{OverdueLoanRow, ReminderTierDelays};
 
 #[cfg_attr(test, mockall::automock)]
@@ -58,7 +59,17 @@ pub trait LoansRepository: Send + Sync {
         &self,
         identification: &str,
     ) -> AppResult<Option<crate::models::dto::holds::ShelfFound>>;
-    async fn loans_renew(&self, loan_id: i64) -> AppResult<(DateTime<Utc>, i16)>;
+    /// Loan facts for [`crate::renewal::renewal_eligibility`] before the locked write.
+    async fn loans_renewal_snapshot(
+        &self,
+        loan_id: i64,
+    ) -> AppResult<crate::renewal::LoanRenewalSnapshot>;
+    /// `bypass_account_gates` is staff `force`: skip account and unpaid-fine refusals.
+    async fn loans_renew(
+        &self,
+        loan_id: i64,
+        bypass_account_gates: bool,
+    ) -> AppResult<(DateTime<Utc>, i16)>;
     async fn loans_get_settings(&self) -> AppResult<Vec<LoanSettings>>;
     async fn loans_count_active(&self) -> AppResult<i64>;
     async fn loans_count_overdue(&self) -> AppResult<i64>;
@@ -164,11 +175,18 @@ impl LoansRepository for Repository {
     ) -> crate::error::AppResult<Option<crate::models::dto::holds::ShelfFound>> {
         Repository::holds_recover_to_search_by_identification(self, identification).await
     }
+    async fn loans_renewal_snapshot(
+        &self,
+        loan_id: i64,
+    ) -> crate::error::AppResult<crate::renewal::LoanRenewalSnapshot> {
+        Repository::loans_renewal_snapshot(self, loan_id).await
+    }
     async fn loans_renew(
         &self,
         loan_id: i64,
+        bypass_account_gates: bool,
     ) -> crate::error::AppResult<(chrono::DateTime<chrono::Utc>, i16)> {
-        Repository::loans_renew(self, loan_id).await
+        Repository::loans_renew(self, loan_id, bypass_account_gates).await
     }
     async fn loans_get_settings(
         &self,

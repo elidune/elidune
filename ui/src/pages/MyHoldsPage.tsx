@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ban, Bookmark, AlertCircle } from 'lucide-react';
@@ -14,23 +14,22 @@ import {
   ResponsiveRecordList,
   ListSkeleton,
 } from '@/components/common';
-import HoldMobileCard from '@/components/holds/HoldMobileCard';
-import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
-import HoldExpiresCell from '@/components/holds/HoldExpiresCell';
-import HoldPickupCell from '@/components/holds/HoldPickupCell';
 import HoldStatusBadge from '@/components/holds/HoldStatusBadge';
-import { useSourcesQuery } from '@/hooks/holds/useSourcesQuery';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { formControlClass, formLabelClass, formChoiceLabelClass } from '@/utils/formControl';
-import type { Hold } from '@/types';
+import type { MyHold } from '@/types';
 import { canPatronSelfServiceHolds } from '@/types';
 
 const PAGE_SIZE_DEFAULT = 20;
 
-function statusBadge(_t: (k: string) => string, status: Hold['status']) {
+function statusBadge(_t: (k: string) => string, status: MyHold['status']) {
   return <HoldStatusBadge status={status} />;
+}
+
+function canCancel(status: MyHold['status']) {
+  return status === 'pending' || status === 'to_pick' || status === 'ready';
 }
 
 export default function MyHoldsPage() {
@@ -41,9 +40,6 @@ export default function MyHoldsPage() {
   const [perPage, setPerPage] = useState(PAGE_SIZE_DEFAULT);
   const [activeOnly, setActiveOnly] = useState(true);
   const [cancelHoldId, setCancelHoldId] = useState<string | null>(null);
-  const sourcesQuery = useSourcesQuery();
-  const sources = sourcesQuery.data ?? [];
-
   const [prevHoldFilters, setPrevHoldFilters] = useState({ activeOnly, perPage });
   if (activeOnly !== prevHoldFilters.activeOnly || perPage !== prevHoldFilters.perPage) {
     setPrevHoldFilters({ activeOnly, perPage });
@@ -53,7 +49,7 @@ export default function MyHoldsPage() {
   const listQuery = useQuery({
     queryKey: ['my-holds', page, perPage, activeOnly],
     queryFn: () =>
-      api.getHolds({
+      api.getMyHolds({
         page,
         perPage: Math.min(200, Math.max(1, perPage)),
         activeOnly,
@@ -81,8 +77,8 @@ export default function MyHoldsPage() {
     return <Navigate to="/" replace />;
   }
 
-  const cancelCell = (r: Hold) =>
-    r.status === 'pending' || r.status === 'ready' ? (
+  const cancelCell = (r: MyHold) =>
+    canCancel(r.status) ? (
       <Button
         size="sm"
         variant="secondary"
@@ -98,32 +94,64 @@ export default function MyHoldsPage() {
     {
       key: 'item',
       header: t('holds.columnDocument'),
-      render: (r: Hold) => <HoldDocumentCell hold={r} />,
+      render: (r: MyHold) => (
+        <Link
+          to={`/biblios/${r.biblioId}`}
+          className="font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
+        >
+          {r.title || t('items.notSpecified')}
+        </Link>
+      ),
     },
     {
       key: 'status',
       header: t('holds.status'),
-      render: (r: Hold) => statusBadge(t, r.status),
+      render: (r: MyHold) => statusBadge(t, r.status),
     },
     {
       key: 'pickup',
       header: t('holds.columnPickup'),
-      render: (r: Hold) => <HoldPickupCell hold={r} sources={sources} showTransit={false} />,
+      render: (r: MyHold) => (
+        <span className="text-sm text-gray-800 dark:text-gray-200">
+          {r.pickupSiteName || t('holds.transitNone')}
+        </span>
+      ),
     },
     {
       key: 'position',
       header: t('holds.position'),
-      render: (r: Hold) => t('holds.queuePosition', { position: r.position }),
+      render: (r: MyHold) => t('holds.queuePosition', { position: r.position }),
     },
     {
       key: 'created',
       header: t('holds.createdAt'),
-      render: (r: Hold) => new Date(r.createdAt).toLocaleString(i18n.language),
+      render: (r: MyHold) => new Date(r.createdAt).toLocaleString(i18n.language),
     },
     {
       key: 'expires',
       header: t('holds.expiresAt'),
-      render: (r: Hold) => <HoldExpiresCell hold={r} emphasizePickup />,
+      render: (r: MyHold) => {
+        const ready = r.status === 'ready' && Boolean(r.pickupDeadline);
+        const line = r.pickupDeadline
+          ? new Date(r.pickupDeadline).toLocaleString(i18n.language)
+          : '—';
+        return (
+          <div
+            className={
+              ready
+                ? 'rounded-md px-2 py-1.5 -mx-1 bg-amber-50 dark:bg-amber-900/25 border border-amber-200 dark:border-amber-800'
+                : ''
+            }
+          >
+            <span className={ready ? 'font-semibold text-amber-900 dark:text-amber-100' : ''}>{line}</span>
+            {ready && (
+              <p className="text-xs mt-1 text-amber-800 dark:text-amber-200/90 leading-snug">
+                {t('holds.pickupDeadlineHint')}
+              </p>
+            )}
+          </div>
+        );
+      },
     },
     {
       key: 'actions',
@@ -234,16 +262,44 @@ export default function MyHoldsPage() {
                 ) : (
                   <div className="rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden bg-white dark:bg-gray-900 mx-2 sm:mx-4 mb-2">
                     {(listData?.items ?? []).map((r) => (
-                      <HoldMobileCard
+                      <div
                         key={r.id}
-                        hold={r}
-                        showUser={false}
-                        emphasizePickup
-                        pickupSources={sources}
-                        statusBadge={(s) => statusBadge(t, s)}
-                        onCancel={() => setCancelHoldId(r.id)}
-                        cancelPending={cancelMutation.isPending && cancelMutation.variables === r.id}
-                      />
+                        className="border-b border-gray-200 dark:border-gray-800 last:border-b-0 p-4 space-y-2"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <Link
+                            to={`/biblios/${r.biblioId}`}
+                            className="font-medium text-indigo-600 dark:text-indigo-400"
+                          >
+                            {r.title || t('items.notSpecified')}
+                          </Link>
+                          {statusBadge(t, r.status)}
+                        </div>
+                        <p className="text-sm text-gray-600 dark:text-gray-300">
+                          {r.pickupSiteName || t('holds.transitNone')}
+                        </p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                          {t('holds.queuePosition', { position: r.position })}
+                          {' · '}
+                          {new Date(r.createdAt).toLocaleString(i18n.language)}
+                        </p>
+                        {r.pickupDeadline && (
+                          <p className="text-sm text-amber-800 dark:text-amber-200">
+                            {t('holds.expiresAt')}: {new Date(r.pickupDeadline).toLocaleString(i18n.language)}
+                          </p>
+                        )}
+                        {canCancel(r.status) && (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            leftIcon={<Ban className="h-4 w-4" />}
+                            isLoading={cancelMutation.isPending && cancelMutation.variables === r.id}
+                            onClick={() => setCancelHoldId(r.id)}
+                          >
+                            {t('holds.cancelHold')}
+                          </Button>
+                        )}
+                      </div>
                     ))}
                   </div>
                 )

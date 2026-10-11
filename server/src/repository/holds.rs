@@ -241,14 +241,25 @@ impl Repository {
         let mut m = HashMap::with_capacity(rows.len());
         for r in rows {
             let id = r.id;
+            let weeding_status = crate::models::item::WeedingStatus::OnShelf;
+            let (availability, can_hold_item) = crate::models::item::ItemAvailability::local_pair(
+                r.borrowed,
+                r.borrowable,
+                None,
+                weeding_status,
+            );
             let item = ItemShort {
                 id: r.id,
                 barcode: r.barcode,
                 call_number: r.call_number,
                 borrowable: r.borrowable,
-                weeding_status: crate::models::item::WeedingStatus::OnShelf,
+                weeding_status,
                 source_name: r.source_name,
                 borrowed: r.borrowed,
+                availability,
+                can_hold_item,
+                hold_user_id: None,
+                hold_user_name: None,
             };
             m.insert(id, (r.biblio_id, item));
         }
@@ -262,7 +273,7 @@ impl Repository {
         }
         let rows: Vec<UserShortRow> = sqlx::query_as(
             r#"
-            SELECT u.id, u.firstname, u.lastname, u.account_type, u.public_type,
+            SELECT u.id, u.login, u.firstname, u.lastname, u.account_type, u.public_type,
                    (SELECT COUNT(*)::bigint FROM loans l WHERE l.user_id = u.id AND l.returned_at IS NULL) AS nb_loans,
                    (SELECT COUNT(*)::bigint FROM loans l WHERE l.user_id = u.id AND l.returned_at IS NULL AND l.expiry_at < NOW()) AS nb_late_loans,
                    u.status, u.created_at, u.expiry_at

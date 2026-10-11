@@ -84,6 +84,10 @@ pub enum AppError {
     #[error("{0}")]
     RenewalTooEarly(String),
 
+    /// Renewal refused for a stable code shared with `GET /me/loans` (HTTP 422).
+    #[error("{message}")]
+    RenewalRefused { code: &'static str, message: String },
+
     /// Confirmation payload is boxed: `BiblioShort` is far larger than the
     /// `result_large_err` limit and would otherwise inflate every `AppResult`.
     #[error("Duplicate ISBN requires confirmation")]
@@ -274,6 +278,12 @@ impl AppError {
                 code: ec::RENEWAL_TOO_EARLY,
                 label: "Business Rule Violation",
                 message: msg.clone(),
+            },
+            AppError::RenewalRefused { code, message } => HttpErrorFields {
+                status: StatusCode::UNPROCESSABLE_ENTITY,
+                code,
+                label: "Business Rule Violation",
+                message: message.clone(),
             },
             AppError::DuplicateNeedsConfirmation { .. }
             | AppError::DuplicateBarcodeNeedsConfirmation { .. } => HttpErrorFields {

@@ -31,7 +31,7 @@ impl Repository {
     pub async fn loans_get_borrower_for_loan(&self, loan_id: i64) -> AppResult<UserShort> {
         let row = sqlx::query_as::<_, UserShortRow>(
             r#"
-            SELECT u.id, u.firstname, u.lastname, u.account_type, u.public_type,
+            SELECT u.id, u.login, u.firstname, u.lastname, u.account_type, u.public_type,
                    (SELECT COUNT(*)::bigint FROM loans l WHERE l.user_id = u.id AND l.returned_at IS NULL) AS nb_loans,
                    (SELECT COUNT(*)::bigint FROM loans l WHERE l.user_id = u.id AND l.returned_at IS NULL AND l.expiry_at < NOW()) AS nb_late_loans,
                    u.status, u.created_at, u.expiry_at
@@ -396,6 +396,18 @@ impl Repository {
                 }
             };
 
+        let borrowed = row.try_get("item_borrowed").unwrap_or(false);
+        let borrowable = row.try_get("item_borrowable").unwrap_or(true);
+        let circulation_status = row.try_get("item_circulation_status").ok().flatten();
+        let weeding_status = row
+            .try_get("item_weeding_status")
+            .unwrap_or(crate::models::item::WeedingStatus::OnShelf);
+        let (availability, can_hold_item) = crate::models::item::ItemAvailability::local_pair(
+            borrowed,
+            borrowable,
+            circulation_status,
+            weeding_status,
+        );
         let item = Item {
             id: row.try_get("item_id").ok(),
             biblio_id: row.try_get("item_biblio_id").ok(),
@@ -404,11 +416,9 @@ impl Repository {
             call_number: row.try_get("item_call_number").ok().flatten(),
             volume_designation: row.try_get("item_volume_designation").ok().flatten(),
             place: row.try_get("item_place").ok().flatten(),
-            borrowable: row.try_get("item_borrowable").unwrap_or(true),
-            circulation_status: row.try_get("item_circulation_status").ok().flatten(),
-            weeding_status: row
-                .try_get("item_weeding_status")
-                .unwrap_or(crate::models::item::WeedingStatus::OnShelf),
+            borrowable,
+            circulation_status,
+            weeding_status,
             weeding_reason: row.try_get("item_weeding_reason").ok().flatten(),
             notes: row.try_get("item_notes").ok().flatten(),
             price: row.try_get("item_price").ok().flatten(),
@@ -417,8 +427,12 @@ impl Repository {
             updated_at: row.try_get("item_updated_at").ok().flatten(),
             archived_at: row.try_get("item_archived_at").ok().flatten(),
             source_name: row.try_get("item_source_name").ok().flatten(),
-            borrowed: row.try_get("item_borrowed").unwrap_or(false),
+            borrowed,
             loan_id: None,
+            availability,
+            can_hold_item,
+            hold_user_id: None,
+            hold_user_name: None,
         };
 
         let series_ids: Vec<i64> = series.iter().filter_map(|s| s.id).collect();
@@ -483,14 +497,27 @@ impl Repository {
                 let renew_at: Option<DateTime<Utc>> = row.get("renew_at");
                 let returned_at: Option<DateTime<Utc>> = row.get("returned_at");
 
+                let borrowable: bool = row.get("item_borrowable");
+                let weeding_status = crate::models::item::WeedingStatus::OnShelf;
+                let (availability, can_hold_item) =
+                    crate::models::item::ItemAvailability::local_pair(
+                        true,
+                        borrowable,
+                        None,
+                        weeding_status,
+                    );
                 let borrowed_item = ItemShort {
                     id: row.get("item_copy_id"),
                     barcode: row.get("item_barcode"),
                     call_number: row.get("item_call_number"),
-                    borrowable: row.get("item_borrowable"),
-                    weeding_status: crate::models::item::WeedingStatus::OnShelf,
+                    borrowable,
+                    weeding_status,
                     source_name: row.get("item_source_name"),
                     borrowed: true,
+                    availability,
+                    can_hold_item,
+                    hold_user_id: None,
+                    hold_user_name: None,
                 };
 
                 LoanDetails {

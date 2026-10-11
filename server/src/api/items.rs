@@ -8,7 +8,9 @@ use axum::{
 use serde::Deserialize;
 
 use crate::{
+    api::biblios::BiblioReadResponse,
     error::AppResult,
+    models::catalog_view::{BiblioPublicView, BiblioStaffView},
     models::dto::weeding::SetWeedingRequest,
     models::item::Item,
     services::audit::{self},
@@ -39,7 +41,7 @@ pub fn router() -> axum::Router<crate::AppState> {
         ("id" = i64, Path, description = "Physical copy (item) ID")
     ),
     responses(
-        (status = 200, description = "Biblio with a single item entry", body = Biblio),
+        (status = 200, description = "Biblio with a single item entry. Librarians and admins receive `BiblioStaffView`. Readers receive `BiblioPublicView`.", body = BiblioReadResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 404, description = "Item not found or archived", body = crate::error::ErrorResponse),
         (status = 410, description = "Bibliographic record is archived", body = crate::error::ErrorResponse)
@@ -49,10 +51,15 @@ pub async fn get_biblio_by_item(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     Path(item_id): Path<i64>,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Json<BiblioReadResponse>> {
     claims.require_read_items()?;
     let biblio = state.services.catalog.get_biblio_for_item(item_id).await?;
-    super::biblios::catalog_json(biblio, claims.is_librarian())
+    let body = if claims.is_librarian() {
+        BiblioReadResponse::Staff(BiblioStaffView::from(biblio))
+    } else {
+        BiblioReadResponse::Public(BiblioPublicView::from(biblio))
+    };
+    Ok(Json(body))
 }
 
 /// Get the bibliographic record for a physical copy identified by barcode.
@@ -67,7 +74,7 @@ pub async fn get_biblio_by_item(
         ("barcode" = String, Path, description = "Physical copy barcode (exact match)")
     ),
     responses(
-        (status = 200, description = "Biblio with a single item entry", body = Biblio),
+        (status = 200, description = "Biblio with a single item entry. Librarians and admins receive `BiblioStaffView`. Readers receive `BiblioPublicView`.", body = BiblioReadResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 404, description = "No active item with this barcode", body = crate::error::ErrorResponse),
         (status = 410, description = "Bibliographic record is archived", body = crate::error::ErrorResponse)
@@ -77,14 +84,19 @@ pub async fn get_biblio_by_barcode(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     Path(barcode): Path<String>,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Json<BiblioReadResponse>> {
     claims.require_read_items()?;
     let biblio = state
         .services
         .catalog
         .get_biblio_for_item_barcode(barcode.as_str())
         .await?;
-    super::biblios::catalog_json(biblio, claims.is_librarian())
+    let body = if claims.is_librarian() {
+        BiblioReadResponse::Staff(BiblioStaffView::from(biblio))
+    } else {
+        BiblioReadResponse::Public(BiblioPublicView::from(biblio))
+    };
+    Ok(Json(body))
 }
 
 /// Update a physical item. The path id is authoritative.

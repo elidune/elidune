@@ -1,6 +1,6 @@
 //! Loans repository — create, return, and renew mutations.
 
-use chrono::{DateTime, Datelike, Duration, Utc};
+use chrono::{DateTime, Datelike, Utc};
 use sqlx::Row;
 
 use super::super::Repository;
@@ -9,13 +9,16 @@ use crate::{
     error::{AppError, AppResult},
     models::{
         biblio::BiblioShort,
-        item::ItemShort,
+        circulation::CirculationStatus,
+        item::{ItemShort, WeedingStatus},
         loan::{
             CreateLoan, Loan, LoanCreateOutcome, LoanDetails, LoanReturnOutcome,
             LoanSettingsRenewAt,
         },
         user::{UserShort, UserShortRow},
     },
+    renewal::{renewal_eligibility, LoanRenewalSnapshot, RenewalContext, RenewalLoan, RenewalUser},
+    services::fines::UnpaidThresholdCheck,
 };
 
 impl Repository {
@@ -391,7 +394,7 @@ impl Repository {
 
         let user_short_row = sqlx::query_as::<_, UserShortRow>(
             r#"
-            SELECT u.id, u.firstname, u.lastname, u.account_type, u.public_type,
+            SELECT u.id, u.login, u.firstname, u.lastname, u.account_type, u.public_type,
                    u.status, u.created_at, u.expiry_at,
                    0::bigint as nb_loans, 0::bigint as nb_late_loans
             FROM users u
@@ -404,14 +407,26 @@ impl Repository {
 
         let user: Option<UserShort> = user_short_row.map(|r| r.into());
 
+        let borrowable: bool = biblio_row.get("item_borrowable");
+        let weeding_status = crate::models::item::WeedingStatus::OnShelf;
+        let (availability, can_hold_item) = crate::models::item::ItemAvailability::local_pair(
+            true,
+            borrowable,
+            None,
+            weeding_status,
+        );
         let item_short = ItemShort {
             id: biblio_row.get("item_copy_id"),
             barcode: biblio_row.get("item_barcode"),
             call_number: biblio_row.get("item_call_number"),
-            borrowable: biblio_row.get("item_borrowable"),
-            weeding_status: crate::models::item::WeedingStatus::OnShelf,
+            borrowable,
+            weeding_status,
             source_name: biblio_row.get("item_source_name"),
             borrowed: true,
+            availability,
+            can_hold_item,
+            hold_user_id: None,
+            hold_user_name: None,
         };
 
         let details = LoanDetails {
@@ -449,14 +464,82 @@ impl Repository {
         })
     }
 
+    /// Loan-level facts plus the media settings [`crate::renewal::renewal_eligibility`] needs.
+    ///
+    /// Account facts (can borrow, unpaid fines) stay with the caller so `/me/loans`
+    /// can compute them once per request.
+    pub async fn loans_renewal_snapshot(&self, loan_id: i64) -> AppResult<LoanRenewalSnapshot> {
+        let row = sqlx::query_as::<_, RenewalSnapshotRow>(
+            r#"
+            SELECT l.user_id,
+                   (l.returned_at IS NOT NULL) AS returned,
+                   COALESCE(l.nb_renews, 0)::int2 AS renewal_count,
+                   COALESCE(l.expiry_at, l.date) AS due_at,
+                   it.weeding_status,
+                   it.circulation_status,
+                   b.media_type,
+                   EXISTS (
+                       SELECT 1 FROM holds h
+                       WHERE h.biblio_id = b.id
+                         AND h.user_id <> l.user_id
+                         AND (
+                               (h.status = 'pending' AND h.item_id IS NULL)
+                               OR (h.item_id = l.item_id AND h.status IN ('pending', 'to_pick', 'ready'))
+                             )
+                   ) AS hold_waiting
+            FROM loans l
+            JOIN items it ON l.item_id = it.id
+            JOIN biblios b ON it.biblio_id = b.id
+            WHERE l.id = $1
+            "#,
+        )
+        .bind(loan_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Loan with id {loan_id} not found")))?;
+
+        let public_type: Option<i64> =
+            sqlx::query_scalar("SELECT public_type FROM users WHERE id = $1")
+                .bind(row.user_id)
+                .fetch_optional(&self.pool)
+                .await?
+                .flatten();
+        let (_, _, _, max_renewals, _) = self
+            .resolve_loan_settings(public_type, row.media_type.as_deref())
+            .await?;
+        let renew_window_days = self
+            .resolve_renew_window_days(row.media_type.as_deref())
+            .await?;
+
+        Ok(LoanRenewalSnapshot {
+            user_id: row.user_id,
+            returned: row.returned,
+            loan: RenewalLoan {
+                renewal_count: row.renewal_count,
+                due_at: row.due_at,
+                withdrawn: WeedingStatus::from_db_str(&row.weeding_status).blocks_circulation(),
+                claimed_returned: CirculationStatus::from_db(row.circulation_status)
+                    == CirculationStatus::ClaimedReturned,
+                hold_waiting: row.hold_waiting,
+            },
+            max_renewals,
+            renew_window_days,
+        })
+    }
+
     /// Renew a loan.
     ///
     /// Serializes on the item row then the loan row (`FOR UPDATE`, same lock order
     /// as [`Self::loans_create`]) so concurrent renews cannot both pass the max-renewals
-    /// check. Refuses renewal when another patron has a hold this loan could satisfy
-    /// (unassigned title hold, or a hold on this copy). A hold already assigned to a
-    /// different copy does not block renewal.
-    pub async fn loans_renew(&self, loan_id: i64) -> AppResult<(DateTime<Utc>, i16)> {
+    /// check. Refusals come from [`renewal_eligibility`] while the loan row is locked.
+    /// `bypass_account_gates` is staff `force` and skips only `account_blocked` and
+    /// `fines_over_threshold`. A returned loan is refused before that function.
+    /// The due-date calendar slide stays after eligibility succeeds.
+    pub async fn loans_renew(
+        &self,
+        loan_id: i64,
+        bypass_account_gates: bool,
+    ) -> AppResult<(DateTime<Utc>, i16)> {
         let now = Utc::now();
         let mut tx = self.pool.begin().await?;
 
@@ -483,21 +566,8 @@ impl Repository {
         .ok_or_else(|| AppError::NotFound("Item not found".to_string()))?;
         let media_type: Option<String> = item_row.get("media_type");
         let site_id: Option<i64> = item_row.get("source_id");
-        let circulation_status = crate::models::circulation::CirculationStatus::from_db(
-            item_row.get("circulation_status"),
-        );
-        let weeding_status: crate::models::item::WeedingStatus = item_row.get("weeding_status");
-        if weeding_status.blocks_circulation() {
-            return Err(AppError::BusinessRule(
-                crate::models::item::WeedingStatus::RENEW_BLOCKED.to_string(),
-            ));
-        }
-        if circulation_status == crate::models::circulation::CirculationStatus::ClaimedReturned {
-            return Err(AppError::BusinessRule(
-                "Cannot renew a loan that is in the claims-returned queue — resolve the claim first"
-                    .to_string(),
-            ));
-        }
+        let circulation_status = CirculationStatus::from_db(item_row.get("circulation_status"));
+        let weeding_status: WeedingStatus = item_row.get("weeding_status");
 
         let loan = sqlx::query_as::<_, Loan>("SELECT * FROM loans WHERE id = $1 FOR UPDATE")
             .bind(loan_id)
@@ -511,48 +581,51 @@ impl Repository {
             ));
         }
 
-        if self
+        let user = self.users_get_by_id(loan.user_id).await?;
+        let (fines_over_threshold, fines_message) = if bypass_account_gates {
+            (false, String::new())
+        } else {
+            let unpaid = self.fines_total_unpaid(loan.user_id).await?;
+            let threshold = self.fines_get_unpaid_threshold(user.public_type).await?;
+            let check = UnpaidThresholdCheck { unpaid, threshold };
+            (check.blocks_circulation(), check.desk_block_message())
+        };
+        let hold_waiting = self
             .holds_waiting_hold_blocks_renewal_tx(&mut tx, loan.item_id, loan.user_id)
-            .await?
-        {
-            return Err(AppError::BusinessRule(
-                "Cannot renew: another patron is waiting in the hold queue for this copy"
-                    .to_string(),
-            ));
-        }
-
-        let user_public_type: Option<i64> =
-            sqlx::query_scalar::<_, Option<i64>>("SELECT public_type FROM users WHERE id = $1")
-                .bind(loan.user_id)
-                .fetch_optional(&mut *tx)
-                .await?
-                .flatten();
-
-        let (duration_days, _nb_max_media, _nb_max_total, max_renews, renew_at_policy) = self
-            .resolve_loan_settings(user_public_type, media_type.as_deref())
             .await?;
-
-        let current_renews = loan.nb_renews.unwrap_or(0);
-
-        if current_renews >= max_renews {
-            return Err(AppError::BusinessRule(format!(
-                "Maximum renewals reached ({}/{})",
-                current_renews, max_renews
-            )));
-        }
-
-        let current_expiry = loan.expiry_at.unwrap_or(now);
+        let (duration_days, _nb_max_media, _nb_max_total, max_renews, renew_at_policy) = self
+            .resolve_loan_settings(user.public_type, media_type.as_deref())
+            .await?;
         let renew_window_days = self
             .resolve_renew_window_days(media_type.as_deref())
             .await?;
-        let opens_at = renewal_opens_at(current_expiry, renew_window_days);
-        // Overdue loans are already inside the window; other gates (holds, fines, max renewals) still apply.
-        if now < opens_at {
-            let zone = self.library_zone().await?;
-            return Err(AppError::RenewalTooEarly(renewal_too_early_message(
-                opens_at, zone,
-            )));
+        let renewal_loan = RenewalLoan {
+            renewal_count: loan.nb_renews.unwrap_or(0),
+            due_at: loan.expiry_at.unwrap_or(now),
+            withdrawn: weeding_status.blocks_circulation(),
+            claimed_returned: circulation_status == CirculationStatus::ClaimedReturned,
+            hold_waiting,
+        };
+        let ctx = RenewalContext {
+            bypass_account_gates,
+            fines_over_threshold,
+            fines_message,
+            max_renewals: max_renews,
+            renew_window_days,
+            now,
+            zone: self.library_zone().await?,
+        };
+        if let Err(refusal) = renewal_eligibility(
+            &renewal_loan,
+            &RenewalUser {
+                can_borrow: user.can_borrow(),
+            },
+            &ctx,
+        ) {
+            return Err(refusal.into_app_error(&renewal_loan, &ctx));
         }
+        let current_renews = renewal_loan.renewal_count;
+        let current_expiry = renewal_loan.due_at;
 
         let anchor = match renew_at_policy {
             LoanSettingsRenewAt::Now => now,
@@ -580,28 +653,6 @@ impl Repository {
     }
 }
 
-/// Default days before the due date when a renewal becomes allowed.
-pub const DEFAULT_RENEW_WINDOW_DAYS: i16 = 7;
-
-/// First instant at which a renewal of a loan due at `due` is allowed.
-#[must_use]
-pub fn renewal_opens_at(due: DateTime<Utc>, window_days: i16) -> DateTime<Utc> {
-    let days = i64::from(window_days.max(0));
-    due - Duration::days(days)
-}
-
-/// Client message for [`AppError::RenewalTooEarly`].
-///
-/// The date is the library-local civil date, still written `YYYY-MM-DD` so the UI
-/// can parse it (`renewalTooEarlyOpenDate`).
-#[must_use]
-pub fn renewal_too_early_message(opens_at: DateTime<Utc>, zone: chrono_tz::Tz) -> String {
-    format!(
-        "Renewal is too early. Renewal is possible from {}.",
-        crate::services::calendar::format_patron_iso_date(zone, opens_at)
-    )
-}
-
 /// `idx_loans_one_active_per_item` — last line of defense if two inserts race.
 fn is_active_loan_unique_violation(err: &sqlx::Error) -> bool {
     match err {
@@ -613,23 +664,14 @@ fn is_active_loan_unique_violation(err: &sqlx::Error) -> bool {
     }
 }
 
-#[cfg(test)]
-mod renewal_window_tests {
-    use chrono::{TimeZone, Utc};
-
-    use super::{renewal_opens_at, renewal_too_early_message};
-
-    #[test]
-    fn window_opens_before_the_due_date_and_names_that_date() {
-        let due = Utc.with_ymd_and_hms(2026, 11, 1, 15, 0, 0).unwrap();
-        let opens = renewal_opens_at(due, 7);
-        assert_eq!(
-            opens.date_naive(),
-            chrono::NaiveDate::from_ymd_opt(2026, 10, 25).unwrap()
-        );
-        let message = renewal_too_early_message(opens, chrono_tz::Europe::Paris);
-        assert!(message.contains("2026-10-25"));
-        assert!(due > opens);
-        assert_eq!(renewal_opens_at(due, 0), due);
-    }
+#[derive(Debug, sqlx::FromRow)]
+struct RenewalSnapshotRow {
+    user_id: i64,
+    returned: bool,
+    renewal_count: i16,
+    due_at: DateTime<Utc>,
+    weeding_status: String,
+    circulation_status: Option<i16>,
+    media_type: Option<String>,
+    hold_waiting: bool,
 }

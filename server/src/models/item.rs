@@ -103,6 +103,138 @@ impl sqlx::Encode<'_, sqlx::Postgres> for WeedingStatus {
     }
 }
 
+/// Staff availability of one physical copy.
+///
+/// The server decides this. Clients must not infer it from `borrowed`,
+/// `borrowable`, or `circulationStatus`. Readers and the OPAC receive
+/// [`crate::models::catalog_view::ItemPublicAvailability`] instead: `toSearch`
+/// and `unavailable` are both `unavailable`, with no reason.
+///
+/// Precedence, first match wins:
+///
+/// 1. `onLoan` — a `loans` row for this copy with `returned_at` null.
+/// 2. `inTransit` — an `item_transits` row in `requested` or `in_transit`.
+/// 3. `onHold` — a hold assigned to this copy with status `to_pick` or `ready`.
+/// 4. `toSearch` — `circulation_status` 4 (missing from the shelf).
+/// 5. `unavailable` — any other non-borrowable state:
+///    reception incomplete (`borrowable` false);
+///    lost (`circulation_status` 1);
+///    damaged (`circulation_status` 2);
+///    claimed returned (`circulation_status` 3) when no open loan remains;
+///    withdrawn (`weeding_status` `withdrawn`).
+///    Weeding `candidate` does not by itself make a copy unavailable.
+/// 6. `available` — on the shelf and borrowable.
+///
+/// `canHoldItem` is true only for `available` and `onLoan`, and never when the
+/// copy is withdrawn. Item-level hold is the “reserve this copy” action.
+/// A title-level hold is separate and stays possible while this is false.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum ItemAvailability {
+    #[default]
+    Available,
+    OnHold,
+    InTransit,
+    OnLoan,
+    ToSearch,
+    Unavailable,
+}
+
+impl ItemAvailability {
+    #[must_use]
+    pub fn as_api_str(self) -> &'static str {
+        match self {
+            Self::Available => "available",
+            Self::OnHold => "onHold",
+            Self::InTransit => "inTransit",
+            Self::OnLoan => "onLoan",
+            Self::ToSearch => "toSearch",
+            Self::Unavailable => "unavailable",
+        }
+    }
+
+    #[must_use]
+    pub fn from_api_str(value: &str) -> Self {
+        match value {
+            "onHold" => Self::OnHold,
+            "inTransit" => Self::InTransit,
+            "onLoan" => Self::OnLoan,
+            "toSearch" => Self::ToSearch,
+            "unavailable" => Self::Unavailable,
+            "available" => Self::Available,
+            _ => Self::Unavailable,
+        }
+    }
+
+    /// Shelf copy or copy on loan. Assigned, moving, missing, and blocked copies are not.
+    #[must_use]
+    pub fn allows_item_hold(self) -> bool {
+        matches!(self, Self::Available | Self::OnLoan)
+    }
+
+    /// Fallback when a response is built without the catalog availability joins.
+    ///
+    /// An open loan wins, then `toSearch`, then other non-borrowable states.
+    /// Holds and transits are visible only to the catalog SQL.
+    #[must_use]
+    pub fn from_local_flags(
+        borrowed: bool,
+        borrowable: bool,
+        circulation_status: Option<i16>,
+        weeding: WeedingStatus,
+    ) -> Self {
+        if borrowed {
+            return Self::OnLoan;
+        }
+        let circulation =
+            crate::models::circulation::CirculationStatus::from_db(circulation_status);
+        if circulation == crate::models::circulation::CirculationStatus::ToSearch {
+            return Self::ToSearch;
+        }
+        if !borrowable || weeding.blocks_circulation() || circulation.blocks_circulation() {
+            return Self::Unavailable;
+        }
+        Self::Available
+    }
+
+    #[must_use]
+    pub fn can_hold_item(self, weeding: WeedingStatus) -> bool {
+        self.allows_item_hold() && !weeding.blocks_circulation()
+    }
+
+    /// `(availability, canHoldItem)` for a copy that was not loaded by the catalog query.
+    #[must_use]
+    pub fn local_pair(
+        borrowed: bool,
+        borrowable: bool,
+        circulation_status: Option<i16>,
+        weeding: WeedingStatus,
+    ) -> (Self, bool) {
+        let availability =
+            Self::from_local_flags(borrowed, borrowable, circulation_status, weeding);
+        (availability, availability.can_hold_item(weeding))
+    }
+}
+
+impl sqlx::Type<sqlx::Postgres> for ItemAvailability {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        <String as sqlx::Type<sqlx::Postgres>>::type_info()
+    }
+
+    fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
+        <String as sqlx::Type<sqlx::Postgres>>::compatible(ty)
+    }
+}
+
+impl<'r> sqlx::Decode<'r, sqlx::Postgres> for ItemAvailability {
+    fn decode(
+        value: sqlx::postgres::PgValueRef<'r>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
+        Ok(Self::from_api_str(&s))
+    }
+}
+
 /// Full item (physical copy) model from database.
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema, Validate)]
@@ -158,6 +290,29 @@ pub struct Item {
     #[sqlx(default)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub loan_id: Option<i64>,
+    /// Server-computed copy state. See [`ItemAvailability`] for the mapping.
+    #[sqlx(default)]
+    #[serde(default)]
+    pub availability: ItemAvailability,
+    /// False unless an item-level hold is meaningful for [`Self::availability`].
+    ///
+    /// True for `available` and `onLoan` when the copy is not withdrawn.
+    /// False for `onHold`, `inTransit`, `toSearch`, and `unavailable`, so the
+    /// client does not offer “reserve this copy” on an assigned copy.
+    #[sqlx(default)]
+    #[serde(default)]
+    pub can_hold_item: bool,
+    /// Patron id when `availability` is `onHold`. Present on staff responses only.
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    #[sqlx(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hold_user_id: Option<i64>,
+    /// Patron display name (`firstname` + `lastname`) when `availability` is `onHold`.
+    /// Present on staff responses only. Readers and the OPAC never receive it.
+    #[sqlx(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hold_user_name: Option<String>,
 }
 
 impl Item {
@@ -203,33 +358,6 @@ fn nonempty(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|s| !s.is_empty())
 }
 
-/// Remove staff-only weeding details from a catalog JSON value.
-///
-/// Drops `weedingStatus` and `weedingReason` on the record and on each copy.
-/// Copy `notes` are removed as well. Bibliographic `notes` (records that carry
-/// `mediaType`) stay.
-pub fn strip_weeding_fields(value: &mut serde_json::Value) {
-    match value {
-        serde_json::Value::Array(items) => {
-            for item in items {
-                strip_weeding_fields(item);
-            }
-        }
-        serde_json::Value::Object(obj) => {
-            obj.remove("weedingStatus");
-            obj.remove("weedingReason");
-            let is_copy = obj.contains_key("borrowable") && !obj.contains_key("mediaType");
-            if is_copy {
-                obj.remove("notes");
-            }
-            if let Some(items) = obj.get_mut("items") {
-                strip_weeding_fields(items);
-            }
-        }
-        _ => {}
-    }
-}
-
 /// Short item (physical copy) representation for lists
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
@@ -248,6 +376,24 @@ pub struct ItemShort {
     #[sqlx(skip)]
     #[serde(default)]
     pub borrowed: bool,
+    /// Server-computed copy state. See [`ItemAvailability`].
+    #[sqlx(default)]
+    #[serde(default)]
+    pub availability: ItemAvailability,
+    /// See [`Item::can_hold_item`].
+    #[sqlx(default)]
+    #[serde(default)]
+    pub can_hold_item: bool,
+    /// Present on staff catalog views only, and only when [`Self::availability`] is [`ItemAvailability::OnHold`].
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    #[sqlx(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hold_user_id: Option<i64>,
+    /// Present on staff catalog views only, and only when [`Self::availability`] is [`ItemAvailability::OnHold`].
+    #[sqlx(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hold_user_name: Option<String>,
 }
 
 impl From<Item> for ItemShort {
@@ -260,13 +406,17 @@ impl From<Item> for ItemShort {
             weeding_status: item.weeding_status,
             source_name: item.source_name,
             borrowed: item.borrowed,
+            availability: item.availability,
+            can_hold_item: item.can_hold_item,
+            hold_user_id: item.hold_user_id,
+            hold_user_name: item.hold_user_name,
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{Item, WeedingStatus};
+    use super::{Item, ItemAvailability, WeedingStatus};
 
     #[test]
     fn weeding_candidate_circulates_withdrawn_blocks() {
@@ -334,5 +484,63 @@ mod tests {
             Some("10.00"),
             false
         ));
+    }
+
+    #[test]
+    fn availability_api_names_and_local_flags() {
+        assert_eq!(ItemAvailability::Available.as_api_str(), "available");
+        assert_eq!(ItemAvailability::OnHold.as_api_str(), "onHold");
+        assert_eq!(ItemAvailability::InTransit.as_api_str(), "inTransit");
+        assert_eq!(ItemAvailability::OnLoan.as_api_str(), "onLoan");
+        assert_eq!(ItemAvailability::ToSearch.as_api_str(), "toSearch");
+        assert_eq!(ItemAvailability::Unavailable.as_api_str(), "unavailable");
+        assert_eq!(
+            ItemAvailability::from_api_str("onHold"),
+            ItemAvailability::OnHold
+        );
+        assert_eq!(
+            ItemAvailability::from_api_str("mystery"),
+            ItemAvailability::Unavailable
+        );
+
+        let shelf = WeedingStatus::OnShelf;
+        assert_eq!(
+            ItemAvailability::from_local_flags(false, true, None, shelf),
+            ItemAvailability::Available
+        );
+        assert!(ItemAvailability::Available.can_hold_item(shelf));
+        assert_eq!(
+            ItemAvailability::from_local_flags(true, true, None, shelf),
+            ItemAvailability::OnLoan
+        );
+        assert!(ItemAvailability::OnLoan.allows_item_hold());
+        assert_eq!(
+            ItemAvailability::from_local_flags(false, true, Some(4), shelf),
+            ItemAvailability::ToSearch
+        );
+        assert!(!ItemAvailability::ToSearch.allows_item_hold());
+        assert_eq!(
+            ItemAvailability::from_local_flags(false, true, Some(1), shelf),
+            ItemAvailability::Unavailable
+        );
+        assert_eq!(
+            ItemAvailability::from_local_flags(false, false, Some(0), shelf),
+            ItemAvailability::Unavailable
+        );
+        assert_eq!(
+            ItemAvailability::from_local_flags(false, true, Some(0), WeedingStatus::Withdrawn),
+            ItemAvailability::Unavailable
+        );
+        assert!(!ItemAvailability::OnLoan.can_hold_item(WeedingStatus::Withdrawn));
+        assert_eq!(
+            ItemAvailability::from_local_flags(false, true, Some(0), WeedingStatus::Candidate),
+            ItemAvailability::Available
+        );
+        assert!(!ItemAvailability::OnHold.allows_item_hold());
+        assert!(!ItemAvailability::InTransit.allows_item_hold());
+        assert!(!ItemAvailability::Unavailable.allows_item_hold());
+
+        let json = serde_json::to_value(ItemAvailability::OnHold).unwrap();
+        assert_eq!(json, "onHold");
     }
 }

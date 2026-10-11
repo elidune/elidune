@@ -5,7 +5,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use serde_with::DisplayFromStr;
 use utoipa::{IntoParams, ToSchema};
@@ -13,8 +13,10 @@ use utoipa::{IntoParams, ToSchema};
 use crate::{
     error::{AppError, AppResult},
     models::{
+        catalog_view::{HoldDetailsPublic, HoldDetailsStaff},
         dto::holds::{HoldPickListItem, HoldQuota, HoldsPolicy},
-        hold::{CreateHold, Hold, HoldDetails},
+        hold::{CreateHold, Hold},
+        my_account::MyHoldView,
         user::Rights,
     },
     services::audit,
@@ -25,6 +27,7 @@ use super::{biblios::PaginatedResponse, AuthenticatedUser, ClientIp, StaffUser};
 pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::{delete, get, post};
     axum::Router::new()
+        .route("/me/holds", get(list_my_holds))
         .route("/holds", get(list_holds).post(create_hold))
         .route("/holds/pick-list", get(list_pick_list))
         .route("/holds/:id/pick-not-found", post(pick_not_found))
@@ -135,6 +138,42 @@ pub struct ListHoldsQuery {
     pub active_only: Option<bool>,
 }
 
+/// The caller's holds. Filtered in SQL by `user_id = caller`.
+#[utoipa::path(
+    get,
+    path = "/me/holds",
+    tag = "holds",
+    security(("bearer_auth" = [])),
+    params(ListHoldsQuery),
+    responses(
+        (status = 200, description = "The caller's holds (`MyHoldView`)", body = PaginatedResponse<MyHoldView>),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn list_my_holds(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Query(query): Query<ListHoldsQuery>,
+) -> AppResult<Json<PaginatedResponse<MyHoldView>>> {
+    let page = query.page.unwrap_or(1).max(1);
+    let per_page = query.per_page.unwrap_or(50).clamp(1, 200);
+    let active_only = query.active_only.unwrap_or(false);
+    let (items, total) = state
+        .services
+        .repository
+        .holds_list_for_owner(claims.user_id, page, per_page, active_only)
+        .await?;
+    Ok(Json(PaginatedResponse::new(items, total, page, per_page)))
+}
+
+/// Staff or reader hold page. Selected with [`crate::models::user::UserClaims::is_librarian`].
+#[derive(Serialize, ToSchema)]
+#[serde(untagged)]
+pub enum HoldListResponse {
+    Staff(PaginatedResponse<HoldDetailsStaff>),
+    Public(PaginatedResponse<HoldDetailsPublic>),
+}
+
 /// Paginated list of holds: staff (`holds_rights` read/write) sees all rows; `o` sees only their holds.
 #[utoipa::path(
     get,
@@ -143,7 +182,7 @@ pub struct ListHoldsQuery {
     security(("bearer_auth" = [])),
     params(ListHoldsQuery),
     responses(
-        (status = 200, description = "All holds", body = PaginatedResponse<HoldDetails>),
+        (status = 200, description = "Holds. Librarians and admins receive `HoldDetailsStaff` (embedded `UserShortStaff.login` and staff copies). Readers receive `HoldDetailsPublic`.", body = HoldListResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse)
     )
 )]
@@ -151,7 +190,7 @@ pub async fn list_holds(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     Query(query): Query<ListHoldsQuery>,
-) -> AppResult<Json<PaginatedResponse<HoldDetails>>> {
+) -> AppResult<Json<HoldListResponse>> {
     claims.require_list_holds()?;
 
     let page = query.page.unwrap_or(1).max(1);
@@ -171,7 +210,22 @@ pub async fn list_holds(
             .list_for_user_paginated(claims.user_id, page, per_page, active_only)
             .await?
     };
-    Ok(Json(PaginatedResponse::new(items, total, page, per_page)))
+    let body = if claims.is_librarian() {
+        HoldListResponse::Staff(PaginatedResponse::new(
+            items.into_iter().map(HoldDetailsStaff::from).collect(),
+            total,
+            page,
+            per_page,
+        ))
+    } else {
+        HoldListResponse::Public(PaginatedResponse::new(
+            items.into_iter().map(HoldDetailsPublic::from).collect(),
+            total,
+            page,
+            per_page,
+        ))
+    };
+    Ok(Json(body))
 }
 
 #[serde_as]
@@ -407,7 +461,7 @@ pub async fn get_hold_quota(
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Item ID")),
     responses(
-        (status = 200, description = "Hold queue for this item", body = Vec<Hold>),
+        (status = 200, description = "Hold queue for this item (`HoldDetailsStaff`)", body = Vec<HoldDetailsStaff>),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 404, description = "Item not found", body = crate::error::ErrorResponse)
     )
@@ -416,10 +470,10 @@ pub async fn list_holds_for_item(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     Path(item_id): Path<i64>,
-) -> AppResult<Json<Vec<HoldDetails>>> {
+) -> AppResult<Json<Vec<HoldDetailsStaff>>> {
     claims.require_read_holds_staff()?;
     let list = state.services.holds.get_for_item(item_id).await?;
-    Ok(Json(list))
+    Ok(Json(list.into_iter().map(HoldDetailsStaff::from).collect()))
 }
 
 #[utoipa::path(
@@ -429,7 +483,7 @@ pub async fn list_holds_for_item(
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Biblio ID")),
     responses(
-        (status = 200, description = "Hold queue for this bibliographic record (notice-level FIFO)", body = Vec<HoldDetails>),
+        (status = 200, description = "Hold queue for this bibliographic record (notice-level FIFO, `HoldDetailsStaff`)", body = Vec<HoldDetailsStaff>),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 404, description = "Biblio not found", body = crate::error::ErrorResponse)
     )
@@ -438,10 +492,10 @@ pub async fn list_holds_for_biblio(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     Path(biblio_id): Path<i64>,
-) -> AppResult<Json<Vec<HoldDetails>>> {
+) -> AppResult<Json<Vec<HoldDetailsStaff>>> {
     claims.require_read_holds_staff()?;
     let list = state.services.holds.get_for_biblio(biblio_id).await?;
-    Ok(Json(list))
+    Ok(Json(list.into_iter().map(HoldDetailsStaff::from).collect()))
 }
 
 #[utoipa::path(
@@ -451,7 +505,7 @@ pub async fn list_holds_for_biblio(
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "User ID")),
     responses(
-        (status = 200, description = "User's holds", body = Vec<HoldDetails>),
+        (status = 200, description = "User's holds (`HoldDetailsStaff`)", body = Vec<HoldDetailsStaff>),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 404, description = "User not found", body = crate::error::ErrorResponse)
     )
@@ -460,11 +514,11 @@ pub async fn list_holds_for_user(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     Path(user_id): Path<i64>,
-) -> AppResult<Json<Vec<HoldDetails>>> {
+) -> AppResult<Json<Vec<HoldDetailsStaff>>> {
     claims.require_read_holds_staff()?;
     claims.require_read_users()?;
     let list = state.services.holds.get_for_user(user_id).await?;
-    Ok(Json(list))
+    Ok(Json(list.into_iter().map(HoldDetailsStaff::from).collect()))
 }
 
 #[utoipa::path(
