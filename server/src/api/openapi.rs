@@ -68,6 +68,7 @@ use crate::api::{
         users::update_account_type,
         // Loans
         loans::get_user_loans,
+        loans::list_my_loans,
         loans::export_user_loans_marc,
         loans::create_loan,
         loans::get_loan_borrower,
@@ -97,6 +98,7 @@ use crate::api::{
         fines::accrue_overdue_fines,
         // Holds
         holds::list_holds,
+        holds::list_my_holds,
         holds::list_pick_list,
         holds::pick_not_found,
         holds::create_hold,
@@ -317,6 +319,12 @@ use crate::api::{
             biblios::BiblioShortListResponse,
             holds::HoldListResponse,
             loans::UserLoanListResponse,
+            crate::models::my_account::MyLoanView,
+            crate::models::my_account::MyLoanRenewalRefusal,
+            crate::models::my_account::MyHoldView,
+            crate::models::my_account::MyHoldStatus,
+            biblios::PaginatedResponse<crate::models::my_account::MyLoanView>,
+            biblios::PaginatedResponse<crate::models::my_account::MyHoldView>,
             crate::models::dto::weeding::SetWeedingRequest,
             // Pagination
             biblios::PaginatedResponse<crate::models::biblio::BiblioShort>,

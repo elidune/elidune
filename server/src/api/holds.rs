@@ -16,6 +16,7 @@ use crate::{
         catalog_view::{HoldDetailsPublic, HoldDetailsStaff},
         dto::holds::{HoldPickListItem, HoldQuota, HoldsPolicy},
         hold::{CreateHold, Hold},
+        my_account::MyHoldView,
         user::Rights,
     },
     services::audit,
@@ -26,6 +27,7 @@ use super::{biblios::PaginatedResponse, AuthenticatedUser, ClientIp, StaffUser};
 pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::{delete, get, post};
     axum::Router::new()
+        .route("/me/holds", get(list_my_holds))
         .route("/holds", get(list_holds).post(create_hold))
         .route("/holds/pick-list", get(list_pick_list))
         .route("/holds/:id/pick-not-found", post(pick_not_found))
@@ -134,6 +136,34 @@ pub struct ListHoldsQuery {
     pub per_page: Option<i64>,
     /// If true, only `pending`, `to_pick`, and `ready` holds (ongoing).
     pub active_only: Option<bool>,
+}
+
+/// The caller's holds. Filtered in SQL by `user_id = caller`.
+#[utoipa::path(
+    get,
+    path = "/me/holds",
+    tag = "holds",
+    security(("bearer_auth" = [])),
+    params(ListHoldsQuery),
+    responses(
+        (status = 200, description = "The caller's holds (`MyHoldView`)", body = PaginatedResponse<MyHoldView>),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn list_my_holds(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Query(query): Query<ListHoldsQuery>,
+) -> AppResult<Json<PaginatedResponse<MyHoldView>>> {
+    let page = query.page.unwrap_or(1).max(1);
+    let per_page = query.per_page.unwrap_or(50).clamp(1, 200);
+    let active_only = query.active_only.unwrap_or(false);
+    let (items, total) = state
+        .services
+        .repository
+        .holds_list_for_owner(claims.user_id, page, per_page, active_only)
+        .await?;
+    Ok(Json(PaginatedResponse::new(items, total, page, per_page)))
 }
 
 /// Staff or reader hold page. Selected with [`crate::models::user::UserClaims::is_librarian`].

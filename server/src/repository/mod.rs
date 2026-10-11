@@ -23,6 +23,7 @@ pub mod inventory;
 pub mod library_info;
 pub mod loans;
 pub mod maintenance;
+pub mod my_account;
 pub mod public_types;
 pub mod schedules;
 pub mod settings;

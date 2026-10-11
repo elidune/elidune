@@ -1,0 +1,409 @@
+//! Owner-scoped loan and hold lists. SQL always filters `user_id` to the caller.
+
+use std::collections::HashMap;
+
+use chrono::{DateTime, Utc};
+use sqlx::FromRow;
+
+use super::Repository;
+use crate::{
+    error::AppResult,
+    models::{
+        biblio::MediaType,
+        circulation::CirculationStatus,
+        item::WeedingStatus,
+        my_account::{MyHoldStatus, MyHoldView, MyLoanRenewalRefusal, MyLoanView},
+    },
+    repository::loans::renewal_opens_at,
+    services::calendar::format_patron_iso_date,
+};
+
+#[derive(Debug, FromRow)]
+struct OwnerLoanRow {
+    id: i64,
+    barcode: Option<String>,
+    title: Option<String>,
+    media_type: String,
+    start_date: DateTime<Utc>,
+    due_date: Option<DateTime<Utc>>,
+    renewal_count: i16,
+    weeding_status: String,
+    circulation_status: Option<i16>,
+    hold_waiting: bool,
+    is_overdue: bool,
+}
+
+#[derive(Debug, FromRow)]
+struct OwnerHoldRow {
+    id: i64,
+    biblio_id: i64,
+    title: Option<String>,
+    status: String,
+    expires_at: Option<DateTime<Utc>>,
+    pickup_site_id: Option<i64>,
+    pickup_site_name: Option<String>,
+    position: i32,
+    created_at: DateTime<Utc>,
+    in_transit: bool,
+}
+
+struct RenewalFacts<'a> {
+    weeding_status: &'a str,
+    circulation_status: Option<i16>,
+    hold_waiting: bool,
+    renewal_count: i16,
+    due: DateTime<Utc>,
+    max_renews: i16,
+    window_days: i16,
+    now: DateTime<Utc>,
+    zone: chrono_tz::Tz,
+}
+
+struct RenewalPreview {
+    can_renew: bool,
+    refusal: Option<MyLoanRenewalRefusal>,
+    opens_at: Option<String>,
+}
+
+impl Repository {
+    /// Active loans for this patron. `user_id` is the caller; the statement filters on it.
+    pub async fn loans_list_for_owner(
+        &self,
+        user_id: i64,
+        page: i64,
+        per_page: i64,
+    ) -> AppResult<(Vec<MyLoanView>, i64)> {
+        let offset = (page - 1) * per_page;
+        let total: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM loans l WHERE l.user_id = $1 AND l.returned_at IS NULL",
+        )
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        let rows = sqlx::query_as::<_, OwnerLoanRow>(
+            r#"
+            SELECT l.id,
+                   it.barcode,
+                   b.title,
+                   b.media_type,
+                   l.date AS start_date,
+                   l.expiry_at AS due_date,
+                   COALESCE(l.nb_renews, 0)::int2 AS renewal_count,
+                   it.weeding_status,
+                   it.circulation_status,
+                   EXISTS (
+                       SELECT 1 FROM holds h
+                       WHERE h.biblio_id = b.id
+                         AND h.user_id <> l.user_id
+                         AND (
+                               (h.status = 'pending' AND h.item_id IS NULL)
+                               OR (h.item_id = l.item_id AND h.status IN ('pending', 'to_pick', 'ready'))
+                             )
+                   ) AS hold_waiting,
+                   COALESCE(l.expiry_at < NOW(), false) AS is_overdue
+            FROM loans l
+            JOIN items it ON l.item_id = it.id
+            JOIN biblios b ON it.biblio_id = b.id
+            WHERE l.user_id = $1 AND l.returned_at IS NULL
+            ORDER BY l.expiry_at
+            LIMIT $2 OFFSET $3
+            "#,
+        )
+        .bind(user_id)
+        .bind(per_page)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let public_type: Option<i64> =
+            sqlx::query_scalar("SELECT public_type FROM users WHERE id = $1")
+                .bind(user_id)
+                .fetch_optional(&self.pool)
+                .await?
+                .flatten();
+        let zone = self.library_zone().await?;
+        let now = Utc::now();
+        let mut settings: HashMap<String, (i16, i16)> = HashMap::new();
+        let mut items = Vec::with_capacity(rows.len());
+        for row in rows {
+            let (max_renews, window_days) = if let Some(cached) = settings.get(&row.media_type) {
+                *cached
+            } else {
+                let (_, _, _, max_renews, _) = self
+                    .resolve_loan_settings(public_type, Some(row.media_type.as_str()))
+                    .await?;
+                let window_days = self
+                    .resolve_renew_window_days(Some(row.media_type.as_str()))
+                    .await?;
+                settings.insert(row.media_type.clone(), (max_renews, window_days));
+                (max_renews, window_days)
+            };
+            let due = row.due_date.unwrap_or(row.start_date);
+            let preview = preview_renewal(&RenewalFacts {
+                weeding_status: &row.weeding_status,
+                circulation_status: row.circulation_status,
+                hold_waiting: row.hold_waiting,
+                renewal_count: row.renewal_count,
+                due,
+                max_renews,
+                window_days,
+                now,
+                zone,
+            });
+            items.push(MyLoanView {
+                id: row.id,
+                barcode: row.barcode,
+                title: row.title,
+                media_type: MediaType::from(row.media_type.as_str()),
+                start_date: row.start_date,
+                due_date: due,
+                renewal_count: row.renewal_count,
+                can_renew: preview.can_renew,
+                renewal_refusal_code: preview.refusal,
+                renewal_opens_at: preview.opens_at,
+                is_overdue: row.is_overdue,
+            });
+        }
+        Ok((items, total))
+    }
+
+    /// Holds for this patron. `user_id` is the caller; the statement filters on it.
+    pub async fn holds_list_for_owner(
+        &self,
+        user_id: i64,
+        page: i64,
+        per_page: i64,
+        active_only: bool,
+    ) -> AppResult<(Vec<MyHoldView>, i64)> {
+        let offset = (page - 1) * per_page;
+        let (total, rows) = if active_only {
+            let total: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*)::bigint FROM holds WHERE user_id = $1 AND status IN ('pending','to_pick','ready')",
+            )
+            .bind(user_id)
+            .fetch_one(&self.pool)
+            .await?;
+            let rows = sqlx::query_as::<_, OwnerHoldRow>(
+                r#"
+                SELECT h.id,
+                       h.biblio_id,
+                       b.title,
+                       h.status,
+                       h.expires_at,
+                       h.pickup_site_id,
+                       so.name AS pickup_site_name,
+                       h.position,
+                       h.created_at,
+                       EXISTS (
+                           SELECT 1 FROM item_transits t
+                           WHERE t.hold_id = h.id
+                             AND t.status IN ('requested', 'in_transit')
+                       ) AS in_transit
+                FROM holds h
+                JOIN biblios b ON b.id = h.biblio_id
+                LEFT JOIN sources so ON so.id = h.pickup_site_id
+                WHERE h.user_id = $1
+                  AND h.status IN ('pending','to_pick','ready')
+                ORDER BY h.created_at ASC
+                LIMIT $2 OFFSET $3
+                "#,
+            )
+            .bind(user_id)
+            .bind(per_page)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+            (total, rows)
+        } else {
+            let total: i64 =
+                sqlx::query_scalar("SELECT COUNT(*)::bigint FROM holds WHERE user_id = $1")
+                    .bind(user_id)
+                    .fetch_one(&self.pool)
+                    .await?;
+            let rows = sqlx::query_as::<_, OwnerHoldRow>(
+                r#"
+                SELECT h.id,
+                       h.biblio_id,
+                       b.title,
+                       h.status,
+                       h.expires_at,
+                       h.pickup_site_id,
+                       so.name AS pickup_site_name,
+                       h.position,
+                       h.created_at,
+                       EXISTS (
+                           SELECT 1 FROM item_transits t
+                           WHERE t.hold_id = h.id
+                             AND t.status IN ('requested', 'in_transit')
+                       ) AS in_transit
+                FROM holds h
+                JOIN biblios b ON b.id = h.biblio_id
+                LEFT JOIN sources so ON so.id = h.pickup_site_id
+                WHERE h.user_id = $1
+                ORDER BY h.created_at ASC
+                LIMIT $2 OFFSET $3
+                "#,
+            )
+            .bind(user_id)
+            .bind(per_page)
+            .bind(offset)
+            .fetch_all(&self.pool)
+            .await?;
+            (total, rows)
+        };
+
+        let items = rows.into_iter().map(owner_hold_view).collect();
+        Ok((items, total))
+    }
+}
+
+fn preview_renewal(facts: &RenewalFacts<'_>) -> RenewalPreview {
+    let refusal = if WeedingStatus::from_db_str(facts.weeding_status).blocks_circulation() {
+        Some(MyLoanRenewalRefusal::Withdrawn)
+    } else if CirculationStatus::from_db(facts.circulation_status)
+        == CirculationStatus::ClaimedReturned
+    {
+        Some(MyLoanRenewalRefusal::ClaimedReturned)
+    } else if facts.hold_waiting {
+        Some(MyLoanRenewalRefusal::HoldWaiting)
+    } else if facts.renewal_count >= facts.max_renews {
+        Some(MyLoanRenewalRefusal::MaxRenewals)
+    } else if facts.now < renewal_opens_at(facts.due, facts.window_days) {
+        Some(MyLoanRenewalRefusal::RenewalTooEarly)
+    } else {
+        None
+    };
+    let opens_at = match refusal {
+        Some(MyLoanRenewalRefusal::RenewalTooEarly) => Some(format_patron_iso_date(
+            facts.zone,
+            renewal_opens_at(facts.due, facts.window_days),
+        )),
+        _ => None,
+    };
+    RenewalPreview {
+        can_renew: refusal.is_none(),
+        refusal,
+        opens_at,
+    }
+}
+
+fn owner_hold_view(row: OwnerHoldRow) -> MyHoldView {
+    let status = if row.in_transit {
+        MyHoldStatus::InTransit
+    } else {
+        match row.status.as_str() {
+            "to_pick" => MyHoldStatus::ToPick,
+            "ready" => MyHoldStatus::Ready,
+            "fulfilled" => MyHoldStatus::Fulfilled,
+            "cancelled" => MyHoldStatus::Cancelled,
+            "expired" => MyHoldStatus::Expired,
+            _ => MyHoldStatus::Pending,
+        }
+    };
+    let pickup_deadline = if status == MyHoldStatus::Ready {
+        row.expires_at
+    } else {
+        None
+    };
+    MyHoldView {
+        id: row.id,
+        biblio_id: row.biblio_id,
+        title: row.title,
+        status,
+        pickup_deadline,
+        pickup_site_id: row.pickup_site_id,
+        pickup_site_name: row.pickup_site_name,
+        position: row.position,
+        created_at: row.created_at,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{TimeZone, Utc};
+
+    use super::{owner_hold_view, preview_renewal, OwnerHoldRow, RenewalFacts};
+    use crate::models::my_account::{MyHoldStatus, MyLoanRenewalRefusal};
+
+    fn facts(due: chrono::DateTime<Utc>, now: chrono::DateTime<Utc>) -> RenewalFacts<'static> {
+        RenewalFacts {
+            weeding_status: "on_shelf",
+            circulation_status: Some(0),
+            hold_waiting: false,
+            renewal_count: 0,
+            due,
+            max_renews: 2,
+            window_days: 7,
+            now,
+            zone: chrono_tz::Europe::Paris,
+        }
+    }
+
+    #[test]
+    fn waiting_hold_blocks_before_the_renewal_window() {
+        let due = Utc.with_ymd_and_hms(2026, 11, 1, 15, 0, 0).unwrap();
+        let now = Utc.with_ymd_and_hms(2026, 10, 1, 12, 0, 0).unwrap();
+        let mut row = facts(due, now);
+        row.hold_waiting = true;
+        let preview = preview_renewal(&row);
+        assert!(!preview.can_renew);
+        assert_eq!(preview.refusal, Some(MyLoanRenewalRefusal::HoldWaiting));
+        assert!(preview.opens_at.is_none());
+    }
+
+    #[test]
+    fn too_early_names_the_library_local_opening_date() {
+        let due = Utc.with_ymd_and_hms(2026, 11, 1, 15, 0, 0).unwrap();
+        let now = Utc.with_ymd_and_hms(2026, 10, 1, 12, 0, 0).unwrap();
+        let preview = preview_renewal(&facts(due, now));
+        assert!(!preview.can_renew);
+        assert_eq!(preview.refusal, Some(MyLoanRenewalRefusal::RenewalTooEarly));
+        assert_eq!(preview.opens_at.as_deref(), Some("2026-10-25"));
+    }
+
+    #[test]
+    fn ready_hold_exposes_the_deadline_and_transit_hides_it() {
+        let deadline = Utc.with_ymd_and_hms(2026, 11, 8, 16, 0, 0).unwrap();
+        let ready = owner_hold_view(OwnerHoldRow {
+            id: 1,
+            biblio_id: 2,
+            title: Some("Ready".into()),
+            status: "ready".into(),
+            expires_at: Some(deadline),
+            pickup_site_id: Some(9),
+            pickup_site_name: Some("Desk".into()),
+            position: 1,
+            created_at: deadline,
+            in_transit: false,
+        });
+        assert_eq!(ready.status, MyHoldStatus::Ready);
+        assert_eq!(ready.pickup_deadline, Some(deadline));
+        assert_eq!(ready.pickup_site_name.as_deref(), Some("Desk"));
+
+        let moving = owner_hold_view(OwnerHoldRow {
+            id: 3,
+            biblio_id: 2,
+            title: Some("Moving".into()),
+            status: "pending".into(),
+            expires_at: Some(deadline),
+            pickup_site_id: Some(9),
+            pickup_site_name: Some("Desk".into()),
+            position: 2,
+            created_at: deadline,
+            in_transit: true,
+        });
+        assert_eq!(moving.status, MyHoldStatus::InTransit);
+        assert!(moving.pickup_deadline.is_none());
+    }
+
+    #[test]
+    fn inside_the_window_with_no_blocker_can_renew() {
+        let due = Utc.with_ymd_and_hms(2026, 11, 1, 15, 0, 0).unwrap();
+        let now = Utc.with_ymd_and_hms(2026, 10, 26, 12, 0, 0).unwrap();
+        let preview = preview_renewal(&facts(due, now));
+        assert!(preview.can_renew);
+        assert!(preview.refusal.is_none());
+        assert!(preview.opens_at.is_none());
+    }
+}

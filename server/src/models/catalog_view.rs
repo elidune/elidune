@@ -3,6 +3,10 @@
 //! Handlers pick one type with [`crate::models::user::UserClaims::is_librarian`] (the same
 //! check used for weeding visibility). The public structs do not contain staff fields, so a
 //! reader response cannot include them as blank options.
+//!
+//! A patron's own loans and holds are [`crate::models::my_account::MyLoanView`] and
+//! [`crate::models::my_account::MyHoldView`] from `GET /me/loans` and `GET /me/holds`.
+//! Those payloads are not these catalog embeds.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

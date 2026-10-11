@@ -18,6 +18,7 @@ pub mod import_report;
 pub mod inventory;
 pub mod item;
 pub mod loan;
+pub mod my_account;
 pub mod public_type;
 pub mod schedule;
 pub mod secret;
