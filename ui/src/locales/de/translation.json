@@ -466,6 +466,7 @@
     "pickUser": "Benutzer suchen",
     "cancelConfirm": "Diese Vorbestellung stornieren?",
     "noHolds": "Keine Vorbestellungen.",
+    "pickupBefore": "Abholen bis zum {{date}}",
     "pickupDeadlineHint": "Bitte holen Sie das Exemplar bis zu diesem Zeitpunkt ab; danach kann die Vorbestellung verfallen.",
     "patronTitle": "Meine Vorbestellungen",
     "patronSubtitle": "Position, Status und Abholfristen Ihrer Titel- und Exemplarvormerkungen.",
@@ -546,6 +547,15 @@
       "cancelled": "Storniert"
     }
   },
+  "availability": {
+    "available": "Verfügbar",
+    "onHold": "Reserviert",
+    "inTransit": "Unterwegs",
+    "onLoan": "Ausgeliehen",
+    "toSearch": "Zu suchen",
+    "unavailable": "Nicht verfügbar",
+    "reservedFor": "Reserviert für {{name}}"
+  },
   "items": {
     "specimens": "Exemplare",
     "mediaType": {
@@ -616,7 +626,8 @@
     "createdAt": "Erstellt",
     "updatedAt": "Zuletzt geändert",
     "keywordsAndSubject": "Schlagwörter und Thema",
-    "specimenCount": "{{count}} Exemplar",
+    "specimenCount_one": "{{count}} Exemplar",
+    "specimenCount_other": "{{count}} Exemplare",
     "noSpecimens": "Keine Exemplare registriert",
     "forceDeleteItem": "Trotzdem löschen",
     "itemBorrowedForceDelete": "Dieser Eintrag hat ausgeliehene Exemplare. Trotzdem löschen?",
@@ -657,7 +668,8 @@
     "allTypes": "Alle Typen",
     "unavailable": "Nicht verfügbar",
     "author": "Autor",
-    "count": "{{count}} Dokument",
+    "count_one": "{{count}} Dokument",
+    "count_other": "{{count}} Dokumente",
     "searchPlaceholder": "Nach Titel, Autor, ISBN suchen...",
     "allPublicTypes": "Alle Zielgruppen",
     "advancedSearch": "Erweiterte Suche",
@@ -665,8 +677,8 @@
     "title": "Katalog",
     "noItems": "Keine Dokumente gefunden",
     "volume": "Band {{number}}",
-    "specimenCount_plural": "{{count}} Exemplare",
-    "count_plural": "{{count}} Dokumente",
+    "availableCopies_one": "{{count}} Exemplar",
+    "availableCopies_other": "{{count}} Exemplare",
     "batchDeleteScan": {
       "openButton": "Per Scan löschen",
       "title": "Exemplare per Scan löschen",
@@ -987,13 +999,13 @@
     "renewalPossibleFrom": "Verlängerung möglich ab {{date}}",
     "renewalTooEarly": "Die Verlängerung ist noch nicht möglich.",
     "renewalRefusal": {
-      "account_blocked": "Dieses Konto darf nicht ausleihen.",
-      "fines_over_threshold": "Offene Gebühren liegen über der Verlängerungsgrenze.",
+      "account_blocked": "Ihr Konto erlaubt derzeit keine Verlängerung. Bitte wenden Sie sich an die Bibliothek.",
+      "fines_over_threshold": "Offene Gebühren liegen über dem zulässigen Betrag.",
       "withdrawn": "Dieses Exemplar ist ausgesondert und kann nicht verlängert werden.",
       "claimed_returned": "Diese Ausleihe liegt in der Rückgabe-Reklamation.",
       "hold_waiting": "Eine andere Person wartet auf diesen Titel.",
       "max_renewals": "Keine Verlängerung mehr möglich.",
-      "renewal_too_early": "Verlängerung möglich ab {{date}}."
+      "renewal_too_early": "Verlängerung möglich ab {{date}}"
     },
     "title": "Ausleihen",
     "subtitle": "Ausleihen und Rückgaben verwalten",

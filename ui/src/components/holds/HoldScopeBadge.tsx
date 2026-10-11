@@ -1,9 +1,9 @@
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/common';
-import type { Hold } from '@/types';
+import type { HoldListItem } from '@/types';
 import { holdScopeKind } from '@/utils/holdDisplay';
 
-export default function HoldScopeBadge({ hold }: { hold: Hold }) {
+export default function HoldScopeBadge({ hold }: { hold: HoldListItem }) {
   const { t } = useTranslation();
   const kind = holdScopeKind(hold);
   if (kind === 'title') {

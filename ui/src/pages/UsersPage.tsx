@@ -212,7 +212,7 @@ export default function UsersPage() {
       key: 'loans',
       header: t('users.loans'),
       render: (user: UserShort) => {
-        const loanCount = user.loans?.length ?? user.nbLoans ?? 0;
+        const loanCount = user.nbLoans ?? 0;
         return (
           <div className="flex items-center gap-2">
             <BookMarked className="h-4 w-4 text-gray-400" />

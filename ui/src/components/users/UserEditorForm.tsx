@@ -225,7 +225,15 @@ export default function UserEditorForm({
   const selectedGuardian: UserShort | null = (() => {
     if (!formData.guardianId) return null;
     if (pickedGuardian?.id === formData.guardianId) return pickedGuardian;
-    if (guardianQuery.data?.id === formData.guardianId) return guardianQuery.data;
+    const loaded = guardianQuery.data;
+    if (loaded?.id === formData.guardianId) {
+      return {
+        id: loaded.id,
+        login: loaded.login ?? null,
+        firstname: loaded.firstname ?? null,
+        lastname: loaded.lastname ?? null,
+      };
+    }
     return { id: formData.guardianId };
   })();
 

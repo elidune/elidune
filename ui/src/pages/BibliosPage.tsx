@@ -2,13 +2,13 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Plus, BookOpen, SlidersHorizontal, Loader2, AlertCircle, Trash2, Layers, BookMarked, Edit, ChevronLeft, ChevronRight, ScanLine } from 'lucide-react';
-import { Card, Button, Table, Badge, SearchInput, Modal, Input, ScrollableListRegion, ResponsiveRecordList, ListSkeleton } from '@/components/common';
+import { Card, Button, Table, SearchInput, Modal, Input, ScrollableListRegion, ResponsiveRecordList, ListSkeleton } from '@/components/common';
 import BiblioCatalogItemCard from '@/components/items/BiblioCatalogItemCard';
 import BatchDeleteSpecimensDialog from '@/components/specimen/BatchDeleteSpecimensDialog';
 import { useAuth } from '@/contexts/AuthContext';
+import ItemAvailabilityBadge from '@/components/items/ItemAvailabilityBadge';
 import { canManageItems, type MediaType, type MediaTypeOption, type Serie, type Collection } from '@/types';
-import { isBiblioWithdrawn, isCopyAvailable, isItemWithdrawn } from '@/utils/weeding';
-import { isItemToSearch } from '@/utils/circulationStatus';
+import { countAvailableCopies, summaryAvailability } from '@/utils/itemAvailability';
 import api from '@/services/api';
 import type { BiblioShort, Author, PaginatedResponse } from '@/types';
 import { PUBLIC_TYPE_OPTIONS } from '@/utils/codeLabels';
@@ -343,19 +343,13 @@ export default function BibliosPage() {
   const getCatalogRowStatusBadge = (row: BiblioShort) => {
     const list = row.items ?? [];
     if (list.length === 0) return null;
-    if (isBiblioWithdrawn(row) || list.every((s) => isItemWithdrawn(s))) {
-      return <Badge variant="danger">{t('weeding.status.withdrawn')}</Badge>;
-    }
-    if (list.some((s) => isItemToSearch(s)) && !list.some((s) => isCopyAvailable(s))) {
-      return <Badge variant="warning">{t('items.toSearch')}</Badge>;
-    }
-    if (list.every((s) => s.borrowed === true)) {
-      return <Badge variant="warning">{t('items.borrowed')}</Badge>;
-    }
-    if (list.some((s) => isCopyAvailable(s))) {
-      return <Badge variant="success">{t('items.available')}</Badge>;
-    }
-    return <Badge>{t('items.unavailable')}</Badge>;
+    return (
+      <ItemAvailabilityBadge
+        availability={summaryAvailability(list, 'staff')}
+        audience="staff"
+        size="sm"
+      />
+    );
   };
 
   const columns = [
@@ -391,11 +385,11 @@ export default function BibliosPage() {
       render: (item: BiblioShort) => {
         const list = item.items ?? [];
         const total = list.length;
-        const available = list.filter((s) => isCopyAvailable(s)).length;
+        const available = countAvailableCopies(list);
         if (total === 0) return <span className="text-gray-500 dark:text-gray-400">-</span>;
         return (
           <span className="text-gray-600 dark:text-gray-300">
-            {available}/{total}
+            {t('items.availableCopies', { count: available })}
           </span>
         );
       },

@@ -466,6 +466,7 @@
     "pickUser": "Search a patron",
     "cancelConfirm": "Cancel this hold?",
     "noHolds": "No holds.",
+    "pickupBefore": "Pick up before {{date}}",
     "pickupDeadlineHint": "Pick up the copy before this time; the hold may expire after that.",
     "patronTitle": "My holds",
     "patronSubtitle": "Track queue position, status, and pickup deadlines for your title and copy holds.",
@@ -546,6 +547,15 @@
       "cancelled": "Cancelled"
     }
   },
+  "availability": {
+    "available": "Available",
+    "onHold": "On hold",
+    "inTransit": "In transit",
+    "onLoan": "On loan",
+    "toSearch": "To search",
+    "unavailable": "Unavailable",
+    "reservedFor": "Reserved for {{name}}"
+  },
   "items": {
     "specimens": "Copies",
     "mediaType": {
@@ -616,7 +626,8 @@
     "createdAt": "Created",
     "updatedAt": "Last updated",
     "keywordsAndSubject": "Keywords and Subject",
-    "specimenCount": "{{count}} copy",
+    "specimenCount_one": "{{count}} copy",
+    "specimenCount_other": "{{count}} copies",
     "noSpecimens": "No copies registered",
     "forceDeleteItem": "Force delete",
     "itemBorrowedForceDelete": "This item has borrowed specimens. Force delete anyway?",
@@ -657,7 +668,8 @@
     "allTypes": "All types",
     "unavailable": "Unavailable",
     "author": "Author",
-    "count": "{{count}} document",
+    "count_one": "{{count}} document",
+    "count_other": "{{count}} documents",
     "searchPlaceholder": "Search by title, author, ISBN...",
     "allPublicTypes": "All audiences",
     "advancedSearch": "Advanced Search",
@@ -665,8 +677,8 @@
     "title": "Catalog",
     "noItems": "No documents found",
     "volume": "Volume {{number}}",
-    "specimenCount_plural": "{{count}} copies",
-    "count_plural": "{{count}} documents",
+    "availableCopies_one": "{{count}} copy",
+    "availableCopies_other": "{{count}} copies",
     "batchDeleteScan": {
       "openButton": "Delete by scan",
       "title": "Delete copies by scan",
@@ -987,13 +999,13 @@
     "renewalPossibleFrom": "Renewal possible from {{date}}",
     "renewalTooEarly": "Renewal is not open yet.",
     "renewalRefusal": {
-      "account_blocked": "This account cannot borrow.",
-      "fines_over_threshold": "Unpaid fines are over the renewal limit.",
+      "account_blocked": "Your account cannot renew loans right now. Please contact the library.",
+      "fines_over_threshold": "Unpaid fines are above the allowed threshold.",
       "withdrawn": "This copy is withdrawn and cannot be renewed.",
       "claimed_returned": "This loan is in the claims-returned queue.",
       "hold_waiting": "Another patron is waiting for this title.",
       "max_renewals": "No renewals left.",
-      "renewal_too_early": "Renewal opens on {{date}}."
+      "renewal_too_early": "Renewal possible from {{date}}"
     },
     "title": "Loans",
     "subtitle": "Manage loans and returns",

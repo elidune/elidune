@@ -1,4 +1,4 @@
-import type { Hold, ItemTransit, Source, TransitStatus } from '@/types';
+import type { HoldListItem, ItemTransit, Source, TransitStatus } from '@/types';
 
 export function isActiveTransitStatus(status: TransitStatus): boolean {
   return status === 'requested' || status === 'inTransit';
@@ -32,7 +32,7 @@ export function indexTransitsByHoldId(transits: ItemTransit[]): Map<string, Item
 }
 
 /** Pending hold with a pickup site and no active transfer — staff may move a copy. */
-export function canStartHoldTransit(hold: Hold, active?: ItemTransit | null): boolean {
+export function canStartHoldTransit(hold: HoldListItem, active?: ItemTransit | null): boolean {
   if (hold.status !== 'pending') return false;
   if (!hold.pickupSiteId) return false;
   if (active && isActiveTransitStatus(active.status)) return false;
@@ -53,7 +53,7 @@ export function canCancelTransit(transit: ItemTransit): boolean {
 
 /** Hide “start transit” when the allocated copy is already at the pickup site. */
 export function copyAlreadyAtPickupSite(
-  hold: Hold,
+  hold: HoldListItem,
   copySourceId?: string | null,
 ): boolean {
   if (!hold.pickupSiteId || !copySourceId) return false;

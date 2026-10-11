@@ -1,7 +1,7 @@
 import type { TFunction } from 'i18next';
 import axios, { type AxiosError, type AxiosResponse } from 'axios';
 import i18n from '@/locales';
-import type { ApiError } from '@/types';
+import type { ApiError, MyLoanRenewalRefusal } from '@/types';
 import { weedingServerMessageI18nKey } from '@/utils/weeding';
 
 /** Calendar date embedded in `Renewal is possible from YYYY-MM-DD.` */
@@ -118,20 +118,68 @@ export function renewalTooEarlyOpenDate(error: unknown): string | null {
   return message?.match(RENEWAL_OPEN_DATE)?.[1] ?? null;
 }
 
-function formatIsoCalendarDate(isoDate: string, language: string): string {
+/** Account-wide refusals. The server checks these before any per-loan reason. */
+const ACCOUNT_RENEWAL_REFUSALS = ['account_blocked', 'fines_over_threshold'] as const;
+
+const RENEWAL_REFUSAL_CODES: readonly MyLoanRenewalRefusal[] = [
+  ...ACCOUNT_RENEWAL_REFUSALS,
+  'withdrawn',
+  'claimed_returned',
+  'hold_waiting',
+  'max_renewals',
+  'renewal_too_early',
+];
+
+export function isRenewalRefusalCode(code: string | null | undefined): code is MyLoanRenewalRefusal {
+  return !!code && (RENEWAL_REFUSAL_CODES as readonly string[]).includes(code);
+}
+
+export function isAccountRenewalRefusal(
+  code: string | null | undefined,
+): code is (typeof ACCOUNT_RENEWAL_REFUSALS)[number] {
+  return code === 'account_blocked' || code === 'fines_over_threshold';
+}
+
+export function formatIsoCalendarDate(isoDate: string, language: string): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
   if (!match) return isoDate;
   const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
   return date.toLocaleDateString(language, { timeZone: 'UTC' });
 }
 
+/**
+ * Same sentence for a list row and for a POST `/loans/{id}/renew` error.
+ * `renewal_too_early` without a date falls back to the dateless sentence.
+ */
+export function renewalRefusalText(
+  t: TFunction,
+  code: string | null | undefined,
+  opensAt: string | null | undefined,
+  language: string,
+): string | null {
+  if (!isRenewalRefusalCode(code)) return null;
+  if (code === 'renewal_too_early') {
+    if (!opensAt) return t('loans.renewalTooEarly');
+    return t('loans.renewalRefusal.renewal_too_early', {
+      date: formatIsoCalendarDate(opensAt, language),
+    });
+  }
+  return t(`loans.renewalRefusal.${code}`);
+}
+
+/** Localized refusal for a renew POST. `renewal_too_early` reads the date from the body. */
+export function renewalRefusalErrorMessage(error: unknown, t: TFunction): string | null {
+  const code = getApiErrorCode(error);
+  if (!isRenewalRefusalCode(code)) return null;
+  const language = i18n.resolvedLanguage || i18n.language || 'en';
+  const opensAt = code === 'renewal_too_early' ? renewalTooEarlyOpenDate(error) : null;
+  return renewalRefusalText(t, code, opensAt, language);
+}
+
 /** Localized "Renewal possible from {date}" for `renewal_too_early`. */
 export function renewalTooEarlyMessage(error: unknown, t: TFunction): string | null {
   if (getApiErrorCode(error) !== 'renewal_too_early') return null;
-  const iso = renewalTooEarlyOpenDate(error);
-  if (!iso) return t('loans.renewalTooEarly');
-  const language = i18n.resolvedLanguage || i18n.language || 'en';
-  return t('loans.renewalPossibleFrom', { date: formatIsoCalendarDate(iso, language) });
+  return renewalRefusalErrorMessage(error, t);
 }
 
 /** Server `message` / `error` body text, if present. */
@@ -216,8 +264,8 @@ export function getApiErrorMessage(error: unknown, t: TFunction): string {
     if (fromWeeding !== null) return fromWeeding;
   }
 
-  const tooEarly = renewalTooEarlyMessage(error, t);
-  if (tooEarly !== null) return tooEarly;
+  const renewalRefusal = renewalRefusalErrorMessage(error, t);
+  if (renewalRefusal !== null) return renewalRefusal;
 
   const code = getApiErrorCode(error);
   if (code !== null) {

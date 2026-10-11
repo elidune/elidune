@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import type { Hold, ItemTransit, Source } from '@/types';
+import type { HoldListItem, ItemTransit, Source } from '@/types';
 import { sourceLabel } from '@/utils/transitDisplay';
 import TransitStatusBadge from '@/components/holds/TransitStatusBadge';
 
@@ -9,7 +9,7 @@ export default function HoldPickupCell({
   transit,
   showTransit = true,
 }: {
-  hold: Hold;
+  hold: HoldListItem;
   sources?: Source[];
   transit?: ItemTransit | null;
   showTransit?: boolean;

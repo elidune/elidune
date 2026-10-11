@@ -5,8 +5,8 @@ import { Card, CardHeader, Button, Badge, Pagination, ListSkeleton, QueryErrorBa
 import LoansMarcExportButton from '@/components/loans/LoansMarcExportButton';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/services/api';
-import type { MyLoan, MyLoanRenewalRefusal } from '@/types';
-import { getApiErrorMessage } from '@/utils/apiError';
+import type { MyLoan } from '@/types';
+import { getApiErrorMessage, isAccountRenewalRefusal, renewalRefusalText } from '@/utils/apiError';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
 import { newIdempotencyKey } from '@/utils/idempotency';
@@ -14,7 +14,7 @@ import { newIdempotencyKey } from '@/utils/idempotency';
 const MY_LOANS_PAGE_SIZE = 20;
 
 export default function MyLoansPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const [loans, setLoans] = useState<MyLoan[]>([]);
   const [loansPage, setLoansPage] = useState(1);
@@ -77,6 +77,14 @@ export default function MyLoansPage() {
   };
 
   const loansSorted = useMemo(() => sortLoansByStartDateAsc(loans), [loans]);
+  const accountRefusal = useMemo(() => {
+    let fines = false;
+    for (const loan of loansSorted) {
+      if (loan.renewalRefusalCode === 'account_blocked') return 'account_blocked' as const;
+      if (loan.renewalRefusalCode === 'fines_over_threshold') fines = true;
+    }
+    return fines ? ('fines_over_threshold' as const) : null;
+  }, [loansSorted]);
 
   return (
     <div className="space-y-6">
@@ -107,6 +115,15 @@ export default function MyLoansPage() {
         <div className="flex items-start gap-3 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl">
           <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-500 flex-shrink-0 mt-0.5" />
           <p className="font-medium text-red-800 dark:text-red-200">{renewError}</p>
+        </div>
+      )}
+
+      {accountRefusal && (
+        <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl">
+          <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-500 flex-shrink-0 mt-0.5" />
+          <p className="font-medium text-amber-900 dark:text-amber-100">
+            {renewalRefusalText(t, accountRefusal, null, i18n.language)}
+          </p>
         </div>
       )}
 
@@ -149,29 +166,15 @@ interface LoanCardProps {
   isOverdue?: boolean;
 }
 
-function renewalRefusalText(
-  t: (key: string, options?: Record<string, unknown>) => string,
-  code: MyLoanRenewalRefusal | null | undefined,
-  opensAt: string | null | undefined,
-  language: string,
-): string | null {
-  if (!code) return null;
-  if (code === 'renewal_too_early') {
-    const date = opensAt
-      ? new Date(`${opensAt}T00:00:00`).toLocaleDateString(language)
-      : '';
-    return t('loans.renewalRefusal.renewal_too_early', { date });
-  }
-  return t(`loans.renewalRefusal.${code}`);
-}
-
 function LoanCard({ loan, onRenew, isOverdue = false }: LoanCardProps) {
   const { t, i18n } = useTranslation();
   const [referenceMs] = useState(() => Date.now());
   const daysUntilDue = Math.ceil(
     (new Date(loan.dueDate).getTime() - referenceMs) / (1000 * 60 * 60 * 24)
   );
-  const refusal = renewalRefusalText(t, loan.renewalRefusalCode, loan.renewalOpensAt, i18n.language);
+  const rowRefusal = isAccountRenewalRefusal(loan.renewalRefusalCode)
+    ? null
+    : renewalRefusalText(t, loan.renewalRefusalCode, loan.renewalOpensAt, i18n.language);
 
   return (
     <div
@@ -213,17 +216,17 @@ function LoanCard({ loan, onRenew, isOverdue = false }: LoanCardProps) {
           )}
         </div>
 
-        {loan.canRenew ? (
-          <Button
-            size="sm"
-            variant="secondary"
-            onClick={() => onRenew(loan.id)}
-            leftIcon={<RotateCcw className="h-4 w-4" />}
-          >
-            {t('loans.renew')}
-          </Button>
-        ) : refusal ? (
-          <p className="text-sm text-gray-600 dark:text-gray-300 sm:text-right max-w-xs">{refusal}</p>
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={!loan.canRenew}
+          onClick={() => onRenew(loan.id)}
+          leftIcon={<RotateCcw className="h-4 w-4" />}
+        >
+          {t('loans.renew')}
+        </Button>
+        {rowRefusal ? (
+          <p className="text-sm text-gray-600 dark:text-gray-300 sm:text-right max-w-xs">{rowRefusal}</p>
         ) : null}
       </div>
     </div>
