@@ -1046,7 +1046,9 @@ function SpecimenCard({
         </div>
       )}
 
-      <WeedingStatusControl item={specimen} canManage={canManage} onUpdated={onUpdated} />
+      {canManage ? (
+        <WeedingStatusControl item={specimen} canManage={canManage} onUpdated={onUpdated} />
+      ) : null}
     </div>
   );
 }

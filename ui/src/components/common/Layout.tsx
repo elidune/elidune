@@ -28,6 +28,7 @@ import {
   Wallet,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import Button from './Button';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLibrary } from '@/contexts/LibraryContext';
 import { isLibrarian, isAdmin, canPatronSelfServiceHolds, canViewAcquisitions } from '@/types';
@@ -55,7 +56,7 @@ export default function Layout({ children }: LayoutProps) {
     if (!window.matchMedia('(max-width: 1023px)').matches) return false;
     return noModalDialogOpen() && root.isConnected;
   }, []);
-  const { user, logout } = useAuth();
+  const { user, logout, profileWarning, dismissProfileWarning, refreshProfile } = useAuth();
   const { data: accountTypes = [] } = useAccountTypesQuery();
   const { theme, setTheme } = useTheme();
   const staff = isLibrarian(user?.accountType);
@@ -346,6 +347,24 @@ export default function Layout({ children }: LayoutProps) {
           tabIndex={-1}
           className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4 lg:p-6 outline-none"
         >
+          {profileWarning ? (
+            <div
+              role="status"
+              className="mb-4 flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 sm:flex-row sm:items-center dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100"
+            >
+              <p className="min-w-0 flex-1">
+                {t(profileWarning.messageKey, { seconds: profileWarning.seconds })}
+              </p>
+              <div className="flex shrink-0 gap-2">
+                <Button type="button" size="sm" variant="secondary" onClick={() => void refreshProfile()}>
+                  {t('common.retry')}
+                </Button>
+                <Button type="button" size="sm" variant="ghost" onClick={dismissProfileWarning}>
+                  {t('common.close')}
+                </Button>
+              </div>
+            </div>
+          ) : null}
           {children}
         </main>
 

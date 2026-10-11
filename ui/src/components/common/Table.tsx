@@ -7,6 +7,11 @@ interface Column<T> {
   align?: 'left' | 'right';
 }
 
+function eventFromRowAction(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  return Boolean(target.closest('button, a, input, select, textarea, [data-row-action]'));
+}
+
 interface TableProps<T> {
   columns: Column<T>[];
   data: T[];
@@ -65,9 +70,13 @@ export default function Table<T>({
           {data.map((item) => (
             <tr
               key={keyExtractor(item)}
-              onClick={() => onRowClick?.(item)}
+              onClick={(event) => {
+                if (!onRowClick || eventFromRowAction(event.target)) return;
+                onRowClick(item);
+              }}
               onKeyDown={(event) => {
                 if (!onRowClick) return;
+                if (event.target !== event.currentTarget) return;
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault();
                   onRowClick(item);

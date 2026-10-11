@@ -1,6 +1,38 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useRef, useState, useEffect, ReactNode } from 'react';
 import api from '@/services/api';
 import type { User, LoginRequest, LoginResponse, TwoFactorMethod, FirstSetupResponse } from '@/types';
+import {
+  getHttpStatus,
+  isInvalidSessionError,
+  isRateLimitedError,
+  retryAfterDelayMs,
+  getRetryAfterSeconds,
+} from '@/utils/apiError';
+import { readSessionUserFromAccessToken } from '@/utils/jwtRights';
+
+/** Extra tries after the first 429 on `/auth/me`, each waiting on `Retry-After`. */
+const PROFILE_RATE_LIMIT_RETRIES = 3;
+
+export type ProfileWarning = {
+  messageKey: 'errors.tooManyRequests' | 'errors.tooManyRequestsWait' | 'errors.network' | 'errors.sessionUnavailable';
+  seconds?: number;
+};
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+function warningForKeptSession(error: unknown): ProfileWarning {
+  if (isRateLimitedError(error)) {
+    const seconds = getRetryAfterSeconds(error);
+    if (seconds != null) return { messageKey: 'errors.tooManyRequestsWait', seconds };
+    return { messageKey: 'errors.tooManyRequests' };
+  }
+  if (getHttpStatus(error) == null) return { messageKey: 'errors.network' };
+  return { messageKey: 'errors.sessionUnavailable' };
+}
 
 const MUST_CHANGE_PASSWORD_KEY = 'elidune_must_change_password';
 
@@ -35,6 +67,9 @@ interface AuthContextType {
   cancel2FA: () => void;
   logout: () => void;
   refreshProfile: () => Promise<void>;
+  /** Non-blocking notice when `/auth/me` fails but the session is kept. */
+  profileWarning: ProfileWarning | null;
+  dismissProfileWarning: () => void;
   /** After successful POST /first_setup — same as login without 2FA. */
   completeFirstSetup: (response: FirstSetupResponse) => Promise<void>;
 }
@@ -46,14 +81,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [pending2FA, setPending2FA] = useState<Pending2FA | null>(null);
   const [mustChangePassword, setMustChangePassword] = useState(false);
+  const [profileWarning, setProfileWarning] = useState<ProfileWarning | null>(null);
+  const refreshLock = useRef<Promise<void> | null>(null);
 
   const refreshProfile = async () => {
+    if (refreshLock.current) return refreshLock.current;
+
+    const run = async () => {
+      let rateLimitRetries = 0;
+      for (;;) {
+        try {
+          const profile = await api.getProfile();
+          setUser(profile);
+          setProfileWarning(null);
+          return;
+        } catch (error) {
+          if (isInvalidSessionError(error)) {
+            setProfileWarning(null);
+            setUser(null);
+            api.logout();
+            return;
+          }
+          if (isRateLimitedError(error) && rateLimitRetries < PROFILE_RATE_LIMIT_RETRIES) {
+            rateLimitRetries += 1;
+            await delay(retryAfterDelayMs(error));
+            continue;
+          }
+          setUser((current) => current ?? readSessionUserFromAccessToken(api.getToken()));
+          setProfileWarning(warningForKeptSession(error));
+          return;
+        }
+      }
+    };
+
+    const pending = run();
+    refreshLock.current = pending;
     try {
-      const profile = await api.getProfile();
-      setUser(profile);
-    } catch {
-      setUser(null);
-      api.logout();
+      await pending;
+    } finally {
+      if (refreshLock.current === pending) refreshLock.current = null;
     }
   };
 
@@ -194,6 +260,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setPending2FA(null);
     setMustChangePassword(false);
     setMustChangePasswordFlag(false);
+    setProfileWarning(null);
+  };
+
+  const dismissProfileWarning = () => {
+    setProfileWarning(null);
   };
 
   const completeFirstSetup = async (response: FirstSetupResponse) => {
@@ -227,6 +298,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         cancel2FA,
         logout,
         refreshProfile,
+        profileWarning,
+        dismissProfileWarning,
         completeFirstSetup,
       }}
     >

@@ -107,8 +107,7 @@ export default function EventsPage() {
     }
   };
 
-  const handleSendAnnouncement = (event: Event, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleSendAnnouncement = (event: Event) => {
     setConfirmAnnouncementEvent(event);
   };
 
@@ -246,9 +245,15 @@ export default function EventsPage() {
       render: (event: Event) => {
         const state = announcementState[event.id];
         return (
-          <div className="flex justify-end">
+          <div
+            className="flex justify-end"
+            data-row-action
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
           <button
-            onClick={(e) => handleSendAnnouncement(event, e)}
+            type="button"
+            onClick={() => handleSendAnnouncement(event)}
             disabled={state === 'loading'}
             title={t('events.sendAnnouncement')}
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${

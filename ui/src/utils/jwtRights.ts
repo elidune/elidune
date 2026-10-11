@@ -43,6 +43,32 @@ function normalizeAcquisitionsRightsValue(raw: unknown): 'n' | 'r' | 'w' | null 
   return null;
 }
 
+/**
+ * Minimal user from an access token when `/auth/me` fails transiently.
+ * No signature verification — enough to keep the shell signed in.
+ */
+export function readSessionUserFromAccessToken(accessToken: string | null | undefined): {
+  id: string;
+  username: string;
+  login?: string;
+  accountType?: string;
+} | null {
+  if (!accessToken?.trim()) return null;
+  const payload = decodeAccessTokenPayload(accessToken);
+  if (!payload) return null;
+  const idRaw = payload.user_id ?? payload.userId ?? payload.sub;
+  const id = idRaw != null && String(idRaw).trim() !== '' ? String(idRaw) : '';
+  if (!id) return null;
+  const accountRaw = payload.account_type ?? payload.accountType;
+  const login = typeof payload.sub === 'string' && payload.sub.trim() ? payload.sub : undefined;
+  return {
+    id,
+    username: login ?? id,
+    login,
+    accountType: accountRaw != null && String(accountRaw).trim() ? String(accountRaw) : undefined,
+  };
+}
+
 export function readAcquisitionsRightsFromJwt(accessToken: string | null | undefined): 'n' | 'r' | 'w' | null {
   if (!accessToken?.trim()) return null;
   const payload = decodeAccessTokenPayload(accessToken);

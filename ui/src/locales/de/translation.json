@@ -1693,6 +1693,8 @@
     "notFound": "Ressource nicht gefunden",
     "generic": "Ein Fehler ist aufgetreten",
     "tooManyRequests": "Zu viele Versuche. Bitte warten Sie, bevor Sie es erneut versuchen.",
+    "tooManyRequestsWait": "Zu viele Versuche. Bitte warten Sie {{seconds}} Sekunden, bevor Sie es erneut versuchen.",
+    "sessionUnavailable": "Ihr Profil konnte nicht aktualisiert werden. Sie bleiben angemeldet.",
     "network": "Netzwerkfehler. Bitte überprüfen Sie Ihre Verbindung.",
     "timeout": "Zeitüberschreitung der Anfrage. Bitte erneut versuchen.",
     "http": {
@@ -1739,7 +1741,8 @@
       "duplicate_barcode_needs_confirmation": "Ein Exemplar mit diesem Barcode existiert bereits.",
       "z3950_error": "Fehler bei der Z39.50-Suche.",
       "database_error": "Datenbankfehler. Bitte versuchen Sie es später erneut.",
-      "internal_error": "Interner Serverfehler. Bitte versuchen Sie es später erneut."
+      "internal_error": "Interner Serverfehler. Bitte versuchen Sie es später erneut.",
+      "rate_limited": "Zu viele Versuche. Bitte warten Sie, bevor Sie es erneut versuchen."
     }
   },
   "inventory": {

@@ -16,9 +16,9 @@ export default function HoldsPolicySettings() {
   const { showToast } = useToast();
   const { data, isLoading, isError, refetch } = useHoldsPolicyQuery();
   const updatePolicy = useUpdateHoldsPolicyMutation();
-  const [draft, setDraft] = useState('20');
+  const [draft, setDraft] = useState(() => holdCapToInput(data?.maxActiveHolds) || '20');
   const [fieldError, setFieldError] = useState<string | null>(null);
-  const [syncedPolicy, setSyncedPolicy] = useState<HoldsPolicy | undefined>(data);
+  const [syncedPolicy, setSyncedPolicy] = useState<HoldsPolicy | undefined>(undefined);
   if (data !== syncedPolicy) {
     setSyncedPolicy(data);
     if (data) {
@@ -28,6 +28,7 @@ export default function HoldsPolicySettings() {
   }
 
   const handleSave = async () => {
+    if (!data) return;
     const parsed = parseHoldCapInput(draft, false);
     if (!parsed.ok || parsed.value == null) {
       setFieldError(t('settings.holdsPolicy.invalidCap'));
@@ -55,7 +56,7 @@ export default function HoldsPolicySettings() {
               void handleSave();
             }}
             isLoading={updatePolicy.isPending}
-            disabled={isLoading || isError}
+            disabled={isLoading || isError || data == null}
             leftIcon={<Save className="h-4 w-4" />}
           >
             {t('common.save')}

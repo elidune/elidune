@@ -35,6 +35,7 @@ import {
 } from '@/utils/opacAvailability';
 import { useLibrarySchedule } from '@/hooks/common/useLibrarySchedule';
 import api from '@/services/api';
+import { loginFailureMessage } from '@/utils/apiError';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { deferFromEffect } from '@/utils/deferFromEffect';
 import type { MediaType } from '@/types';
@@ -524,8 +525,8 @@ export default function LoginPage() {
     try {
       const { requires2FA, mustChangePassword: needPwd } = await login({ username, password });
       if (!requires2FA) navigate(needPwd ? '/change-password' : '/home');
-    } catch {
-      setLoginError(t('auth.invalidCredentials'));
+    } catch (error) {
+      setLoginError(loginFailureMessage(error, t));
     } finally {
       setIsLoggingIn(false);
     }

@@ -23,9 +23,11 @@ export default function OverdueRemindersSettings() {
   const { showToast } = useToast();
   const { data, isLoading, isError, refetch } = useRemindersConfigQuery();
   const updateConfig = useUpdateRemindersConfigMutation();
-  const [draft, setDraft] = useState<ReminderTiersDraft | null>(null);
+  const [draft, setDraft] = useState<ReminderTiersDraft | null>(() =>
+    data?.config ? remindersConfigToDraft(data.config) : null,
+  );
   const [fieldError, setFieldError] = useState<'delay' | 'template' | null>(null);
-  const [syncedConfig, setSyncedConfig] = useState<RemindersConfig | undefined>(data?.config);
+  const [syncedConfig, setSyncedConfig] = useState<RemindersConfig | undefined>(undefined);
 
   if (data?.config !== syncedConfig) {
     setSyncedConfig(data?.config);
@@ -71,7 +73,7 @@ export default function OverdueRemindersSettings() {
               void handleSave();
             }}
             isLoading={updateConfig.isPending}
-            disabled={isLoading || isError || !canEdit}
+            disabled={isLoading || isError || !canEdit || !data || !draft}
             leftIcon={<Save className="h-4 w-4" />}
           >
             {t('common.save')}
