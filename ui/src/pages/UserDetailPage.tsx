@@ -27,8 +27,11 @@ import { isSubscriptionExpired } from '@/utils/userSubscription';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
 import { isClaimedReturnedLoan } from '@/utils/circulationStatus';
+import { readItemToPickForOther } from '@/utils/toPickDesk';
 import { newIdempotencyKey } from '@/utils/idempotency';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
+import HoldStatusBadge from '@/components/holds/HoldStatusBadge';
+import ToPickForceLoanDialog from '@/components/loans/ToPickForceLoanDialog';
 import HoldPickupCell from '@/components/holds/HoldPickupCell';
 import HoldTransitActions from '@/components/holds/HoldTransitActions';
 import TransitActionModals from '@/components/holds/TransitActionModals';
@@ -75,6 +78,10 @@ export default function UserDetailPage() {
   const [forceBorrowDialog, setForceBorrowDialog] = useState<{ message: string; specimenCode: string } | null>(
     null
   );
+  const [toPickForce, setToPickForce] = useState<{ patronName: string | null; specimenCode: string } | null>(
+    null,
+  );
+  const [toPickForceLoading, setToPickForceLoading] = useState(false);
   const [borrowForceError, setBorrowForceError] = useState<string | null>(null);
   const [isEditLoading, setIsEditLoading] = useState(false);
   const [isBorrowLoading, setIsBorrowLoading] = useState(false);
@@ -606,7 +613,7 @@ export default function UserDetailPage() {
       key: 'status',
       header: t('holds.status'),
       render: (h: Hold) => (
-        <Badge variant={h.status === 'ready' ? 'success' : 'default'}>{t(`holds.statuses.${h.status}`)}</Badge>
+        <HoldStatusBadge status={h.status} />
       ),
     },
     {
@@ -1154,8 +1161,43 @@ export default function UserDetailPage() {
               specimenCode,
             });
           }}
+          onToPickForOther={(patronName, specimenCode) => {
+            setShowBorrowModal(false);
+            setToPickForce({ patronName, specimenCode });
+          }}
         />
       </Modal>
+
+      <ToPickForceLoanDialog
+        isOpen={toPickForce !== null}
+        patronName={toPickForce?.patronName ?? null}
+        isLoading={toPickForceLoading}
+        onCancel={() => {
+          if (!toPickForceLoading) setToPickForce(null);
+        }}
+        onForce={() => {
+          const ctx = toPickForce;
+          if (!ctx) return;
+          setToPickForceLoading(true);
+          void (async () => {
+            try {
+              await api.createLoan({
+                userId: user.id,
+                itemIdentification: ctx.specimenCode,
+                force: true,
+              }, newIdempotencyKey());
+              setToPickForce(null);
+              await refreshLoans();
+              showToast({ variant: 'success', message: t('loans.checkoutSuccessShort') });
+            } catch (e) {
+              setBorrowForceError(getApiErrorMessage(e, t) || t('loans.errorCreatingLoan'));
+              setToPickForce(null);
+            } finally {
+              setToPickForceLoading(false);
+            }
+          })();
+        }}
+      />
 
       <ConfirmDialog
         isOpen={forceBorrowDialog !== null}
@@ -1207,6 +1249,7 @@ interface BorrowFormProps {
   onLoadingChange: (loading: boolean) => void;
   onSuccess: () => void;
   onBusinessRuleViolation?: (message: string, specimenCode: string) => void;
+  onToPickForOther?: (patronName: string | null, specimenCode: string) => void;
 }
 
 function BorrowForm({
@@ -1215,6 +1258,7 @@ function BorrowForm({
   onLoadingChange,
   onSuccess,
   onBusinessRuleViolation,
+  onToPickForOther,
 }: BorrowFormProps) {
   const { t } = useTranslation();
   const { showToast } = useToast();
@@ -1240,6 +1284,11 @@ function BorrowForm({
       if (isWeedingServerMessage(rawMessage)) {
         setError(displayMsg);
         showToast({ variant: 'error', message: displayMsg });
+        return;
+      }
+      const toPick = readItemToPickForOther(err);
+      if (toPick && !force) {
+        onToPickForOther?.(toPick.userName, specimenCode.trim());
         return;
       }
       if (errorCode === 'business_rule_violation' && !force) {

@@ -22,6 +22,7 @@ import {
   ClipboardList,
   Bookmark,
   BookmarkCheck,
+  ListChecks,
   Truck,
   ShoppingCart,
   Store,
@@ -100,6 +101,7 @@ export default function Layout({ children }: LayoutProps) {
       items: [
         { name: t('nav.loans'), href: '/loans', icon: ArrowLeftRight, show: staff },
         { name: t('nav.holds'), href: '/holds', icon: Bookmark, show: staff },
+        { name: t('nav.pickList'), href: '/pick-list', icon: ListChecks, show: staff },
         { name: t('nav.transits'), href: '/transits', icon: Truck, show: staff },
         { name: t('nav.users'), href: '/users', icon: Users, show: staff },
       ],
@@ -181,7 +183,7 @@ export default function Layout({ children }: LayoutProps) {
       <aside
         id="main-sidebar"
         ref={sidebarRef}
-        className={`fixed top-0 left-0 z-50 h-full w-64 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 transform transition-transform duration-300 lg:translate-x-0 ${
+        className={`print:hidden fixed top-0 left-0 z-50 h-full w-64 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 transform transition-transform duration-300 lg:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -318,9 +320,9 @@ export default function Layout({ children }: LayoutProps) {
       </aside>
 
       {/* Main content */}
-      <div className="flex h-svh min-h-0 flex-col lg:pl-64">
+      <div className="flex h-svh min-h-0 flex-col lg:pl-64 print:h-auto print:pl-0">
         {/* Mobile header */}
-        <header className="sticky top-0 z-30 flex items-center h-16 px-4 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 lg:hidden">
+        <header className="print:hidden sticky top-0 z-30 flex items-center h-16 px-4 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 lg:hidden">
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
@@ -339,7 +341,9 @@ export default function Layout({ children }: LayoutProps) {
           </div>
         </header>
 
-        <BackgroundTasksDrawer />
+        <div className="print:hidden">
+          <BackgroundTasksDrawer />
+        </div>
 
         {/* Page content */}
         <main
@@ -369,7 +373,7 @@ export default function Layout({ children }: LayoutProps) {
         </main>
 
         {/* Footer */}
-        <footer className="border-t border-gray-200 dark:border-gray-800 py-3 px-4 lg:px-6 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-xs text-gray-400 dark:text-gray-500">
+        <footer className="print:hidden border-t border-gray-200 dark:border-gray-800 py-3 px-4 lg:px-6 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-xs text-gray-400 dark:text-gray-500">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <span className="font-mono">UI v{uiVersion}</span>
             <span className="font-mono">Server v{serverVersion ?? '—'}</span>

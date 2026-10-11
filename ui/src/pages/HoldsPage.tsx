@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ban, Bookmark, Plus, Search, AlertCircle, Truck } from 'lucide-react';
-import { Card, CardHeader, Button, Badge, Table, Input, Pagination, Modal, ConfirmDialog, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, BarcodeScanField, Typeahead } from '@/components/common';
+import { Card, CardHeader, Button, Table, Input, Pagination, Modal, ConfirmDialog, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, BarcodeScanField, Typeahead } from '@/components/common';
 import HoldMobileCard from '@/components/holds/HoldMobileCard';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
 import HoldExpiresCell from '@/components/holds/HoldExpiresCell';
@@ -29,13 +29,12 @@ import {
   type StaffHoldStatusFilter,
 } from '@/utils/holdDisplay';
 import HoldScopeBadge from '@/components/holds/HoldScopeBadge';
+import HoldStatusBadge from '@/components/holds/HoldStatusBadge';
 import { indexTransitsByHoldId } from '@/utils/transitDisplay';
 import { isItemWithdrawn, isTitleWithdrawn } from '@/utils/weeding';
 
-function statusBadge(t: (k: string) => string, status: Hold['status']) {
-  return (
-    <Badge variant={status === 'ready' ? 'success' : 'default'}>{t(`holds.statuses.${status}`)}</Badge>
-  );
+function statusBadge(_t: (k: string) => string, status: Hold['status']) {
+  return <HoldStatusBadge status={status} />;
 }
 
 export default function HoldsPage() {
@@ -424,6 +423,7 @@ export default function HoldsPage() {
                 ['all', 'holds.filterAllActive'],
                 ['ready', 'holds.filterReady'],
                 ['pending', 'holds.filterPending'],
+                ['toPick', 'holds.filterToPick'],
                 ['expiringSoon', 'holds.filterExpiringSoon'],
               ] as const
             ).map(([value, key]) => (

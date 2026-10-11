@@ -84,6 +84,8 @@ import type {
   CreateHold,
   HoldsPolicy,
   HoldQuota,
+  HoldPickListRow,
+  ItemCheckIn,
   ItemTransit,
   CreateTransit,
   TransitActionRequest,
@@ -152,6 +154,7 @@ import type {
 import { normalizePaginatedResponse } from '@/utils/serverJson';
 import { normalizeFinePolicy } from '@/utils/finePolicy';
 import { normalizeHoldQuota, normalizeHoldsPolicy } from '@/utils/holdsPolicy';
+import { normalizePickList } from '@/utils/pickList';
 
 function normalizeZ3950ServersPayload(data: unknown): Z3950Server[] {
   if (Array.isArray(data)) return data;
@@ -800,8 +803,8 @@ class ApiService {
     return response.data;
   }
 
-  async returnLoanByBarcode(itemBarcode: string): Promise<{ status: string; loan: Loan }> {
-    const response = await this.client.post(`/loans/items/${itemBarcode}/return`);
+  async returnLoanByBarcode(itemBarcode: string): Promise<ItemCheckIn> {
+    const response = await this.client.post<ItemCheckIn>(`/loans/items/${itemBarcode}/return`);
     return response.data;
   }
 
@@ -958,6 +961,17 @@ class ApiService {
       };
     }
     return normalizePaginatedResponse<Hold>(data);
+  }
+
+  async getHoldPickList(siteId?: string): Promise<HoldPickListRow[]> {
+    const response = await this.client.get<unknown>('/holds/pick-list', {
+      params: siteId ? { siteId } : undefined,
+    });
+    return normalizePickList(response.data);
+  }
+
+  async markPickNotFound(holdId: string): Promise<void> {
+    await this.client.post(`/holds/${holdId}/pick-not-found`);
   }
 
   async getHolds(params?: {

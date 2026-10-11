@@ -8,6 +8,7 @@ import BatchDeleteSpecimensDialog from '@/components/specimen/BatchDeleteSpecime
 import { useAuth } from '@/contexts/AuthContext';
 import { canManageItems, type MediaType, type MediaTypeOption, type Serie, type Collection } from '@/types';
 import { isBiblioWithdrawn, isCopyAvailable, isItemWithdrawn } from '@/utils/weeding';
+import { isItemToSearch } from '@/utils/circulationStatus';
 import api from '@/services/api';
 import type { BiblioShort, Author, PaginatedResponse } from '@/types';
 import { PUBLIC_TYPE_OPTIONS } from '@/utils/codeLabels';
@@ -344,6 +345,9 @@ export default function BibliosPage() {
     if (list.length === 0) return null;
     if (isBiblioWithdrawn(row) || list.every((s) => isItemWithdrawn(s))) {
       return <Badge variant="danger">{t('weeding.status.withdrawn')}</Badge>;
+    }
+    if (list.some((s) => isItemToSearch(s)) && !list.some((s) => isCopyAvailable(s))) {
+      return <Badge variant="warning">{t('items.toSearch')}</Badge>;
     }
     if (list.every((s) => s.borrowed === true)) {
       return <Badge variant="warning">{t('items.borrowed')}</Badge>;

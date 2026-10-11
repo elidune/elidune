@@ -7,7 +7,6 @@ import {
   Card,
   CardHeader,
   Button,
-  Badge,
   Table,
   Pagination,
   ConfirmDialog,
@@ -19,6 +18,7 @@ import HoldMobileCard from '@/components/holds/HoldMobileCard';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
 import HoldExpiresCell from '@/components/holds/HoldExpiresCell';
 import HoldPickupCell from '@/components/holds/HoldPickupCell';
+import HoldStatusBadge from '@/components/holds/HoldStatusBadge';
 import { useSourcesQuery } from '@/hooks/holds/useSourcesQuery';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/services/api';
@@ -29,10 +29,8 @@ import { canPatronSelfServiceHolds } from '@/types';
 
 const PAGE_SIZE_DEFAULT = 20;
 
-function statusBadge(t: (k: string) => string, status: Hold['status']) {
-  return (
-    <Badge variant={status === 'ready' ? 'success' : 'default'}>{t(`holds.statuses.${status}`)}</Badge>
-  );
+function statusBadge(_t: (k: string) => string, status: Hold['status']) {
+  return <HoldStatusBadge status={status} />;
 }
 
 export default function MyHoldsPage() {

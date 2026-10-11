@@ -33,6 +33,7 @@ import WeedingStatusControl from '@/components/items/WeedingStatusControl';
 import api from '@/services/api';
 import type { Biblio, Item, Author, Source } from '@/types';
 import { isCopyOfferable, isItemWithdrawn, isTitleWithdrawn } from '@/utils/weeding';
+import { isItemToSearch } from '@/utils/circulationStatus';
 import { useTranslation } from 'react-i18next';
 import { LANG_OPTIONS, FUNCTION_OPTIONS, PUBLIC_TYPE_OPTIONS, getCodeLabel } from '@/utils/codeLabels';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
@@ -965,8 +966,11 @@ function SpecimenCard({
   const missing = incomplete ? missingCirculationFields(specimen) : [];
 
   const withdrawn = isItemWithdrawn(specimen);
+  const toSearch = isItemToSearch(specimen);
   const statusBadge = withdrawn
     ? <Badge variant="danger">{t('weeding.status.withdrawn')}</Badge>
+    : toSearch
+      ? <Badge variant="warning">{t('items.toSearch')}</Badge>
     : specimen.borrowed === true
       ? <Badge variant="warning">{t('items.borrowed')}</Badge>
       : incomplete

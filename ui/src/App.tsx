@@ -28,6 +28,7 @@ import {
   MyHoldsPage,
   LoansPage,
   HoldsPage,
+  PickListPage,
   TransitsPage,
   Z3950SearchPage,
   ProfilePage,
@@ -268,6 +269,17 @@ function AppRoutes() {
           <ProtectedRoute>
             <LibrarianRoute>
               <HoldsPage />
+            </LibrarianRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/pick-list"
+        element={
+          <ProtectedRoute>
+            <LibrarianRoute>
+              <PickListPage />
             </LibrarianRoute>
           </ProtectedRoute>
         }
