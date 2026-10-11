@@ -158,7 +158,7 @@ impl Repository {
         )
         .fetch_optional(&self.pool)
         .await?;
-        Ok(global.unwrap_or(super::mutations::DEFAULT_RENEW_WINDOW_DAYS))
+        Ok(global.unwrap_or(crate::renewal::DEFAULT_RENEW_WINDOW_DAYS))
     }
 
     /// Get loan settings

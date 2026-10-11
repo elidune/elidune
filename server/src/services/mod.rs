@@ -3,6 +3,7 @@
 pub mod account_types_catalog;
 pub mod acquisitions;
 pub mod audit;
+pub mod calendar;
 pub mod catalog;
 pub mod circulation;
 pub mod email_outbox;
@@ -155,7 +156,10 @@ impl Services {
             audit_service.clone(),
             dynamic_config.clone(),
         );
-        let fines_service = fines::FinesService::new(repo.clone() as Arc<dyn FinesRepository>);
+        let fines_service = fines::FinesService::new(
+            repo.clone() as Arc<dyn FinesRepository>,
+            repo.clone() as Arc<dyn calendar::OpeningDays>,
+        );
 
         Ok(Self {
             repository: repo.clone(),

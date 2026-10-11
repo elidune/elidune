@@ -104,16 +104,26 @@ pub struct ScheduleClosure {
     pub closure_date: NaiveDate,
     /// Reason for closure
     pub reason: Option<String>,
+    /// Site (`sources.id`). Null means the closure applies to every site.
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub source_id: Option<i64>,
     pub created_at: Option<DateTime<Utc>>,
 }
 
 /// Create closure request
+#[serde_as]
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateScheduleClosure {
     /// Closure date (YYYY-MM-DD)
     pub closure_date: String,
     pub reason: Option<String>,
+    /// Site (`sources.id`). Omit or null for a network-wide closure.
+    #[serde(default)]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub source_id: Option<i64>,
 }
 
 /// Query parameters for schedule closures

@@ -17,6 +17,7 @@ use crate::{
         user::UserStatus,
         Loan,
     },
+    renewal::{renewal_eligibility, RenewalContext, RenewalUser},
     repository::LoansServiceRepository,
     services::{
         audit::{self, AuditLogMeta, AuditService},
@@ -47,6 +48,20 @@ pub struct LoansService {
 }
 
 impl LoansService {
+    async fn library_zone(&self) -> chrono_tz::Tz {
+        match self.repository.library_timezone_name().await {
+            Ok(name) => crate::services::calendar::parse_timezone(&name)
+                .unwrap_or_else(|_| crate::services::calendar::default_zone()),
+            Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    "library timezone unavailable; using Europe/Paris"
+                );
+                crate::services::calendar::default_zone()
+            }
+        }
+    }
+
     pub fn new(
         repository: Arc<dyn LoansServiceRepository>,
         fines: FinesService,
@@ -159,9 +174,13 @@ impl LoansService {
 
         if let Some(expiry_at) = user.expiry_at {
             if expiry_at < Utc::now() && !loan.force {
+                let zone = crate::services::calendar::parse_timezone(
+                    &self.repository.library_timezone_name().await?,
+                )
+                .unwrap_or_else(|_| crate::services::calendar::default_zone());
                 return Err(AppError::BusinessRule(format!(
                     "User subscription expired on {} — use force=true to override",
-                    expiry_at.format("%Y-%m-%d")
+                    crate::services::calendar::format_patron_iso_date(zone, expiry_at)
                 )));
             }
         }
@@ -342,9 +361,16 @@ impl LoansService {
             .await
             .ok()
             .flatten();
-        if let Err(e) =
-            crate::hold_email::send_hold_ready_simple(&self.email, contact, hold, title, barcode)
-                .await
+        let zone = self.library_zone().await;
+        if let Err(e) = crate::hold_email::send_hold_ready_simple(
+            &self.email,
+            contact,
+            hold,
+            title,
+            barcode,
+            zone,
+        )
+        .await
         {
             tracing::warn!(
                 target: "loans",
@@ -370,11 +396,13 @@ impl LoansService {
             .as_ref()
             .and_then(|c| c.email.as_deref().map(str::trim))
             .filter(|s| !s.is_empty())?;
+        let zone = self.library_zone().await;
         match crate::hold_email::send_hold_ready(
             &self.email,
             contact.clone(),
             hold,
             &outcome.details,
+            zone,
         )
         .await
         {
@@ -493,7 +521,9 @@ impl LoansService {
         self.repository.loans_get_borrower_for_loan(loan_id).await
     }
 
-    /// Renew a loan. `force` bypasses account and unpaid-fine gates (audited).
+    /// Renew a loan. `force` bypasses account and unpaid-fine gates (fines are audited).
+    ///
+    /// [`renewal_eligibility`] runs before any write and again inside the locked update.
     pub async fn renew_loan(
         &self,
         loan_id: i64,
@@ -501,25 +531,48 @@ impl LoansService {
         audit_actor: Option<i64>,
         client_ip: Option<String>,
     ) -> AppResult<(DateTime<Utc>, i16)> {
-        let loan = self.repository.loans_get_by_id(loan_id).await?;
-        let user = self.repository.users_get_by_id(loan.user_id).await?;
-
-        if !user.can_borrow() && !force {
+        let snapshot = self.repository.loans_renewal_snapshot(loan_id).await?;
+        if snapshot.returned {
             return Err(AppError::BusinessRule(
-                "User account is not active or cannot borrow — use force=true to override"
-                    .to_string(),
+                "Cannot renew a returned loan".to_string(),
             ));
         }
-        self.enforce_unpaid_fine_threshold(
-            loan.user_id,
-            user.public_type,
-            force,
-            "renew",
-            audit_actor,
-            client_ip,
-        )
-        .await?;
-        self.repository.loans_renew(loan_id).await
+        let user = self.repository.users_get_by_id(snapshot.user_id).await?;
+        let check = self
+            .fines
+            .check_unpaid_threshold(user.id, user.public_type)
+            .await?;
+        if force && check.blocks_circulation() {
+            self.audit.log(
+                audit::event::LOAN_FINE_THRESHOLD_OVERRIDDEN,
+                audit_actor,
+                Some("user"),
+                Some(user.id),
+                client_ip,
+                Some(serde_json::json!({
+                    "unpaid": check.unpaid,
+                    "threshold": check.threshold,
+                    "operation": "renew",
+                })),
+                AuditLogMeta::success(),
+            );
+        }
+        let ctx = RenewalContext {
+            bypass_account_gates: force,
+            fines_over_threshold: check.blocks_circulation(),
+            fines_message: check.desk_block_message(),
+            max_renewals: snapshot.max_renewals,
+            renew_window_days: snapshot.renew_window_days,
+            now: Utc::now(),
+            zone: self.library_zone().await,
+        };
+        let renewal_user = RenewalUser {
+            can_borrow: user.can_borrow(),
+        };
+        if let Err(refusal) = renewal_eligibility(&snapshot.loan, &renewal_user, &ctx) {
+            return Err(refusal.into_app_error(&snapshot.loan, &ctx));
+        }
+        self.repository.loans_renew(loan_id, force).await
     }
 
     /// Renew a loan by item identification (barcode or call number)
@@ -820,6 +873,9 @@ mod tests {
         async fn loans_settings_delete_rows(&self) -> AppResult<()> {
             Ok(())
         }
+        async fn library_timezone_name(&self) -> AppResult<String> {
+            Ok(crate::services::calendar::DEFAULT_TIMEZONE.to_string())
+        }
         async fn loans_get_by_id(&self, _: i64) -> AppResult<crate::models::loan::Loan> {
             self.loan
                 .clone()
@@ -884,7 +940,32 @@ mod tests {
         ) -> AppResult<Option<crate::models::dto::holds::ShelfFound>> {
             Ok(None)
         }
-        async fn loans_renew(&self, _: i64) -> AppResult<(chrono::DateTime<Utc>, i16)> {
+        async fn loans_renewal_snapshot(
+            &self,
+            loan_id: i64,
+        ) -> AppResult<crate::renewal::LoanRenewalSnapshot> {
+            let loan = self
+                .loan
+                .clone()
+                .ok_or_else(|| AppError::NotFound(format!("Loan with id {loan_id} not found")))?;
+            let due_at = loan
+                .expiry_at
+                .unwrap_or_else(|| Utc::now() + chrono::Duration::days(7));
+            Ok(crate::renewal::LoanRenewalSnapshot {
+                user_id: loan.user_id,
+                returned: loan.returned_at.is_some(),
+                loan: crate::renewal::RenewalLoan {
+                    renewal_count: loan.nb_renews.unwrap_or(0),
+                    due_at,
+                    withdrawn: false,
+                    claimed_returned: false,
+                    hold_waiting: false,
+                },
+                max_renewals: 2,
+                renew_window_days: 7,
+            })
+        }
+        async fn loans_renew(&self, _: i64, _: bool) -> AppResult<(chrono::DateTime<Utc>, i16)> {
             Ok((Utc::now() + chrono::Duration::days(21), 1))
         }
         async fn loans_get_settings(&self) -> AppResult<Vec<crate::models::loan::LoanSettings>> {
@@ -1181,7 +1262,10 @@ mod tests {
                 loan_id,
                 loan,
             }),
-            FinesService::new(Arc::new(fines)),
+            FinesService::new(
+                Arc::new(fines),
+                Arc::new(crate::services::calendar::AlwaysOpenCalendar),
+            ),
             audit,
             email,
             events,
@@ -1411,10 +1495,14 @@ mod tests {
             },
             Some(loan),
         );
-        assert!(matches!(
-            svc.renew_loan(201, false, None, None).await,
-            Err(AppError::BusinessRule(_))
-        ));
+        match svc.renew_loan(201, false, None, None).await {
+            Err(AppError::RenewalRefused { code, message }) => {
+                assert_eq!(code, "fines_over_threshold");
+                assert!(message.contains("20"), "{message}");
+                assert!(message.contains("force=true"), "{message}");
+            }
+            other => panic!("expected fines_over_threshold, got {other:?}"),
+        }
     }
 
     #[tokio::test]

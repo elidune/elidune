@@ -17,7 +17,7 @@ use crate::error::{ErrorResponse, RateLimitedBody};
 use crate::models::user::EventsConsentSource;
 use crate::models::Language;
 use crate::models::PlaintextPassword;
-use crate::rate_limit::{normalize_identifier, AuthAttemptLimiter};
+use crate::rate_limit::{normalize_identifier, AuthAttemptLimiter, PasswordResetAttemptLimiter};
 use crate::services::audit;
 
 use super::ClientIp;
@@ -350,10 +350,10 @@ pub async fn login(
     }))
 }
 
-/// Clear the temporary per-identifier auth block for a login or email.
+/// Clear the temporary per-identifier sign-in block and reset-request quota.
 ///
 /// Librarian or admin, with `users_rights` write. The value is normalized
-/// the same way as login and password-reset attempts (trim + lowercase).
+/// the same way as login attempts (trim + lowercase).
 #[utoipa::path(
     delete,
     path = "/auth/rate-limit/{login}",
@@ -373,6 +373,7 @@ pub async fn clear_auth_rate_limit(
     StaffUser(claims): StaffUser,
     ClientIp(ip): ClientIp,
     Extension(attempts): Extension<Arc<AuthAttemptLimiter>>,
+    Extension(resets): Extension<Arc<PasswordResetAttemptLimiter>>,
     Path(login): Path<String>,
 ) -> AppResult<StatusCode> {
     claims.require_write_users()?;
@@ -381,6 +382,7 @@ pub async fn clear_auth_rate_limit(
         return Err(AppError::Validation("login is required".to_string()));
     }
     attempts.clear(&identifier);
+    resets.clear(&identifier);
     state.services.audit.log(
         audit::event::AUTH_RATE_LIMIT_CLEARED,
         Some(claims.user_id),
@@ -526,9 +528,19 @@ pub struct RequestPasswordResetRequest {
     /// Login or email address for the account.
     #[validate(length(min = 1, message = "identifier is required"))]
     pub identifier: String,
-    /// Full URL template for the reset link; must contain the literal `<token>` placeholder.
-    /// If omitted, the server uses `[users].password_reset_url_template` from the app config.
+    /// Ignored. Older clients may still send a URL template. The server builds the
+    /// link from `users.password_reset_url_template` or `PUBLIC_BASE_URL` and never
+    /// uses this value.
+    #[deprecated(note = "ignored; the server builds the reset link")]
     pub reset_url: Option<String>,
+}
+
+const PASSWORD_RESET_ACCEPTED_MESSAGE: &str = "Password reset email sent";
+
+fn password_reset_accepted() -> Json<RequestPasswordResetResponse> {
+    Json(RequestPasswordResetResponse {
+        message: PASSWORD_RESET_ACCEPTED_MESSAGE.to_string(),
+    })
 }
 
 /// Response after a password-reset email was queued (public: no token in body).
@@ -591,44 +603,50 @@ pub async fn verify_recovery(
     tag = "auth",
     request_body = RequestPasswordResetRequest,
     responses(
-        (status = 200, description = "Reset email sent", body = RequestPasswordResetResponse),
-        (status = 400, description = "Invalid input (e.g. missing reset URL template, no email on account)", body = ErrorResponse),
-        (status = 404, description = "No account for this login or email", body = ErrorResponse)
+        (status = 200, description = "Generic acceptance. The same response is returned whether or not an account exists, mail was sent, or the reset quota is exhausted.", body = RequestPasswordResetResponse),
+        (status = 400, description = "Malformed input", body = ErrorResponse)
     )
 )]
 pub async fn request_password_reset(
     State(state): State<crate::AppState>,
     ClientIp(ip): ClientIp,
-    Extension(attempts): Extension<Arc<AuthAttemptLimiter>>,
+    Extension(resets): Extension<Arc<PasswordResetAttemptLimiter>>,
     ValidatedJson(request): ValidatedJson<RequestPasswordResetRequest>,
 ) -> AppResult<Json<RequestPasswordResetResponse>> {
-    let identifier = normalize_identifier(&request.identifier);
-    if let Some(retry_after) = attempts.retry_after(&identifier) {
-        return Err(AppError::RateLimited { retry_after });
+    // Sign-in failures are not counted here. `request.reset_url` is ignored.
+    if resets.retry_after(&request.identifier).is_some() {
+        return Ok(password_reset_accepted());
     }
-    // Every accepted reset request counts, including unknown identifiers,
-    // so the route cannot be used to spray mail or probe accounts.
-    attempts.record_failure(&identifier);
+    resets.record(&request.identifier);
 
-    let url_template = request
-        .reset_url
-        .clone()
-        .or_else(|| state.config.users.password_reset_url_template.clone())
-        .ok_or_else(|| crate::error::AppError::Validation("reset_url is required, or configure users.password_reset_url_template on the server".to_string()))?;
+    let public_base = crate::password_reset_link::configured_public_base(&state.config.server);
+    let link = match crate::password_reset_link::plan_password_reset_link(
+        state.config.users.password_reset_url_template.as_deref(),
+        public_base.as_deref(),
+    ) {
+        Ok(link) => link,
+        Err(reason) => {
+            crate::password_reset_link::log_unavailable(reason);
+            return Ok(password_reset_accepted());
+        }
+    };
 
-    if !url_template.contains("<token>") {
-        return Err(crate::error::AppError::Validation(
-            "reset URL template must contain the <token> placeholder".to_string(),
-        ));
-    }
-
-    let (email, token, lang, user_id) = state
+    let (email, token, lang, user_id) = match state
         .services
         .users
         .request_password_reset(&request.identifier)
-        .await?;
+        .await
+    {
+        Ok(issued) => issued,
+        // Same body as success so the route does not reveal whether the account exists.
+        Err(AppError::NotFound(_)) => return Ok(password_reset_accepted()),
+        Err(AppError::Validation(message)) if message.contains("No email") => {
+            return Ok(password_reset_accepted());
+        }
+        Err(err) => return Err(err),
+    };
 
-    let reset_url = url_template.replace("<token>", &token);
+    let reset_url = crate::password_reset_link::render_password_reset_url(&link, &token);
 
     state.services.audit.log(
         audit::event::AUTH_PASSWORD_RESET_REQUESTED,
@@ -671,9 +689,7 @@ pub async fn request_password_reset(
         }
     }
 
-    Ok(Json(RequestPasswordResetResponse {
-        message: "Password reset email sent".to_string(),
-    }))
+    Ok(password_reset_accepted())
 }
 
 /// Reset password with token

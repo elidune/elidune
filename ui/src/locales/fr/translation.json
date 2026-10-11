@@ -493,7 +493,8 @@
       "ready": "Disponible au retrait",
       "fulfilled": "Satisfaite",
       "cancelled": "Annulée",
-      "expired": "Expirée"
+      "expired": "Expirée",
+      "inTransit": "En transit"
     },
     "pickupSite": "Site de retrait",
     "pickupSiteRequired": "Choisissez un site de retrait.",
@@ -985,6 +986,15 @@
     "errorRenewingLoan": "Erreur lors de la prolongation de l'emprunt",
     "renewalPossibleFrom": "Prolongation possible à partir du {{date}}",
     "renewalTooEarly": "La prolongation n'est pas encore ouverte.",
+    "renewalRefusal": {
+      "account_blocked": "Ce compte ne peut pas emprunter.",
+      "fines_over_threshold": "Les amendes impayées dépassent le seuil de prolongation.",
+      "withdrawn": "Cet exemplaire est retiré et ne peut pas être prolongé.",
+      "claimed_returned": "Ce prêt est dans la file des retours déclarés.",
+      "hold_waiting": "Un autre lecteur attend ce titre.",
+      "max_renewals": "Plus aucune prolongation possible.",
+      "renewal_too_early": "Prolongation possible à partir du {{date}}."
+    },
     "title": "Emprunts",
     "subtitle": "Gérer les emprunts et retours",
     "borrow": "Emprunter",

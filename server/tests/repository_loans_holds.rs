@@ -655,25 +655,27 @@ async fn cancel_pending_hold_does_not_ready_next_while_ready_exists() {
 
 fn assert_max_renewals(err: AppError) {
     match err {
-        AppError::BusinessRule(msg) => {
+        AppError::RenewalRefused { code, message } => {
+            assert_eq!(code, "max_renewals");
             assert!(
-                msg.starts_with("Maximum renewals reached"),
-                "unexpected business rule: {msg}"
+                message.starts_with("Maximum renewals reached"),
+                "unexpected refusal: {message}"
             );
         }
-        other => panic!("expected max-renewals business rule, got {other:?}"),
+        other => panic!("expected max_renewals, got {other:?}"),
     }
 }
 
 fn assert_hold_queue_blocks_renew(err: AppError) {
     match err {
-        AppError::BusinessRule(msg) | AppError::Conflict(msg) => {
+        AppError::RenewalRefused { code, message } => {
+            assert_eq!(code, "hold_waiting");
             assert!(
-                msg.to_lowercase().contains("hold"),
-                "expected hold-queue refusal, got {msg}"
+                message.to_lowercase().contains("hold"),
+                "expected hold-queue refusal, got {message}"
             );
         }
-        other => panic!("expected BusinessRule/Conflict for hold queue, got {other:?}"),
+        other => panic!("expected hold_waiting, got {other:?}"),
     }
 }
 
@@ -709,8 +711,8 @@ async fn concurrent_renew_same_loan_cannot_exceed_max_renewals() {
     .expect("seed one used renewal");
 
     let (r1, r2) = tokio::join!(
-        repo.loans_renew(checkout.loan_id),
-        repo.loans_renew(checkout.loan_id),
+        repo.loans_renew(checkout.loan_id, false),
+        repo.loans_renew(checkout.loan_id, false),
     );
 
     let oks = [&r1, &r2].iter().filter(|r| r.is_ok()).count();
@@ -761,7 +763,7 @@ async fn renew_blocked_when_hold_queue_has_waiting_patron() {
         .expect("pending hold for reader B");
 
     let err = repo
-        .loans_renew(checkout.loan_id)
+        .loans_renew(checkout.loan_id, false)
         .await
         .expect_err("renew must fail while another patron is queued");
     assert_hold_queue_blocks_renew(err);
@@ -805,7 +807,7 @@ async fn renew_blocked_when_ready_hold_exists_for_copy() {
         .expect("mark hold ready");
 
     let err = repo
-        .loans_renew(checkout.loan_id)
+        .loans_renew(checkout.loan_id, false)
         .await
         .expect_err("renew must fail while a ready hold exists");
     assert_hold_queue_blocks_renew(err);
@@ -833,7 +835,7 @@ async fn renew_before_the_window_is_refused_without_counting() {
     let before = repo.loans_get_by_id(checkout.loan_id).await.expect("loan");
 
     let err = repo
-        .loans_renew(checkout.loan_id)
+        .loans_renew(checkout.loan_id, false)
         .await
         .expect_err("same-day renew is outside the 7-day window");
     match err {
@@ -894,7 +896,7 @@ async fn renew_inside_the_window_extends_the_current_due_date() {
         .expect("set due date inside the window");
 
     let (new_expiry, renews) = repo
-        .loans_renew(checkout.loan_id)
+        .loans_renew(checkout.loan_id, false)
         .await
         .expect("renew inside the window");
     assert_eq!(renews, 1);
@@ -928,7 +930,7 @@ async fn overdue_renewal_still_extends_from_the_due_date() {
         .expect("mark loan overdue");
 
     let (new_expiry, renews) = repo
-        .loans_renew(checkout.loan_id)
+        .loans_renew(checkout.loan_id, false)
         .await
         .expect("overdue renew stays allowed");
     assert_eq!(renews, 1);
@@ -937,4 +939,165 @@ async fn overdue_renewal_still_extends_from_the_due_date() {
         gained >= chrono::Duration::days(21) - chrono::Duration::seconds(1),
         "overdue renewal should start from the current due date, gained {gained}"
     );
+}
+
+async fn seed_title(
+    app: &TestApp,
+    admin_token: &str,
+    title: &str,
+    barcodes: &[&str],
+) -> (i64, Vec<i64>) {
+    let suffix = fixtures::unique_suffix();
+    let items: Vec<serde_json::Value> = barcodes
+        .iter()
+        .map(|barcode| json!({ "barcode": format!("{barcode}-{suffix}"), "borrowable": true }))
+        .collect();
+    let payload = json!({
+        "title": title,
+        "mediaType": "printedText",
+        "lang": "french",
+        "items": items,
+    });
+    let (status, body) = app
+        .post_json("/api/v1/biblios", &payload, Some(admin_token))
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "create title: {body}");
+    let biblio_id = fixtures::json_id(&body["biblio"]["id"]);
+    let item_ids = body["biblio"]["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .map(|item| fixtures::json_id(&item["id"]))
+        .collect();
+    (biblio_id, item_ids)
+}
+
+/// (a) An unassigned pending title hold blocks renewal of a loan of that title.
+#[tokio::test]
+async fn renewal_refused_when_title_hold_is_unassigned() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (borrower_id, _) = fixtures::create_reader(&app, &admin_token, "renewttl_a").await;
+    let (waiter_id, _) = fixtures::create_reader(&app, &admin_token, "renewttl_b").await;
+    let (biblio_id, items) =
+        seed_title(&app, &admin_token, "Title Hold Blocks Renew", &["TTL-1"]).await;
+    let repo = app.state.services.repository.as_ref().clone();
+    let checkout = repo
+        .loans_create(&create_loan(borrower_id, items[0], false))
+        .await
+        .expect("checkout");
+    let hold = repo
+        .holds_create(&CreateHold::for_biblio(waiter_id, biblio_id))
+        .await
+        .expect("title hold");
+    assert_eq!(hold.status, HoldStatus::Pending);
+    assert!(hold.item_id.is_none(), "no shelf copy left to assign");
+
+    let err = repo
+        .loans_renew(checkout.loan_id, false)
+        .await
+        .expect_err("unassigned title hold must refuse renewal");
+    assert_hold_queue_blocks_renew(err);
+    let loan = repo.loans_get_by_id(checkout.loan_id).await.expect("loan");
+    assert_eq!(loan.nb_renews.unwrap_or(0), 0);
+}
+
+/// (b) With no hold on the title, renewal inside the window is allowed.
+#[tokio::test]
+async fn renewal_allowed_when_title_has_no_hold() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (borrower_id, _) = fixtures::create_reader(&app, &admin_token, "renewfree").await;
+    let (_, items) = seed_title(&app, &admin_token, "No Hold Renew", &["FREE-1"]).await;
+    let repo = app.state.services.repository.as_ref().clone();
+    let checkout = repo
+        .loans_create(&create_loan(borrower_id, items[0], false))
+        .await
+        .expect("checkout");
+    fixtures::pull_loan_into_renewal_window(&app, checkout.loan_id).await;
+
+    let (_expiry, renews) = repo
+        .loans_renew(checkout.loan_id, false)
+        .await
+        .expect("renewal with no hold");
+    assert_eq!(renews, 1);
+}
+
+/// (c) A title hold already `to_pick` on another shelf copy does not block renewal.
+/// Renewal is refused only while that hold is still unassigned (`pending`, item_id NULL).
+/// See [`renewal_refused_when_title_hold_is_unassigned`].
+#[tokio::test]
+async fn renewal_allowed_when_title_hold_is_to_pick_on_another_copy() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (borrower_id, _) = fixtures::create_reader(&app, &admin_token, "renewpick_a").await;
+    let (waiter_id, _) = fixtures::create_reader(&app, &admin_token, "renewpick_b").await;
+    let (biblio_id, items) = seed_title(
+        &app,
+        &admin_token,
+        "To Pick Sibling",
+        &["PICK-LOAN", "PICK-SHELF"],
+    )
+    .await;
+    let repo = app.state.services.repository.as_ref().clone();
+    let checkout = repo
+        .loans_create(&create_loan(borrower_id, items[0], false))
+        .await
+        .expect("checkout first copy");
+    let hold = repo
+        .holds_create(&CreateHold::for_biblio(waiter_id, biblio_id))
+        .await
+        .expect("title hold captures the shelf copy");
+    assert_eq!(hold.status, HoldStatus::ToPick);
+    assert_eq!(hold.item_id, Some(items[1]));
+    fixtures::pull_loan_into_renewal_window(&app, checkout.loan_id).await;
+
+    let (_expiry, renews) = repo
+        .loans_renew(checkout.loan_id, false)
+        .await
+        .expect("to_pick on another copy must not block renewal");
+    assert_eq!(renews, 1);
+}
+
+/// (d) Lending an unassigned shelf copy stays allowed (#104): only a hold assigned
+/// to that copy blocks checkout.
+#[tokio::test]
+async fn lending_unassigned_shelf_copy_stays_allowed() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (waiter_id, _) = fixtures::create_reader(&app, &admin_token, "lendhold").await;
+    let (borrower_id, _) = fixtures::create_reader(&app, &admin_token, "lendfree").await;
+    let (biblio_id, items) =
+        seed_title(&app, &admin_token, "Lend Free Copy", &["LEND-A", "LEND-B"]).await;
+    let repo = app.state.services.repository.as_ref().clone();
+    let hold = repo
+        .holds_create(&CreateHold::for_biblio(waiter_id, biblio_id))
+        .await
+        .expect("title hold assigns one shelf copy");
+    assert_eq!(hold.status, HoldStatus::ToPick);
+    let reserved = hold.item_id.expect("assigned copy");
+    let free = items
+        .into_iter()
+        .find(|id| *id != reserved)
+        .expect("other copy");
+
+    repo.loans_create(&create_loan(borrower_id, free, false))
+        .await
+        .expect("unassigned shelf copy stays lendable");
+    let err = repo
+        .loans_create(&create_loan(borrower_id, reserved, false))
+        .await
+        .expect_err("the assigned copy stays reserved");
+    match err {
+        AppError::ItemToPickForOther { .. } => {}
+        other => panic!("expected item_to_pick_for_other, got {other:?}"),
+    }
 }

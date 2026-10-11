@@ -516,10 +516,10 @@ impl User {
 #[derive(Debug, Clone, FromRow)]
 pub struct UserShortRow {
     id: i64,
-    firstname: Option<String>,
-    lastname: Option<String>,
     login: Option<String>,
     barcode: Option<String>,
+    firstname: Option<String>,
+    lastname: Option<String>,
     account_type: Option<String>,
     public_type: Option<i64>,
     nb_loans: Option<i64>,
@@ -533,10 +533,10 @@ impl From<UserShortRow> for UserShort {
     fn from(row: UserShortRow) -> Self {
         UserShort {
             id: row.id,
-            firstname: row.firstname,
-            lastname: row.lastname,
             login: row.login,
             barcode: row.barcode,
+            firstname: row.firstname,
+            lastname: row.lastname,
             account_type: row
                 .account_type
                 .map(|s| s.parse().unwrap_or(AccountTypeSlug::Guest)),
@@ -558,14 +558,14 @@ pub struct UserShort {
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub id: i64,
+    /// Carried for [`crate::models::catalog_view::UserShortStaff`]. Not part of this type's JSON.
+    #[serde(skip)]
+    pub login: Option<String>,
+    /// Card number carried for [`crate::models::catalog_view::UserShortStaff`]. Not part of this type's JSON.
+    #[serde(skip)]
+    pub barcode: Option<String>,
     pub firstname: Option<String>,
     pub lastname: Option<String>,
-    /// Sign-in name. Patron pickers show this beside the display name.
-    #[serde(default)]
-    pub login: Option<String>,
-    /// Library card number. Shown when `login` is empty.
-    #[serde(default)]
-    pub barcode: Option<String>,
     pub account_type: Option<AccountTypeSlug>,
     pub public_type: Option<i64>,
     pub nb_loans: Option<i64>,

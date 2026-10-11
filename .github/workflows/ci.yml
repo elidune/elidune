@@ -190,6 +190,8 @@ jobs:
           --test holds_max_active
           --test holds_title_level
           --test holds_to_pick
+          --test item_availability
+          --test my_account
           -- --nocapture
 
   coverage:
@@ -270,6 +272,8 @@ jobs:
           --test holds_max_active
           --test holds_title_level
           --test holds_to_pick
+          --test item_availability
+          --test my_account
           --lcov
           --output-path lcov.info
           --fail-under-lines 20

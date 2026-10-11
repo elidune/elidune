@@ -187,11 +187,11 @@ export interface ChangePasswordRequest {
   newPassword: string;
 }
 
-/** POST /auth/request-password-reset (public, no JWT) */
+/** POST /auth/request-password-reset (public, no JWT).
+ * The server builds the email link from PUBLIC_BASE_URL; the client does not send a URL.
+ */
 export interface RequestPasswordResetRequest {
   identifier: string;
-  /** Full URL template; must contain literal `<token>` if provided. */
-  resetUrl?: string;
 }
 
 /** POST /auth/reset-password (public, no JWT) */
@@ -600,6 +600,31 @@ export interface ClaimsReturnedQueueItem {
 }
 
 // Loan types
+export type MyLoanRenewalRefusal =
+  | 'account_blocked'
+  | 'fines_over_threshold'
+  | 'withdrawn'
+  | 'claimed_returned'
+  | 'hold_waiting'
+  | 'max_renewals'
+  | 'renewal_too_early';
+
+/** `GET /me/loans` — the caller's own active loans. */
+export interface MyLoan {
+  id: string;
+  barcode?: string | null;
+  title?: string | null;
+  mediaType?: string | null;
+  startDate: string;
+  dueDate: string;
+  renewalCount: number;
+  canRenew: boolean;
+  renewalRefusalCode?: MyLoanRenewalRefusal | null;
+  /** Library-local `YYYY-MM-DD` when `renewalRefusalCode` is `renewal_too_early`. */
+  renewalOpensAt?: string | null;
+  isOverdue: boolean;
+}
+
 export interface Loan {
   id: string;
   startDate: string;
@@ -1580,6 +1605,22 @@ export interface EventsListResponse {
 // ──────────────────────────────────────────────────────────────────
 
 export type HoldStatus = 'pending' | 'to_pick' | 'ready' | 'fulfilled' | 'cancelled' | 'expired';
+
+export type MyHoldStatus = HoldStatus | 'inTransit';
+
+/** `GET /me/holds` — the caller's own holds. */
+export interface MyHold {
+  id: string;
+  biblioId: string;
+  title?: string | null;
+  status: MyHoldStatus;
+  /** Pickup deadline. Set when `status` is `ready`. */
+  pickupDeadline?: string | null;
+  pickupSiteId?: string | null;
+  pickupSiteName?: string | null;
+  position: number;
+  createdAt: string;
+}
 
 /**
  * Hold detail rows (GET list endpoints). `biblio.items` is empty for an

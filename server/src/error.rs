@@ -21,6 +21,8 @@ pub mod error_code {
     pub const NOT_FOUND: &str = "not_found";
     pub const GONE: &str = "gone";
     pub const VALIDATION: &str = "validation_error";
+    /// `library_info.timezone` is empty or not an IANA name known to chrono-tz.
+    pub const INVALID_TIMEZONE: &str = "invalid_timezone";
     pub const DATABASE: &str = "database_error";
     pub const CONFLICT: &str = "conflict";
     pub const BAD_REQUEST: &str = "bad_request";
@@ -54,6 +56,10 @@ pub enum AppError {
     #[error("Validation error: {0}")]
     Validation(String),
 
+    /// Library timezone is not a known IANA name (HTTP 400, `invalid_timezone`).
+    #[error("{0}")]
+    InvalidTimezone(String),
+
     /// Boxed so `AppError` stays small enough for `Result<T, AppError>`
     /// (`clippy::result_large_err`, 128-byte threshold).
     #[error("Database error: {0}")]
@@ -77,6 +83,10 @@ pub enum AppError {
     /// Renewal is outside the configured window before the due date (HTTP 422, `renewal_too_early`).
     #[error("{0}")]
     RenewalTooEarly(String),
+
+    /// Renewal refused for a stable code shared with `GET /me/loans` (HTTP 422).
+    #[error("{message}")]
+    RenewalRefused { code: &'static str, message: String },
 
     /// Confirmation payload is boxed: `BiblioShort` is far larger than the
     /// `result_large_err` limit and would otherwise inflate every `AppResult`.
@@ -215,6 +225,12 @@ impl AppError {
                 label: "Validation Error",
                 message: msg.clone(),
             },
+            AppError::InvalidTimezone(msg) => HttpErrorFields {
+                status: StatusCode::BAD_REQUEST,
+                code: ec::INVALID_TIMEZONE,
+                label: "Validation Error",
+                message: msg.clone(),
+            },
             AppError::Database(e) => {
                 tracing::error!("Database error: {:?}", e);
                 HttpErrorFields {
@@ -262,6 +278,12 @@ impl AppError {
                 code: ec::RENEWAL_TOO_EARLY,
                 label: "Business Rule Violation",
                 message: msg.clone(),
+            },
+            AppError::RenewalRefused { code, message } => HttpErrorFields {
+                status: StatusCode::UNPROCESSABLE_ENTITY,
+                code,
+                label: "Business Rule Violation",
+                message: message.clone(),
             },
             AppError::DuplicateNeedsConfirmation { .. }
             | AppError::DuplicateBarcodeNeedsConfirmation { .. } => HttpErrorFields {

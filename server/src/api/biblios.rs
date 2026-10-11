@@ -13,7 +13,10 @@ use utoipa::ToSchema;
 
 use crate::{
     error::{AppError, AppResult},
-    models::item::strip_weeding_fields,
+    models::catalog_view::{
+        BiblioPublicView, BiblioShortPublic, BiblioShortStaff, BiblioStaffView, ItemPublicView,
+        ItemStaffView,
+    },
     models::task::TaskKind,
     models::{
         biblio::{Biblio, BiblioQuery},
@@ -75,16 +78,37 @@ where
     pub page_count: i64,
 }
 
-pub(crate) fn catalog_json(
-    value: impl Serialize,
-    include_weeding: bool,
-) -> AppResult<Json<serde_json::Value>> {
-    let mut body = serde_json::to_value(value)
-        .map_err(|err| AppError::Internal(format!("serialize catalog: {err}")))?;
-    if !include_weeding {
-        strip_weeding_fields(&mut body);
-    }
-    Ok(Json(body))
+/// Staff or reader bibliographic record. The handler selects the variant with
+/// [`crate::models::user::UserClaims::is_librarian`].
+#[derive(Serialize, ToSchema)]
+#[serde(untagged)]
+pub enum BiblioReadResponse {
+    Staff(BiblioStaffView),
+    Public(BiblioPublicView),
+}
+
+/// Staff or reader catalog page.
+#[derive(Serialize, ToSchema)]
+#[serde(untagged)]
+pub enum BiblioSearchResponse {
+    Staff(PaginatedResponse<BiblioShortStaff>),
+    Public(PaginatedResponse<BiblioShortPublic>),
+}
+
+/// Staff or reader copy list.
+#[derive(Serialize, ToSchema)]
+#[serde(untagged)]
+pub enum ItemListResponse {
+    Staff(Vec<ItemStaffView>),
+    Public(Vec<ItemPublicView>),
+}
+
+/// Staff or reader series/collection bibliography.
+#[derive(Serialize, ToSchema)]
+#[serde(untagged)]
+pub enum BiblioShortListResponse {
+    Staff(Vec<BiblioShortStaff>),
+    Public(Vec<BiblioShortPublic>),
 }
 
 impl<T: for<'a> ToSchema<'a>> PaginatedResponse<T> {
@@ -126,7 +150,7 @@ impl<T: for<'a> ToSchema<'a>> PaginatedResponse<T> {
         ("perPage" = Option<i64>, Query, description = "Items per page (default: 20)")
     ),
     responses(
-        (status = 200, description = "List of bibliographic records", body = PaginatedResponse<BiblioShort>),
+        (status = 200, description = "List of bibliographic records. Librarians and admins receive `BiblioShortStaff` (full availability, weeding, hold patron). Readers receive `BiblioShortPublic` (`toSearch` collapsed to `unavailable`, no staff fields).", body = BiblioSearchResponse),
         (status = 401, description = "Not authenticated")
     )
 )]
@@ -134,17 +158,29 @@ pub async fn list_biblios(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     Query(query): Query<BiblioQuery>,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Json<BiblioSearchResponse>> {
     claims.require_read_items()?;
 
     let (biblios, total) = state.services.catalog.search_biblios(&query).await?;
     let page = query.page.unwrap_or(1);
     let per_page = query.per_page.unwrap_or(20);
 
-    catalog_json(
-        PaginatedResponse::new(biblios, total, page, per_page),
-        claims.is_librarian(),
-    )
+    let body = if claims.is_librarian() {
+        BiblioSearchResponse::Staff(PaginatedResponse::new(
+            biblios.into_iter().map(BiblioShortStaff::from).collect(),
+            total,
+            page,
+            per_page,
+        ))
+    } else {
+        BiblioSearchResponse::Public(PaginatedResponse::new(
+            biblios.into_iter().map(BiblioShortPublic::from).collect(),
+            total,
+            page,
+            per_page,
+        ))
+    };
+    Ok(Json(body))
 }
 
 /// Get biblio details by ID
@@ -158,7 +194,7 @@ pub async fn list_biblios(
         ("full_record" = Option<bool>, Query, description = "If true, include full MARC record data")
     ),
     responses(
-        (status = 200, description = "Bibliographic record details", body = Biblio),
+        (status = 200, description = "Bibliographic record details. Librarians and admins receive `BiblioStaffView`. Readers receive `BiblioPublicView` (`toSearch` collapsed to `unavailable`, no hold patron, notes, or weeding fields).", body = BiblioReadResponse),
         (status = 404, description = "Biblio not found")
     )
 )]
@@ -167,11 +203,16 @@ pub async fn get_biblio(
     AuthenticatedUser(claims): AuthenticatedUser,
     Path(id): Path<i64>,
     Query(_query): Query<GetBiblioQuery>,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Json<BiblioReadResponse>> {
     claims.require_read_items()?;
 
     let biblio = state.services.catalog.get_biblio(id).await?;
-    catalog_json(biblio, claims.is_librarian())
+    let body = if claims.is_librarian() {
+        BiblioReadResponse::Staff(BiblioStaffView::from(biblio))
+    } else {
+        BiblioReadResponse::Public(BiblioPublicView::from(biblio))
+    };
+    Ok(Json(body))
 }
 
 /// Query params for create biblio
@@ -601,7 +642,7 @@ pub struct DeleteBiblioParams {
         ("id" = i64, Path, description = "Biblio ID")
     ),
     responses(
-        (status = 200, description = "List of physical items (copies)", body = Vec<Item>),
+        (status = 200, description = "List of physical items. Librarians and admins receive `ItemStaffView`. Readers receive `ItemPublicView`.", body = ItemListResponse),
         (status = 404, description = "Biblio not found")
     )
 )]
@@ -609,11 +650,16 @@ pub async fn list_items(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     Path(biblio_id): Path<i64>,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Json<ItemListResponse>> {
     claims.require_read_items()?;
 
     let items = state.services.catalog.get_items(biblio_id).await?;
-    catalog_json(items, claims.is_librarian())
+    let body = if claims.is_librarian() {
+        ItemListResponse::Staff(items.into_iter().map(ItemStaffView::from).collect())
+    } else {
+        ItemListResponse::Public(items.into_iter().map(ItemPublicView::from).collect())
+    };
+    Ok(Json(body))
 }
 
 /// Create a new physical item for a bibliographic record

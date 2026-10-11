@@ -68,6 +68,7 @@ use crate::api::{
         users::update_account_type,
         // Loans
         loans::get_user_loans,
+        loans::list_my_loans,
         loans::export_user_loans_marc,
         loans::create_loan,
         loans::get_loan_borrower,
@@ -97,6 +98,7 @@ use crate::api::{
         fines::accrue_overdue_fines,
         // Holds
         holds::list_holds,
+        holds::list_my_holds,
         holds::list_pick_list,
         holds::pick_not_found,
         holds::create_hold,
@@ -293,7 +295,36 @@ use crate::api::{
             // Items (physical copies)
             crate::models::item::Item,
             crate::models::item::ItemShort,
+            crate::models::item::ItemAvailability,
             crate::models::item::WeedingStatus,
+            crate::models::catalog_view::ItemPublicAvailability,
+            crate::models::catalog_view::ItemStaffView,
+            crate::models::catalog_view::ItemPublicView,
+            crate::models::catalog_view::ItemShortStaff,
+            crate::models::catalog_view::ItemShortPublic,
+            crate::models::catalog_view::BiblioStaffView,
+            crate::models::catalog_view::BiblioPublicView,
+            crate::models::catalog_view::BiblioShortStaff,
+            crate::models::catalog_view::BiblioShortPublic,
+            crate::models::catalog_view::AuthorPublic,
+            crate::models::catalog_view::UserShortStaff,
+            crate::models::catalog_view::UserShortPublic,
+            crate::models::catalog_view::HoldDetailsStaff,
+            crate::models::catalog_view::HoldDetailsPublic,
+            crate::models::catalog_view::LoanDetailsStaff,
+            crate::models::catalog_view::LoanDetailsPublic,
+            biblios::BiblioReadResponse,
+            biblios::BiblioSearchResponse,
+            biblios::ItemListResponse,
+            biblios::BiblioShortListResponse,
+            holds::HoldListResponse,
+            loans::UserLoanListResponse,
+            crate::models::my_account::MyLoanView,
+            crate::renewal::RenewalRefusal,
+            crate::models::my_account::MyHoldView,
+            crate::models::my_account::MyHoldStatus,
+            biblios::PaginatedResponse<crate::models::my_account::MyLoanView>,
+            biblios::PaginatedResponse<crate::models::my_account::MyHoldView>,
             crate::models::dto::weeding::SetWeedingRequest,
             // Pagination
             biblios::PaginatedResponse<crate::models::biblio::BiblioShort>,
@@ -636,5 +667,38 @@ mod tests {
     fn openapi_schema_compiles() {
         let doc = ApiDoc::openapi();
         assert!(!doc.paths.paths.is_empty());
+    }
+
+    #[test]
+    fn password_reset_request_marks_reset_url_deprecated_and_ignored() {
+        let doc = ApiDoc::openapi();
+        let value = serde_json::to_value(&doc).expect("openapi json");
+        let prop = &value["components"]["schemas"]["RequestPasswordResetRequest"]["properties"]
+            ["resetUrl"];
+        assert_eq!(prop["deprecated"], true, "{prop}");
+        let description = prop["description"].as_str().unwrap_or("");
+        assert!(
+            description.to_ascii_lowercase().contains("ignored"),
+            "{description}"
+        );
+    }
+
+    #[test]
+    fn password_reset_request_documents_only_the_generic_response() {
+        let doc = ApiDoc::openapi();
+        let value = serde_json::to_value(&doc).expect("openapi json");
+        let paths = value["paths"].as_object().expect("paths");
+        let (_path, item) = paths
+            .iter()
+            .find(|(path, _)| path.ends_with("request-password-reset"))
+            .expect("request-password-reset");
+        let responses = &item["post"]["responses"];
+        assert!(responses.get("404").is_none(), "{responses}");
+        assert!(responses.get("429").is_none(), "{responses}");
+        let description = responses["200"]["description"].as_str().unwrap_or("");
+        assert!(
+            description.to_ascii_lowercase().contains("generic"),
+            "{description}"
+        );
     }
 }

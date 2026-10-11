@@ -274,6 +274,17 @@ impl RemindersService {
         let mut details = Vec::new();
         let mut errors = Vec::new();
         let mut queued_loan_ids: Vec<i64> = Vec::new();
+        let zone = match self.repository.library_timezone_name().await {
+            Ok(name) => crate::services::calendar::parse_timezone(&name)
+                .unwrap_or_else(|_| crate::services::calendar::default_zone()),
+            Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    "library timezone unavailable; rendering reminder dates in Europe/Paris"
+                );
+                crate::services::calendar::default_zone()
+            }
+        };
 
         for ((user_id, tier), loans) in &by_user_tier {
             let first = loans[0];
@@ -286,8 +297,8 @@ impl RemindersService {
             let lastname = first.lastname.as_deref().unwrap_or("");
             let lang = first.user_language.as_deref().map(Language::from);
             let template_id = tier.template_id(&reminders_cfg).to_string();
-            let loans_list = loan_list_plain(loans);
-            let loans_table_html = loan_table_html(loans);
+            let loans_list = loan_list_plain(loans, zone);
+            let loans_table_html = loan_table_html(loans, zone);
 
             if !dry_run {
                 let template_result = self.email.load_template(&template_id, lang).await;
@@ -402,16 +413,19 @@ impl RemindersService {
     }
 }
 
-fn loan_list_plain(loans: &[&crate::repository::loans::OverdueLoanRow]) -> String {
+fn loan_list_plain(
+    loans: &[&crate::repository::loans::OverdueLoanRow],
+    zone: chrono_tz::Tz,
+) -> String {
     loans
         .iter()
         .map(|l| {
             let title = l.title.as_deref().unwrap_or("(unknown title)");
             let authors = l.authors.as_deref().unwrap_or("");
-            let loan_date = l.loan_date.format("%d/%m/%Y").to_string();
+            let loan_date = crate::services::calendar::format_patron_date(zone, l.loan_date);
             let due_date = l
                 .expiry_at
-                .map(|d| d.format("%d/%m/%Y").to_string())
+                .map(|d| crate::services::calendar::format_patron_date(zone, d))
                 .unwrap_or_else(|| "N/A".to_string());
             format!(
                 "- {} ({}) — borrowed: {}, due: {}",
@@ -422,16 +436,19 @@ fn loan_list_plain(loans: &[&crate::repository::loans::OverdueLoanRow]) -> Strin
         .join("\n")
 }
 
-fn loan_table_html(loans: &[&crate::repository::loans::OverdueLoanRow]) -> String {
+fn loan_table_html(
+    loans: &[&crate::repository::loans::OverdueLoanRow],
+    zone: chrono_tz::Tz,
+) -> String {
     let table_rows = loans
         .iter()
         .map(|l| {
             let title = l.title.as_deref().unwrap_or("(unknown title)");
             let authors = l.authors.as_deref().unwrap_or("");
-            let loan_date = l.loan_date.format("%d/%m/%Y").to_string();
+            let loan_date = crate::services::calendar::format_patron_date(zone, l.loan_date);
             let due_date = l
                 .expiry_at
-                .map(|d| d.format("%d/%m/%Y").to_string())
+                .map(|d| crate::services::calendar::format_patron_date(zone, d))
                 .unwrap_or_else(|| "N/A".to_string());
             format!(
                 "<tr><td style=\"padding:4px 8px;border:1px solid #ccc\">{}</td>\

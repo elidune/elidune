@@ -18,8 +18,10 @@ use utoipa::{IntoParams, ToSchema};
 use crate::{
     error::{AppError, AppResult},
     models::{
+        catalog_view::{LoanDetailsPublic, LoanDetailsStaff, UserShortStaff},
         loan::{CreateLoan, LoanDetails, LoanMarcExportEncoding, LoanMarcExportFormat},
-        user::{Rights, UserShort},
+        my_account::MyLoanView,
+        user::Rights,
     },
     services::{
         audit::{self},
@@ -40,6 +42,7 @@ pub use crate::models::dto::loans::{LoanSettingsDto as LoanSettings, UpdateLoanS
 pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::{get, post};
     axum::Router::new()
+        .route("/me/loans", get(list_my_loans))
         .route("/loans", post(create_loan))
         .route(
             "/loans/settings",
@@ -76,7 +79,7 @@ pub fn router() -> axum::Router<crate::AppState> {
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Active loan ID")),
     responses(
-        (status = 200, description = "Borrower profile", body = UserShort),
+        (status = 200, description = "Borrower profile (`UserShortStaff`, includes `login`)", body = UserShortStaff),
         (status = 403, description = "Insufficient loans write rights"),
         (status = 404, description = "Loan not found")
     )
@@ -85,10 +88,10 @@ pub async fn get_loan_borrower(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     Path(loan_id): Path<i64>,
-) -> AppResult<Json<UserShort>> {
+) -> AppResult<Json<UserShortStaff>> {
     claims.require_write_loans()?;
     let user = state.services.loans.get_loan_borrower(loan_id).await?;
-    Ok(Json(user))
+    Ok(Json(UserShortStaff::from(user)))
 }
 
 /// Create loan request
@@ -254,6 +257,14 @@ pub async fn update_loan_settings(
     Ok(Json(rows))
 }
 
+/// Staff or reader loan page. Selected with [`crate::models::user::UserClaims::is_librarian`].
+#[derive(Serialize, ToSchema)]
+#[serde(untagged)]
+pub enum UserLoanListResponse {
+    Staff(PaginatedResponse<LoanDetailsStaff>),
+    Public(PaginatedResponse<LoanDetailsPublic>),
+}
+
 /// Get loans for a specific user (paginated).
 #[utoipa::path(
     get,
@@ -265,7 +276,7 @@ pub async fn update_loan_settings(
         GetUserLoansQuery
     ),
     responses(
-        (status = 200, description = "User's loans", body = PaginatedResponse<LoanDetails>),
+        (status = 200, description = "User's loans. Librarians and admins receive `LoanDetailsStaff` (copy weeding, full availability, patron `login`). Readers receive `LoanDetailsPublic`.", body = UserLoanListResponse),
         (status = 404, description = "User not found")
     )
 )]
@@ -274,7 +285,7 @@ pub async fn get_user_loans(
     AuthenticatedUser(claims): AuthenticatedUser,
     Path(user_id): Path<i64>,
     Query(query): Query<GetUserLoansQuery>,
-) -> AppResult<Json<PaginatedResponse<LoanDetails>>> {
+) -> AppResult<Json<UserLoanListResponse>> {
     claims.require_self_or_staff(user_id)?;
 
     if claims.rights.loans_rights.rank() < Rights::Read.rank() && user_id != claims.user_id {
@@ -300,7 +311,22 @@ pub async fn get_user_loans(
             .await?
     };
 
-    Ok(Json(PaginatedResponse::new(items, total, page, per_page)))
+    let body = if claims.is_librarian() {
+        UserLoanListResponse::Staff(PaginatedResponse::new(
+            items.into_iter().map(LoanDetailsStaff::from).collect(),
+            total,
+            page,
+            per_page,
+        ))
+    } else {
+        UserLoanListResponse::Public(PaginatedResponse::new(
+            items.into_iter().map(LoanDetailsPublic::from).collect(),
+            total,
+            page,
+            per_page,
+        ))
+    };
+    Ok(Json(body))
 }
 
 /// Query for MARC export download (no pagination; full list in one file).
@@ -354,6 +380,43 @@ pub async fn export_user_loans_marc(
         .header(CONTENT_DISPOSITION, disposition)
         .body(Body::from(bytes))
         .map_err(|e| AppError::Internal(format!("export response: {}", e)))
+}
+
+/// Page query for `GET /me/loans`. Always the authenticated patron; no user id.
+#[derive(Debug, Deserialize, Default, ToSchema, IntoParams)]
+#[serde(rename_all = "camelCase")]
+pub struct MyLoansQuery {
+    /// Page number (1-based, default 1)
+    pub page: Option<i64>,
+    /// Page size (default 20, max 200)
+    pub per_page: Option<i64>,
+}
+
+/// The caller's active loans. Filtered in SQL by `user_id = caller`.
+#[utoipa::path(
+    get,
+    path = "/me/loans",
+    tag = "loans",
+    security(("bearer_auth" = [])),
+    params(MyLoansQuery),
+    responses(
+        (status = 200, description = "The caller's active loans (`MyLoanView`)", body = PaginatedResponse<MyLoanView>),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn list_my_loans(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Query(query): Query<MyLoansQuery>,
+) -> AppResult<Json<PaginatedResponse<MyLoanView>>> {
+    let page = query.page.unwrap_or(1).max(1);
+    let per_page = query.per_page.unwrap_or(20).clamp(1, 200);
+    let (items, total) = state
+        .services
+        .repository
+        .loans_list_for_owner(claims.user_id, page, per_page)
+        .await?;
+    Ok(Json(PaginatedResponse::new(items, total, page, per_page)))
 }
 
 #[derive(Debug, Deserialize, Default, ToSchema, IntoParams)]
@@ -565,7 +628,7 @@ pub async fn return_loan(
         (status = 200, description = "Loan renewed", body = LoanResponse),
         (status = 404, description = "Loan not found"),
         (status = 409, description = "Idempotency-Key reused with a different payload"),
-        (status = 422, description = "Business rule: max renewals reached, already returned, hold waiting, or unpaid fines exceed the threshold")
+        (status = 422, description = "Renewal refused. `code` is `account_blocked`, `fines_over_threshold`, `withdrawn`, `claimed_returned`, `hold_waiting`, `max_renewals`, `renewal_too_early`, or `business_rule_violation` when the loan is already returned or the due date would not move")
     )
 )]
 pub async fn renew_loan(
@@ -733,7 +796,7 @@ pub async fn return_loan_by_item(
         (status = 200, description = "Loan renewed", body = LoanResponse),
         (status = 404, description = "Item or active loan not found"),
         (status = 409, description = "Idempotency-Key reused with a different payload"),
-        (status = 422, description = "Business rule: max renewals reached, already returned, hold waiting, or unpaid fines exceed the threshold")
+        (status = 422, description = "Renewal refused. `code` is `account_blocked`, `fines_over_threshold`, `withdrawn`, `claimed_returned`, `hold_waiting`, `max_renewals`, `renewal_too_early`, or `business_rule_violation` when the loan is already returned or the due date would not move")
     )
 )]
 pub async fn renew_loan_by_item(

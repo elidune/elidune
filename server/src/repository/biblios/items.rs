@@ -14,27 +14,112 @@ use crate::{
 use super::ItemShortRow;
 use crate::models::item::WeedingStatus;
 
-const ITEM_SELECT: &str = r#"
+/// One round-trip of laterals for loan, transit, and the exclusive hold on a copy.
+///
+/// `copy_state.availability` applies this precedence (first match wins):
+/// `onLoan`, `inTransit`, `onHold` (`to_pick`/`ready`), `toSearch`
+/// (`circulation_status` 4), `unavailable` (not borrowable, lost, damaged,
+/// claimed returned, withdrawn), else `available`.
+const ITEM_STATE_JOINS: &str = r#"
+LEFT JOIN LATERAL (
+    SELECT l.id
+    FROM loans l
+    WHERE l.item_id = i.id AND l.returned_at IS NULL
+    ORDER BY l.id DESC
+    LIMIT 1
+) active_loan ON TRUE
+LEFT JOIN LATERAL (
+    SELECT t.id
+    FROM item_transits t
+    WHERE t.item_id = i.id AND t.status IN ('requested', 'in_transit')
+    LIMIT 1
+) active_transit ON TRUE
+LEFT JOIN LATERAL (
+    SELECT
+        h.user_id,
+        COALESCE(
+            NULLIF(btrim(concat_ws(' ', u.firstname, u.lastname)), ''),
+            h.user_id::text
+        ) AS user_name
+    FROM holds h
+    LEFT JOIN users u ON u.id = h.user_id
+    WHERE h.item_id = i.id
+      AND h.status IN ('to_pick', 'ready')
+    ORDER BY CASE h.status WHEN 'ready' THEN 0 ELSE 1 END,
+             h.position ASC,
+             h.created_at ASC
+    LIMIT 1
+) assigned_hold ON TRUE
+LEFT JOIN LATERAL (
+    SELECT CASE
+        WHEN active_loan.id IS NOT NULL THEN 'onLoan'
+        WHEN active_transit.id IS NOT NULL THEN 'inTransit'
+        WHEN assigned_hold.user_id IS NOT NULL THEN 'onHold'
+        WHEN COALESCE(i.circulation_status, 0) = 4 THEN 'toSearch'
+        WHEN i.borrowable = FALSE
+          OR i.weeding_status = 'withdrawn'
+          OR COALESCE(i.circulation_status, 0) IN (1, 2, 3)
+        THEN 'unavailable'
+        ELSE 'available'
+    END AS availability
+) copy_state ON TRUE
+"#;
+
+const ITEM_AVAILABILITY_COLUMNS: &str = r#"
+                   copy_state.availability AS availability,
+                   (
+                       copy_state.availability IN ('available', 'onLoan')
+                       AND i.weeding_status <> 'withdrawn'
+                   ) AS can_hold_item,
+                   CASE
+                       WHEN copy_state.availability = 'onHold' THEN assigned_hold.user_id
+                   END AS hold_user_id,
+                   CASE
+                       WHEN copy_state.availability = 'onHold' THEN assigned_hold.user_name
+                   END AS hold_user_name
+"#;
+
+fn item_sql(where_and_order: &str) -> String {
+    format!(
+        r#"
             SELECT i.id, i.biblio_id, i.source_id, i.barcode, i.call_number, i.volume_designation,
                    i.place, i.borrowable, i.circulation_status, i.notes, i.price,
                    i.weeding_status, i.weeding_reason,
                    i.created_at, i.updated_at, i.archived_at,
                    so.name as source_name,
-                   EXISTS(SELECT 1 FROM loans l WHERE l.item_id = i.id AND l.returned_at IS NULL) as borrowed,
-                   (SELECT l.id FROM loans l WHERE l.item_id = i.id AND l.returned_at IS NULL ORDER BY l.id DESC LIMIT 1) as loan_id
+                   (active_loan.id IS NOT NULL) as borrowed,
+                   active_loan.id as loan_id,
+                   {ITEM_AVAILABILITY_COLUMNS}
             FROM items i
             LEFT JOIN sources so ON i.source_id = so.id
-"#;
+            {ITEM_STATE_JOINS}
+            {where_and_order}
+        "#
+    )
+}
+
+fn item_short_sql(where_and_order: &str) -> String {
+    format!(
+        r#"
+            SELECT i.biblio_id, i.id, i.barcode, i.call_number, i.borrowable,
+                   i.weeding_status,
+                   so.name as source_name,
+                   (active_loan.id IS NOT NULL) as borrowed,
+                   {ITEM_AVAILABILITY_COLUMNS}
+            FROM items i
+            LEFT JOIN sources so ON i.source_id = so.id
+            {ITEM_STATE_JOINS}
+            {where_and_order}
+        "#
+    )
+}
 
 impl Repository {
     /// Get items (physical copies) for a biblio (excludes archived items)
     #[tracing::instrument(skip(self), err)]
     pub async fn biblios_get_items(&self, biblio_id: i64) -> AppResult<Vec<Item>> {
-        let items = sqlx::query_as::<_, Item>(&format!(
-            "{ITEM_SELECT}
-            WHERE i.biblio_id = $1 AND i.archived_at IS NULL
-            ORDER BY i.barcode
-            "
+        let items = sqlx::query_as::<_, Item>(&item_sql(
+            "WHERE i.biblio_id = $1 AND i.archived_at IS NULL ORDER BY i.barcode",
         ))
         .bind(biblio_id)
         .fetch_all(&self.pool)
@@ -46,29 +131,21 @@ impl Repository {
     /// Get one active item by id (same row shape as [`biblios_get_items`]).
     #[tracing::instrument(skip(self), err)]
     pub async fn items_get_active_by_id(&self, item_id: i64) -> AppResult<Item> {
-        sqlx::query_as::<_, Item>(&format!(
-            "{ITEM_SELECT}
-            WHERE i.id = $1 AND i.archived_at IS NULL
-            "
-        ))
-        .bind(item_id)
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))
+        sqlx::query_as::<_, Item>(&item_sql("WHERE i.id = $1 AND i.archived_at IS NULL"))
+            .bind(item_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))
     }
 
     /// Get one active item by barcode (same row shape as [`items_get_active_by_id`]).
     #[tracing::instrument(skip(self), err)]
     pub async fn items_get_active_by_barcode(&self, barcode: &str) -> AppResult<Item> {
-        sqlx::query_as::<_, Item>(&format!(
-            "{ITEM_SELECT}
-            WHERE i.barcode = $1 AND i.archived_at IS NULL
-            "
-        ))
-        .bind(barcode)
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Item with barcode {barcode} not found")))
+        sqlx::query_as::<_, Item>(&item_sql("WHERE i.barcode = $1 AND i.archived_at IS NULL"))
+            .bind(barcode)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Item with barcode {barcode} not found")))
     }
 
     /// Get ItemShort for many biblios (excludes archived). Used to attach items to BiblioShort lists.
@@ -80,18 +157,9 @@ impl Repository {
         if biblio_ids.is_empty() {
             return Ok(HashMap::new());
         }
-        let rows: Vec<ItemShortRow> = sqlx::query_as(
-            r#"
-            SELECT i.biblio_id, i.id, i.barcode, i.call_number, i.borrowable,
-                   i.weeding_status,
-                   so.name as source_name,
-                   EXISTS(SELECT 1 FROM loans l WHERE l.item_id = i.id AND l.returned_at IS NULL) as borrowed
-            FROM items i
-            LEFT JOIN sources so ON i.source_id = so.id
-            WHERE i.biblio_id = ANY($1) AND i.archived_at IS NULL
-            ORDER BY i.biblio_id, i.barcode
-            "#,
-        )
+        let rows: Vec<ItemShortRow> = sqlx::query_as(&item_short_sql(
+            "WHERE i.biblio_id = ANY($1) AND i.archived_at IS NULL ORDER BY i.biblio_id, i.barcode",
+        ))
         .bind(biblio_ids)
         .fetch_all(&self.pool)
         .await?;
@@ -407,15 +475,11 @@ impl Repository {
         .execute(&self.pool)
         .await?;
 
-        sqlx::query_as::<_, Item>(&format!(
-            "{ITEM_SELECT}
-            WHERE i.id = $1
-            "
-        ))
-        .bind(item_id)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(Into::into)
+        sqlx::query_as::<_, Item>(&item_sql("WHERE i.id = $1"))
+            .bind(item_id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(Into::into)
     }
     /// Find an existing item by barcode and return its short representation.
     #[tracing::instrument(skip(self), err)]
@@ -425,33 +489,17 @@ impl Repository {
         exclude_item_id: Option<i64>,
     ) -> AppResult<Option<ItemShort>> {
         let row: Option<ItemShortRow> = if let Some(eid) = exclude_item_id {
-            sqlx::query_as(
-                r#"
-                SELECT i.biblio_id, i.id, i.barcode, i.call_number, i.borrowable,
-                       so.name as source_name,
-                       EXISTS(SELECT 1 FROM loans l WHERE l.item_id = i.id AND l.returned_at IS NULL) as borrowed
-                FROM items i
-                LEFT JOIN sources so ON i.source_id = so.id
-                WHERE i.barcode = $1 AND i.id != $2 AND i.archived_at IS NULL
-                LIMIT 1
-                "#,
-            )
+            sqlx::query_as(&item_short_sql(
+                "WHERE i.barcode = $1 AND i.id != $2 AND i.archived_at IS NULL LIMIT 1",
+            ))
             .bind(barcode)
             .bind(eid)
             .fetch_optional(&self.pool)
             .await?
         } else {
-            sqlx::query_as(
-                r#"
-                SELECT i.biblio_id, i.id, i.barcode, i.call_number, i.borrowable,
-                       so.name as source_name,
-                       EXISTS(SELECT 1 FROM loans l WHERE l.item_id = i.id AND l.returned_at IS NULL) as borrowed
-                FROM items i
-                LEFT JOIN sources so ON i.source_id = so.id
-                WHERE i.barcode = $1 AND i.archived_at IS NULL
-                LIMIT 1
-                "#,
-            )
+            sqlx::query_as(&item_short_sql(
+                "WHERE i.barcode = $1 AND i.archived_at IS NULL LIMIT 1",
+            ))
             .bind(barcode)
             .fetch_optional(&self.pool)
             .await?

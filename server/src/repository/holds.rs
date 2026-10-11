@@ -241,14 +241,25 @@ impl Repository {
         let mut m = HashMap::with_capacity(rows.len());
         for r in rows {
             let id = r.id;
+            let weeding_status = crate::models::item::WeedingStatus::OnShelf;
+            let (availability, can_hold_item) = crate::models::item::ItemAvailability::local_pair(
+                r.borrowed,
+                r.borrowable,
+                None,
+                weeding_status,
+            );
             let item = ItemShort {
                 id: r.id,
                 barcode: r.barcode,
                 call_number: r.call_number,
                 borrowable: r.borrowable,
-                weeding_status: crate::models::item::WeedingStatus::OnShelf,
+                weeding_status,
                 source_name: r.source_name,
                 borrowed: r.borrowed,
+                availability,
+                can_hold_item,
+                hold_user_id: None,
+                hold_user_name: None,
             };
             m.insert(id, (r.biblio_id, item));
         }
@@ -262,7 +273,7 @@ impl Repository {
         }
         let rows: Vec<UserShortRow> = sqlx::query_as(
             r#"
-            SELECT u.id, u.firstname, u.lastname, u.login, u.barcode, u.account_type, u.public_type,
+            SELECT u.id, u.login, u.barcode, u.firstname, u.lastname, u.account_type, u.public_type,
                    (SELECT COUNT(*)::bigint FROM loans l WHERE l.user_id = u.id AND l.returned_at IS NULL) AS nb_loans,
                    (SELECT COUNT(*)::bigint FROM loans l WHERE l.user_id = u.id AND l.returned_at IS NULL AND l.expiry_at < NOW()) AS nb_late_loans,
                    u.status, u.created_at, u.expiry_at
@@ -1675,11 +1686,14 @@ impl Repository {
         Ok(next)
     }
 
-    /// Whether another patron has a hold assigned to this copy (`pending` pin, `to_pick`, or `ready`).
-    /// An unassigned title hold does not block renewal. Locks those rows so renew
-    /// serializes with checkout and hold updates.
+    /// Renewal gate. True when another patron has a hold this loan could satisfy:
+    /// an unassigned title hold (`pending`, `item_id` NULL) or a hold on this copy
+    /// (`pending`, `to_pick`, or `ready`). The borrower's own holds are ignored.
+    ///
+    /// A hold already `to_pick` or `ready` on a different copy does not block renewal.
+    /// Locks the matching rows so renewal serializes with checkout and hold updates.
     #[tracing::instrument(skip(self, tx), err)]
-    pub async fn holds_has_waiting_patron_tx(
+    pub async fn holds_waiting_hold_blocks_renewal_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, Postgres>,
         item_id: i64,
@@ -1688,17 +1702,23 @@ impl Repository {
         let user_ids: Vec<i64> = sqlx::query_scalar(
             r#"
             SELECT h.user_id FROM holds h
-            WHERE h.item_id = $1
-              AND h.status IN ('pending','to_pick','ready')
+            JOIN items i ON i.biblio_id = h.biblio_id
+            WHERE i.id = $1
+              AND h.user_id <> $2
+              AND (
+                    (h.status = 'pending' AND h.item_id IS NULL)
+                    OR (h.item_id = $1 AND h.status IN ('pending', 'to_pick', 'ready'))
+                  )
             ORDER BY CASE h.status WHEN 'ready' THEN 0 WHEN 'to_pick' THEN 1 ELSE 2 END,
                      h.position ASC, h.created_at ASC
             FOR UPDATE OF h
             "#,
         )
         .bind(item_id)
+        .bind(borrower_user_id)
         .fetch_all(&mut **tx)
         .await?;
-        Ok(user_ids.iter().any(|&uid| uid != borrower_user_id))
+        Ok(!user_ids.is_empty())
     }
 
     /// Same as [`holds_eligible_borrower_for_item`] inside an open transaction.
@@ -2016,8 +2036,10 @@ impl Repository {
         Ok(days)
     }
 
-    /// Winning reservation on this copy, if any, with the patron display name.
-    pub async fn holds_item_reserve_tx(
+    /// Lending gate. The hold assigned to this copy, if any (`pending` pin, `to_pick`,
+    /// or `ready`), with the patron display name. An unassigned title hold does not
+    /// block checkout of a shelf copy.
+    pub async fn holds_assigned_hold_blocks_lending_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, Postgres>,
         item_id: i64,

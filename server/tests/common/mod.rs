@@ -36,12 +36,15 @@ impl TestApp {
 
     /// Build a test app with explicit router options (rate-limit tests).
     pub async fn spawn_with_options(options: AppBuildOptions) -> Option<Self> {
+        Self::spawn_with_config(AppConfig::for_test(), options).await
+    }
+
+    /// Build a test app from a full config (password-reset link tests).
+    pub async fn spawn_with_config(config: AppConfig, options: AppBuildOptions) -> Option<Self> {
         if std::env::var("DATABASE_URL").is_err() && std::env::var("CI").is_err() {
             eprintln!("Skipping integration test: DATABASE_URL not set");
             return None;
         }
-
-        let config = AppConfig::for_test();
 
         let pool = PgPoolOptions::new()
             .max_connections(5)

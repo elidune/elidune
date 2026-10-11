@@ -4,6 +4,7 @@ use crate::{
     error::AppResult,
     models::dto::library_info::{LibraryInfo, UpdateLibraryInfoRequest},
     repository::Repository,
+    services::calendar::{self, DEFAULT_TIMEZONE},
 };
 
 #[derive(Clone)]
@@ -31,6 +32,7 @@ impl LibraryInfoService {
                 addr_country,
                 phones_val,
                 email,
+                timezone,
                 updated_at,
             )) => {
                 let phones: Vec<String> = phones_val
@@ -46,6 +48,7 @@ impl LibraryInfoService {
                     addr_country,
                     phones,
                     email,
+                    timezone,
                     updated_at,
                 })
             }
@@ -58,6 +61,7 @@ impl LibraryInfoService {
                 addr_country: None,
                 phones: vec![],
                 email: None,
+                timezone: DEFAULT_TIMEZONE.to_string(),
                 updated_at: None,
             }),
         }
@@ -69,6 +73,10 @@ impl LibraryInfoService {
         let phones_json = req
             .phones
             .map(|p| serde_json::to_value(p).unwrap_or(serde_json::json!([])));
+        let timezone = match req.timezone.as_deref() {
+            Some(name) => Some(calendar::parse_timezone(name)?.name().to_string()),
+            None => None,
+        };
 
         self.repository
             .library_info_upsert(
@@ -80,6 +88,7 @@ impl LibraryInfoService {
                 &req.addr_country,
                 phones_json,
                 &req.email,
+                &timezone,
             )
             .await?;
 

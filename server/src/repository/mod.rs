@@ -23,6 +23,7 @@ pub mod inventory;
 pub mod library_info;
 pub mod loans;
 pub mod maintenance;
+pub mod my_account;
 pub mod public_types;
 pub mod schedules;
 pub mod settings;
@@ -97,26 +98,45 @@ impl Repository {
             .unwrap_or_else(|| crate::config::CirculationConfig::default().skip_closed_days)
     }
 
-    /// `anchor + duration_days`, then the next open day when [`Self::skip_closed_days`] is on.
+    /// `anchor + duration_days`, then the next open day of `site_id` when
+    /// [`Self::skip_closed_days`] is on. The civil date is the library timezone,
+    /// not the container zone. `site_id` is the loan site (`items.source_id`).
     pub(crate) async fn loans_due_at(
         &self,
         anchor: chrono::DateTime<chrono::Utc>,
         duration_days: i16,
+        site_id: Option<i64>,
     ) -> crate::error::AppResult<chrono::DateTime<chrono::Utc>> {
         let candidate = crate::circulation_calendar::raw_due_date(anchor, duration_days);
         if !self.skip_closed_days() {
             return Ok(candidate);
         }
-        let start = candidate.date_naive();
+        let zone = self.library_zone().await?;
+        let start = crate::services::calendar::local_date(zone, candidate);
         let end = start + chrono::Duration::days(crate::circulation_calendar::MAX_LOOKAHEAD_DAYS);
         let calendar = self.schedules_opening_calendar(start, end).await?;
-        Ok(crate::circulation_calendar::adjust_due_date(
-            candidate, &calendar,
+        Ok(crate::services::calendar::slide_due_date(
+            candidate, zone, site_id, &calendar,
         ))
     }
 
     /// Expose the underlying pool for callers that need to begin transactions directly.
     pub fn pool(&self) -> &Pool<Postgres> {
         &self.pool
+    }
+}
+
+#[async_trait::async_trait]
+impl crate::services::calendar::OpeningDays for Repository {
+    async fn zone(&self) -> crate::error::AppResult<chrono_tz::Tz> {
+        self.library_zone().await
+    }
+
+    async fn opening_between(
+        &self,
+        from: chrono::NaiveDate,
+        to: chrono::NaiveDate,
+    ) -> crate::error::AppResult<crate::circulation_calendar::OpeningCalendar> {
+        self.schedules_opening_calendar(from, to).await
     }
 }

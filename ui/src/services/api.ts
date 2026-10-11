@@ -10,6 +10,8 @@ import type {
   BiblioShort,
   ImportResult,
   Loan,
+  MyLoan,
+  MyHold,
   Stats,
   LoanSettings,
   LoanSettingsRenewAt,
@@ -741,6 +743,34 @@ class ApiService {
   }
 
   // ─── Loans ──────────────────────────────────────────────────────
+
+  async getMyLoans(options?: {
+    page?: number;
+    perPage?: number;
+  }): Promise<PaginatedResponse<MyLoan>> {
+    const response = await this.client.get('/me/loans', {
+      params: {
+        page: options?.page,
+        perPage: options?.perPage,
+      },
+    });
+    return normalizePaginatedResponse<MyLoan>(response.data);
+  }
+
+  async getMyHolds(params?: {
+    page?: number;
+    perPage?: number;
+    activeOnly?: boolean;
+  }): Promise<PaginatedResponse<MyHold>> {
+    const response = await this.client.get('/me/holds', {
+      params: {
+        page: params?.page,
+        perPage: params?.perPage,
+        activeOnly: params?.activeOnly,
+      },
+    });
+    return normalizePaginatedResponse<MyHold>(response.data);
+  }
 
   async getUserLoans(
     userId: string,

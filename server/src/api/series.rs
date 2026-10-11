@@ -11,8 +11,10 @@ use serde::Serialize;
 use utoipa::ToSchema;
 
 use crate::{
+    api::biblios::BiblioShortListResponse,
     error::AppResult,
-    models::biblio::{BiblioShort, CreateSerie, Serie, SerieQuery, UpdateSerie},
+    models::biblio::{CreateSerie, Serie, SerieQuery, UpdateSerie},
+    models::catalog_view::{BiblioShortPublic, BiblioShortStaff},
     services::audit,
 };
 
@@ -101,7 +103,7 @@ pub async fn get_serie(
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Series ID")),
     responses(
-        (status = 200, description = "Biblios in this series", body = Vec<BiblioShort>),
+        (status = 200, description = "Biblios in this series. Librarians and admins receive `BiblioShortStaff`. Readers receive `BiblioShortPublic`.", body = BiblioShortListResponse),
         (status = 404, description = "Not found"),
     )
 )]
@@ -109,11 +111,16 @@ pub async fn get_serie_biblios(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     Path(id): Path<i64>,
-) -> AppResult<Json<Vec<BiblioShort>>> {
+) -> AppResult<Json<BiblioShortListResponse>> {
     claims.require_read_items()?;
     state.services.catalog.get_serie(id).await?;
     let biblios = state.services.catalog.get_biblios_by_series(id).await?;
-    Ok(Json(biblios))
+    let body = if claims.is_librarian() {
+        BiblioShortListResponse::Staff(biblios.into_iter().map(BiblioShortStaff::from).collect())
+    } else {
+        BiblioShortListResponse::Public(biblios.into_iter().map(BiblioShortPublic::from).collect())
+    };
+    Ok(Json(body))
 }
 
 /// Create a new series.
