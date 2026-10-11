@@ -466,6 +466,7 @@
     "pickUser": "Buscar un usuario",
     "cancelConfirm": "¿Cancelar esta reserva?",
     "noHolds": "Sin reservas.",
+    "pickupBefore": "Recoger antes del {{date}}",
     "pickupDeadlineHint": "Recoja el ejemplar antes de esta fecha; la reserva puede caducar después.",
     "patronTitle": "Mis reservas",
     "patronSubtitle": "Consulte la cola, el estado y el plazo de recogida de sus reservas de título y de ejemplar.",
@@ -998,11 +999,13 @@
     "renewalPossibleFrom": "Renovación posible a partir del {{date}}",
     "renewalTooEarly": "La renovación aún no está abierta.",
     "renewalRefusal": {
+      "account_blocked": "Su cuenta no permite prolongar préstamos por el momento. Contacte con la biblioteca.",
+      "fines_over_threshold": "Las multas impagadas superan el umbral permitido.",
       "withdrawn": "Este ejemplar está dado de baja y no se puede renovar.",
       "claimed_returned": "Este préstamo está en la cola de devoluciones reclamadas.",
       "hold_waiting": "Otro lector está esperando este título.",
       "max_renewals": "No quedan renovaciones.",
-      "renewal_too_early": "La renovación se abre el {{date}}."
+      "renewal_too_early": "Renovación posible a partir del {{date}}"
     },
     "title": "Préstamos",
     "subtitle": "Gestionar préstamos y devoluciones",

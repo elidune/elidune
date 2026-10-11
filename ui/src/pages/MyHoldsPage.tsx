@@ -111,16 +111,20 @@ export default function MyHoldsPage() {
     {
       key: 'pickup',
       header: t('holds.columnPickup'),
-      render: (r: MyHold) => (
-        <span className="text-sm text-gray-800 dark:text-gray-200">
-          {r.pickupSiteName || t('holds.transitNone')}
-        </span>
-      ),
+      render: (r: MyHold) =>
+        r.status === 'ready' ? (
+          <span className="text-sm text-gray-800 dark:text-gray-200">
+            {r.pickupSiteName || t('holds.transitNone')}
+          </span>
+        ) : (
+          <span className="text-sm text-gray-400">—</span>
+        ),
     },
     {
       key: 'position',
       header: t('holds.position'),
-      render: (r: MyHold) => t('holds.queuePosition', { position: r.position }),
+      render: (r: MyHold) =>
+        r.status === 'pending' ? t('holds.queuePosition', { position: r.position }) : '—',
     },
     {
       key: 'created',
@@ -131,24 +135,13 @@ export default function MyHoldsPage() {
       key: 'expires',
       header: t('holds.expiresAt'),
       render: (r: MyHold) => {
-        const ready = r.status === 'ready' && Boolean(r.pickupDeadline);
-        const line = r.pickupDeadline
-          ? new Date(r.pickupDeadline).toLocaleString(i18n.language)
-          : '—';
+        if (r.status !== 'ready' || !r.pickupDeadline) return '—';
+        const date = new Date(r.pickupDeadline).toLocaleString(i18n.language);
         return (
-          <div
-            className={
-              ready
-                ? 'rounded-md px-2 py-1.5 -mx-1 bg-amber-50 dark:bg-amber-900/25 border border-amber-200 dark:border-amber-800'
-                : ''
-            }
-          >
-            <span className={ready ? 'font-semibold text-amber-900 dark:text-amber-100' : ''}>{line}</span>
-            {ready && (
-              <p className="text-xs mt-1 text-amber-800 dark:text-amber-200/90 leading-snug">
-                {t('holds.pickupDeadlineHint')}
-              </p>
-            )}
+          <div className="rounded-md px-2 py-1.5 -mx-1 bg-amber-50 dark:bg-amber-900/25 border border-amber-200 dark:border-amber-800">
+            <span className="font-semibold text-amber-900 dark:text-amber-100">
+              {t('holds.pickupBefore', { date })}
+            </span>
           </div>
         );
       },
@@ -275,17 +268,22 @@ export default function MyHoldsPage() {
                           </Link>
                           {statusBadge(t, r.status)}
                         </div>
-                        <p className="text-sm text-gray-600 dark:text-gray-300">
-                          {r.pickupSiteName || t('holds.transitNone')}
-                        </p>
+                        {r.status === 'ready' && (
+                          <p className="text-sm text-gray-600 dark:text-gray-300">
+                            {r.pickupSiteName || t('holds.transitNone')}
+                          </p>
+                        )}
                         <p className="text-sm text-gray-500 dark:text-gray-400">
-                          {t('holds.queuePosition', { position: r.position })}
-                          {' · '}
+                          {r.status === 'pending'
+                            ? `${t('holds.queuePosition', { position: r.position })} · `
+                            : ''}
                           {new Date(r.createdAt).toLocaleString(i18n.language)}
                         </p>
-                        {r.pickupDeadline && (
-                          <p className="text-sm text-amber-800 dark:text-amber-200">
-                            {t('holds.expiresAt')}: {new Date(r.pickupDeadline).toLocaleString(i18n.language)}
+                        {r.status === 'ready' && r.pickupDeadline && (
+                          <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">
+                            {t('holds.pickupBefore', {
+                              date: new Date(r.pickupDeadline).toLocaleString(i18n.language),
+                            })}
                           </p>
                         )}
                         {canCancel(r.status) && (

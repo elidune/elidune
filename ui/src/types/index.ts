@@ -840,8 +840,12 @@ export interface ClaimsReturnedQueueItem {
 /**
  * Why `GET /me/loans` refuses a renewal (`MyLoanRenewalRefusal`).
  * Snake_case. Absent (`null`) when `canRenew` is true.
+ * Account reasons (`account_blocked`, `fines_over_threshold`) are checked first
+ * and apply to every loan.
  */
 export type MyLoanRenewalRefusal =
+  | 'account_blocked'
+  | 'fines_over_threshold'
   | 'withdrawn'
   | 'claimed_returned'
   | 'hold_waiting'

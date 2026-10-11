@@ -466,6 +466,7 @@
     "pickUser": "Search a patron",
     "cancelConfirm": "Cancel this hold?",
     "noHolds": "No holds.",
+    "pickupBefore": "Pick up before {{date}}",
     "pickupDeadlineHint": "Pick up the copy before this time; the hold may expire after that.",
     "patronTitle": "My holds",
     "patronSubtitle": "Track queue position, status, and pickup deadlines for your title and copy holds.",
@@ -998,11 +999,13 @@
     "renewalPossibleFrom": "Renewal possible from {{date}}",
     "renewalTooEarly": "Renewal is not open yet.",
     "renewalRefusal": {
+      "account_blocked": "Your account cannot renew loans right now. Please contact the library.",
+      "fines_over_threshold": "Unpaid fines are above the allowed threshold.",
       "withdrawn": "This copy is withdrawn and cannot be renewed.",
       "claimed_returned": "This loan is in the claims-returned queue.",
       "hold_waiting": "Another patron is waiting for this title.",
       "max_renewals": "No renewals left.",
-      "renewal_too_early": "Renewal opens on {{date}}."
+      "renewal_too_early": "Renewal possible from {{date}}"
     },
     "title": "Loans",
     "subtitle": "Manage loans and returns",
