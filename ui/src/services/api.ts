@@ -522,6 +522,16 @@ class ApiService {
     await this.client.post('/auth/disable-2fa');
   }
 
+  /**
+   * Clear the temporary per-identifier sign-in block.
+   * `DELETE /auth/rate-limit/{login}` → 204. The server trims and lowercases
+   * the path segment the same way login attempts are keyed.
+   */
+  async clearAuthRateLimit(login: string): Promise<void> {
+    const identifier = login.trim();
+    await this.client.delete(`/auth/rate-limit/${encodeURIComponent(identifier)}`);
+  }
+
   // ─── Biblios (notices bibliographiques) ─────────────────────────
 
   async getBiblios(params?: {
