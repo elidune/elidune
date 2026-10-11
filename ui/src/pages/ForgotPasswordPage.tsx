@@ -7,7 +7,6 @@ import { useLibrary } from '@/contexts/LibraryContext';
 import api from '@/services/api';
 import { Button, Input, Card } from '@/components/common';
 import { getApiErrorMessage } from '@/utils/apiError';
-import { buildPublicPasswordResetTemplateUrl } from '@/utils/buildPasswordResetUrl';
 
 export default function ForgotPasswordPage() {
   const { t } = useTranslation();
@@ -31,7 +30,6 @@ export default function ForgotPasswordPage() {
     try {
       await api.requestPasswordReset({
         identifier: trimmed,
-        resetUrl: buildPublicPasswordResetTemplateUrl(),
       });
       setSubmitted(true);
     } catch (err) {

@@ -20,6 +20,8 @@ pub mod error;
 pub mod events_consent;
 pub mod hold_email;
 pub mod inventory_email;
+#[rustfmt::skip]
+pub mod password_reset_link;
 pub mod marc;
 pub mod models;
 pub mod rate_limit;
