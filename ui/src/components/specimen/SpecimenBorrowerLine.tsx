@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import PatronLink from '@/components/users/PatronLink';
 import api from '@/services/api';
+import { patronId } from '@/utils/patronLink';
 import { formatUserShortName } from '@/utils/userDisplay';
 
 interface SpecimenBorrowerLineProps {
@@ -32,12 +33,12 @@ export default function SpecimenBorrowerLine({ loanId }: SpecimenBorrowerLinePro
   return (
     <p className="text-sm text-gray-500 dark:text-gray-400">
       {t('items.borrowedBy')}{' '}
-      <Link
-        to={`/users/${borrower.id}`}
+      <PatronLink
+        userId={patronId(borrower.id)}
         className="font-medium text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 hover:underline"
       >
         {name}
-      </Link>
+      </PatronLink>
     </p>
   );
 }

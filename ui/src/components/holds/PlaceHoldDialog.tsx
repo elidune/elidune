@@ -9,6 +9,7 @@ import { getApiErrorMessage } from '@/utils/apiError';
 import { isLibrarian } from '@/types';
 import { isItemWithdrawn } from '@/utils/weeding';
 import type { Item, UserShort } from '@/types';
+import { patronId } from '@/utils/patronLink';
 import { formatUserShortName } from '@/utils/userDisplay';
 import { formChoiceLabelClass } from '@/utils/formControl';
 import { buildCreateHold, type HoldPlacementScope } from '@/utils/holdDisplay';
@@ -288,7 +289,9 @@ export default function PlaceHoldDialog({
             <ol className="list-decimal list-inside space-y-1 text-sm text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2">
               {queue.map((h) => (
                 <li key={h.id} className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium">{formatUserShortName(h.user) || h.userId}</span>
+                  <span className="font-medium">
+                    {formatUserShortName(h.user) || patronId(h.userId, h.user?.id) || '—'}
+                  </span>
                   <HoldScopeBadge hold={h} />
                 </li>
               ))}

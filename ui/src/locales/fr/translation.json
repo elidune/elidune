@@ -983,6 +983,8 @@
     "barcodeRequired": "Le code-barre est requis",
     "document": "Document",
     "errorRenewingLoan": "Erreur lors du renouvellement de l'emprunt",
+    "renewalPossibleFrom": "Renouvellement possible à partir du {{date}}",
+    "renewalTooEarly": "Le renouvellement n'est pas encore ouvert.",
     "title": "Emprunts",
     "subtitle": "Gérer les emprunts et retours",
     "borrow": "Emprunter",
@@ -1357,11 +1359,12 @@
       "unpaidFineThreshold": "Seuil d'amendes impayées (dérogation)",
       "unpaidFineThresholdInherit": "Vide = hériter du seuil global ({{amount}})",
       "unpaidFineThresholdInheritEmpty": "Vide = hériter du seuil global",
-      "unpaidFineThresholdHelp": "Facultatif. S'il est renseigné, ce public utilise sa propre limite. Un solde impayé au-dessus du montant bloque le prêt et le renouvellement sauf forçage par le personnel. Vide hérite du seuil global (une dérogation existante est conservée si le champ reste vide à l'enregistrement).",
+      "unpaidFineThresholdHelp": "Facultatif. S'il est renseigné, ce public utilise sa propre limite. Un solde impayé au-dessus du montant bloque le prêt et le renouvellement sauf forçage par le personnel. Vide, ou « Utiliser la valeur globale », enregistre null et le seuil global s'applique.",
+      "useGlobalValue": "Utiliser la valeur globale",
       "maxActiveHolds": "Plafond de réservations actives (dérogation)",
       "maxActiveHoldsInherit": "Vide = hériter du plafond global ({{count}})",
       "maxActiveHoldsInheritEmpty": "Vide = hériter du plafond global",
-      "maxActiveHoldsHelp": "Facultatif. S'il est renseigné, ce public a son propre plafond de réservations en attente/disponibles. Vide hérite du défaut global (une dérogation existante est conservée si le champ reste vide à l'enregistrement)."
+      "maxActiveHoldsHelp": "Facultatif. S'il est renseigné, ce public a son propre plafond de réservations en attente/disponibles. Vide, ou « Utiliser la valeur globale », enregistre null et le plafond global s'applique."
     },
     "finePolicy": {
       "title": "Seuil d'amendes impayées",
@@ -1470,6 +1473,8 @@
     "renewAtNow": "À partir d'aujourd'hui",
     "renewAtDueDate": "À partir de la date d'échéance actuelle",
     "renewAtHelp": "Définit comment le serveur calcule la nouvelle date de retour lors d'une prolongation (à partir du jour de la prolongation ou de l'échéance déjà prévue). La date affichée au lecteur après prolongation est toujours celle renvoyée par le serveur.",
+    "renewWindowDays": "Fenêtre de renouvellement (jours)",
+    "renewWindowDaysHelp": "Un renouvellement n'est possible que pendant ce nombre de jours avant l'échéance (0–366). 0 signifie le jour de l'échéance ou une fois le prêt en retard. La valeur par défaut est 7. Un prêt en retard peut toujours être renouvelé.",
     "mediaTypeDefault": "Par défaut (tous formats)",
     "maxLoansDefaultLabel": "Prêts actifs maximum (tous supports)",
     "maxLoansPerMediaLabel": "Maximum pour ce type de document",

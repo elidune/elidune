@@ -983,6 +983,8 @@
     "barcodeRequired": "El código de barras es obligatorio",
     "document": "Documento",
     "errorRenewingLoan": "Error al renovar el préstamo",
+    "renewalPossibleFrom": "Renovación posible a partir del {{date}}",
+    "renewalTooEarly": "La renovación aún no está abierta.",
     "title": "Préstamos",
     "subtitle": "Gestionar préstamos y devoluciones",
     "borrow": "Prestar",
@@ -1357,11 +1359,12 @@
       "unpaidFineThreshold": "Umbral de multas impagadas (excepción)",
       "unpaidFineThresholdInherit": "Vacío = heredar el umbral global ({{amount}})",
       "unpaidFineThresholdInheritEmpty": "Vacío = heredar el umbral global",
-      "unpaidFineThresholdHelp": "Opcional. Si se indica, este público usa su propio límite. Un saldo impagado por encima del importe bloquea el préstamo y la renovación salvo forzado por el personal. Vacío hereda el umbral global (una excepción existente se conserva si el campo queda vacío al guardar).",
+      "unpaidFineThresholdHelp": "Opcional. Si se indica, este público usa su propio límite. Un saldo impagado por encima del importe bloquea el préstamo y la renovación salvo forzado por el personal. Vacío, o «Usar el valor global», guarda null y se aplica el umbral global.",
+      "useGlobalValue": "Usar el valor global",
       "maxActiveHolds": "Tope de reservas activas (excepción)",
       "maxActiveHoldsInherit": "Vacío = heredar el tope global ({{count}})",
       "maxActiveHoldsInheritEmpty": "Vacío = heredar el tope global",
-      "maxActiveHoldsHelp": "Opcional. Si se indica, este público usa su propio tope de reservas pendientes/listas. Vacío hereda el valor global (una excepción existente se conserva si el campo queda vacío al guardar)."
+      "maxActiveHoldsHelp": "Opcional. Si se indica, este público usa su propio tope de reservas pendientes/listas. Vacío, o «Usar el valor global», guarda null y se aplica el tope global."
     },
     "finePolicy": {
       "title": "Umbral de multas impagadas",
@@ -1470,6 +1473,8 @@
     "renewAtNow": "Desde hoy",
     "renewAtDueDate": "Desde la fecha de vencimiento actual",
     "renewAtHelp": "Define cómo el servidor calcula la nueva fecha de devolución al renovar (desde el día de la renovación o desde la fecha de vencimiento previa). Tras renovar, el lector ve siempre la fecha que devuelve el servidor.",
+    "renewWindowDays": "Ventana de renovación (días)",
+    "renewWindowDaysHelp": "La renovación solo se permite durante estos días antes del vencimiento (0–366). 0 significa el día del vencimiento o cuando el préstamo ya está vencido. El valor predeterminado es 7. Los préstamos vencidos se pueden renovar.",
     "mediaTypeDefault": "Predeterminado (todos los soportes)",
     "maxLoansDefaultLabel": "Préstamos activos máximos (todos los soportes)",
     "maxLoansPerMediaLabel": "Máximo para este tipo de documento",

@@ -164,12 +164,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // No 2FA required, set user directly
     setUser({
       id: response.user.id,
-      username: response.user.login,
+      username: response.user.username || response.user.login,
       login: response.user.login,
       firstname: response.user.firstname,
       lastname: response.user.lastname,
       accountType: response.user.accountType,
       language: response.user.language,
+      publicType: response.user.publicType,
+      guardianId: response.user.guardianId,
     });
     // Refresh profile to get complete user data
     await refreshProfile();
@@ -201,12 +203,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Set user from pending state
     setUser({
       id: pending.user.id,
-      username: pending.user.login,
+      username: pending.user.username || pending.user.login,
       login: pending.user.login,
       firstname: pending.user.firstname,
       lastname: pending.user.lastname,
       accountType: pending.user.accountType,
       language: pending.user.language,
+      publicType: pending.user.publicType,
+      guardianId: pending.user.guardianId,
     });
 
     // Refresh profile to get complete user data
@@ -237,12 +241,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Set user from pending state
     setUser({
       id: pending.user.id,
-      username: pending.user.login,
+      username: pending.user.username || pending.user.login,
       login: pending.user.login,
       firstname: pending.user.firstname,
       lastname: pending.user.lastname,
       accountType: pending.user.accountType,
       language: pending.user.language,
+      publicType: pending.user.publicType,
+      guardianId: pending.user.guardianId,
     });
 
     // Refresh profile to get complete user data
@@ -274,12 +280,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setPending2FA(null);
     setUser({
       id: response.user.id,
-      username: response.user.login,
+      username: response.user.username || response.user.login,
       login: response.user.login,
       firstname: response.user.firstname,
       lastname: response.user.lastname,
       accountType: response.user.accountType,
       language: response.user.language,
+      publicType: response.user.publicType,
+      guardianId: response.user.guardianId,
     });
     await refreshProfile();
   };

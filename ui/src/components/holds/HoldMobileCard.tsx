@@ -1,12 +1,13 @@
 import type { ReactNode } from 'react';
-import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Ban } from 'lucide-react';
 import { Button } from '@/components/common';
+import PatronLink from '@/components/users/PatronLink';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
 import HoldExpiresCell from '@/components/holds/HoldExpiresCell';
 import HoldPickupCell from '@/components/holds/HoldPickupCell';
 import type { Hold, ItemTransit, Source } from '@/types';
+import { patronId } from '@/utils/patronLink';
 import { formatUserShortName } from '@/utils/userDisplay';
 
 interface HoldMobileCardProps {
@@ -35,19 +36,20 @@ export default function HoldMobileCard({
   extraActions,
 }: HoldMobileCardProps) {
   const { t, i18n } = useTranslation();
-  const userLabel = formatUserShortName(hold.user) || hold.userId;
+  const userLabel = formatUserShortName(hold.user) || patronId(hold.userId, hold.user?.id) || '—';
   const showCancel = hold.status === 'pending' || hold.status === 'ready';
 
   return (
     <div className="p-4 border-b border-gray-100 dark:border-gray-800 last:border-b-0 space-y-2">
       <div className="flex items-start justify-between gap-2">
         {showUser ? (
-          <Link
+          <PatronLink
             className="text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:underline min-w-0"
-            to={`/users/${hold.userId}`}
+            userId={hold.userId}
+            fallbackId={hold.user?.id}
           >
             {userLabel}
-          </Link>
+          </PatronLink>
         ) : (
           <div className="text-sm min-w-0 flex-1">
             <HoldDocumentCell hold={hold} />

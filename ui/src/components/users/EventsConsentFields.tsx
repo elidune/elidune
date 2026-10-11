@@ -1,5 +1,5 @@
-import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import PatronLink from '@/components/users/PatronLink';
 import { formChoiceControlClass, formChoiceLabelClass } from '@/utils/formControl';
 import { eventsConsentStatusText } from '@/utils/eventsConsent';
 
@@ -43,8 +43,7 @@ export default function EventsConsentFields({
         recorded.source
       )
     : null;
-  const guardianHref =
-    showGuardianLink && guardianId ? `/users/${guardianId}` : null;
+  const guardianLinkId = showGuardianLink ? guardianId : null;
 
   return (
     <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-3 dark:border-amber-800/60 dark:bg-amber-950/30">
@@ -54,13 +53,16 @@ export default function EventsConsentFields({
             {t('eventsConsent.legend')}
           </p>
           <p className="text-sm text-gray-700 dark:text-gray-300">{t('eventsConsent.childNotice')}</p>
-          {guardianHref ? (
-            <Link
-              to={guardianHref}
+          <p className="text-sm text-gray-700 dark:text-gray-300">
+            {t('events.targetPublic.allChildGuardianNote')}
+          </p>
+          {guardianLinkId ? (
+            <PatronLink
+              userId={guardianLinkId}
               className="inline-flex text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
             >
               {t('eventsConsent.openGuardianFile')}
-            </Link>
+            </PatronLink>
           ) : null}
         </div>
       ) : (

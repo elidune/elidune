@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { AlertCircle, Truck } from 'lucide-react';
@@ -13,6 +12,7 @@ import {
   ListSkeleton,
   Table,
 } from '@/components/common';
+import PatronLink from '@/components/users/PatronLink';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
 import HoldPickupCell from '@/components/holds/HoldPickupCell';
 import HoldTransitActions from '@/components/holds/HoldTransitActions';
@@ -24,6 +24,7 @@ import { useTransitActions } from '@/hooks/holds/useTransitActions';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { formChoiceLabelClass } from '@/utils/formControl';
+import { patronId } from '@/utils/patronLink';
 import { formatUserShortName } from '@/utils/userDisplay';
 import { holdSecondaryDocumentLabel, STAFF_HOLDS_FETCH_CAP } from '@/utils/holdDisplay';
 import { canCancelTransit, sourceLabel } from '@/utils/transitDisplay';
@@ -117,10 +118,15 @@ export default function TransitsPage() {
             <span className="text-gray-400">{t('holds.transitNone')}</span>
           );
         }
+        const label = formatUserShortName(hold.user) || patronId(hold.userId, hold.user?.id) || '—';
         return (
-          <Link className="text-indigo-600 dark:text-indigo-400 hover:underline" to={`/users/${hold.userId}`}>
-            {formatUserShortName(hold.user) || hold.userId}
-          </Link>
+          <PatronLink
+            className="text-indigo-600 dark:text-indigo-400 hover:underline"
+            userId={hold.userId}
+            fallbackId={hold.user?.id}
+          >
+            {label}
+          </PatronLink>
         );
       },
     },

@@ -30,7 +30,7 @@ import { usePublicTypesQuery } from '@/hooks/usePublicTypesQuery';
 import api from '@/services/api';
 import type { SupportedLanguage } from '@/locales';
 import { isLibrarian, type TwoFactorMethod, type User as UserProfile } from '@/types';
-import { publicTypeRequiresGuardian } from '@/utils/legalGuardian';
+import { profileChildAccountPending, profileIsChildAccount } from '@/utils/legalGuardian';
 import { OCCUPATION_OPTIONS } from '@/utils/codeLabels';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 
@@ -54,8 +54,8 @@ export default function ProfilePage() {
   const { user, refreshProfile } = useAuth();
   const { language, setLanguage, availableLanguages, languageNames, languageFlags } = useLanguage();
   const { data: publicTypes = [], isLoading: publicTypesLoading } = usePublicTypesQuery();
-  const isChildAccount = publicTypeRequiresGuardian(publicTypes, user?.publicType);
-  const childAccountPending = Boolean(user?.publicType) && publicTypesLoading;
+  const isChildAccount = profileIsChildAccount(user?.publicType, publicTypes);
+  const childAccountPending = profileChildAccountPending(user?.publicType, publicTypesLoading);
 
   // Profile form state
   const [profileData, setProfileData] = useState(() => profileFormFromUser(user));

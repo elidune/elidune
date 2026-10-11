@@ -17,7 +17,9 @@ import { useTransitActions } from '@/hooks/holds/useTransitActions';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
 import type { Biblio, BiblioShort, Hold, UserShort } from '@/types';
+import PatronLink from '@/components/users/PatronLink';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
+import { patronId } from '@/utils/patronLink';
 import { formatUserShortName } from '@/utils/userDisplay';
 import { useToast } from '@/contexts/ToastContext';
 import { formChoiceLabelClass, formControlClass, formLabelClass } from '@/utils/formControl';
@@ -311,11 +313,16 @@ export default function HoldsPage() {
       key: 'user',
       header: t('holds.columnUser'),
       render: (r: Hold) => {
-        const label = formatUserShortName(r.user) || r.userId;
+        const id = patronId(r.userId, r.user?.id);
+        const label = formatUserShortName(r.user) || id || '—';
         return (
-          <Link className="text-indigo-600 dark:text-indigo-400 hover:underline" to={`/users/${r.userId}`}>
+          <PatronLink
+            className="text-indigo-600 dark:text-indigo-400 hover:underline"
+            userId={r.userId}
+            fallbackId={r.user?.id}
+          >
             {label}
-          </Link>
+          </PatronLink>
         );
       },
     },
@@ -697,7 +704,9 @@ export default function HoldsPage() {
                   <ol className="list-decimal list-inside space-y-1 text-sm border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2">
                     {biblioQueueQuery.data!.map((h) => (
                       <li key={h.id} className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium">{formatUserShortName(h.user) || h.userId}</span>
+                        <span className="font-medium">
+                          {formatUserShortName(h.user) || patronId(h.userId, h.user?.id) || '—'}
+                        </span>
                         <HoldScopeBadge hold={h} />
                       </li>
                     ))}

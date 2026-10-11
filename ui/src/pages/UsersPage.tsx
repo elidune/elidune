@@ -18,6 +18,7 @@ import {
   ListSkeleton,
 } from '@/components/common';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
+import { patronId } from '@/utils/patronLink';
 import { LIST_ROW_ICON_BTN, LIST_ROW_ICON_BTN_DANGER, LIST_ROW_ICON_BTN_MUTED } from '@/utils/listRowActionIconClass';
 import { RenewSubscriptionModal, UserEditorForm, UserListCard } from '@/components/users';
 import api from '@/services/api';
@@ -94,7 +95,8 @@ export default function UsersPage() {
   };
 
   const handleRowClick = (user: UserShort) => {
-    navigate(`/users/${user.id}`);
+    const id = patronId(user.id);
+    if (id) navigate(`/users/${id}`);
   };
 
   const openRenewModal = (user: UserShort) => setRenewModalUser(user);
@@ -243,7 +245,10 @@ export default function UsersPage() {
               className={LIST_ROW_ICON_BTN}
               title={t('common.edit')}
               aria-label={t('common.edit')}
-              onClick={() => navigate(`/users/${user.id}`)}
+              onClick={() => {
+                const id = patronId(user.id);
+                if (id) navigate(`/users/${id}`);
+              }}
             >
               <Edit className="h-4 w-4" aria-hidden />
             </button>
@@ -357,7 +362,10 @@ export default function UsersPage() {
                           publicTypes={publicTypes}
                           accountTypes={accountTypes}
                           onOpen={() => handleRowClick(user)}
-                          onEdit={() => navigate(`/users/${user.id}`)}
+                          onEdit={() => {
+                            const id = patronId(user.id);
+                            if (id) navigate(`/users/${id}`);
+                          }}
                           onDelete={() => openDeleteModal(user)}
                           onRenew={() => openRenewModal(user)}
                           editLabel={t('common.edit')}
