@@ -146,6 +146,7 @@ async fn unpaid_over_threshold_blocks_renew_unless_forced() {
     let (status, body) = checkout(&app, &admin_token, reader_id, item_id, false).await;
     assert_eq!(status, StatusCode::CREATED, "checkout: {body}");
     let loan_id = fixtures::json_id(&body["id"]);
+    fixtures::pull_loan_into_renewal_window(&app, loan_id).await;
 
     app.state
         .services

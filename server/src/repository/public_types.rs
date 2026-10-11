@@ -144,7 +144,7 @@ impl Repository {
         sqlx::query(
             r#"
             INSERT INTO public_type_loan_settings (public_type_id, media_type, duration, nb_max, nb_renews, renew_at)
-            SELECT $1, NULL, 21, 5, 2, 'now'
+            SELECT $1, NULL, 21, 5, 2, 'at_due_date'
             WHERE NOT EXISTS (
                 SELECT 1 FROM public_type_loan_settings x
                 WHERE x.public_type_id = $1 AND x.media_type IS NULL

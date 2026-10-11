@@ -162,6 +162,7 @@ async fn candidate_stays_circulable_for_checkout_renew_and_holds() {
         "candidate checkout: {loan_body}"
     );
     let loan_id = fixtures::json_id(&loan_body["id"]);
+    fixtures::pull_loan_into_renewal_window(&app, loan_id).await;
 
     let (status, renew_body) = app
         .post_json(
@@ -484,3 +485,4 @@ async fn weeding_is_orthogonal_to_circulation_exceptions_and_archived_at() {
     assert_eq!(copy["weedingStatus"], "withdrawn");
     assert!(copy["archivedAt"].is_null());
 }
+

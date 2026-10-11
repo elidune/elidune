@@ -76,6 +76,7 @@ pub trait LoansRepository: Send + Sync {
         nb_renews: i16,
         duration: i16,
         renew_at: LoanSettingsRenewAt,
+        renew_window_days: i16,
     ) -> AppResult<()>;
     async fn loans_settings_delete_rows(&self) -> AppResult<()>;
 }
@@ -206,9 +207,16 @@ impl LoansRepository for Repository {
         nb_renews: i16,
         duration: i16,
         renew_at: LoanSettingsRenewAt,
+        renew_window_days: i16,
     ) -> crate::error::AppResult<()> {
         Repository::loans_settings_upsert_row(
-            self, media_type, nb_max, nb_renews, duration, renew_at,
+            self,
+            media_type,
+            nb_max,
+            nb_renews,
+            duration,
+            renew_at,
+            renew_window_days,
         )
         .await
     }

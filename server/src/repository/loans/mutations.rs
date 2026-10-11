@@ -1,6 +1,6 @@
 //! Loans repository — create, return, and renew mutations.
 
-use chrono::{DateTime, Datelike, Utc};
+use chrono::{DateTime, Datelike, Duration, Utc};
 use sqlx::Row;
 
 use super::super::Repository;
@@ -524,11 +524,28 @@ impl Repository {
             )));
         }
 
+        let current_expiry = loan.expiry_at.unwrap_or(now);
+        let renew_window_days = self
+            .resolve_renew_window_days(media_type.as_deref())
+            .await?;
+        let opens_at = renewal_opens_at(current_expiry, renew_window_days);
+        // Overdue loans are already inside the window; other gates (holds, fines, max renewals) still apply.
+        if now < opens_at {
+            return Err(AppError::RenewalTooEarly(renewal_too_early_message(
+                opens_at,
+            )));
+        }
+
         let anchor = match renew_at_policy {
             LoanSettingsRenewAt::Now => now,
-            LoanSettingsRenewAt::AtDueDate => loan.expiry_at.unwrap_or(now),
+            LoanSettingsRenewAt::AtDueDate => current_expiry,
         };
         let new_expiry_date = self.loans_due_at(anchor, duration_days).await?;
+        if new_expiry_date <= current_expiry {
+            return Err(AppError::BusinessRule(
+                "Renewal would not move the due date, so it was not counted".to_string(),
+            ));
+        }
         let new_renews = current_renews + 1;
 
         sqlx::query("UPDATE loans SET expiry_at = $1, renew_at = $2, nb_renews = $3 WHERE id = $4")
@@ -545,6 +562,25 @@ impl Repository {
     }
 }
 
+/// Default days before the due date when a renewal becomes allowed.
+pub const DEFAULT_RENEW_WINDOW_DAYS: i16 = 7;
+
+/// First instant at which a renewal of a loan due at `due` is allowed.
+#[must_use]
+pub fn renewal_opens_at(due: DateTime<Utc>, window_days: i16) -> DateTime<Utc> {
+    let days = i64::from(window_days.max(0));
+    due - Duration::days(days)
+}
+
+/// Client message for [`AppError::RenewalTooEarly`]. Includes the calendar date renewal opens.
+#[must_use]
+pub fn renewal_too_early_message(opens_at: DateTime<Utc>) -> String {
+    format!(
+        "Renewal is too early. Renewal is possible from {}.",
+        opens_at.format("%Y-%m-%d")
+    )
+}
+
 /// `idx_loans_one_active_per_item` — last line of defense if two inserts race.
 fn is_active_loan_unique_violation(err: &sqlx::Error) -> bool {
     match err {
@@ -553,5 +589,26 @@ fn is_active_loan_unique_violation(err: &sqlx::Error) -> bool {
                 && db.constraint() == Some("idx_loans_one_active_per_item")
         }
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod renewal_window_tests {
+    use chrono::{TimeZone, Utc};
+
+    use super::{renewal_opens_at, renewal_too_early_message};
+
+    #[test]
+    fn window_opens_before_the_due_date_and_names_that_date() {
+        let due = Utc.with_ymd_and_hms(2026, 11, 1, 15, 0, 0).unwrap();
+        let opens = renewal_opens_at(due, 7);
+        assert_eq!(
+            opens.date_naive(),
+            chrono::NaiveDate::from_ymd_opt(2026, 10, 25).unwrap()
+        );
+        let message = renewal_too_early_message(opens);
+        assert!(message.contains("2026-10-25"));
+        assert!(due > opens);
+        assert_eq!(renewal_opens_at(due, 0), due);
     }
 }

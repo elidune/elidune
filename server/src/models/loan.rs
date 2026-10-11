@@ -83,9 +83,9 @@ pub struct LoanCreateOutcome {
 #[serde(rename_all = "snake_case")]
 pub enum LoanSettingsRenewAt {
     /// New due date = instant of renewal + loan duration.
-    #[default]
     Now,
     /// New due date = current due date + loan duration.
+    #[default]
     AtDueDate,
 }
 
@@ -101,8 +101,8 @@ impl LoanSettingsRenewAt {
 impl From<&str> for LoanSettingsRenewAt {
     fn from(s: &str) -> Self {
         match s {
-            "at_due_date" => Self::AtDueDate,
-            _ => Self::Now,
+            "now" => Self::Now,
+            _ => Self::AtDueDate,
         }
     }
 }
@@ -158,6 +158,8 @@ pub struct LoanSettings {
     pub nb_renews: Option<i16>,
     pub duration: Option<i16>,
     pub renew_at: Option<LoanSettingsRenewAt>,
+    /// Days before the due date when renewal becomes allowed. `0` = on the due date or later.
+    pub renew_window_days: i16,
     pub notes: Option<String>,
 }
 
@@ -210,4 +212,26 @@ pub struct LoanArchive {
     pub borrower_public_type: Option<i64>,
     pub addr_city: Option<String>,
     pub account_type: Option<String>,
+}
+
+#[cfg(test)]
+mod renew_at_tests {
+    use super::LoanSettingsRenewAt;
+
+    #[test]
+    fn default_renew_anchor_is_the_current_due_date() {
+        assert_eq!(
+            LoanSettingsRenewAt::default(),
+            LoanSettingsRenewAt::AtDueDate
+        );
+        assert_eq!(LoanSettingsRenewAt::from("now"), LoanSettingsRenewAt::Now);
+        assert_eq!(
+            LoanSettingsRenewAt::from("at_due_date"),
+            LoanSettingsRenewAt::AtDueDate
+        );
+        assert_eq!(
+            LoanSettingsRenewAt::from("unexpected"),
+            LoanSettingsRenewAt::AtDueDate
+        );
+    }
 }

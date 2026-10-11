@@ -700,11 +700,13 @@ async fn concurrent_renew_same_loan_cannot_exceed_max_renewals() {
         .expect("checkout");
 
     // Leave one renewal slot (default max is 2) so both racing renews would pass a stale read.
-    sqlx::query("UPDATE loans SET nb_renews = 1 WHERE id = $1")
-        .bind(checkout.loan_id)
-        .execute(repo.pool())
-        .await
-        .expect("seed one used renewal");
+    sqlx::query(
+        "UPDATE loans SET nb_renews = 1, expiry_at = NOW() + interval '1 day' WHERE id = $1",
+    )
+    .bind(checkout.loan_id)
+    .execute(repo.pool())
+    .await
+    .expect("seed one used renewal");
 
     let (r1, r2) = tokio::join!(
         repo.loans_renew(checkout.loan_id),
@@ -813,4 +815,126 @@ async fn renew_blocked_when_ready_hold_exists_for_copy() {
         .await
         .expect("loan unchanged");
     assert_eq!(loan.nb_renews.unwrap_or(0), 0);
+}
+
+#[tokio::test]
+async fn renew_before_the_window_is_refused_without_counting() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "renewearly").await;
+    let item_id = seed_borrowable_item(&app, &admin_token, "RENEW-EARLY", "Too Early").await;
+    let repo = app.state.services.repository.as_ref().clone();
+    let checkout = repo
+        .loans_create(&create_loan(reader_id, item_id, false))
+        .await
+        .expect("checkout");
+    let before = repo.loans_get_by_id(checkout.loan_id).await.expect("loan");
+
+    let err = repo
+        .loans_renew(checkout.loan_id)
+        .await
+        .expect_err("same-day renew is outside the 7-day window");
+    match err {
+        AppError::RenewalTooEarly(msg) => {
+            assert!(
+                msg.contains("Renewal is possible from"),
+                "message should name the opening date: {msg}"
+            );
+        }
+        other => panic!("expected renewal_too_early, got {other:?}"),
+    }
+
+    let after = repo
+        .loans_get_by_id(checkout.loan_id)
+        .await
+        .expect("loan unchanged");
+    assert_eq!(after.nb_renews.unwrap_or(0), 0);
+    assert_eq!(after.expiry_at, before.expiry_at);
+
+    let (status, body) = app
+        .post_empty(
+            &format!("/api/v1/loans/{}/renew", checkout.loan_id),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "http renew: {body}"
+    );
+    assert_eq!(body["code"], "renewal_too_early");
+    assert!(body["message"]
+        .as_str()
+        .unwrap_or_default()
+        .contains("Renewal is possible from"));
+}
+
+#[tokio::test]
+async fn renew_inside_the_window_extends_the_current_due_date() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "renewdue").await;
+    let item_id = seed_borrowable_item(&app, &admin_token, "RENEW-DUE", "From Due Date").await;
+    let repo = app.state.services.repository.as_ref().clone();
+    let checkout = repo
+        .loans_create(&create_loan(reader_id, item_id, false))
+        .await
+        .expect("checkout");
+
+    let due = chrono::Utc::now() + chrono::Duration::days(2);
+    sqlx::query("UPDATE loans SET expiry_at = $2 WHERE id = $1")
+        .bind(checkout.loan_id)
+        .bind(due)
+        .execute(repo.pool())
+        .await
+        .expect("set due date inside the window");
+
+    let (new_expiry, renews) = repo
+        .loans_renew(checkout.loan_id)
+        .await
+        .expect("renew inside the window");
+    assert_eq!(renews, 1);
+    let gained = (new_expiry - due).num_days();
+    assert!(
+        gained >= 21,
+        "new due {new_expiry} should be the previous due {due} plus the loan duration, gained {gained} days"
+    );
+}
+
+#[tokio::test]
+async fn overdue_renewal_still_extends_from_the_due_date() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "renewlate").await;
+    let item_id = seed_borrowable_item(&app, &admin_token, "RENEW-LATE", "Overdue Renew").await;
+    let repo = app.state.services.repository.as_ref().clone();
+    let checkout = repo
+        .loans_create(&create_loan(reader_id, item_id, false))
+        .await
+        .expect("checkout");
+
+    let due = chrono::Utc::now() - chrono::Duration::days(3);
+    sqlx::query("UPDATE loans SET expiry_at = $2 WHERE id = $1")
+        .bind(checkout.loan_id)
+        .bind(due)
+        .execute(repo.pool())
+        .await
+        .expect("mark loan overdue");
+
+    let (new_expiry, renews) = repo
+        .loans_renew(checkout.loan_id)
+        .await
+        .expect("overdue renew stays allowed");
+    assert_eq!(renews, 1);
+    let gained = (new_expiry - due).num_days();
+    assert!(
+        gained >= 21,
+        "overdue renewal should start from the current due date, gained {gained} days"
+    );
 }

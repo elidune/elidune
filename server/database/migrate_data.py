@@ -13,7 +13,8 @@ fines.charge_type / one-open-per-(loan,charge_type) (029), and
 title-level holds + pickup_site_id stub (030),
 item_transits + holds.pickup_site_id FK to sources (031),
 acquisitions vendors/funds/orders/receipts + account_types.acquisitions_rights (032),
-user_guardians (033), purchase_suggestions + nullable purchase_orders.vendor_id (034).
+user_guardians (033), purchase_suggestions + nullable purchase_orders.vendor_id (034),
+loans_settings.renew_window_days and renew_at default at_due_date (038).
 Legacy source DBs have no acquisitions or suggestion tables; those are created by SQL migrations only.)
 
 Usage:
@@ -522,7 +523,7 @@ def migrate_users(src, dst, hash_passwords=True):
         public_type (int 97/106/117) -> FK to public_types
 
     Target adds: status, language, 2FA fields (defaults), must_change_password,
-                 token_version (default 0, migration 018)
+                 token_version (default 0, migration 018),
     """
     print("Migrating users...")
 
@@ -1320,7 +1321,7 @@ def migrate_loans_settings(src, dst):
             """
             UPDATE loans_settings SET
                 media_type = %s, nb_max = %s, nb_renews = %s, duration = %s, notes = %s,
-                renew_at = 'now'
+                renew_at = 'at_due_date'
             WHERE id = %s
             """,
             (media_type_db, nb_max, nb_renews, duration, notes, sid),
@@ -1329,7 +1330,7 @@ def migrate_loans_settings(src, dst):
             dst_cur.execute(
                 """
                 INSERT INTO loans_settings (id, media_type, nb_max, nb_renews, duration, notes, renew_at)
-                VALUES (%s, %s, %s, %s, %s, %s, 'now')
+                VALUES (%s, %s, %s, %s, %s, %s, 'at_due_date')
                 """,
                 (sid, media_type_db, nb_max, nb_renews, duration, notes),
             )

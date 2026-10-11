@@ -27,6 +27,8 @@ pub mod error_code {
     pub const INTERNAL: &str = "internal_error";
     pub const Z3950: &str = "z3950_error";
     pub const BUSINESS_RULE: &str = "business_rule_violation";
+    /// Renewal requested before `due date - renewWindowDays`.
+    pub const RENEWAL_TOO_EARLY: &str = "renewal_too_early";
     pub const DUPLICATE_ISBN: &str = "duplicate_isbn_needs_confirmation";
     pub const DUPLICATE_BARCODE: &str = "duplicate_barcode_needs_confirmation";
     pub const RATE_LIMITED: &str = "rate_limited";
@@ -69,6 +71,10 @@ pub enum AppError {
 
     #[error("Business rule violation: {0}")]
     BusinessRule(String),
+
+    /// Renewal is outside the configured window before the due date (HTTP 422, `renewal_too_early`).
+    #[error("{0}")]
+    RenewalTooEarly(String),
 
     /// Confirmation payload is boxed: `BiblioShort` is far larger than the
     /// `result_large_err` limit and would otherwise inflate every `AppResult`.
@@ -222,6 +228,12 @@ impl AppError {
                 label: "Business Rule Violation",
                 message: msg.clone(),
             },
+            AppError::RenewalTooEarly(msg) => HttpErrorFields {
+                status: StatusCode::UNPROCESSABLE_ENTITY,
+                code: ec::RENEWAL_TOO_EARLY,
+                label: "Business Rule Violation",
+                message: msg.clone(),
+            },
             AppError::DuplicateNeedsConfirmation { .. }
             | AppError::DuplicateBarcodeNeedsConfirmation { .. } => HttpErrorFields {
                 status: StatusCode::CONFLICT,
@@ -314,3 +326,19 @@ const _: () = assert!(
     std::mem::size_of::<AppError>() <= 128,
     "AppError exceeds 128 bytes; box large variants so AppResult stays cheap to move"
 );
+
+#[cfg(test)]
+mod tests {
+    use super::{error_code, AppError};
+
+    #[test]
+    fn renewal_too_early_uses_a_dedicated_code() {
+        let err = AppError::RenewalTooEarly(
+            "Renewal is too early. Renewal is possible from 2026-10-25.".into(),
+        );
+        let (status, code, message) = err.audit_http_fields();
+        assert_eq!(status, 422);
+        assert_eq!(code, error_code::RENEWAL_TOO_EARLY);
+        assert!(message.contains("2026-10-25"));
+    }
+}
