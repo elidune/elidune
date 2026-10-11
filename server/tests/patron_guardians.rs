@@ -559,3 +559,75 @@ async fn insert_overdue_loan(
     .await
     .expect("insert overdue loan")
 }
+
+#[tokio::test]
+async fn auth_me_exposes_public_type_name_guardian_and_username() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (guardian_id, guardian_token) =
+        fixtures::create_reader(&app, &admin_token, "meguard").await;
+
+    let (status, adult) = app
+        .get_json_with_auth("/api/v1/auth/me", &guardian_token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "adult me: {adult}");
+    assert_eq!(adult["publicType"], "adult");
+    assert!(adult["guardianId"].is_null());
+    assert_eq!(adult["username"], adult["login"]);
+    assert!(!adult["username"].as_str().unwrap_or("").is_empty());
+
+    let child_type = fixtures::public_type_id_by_name(&app, &admin_token, "child").await;
+    let login = format!("mechild_{}", fixtures::unique_suffix());
+    let (status, body) = app
+        .post_json(
+            "/api/v1/users",
+            &json!({
+                "login": login,
+                "password": "readerpass1234",
+                "firstname": "Minor",
+                "lastname": login,
+                "email": format!("{login}@test.local"),
+                "accountType": "reader",
+                "publicType": child_type.to_string(),
+                "sex": "f",
+                "birthdate": "2015-06-01",
+                "addrCity": "Paris",
+                "guardianId": guardian_id.to_string()
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "create child: {body}");
+    let child_id = fixtures::json_id(&body["id"]);
+    app.state
+        .services
+        .users
+        .set_must_change_password(child_id, false)
+        .await
+        .expect("clear must change password");
+
+    let (status, login_body) = app
+        .post_json(
+            "/api/v1/auth/login",
+            &json!({ "username": login, "password": "readerpass1234" }),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "child login: {login_body}");
+    assert_eq!(login_body["user"]["publicType"], "child");
+    assert_eq!(
+        fixtures::json_id(&login_body["user"]["guardianId"]),
+        guardian_id
+    );
+    assert_eq!(login_body["user"]["username"], login);
+
+    let token = login_body["token"].as_str().expect("token");
+    let (status, me) = app.get_json_with_auth("/api/v1/auth/me", token).await;
+    assert_eq!(status, StatusCode::OK, "child me: {me}");
+    assert_eq!(me["publicType"], "child");
+    assert_eq!(fixtures::json_id(&me["guardianId"]), guardian_id);
+    assert_eq!(me["username"], login);
+    assert_eq!(me["login"], login);
+}
