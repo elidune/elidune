@@ -305,6 +305,7 @@ impl Repository {
             let user = users_map.get(&h.user_id).cloned();
             out.push(HoldDetails {
                 id: h.id,
+                user_id: h.user_id,
                 biblio_id: h.biblio_id,
                 item_id: h.item_id,
                 pickup_site_id: h.pickup_site_id,

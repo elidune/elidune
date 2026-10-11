@@ -527,3 +527,36 @@ async fn repository_title_hold_create_helper_matches_api() {
     assert!(hold.item_id.is_none());
     assert_eq!(hold.status, HoldStatus::Pending);
 }
+
+#[tokio::test]
+async fn hold_list_exposes_user_id() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_id, reader_token) = fixtures::create_reader(&app, &admin_token, "holduid").await;
+    let (biblio_id, _) = create_title_with_copies(&app, &admin_token, "Hold User Id", 1).await;
+    let (status, body) = app
+        .post_json(
+            "/api/v1/holds",
+            &json!({
+                "userId": reader_id.to_string(),
+                "biblioId": biblio_id.to_string()
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "place hold: {body}");
+
+    let (status, list) = app
+        .get_json_with_auth("/api/v1/holds?perPage=50", &reader_token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "list holds: {list}");
+    let items = list["items"].as_array().expect("items");
+    let row = items
+        .iter()
+        .find(|row| fixtures::json_id(&row["biblioId"]) == biblio_id)
+        .expect("created hold in the list");
+    assert_eq!(fixtures::json_id(&row["userId"]), reader_id);
+    assert_eq!(fixtures::json_id(&row["user"]["id"]), reader_id);
+}

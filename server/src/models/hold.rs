@@ -119,6 +119,10 @@ pub struct HoldDetails {
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub id: i64,
+    /// Patron who placed the hold. Same value as `user.id` when `user` is loaded.
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub user_id: i64,
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub biblio_id: i64,
