@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import PatronLink from '@/components/users/PatronLink';
 import { useTranslation } from 'react-i18next';
 import { Search } from 'lucide-react';
 import { Typeahead } from '@/components/common';
@@ -89,12 +89,12 @@ export default function GuardianPicker({
             </span>
           </div>
           {showFileLink && (
-            <Link
-              to={`/users/${value.id}`}
+            <PatronLink
+              userId={value.id}
               className="shrink-0 text-sm text-indigo-600 dark:text-indigo-400 hover:underline"
             >
               {t('users.openPatronFile')}
-            </Link>
+            </PatronLink>
           )}
         </div>
       )}

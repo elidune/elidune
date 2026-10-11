@@ -944,6 +944,8 @@
     "barcodeRequired": "Barcode ist erforderlich",
     "document": "Dokument",
     "errorRenewingLoan": "Fehler beim Verlängern der Ausleihe",
+    "renewalPossibleFrom": "Verlängerung möglich ab {{date}}",
+    "renewalTooEarly": "Die Verlängerung ist noch nicht möglich.",
     "title": "Ausleihen",
     "subtitle": "Ausleihen und Rückgaben verwalten",
     "borrow": "Ausleihen",
@@ -1318,11 +1320,12 @@
       "unpaidFineThreshold": "Schwellenwert für unbezahlte Gebühren (Abweichung)",
       "unpaidFineThresholdInherit": "Leer = globalen Schwellenwert übernehmen ({{amount}})",
       "unpaidFineThresholdInheritEmpty": "Leer = globalen Schwellenwert übernehmen",
-      "unpaidFineThresholdHelp": "Optional. Wenn gesetzt, gilt für diese Zielgruppe ein eigener Grenzwert. Ein unbezahlter Saldo über dem Betrag sperrt Ausleihe und Verlängerung, außer bei Personal-Override. Leer übernimmt den globalen Schwellenwert (bestehende Abweichungen bleiben, wenn das Feld beim Speichern leer bleibt).",
+      "unpaidFineThresholdHelp": "Optional. Wenn gesetzt, gilt für diese Zielgruppe ein eigener Grenzwert. Ein unbezahlter Saldo über dem Betrag sperrt Ausleihe und Verlängerung, außer bei Personal-Override. Leer oder „Globalen Wert verwenden“ speichert null, und der globale Schwellenwert gilt.",
+      "useGlobalValue": "Globalen Wert verwenden",
       "maxActiveHolds": "Maximale aktive Vormerkungen (Abweichung)",
       "maxActiveHoldsInherit": "Leer = globale Obergrenze übernehmen ({{count}})",
       "maxActiveHoldsInheritEmpty": "Leer = globale Obergrenze übernehmen",
-      "maxActiveHoldsHelp": "Optional. Wenn gesetzt, gilt für diese Zielgruppe eine eigene Obergrenze für ausstehende/bereite Vormerkungen. Leer übernimmt den globalen Standard (bestehende Abweichungen bleiben, wenn das Feld beim Speichern leer bleibt)."
+      "maxActiveHoldsHelp": "Optional. Wenn gesetzt, gilt für diese Zielgruppe eine eigene Obergrenze für ausstehende/bereite Vormerkungen. Leer oder „Globalen Wert verwenden“ speichert null, und die globale Obergrenze gilt."
     },
     "finePolicy": {
       "title": "Schwellenwert für unbezahlte Gebühren",
@@ -1431,6 +1434,8 @@
     "renewAtNow": "Ab heute",
     "renewAtDueDate": "Ab aktuellem Rückgabetermin",
     "renewAtHelp": "Legt fest, wie der Server das neue Rückgabedatum bei einer Verlängerung berechnet—vom Tag der Verlängerung oder vom bisherigen Fälligkeitsdatum. Nach der Verlängerung gilt stets das vom Server zurückgegebene Datum.",
+    "renewWindowDays": "Verlängerungsfenster (Tage)",
+    "renewWindowDaysHelp": "Eine Verlängerung ist nur in diesen Tagen vor dem Fälligkeitsdatum erlaubt (0–366). 0 bedeutet am Fälligkeitstag oder sobald die Ausleihe überfällig ist. Standard ist 7. Überfällige Ausleihen können weiterhin verlängert werden.",
     "mediaTypeDefault": "Standard (alle Medientypen)",
     "maxLoansDefaultLabel": "Maximale aktive Ausleihen (alle Medientypen)",
     "maxLoansPerMediaLabel": "Maximum für diesen Medientyp",

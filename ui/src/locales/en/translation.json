@@ -944,6 +944,8 @@
     "barcodeRequired": "Barcode is required",
     "document": "Document",
     "errorRenewingLoan": "Error renewing loan",
+    "renewalPossibleFrom": "Renewal possible from {{date}}",
+    "renewalTooEarly": "Renewal is not open yet.",
     "title": "Loans",
     "subtitle": "Manage loans and returns",
     "borrow": "Borrow",
@@ -1318,11 +1320,12 @@
       "unpaidFineThreshold": "Unpaid fine threshold override",
       "unpaidFineThresholdInherit": "Empty = inherit global ({{amount}})",
       "unpaidFineThresholdInheritEmpty": "Empty = inherit global threshold",
-      "unpaidFineThresholdHelp": "Optional. When set, this audience uses its own limit. Unpaid balance above the amount blocks checkout and renew unless staff force. Empty inherits the global threshold (existing overrides keep their value if left empty on save).",
+      "unpaidFineThresholdHelp": "Optional. When set, this audience uses its own limit. Unpaid balance above the amount blocks checkout and renew unless staff force. Empty, or Use global value, saves null and the global threshold applies.",
+      "useGlobalValue": "Use global value",
       "maxActiveHolds": "Max active holds override",
       "maxActiveHoldsInherit": "Empty = inherit global ({{count}})",
       "maxActiveHoldsInheritEmpty": "Empty = inherit global hold cap",
-      "maxActiveHoldsHelp": "Optional. When set, this audience uses its own pending/ready hold cap. Empty inherits the global default (an existing override is kept if left empty on save)."
+      "maxActiveHoldsHelp": "Optional. When set, this audience uses its own pending/ready hold cap. Empty, or Use global value, saves null and the global cap applies."
     },
     "finePolicy": {
       "title": "Unpaid fine threshold",
@@ -1431,6 +1434,8 @@
     "renewAtNow": "From today",
     "renewAtDueDate": "From current due date",
     "renewAtHelp": "Controls how the server computes the new due date when a renewal is granted—from the renewal date or from the loan's previous due date. The reader always sees the due date returned by the server after renewal.",
+    "renewWindowDays": "Renewal window (days)",
+    "renewWindowDaysHelp": "A renewal is allowed only during this many days before the due date (0–366). 0 means on the due date or once the loan is overdue. The default is 7. Overdue loans can still be renewed.",
     "mediaTypeDefault": "Default (all media types)",
     "maxLoansDefaultLabel": "Maximum active loans (all media types)",
     "maxLoansPerMediaLabel": "Maximum for this document type",

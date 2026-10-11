@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardHeader, Button, Table, Badge, Pagination, ScrollableListRegion, ResponsiveRecordList, ListSkeleton } from '@/components/common';
+import PatronLink from '@/components/users/PatronLink';
 import api from '@/services/api';
+import { patronId } from '@/utils/patronLink';
 import { getApiErrorMessage } from '@/utils/apiError';
 import type { CirculationExceptionKind } from '@/hooks/loans/useCirculationExceptionAction';
 import type { ClaimsReturnedQueueItem } from '@/types';
@@ -19,19 +20,21 @@ interface ClaimsReturnedQueueProps {
 }
 
 function ClaimPatronLink({ userId }: { userId: string }) {
+  const id = patronId(userId);
   const { data } = useQuery({
-    queryKey: ['user', userId],
-    queryFn: () => api.getUser(userId),
+    queryKey: ['user', id],
+    queryFn: () => api.getUser(id!),
+    enabled: id != null,
     staleTime: 5 * 60_000,
   });
-  const name = data ? `${data.firstname} ${data.lastname}`.trim() : userId;
+  const name = data ? `${data.firstname ?? ''} ${data.lastname ?? ''}`.trim() : id;
   return (
-    <Link
-      to={`/users/${userId}`}
+    <PatronLink
+      userId={id}
       className="font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
     >
-      {name || userId}
-    </Link>
+      {name || '—'}
+    </PatronLink>
   );
 }
 

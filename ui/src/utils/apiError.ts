@@ -1,7 +1,11 @@
 import type { TFunction } from 'i18next';
 import axios, { type AxiosError, type AxiosResponse } from 'axios';
+import i18n from '@/locales';
 import type { ApiError } from '@/types';
 import { weedingServerMessageI18nKey } from '@/utils/weeding';
+
+/** Calendar date embedded in `Renewal is possible from YYYY-MM-DD.` */
+const RENEWAL_OPEN_DATE = /(\d{4}-\d{2}-\d{2})/;
 
 const RETRY_AFTER_MIN_MS = 250;
 const RETRY_AFTER_MAX_MS = 8_000;
@@ -103,6 +107,33 @@ export function loginFailureMessage(error: unknown, t: TFunction): string {
   return getApiErrorMessage(error, t);
 }
 
+/**
+ * Opening date from a 422 `renewal_too_early` body.
+ * The server puts it in `message` (`Renewal is possible from YYYY-MM-DD.`);
+ * there is no separate date field.
+ */
+export function renewalTooEarlyOpenDate(error: unknown): string | null {
+  if (getApiErrorCode(error) !== 'renewal_too_early') return null;
+  const message = getApiErrorRawMessage(error);
+  return message?.match(RENEWAL_OPEN_DATE)?.[1] ?? null;
+}
+
+function formatIsoCalendarDate(isoDate: string, language: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(isoDate);
+  if (!match) return isoDate;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return date.toLocaleDateString(language, { timeZone: 'UTC' });
+}
+
+/** Localized "Renewal possible from {date}" for `renewal_too_early`. */
+export function renewalTooEarlyMessage(error: unknown, t: TFunction): string | null {
+  if (getApiErrorCode(error) !== 'renewal_too_early') return null;
+  const iso = renewalTooEarlyOpenDate(error);
+  if (!iso) return t('loans.renewalTooEarly');
+  const language = i18n.resolvedLanguage || i18n.language || 'en';
+  return t('loans.renewalPossibleFrom', { date: formatIsoCalendarDate(iso, language) });
+}
+
 /** Server `message` / `error` body text, if present. */
 export function getApiErrorRawMessage(error: unknown): string | null {
   const data = (error as AxiosError<ApiError>)?.response?.data;
@@ -184,6 +215,9 @@ export function getApiErrorMessage(error: unknown, t: TFunction): string {
     const fromWeeding = translateKey(t, weedingKey);
     if (fromWeeding !== null) return fromWeeding;
   }
+
+  const tooEarly = renewalTooEarlyMessage(error, t);
+  if (tooEarly !== null) return tooEarly;
 
   const code = getApiErrorCode(error);
   if (code !== null) {

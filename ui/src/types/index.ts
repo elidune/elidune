@@ -114,6 +114,10 @@ export interface User {
   notes?: string;
   fee?: string;
   groupId?: string | null;
+  /**
+   * Audience. `GET /auth/me` and login `user` send the public-type **name**
+   * (`child`, `adult`, …) or null. `GET /users` sends the public-type id.
+   */
   publicType?: string | null;
   status?: number;
   // Date fields
@@ -133,7 +137,10 @@ export interface User {
   hoursPerWeek?: number | null;
   staffStartDate?: string | null;
   staffEndDate?: string | null;
-  /** Linked legal guardian patron id. Required when public type is `child`. */
+  /**
+   * Linked legal guardian patron id. Required when public type is `child`.
+   * Present on `GET /auth/me` (nullable snowflake string).
+   */
   guardianId?: string | null;
   /**
    * Opt-in for the events programme. CamelCase JSON (`eventsConsent`).
@@ -213,6 +220,19 @@ export interface LoginRequest {
   deviceId?: string;
 }
 
+/**
+ * Session user from `GET /auth/me` and the login `user` object.
+ * `publicType` is the audience name (`child`, `adult`), not the id.
+ * `username` is the same value as `login`.
+ */
+export interface AuthMeUser extends User {
+  login: string;
+  username: string;
+  accountType: string;
+  publicType: string | null;
+  guardianId: string | null;
+}
+
 export interface LoginResponse {
   token?: string;
   tokenType: string;
@@ -222,15 +242,7 @@ export interface LoginResponse {
   mustChangePassword?: boolean;
   twoFactorMethod?: string | null;
   deviceId?: string | null;
-  user: {
-    id: string;
-    username: string;
-    login: string;
-    firstname?: string;
-    lastname?: string;
-    accountType: string;
-    language: string;
-  };
+  user: AuthMeUser;
 }
 
 // 2FA Types
@@ -1007,6 +1019,11 @@ export interface LoanSettings {
   maxRenewals: number;
   durationDays: number;
   renewAt: LoanSettingsRenewAt;
+  /**
+   * Days before the due date when a renewal is allowed (0–366).
+   * `0` allows renewal only on the due date or once overdue. Default 7.
+   */
+  renewWindowDays: number;
 }
 
 /** Body for PUT /loans/settings (camelCase). */
@@ -1107,13 +1124,13 @@ export interface UpdatePublicType {
   maxLoans?: number | null;
   loanDurationDays?: number | null;
   /**
-   * When set, replaces the unpaid-fine threshold override.
-   * Omit to keep the current value (API does not treat null as “inherit”).
+   * Unpaid-fine threshold override. JSON `null` clears it (global threshold applies).
+   * Omit the field to keep the stored value.
    */
   unpaidFineThreshold?: string | null;
   /**
-   * When set, replaces the max-active-holds override.
-   * Omit to keep the current value (API does not treat null as “inherit”).
+   * Max-active-holds override. JSON `null` clears it (global cap applies).
+   * Omit the field to keep the stored value.
    */
   maxActiveHolds?: number | null;
 }
@@ -1147,15 +1164,15 @@ export interface AccountTypeDefinition {
 
 export type AccountTypeRightLevel = 'n' | 'r' | 'w';
 
-/** Holds rights include `o` (own). Other domains accept `n` / `r` / `w` on PUT. */
+/** Holds, users, and loans rights include `o` (own). */
 export type AccountTypeHoldsRightLevel = AccountTypeRightLevel | 'o';
 
 /** PUT /account-types/:code — partial body. Omit a field to leave it unchanged. */
 export interface UpdateAccountTypeRequest {
   name?: string;
   itemsRights?: AccountTypeRightLevel | null;
-  usersRights?: AccountTypeRightLevel | null;
-  loansRights?: AccountTypeRightLevel | null;
+  usersRights?: AccountTypeHoldsRightLevel | null;
+  loansRights?: AccountTypeHoldsRightLevel | null;
   itemsArchiveRights?: AccountTypeRightLevel | null;
   holdsRights?: AccountTypeHoldsRightLevel | null;
   settingsRights?: AccountTypeRightLevel | null;
@@ -1561,7 +1578,8 @@ export type HoldStatus = 'pending' | 'ready' | 'fulfilled' | 'cancelled' | 'expi
  */
 export interface Hold {
   id: string;
-  userId: string;
+  /** Patron id. Same value as `user.id` when the user is loaded. May be absent on older payloads. */
+  userId?: string | null;
   biblioId: string;
   /** Null while a title-level hold is waiting for a copy. */
   itemId?: string | null;

@@ -46,8 +46,8 @@ function buildAccountTypeUpdate(
     const o = normRight(orig[k]);
     const n = normRight(next[k]);
     if (o === n) continue;
-    if (k === 'holdsRights') {
-      body.holdsRights = n === '' ? null : (n as 'n' | 'o' | 'r' | 'w');
+    if (k === 'holdsRights' || k === 'usersRights' || k === 'loansRights') {
+      body[k] = n === '' ? null : (n as 'n' | 'o' | 'r' | 'w');
     } else if (n === '' || n === 'n' || n === 'r' || n === 'w') {
       body[k] = n === '' ? null : n;
     }
@@ -222,7 +222,10 @@ export default function AccountTypesSettings() {
                         >
                           <option value="">{t('settings.accountTypes.level.none')}</option>
                           <option value="n">{t('settings.accountTypes.level.n')}</option>
-                          {(field === 'holdsRights' || normRight(row[field]) === 'o') && (
+                          {(field === 'holdsRights' ||
+                            field === 'usersRights' ||
+                            field === 'loansRights' ||
+                            normRight(row[field]) === 'o') && (
                             <option value="o">{t('settings.accountTypes.level.o')}</option>
                           )}
                           <option value="r">{t('settings.accountTypes.level.r')}</option>

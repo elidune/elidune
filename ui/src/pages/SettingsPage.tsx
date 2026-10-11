@@ -793,6 +793,49 @@ function PublicTypesEditor() {
   );
 }
 
+function emptyToNullInt(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  if (!/^\d+$/.test(trimmed)) return null;
+  return Number(trimmed);
+}
+
+function emptyToNullPriceCents(raw: string): number | null {
+  const trimmed = raw.trim().replace(',', '.');
+  if (!trimmed) return null;
+  if (!/^\d+(\.\d+)?$/.test(trimmed)) return null;
+  return Math.round(Number(trimmed) * 100);
+}
+
+function publicTypeFormState(pt: PublicType) {
+  return {
+    name: pt.name,
+    label: pt.label,
+    subscriptionDurationDays: pt.subscriptionDurationDays ?? '',
+    ageMin: pt.ageMin ?? '',
+    ageMax: pt.ageMax ?? '',
+    subscriptionPrice: pt.subscriptionPrice != null ? (pt.subscriptionPrice / 100).toString() : '',
+    maxLoans: pt.maxLoans ?? '',
+    loanDurationDays: pt.loanDurationDays ?? '',
+    unpaidFineThreshold: moneyAmountToInput(pt.unpaidFineThreshold),
+    maxActiveHolds: holdCapToInput(pt.maxActiveHolds),
+  };
+}
+
+function UseGlobalValueButton({ show, onClear }: { show: boolean; onClear: () => void }) {
+  const { t } = useTranslation();
+  if (!show) return null;
+  return (
+    <button
+      type="button"
+      onClick={onClear}
+      className="text-xs font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+    >
+      {t('settings.publicTypes.useGlobalValue')}
+    </button>
+  );
+}
+
 function PublicTypeEditForm({
   pt,
   onSave,
@@ -807,18 +850,12 @@ function PublicTypeEditForm({
   const { t } = useTranslation();
   const [capError, setCapError] = useState<string | null>(null);
   const [thresholdError, setThresholdError] = useState<string | null>(null);
-  const [form, setForm] = useState({
-    name: pt.name,
-    label: pt.label,
-    subscriptionDurationDays: pt.subscriptionDurationDays ?? '',
-    ageMin: pt.ageMin ?? '',
-    ageMax: pt.ageMax ?? '',
-    subscriptionPrice: pt.subscriptionPrice != null ? (pt.subscriptionPrice / 100).toString() : '',
-    maxLoans: pt.maxLoans ?? '',
-    loanDurationDays: pt.loanDurationDays ?? '',
-    unpaidFineThreshold: moneyAmountToInput(pt.unpaidFineThreshold),
-    maxActiveHolds: holdCapToInput(pt.maxActiveHolds),
-  });
+  const [form, setForm] = useState(() => publicTypeFormState(pt));
+  const [syncedPt, setSyncedPt] = useState(pt);
+  if (pt !== syncedPt) {
+    setSyncedPt(pt);
+    setForm(publicTypeFormState(pt));
+  }
 
   return (
     <div className="space-y-3">
@@ -842,9 +879,15 @@ function PublicTypeEditForm({
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label className={formLabelClass({ marginBottom: false })}>
-            {t('settings.publicTypes.subscriptionDurationDays')}
-          </label>
+          <div className="flex items-center justify-between gap-2">
+            <label className={formLabelClass({ marginBottom: false })}>
+              {t('settings.publicTypes.subscriptionDurationDays')}
+            </label>
+            <UseGlobalValueButton
+              show={String(form.subscriptionDurationDays).trim() !== ''}
+              onClear={() => setForm((f) => ({ ...f, subscriptionDurationDays: '' }))}
+            />
+          </div>
           <input
             type="number"
             min="0"
@@ -866,7 +909,13 @@ function PublicTypeEditForm({
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label className={formLabelClass({ marginBottom: false })}>{t('settings.publicTypes.ageMin')}</label>
+          <div className="flex items-center justify-between gap-2">
+            <label className={formLabelClass({ marginBottom: false })}>{t('settings.publicTypes.ageMin')}</label>
+            <UseGlobalValueButton
+              show={String(form.ageMin).trim() !== ''}
+              onClear={() => setForm((f) => ({ ...f, ageMin: '' }))}
+            />
+          </div>
           <input
             type="number"
             min="0"
@@ -877,7 +926,13 @@ function PublicTypeEditForm({
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label className={formLabelClass({ marginBottom: false })}>{t('settings.publicTypes.ageMax')}</label>
+          <div className="flex items-center justify-between gap-2">
+            <label className={formLabelClass({ marginBottom: false })}>{t('settings.publicTypes.ageMax')}</label>
+            <UseGlobalValueButton
+              show={String(form.ageMax).trim() !== ''}
+              onClear={() => setForm((f) => ({ ...f, ageMax: '' }))}
+            />
+          </div>
           <input
             type="number"
             min="0"
@@ -888,7 +943,13 @@ function PublicTypeEditForm({
           />
         </div>
         <div className="flex flex-col gap-1">
-          <label className={formLabelClass({ marginBottom: false })}>{t('settings.publicTypes.subscriptionPrice')}</label>
+          <div className="flex items-center justify-between gap-2">
+            <label className={formLabelClass({ marginBottom: false })}>{t('settings.publicTypes.subscriptionPrice')}</label>
+            <UseGlobalValueButton
+              show={String(form.subscriptionPrice).trim() !== ''}
+              onClear={() => setForm((f) => ({ ...f, subscriptionPrice: '' }))}
+            />
+          </div>
           <input
             type="number"
             step="0.01"
@@ -911,9 +972,18 @@ function PublicTypeEditForm({
           />
         </div>
         <div className="flex flex-col gap-1 sm:col-span-2">
-          <label className={formLabelClass({ marginBottom: false })}>
-            {t('settings.publicTypes.unpaidFineThreshold')}
-          </label>
+          <div className="flex items-center justify-between gap-2">
+            <label className={formLabelClass({ marginBottom: false })}>
+              {t('settings.publicTypes.unpaidFineThreshold')}
+            </label>
+            <UseGlobalValueButton
+              show={String(form.unpaidFineThreshold).trim() !== ''}
+              onClear={() => {
+                setThresholdError(null);
+                setForm((f) => ({ ...f, unpaidFineThreshold: '' }));
+              }}
+            />
+          </div>
           <input
             type="number"
             min="0"
@@ -941,9 +1011,18 @@ function PublicTypeEditForm({
           )}
         </div>
         <div className="flex flex-col gap-1 sm:col-span-2">
-          <label className={formLabelClass({ marginBottom: false })}>
-            {t('settings.publicTypes.maxActiveHolds')}
-          </label>
+          <div className="flex items-center justify-between gap-2">
+            <label className={formLabelClass({ marginBottom: false })}>
+              {t('settings.publicTypes.maxActiveHolds')}
+            </label>
+            <UseGlobalValueButton
+              show={String(form.maxActiveHolds).trim() !== ''}
+              onClear={() => {
+                setCapError(null);
+                setForm((f) => ({ ...f, maxActiveHolds: '' }));
+              }}
+            />
+          </div>
           <input
             type="number"
             min="1"
@@ -992,19 +1071,15 @@ function PublicTypeEditForm({
             const payload: UpdatePublicType = {
               name: form.name?.trim() || undefined,
               label: form.label?.trim() || undefined,
-              subscriptionDurationDays: form.subscriptionDurationDays ? Number(form.subscriptionDurationDays) : null,
-              ageMin: form.ageMin ? Number(form.ageMin) : null,
-              ageMax: form.ageMax ? Number(form.ageMax) : null,
-              subscriptionPrice: form.subscriptionPrice ? Math.round(parseFloat(form.subscriptionPrice) * 100) : null,
-              maxLoans: form.maxLoans ? Number(form.maxLoans) : null,
-              loanDurationDays: form.loanDurationDays ? Number(form.loanDurationDays) : null,
+              subscriptionDurationDays: emptyToNullInt(String(form.subscriptionDurationDays)),
+              ageMin: emptyToNullInt(String(form.ageMin)),
+              ageMax: emptyToNullInt(String(form.ageMax)),
+              subscriptionPrice: emptyToNullPriceCents(String(form.subscriptionPrice)),
+              maxLoans: emptyToNullInt(String(form.maxLoans)),
+              loanDurationDays: emptyToNullInt(String(form.loanDurationDays)),
+              unpaidFineThreshold: parsedThreshold.value,
+              maxActiveHolds: parsedCap.value,
             };
-            if (parsedThreshold.value != null) {
-              payload.unpaidFineThreshold = parsedThreshold.value;
-            }
-            if (parsedCap.value != null) {
-              payload.maxActiveHolds = parsedCap.value;
-            }
             onSave(payload);
           }}
         >
@@ -1522,19 +1597,15 @@ function PublicTypeCreateModal({ onSave, onCancel }: { onSave: (data: CreatePubl
     const payload: CreatePublicType = {
       name: form.name.trim(),
       label: form.label.trim(),
-      subscriptionDurationDays: form.subscriptionDurationDays ? Number(form.subscriptionDurationDays) : null,
-      ageMin: form.ageMin ? Number(form.ageMin) : null,
-      ageMax: form.ageMax ? Number(form.ageMax) : null,
-      subscriptionPrice: form.subscriptionPrice ? Math.round(parseFloat(form.subscriptionPrice) * 100) : null,
-      maxLoans: form.maxLoans ? Number(form.maxLoans) : null,
-      loanDurationDays: form.loanDurationDays ? Number(form.loanDurationDays) : null,
+      subscriptionDurationDays: emptyToNullInt(form.subscriptionDurationDays),
+      ageMin: emptyToNullInt(form.ageMin),
+      ageMax: emptyToNullInt(form.ageMax),
+      subscriptionPrice: emptyToNullPriceCents(form.subscriptionPrice),
+      maxLoans: emptyToNullInt(form.maxLoans),
+      loanDurationDays: emptyToNullInt(form.loanDurationDays),
+      unpaidFineThreshold: parsedThreshold.value,
+      maxActiveHolds: parsedCap.value,
     };
-    if (parsedThreshold.value != null) {
-      payload.unpaidFineThreshold = parsedThreshold.value;
-    }
-    if (parsedCap.value != null) {
-      payload.maxActiveHolds = parsedCap.value;
-    }
     onSave(payload);
   };
 
@@ -1555,47 +1626,79 @@ function PublicTypeCreateModal({ onSave, onCancel }: { onSave: (data: CreatePubl
             <Input label={t('settings.publicTypes.maxLoans')} type="number" value={form.maxLoans} onChange={(e) => setForm((f) => ({ ...f, maxLoans: e.target.value }))} />
             <Input label={t('settings.publicTypes.loanDurationDays')} type="number" value={form.loanDurationDays} onChange={(e) => setForm((f) => ({ ...f, loanDurationDays: e.target.value }))} />
           </div>
-          <Input
-            label={t('settings.publicTypes.unpaidFineThreshold')}
-            type="number"
-            inputMode="decimal"
-            step="0.01"
-            min="0"
-            value={form.unpaidFineThreshold}
-            error={thresholdError ?? undefined}
-            hint={
-              finePolicy
-                ? t('settings.publicTypes.unpaidFineThresholdInherit', {
-                    amount: finePolicy.unpaidFineThreshold,
-                  })
-                : t('settings.publicTypes.unpaidFineThresholdHelp')
-            }
-            onChange={(e) => {
-              setThresholdError(null);
-              setForm((f) => ({ ...f, unpaidFineThreshold: e.target.value }));
-            }}
-          />
-          <Input
-            label={t('settings.publicTypes.maxActiveHolds')}
-            type="number"
-            inputMode="numeric"
-            min="1"
-            max="1000"
-            step="1"
-            value={form.maxActiveHolds}
-            error={capError ?? undefined}
-            hint={
-              holdsPolicy
-                ? t('settings.publicTypes.maxActiveHoldsInherit', {
-                    count: holdsPolicy.maxActiveHolds,
-                  })
-                : t('settings.publicTypes.maxActiveHoldsHelp')
-            }
-            onChange={(e) => {
-              setCapError(null);
-              setForm((f) => ({ ...f, maxActiveHolds: e.target.value }));
-            }}
-          />
+          <div>
+            <Input
+              label={t('settings.publicTypes.unpaidFineThreshold')}
+              type="number"
+              inputMode="decimal"
+              step="0.01"
+              min="0"
+              placeholder={
+                finePolicy
+                  ? t('settings.publicTypes.unpaidFineThresholdInherit', {
+                      amount: finePolicy.unpaidFineThreshold,
+                    })
+                  : t('settings.publicTypes.unpaidFineThresholdInheritEmpty')
+              }
+              value={form.unpaidFineThreshold}
+              error={thresholdError ?? undefined}
+              hint={
+                finePolicy
+                  ? t('settings.publicTypes.unpaidFineThresholdInherit', {
+                      amount: finePolicy.unpaidFineThreshold,
+                    })
+                  : t('settings.publicTypes.unpaidFineThresholdHelp')
+              }
+              onChange={(e) => {
+                setThresholdError(null);
+                setForm((f) => ({ ...f, unpaidFineThreshold: e.target.value }));
+              }}
+            />
+            <UseGlobalValueButton
+              show={form.unpaidFineThreshold.trim() !== ''}
+              onClear={() => {
+                setThresholdError(null);
+                setForm((f) => ({ ...f, unpaidFineThreshold: '' }));
+              }}
+            />
+          </div>
+          <div>
+            <Input
+              label={t('settings.publicTypes.maxActiveHolds')}
+              type="number"
+              inputMode="numeric"
+              min="1"
+              max="1000"
+              step="1"
+              placeholder={
+                holdsPolicy
+                  ? t('settings.publicTypes.maxActiveHoldsInherit', {
+                      count: holdsPolicy.maxActiveHolds,
+                    })
+                  : t('settings.publicTypes.maxActiveHoldsInheritEmpty')
+              }
+              value={form.maxActiveHolds}
+              error={capError ?? undefined}
+              hint={
+                holdsPolicy
+                  ? t('settings.publicTypes.maxActiveHoldsInherit', {
+                      count: holdsPolicy.maxActiveHolds,
+                    })
+                  : t('settings.publicTypes.maxActiveHoldsHelp')
+              }
+              onChange={(e) => {
+                setCapError(null);
+                setForm((f) => ({ ...f, maxActiveHolds: e.target.value }));
+              }}
+            />
+            <UseGlobalValueButton
+              show={form.maxActiveHolds.trim() !== ''}
+              onClear={() => {
+                setCapError(null);
+                setForm((f) => ({ ...f, maxActiveHolds: '' }));
+              }}
+            />
+          </div>
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={onCancel}>{t('common.cancel')}</Button>
             <Button type="submit" variant="primary">{t('common.create')}</Button>
@@ -1769,6 +1872,7 @@ export default function SettingsPage() {
             maxRenewals: 2,
             durationDays: 21,
             renewAt: 'now',
+            renewWindowDays: 7,
           },
         ],
       });
@@ -1783,6 +1887,7 @@ export default function SettingsPage() {
             maxRenewals: 2,
             durationDays: 21,
             renewAt: 'now',
+            renewWindowDays: 7,
           },
         ],
       });
@@ -1902,6 +2007,7 @@ export default function SettingsPage() {
           }
         />
         <p className="px-4 sm:px-6 pb-3 text-sm text-gray-500 dark:text-gray-400">{t('settings.renewAtHelp')}</p>
+        <p className="px-4 sm:px-6 pb-3 text-sm text-gray-500 dark:text-gray-400">{t('settings.renewWindowDaysHelp')}</p>
         <p className="px-4 sm:px-6 pb-3 text-xs text-gray-500 dark:text-gray-400">{t('settings.loanLimitsResolutionHint')}</p>
         <div className="overflow-x-auto rounded-b-xl">
           <table className="w-full">
@@ -1921,6 +2027,9 @@ export default function SettingsPage() {
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase min-w-[200px]">
                   {t('settings.renewAt')}
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">
+                  {t('settings.renewWindowDays')}
                 </th>
                 <th className="px-4 py-3 w-12 text-right" aria-label={t('common.actions')} />
               </tr>
@@ -2011,6 +2120,26 @@ export default function SettingsPage() {
                       <option value="at_due_date">{t('settings.renewAtDueDate')}</option>
                     </select>
                   </td>
+                  <td className="px-4 py-3">
+                    <input
+                      type="number"
+                      value={setting.renewWindowDays}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        if (raw.trim() === '') {
+                          updateLoanSetting(index, 'renewWindowDays', 0);
+                          return;
+                        }
+                        const n = Number.parseInt(raw, 10);
+                        if (!Number.isFinite(n)) return;
+                        updateLoanSetting(index, 'renewWindowDays', Math.min(366, Math.max(0, n)));
+                      }}
+                      className={formControlClass({ className: 'w-20' })}
+                      min={0}
+                      max={366}
+                      aria-label={t('settings.renewWindowDays')}
+                    />
+                  </td>
                   <td className="px-4 py-3 text-right">
                     {setting.mediaType != null ? (
                       <div className="flex justify-end">
@@ -2053,7 +2182,7 @@ export default function SettingsPage() {
                     {t('common.add')}
                   </Button>
                 </td>
-                <td colSpan={5} className="px-4 py-3" aria-hidden />
+                <td colSpan={6} className="px-4 py-3" aria-hidden />
               </tr>
             </tbody>
           </table>

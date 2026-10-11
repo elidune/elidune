@@ -2,6 +2,7 @@ import axios, { AxiosError, AxiosInstance } from 'axios';
 import { IDEMPOTENCY_HEADER, newIdempotencyKey } from '@/utils/idempotency';
 import type {
   LoginRequest,
+  AuthMeUser,
   LoginResponse,
   User,
   UserShort,
@@ -177,7 +178,14 @@ function sortLoanSettingsDefaultFirst(list: LoanSettings[]): LoanSettings[] {
   });
 }
 
+function clampRenewWindowDays(raw: unknown): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 7;
+  return Math.min(366, Math.max(0, Math.trunc(n)));
+}
+
 function sanitizeLoanSettingForPut(row: LoanSettings): LoanSettings {
+  const renewWindowDays = clampRenewWindowDays(row.renewWindowDays);
   if (row.mediaType == null) {
     return {
       mediaType: null,
@@ -185,6 +193,7 @@ function sanitizeLoanSettingForPut(row: LoanSettings): LoanSettings {
       maxRenewals: row.maxRenewals,
       durationDays: row.durationDays,
       renewAt: row.renewAt,
+      renewWindowDays,
     };
   }
   return {
@@ -193,6 +202,7 @@ function sanitizeLoanSettingForPut(row: LoanSettings): LoanSettings {
     maxRenewals: row.maxRenewals,
     durationDays: row.durationDays,
     renewAt: row.renewAt,
+    renewWindowDays,
   };
 }
 
@@ -272,6 +282,7 @@ function normalizeLoanSettingRow(raw: unknown): LoanSettings {
     maxRenewals: Number(o.maxRenewals ?? o.max_renewals ?? 0),
     durationDays: Number(o.durationDays ?? o.duration_days ?? 0),
     renewAt: normalizeLoanRenewAt(o.renewAt ?? o.renew_at),
+    renewWindowDays: clampRenewWindowDays(o.renewWindowDays ?? o.renew_window_days ?? 7),
   };
 }
 
@@ -476,8 +487,8 @@ class ApiService {
     return responseData;
   }
 
-  async getProfile(): Promise<User> {
-    const response = await this.client.get<User>('/auth/me');
+  async getProfile(): Promise<AuthMeUser> {
+    const response = await this.client.get<AuthMeUser>('/auth/me');
     return response.data;
   }
 

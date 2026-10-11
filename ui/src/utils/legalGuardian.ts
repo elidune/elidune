@@ -28,6 +28,36 @@ export function publicTypeRequiresGuardian(
   return findPublicTypeById(publicTypes, publicTypeId)?.name === CHILD_PUBLIC_TYPE_NAME;
 }
 
+/** True when the value is the public-type name `child` (not a snowflake id). */
+export function isChildPublicTypeName(value: string | number | null | undefined): boolean {
+  return String(value ?? '').trim().toLowerCase() === CHILD_PUBLIC_TYPE_NAME;
+}
+
+function isNumericPublicTypeId(value: string | number | null | undefined): boolean {
+  return /^\d+$/.test(String(value ?? '').trim());
+}
+
+/**
+ * Child account for the signed-in profile.
+ * `GET /auth/me` sends the public-type name (`child`). Staff user records send the id.
+ */
+export function profileIsChildAccount(
+  publicType: string | number | null | undefined,
+  publicTypes: PublicType[]
+): boolean {
+  if (isChildPublicTypeName(publicType)) return true;
+  if (!isNumericPublicTypeId(publicType)) return false;
+  return publicTypeRequiresGuardian(publicTypes, publicType);
+}
+
+/** Numeric ids need the public-type catalog; a name can be decided immediately. */
+export function profileChildAccountPending(
+  publicType: string | number | null | undefined,
+  publicTypesLoading: boolean
+): boolean {
+  return isNumericPublicTypeId(publicType) && publicTypesLoading;
+}
+
 /** A guardian must be a major patron: not `child` and not `school`. Unknown type: allow (server decides). */
 export function publicTypeCanBeLegalGuardian(pt: PublicType | undefined): boolean {
   if (!pt) return true;

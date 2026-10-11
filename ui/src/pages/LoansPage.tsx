@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { Link } from 'react-router-dom';
 import {
   BookMarked,
   RotateCcw,
@@ -19,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardHeader, Button, Badge, Table, MessageModal, ConfirmDialog, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, BarcodeScanField, Typeahead } from '@/components/common';
+import PatronLink from '@/components/users/PatronLink';
 import ActiveLoanCard from '@/components/loans/ActiveLoanCard';
 import CirculationExceptionDialog from '@/components/loans/CirculationExceptionDialog';
 import ClaimsReturnedQueue from '@/components/loans/ClaimsReturnedQueue';
@@ -26,6 +26,7 @@ import LoanExceptionActions from '@/components/loans/LoanExceptionActions';
 import Pagination from '@/components/common/Pagination';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
+import { patronId } from '@/utils/patronLink';
 import { isWeedingServerMessage } from '@/utils/weeding';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
 import { isClaimedReturnedLoan } from '@/utils/circulationStatus';
@@ -310,9 +311,10 @@ export default function LoansPage() {
     if (!loans?.length) return [];
     const m = new Map<string, OverdueLoanInfo[]>();
     for (const loan of loans) {
-      const list = m.get(loan.userId) ?? [];
+      const key = patronId(loan.userId) ?? '';
+      const list = m.get(key) ?? [];
       list.push(loan);
-      m.set(loan.userId, list);
+      m.set(key, list);
     }
     return Array.from(m.entries()).sort((a, b) => {
       const fa = `${a[1][0]?.lastname ?? ''} ${a[1][0]?.firstname ?? ''}`.trim();
@@ -1398,13 +1400,13 @@ export default function LoansPage() {
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                              <Link
-                                to={`/users/${uid}`}
+                              <PatronLink
+                                userId={uid}
                                 className="font-semibold text-gray-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400"
                                 onClick={(e) => e.stopPropagation()}
                               >
                                 {u.firstname} {u.lastname}
-                              </Link>
+                              </PatronLink>
                               <span className="shrink-0">
                                 <Badge variant="danger" size="sm">
                                   {userLoans.length}

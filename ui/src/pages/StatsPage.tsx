@@ -18,6 +18,7 @@ import { Card, CardHeader, Badge, Table, Input, ScrollableListRegion } from '@/c
 import api from '@/services/api';
 import type { Stats, AdvancedStatsParams, MediaType, MediaTypeOption, StatsInterval, UserLoanStats, UserAggregateStats, CatalogStats, CatalogStatsBreakdown } from '@/types';
 import { translateStatLabel } from '@/utils/codeLabels';
+import { patronId } from '@/utils/patronLink';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 import { deferFromEffect } from '@/utils/deferFromEffect';
 
@@ -768,8 +769,11 @@ export default function StatsPage() {
           <Table
             columns={userColumns}
             data={userStats}
-            keyExtractor={(user) => user.userId}
-            onRowClick={(user) => navigate(`/users/${user.userId}`)}
+            keyExtractor={(user) => patronId(user.userId) ?? user.userId}
+            onRowClick={(user) => {
+              const id = patronId(user.userId);
+              if (id) navigate(`/users/${id}`);
+            }}
             emptyMessage={t('common.noResults')}
           />
           </ScrollableListRegion>
