@@ -637,4 +637,18 @@ mod tests {
         let doc = ApiDoc::openapi();
         assert!(!doc.paths.paths.is_empty());
     }
+
+    #[test]
+    fn password_reset_request_marks_reset_url_deprecated_and_ignored() {
+        let doc = ApiDoc::openapi();
+        let value = serde_json::to_value(&doc).expect("openapi json");
+        let prop = &value["components"]["schemas"]["RequestPasswordResetRequest"]["properties"]
+            ["resetUrl"];
+        assert_eq!(prop["deprecated"], true, "{prop}");
+        let description = prop["description"].as_str().unwrap_or("");
+        assert!(
+            description.to_ascii_lowercase().contains("ignored"),
+            "{description}"
+        );
+    }
 }

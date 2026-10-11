@@ -526,9 +526,19 @@ pub struct RequestPasswordResetRequest {
     /// Login or email address for the account.
     #[validate(length(min = 1, message = "identifier is required"))]
     pub identifier: String,
-    /// Full URL template for the reset link; must contain the literal `<token>` placeholder.
-    /// If omitted, the server uses `[users].password_reset_url_template` from the app config.
+    /// Ignored. Older clients may still send a URL template. The server builds the
+    /// link from `users.password_reset_url_template` or `PUBLIC_BASE_URL` and never
+    /// uses this value.
+    #[deprecated(note = "ignored; the server builds the reset link")]
     pub reset_url: Option<String>,
+}
+
+const PASSWORD_RESET_ACCEPTED_MESSAGE: &str = "Password reset email sent";
+
+fn password_reset_accepted() -> Json<RequestPasswordResetResponse> {
+    Json(RequestPasswordResetResponse {
+        message: PASSWORD_RESET_ACCEPTED_MESSAGE.to_string(),
+    })
 }
 
 /// Response after a password-reset email was queued (public: no token in body).
@@ -592,35 +602,28 @@ pub async fn verify_recovery(
     request_body = RequestPasswordResetRequest,
     responses(
         (status = 200, description = "Reset email sent", body = RequestPasswordResetResponse),
-        (status = 400, description = "Invalid input (e.g. missing reset URL template, no email on account)", body = ErrorResponse),
+        (status = 400, description = "Invalid input (for example no email on the account)", body = ErrorResponse),
         (status = 404, description = "No account for this login or email", body = ErrorResponse)
     )
 )]
 pub async fn request_password_reset(
     State(state): State<crate::AppState>,
     ClientIp(ip): ClientIp,
-    Extension(attempts): Extension<Arc<AuthAttemptLimiter>>,
     ValidatedJson(request): ValidatedJson<RequestPasswordResetRequest>,
 ) -> AppResult<Json<RequestPasswordResetResponse>> {
-    let identifier = normalize_identifier(&request.identifier);
-    if let Some(retry_after) = attempts.retry_after(&identifier) {
-        return Err(AppError::RateLimited { retry_after });
-    }
-    // Every accepted reset request counts, including unknown identifiers,
-    // so the route cannot be used to spray mail or probe accounts.
-    attempts.record_failure(&identifier);
-
-    let url_template = request
-        .reset_url
-        .clone()
-        .or_else(|| state.config.users.password_reset_url_template.clone())
-        .ok_or_else(|| crate::error::AppError::Validation("reset_url is required, or configure users.password_reset_url_template on the server".to_string()))?;
-
-    if !url_template.contains("<token>") {
-        return Err(crate::error::AppError::Validation(
-            "reset URL template must contain the <token> placeholder".to_string(),
-        ));
-    }
+    // Per-identifier login failures are not counted here. A reset request must
+    // not lock sign-in. `request.reset_url` is ignored, including for logging.
+    let public_base = crate::password_reset_link::configured_public_base(&state.config.server);
+    let link = match crate::password_reset_link::plan_password_reset_link(
+        state.config.users.password_reset_url_template.as_deref(),
+        public_base.as_deref(),
+    ) {
+        Ok(link) => link,
+        Err(reason) => {
+            crate::password_reset_link::log_unavailable(reason);
+            return Ok(password_reset_accepted());
+        }
+    };
 
     let (email, token, lang, user_id) = state
         .services
@@ -628,7 +631,7 @@ pub async fn request_password_reset(
         .request_password_reset(&request.identifier)
         .await?;
 
-    let reset_url = url_template.replace("<token>", &token);
+    let reset_url = crate::password_reset_link::render_password_reset_url(&link, &token);
 
     state.services.audit.log(
         audit::event::AUTH_PASSWORD_RESET_REQUESTED,
@@ -671,9 +674,7 @@ pub async fn request_password_reset(
         }
     }
 
-    Ok(Json(RequestPasswordResetResponse {
-        message: "Password reset email sent".to_string(),
-    }))
+    Ok(password_reset_accepted())
 }
 
 /// Reset password with token

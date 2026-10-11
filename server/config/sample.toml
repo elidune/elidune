@@ -37,9 +37,10 @@ min_connections = 2
 [users]
 jwt_secret = "change-this-secret-in-production"
 jwt_expiration_hours = 24
-# Optional: full URL for password-reset emails when the SPA does not send `resetUrl`.
-# Example: "https://library.example.org/reset-password?token=<token>"
-# password_reset_url_template = ""
+# Optional admin override for password-reset links. Client `resetUrl` is ignored.
+# Must contain the literal `<token>` placeholder. When unset, the server uses
+# {PUBLIC_BASE_URL}/reset-password?token=<token>.
+# password_reset_url_template = "https://library.example.org/reset-password?token=<token>"
 
 [logging]
 level = "debug"

@@ -80,8 +80,9 @@ pub struct DatabaseConfig {
 pub struct UsersConfig {
     pub jwt_secret: String,
     pub jwt_expiration_hours: u64,
-    /// When set, used as the reset link template if the client omits `resetUrl` on
-    /// `POST /auth/request-password-reset`. Must contain the literal `<token>` placeholder.
+    /// Optional admin override for the password-reset link. Must contain the literal
+    /// `<token>` placeholder. When unset, the server uses
+    /// `{PUBLIC_BASE_URL}/reset-password?token=<token>`. Client `resetUrl` is ignored.
     #[serde(default)]
     pub password_reset_url_template: Option<String>,
 }
