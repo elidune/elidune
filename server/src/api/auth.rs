@@ -1,41 +1,56 @@
 //! Authentication endpoints
 
-use axum::{extract::State, Json};
+use std::sync::Arc;
+
+use axum::extract::{Extension, Path, State};
+use axum::http::StatusCode;
+use axum::Json;
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use utoipa::ToSchema;
 use validator::Validate;
 
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 #[allow(unused_imports)] // Used in utoipa macros
-use crate::error::ErrorResponse;
+use crate::error::{ErrorResponse, RateLimitedBody};
 use crate::models::user::EventsConsentSource;
 use crate::models::Language;
 use crate::models::PlaintextPassword;
+use crate::rate_limit::{normalize_identifier, AuthAttemptLimiter};
 use crate::services::audit;
 
 use super::ClientIp;
 
-use super::{AuthenticatedUser, PasswordChangeUser, ValidatedJson};
+use super::{AuthenticatedUser, PasswordChangeUser, StaffUser, ValidatedJson};
 
 static AUTH_2FA_METHOD_RE: std::sync::LazyLock<regex::Regex> =
     std::sync::LazyLock::new(|| regex::Regex::new("^(totp|email)$").expect("valid 2FA regex"));
 
-/// Build the auth routes for this domain.
-pub fn router() -> axum::Router<crate::AppState> {
-    use axum::routing::{get, post, put};
+/// Unauthenticated credential routes. Mounted behind the strict per-IP limiter.
+pub fn sensitive_router() -> axum::Router<crate::AppState> {
+    use axum::routing::post;
     axum::Router::new()
         .route("/auth/login", post(login))
-        .route("/auth/me", get(me))
-        .route("/auth/profile", put(super::users::update_my_profile))
         .route("/auth/verify-2fa", post(verify_2fa))
         .route("/auth/verify-recovery", post(verify_recovery))
         .route("/auth/request-password-reset", post(request_password_reset))
         .route("/auth/reset-password", post(reset_password))
+}
+
+/// Authenticated auth routes. Not on the strict per-IP limiter.
+///
+/// `/auth/me` and `/auth/profile` are keyed per user id with a generous quota.
+/// `DELETE /auth/rate-limit/:login` clears a temporary per-identifier block.
+pub fn session_router() -> axum::Router<crate::AppState> {
+    use axum::routing::{delete, get, post, put};
+    axum::Router::new()
+        .route("/auth/me", get(me))
+        .route("/auth/profile", put(super::users::update_my_profile))
         .route("/auth/change-password", post(change_password))
         .route("/auth/setup-2fa", post(setup_2fa))
         .route("/auth/disable-2fa", post(disable_2fa))
+        .route("/auth/rate-limit/:login", delete(clear_auth_rate_limit))
 }
 
 #[derive(Serialize)]
@@ -143,14 +158,21 @@ pub struct UserInfo {
     request_body = LoginRequest,
     responses(
         (status = 200, description = "Login successful", body = LoginResponse),
-        (status = 401, description = "Invalid credentials", body = ErrorResponse)
+        (status = 401, description = "Invalid credentials", body = ErrorResponse),
+        (status = 429, description = "Too many attempts for this login or IP", body = RateLimitedBody)
     )
 )]
 pub async fn login(
     State(state): State<crate::AppState>,
     ClientIp(ip): ClientIp,
+    Extension(attempts): Extension<Arc<AuthAttemptLimiter>>,
     ValidatedJson(request): ValidatedJson<LoginRequest>,
 ) -> AppResult<Json<LoginResponse>> {
+    let identifier = normalize_identifier(&request.username);
+    if let Some(retry_after) = attempts.retry_after(&identifier) {
+        return Err(AppError::RateLimited { retry_after });
+    }
+
     let login_result = state
         .services
         .users
@@ -163,6 +185,7 @@ pub async fn login(
 
     match &login_result {
         Ok((_, user)) => {
+            attempts.clear(&identifier);
             state.services.audit.log(
                 audit::event::AUTH_LOGIN_SUCCESS,
                 Some(user.id),
@@ -176,6 +199,9 @@ pub async fn login(
             );
         }
         Err(e) => {
+            if matches!(e, AppError::Authentication(_)) {
+                attempts.record_failure(&identifier);
+            }
             state.services.audit.log(
                 audit::event::AUTH_LOGIN_FAILED,
                 None,
@@ -289,6 +315,49 @@ pub async fn login(
         device_id,
         must_change_password,
     }))
+}
+
+/// Clear the temporary per-identifier auth block for a login or email.
+///
+/// Librarian or admin, with `users_rights` write. The value is normalized
+/// the same way as login and password-reset attempts (trim + lowercase).
+#[utoipa::path(
+    delete,
+    path = "/auth/rate-limit/{login}",
+    tag = "auth",
+    security(("bearer_auth" = [])),
+    params(
+        ("login" = String, Path, description = "Login or email whose attempt window should be cleared")
+    ),
+    responses(
+        (status = 204, description = "Attempt window cleared (also when it was already empty)"),
+        (status = 401, description = "Not authenticated", body = ErrorResponse),
+        (status = 403, description = "Staff with users write rights required", body = ErrorResponse)
+    )
+)]
+pub async fn clear_auth_rate_limit(
+    State(state): State<crate::AppState>,
+    StaffUser(claims): StaffUser,
+    ClientIp(ip): ClientIp,
+    Extension(attempts): Extension<Arc<AuthAttemptLimiter>>,
+    Path(login): Path<String>,
+) -> AppResult<StatusCode> {
+    claims.require_write_users()?;
+    let identifier = normalize_identifier(&login);
+    if identifier.is_empty() {
+        return Err(AppError::Validation("login is required".to_string()));
+    }
+    attempts.clear(&identifier);
+    state.services.audit.log(
+        audit::event::AUTH_RATE_LIMIT_CLEARED,
+        Some(claims.user_id),
+        Some("user"),
+        None,
+        ip,
+        Some(serde_json::json!({ "login": identifier })),
+        audit::AuditLogMeta::success(),
+    );
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Get current user profile
@@ -514,8 +583,17 @@ pub async fn verify_recovery(
 pub async fn request_password_reset(
     State(state): State<crate::AppState>,
     ClientIp(ip): ClientIp,
+    Extension(attempts): Extension<Arc<AuthAttemptLimiter>>,
     ValidatedJson(request): ValidatedJson<RequestPasswordResetRequest>,
 ) -> AppResult<Json<RequestPasswordResetResponse>> {
+    let identifier = normalize_identifier(&request.identifier);
+    if let Some(retry_after) = attempts.retry_after(&identifier) {
+        return Err(AppError::RateLimited { retry_after });
+    }
+    // Every accepted reset request counts, including unknown identifiers,
+    // so the route cannot be used to spray mail or probe accounts.
+    attempts.record_failure(&identifier);
+
     let url_template = request
         .reset_url
         .clone()
@@ -597,13 +675,31 @@ pub async fn request_password_reset(
 pub async fn reset_password(
     State(state): State<crate::AppState>,
     ClientIp(ip): ClientIp,
+    Extension(attempts): Extension<Arc<AuthAttemptLimiter>>,
     ValidatedJson(request): ValidatedJson<ResetPasswordRequest>,
 ) -> AppResult<Json<ResetPasswordResponse>> {
-    state
+    let identifier = state
+        .services
+        .users
+        .reset_token_login(&request.token)
+        .map(|login| normalize_identifier(&login))
+        .unwrap_or_default();
+    if let Some(retry_after) = attempts.retry_after(&identifier) {
+        return Err(AppError::RateLimited { retry_after });
+    }
+
+    if let Err(err) = state
         .services
         .users
         .reset_password(&request.token, &request.new_password)
-        .await?;
+        .await
+    {
+        if matches!(err, AppError::Authentication(_)) {
+            attempts.record_failure(&identifier);
+        }
+        return Err(err);
+    }
+    attempts.clear(&identifier);
 
     state.services.audit.log(
         audit::event::AUTH_PASSWORD_CHANGED,

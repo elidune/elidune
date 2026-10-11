@@ -34,6 +34,7 @@ use crate::api::{
         // Auth
         auth::login,
         auth::me,
+        auth::clear_auth_rate_limit,
         auth::verify_2fa,
         auth::verify_recovery,
         auth::request_password_reset,

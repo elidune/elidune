@@ -172,6 +172,7 @@ pub mod event {
     pub const AUTH_PASSWORD_CHANGED: &str = "auth.password_changed";
     pub const AUTH_2FA_ENABLED: &str = "auth.2fa_enabled";
     pub const AUTH_2FA_DISABLED: &str = "auth.2fa_disabled";
+    pub const AUTH_RATE_LIMIT_CLEARED: &str = "auth.rate_limit_cleared";
 
     // Config
     pub const CONFIG_SECTION_UPDATED: &str = "config.section_updated";

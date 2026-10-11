@@ -74,7 +74,7 @@ Library management system — JSON REST API written in Rust (Axum, PostgreSQL, R
 ### Realtime & integration
 
 - **Server-Sent Events** — **`/events/stream`** for live updates to connected clients.
-- **Rate limiting** — Per-IP limits on auth and public routes (configurable).
+- **Rate limiting** — Strict per-IP limits on login, 2FA, password reset, and first setup, plus a short per-login attempt window. `/auth/me` and `/auth/profile` use a separate per-user quota. See [Auth rate limits](#auth-rate-limits).
 
 ### API & docs
 
@@ -102,6 +102,26 @@ elidune-server --config /path/to/config.toml
 Edit `config/default.toml` (or a copy) for database URL, JWT secret, Redis URL, email, Meilisearch, and rate limits.  
 Environment variables **do not** replace TOML for `database.url` or `users.jwt_secret` — set those in the file.  
 `RUST_LOG` is supported (tracing), and `.env` is loaded if present for local development.
+
+### Auth rate limits
+
+| Setting | Env | Default |
+|---|---|---|
+| `server.trusted_proxies` | `ELIDUNE_SERVER__TRUSTED_PROXIES` | empty (ignore forwarding headers; use the TCP peer) |
+| `server.auth_ip_per_minute` | `ELIDUNE_SERVER__AUTH_IP_PER_MINUTE` | 30 |
+| `server.auth_ip_burst` | `ELIDUNE_SERVER__AUTH_IP_BURST` | 30 |
+| `server.auth_identifier_max_failures` | `ELIDUNE_SERVER__AUTH_IDENTIFIER_MAX_FAILURES` | 5 |
+| `server.auth_identifier_window_secs` | `ELIDUNE_SERVER__AUTH_IDENTIFIER_WINDOW_SECS` | 900 |
+| `server.auth_session_per_minute` | `ELIDUNE_SERVER__AUTH_SESSION_PER_MINUTE` | 120 |
+| `server.auth_session_burst` | `ELIDUNE_SERVER__AUTH_SESSION_BURST` | 60 |
+| `server.public_per_minute` | `ELIDUNE_SERVER__PUBLIC_PER_MINUTE` | 600 |
+| `server.public_burst` | `ELIDUNE_SERVER__PUBLIC_BURST` | 120 |
+
+`trusted_proxies` is a comma-separated CIDR list (`127.0.0.1/32,::1/128`). The strict IP quota covers login, 2FA, password reset, and first setup, and is sized for several desks behind one NAT. Login and password-reset attempts are also counted per normalized login or email (5 failures / 15 minutes). That block expires on its own. A librarian or admin with users write rights clears it with `DELETE /api/v1/auth/rate-limit/{login}`.
+
+`GET /auth/me` and `PUT /auth/profile` are not on the strict limiter. Their quota is per user id.
+
+Both quotas live in process memory, same as the `tower_governor` IP buckets. Redis is not used for them. A `429` response carries `Retry-After` and `{ "code": "rate_limited", "retryAfter": <seconds> }`.
 
 ## Run with Docker (API + PostgreSQL + Redis + Meilisearch)
 
