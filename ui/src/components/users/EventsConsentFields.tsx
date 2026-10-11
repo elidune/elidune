@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { formChoiceLabelClass } from '@/utils/formControl';
+import { formChoiceControlClass, formChoiceLabelClass } from '@/utils/formControl';
 import { eventsConsentStatusText } from '@/utils/eventsConsent';
 
 export interface EventsConsentFieldsProps {
@@ -65,7 +65,7 @@ export default function EventsConsentFields({
         </div>
       ) : (
         <fieldset aria-describedby={status ? `${hintId} ${statusId}` : hintId}>
-          <legend className="text-sm font-medium text-gray-900 dark:text-gray-100">
+          <legend className="text-sm font-medium text-gray-700 dark:text-gray-300">
             {t('eventsConsent.legend')}
           </legend>
           <div className="mt-2 flex flex-wrap gap-4">
@@ -74,7 +74,7 @@ export default function EventsConsentFields({
                 type="radio"
                 name={name}
                 value="yes"
-                className="text-indigo-600 focus-visible:ring-2 focus-visible:ring-amber-500"
+                className={formChoiceControlClass('rounded-full')}
                 checked={value === true}
                 onChange={() => onChange(true)}
               />
@@ -85,7 +85,7 @@ export default function EventsConsentFields({
                 type="radio"
                 name={name}
                 value="no"
-                className="text-indigo-600 focus-visible:ring-2 focus-visible:ring-amber-500"
+                className={formChoiceControlClass('rounded-full')}
                 checked={value === false}
                 onChange={() => onChange(false)}
               />

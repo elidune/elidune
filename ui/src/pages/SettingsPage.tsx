@@ -10,7 +10,7 @@ import { Card, CardHeader, Button, Input, Badge, ConfirmDialog } from '@/compone
 import api from '@/services/api';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
 import { deferFromEffect } from '@/utils/deferFromEffect';
-import { formControlClass, formLabelClass, formChoiceLabelClass } from '@/utils/formControl';
+import { formControlClass, formLabelClass, formChoiceLabelClass, formChoiceControlClass } from '@/utils/formControl';
 import { moneyAmountToInput, parseMoneyAmountInput } from '@/utils/finePolicy';
 import { holdCapToInput, parseHoldCapInput } from '@/utils/holdsPolicy';
 import { isAdmin } from '@/types';
@@ -263,7 +263,7 @@ function SourceEditor() {
             checked={isSelected}
             onChange={() => toggleSelect(source.id)}
             onClick={(e) => e.stopPropagation()}
-            className="rounded border-gray-300 dark:border-gray-700 text-indigo-600 focus:ring-indigo-500"
+            className={formChoiceControlClass('rounded')}
           />
         )}
 
@@ -328,7 +328,7 @@ function SourceEditor() {
                 type="checkbox"
                 checked={source.default || false}
                 onChange={() => handleToggleDefault(source)}
-                className="rounded border-gray-300 dark:border-gray-700 text-indigo-600 focus:ring-indigo-500"
+                className={formChoiceControlClass('rounded')}
                 title={t('settings.sources.setDefault')}
               />
               <span className="text-xs text-gray-500 dark:text-gray-400">
@@ -432,7 +432,7 @@ function SourceEditor() {
             type="checkbox"
             checked={showArchived}
             onChange={(e) => setShowArchived(e.target.checked)}
-            className="rounded border-gray-300 dark:border-gray-700 text-indigo-600 focus:ring-indigo-500"
+            className={formChoiceControlClass('rounded')}
           />
           {t('settings.sources.showArchived')}
         </label>
@@ -1634,7 +1634,7 @@ export default function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const isAdminUser = isAdmin(user?.accountType);
 
-  const [activeTab, setActiveTab] = useState<SettingsTab>('loans');
+  const [activeTab, setActiveTab] = useState<SettingsTab>('library');
   const [settings, setSettings] = useState<Settings | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -1658,11 +1658,9 @@ export default function SettingsPage() {
       ? 'server'
       : tabParam && SETTINGS_TAB_IDS.includes(tabParam as SettingsTab)
         ? (!isAdminUser && tabParam !== 'library' ? 'library' : (tabParam as SettingsTab))
-        : !isAdminUser
+        : !isAdminUser || !tabParam
           ? 'library'
-          : !tabParam
-            ? 'loans'
-            : null;
+          : null;
   if (nextSettingsTab && nextSettingsTab !== activeTab) {
     setActiveTab(nextSettingsTab);
   }

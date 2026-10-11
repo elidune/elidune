@@ -31,7 +31,7 @@ import {
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { deferFromEffect } from '@/utils/deferFromEffect';
-import { formControlClass, formLabelClass } from '@/utils/formControl';
+import { formChoiceControlClass, formChoiceLabelClass, formControlClass, formLabelClass } from '@/utils/formControl';
 import { LOG_ROTATION_OPTIONS, type AdminConfigSectionKey, type ConfigSectionInfo } from '@/types';
 
 function CollapsibleSectionCard({
@@ -401,13 +401,13 @@ export default function AdminServerSettings() {
               overridable={remindersMeta.overridable}
             >
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                <label className={formChoiceLabelClass()}>
                   <input
                     type="checkbox"
                     checked={bool(remindersValue.enabled, true)}
                     onChange={(e) => setRemindersValue((v) => ({ ...v, enabled: e.target.checked }))}
                     disabled={!remindersMeta.overridable}
-                    className="rounded border-gray-300 dark:border-gray-700 text-indigo-600"
+                    className={formChoiceControlClass('rounded')}
                   />
                   {t('settings.server.remindersEnabled')}
                 </label>
@@ -482,7 +482,7 @@ export default function AdminServerSettings() {
                   }
                   disabled={!holdsMeta.overridable}
                 />
-                <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 sm:col-span-2">
+                <label className={`${formChoiceLabelClass()} sm:col-span-2`}>
                   <input
                     type="checkbox"
                     checked={bool(holdsValue.overridable, true)}
@@ -490,7 +490,7 @@ export default function AdminServerSettings() {
                       setHoldsValue((v) => ({ ...v, overridable: e.target.checked }))
                     }
                     disabled={!holdsMeta.overridable}
-                    className="rounded border-gray-300 dark:border-gray-700 text-indigo-600"
+                    className={formChoiceControlClass('rounded')}
                   />
                   {t('settings.server.holdsOverridable')}
                 </label>
@@ -750,13 +750,13 @@ export default function AdminServerSettings() {
                     className={formControlClass({ className: 'w-full' })}
                   />
                 </div>
-                <label className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 sm:col-span-2">
+                <label className={`${formChoiceLabelClass()} sm:col-span-2`}>
                   <input
                     type="checkbox"
                     checked={bool(emailValue.smtp_use_tls, true)}
                     onChange={(e) => setEmailValue((v) => ({ ...v, smtp_use_tls: e.target.checked }))}
                     disabled={!emailMeta.overridable}
-                    className="rounded border-gray-300 dark:border-gray-700 text-indigo-600"
+                    className={formChoiceControlClass('rounded')}
                   />
                   {t('settings.server.smtpUseTls')}
                 </label>

@@ -23,6 +23,7 @@
     "hideFilters": "Filter ausblenden",
     "showFilters": "Filter anzeigen",
     "select": "Auswählen",
+    "removeNamed": "{{name}} entfernen",
     "back": "Zurück",
     "name": "Name",
     "create": "Erstellen",
@@ -176,6 +177,7 @@
       "allChildGuardianNote": "Einladungen für Kinder werden an ihre gesetzlichen Vertreter gesendet."
     },
     "targetPublicHint": "Wählen Sie „Alle Zielgruppen“ oder eine oder mehrere Zielgruppen.",
+    "targetPublicPlaceholder": "Zielgruppen auswählen",
     "targetPublicRequired": "Wählen Sie mindestens eine Zielgruppe oder Alle Zielgruppen.",
     "attendeesCount": "Anzahl der Teilnehmer",
     "schoolName": "Schule",
