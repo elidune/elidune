@@ -25,6 +25,11 @@ async fn create_borrowable_item(app: &TestApp, admin_token: &str, prefix: &str) 
     fixtures::json_id(&body["biblio"]["items"][0]["id"])
 }
 
+fn policy_lock() -> &'static tokio::sync::Mutex<()> {
+    static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    &LOCK
+}
+
 async fn checkout(
     app: &TestApp,
     admin_token: &str,
@@ -49,6 +54,7 @@ async fn unpaid_under_threshold_allows_checkout() {
     let Some(app) = TestApp::spawn().await else {
         return;
     };
+    let _policy = policy_lock().lock().await;
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "fineunder").await;
 
@@ -75,6 +81,7 @@ async fn unpaid_over_threshold_blocks_checkout_and_force_is_audited() {
     let Some(app) = TestApp::spawn().await else {
         return;
     };
+    let _policy = policy_lock().lock().await;
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "fineover").await;
 
@@ -130,6 +137,7 @@ async fn unpaid_over_threshold_blocks_renew_unless_forced() {
     let Some(app) = TestApp::spawn().await else {
         return;
     };
+    let _policy = policy_lock().lock().await;
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "finerenew").await;
 
