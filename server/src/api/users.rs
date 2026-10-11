@@ -52,7 +52,7 @@ pub fn router() -> axum::Router<crate::AppState> {
         ("per_page" = Option<i64>, Query, description = "Items per page")
     ),
     responses(
-        (status = 200, description = "List of users. Staff summary includes `login`.", body = PaginatedResponse<UserShortStaff>),
+        (status = 200, description = "List of users. Staff summary includes `login` and `barcode`. Readers cannot call this route.", body = PaginatedResponse<UserShortStaff>),
         (status = 401, description = "Not authenticated")
     )
 )]

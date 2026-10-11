@@ -723,7 +723,7 @@ impl Repository {
         use crate::models::user::UserShortRow;
         let select_query = format!(
             r#"
-            SELECT u.id, u.login, u.firstname, u.lastname, u.account_type, u.public_type,
+            SELECT u.id, u.login, u.barcode, u.firstname, u.lastname, u.account_type, u.public_type,
                    u.status, u.created_at, u.expiry_at,
                    (SELECT COUNT(*) FROM loans l WHERE l.user_id = u.id AND l.returned_at IS NULL) as nb_loans,
                    (SELECT COUNT(*) FROM loans l WHERE l.user_id = u.id AND l.returned_at IS NULL AND l.expiry_at < NOW()) as nb_late_loans

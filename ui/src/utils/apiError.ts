@@ -89,9 +89,45 @@ export function retryAfterDelayMs(error: unknown, now = Date.now()): number {
   return Math.min(RETRY_AFTER_MAX_MS, Math.max(RETRY_AFTER_MIN_MS, ms));
 }
 
+const RETRY_WAIT_MINUTE_SECONDS = 60;
+
+/** Rounded wait used in the rate-limit message: seconds under a minute, otherwise minutes. */
+export function retryWaitAmount(seconds: number): { unit: 'second' | 'minute'; count: number } {
+  const safe = Math.max(0, Math.ceil(seconds));
+  if (safe < RETRY_WAIT_MINUTE_SECONDS) return { unit: 'second', count: safe };
+  return {
+    unit: 'minute',
+    count: Math.max(1, Math.round(safe / RETRY_WAIT_MINUTE_SECONDS)),
+  };
+}
+
+/** Locale unit phrase (`45 seconds`, `11 min`) via `Intl.NumberFormat`. */
+export function formatRetryWaitDuration(seconds: number, language: string): string {
+  const { unit, count } = retryWaitAmount(seconds);
+  return new Intl.NumberFormat(language, {
+    style: 'unit',
+    unit,
+    unitDisplay: unit === 'minute' ? 'short' : 'long',
+  }).format(count);
+}
+
+/**
+ * Human rate-limit wait. Under 60s the duration is exact seconds; longer waits
+ * round to minutes (`about 11 min`). Call this whenever the shown wait changes,
+ * including a countdown, so the unit stays in step with the number.
+ */
+export function rateLimitWaitMessage(seconds: number, t: TFunction, language?: string): string {
+  const lang = language || i18n.resolvedLanguage || i18n.language || 'en';
+  const { unit, count } = retryWaitAmount(seconds);
+  const duration = formatRetryWaitDuration(seconds, lang);
+  const key =
+    unit === 'second' ? 'errors.tooManyRequestsWaitSeconds' : 'errors.tooManyRequestsWaitMinutes';
+  return t(key, { count, duration });
+}
+
 export function rateLimitMessage(error: unknown, t: TFunction): string {
   const seconds = getRetryAfterSeconds(error);
-  if (seconds != null) return t('errors.tooManyRequestsWait', { seconds });
+  if (seconds != null) return rateLimitWaitMessage(seconds, t);
   return t('errors.tooManyRequests');
 }
 

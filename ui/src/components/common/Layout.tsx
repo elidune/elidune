@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { rateLimitWaitMessage } from '@/utils/apiError';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -48,7 +49,7 @@ interface LayoutProps {
 }
 
 export default function Layout({ children }: LayoutProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [serverVersion, setServerVersion] = useState<string | null>(null);
   const sidebarRef = useRef<HTMLElement>(null);
@@ -357,7 +358,9 @@ export default function Layout({ children }: LayoutProps) {
               className="mb-4 flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 sm:flex-row sm:items-center dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100"
             >
               <p className="min-w-0 flex-1">
-                {t(profileWarning.messageKey, { seconds: profileWarning.seconds })}
+                {profileWarning.seconds != null
+                  ? rateLimitWaitMessage(profileWarning.seconds, t, i18n.language)
+                  : t(profileWarning.messageKey)}
               </p>
               <div className="flex shrink-0 gap-2">
                 <Button type="button" size="sm" variant="secondary" onClick={() => void refreshProfile()}>

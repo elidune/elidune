@@ -205,11 +205,14 @@ export type UserAccountStatus = 'active' | 'blocked' | 'deleted';
 
 /**
  * Patron summary for staff (`UserShortStaff`).
- * `login` is on this type only. `publicType` is the numeric public-type id.
+ * `login` and `barcode` are on this type only. `publicType` is the numeric public-type id.
  */
 export interface UserShortStaff {
   id: string;
+  /** Sign-in name. Patron pickers show this beside the display name. */
   login?: string | null;
+  /** Library card number. Shown when `login` is empty. */
+  barcode?: string | null;
   firstname?: string | null;
   lastname?: string | null;
   accountType?: string | null;
@@ -221,7 +224,7 @@ export interface UserShortStaff {
   expiryAt?: string | null;
 }
 
-/** Patron summary for readers (`UserShortPublic`). No `login`. */
+/** Patron summary for readers (`UserShortPublic`). No `login` or `barcode`. */
 export interface UserShortPublic {
   id: string;
   firstname?: string | null;

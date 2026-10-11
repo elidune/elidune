@@ -543,7 +543,7 @@ impl From<BiblioShort> for BiblioShortPublic {
     }
 }
 
-/// Patron summary returned to staff. `login` exists only on this type.
+/// Patron summary returned to staff. `login` and `barcode` exist only on this type.
 #[serde_as]
 #[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -552,6 +552,8 @@ pub struct UserShortStaff {
     #[schema(value_type = String)]
     pub id: i64,
     pub login: Option<String>,
+    /// Library card number. The staff patron picker shows this when `login` is empty.
+    pub barcode: Option<String>,
     pub firstname: Option<String>,
     pub lastname: Option<String>,
     pub account_type: Option<AccountTypeSlug>,
@@ -568,6 +570,7 @@ impl From<UserShort> for UserShortStaff {
         Self {
             id: user.id,
             login: user.login,
+            barcode: user.barcode,
             firstname: user.firstname,
             lastname: user.lastname,
             account_type: user.account_type,

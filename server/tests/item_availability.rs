@@ -664,3 +664,140 @@ async fn reader_search_hides_staff_fields_and_to_search() {
         .expect("search hit");
     assert_state(find_copy(hit, hidden.item_id), "unavailable", false);
 }
+
+fn assert_no_login_anywhere(body: &Value) {
+    fn walk(value: &Value, path: &str) {
+        match value {
+            Value::Object(map) => {
+                assert!(
+                    !map.contains_key("login"),
+                    "reader JSON has login at {path}: {value}"
+                );
+                for (key, child) in map {
+                    walk(child, &format!("{path}.{key}"));
+                }
+            }
+            Value::Array(items) => {
+                for (index, child) in items.iter().enumerate() {
+                    walk(child, &format!("{path}[{index}]"));
+                }
+            }
+            _ => {}
+        }
+    }
+    walk(body, "$");
+}
+
+fn assert_public_patron(user: &Value) {
+    assert!(user.is_object(), "public patron: {user}");
+    assert!(
+        user.get("login").is_none(),
+        "public patron has login: {user}"
+    );
+    assert!(
+        user.get("barcode").is_none(),
+        "public patron has barcode: {user}"
+    );
+}
+
+/// Staff patron search returns `login` and `barcode`. Reader loan and hold rows do not.
+#[tokio::test]
+async fn reader_patron_summary_omits_login_staff_picker_includes_it() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_id, reader_token) = fixtures::create_reader(&app, &admin_token, "picker").await;
+    let card = format!("CARD-{}", fixtures::unique_suffix());
+    sqlx::query("UPDATE users SET barcode = $1 WHERE id = $2")
+        .bind(&card)
+        .bind(reader_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("set card number");
+
+    let (status, profile) = app
+        .get_json_with_auth(&format!("/api/v1/users/{reader_id}"), &admin_token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "staff profile: {profile}");
+    let login = profile["login"].as_str().expect("staff profile login");
+
+    let (status, denied) = app
+        .get_json_with_auth(&format!("/api/v1/users?name={login}"), &reader_token)
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "reader user list: {denied}");
+
+    let (status, list) = app
+        .get_json_with_auth(&format!("/api/v1/users?name={login}"), &admin_token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "staff user list: {list}");
+    let row = list["items"]
+        .as_array()
+        .expect("users")
+        .iter()
+        .find(|user| fixtures::json_id(&user["id"]) == reader_id)
+        .expect("picker row");
+    assert_eq!(row["login"], login);
+    assert_eq!(row["barcode"], card);
+
+    let barcode = format!("AVP-loan-{}", fixtures::unique_suffix());
+    let (biblio_id, copies) = create_biblio(
+        &app,
+        &admin_token,
+        "Picker loan",
+        vec![copy(&barcode, true)],
+    )
+    .await;
+    let item_id = copies[0].1;
+    let (status, loan) = app
+        .post_json(
+            "/api/v1/loans",
+            &json!({
+                "userId": reader_id.to_string(),
+                "itemId": item_id.to_string()
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "checkout: {loan}");
+
+    let (status, loans) = app
+        .get_json_with_auth(&format!("/api/v1/users/{reader_id}/loans"), &reader_token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "reader loans: {loans}");
+    assert!(
+        !loans["items"].as_array().expect("loans").is_empty(),
+        "{loans}"
+    );
+    assert_no_login_anywhere(&loans);
+
+    place_title(&app, &admin_token, reader_id, biblio_id).await;
+    let (status, holds) = app
+        .get_json_with_auth("/api/v1/holds?perPage=50", &reader_token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "reader holds: {holds}");
+    assert_no_login_anywhere(&holds);
+    let hold_user = &holds["items"]
+        .as_array()
+        .expect("holds")
+        .iter()
+        .find(|row| fixtures::json_id(&row["userId"]) == reader_id)
+        .expect("reader hold")["user"];
+    assert_public_patron(hold_user);
+
+    let (status, staff_holds) = app
+        .get_json_with_auth(&format!("/api/v1/users/{reader_id}/holds"), &admin_token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "staff holds: {staff_holds}");
+    let staff_user = &staff_holds
+        .as_array()
+        .expect("holds")
+        .iter()
+        .find(|row| fixtures::json_id(&row["userId"]) == reader_id)
+        .expect("staff hold")["user"];
+    assert_eq!(staff_user["login"], login);
+    assert!(
+        staff_user.get("barcode").is_none() || staff_user["barcode"].is_null(),
+        "card number stays off embedded hold patrons: {staff_user}"
+    );
+}
