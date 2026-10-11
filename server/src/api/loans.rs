@@ -18,8 +18,9 @@ use utoipa::{IntoParams, ToSchema};
 use crate::{
     error::{AppError, AppResult},
     models::{
+        catalog_view::{LoanDetailsPublic, LoanDetailsStaff, UserShortStaff},
         loan::{CreateLoan, LoanDetails, LoanMarcExportEncoding, LoanMarcExportFormat},
-        user::{Rights, UserShort},
+        user::Rights,
     },
     services::{
         audit::{self},
@@ -76,7 +77,7 @@ pub fn router() -> axum::Router<crate::AppState> {
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Active loan ID")),
     responses(
-        (status = 200, description = "Borrower profile", body = UserShort),
+        (status = 200, description = "Borrower profile (`UserShortStaff`, includes `login`)", body = UserShortStaff),
         (status = 403, description = "Insufficient loans write rights"),
         (status = 404, description = "Loan not found")
     )
@@ -85,10 +86,10 @@ pub async fn get_loan_borrower(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     Path(loan_id): Path<i64>,
-) -> AppResult<Json<UserShort>> {
+) -> AppResult<Json<UserShortStaff>> {
     claims.require_write_loans()?;
     let user = state.services.loans.get_loan_borrower(loan_id).await?;
-    Ok(Json(user))
+    Ok(Json(UserShortStaff::from(user)))
 }
 
 /// Create loan request
@@ -254,6 +255,14 @@ pub async fn update_loan_settings(
     Ok(Json(rows))
 }
 
+/// Staff or reader loan page. Selected with [`crate::models::user::UserClaims::is_librarian`].
+#[derive(Serialize, ToSchema)]
+#[serde(untagged)]
+pub enum UserLoanListResponse {
+    Staff(PaginatedResponse<LoanDetailsStaff>),
+    Public(PaginatedResponse<LoanDetailsPublic>),
+}
+
 /// Get loans for a specific user (paginated).
 #[utoipa::path(
     get,
@@ -265,7 +274,7 @@ pub async fn update_loan_settings(
         GetUserLoansQuery
     ),
     responses(
-        (status = 200, description = "User's loans", body = PaginatedResponse<LoanDetails>),
+        (status = 200, description = "User's loans. Librarians and admins receive `LoanDetailsStaff` (copy weeding, full availability, patron `login`). Readers receive `LoanDetailsPublic`.", body = UserLoanListResponse),
         (status = 404, description = "User not found")
     )
 )]
@@ -274,7 +283,7 @@ pub async fn get_user_loans(
     AuthenticatedUser(claims): AuthenticatedUser,
     Path(user_id): Path<i64>,
     Query(query): Query<GetUserLoansQuery>,
-) -> AppResult<Json<PaginatedResponse<LoanDetails>>> {
+) -> AppResult<Json<UserLoanListResponse>> {
     claims.require_self_or_staff(user_id)?;
 
     if claims.rights.loans_rights.rank() < Rights::Read.rank() && user_id != claims.user_id {
@@ -300,7 +309,22 @@ pub async fn get_user_loans(
             .await?
     };
 
-    Ok(Json(PaginatedResponse::new(items, total, page, per_page)))
+    let body = if claims.is_librarian() {
+        UserLoanListResponse::Staff(PaginatedResponse::new(
+            items.into_iter().map(LoanDetailsStaff::from).collect(),
+            total,
+            page,
+            per_page,
+        ))
+    } else {
+        UserLoanListResponse::Public(PaginatedResponse::new(
+            items.into_iter().map(LoanDetailsPublic::from).collect(),
+            total,
+            page,
+            per_page,
+        ))
+    };
+    Ok(Json(body))
 }
 
 /// Query for MARC export download (no pagination; full list in one file).

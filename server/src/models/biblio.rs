@@ -535,14 +535,6 @@ impl Biblio {
 }
 
 impl BiblioShort {
-    /// Drop patron identity from embedded copies. Availability stays.
-    pub fn redact_hold_patrons(&mut self) {
-        for item in &mut self.items {
-            item.hold_user_id = None;
-            item.hold_user_name = None;
-        }
-    }
-
     /// Attach copies and derive the biblio-level weeding mark.
     pub fn set_items(&mut self, items: Vec<ItemShort>) {
         self.weeding_status = crate::models::item::WeedingStatus::for_copies(

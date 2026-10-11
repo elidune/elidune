@@ -1,7 +1,7 @@
 //! Server-computed copy availability (#118).
 //!
-//! Staff and readers see the same `availability`. Patron identity is staff-only
-//! and only when the copy is `onHold`.
+//! Staff responses use the full availability enum. Readers and the OPAC use the
+//! public enum (`toSearch` is `unavailable`) and a type that has no staff fields.
 
 mod common;
 
@@ -493,4 +493,174 @@ async fn transit_loan_tosearch_and_blocked_copies() {
         .await;
     assert_eq!(status, StatusCode::OK, "barcode: {by_barcode}");
     assert_state(find_copy(&by_barcode, loan_item), "onLoan", true);
+}
+
+const PUBLIC_FORBIDDEN_KEYS: &[&str] = &[
+    "holdUserId",
+    "holdUserName",
+    "login",
+    "notes",
+    "weedingStatus",
+    "weedingReason",
+];
+
+fn assert_public_catalog(body: &Value) {
+    fn walk(value: &Value, path: &str) {
+        match value {
+            Value::Object(map) => {
+                for key in PUBLIC_FORBIDDEN_KEYS {
+                    assert!(
+                        !map.contains_key(*key),
+                        "public JSON has {key} at {path}: {value}"
+                    );
+                }
+                for (key, child) in map {
+                    walk(child, &format!("{path}.{key}"));
+                }
+            }
+            Value::Array(items) => {
+                for (index, child) in items.iter().enumerate() {
+                    walk(child, &format!("{path}[{index}]"));
+                }
+            }
+            _ => {}
+        }
+    }
+    walk(body, "$");
+}
+
+struct HiddenCopy {
+    biblio_id: i64,
+    item_id: i64,
+    title: String,
+    reader_token: String,
+}
+
+async fn seed_tosearch_copy(app: &TestApp, label: &str) -> HiddenCopy {
+    let admin_token = fixtures::ensure_first_setup(app).await;
+    let (_reader_id, reader_token) =
+        fixtures::create_reader(app, &admin_token, &format!("avpub{label}")).await;
+    let suffix = fixtures::unique_suffix();
+    let title = format!("Public availability {label} {suffix}");
+    let barcode = format!("AVP-{label}-{suffix}");
+    let (biblio_id, copies) =
+        create_biblio(app, &admin_token, &title, vec![copy(&barcode, true)]).await;
+    let item_id = copies[0].1;
+
+    sqlx::query("UPDATE biblios SET notes = 'staff biblio note' WHERE id = $1")
+        .bind(biblio_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("biblio notes");
+    sqlx::query("UPDATE items SET notes = 'staff copy note' WHERE id = $1")
+        .bind(item_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("copy notes");
+
+    let (status, weeding) = app
+        .post_json(
+            &format!("/api/v1/items/{item_id}/weeding"),
+            &json!({ "status": "candidate", "reason": "internal discard note" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "weeding: {weeding}");
+
+    let (reader_id, _) =
+        fixtures::create_reader(app, &admin_token, &format!("avhold{label}")).await;
+    let hold = place_title(app, &admin_token, reader_id, biblio_id).await;
+    assert_eq!(hold["status"], "to_pick");
+    let hold_id = fixtures::json_id(&hold["id"]);
+    let (status, not_found) = app
+        .post_empty(
+            &format!("/api/v1/holds/{hold_id}/pick-not-found"),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "pick not found: {not_found}");
+
+    let staff = staff_biblio(app, &admin_token, biblio_id).await;
+    assert_state(find_copy(&staff, item_id), "toSearch", false);
+
+    HiddenCopy {
+        biblio_id,
+        item_id,
+        title,
+        reader_token,
+    }
+}
+
+#[tokio::test]
+async fn reader_biblio_detail_hides_staff_fields_and_to_search() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let hidden = seed_tosearch_copy(&app, "biblio").await;
+    let (status, body) = app
+        .get_json_with_auth(
+            &format!("/api/v1/biblios/{}", hidden.biblio_id),
+            &hidden.reader_token,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "reader biblio: {body}");
+    assert_public_catalog(&body);
+    assert_state(find_copy(&body, hidden.item_id), "unavailable", false);
+}
+
+#[tokio::test]
+async fn opac_biblio_detail_hides_staff_fields_and_to_search() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let hidden = seed_tosearch_copy(&app, "opac").await;
+    let (status, body) = app
+        .get_json(&format!("/api/v1/opac/biblios/{}", hidden.biblio_id))
+        .await;
+    assert_eq!(status, StatusCode::OK, "opac biblio: {body}");
+    assert_public_catalog(&body);
+    assert_state(find_copy(&body, hidden.item_id), "unavailable", false);
+}
+
+#[tokio::test]
+async fn reader_item_detail_hides_staff_fields_and_to_search() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let hidden = seed_tosearch_copy(&app, "item").await;
+    let (status, body) = app
+        .get_json_with_auth(
+            &format!("/api/v1/items/{}", hidden.item_id),
+            &hidden.reader_token,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "reader item: {body}");
+    assert_public_catalog(&body);
+    assert_state(find_copy(&body, hidden.item_id), "unavailable", false);
+}
+
+#[tokio::test]
+async fn reader_search_hides_staff_fields_and_to_search() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let hidden = seed_tosearch_copy(&app, "search").await;
+    let (status, body) = app
+        .get_json_with_auth(
+            &format!(
+                "/api/v1/biblios?title={}&perPage=5",
+                urlencoding_title(&hidden.title)
+            ),
+            &hidden.reader_token,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "reader search: {body}");
+    assert_public_catalog(&body);
+    let hit = body["items"]
+        .as_array()
+        .expect("hits")
+        .iter()
+        .find(|row| fixtures::json_id(&row["id"]) == hidden.biblio_id)
+        .expect("search hit");
+    assert_state(find_copy(hit, hidden.item_id), "unavailable", false);
 }

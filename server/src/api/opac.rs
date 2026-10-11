@@ -8,7 +8,14 @@ use axum::{
     Json,
 };
 
-use crate::{api::biblios::PaginatedResponse, error::AppResult, models::biblio::BiblioQuery};
+use crate::{
+    api::biblios::PaginatedResponse,
+    error::AppResult,
+    models::{
+        biblio::BiblioQuery,
+        catalog_view::{BiblioPublicView, BiblioShortPublic},
+    },
+};
 
 pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::get;
@@ -38,13 +45,13 @@ pub fn router() -> axum::Router<crate::AppState> {
         ("per_page" = Option<i64>, Query, description = "Items per page (default 20, max 50)")
     ),
     responses(
-        (status = 200, description = "Catalog search results. Embedded copies include server-computed `availability` and `canHoldItem`. Patron identity is omitted.", body = PaginatedResponse<BiblioShort>)
+        (status = 200, description = "Catalog search results. Copies are `ItemShortPublic`: public availability (`toSearch` is `unavailable`) and `canHoldItem`. No hold patron, login, notes, or weeding fields.", body = PaginatedResponse<BiblioShortPublic>)
     )
 )]
 pub async fn opac_search(
     State(state): State<crate::AppState>,
     Query(mut query): Query<BiblioQuery>,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Json<PaginatedResponse<BiblioShortPublic>>> {
     // Cap per_page to prevent abuse on public endpoint
     let per_page = query.per_page.unwrap_or(20).min(50);
     let page = query.page.unwrap_or(1).max(1);
@@ -52,10 +59,12 @@ pub async fn opac_search(
     query.page = Some(page);
 
     let (biblios, total) = state.services.catalog.search_biblios(&query).await?;
-    super::biblios::catalog_json(
-        PaginatedResponse::new(biblios, total, page, per_page),
-        false,
-    )
+    Ok(Json(PaginatedResponse::new(
+        biblios.into_iter().map(BiblioShortPublic::from).collect(),
+        total,
+        page,
+        per_page,
+    )))
 }
 
 /// Get a single bibliographic record by ID — public
@@ -65,16 +74,16 @@ pub async fn opac_search(
     tag = "opac",
     params(("id" = i64, Path, description = "Biblio ID")),
     responses(
-        (status = 200, description = "Bibliographic record details. Each copy includes server-computed `availability` and `canHoldItem`. Patron identity is omitted.", body = crate::models::biblio::Biblio),
+        (status = 200, description = "Bibliographic record details as `BiblioPublicView`. Copies use public availability (`toSearch` is `unavailable`). No hold patron, login, notes, or weeding fields.", body = BiblioPublicView),
         (status = 404, description = "Biblio not found", body = crate::error::ErrorResponse)
     )
 )]
 pub async fn opac_get_biblio(
     State(state): State<crate::AppState>,
     Path(biblio_id): Path<i64>,
-) -> AppResult<Json<serde_json::Value>> {
+) -> AppResult<Json<BiblioPublicView>> {
     let biblio = state.services.catalog.get_biblio(biblio_id).await?;
-    super::biblios::catalog_json(biblio, false)
+    Ok(Json(BiblioPublicView::from(biblio)))
 }
 
 /// Get availability for a bibliographic record (how many physical copies are available)
