@@ -294,8 +294,13 @@ impl TransitsService {
             .and_then(|(t, _)| t.as_deref())
             .unwrap_or("(unknown title)");
         let barcode = ctx.as_ref().and_then(|(_, b)| b.as_deref());
+        let zone = self.repository.library_zone().await.unwrap_or_else(|err| {
+            tracing::warn!(error = %err, "library timezone unavailable; using Europe/Paris");
+            crate::services::calendar::default_zone()
+        });
         if let Err(e) =
-            hold_email::send_hold_ready_simple(&self.email, contact, hold, title, barcode).await
+            hold_email::send_hold_ready_simple(&self.email, contact, hold, title, barcode, zone)
+                .await
         {
             tracing::warn!(
                 target: "transits",

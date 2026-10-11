@@ -47,6 +47,20 @@ pub struct LoansService {
 }
 
 impl LoansService {
+    async fn library_zone(&self) -> chrono_tz::Tz {
+        match self.repository.library_timezone_name().await {
+            Ok(name) => crate::services::calendar::parse_timezone(&name)
+                .unwrap_or_else(|_| crate::services::calendar::default_zone()),
+            Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    "library timezone unavailable; using Europe/Paris"
+                );
+                crate::services::calendar::default_zone()
+            }
+        }
+    }
+
     pub fn new(
         repository: Arc<dyn LoansServiceRepository>,
         fines: FinesService,
@@ -159,9 +173,13 @@ impl LoansService {
 
         if let Some(expiry_at) = user.expiry_at {
             if expiry_at < Utc::now() && !loan.force {
+                let zone = crate::services::calendar::parse_timezone(
+                    &self.repository.library_timezone_name().await?,
+                )
+                .unwrap_or_else(|_| crate::services::calendar::default_zone());
                 return Err(AppError::BusinessRule(format!(
                     "User subscription expired on {} — use force=true to override",
-                    expiry_at.format("%Y-%m-%d")
+                    crate::services::calendar::format_patron_iso_date(zone, expiry_at)
                 )));
             }
         }
@@ -342,9 +360,16 @@ impl LoansService {
             .await
             .ok()
             .flatten();
-        if let Err(e) =
-            crate::hold_email::send_hold_ready_simple(&self.email, contact, hold, title, barcode)
-                .await
+        let zone = self.library_zone().await;
+        if let Err(e) = crate::hold_email::send_hold_ready_simple(
+            &self.email,
+            contact,
+            hold,
+            title,
+            barcode,
+            zone,
+        )
+        .await
         {
             tracing::warn!(
                 target: "loans",
@@ -370,11 +395,13 @@ impl LoansService {
             .as_ref()
             .and_then(|c| c.email.as_deref().map(str::trim))
             .filter(|s| !s.is_empty())?;
+        let zone = self.library_zone().await;
         match crate::hold_email::send_hold_ready(
             &self.email,
             contact.clone(),
             hold,
             &outcome.details,
+            zone,
         )
         .await
         {
@@ -820,6 +847,9 @@ mod tests {
         async fn loans_settings_delete_rows(&self) -> AppResult<()> {
             Ok(())
         }
+        async fn library_timezone_name(&self) -> AppResult<String> {
+            Ok(crate::services::calendar::DEFAULT_TIMEZONE.to_string())
+        }
         async fn loans_get_by_id(&self, _: i64) -> AppResult<crate::models::loan::Loan> {
             self.loan
                 .clone()
@@ -1181,7 +1211,10 @@ mod tests {
                 loan_id,
                 loan,
             }),
-            FinesService::new(Arc::new(fines)),
+            FinesService::new(
+                Arc::new(fines),
+                Arc::new(crate::services::calendar::AlwaysOpenCalendar),
+            ),
             audit,
             email,
             events,

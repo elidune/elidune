@@ -6,6 +6,7 @@ use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 
 use crate::{
+    circulation_calendar::OpeningCalendar,
     error::{AppError, AppResult},
     models::{
         dto::fines::{
@@ -16,6 +17,7 @@ use crate::{
         user::UserStatus,
     },
     repository::FinesRepository,
+    services::calendar::{self, OpeningDays},
 };
 
 /// Result of comparing a patron's unpaid balance to the configured threshold.
@@ -50,11 +52,15 @@ impl UnpaidThresholdCheck {
 #[derive(Clone)]
 pub struct FinesService {
     repository: Arc<dyn FinesRepository>,
+    calendar: Arc<dyn OpeningDays>,
 }
 
 impl FinesService {
-    pub fn new(repository: Arc<dyn FinesRepository>) -> Self {
-        Self { repository }
+    pub fn new(repository: Arc<dyn FinesRepository>, calendar: Arc<dyn OpeningDays>) -> Self {
+        Self {
+            repository,
+            calendar,
+        }
     }
 
     /// List all fines for a user
@@ -100,7 +106,10 @@ impl FinesService {
     #[tracing::instrument(skip(self), err)]
     pub async fn accrue_loan(&self, loan_id: i64) -> AppResult<AccrueLoanResult> {
         let loan = self.repository.fines_get_accrual_loan(loan_id).await?;
-        self.accrue_loan_row(&loan, Utc::now()).await
+        let now = Utc::now();
+        let zone = self.calendar.zone().await?;
+        let opening = self.opening_for_loan(&loan, now, zone).await?;
+        self.accrue_loan_row(&loan, now, zone, &opening).await
     }
 
     /// Accrue overdue loans for one patron (`Some`) or every eligible loan (`None`).
@@ -108,13 +117,15 @@ impl FinesService {
     pub async fn accrue_overdue(&self, user_id: Option<i64>) -> AppResult<AccrueBatchReport> {
         let loans = self.repository.fines_list_accrual_loans(user_id).await?;
         let now = Utc::now();
+        let zone = self.calendar.zone().await?;
+        let opening = self.opening_for_loans(&loans, now, zone).await?;
         let mut report = AccrueBatchReport {
             results: Vec::with_capacity(loans.len()),
             ..AccrueBatchReport::default()
         };
 
         for loan in loans {
-            match self.accrue_loan_row(&loan, now).await {
+            match self.accrue_loan_row(&loan, now, zone, &opening).await {
                 Ok(result) => {
                     match result.outcome {
                         AccrueOutcome::Created => report.created += 1,
@@ -227,10 +238,40 @@ impl FinesService {
             .await
     }
 
+    async fn opening_for_loan(
+        &self,
+        loan: &FineAccrualLoan,
+        now: DateTime<Utc>,
+        zone: chrono_tz::Tz,
+    ) -> AppResult<OpeningCalendar> {
+        self.opening_for_loans(std::slice::from_ref(loan), now, zone)
+            .await
+    }
+
+    async fn opening_for_loans(
+        &self,
+        loans: &[FineAccrualLoan],
+        now: DateTime<Utc>,
+        zone: chrono_tz::Tz,
+    ) -> AppResult<OpeningCalendar> {
+        let as_of = calendar::local_date(zone, now);
+        let earliest = loans
+            .iter()
+            .filter_map(|loan| loan.expiry_at)
+            .map(|expiry| calendar::local_date(zone, expiry))
+            .min();
+        match earliest {
+            Some(from) if from < as_of => self.calendar.opening_between(from, as_of).await,
+            _ => Ok(OpeningCalendar::empty()),
+        }
+    }
+
     async fn accrue_loan_row(
         &self,
         loan: &FineAccrualLoan,
         now: DateTime<Utc>,
+        zone: chrono_tz::Tz,
+        opening: &OpeningCalendar,
     ) -> AppResult<AccrueLoanResult> {
         if loan.user_status == UserStatus::Deleted {
             return Ok(skipped(loan, AccrueOutcome::SkippedDeletedUser));
@@ -241,7 +282,9 @@ impl FinesService {
         let Some(expiry_at) = loan.expiry_at else {
             return Ok(skipped(loan, AccrueOutcome::SkippedNotOverdue));
         };
-        let overdue_days = (now - expiry_at).num_days();
+        let due = calendar::local_date(zone, expiry_at);
+        let as_of = calendar::local_date(zone, now);
+        let overdue_days = calendar::open_days_between(opening, loan.site_id, due, as_of);
         if overdue_days <= 0 {
             return Ok(skipped(loan, AccrueOutcome::SkippedNotOverdue));
         }
@@ -571,7 +614,10 @@ mod tests {
 
     #[tokio::test]
     async fn accrue_is_idempotent_one_open_fine_per_loan() {
-        let svc = FinesService::new(Arc::new(FakeRepo::with_default_rule()));
+        let svc = FinesService::new(
+            Arc::new(FakeRepo::with_default_rule()),
+            Arc::new(crate::services::calendar::AlwaysOpenCalendar),
+        );
         let first = svc.accrue(10, 20, None, 10).await.expect("first");
         let second = svc.accrue(10, 20, None, 10).await.expect("second");
         assert_eq!(first.id, second.id);
@@ -582,7 +628,10 @@ mod tests {
 
     #[tokio::test]
     async fn accrue_updates_amount_when_overdue_days_grow() {
-        let svc = FinesService::new(Arc::new(FakeRepo::with_default_rule()));
+        let svc = FinesService::new(
+            Arc::new(FakeRepo::with_default_rule()),
+            Arc::new(crate::services::calendar::AlwaysOpenCalendar),
+        );
         let first = svc.accrue(11, 21, None, 10).await.expect("first");
         assert_eq!(first.amount, dec(350, 2));
         let second = svc.accrue(11, 21, None, 13).await.expect("second");
@@ -594,7 +643,10 @@ mod tests {
 
     #[tokio::test]
     async fn accrue_rejects_grace_period() {
-        let svc = FinesService::new(Arc::new(FakeRepo::with_default_rule()));
+        let svc = FinesService::new(
+            Arc::new(FakeRepo::with_default_rule()),
+            Arc::new(crate::services::calendar::AlwaysOpenCalendar),
+        );
         let err = svc.accrue(12, 22, None, 2).await.expect_err("grace");
         assert!(matches!(err, AppError::BusinessRule(_)));
         let listed = svc.list_for_user(22).await.expect("list");
@@ -603,7 +655,10 @@ mod tests {
 
     #[tokio::test]
     async fn accrue_respects_cap() {
-        let svc = FinesService::new(Arc::new(FakeRepo::with_default_rule()));
+        let svc = FinesService::new(
+            Arc::new(FakeRepo::with_default_rule()),
+            Arc::new(crate::services::calendar::AlwaysOpenCalendar),
+        );
         let fine = svc.accrue(13, 23, None, 100).await.expect("capped");
         assert_eq!(fine.amount, dec(10, 0));
     }
@@ -620,9 +675,13 @@ mod tests {
                 returned_at: None,
                 media_type: None,
                 user_status: UserStatus::Deleted,
+                site_id: None,
             });
         }
-        let svc = FinesService::new(Arc::new(repo));
+        let svc = FinesService::new(
+            Arc::new(repo),
+            Arc::new(crate::services::calendar::AlwaysOpenCalendar),
+        );
         let result = svc.accrue_loan(40).await.expect("skip");
         assert_eq!(result.outcome, AccrueOutcome::SkippedDeletedUser);
         assert!(result.fine.is_none());
@@ -640,9 +699,13 @@ mod tests {
                 returned_at: None,
                 media_type: None,
                 user_status: UserStatus::Active,
+                site_id: None,
             });
         }
-        let svc = FinesService::new(Arc::new(repo));
+        let svc = FinesService::new(
+            Arc::new(repo),
+            Arc::new(crate::services::calendar::AlwaysOpenCalendar),
+        );
         let first = svc.accrue_overdue(Some(70)).await.expect("batch1");
         let second = svc.accrue_overdue(Some(70)).await.expect("batch2");
         assert_eq!(first.created, 1);
