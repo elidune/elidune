@@ -116,6 +116,15 @@ pub fn unique_suffix() -> u128 {
         .as_nanos()
 }
 
+/// Move `expiry_at` inside the default 7-day renewal window so a renew is allowed.
+pub async fn pull_loan_into_renewal_window(app: &super::TestApp, loan_id: i64) {
+    sqlx::query("UPDATE loans SET expiry_at = NOW() + interval '1 day' WHERE id = $1")
+        .bind(loan_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("move due date into the renewal window");
+}
+
 /// Create a reader user via API; returns (user_id, token).
 pub async fn create_reader(app: &super::TestApp, admin_token: &str, login: &str) -> (i64, String) {
     create_reader_with_public_type(app, admin_token, login, None).await

@@ -16,6 +16,14 @@ pub struct LoanSettingsDto {
     pub duration_days: i16,
     #[serde(default)]
     pub renew_at: LoanSettingsRenewAt,
+    /// Days before the due date when a renewal is allowed. Default 7.
+    /// `0` allows renewal only on the due date or once the loan is overdue.
+    #[serde(default = "default_renew_window_days")]
+    pub renew_window_days: i16,
+}
+
+fn default_renew_window_days() -> i16 {
+    7
 }
 
 /// Partial update of global loan rules.

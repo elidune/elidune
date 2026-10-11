@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   Loader2,
   AlertCircle,
+  LockOpen,
 } from 'lucide-react';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePublicTypesQuery } from '@/hooks/usePublicTypesQuery';
@@ -46,7 +47,7 @@ import { useCirculationExceptionAction, type CirculationExceptionKind } from '@/
 import { RenewSubscriptionModal, UserEditorForm } from '@/components/users';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
-import { isLibrarian, type User as UserType, type Loan, type LoanStatsResponse, type AdvancedStatsParams, type StatsInterval, type Author, type Hold } from '@/types';
+import { canManageUsers, isLibrarian, type User as UserType, type Loan, type LoanStatsResponse, type AdvancedStatsParams, type StatsInterval, type Author, type Hold } from '@/types';
 import { accountTypeDisplayName } from '@/utils/accountTypeDisplay';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 import { deferFromEffect } from '@/utils/deferFromEffect';
@@ -110,6 +111,9 @@ export default function UserDetailPage() {
   });
   const deskBusy = loanAction != null || exceptionAction.target != null;
   const [showRenewSubscriptionModal, setShowRenewSubscriptionModal] = useState(false);
+  const [showUnlockSignIn, setShowUnlockSignIn] = useState(false);
+  const [unlockSignInLoading, setUnlockSignInLoading] = useState(false);
+  const [unlockSignInError, setUnlockSignInError] = useState<string | null>(null);
 
   const [cancellingHoldId, setCancellingHoldId] = useState<string | null>(null);
   const sourcesQuery = useSourcesQuery();
@@ -367,6 +371,25 @@ export default function UserDetailPage() {
     { value: 'year', label: t('stats.interval.year') },
   ];
 
+  const handleUnlockSignIn = async () => {
+    const login = user?.login?.trim() ?? '';
+    if (!login || unlockSignInLoading) return;
+    setUnlockSignInLoading(true);
+    setUnlockSignInError(null);
+    try {
+      await api.clearAuthRateLimit(login);
+      setShowUnlockSignIn(false);
+      showToast({
+        variant: 'success',
+        message: t('users.unlockSignInSuccess', { login }),
+      });
+    } catch (error: unknown) {
+      setUnlockSignInError(getApiErrorMessage(error, t));
+    } finally {
+      setUnlockSignInLoading(false);
+    }
+  };
+
   const handleDelete = async (force = false) => {
     if (!user) return;
     if (deleteUserLoading) return;
@@ -471,6 +494,8 @@ export default function UserDetailPage() {
   }
 
   const overdueLoans = activeLoans.filter((l) => l.isOverdue);
+  const signInLogin = user.login?.trim() ?? '';
+  const canUnlockSignIn = canManageUsers(currentUser?.accountType) && signInLogin !== '';
 
   const renderLoanTitle = (loan: Loan) => (
     <button
@@ -844,6 +869,19 @@ export default function UserDetailPage() {
               {t('users.renewSubscription')}
             </Button>
           )}
+          {canUnlockSignIn && (
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setUnlockSignInError(null);
+                setShowUnlockSignIn(true);
+              }}
+              leftIcon={<LockOpen className="h-4 w-4" />}
+            >
+              {t('users.unlockSignIn')}
+            </Button>
+          )}
           <Button variant="danger" onClick={() => setShowDeleteModal(true)} leftIcon={<Trash2 className="h-4 w-4" />}>
             {t('users.anonymize')}
           </Button>
@@ -1121,6 +1159,23 @@ export default function UserDetailPage() {
         confirmLabel={deleteUserActiveLoansError ? t('users.forceDelete') : t('users.anonymize')}
         confirmVariant="danger"
         isLoading={deleteUserLoading}
+      />
+
+      <ConfirmDialog
+        isOpen={showUnlockSignIn}
+        onClose={() => {
+          if (unlockSignInLoading) return;
+          setShowUnlockSignIn(false);
+          setUnlockSignInError(null);
+        }}
+        onConfirm={() => {
+          void handleUnlockSignIn();
+        }}
+        title={t('users.unlockSignIn')}
+        message={t('users.unlockSignInConfirm', { login: signInLogin })}
+        confirmLabel={t('users.unlockSignIn')}
+        isLoading={unlockSignInLoading}
+        error={unlockSignInError}
       />
 
       <RenewSubscriptionModal

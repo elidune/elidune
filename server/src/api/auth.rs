@@ -122,6 +122,8 @@ pub struct UserInfo {
     pub id: i64,
     /// Login/username (primary identifier, required)
     pub login: String,
+    /// Same value as `login`. Profile clients read `username`.
+    pub username: String,
     /// Email (optional)
     pub email: Option<String>,
     /// First name
@@ -140,6 +142,12 @@ pub struct UserInfo {
     pub birthdate: Option<NaiveDate>,
     /// Account type name
     pub account_type: String,
+    /// Public type name (`child`, `adult`, …). Null when the patron has none.
+    pub public_type: Option<String>,
+    /// Linked legal guardian. Null when the patron has none.
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub guardian_id: Option<i64>,
     /// Preferred language
     pub language: Language,
     /// Derived: `eventsConsentAt` is set.
@@ -148,6 +156,47 @@ pub struct UserInfo {
     pub events_consent_at: Option<DateTime<Utc>>,
     /// Route that recorded the latest consent change.
     pub events_consent_source: Option<EventsConsentSource>,
+}
+
+impl UserInfo {
+    fn from_user(user: &crate::models::user::User, public_type_name: Option<String>) -> Self {
+        let login = user.login.clone().unwrap_or_default();
+        Self {
+            id: user.id,
+            login: login.clone(),
+            username: login,
+            email: user.email.clone(),
+            firstname: user.firstname.clone(),
+            lastname: user.lastname.clone(),
+            addr_street: user.addr_street.clone(),
+            addr_zip_code: user.addr_zip_code,
+            addr_city: user.addr_city.clone(),
+            phone: user.phone.clone(),
+            birthdate: user.birthdate,
+            account_type: user.account_type.to_string(),
+            public_type: public_type_name,
+            guardian_id: user.guardian_id,
+            language: user.language.unwrap_or(Language::French),
+            events_consent: user.events_consent,
+            events_consent_at: user.events_consent_at,
+            events_consent_source: user.events_consent_source,
+        }
+    }
+}
+
+pub(crate) async fn user_info_for(
+    state: &crate::AppState,
+    user: &crate::models::user::User,
+) -> AppResult<UserInfo> {
+    let public_type = match user.public_type {
+        Some(id) => match state.services.public_types.get_by_id(id).await {
+            Ok(public_type) => Some(public_type.name),
+            Err(AppError::NotFound(_)) => None,
+            Err(err) => return Err(err),
+        },
+        None => None,
+    };
+    Ok(UserInfo::from_user(user, public_type))
 }
 
 /// Login endpoint - authenticate and get JWT token
@@ -293,23 +342,7 @@ pub async fn login(
         token,
         token_type: "Bearer".to_string(),
         expires_in: (state.config.users.jwt_expiration_hours * 3600) as i64,
-        user: UserInfo {
-            id: user.id,
-            login: user.login.unwrap_or_default(),
-            email: user.email,
-            firstname: user.firstname,
-            lastname: user.lastname,
-            addr_street: user.addr_street,
-            addr_zip_code: user.addr_zip_code,
-            addr_city: user.addr_city,
-            phone: user.phone,
-            birthdate: user.birthdate,
-            account_type: user.account_type.to_string(),
-            language: user.language.unwrap_or(Language::French),
-            events_consent: user.events_consent,
-            events_consent_at: user.events_consent_at,
-            events_consent_source: user.events_consent_source,
-        },
+        user: user_info_for(&state, &user).await?,
         requires_2fa,
         two_factor_method,
         device_id,
@@ -376,24 +409,7 @@ pub async fn me(
     AuthenticatedUser(claims): AuthenticatedUser,
 ) -> AppResult<Json<UserInfo>> {
     let user = state.services.users.get_by_id(claims.user_id).await?;
-
-    Ok(Json(UserInfo {
-        id: user.id,
-        login: user.login.unwrap_or_default(),
-        email: user.email,
-        firstname: user.firstname,
-        lastname: user.lastname,
-        addr_street: user.addr_street,
-        addr_zip_code: user.addr_zip_code,
-        addr_city: user.addr_city,
-        phone: user.phone,
-        birthdate: user.birthdate,
-        account_type: user.account_type.to_string(),
-        language: user.language.unwrap_or(Language::French),
-        events_consent: user.events_consent,
-        events_consent_at: user.events_consent_at,
-        events_consent_source: user.events_consent_source,
-    }))
+    Ok(Json(user_info_for(&state, &user).await?))
 }
 
 /// Verify 2FA code request

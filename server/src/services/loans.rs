@@ -572,7 +572,8 @@ impl LoansService {
                 max_loans: row.nb_max.unwrap_or(5),
                 max_renewals: row.nb_renews.unwrap_or(2),
                 duration_days: row.duration.unwrap_or(21),
-                renew_at: row.renew_at.unwrap_or(LoanSettingsRenewAt::Now),
+                renew_at: row.renew_at.unwrap_or(LoanSettingsRenewAt::AtDueDate),
+                renew_window_days: row.renew_window_days,
             })
             .collect())
     }
@@ -582,7 +583,16 @@ impl LoansService {
         &self,
         request: UpdateLoanSettingsRequest,
     ) -> AppResult<Vec<LoanSettingsDto>> {
-        // remove all existing loan settings
+        if let Some(loan_settings) = &request.loan_settings {
+            for setting in loan_settings {
+                if !(0..=366).contains(&setting.renew_window_days) {
+                    return Err(AppError::Validation(
+                        "renewWindowDays must be between 0 and 366".to_string(),
+                    ));
+                }
+            }
+        }
+
         self.repository.loans_settings_delete_rows().await?;
 
         if let Some(loan_settings) = request.loan_settings {
@@ -598,6 +608,7 @@ impl LoansService {
                         setting.max_renewals,
                         setting.duration_days,
                         setting.renew_at,
+                        setting.renew_window_days,
                     )
                     .await?;
             }
@@ -926,6 +937,7 @@ mod tests {
             _: i16,
             _: i16,
             _: LoanSettingsRenewAt,
+            _: i16,
         ) -> AppResult<()> {
             Ok(())
         }

@@ -39,6 +39,9 @@ struct PasswordResetClaims {
     purpose: String,
     exp: i64,
     iat: i64,
+    /// Matches `users.password_reset_nonce` at issue time. A later issue, a
+    /// successful reset, or a password change makes this value stale.
+    reset_nonce: i64,
 }
 
 impl UsersService {
@@ -738,6 +741,10 @@ impl UsersService {
 
         let now = Utc::now().timestamp();
         let exp = now + (30 * 60); // 30 minutes
+        let reset_nonce = self
+            .repository
+            .users_bump_password_reset_nonce(user.id)
+            .await?;
         let claims = PasswordResetClaims {
             sub: user
                 .login
@@ -747,6 +754,7 @@ impl UsersService {
             purpose: "password_reset".to_string(),
             exp,
             iat: now,
+            reset_nonce,
         };
 
         let token = encode(
@@ -797,6 +805,16 @@ impl UsersService {
         if claims.purpose != "password_reset" {
             return Err(AppError::Authentication(
                 "Invalid reset token purpose".to_string(),
+            ));
+        }
+
+        let current_nonce = self
+            .repository
+            .users_get_password_reset_nonce(claims.user_id)
+            .await?;
+        if current_nonce != claims.reset_nonce {
+            return Err(AppError::Authentication(
+                "Invalid or expired reset token".to_string(),
             ));
         }
 

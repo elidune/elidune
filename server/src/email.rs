@@ -360,10 +360,10 @@ impl EmailService {
         }
         .port(config.smtp_port);
 
-        let mailer_builder = if let (Some(username), Some(password)) =
-            (&config.smtp_username, &config.smtp_password)
+        let mailer_builder = if let Some((username, password)) =
+            smtp_auth_credentials(&config.smtp_username, &config.smtp_password)
         {
-            mailer_builder.credentials(Credentials::new(username.clone(), password.clone()))
+            mailer_builder.credentials(Credentials::new(username, password))
         } else {
             mailer_builder
         };
@@ -375,6 +375,40 @@ impl EmailService {
             .map_err(|e| AppError::Internal(format!("Failed to send email: {}", e)))?;
 
         Ok(())
+    }
+}
+
+/// SMTP AUTH credentials. Empty or whitespace-only username/password means no AUTH,
+/// so a relay that does not offer authentication can still be used.
+fn smtp_auth_credentials(
+    username: &Option<String>,
+    password: &Option<String>,
+) -> Option<(String, String)> {
+    let username = username
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let password = password
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    Some((username.to_string(), password.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::smtp_auth_credentials;
+
+    #[test]
+    fn empty_smtp_credentials_skip_auth() {
+        assert!(smtp_auth_credentials(&None, &None).is_none());
+        assert!(smtp_auth_credentials(&Some(String::new()), &Some(String::new())).is_none());
+        assert!(smtp_auth_credentials(&Some("  ".into()), &Some("secret".into())).is_none());
+        assert!(smtp_auth_credentials(&Some("mailer".into()), &Some(String::new())).is_none());
+        assert_eq!(
+            smtp_auth_credentials(&Some(" mailer ".into()), &Some("secret".into())),
+            Some(("mailer".into(), "secret".into()))
+        );
     }
 }
 

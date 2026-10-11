@@ -124,7 +124,7 @@ impl Repository {
             .or_else(|| pick_renew(ptls_default.as_ref()))
             .or_else(|| pick_renew(ls_spec.as_ref()))
             .or_else(|| pick_renew(ls_default.as_ref()))
-            .unwrap_or(LoanSettingsRenewAt::Now);
+            .unwrap_or(LoanSettingsRenewAt::AtDueDate);
 
         Ok((
             duration,
@@ -133,6 +133,32 @@ impl Repository {
             nb_renews,
             renew_at_policy,
         ))
+    }
+
+    /// Days before the due date when renewal is allowed.
+    ///
+    /// Per-media `loans_settings` row, then the global row (`media_type IS NULL`), else [`super::mutations`] default 7.
+    pub(crate) async fn resolve_renew_window_days(
+        &self,
+        media_type: Option<&str>,
+    ) -> AppResult<i16> {
+        if let Some(mt) = media_type {
+            let spec: Option<i16> = sqlx::query_scalar(
+                "SELECT renew_window_days FROM loans_settings WHERE media_type = $1",
+            )
+            .bind(mt)
+            .fetch_optional(&self.pool)
+            .await?;
+            if let Some(days) = spec {
+                return Ok(days);
+            }
+        }
+        let global: Option<i16> = sqlx::query_scalar(
+            "SELECT renew_window_days FROM loans_settings WHERE media_type IS NULL",
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(global.unwrap_or(super::mutations::DEFAULT_RENEW_WINDOW_DAYS))
     }
 
     /// Get loan settings
@@ -161,12 +187,13 @@ impl Repository {
         nb_renews: i16,
         duration: i16,
         renew_at: LoanSettingsRenewAt,
+        renew_window_days: i16,
     ) -> AppResult<()> {
         let rows_affected = if let Some(ref mt) = media_type {
             sqlx::query(
                 r#"
                 UPDATE loans_settings
-                SET nb_max = $2, nb_renews = $3, duration = $4, renew_at = $5
+                SET nb_max = $2, nb_renews = $3, duration = $4, renew_at = $5, renew_window_days = $6
                 WHERE media_type = $1
                 "#,
             )
@@ -175,6 +202,7 @@ impl Repository {
             .bind(nb_renews)
             .bind(duration)
             .bind(renew_at)
+            .bind(renew_window_days)
             .execute(&self.pool)
             .await?
             .rows_affected()
@@ -182,7 +210,7 @@ impl Repository {
             sqlx::query(
                 r#"
                 UPDATE loans_settings
-                SET nb_max = $1, nb_renews = $2, duration = $3, renew_at = $4
+                SET nb_max = $1, nb_renews = $2, duration = $3, renew_at = $4, renew_window_days = $5
                 WHERE media_type IS NULL
                 "#,
             )
@@ -190,6 +218,7 @@ impl Repository {
             .bind(nb_renews)
             .bind(duration)
             .bind(renew_at)
+            .bind(renew_window_days)
             .execute(&self.pool)
             .await?
             .rows_affected()
@@ -199,8 +228,8 @@ impl Repository {
             if let Some(mt) = media_type {
                 sqlx::query(
                     r#"
-                    INSERT INTO loans_settings (media_type, nb_max, nb_renews, duration, renew_at)
-                    VALUES ($1, $2, $3, $4, $5)
+                    INSERT INTO loans_settings (media_type, nb_max, nb_renews, duration, renew_at, renew_window_days)
+                    VALUES ($1, $2, $3, $4, $5, $6)
                     "#,
                 )
                 .bind(mt)
@@ -208,19 +237,21 @@ impl Repository {
                 .bind(nb_renews)
                 .bind(duration)
                 .bind(renew_at)
+                .bind(renew_window_days)
                 .execute(&self.pool)
                 .await?;
             } else {
                 sqlx::query(
                     r#"
-                    INSERT INTO loans_settings (media_type, nb_max, nb_renews, duration, renew_at)
-                    VALUES (NULL, $1, $2, $3, $4)
+                    INSERT INTO loans_settings (media_type, nb_max, nb_renews, duration, renew_at, renew_window_days)
+                    VALUES (NULL, $1, $2, $3, $4, $5)
                     "#,
                 )
                 .bind(nb_max)
                 .bind(nb_renews)
                 .bind(duration)
                 .bind(renew_at)
+                .bind(renew_window_days)
                 .execute(&self.pool)
                 .await?;
             }

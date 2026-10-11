@@ -190,6 +190,7 @@ async fn renew_replays_same_key_and_does_not_increment_twice() {
         .await;
     assert_eq!(status, StatusCode::CREATED, "checkout: {body}");
     let loan_id = fixtures::json_id(&body["id"]);
+    fixtures::pull_loan_into_renewal_window(&app, loan_id).await;
 
     let key = format!("renew-{}", fixtures::unique_suffix());
     let uri = format!("/api/v1/loans/{loan_id}/renew");
@@ -251,6 +252,8 @@ async fn renew_same_key_different_loan_conflicts() {
         .await;
     assert_eq!(s2, StatusCode::CREATED, "checkout B: {b2}");
     let loan_b = fixtures::json_id(&b2["id"]);
+    fixtures::pull_loan_into_renewal_window(&app, loan_a).await;
+    fixtures::pull_loan_into_renewal_window(&app, loan_b).await;
 
     let key = format!("renew-conflict-{}", fixtures::unique_suffix());
     let (r1, rb1) = app
@@ -291,6 +294,7 @@ async fn renew_by_item_replays_same_key() {
         .await;
     assert_eq!(status, StatusCode::CREATED, "checkout: {body}");
     let loan_id = fixtures::json_id(&body["id"]);
+    fixtures::pull_loan_into_renewal_window(&app, loan_id).await;
 
     let key = format!("renew-item-{}", fixtures::unique_suffix());
     let uri = format!("/api/v1/loans/items/{barcode}/renew");
