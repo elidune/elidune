@@ -12,10 +12,10 @@ use crate::{
         biblio::MediaType,
         circulation::CirculationStatus,
         item::WeedingStatus,
-        my_account::{MyHoldStatus, MyHoldView, MyLoanRenewalRefusal, MyLoanView},
+        my_account::{MyHoldStatus, MyHoldView, MyLoanView},
     },
-    repository::loans::renewal_opens_at,
-    services::calendar::format_patron_iso_date,
+    renewal::{renewal_eligibility, RenewalContext, RenewalLoan, RenewalUser},
+    services::fines::UnpaidThresholdCheck,
 };
 
 #[derive(Debug, FromRow)]
@@ -45,24 +45,6 @@ struct OwnerHoldRow {
     position: i32,
     created_at: DateTime<Utc>,
     in_transit: bool,
-}
-
-struct RenewalFacts<'a> {
-    weeding_status: &'a str,
-    circulation_status: Option<i16>,
-    hold_waiting: bool,
-    renewal_count: i16,
-    due: DateTime<Utc>,
-    max_renews: i16,
-    window_days: i16,
-    now: DateTime<Utc>,
-    zone: chrono_tz::Tz,
-}
-
-struct RenewalPreview {
-    can_renew: bool,
-    refusal: Option<MyLoanRenewalRefusal>,
-    opens_at: Option<String>,
 }
 
 impl Repository {
@@ -116,22 +98,28 @@ impl Repository {
         .fetch_all(&self.pool)
         .await?;
 
-        let public_type: Option<i64> =
-            sqlx::query_scalar("SELECT public_type FROM users WHERE id = $1")
-                .bind(user_id)
-                .fetch_optional(&self.pool)
-                .await?
-                .flatten();
+        let mut items = Vec::with_capacity(rows.len());
+        if rows.is_empty() {
+            return Ok((items, total));
+        }
+
+        // Account facts once per request. Media settings still vary per row.
+        let owner = self.users_get_by_id(user_id).await?;
+        let unpaid = self.fines_total_unpaid(user_id).await?;
+        let threshold = self.fines_get_unpaid_threshold(owner.public_type).await?;
+        let fines_over_threshold = UnpaidThresholdCheck { unpaid, threshold }.blocks_circulation();
+        let renewal_user = RenewalUser {
+            can_borrow: owner.can_borrow(),
+        };
         let zone = self.library_zone().await?;
         let now = Utc::now();
         let mut settings: HashMap<String, (i16, i16)> = HashMap::new();
-        let mut items = Vec::with_capacity(rows.len());
         for row in rows {
             let (max_renews, window_days) = if let Some(cached) = settings.get(&row.media_type) {
                 *cached
             } else {
                 let (_, _, _, max_renews, _) = self
-                    .resolve_loan_settings(public_type, Some(row.media_type.as_str()))
+                    .resolve_loan_settings(owner.public_type, Some(row.media_type.as_str()))
                     .await?;
                 let window_days = self
                     .resolve_renew_window_days(Some(row.media_type.as_str()))
@@ -140,17 +128,24 @@ impl Repository {
                 (max_renews, window_days)
             };
             let due = row.due_date.unwrap_or(row.start_date);
-            let preview = preview_renewal(&RenewalFacts {
-                weeding_status: &row.weeding_status,
-                circulation_status: row.circulation_status,
-                hold_waiting: row.hold_waiting,
+            let renewal_loan = RenewalLoan {
                 renewal_count: row.renewal_count,
-                due,
-                max_renews,
-                window_days,
+                due_at: due,
+                withdrawn: WeedingStatus::from_db_str(&row.weeding_status).blocks_circulation(),
+                claimed_returned: CirculationStatus::from_db(row.circulation_status)
+                    == CirculationStatus::ClaimedReturned,
+                hold_waiting: row.hold_waiting,
+            };
+            let ctx = RenewalContext {
+                bypass_account_gates: false,
+                fines_over_threshold,
+                fines_message: String::new(),
+                max_renewals: max_renews,
+                renew_window_days: window_days,
                 now,
                 zone,
-            });
+            };
+            let refusal = renewal_eligibility(&renewal_loan, &renewal_user, &ctx).err();
             items.push(MyLoanView {
                 id: row.id,
                 barcode: row.barcode,
@@ -159,9 +154,9 @@ impl Repository {
                 start_date: row.start_date,
                 due_date: due,
                 renewal_count: row.renewal_count,
-                can_renew: preview.can_renew,
-                renewal_refusal_code: preview.refusal,
-                renewal_opens_at: preview.opens_at,
+                can_renew: refusal.is_none(),
+                renewal_refusal_code: refusal,
+                renewal_opens_at: refusal.and_then(|code| code.opens_at_iso(&renewal_loan, &ctx)),
                 is_overdue: row.is_overdue,
             });
         }
@@ -258,36 +253,6 @@ impl Repository {
     }
 }
 
-fn preview_renewal(facts: &RenewalFacts<'_>) -> RenewalPreview {
-    let refusal = if WeedingStatus::from_db_str(facts.weeding_status).blocks_circulation() {
-        Some(MyLoanRenewalRefusal::Withdrawn)
-    } else if CirculationStatus::from_db(facts.circulation_status)
-        == CirculationStatus::ClaimedReturned
-    {
-        Some(MyLoanRenewalRefusal::ClaimedReturned)
-    } else if facts.hold_waiting {
-        Some(MyLoanRenewalRefusal::HoldWaiting)
-    } else if facts.renewal_count >= facts.max_renews {
-        Some(MyLoanRenewalRefusal::MaxRenewals)
-    } else if facts.now < renewal_opens_at(facts.due, facts.window_days) {
-        Some(MyLoanRenewalRefusal::RenewalTooEarly)
-    } else {
-        None
-    };
-    let opens_at = match refusal {
-        Some(MyLoanRenewalRefusal::RenewalTooEarly) => Some(format_patron_iso_date(
-            facts.zone,
-            renewal_opens_at(facts.due, facts.window_days),
-        )),
-        _ => None,
-    };
-    RenewalPreview {
-        can_renew: refusal.is_none(),
-        refusal,
-        opens_at,
-    }
-}
-
 fn owner_hold_view(row: OwnerHoldRow) -> MyHoldView {
     let status = if row.in_transit {
         MyHoldStatus::InTransit
@@ -323,44 +288,8 @@ fn owner_hold_view(row: OwnerHoldRow) -> MyHoldView {
 mod tests {
     use chrono::{TimeZone, Utc};
 
-    use super::{owner_hold_view, preview_renewal, OwnerHoldRow, RenewalFacts};
-    use crate::models::my_account::{MyHoldStatus, MyLoanRenewalRefusal};
-
-    fn facts(due: chrono::DateTime<Utc>, now: chrono::DateTime<Utc>) -> RenewalFacts<'static> {
-        RenewalFacts {
-            weeding_status: "on_shelf",
-            circulation_status: Some(0),
-            hold_waiting: false,
-            renewal_count: 0,
-            due,
-            max_renews: 2,
-            window_days: 7,
-            now,
-            zone: chrono_tz::Europe::Paris,
-        }
-    }
-
-    #[test]
-    fn waiting_hold_blocks_before_the_renewal_window() {
-        let due = Utc.with_ymd_and_hms(2026, 11, 1, 15, 0, 0).unwrap();
-        let now = Utc.with_ymd_and_hms(2026, 10, 1, 12, 0, 0).unwrap();
-        let mut row = facts(due, now);
-        row.hold_waiting = true;
-        let preview = preview_renewal(&row);
-        assert!(!preview.can_renew);
-        assert_eq!(preview.refusal, Some(MyLoanRenewalRefusal::HoldWaiting));
-        assert!(preview.opens_at.is_none());
-    }
-
-    #[test]
-    fn too_early_names_the_library_local_opening_date() {
-        let due = Utc.with_ymd_and_hms(2026, 11, 1, 15, 0, 0).unwrap();
-        let now = Utc.with_ymd_and_hms(2026, 10, 1, 12, 0, 0).unwrap();
-        let preview = preview_renewal(&facts(due, now));
-        assert!(!preview.can_renew);
-        assert_eq!(preview.refusal, Some(MyLoanRenewalRefusal::RenewalTooEarly));
-        assert_eq!(preview.opens_at.as_deref(), Some("2026-10-25"));
-    }
+    use super::{owner_hold_view, OwnerHoldRow};
+    use crate::models::my_account::MyHoldStatus;
 
     #[test]
     fn ready_hold_exposes_the_deadline_and_transit_hides_it() {
@@ -395,15 +324,5 @@ mod tests {
         });
         assert_eq!(moving.status, MyHoldStatus::InTransit);
         assert!(moving.pickup_deadline.is_none());
-    }
-
-    #[test]
-    fn inside_the_window_with_no_blocker_can_renew() {
-        let due = Utc.with_ymd_and_hms(2026, 11, 1, 15, 0, 0).unwrap();
-        let now = Utc.with_ymd_and_hms(2026, 10, 26, 12, 0, 0).unwrap();
-        let preview = preview_renewal(&facts(due, now));
-        assert!(preview.can_renew);
-        assert!(preview.refusal.is_none());
-        assert!(preview.opens_at.is_none());
     }
 }

@@ -9,20 +9,7 @@ use serde_with::{serde_as, DisplayFromStr};
 use utoipa::ToSchema;
 
 use super::biblio::MediaType;
-
-/// Why a patron cannot renew this loan. Absent when [`MyLoanView::can_renew`] is true.
-///
-/// Order matches [`crate::repository::Repository::loans_renew`]: withdrawn, claimed-returned,
-/// a waiting hold, the renewal cap, then the renewal window.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum MyLoanRenewalRefusal {
-    Withdrawn,
-    ClaimedReturned,
-    HoldWaiting,
-    MaxRenewals,
-    RenewalTooEarly,
-}
+use crate::renewal::RenewalRefusal;
 
 /// One active loan on the patron's own account.
 #[serde_as]
@@ -39,7 +26,9 @@ pub struct MyLoanView {
     pub due_date: DateTime<Utc>,
     pub renewal_count: i16,
     pub can_renew: bool,
-    pub renewal_refusal_code: Option<MyLoanRenewalRefusal>,
+    /// [`RenewalRefusal`] from [`crate::renewal::renewal_eligibility`]. Account reasons
+    /// (`account_blocked`, `fines_over_threshold`) come before loan reasons.
+    pub renewal_refusal_code: Option<RenewalRefusal>,
     /// Library-local `YYYY-MM-DD` when `renewal_refusal_code` is `renewal_too_early`.
     pub renewal_opens_at: Option<String>,
     pub is_overdue: bool,

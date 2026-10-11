@@ -320,7 +320,7 @@ use crate::api::{
             holds::HoldListResponse,
             loans::UserLoanListResponse,
             crate::models::my_account::MyLoanView,
-            crate::models::my_account::MyLoanRenewalRefusal,
+            crate::renewal::RenewalRefusal,
             crate::models::my_account::MyHoldView,
             crate::models::my_account::MyHoldStatus,
             biblios::PaginatedResponse<crate::models::my_account::MyLoanView>,

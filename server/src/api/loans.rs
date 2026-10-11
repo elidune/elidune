@@ -628,7 +628,7 @@ pub async fn return_loan(
         (status = 200, description = "Loan renewed", body = LoanResponse),
         (status = 404, description = "Loan not found"),
         (status = 409, description = "Idempotency-Key reused with a different payload"),
-        (status = 422, description = "Business rule: max renewals reached, already returned, hold waiting, or unpaid fines exceed the threshold")
+        (status = 422, description = "Renewal refused. `code` is `account_blocked`, `fines_over_threshold`, `withdrawn`, `claimed_returned`, `hold_waiting`, `max_renewals`, `renewal_too_early`, or `business_rule_violation` when the loan is already returned or the due date would not move")
     )
 )]
 pub async fn renew_loan(
@@ -796,7 +796,7 @@ pub async fn return_loan_by_item(
         (status = 200, description = "Loan renewed", body = LoanResponse),
         (status = 404, description = "Item or active loan not found"),
         (status = 409, description = "Idempotency-Key reused with a different payload"),
-        (status = 422, description = "Business rule: max renewals reached, already returned, hold waiting, or unpaid fines exceed the threshold")
+        (status = 422, description = "Renewal refused. `code` is `account_blocked`, `fines_over_threshold`, `withdrawn`, `claimed_returned`, `hold_waiting`, `max_renewals`, `renewal_too_early`, or `business_rule_violation` when the loan is already returned or the due date would not move")
     )
 )]
 pub async fn renew_loan_by_item(
