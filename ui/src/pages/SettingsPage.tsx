@@ -1026,6 +1026,18 @@ type OverrideUiRow = {
   renewMode: 'inherit' | LoanSettingsRenewAt;
 };
 
+function overridesToRows(overrides: PublicTypeLoanSettings[]): OverrideUiRow[] {
+  return overrides.map((o) => ({
+    key: o.mediaType == null ? 'row-default' : `row-${o.mediaType}`,
+    fromServer: true,
+    mediaType: o.mediaType,
+    duration: o.duration,
+    nbMax: o.nbMax,
+    nbRenews: o.nbRenews,
+    renewMode: o.renewAt == null ? 'inherit' : o.renewAt,
+  }));
+}
+
 function sortOverrideUiRows(rows: OverrideUiRow[]): OverrideUiRow[] {
   return [...rows].sort((a, b) => {
     if (a.mediaType == null && b.mediaType != null) return -1;
@@ -1278,7 +1290,7 @@ function LoanOverridesForm({
   getMediaTypeKey: (mt: MediaType | string) => string;
 }) {
   const { t } = useTranslation();
-  const [rows, setRows] = useState<OverrideUiRow[]>([]);
+  const [rows, setRows] = useState<OverrideUiRow[]>(() => overridesToRows(overrides));
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
 
@@ -1290,21 +1302,11 @@ function LoanOverridesForm({
     [overrides],
   );
 
-  const [syncedOverrideKey, setSyncedOverrideKey] = useState(`${publicTypeId}:${overridesSig}`);
+  const [syncedOverrideKey, setSyncedOverrideKey] = useState<string | undefined>(undefined);
   const overrideKey = `${publicTypeId}:${overridesSig}`;
   if (overrideKey !== syncedOverrideKey) {
     setSyncedOverrideKey(overrideKey);
-    setRows(
-      overrides.map((o) => ({
-        key: o.mediaType == null ? 'row-default' : `row-${o.mediaType}`,
-        fromServer: true,
-        mediaType: o.mediaType,
-        duration: o.duration,
-        nbMax: o.nbMax,
-        nbRenews: o.nbRenews,
-        renewMode: o.renewAt == null ? 'inherit' : o.renewAt,
-      })),
-    );
+    setRows(overridesToRows(overrides));
   }
 
   const sortedRows = useMemo(() => sortOverrideUiRows(rows), [rows]);

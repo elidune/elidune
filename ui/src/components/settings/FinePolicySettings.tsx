@@ -13,9 +13,13 @@ export default function FinePolicySettings() {
   const { showToast } = useToast();
   const { data, isLoading, isError, refetch } = useFinePolicyQuery();
   const updatePolicy = useUpdateFinePolicyMutation();
-  const [draft, setDraft] = useState('0.00');
+  const [draft, setDraft] = useState(
+    () => moneyAmountToInput(data?.unpaidFineThreshold) || '0.00',
+  );
   const [fieldError, setFieldError] = useState<string | null>(null);
-  const [syncedPolicy, setSyncedPolicy] = useState<CirculationFinePolicy | undefined>(data);
+  // Start unsynced so a cached policy (already loaded by the settings shell) is copied
+  // into the draft. Initialising synced state to `data` skips that copy.
+  const [syncedPolicy, setSyncedPolicy] = useState<CirculationFinePolicy | undefined>(undefined);
   if (data !== syncedPolicy) {
     setSyncedPolicy(data);
     if (data) {
@@ -25,6 +29,7 @@ export default function FinePolicySettings() {
   }
 
   const handleSave = async () => {
+    if (!data) return;
     const parsed = parseMoneyAmountInput(draft, false);
     if (!parsed.ok || parsed.value == null) {
       setFieldError(t('settings.finePolicy.invalidAmount'));
@@ -52,7 +57,7 @@ export default function FinePolicySettings() {
               void handleSave();
             }}
             isLoading={updatePolicy.isPending}
-            disabled={isLoading || isError}
+            disabled={isLoading || isError || data == null}
             leftIcon={<Save className="h-4 w-4" />}
           >
             {t('common.save')}

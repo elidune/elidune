@@ -1,14 +1,106 @@
 import type { TFunction } from 'i18next';
-import type { AxiosError } from 'axios';
+import axios, { type AxiosError, type AxiosResponse } from 'axios';
 import type { ApiError } from '@/types';
 import { weedingServerMessageI18nKey } from '@/utils/weeding';
 
+const RETRY_AFTER_MIN_MS = 250;
+const RETRY_AFTER_MAX_MS = 8_000;
+const RETRY_AFTER_DEFAULT_MS = 1_000;
+
+function asAxiosError(error: unknown): AxiosError<ApiError> | null {
+  return axios.isAxiosError<ApiError>(error) ? error : null;
+}
+
+export function getHttpStatus(error: unknown): number | null {
+  const status = asAxiosError(error)?.response?.status;
+  return typeof status === 'number' ? status : null;
+}
+
 export function getApiErrorCode(error: unknown): string | null {
-  const data = (error as AxiosError<ApiError>)?.response?.data;
+  const data = asAxiosError(error)?.response?.data;
   if (typeof data?.code === 'string' && data.code.trim() !== '') {
     return data.code.trim();
   }
   return null;
+}
+
+/** 401, or 403 whose code says the session itself is invalid (not a permission denial). */
+export function isInvalidSessionError(error: unknown): boolean {
+  const status = getHttpStatus(error);
+  if (status === 401) return true;
+  return status === 403 && getApiErrorCode(error) === 'authentication_failed';
+}
+
+/** HTTP 429 or API code `rate_limited` (auth governor and any other limiter). */
+export function isRateLimitedError(error: unknown): boolean {
+  if (getHttpStatus(error) === 429) return true;
+  return getApiErrorCode(error) === 'rate_limited';
+}
+
+function headerValue(response: AxiosResponse | undefined, name: string): unknown {
+  const headers = response?.headers;
+  if (!headers) return undefined;
+  if (typeof headers.get === 'function') {
+    return headers.get(name);
+  }
+  const record = headers as unknown as Record<string, unknown>;
+  return record[name] ?? record[name.toLowerCase()];
+}
+
+function parseRetryAfterValue(raw: unknown, now: number): number | null {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(0, Math.ceil(value));
+  }
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^\d+(\.\d+)?$/.test(trimmed)) {
+    return Math.max(0, Math.ceil(Number(trimmed)));
+  }
+  const at = Date.parse(trimmed);
+  if (Number.isNaN(at)) return null;
+  return Math.max(0, Math.ceil((at - now) / 1000));
+}
+
+/**
+ * Seconds to wait from a 429 `Retry-After` header (delta-seconds or HTTP-date),
+ * then common JSON fields (`retryAfter`, `retry_after`).
+ */
+export function getRetryAfterSeconds(error: unknown, now = Date.now()): number | null {
+  const response = asAxiosError(error)?.response;
+  const fromHeader = parseRetryAfterValue(headerValue(response, 'retry-after'), now);
+  if (fromHeader != null) return fromHeader;
+
+  const data = response?.data;
+  if (!data || typeof data !== 'object' || isBlobLike(data)) return null;
+  const record = data as unknown as Record<string, unknown>;
+  return parseRetryAfterValue(record.retryAfter ?? record.retry_after, now);
+}
+
+/** Honor `Retry-After`, clamped so a few profile retries cannot stall the UI. */
+export function retryAfterDelayMs(error: unknown, now = Date.now()): number {
+  const seconds = getRetryAfterSeconds(error, now);
+  const ms = seconds == null ? RETRY_AFTER_DEFAULT_MS : seconds * 1000;
+  return Math.min(RETRY_AFTER_MAX_MS, Math.max(RETRY_AFTER_MIN_MS, ms));
+}
+
+export function rateLimitMessage(error: unknown, t: TFunction): string {
+  const seconds = getRetryAfterSeconds(error);
+  if (seconds != null) return t('errors.tooManyRequestsWait', { seconds });
+  return t('errors.tooManyRequests');
+}
+
+/**
+ * Login form mapping: 401 invalid credentials, 429 / `rate_limited` with the
+ * `Retry-After` wait, network and 5xx as a generic error.
+ */
+export function loginFailureMessage(error: unknown, t: TFunction): string {
+  if (isRateLimitedError(error)) return rateLimitMessage(error, t);
+  const status = getHttpStatus(error);
+  if (status === 401) return t('auth.invalidCredentials');
+  if (status == null || status >= 500) return t('errors.generic');
+  return getApiErrorMessage(error, t);
 }
 
 /** Server `message` / `error` body text, if present. */
@@ -79,12 +171,12 @@ function translateKey(t: TFunction, key: string): string | null {
  * Order: rate limit (429) → API error code → response body message → HTTP status → network / timeout → generic.
  */
 export function getApiErrorMessage(error: unknown, t: TFunction): string {
-  const axiosError = error as AxiosError<ApiError>;
+  const axiosError = asAxiosError(error);
   const status = axiosError?.response?.status;
   const rawData = axiosError?.response?.data;
 
-  if (status === 429) {
-    return t('errors.tooManyRequests');
+  if (isRateLimitedError(error)) {
+    return rateLimitMessage(error, t);
   }
 
   const weedingKey = weedingServerMessageI18nKey(getApiErrorRawMessage(error));

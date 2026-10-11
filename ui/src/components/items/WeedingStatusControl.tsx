@@ -49,6 +49,8 @@ export default function WeedingStatusControl({ item, canManage, onUpdated }: Wee
 
   const alternatives = ITEM_WEEDING_STATUSES.filter((status) => status !== current);
 
+  if (!canManage) return null;
+
   return (
     <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600 space-y-2">
       <div className="flex flex-wrap items-center gap-2">

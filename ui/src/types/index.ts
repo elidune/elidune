@@ -987,7 +987,8 @@ export type ApiErrorCode =
   | 'duplicate_barcode_needs_confirmation'
   | 'z3950_error'
   | 'database_error'
-  | 'internal_error';
+  | 'internal_error'
+  | 'rate_limited';
 
 // Settings — renewal anchoring (serialized wire values: now, at_due_date)
 export type LoanSettingsRenewAt = 'now' | 'at_due_date';

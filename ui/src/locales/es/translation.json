@@ -1693,6 +1693,8 @@
     "notFound": "Recurso no encontrado",
     "generic": "Se produjo un error",
     "tooManyRequests": "Demasiados intentos. Espere antes de volver a intentarlo.",
+    "tooManyRequestsWait": "Demasiados intentos. Espere {{seconds}} segundos antes de volver a intentarlo.",
+    "sessionUnavailable": "No se pudo actualizar su perfil. La sesión sigue activa.",
     "network": "Error de red. Por favor verifique su conexión.",
     "timeout": "La solicitud ha superado el tiempo de espera. Inténtelo de nuevo.",
     "http": {
@@ -1739,7 +1741,8 @@
       "duplicate_barcode_needs_confirmation": "Ya existe un ejemplar con este código de barras.",
       "z3950_error": "Error durante la búsqueda Z39.50.",
       "database_error": "Error de base de datos. Inténtelo de nuevo más tarde.",
-      "internal_error": "Error interno del servidor. Inténtelo de nuevo más tarde."
+      "internal_error": "Error interno del servidor. Inténtelo de nuevo más tarde.",
+      "rate_limited": "Demasiados intentos. Espere antes de volver a intentarlo."
     }
   },
   "inventory": {

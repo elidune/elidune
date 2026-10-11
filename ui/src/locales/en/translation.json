@@ -1693,6 +1693,8 @@
     "notFound": "Resource not found",
     "generic": "An error occurred",
     "tooManyRequests": "Too many attempts. Please wait before trying again.",
+    "tooManyRequestsWait": "Too many attempts. Please wait {{seconds}} seconds before trying again.",
+    "sessionUnavailable": "Could not refresh your profile. You are still signed in.",
     "network": "Network error. Please check your connection.",
     "timeout": "The request timed out. Please try again.",
     "http": {
@@ -1739,7 +1741,8 @@
       "duplicate_barcode_needs_confirmation": "A copy with this barcode already exists.",
       "z3950_error": "Error during Z39.50 search.",
       "database_error": "Database error. Please try again later.",
-      "internal_error": "Internal server error. Please try again later."
+      "internal_error": "Internal server error. Please try again later.",
+      "rate_limited": "Too many attempts. Please wait before trying again."
     }
   },
   "inventory": {
