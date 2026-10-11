@@ -493,7 +493,8 @@
       "ready": "Abholbereit",
       "fulfilled": "Erfüllt",
       "cancelled": "Storniert",
-      "expired": "Abgelaufen"
+      "expired": "Abgelaufen",
+      "inTransit": "Unterwegs"
     },
     "pickupSite": "Abholstandort",
     "pickupSiteRequired": "Bitte einen Abholstandort wählen.",
@@ -996,6 +997,13 @@
     "errorRenewingLoan": "Fehler beim Verlängern der Ausleihe",
     "renewalPossibleFrom": "Verlängerung möglich ab {{date}}",
     "renewalTooEarly": "Die Verlängerung ist noch nicht möglich.",
+    "renewalRefusal": {
+      "withdrawn": "Dieses Exemplar ist ausgesondert und kann nicht verlängert werden.",
+      "claimed_returned": "Diese Ausleihe liegt in der Rückgabe-Reklamation.",
+      "hold_waiting": "Eine andere Person wartet auf diesen Titel.",
+      "max_renewals": "Keine Verlängerung mehr möglich.",
+      "renewal_too_early": "Verlängerung möglich ab {{date}}."
+    },
     "title": "Ausleihen",
     "subtitle": "Ausleihen und Rückgaben verwalten",
     "borrow": "Ausleihen",

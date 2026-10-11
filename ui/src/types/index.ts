@@ -837,6 +837,36 @@ export interface ClaimsReturnedQueueItem {
   notes?: string | null;
 }
 
+/**
+ * Why `GET /me/loans` refuses a renewal (`MyLoanRenewalRefusal`).
+ * Snake_case. Absent (`null`) when `canRenew` is true.
+ */
+export type MyLoanRenewalRefusal =
+  | 'withdrawn'
+  | 'claimed_returned'
+  | 'hold_waiting'
+  | 'max_renewals'
+  | 'renewal_too_early';
+
+/**
+ * `GET /me/loans` — the caller's own active loans (`MyLoanView`).
+ * Does not embed a catalog biblio or copy.
+ */
+export interface MyLoan {
+  id: string;
+  barcode: string | null;
+  title: string | null;
+  mediaType: MediaType;
+  startDate: string;
+  dueDate: string;
+  renewalCount: number;
+  canRenew: boolean;
+  renewalRefusalCode: MyLoanRenewalRefusal | null;
+  /** Library-local `YYYY-MM-DD` when `renewalRefusalCode` is `renewal_too_early`. */
+  renewalOpensAt: string | null;
+  isOverdue: boolean;
+}
+
 /** Loan list row for staff (`LoanDetailsStaff`). Embedded copies are {@link BiblioShortStaff}. */
 export interface LoanDetailsStaff {
   id: string;
@@ -1838,6 +1868,26 @@ export interface EventsListResponse {
 // ──────────────────────────────────────────────────────────────────
 
 export type HoldStatus = 'pending' | 'to_pick' | 'ready' | 'fulfilled' | 'cancelled' | 'expired';
+
+export type MyHoldStatus = HoldStatus | 'inTransit';
+
+/**
+ * `GET /me/holds` — the caller's own holds (`MyHoldView`).
+ * Does not embed a catalog biblio or copy. No hold notes.
+ * `pickupDeadline` is set only when `status` is `ready`.
+ * `inTransit` is set when an active transit is linked to the hold.
+ */
+export interface MyHold {
+  id: string;
+  biblioId: string;
+  title: string | null;
+  status: MyHoldStatus;
+  pickupDeadline: string | null;
+  pickupSiteId: string | null;
+  pickupSiteName: string | null;
+  position: number;
+  createdAt: string;
+}
 
 /**
  * Hold list row for staff (`HoldDetailsStaff`).

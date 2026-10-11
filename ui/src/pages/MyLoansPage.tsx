@@ -5,19 +5,18 @@ import { Card, CardHeader, Button, Badge, Pagination, ListSkeleton, QueryErrorBa
 import LoansMarcExportButton from '@/components/loans/LoansMarcExportButton';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/services/api';
-import type { LoanListItem } from '@/types';
+import type { MyLoan, MyLoanRenewalRefusal } from '@/types';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
 import { newIdempotencyKey } from '@/utils/idempotency';
-import { renewalsRemaining } from '@/utils/loanPolicy';
 
 const MY_LOANS_PAGE_SIZE = 20;
 
 export default function MyLoansPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
-  const [loans, setLoans] = useState<LoanListItem[]>([]);
+  const [loans, setLoans] = useState<MyLoan[]>([]);
   const [loansPage, setLoansPage] = useState(1);
   const [loansTotal, setLoansTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -37,7 +36,7 @@ export default function MyLoansPage() {
       setIsLoading(true);
       setLoadError(null);
       try {
-        const res = await api.getUserLoans(user.id, {
+        const res = await api.getMyLoans({
           page: loansPage,
           perPage: MY_LOANS_PAGE_SIZE,
         });
@@ -62,7 +61,7 @@ export default function MyLoansPage() {
     try {
       await api.renewLoan(loanId, newIdempotencyKey());
       if (user?.id) {
-        const res = await api.getUserLoans(user.id, {
+        const res = await api.getMyLoans({
           page: loansPage,
           perPage: MY_LOANS_PAGE_SIZE,
         });
@@ -145,19 +144,34 @@ export default function MyLoansPage() {
 }
 
 interface LoanCardProps {
-  loan: LoanListItem;
+  loan: MyLoan;
   onRenew: (id: string) => void;
   isOverdue?: boolean;
+}
+
+function renewalRefusalText(
+  t: (key: string, options?: Record<string, unknown>) => string,
+  code: MyLoanRenewalRefusal | null | undefined,
+  opensAt: string | null | undefined,
+  language: string,
+): string | null {
+  if (!code) return null;
+  if (code === 'renewal_too_early') {
+    const date = opensAt
+      ? new Date(`${opensAt}T00:00:00`).toLocaleDateString(language)
+      : '';
+    return t('loans.renewalRefusal.renewal_too_early', { date });
+  }
+  return t(`loans.renewalRefusal.${code}`);
 }
 
 function LoanCard({ loan, onRenew, isOverdue = false }: LoanCardProps) {
   const { t, i18n } = useTranslation();
   const [referenceMs] = useState(() => Date.now());
   const daysUntilDue = Math.ceil(
-    (new Date(loan.expiryAt).getTime() - referenceMs) / (1000 * 60 * 60 * 24)
+    (new Date(loan.dueDate).getTime() - referenceMs) / (1000 * 60 * 60 * 24)
   );
-  /** GET /loans/settings is staff-only; patron list uses the shared default. */
-  const remainingRenewals = renewalsRemaining(loan, []);
+  const refusal = renewalRefusalText(t, loan.renewalRefusalCode, loan.renewalOpensAt, i18n.language);
 
   return (
     <div
@@ -167,21 +181,14 @@ function LoanCard({ loan, onRenew, isOverdue = false }: LoanCardProps) {
           : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50'
       }`}
     >
-      <LoanMediaTypeBadge mediaType={loan.biblio.mediaType} size="comfortable" />
+      <LoanMediaTypeBadge mediaType={loan.mediaType} size="comfortable" />
 
       <div className="flex-1 min-w-0">
         <p className="font-medium text-gray-900 dark:text-white truncate">
-          {loan.biblio.title || t('items.notSpecified')}
+          {loan.title || t('items.notSpecified')}
         </p>
         <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">
-          {(() => {
-            const specs = loan.biblio?.items;
-            if (specs?.length) {
-              const spec = specs.find((s) => s.borrowed) ?? specs[0];
-              return spec?.barcode ?? spec?.id ?? '-';
-            }
-            return loan.itemIdentification ?? '-';
-          })()}
+          {loan.barcode || '-'}
         </p>
         <div className="flex items-center gap-4 mt-2 text-sm">
           <div className="flex items-center gap-1 text-gray-500 dark:text-gray-400">
@@ -201,21 +208,23 @@ function LoanCard({ loan, onRenew, isOverdue = false }: LoanCardProps) {
             </Badge>
           ) : (
             <Badge variant="success">
-              {t('loans.dueDate')}: {new Date(loan.expiryAt).toLocaleDateString(i18n.language)}
+              {t('loans.dueDate')}: {new Date(loan.dueDate).toLocaleDateString(i18n.language)}
             </Badge>
           )}
         </div>
 
-        {remainingRenewals > 0 && (
+        {loan.canRenew ? (
           <Button
             size="sm"
             variant="secondary"
             onClick={() => onRenew(loan.id)}
             leftIcon={<RotateCcw className="h-4 w-4" />}
           >
-            {t('loans.renewRemaining', { count: remainingRenewals })}
+            {t('loans.renew')}
           </Button>
-        )}
+        ) : refusal ? (
+          <p className="text-sm text-gray-600 dark:text-gray-300 sm:text-right max-w-xs">{refusal}</p>
+        ) : null}
       </div>
     </div>
   );

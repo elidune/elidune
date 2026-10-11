@@ -17,6 +17,7 @@ use crate::{
     },
 };
 
+pub use mutations::renewal_opens_at;
 pub use reminders::{OverdueLoanRow, ReminderTierDelays};
 
 #[cfg_attr(test, mockall::automock)]

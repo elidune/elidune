@@ -29,7 +29,7 @@ export default function HomePage() {
 
   const loansQuery = useQuery({
     queryKey: ['home-my-loans', user?.id],
-    queryFn: () => api.getUserLoans(user!.id, { page: 1, perPage: 20 }),
+    queryFn: () => api.getMyLoans({ page: 1, perPage: 20 }),
     enabled: Boolean(user?.id),
     staleTime: 60 * 1000,
   });
@@ -169,13 +169,13 @@ export default function HomePage() {
                 key={loan.id}
                 className="flex items-center gap-4 p-3 rounded-lg bg-gray-50 dark:bg-gray-800/50"
               >
-                <LoanMediaTypeBadge mediaType={loan.biblio.mediaType} size="catalog" />
+                <LoanMediaTypeBadge mediaType={loan.mediaType} size="catalog" />
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-gray-900 dark:text-white truncate">
-                    {loan.biblio.title}
+                    {loan.title || t('items.notSpecified')}
                   </p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {t('loans.dueDate')}: {new Date(loan.expiryAt).toLocaleDateString(i18n.language)}
+                    {t('loans.dueDate')}: {new Date(loan.dueDate).toLocaleDateString(i18n.language)}
                   </p>
                 </div>
                 {loan.isOverdue && (

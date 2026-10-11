@@ -20,6 +20,7 @@ use crate::{
     models::{
         catalog_view::{LoanDetailsPublic, LoanDetailsStaff, UserShortStaff},
         loan::{CreateLoan, LoanDetails, LoanMarcExportEncoding, LoanMarcExportFormat},
+        my_account::MyLoanView,
         user::Rights,
     },
     services::{
@@ -41,6 +42,7 @@ pub use crate::models::dto::loans::{LoanSettingsDto as LoanSettings, UpdateLoanS
 pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::{get, post};
     axum::Router::new()
+        .route("/me/loans", get(list_my_loans))
         .route("/loans", post(create_loan))
         .route(
             "/loans/settings",
@@ -378,6 +380,43 @@ pub async fn export_user_loans_marc(
         .header(CONTENT_DISPOSITION, disposition)
         .body(Body::from(bytes))
         .map_err(|e| AppError::Internal(format!("export response: {}", e)))
+}
+
+/// Page query for `GET /me/loans`. Always the authenticated patron; no user id.
+#[derive(Debug, Deserialize, Default, ToSchema, IntoParams)]
+#[serde(rename_all = "camelCase")]
+pub struct MyLoansQuery {
+    /// Page number (1-based, default 1)
+    pub page: Option<i64>,
+    /// Page size (default 20, max 200)
+    pub per_page: Option<i64>,
+}
+
+/// The caller's active loans. Filtered in SQL by `user_id = caller`.
+#[utoipa::path(
+    get,
+    path = "/me/loans",
+    tag = "loans",
+    security(("bearer_auth" = [])),
+    params(MyLoansQuery),
+    responses(
+        (status = 200, description = "The caller's active loans (`MyLoanView`)", body = PaginatedResponse<MyLoanView>),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn list_my_loans(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Query(query): Query<MyLoansQuery>,
+) -> AppResult<Json<PaginatedResponse<MyLoanView>>> {
+    let page = query.page.unwrap_or(1).max(1);
+    let per_page = query.per_page.unwrap_or(20).clamp(1, 200);
+    let (items, total) = state
+        .services
+        .repository
+        .loans_list_for_owner(claims.user_id, page, per_page)
+        .await?;
+    Ok(Json(PaginatedResponse::new(items, total, page, per_page)))
 }
 
 #[derive(Debug, Deserialize, Default, ToSchema, IntoParams)]

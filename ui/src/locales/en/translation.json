@@ -493,7 +493,8 @@
       "ready": "Ready for pickup",
       "fulfilled": "Fulfilled",
       "cancelled": "Cancelled",
-      "expired": "Expired"
+      "expired": "Expired",
+      "inTransit": "In transit"
     },
     "pickupSite": "Pickup site",
     "pickupSiteRequired": "Choose a pickup site.",
@@ -996,6 +997,13 @@
     "errorRenewingLoan": "Error renewing loan",
     "renewalPossibleFrom": "Renewal possible from {{date}}",
     "renewalTooEarly": "Renewal is not open yet.",
+    "renewalRefusal": {
+      "withdrawn": "This copy is withdrawn and cannot be renewed.",
+      "claimed_returned": "This loan is in the claims-returned queue.",
+      "hold_waiting": "Another patron is waiting for this title.",
+      "max_renewals": "No renewals left.",
+      "renewal_too_early": "Renewal opens on {{date}}."
+    },
     "title": "Loans",
     "subtitle": "Manage loans and returns",
     "borrow": "Borrow",
