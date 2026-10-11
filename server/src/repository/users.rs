@@ -431,9 +431,7 @@ impl Repository {
         .await?
         .ok_or_else(|| AppError::NotFound(format!("User with id {} not found", id)))?;
 
-        let mut user: User = user_row.into();
-        user.guardian_id = self.users_guardian_id(id).await?;
-        Ok(user)
+        self.with_guardian(user_row.into()).await
     }
 
     /// Legal guardian of `child_id`, if a `user_guardians` row exists.
@@ -484,7 +482,10 @@ impl Repository {
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(user_row.map(|r| r.into()))
+        match user_row {
+            Some(row) => Ok(Some(self.with_guardian(row.into()).await?)),
+            None => Ok(None),
+        }
     }
 
     /// Get user by email (primary authentication method)
@@ -500,7 +501,15 @@ impl Repository {
         .fetch_optional(&self.pool)
         .await?;
 
-        Ok(user_row.map(|r| r.into()))
+        match user_row {
+            Some(row) => Ok(Some(self.with_guardian(row.into()).await?)),
+            None => Ok(None),
+        }
+    }
+
+    async fn with_guardian(&self, mut user: User) -> AppResult<User> {
+        user.guardian_id = self.users_guardian_id(user.id).await?;
+        Ok(user)
     }
 
     /// Current JWT revocation counter for a user.
