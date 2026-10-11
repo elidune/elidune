@@ -23,6 +23,10 @@ export default defineConfig(async () => {
     server: {
       host: true,
       port: 3000,
+      fs: {
+        // The country zone table lives in server/data, outside this package.
+        allow: [path.resolve(__dirname, '.'), path.resolve(__dirname, '../server/data')],
+      },
       proxy: {
         '/api': {
           target: 'http://127.0.0.1:8080',

@@ -327,3 +327,34 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
+
+  # Image builds on pull requests only. Publishing stays in docker-publish.yml.
+  docker-build:
+    name: Docker build (${{ matrix.name }})
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: server
+            file: docker/Dockerfile
+          - name: ui
+            file: docker/Dockerfile.ui
+          - name: all-in-one
+            file: docker/Dockerfile.all-in-one
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ matrix.file }}
+          push: false
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}

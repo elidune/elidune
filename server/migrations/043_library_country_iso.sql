@@ -1,7 +1,7 @@
 -- Convert library_info.addr_country free text to ISO 3166-1 alpha-2.
 -- A value is kept only when it is recognized with certainty: a French or English
 -- name from COUNTRY_ALIASES (server/src/services/country_code.rs), or an alpha-2
--- code that is a key of ui/src/data/countryTimezones.json. Everything else becomes NULL.
+-- code that is a key of server/data/countryTimezones.json. Everything else becomes NULL.
 -- The IANA zone column is left unchanged.
 
 UPDATE library_info
@@ -141,6 +141,7 @@ SET addr_country = CASE lower(btrim(addr_country))
         WHEN 'finland' THEN 'FI'
         WHEN 'finlande' THEN 'FI'
         WHEN 'france' THEN 'FR'
+        WHEN 'french guiana' THEN 'GF'
         WHEN 'gabon' THEN 'GA'
         WHEN 'gambia' THEN 'GM'
         WHEN 'gambie' THEN 'GM'
@@ -157,6 +158,7 @@ SET addr_country = CASE lower(btrim(addr_country))
         WHEN 'grenada' THEN 'GD'
         WHEN 'grenade' THEN 'GD'
         WHEN 'grèce' THEN 'GR'
+        WHEN 'guadeloupe' THEN 'GP'
         WHEN 'guatemala' THEN 'GT'
         WHEN 'guinea' THEN 'GN'
         WHEN 'guinea-bissau' THEN 'GW'
@@ -167,6 +169,11 @@ SET addr_country = CASE lower(btrim(addr_country))
         WHEN 'guinée équatoriale' THEN 'GQ'
         WHEN 'guinée-bissau' THEN 'GW'
         WHEN 'guyana' THEN 'GY'
+        WHEN 'guyane' THEN 'GF'
+        WHEN 'guyane francaise' THEN 'GF'
+        WHEN 'guyane française' THEN 'GF'
+        WHEN 'guyane-francaise' THEN 'GF'
+        WHEN 'guyane-française' THEN 'GF'
         WHEN 'géorgie' THEN 'GE'
         WHEN 'haiti' THEN 'HT'
         WHEN 'haïti' THEN 'HT'
@@ -208,6 +215,10 @@ SET addr_country = CASE lower(btrim(addr_country))
         WHEN 'koweït' THEN 'KW'
         WHEN 'kuwait' THEN 'KW'
         WHEN 'kyrgyzstan' THEN 'KG'
+        WHEN 'la reunion' THEN 'RE'
+        WHEN 'la réunion' THEN 'RE'
+        WHEN 'la-reunion' THEN 'RE'
+        WHEN 'la-réunion' THEN 'RE'
         WHEN 'laos' THEN 'LA'
         WHEN 'latvia' THEN 'LV'
         WHEN 'lebanon' THEN 'LB'
@@ -235,10 +246,12 @@ SET addr_country = CASE lower(btrim(addr_country))
         WHEN 'malte' THEN 'MT'
         WHEN 'maroc' THEN 'MA'
         WHEN 'marshall islands' THEN 'MH'
+        WHEN 'martinique' THEN 'MQ'
         WHEN 'maurice' THEN 'MU'
         WHEN 'mauritania' THEN 'MR'
         WHEN 'mauritanie' THEN 'MR'
         WHEN 'mauritius' THEN 'MU'
+        WHEN 'mayotte' THEN 'YT'
         WHEN 'mexico' THEN 'MX'
         WHEN 'mexique' THEN 'MX'
         WHEN 'micronesia' THEN 'FM'
@@ -303,6 +316,7 @@ SET addr_country = CASE lower(btrim(addr_country))
         WHEN 'republique du congo' THEN 'CG'
         WHEN 'republique francaise' THEN 'FR'
         WHEN 'republique tcheque' THEN 'CZ'
+        WHEN 'reunion' THEN 'RE'
         WHEN 'romania' THEN 'RO'
         WHEN 'roumanie' THEN 'RO'
         WHEN 'royaume uni' THEN 'GB'
@@ -316,6 +330,7 @@ SET addr_country = CASE lower(btrim(addr_country))
         WHEN 'république démocratique du congo' THEN 'CD'
         WHEN 'république française' THEN 'FR'
         WHEN 'république tchèque' THEN 'CZ'
+        WHEN 'réunion' THEN 'RE'
         WHEN 'saint kitts and nevis' THEN 'KN'
         WHEN 'saint lucia' THEN 'LC'
         WHEN 'saint marin' THEN 'SM'
@@ -429,7 +444,7 @@ SET addr_country = CASE lower(btrim(addr_country))
         ELSE NULL
     END
 WHERE addr_country IS NOT NULL
-  AND lower(btrim(addr_country)) IN ('afghanistan', 'afrique du sud', 'albania', 'albanie', 'algeria', 'algerie', 'algérie', 'allemagne', 'andorra', 'andorre', 'angleterre', 'angola', 'antigua and barbuda', 'antigua et barbuda', 'antigua-et-barbuda', 'arabie saoudite', 'argentina', 'argentine', 'armenia', 'armenie', 'arménie', 'australia', 'australie', 'austria', 'autriche', 'azerbaidjan', 'azerbaijan', 'azerbaïdjan', 'bahamas', 'bahrain', 'bahrein', 'bahreïn', 'bangladesh', 'barbade', 'barbados', 'belarus', 'belgique', 'belgium', 'belize', 'benin', 'bhoutan', 'bhutan', 'bielorussie', 'birmanie', 'biélorussie', 'bolivia', 'bolivie', 'bosnia', 'bosnia and herzegovina', 'bosnie herzegovine', 'bosnie-herzegovine', 'bosnie-herzégovine', 'botswana', 'brazil', 'bresil', 'britain', 'brunei', 'brésil', 'bulgaria', 'bulgarie', 'burkina', 'burkina faso', 'burma', 'burundi', 'bénin', 'cambodge', 'cambodia', 'cameroon', 'cameroun', 'canada', 'cap vert', 'cap-vert', 'cape verde', 'central african republic', 'chad', 'chile', 'chili', 'china', 'chine', 'chypre', 'colombia', 'colombie', 'comores', 'comoros', 'congo', 'congo-brazzaville', 'congo-kinshasa', 'coree', 'coree du nord', 'coree du sud', 'corée', 'corée du nord', 'corée du sud', 'costa rica', 'cote d''ivoire', 'cote divoire', 'croatia', 'croatie', 'cuba', 'cyprus', 'czech republic', 'czechia', 'côte d''ivoire', 'danemark', 'democratic republic of the congo', 'denmark', 'djibouti', 'dominica', 'dominican republic', 'dominique', 'dr congo', 'east timor', 'ecuador', 'egypt', 'egypte', 'el salvador', 'emirats arabes unis', 'england', 'equateur', 'equatorial guinea', 'eritrea', 'erythree', 'espagne', 'estonie', 'eswatini', 'etats unis', 'etats-unis', 'etats-unis d''amerique', 'ethiopia', 'ethiopie', 'fidji', 'fiji', 'finland', 'finlande', 'france', 'gabon', 'gambia', 'gambie', 'gb', 'georgia', 'georgie', 'germany', 'ghana', 'grande bretagne', 'grande-bretagne', 'great britain', 'grece', 'greece', 'grenada', 'grenade', 'grèce', 'guatemala', 'guinea', 'guinea-bissau', 'guinee', 'guinee equatoriale', 'guinee-bissau', 'guinée', 'guinée équatoriale', 'guinée-bissau', 'guyana', 'géorgie', 'haiti', 'haïti', 'holland', 'honduras', 'hongrie', 'hungary', 'iceland', 'iles marshall', 'iles salomon', 'inde', 'india', 'indonesia', 'indonesie', 'irak', 'iran', 'iraq', 'ireland', 'irlande', 'islande', 'israel', 'israël', 'italie', 'italy', 'ivory coast', 'jamaica', 'jamaique', 'jamaïque', 'japan', 'japon', 'jordan', 'jordanie', 'kazakhstan', 'kenya', 'kirghizistan', 'kiribati', 'korea', 'koweit', 'koweït', 'kuwait', 'kyrgyzstan', 'laos', 'latvia', 'lebanon', 'lesotho', 'lettonie', 'liban', 'liberia', 'libya', 'libye', 'liechtenstein', 'lithuania', 'lituanie', 'luxembourg', 'macedoine', 'macedoine du nord', 'macédoine', 'macédoine du nord', 'madagascar', 'malaisie', 'malawi', 'malaysia', 'maldives', 'mali', 'malta', 'malte', 'maroc', 'marshall islands', 'maurice', 'mauritania', 'mauritanie', 'mauritius', 'mexico', 'mexique', 'micronesia', 'micronesie', 'micronésie', 'moldavie', 'moldova', 'monaco', 'mongolia', 'mongolie', 'montenegro', 'monténégro', 'morocco', 'mozambique', 'myanmar', 'namibia', 'namibie', 'nauru', 'nepal', 'netherlands', 'new zealand', 'nicaragua', 'niger', 'nigeria', 'north korea', 'north macedonia', 'norvege', 'norvège', 'norway', 'nouvelle zelande', 'nouvelle-zelande', 'nouvelle-zélande', 'népal', 'oman', 'ouganda', 'ouzbekistan', 'ouzbékistan', 'pakistan', 'palaos', 'palau', 'palestine', 'panama', 'papouasie-nouvelle-guinee', 'papouasie-nouvelle-guinée', 'papua new guinea', 'paraguay', 'pays bas', 'pays-bas', 'peru', 'philippines', 'poland', 'pologne', 'portugal', 'pérou', 'qatar', 'rd congo', 'rdc', 'republic of the congo', 'republique centrafricaine', 'republique democratique du congo', 'republique dominicaine', 'republique du congo', 'republique francaise', 'republique tcheque', 'romania', 'roumanie', 'royaume uni', 'royaume-uni', 'russia', 'russie', 'rwanda', 'république centrafricaine', 'république dominicaine', 'république du congo', 'république démocratique du congo', 'république française', 'république tchèque', 'saint kitts and nevis', 'saint lucia', 'saint marin', 'saint vincent and the grenadines', 'saint-kitts-et-nevis', 'saint-marin', 'saint-siege', 'saint-siège', 'saint-vincent-et-les-grenadines', 'sainte-lucie', 'salvador', 'samoa', 'san marino', 'sao tome and principe', 'sao tome-et-principe', 'sao tomé-et-principe', 'saudi arabia', 'senegal', 'serbia', 'serbie', 'seychelles', 'sierra leone', 'singapore', 'singapour', 'slovakia', 'slovaquie', 'slovenia', 'slovenie', 'slovénie', 'solomon islands', 'somalia', 'somalie', 'soudan', 'soudan du sud', 'south africa', 'south korea', 'south sudan', 'spain', 'sri lanka', 'sudan', 'suede', 'suisse', 'suriname', 'suède', 'swaziland', 'sweden', 'switzerland', 'syria', 'syrie', 'sénégal', 'tadjikistan', 'taiwan', 'tajikistan', 'tanzania', 'tanzanie', 'taïwan', 'tchad', 'tchequie', 'tchéquie', 'thailand', 'thailande', 'thaïlande', 'timor oriental', 'timor-leste', 'togo', 'tonga', 'trinidad and tobago', 'trinite-et-tobago', 'trinité-et-tobago', 'tunisia', 'tunisie', 'turkey', 'turkmenistan', 'turkménistan', 'turquie', 'tuvalu', 'u.s.', 'u.s.a.', 'uae', 'uganda', 'uk', 'ukraine', 'united arab emirates', 'united kingdom', 'united states', 'united states of america', 'uruguay', 'usa', 'uzbekistan', 'vanuatu', 'vatican', 'venezuela', 'viet nam', 'vietnam', 'viêt nam', 'yemen', 'yémen', 'zambia', 'zambie', 'zimbabwe', 'égypte', 'émirats arabes unis', 'équateur', 'érythrée', 'états unis', 'états-unis', 'états-unis d''amérique', 'éthiopie', 'îles marshall', 'îles salomon');
+  AND lower(btrim(addr_country)) IN ('afghanistan', 'afrique du sud', 'albania', 'albanie', 'algeria', 'algerie', 'algérie', 'allemagne', 'andorra', 'andorre', 'angleterre', 'angola', 'antigua and barbuda', 'antigua et barbuda', 'antigua-et-barbuda', 'arabie saoudite', 'argentina', 'argentine', 'armenia', 'armenie', 'arménie', 'australia', 'australie', 'austria', 'autriche', 'azerbaidjan', 'azerbaijan', 'azerbaïdjan', 'bahamas', 'bahrain', 'bahrein', 'bahreïn', 'bangladesh', 'barbade', 'barbados', 'belarus', 'belgique', 'belgium', 'belize', 'benin', 'bhoutan', 'bhutan', 'bielorussie', 'birmanie', 'biélorussie', 'bolivia', 'bolivie', 'bosnia', 'bosnia and herzegovina', 'bosnie herzegovine', 'bosnie-herzegovine', 'bosnie-herzégovine', 'botswana', 'brazil', 'bresil', 'britain', 'brunei', 'brésil', 'bulgaria', 'bulgarie', 'burkina', 'burkina faso', 'burma', 'burundi', 'bénin', 'cambodge', 'cambodia', 'cameroon', 'cameroun', 'canada', 'cap vert', 'cap-vert', 'cape verde', 'central african republic', 'chad', 'chile', 'chili', 'china', 'chine', 'chypre', 'colombia', 'colombie', 'comores', 'comoros', 'congo', 'congo-brazzaville', 'congo-kinshasa', 'coree', 'coree du nord', 'coree du sud', 'corée', 'corée du nord', 'corée du sud', 'costa rica', 'cote d''ivoire', 'cote divoire', 'croatia', 'croatie', 'cuba', 'cyprus', 'czech republic', 'czechia', 'côte d''ivoire', 'danemark', 'democratic republic of the congo', 'denmark', 'djibouti', 'dominica', 'dominican republic', 'dominique', 'dr congo', 'east timor', 'ecuador', 'egypt', 'egypte', 'el salvador', 'emirats arabes unis', 'england', 'equateur', 'equatorial guinea', 'eritrea', 'erythree', 'espagne', 'estonie', 'eswatini', 'etats unis', 'etats-unis', 'etats-unis d''amerique', 'ethiopia', 'ethiopie', 'fidji', 'fiji', 'finland', 'finlande', 'france', 'french guiana', 'gabon', 'gambia', 'gambie', 'gb', 'georgia', 'georgie', 'germany', 'ghana', 'grande bretagne', 'grande-bretagne', 'great britain', 'grece', 'greece', 'grenada', 'grenade', 'grèce', 'guadeloupe', 'guatemala', 'guinea', 'guinea-bissau', 'guinee', 'guinee equatoriale', 'guinee-bissau', 'guinée', 'guinée équatoriale', 'guinée-bissau', 'guyana', 'guyane', 'guyane francaise', 'guyane française', 'guyane-francaise', 'guyane-française', 'géorgie', 'haiti', 'haïti', 'holland', 'honduras', 'hongrie', 'hungary', 'iceland', 'iles marshall', 'iles salomon', 'inde', 'india', 'indonesia', 'indonesie', 'irak', 'iran', 'iraq', 'ireland', 'irlande', 'islande', 'israel', 'israël', 'italie', 'italy', 'ivory coast', 'jamaica', 'jamaique', 'jamaïque', 'japan', 'japon', 'jordan', 'jordanie', 'kazakhstan', 'kenya', 'kirghizistan', 'kiribati', 'korea', 'koweit', 'koweït', 'kuwait', 'kyrgyzstan', 'la reunion', 'la réunion', 'la-reunion', 'la-réunion', 'laos', 'latvia', 'lebanon', 'lesotho', 'lettonie', 'liban', 'liberia', 'libya', 'libye', 'liechtenstein', 'lithuania', 'lituanie', 'luxembourg', 'macedoine', 'macedoine du nord', 'macédoine', 'macédoine du nord', 'madagascar', 'malaisie', 'malawi', 'malaysia', 'maldives', 'mali', 'malta', 'malte', 'maroc', 'marshall islands', 'martinique', 'maurice', 'mauritania', 'mauritanie', 'mauritius', 'mayotte', 'mexico', 'mexique', 'micronesia', 'micronesie', 'micronésie', 'moldavie', 'moldova', 'monaco', 'mongolia', 'mongolie', 'montenegro', 'monténégro', 'morocco', 'mozambique', 'myanmar', 'namibia', 'namibie', 'nauru', 'nepal', 'netherlands', 'new zealand', 'nicaragua', 'niger', 'nigeria', 'north korea', 'north macedonia', 'norvege', 'norvège', 'norway', 'nouvelle zelande', 'nouvelle-zelande', 'nouvelle-zélande', 'népal', 'oman', 'ouganda', 'ouzbekistan', 'ouzbékistan', 'pakistan', 'palaos', 'palau', 'palestine', 'panama', 'papouasie-nouvelle-guinee', 'papouasie-nouvelle-guinée', 'papua new guinea', 'paraguay', 'pays bas', 'pays-bas', 'peru', 'philippines', 'poland', 'pologne', 'portugal', 'pérou', 'qatar', 'rd congo', 'rdc', 'republic of the congo', 'republique centrafricaine', 'republique democratique du congo', 'republique dominicaine', 'republique du congo', 'republique francaise', 'republique tcheque', 'reunion', 'romania', 'roumanie', 'royaume uni', 'royaume-uni', 'russia', 'russie', 'rwanda', 'république centrafricaine', 'république dominicaine', 'république du congo', 'république démocratique du congo', 'république française', 'république tchèque', 'réunion', 'saint kitts and nevis', 'saint lucia', 'saint marin', 'saint vincent and the grenadines', 'saint-kitts-et-nevis', 'saint-marin', 'saint-siege', 'saint-siège', 'saint-vincent-et-les-grenadines', 'sainte-lucie', 'salvador', 'samoa', 'san marino', 'sao tome and principe', 'sao tome-et-principe', 'sao tomé-et-principe', 'saudi arabia', 'senegal', 'serbia', 'serbie', 'seychelles', 'sierra leone', 'singapore', 'singapour', 'slovakia', 'slovaquie', 'slovenia', 'slovenie', 'slovénie', 'solomon islands', 'somalia', 'somalie', 'soudan', 'soudan du sud', 'south africa', 'south korea', 'south sudan', 'spain', 'sri lanka', 'sudan', 'suede', 'suisse', 'suriname', 'suède', 'swaziland', 'sweden', 'switzerland', 'syria', 'syrie', 'sénégal', 'tadjikistan', 'taiwan', 'tajikistan', 'tanzania', 'tanzanie', 'taïwan', 'tchad', 'tchequie', 'tchéquie', 'thailand', 'thailande', 'thaïlande', 'timor oriental', 'timor-leste', 'togo', 'tonga', 'trinidad and tobago', 'trinite-et-tobago', 'trinité-et-tobago', 'tunisia', 'tunisie', 'turkey', 'turkmenistan', 'turkménistan', 'turquie', 'tuvalu', 'u.s.', 'u.s.a.', 'uae', 'uganda', 'uk', 'ukraine', 'united arab emirates', 'united kingdom', 'united states', 'united states of america', 'uruguay', 'usa', 'uzbekistan', 'vanuatu', 'vatican', 'venezuela', 'viet nam', 'vietnam', 'viêt nam', 'yemen', 'yémen', 'zambia', 'zambie', 'zimbabwe', 'égypte', 'émirats arabes unis', 'équateur', 'érythrée', 'états unis', 'états-unis', 'états-unis d''amérique', 'éthiopie', 'îles marshall', 'îles salomon');
 
 UPDATE library_info
 SET addr_country = upper(btrim(addr_country))

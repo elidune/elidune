@@ -3,16 +3,22 @@
 //! chrono-tz 0.10 exposes timezone names and offsets only. It has no country
 //! filter, so the list is generated once from tzdata `zone.tab` (checked
 //! against `iso3166.tab`) by `ui/scripts/generate-country-timezones.mjs`.
-//! The JSON file is the single source: the UI imports it, and this module
-//! embeds the same bytes. A country with one zone uses that zone. A country
-//! with several zones has no default.
+//! The JSON file is the single source: `server/data/countryTimezones.json`.
+//! This module embeds that file and does not read anything under `ui/`.
+//! The UI imports the same path. A country with one zone uses that zone.
+//! A country with several zones has no default. The server images copy
+//! `server/data/` next to the crate manifest so the path below resolves
+//! inside the image as well as in the repository.
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
 use serde::Deserialize;
 
-const ZONES_JSON: &str = include_str!("../../../ui/src/data/countryTimezones.json");
+const ZONES_JSON: &str = include_str!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/data/countryTimezones.json"
+));
 
 #[derive(Deserialize)]
 struct ZoneEntry {

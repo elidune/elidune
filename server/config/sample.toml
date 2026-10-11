@@ -44,7 +44,8 @@ jwt_secret = "change-this-secret-in-production"
 jwt_expiration_hours = 24
 # Optional admin override for password-reset links. Client `resetUrl` is ignored.
 # Must contain the literal `<token>` placeholder. When unset, the server uses
-# {PUBLIC_BASE_URL}/reset-password?token=<token>.
+# {PUBLIC_BASE_URL}/reset-password?token=<token>. If that origin is also empty,
+# the password-reset email is not sent.
 # password_reset_url_template = "https://library.example.org/reset-password?token=<token>"
 
 [logging]

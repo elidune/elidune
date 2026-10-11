@@ -12,6 +12,10 @@ COPY ui/package.json ui/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
 COPY ui/ ./
+# ui/src/data imports ../../../server/data/countryTimezones.json. With ui/
+# copied to /app, that path is /server/data/.
+RUN mkdir -p /server/data
+COPY server/data/countryTimezones.json /server/data/countryTimezones.json
 
 RUN pnpm run build
 

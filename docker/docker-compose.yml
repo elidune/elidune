@@ -51,9 +51,9 @@ services:
       ELIDUNE_SERVER__AUTH_SESSION_BURST: ${ELIDUNE_SERVER__AUTH_SESSION_BURST:-60}
       ELIDUNE_SERVER__PUBLIC_PER_MINUTE: ${ELIDUNE_SERVER__PUBLIC_PER_MINUTE:-600}
       ELIDUNE_SERVER__PUBLIC_BURST: ${ELIDUNE_SERVER__PUBLIC_BURST:-120}
-      # Public UI origin used in email links (no trailing slash). Replace before sending mail.
-      # Placeholder: https://library.example.org — unset or localhost is warned at startup when SMTP is configured.
-      ELIDUNE_SERVER__PUBLIC_BASE_URL: ${ELIDUNE_SERVER__PUBLIC_BASE_URL:-https://library.example.org}
+      # Public UI origin used in email links (no trailing slash).
+      # Leave empty until the real patron URL is known. An empty value sends no password-reset mail.
+      ELIDUNE_SERVER__PUBLIC_BASE_URL: ${ELIDUNE_SERVER__PUBLIC_BASE_URL:-}
 
       ELIDUNE_DATABASE__URL: ${ELIDUNE_DATABASE__URL:-postgres://elidune:elidune@db:5432/elidune}
       ELIDUNE_DATABASE__MAX_CONNECTIONS: ${ELIDUNE_DATABASE__MAX_CONNECTIONS:-10}
