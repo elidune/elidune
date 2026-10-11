@@ -545,6 +545,15 @@
       "cancelled": "Cancelado"
     }
   },
+  "availability": {
+    "available": "Disponible",
+    "onHold": "Reservado",
+    "inTransit": "En tránsito",
+    "onLoan": "En préstamo",
+    "toSearch": "Por buscar",
+    "unavailable": "No disponible",
+    "reservedFor": "Reservado para {{name}}"
+  },
   "items": {
     "specimens": "Ejemplares",
     "mediaType": {
@@ -615,7 +624,8 @@
     "createdAt": "Creado",
     "updatedAt": "Última modificación",
     "keywordsAndSubject": "Palabras clave y tema",
-    "specimenCount": "{{count}} ejemplar",
+    "specimenCount_one": "{{count}} ejemplar",
+    "specimenCount_other": "{{count}} ejemplares",
     "noSpecimens": "No hay ejemplares registrados",
     "forceDeleteItem": "Forzar eliminación",
     "itemBorrowedForceDelete": "Este documento tiene ejemplares prestados. ¿Forzar la eliminación de todos modos?",
@@ -656,7 +666,8 @@
     "allTypes": "Todos los tipos",
     "unavailable": "No disponible",
     "author": "Autor",
-    "count": "{{count}} documento",
+    "count_one": "{{count}} documento",
+    "count_other": "{{count}} documentos",
     "searchPlaceholder": "Buscar por título, autor, ISBN...",
     "allPublicTypes": "Todos los públicos",
     "advancedSearch": "Búsqueda avanzada",
@@ -664,8 +675,8 @@
     "title": "Catálogo",
     "noItems": "No se encontraron documentos",
     "volume": "Volumen {{number}}",
-    "specimenCount_plural": "{{count}} ejemplares",
-    "count_plural": "{{count}} documentos",
+    "availableCopies_one": "{{count}} ejemplar",
+    "availableCopies_other": "{{count}} ejemplares",
     "batchDeleteScan": {
       "openButton": "Eliminar por escaneo",
       "title": "Eliminar ejemplares por escaneo",

@@ -378,6 +378,29 @@ export interface UpdateCollection {
 /** Item weeding lifecycle. JSON camelCase. Orthogonal to circulation exceptions and archivedAt. */
 export type ItemWeedingStatus = 'onShelf' | 'candidate' | 'withdrawn';
 
+/**
+ * Staff copy availability. The server decides this; do not infer it from
+ * `borrowed`, `borrowable`, or `circulationStatus`.
+ *
+ * Precedence: onLoan > inTransit > onHold > toSearch > unavailable > available.
+ * `onHold` covers holds in `to_pick` and `ready`. `unavailable` covers incomplete
+ * receipt, lost, damaged, claimed returned, and withdrawn.
+ */
+export type ItemAvailability =
+  | 'available'
+  | 'onHold'
+  | 'inTransit'
+  | 'onLoan'
+  | 'toSearch'
+  | 'unavailable';
+
+/**
+ * Public, OPAC, and reader copy availability.
+ * `toSearch` is not part of this enum: the server returns it as `unavailable`,
+ * with no reason. These responses never include `holdUserId` or `holdUserName`.
+ */
+export type PublicItemAvailability = Exclude<ItemAvailability, 'toSearch'>;
+
 /** Derived biblio weeding mark: withdrawn only when every remaining copy is withdrawn. */
 export type BiblioWeedingStatus = 'onShelf' | 'withdrawn';
 
@@ -400,9 +423,34 @@ export interface ItemShort {
   /**
    * Item circulation state. Numbers: 0 available, 1 lost, 2 damaged, 3 claimed-returned, 4 to search.
    * The circulation enum JSON name is `toSearch` when that status is serialized on its own.
+   * Staff detail only. Public availability does not expose a reason.
    */
   circulationStatus?: number | string | null;
   weedingStatus?: ItemWeedingStatus | null;
+  /** Server-computed. May be `toSearch` on staff responses. */
+  availability: ItemAvailability;
+  /** True only for `available` and `onLoan`, and never when the copy is withdrawn. */
+  canHoldItem: boolean;
+  /** Staff only, and only when `availability` is `onHold`. */
+  holdUserId?: string | null;
+  /** Staff only, and only when `availability` is `onHold`. */
+  holdUserName?: string | null;
+}
+
+/**
+ * Public/OPAC/reader copy embedded in catalog lists.
+ * No patron identity and no `toSearch` value.
+ */
+export interface PublicItemShort {
+  id: string;
+  barcode?: string | null;
+  callNumber?: string | null;
+  borrowable?: boolean | null;
+  sourceId?: string | null;
+  sourceName?: string | null;
+  borrowed?: boolean;
+  availability: PublicItemAvailability;
+  canHoldItem: boolean;
 }
 
 /** Short bibliographic record as returned in list endpoints */
@@ -422,6 +470,11 @@ export interface BiblioShort {
   items?: ItemShort[];
   author?: Author | null;
   sourceName?: string | null;
+}
+
+/** OPAC/reader search hit. Copies use {@link PublicItemShort}. */
+export interface PublicBiblioShort extends Omit<BiblioShort, 'items' | 'weedingStatus'> {
+  items?: PublicItemShort[];
 }
 
 /** Full physical copy (exemplaire) */
@@ -447,6 +500,30 @@ export interface Item {
   borrowed?: boolean;
   /** Active loan id when borrowed (staff circulation lookup). */
   loanId?: string | null;
+  /** Server-computed. May be `toSearch` on staff responses. */
+  availability: ItemAvailability;
+  /** True only for `available` and `onLoan`, and never when the copy is withdrawn. */
+  canHoldItem: boolean;
+  /** Staff only, and only when `availability` is `onHold`. */
+  holdUserId?: string | null;
+  /** Staff only, and only when `availability` is `onHold`. */
+  holdUserName?: string | null;
+}
+
+/**
+ * Public/OPAC/reader copy on a bibliographic notice.
+ * `availability` is never `toSearch`. Patron identity is omitted.
+ */
+export interface PublicItem {
+  id: string;
+  biblioId?: string | null;
+  barcode?: string | null;
+  callNumber?: string | null;
+  volumeDesignation?: string | null;
+  sourceName?: string | null;
+  borrowed?: boolean;
+  availability: PublicItemAvailability;
+  canHoldItem: boolean;
 }
 
 /** Full bibliographic record */
@@ -498,6 +575,11 @@ export interface Biblio {
   /** Physical copies of this bibliographic record */
   items?: Item[];
   marcRecord?: unknown;
+}
+
+/** OPAC/reader bibliographic notice. Copies use {@link PublicItem}. */
+export interface PublicBiblio extends Omit<Biblio, 'items' | 'weedingStatus'> {
+  items?: PublicItem[];
 }
 
 /** Physical item data when creating a Biblio in one request (POST /biblios with items) */

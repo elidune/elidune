@@ -545,6 +545,15 @@
       "cancelled": "Cancelled"
     }
   },
+  "availability": {
+    "available": "Available",
+    "onHold": "On hold",
+    "inTransit": "In transit",
+    "onLoan": "On loan",
+    "toSearch": "To search",
+    "unavailable": "Unavailable",
+    "reservedFor": "Reserved for {{name}}"
+  },
   "items": {
     "specimens": "Copies",
     "mediaType": {
@@ -615,7 +624,8 @@
     "createdAt": "Created",
     "updatedAt": "Last updated",
     "keywordsAndSubject": "Keywords and Subject",
-    "specimenCount": "{{count}} copy",
+    "specimenCount_one": "{{count}} copy",
+    "specimenCount_other": "{{count}} copies",
     "noSpecimens": "No copies registered",
     "forceDeleteItem": "Force delete",
     "itemBorrowedForceDelete": "This item has borrowed specimens. Force delete anyway?",
@@ -656,7 +666,8 @@
     "allTypes": "All types",
     "unavailable": "Unavailable",
     "author": "Author",
-    "count": "{{count}} document",
+    "count_one": "{{count}} document",
+    "count_other": "{{count}} documents",
     "searchPlaceholder": "Search by title, author, ISBN...",
     "allPublicTypes": "All audiences",
     "advancedSearch": "Advanced Search",
@@ -664,8 +675,8 @@
     "title": "Catalog",
     "noItems": "No documents found",
     "volume": "Volume {{number}}",
-    "specimenCount_plural": "{{count}} copies",
-    "count_plural": "{{count}} documents",
+    "availableCopies_one": "{{count}} copy",
+    "availableCopies_other": "{{count}} copies",
     "batchDeleteScan": {
       "openButton": "Delete by scan",
       "title": "Delete copies by scan",

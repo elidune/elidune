@@ -31,9 +31,10 @@ import PlaceHoldDialog from '@/components/holds/PlaceHoldDialog';
 import BatchDeleteSpecimensDialog from '@/components/specimen/BatchDeleteSpecimensDialog';
 import WeedingStatusControl from '@/components/items/WeedingStatusControl';
 import api from '@/services/api';
+import ItemAvailabilityBadge, { ItemHoldPatronLine } from '@/components/items/ItemAvailabilityBadge';
 import type { Biblio, Item, Author, Source } from '@/types';
-import { isCopyOfferable, isItemWithdrawn, isTitleWithdrawn } from '@/utils/weeding';
-import { isItemToSearch } from '@/utils/circulationStatus';
+import { isTitleWithdrawn } from '@/utils/weeding';
+import { staffUnavailableDetailKey, type AvailabilityAudience } from '@/utils/itemAvailability';
 import { useTranslation } from 'react-i18next';
 import { LANG_OPTIONS, FUNCTION_OPTIONS, PUBLIC_TYPE_OPTIONS, getCodeLabel } from '@/utils/codeLabels';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
@@ -549,7 +550,8 @@ export default function BiblioDetailPage() {
                     specimen={specimen}
                     canManage={canManageItems(user?.accountType)}
                     showBorrower={canManageLoans(user?.accountType)}
-                    showReserveButton={canPlaceTitleHold && isCopyOfferable(specimen)}
+                    audience={isLibrarian(user?.accountType) ? 'staff' : 'public'}
+                    showReserveButton={canPlaceTitleHold && specimen.canHoldItem === true}
                     onReserve={() => {
                       setReserveSpecimen(specimen);
                       setHoldDialogOpen(true);
@@ -935,6 +937,7 @@ function InfoRow({ icon: Icon, label, value }: InfoRowProps) {
 interface SpecimenCardProps {
   specimen: Item;
   canManage: boolean;
+  audience: AvailabilityAudience;
   showBorrower?: boolean;
   showReserveButton?: boolean;
   onReserve?: () => void;
@@ -952,6 +955,7 @@ function missingFieldLabel(t: (key: string) => string, field: CirculationField):
 function SpecimenCard({
   specimen,
   canManage,
+  audience,
   showBorrower,
   showReserveButton,
   onReserve,
@@ -964,20 +968,7 @@ function SpecimenCard({
   const ready = isReadyToCirculate(specimen);
   const incomplete = specimen.borrowable === false && !ready;
   const missing = incomplete ? missingCirculationFields(specimen) : [];
-
-  const withdrawn = isItemWithdrawn(specimen);
-  const toSearch = isItemToSearch(specimen);
-  const statusBadge = withdrawn
-    ? <Badge variant="danger">{t('weeding.status.withdrawn')}</Badge>
-    : toSearch
-      ? <Badge variant="warning">{t('items.toSearch')}</Badge>
-    : specimen.borrowed === true
-      ? <Badge variant="warning">{t('items.borrowed')}</Badge>
-      : incomplete
-        ? <Badge variant="warning">{t('items.incompleteNotCirculable')}</Badge>
-        : specimen.borrowable === false
-          ? <Badge variant="danger">{t('items.notCirculable')}</Badge>
-          : <Badge variant="success">{t('items.available')}</Badge>;
+  const staffDetailKey = audience === 'staff' ? staffUnavailableDetailKey(specimen) : null;
 
   return (
     <div className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
@@ -986,7 +977,7 @@ function SpecimenCard({
           {specimen.barcode || t('items.noBarcode')}
         </p>
         <div className="flex items-center gap-2">
-          {statusBadge}
+          <ItemAvailabilityBadge availability={specimen.availability} audience={audience} />
           {canManage && (
             <div className="flex gap-1">
               <button
@@ -1022,11 +1013,22 @@ function SpecimenCard({
         {t('items.source')}: {specimen.sourceName ?? '—'}
       </p>
 
+      <ItemHoldPatronLine
+        audience={audience}
+        availability={specimen.availability}
+        holdUserId={specimen.holdUserId}
+        holdUserName={specimen.holdUserName}
+      />
+
+      {staffDetailKey && (staffDetailKey !== 'items.incompleteNotCirculable' || missing.length === 0) && (
+        <p className="mt-1 text-xs text-gray-600 dark:text-gray-300">{t(staffDetailKey)}</p>
+      )}
+
       {showBorrower && specimen.borrowed && specimen.loanId && (
         <SpecimenBorrowerLine loanId={specimen.loanId} />
       )}
 
-      {incomplete && missing.length > 0 ? (
+      {audience === 'staff' && incomplete && missing.length > 0 ? (
         <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
           {t('items.missingCirculationFields', {
             fields: missing.map((field) => missingFieldLabel(t, field)).join(', '),

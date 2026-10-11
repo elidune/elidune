@@ -8,6 +8,8 @@ import type {
   UserShort,
   Biblio,
   BiblioShort,
+  PublicBiblio,
+  PublicBiblioShort,
   ImportResult,
   Loan,
   Stats,
@@ -1704,15 +1706,15 @@ class ApiService {
     mediaType?: MediaType;
     page?: number;
     perPage?: number;
-  }): Promise<PaginatedResponse<BiblioShort>> {
+  }): Promise<PaginatedResponse<PublicBiblioShort>> {
     const response = await this.client.get('/opac/biblios', {
       params,
     });
-    return normalizePaginatedResponse<BiblioShort>(response.data);
+    return normalizePaginatedResponse<PublicBiblioShort>(response.data);
   }
 
-  async getOPACBiblio(id: string): Promise<Biblio> {
-    const response = await this.client.get<Biblio>(`/opac/biblios/${id}`);
+  async getOPACBiblio(id: string): Promise<PublicBiblio> {
+    const response = await this.client.get<PublicBiblio>(`/opac/biblios/${id}`);
     return response.data;
   }
 

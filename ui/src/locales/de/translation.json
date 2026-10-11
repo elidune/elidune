@@ -545,6 +545,15 @@
       "cancelled": "Storniert"
     }
   },
+  "availability": {
+    "available": "Verfügbar",
+    "onHold": "Reserviert",
+    "inTransit": "Unterwegs",
+    "onLoan": "Ausgeliehen",
+    "toSearch": "Zu suchen",
+    "unavailable": "Nicht verfügbar",
+    "reservedFor": "Reserviert für {{name}}"
+  },
   "items": {
     "specimens": "Exemplare",
     "mediaType": {
@@ -615,7 +624,8 @@
     "createdAt": "Erstellt",
     "updatedAt": "Zuletzt geändert",
     "keywordsAndSubject": "Schlagwörter und Thema",
-    "specimenCount": "{{count}} Exemplar",
+    "specimenCount_one": "{{count}} Exemplar",
+    "specimenCount_other": "{{count}} Exemplare",
     "noSpecimens": "Keine Exemplare registriert",
     "forceDeleteItem": "Trotzdem löschen",
     "itemBorrowedForceDelete": "Dieser Eintrag hat ausgeliehene Exemplare. Trotzdem löschen?",
@@ -656,7 +666,8 @@
     "allTypes": "Alle Typen",
     "unavailable": "Nicht verfügbar",
     "author": "Autor",
-    "count": "{{count}} Dokument",
+    "count_one": "{{count}} Dokument",
+    "count_other": "{{count}} Dokumente",
     "searchPlaceholder": "Nach Titel, Autor, ISBN suchen...",
     "allPublicTypes": "Alle Zielgruppen",
     "advancedSearch": "Erweiterte Suche",
@@ -664,8 +675,8 @@
     "title": "Katalog",
     "noItems": "Keine Dokumente gefunden",
     "volume": "Band {{number}}",
-    "specimenCount_plural": "{{count}} Exemplare",
-    "count_plural": "{{count}} Dokumente",
+    "availableCopies_one": "{{count}} Exemplar",
+    "availableCopies_other": "{{count}} Exemplare",
     "batchDeleteScan": {
       "openButton": "Per Scan löschen",
       "title": "Exemplare per Scan löschen",
