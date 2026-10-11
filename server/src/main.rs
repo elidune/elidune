@@ -38,6 +38,9 @@ async fn main() -> anyhow::Result<()> {
     file_config
         .validate_security()
         .expect("Invalid security configuration");
+    file_config
+        .validate_meilisearch_key()
+        .expect("Invalid Meilisearch API key");
 
     // 2. Database (no tracing yet — effective logging comes from DB overrides)
     let pool = connect_pool(&file_config.database)
@@ -50,6 +53,10 @@ async fn main() -> anyhow::Result<()> {
         .apply(&pool)
         .await
         .expect("Failed to apply effective configuration");
+
+    if let Some(warning) = file_config.email_public_base_url_warning() {
+        tracing::warn!("{warning}");
+    }
 
     tracing::info!("Starting Elidune Server v{}", env!("CARGO_PKG_VERSION"));
     tracing::info!("Connected to database and migrations completed");

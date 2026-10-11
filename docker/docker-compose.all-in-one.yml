@@ -38,6 +38,14 @@ services:
       ELIDUNE_SERVER__AUTH_SESSION_BURST: ${ELIDUNE_SERVER__AUTH_SESSION_BURST:-60}
       ELIDUNE_SERVER__PUBLIC_PER_MINUTE: ${ELIDUNE_SERVER__PUBLIC_PER_MINUTE:-600}
       ELIDUNE_SERVER__PUBLIC_BURST: ${ELIDUNE_SERVER__PUBLIC_BURST:-120}
+      # Public UI origin used in email links (no trailing slash). Replace before sending mail.
+      # Placeholder: https://library.example.org — unset or localhost is warned at startup when SMTP is configured.
+      ELIDUNE_SERVER__PUBLIC_BASE_URL: ${ELIDUNE_SERVER__PUBLIC_BASE_URL:-https://library.example.org}
+
+      # Postgres inside this image (official entrypoint). Must match ELIDUNE_DATABASE__URL.
+      POSTGRES_USER: ${POSTGRES_USER:-elidune}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-elidune}
+      POSTGRES_DB: ${POSTGRES_DB:-elidune}
 
       # --- database ---
       ELIDUNE_DATABASE__URL: ${ELIDUNE_DATABASE__URL:-postgres://elidune:elidune@localhost:5432/elidune}
@@ -95,9 +103,10 @@ services:
 
       # --- meilisearch (in-container URL; override api_key to match MEILI_MASTER_KEY) ---
       ELIDUNE_MEILISEARCH__URL: ${ELIDUNE_MEILISEARCH__URL:-http://127.0.0.1:7700}
-      ELIDUNE_MEILISEARCH__API_KEY: ${ELIDUNE_MEILISEARCH__API_KEY:-changeme}
+      # Meilisearch production mode rejects keys shorter than 16 bytes. Replace before production.
+      ELIDUNE_MEILISEARCH__API_KEY: ${ELIDUNE_MEILISEARCH__API_KEY:-change-this-meili-key}
       ELIDUNE_MEILISEARCH__INDEX_NAME: ${ELIDUNE_MEILISEARCH__INDEX_NAME:-items}
-      MEILI_MASTER_KEY: ${ELIDUNE_MEILISEARCH__API_KEY:-changeme}
+      MEILI_MASTER_KEY: ${ELIDUNE_MEILISEARCH__API_KEY:-change-this-meili-key}
 
     volumes:
       - postgres_data:/var/lib/postgresql/data
