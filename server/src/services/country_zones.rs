@@ -5,7 +5,9 @@
 //! against `iso3166.tab`) by `ui/scripts/generate-country-timezones.mjs`.
 //! The JSON file is the single source: the UI imports it, and this module
 //! embeds the same bytes. A country with one zone uses that zone. A country
-//! with several zones has no default.
+//! with several zones has no default. The server and all-in-one images copy
+//! this file to `/ui/src/data/` because their build context places the crate
+//! in `/app` and does not include the rest of the UI tree.
 
 use std::collections::HashMap;
 use std::sync::OnceLock;

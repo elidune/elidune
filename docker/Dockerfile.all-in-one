@@ -22,6 +22,10 @@ COPY server/src ./src
 COPY server/migrations ./migrations
 COPY server/config ./config
 COPY server/data ./data
+# country_zones.rs include_str!s this file relative to server/src/services,
+# which resolves to /ui/src/data when the crate is built in /app.
+RUN mkdir -p /ui/src/data
+COPY ui/src/data/countryTimezones.json /ui/src/data/countryTimezones.json
 
 RUN touch src/main.rs && \
     cargo build --release
