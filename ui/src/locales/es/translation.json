@@ -987,6 +987,8 @@
     "renewalPossibleFrom": "Renovación posible a partir del {{date}}",
     "renewalTooEarly": "La renovación aún no está abierta.",
     "renewalRefusal": {
+      "account_blocked": "Esta cuenta no puede prestar.",
+      "fines_over_threshold": "Las multas impagas superan el límite de renovación.",
       "withdrawn": "Este ejemplar está dado de baja y no se puede renovar.",
       "claimed_returned": "Este préstamo está en la cola de devoluciones reclamadas.",
       "hold_waiting": "Otro lector está esperando este título.",

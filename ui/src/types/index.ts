@@ -597,6 +597,8 @@ export interface ClaimsReturnedQueueItem {
 
 // Loan types
 export type MyLoanRenewalRefusal =
+  | 'account_blocked'
+  | 'fines_over_threshold'
   | 'withdrawn'
   | 'claimed_returned'
   | 'hold_waiting'

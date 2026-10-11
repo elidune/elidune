@@ -987,6 +987,8 @@
     "renewalPossibleFrom": "Renewal possible from {{date}}",
     "renewalTooEarly": "Renewal is not open yet.",
     "renewalRefusal": {
+      "account_blocked": "This account cannot borrow.",
+      "fines_over_threshold": "Unpaid fines are over the renewal limit.",
       "withdrawn": "This copy is withdrawn and cannot be renewed.",
       "claimed_returned": "This loan is in the claims-returned queue.",
       "hold_waiting": "Another patron is waiting for this title.",

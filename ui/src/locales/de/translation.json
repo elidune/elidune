@@ -987,6 +987,8 @@
     "renewalPossibleFrom": "Verlängerung möglich ab {{date}}",
     "renewalTooEarly": "Die Verlängerung ist noch nicht möglich.",
     "renewalRefusal": {
+      "account_blocked": "Dieses Konto darf nicht ausleihen.",
+      "fines_over_threshold": "Offene Gebühren liegen über der Verlängerungsgrenze.",
       "withdrawn": "Dieses Exemplar ist ausgesondert und kann nicht verlängert werden.",
       "claimed_returned": "Diese Ausleihe liegt in der Rückgabe-Reklamation.",
       "hold_waiting": "Eine andere Person wartet auf diesen Titel.",

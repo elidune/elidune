@@ -230,7 +230,10 @@ async fn renew_skips_holiday() {
     .await
     .expect("create closure");
 
-    let (new_expiry, renews) = repo.loans_renew(checkout.loan_id).await.expect("renew");
+    let (new_expiry, renews) = repo
+        .loans_renew(checkout.loan_id, false)
+        .await
+        .expect("renew");
 
     assert_eq!(renews, 1);
     assert_ne!(
@@ -442,7 +445,7 @@ async fn three_week_network_closure_slides_checkout_and_renewal() {
         .await
         .expect("anchor renewal on today");
     let (renewed, renews) = repo
-        .loans_renew(outcome.loan_id)
+        .loans_renew(outcome.loan_id, false)
         .await
         .expect("renew across the closure");
     assert_eq!(renews, 1);
@@ -555,7 +558,10 @@ async fn sunday_due_date_slides_to_monday() {
         .await
         .expect("anchor on Sunday");
 
-    let (renewed, _) = repo.loans_renew(checkout.loan_id).await.expect("renew");
+    let (renewed, _) = repo
+        .loans_renew(checkout.loan_id, false)
+        .await
+        .expect("renew");
     assert_eq!(
         local_date(paris(), renewed),
         target + Duration::days(1),
