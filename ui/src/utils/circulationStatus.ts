@@ -30,7 +30,7 @@ export function isItemToSearch(item?: { circulationStatus?: number | string | nu
 }
 
 export function isClaimedReturnedLoan(loan: Loan, claimedLoanIds?: ReadonlySet<string>): boolean {
-  if (claimedLoanIds?.has(loan.id)) return true;
-  const spec = loanBorrowedItem(loan);
-  return spec?.circulationStatus === CIRCULATION_STATUS.CLAIMED_RETURNED;
+  // Embedded list copies (`ItemShortStaff`) do not include circulation status.
+  // The claims queue is the source for this flag.
+  return claimedLoanIds?.has(loan.id) ?? false;
 }

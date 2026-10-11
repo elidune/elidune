@@ -34,7 +34,6 @@ import {
   canManageAcquisitions,
   type CreateOrderLine,
   type PurchaseOrderLine,
-  type Biblio,
   type ReceivePurchaseOrder,
 } from '@/types';
 import {
@@ -168,7 +167,7 @@ export default function AcquisitionsOrderDetailPage() {
       let copies: ReceivedCopy[] = [];
       try {
         copies = await Promise.all(ids.map(async (itemId) => {
-          const biblio: Biblio = await api.getItem(itemId);
+          const biblio = await api.getItem(itemId);
           const item = biblio.items?.find((copy) => copy.id === itemId) ?? biblio.items?.[0];
           return {
             itemId,

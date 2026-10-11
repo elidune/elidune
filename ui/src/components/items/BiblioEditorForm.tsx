@@ -17,7 +17,7 @@ import CallNumberField from '@/components/specimen/CallNumberField';
 import { buildSuggestedCallNumber, validateCallNumber } from '@/utils/callNumber';
 import { formControlClass, formTextareaClass, formLabelClass } from '@/utils/formControl';
 import api from '@/services/api';
-import type { Author, Biblio, CreateBiblioItemInput, MediaType, MediaTypeOption, Source, Z3950Server, Serie, Collection } from '@/types';
+import type { Author, Biblio, BiblioStaffView, CreateBiblioItemInput, MediaType, MediaTypeOption, Source, Z3950Server, Serie, Collection } from '@/types';
 import { LANG_OPTIONS, FUNCTION_OPTIONS, PUBLIC_TYPE_OPTIONS } from '@/utils/codeLabels';
 import { formatIsbnDisplay, stripIsbnForZ3950Query } from '@/utils/isbnDisplay';
 import { EntityLinker, type LinkedEntry } from './EntityLinker';
@@ -223,7 +223,7 @@ export interface BiblioEditorFormProps {
   mode: 'create' | 'edit';
   formId: string;
   /** Required when mode is edit */
-  initialBiblio?: Biblio | null;
+  initialBiblio?: Biblio | BiblioStaffView | null;
   /** Edit mode: wired to modal save button loading state */
   onLoadingChange?: (loading: boolean) => void;
   onSubmitCreate?: (payload: CreateBiblioPayload) => void | Promise<void>;
@@ -248,7 +248,7 @@ export default function BiblioEditorForm({
     function: a.function ?? '',
   });
 
-  const initialCollections = (b: Biblio): LinkedEntry[] => {
+  const initialCollections = (b: Biblio | BiblioStaffView): LinkedEntry[] => {
     const arr = b.collections ?? [];
     if (arr.length > 0) {
       return arr.map((c) => ({
@@ -257,17 +257,18 @@ export default function BiblioEditorForm({
         volumeNumber: c.volumeNumber?.toString() ?? '',
       }));
     }
-    if (b.collection?.id || b.collection?.name) {
+    const legacy = 'collection' in b ? b.collection : undefined;
+    if (legacy?.id || legacy?.name) {
       return [{
-        id: b.collection.id ?? undefined,
-        name: b.collection.name ?? '',
+        id: legacy.id ?? undefined,
+        name: legacy.name ?? '',
         volumeNumber: '',
       }];
     }
     return [];
   };
 
-  const initialSeries = (b: Biblio): LinkedEntry[] =>
+  const initialSeries = (b: Biblio | BiblioStaffView): LinkedEntry[] =>
     (b.series ?? []).map((s) => ({
       id: s.id ?? undefined,
       name: s.name ?? '',

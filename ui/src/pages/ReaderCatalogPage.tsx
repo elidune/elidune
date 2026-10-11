@@ -4,7 +4,6 @@ import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { BookOpen, ChevronRight, MapPin } from 'lucide-react';
 import {
-  Badge,
   Button,
   Card,
   Input,
@@ -12,15 +11,15 @@ import {
   Pagination,
   QueryErrorBanner,
 } from '@/components/common';
+import ItemAvailabilityBadge from '@/components/items/ItemAvailabilityBadge';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
 import {
-  availabilityBadgeVariant,
-  availabilityLabelKey,
+  countAvailableCopies,
   primaryCopyLocation,
-  titleAvailabilityStatus,
+  summaryAvailability,
   uniqueCopySites,
-} from '@/utils/opacAvailability';
+} from '@/utils/itemAvailability';
 import type { MediaType } from '@/types';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
 
@@ -125,7 +124,6 @@ export default function ReaderCatalogPage() {
         ) : (
           <ul className="divide-y divide-gray-100 dark:divide-gray-800">
             {biblios.map((biblio) => {
-              const status = titleAvailabilityStatus(biblio.items);
               const { callNumber } = primaryCopyLocation(biblio.items);
               const sites = uniqueCopySites(biblio.items);
               const authorName = biblio.author
@@ -148,9 +146,14 @@ export default function ReaderCatalogPage() {
                         <p className="text-sm text-gray-500 dark:text-gray-400 truncate">{authorName}</p>
                       )}
                       <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                        <Badge variant={availabilityBadgeVariant(status)} size="sm">
-                          {t(availabilityLabelKey(status))}
-                        </Badge>
+                        <span className="text-xs text-gray-600 dark:text-gray-300">
+                          {t('items.availableCopies', { count: countAvailableCopies(biblio.items) })}
+                        </span>
+                        <ItemAvailabilityBadge
+                          availability={summaryAvailability(biblio.items, 'public')}
+                          audience="public"
+                          size="sm"
+                        />
                         {callNumber && (
                           <span className="font-mono text-xs text-gray-700 dark:text-gray-300">
                             {t('items.callNumber')}: {callNumber}

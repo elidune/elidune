@@ -1,4 +1,4 @@
-import type { Loan, LoanSettings, MediaType } from '@/types';
+import type { LoanSettings, MediaType } from '@/types';
 
 /** Default used only when settings have not loaded or have no matching row. */
 export const FALLBACK_MAX_RENEWALS = 2;
@@ -15,7 +15,10 @@ export function maxRenewalsForMedia(
   return fallback?.maxRenewals ?? FALLBACK_MAX_RENEWALS;
 }
 
-export function renewalsRemaining(loan: Loan, settings: LoanSettings[]): number {
+export function renewalsRemaining(
+  loan: { nbRenews: number; biblio?: { mediaType?: MediaType | string | null } | null },
+  settings: LoanSettings[],
+): number {
   const max = maxRenewalsForMedia(settings, loan.biblio?.mediaType);
   return Math.max(0, max - loan.nbRenews);
 }

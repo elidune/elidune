@@ -26,13 +26,9 @@ import {
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLibrary } from '@/contexts/LibraryContext';
-import { Card, Badge, Input, Button, LibraryInfoSection } from '@/components/common';
-import {
-  availabilityBadgeVariant,
-  availabilityLabelKey,
-  copyAvailabilityStatus,
-  titleAvailabilityStatus,
-} from '@/utils/opacAvailability';
+import { Card, Input, Button, LibraryInfoSection } from '@/components/common';
+import ItemAvailabilityBadge from '@/components/items/ItemAvailabilityBadge';
+import { countAvailableCopies, summaryAvailability } from '@/utils/itemAvailability';
 import { useLibrarySchedule } from '@/hooks/common/useLibrarySchedule';
 import api from '@/services/api';
 import { loginFailureMessage } from '@/utils/apiError';
@@ -371,13 +367,6 @@ function BiblioDetailPane({
               </div>
             )}
 
-            {detail.notes && (
-              <div>
-                <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1">{t('profile.notes')}</p>
-                <p className="text-gray-600 dark:text-gray-400">{detail.notes}</p>
-              </div>
-            )}
-
             {detail.items && detail.items.length > 0 && (
               <div>
                 <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">{t('items.specimens')}</p>
@@ -388,14 +377,14 @@ function BiblioDetailPane({
                 )}
                 <div className="space-y-1.5">
                   {detail.items.map((item) => {
-                    const status = copyAvailabilityStatus(item);
-
                     return (
                       <div key={item.id} className="flex flex-col gap-1 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-800/60">
                         <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant={availabilityBadgeVariant(status)} size="sm">
-                            {t(availabilityLabelKey(status))}
-                          </Badge>
+                          <ItemAvailabilityBadge
+                            availability={item.availability}
+                            audience="public"
+                            size="sm"
+                          />
                           {item.callNumber && (
                             <span className="font-mono text-xs font-semibold text-gray-800 dark:text-gray-200">
                               {t('items.callNumber')}: {item.callNumber}
@@ -842,9 +831,16 @@ export default function LoginPage() {
                                       {authorName ?? '—'}
                                     </p>
                                     {totalItems > 0 && (
-                                      <Badge variant={availabilityBadgeVariant(titleAvailabilityStatus(biblio.items))} size="sm">
-                                        {t(availabilityLabelKey(titleAvailabilityStatus(biblio.items)))}
-                                      </Badge>
+                                      <span className="inline-flex flex-wrap items-center gap-2">
+                                        <span className="text-xs text-gray-600 dark:text-gray-300">
+                                          {t('items.availableCopies', { count: countAvailableCopies(biblio.items) })}
+                                        </span>
+                                        <ItemAvailabilityBadge
+                                          availability={summaryAvailability(biblio.items, 'public')}
+                                          audience="public"
+                                          size="sm"
+                                        />
+                                      </span>
                                     )}
                                   </div>
                                   <ChevronRight

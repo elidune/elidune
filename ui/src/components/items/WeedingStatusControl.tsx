@@ -3,12 +3,12 @@ import { useTranslation } from 'react-i18next';
 import { useMutation } from '@tanstack/react-query';
 import { Badge, Button, Input } from '@/components/common';
 import api from '@/services/api';
-import type { Item, ItemWeedingStatus } from '@/types';
+import type { ItemStaffView, ItemWeedingStatus } from '@/types';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { ITEM_WEEDING_STATUSES, itemWeedingStatus } from '@/utils/weeding';
 
 interface WeedingStatusControlProps {
-  item: Item;
+  item: ItemStaffView;
   canManage: boolean;
   onUpdated?: () => void;
 }
@@ -32,11 +32,13 @@ export default function WeedingStatusControl({ item, canManage, onUpdated }: Wee
   const [error, setError] = useState<string | null>(null);
 
   const mutation = useMutation({
-    mutationFn: (status: ItemWeedingStatus) =>
-      api.setItemWeeding(item.id, {
+    mutationFn: (status: ItemWeedingStatus) => {
+      if (item.id == null) return Promise.reject(new Error('missing item id'));
+      return api.setItemWeeding(item.id, {
         status,
         reason: reason.trim() || undefined,
-      }),
+      });
+    },
     onSuccess: () => {
       setReason('');
       setError(null);

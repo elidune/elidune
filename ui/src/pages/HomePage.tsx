@@ -172,7 +172,7 @@ export default function HomePage() {
                 <LoanMediaTypeBadge mediaType={loan.mediaType} size="catalog" />
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-gray-900 dark:text-white truncate">
-                    {loan.title}
+                    {loan.title || t('items.notSpecified')}
                   </p>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
                     {t('loans.dueDate')}: {new Date(loan.dueDate).toLocaleDateString(i18n.language)}

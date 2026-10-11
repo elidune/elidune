@@ -1,9 +1,9 @@
 import { Link } from 'react-router-dom';
-import type { Hold } from '@/types';
+import type { HoldListItem } from '@/types';
 import { holdPrimaryDocumentLabel, holdSecondaryDocumentLabel } from '@/utils/holdDisplay';
 import HoldScopeBadge from '@/components/holds/HoldScopeBadge';
 
-export default function HoldDocumentCell({ hold }: { hold: Hold }) {
+export default function HoldDocumentCell({ hold }: { hold: HoldListItem }) {
   const sub = holdSecondaryDocumentLabel(hold);
   const primary = holdPrimaryDocumentLabel(hold);
   const biblioId = hold.biblio?.id ?? hold.biblioId;
