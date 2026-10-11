@@ -26,6 +26,7 @@ import { getApiErrorMessage } from '@/utils/apiError';
 import { formChoiceLabelClass } from '@/utils/formControl';
 import { patronId } from '@/utils/patronLink';
 import { formatUserShortName } from '@/utils/userDisplay';
+import { isHoldDetailsStaff } from '@/utils/catalogView';
 import { holdSecondaryDocumentLabel, STAFF_HOLDS_FETCH_CAP } from '@/utils/holdDisplay';
 import { canCancelTransit, sourceLabel } from '@/utils/transitDisplay';
 import type { Hold, ItemTransit, TransitStatus } from '@/types';
@@ -75,6 +76,7 @@ export default function TransitsPage() {
   const holdById = useMemo(() => {
     const map = new Map<string, Hold>();
     for (const hold of holdsQuery.data?.items ?? []) {
+      if (!isHoldDetailsStaff(hold)) continue;
       map.set(hold.id, hold);
     }
     return map;

@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { Package, PackageCheck, Truck } from 'lucide-react';
 import { Button } from '@/components/common';
-import type { Hold, ItemTransit } from '@/types';
+import type { HoldListItem, ItemTransit } from '@/types';
 import type { useTransitActions } from '@/hooks/holds/useTransitActions';
 import {
   canReceiveTransit,
@@ -14,7 +14,7 @@ export default function HoldTransitActions({
   transit,
   actions,
 }: {
-  hold: Hold;
+  hold: HoldListItem;
   transit?: ItemTransit | null;
   actions: ReturnType<typeof useTransitActions>;
 }) {

@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { Badge, Button, Modal, ScrollableListRegion, BarcodeScanField } from '@/components/common';
 import api from '@/services/api';
-import type { Author, Item } from '@/types';
+import type { Author } from '@/types';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
 import { useResetWhenInactive } from '@/hooks/common/useResetWhenInactive';
 
@@ -46,7 +46,7 @@ export interface BatchDeleteSpecimensDialogProps {
     id: string;
     title?: string | null;
     authorLabel?: string;
-    items?: Item[] | null;
+    items?: Array<{ id: string | null; barcode: string | null }> | null;
   } | null;
   /** Invoked after each successful deletion so the parent can invalidate caches. */
   onSpecimenDeleted?: (specimenId: string, biblioId: string) => void;
@@ -119,7 +119,7 @@ export default function BatchDeleteSpecimensDialog({
       const specimen = biblio.items?.find(
         (s) => (s.barcode ?? '').trim() === trimmed && s.id != null,
       );
-      if (!specimen || !biblio.id) {
+      if (!specimen?.id || !biblio.id) {
         // Server returned a record but the matching copy is missing — treat as not-found.
         throw Object.assign(new Error('not_found'), { response: { status: 404 } });
       }

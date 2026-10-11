@@ -5,11 +5,15 @@ import type {
   AuthMeUser,
   LoginResponse,
   User,
-  UserShort,
+  UserShortStaff,
   Biblio,
   BiblioShort,
+  BiblioShortStaff,
   BiblioPublicView,
   BiblioShortPublic,
+  CatalogNotice,
+  LoanListItem,
+  HoldListItem,
   ImportResult,
   Loan,
   Stats,
@@ -563,13 +567,13 @@ class ApiService {
     serieId?: string;
     collectionId?: string;
     includeWithoutActiveItems?: boolean;
-  }): Promise<PaginatedResponse<BiblioShort>> {
+  }): Promise<PaginatedResponse<BiblioShortStaff>> {
     const response = await this.client.get('/biblios', { params });
-    return normalizePaginatedResponse<BiblioShort>(response.data);
+    return normalizePaginatedResponse<BiblioShortStaff>(response.data);
   }
 
-  async getBiblio(id: string, params?: { fullRecord?: boolean }): Promise<Biblio> {
-    const response = await this.client.get<Biblio>(`/biblios/${id}`, { params });
+  async getBiblio(id: string, params?: { fullRecord?: boolean }): Promise<CatalogNotice> {
+    const response = await this.client.get<CatalogNotice>(`/biblios/${id}`, { params });
     return response.data;
   }
 
@@ -612,8 +616,8 @@ class ApiService {
     return response.data;
   }
 
-  async getSerieBiblios(id: string): Promise<BiblioShort[]> {
-    const response = await this.client.get<BiblioShort[]>(`/series/${id}/biblios`);
+  async getSerieBiblios(id: string): Promise<BiblioShortStaff[]> {
+    const response = await this.client.get<BiblioShortStaff[]>(`/series/${id}/biblios`);
     return response.data;
   }
 
@@ -647,8 +651,8 @@ class ApiService {
     return response.data;
   }
 
-  async getCollectionBiblios(id: string): Promise<BiblioShort[]> {
-    const response = await this.client.get<BiblioShort[]>(`/collections/${id}/biblios`);
+  async getCollectionBiblios(id: string): Promise<BiblioShortStaff[]> {
+    const response = await this.client.get<BiblioShortStaff[]>(`/collections/${id}/biblios`);
     return response.data;
   }
 
@@ -693,8 +697,8 @@ class ApiService {
    * `GET /items/:id` returns the bibliographic record with nested `items` (physical copies),
    * including the copy matching `id`.
    */
-  async getItem(id: string): Promise<Biblio> {
-    const response = await this.client.get<Biblio>(`/items/${id}`);
+  async getItem(id: string): Promise<CatalogNotice> {
+    const response = await this.client.get<CatalogNotice>(`/items/${id}`);
     return response.data;
   }
 
@@ -704,8 +708,8 @@ class ApiService {
    *
    * Errors: 404 if no active copy has this barcode; 410 if the bibliographic record is archived.
    */
-  async getItemByBarcode(barcode: string): Promise<Biblio> {
-    const response = await this.client.get<Biblio>(
+  async getItemByBarcode(barcode: string): Promise<CatalogNotice> {
+    const response = await this.client.get<CatalogNotice>(
       `/items/barcode/${encodeURIComponent(barcode)}`,
     );
     return response.data;
@@ -718,9 +722,9 @@ class ApiService {
     barcode?: string;
     page?: number;
     perPage?: number;
-  }): Promise<PaginatedResponse<UserShort>> {
+  }): Promise<PaginatedResponse<UserShortStaff>> {
     const response = await this.client.get('/users', { params });
-    return normalizePaginatedResponse<UserShort>(response.data);
+    return normalizePaginatedResponse<UserShortStaff>(response.data);
   }
 
   async getUser(id: string): Promise<User> {
@@ -747,7 +751,7 @@ class ApiService {
   async getUserLoans(
     userId: string,
     options?: { archived?: boolean; page?: number; perPage?: number }
-  ): Promise<PaginatedResponse<Loan>> {
+  ): Promise<PaginatedResponse<LoanListItem>> {
     const response = await this.client.get(`/users/${userId}/loans`, {
       params: {
         archived: options?.archived,
@@ -755,7 +759,7 @@ class ApiService {
         perPage: options?.perPage,
       },
     });
-    return normalizePaginatedResponse<Loan>(response.data);
+    return normalizePaginatedResponse<LoanListItem>(response.data);
   }
 
   /**
@@ -841,8 +845,8 @@ class ApiService {
   }
 
   /** Patron profile for an active loan (requires loans write). */
-  async getLoanBorrower(loanId: string): Promise<UserShort> {
-    const response = await this.client.get<UserShort>(`/loans/${loanId}/user`);
+  async getLoanBorrower(loanId: string): Promise<UserShortStaff> {
+    const response = await this.client.get<UserShortStaff>(`/loans/${loanId}/user`);
     return response.data;
   }
 
@@ -1002,7 +1006,7 @@ class ApiService {
     perPage?: number;
     /** When true, only pending + ready holds (ongoing). */
     activeOnly?: boolean;
-  }): Promise<PaginatedResponse<Hold>> {
+  }): Promise<PaginatedResponse<HoldListItem>> {
     const response = await this.client.get('/holds', {
       params: {
         page: params?.page,
@@ -1010,7 +1014,7 @@ class ApiService {
         activeOnly: params?.activeOnly,
       },
     });
-    return normalizePaginatedResponse<Hold>(response.data);
+    return normalizePaginatedResponse<HoldListItem>(response.data);
   }
 
   // ─── Inter-site transits (hold fulfillment) ─────────────────────

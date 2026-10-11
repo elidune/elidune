@@ -1,8 +1,8 @@
 import { useTranslation } from 'react-i18next';
-import type { Hold } from '@/types';
+import type { HoldListItem } from '@/types';
 
 interface HoldExpiresCellProps {
-  hold: Hold;
+  hold: HoldListItem;
   /** Highlight pickup deadline for ready holds. */
   emphasizePickup?: boolean;
   /** Prefix with the expires label (mobile cards). */

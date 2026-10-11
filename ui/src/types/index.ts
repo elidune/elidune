@@ -200,19 +200,43 @@ export interface ResetPasswordFromTokenRequest {
   newPassword: string;
 }
 
-export interface UserShort {
+/** `UserStatus` JSON (`active` | `blocked` | `deleted`). */
+export type UserAccountStatus = 'active' | 'blocked' | 'deleted';
+
+/**
+ * Patron summary for staff (`UserShortStaff`).
+ * `login` is on this type only. `publicType` is the numeric public-type id.
+ */
+export interface UserShortStaff {
+  id: string;
+  login?: string | null;
+  firstname?: string | null;
+  lastname?: string | null;
+  accountType?: string | null;
+  publicType?: number | null;
+  nbLoans?: number | null;
+  nbLateLoans?: number | null;
+  status?: UserAccountStatus | null;
+  createdAt?: string | null;
+  expiryAt?: string | null;
+}
+
+/** Patron summary for readers (`UserShortPublic`). No `login`. */
+export interface UserShortPublic {
   id: string;
   firstname?: string | null;
   lastname?: string | null;
   accountType?: string | null;
-  publicType?: string | null;
+  publicType?: number | null;
   nbLoans?: number | null;
   nbLateLoans?: number | null;
-  loans?: Loan[];
-  /** Subscription / membership expiry (ISO). Null = unlimited. */
-  expiryAt?: string | null;
+  status?: UserAccountStatus | null;
   createdAt?: string | null;
+  expiryAt?: string | null;
 }
+
+/** Staff list row. Same JSON as {@link UserShortStaff}. */
+export type UserShort = UserShortStaff;
 
 export interface LoginRequest {
   username: string;
@@ -313,10 +337,22 @@ export interface MediaTypeOption {
 
 export interface Author {
   id: string;
+  key?: string | null;
   lastname?: string | null;
   firstname?: string | null;
   bio?: string | null;
+  /** Staff author notes. Omitted on {@link AuthorPublic}. */
   notes?: string | null;
+  function?: string | null;
+}
+
+/** Author embedded on a public catalog record. No staff `notes`. */
+export interface AuthorPublic {
+  id: string;
+  key?: string | null;
+  lastname?: string | null;
+  firstname?: string | null;
+  bio?: string | null;
   function?: string | null;
 }
 
@@ -401,8 +437,11 @@ export type ItemAvailability =
  */
 export type ItemPublicAvailability = Exclude<ItemAvailability, 'toSearch'>;
 
-/** Derived biblio weeding mark: withdrawn only when every remaining copy is withdrawn. */
-export type BiblioWeedingStatus = 'onShelf' | 'withdrawn';
+/**
+ * Biblio weeding mark. Same JSON enum as {@link ItemWeedingStatus}.
+ * Derived value is `withdrawn` only when every remaining copy is withdrawn.
+ */
+export type BiblioWeedingStatus = ItemWeedingStatus;
 
 /** POST /items/{id}/weeding — do not send weeding fields on PUT /items. */
 export interface SetItemWeeding {
@@ -411,84 +450,75 @@ export interface SetItemWeeding {
   reason?: string;
 }
 
-/** Simplified physical copy (Item) as returned inside BiblioShort */
-export interface ItemShort {
+/**
+ * Copy embedded in a staff list (`ItemShortStaff`).
+ * No circulation status, loan id, or copy notes — those exist only on {@link ItemStaffView}.
+ */
+export interface ItemShortStaff {
   id: string;
-  barcode?: string | null;
-  callNumber?: string | null;
-  borrowable?: boolean | null;
-  sourceId?: string | null;
-  sourceName?: string | null;
-  borrowed?: boolean;
-  /**
-   * Item circulation state. Numbers: 0 available, 1 lost, 2 damaged, 3 claimed-returned, 4 to search.
-   * The circulation enum JSON name is `toSearch` when that status is serialized on its own.
-   * Staff detail only. Public availability does not expose a reason.
-   */
-  circulationStatus?: number | string | null;
-  weedingStatus?: ItemWeedingStatus | null;
-  /** Server-computed. May be `toSearch` on staff responses. */
+  barcode: string | null;
+  callNumber: string | null;
+  borrowable: boolean;
+  weedingStatus: ItemWeedingStatus;
+  sourceName: string | null;
+  borrowed: boolean;
   availability: ItemAvailability;
-  /** True only for `available` and `onLoan`, and never when the copy is withdrawn. */
   canHoldItem: boolean;
-  /** Staff only, and only when `availability` is `onHold`. */
+  /** Present only when `availability` is `onHold`. */
   holdUserId?: string | null;
-  /** Staff only, and only when `availability` is `onHold`. */
+  /** Present only when `availability` is `onHold`. */
   holdUserName?: string | null;
 }
 
+/** @deprecated Use {@link ItemShortStaff}. */
+export type ItemShort = ItemShortStaff;
+
 /**
- * Copy embedded in a reader or OPAC list. Mirrors `ItemShortPublic`.
- * No weeding, circulation reason, or hold patron.
+ * Copy embedded in a reader or OPAC list (`ItemShortPublic`).
+ * No weeding, circulation status, loan id, notes, or hold patron.
  */
 export interface ItemShortPublic {
   id: string;
-  barcode?: string | null;
-  callNumber?: string | null;
+  barcode: string | null;
+  callNumber: string | null;
   borrowable: boolean;
-  sourceName?: string | null;
+  sourceName: string | null;
   borrowed: boolean;
   availability: ItemPublicAvailability;
   canHoldItem: boolean;
 }
 
-/** Staff list copy. Mirrors `ItemShortStaff`. */
-export type ItemShortStaff = ItemShort;
-
-/** Short bibliographic record as returned in list endpoints */
-export interface BiblioShort {
+/** Staff search hit (`BiblioShortStaff`). */
+export interface BiblioShortStaff {
   id: string;
-  mediaType?: MediaType | string | null;
-  isbn?: string | null;
-  title?: string | null;
-  date?: string | null;
-  status?: number | null;
-  isLocal?: number | null;
-  isValid?: number | null;
-  archivedAt?: string | null;
-  /** Derived: withdrawn only when every remaining copy is withdrawn. */
-  weedingStatus?: BiblioWeedingStatus | null;
-  /** Simplified list of physical items (replaces nb_items / nb_available) */
-  items?: ItemShort[];
-  author?: Author | null;
-  sourceName?: string | null;
+  mediaType: MediaType;
+  isbn: string | null;
+  title: string | null;
+  date: string | null;
+  status: number;
+  isValid: boolean | null;
+  archivedAt: string | null;
+  /** `withdrawn` only when every remaining copy is withdrawn. */
+  weedingStatus: ItemWeedingStatus;
+  author: Author | null;
+  items: ItemShortStaff[];
 }
 
-/** Staff search hit. Mirrors `BiblioShortStaff`. */
-export type BiblioShortStaff = BiblioShort;
+/** @deprecated Use {@link BiblioShortStaff}. */
+export type BiblioShort = BiblioShortStaff;
 
-/** OPAC/reader search hit. Mirrors `BiblioShortPublic`. No weeding mark. */
+/** OPAC/reader search hit (`BiblioShortPublic`). No weeding mark. */
 export interface BiblioShortPublic {
   id: string;
-  mediaType?: MediaType | string | null;
-  isbn?: string | null;
-  title?: string | null;
-  date?: string | null;
-  status?: number | null;
-  isValid?: number | null;
-  archivedAt?: string | null;
-  author?: Author | null;
-  items?: ItemShortPublic[];
+  mediaType: MediaType;
+  isbn: string | null;
+  title: string | null;
+  date: string | null;
+  status: number;
+  isValid: boolean | null;
+  archivedAt: string | null;
+  author: AuthorPublic | null;
+  items: ItemShortPublic[];
 }
 
 /** Full physical copy (exemplaire) */
@@ -501,7 +531,10 @@ export interface Item {
   volumeDesignation?: string | null;
   place?: number | null;
   borrowable?: boolean | null;
-  /** See {@link ItemShort.circulationStatus}. */
+  /**
+   * Item circulation state. Numbers: 0 available, 1 lost, 2 damaged, 3 claimed-returned, 4 to search.
+   * Present on {@link ItemStaffView} only. List copies and public views omit it.
+   */
   circulationStatus?: number | string | null;
   notes?: string | null;
   price?: string | null;
@@ -524,32 +557,64 @@ export interface Item {
   holdUserName?: string | null;
 }
 
-/** Staff notice copy. Mirrors `ItemStaffView` (weeding, circulation, loan, hold patron). */
-export type ItemStaffView = Item;
+/**
+ * Staff notice copy (`ItemStaffView`).
+ * Includes weeding, copy notes, circulation status, the active loan id, and the
+ * hold patron when `availability` is `onHold`. `priceDeferred` is sent only when true.
+ */
+export interface ItemStaffView {
+  id: string | null;
+  biblioId: string | null;
+  sourceId: string | null;
+  barcode: string | null;
+  callNumber: string | null;
+  volumeDesignation: string | null;
+  place: number | null;
+  borrowable: boolean;
+  circulationStatus: number | null;
+  weedingStatus: ItemWeedingStatus;
+  weedingReason: string | null;
+  notes: string | null;
+  price: string | null;
+  priceDeferred?: boolean;
+  createdAt: string | null;
+  updatedAt: string | null;
+  archivedAt: string | null;
+  sourceName: string | null;
+  borrowed: boolean;
+  loanId?: string | null;
+  availability: ItemAvailability;
+  canHoldItem: boolean;
+  holdUserId?: string | null;
+  holdUserName?: string | null;
+}
 
 /**
- * Reader/OPAC notice copy. Mirrors `ItemPublicView`.
+ * Reader/OPAC notice copy (`ItemPublicView`).
  * No notes, weeding, circulation status, loan id, or hold patron.
  * `availability` is never `toSearch`.
  */
 export interface ItemPublicView {
-  id?: string | null;
-  biblioId?: string | null;
-  sourceId?: string | null;
-  barcode?: string | null;
-  callNumber?: string | null;
-  volumeDesignation?: string | null;
-  place?: number | null;
+  id: string | null;
+  biblioId: string | null;
+  sourceId: string | null;
+  barcode: string | null;
+  callNumber: string | null;
+  volumeDesignation: string | null;
+  place: number | null;
   borrowable: boolean;
-  price?: string | null;
-  createdAt?: string | null;
-  updatedAt?: string | null;
-  archivedAt?: string | null;
-  sourceName?: string | null;
+  price: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  archivedAt: string | null;
+  sourceName: string | null;
   borrowed: boolean;
   availability: ItemPublicAvailability;
   canHoldItem: boolean;
 }
+
+/** `GET /biblios/{id}`, `GET /items/{id}`, and `GET /items/barcode/{barcode}`. */
+export type CatalogNotice = BiblioStaffView | BiblioPublicView;
 
 /** Full bibliographic record */
 export interface Biblio {
@@ -602,44 +667,79 @@ export interface Biblio {
   marcRecord?: unknown;
 }
 
-/** Staff bibliographic notice. Mirrors `BiblioStaffView`. */
-export type BiblioStaffView = Biblio;
+/** Staff bibliographic notice (`BiblioStaffView`). Includes notes and the weeding mark. */
+export interface BiblioStaffView {
+  id: string | null;
+  mediaType: MediaType;
+  isbn: string | null;
+  title: string | null;
+  subject: string | null;
+  dewey: string | null;
+  audienceType: string | null;
+  lang: string | null;
+  langOrig: string | null;
+  publicationDate: string | null;
+  pageExtent: string | null;
+  format: string | null;
+  tableOfContents: string | null;
+  accompanyingMaterial: string | null;
+  /** JSON key `abstract` (`abstract_` on the server). */
+  abstract: string | null;
+  notes: string | null;
+  keywords: string[] | null;
+  isValid: boolean | null;
+  seriesIds: string[];
+  seriesVolumeNumbers: (number | null)[];
+  editionId: string | null;
+  collectionIds: string[];
+  collectionVolumeNumbers: (number | null)[];
+  createdAt: string | null;
+  updatedAt: string | null;
+  archivedAt: string | null;
+  weedingStatus: ItemWeedingStatus;
+  authors: Author[];
+  series: Serie[];
+  collections: Collection[];
+  edition: Edition | null;
+  items: ItemStaffView[];
+}
 
 /**
- * Reader/OPAC bibliographic notice. Mirrors `BiblioPublicView`.
- * Bibliographic notes and the weeding mark are omitted.
+ * Reader/OPAC bibliographic notice (`BiblioPublicView`).
+ * No bibliographic notes, weeding mark, or staff copy fields.
  */
 export interface BiblioPublicView {
-  id?: string | null;
-  mediaType?: MediaType | string | null;
-  isbn?: string | null;
-  title?: string | null;
-  subject?: string | null;
-  dewey?: string | null;
-  audienceType?: string | null;
-  lang?: string | null;
-  langOrig?: string | null;
-  publicationDate?: string | null;
-  pageExtent?: string | null;
-  format?: string | null;
-  tableOfContents?: string | null;
-  accompanyingMaterial?: string | null;
-  abstract?: string | null;
-  keywords?: string | string[] | null;
-  isValid?: number | null;
-  seriesIds?: string[];
-  seriesVolumeNumbers?: (number | null)[];
-  editionId?: string | null;
-  collectionIds?: string[];
-  collectionVolumeNumbers?: (number | null)[];
-  createdAt?: string | null;
-  updatedAt?: string | null;
-  archivedAt?: string | null;
-  authors?: Author[];
-  series?: Serie[];
-  collections?: Collection[];
-  edition?: Edition | null;
-  items?: ItemPublicView[];
+  id: string | null;
+  mediaType: MediaType;
+  isbn: string | null;
+  title: string | null;
+  subject: string | null;
+  dewey: string | null;
+  audienceType: string | null;
+  lang: string | null;
+  langOrig: string | null;
+  publicationDate: string | null;
+  pageExtent: string | null;
+  format: string | null;
+  tableOfContents: string | null;
+  accompanyingMaterial: string | null;
+  /** JSON key `abstract` (`abstract_` on the server). */
+  abstract: string | null;
+  keywords: string[] | null;
+  isValid: boolean | null;
+  seriesIds: string[];
+  seriesVolumeNumbers: (number | null)[];
+  editionId: string | null;
+  collectionIds: string[];
+  collectionVolumeNumbers: (number | null)[];
+  createdAt: string | null;
+  updatedAt: string | null;
+  archivedAt: string | null;
+  authors: AuthorPublic[];
+  series: Serie[];
+  collections: Collection[];
+  edition: Edition | null;
+  items: ItemPublicView[];
 }
 
 /** Physical item data when creating a Biblio in one request (POST /biblios with items) */
@@ -737,21 +837,41 @@ export interface ClaimsReturnedQueueItem {
   notes?: string | null;
 }
 
-// Loan types
-export interface Loan {
+/** Loan list row for staff (`LoanDetailsStaff`). Embedded copies are {@link BiblioShortStaff}. */
+export interface LoanDetailsStaff {
   id: string;
+  itemId: string;
   startDate: string;
   expiryAt: string;
-  /** Present when the loan has been returned */
-  returnedAt?: string | null;
-  renewalDate?: string | null;
+  renewalDate: string | null;
   nbRenews: number;
-  /** Bibliographic record associated with the loan */
-  biblio: BiblioShort;
-  user?: UserShort;
-  itemIdentification?: string | null;
+  returnedAt: string | null;
+  biblio: BiblioShortStaff;
+  user: UserShortStaff | null;
+  itemIdentification: string | null;
   isOverdue: boolean;
 }
+
+/** Loan list row for a reader (`LoanDetailsPublic`). Embedded copies are {@link BiblioShortPublic}. */
+export interface LoanDetailsPublic {
+  id: string;
+  itemId: string;
+  startDate: string;
+  expiryAt: string;
+  renewalDate: string | null;
+  nbRenews: number;
+  returnedAt: string | null;
+  biblio: BiblioShortPublic;
+  user: UserShortPublic | null;
+  itemIdentification: string | null;
+  isOverdue: boolean;
+}
+
+/** `GET /users/{id}/loans` — staff or the reader's own loans. */
+export type LoanListItem = LoanDetailsStaff | LoanDetailsPublic;
+
+/** Staff loan row. Same JSON as {@link LoanDetailsStaff}. */
+export type Loan = LoanDetailsStaff;
 
 // Stats types
 export interface Stats {
@@ -1720,27 +1840,51 @@ export interface EventsListResponse {
 export type HoldStatus = 'pending' | 'to_pick' | 'ready' | 'fulfilled' | 'cancelled' | 'expired';
 
 /**
- * Hold detail rows (GET list endpoints). `biblio.items` is empty for an
- * unassigned title-level hold; otherwise exactly one {@link ItemShort}.
+ * Hold list row for staff (`HoldDetailsStaff`).
+ * `biblio.items` is empty for an unassigned title-level hold; otherwise one {@link ItemShortStaff}.
  */
-export interface Hold {
+export interface HoldDetailsStaff {
   id: string;
-  /** Patron id. Same value as `user.id` when the user is loaded. May be absent on older payloads. */
-  userId?: string | null;
+  userId: string;
   biblioId: string;
   /** Null while a title-level hold is waiting for a copy. */
-  itemId?: string | null;
-  pickupSiteId?: string | null;
+  itemId: string | null;
+  pickupSiteId: string | null;
+  biblio: BiblioShortStaff;
+  user: UserShortStaff | null;
   createdAt: string;
   notifiedAt: string | null;
   expiresAt: string | null;
   status: HoldStatus;
   position: number;
   notes: string | null;
-  /** Populated on GET /holds, GET /items/:id/holds, GET /biblios/:id/holds, GET /users/:id/holds */
-  biblio?: BiblioShort | null;
-  user?: UserShort | null;
 }
+
+/**
+ * Hold list row for a reader (`HoldDetailsPublic`).
+ * Embedded copies are {@link BiblioShortPublic} (no weeding, no hold patron, no login).
+ */
+export interface HoldDetailsPublic {
+  id: string;
+  userId: string;
+  biblioId: string;
+  itemId: string | null;
+  pickupSiteId: string | null;
+  biblio: BiblioShortPublic;
+  user: UserShortPublic | null;
+  createdAt: string;
+  notifiedAt: string | null;
+  expiresAt: string | null;
+  status: HoldStatus;
+  position: number;
+  notes: string | null;
+}
+
+/** `GET /holds` — staff queue or the reader's own holds. */
+export type HoldListItem = HoldDetailsStaff | HoldDetailsPublic;
+
+/** Staff hold row. Same JSON as {@link HoldDetailsStaff}. */
+export type Hold = HoldDetailsStaff;
 
 export interface CreateHold {
   userId: string;

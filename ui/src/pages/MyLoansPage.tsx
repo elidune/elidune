@@ -5,7 +5,7 @@ import { Card, CardHeader, Button, Badge, Pagination, ListSkeleton, QueryErrorBa
 import LoansMarcExportButton from '@/components/loans/LoansMarcExportButton';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/services/api';
-import type { Loan } from '@/types';
+import type { LoanListItem } from '@/types';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
@@ -17,7 +17,7 @@ const MY_LOANS_PAGE_SIZE = 20;
 export default function MyLoansPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
-  const [loans, setLoans] = useState<Loan[]>([]);
+  const [loans, setLoans] = useState<LoanListItem[]>([]);
   const [loansPage, setLoansPage] = useState(1);
   const [loansTotal, setLoansTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -145,7 +145,7 @@ export default function MyLoansPage() {
 }
 
 interface LoanCardProps {
-  loan: Loan;
+  loan: LoanListItem;
   onRenew: (id: string) => void;
   isOverdue?: boolean;
 }

@@ -32,7 +32,8 @@ import BatchDeleteSpecimensDialog from '@/components/specimen/BatchDeleteSpecime
 import WeedingStatusControl from '@/components/items/WeedingStatusControl';
 import api from '@/services/api';
 import ItemAvailabilityBadge, { ItemHoldPatronLine } from '@/components/items/ItemAvailabilityBadge';
-import type { Biblio, Item, Author, Source } from '@/types';
+import type { Author, AuthorPublic, BiblioStaffView, ItemPublicView, ItemStaffView, Source } from '@/types';
+import { isBiblioStaffView, isItemStaffView } from '@/utils/catalogView';
 import { isTitleWithdrawn } from '@/utils/weeding';
 import { staffUnavailableDetailKey, type AvailabilityAudience } from '@/utils/itemAvailability';
 import { useTranslation } from 'react-i18next';
@@ -78,7 +79,12 @@ function getMediaTypeTranslationKey(mediaType: MediaType | string | null | undef
 }
 
 /** Derive suggested call number from biblio: [CATEGORY]-[YEAR]-[AUTHOR]. */
-function getSuggestedCallNumberFromItem(item: Biblio): string {
+function getSuggestedCallNumberFromItem(item: {
+  mediaType?: string | null;
+  publicationDate?: string | null;
+  edition?: { date?: string | null } | null;
+  authors?: Array<{ lastname?: string | null }> | null;
+}): string {
   const categoryCode = item.mediaType
     ? String(item.mediaType).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4) || 'GEN'
     : 'GEN';
@@ -135,14 +141,14 @@ export default function BiblioDetailPage() {
   const [showDeleteSpecimenModal, setShowDeleteSpecimenModal] = useState(false);
   const [isAddSpecimenLoading, setIsAddSpecimenLoading] = useState(false);
   const [isEditSpecimenLoading, setIsEditSpecimenLoading] = useState(false);
-  const [selectedSpecimen, setSelectedSpecimen] = useState<Item | null>(null);
+  const [selectedSpecimen, setSelectedSpecimen] = useState<ItemStaffView | null>(null);
   const [deleteSpecimenBorrowedError, setDeleteSpecimenBorrowedError] = useState(false);
   const [deleteSpecimenLoading, setDeleteSpecimenLoading] = useState(false);
   const [deleteItemBorrowedError, setDeleteItemBorrowedError] = useState(false);
   const [deleteItemLoading, setDeleteItemLoading] = useState(false);
   const [deleteBiblioApiError, setDeleteBiblioApiError] = useState<string | null>(null);
   const [deleteSpecimenApiError, setDeleteSpecimenApiError] = useState<string | null>(null);
-  const [reserveSpecimen, setReserveSpecimen] = useState<Item | null>(null);
+  const [reserveSpecimen, setReserveSpecimen] = useState<ItemStaffView | ItemPublicView | null>(null);
   const [holdDialogOpen, setHoldDialogOpen] = useState(false);
   const [showBatchDeleteSpecimens, setShowBatchDeleteSpecimens] = useState(false);
 
@@ -151,9 +157,10 @@ export default function BiblioDetailPage() {
   };
 
   const completeItemId = searchParams.get('completeItem');
+  const staffNotice = item && isBiblioStaffView(item) ? item : null;
   const urlCompleteSpecimen =
-    completeItemId && item?.items
-      ? item.items.find((copy) => copy.id === completeItemId) ?? null
+    completeItemId && staffNotice
+      ? staffNotice.items.find((copy) => copy.id === completeItemId) ?? null
       : null;
   const editingSpecimen = selectedSpecimen ?? urlCompleteSpecimen;
   const editSpecimenOpen = showEditSpecimenModal || urlCompleteSpecimen != null;
@@ -213,7 +220,7 @@ export default function BiblioDetailPage() {
     }
   };
 
-  const formatAuthors = (authors?: Author[]) => {
+  const formatAuthors = (authors?: Array<Author | AuthorPublic>) => {
     if (!authors || authors.length === 0) return t('items.notSpecified');
     return authors
       .map((a) => {
@@ -225,7 +232,7 @@ export default function BiblioDetailPage() {
   };
 
   const handleDeleteSpecimen = async (force: boolean) => {
-    if (!selectedSpecimen || !item || item.id == null) return;
+    if (!selectedSpecimen?.id || !item || item.id == null) return;
     setDeleteSpecimenLoading(true);
     setDeleteSpecimenApiError(null);
     try {
@@ -319,10 +326,11 @@ export default function BiblioDetailPage() {
       dateStyle: 'medium',
       timeStyle: 'short',
     });
+  const titleWithdrawn = isBiblioStaffView(item) && isTitleWithdrawn(item);
   const canPlaceTitleHold =
     !!user?.id &&
     !!item.id &&
-    !isTitleWithdrawn(item) &&
+    !titleWithdrawn &&
     (isLibrarian(user.accountType) || canPatronSelfServiceHolds(user, api.getToken()));
 
   return (
@@ -371,8 +379,8 @@ export default function BiblioDetailPage() {
                   {getCodeLabel(t, PUBLIC_TYPE_OPTIONS, item.audienceType)}
                 </Badge>
               )}
-              {item.isValid === 0 && <Badge variant="warning">{t('items.notValidated')}</Badge>}
-              {isTitleWithdrawn(item) && (
+              {item.isValid === false && <Badge variant="warning">{t('items.notValidated')}</Badge>}
+              {isBiblioStaffView(item) && isTitleWithdrawn(item) && (
                 <Badge variant="danger">{t('weeding.status.withdrawn')}</Badge>
               )}
             </div>
@@ -558,10 +566,12 @@ export default function BiblioDetailPage() {
                     }}
                     onUpdated={invalidateBiblio}
                     onEdit={() => {
+                      if (!isItemStaffView(specimen)) return;
                       setSelectedSpecimen(specimen);
                       setShowEditSpecimenModal(true);
                     }}
                     onDelete={() => {
+                      if (!isItemStaffView(specimen) || specimen.id == null) return;
                       setSelectedSpecimen(specimen);
                       setShowDeleteSpecimenModal(true);
                     }}
@@ -577,11 +587,7 @@ export default function BiblioDetailPage() {
 
           {/* Collections — prefer new array, fall back to legacy single */}
           {(() => {
-            const cols = item.collections?.length
-              ? item.collections
-              : item.collection
-                ? [item.collection]
-                : [];
+            const cols = item.collections ?? [];
             if (cols.length === 0) return null;
             return (
               <Card>
@@ -590,10 +596,7 @@ export default function BiblioDetailPage() {
                   {cols.map((c, i) => {
                     const volNum =
                       c.volumeNumber ??
-                      c.volumeNumber ??
                       item.collectionVolumeNumbers?.[i] ??
-                      item.collectionVolumeNumbers?.[i] ??
-                      item.collectionVolumeNumber ??
                       null;
                     const title = c.name ?? c.secondaryTitle ?? '—';
                     const openCollectionCatalog = () => {
@@ -786,15 +789,17 @@ export default function BiblioDetailPage() {
           </div>
         }
       >
+        {staffNotice ? (
         <AddSpecimenForm
           formId="add-specimen-form"
-          item={item}
+          item={staffNotice}
           onLoadingChange={setIsAddSpecimenLoading}
           onSuccess={() => {
             setShowAddSpecimenModal(false);
             invalidateBiblio();
           }}
         />
+        ) : null}
       </Modal>
 
       {/* Edit specimen modal */}
@@ -814,10 +819,10 @@ export default function BiblioDetailPage() {
           </div>
         }
       >
-        {editingSpecimen && (
+        {editingSpecimen && staffNotice && isItemStaffView(editingSpecimen) && (
           <EditSpecimenForm
             formId="edit-specimen-form"
-            item={item}
+            item={staffNotice}
             specimen={editingSpecimen}
             onLoadingChange={setIsEditSpecimenLoading}
             onSuccess={() => {
@@ -935,7 +940,7 @@ function InfoRow({ icon: Icon, label, value }: InfoRowProps) {
 }
 
 interface SpecimenCardProps {
-  specimen: Item;
+  specimen: ItemStaffView | ItemPublicView;
   canManage: boolean;
   audience: AvailabilityAudience;
   showBorrower?: boolean;
@@ -965,10 +970,11 @@ function SpecimenCard({
 }: SpecimenCardProps) {
   // specimen is physical Item
   const { t } = useTranslation();
+  const staffCopy = isItemStaffView(specimen) ? specimen : null;
   const ready = isReadyToCirculate(specimen);
   const incomplete = specimen.borrowable === false && !ready;
-  const missing = incomplete ? missingCirculationFields(specimen) : [];
-  const staffDetailKey = audience === 'staff' ? staffUnavailableDetailKey(specimen) : null;
+  const missing = audience === 'staff' && incomplete ? missingCirculationFields(specimen) : [];
+  const staffDetailKey = staffCopy ? staffUnavailableDetailKey(staffCopy) : null;
 
   return (
     <div className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
@@ -1013,19 +1019,21 @@ function SpecimenCard({
         {t('items.source')}: {specimen.sourceName ?? '—'}
       </p>
 
-      <ItemHoldPatronLine
-        audience={audience}
-        availability={specimen.availability}
-        holdUserId={specimen.holdUserId}
-        holdUserName={specimen.holdUserName}
-      />
+      {staffCopy ? (
+        <ItemHoldPatronLine
+          audience={audience}
+          availability={staffCopy.availability}
+          holdUserId={staffCopy.holdUserId}
+          holdUserName={staffCopy.holdUserName}
+        />
+      ) : null}
 
       {staffDetailKey && (staffDetailKey !== 'items.incompleteNotCirculable' || missing.length === 0) && (
         <p className="mt-1 text-xs text-gray-600 dark:text-gray-300">{t(staffDetailKey)}</p>
       )}
 
-      {showBorrower && specimen.borrowed && specimen.loanId && (
-        <SpecimenBorrowerLine loanId={specimen.loanId} />
+      {showBorrower && staffCopy?.borrowed && staffCopy.loanId && (
+        <SpecimenBorrowerLine loanId={staffCopy.loanId} />
       )}
 
       {audience === 'staff' && incomplete && missing.length > 0 ? (
@@ -1052,8 +1060,8 @@ function SpecimenCard({
         </div>
       )}
 
-      {canManage ? (
-        <WeedingStatusControl item={specimen} canManage={canManage} onUpdated={onUpdated} />
+      {canManage && staffCopy ? (
+        <WeedingStatusControl item={staffCopy} canManage={canManage} onUpdated={onUpdated} />
       ) : null}
     </div>
   );
@@ -1061,7 +1069,7 @@ function SpecimenCard({
 
 interface AddSpecimenFormProps {
   formId: string;
-  item: Biblio;
+  item: BiblioStaffView;
   onLoadingChange: (loading: boolean) => void;
   onSuccess: () => void;
 }
@@ -1192,8 +1200,8 @@ function AddSpecimenForm({ formId, item, onLoadingChange, onSuccess }: AddSpecim
 
 interface EditSpecimenFormProps {
   formId: string;
-  item: Biblio;
-  specimen: Item;
+  item: BiblioStaffView;
+  specimen: ItemStaffView;
   onLoadingChange: (loading: boolean) => void;
   onSuccess: () => void;
 }
@@ -1242,12 +1250,13 @@ function EditSpecimenForm({ formId, item, specimen, onLoadingChange, onSuccess }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (item.id == null) return;
+    if (item.id == null || specimen.id == null) return;
     if (formData.barcode.trim() === '') {
       setError(t('items.specimenBarcodeRequired'));
       return;
     }
     if (!validateCallNumber(formData.callNumber)) return;
+    const specimenId = specimen.id;
     onLoadingChange(true);
     setError(null);
     try {
@@ -1257,7 +1266,7 @@ function EditSpecimenForm({ formId, item, specimen, onLoadingChange, onSuccess }
         price: formData.price,
         priceDeferred: formData.priceDeferred,
       });
-      await api.updateItem(specimen.id, {
+      await api.updateItem(specimenId, {
         barcode: formData.barcode.trim(),
         callNumber: formData.callNumber || undefined,
         volumeDesignation: formData.volumeDesignation || undefined,
@@ -1303,7 +1312,7 @@ function EditSpecimenForm({ formId, item, specimen, onLoadingChange, onSuccess }
         value={formData.callNumber}
         onChange={(v) => setFormData({ ...formData, callNumber: v })}
         suggestedValue={suggestedCallNumber}
-        excludeSpecimenId={specimen.id}
+        excludeSpecimenId={specimen.id ?? undefined}
         placeholder={suggestedCallNumber}
       />
       <Input

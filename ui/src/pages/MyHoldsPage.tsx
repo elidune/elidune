@@ -24,12 +24,12 @@ import { useAuth } from '@/contexts/AuthContext';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { formControlClass, formLabelClass, formChoiceLabelClass } from '@/utils/formControl';
-import type { Hold } from '@/types';
+import type { HoldListItem } from '@/types';
 import { canPatronSelfServiceHolds } from '@/types';
 
 const PAGE_SIZE_DEFAULT = 20;
 
-function statusBadge(_t: (k: string) => string, status: Hold['status']) {
+function statusBadge(_t: (k: string) => string, status: HoldListItem['status']) {
   return <HoldStatusBadge status={status} />;
 }
 
@@ -81,7 +81,7 @@ export default function MyHoldsPage() {
     return <Navigate to="/" replace />;
   }
 
-  const cancelCell = (r: Hold) =>
+  const cancelCell = (r: HoldListItem) =>
     r.status === 'pending' || r.status === 'ready' ? (
       <Button
         size="sm"
@@ -98,32 +98,32 @@ export default function MyHoldsPage() {
     {
       key: 'item',
       header: t('holds.columnDocument'),
-      render: (r: Hold) => <HoldDocumentCell hold={r} />,
+      render: (r: HoldListItem) => <HoldDocumentCell hold={r} />,
     },
     {
       key: 'status',
       header: t('holds.status'),
-      render: (r: Hold) => statusBadge(t, r.status),
+      render: (r: HoldListItem) => statusBadge(t, r.status),
     },
     {
       key: 'pickup',
       header: t('holds.columnPickup'),
-      render: (r: Hold) => <HoldPickupCell hold={r} sources={sources} showTransit={false} />,
+      render: (r: HoldListItem) => <HoldPickupCell hold={r} sources={sources} showTransit={false} />,
     },
     {
       key: 'position',
       header: t('holds.position'),
-      render: (r: Hold) => t('holds.queuePosition', { position: r.position }),
+      render: (r: HoldListItem) => t('holds.queuePosition', { position: r.position }),
     },
     {
       key: 'created',
       header: t('holds.createdAt'),
-      render: (r: Hold) => new Date(r.createdAt).toLocaleString(i18n.language),
+      render: (r: HoldListItem) => new Date(r.createdAt).toLocaleString(i18n.language),
     },
     {
       key: 'expires',
       header: t('holds.expiresAt'),
-      render: (r: Hold) => <HoldExpiresCell hold={r} emphasizePickup />,
+      render: (r: HoldListItem) => <HoldExpiresCell hold={r} emphasizePickup />,
     },
     {
       key: 'actions',

@@ -39,7 +39,11 @@ export default function OrderLineEditor({
   const [biblioSearching, setBiblioSearching] = useState(false);
   const [biblioSearchError, setBiblioSearchError] = useState<string | null>(null);
   const biblioSeqRef = useRef(0);
-  const [selectedBiblio, setSelectedBiblio] = useState<BiblioShort | null>(
+  const [selectedBiblio, setSelectedBiblio] = useState<{
+    id: string;
+    title?: string | null;
+    isbn?: string | null;
+  } | null>(
     initial?.biblioId
       ? { id: initial.biblioId, title: initial.title ?? undefined, isbn: initial.isbn }
       : null,

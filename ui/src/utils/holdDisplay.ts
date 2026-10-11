@@ -1,4 +1,4 @@
-import type { CreateHold, Hold, ItemShort } from '@/types';
+import type { CreateHold, HoldListItem } from '@/types';
 
 /** Staff `/holds` status chips. List is already active-only from the API. */
 export type StaffHoldStatusFilter = 'all' | 'ready' | 'pending' | 'toPick' | 'expiringSoon';
@@ -10,19 +10,19 @@ export const HOLD_EXPIRING_SOON_MS = 48 * 60 * 60 * 1000;
 export const STAFF_HOLDS_FETCH_CAP = 200;
 
 /** Title-level until fulfillment assigns a copy (`itemId` null). */
-export function isTitleLevelHold(h: Hold): boolean {
+export function isTitleLevelHold(h: HoldListItem): boolean {
   return h.itemId == null || h.itemId === '';
 }
 
 /** Pending hold with a pinned specimen on the same biblio FIFO. */
-export function isPinnedCopyHold(h: Hold): boolean {
+export function isPinnedCopyHold(h: HoldListItem): boolean {
   return !isTitleLevelHold(h) && h.status === 'pending';
 }
 
 /** Display kind: unassigned title queue vs staff-pinned copy vs allocated copy. */
 export type HoldScopeKind = 'title' | 'pinned' | 'allocated';
 
-export function holdScopeKind(h: Hold): HoldScopeKind {
+export function holdScopeKind(h: HoldListItem): HoldScopeKind {
   if (isTitleLevelHold(h)) return 'title';
   if (h.status === 'pending') return 'pinned';
   return 'allocated';
@@ -51,11 +51,11 @@ export function buildCreateHold(input: {
 }
 
 /** The held specimen: empty for an unassigned title-level hold. */
-export function holdSpecimenItem(h: Hold): ItemShort | undefined {
-  return h.biblio?.items?.[0];
+export function holdSpecimenItem(h: HoldListItem): { barcode: string | null; callNumber: string | null } | undefined {
+  return h.biblio.items[0];
 }
 
-export function holdPrimaryDocumentLabel(h: Hold): string {
+export function holdPrimaryDocumentLabel(h: HoldListItem): string {
   const title = h.biblio?.title?.trim();
   if (title) return title;
   const spec = holdSpecimenItem(h);
@@ -63,13 +63,13 @@ export function holdPrimaryDocumentLabel(h: Hold): string {
 }
 
 /** Barcode / call number when a copy is pinned or allocated. */
-export function holdSecondaryDocumentLabel(h: Hold): string | null {
+export function holdSecondaryDocumentLabel(h: HoldListItem): string | null {
   const spec = holdSpecimenItem(h);
   const sub = spec?.barcode?.trim() || spec?.callNumber?.trim() || h.itemId || null;
   return sub || null;
 }
 
-export function isHoldExpiringSoon(hold: Hold, nowMs: number = Date.now()): boolean {
+export function isHoldExpiringSoon(hold: HoldListItem, nowMs: number = Date.now()): boolean {
   if (hold.status !== 'ready' || !hold.expiresAt) return false;
   const expires = new Date(hold.expiresAt).getTime();
   if (Number.isNaN(expires)) return false;
@@ -77,7 +77,7 @@ export function isHoldExpiringSoon(hold: Hold, nowMs: number = Date.now()): bool
 }
 
 export function matchesStaffHoldFilter(
-  hold: Hold,
+  hold: HoldListItem,
   filter: StaffHoldStatusFilter,
   nowMs: number = Date.now(),
 ): boolean {
@@ -97,8 +97,8 @@ export function matchesStaffHoldFilter(
 }
 
 /** Ready-to-shelf first, then soonest pickup deadline, then queue position. */
-export function compareHoldsReadyFirst(a: Hold, b: Hold): number {
-  const readyRank = (h: Hold) => (h.status === 'ready' ? 0 : 1);
+export function compareHoldsReadyFirst(a: HoldListItem, b: HoldListItem): number {
+  const readyRank = (h: HoldListItem) => (h.status === 'ready' ? 0 : 1);
   const ra = readyRank(a);
   const rb = readyRank(b);
   if (ra !== rb) return ra - rb;
@@ -114,9 +114,9 @@ export function compareHoldsReadyFirst(a: Hold, b: Hold): number {
 }
 
 export function applyStaffHoldList(
-  holds: Hold[],
+  holds: HoldListItem[],
   filter: StaffHoldStatusFilter,
   nowMs: number = Date.now(),
-): Hold[] {
+): HoldListItem[] {
   return holds.filter((h) => matchesStaffHoldFilter(h, filter, nowMs)).sort(compareHoldsReadyFirst);
 }
