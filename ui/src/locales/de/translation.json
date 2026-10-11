@@ -1802,7 +1802,8 @@
       "database_error": "Datenbankfehler. Bitte versuchen Sie es später erneut.",
       "internal_error": "Interner Serverfehler. Bitte versuchen Sie es später erneut.",
       "rate_limited": "Zu viele Versuche. Bitte warten Sie, bevor Sie es erneut versuchen.",
-      "invalid_timezone": "Unbekannte Zeitzone. Wählen Sie einen IANA-Namen, zum Beispiel Europe/Paris."
+      "invalid_timezone": "Unbekannte Zeitzone. Wählen Sie einen IANA-Namen, zum Beispiel Europe/Paris.",
+      "timezone_country_mismatch": "Diese Zeitzone gehört nicht zum ausgewählten Land."
     }
   },
   "inventory": {

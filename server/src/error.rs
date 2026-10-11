@@ -23,6 +23,8 @@ pub mod error_code {
     pub const VALIDATION: &str = "validation_error";
     /// `library_info.timezone` is empty or not an IANA name known to chrono-tz.
     pub const INVALID_TIMEZONE: &str = "invalid_timezone";
+    /// Timezone is a known IANA name but not one of the country's zones.
+    pub const TIMEZONE_COUNTRY_MISMATCH: &str = "timezone_country_mismatch";
     pub const DATABASE: &str = "database_error";
     pub const CONFLICT: &str = "conflict";
     pub const BAD_REQUEST: &str = "bad_request";
@@ -59,6 +61,10 @@ pub enum AppError {
     /// Library timezone is not a known IANA name (HTTP 400, `invalid_timezone`).
     #[error("{0}")]
     InvalidTimezone(String),
+
+    /// Timezone is not one of the selected country's zones (HTTP 400, `timezone_country_mismatch`).
+    #[error("{0}")]
+    TimezoneCountryMismatch(String),
 
     /// Boxed so `AppError` stays small enough for `Result<T, AppError>`
     /// (`clippy::result_large_err`, 128-byte threshold).
@@ -228,6 +234,12 @@ impl AppError {
             AppError::InvalidTimezone(msg) => HttpErrorFields {
                 status: StatusCode::BAD_REQUEST,
                 code: ec::INVALID_TIMEZONE,
+                label: "Validation Error",
+                message: msg.clone(),
+            },
+            AppError::TimezoneCountryMismatch(msg) => HttpErrorFields {
+                status: StatusCode::BAD_REQUEST,
+                code: ec::TIMEZONE_COUNTRY_MISMATCH,
                 label: "Validation Error",
                 message: msg.clone(),
             },

@@ -1802,7 +1802,8 @@
       "database_error": "Database error. Please try again later.",
       "internal_error": "Internal server error. Please try again later.",
       "rate_limited": "Too many attempts. Please wait before trying again.",
-      "invalid_timezone": "Unknown time zone. Choose an IANA name such as Europe/Paris."
+      "invalid_timezone": "Unknown time zone. Choose an IANA name such as Europe/Paris.",
+      "timezone_country_mismatch": "This time zone does not belong to the selected country."
     }
   },
   "inventory": {

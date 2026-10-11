@@ -1,15 +1,16 @@
 //! ISO 3166-1 alpha-2 country codes for `library_info.addr_country`.
 //!
 //! Free-text values saved before the country select ("France", "france", "états-unis")
-//! are mapped to a code. A 2-letter ASCII token is uppercased (`fr` → `FR`), except
-//! the non-ISO tokens `uk`, `el`, and `en`, which are aliases. Anything else is rejected
-//! on update. Migration `043_library_country_iso.sql` applies the same alias list and
-//! leaves unmatched stored values unchanged.
+//! are mapped to a code when the name is known with certainty. A 2-letter token is
+//! kept only when it is a country in the shared zone table (`fr` → `FR`). The
+//! non-ISO tokens `uk` and `el` are aliases for GB and GR. Anything else is rejected
+//! on update. Migration `043_library_country_iso.sql` applies the same rules and
+//! sets every unrecognized `addr_country` to NULL. It does not change the zone column.
 
 use crate::error::{AppError, AppResult};
 
 /// Lowercased French and English names, sorted for binary search.
-/// `uk` → GB, `el` → GR, `en` → GB.
+/// `uk` → GB, `el` → GR. `en` is not mapped: it is a language code, not a country.
 pub const COUNTRY_ALIASES: &[(&str, &str)] = &[
     ("afghanistan", "AF"),
     ("afrique du sud", "ZA"),
@@ -129,7 +130,6 @@ pub const COUNTRY_ALIASES: &[(&str, &str)] = &[
     ("el", "GR"),
     ("el salvador", "SV"),
     ("emirats arabes unis", "AE"),
-    ("en", "GB"),
     ("england", "GB"),
     ("equateur", "EC"),
     ("equatorial guinea", "GQ"),
@@ -442,15 +442,22 @@ pub fn normalize_country_code(value: &str) -> AppResult<String> {
         return Err(AppError::Validation("Country code is required".to_string()));
     }
     let key = trimmed.to_lowercase();
-    if let Ok(index) = COUNTRY_ALIASES.binary_search_by(|entry| entry.0.cmp(key.as_str())) {
-        return Ok(COUNTRY_ALIASES[index].1.to_string());
+    let code =
+        if let Ok(index) = COUNTRY_ALIASES.binary_search_by(|entry| entry.0.cmp(key.as_str())) {
+            COUNTRY_ALIASES[index].1.to_string()
+        } else if trimmed.len() == 2 && trimmed.chars().all(|c| c.is_ascii_alphabetic()) {
+            trimmed.to_ascii_uppercase()
+        } else {
+            return Err(AppError::Validation(format!(
+                "Unrecognized country '{trimmed}'"
+            )));
+        };
+    if !crate::services::country_zones::is_known_country_code(&code) {
+        return Err(AppError::Validation(format!(
+            "Unrecognized country '{trimmed}'"
+        )));
     }
-    if trimmed.len() == 2 && trimmed.chars().all(|c| c.is_ascii_alphabetic()) {
-        return Ok(trimmed.to_ascii_uppercase());
-    }
-    Err(AppError::Validation(format!(
-        "Unrecognized country '{trimmed}'"
-    )))
+    Ok(code)
 }
 
 /// `None` and blank leave the stored country unchanged (`COALESCE`).
@@ -474,6 +481,10 @@ mod tests {
             assert_eq!(alias, alias.to_lowercase());
             assert_eq!(code.len(), 2);
             assert!(code.chars().all(|c| c.is_ascii_uppercase()));
+            assert!(
+                crate::services::country_zones::is_known_country_code(code),
+                "{alias} maps to unknown country {code}"
+            );
             previous = alias;
         }
     }
@@ -496,7 +507,6 @@ mod tests {
             ("England", "GB"),
             ("royaume-uni", "GB"),
             ("el", "GR"),
-            ("en", "GB"),
             ("Allemagne", "DE"),
             ("de", "DE"),
         ] {
@@ -507,6 +517,8 @@ mod tests {
     #[test]
     fn rejects_unknown_free_text_and_blank() {
         assert!(normalize_country_code("Narnia").is_err());
+        assert!(normalize_country_code("XX").is_err());
+        assert!(normalize_country_code("en").is_err());
         assert!(normalize_country_code("   ").is_err());
         assert!(normalize_country_code("").is_err());
     }
@@ -534,6 +546,15 @@ mod tests {
                 "migration missing alias {alias} → {code}"
             );
         }
-        assert!(sql.contains("NOT IN ('uk', 'el', 'en')"));
+        assert!(sql.contains("SET addr_country = NULL"));
+        let executable = sql
+            .lines()
+            .map(|line| line.split("--").next().unwrap_or(""))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            !executable.to_lowercase().contains("timezone"),
+            "migration must not touch the zone column"
+        );
     }
 }

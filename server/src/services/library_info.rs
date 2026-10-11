@@ -1,12 +1,12 @@
 //! Library information service
 
 use crate::{
-    error::AppResult,
+    error::{AppError, AppResult},
     models::dto::library_info::{LibraryInfo, UpdateLibraryInfoRequest},
     repository::Repository,
     services::{
         calendar::{self, DEFAULT_TIMEZONE},
-        country_code,
+        country_code, country_zones,
     },
 };
 
@@ -81,6 +81,23 @@ impl LibraryInfoService {
             None => None,
         };
         let addr_country = country_code::normalize_optional_country(req.addr_country)?;
+
+        if addr_country.is_some() || timezone.is_some() {
+            let current = self.get().await?;
+            let country = addr_country.clone().or_else(|| {
+                current
+                    .addr_country
+                    .and_then(|stored| country_code::normalize_country_code(&stored).ok())
+            });
+            let zone = timezone.clone().unwrap_or(current.timezone);
+            if let Some(country) = country {
+                if !country_zones::timezone_belongs_to_country(&zone, &country) {
+                    return Err(AppError::TimezoneCountryMismatch(format!(
+                        "Timezone '{zone}' does not belong to country {country}"
+                    )));
+                }
+            }
+        }
 
         self.repository
             .library_info_upsert(

@@ -1802,7 +1802,8 @@
       "database_error": "Erreur base de données. Veuillez réessayer plus tard.",
       "internal_error": "Erreur interne du serveur. Veuillez réessayer plus tard.",
       "rate_limited": "Trop de tentatives. Veuillez patienter avant de réessayer.",
-      "invalid_timezone": "Fuseau horaire inconnu. Choisissez un nom IANA, par exemple Europe/Paris."
+      "invalid_timezone": "Fuseau horaire inconnu. Choisissez un nom IANA, par exemple Europe/Paris.",
+      "timezone_country_mismatch": "Ce fuseau horaire ne correspond pas au pays sélectionné."
     }
   },
   "inventory": {

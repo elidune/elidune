@@ -30,8 +30,10 @@ pub struct UpdateLibraryInfoRequest {
     pub addr_postcode: Option<String>,
     pub addr_city: Option<String>,
     /// Country. French and English names are stored as ISO 3166-1 alpha-2 (`France` → `FR`).
-    /// A 2-letter code is uppercased. Any other non-empty value is a 400 `validation_error`.
-    /// Omitted or blank leaves the stored value unchanged.
+    /// A 2-letter code is kept only when it is in the shared zone table. Any other non-empty
+    /// value is a 400 `validation_error`. Omitted or blank leaves the stored value unchanged.
+    /// When a country is in effect, `timezone` must be one of that country's zones
+    /// (`timezone_country_mismatch`).
     pub addr_country: Option<String>,
     pub phones: Option<Vec<String>>,
     pub email: Option<String>,

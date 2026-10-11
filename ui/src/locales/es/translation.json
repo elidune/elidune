@@ -1802,7 +1802,8 @@
       "database_error": "Error de base de datos. Inténtelo de nuevo más tarde.",
       "internal_error": "Error interno del servidor. Inténtelo de nuevo más tarde.",
       "rate_limited": "Demasiados intentos. Espere antes de volver a intentarlo.",
-      "invalid_timezone": "Zona horaria desconocida. Elija un nombre IANA, por ejemplo Europe/Paris."
+      "invalid_timezone": "Zona horaria desconocida. Elija un nombre IANA, por ejemplo Europe/Paris.",
+      "timezone_country_mismatch": "Esta zona horaria no corresponde al país seleccionado."
     }
   },
   "inventory": {

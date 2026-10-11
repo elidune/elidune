@@ -21,12 +21,15 @@ export function getHttpStatus(error: unknown): number | null {
 }
 
 /**
- * Field message for PUT /library-info 400 `invalid_timezone`.
+ * Field message for PUT /library-info timezone failures:
+ * `invalid_timezone` and `timezone_country_mismatch`.
  * Returns null for every other failure so the form can keep a generic banner.
  */
 export function libraryInfoTimezoneFieldError(error: unknown, t: TFunction): string | null {
-  if (getApiErrorCode(error) !== 'invalid_timezone') return null;
-  return t('errors.apiCode.invalid_timezone');
+  const code = getApiErrorCode(error);
+  if (code === 'invalid_timezone') return t('errors.apiCode.invalid_timezone');
+  if (code === 'timezone_country_mismatch') return t('errors.apiCode.timezone_country_mismatch');
+  return null;
 }
 
 export function getApiErrorCode(error: unknown): string | null {
