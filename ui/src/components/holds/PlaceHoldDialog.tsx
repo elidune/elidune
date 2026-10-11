@@ -367,6 +367,7 @@ export default function PlaceHoldDialog({
 
         <Input
           label={t('holds.notesOptional')}
+          hint={staff ? t('holds.notesVisibleToReader') : undefined}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
         />

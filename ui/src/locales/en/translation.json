@@ -457,6 +457,7 @@
     "forUser": "For a patron",
     "selectedUser": "Selected patron",
     "notesOptional": "Notes (optional)",
+    "notesVisibleToReader": "Visible to the reader",
     "reserve": "Place hold",
     "columnUser": "Patron",
     "columnDocument": "Document",

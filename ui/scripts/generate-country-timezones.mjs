@@ -1,5 +1,5 @@
 /**
- * Build `src/data/countryTimezones.json` from IANA tzdb `zone.tab`.
+ * Build `server/data/countryTimezones.json` from IANA tzdb `zone.tab`.
  *
  * chrono-tz exposes IANA names only; it has no country → zone table.
  * This JSON is the single country/zone list for the UI and the server
@@ -114,7 +114,7 @@ const entries = countries.map((code) => {
 });
 
 const output = `${JSON.stringify(Object.fromEntries(entries), null, 2)}\n`;
-const target = new URL('../src/data/countryTimezones.json', import.meta.url);
+const target = new URL('../../server/data/countryTimezones.json', import.meta.url);
 mkdirSync(new URL('.', target), { recursive: true });
 writeFileSync(target, output);
 console.log(`wrote ${countries.length} countries from ${ZONE_TAB}`);

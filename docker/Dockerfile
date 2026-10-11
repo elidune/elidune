@@ -22,6 +22,8 @@ RUN mkdir src && \
 COPY server/src ./src
 COPY server/migrations ./migrations
 COPY server/config ./config
+# Includes data/countryTimezones.json. include_str! reads it from
+# CARGO_MANIFEST_DIR (/app), not from the UI tree.
 COPY server/data ./data
 
 RUN touch src/main.rs && \

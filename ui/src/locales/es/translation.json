@@ -457,6 +457,7 @@
     "forUser": "Para un usuario",
     "selectedUser": "Usuario seleccionado",
     "notesOptional": "Notas (opcional)",
+    "notesVisibleToReader": "Visible para el lector",
     "reserve": "Reservar",
     "columnUser": "Usuario",
     "columnDocument": "Documento",

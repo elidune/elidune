@@ -7,6 +7,7 @@
 //! countries and are rejected, as is any other unrecognized value.
 //! Migration `043_library_country_iso.sql` applies the same rules and
 //! sets every unrecognized `addr_country` to NULL. It does not change the zone column.
+//! French overseas territories are their own codes (`Réunion` → `RE`), never `FR`.
 
 use crate::error::{AppError, AppResult};
 
@@ -148,6 +149,7 @@ pub const COUNTRY_ALIASES: &[(&str, &str)] = &[
     ("finland", "FI"),
     ("finlande", "FI"),
     ("france", "FR"),
+    ("french guiana", "GF"),
     ("gabon", "GA"),
     ("gambia", "GM"),
     ("gambie", "GM"),
@@ -164,6 +166,7 @@ pub const COUNTRY_ALIASES: &[(&str, &str)] = &[
     ("grenada", "GD"),
     ("grenade", "GD"),
     ("grèce", "GR"),
+    ("guadeloupe", "GP"),
     ("guatemala", "GT"),
     ("guinea", "GN"),
     ("guinea-bissau", "GW"),
@@ -174,6 +177,11 @@ pub const COUNTRY_ALIASES: &[(&str, &str)] = &[
     ("guinée équatoriale", "GQ"),
     ("guinée-bissau", "GW"),
     ("guyana", "GY"),
+    ("guyane", "GF"),
+    ("guyane francaise", "GF"),
+    ("guyane française", "GF"),
+    ("guyane-francaise", "GF"),
+    ("guyane-française", "GF"),
     ("géorgie", "GE"),
     ("haiti", "HT"),
     ("haïti", "HT"),
@@ -215,6 +223,10 @@ pub const COUNTRY_ALIASES: &[(&str, &str)] = &[
     ("koweït", "KW"),
     ("kuwait", "KW"),
     ("kyrgyzstan", "KG"),
+    ("la reunion", "RE"),
+    ("la réunion", "RE"),
+    ("la-reunion", "RE"),
+    ("la-réunion", "RE"),
     ("laos", "LA"),
     ("latvia", "LV"),
     ("lebanon", "LB"),
@@ -242,10 +254,12 @@ pub const COUNTRY_ALIASES: &[(&str, &str)] = &[
     ("malte", "MT"),
     ("maroc", "MA"),
     ("marshall islands", "MH"),
+    ("martinique", "MQ"),
     ("maurice", "MU"),
     ("mauritania", "MR"),
     ("mauritanie", "MR"),
     ("mauritius", "MU"),
+    ("mayotte", "YT"),
     ("mexico", "MX"),
     ("mexique", "MX"),
     ("micronesia", "FM"),
@@ -310,6 +324,7 @@ pub const COUNTRY_ALIASES: &[(&str, &str)] = &[
     ("republique du congo", "CG"),
     ("republique francaise", "FR"),
     ("republique tcheque", "CZ"),
+    ("reunion", "RE"),
     ("romania", "RO"),
     ("roumanie", "RO"),
     ("royaume uni", "GB"),
@@ -323,6 +338,7 @@ pub const COUNTRY_ALIASES: &[(&str, &str)] = &[
     ("république démocratique du congo", "CD"),
     ("république française", "FR"),
     ("république tchèque", "CZ"),
+    ("réunion", "RE"),
     ("saint kitts and nevis", "KN"),
     ("saint lucia", "LC"),
     ("saint marin", "SM"),
@@ -522,6 +538,27 @@ mod tests {
         assert!(normalize_country_code("EL").is_err());
         assert!(normalize_country_code("   ").is_err());
         assert!(normalize_country_code("").is_err());
+    }
+
+    #[test]
+    fn french_overseas_territories_are_not_france() {
+        for (input, expected) in [
+            ("Réunion", "RE"),
+            ("Reunion", "RE"),
+            ("La Réunion", "RE"),
+            ("la reunion", "RE"),
+            ("la-réunion", "RE"),
+            ("Guadeloupe", "GP"),
+            ("Martinique", "MQ"),
+            ("Guyane", "GF"),
+            ("Guyane française", "GF"),
+            ("guyane-francaise", "GF"),
+            ("French Guiana", "GF"),
+            ("Mayotte", "YT"),
+            ("France", "FR"),
+        ] {
+            assert_eq!(normalize_country_code(input).unwrap(), expected, "{input}");
+        }
     }
 
     #[test]
