@@ -622,7 +622,7 @@
     "callNumber": "Call number",
     "selectSource": "Select source",
     "addSpecimen": "Add copy",
-    "barcode": "barcode",
+    "barcode": "Barcode",
     "callNumberInvalid": "Letters, digits, spaces, dots and dashes only",
     "fillCallNumber": "Fill with suggested",
     "resetCallNumber": "Reset to suggested",

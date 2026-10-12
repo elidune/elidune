@@ -24,7 +24,7 @@ import { RenewSubscriptionModal, UserEditorForm, UserListCard } from '@/componen
 import api from '@/services/api';
 import type { UserShort } from '@/types';
 import { isSubscriptionExpired } from '@/utils/userSubscription';
-import { accountTypeDisplayName } from '@/utils/accountTypeDisplay';
+import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
 const USERS_PER_PAGE = 20;
 
 export default function UsersPage() {
@@ -156,7 +156,7 @@ export default function UsersPage() {
               {user.firstname} {user.lastname}
             </p>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              {accountTypeDisplayName(accountTypes, user.accountType)}
+              {localizedAccountTypeLabel(t, user.accountType, accountTypes)}
               {user.publicType && (() => {
                 const pt = publicTypes.find((p) => p.id === String(user.publicType));
                 return pt ? <> · {pt.label}</> : null;

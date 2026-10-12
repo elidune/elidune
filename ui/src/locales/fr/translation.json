@@ -622,7 +622,7 @@
     "callNumber": "Cote",
     "selectSource": "Choisir une source",
     "addSpecimen": "Ajouter un exemplaire",
-    "barcode": "barcode",
+    "barcode": "Code-barres",
     "callNumberInvalid": "Lettres, chiffres, espaces, points et tirets uniquement",
     "fillCallNumber": "Remplir avec la suggestion",
     "resetCallNumber": "Réinitialiser avec la suggestion",

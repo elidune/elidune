@@ -50,7 +50,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import { canManageUsers, isLibrarian, type User as UserType, type Loan, type LoanStatsResponse, type AdvancedStatsParams, type StatsInterval, type Author, type Hold } from '@/types';
 import { isLoanDetailsStaff } from '@/utils/catalogView';
-import { accountTypeDisplayName } from '@/utils/accountTypeDisplay';
+import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 import { deferFromEffect } from '@/utils/deferFromEffect';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
@@ -850,7 +850,7 @@ export default function UserDetailPage() {
               {user.firstname} {user.lastname}
             </h1>
             <div className="flex items-center gap-2 mt-1">
-              <Badge>{accountTypeDisplayName(accountTypes, user.accountType)}</Badge>
+              <Badge>{localizedAccountTypeLabel(t, user.accountType, accountTypes)}</Badge>
               {user.publicType != null && user.publicType !== '' && (() => {
                 const pt = publicTypes.find((p) => p.id === String(user.publicType));
                 return pt ? <Badge variant="info">{pt.label}</Badge> : null;

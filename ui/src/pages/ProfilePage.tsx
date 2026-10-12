@@ -28,6 +28,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { usePublicTypesQuery } from '@/hooks/usePublicTypesQuery';
 import api from '@/services/api';
+import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
 import type { SupportedLanguage } from '@/locales';
 import { isLibrarian, type TwoFactorMethod, type User as UserProfile } from '@/types';
 import { profileChildAccountPending, profileIsChildAccount } from '@/utils/legalGuardian';
@@ -244,7 +245,7 @@ export default function ProfilePage() {
               {user?.firstname} {user?.lastname}
             </h2>
             <p className="text-gray-500 dark:text-gray-400">
-              {user?.accountType} • @{user?.username}
+              {localizedAccountTypeLabel(t, user?.accountType)} • @{user?.username}
             </p>
           </div>
         </div>

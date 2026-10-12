@@ -622,7 +622,7 @@
     "callNumber": "Signatur",
     "selectSource": "Quelle auswählen",
     "addSpecimen": "Exemplar hinzufügen",
-    "barcode": "barcode",
+    "barcode": "Barcode",
     "callNumberInvalid": "Nur Buchstaben, Ziffern, Leerzeichen, Punkte und Bindestriche",
     "fillCallNumber": "Mit Vorschlag ausfüllen",
     "resetCallNumber": "Auf Vorschlag zurücksetzen",
