@@ -19,7 +19,9 @@ pub fn router_staff() -> axum::Router<crate::AppState> {
     axum::Router::new().route("/library-info", put(update_library_info))
 }
 
-pub use crate::models::dto::library_info::{LibraryInfo, UpdateLibraryInfoRequest};
+pub use crate::models::dto::library_info::{
+    LibraryInfo, LibraryUiLanguage, UpdateLibraryInfoRequest,
+};
 
 /// Get library information (public)
 #[utoipa::path(
@@ -50,7 +52,7 @@ pub async fn get_library_info(
     request_body = UpdateLibraryInfoRequest,
     responses(
         (status = 200, description = "Library information updated", body = LibraryInfo),
-        (status = 400, description = "Invalid IANA timezone (`invalid_timezone`), timezone outside the country (`timezone_country_mismatch`), missing timezone for a multi-zone country (`timezone_required`), or unrecognized country (`validation_error`)", body = ErrorResponse),
+        (status = 400, description = "Invalid IANA timezone (`invalid_timezone`), timezone outside the country (`timezone_country_mismatch`), missing timezone for a multi-zone country (`timezone_required`), unrecognized country (`validation_error`), or a library language other than `fr`, `en`, `de`, `es` (`validation_error`)", body = ErrorResponse),
         (status = 403, description = "Insufficient permissions")
     )
 )]

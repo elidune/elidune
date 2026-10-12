@@ -2,7 +2,7 @@
 
 use crate::{
     error::{AppError, AppResult},
-    models::dto::library_info::{LibraryInfo, UpdateLibraryInfoRequest},
+    models::dto::library_info::{LibraryInfo, LibraryUiLanguage, UpdateLibraryInfoRequest},
     repository::Repository,
     services::{
         calendar::{self, DEFAULT_TIMEZONE},
@@ -36,6 +36,7 @@ impl LibraryInfoService {
                 phones_val,
                 email,
                 timezone,
+                language,
                 updated_at,
             )) => {
                 let phones: Vec<String> = phones_val
@@ -52,6 +53,7 @@ impl LibraryInfoService {
                     phones,
                     email,
                     timezone,
+                    language: stored_language(language)?,
                     updated_at,
                 })
             }
@@ -65,6 +67,7 @@ impl LibraryInfoService {
                 phones: vec![],
                 email: None,
                 timezone: DEFAULT_TIMEZONE.to_string(),
+                language: None,
                 updated_at: None,
             }),
         }
@@ -78,6 +81,7 @@ impl LibraryInfoService {
             .map(|p| serde_json::to_value(p).unwrap_or(serde_json::json!([])));
         let submitted = submitted_timezone(req.timezone.as_deref())?;
         let addr_country = country_code::normalize_optional_country(req.addr_country)?;
+        let language = normalize_language(req.language)?;
 
         // A name-only update must not read or rewrite the stored zone.
         let timezone = if addr_country.is_some() || !matches!(submitted, SubmittedTimezone::Omitted)
@@ -104,6 +108,7 @@ impl LibraryInfoService {
                 phones_json,
                 &req.email,
                 &timezone,
+                language,
             )
             .await?;
 
@@ -188,6 +193,33 @@ fn timezone_required(country: &str) -> AppError {
     AppError::TimezoneRequired(format!("Choose a time zone for country {country}"))
 }
 
+/// `None` leaves the stored language. `Some(None)` clears it. `Some(Some(code))` sets it.
+fn normalize_language(value: Option<Option<String>>) -> AppResult<Option<Option<String>>> {
+    match value {
+        None => Ok(None),
+        Some(None) => Ok(Some(None)),
+        Some(Some(raw)) => match LibraryUiLanguage::try_from(raw.as_str()) {
+            Ok(language) => Ok(Some(Some(language.as_code().to_string()))),
+            Err(_) => Err(AppError::Validation(
+                "language must be one of: fr, en, de, es".into(),
+            )),
+        },
+    }
+}
+
+fn stored_language(value: Option<String>) -> AppResult<Option<LibraryUiLanguage>> {
+    match value {
+        None => Ok(None),
+        Some(code) => LibraryUiLanguage::try_from(code.as_str())
+            .map(Some)
+            .map_err(|_| {
+                AppError::Internal(format!(
+                    "stored library language '{code}' is not fr, en, de, or es"
+                ))
+            }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -262,5 +294,27 @@ mod tests {
             resolve_timezone(&SubmittedTimezone::Omitted, None, "Europe/Paris").unwrap(),
             None
         );
+    }
+
+    #[test]
+    fn language_accepts_only_the_four_ui_codes_and_null_clears() {
+        assert!(normalize_language(None).unwrap().is_none());
+        assert!(matches!(
+            normalize_language(Some(None)).unwrap(),
+            Some(None)
+        ));
+        assert_eq!(
+            normalize_language(Some(Some("de".into()))).unwrap(),
+            Some(Some("de".into()))
+        );
+        for rejected in ["it", "FR", "french", "en-US", "", " de "] {
+            assert!(
+                matches!(
+                    normalize_language(Some(Some(rejected.into()))),
+                    Err(AppError::Validation(_))
+                ),
+                "{rejected}"
+            );
+        }
     }
 }

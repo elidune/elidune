@@ -498,6 +498,7 @@ use crate::api::{
             crate::models::stats_builder::SavedStatsQueryWrite,
             // Library info
             library_info::LibraryInfo,
+            library_info::LibraryUiLanguage,
             library_info::UpdateLibraryInfoRequest,
             // Email templates
             email_templates::EmailTemplate,
@@ -645,7 +646,7 @@ use crate::api::{
         (name = "acquisitions", description = "Vendors, yearly funds, purchase orders, and receipt (creates catalog items only at receipt)"),
         (name = "suggestions", description = "Patron purchase suggestions: propose a title; staff accept opens a draft order intent (no biblio, no item)"),
         (name = "account_types", description = "Library account types (guest, reader, librarian, admin, group) and per-domain rights"),
-        (name = "library_info", description = "Library global information (name, address, phones, email)"),
+        (name = "library_info", description = "Library global information (name, address, phones, email, default UI language)"),
         (name = "email_templates", description = "Editable email templates exposed to the Settings UI"),
         (name = "series", description = "Series management"),
         (name = "collections", description = "Collections management"),
@@ -696,6 +697,62 @@ mod tests {
     fn openapi_schema_compiles() {
         let doc = ApiDoc::openapi();
         assert!(!doc.paths.paths.is_empty());
+    }
+
+    #[test]
+    fn library_info_documents_nullable_ui_language() {
+        let doc = ApiDoc::openapi();
+        let value = serde_json::to_value(&doc).expect("openapi json");
+        let schemas = value["components"]["schemas"].as_object().expect("schemas");
+        let prop = &schemas["LibraryInfo"]["properties"]["language"];
+        assert!(
+            prop.is_object(),
+            "LibraryInfo.language missing from OpenAPI: {prop}"
+        );
+        let nullable = prop.get("nullable").and_then(|flag| flag.as_bool()) == Some(true)
+            || prop["anyOf"].as_array().is_some_and(|items| {
+                items
+                    .iter()
+                    .any(|item| item.get("type").and_then(|kind| kind.as_str()) == Some("null"))
+            });
+        assert!(nullable, "language must be nullable: {prop}");
+
+        let reference = prop["allOf"][0]["$ref"]
+            .as_str()
+            .or_else(|| prop["$ref"].as_str())
+            .or_else(|| {
+                prop["anyOf"]
+                    .as_array()
+                    .and_then(|items| items.iter().find_map(|item| item["$ref"].as_str()))
+            });
+        let enum_schema = match reference {
+            Some(reference) => {
+                let name = reference.rsplit('/').next().expect("schema name");
+                schemas
+                    .get(name)
+                    .unwrap_or_else(|| panic!("missing schema {name} for language property {prop}"))
+            }
+            None => prop,
+        };
+        let codes = enum_schema["enum"]
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str().map(str::to_string))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        assert_eq!(
+            codes,
+            vec![
+                "fr".to_string(),
+                "en".to_string(),
+                "de".to_string(),
+                "es".to_string()
+            ],
+            "{enum_schema}"
+        );
     }
 
     #[test]
