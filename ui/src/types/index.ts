@@ -2197,7 +2197,7 @@ export interface ItemCheckIn extends LostReturnFields {
 /** Staff decision after the lost-copy alert (`POST /loans/items/{itemId}/lost-found`). */
 export type LostFoundDisposition = 'circulate' | 'damaged' | 'leave';
 
-export type LostFineAction = 'none' | 'cancelled' | 'refunded' | 'partial';
+export type LostFineAction = 'none' | 'cancelled' | 'refunded' | 'partial' | 'unchanged';
 
 export interface ResolveLostFoundRequest {
   disposition: LostFoundDisposition;
