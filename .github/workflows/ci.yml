@@ -336,6 +336,30 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run build
 
+  test-ui:
+    name: UI Tests
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.ui == 'true' || github.event_name == 'pull_request'
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+
   # Image builds on pull requests only. Publishing stays in docker-publish.yml.
   docker-build:
     name: Docker build (${{ matrix.name }})
