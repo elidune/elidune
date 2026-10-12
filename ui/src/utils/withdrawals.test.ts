@@ -190,6 +190,7 @@ const WEEDING_SCREEN_KEYS = [
   'scanRemove',
   'scanNotFound',
   'scanAlreadyWithdrawn',
+  'cancelConfirm',
 ] as const;
 
 describe('weeding plural copy', () => {

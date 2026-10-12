@@ -14,8 +14,10 @@ import {
   itemIdFromCopies,
   itemIdFromLostReturn,
   lostFeeKind,
+  lostFoundChoiceHint,
   lostFoundErrorMessage,
   lostFoundFeeMessage,
+  lostFoundPanelFee,
   lostFoundResolutionMessage,
   type Translate,
 } from './lostFound.ts';
@@ -114,6 +116,101 @@ describe('replacement fee wording', () => {
     assert.match(partial, /annulé/);
     assert.match(lostFoundFeeMessage({ wasLost: true }, 'fr', t), /Aucun frais/);
     assert.equal(lostFoundFeeMessage({ wasLost: true }, 'fr', t).includes('unpaid'), false);
+  });
+
+  it('uses one unchanged-fees label, and only when the copy is marked damaged', () => {
+    const t = translate('fr');
+    const unchanged = 'Les frais ne sont pas modifiés';
+    assert.equal(t('loans.lostFound.feesUnchanged'), unchanged);
+    const fields = { fineStatus: 'unpaid' as const, fineAmount: 1500, paidAmount: 0 };
+    const damaged = lostFoundChoiceHint('damaged', fields, 'fr', t);
+    assert.match(damaged, /Les frais ne sont pas modifiés/);
+    assert.equal(damaged.includes('annulés'), false);
+    assert.equal(damaged.includes('rembours'), false);
+
+    const circulate = lostFoundChoiceHint('circulate', fields, 'fr', t);
+    const leave = lostFoundChoiceHint('leave', fields, 'fr', t);
+    assert.equal(circulate.includes(unchanged), false);
+    assert.equal(leave.includes(unchanged), false);
+    assert.match(circulate, /Les frais non payés sont annulés \(15,00/);
+    assert.match(leave, /Les frais non payés sont annulés \(15,00/);
+    assert.match(circulate, /€/);
+
+    const paid = lostFoundChoiceHint(
+      'circulate',
+      { fineStatus: 'paid', fineAmount: 1500, paidAmount: 1500 },
+      'fr',
+      t,
+    );
+    assert.match(paid, /Les frais déjà payés seront remboursés \(15,00/);
+    const partial = lostFoundChoiceHint(
+      'leave',
+      { fineStatus: 'partial', fineAmount: 1500, paidAmount: 500 },
+      'fr',
+      t,
+    );
+    assert.match(partial, /5,00/);
+    assert.match(partial, /remboursés, le reste \(10,00/);
+    assert.match(partial, /est annulé/);
+
+    assert.equal(
+      lostFoundFeeMessage({ fineStatus: 'unpaid' }, 'fr', t),
+      'Les frais non payés sont annulés',
+    );
+    assert.equal(lostFoundPanelFee('damaged', fields, null, 'fr', t), unchanged);
+    assert.equal(
+      lostFoundPanelFee(
+        'circulate',
+        fields,
+        {
+          disposition: 'circulate',
+          fineAction: 'refunded',
+          refundedAmount: 1500,
+          cancelledAmount: 0,
+        },
+        'fr',
+        t,
+      ).includes(unchanged),
+      false,
+    );
+    assert.match(
+      lostFoundResolutionMessage(
+        {
+          disposition: 'damaged',
+          fineAction: 'refunded',
+          refundedAmount: 1500,
+          cancelledAmount: 0,
+        },
+        'fr',
+        t,
+      ),
+      /Les frais ne sont pas modifiés/,
+    );
+    assert.equal(
+      lostFoundResolutionMessage(
+        { disposition: 'leave', fineAction: 'none', refundedAmount: 0, cancelledAmount: 0 },
+        'fr',
+        t,
+      ).includes(unchanged),
+      false,
+    );
+
+    for (const lang of ['en', 'de', 'es'] as const) {
+      const label = translate(lang)('loans.lostFound.feesUnchanged');
+      assert.equal(label.includes('{{'), false);
+      assert.equal(
+        lostFoundChoiceHint('damaged', fields, lang, translate(lang)).includes(label),
+        true,
+      );
+      assert.equal(
+        lostFoundChoiceHint('circulate', fields, lang, translate(lang)).includes(label),
+        false,
+      );
+      assert.equal(
+        lostFoundChoiceHint('leave', fields, lang, translate(lang)).includes(label),
+        false,
+      );
+    }
   });
 });
 

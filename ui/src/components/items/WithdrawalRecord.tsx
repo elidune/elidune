@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Badge, Button } from '@/components/common';
+import { Badge, Button, ConfirmDialog } from '@/components/common';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/services/api';
 import type { ItemWithdrawal } from '@/types';
@@ -53,6 +53,7 @@ export default function WithdrawalRecord({ withdrawal, onChanged }: WithdrawalRe
   const canWrite = canManageWeeding(user, token);
   const canCancelRight = canCancelWeeding(user, token);
   const [completeOpen, setCompleteOpen] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const disposed = !!withdrawal.disposedAt;
@@ -73,6 +74,7 @@ export default function WithdrawalRecord({ withdrawal, onChanged }: WithdrawalRe
     mutationFn: () => api.cancelItemWithdrawal(withdrawal.id),
     onSuccess: () => {
       setError(null);
+      setConfirmCancel(false);
       refresh();
     },
     onError: (err) => setError(getApiErrorMessage(err, t)),
@@ -155,7 +157,9 @@ export default function WithdrawalRecord({ withdrawal, onChanged }: WithdrawalRe
               isLoading={cancelMutation.isPending}
               title={disposed ? t('weeding.cancelDisabledDisposed') : undefined}
               onClick={() => {
-                if (cancelAllowed) cancelMutation.mutate();
+                if (!cancelAllowed) return;
+                setError(null);
+                setConfirmCancel(true);
               }}
             >
               {t('weeding.cancel')}
@@ -171,6 +175,21 @@ export default function WithdrawalRecord({ withdrawal, onChanged }: WithdrawalRe
           {error}
         </p>
       ) : null}
+
+      <ConfirmDialog
+        isOpen={confirmCancel}
+        onClose={() => {
+          if (cancelMutation.isPending) return;
+          setConfirmCancel(false);
+        }}
+        onConfirm={() => cancelMutation.mutate()}
+        title={t('weeding.cancel')}
+        message={t('weeding.cancelConfirm')}
+        confirmLabel={t('weeding.cancel')}
+        confirmVariant="danger"
+        isLoading={cancelMutation.isPending}
+        error={error}
+      />
 
       <WithdrawalDialog
         open={completeOpen}

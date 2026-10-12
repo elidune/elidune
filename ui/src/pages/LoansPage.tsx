@@ -24,7 +24,7 @@ import ActiveLoanCard from '@/components/loans/ActiveLoanCard';
 import CirculationExceptionDialog from '@/components/loans/CirculationExceptionDialog';
 import ClaimsReturnedQueue from '@/components/loans/ClaimsReturnedQueue';
 import LoanExceptionActions from '@/components/loans/LoanExceptionActions';
-import ToPickForceLoanDialog from '@/components/loans/ToPickForceLoanDialog';
+import DeskScanNotice from '@/components/loans/DeskScanNotice';
 import LostFoundAlertDialog from '@/components/loans/LostFoundAlertDialog';
 import Pagination from '@/components/common/Pagination';
 import api from '@/services/api';
@@ -34,16 +34,26 @@ import {
   isLostReturn,
   itemIdFromCopies,
   itemIdFromLostReturn,
+  lostFoundActionLabel,
   lostFoundErrorMessage,
+  lostFoundPanelFee,
   lostFoundResolutionMessage,
+  type LostFoundPanelAction,
 } from '@/utils/lostFound';
+import {
+  deskScanAlert,
+  deskScanAlertFromCheckIn,
+  deskScanAlertFromCheckoutMessage,
+  readerName,
+  type DeskCopySnapshot,
+  type DeskScanAlert,
+} from '@/utils/deskScanAlert';
 import { renewedUntilMessage } from '@/utils/localeDate';
 import { patronId } from '@/utils/patronLink';
 import { isWeedingServerMessage } from '@/utils/weeding';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
 import { isClaimedReturnedLoan } from '@/utils/circulationStatus';
 import {
-  CheckoutDeclined,
   interpretPickCheckIn,
   isCheckoutDeclined,
   readItemToPickForOther,
@@ -63,13 +73,25 @@ import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
 import { useToast } from '@/contexts/ToastContext';
 import { isAdmin } from '@/types';
 import type { User as UserType, Loan, UserShort, OverdueLoanInfo, ReminderReport, ItemCheckIn, LostFoundDisposition, LostReturnFields } from '@/types';
-import { isLoanDetailsStaff } from '@/utils/catalogView';
+import { isItemStaffView, isLoanDetailsStaff } from '@/utils/catalogView';
 
 type TabType = 'borrow' | 'return' | 'overdue' | 'claims';
+type LostFoundSummary = {
+  title: string | null;
+  barcode: string | null;
+  patronName: string | null;
+  foundAt: string;
+  action: LostFoundPanelAction;
+  feeText: string;
+};
+
 type ReturnView =
   | { kind: 'loan'; loan: Loan }
   | { kind: 'pick'; notice: PickCheckInNotice }
-  | { kind: 'item'; title: string | null; barcode: string | null; availability: string | null };
+  | { kind: 'item'; title: string | null; barcode: string | null; availability: string | null }
+  | ({ kind: 'lostFound' } & LostFoundSummary);
+
+type CheckoutScanAlert = DeskScanAlert & { barcode: string };
 type DeskLoanOp = 'return' | 'renew' | CirculationExceptionKind;
 
 type CheckoutRecap = {
@@ -167,8 +189,8 @@ export default function LoansPage() {
   const [sendRemindersConfirmOpen, setSendRemindersConfirmOpen] = useState(false);
   const [forceBorrowDialog, setForceBorrowDialog] = useState<{ message: string } | null>(null);
   const forceBorrowResolveRef = useRef<((v: boolean) => void) | null>(null);
-  const [toPickForceDialog, setToPickForceDialog] = useState<{ patronName: string | null } | null>(null);
-  const toPickResolveRef = useRef<((v: boolean) => void) | null>(null);
+  const [checkoutScanAlert, setCheckoutScanAlert] = useState<CheckoutScanAlert | null>(null);
+  const [returnScanAlert, setReturnScanAlert] = useState<DeskScanAlert | null>(null);
 
   /** Restore keyboard/scanner focus to the visible barcode field after dialogs close. */
   const focusScanInput = useCallback(() => {
@@ -284,40 +306,21 @@ export default function LoansPage() {
         fineAmount: result.fineAmount,
         paidAmount: result.paidAmount,
       });
-      if (result.loan) setReturnResult({ kind: 'loan', loan: result.loan });
+      const loan = result.loan ?? null;
+      setReturnResult({
+        kind: 'lostFound',
+        title: loan?.biblio?.title?.trim() || null,
+        barcode: (loan?.itemIdentification ?? barcode ?? '').trim() || null,
+        patronName: readerName(loan?.user),
+        foundAt: new Date().toISOString(),
+        action: null,
+        feeText: lostFoundPanelFee(null, result, null, i18n.language, (key, values) =>
+          String(t(key, values)),
+        ),
+      });
       return true;
     },
-    [t],
-  );
-
-  const refetchLostFoundItem = useCallback(
-    async (itemId: string) => {
-      try {
-        const notice = await api.getItem(itemId);
-        const copies = notice.items ?? [];
-        const copy = copies.find((item) => item.id === itemId) ?? copies[0];
-        if (!copy) return;
-        setReturnResult({
-          kind: 'item',
-          title: notice.title ?? null,
-          barcode: copy.barcode ?? null,
-          availability: copy.availability ?? null,
-        });
-      } catch (error: unknown) {
-        showToast({
-          variant: 'error',
-          message: lostFoundErrorMessage(
-            {
-              status: getHttpStatus(error),
-              code: getApiErrorCode(error),
-              message: getApiErrorRawMessage(error),
-            },
-            (key) => t(key),
-          ),
-        });
-      }
-    },
-    [showToast, t],
+    [i18n.language, t],
   );
 
   const dismissLostFound = useCallback(() => {
@@ -325,8 +328,18 @@ export default function LoansPage() {
     setLostFound(null);
     setLostFoundError(null);
     setLostFoundPending(null);
+    setReturnResult((current) => {
+      if (current?.kind !== 'lostFound') return current;
+      return {
+        ...current,
+        action: 'dismissed',
+        feeText: lostFoundPanelFee('dismissed', lostFound ?? {}, null, i18n.language, (key, values) =>
+          String(t(key, values)),
+        ),
+      };
+    });
     showToast({ variant: 'info', message: t('loans.lostFound.dismissed') });
-  }, [showToast, t]);
+  }, [i18n.language, lostFound, showToast, t]);
 
   const resolveLostFoundChoice = useCallback(
     async (disposition: LostFoundDisposition) => {
@@ -337,11 +350,23 @@ export default function LoansPage() {
       setLostFoundError(null);
       try {
         const resolution = await api.resolveLostFound(itemId, { disposition });
+        const feeText = lostFoundPanelFee(
+          disposition,
+          lostFound ?? {},
+          resolution,
+          i18n.language,
+          (key, values) => String(t(key, values)),
+        );
+        const status = lostFoundResolutionMessage(resolution, i18n.language, (key, values) =>
+          String(t(key, values)),
+        );
         showToast({
           variant: 'success',
-          message: lostFoundResolutionMessage(resolution, i18n.language, (key, values) =>
-            t(key, values),
-          ),
+          message: disposition === 'leave' ? `${status} ${feeText}`.trim() : status,
+        });
+        setReturnResult((current) => {
+          if (current?.kind !== 'lostFound') return current;
+          return { ...current, action: disposition, feeText };
         });
         setLostFound(null);
         setLostFoundError(null);
@@ -355,7 +380,6 @@ export default function LoansPage() {
           setLostFound(null);
           setLostFoundError(null);
           showToast({ variant: 'info', message: t('loans.lostFound.alreadyProcessed') });
-          await refetchLostFoundItem(itemId);
           return;
         }
         setLostFoundError(lostFoundErrorMessage(input, (key) => t(key)));
@@ -364,7 +388,7 @@ export default function LoansPage() {
         setLostFoundPending(null);
       }
     },
-    [i18n.language, lostFound, refetchLostFoundItem, showToast, t],
+    [i18n.language, lostFound, showToast, t],
   );
 
   const loadOverdue = useCallback(async () => {
@@ -672,10 +696,21 @@ export default function LoansPage() {
       throw new Error(t('loans.noUserSelected'));
     }
 
+    const barcode = specimenBarcode.trim();
+    if (!force) {
+      const snapshot = await readDeskCopy(barcode);
+      const alert = deskScanAlert(snapshot, { patronId: selectedUser.id });
+      if (alert) {
+        setCheckoutScanAlert({ ...alert, barcode });
+        return;
+      }
+    }
+    setCheckoutScanAlert(null);
+
     try {
       const created = await api.createLoan({
         userId: selectedUser.id,
-        itemIdentification: specimenBarcode.trim(),
+        itemIdentification: barcode,
         force: force || undefined,
       }, newIdempotencyKey());
       const res = await api.getUserLoans(selectedUser.id, {
@@ -686,10 +721,10 @@ export default function LoansPage() {
       setLoansTotal(res.total);
       const matched = res.items.find((loan) => loan.id === created.id);
       const title = matched?.biblio.title?.trim() || t('loans.noTitle');
-      const barcode = matched?.itemIdentification?.trim() || specimenBarcode.trim();
+      const checkedOutBarcode = matched?.itemIdentification?.trim() || barcode;
       const dueDate = matched?.expiryAt || created.expiryAt;
       const patronName = `${selectedUser.firstname} ${selectedUser.lastname}`.trim();
-      setLastCheckout({ title, barcode, dueDate, patronName });
+      setLastCheckout({ title, barcode: checkedOutBarcode, dueDate, patronName });
       showToast({
         variant: 'success',
         message: t('loans.checkoutSuccess', { title, patron: patronName }),
@@ -705,14 +740,12 @@ export default function LoansPage() {
         throw error;
       }
       const toPick = readItemToPickForOther(error);
-      if (toPick && !force) {
-        setBarcodeInput('');
-        const ok = await new Promise<boolean>((resolve) => {
-          setToPickForceDialog({ patronName: toPick.userName });
-          toPickResolveRef.current = resolve;
-        });
-        if (!ok) throw new CheckoutDeclined();
-        return handleBorrow(specimenBarcode, true);
+      const blocked = toPick
+        ? { kind: 'onHold' as const, patronName: toPick.userName }
+        : deskScanAlertFromCheckoutMessage(rawMessage);
+      if (blocked && !force) {
+        setCheckoutScanAlert({ ...blocked, barcode });
+        return;
       }
       if (errorCode === 'business_rule_violation' && !force) {
         setBarcodeInput('');
@@ -771,10 +804,15 @@ export default function LoansPage() {
     setIsProcessingReturn(true);
     setReturnError('');
     setReturnResult(null);
+    setReturnScanAlert(null);
+
+    const barcode = specimenBarcode.trim();
+    const snapshot = await readDeskCopy(barcode);
+    const preview = deskScanAlert(snapshot, {});
 
     try {
-      const barcode = specimenBarcode.trim();
       const result = await api.returnLoanByBarcode(barcode);
+      setReturnScanAlert(preview ?? deskScanAlertFromCheckIn(result));
       if (await openLostFound(result, { barcode })) {
         setReturnBarcodeInput('');
         return;
@@ -797,6 +835,7 @@ export default function LoansPage() {
       }
       setReturnBarcodeInput('');
     } catch (error: unknown) {
+      setReturnScanAlert(preview);
       const msg = getApiErrorMessage(error, t) || t('loans.errorReturningLoan');
       setReturnError(msg);
       showToast({ variant: 'error', message: msg });
@@ -1211,6 +1250,7 @@ export default function LoansPage() {
                         setUserSearchDraft('');
                         setBarcodeInput('');
                         setLastCheckout(null);
+                        setCheckoutScanAlert(null);
                         setRenewError('');
                         setLoansLoadError(null);
                       }}
@@ -1233,6 +1273,25 @@ export default function LoansPage() {
                       onLoadingChange={setIsBorrowLoading}
                       isLoading={isBorrowLoading}
                     />
+                    {checkoutScanAlert ? (
+                      <DeskScanNotice
+                        alert={checkoutScanAlert}
+                        forceDisabled={isBorrowLoading}
+                        onForce={() => {
+                          setIsBorrowLoading(true);
+                          void handleBorrow(checkoutScanAlert.barcode, true)
+                            .catch((err: unknown) => {
+                              if (isCheckoutDeclined(err)) return;
+                              const msg =
+                                err instanceof Error && err.message
+                                  ? err.message
+                                  : t('loans.errorCreatingLoan');
+                              showToast({ variant: 'error', message: msg });
+                            })
+                            .finally(() => setIsBorrowLoading(false));
+                        }}
+                      />
+                    ) : null}
                   </div>
                 </div>
               </Card>
@@ -1432,6 +1491,7 @@ export default function LoansPage() {
                       }
                     />
                   </form>
+                  {returnScanAlert ? <DeskScanNotice alert={returnScanAlert} /> : null}
                   {returnError && (
                     <div
                       role="alert"
@@ -1480,6 +1540,9 @@ export default function LoansPage() {
                 </div>
               )}
 
+              {returnResult?.kind === 'lostFound' && (
+                <LostFoundSummaryPanel summary={returnResult} locale={i18n.language} t={t} />
+              )}
               {returnResult?.kind === 'loan' && (
                 <ReturnRecapPanel loan={returnResult.loan} locale={i18n.language} t={t} />
               )}
@@ -1886,24 +1949,39 @@ export default function LoansPage() {
         }}
       />
 
-      <ToPickForceLoanDialog
-        isOpen={toPickForceDialog !== null}
-        patronName={toPickForceDialog?.patronName ?? null}
-        onCancel={() => {
-          setToPickForceDialog(null);
-          toPickResolveRef.current?.(false);
-          toPickResolveRef.current = null;
-          focusScanInput();
-        }}
-        onForce={() => {
-          setToPickForceDialog(null);
-          toPickResolveRef.current?.(true);
-          toPickResolveRef.current = null;
-          focusScanInput();
-        }}
-      />
     </div>
   );
+}
+
+async function readDeskCopy(barcode: string): Promise<DeskCopySnapshot | null> {
+  try {
+    const notice = await api.getItemByBarcode(barcode);
+    const copies = notice.items ?? [];
+    const copy =
+      copies.find((item) => (item.barcode ?? '').trim() === barcode) ?? copies[0];
+    if (!copy || !isItemStaffView(copy)) return null;
+    let loanUserId: string | null = null;
+    let loanUserName: string | null = null;
+    if (copy.availability === 'onLoan' && copy.loanId) {
+      try {
+        const borrower = await api.getLoanBorrower(copy.loanId);
+        loanUserId = borrower.id;
+        loanUserName = readerName(borrower);
+      } catch {
+        loanUserId = null;
+        loanUserName = null;
+      }
+    }
+    return {
+      availability: copy.availability,
+      loanUserId,
+      loanUserName,
+      holdUserId: copy.holdUserId ?? null,
+      holdUserName: copy.holdUserName ?? null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function resolvePickNotice(notice: PickCheckInNotice): Promise<PickCheckInNotice> {
@@ -2018,6 +2096,63 @@ function CheckoutRecapPanel({
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+function LostFoundSummaryPanel({
+  summary,
+  locale,
+  t,
+}: {
+  summary: LostFoundSummary;
+  locale: string;
+  t: TFunction;
+}) {
+  const found = new Date(summary.foundAt);
+  const foundLabel = Number.isNaN(found.getTime())
+    ? summary.foundAt
+    : found.toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' });
+
+  return (
+    <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900/40">
+      <div className="px-5 py-5">
+        <p className="text-lg font-semibold leading-snug text-gray-900 dark:text-white">
+          {summary.title?.trim() || t('loans.noTitle')}
+        </p>
+        {summary.barcode ? (
+          <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+            {t('items.barcode')}: <span className="font-mono">{summary.barcode}</span>
+          </p>
+        ) : null}
+        {summary.patronName ? (
+          <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+            {t('loans.exceptions.patron')}: {summary.patronName}
+          </p>
+        ) : null}
+      </div>
+      <dl className="grid gap-5 border-t border-gray-100 px-5 py-4 sm:grid-cols-3 dark:border-gray-800">
+        <div>
+          <dt className="text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+            {t('loans.lostFound.summaryFoundAt')}
+          </dt>
+          <dd className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{foundLabel}</dd>
+        </div>
+        <div>
+          <dt className="text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+            {t('loans.lostFound.summaryAction')}
+          </dt>
+          <dd className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">
+            {lostFoundActionLabel(summary.action, (key, values) => String(t(key, values)))}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs font-medium uppercase tracking-wide text-gray-400 dark:text-gray-500">
+            {t('loans.lostFound.summaryFees')}
+          </dt>
+          <dd className="mt-1 text-sm font-semibold text-gray-900 dark:text-white">{summary.feeText}</dd>
+        </div>
+      </dl>
     </div>
   );
 }
