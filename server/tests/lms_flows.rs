@@ -105,3 +105,58 @@ async fn test_golden_path_loan_hold_return() {
         .await;
     assert_eq!(return_status, StatusCode::OK, "return: {return_body}");
 }
+
+/// #152 follow-up: a known copy with no active loan is not a missing barcode.
+#[tokio::test]
+async fn check_in_known_item_without_loan_returns_item_not_on_loan() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let barcode = format!("NOL-{}", fixtures::unique_suffix());
+    let payload = json!({
+        "title": format!("Not On Loan {}", fixtures::unique_suffix()),
+        "mediaType": "printedText",
+        "lang": "french",
+        "items": [{ "barcode": barcode, "borrowable": true }]
+    });
+    let (status, body) = app
+        .post_json("/api/v1/biblios", &payload, Some(&admin_token))
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "create biblio: {body}");
+
+    let (status, body) = app
+        .post_empty(
+            &format!("/api/v1/loans/items/{barcode}/return"),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "check-in: {body}");
+    assert_eq!(body["code"], "item_not_on_loan");
+    assert_eq!(body["error"], "Not Found");
+    assert_eq!(body["message"], format!("Item {barcode} is not on loan"));
+}
+
+/// Unknown barcodes stay the generic not-found, distinct from `item_not_on_loan`.
+#[tokio::test]
+async fn check_in_unknown_barcode_stays_not_found() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let barcode = format!("MISSING-{}", fixtures::unique_suffix());
+
+    let (status, body) = app
+        .post_empty(
+            &format!("/api/v1/loans/items/{barcode}/return"),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "check-in: {body}");
+    assert_eq!(body["code"], "not_found");
+    assert_eq!(body["error"], "Not Found");
+    assert_eq!(
+        body["message"],
+        format!("No active loan found for item {barcode}")
+    );
+}

@@ -388,6 +388,15 @@ impl LoansService {
                         lost: None,
                     });
                 }
+                if self
+                    .repository
+                    .loans_item_exists_by_barcode(item_identification)
+                    .await?
+                {
+                    return Err(AppError::ItemNotOnLoan(format!(
+                        "Item {item_identification} is not on loan"
+                    )));
+                }
                 Err(AppError::NotFound(format!(
                     "No active loan found for item {item_identification}"
                 )))
@@ -1044,6 +1053,9 @@ mod tests {
             _: &str,
         ) -> AppResult<Option<crate::models::dto::holds::ShelfFound>> {
             Ok(None)
+        }
+        async fn loans_item_exists_by_barcode(&self, _: &str) -> AppResult<bool> {
+            Ok(false)
         }
         async fn loans_renewal_snapshot(
             &self,

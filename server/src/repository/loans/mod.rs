@@ -69,6 +69,8 @@ pub trait LoansRepository: Send + Sync {
         &self,
         identification: &str,
     ) -> AppResult<Option<crate::models::dto::holds::ShelfFound>>;
+    /// Non-archived copy with this barcode. Used to tell a shelf copy from an unknown barcode.
+    async fn loans_item_exists_by_barcode(&self, barcode: &str) -> AppResult<bool>;
     /// Loan facts for [`crate::renewal::renewal_eligibility`] before the locked write.
     async fn loans_renewal_snapshot(
         &self,
@@ -196,6 +198,9 @@ impl LoansRepository for Repository {
         identification: &str,
     ) -> crate::error::AppResult<Option<crate::models::dto::holds::ShelfFound>> {
         Repository::holds_recover_to_search_by_identification(self, identification).await
+    }
+    async fn loans_item_exists_by_barcode(&self, barcode: &str) -> crate::error::AppResult<bool> {
+        Repository::loans_item_exists_by_barcode(self, barcode).await
     }
     async fn loans_renewal_snapshot(
         &self,

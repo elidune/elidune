@@ -72,6 +72,17 @@ impl Repository {
         })
     }
 
+    /// True when a non-archived item has this barcode.
+    pub async fn loans_item_exists_by_barcode(&self, barcode: &str) -> AppResult<bool> {
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM items WHERE barcode = $1 AND archived_at IS NULL)",
+        )
+        .bind(barcode)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(exists)
+    }
+
     /// Get active loans for a user (paginated).
     pub async fn loans_get_for_user(
         &self,

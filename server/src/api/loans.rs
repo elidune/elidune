@@ -766,7 +766,7 @@ async fn renew_loan_inner(
     params(("item_id" = String, Path, description = "Item barcode or call number")),
     responses(
         (status = 200, description = "Item returned, or a to_pick hold checked in", body = ReturnResponse),
-        (status = 404, description = "Item or active loan not found"),
+        (status = 404, description = "Unknown barcode (`not_found`), or a known item that is not on loan (`item_not_on_loan`)", body = crate::error::ErrorResponse),
         (status = 409, description = "Already returned")
     )
 )]
