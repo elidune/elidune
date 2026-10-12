@@ -259,7 +259,7 @@ describe('loan borrower identifier shapes', () => {
     const expected = {
       fr: "Cet exemplaire est encore en prêt au lecteur carte n° CARTE-0002. Faites d'abord le retour.",
       en: 'This copy is still on loan to the reader (library card no. CARTE-0002). Process the return first.',
-      de: 'Dieses Exemplar ist noch an den Leser (Ausweis-Nr. CARTE-0002) ausgeliehen. Erfassen Sie zuerst die Rückgabe.',
+      de: 'Dieses Exemplar ist noch an den Leser (Leseausweis-Nr. CARTE-0002) ausgeliehen. Erfassen Sie zuerst die Rückgabe.',
       es: 'Este ejemplar sigue en préstamo al lector (carné n.º CARTE-0002). Registre primero la devolución.',
     } as const;
     for (const lang of ['fr', 'en', 'de', 'es'] as const) {

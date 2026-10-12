@@ -178,7 +178,7 @@ describe('desk 409 notice hides the other borrower name', () => {
     const cardWording = {
       fr: 'carte n°',
       en: 'library card no.',
-      de: 'Ausweis-Nr.',
+      de: 'Leseausweis-Nr.',
       es: 'carné n.º',
     } as const;
     for (const lng of ['fr', 'en', 'de', 'es'] as const satisfies readonly Lang[]) {
