@@ -290,4 +290,54 @@ impl TestApp {
         };
         (status, json)
     }
+
+    /// Walk every page of a paginated GET until `predicate` matches one row.
+    ///
+    /// `path` may already include filters. `page` and `perPage` are appended.
+    /// The route has no row filter, so a shared database can push a seeded row
+    /// off the first page.
+    pub async fn find_paged_row<F>(
+        &self,
+        token: &str,
+        path: &str,
+        items_key: &str,
+        what: &str,
+        predicate: F,
+    ) -> serde_json::Value
+    where
+        F: Fn(&serde_json::Value) -> bool,
+    {
+        const PER_PAGE: i64 = 50;
+        let mut page = 1_i64;
+        loop {
+            let sep = if path.contains('?') { '&' } else { '?' };
+            let uri = format!("{path}{sep}page={page}&perPage={PER_PAGE}");
+            let (status, body) = self.get_json_with_auth(&uri, token).await;
+            assert_eq!(status, StatusCode::OK, "{uri}: {body}");
+            let items = body
+                .get(items_key)
+                .and_then(serde_json::Value::as_array)
+                .unwrap_or_else(|| panic!("{uri}: expected `{items_key}` array, got {body}"));
+            if let Some(row) = items.iter().find(|row| predicate(row)) {
+                return row.clone();
+            }
+            let total = body["total"].as_i64().unwrap_or(0);
+            if items.is_empty() || page.saturating_mul(PER_PAGE) >= total {
+                panic!("{what} not found after {page} page(s) of {uri} (total={total})");
+            }
+            page += 1;
+        }
+    }
+
+    /// `GET /loans/overdue` has only `page` and `perPage`. Find the seeded loan on any page.
+    pub async fn find_overdue_loan(&self, token: &str, loan_id: i64) -> serde_json::Value {
+        self.find_paged_row(
+            token,
+            "/api/v1/loans/overdue",
+            "loans",
+            &format!("overdue loan {loan_id}"),
+            |row| fixtures::json_id(&row["loanId"]) == loan_id,
+        )
+        .await
+    }
 }

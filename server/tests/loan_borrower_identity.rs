@@ -364,17 +364,7 @@ async fn return_routes_follow_users_rights() {
 }
 
 async fn overdue_row(app: &TestApp, token: &str, loan_id: i64) -> Value {
-    let (status, body) = app
-        .get_json_with_auth("/api/v1/loans/overdue?page=1&perPage=200", token)
-        .await;
-    assert_eq!(status, StatusCode::OK, "overdue: {body}");
-    body["loans"]
-        .as_array()
-        .expect("loans")
-        .iter()
-        .find(|row| fixtures::json_id(&row["loanId"]) == loan_id)
-        .cloned()
-        .unwrap_or_else(|| panic!("loan {loan_id} missing from overdue page"))
+    app.find_overdue_loan(token, loan_id).await
 }
 
 #[tokio::test]

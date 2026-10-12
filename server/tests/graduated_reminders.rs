@@ -246,21 +246,11 @@ async fn loan_already_at_highest_enabled_tier_is_not_sent_again() {
 
     let (loan_id, email) = seed_overdue_loan(&repo, 40, 2, None).await;
 
-    let overdue = app
-        .get_json_with_auth("/api/v1/loans/overdue", &admin_token)
-        .await;
-    assert_eq!(overdue.0, StatusCode::OK, "overdue list: {}", overdue.1);
-    let listed = overdue.1["loans"]
-        .as_array()
-        .expect("loans")
-        .iter()
-        .find(|l| loan_id_of(l) == Some(loan_id));
-    if let Some(row) = listed {
-        assert!(
-            row["nextReminderTier"].is_null(),
-            "highest enabled tier must show no next tier: {row}"
-        );
-    }
+    let row = app.find_overdue_loan(&admin_token, loan_id).await;
+    assert!(
+        row["nextReminderTier"].is_null(),
+        "highest enabled tier must show no next tier: {row}"
+    );
 
     let (status, body) = app
         .post_empty("/api/v1/loans/send-overdue-reminders", Some(&admin_token))
@@ -283,16 +273,7 @@ async fn overdue_list_reports_next_tier() {
     let admin_token = admin_token(&app).await;
     let (loan_id, _) = seed_overdue_loan(&repo, 10, 0, None).await;
 
-    let (status, body) = app
-        .get_json_with_auth("/api/v1/loans/overdue", &admin_token)
-        .await;
-    assert_eq!(status, StatusCode::OK, "overdue: {body}");
-    let row = body["loans"]
-        .as_array()
-        .expect("loans")
-        .iter()
-        .find(|l| loan_id_of(l) == Some(loan_id))
-        .expect("seeded loan");
+    let row = app.find_overdue_loan(&admin_token, loan_id).await;
     assert_eq!(row["nextReminderTier"], "first");
     assert_eq!(row["reminderCount"].as_i64().unwrap_or(-1), 0);
 }
@@ -341,13 +322,6 @@ async fn reminder_count(repo: &Repository, loan_id: i64) -> i32 {
         .fetch_one(repo.pool())
         .await
         .expect("reminder_count")
-}
-
-fn loan_id_of(loan: &serde_json::Value) -> Option<i64> {
-    loan["loanId"]
-        .as_str()
-        .and_then(|s| s.parse().ok())
-        .or_else(|| loan["loanId"].as_i64())
 }
 
 fn tier_for_email<'a>(body: &'a serde_json::Value, email: &str) -> Option<&'a str> {

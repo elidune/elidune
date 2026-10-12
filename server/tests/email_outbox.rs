@@ -388,25 +388,8 @@ async fn api_get_overdue_loans_lists_seeded_loan() {
     let repo = app.state.services.repository.as_ref().clone();
     let (loan_ids, _) = seed_overdue_loan(&repo).await;
 
-    let (status, body) = app
-        .get_json_with_auth("/api/v1/loans/overdue", &admin_token)
-        .await;
-    assert_eq!(status, StatusCode::OK, "overdue list: {body}");
-
-    let ids: Vec<i64> = body["loans"]
-        .as_array()
-        .expect("loans array")
-        .iter()
-        .map(|loan| {
-            loan["loanId"]
-                .as_str()
-                .and_then(|s| s.parse().ok())
-                .or_else(|| loan["loanId"].as_i64())
-                .expect("loanId in overdue response")
-        })
-        .collect();
-    assert!(ids.contains(&loan_ids[0]));
-    assert!(body["total"].as_i64().unwrap_or(0) >= 1);
+    let row = app.find_overdue_loan(&admin_token, loan_ids[0]).await;
+    assert_eq!(fixtures::json_id(&row["loanId"]), loan_ids[0]);
 }
 
 #[tokio::test]

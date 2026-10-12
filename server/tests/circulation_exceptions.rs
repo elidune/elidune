@@ -268,16 +268,16 @@ async fn claimed_returned_stays_open_until_inventory_check() {
     assert_eq!(item["circulationStatus"], 3);
     assert_eq!(item["borrowed"], true);
 
-    let (queue_status, queue_body) = app
-        .get_json_with_auth("/api/v1/loans/claims-returned", &admin_token)
+    let queued = app
+        .find_paged_row(
+            &admin_token,
+            "/api/v1/loans/claims-returned",
+            "items",
+            &format!("claims-returned loan {loan_id}"),
+            |row| fixtures::json_id(&row["loanId"]) == loan_id,
+        )
         .await;
-    assert_eq!(queue_status, StatusCode::OK, "queue: {queue_body}");
-    let queued = queue_body["items"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .any(|row| fixtures::json_id(&row["loanId"]) == loan_id);
-    assert!(queued, "loan must appear on the claims-returned queue");
+    assert_eq!(fixtures::json_id(&queued["loanId"]), loan_id);
 
     let (silent_status, silent_body) = app
         .post_json(

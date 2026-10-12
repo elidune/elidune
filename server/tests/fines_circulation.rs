@@ -118,7 +118,7 @@ async fn unpaid_over_threshold_blocks_checkout_and_force_is_audited() {
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     let (status, audit) = app
         .get_json_with_auth(
-            "/api/v1/audit?eventType=loan.fine_threshold_overridden",
+            &format!("/api/v1/audit?eventType=loan.fine_threshold_overridden&entityId={reader_id}"),
             &admin_token,
         )
         .await;
