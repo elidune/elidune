@@ -14,6 +14,7 @@ pub mod event_bus;
 pub mod events;
 pub mod fines;
 pub mod holds;
+pub mod i18n;
 pub mod idempotency;
 pub mod inventory;
 pub mod library_info;

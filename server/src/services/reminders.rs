@@ -20,7 +20,7 @@ use crate::{
     services::{
         audit::{self, AuditService},
         email::EmailService,
-        email_templates,
+        email_templates, i18n,
     },
 };
 
@@ -297,8 +297,8 @@ impl RemindersService {
             let lastname = first.lastname.as_deref().unwrap_or("");
             let lang = first.user_language.as_deref().map(Language::from);
             let template_id = tier.template_id(&reminders_cfg).to_string();
-            let loans_list = loan_list_plain(loans, zone);
-            let loans_table_html = loan_table_html(loans, zone);
+            let loans_list = loan_list_plain(loans, zone, lang);
+            let loans_table_html = loan_table_html(loans, zone, lang);
 
             if !dry_run {
                 let template_result = self.email.load_template(&template_id, lang).await;
@@ -416,20 +416,19 @@ impl RemindersService {
 fn loan_list_plain(
     loans: &[&crate::repository::loans::OverdueLoanRow],
     zone: chrono_tz::Tz,
+    lang: Option<Language>,
 ) -> String {
     loans
         .iter()
         .map(|l| {
-            let title = l.title.as_deref().unwrap_or("(unknown title)");
+            let title = loan_title(lang, l.title.as_deref());
             let authors = l.authors.as_deref().unwrap_or("");
             let loan_date = crate::services::calendar::format_patron_date(zone, l.loan_date);
-            let due_date = l
-                .expiry_at
-                .map(|d| crate::services::calendar::format_patron_date(zone, d))
-                .unwrap_or_else(|| "N/A".to_string());
+            let due_date = due_label(lang, l.expiry_at, zone);
             format!(
-                "- {} ({}) — borrowed: {}, due: {}",
-                title, authors, loan_date, due_date
+                "- {title} ({authors}) — {}, {}",
+                i18n::labeled(lang, i18n::Label::BorrowedOn, &loan_date),
+                i18n::labeled(lang, i18n::Label::DueOn, &due_date),
             )
         })
         .collect::<Vec<_>>()
@@ -439,17 +438,15 @@ fn loan_list_plain(
 fn loan_table_html(
     loans: &[&crate::repository::loans::OverdueLoanRow],
     zone: chrono_tz::Tz,
+    lang: Option<Language>,
 ) -> String {
     let table_rows = loans
         .iter()
         .map(|l| {
-            let title = l.title.as_deref().unwrap_or("(unknown title)");
+            let title = loan_title(lang, l.title.as_deref());
             let authors = l.authors.as_deref().unwrap_or("");
             let loan_date = crate::services::calendar::format_patron_date(zone, l.loan_date);
-            let due_date = l
-                .expiry_at
-                .map(|d| crate::services::calendar::format_patron_date(zone, d))
-                .unwrap_or_else(|| "N/A".to_string());
+            let due_date = due_label(lang, l.expiry_at, zone);
             format!(
                 "<tr><td style=\"padding:4px 8px;border:1px solid #ccc\">{}</td>\
                  <td style=\"padding:4px 8px;border:1px solid #ccc\">{}</td>\
@@ -461,21 +458,43 @@ fn loan_table_html(
         .collect::<Vec<_>>()
         .join("\n");
 
+    let th = |key: i18n::Label| {
+        format!(
+            "<th style=\"padding:4px 8px;border:1px solid #ccc;background:#f5f5f5\">{}</th>",
+            i18n::label(lang, key)
+        )
+    };
     format!(
         "<table style=\"border-collapse:collapse;width:100%\">\
-         <thead><tr>\
-         <th style=\"padding:4px 8px;border:1px solid #ccc;background:#f5f5f5\">Title</th>\
-         <th style=\"padding:4px 8px;border:1px solid #ccc;background:#f5f5f5\">Author(s)</th>\
-         <th style=\"padding:4px 8px;border:1px solid #ccc;background:#f5f5f5\">Borrowed</th>\
-         <th style=\"padding:4px 8px;border:1px solid #ccc;background:#f5f5f5\">Due date</th>\
-         </tr></thead><tbody>{}</tbody></table>",
-        table_rows
+         <thead><tr>{}{}{}{}</tr></thead><tbody>{table_rows}</tbody></table>",
+        th(i18n::Label::Title),
+        th(i18n::Label::Authors),
+        th(i18n::Label::Borrowed),
+        th(i18n::Label::DueDate),
     )
+}
+
+fn loan_title(lang: Option<Language>, title: Option<&str>) -> String {
+    match title.map(str::trim).filter(|t| !t.is_empty()) {
+        Some(title) => title.to_string(),
+        None => i18n::label(lang, i18n::Label::UnknownTitle).to_string(),
+    }
+}
+
+fn due_label(
+    lang: Option<Language>,
+    expiry_at: Option<DateTime<Utc>>,
+    zone: chrono_tz::Tz,
+) -> String {
+    expiry_at
+        .map(|d| crate::services::calendar::format_patron_date(zone, d))
+        .unwrap_or_else(|| i18n::label(lang, i18n::Label::NotAvailable).to_string())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::repository::loans::OverdueLoanRow;
 
     fn cfg() -> RemindersConfig {
         RemindersConfig::default()
@@ -587,5 +606,73 @@ mod tests {
             ReminderTier::FormalNotice.template_id(&cfg),
             "overdue_formal_notice"
         );
+    }
+
+    fn overdue_row(title: Option<&str>, expiry: Option<DateTime<Utc>>) -> OverdueLoanRow {
+        use chrono::TimeZone;
+        OverdueLoanRow {
+            loan_id: 1,
+            user_id: 2,
+            loan_date: Utc.with_ymd_and_hms(2026, 1, 10, 8, 0, 0).unwrap(),
+            expiry_at: expiry,
+            last_reminder_sent_at: None,
+            reminder_count: 0,
+            firstname: None,
+            lastname: None,
+            user_email: None,
+            user_language: None,
+            biblio_id: 3,
+            title: title.map(str::to_string),
+            authors: Some("Camus".into()),
+            item_barcode: None,
+            circulation_status: None,
+        }
+    }
+
+    #[test]
+    fn reminder_lists_localize_column_labels() {
+        use chrono::TimeZone;
+        let zone = chrono_tz::Europe::Paris;
+        let due = Utc.with_ymd_and_hms(2026, 1, 24, 8, 0, 0).unwrap();
+        let row = overdue_row(Some("L'Étranger"), Some(due));
+        let loans = [&row];
+
+        let french = loan_list_plain(&loans, zone, Some(Language::French));
+        assert_eq!(
+            french,
+            "- L'Étranger (Camus) — emprunté le : 10/01/2026, à rendre le : 24/01/2026"
+        );
+        assert!(!french.contains("borrowed:"));
+        assert!(!french.contains("due:"));
+
+        let english = loan_list_plain(&loans, zone, Some(Language::English));
+        assert_eq!(
+            english,
+            "- L'Étranger (Camus) — borrowed: 10/01/2026, due: 24/01/2026"
+        );
+
+        let german = loan_table_html(&loans, zone, Some(Language::German));
+        assert!(german.contains(">Titel</th>"));
+        assert!(german.contains(">Autor(en)</th>"));
+        assert!(german.contains(">Ausgeliehen</th>"));
+        assert!(german.contains(">Fälligkeitsdatum</th>"));
+        assert!(!german.contains(">Title</th>"));
+        assert!(!german.contains(">Due date</th>"));
+
+        let spanish = loan_table_html(&loans, zone, Some(Language::Spanish));
+        assert!(spanish.contains(">Título</th>"));
+        assert!(spanish.contains(">Fecha de devolución</th>"));
+        assert!(spanish.contains(">Prestado</th>"));
+
+        let missing = overdue_row(None, None);
+        let plain = loan_list_plain(&[&missing], zone, Some(Language::French));
+        assert!(plain.contains("(titre inconnu)"));
+        assert!(plain.contains("à rendre le : n. d."));
+        let english_missing = loan_list_plain(&[&missing], zone, Some(Language::English));
+        assert!(english_missing.contains("(unknown title)"));
+        assert!(english_missing.contains("due: N/A"));
+        let italian = loan_table_html(&[&missing], zone, Some(Language::Italian));
+        assert!(italian.contains(">Titre</th>"));
+        assert!(italian.contains(">Date de retour</th>"));
     }
 }

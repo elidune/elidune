@@ -7,7 +7,10 @@ use crate::{
     email_templates,
     models::Language,
     repository::inventory::InventoryLoanClosureRow,
-    services::audit::{self, AuditLogMeta, AuditService},
+    services::{
+        audit::{self, AuditLogMeta, AuditService},
+        i18n,
+    },
 };
 
 /// Queue one email per reader listing all loans closed during consolidation.
@@ -45,7 +48,7 @@ pub async fn send_loan_closure_notifications(
 
         let items_list = user_rows
             .iter()
-            .map(|r| format_item_line(r))
+            .map(|r| format_item_line(lang, r))
             .collect::<Vec<_>>()
             .join("\n");
 
@@ -53,7 +56,7 @@ pub async fn send_loan_closure_notifications(
             "<ul>{}</ul>",
             user_rows
                 .iter()
-                .map(|r| format!("<li>{}</li>", html_escape(&format_item_line(r))))
+                .map(|r| format!("<li>{}</li>", html_escape(&format_item_line(lang, r))))
                 .collect::<String>()
         );
 
@@ -140,11 +143,25 @@ pub async fn send_loan_closure_notifications(
     (sent, errors)
 }
 
-fn format_item_line(row: &InventoryLoanClosureRow) -> String {
-    let title = row.biblio_title.as_deref().unwrap_or("(unknown title)");
-    match row.barcode.as_deref() {
-        Some(b) if !b.is_empty() => format!("- {title} (barcode: {b})"),
-        _ => format!("- {title}"),
+fn format_item_line(lang: Option<Language>, row: &InventoryLoanClosureRow) -> String {
+    let fallback = i18n::label(lang, i18n::Label::UnknownTitle);
+    let title = row
+        .biblio_title
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .unwrap_or(fallback);
+    match row
+        .barcode
+        .as_deref()
+        .map(str::trim)
+        .filter(|b| !b.is_empty())
+    {
+        Some(barcode) => format!(
+            "- {title} ({})",
+            i18n::labeled(lang, i18n::Label::Barcode, barcode)
+        ),
+        None => format!("- {title}"),
     }
 }
 
@@ -153,4 +170,55 @@ fn html_escape(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(title: Option<&str>, barcode: Option<&str>) -> InventoryLoanClosureRow {
+        InventoryLoanClosureRow {
+            item_id: 1,
+            barcode: barcode.map(str::to_string),
+            biblio_title: title.map(str::to_string),
+            loan_id: 2,
+            user_id: 3,
+            user_email: None,
+            user_firstname: None,
+            user_lastname: None,
+            user_language: None,
+        }
+    }
+
+    #[test]
+    fn item_line_localizes_barcode_and_missing_title() {
+        assert_eq!(
+            format_item_line(Some(Language::French), &row(Some("Kim"), Some("BC-9"))),
+            "- Kim (Code-barres : BC-9)"
+        );
+        assert_eq!(
+            format_item_line(Some(Language::English), &row(Some("Kim"), Some("BC-9"))),
+            "- Kim (Barcode: BC-9)"
+        );
+        assert_eq!(
+            format_item_line(Some(Language::German), &row(Some("Kim"), Some("BC-9"))),
+            "- Kim (Barcode: BC-9)"
+        );
+        assert_eq!(
+            format_item_line(Some(Language::Spanish), &row(Some("Kim"), Some("BC-9"))),
+            "- Kim (Código de barras: BC-9)"
+        );
+        assert_eq!(
+            format_item_line(Some(Language::Italian), &row(None, None)),
+            "- (titre inconnu)"
+        );
+        assert_eq!(
+            format_item_line(Some(Language::English), &row(Some("Kim"), Some("  "))),
+            "- Kim"
+        );
+        assert!(
+            !format_item_line(Some(Language::French), &row(Some("Kim"), Some("BC-9")))
+                .contains("barcode:")
+        );
+    }
 }
