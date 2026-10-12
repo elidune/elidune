@@ -680,6 +680,26 @@ async fn sunday_due_date_slides_to_monday() {
         .expect("slot");
     }
 
+    // Other tests in this file leave network closures and later-starting
+    // periods in the shared database. Drop anything that covers the target
+    // week so Sunday is closed only by the schedule created above.
+    let window_end = target + Duration::days(7);
+    sqlx::query("DELETE FROM schedule_closures WHERE closure_date >= $1 AND closure_date <= $2")
+        .bind(target)
+        .bind(window_end)
+        .execute(repo.pool())
+        .await
+        .expect("clear closures on the slide window");
+    sqlx::query(
+        "DELETE FROM schedule_periods WHERE id <> $1 AND end_date >= $2 AND start_date <= $3",
+    )
+    .bind(period.id)
+    .bind(target)
+    .bind(window_end)
+    .execute(repo.pool())
+    .await
+    .expect("clear overlapping periods");
+
     let checkout = repo
         .loans_create(&create_loan(reader_id, item_id))
         .await
