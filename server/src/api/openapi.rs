@@ -330,6 +330,8 @@ use crate::api::{
             biblios::BiblioShortListResponse,
             holds::HoldListResponse,
             loans::UserLoanListResponse,
+            loans::LoanBorrowerResponse,
+            loans::LoanBorrowerMinimized,
             crate::models::my_account::MyLoanView,
             crate::renewal::RenewalRefusal,
             crate::models::my_account::MyHoldView,

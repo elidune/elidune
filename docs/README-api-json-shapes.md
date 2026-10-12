@@ -228,6 +228,37 @@ The same-borrower `message` tells staff to renew the existing loan. The previous
 { "id": "927364819265437700", "issueAt": "2026-04-24T00:00:00Z", "message": "Loan created" }
 ```
 
+### `GET /loans/:id/user`
+
+Requires `loans_rights` write. The body depends on `users_rights`. Loans write does not bypass that check. `users_rights` own is not read.
+
+`users_rights` read or write — `UserShortStaff` (`barcode` is `users.barcode`):
+
+```json
+{
+  "id": "927364819265437697",
+  "login": "jdoe",
+  "barcode": "LIB-0001",
+  "firstname": "Jean",
+  "lastname": "Doe",
+  "accountType": "reader",
+  "publicType": 1,
+  "nbLoans": 1,
+  "nbLateLoans": 0,
+  "status": "active",
+  "createdAt": "2026-03-24T10:00:00Z",
+  "expiryAt": "2027-03-24T10:00:00Z"
+}
+```
+
+Any other caller who may hit this route — `LoanBorrowerMinimized`. `cardNumber` is `users.barcode` and is `null` when the patron has no card. `initials` is the uppercase first letter of `firstname` plus the uppercase first letter of `lastname`; a missing or blank part is skipped.
+
+```json
+{ "id": "927364819265437697", "cardNumber": "LIB-0001", "initials": "JD" }
+```
+
+No other personal field (`firstname`, `lastname`, `login`, email, phone, address) is included in that shape.
+
 ### `LoanDetails` (GET /loans/:id, embedded in return response)
 ```json
 {

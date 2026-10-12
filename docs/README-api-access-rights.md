@@ -163,7 +163,7 @@ Loan checkout, return, renew, exceptions, and batch loan operations require **`l
 | `GET /loans/settings` | JWT + `require_read_settings()` |
 | `PUT /loans/settings` | JWT + `require_write_settings()` |
 | `POST /loans` | JWT + `require_write_loans()` |
-| `GET /loans/:id/user` | JWT + `require_write_loans()` |
+| `GET /loans/:id/user` | JWT + `require_write_loans()`. `UserShortStaff` only when `users_rights >= read`; otherwise `{ id, cardNumber, initials }`. `loans_rights` write does not return the name. |
 | `POST /loans/:id/return` | JWT + `require_write_loans()` |
 | `POST /loans/:id/renew` | JWT: caller is the borrower, or `loans_rights >= write`; `force` requires `require_write_loans()` |
 | `POST /loans/items/:item_id/return` | JWT + `require_write_loans()` |
