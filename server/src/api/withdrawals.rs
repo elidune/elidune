@@ -19,7 +19,7 @@ use crate::{
 use super::{AuthenticatedUser, ClientIp};
 
 pub fn router() -> axum::Router<crate::AppState> {
-    use axum::routing::{get, patch, post};
+    use axum::routing::{get, post};
     axum::Router::new()
         .route("/items/withdrawals", post(batch_withdraw))
         .route(
