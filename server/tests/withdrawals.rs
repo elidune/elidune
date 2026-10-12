@@ -1257,11 +1257,18 @@ async fn dispose_batch_is_atomic_and_blocks_cancel() {
     assert!(csv.contains(CSV_HEADER), "{csv}");
     assert!(csv.contains("02/01/2020"), "{csv}");
     assert!(!csv.contains("2020-01-02T03:04:05"), "{csv}");
+    let mut prices = Vec::new();
     for line in csv.trim_start_matches('\u{feff}').lines().skip(1) {
         let cols: Vec<&str> = line.split(';').collect();
         assert_eq!(cols.len(), 14, "{line}");
-        assert_eq!(cols[6], "", "unknown or zero price stays empty: {line}");
+        prices.push(cols[6].to_string());
     }
+    prices.sort();
+    assert_eq!(
+        prices,
+        vec!["".to_string(), "0,00".to_string()],
+        "null price stays empty and a stored 0 is 0,00: {csv}"
+    );
 
     let (status, opac) = app
         .get_json(&format!("/api/v1/opac/biblios/{biblio_id}"))

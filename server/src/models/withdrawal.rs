@@ -461,7 +461,7 @@ pub struct WithdrawalCsvSource {
     pub authors: Option<String>,
     pub site_name: Option<String>,
     pub acquired_at: Option<DateTime<Utc>>,
-    /// `items.price`, an integer number of cents stored as text.
+    /// `items.price` text. No column default: unknown is NULL. Integer cents; `0` is a real price.
     pub purchase_price: Option<String>,
 }
 
@@ -475,9 +475,9 @@ const CSV_HEADERS: &str = "Code-barres;Titre;Auteur;Cote;Site;Date d'acquisition
 ///
 /// One file: a leading BOM, `;` separators, plain French headers, and dates as
 /// `DD/MM/YYYY` in `zone`. `language` localizes cell labels only. A NULL legacy
-/// destination is a localized phrase. Purchase price is cents rendered as euros
-/// with a comma decimal. Cells that Excel would treat as formulas are prefixed
-/// with `'` before quoting.
+/// destination is a localized phrase. Purchase price is integer cents rendered as
+/// euros with a comma decimal (`0` → `0,00`). Cells that Excel would treat as
+/// formulas are prefixed with `'` before quoting.
 #[must_use]
 pub fn withdrawals_csv(
     rows: &[WithdrawalCsvSource],
@@ -519,7 +519,10 @@ pub fn withdrawals_csv(
     csv
 }
 
-/// Integer cents as euros with a comma decimal (`1250` → `12,50`). Unknown values are empty.
+/// Integer cents as euros with a comma decimal (`1250` → `12,50`, `0` → `0,00`).
+///
+/// Blank, non-integer, and negative values are an empty cell. Zero is kept:
+/// `items.price` has no default, so a stored `0` is a free copy, not “unknown”.
 fn format_purchase_price(raw: Option<&str>) -> String {
     let Some(raw) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
         return String::new();
@@ -527,7 +530,7 @@ fn format_purchase_price(raw: Option<&str>) -> String {
     let Ok(cents) = raw.parse::<i64>() else {
         return String::new();
     };
-    if cents <= 0 {
+    if cents < 0 {
         return String::new();
     }
     let euros = cents / 100;
@@ -690,7 +693,8 @@ mod tests {
             (Some("50"), "0,50"),
             (Some("100"), "1,00"),
             (Some(" 1250 "), "12,50"),
-            (Some("0"), ""),
+            (Some("0"), "0,00"),
+            (Some(" 0 "), "0,00"),
             (Some(""), ""),
             (Some("12.50"), ""),
             (Some("-100"), ""),
@@ -704,8 +708,10 @@ mod tests {
             let line = csv.trim_start_matches('\u{feff}').lines().nth(1).unwrap();
             let price = line.split(';').nth(6).unwrap();
             assert_eq!(price, expected, "raw {raw:?} line {line}");
-            assert_ne!(price, "0");
-            assert_ne!(price, "0,00");
+            if expected.is_empty() {
+                assert_ne!(price, "0");
+                assert_ne!(price, "0,00");
+            }
         }
     }
 }
