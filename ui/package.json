@@ -20,7 +20,7 @@
     "dev:https": "VITE_HTTPS=true vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "test": "tsx --test \"src/**/*.test.ts\"",
+    "test": "tsx --test $(find src -name '*.test.ts' | sort)",
     "preview": "vite preview"
   },
   "dependencies": {
