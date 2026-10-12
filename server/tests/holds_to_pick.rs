@@ -735,3 +735,140 @@ async fn pick_list_overdue_follows_pick_delay_without_expiring() {
         elidune_server::models::hold::HoldStatus::ToPick
     );
 }
+
+async fn mark_to_search(app: &TestApp, item_id: i64) {
+    sqlx::query(
+        "UPDATE items SET circulation_status = $2, borrowable = FALSE, updated_at = NOW() WHERE id = $1",
+    )
+    .bind(item_id)
+    .bind(elidune_server::models::circulation::CirculationStatus::TO_SEARCH)
+    .execute(app.state.services.repository.pool())
+    .await
+    .expect("mark to_search");
+}
+
+/// #115: a `toSearch` copy lent with `force` must re-enter the shelf on check-in.
+#[tokio::test]
+async fn force_loan_of_to_search_return_restores_lendable_copy() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (borrower, _) = fixtures::create_reader(&app, &admin_token, "srchbor").await;
+    let (next_id, _) = fixtures::create_reader(&app, &admin_token, "srchnext").await;
+    let barcode = format!("SRCH-{}", fixtures::unique_suffix());
+    let (_biblio_id, copies) = create_title(
+        &app,
+        &admin_token,
+        "Missing Then Forced",
+        vec![shelf_copy(&barcode)],
+    )
+    .await;
+    let item_id = copies[0].id;
+    mark_to_search(&app, item_id).await;
+
+    let (status, blocked) = checkout(&app, &admin_token, borrower, item_id, false).await;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "to_search is not lendable: {blocked}"
+    );
+
+    let (status, loan) = checkout(&app, &admin_token, borrower, item_id, true).await;
+    assert_eq!(status, StatusCode::CREATED, "force loan: {loan}");
+    let loan_id = fixtures::json_id(&loan["id"]);
+    let (circulation, borrowable) = item_flags(&app, item_id).await;
+    assert_eq!(circulation, 4, "force loan must not invent a found scan");
+    assert!(!borrowable);
+
+    let (status, ret) = app
+        .post_empty(
+            &format!("/api/v1/loans/{loan_id}/return"),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "return: {ret}");
+    assert_eq!(ret["status"], "returned");
+
+    let (circulation, borrowable) = item_flags(&app, item_id).await;
+    assert_eq!(circulation, 0, "physical return clears to_search");
+    assert!(borrowable, "copy is lendable again");
+
+    let (status, again) = checkout(&app, &admin_token, next_id, item_id, false).await;
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "returned to_search copy circulates: {again}"
+    );
+}
+
+/// #115: the same check-in still offers the copy to the next hold.
+#[tokio::test]
+async fn force_loan_of_to_search_return_assigns_waiting_hold() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (holder_id, holder_token) = fixtures::create_reader(&app, &admin_token, "srchh").await;
+    let (borrower, _) = fixtures::create_reader(&app, &admin_token, "srchb2").await;
+    let barcode = format!("SRCHH-{}", fixtures::unique_suffix());
+    let (biblio_id, copies) = create_title(
+        &app,
+        &admin_token,
+        "Missing With Hold",
+        vec![shelf_copy(&barcode)],
+    )
+    .await;
+    let item_id = copies[0].id;
+
+    let hold = place_title(&app, &holder_token, holder_id, biblio_id, None).await;
+    assert_eq!(hold["status"], "to_pick");
+    let hold_id = fixtures::json_id(&hold["id"]);
+    let (status, missing) = app
+        .post_empty(
+            &format!("/api/v1/holds/{hold_id}/pick-not-found"),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "pick-not-found: {missing}");
+    assert_eq!(missing["status"], "pending");
+    assert!(missing["itemId"].is_null());
+    let (circulation, borrowable) = item_flags(&app, item_id).await;
+    assert_eq!(circulation, 4);
+    assert!(!borrowable);
+
+    let (status, loan) = checkout(&app, &admin_token, borrower, item_id, true).await;
+    assert_eq!(status, StatusCode::CREATED, "force loan: {loan}");
+    let still = hold_row(&app, hold_id).await;
+    assert_eq!(
+        still.status,
+        elidune_server::models::hold::HoldStatus::Pending,
+        "an unassigned title hold survives a force loan of the missing copy"
+    );
+
+    let (status, ret) = app
+        .post_empty(
+            &format!("/api/v1/loans/items/{barcode}/return"),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "check-in: {ret}");
+
+    let (circulation, borrowable) = item_flags(&app, item_id).await;
+    assert_eq!(circulation, 0, "check-in clears to_search");
+    assert!(borrowable);
+    let stored = hold_row(&app, hold_id).await;
+    assert_eq!(
+        stored.status,
+        elidune_server::models::hold::HoldStatus::Ready
+    );
+    assert_eq!(stored.item_id, Some(item_id));
+    assert!(stored.notified_at.is_some());
+
+    let (status, blocked) = checkout(&app, &admin_token, borrower, item_id, false).await;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "readied copy stays with the hold: {blocked}"
+    );
+}
