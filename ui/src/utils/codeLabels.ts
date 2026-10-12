@@ -182,13 +182,14 @@ const SEX_TEXT_MAP: Record<string, string> = {
 
 /**
  * Translate a stat entry label (code from API) to a human-readable translated string.
- * Works for media type codes, account type codes, public type codes, and sex codes.
- * If no match found, returns the original label.
+ * Works for media type codes, account type codes, public type codes, sex codes, and age bands.
+ * Age bands `0-17`, `18-29`, `30-49`, `50-64`, and `65+` stay as sent.
+ * `unknown` on an age band is "not provided". If no match is found, the original label is returned.
  */
 export function translateStatLabel(
   t: (key: string) => string,
   label: string,
-  category: 'mediaType' | 'accountType' | 'publicType' | 'sex'
+  category: 'mediaType' | 'accountType' | 'publicType' | 'sex' | 'ageBand',
 ): string {
   switch (category) {
     case 'mediaType': {
@@ -219,6 +220,11 @@ export function translateStatLabel(
       if (textKey) return t(textKey);
       const opt = SEX_OPTIONS.find((o) => o.value === String(label).trim());
       return opt ? t(opt.labelKey) : label;
+    }
+    case 'ageBand': {
+      const normalized = (label ?? '').trim();
+      if (normalized === 'unknown' || normalized === '') return t('stats.usersSection.ageNotProvided');
+      return normalized;
     }
     default:
       return label;

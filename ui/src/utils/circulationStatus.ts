@@ -29,7 +29,7 @@ export function isItemToSearch(item?: { circulationStatus?: number | string | nu
   return trimmed.toLowerCase().replace(/[_\-\s]/g, '') === 'tosearch';
 }
 
-export function isClaimedReturnedLoan(loan: Loan, claimedLoanIds?: ReadonlySet<string>): boolean {
+export function isClaimedReturnedLoan(loan: { id: string }, claimedLoanIds?: ReadonlySet<string>): boolean {
   // Embedded list copies (`ItemShortStaff`) do not include circulation status.
   // The claims queue is the source for this flag.
   return claimedLoanIds?.has(loan.id) ?? false;

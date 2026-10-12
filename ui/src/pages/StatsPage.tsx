@@ -17,6 +17,7 @@ import { Card, CardHeader, Input, ScrollableListRegion } from '@/components/comm
 import api from '@/services/api';
 import type { Stats, AdvancedStatsParams, MediaType, MediaTypeOption, StatsInterval, UserAggregateStats, CatalogStats, CatalogStatsBreakdown } from '@/types';
 import { translateStatLabel } from '@/utils/codeLabels';
+import UserAggregateStatsView from '@/components/stats/UserAggregateStatsView';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 import { deferFromEffect } from '@/utils/deferFromEffect';
 
@@ -553,107 +554,7 @@ export default function StatsPage() {
           <ScrollableListRegion aria-label={t('stats.usersSection.title')}>
           <div className="p-4 sm:p-6">
             {userStatsAggregate ? (
-              <div className="space-y-6">
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  <div className="p-4 rounded-xl bg-blue-50 dark:bg-blue-900/20">
-                    <p className="text-sm text-gray-600 dark:text-gray-400">{t('stats.usersSection.usersTotal')}</p>
-                    <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{userStatsAggregate.usersTotal.toLocaleString()}</p>
-                  </div>
-                  <div className="p-4 rounded-xl bg-purple-50 dark:bg-purple-900/20">
-                    <p className="text-sm text-gray-600 dark:text-gray-400">{t('stats.usersSection.newUsersTotal')}</p>
-                    <p className="text-2xl font-bold text-purple-600 dark:text-purple-400">{userStatsAggregate.newUsersTotal.toLocaleString()}</p>
-                  </div>
-                  <div className="p-4 rounded-xl bg-indigo-50 dark:bg-indigo-900/20">
-                    <p className="text-sm text-gray-600 dark:text-gray-400">{t('stats.usersSection.activeBorrowersTotal')}</p>
-                    <p className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">{userStatsAggregate.activeBorrowersTotal.toLocaleString()}</p>
-                  </div>
-                </div>
-                {((userStatsAggregate.newUsersByPublicType?.length ?? 0) > 0 || 
-                  (userStatsAggregate.activeBorrowersByPublicType?.length ?? 0) > 0 ||
-                  (userStatsAggregate.usersByPublicType?.length ?? 0) > 0) && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {/* Colonne 1: Total users */}
-                    <div className="space-y-4">
-                      {userStatsAggregate.usersByPublicType && userStatsAggregate.usersByPublicType.length > 0 && (
-                        <div>
-                          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('stats.usersSection.usersByPublicType')}</h3>
-                          <ul className="space-y-1">
-                            {userStatsAggregate.usersByPublicType.map((e) => (
-                              <li key={e.label} className="flex justify-between text-sm">
-                                <span className="text-gray-600 dark:text-gray-400">{translateStatLabel(t, e.label, 'publicType')}</span>
-                                <span className="font-medium">{e.value.toLocaleString()}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                    {/* Colonne 2: Nouveaux inscrits */}
-                    <div className="space-y-4">
-                      {userStatsAggregate.newUsersByPublicType && userStatsAggregate.newUsersByPublicType.length > 0 && (
-                        <div>
-                          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('stats.usersSection.newUsersByPublicType')}</h3>
-                          <ul className="space-y-1">
-                            {userStatsAggregate.newUsersByPublicType.map((e) => (
-                              <li key={e.label} className="flex justify-between text-sm">
-                                <span className="text-gray-600 dark:text-gray-400">{translateStatLabel(t, e.label, 'publicType')}</span>
-                                <span className="font-medium">{e.value.toLocaleString()}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                    {/* Colonne 3: Emprunteurs actifs */}
-                    <div className="space-y-4">
-                      {userStatsAggregate.activeBorrowersByPublicType && userStatsAggregate.activeBorrowersByPublicType.length > 0 && (
-                        <div>
-                          <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('stats.usersSection.activeBorrowersByPublicType')}</h3>
-                          <ul className="space-y-1">
-                            {userStatsAggregate.activeBorrowersByPublicType.map((e) => (
-                              <li key={e.label} className="flex justify-between text-sm">
-                                <span className="text-gray-600 dark:text-gray-400">{translateStatLabel(t, e.label, 'publicType')}</span>
-                                <span className="font-medium">{e.value.toLocaleString()}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-                {((userStatsAggregate.usersByAgeBand?.length ?? 0) > 0 ||
-                  (userStatsAggregate.usersByAccountType?.length ?? 0) > 0) && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                    {userStatsAggregate.usersByAgeBand && userStatsAggregate.usersByAgeBand.length > 0 && (
-                      <div>
-                        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('stats.usersSection.usersByAgeBand')}</h3>
-                        <ul className="space-y-1">
-                          {userStatsAggregate.usersByAgeBand.map((e) => (
-                            <li key={e.label} className="flex justify-between text-sm">
-                              <span className="text-gray-600 dark:text-gray-400">{e.label}</span>
-                              <span className="font-medium">{e.value.toLocaleString()}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {userStatsAggregate.usersByAccountType && userStatsAggregate.usersByAccountType.length > 0 && (
-                      <div>
-                        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('stats.usersSection.usersByAccountType')}</h3>
-                        <ul className="space-y-1">
-                          {userStatsAggregate.usersByAccountType.map((e) => (
-                            <li key={e.label} className="flex justify-between text-sm">
-                              <span className="text-gray-600 dark:text-gray-400">{translateStatLabel(t, e.label, 'accountType')}</span>
-                              <span className="font-medium">{e.value.toLocaleString()}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+              <UserAggregateStatsView stats={userStatsAggregate} />
             ) : (
               <p className="text-sm text-gray-500 dark:text-gray-400">{t('common.noResults')}</p>
             )}
