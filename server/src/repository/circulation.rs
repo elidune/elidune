@@ -9,11 +9,12 @@ use crate::{
     error::{AppError, AppResult},
     models::{
         circulation::{CirculationAction, CirculationStatus, DamageDisposition},
-        dto::circulation::ClaimsReturnedQueueItem,
+        dto::circulation::{ClaimsReturnedQueueItem, LostFoundDisposition},
         fine::{Fine, FineChargeType},
         hold::Hold,
         loan::Loan,
     },
+    repository::fines::LostFineSettlement,
 };
 
 /// Inputs for a single atomic exception apply.
@@ -119,6 +120,7 @@ impl Repository {
                         &mut tx,
                         loan.id,
                         loan.user_id,
+                        loan.item_id,
                         amount,
                         charge_type,
                         params.notes,
@@ -231,6 +233,115 @@ impl Repository {
                 .flatten();
         Ok(parse_item_price(price.as_deref()))
     }
+
+    /// Accept a lost copy back, or record that staff left it lost.
+    /// Lost status is not changed on `leave`. Fee settlement runs only when the
+    /// copy is accepted (`circulate` or `damaged`).
+    pub async fn circulation_resolve_lost_found(
+        &self,
+        item_id: i64,
+        disposition: LostFoundDisposition,
+        notes: Option<&str>,
+    ) -> AppResult<LostFoundApply> {
+        let now = Utc::now();
+        let mut tx = self.pool.begin().await?;
+
+        let item_row = sqlx::query(
+            r#"
+            SELECT i.circulation_status, i.borrowable, i.barcode, b.title
+            FROM items i
+            JOIN biblios b ON b.id = i.biblio_id
+            WHERE i.id = $1 AND i.archived_at IS NULL
+            FOR UPDATE OF i
+            "#,
+        )
+        .bind(item_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))?;
+
+        let current = CirculationStatus::from_db(item_row.get("circulation_status"));
+        if current != CirculationStatus::Lost {
+            return Err(AppError::BusinessRule(
+                "Item is not marked lost".to_string(),
+            ));
+        }
+        let title: Option<String> = item_row.get("title");
+        let barcode: Option<String> = item_row.get("barcode");
+
+        if disposition == LostFoundDisposition::Leave {
+            tx.commit().await?;
+            return Ok(LostFoundApply {
+                item_id,
+                item_status: CirculationStatus::Lost,
+                borrowable: item_row.get("borrowable"),
+                settlement: None,
+                readied_hold: None,
+                title,
+                barcode,
+            });
+        }
+
+        let action = match disposition {
+            LostFoundDisposition::Circulate => CirculationAction::AcceptFound,
+            LostFoundDisposition::Damaged => CirculationAction::AcceptFoundDamaged,
+            LostFoundDisposition::Leave => CirculationAction::AcceptFound,
+        };
+        let next = current
+            .transition(action)
+            .map_err(|msg| AppError::BusinessRule(msg.to_string()))?;
+        let borrowable = next.borrowable_after();
+
+        sqlx::query(
+            r#"
+            UPDATE items SET
+                circulation_status = $2,
+                borrowable = $3,
+                updated_at = $4
+            WHERE id = $1
+            "#,
+        )
+        .bind(item_id)
+        .bind(next.as_db())
+        .bind(borrowable)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+
+        let settlement = self
+            .fines_settle_replacement_tx(&mut tx, item_id, notes)
+            .await?;
+
+        let readied_hold = if action.notify_holds() {
+            self.holds_notify_next_tx(&mut tx, item_id, self.hold_ready_expiry_days())
+                .await?
+        } else {
+            None
+        };
+
+        tx.commit().await?;
+
+        Ok(LostFoundApply {
+            item_id,
+            item_status: next,
+            borrowable,
+            settlement,
+            readied_hold,
+            title,
+            barcode,
+        })
+    }
+}
+
+/// Persistence result for resolving a lost copy that was found.
+pub struct LostFoundApply {
+    pub item_id: i64,
+    pub item_status: CirculationStatus,
+    pub borrowable: bool,
+    pub settlement: Option<LostFineSettlement>,
+    pub readied_hold: Option<Hold>,
+    pub title: Option<String>,
+    pub barcode: Option<String>,
 }
 
 fn merge_notes(existing: Option<String>, extra: Option<&str>) -> Option<String> {

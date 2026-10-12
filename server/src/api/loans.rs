@@ -33,8 +33,9 @@ use crate::{
 use super::{biblios::PaginatedResponse, AuthenticatedUser, ClientIp, OptionalIdempotencyKey};
 
 pub use crate::models::dto::circulation::{
-    CirculationExceptionResponse, ClaimsReturnedQueueItem, MarkClaimedReturnedRequest,
-    MarkDamagedRequest, MarkLostRequest, ResolveClaimsReturnedRequest,
+    CirculationExceptionResponse, ClaimsReturnedQueueItem, LostFineDeskStatus, LostFoundResolution,
+    MarkClaimedReturnedRequest, MarkDamagedRequest, MarkLostRequest, ResolveClaimsReturnedRequest,
+    ResolveLostFoundRequest,
 };
 pub use crate::models::dto::loans::{LoanSettingsDto as LoanSettings, UpdateLoanSettingsRequest};
 
@@ -68,6 +69,7 @@ pub fn router() -> axum::Router<crate::AppState> {
             post(resolve_loan_claims_returned),
         )
         .route("/loans/items/:item_id/return", post(return_loan_by_item))
+        .route("/loans/items/:item_id/lost-found", post(resolve_lost_found))
         .route("/loans/items/:item_id/renew", post(renew_loan_by_item))
 }
 
@@ -164,8 +166,11 @@ pub struct LoanResponse {
 
 /// Return response. `loan` is set when a loan was closed. `hold` is set when a
 /// shelf `to_pick` copy was checked in or a missing copy was found.
-/// `status` is `returned`, `ready`, `in_transit`, or `available`.
+/// `status` is `returned`, `lost_found`, `ready`, `in_transit`, or `available`.
 /// `destinationSiteId` / `destinationSiteName` are set when status is `in_transit`.
+///
+/// When the copy is lost, `wasLost` is true and the replacement charge (if any)
+/// is described in cents. The lost status itself is not changed.
 #[serde_as]
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -181,6 +186,34 @@ pub struct ReturnResponse {
     pub destination_site_id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub destination_site_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub was_lost: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub fine_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fine_status: Option<LostFineDeskStatus>,
+    /// Replacement charge in cents.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fine_amount: Option<i64>,
+    /// Amount already collected, in cents.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paid_amount: Option<i64>,
+}
+
+fn apply_lost(
+    response: &mut ReturnResponse,
+    lost: Option<crate::models::dto::circulation::LostItemOnReturn>,
+) {
+    let Some(lost) = lost else {
+        return;
+    };
+    response.was_lost = Some(lost.was_lost);
+    response.fine_id = lost.fine_id;
+    response.fine_status = lost.fine_status;
+    response.fine_amount = lost.fine_amount;
+    response.paid_amount = lost.paid_amount;
 }
 
 /// Query parameters for overdue loans list
@@ -561,7 +594,7 @@ async fn create_loan_inner(
     security(("bearer_auth" = [])),
     params(("id" = i32, Path, description = "Loan ID")),
     responses(
-        (status = 200, description = "Item returned", body = ReturnResponse),
+        (status = 200, description = "Item returned. A lost copy adds wasLost, and fineId, fineStatus (unpaid|paid|partial), fineAmount, and paidAmount (cents) when a replacement charge is still open. Lost status is not changed.", body = ReturnResponse),
         (status = 404, description = "Loan not found"),
         (status = 409, description = "Already returned")
     )
@@ -573,13 +606,13 @@ pub async fn return_loan(
     Path(loan_id): Path<i64>,
 ) -> AppResult<Json<ReturnResponse>> {
     claims.require_write_loans()?;
-    let loan = match state
+    let returned = match state
         .services
         .loans
         .return_loan(loan_id, Some(claims.user_id), ip.clone())
         .await
     {
-        Ok(loan) => loan,
+        Ok(returned) => returned,
         Err(e) => {
             state.services.audit.log(
                 audit::event::LOAN_RETURNED,
@@ -594,23 +627,37 @@ pub async fn return_loan(
         }
     };
 
-    state.services.audit.log(
-        audit::event::LOAN_RETURNED,
-        Some(claims.user_id),
-        Some("loan"),
-        Some(loan_id),
-        ip,
-        Some(&loan),
-        audit::AuditLogMeta::success(),
-    );
+    if let Some(ref loan) = returned.loan {
+        state.services.audit.log(
+            audit::event::LOAN_RETURNED,
+            Some(claims.user_id),
+            Some("loan"),
+            Some(loan_id),
+            ip,
+            Some(loan),
+            audit::AuditLogMeta::success(),
+        );
+    }
 
-    Ok(Json(ReturnResponse {
-        status: "returned".to_string(),
-        loan: Some(loan),
+    let mut response = ReturnResponse {
+        status: if returned.loan.is_some() {
+            "returned"
+        } else {
+            "lost_found"
+        }
+        .to_string(),
+        loan: returned.loan,
         hold: None,
         destination_site_id: None,
         destination_site_name: None,
-    }))
+        was_lost: None,
+        fine_id: None,
+        fine_status: None,
+        fine_amount: None,
+        paid_amount: None,
+    };
+    apply_lost(&mut response, returned.lost);
+    Ok(Json(response))
 }
 
 /// Renew a loan
@@ -749,7 +796,9 @@ pub async fn return_loan_by_item(
                     audit::AuditLogMeta::success(),
                 );
             }
-            let status = if check_in.loan.is_some() {
+            let status = if check_in.lost.is_some() && check_in.loan.is_none() {
+                "lost_found"
+            } else if check_in.loan.is_some() {
                 "returned"
             } else if check_in.transit_started {
                 "in_transit"
@@ -758,13 +807,20 @@ pub async fn return_loan_by_item(
             } else {
                 "available"
             };
-            Ok(Json(ReturnResponse {
+            let mut response = ReturnResponse {
                 status: status.to_string(),
                 loan: check_in.loan,
                 hold: check_in.hold,
                 destination_site_id: check_in.destination_site_id,
                 destination_site_name: check_in.destination_site_name,
-            }))
+                was_lost: None,
+                fine_id: None,
+                fine_status: None,
+                fine_amount: None,
+                paid_amount: None,
+            };
+            apply_lost(&mut response, check_in.lost);
+            Ok(Json(response))
         }
         Err(e) => {
             state.services.audit.log(
@@ -779,6 +835,43 @@ pub async fn return_loan_by_item(
             Err(e)
         }
     }
+}
+
+/// Resolve a lost copy that was found at the desk.
+///
+/// `circulate` puts it back on the shelf and serves holds. `damaged` keeps it
+/// out of circulation. `leave` does not change the lost status or the fee.
+/// An unpaid replacement charge is cancelled. A paid one is refunded. A partial
+/// payment is refunded and the remainder is cancelled. Nothing is refunded that
+/// was not collected.
+#[utoipa::path(
+    post,
+    path = "/loans/items/{item_id}/lost-found",
+    tag = "loans",
+    security(("bearer_auth" = [])),
+    params(("item_id" = i64, Path, description = "Item ID")),
+    request_body = ResolveLostFoundRequest,
+    responses(
+        (status = 200, description = "Lost copy resolved", body = LostFoundResolution),
+        (status = 403, description = "Insufficient loans write rights"),
+        (status = 404, description = "Item not found"),
+        (status = 422, description = "Item is not marked lost")
+    )
+)]
+pub async fn resolve_lost_found(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(item_id): Path<i64>,
+    Json(body): Json<ResolveLostFoundRequest>,
+) -> AppResult<Json<LostFoundResolution>> {
+    claims.require_write_loans()?;
+    let result = state
+        .services
+        .circulation
+        .resolve_lost_found(item_id, body, Some(claims.user_id), ip)
+        .await?;
+    Ok(Json(result))
 }
 
 /// Renew a loan by item identification (barcode or call number)

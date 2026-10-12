@@ -60,6 +60,8 @@ pub struct LoanReturnOutcome {
     pub readied_hold: Option<crate::models::hold::Hold>,
     /// Outcome of the hold-ready email attempt (when a hold was advanced to `ready`).
     pub hold_ready_email: Option<HoldReadyEmailOutcome>,
+    /// Set when the copy was lost. The return does not change that status.
+    pub lost: Option<crate::models::dto::circulation::LostItemOnReturn>,
 }
 
 /// Hold-ready notification email attempt after a loan return.

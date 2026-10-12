@@ -15,14 +15,16 @@ use crate::{
         circulation::{CirculationAction, ClaimsResolveOutcome},
         dto::circulation::{
             CirculationExceptionOutcome, CirculationExceptionResponse, ClaimsReturnedQueueItem,
-            MarkClaimedReturnedRequest, MarkDamagedRequest, MarkLostRequest,
-            ResolveClaimsReturnedRequest,
+            LostFineAction, LostFoundDisposition, LostFoundResolution, MarkClaimedReturnedRequest,
+            MarkDamagedRequest, MarkLostRequest, ResolveClaimsReturnedRequest,
+            ResolveLostFoundRequest,
         },
-        fine::FineChargeType,
+        fine::{money_to_cents, FineChargeType},
     },
-    repository::{circulation::CirculationApplyParams, Repository},
+    repository::{circulation::CirculationApplyParams, fines::LostFineSettlement, Repository},
     services::{
         audit::{self, AuditLogMeta, AuditService},
+        email::EmailService,
         event_bus::EventBus,
     },
 };
@@ -32,14 +34,21 @@ pub struct CirculationService {
     repository: Arc<Repository>,
     audit: AuditService,
     events: EventBus,
+    email: EmailService,
 }
 
 impl CirculationService {
-    pub fn new(repository: Arc<Repository>, audit: AuditService, events: EventBus) -> Self {
+    pub fn new(
+        repository: Arc<Repository>,
+        audit: AuditService,
+        events: EventBus,
+        email: EmailService,
+    ) -> Self {
         Self {
             repository,
             audit,
             events,
+            email,
         }
     }
 
@@ -241,6 +250,85 @@ impl CirculationService {
         Ok(response)
     }
 
+    /// Put a found lost copy back into circulation, mark it damaged, or leave it lost.
+    ///
+    /// The replacement charge is one amount. Elidune does not track a separate
+    /// non-refundable processing fee, so a collected charge is refunded in full
+    /// and an uncollected remainder is cancelled.
+    pub async fn resolve_lost_found(
+        &self,
+        item_id: i64,
+        req: ResolveLostFoundRequest,
+        actor: Option<i64>,
+        client_ip: Option<String>,
+    ) -> AppResult<LostFoundResolution> {
+        let applied = self
+            .repository
+            .circulation_resolve_lost_found(item_id, req.disposition, req.notes.as_deref())
+            .await?;
+
+        if let Some(ref hold) = applied.readied_hold {
+            self.notify_resolved_hold(
+                hold,
+                applied.title.as_deref(),
+                applied.barcode.as_deref(),
+                actor,
+                client_ip.clone(),
+            )
+            .await;
+        }
+
+        let (fine_action, fine_id, refunded_amount, cancelled_amount) = match applied.settlement {
+            Some(ref settlement) => (
+                settlement.action,
+                Some(settlement.fine_id),
+                cents(settlement.refunded_amount)?,
+                cents(settlement.cancelled_amount)?,
+            ),
+            None => (LostFineAction::None, None, 0, 0),
+        };
+
+        let response = LostFoundResolution {
+            item_id: applied.item_id,
+            item_status: applied.item_status,
+            borrowable: applied.borrowable,
+            disposition: req.disposition,
+            fine_action,
+            fine_id,
+            refunded_amount,
+            cancelled_amount,
+            hold: applied.readied_hold.clone(),
+        };
+
+        let event = if req.disposition == LostFoundDisposition::Leave {
+            audit::event::ITEM_LOST_FOUND_LEFT
+        } else {
+            audit::event::ITEM_LOST_FOUND_RESOLVED
+        };
+        self.audit.log(
+            event,
+            actor,
+            Some("item"),
+            Some(item_id),
+            client_ip.clone(),
+            Some(serde_json::json!({
+                "disposition": req.disposition,
+                "itemStatus": response.item_status,
+                "borrowable": response.borrowable,
+                "fineAction": response.fine_action,
+                "fineId": response.fine_id.map(|id| id.to_string()),
+                "refundedAmount": response.refunded_amount,
+                "cancelledAmount": response.cancelled_amount,
+                "notes": req.notes,
+            })),
+            AuditLogMeta::success(),
+        );
+        if let Some(settlement) = applied.settlement.as_ref() {
+            self.audit_settlement(actor, client_ip, item_id, settlement, &response);
+        }
+        Ok(response)
+    }
+
     pub async fn list_claims_returned(
         &self,
         page: i64,
@@ -273,6 +361,105 @@ impl CirculationService {
         Err(AppError::Validation(
             "Replacement bill requires an amount or a positive item price".to_string(),
         ))
+    }
+
+    async fn notify_resolved_hold(
+        &self,
+        hold: &crate::models::hold::Hold,
+        title: Option<&str>,
+        barcode: Option<&str>,
+        actor: Option<i64>,
+        client_ip: Option<String>,
+    ) {
+        if let Some(item_id) = hold.item_id {
+            self.events.hold_ready(hold.id, hold.user_id, item_id);
+        }
+        self.audit.log(
+            audit::event::HOLD_READY,
+            actor,
+            Some("hold"),
+            Some(hold.id),
+            client_ip.clone(),
+            Some(serde_json::json!({
+                "user_id": hold.user_id,
+                "item_id": hold.item_id,
+                "expires_at": hold.expires_at,
+                "trigger": "lost_found",
+            })),
+            AuditLogMeta::success(),
+        );
+        let contact = self
+            .repository
+            .users_hold_ready_contact(hold.user_id)
+            .await
+            .ok()
+            .flatten();
+        let zone = match self.repository.library_timezone_name().await {
+            Ok(name) => crate::services::calendar::parse_timezone(&name)
+                .unwrap_or_else(|_| crate::services::calendar::default_zone()),
+            Err(_) => crate::services::calendar::default_zone(),
+        };
+        if let Err(e) = crate::hold_email::send_hold_ready_simple(
+            &self.email,
+            contact,
+            hold,
+            title.unwrap_or("(unknown title)"),
+            barcode,
+            zone,
+        )
+        .await
+        {
+            tracing::warn!(
+                target: "circulation",
+                error = %e,
+                hold_id = hold.id,
+                "Failed to queue hold ready email after lost copy was returned to circulation"
+            );
+        }
+    }
+
+    fn audit_settlement(
+        &self,
+        actor: Option<i64>,
+        client_ip: Option<String>,
+        item_id: i64,
+        settlement: &LostFineSettlement,
+        response: &LostFoundResolution,
+    ) {
+        if settlement.refunded_amount > rust_decimal::Decimal::ZERO {
+            self.audit.log(
+                audit::event::FINE_REFUNDED,
+                actor,
+                Some("fine"),
+                Some(settlement.fine_id),
+                client_ip.clone(),
+                Some(serde_json::json!({
+                    "itemId": item_id.to_string(),
+                    "userId": settlement.user_id.to_string(),
+                    "refundedAmount": response.refunded_amount,
+                    "disposition": response.disposition,
+                })),
+                AuditLogMeta::success(),
+            );
+        }
+        if settlement.cancelled_amount > rust_decimal::Decimal::ZERO
+            || settlement.refunded_amount.is_zero()
+        {
+            self.audit.log(
+                audit::event::FINE_CANCELLED,
+                actor,
+                Some("fine"),
+                Some(settlement.fine_id),
+                client_ip,
+                Some(serde_json::json!({
+                    "itemId": item_id.to_string(),
+                    "userId": settlement.user_id.to_string(),
+                    "cancelledAmount": response.cancelled_amount,
+                    "disposition": response.disposition,
+                })),
+                AuditLogMeta::success(),
+            );
+        }
     }
 
     fn audit_exception(
@@ -333,6 +520,10 @@ impl CirculationService {
     }
 }
 
+fn cents(amount: rust_decimal::Decimal) -> AppResult<i64> {
+    money_to_cents(amount).map_err(|msg| AppError::Internal(msg.to_string()))
+}
+
 fn reject_disallowed_bill(action: CirculationAction, bill: bool) -> AppResult<()> {
     if bill && !action.allows_billing() {
         return Err(AppError::BusinessRule(
@@ -362,6 +553,28 @@ fn to_response(
 #[cfg(test)]
 mod tests {
     use crate::models::circulation::{CirculationAction, CirculationStatus};
+
+    #[test]
+    fn settlement_refunds_only_money_already_collected() {
+        use crate::models::dto::circulation::LostFineAction;
+        use crate::repository::fines::settle_replacement_charge;
+        use rust_decimal::Decimal;
+
+        let unpaid = settle_replacement_charge(Decimal::new(1500, 2), Decimal::ZERO);
+        assert_eq!(unpaid.action, LostFineAction::Cancelled);
+        assert!(unpaid.refunded_amount.is_zero());
+        assert_eq!(unpaid.cancelled_amount, Decimal::new(1500, 2));
+
+        let paid = settle_replacement_charge(Decimal::new(1500, 2), Decimal::new(1500, 2));
+        assert_eq!(paid.action, LostFineAction::Refunded);
+        assert_eq!(paid.refunded_amount, Decimal::new(1500, 2));
+        assert!(paid.cancelled_amount.is_zero());
+
+        let partial = settle_replacement_charge(Decimal::new(1500, 2), Decimal::new(400, 2));
+        assert_eq!(partial.action, LostFineAction::Partial);
+        assert_eq!(partial.refunded_amount, Decimal::new(400, 2));
+        assert_eq!(partial.cancelled_amount, Decimal::new(1100, 2));
+    }
 
     #[test]
     fn lost_and_damaged_are_non_borrowable() {

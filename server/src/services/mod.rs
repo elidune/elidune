@@ -179,6 +179,7 @@ impl Services {
                 repo.clone(),
                 audit_service.clone(),
                 event_bus.clone(),
+                email.clone(),
             ),
             email: email.clone(),
             equipment: equipment::EquipmentService::new(

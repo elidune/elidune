@@ -480,6 +480,8 @@ mod tests {
             status: FineStatus::Pending,
             notes: None,
             charge_type: crate::models::fine::FineChargeType::Overdue,
+            item_id: None,
+            refunded_amount: rust_decimal::Decimal::ZERO,
         }
     }
 

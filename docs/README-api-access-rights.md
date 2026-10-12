@@ -177,6 +177,7 @@ Loan checkout, return, renew, exceptions, and batch loan operations require **`l
 | `POST /loans/:id/damaged` | JWT + `require_write_loans()` |
 | `POST /loans/:id/claimed-returned` | JWT + `require_write_loans()` |
 | `POST /loans/:id/claims-returned/resolve` | JWT + `require_write_loans()` |
+| `POST /loans/items/:item_id/lost-found` | JWT + `require_write_loans()` |
 | `GET /users/:id/loans` | JWT + `require_self_or_staff(id)`; other users also need `loans_rights >= read` |
 | `GET /users/:id/loans/export` | JWT + `require_self_or_staff(id)` |
 

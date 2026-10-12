@@ -35,6 +35,10 @@ pub enum CirculationAction {
     ClaimReturned,
     ResolveFound,
     ResolveNotFound,
+    /// Lost copy accepted back onto the shelf.
+    AcceptFound,
+    /// Lost copy accepted back, but not lendable.
+    AcceptFoundDamaged,
 }
 
 /// Item circulation exception status (stored as `items.circulation_status` SMALLINT).
@@ -124,6 +128,11 @@ impl CirculationStatus {
             (_, CirculationAction::ResolveFound | CirculationAction::ResolveNotFound) => {
                 Err("Item is not in the claims-returned queue")
             }
+            (Self::Lost, CirculationAction::AcceptFound) => Ok(Self::Available),
+            (Self::Lost, CirculationAction::AcceptFoundDamaged) => Ok(Self::Damaged),
+            (_, CirculationAction::AcceptFound | CirculationAction::AcceptFoundDamaged) => {
+                Err("Item is not marked lost")
+            }
         }
     }
 
@@ -139,14 +148,14 @@ impl CirculationAction {
     pub fn closes_loan(self, disposition: Option<DamageDisposition>) -> bool {
         match self {
             Self::MarkLost | Self::ResolveFound | Self::ResolveNotFound => true,
-            Self::ClaimReturned => false,
+            Self::ClaimReturned | Self::AcceptFound | Self::AcceptFoundDamaged => false,
             Self::MarkDamaged => matches!(disposition, Some(DamageDisposition::Return) | None),
         }
     }
 
     #[must_use]
     pub fn notify_holds(self) -> bool {
-        matches!(self, Self::ResolveFound)
+        matches!(self, Self::ResolveFound | Self::AcceptFound)
     }
 
     /// Billing is a lost/damaged *transition effect* only.
@@ -283,5 +292,31 @@ mod tests {
         assert!(!CirculationAction::ResolveNotFound.allows_billing());
         assert!(!CirculationAction::ClaimReturned.allows_billing());
         assert!(!CirculationAction::ResolveFound.allows_billing());
+    }
+
+    #[test]
+    fn lost_found_returns_to_shelf_or_damaged_without_billing() {
+        assert_eq!(
+            CirculationStatus::Lost
+                .transition(CirculationAction::AcceptFound)
+                .expect("circulate"),
+            CirculationStatus::Available
+        );
+        assert!(CirculationStatus::Available.borrowable_after());
+        assert_eq!(
+            CirculationStatus::Lost
+                .transition(CirculationAction::AcceptFoundDamaged)
+                .expect("damaged"),
+            CirculationStatus::Damaged
+        );
+        assert!(!CirculationStatus::Damaged.borrowable_after());
+        assert!(CirculationStatus::Available
+            .transition(CirculationAction::AcceptFound)
+            .is_err());
+        assert!(!CirculationAction::AcceptFound.closes_loan(None));
+        assert!(CirculationAction::AcceptFound.notify_holds());
+        assert!(!CirculationAction::AcceptFoundDamaged.notify_holds());
+        assert!(!CirculationAction::AcceptFound.allows_billing());
+        assert!(!CirculationAction::AcceptFoundDamaged.allows_billing());
     }
 }

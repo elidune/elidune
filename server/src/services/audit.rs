@@ -103,6 +103,9 @@ pub mod event {
     pub const ITEM_WEEDING_UPDATED: &str = "item.weeding_updated";
     pub const ITEM_MARKED_TO_SEARCH: &str = "item.marked_to_search";
     pub const ITEM_FOUND_ON_SHELF: &str = "item.found_on_shelf";
+    pub const ITEM_LOST_FOUND_SEEN: &str = "item.lost_found_seen";
+    pub const ITEM_LOST_FOUND_RESOLVED: &str = "item.lost_found_resolved";
+    pub const ITEM_LOST_FOUND_LEFT: &str = "item.lost_found_left";
 
     // Loans
     pub const LOAN_CREATED: &str = "loan.created";
@@ -203,6 +206,8 @@ pub mod event {
     pub const FINE_ACCRUED: &str = "fine.accrued";
     pub const FINE_PAID: &str = "fine.paid";
     pub const FINE_WAIVED: &str = "fine.waived";
+    pub const FINE_CANCELLED: &str = "fine.cancelled";
+    pub const FINE_REFUNDED: &str = "fine.refunded";
     pub const FINE_RULE_UPDATED: &str = "fine_rule.updated";
     pub const FINE_POLICY_UPDATED: &str = "fine.policy_updated";
 
