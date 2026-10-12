@@ -97,6 +97,98 @@ pub enum CirculationExceptionOutcome {
     ClaimsResolvedNotFound,
 }
 
+/// Desk view of a replacement charge when a lost copy is checked in.
+/// `pending` is reported as `unpaid`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum LostFineDeskStatus {
+    Unpaid,
+    Paid,
+    Partial,
+}
+
+/// How staff close a lost-copy-found alert.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum LostFoundDisposition {
+    /// Back on the shelf and lendable. Holds and transits run as on a normal return.
+    Circulate,
+    /// Accepted back, but not lendable.
+    Damaged,
+    /// Copy stays lost. The replacement charge is left as it is.
+    Leave,
+}
+
+/// What happened to the linked replacement charge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum LostFineAction {
+    None,
+    Cancelled,
+    Refunded,
+    /// Collected part refunded; unpaid remainder cancelled.
+    Partial,
+}
+
+/// Lost-copy facts added to a return response. Present only when the copy is lost.
+#[serde_as]
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LostItemOnReturn {
+    pub was_lost: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub fine_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fine_status: Option<LostFineDeskStatus>,
+    /// Replacement charge in cents.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fine_amount: Option<i64>,
+    /// Amount already collected, in cents.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paid_amount: Option<i64>,
+}
+
+/// A lost copy with no active loan (the loan was closed when it was declared lost).
+#[derive(Debug, Clone)]
+pub struct ClosedLostLoan {
+    pub item_id: i64,
+    pub notice: LostItemOnReturn,
+}
+
+/// Staff decision after the lost-copy alert.
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolveLostFoundRequest {
+    pub disposition: LostFoundDisposition,
+    pub notes: Option<String>,
+}
+
+/// Result of putting a found lost copy back, marking it damaged, or leaving it lost.
+#[serde_as]
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LostFoundResolution {
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub item_id: i64,
+    pub item_status: CirculationStatus,
+    pub borrowable: bool,
+    pub disposition: LostFoundDisposition,
+    pub fine_action: LostFineAction,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub fine_id: Option<i64>,
+    /// Cents refunded. Zero when nothing had been collected.
+    pub refunded_amount: i64,
+    /// Cents of the charge that were cancelled (the uncollected remainder).
+    pub cancelled_amount: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hold: Option<crate::models::hold::Hold>,
+}
+
 /// One row on the claims-returned work queue.
 #[serde_as]
 #[derive(Debug, Clone, Serialize, ToSchema)]

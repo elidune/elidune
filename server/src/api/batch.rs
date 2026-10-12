@@ -4,7 +4,13 @@ use axum::{extract::State, Json};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::{error::AppResult, models::loan::LoanDetails, services::audit};
+use serde_with::{serde_as, DisplayFromStr};
+
+use crate::{
+    error::AppResult,
+    models::{dto::circulation::LostFineDeskStatus, loan::LoanDetails},
+    services::audit,
+};
 
 use super::{AuthenticatedUser, ClientIp};
 
@@ -23,7 +29,9 @@ pub struct BatchReturnRequest {
     pub barcodes: Vec<String>,
 }
 
-/// Result for a single barcode in a batch operation
+/// Result for a single barcode in a batch operation.
+/// A lost copy sets `wasLost` and does not change the lost status.
+#[serde_as]
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct BatchReturnItemResult {
@@ -33,6 +41,18 @@ pub struct BatchReturnItemResult {
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub was_lost: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub fine_id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fine_status: Option<LostFineDeskStatus>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fine_amount: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub paid_amount: Option<i64>,
 }
 
 /// Batch return response
@@ -86,7 +106,7 @@ pub async fn batch_return(
             .await
         {
             Ok(check_in) => {
-                if let Some(loan) = check_in.loan {
+                if let Some(ref loan) = check_in.loan {
                     state.services.audit.log(
                         audit::event::LOAN_RETURNED,
                         Some(claims.user_id),
@@ -96,22 +116,20 @@ pub async fn batch_return(
                         Some(serde_json::json!({ "barcode": barcode, "batch": true })),
                         audit::AuditLogMeta::success(),
                     );
-                    returned += 1;
-                    results.push(BatchReturnItemResult {
-                        barcode: barcode.clone(),
-                        loan: Some(loan),
-                        success: true,
-                        error: None,
-                    });
-                } else {
-                    returned += 1;
-                    results.push(BatchReturnItemResult {
-                        barcode: barcode.clone(),
-                        loan: None,
-                        success: true,
-                        error: None,
-                    });
                 }
+                returned += 1;
+                let lost = check_in.lost.as_ref();
+                results.push(BatchReturnItemResult {
+                    barcode: barcode.clone(),
+                    loan: check_in.loan,
+                    success: true,
+                    error: None,
+                    was_lost: lost.map(|l| l.was_lost),
+                    fine_id: lost.and_then(|l| l.fine_id),
+                    fine_status: lost.and_then(|l| l.fine_status),
+                    fine_amount: lost.and_then(|l| l.fine_amount),
+                    paid_amount: lost.and_then(|l| l.paid_amount),
+                });
             }
             Err(e) => {
                 errors += 1;
@@ -129,6 +147,11 @@ pub async fn batch_return(
                     loan: None,
                     success: false,
                     error: Some(e.to_string()),
+                    was_lost: None,
+                    fine_id: None,
+                    fine_status: None,
+                    fine_amount: None,
+                    paid_amount: None,
                 });
             }
         }

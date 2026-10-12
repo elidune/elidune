@@ -32,6 +32,10 @@ const LOANS_RIGHTS_DOC_ROWS: &[(&str, &str)] = &[
         "POST /loans/:id/claims-returned/resolve",
         "require_write_loans()",
     ),
+    (
+        "POST /loans/items/:item_id/lost-found",
+        "require_write_loans()",
+    ),
     ("GET /stats/loans", "require_read_loans()"),
     ("GET /stats/users", "require_read_loans()"),
 ];

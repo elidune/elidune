@@ -49,6 +49,16 @@ pub trait LoansRepository: Send + Sync {
     ) -> AppResult<Vec<LoanMarcExportRow>>;
     async fn loans_create(&self, loan: &CreateLoan) -> AppResult<LoanCreateOutcome>;
     async fn loans_return(&self, loan_id: i64) -> AppResult<LoanReturnOutcome>;
+    /// Closed loan whose copy is still lost.
+    async fn loans_lost_notice_for_closed_loan(
+        &self,
+        loan_id: i64,
+    ) -> AppResult<Option<crate::models::dto::circulation::ClosedLostLoan>>;
+    /// Lost copy with no active loan, matched by barcode.
+    async fn loans_lost_scan_by_barcode(
+        &self,
+        barcode: &str,
+    ) -> AppResult<Option<crate::models::dto::circulation::ClosedLostLoan>>;
     /// Barcode is not on loan. Completes a `to_pick` hold when this copy is assigned to one.
     async fn loans_complete_to_pick_by_identification(
         &self,
@@ -162,6 +172,18 @@ impl LoansRepository for Repository {
     }
     async fn loans_return(&self, loan_id: i64) -> crate::error::AppResult<LoanReturnOutcome> {
         Repository::loans_return(self, loan_id).await
+    }
+    async fn loans_lost_notice_for_closed_loan(
+        &self,
+        loan_id: i64,
+    ) -> crate::error::AppResult<Option<crate::models::dto::circulation::ClosedLostLoan>> {
+        Repository::loans_lost_notice_for_closed_loan(self, loan_id).await
+    }
+    async fn loans_lost_scan_by_barcode(
+        &self,
+        barcode: &str,
+    ) -> crate::error::AppResult<Option<crate::models::dto::circulation::ClosedLostLoan>> {
+        Repository::loans_lost_scan_by_barcode(self, barcode).await
     }
     async fn loans_complete_to_pick_by_identification(
         &self,

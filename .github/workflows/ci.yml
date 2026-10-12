@@ -192,6 +192,7 @@ jobs:
           --test holds_to_pick
           --test item_availability
           --test my_account
+          --test lost_item_found
           -- --nocapture
 
   coverage:
@@ -274,6 +275,7 @@ jobs:
           --test holds_to_pick
           --test item_availability
           --test my_account
+          --test lost_item_found
           --lcov
           --output-path lcov.info
           --fail-under-lines 20

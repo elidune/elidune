@@ -340,10 +340,19 @@ impl Repository {
         self.loans_archive_and_delete_tx(&mut tx, &loan, now)
             .await?;
 
+        let status_before: Option<i16> =
+            sqlx::query_scalar("SELECT circulation_status FROM items WHERE id = $1")
+                .bind(loan.item_id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .flatten();
+        let was_lost = CirculationStatus::from_db(status_before) == CirculationStatus::Lost;
+
         // A physical return is an inventory check: clear claims-returned and
         // missing-shelf (`to_search`) so the copy re-enters the borrowable pool
         // and the hold / transit queue below can take it. A force loan leaves
-        // those flags in place. Damaged / lost stay as set.
+        // those flags in place. Damaged / lost stay as set — lost is never
+        // cleared here. Staff resolve that with POST /loans/items/{id}/lost-found.
         sqlx::query(
             r#"
             UPDATE items SET
@@ -361,9 +370,21 @@ impl Repository {
         .execute(&mut *tx)
         .await?;
 
-        let readied_hold = self
-            .holds_notify_next_tx(&mut tx, loan.item_id, self.hold_ready_expiry_days())
-            .await?;
+        // A copy that is still lost must not satisfy a hold or start a transit.
+        let readied_hold = if was_lost {
+            None
+        } else {
+            self.holds_notify_next_tx(&mut tx, loan.item_id, self.hold_ready_expiry_days())
+                .await?
+        };
+        let lost = if was_lost {
+            Some(
+                self.fines_lost_return_notice_tx(&mut tx, loan.id, loan.item_id)
+                    .await?,
+            )
+        } else {
+            None
+        };
 
         if let Some(ref h) = readied_hold {
             tracing::debug!(
@@ -464,7 +485,73 @@ impl Repository {
             details,
             readied_hold,
             hold_ready_email: None,
+            lost,
         })
+    }
+
+    /// Loan already archived when the copy was declared lost. Returns the desk
+    /// alert when that copy is still lost. `None` when this id is not that case.
+    pub async fn loans_lost_notice_for_closed_loan(
+        &self,
+        loan_id: i64,
+    ) -> AppResult<Option<crate::models::dto::circulation::ClosedLostLoan>> {
+        let row = sqlx::query(
+            r#"
+            SELECT i.id AS item_id
+            FROM fines f
+            JOIN items i ON i.id = f.item_id
+            WHERE f.loan_id = $1
+              AND f.charge_type = 'replacement'
+              AND i.circulation_status = $2
+              AND i.archived_at IS NULL
+            ORDER BY f.created_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(loan_id)
+        .bind(CirculationStatus::LOST)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let item_id: i64 = row.get("item_id");
+        let notice = self
+            .fines_lost_return_notice(Some(loan_id), item_id)
+            .await?;
+        Ok(Some(crate::models::dto::circulation::ClosedLostLoan {
+            item_id,
+            notice,
+        }))
+    }
+
+    /// Barcode of a lost copy that is not on an active loan.
+    pub async fn loans_lost_scan_by_barcode(
+        &self,
+        barcode: &str,
+    ) -> AppResult<Option<crate::models::dto::circulation::ClosedLostLoan>> {
+        let item_id: Option<i64> = sqlx::query_scalar(
+            r#"
+            SELECT id FROM items
+            WHERE barcode = $1
+              AND archived_at IS NULL
+              AND circulation_status = $2
+            LIMIT 1
+            "#,
+        )
+        .bind(barcode)
+        .bind(CirculationStatus::LOST)
+        .fetch_optional(&self.pool)
+        .await?
+        .flatten();
+        let Some(item_id) = item_id else {
+            return Ok(None);
+        };
+        let notice = self.fines_lost_return_notice(None, item_id).await?;
+        Ok(Some(crate::models::dto::circulation::ClosedLostLoan {
+            item_id,
+            notice,
+        }))
     }
 
     /// Loan-level facts plus the media settings [`crate::renewal::renewal_eligibility`] needs.

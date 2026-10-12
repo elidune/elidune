@@ -1,6 +1,8 @@
 //! Fine / penalty model
 
 use chrono::{DateTime, Utc};
+use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use sqlx::FromRow;
@@ -71,6 +73,10 @@ pub enum FineStatus {
     Partial,
     Paid,
     Waived,
+    /// Uncollected charge voided (lost copy found, nothing was paid).
+    Cancelled,
+    /// Collected amount returned to the patron (lost copy found).
+    Refunded,
 }
 
 impl FineStatus {
@@ -80,6 +86,8 @@ impl FineStatus {
             Self::Partial => "partial",
             Self::Paid => "paid",
             Self::Waived => "waived",
+            Self::Cancelled => "cancelled",
+            Self::Refunded => "refunded",
         }
     }
 
@@ -94,6 +102,8 @@ impl From<String> for FineStatus {
             "partial" => Self::Partial,
             "paid" => Self::Paid,
             "waived" => Self::Waived,
+            "cancelled" => Self::Cancelled,
+            "refunded" => Self::Refunded,
             _ => Self::Pending,
         }
     }
@@ -138,8 +148,8 @@ pub struct Fine {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub user_id: Option<i64>,
-    pub amount: rust_decimal::Decimal,
-    pub paid_amount: rust_decimal::Decimal,
+    pub amount: Decimal,
+    pub paid_amount: Decimal,
     pub created_at: DateTime<Utc>,
     pub paid_at: Option<DateTime<Utc>>,
     pub status: FineStatus,
@@ -147,6 +157,29 @@ pub struct Fine {
     #[serde(default)]
     #[sqlx(default)]
     pub charge_type: FineChargeType,
+    /// Copy this charge belongs to. Replacement bills set this so a lost copy
+    /// can be resolved after the loan row is archived.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[sqlx(default)]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub item_id: Option<i64>,
+    /// Amount given back when a collected charge is reversed.
+    #[serde(default, skip_serializing_if = "is_zero_decimal")]
+    #[sqlx(default)]
+    pub refunded_amount: Decimal,
+}
+
+fn is_zero_decimal(amount: &Decimal) -> bool {
+    amount.is_zero()
+}
+
+/// Currency amount as integer cents. `NUMERIC(12,2)` values convert exactly.
+pub fn money_to_cents(amount: Decimal) -> Result<i64, &'static str> {
+    let cents = (amount * Decimal::from(100u32)).round_dp(0);
+    cents
+        .to_i64()
+        .ok_or("fine amount is outside the cents range")
 }
 
 /// Fine rule per media type

@@ -28,7 +28,8 @@ use crate::{
 };
 use z3950_rs::marc_rs::{BinaryWriter, Encoding as MarcEncoding, MarcFormat, XmlWriter};
 
-/// Desk scan of a barcode: a loan return, a `to_pick` check-in, or a found `to_search` copy.
+/// Desk scan of a barcode: a loan return, a `to_pick` check-in, a found `to_search` copy,
+/// or a lost copy that is no longer on loan.
 #[derive(Debug, Clone)]
 pub struct ItemCheckIn {
     pub loan: Option<LoanDetails>,
@@ -36,6 +37,16 @@ pub struct ItemCheckIn {
     pub transit_started: bool,
     pub destination_site_id: Option<i64>,
     pub destination_site_name: Option<String>,
+    /// Set when the copy is lost. Status is unchanged.
+    pub lost: Option<crate::models::dto::circulation::LostItemOnReturn>,
+}
+
+/// Result of `POST /loans/{id}/return`. `loan` is absent when the loan was already
+/// closed by a lost declaration and the copy is still lost.
+#[derive(Debug, Clone)]
+pub struct DeskReturn {
+    pub loan: Option<LoanDetails>,
+    pub lost: Option<crate::models::dto::circulation::LostItemOnReturn>,
 }
 
 #[derive(Clone)]
@@ -219,18 +230,48 @@ impl LoansService {
         Ok(outcome)
     }
 
-    /// Return a borrowed item
+    /// Return a borrowed item. A lost copy is reported and left lost.
+    /// When the loan was already closed by the lost declaration, the same alert
+    /// is returned without writing the item.
     pub async fn return_loan(
         &self,
         loan_id: i64,
         audit_actor: Option<i64>,
         client_ip: Option<String>,
-    ) -> AppResult<LoanDetails> {
-        let mut outcome = self.repository.loans_return(loan_id).await?;
-        outcome.hold_ready_email = self.send_hold_ready_email(&outcome).await;
-        self.publish_return_events(&outcome);
-        self.audit_return_side_effects(audit_actor, client_ip, &outcome);
-        Ok(outcome.details)
+    ) -> AppResult<DeskReturn> {
+        match self.repository.loans_return(loan_id).await {
+            Ok(mut outcome) => {
+                outcome.hold_ready_email = self.send_hold_ready_email(&outcome).await;
+                self.publish_return_events(&outcome);
+                self.audit_return_side_effects(audit_actor, client_ip.clone(), &outcome);
+                let item_id = outcome.details.item_id;
+                self.audit_lost_seen(audit_actor, client_ip, item_id, outcome.lost.as_ref());
+                Ok(DeskReturn {
+                    loan: Some(outcome.details),
+                    lost: outcome.lost,
+                })
+            }
+            Err(AppError::NotFound(_)) => {
+                if let Some(found) = self
+                    .repository
+                    .loans_lost_notice_for_closed_loan(loan_id)
+                    .await?
+                {
+                    self.audit_lost_seen(
+                        audit_actor,
+                        client_ip,
+                        found.item_id,
+                        Some(&found.notice),
+                    );
+                    return Ok(DeskReturn {
+                        loan: None,
+                        lost: Some(found.notice),
+                    });
+                }
+                Err(AppError::NotFound(format!("Loan {loan_id} not found")))
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// Check in a barcode. An active loan is returned. A shelf copy assigned as
@@ -250,16 +291,39 @@ impl LoansService {
                 let mut outcome = self.repository.loans_return(loan.id).await?;
                 outcome.hold_ready_email = self.send_hold_ready_email(&outcome).await;
                 self.publish_return_events(&outcome);
-                self.audit_return_side_effects(audit_actor, client_ip, &outcome);
+                self.audit_return_side_effects(audit_actor, client_ip.clone(), &outcome);
+                let item_id = outcome.details.item_id;
+                self.audit_lost_seen(audit_actor, client_ip, item_id, outcome.lost.as_ref());
                 Ok(ItemCheckIn {
                     loan: Some(outcome.details),
                     hold: None,
                     transit_started: false,
                     destination_site_id: None,
                     destination_site_name: None,
+                    lost: outcome.lost,
                 })
             }
             Err(AppError::NotFound(_)) => {
+                if let Some(found) = self
+                    .repository
+                    .loans_lost_scan_by_barcode(item_identification)
+                    .await?
+                {
+                    self.audit_lost_seen(
+                        audit_actor,
+                        client_ip,
+                        found.item_id,
+                        Some(&found.notice),
+                    );
+                    return Ok(ItemCheckIn {
+                        loan: None,
+                        hold: None,
+                        transit_started: false,
+                        destination_site_id: None,
+                        destination_site_name: None,
+                        lost: Some(found.notice),
+                    });
+                }
                 if let Some(done) = self
                     .repository
                     .loans_complete_to_pick_by_identification(item_identification)
@@ -281,6 +345,7 @@ impl LoansService {
                         transit_started: done.transit_started,
                         destination_site_id: done.destination_site_id,
                         destination_site_name: done.destination_site_name,
+                        lost: None,
                     });
                 }
                 if let Some(found) = self
@@ -320,6 +385,7 @@ impl LoansService {
                         transit_started: found.transit_started,
                         destination_site_id: found.destination_site_id,
                         destination_site_name: found.destination_site_name,
+                        lost: None,
                     });
                 }
                 Err(AppError::NotFound(format!(
@@ -434,6 +500,33 @@ impl LoansService {
                 self.events.hold_ready(hold.id, hold.user_id, item_id);
             }
         }
+    }
+
+    fn audit_lost_seen(
+        &self,
+        audit_actor: Option<i64>,
+        client_ip: Option<String>,
+        item_id: i64,
+        lost: Option<&crate::models::dto::circulation::LostItemOnReturn>,
+    ) {
+        let Some(lost) = lost else {
+            return;
+        };
+        self.audit.log(
+            audit::event::ITEM_LOST_FOUND_SEEN,
+            audit_actor,
+            Some("item"),
+            Some(item_id),
+            client_ip,
+            Some(serde_json::json!({
+                "wasLost": lost.was_lost,
+                "fineId": lost.fine_id.map(|id| id.to_string()),
+                "fineStatus": lost.fine_status,
+                "fineAmount": lost.fine_amount,
+                "paidAmount": lost.paid_amount,
+            })),
+            AuditLogMeta::success(),
+        );
     }
 
     fn audit_return_side_effects(
@@ -927,6 +1020,18 @@ mod tests {
         }
         async fn loans_return(&self, _: i64) -> AppResult<LoanReturnOutcome> {
             unimplemented!()
+        }
+        async fn loans_lost_notice_for_closed_loan(
+            &self,
+            _: i64,
+        ) -> AppResult<Option<crate::models::dto::circulation::ClosedLostLoan>> {
+            Ok(None)
+        }
+        async fn loans_lost_scan_by_barcode(
+            &self,
+            _: &str,
+        ) -> AppResult<Option<crate::models::dto::circulation::ClosedLostLoan>> {
+            Ok(None)
         }
         async fn loans_complete_to_pick_by_identification(
             &self,

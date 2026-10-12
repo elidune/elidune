@@ -9,8 +9,11 @@ use super::Repository;
 use crate::{
     error::{AppError, AppResult},
     models::{
-        dto::fines::AccrueOutcome,
-        fine::{Fine, FineAccrualLoan, FineChargeType, FineRule},
+        dto::{
+            circulation::{LostFineAction, LostFineDeskStatus, LostItemOnReturn},
+            fines::AccrueOutcome,
+        },
+        fine::{money_to_cents, Fine, FineAccrualLoan, FineChargeType, FineRule, FineStatus},
         user::UserStatus,
     },
 };
@@ -216,11 +219,13 @@ impl Repository {
     }
 
     /// Create a charge inside an open transaction (circulation exceptions).
+    #[allow(clippy::too_many_arguments)]
     pub async fn fines_create_charge_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         loan_id: i64,
         user_id: i64,
+        item_id: i64,
         amount: Decimal,
         charge_type: FineChargeType,
         notes: Option<&str>,
@@ -228,14 +233,15 @@ impl Repository {
         let id = next_id();
         let row = sqlx::query_as::<_, Fine>(
             r#"
-            INSERT INTO fines (id, loan_id, user_id, amount, notes, charge_type)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            INSERT INTO fines (id, loan_id, user_id, item_id, amount, notes, charge_type)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
             RETURNING *
             "#,
         )
         .bind(id)
         .bind(loan_id)
         .bind(user_id)
+        .bind(item_id)
         .bind(amount)
         .bind(notes)
         .bind(charge_type)
@@ -575,6 +581,118 @@ impl Repository {
 
         Ok(rows.iter().map(accrual_loan_from_row).collect())
     }
+
+    /// Replacement charge to show when a lost copy is checked in.
+    pub async fn fines_lost_return_notice(
+        &self,
+        loan_id: Option<i64>,
+        item_id: i64,
+    ) -> AppResult<LostItemOnReturn> {
+        let row = replacement_row(&self.pool, loan_id, item_id, false).await?;
+        lost_notice(row.map(|row| (row.id, row.amount, row.paid_amount, row.status)))
+    }
+
+    /// Same lookup inside the return transaction.
+    pub async fn fines_lost_return_notice_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        loan_id: i64,
+        item_id: i64,
+    ) -> AppResult<LostItemOnReturn> {
+        let row = replacement_row(&mut **tx, Some(loan_id), item_id, true).await?;
+        lost_notice(row.map(|row| (row.id, row.amount, row.paid_amount, row.status)))
+    }
+
+    /// Cancel an unpaid replacement charge, refund a collected one, or both.
+    /// Does nothing when no actionable replacement charge is linked to the copy.
+    pub async fn fines_settle_replacement_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        item_id: i64,
+        notes: Option<&str>,
+    ) -> AppResult<Option<LostFineSettlement>> {
+        let Some(row) = replacement_row(&mut **tx, None, item_id, true).await? else {
+            return Ok(None);
+        };
+        let mut settled = settle_replacement_charge(row.amount, row.paid_amount);
+        settled.fine_id = row.id;
+        settled.user_id = row.user_id;
+        let status = settled.status().as_str();
+        sqlx::query(
+            r#"
+            UPDATE fines SET
+                status = $2,
+                refunded_amount = $3,
+                notes = CASE
+                    WHEN $4::text IS NULL OR btrim($4) = '' THEN notes
+                    WHEN notes IS NULL OR btrim(notes) = '' THEN $4
+                    ELSE notes || E'\n' || $4
+                END
+            WHERE id = $1
+              AND status IN ('pending', 'partial', 'paid')
+            "#,
+        )
+        .bind(row.id)
+        .bind(status)
+        .bind(settled.refunded_amount)
+        .bind(notes)
+        .execute(&mut **tx)
+        .await?;
+        Ok(Some(settled))
+    }
+}
+
+struct ReplacementRow {
+    id: i64,
+    user_id: i64,
+    amount: Decimal,
+    paid_amount: Decimal,
+    status: FineStatus,
+}
+
+async fn replacement_row<'e, E>(
+    executor: E,
+    loan_id: Option<i64>,
+    item_id: i64,
+    lock: bool,
+) -> AppResult<Option<ReplacementRow>>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let sql = if lock {
+        r#"
+        SELECT id, user_id, amount, paid_amount, status
+        FROM fines
+        WHERE charge_type = 'replacement'
+          AND status IN ('pending', 'partial', 'paid')
+          AND (item_id = $1 OR ($2::bigint IS NOT NULL AND loan_id = $2))
+        ORDER BY created_at DESC
+        LIMIT 1
+        FOR UPDATE
+        "#
+    } else {
+        r#"
+        SELECT id, user_id, amount, paid_amount, status
+        FROM fines
+        WHERE charge_type = 'replacement'
+          AND status IN ('pending', 'partial', 'paid')
+          AND (item_id = $1 OR ($2::bigint IS NOT NULL AND loan_id = $2))
+        ORDER BY created_at DESC
+        LIMIT 1
+        "#
+    };
+    let row = sqlx::query(sql)
+        .bind(item_id)
+        .bind(loan_id)
+        .fetch_optional(executor)
+        .await?;
+    Ok(row.map(|row| ReplacementRow {
+        id: row.get("id"),
+        user_id: row.get("user_id"),
+        amount: row.get("amount"),
+        paid_amount: row.get("paid_amount"),
+        status: FineStatus::from(row.get::<String, _>("status")),
+    }))
 }
 
 fn accrual_loan_from_row(row: &sqlx::postgres::PgRow) -> FineAccrualLoan {
@@ -591,6 +709,84 @@ fn accrual_loan_from_row(row: &sqlx::postgres::PgRow) -> FineAccrualLoan {
             .unwrap_or(UserStatus::Active),
         site_id: row.get("site_id"),
     }
+}
+
+/// How a replacement charge is closed when the lost copy is accepted back.
+#[derive(Debug, Clone)]
+pub struct LostFineSettlement {
+    pub fine_id: i64,
+    pub user_id: i64,
+    pub action: LostFineAction,
+    pub refunded_amount: Decimal,
+    pub cancelled_amount: Decimal,
+}
+
+/// Refund only what was collected. Cancel the uncollected remainder.
+/// A zero paid amount never produces a refund.
+#[must_use]
+pub fn settle_replacement_charge(amount: Decimal, paid_amount: Decimal) -> LostFineSettlement {
+    let refunded = paid_amount.max(Decimal::ZERO);
+    let cancelled = (amount - paid_amount).max(Decimal::ZERO);
+    let action = match (refunded > Decimal::ZERO, cancelled > Decimal::ZERO) {
+        (false, _) => LostFineAction::Cancelled,
+        (true, false) => LostFineAction::Refunded,
+        (true, true) => LostFineAction::Partial,
+    };
+    LostFineSettlement {
+        fine_id: 0,
+        user_id: 0,
+        action,
+        refunded_amount: refunded,
+        cancelled_amount: cancelled,
+    }
+}
+
+impl LostFineSettlement {
+    fn status(&self) -> FineStatus {
+        if self.refunded_amount > Decimal::ZERO {
+            FineStatus::Refunded
+        } else {
+            FineStatus::Cancelled
+        }
+    }
+}
+
+fn lost_notice(fine: Option<(i64, Decimal, Decimal, FineStatus)>) -> AppResult<LostItemOnReturn> {
+    let Some((id, amount, paid, status)) = fine else {
+        return Ok(LostItemOnReturn {
+            was_lost: true,
+            fine_id: None,
+            fine_status: None,
+            fine_amount: None,
+            paid_amount: None,
+        });
+    };
+    let desk = match status {
+        FineStatus::Pending => Some(LostFineDeskStatus::Unpaid),
+        FineStatus::Partial => Some(LostFineDeskStatus::Partial),
+        FineStatus::Paid => Some(LostFineDeskStatus::Paid),
+        FineStatus::Waived | FineStatus::Cancelled | FineStatus::Refunded => None,
+    };
+    let Some(desk) = desk else {
+        return Ok(LostItemOnReturn {
+            was_lost: true,
+            fine_id: None,
+            fine_status: None,
+            fine_amount: None,
+            paid_amount: None,
+        });
+    };
+    Ok(LostItemOnReturn {
+        was_lost: true,
+        fine_id: Some(id),
+        fine_status: Some(desk),
+        fine_amount: Some(cents(amount)?),
+        paid_amount: Some(cents(paid)?),
+    })
+}
+
+fn cents(amount: Decimal) -> AppResult<i64> {
+    money_to_cents(amount).map_err(|msg| AppError::Internal(msg.to_string()))
 }
 
 fn is_open_fine_unique_violation(err: &sqlx::Error) -> bool {
