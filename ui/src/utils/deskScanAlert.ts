@@ -4,7 +4,7 @@
  * `holdUserName`) and `GET /loans/:id/user`, or from a check-in body.
  */
 
-export type DeskScanAlertKind = 'onLoan' | 'onHold';
+export type DeskScanAlertKind = 'onLoan' | 'onHold' | 'alreadyOnLoan';
 
 export interface DeskScanAlert {
   kind: DeskScanAlertKind;
@@ -13,6 +13,7 @@ export interface DeskScanAlert {
 
 export interface DeskCopySnapshot {
   availability?: string | null;
+  loanId?: string | null;
   loanUserId?: string | null;
   loanUserName?: string | null;
   holdUserId?: string | null;
@@ -148,8 +149,13 @@ export type DeskScanPlace = 'checkout' | 'return';
  * The notice never lends the copy.
  * On checkout, an on-loan copy can switch to the return screen. An on-hold copy has no action.
  */
-export function deskScanNoticeAction(alert: DeskScanAlert, place: DeskScanPlace = 'checkout'): 'return' | null {
-  if (place === 'checkout' && alert.kind === 'onLoan') return 'return';
+export function deskScanNoticeAction(
+  alert: DeskScanAlert,
+  place: DeskScanPlace = 'checkout',
+): 'return' | 'renew' | null {
+  if (place !== 'checkout') return null;
+  if (alert.kind === 'onLoan') return 'return';
+  if (alert.kind === 'alreadyOnLoan') return 'renew';
   return null;
 }
 
@@ -158,6 +164,9 @@ export function deskScanAlertMessage(
   t: Translate,
   place: DeskScanPlace = 'checkout',
 ): string {
+  if (alert.kind === 'alreadyOnLoan') {
+    return t('errors.apiCode.item_already_on_loan_to_borrower');
+  }
   if (alert.kind === 'onLoan') {
     if (place === 'return') {
       return alert.patronName

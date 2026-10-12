@@ -1442,7 +1442,9 @@ export type ApiErrorCode =
   | 'database_error'
   | 'internal_error'
   | 'rate_limited'
-  | 'item_to_pick_for_other';
+  | 'item_to_pick_for_other'
+  | 'item_on_loan_to_other_borrower'
+  | 'item_already_on_loan_to_borrower';
 
 // Settings — renewal anchoring (serialized wire values: now, at_due_date)
 export type LoanSettingsRenewAt = 'now' | 'at_due_date';
@@ -2195,7 +2197,7 @@ export interface ItemCheckIn extends LostReturnFields {
 /** Staff decision after the lost-copy alert (`POST /loans/items/{itemId}/lost-found`). */
 export type LostFoundDisposition = 'circulate' | 'damaged' | 'leave';
 
-export type LostFineAction = 'none' | 'cancelled' | 'refunded' | 'partial';
+export type LostFineAction = 'none' | 'cancelled' | 'refunded' | 'partial' | 'unchanged';
 
 export interface ResolveLostFoundRequest {
   disposition: LostFoundDisposition;
@@ -2555,6 +2557,9 @@ export interface BatchCreateResult {
   barcode: string;
   success: boolean;
   loanId?: string | null;
+  /** Stable API code. Absent on older servers, which send only `error`. */
+  code?: string | null;
+  /** English server text. Shown only when `code` is missing. */
   error?: string | null;
 }
 

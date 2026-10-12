@@ -14,9 +14,15 @@ interface DeskScanNoticeProps {
   place?: DeskScanPlace;
   /**
    * Switches to the return screen with the barcode already filled in.
-   * Offered only when the copy is on loan at checkout. It does not create a loan.
+   * Offered only when the copy is on loan to another reader. It does not create a loan.
    */
   onReturn?: () => void;
+  /**
+   * Renews the loan already open for this reader.
+   * Offered when checkout is refused because the copy is already on loan to them.
+   */
+  onRenew?: () => void;
+  renewing?: boolean;
 }
 
 /**
@@ -24,7 +30,13 @@ interface DeskScanNoticeProps {
  * `role="status"` keeps it out of the scan field’s focus so the next barcode can be entered.
  * There is no force-loan action.
  */
-export default function DeskScanNotice({ alert, place = 'checkout', onReturn }: DeskScanNoticeProps) {
+export default function DeskScanNotice({
+  alert,
+  place = 'checkout',
+  onReturn,
+  onRenew,
+  renewing = false,
+}: DeskScanNoticeProps) {
   const { t } = useTranslation();
   const action = deskScanNoticeAction(alert, place);
   return (
@@ -41,6 +53,11 @@ export default function DeskScanNotice({ alert, place = 'checkout', onReturn }: 
       {action === 'return' && onReturn ? (
         <Button type="button" size="sm" variant="secondary" onClick={onReturn}>
           {t('loans.scanAlertGoToReturn')}
+        </Button>
+      ) : null}
+      {action === 'renew' && onRenew ? (
+        <Button type="button" size="sm" variant="secondary" onClick={onRenew} isLoading={renewing} disabled={renewing}>
+          {t('loans.scanAlertRenew')}
         </Button>
       ) : null}
     </div>
