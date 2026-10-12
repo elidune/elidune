@@ -249,6 +249,35 @@ The same-borrower `message` tells staff to renew the existing loan. The previous
 { "status": "returned", "loan": { ...LoanDetails... } }
 ```
 
+When the copy is lost, the same response adds `wasLost: true` and, when a replacement charge is still open, `fineId`, `fineStatus` (`unpaid` | `paid` | `partial`), `fineAmount`, and `paidAmount` (integer cents). `status` is `lost_found` when the loan was already closed by the lost declaration.
+
+### `ResolveLostFoundRequest` (POST /loans/items/:itemId/lost-found)
+```json
+{ "disposition": "damaged", "notes": null }
+```
+
+`disposition`: `circulate` | `damaged` | `leave`
+
+### `LostFoundResolution`
+```json
+{
+  "itemId": "818273645564928001",
+  "itemStatus": "damaged",
+  "borrowable": false,
+  "disposition": "damaged",
+  "fineAction": "unchanged",
+  "fineId": "927364819265437702",
+  "refundedAmount": 0,
+  "cancelledAmount": 0
+}
+```
+
+`fineAction`: `none` | `cancelled` | `refunded` | `partial` | `unchanged`. Amounts are integer cents. `fineId` is omitted when no open replacement charge is linked.
+
+- `circulate` — copy becomes lendable and holds are served. An unpaid replacement charge is cancelled, a collected charge is refunded, and a partial payment is refunded with the remainder cancelled.
+- `damaged` — item status `damaged`, not lendable. The replacement charge is left exactly as it is (`fineAction: "unchanged"`, both amounts `0`). No `fine.cancelled` or `fine.refunded` audit row is written. Partial relief is a separate explicit waive (`fine.waived`) with a reason.
+- `leave` — copy stays lost and the charge is not touched (`fineAction: "none"`).
+
 ### Query params — `OverdueLoansQuery`
 `?page=1&perPage=20`
 
@@ -1438,6 +1467,13 @@ interface LoanDetails {
   returnedAt: string | null; biblio: BiblioShort;
   user: UserShort | null; itemIdentification: string | null;
   isOverdue: boolean;
+}
+type LostFoundDisposition = 'circulate' | 'damaged' | 'leave';
+type LostFineAction = 'none' | 'cancelled' | 'refunded' | 'partial' | 'unchanged';
+interface LostFoundResolution {
+  itemId: ID; itemStatus: string; borrowable: boolean;
+  disposition: LostFoundDisposition; fineAction: LostFineAction;
+  fineId?: ID; refundedAmount: number; cancelledAmount: number;
 }
 
 // ── Fines ─────────────────────────────────────────────────────

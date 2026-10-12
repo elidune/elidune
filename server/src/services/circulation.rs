@@ -252,9 +252,12 @@ impl CirculationService {
 
     /// Put a found lost copy back into circulation, mark it damaged, or leave it lost.
     ///
-    /// The replacement charge is one amount. Elidune does not track a separate
-    /// non-refundable processing fee, so a collected charge is refunded in full
-    /// and an uncollected remainder is cancelled.
+    /// `circulate` settles the one replacement amount. Elidune does not track a
+    /// separate non-refundable processing fee, so a collected charge is refunded
+    /// in full and an uncollected remainder is cancelled.
+    /// `damaged` leaves that charge unchanged: no cancel, no refund, no amount
+    /// or status write. Partial relief is an explicit waive (`fine.waived`) with
+    /// a reason, never an automatic side effect of this action.
     pub async fn resolve_lost_found(
         &self,
         item_id: i64,
@@ -267,16 +270,27 @@ impl CirculationService {
             .circulation_resolve_lost_found(item_id, req.disposition, req.notes.as_deref())
             .await?;
 
-        if let Some(settlement) = pending.apply.settlement.clone() {
-            self.audit_settlement_tx(
-                &mut pending.tx,
-                actor,
-                client_ip.clone(),
-                item_id,
-                req.disposition,
-                &settlement,
-            )
-            .await?;
+        let unchanged_fine_id = if req.disposition == LostFoundDisposition::Damaged {
+            self.repository
+                .fines_linked_replacement_id_tx(&mut pending.tx, item_id)
+                .await?
+        } else {
+            None
+        };
+
+        // Audit rows are immutable. `damaged` writes none of the settlement events.
+        if req.disposition != LostFoundDisposition::Damaged {
+            if let Some(settlement) = pending.apply.settlement.clone() {
+                self.audit_settlement_tx(
+                    &mut pending.tx,
+                    actor,
+                    client_ip.clone(),
+                    item_id,
+                    req.disposition,
+                    &settlement,
+                )
+                .await?;
+            }
         }
         pending.tx.commit().await?;
         let applied = pending.apply;
@@ -292,15 +306,20 @@ impl CirculationService {
             .await;
         }
 
-        let (fine_action, fine_id, refunded_amount, cancelled_amount) = match applied.settlement {
-            Some(ref settlement) => (
-                settlement.action,
-                Some(settlement.fine_id),
-                cents(settlement.refunded_amount)?,
-                cents(settlement.cancelled_amount)?,
-            ),
-            None => (LostFineAction::None, None, 0, 0),
-        };
+        let (fine_action, fine_id, refunded_amount, cancelled_amount) =
+            if req.disposition == LostFoundDisposition::Damaged {
+                (LostFineAction::Unchanged, unchanged_fine_id, 0, 0)
+            } else {
+                match applied.settlement {
+                    Some(ref settlement) => (
+                        settlement.action,
+                        Some(settlement.fine_id),
+                        cents(settlement.refunded_amount)?,
+                        cents(settlement.cancelled_amount)?,
+                    ),
+                    None => (LostFineAction::None, None, 0, 0),
+                }
+            };
 
         let response = LostFoundResolution {
             item_id: applied.item_id,
@@ -593,6 +612,17 @@ mod tests {
         assert_eq!(partial.action, LostFineAction::Partial);
         assert_eq!(partial.refunded_amount, Decimal::new(400, 2));
         assert_eq!(partial.cancelled_amount, Decimal::new(1100, 2));
+    }
+
+    #[test]
+    fn damaged_fine_action_serializes_as_unchanged() {
+        use crate::models::dto::circulation::LostFineAction;
+
+        let action = LostFineAction::Unchanged;
+        assert_eq!(
+            serde_json::to_value(action).expect("fine action json"),
+            serde_json::json!("unchanged")
+        );
     }
 
     #[test]

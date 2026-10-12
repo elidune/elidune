@@ -844,11 +844,15 @@ pub async fn return_loan_by_item(
 
 /// Resolve a lost copy that was found at the desk.
 ///
-/// `circulate` puts it back on the shelf and serves holds. `damaged` keeps it
-/// out of circulation. `leave` does not change the lost status or the fee.
-/// An unpaid replacement charge is cancelled. A paid one is refunded. A partial
-/// payment is refunded and the remainder is cancelled. Nothing is refunded that
-/// was not collected.
+/// `circulate` puts it back on the shelf and serves holds. An unpaid replacement
+/// charge is cancelled, a paid one is refunded, and a partial payment is
+/// refunded with the remainder cancelled. Nothing is refunded that was not collected.
+/// `damaged` sets the item status to damaged (not lendable) and leaves the
+/// replacement charge exactly as it is: `fineAction` is `unchanged`, and both
+/// `refundedAmount` and `cancelledAmount` are zero. No `fine.cancelled` or
+/// `fine.refunded` event is written. A waiver is a separate explicit action
+/// with a reason.
+/// `leave` does not change the lost status or the fee.
 #[utoipa::path(
     post,
     path = "/loans/items/{item_id}/lost-found",

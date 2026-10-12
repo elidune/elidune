@@ -235,8 +235,9 @@ impl Repository {
     }
 
     /// Accept a lost copy back, or record that staff left it lost.
-    /// Lost status is not changed on `leave`. Fee settlement runs only when the
-    /// copy is accepted (`circulate` or `damaged`).
+    /// Lost status is not changed on `leave`. The replacement charge is
+    /// cancelled or refunded only for `circulate`. `damaged` updates the item
+    /// and leaves the charge as it is.
     ///
     /// The transaction stays open so the caller can write fine audit rows
     /// before commit. Dropping [`LostFoundPending`] rolls the resolution back.
@@ -313,9 +314,13 @@ impl Repository {
         .execute(&mut *tx)
         .await?;
 
-        let settlement = self
-            .fines_settle_replacement_tx(&mut tx, item_id, notes)
-            .await?;
+        // `damaged` must not cancel, refund, or waive. Relief is an explicit waive.
+        let settlement = if disposition == LostFoundDisposition::Damaged {
+            None
+        } else {
+            self.fines_settle_replacement_tx(&mut tx, item_id, notes)
+                .await?
+        };
 
         let readied_hold = if action.notify_holds() {
             self.holds_notify_next_tx(&mut tx, item_id, self.hold_ready_expiry_days())

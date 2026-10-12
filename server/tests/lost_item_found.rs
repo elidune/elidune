@@ -299,8 +299,135 @@ async fn paid_replacement_is_refunded_on_barcode_return_then_circulate() {
     assert!(row["userId"].is_number() || row["userId"].is_string());
 }
 
+async fn user_fines(app: &TestApp, token: &str, reader_id: i64) -> serde_json::Value {
+    let (status, fines) = app
+        .get_json_with_auth(&format!("/api/v1/users/{reader_id}/fines"), token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "fines: {fines}");
+    fines
+}
+
+async fn assert_no_fine_settlement_audit(app: &TestApp, token: &str, fine_id: i64) {
+    for event in ["fine.cancelled", "fine.refunded", "fine.waived"] {
+        let body = audit_body(app, token, event, fine_id).await;
+        assert!(
+            audit_entry(&body, event).is_none(),
+            "unexpected {event} for fine {fine_id}: {body}"
+        );
+    }
+}
+
+/// Found + damaged with an open 2000-cent replacement charge: the fine row stays
+/// as it is, and no cancel or refund audit is written.
 #[tokio::test]
-async fn partial_payment_is_refunded_and_remainder_cancelled_when_damaged() {
+async fn open_replacement_stays_when_found_damaged() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let token = admin(&app).await;
+    let (reader_id, _) = fixtures::create_reader(&app, &token, "lfdmgopen").await;
+    let (loan_id, item_id, _, _) = checkout(&app, &token, reader_id, "20.00").await;
+    let lost = mark_lost(&app, &token, loan_id, true).await;
+    let fine_id = fixtures::json_id(&lost["charge"]["id"]);
+    assert_eq!(decimal_str(&lost["charge"]["amount"]), "20.00");
+
+    let (status, body) = app
+        .post_empty(&format!("/api/v1/loans/{loan_id}/return"), Some(&token))
+        .await;
+    assert_eq!(status, StatusCode::OK, "return: {body}");
+    assert_eq!(body["wasLost"], true);
+    assert_eq!(body["fineStatus"], "unpaid");
+    assert_eq!(body["fineAmount"], 2000);
+    assert_eq!(body["paidAmount"], 0);
+
+    let before = user_fines(&app, &token, reader_id).await;
+    assert_eq!(before["fines"][0]["status"], "pending");
+    assert_eq!(decimal_str(&before["fines"][0]["amount"]), "20.00");
+
+    let (status, resolved) = resolve(&app, &token, item_id, "damaged").await;
+    assert_eq!(status, StatusCode::OK, "damaged: {resolved}");
+    assert_eq!(resolved["itemStatus"], "damaged");
+    assert_eq!(resolved["borrowable"], false);
+    assert_eq!(resolved["disposition"], "damaged");
+    assert_eq!(resolved["fineAction"], "unchanged");
+    assert_eq!(fixtures::json_id(&resolved["fineId"]), fine_id);
+    assert_eq!(resolved["refundedAmount"], 0);
+    assert_eq!(resolved["cancelledAmount"], 0);
+
+    let after = user_fines(&app, &token, reader_id).await;
+    assert_eq!(
+        before["fines"][0], after["fines"][0],
+        "fine row changed: {after}"
+    );
+    assert_eq!(before["totalUnpaid"], after["totalUnpaid"]);
+    assert_no_fine_settlement_audit(&app, &token, fine_id).await;
+
+    let seen = audit_body(&app, &token, "item.lost_found_resolved", item_id).await;
+    let row = audit_entry(&seen, "item.lost_found_resolved").expect("resolved audit");
+    assert_eq!(row["payload"]["disposition"], "damaged");
+    assert_eq!(row["payload"]["fineAction"], "unchanged");
+    assert_eq!(row["payload"]["refundedAmount"], 0);
+    assert_eq!(row["payload"]["cancelledAmount"], 0);
+
+    let (circulation, borrowable) = item_flags(&app, &token, item_id).await;
+    assert_eq!((circulation, borrowable), (2, false));
+}
+
+/// A replacement charge that was already paid is not refunded when the copy is damaged.
+#[tokio::test]
+async fn paid_replacement_is_not_refunded_when_found_damaged() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let token = admin(&app).await;
+    let (reader_id, _) = fixtures::create_reader(&app, &token, "lfdmgpaid").await;
+    let (loan_id, item_id, _, _) = checkout(&app, &token, reader_id, "20.00").await;
+    let lost = mark_lost(&app, &token, loan_id, true).await;
+    let fine_id = fixtures::json_id(&lost["charge"]["id"]);
+    let (status, paid) = app
+        .post_json(
+            &format!("/api/v1/fines/{fine_id}/pay"),
+            &json!({ "amount": "20.00" }),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "pay: {paid}");
+
+    let (status, body) = app
+        .post_empty(&format!("/api/v1/loans/{loan_id}/return"), Some(&token))
+        .await;
+    assert_eq!(status, StatusCode::OK, "return: {body}");
+    assert_eq!(body["fineStatus"], "paid");
+    assert_eq!(body["fineAmount"], 2000);
+    assert_eq!(body["paidAmount"], 2000);
+
+    let before = user_fines(&app, &token, reader_id).await;
+    assert_eq!(before["fines"][0]["status"], "paid");
+    assert!(before["fines"][0].get("refundedAmount").is_none());
+
+    let (status, resolved) = resolve(&app, &token, item_id, "damaged").await;
+    assert_eq!(status, StatusCode::OK, "damaged: {resolved}");
+    assert_eq!(resolved["itemStatus"], "damaged");
+    assert_eq!(resolved["fineAction"], "unchanged");
+    assert_eq!(fixtures::json_id(&resolved["fineId"]), fine_id);
+    assert_eq!(resolved["refundedAmount"], 0);
+    assert_eq!(resolved["cancelledAmount"], 0);
+
+    let after = user_fines(&app, &token, reader_id).await;
+    assert_eq!(
+        before["fines"][0], after["fines"][0],
+        "paid fine changed: {after}"
+    );
+    assert_eq!(after["fines"][0]["status"], "paid");
+    assert!(after["fines"][0].get("refundedAmount").is_none());
+    assert_no_fine_settlement_audit(&app, &token, fine_id).await;
+
+    let (circulation, borrowable) = item_flags(&app, &token, item_id).await;
+    assert_eq!((circulation, borrowable), (2, false));
+}
+
+#[tokio::test]
+async fn partial_payment_stays_when_found_damaged() {
     let Some(app) = TestApp::spawn().await else {
         return;
     };
@@ -336,14 +463,23 @@ async fn partial_payment_is_refunded_and_remainder_cancelled_when_damaged() {
         .await;
     assert_eq!(status, StatusCode::CREATED, "hold: {hold}");
 
+    let before = user_fines(&app, &token, reader_id).await;
+    assert_eq!(before["fines"][0]["status"], "partial");
+
     let (status, resolved) = resolve(&app, &token, item_id, "damaged").await;
     assert_eq!(status, StatusCode::OK, "damaged: {resolved}");
     assert_eq!(resolved["itemStatus"], "damaged");
     assert_eq!(resolved["borrowable"], false);
-    assert_eq!(resolved["fineAction"], "partial");
-    assert_eq!(resolved["refundedAmount"], 400);
-    assert_eq!(resolved["cancelledAmount"], 1100);
+    assert_eq!(resolved["fineAction"], "unchanged");
+    assert_eq!(resolved["refundedAmount"], 0);
+    assert_eq!(resolved["cancelledAmount"], 0);
     assert!(resolved.get("hold").is_none());
+
+    let after = user_fines(&app, &token, reader_id).await;
+    assert_eq!(
+        before["fines"][0], after["fines"][0],
+        "partial fine changed: {after}"
+    );
 
     let (circulation, borrowable) = item_flags(&app, &token, item_id).await;
     assert_eq!((circulation, borrowable), (2, false));
@@ -357,11 +493,7 @@ async fn partial_payment_is_refunded_and_remainder_cancelled_when_damaged() {
         "damaged copy must not satisfy the hold"
     );
 
-    let refunded = audit_body(&app, &token, "fine.refunded", fine_id).await;
-    assert!(audit_entry(&refunded, "fine.refunded").is_some());
-    let cancelled = audit_body(&app, &token, "fine.cancelled", fine_id).await;
-    let row = audit_entry(&cancelled, "fine.cancelled").expect("cancel audit");
-    assert_eq!(row["payload"]["cancelledAmount"], 1100);
+    assert_no_fine_settlement_audit(&app, &token, fine_id).await;
 }
 
 #[tokio::test]

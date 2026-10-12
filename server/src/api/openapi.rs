@@ -757,6 +757,38 @@ mod tests {
     }
 
     #[test]
+    fn lost_found_damaged_reports_unchanged_fine_action() {
+        let doc = ApiDoc::openapi();
+        let value = serde_json::to_value(&doc).expect("openapi json");
+        let action = &value["components"]["schemas"]["LostFineAction"];
+        let codes = action["enum"]
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        assert!(
+            codes.contains(&"unchanged"),
+            "LostFineAction must include unchanged: {action}"
+        );
+
+        let path = &value["paths"]["/loans/items/{item_id}/lost-found"]["post"];
+        let description = path["description"].as_str().unwrap_or("");
+        let lower = description.to_ascii_lowercase();
+        assert!(
+            lower.contains("unchanged") && lower.contains("damaged"),
+            "lost-found description must say damaged leaves the charge unchanged: {description}"
+        );
+        assert!(
+            lower.contains("refundedamount") && lower.contains("zero"),
+            "lost-found description must report zero refunded/cancelled amounts for damaged: {description}"
+        );
+    }
+
+    #[test]
     fn password_reset_request_marks_reset_url_deprecated_and_ignored() {
         let doc = ApiDoc::openapi();
         let value = serde_json::to_value(&doc).expect("openapi json");

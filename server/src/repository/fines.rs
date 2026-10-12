@@ -614,8 +614,20 @@ impl Repository {
         lost_notice(row.map(|row| (row.id, row.amount, row.paid_amount, row.status)))
     }
 
+    /// Open replacement charge linked to the copy. Does not update the row.
+    pub async fn fines_linked_replacement_id_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        item_id: i64,
+    ) -> AppResult<Option<i64>> {
+        Ok(replacement_row(&mut **tx, None, item_id, false)
+            .await?
+            .map(|row| row.id))
+    }
+
     /// Cancel an unpaid replacement charge, refund a collected one, or both.
     /// Does nothing when no actionable replacement charge is linked to the copy.
+    /// Not used for disposition `damaged` — that path leaves the charge as it is.
     pub async fn fines_settle_replacement_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,

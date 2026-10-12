@@ -132,12 +132,6 @@ async fn audit_body(
     body
 }
 
-fn money_is_zero(value: &serde_json::Value) -> bool {
-    decimal_str(value)
-        .parse::<f64>()
-        .is_ok_and(|n| n.abs() < 0.001)
-}
-
 async fn fines_of(app: &TestApp, token: &str, reader_id: i64) -> serde_json::Value {
     let (status, fines) = app
         .get_json_with_auth(&format!("/api/v1/users/{reader_id}/fines"), token)
@@ -360,7 +354,7 @@ async fn qa_paid_circulate_serves_hold_and_is_not_repeatable() {
     assert_eq!(decimal_str(&fines["fines"][0]["refundedAmount"]), "12.50");
 }
 
-/// damaged twice: second call rejected; partial fee traced exactly once each way.
+/// damaged twice: the partial fee stays as it is; the second call is rejected.
 #[tokio::test]
 async fn qa_damaged_partial_twice_is_rejected_cleanly() {
     let Some(app) = TestApp::spawn().await else {
@@ -379,12 +373,14 @@ async fn qa_damaged_partial_twice_is_rejected_cleanly() {
         )
         .await;
     assert_eq!(status, StatusCode::OK);
+    let before = fines_of(&app, &token, reader_id).await;
+    assert_eq!(before["fines"][0]["status"], "partial");
     let (status, r) = resolve(&app, &token, item_id, "damaged").await;
     assert_eq!(status, StatusCode::OK, "{r}");
     assert_eq!(r["itemStatus"], "damaged");
-    assert_eq!(r["fineAction"], "partial");
-    assert_eq!(r["refundedAmount"], 500);
-    assert_eq!(r["cancelledAmount"], 1500);
+    assert_eq!(r["fineAction"], "unchanged");
+    assert_eq!(r["refundedAmount"], 0);
+    assert_eq!(r["cancelledAmount"], 0);
     let (status, again) = resolve(&app, &token, item_id, "damaged").await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{again}");
     let (c, b) = item_flags(&app, &token, item_id).await;
@@ -394,15 +390,16 @@ async fn qa_damaged_partial_twice_is_rejected_cleanly() {
             &audit_body(&app, &token, "fine.refunded", fine_id).await,
             "fine.refunded"
         ),
-        1
+        0
     );
     assert_eq!(
         count_entries(
             &audit_body(&app, &token, "fine.cancelled", fine_id).await,
             "fine.cancelled"
         ),
-        1
+        0
     );
     let fines = fines_of(&app, &token, reader_id).await;
-    assert!(money_is_zero(&fines["totalUnpaid"]), "{fines}");
+    assert_eq!(before["fines"][0], fines["fines"][0], "{fines}");
+    assert_eq!(before["totalUnpaid"], fines["totalUnpaid"]);
 }
