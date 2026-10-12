@@ -8,12 +8,57 @@ use axum::http::StatusCode;
 use common::{fixtures, TestApp};
 use serde_json::json;
 
-async fn table_count(app: &TestApp, table: &str) -> i64 {
-    let sql = format!("SELECT COUNT(*)::bigint FROM {table}");
-    sqlx::query_scalar::<_, i64>(&sql)
-        .fetch_one(app.state.services.repository.pool())
-        .await
-        .unwrap_or_else(|e| panic!("count {table}: {e}"))
+/// Catalog and order rows that belong to one suggestion.
+///
+/// Parallel integration tests share one database. A global `COUNT(*)` moves
+/// when another test inserts, so these counts are keyed by this suggestion's
+/// id and title (both unique per run).
+#[derive(Debug, PartialEq, Eq)]
+struct SuggestionEffects {
+    orders: i64,
+    lines: i64,
+    biblios: i64,
+    items: i64,
+}
+
+async fn suggestion_effects(app: &TestApp, suggestion_id: i64, title: &str) -> SuggestionEffects {
+    let pool = app.state.services.repository.pool();
+    let note = format!("Opened from patron purchase suggestion {suggestion_id}");
+    let orders = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*)::bigint FROM purchase_orders WHERE notes = $1",
+    )
+    .bind(&note)
+    .fetch_one(pool)
+    .await
+    .unwrap_or_else(|e| panic!("count suggestion orders: {e}"));
+    let lines = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*)::bigint FROM purchase_order_lines WHERE title = $1",
+    )
+    .bind(title)
+    .fetch_one(pool)
+    .await
+    .unwrap_or_else(|e| panic!("count suggestion lines: {e}"));
+    let biblios =
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*)::bigint FROM biblios WHERE title = $1")
+            .bind(title)
+            .fetch_one(pool)
+            .await
+            .unwrap_or_else(|e| panic!("count suggestion biblios: {e}"));
+    let items = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*)::bigint FROM items i \
+         INNER JOIN biblios b ON b.id = i.biblio_id \
+         WHERE b.title = $1",
+    )
+    .bind(title)
+    .fetch_one(pool)
+    .await
+    .unwrap_or_else(|e| panic!("count suggestion items: {e}"));
+    SuggestionEffects {
+        orders,
+        lines,
+        biblios,
+        items,
+    }
 }
 
 async fn propose(
@@ -146,11 +191,6 @@ async fn accept_opens_order_intent_without_biblio_or_item() {
     let suffix = fixtures::unique_suffix();
     let title = format!("Intent only {suffix}");
 
-    let biblios_before = table_count(&app, "biblios").await;
-    let items_before = table_count(&app, "items").await;
-    let orders_before = table_count(&app, "purchase_orders").await;
-    let lines_before = table_count(&app, "purchase_order_lines").await;
-
     let (status, created) = propose(
         &app,
         &reader_token,
@@ -175,23 +215,15 @@ async fn accept_opens_order_intent_without_biblio_or_item() {
     let order_id = fixtures::json_id(&accepted["purchaseOrderId"]);
     let line_id = fixtures::json_id(&accepted["purchaseOrderLineId"]);
 
-    let biblios_after = table_count(&app, "biblios").await;
-    let items_after = table_count(&app, "items").await;
     assert_eq!(
-        biblios_after, biblios_before,
-        "accept must not create a bibliographic record"
-    );
-    assert_eq!(
-        items_after, items_before,
-        "accept must not create an item / received copy"
-    );
-    assert_eq!(
-        table_count(&app, "purchase_orders").await,
-        orders_before + 1
-    );
-    assert_eq!(
-        table_count(&app, "purchase_order_lines").await,
-        lines_before + 1
+        suggestion_effects(&app, id, &title).await,
+        SuggestionEffects {
+            orders: 1,
+            lines: 1,
+            biblios: 0,
+            items: 0,
+        },
+        "accept opens one order intent and does not catalog the title"
     );
 
     let (status, order) = app
@@ -226,20 +258,9 @@ async fn refuse_does_not_create_order_intent() {
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (_, reader_token) = fixtures::create_reader(&app, &admin_token, "sug_refuse").await;
     let suffix = fixtures::unique_suffix();
+    let title = format!("Refused title {suffix}");
 
-    let orders_before = table_count(&app, "purchase_orders").await;
-    let lines_before = table_count(&app, "purchase_order_lines").await;
-    let biblios_before = table_count(&app, "biblios").await;
-    let items_before = table_count(&app, "items").await;
-
-    let (status, created) = propose(
-        &app,
-        &reader_token,
-        &format!("Refused title {suffix}"),
-        "No Order",
-        None,
-    )
-    .await;
+    let (status, created) = propose(&app, &reader_token, &title, "No Order", None).await;
     assert_eq!(status, StatusCode::CREATED, "{created}");
     let id = fixtures::json_id(&created["id"]);
 
@@ -256,13 +277,17 @@ async fn refuse_does_not_create_order_intent() {
     assert!(refused["purchaseOrderId"].is_null(), "{refused}");
     assert!(refused["purchaseOrderLineId"].is_null(), "{refused}");
 
-    assert_eq!(table_count(&app, "purchase_orders").await, orders_before);
+    let none = SuggestionEffects {
+        orders: 0,
+        lines: 0,
+        biblios: 0,
+        items: 0,
+    };
     assert_eq!(
-        table_count(&app, "purchase_order_lines").await,
-        lines_before
+        suggestion_effects(&app, id, &title).await,
+        none,
+        "refuse must not open an order or catalog the title"
     );
-    assert_eq!(table_count(&app, "biblios").await, biblios_before);
-    assert_eq!(table_count(&app, "items").await, items_before);
 
     let (status, again) = app
         .post_json(
@@ -276,7 +301,11 @@ async fn refuse_does_not_create_order_intent() {
         StatusCode::UNPROCESSABLE_ENTITY,
         "refused stays refused: {again}"
     );
-    assert_eq!(table_count(&app, "purchase_orders").await, orders_before);
+    assert_eq!(
+        suggestion_effects(&app, id, &title).await,
+        none,
+        "a later accept must not create an order for a refused suggestion"
+    );
 }
 
 #[tokio::test]

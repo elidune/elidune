@@ -706,6 +706,29 @@ mod tests {
     }
 
     #[test]
+    fn return_by_barcode_path_param_is_named_barcode() {
+        let doc = ApiDoc::openapi();
+        let value = serde_json::to_value(&doc).expect("openapi json");
+        let path = "/loans/items/{barcode}/return";
+        let post = &value["paths"][path]["post"];
+        assert!(
+            post.is_object(),
+            "return scan must stay POST {path} (one segment, named barcode)"
+        );
+        assert!(
+            value["paths"]["/loans/items/{item_id}/return"].is_null(),
+            "return path param must not be documented as item_id"
+        );
+        let params = post["parameters"].as_array().expect("parameters");
+        assert!(
+            params
+                .iter()
+                .any(|param| param["in"] == "path" && param["name"] == "barcode"),
+            "path param must be named barcode: {params:?}"
+        );
+    }
+
+    #[test]
     fn library_info_documents_nullable_ui_language() {
         let doc = ApiDoc::openapi();
         let value = serde_json::to_value(&doc).expect("openapi json");

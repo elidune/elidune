@@ -166,7 +166,7 @@ Loan checkout, return, renew, exceptions, and batch loan operations require **`l
 | `GET /loans/:id/user` | JWT + `require_write_loans()` for another borrower. The borrower may call with `loans_rights >= own` and receives their own `UserShortStaff`. Any other caller receives `UserShortStaff` only when `users_rights >= read`; otherwise `{ id, cardNumber, initials }`. |
 | `POST /loans/:id/return` | JWT + `require_write_loans()` |
 | `POST /loans/:id/renew` | JWT: caller is the borrower, or `loans_rights >= write`; `force` requires `require_write_loans()` |
-| `POST /loans/items/:item_id/return` | JWT + `require_write_loans()` |
+| `POST /loans/items/:barcode/return` | JWT + `require_write_loans()` |
 | `POST /loans/items/:item_id/renew` | JWT + `require_write_loans()` |
 | `GET /loans/overdue` | JWT + `require_read_loans()`. `user` includes `firstname`, `lastname`, `email`, and `phone` only when `users_rights >= read`; otherwise `{ id, cardNumber, initials }`. |
 | `POST /loans/send-overdue-reminders` | JWT + `require_admin()` |
