@@ -51,7 +51,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import { canManageUsers, canReadUsers, isLibrarian, type User as UserType, type LoanListItem, type LoanStatsResponse, type AdvancedStatsParams, type StatsInterval, type Author, type Hold } from '@/types';
 import { isUserRecordLoan } from '@/utils/catalogView';
-import { loansQueryRetry } from '@/utils/loanListAccess';
+import { isLoansForbidden, loansQueryRetry, userRecordQueryRetry } from '@/utils/loanListAccess';
 import UserRecordLoanIdentity from '@/components/users/UserRecordLoanIdentity';
 import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
@@ -164,6 +164,7 @@ export default function UserDetailPage() {
     queryKey: ['user', id],
     queryFn: () => api.getUser(id!),
     enabled: !!id,
+    retry: userRecordQueryRetry,
   });
 
   const {
@@ -474,17 +475,31 @@ export default function UserDetailPage() {
   };
 
   if (isUserError && id) {
+    const recordDenied = isLoansForbidden(userQueryError);
     return (
       <div className="max-w-xl mx-auto px-4 py-12">
         <Card>
           <div className="flex items-start gap-3 p-4">
-            <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+            {recordDenied ? null : (
+              <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+            )}
             <div className="flex-1 space-y-3">
-              <p className="text-gray-900 dark:text-gray-100 text-sm">{getApiErrorMessage(userQueryError, t)}</p>
+              {recordDenied ? (
+                <LoansAccessNotice
+                  denied
+                  message={t('users.recordNotAllowed')}
+                  onRetry={() => undefined}
+                  fallbackMessage={t('loans.userLoadError')}
+                />
+              ) : (
+                <p className="text-gray-900 dark:text-gray-100 text-sm">{getApiErrorMessage(userQueryError, t)}</p>
+              )}
               <div className="flex flex-wrap gap-2">
-                <Button type="button" leftIcon={<RefreshCw className="h-4 w-4" />} onClick={() => void refetchUser()}>
-                  {t('common.retry')}
-                </Button>
+                {recordDenied ? null : (
+                  <Button type="button" leftIcon={<RefreshCw className="h-4 w-4" />} onClick={() => void refetchUser()}>
+                    {t('common.retry')}
+                  </Button>
+                )}
                 <Button type="button" variant="secondary" onClick={() => navigate('/users')}>
                   {t('common.back')}
                 </Button>

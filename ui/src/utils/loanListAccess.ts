@@ -10,6 +10,9 @@ export function loansQueryRetry(failureCount: number, error: unknown): boolean {
   return !isLoansForbidden(error) && failureCount < 1;
 }
 
+/** GET /users/:id returns 403 once. A second attempt on mount is the same denial. */
+export const userRecordQueryRetry = loansQueryRetry;
+
 export type PatronLoansRead<T> =
   | { ok: true; page: T }
   | { ok: false; denied: boolean; error: unknown };

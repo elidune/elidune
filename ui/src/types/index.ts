@@ -675,6 +675,13 @@ export interface BiblioShortPublic {
   items: ItemShortPublic[];
 }
 
+/** Minimized borrower a future item payload may embed. No name. */
+export interface ItemCopyBorrower {
+  id?: string | null;
+  cardNumber?: string | null;
+  initials?: string | null;
+}
+
 /** Full physical copy (exemplaire) */
 export interface Item {
   id: string;
@@ -699,8 +706,15 @@ export interface Item {
   weedingReason?: string | null;
   sourceName?: string | null;
   borrowed?: boolean;
-  /** Active loan id when borrowed (staff circulation lookup). */
+  /** Active loan id when borrowed (staff circulation lookup). Never shown as a borrower name. */
   loanId?: string | null;
+  /**
+   * Future server field. Card and initials only; absent on current item payloads.
+   * The item screen must not load the loan to fill this in.
+   */
+  borrower?: ItemCopyBorrower | null;
+  /** Future server field. Expected return, when the copy is on loan. */
+  dueDate?: string | null;
   /** Server-computed. May be `toSearch` on staff responses. */
   availability: ItemAvailability;
   /** True only for `available` and `onLoan`, and never when the copy is withdrawn. */
@@ -737,6 +751,10 @@ export interface ItemStaffView {
   sourceName: string | null;
   borrowed: boolean;
   loanId?: string | null;
+  /** Future server field. Absent until the item payload carries a minimized borrower. */
+  borrower?: ItemCopyBorrower | null;
+  /** Future server field. Expected return, when the copy is on loan. */
+  dueDate?: string | null;
   availability: ItemAvailability;
   canHoldItem: boolean;
   holdUserId?: string | null;
@@ -763,6 +781,13 @@ export interface ItemPublicView {
   archivedAt: string | null;
   sourceName: string | null;
   borrowed: boolean;
+  /**
+   * Future server field. The reader and OPAC views never render it,
+   * even when a later payload includes a card or initials.
+   */
+  borrower?: ItemCopyBorrower | null;
+  /** Future server field. Expected return, when the copy is on loan. */
+  dueDate?: string | null;
   availability: ItemPublicAvailability;
   canHoldItem: boolean;
 }

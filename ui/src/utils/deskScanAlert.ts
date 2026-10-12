@@ -230,6 +230,32 @@ export interface CheckInScanBody {
   } | null;
 }
 
+/**
+ * Notice after a return succeeded.
+ * The loan in the body is the one just closed, so the pre-return “on loan” warning is stale.
+ * A hold that the return readied is still worth showing.
+ */
+export function deskScanAlertAfterReturn(body: CheckInScanBody | null | undefined): DeskScanAlert | null {
+  if (!body?.hold) return null;
+  return {
+    kind: 'onHold',
+    patronName: readerName(body.hold.user),
+  };
+}
+
+/** Drop the checkout “still on loan” warning for the copy that was just returned. */
+export function checkoutAlertAfterSuccessfulReturn<
+  T extends { kind: string; barcode: string; loanId?: string | null },
+>(alert: T | null, returned: { barcode?: string | null; loanId?: string | null }): T | null {
+  if (!alert) return null;
+  if (alert.kind !== 'onLoan' && alert.kind !== 'alreadyOnLoan') return alert;
+  const barcode = returned.barcode?.trim();
+  const loanId = returned.loanId?.trim();
+  if (barcode && alert.barcode === barcode) return null;
+  if (loanId && alert.loanId && alert.loanId === loanId) return null;
+  return alert;
+}
+
 /** Notice from a check-in body when the barcode lookup did not run. */
 export function deskScanAlertFromCheckIn(body: CheckInScanBody | null | undefined): DeskScanAlert | null {
   if (!body) return null;

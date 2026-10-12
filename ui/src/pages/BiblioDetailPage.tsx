@@ -25,8 +25,8 @@ import CallNumberField from '@/components/specimen/CallNumberField';
 import { buildSuggestedCallNumber, validateCallNumber } from '@/utils/callNumber';
 import { formChoiceControlClass, formControlClass, formLabelClass } from '@/utils/formControl';
 import { useAuth } from '@/contexts/AuthContext';
-import { canArchiveItems, canDeleteBiblios, canManageItems, canManageLoans, canManageWeeding, canPatronSelfServiceHolds, isLibrarian, type MediaType } from '@/types';
-import SpecimenBorrowerLine from '@/components/specimen/SpecimenBorrowerLine';
+import { canArchiveItems, canDeleteBiblios, canManageItems, canManageWeeding, canPatronSelfServiceHolds, canReadUsers, isLibrarian, type MediaType } from '@/types';
+import CopyLoanStatus from '@/components/items/CopyLoanStatus';
 import PlaceHoldDialog from '@/components/holds/PlaceHoldDialog';
 import BatchDeleteSpecimensDialog from '@/components/specimen/BatchDeleteSpecimensDialog';
 import WeedingStatusControl from '@/components/items/WeedingStatusControl';
@@ -593,7 +593,6 @@ export default function BiblioDetailPage() {
                         prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id],
                       );
                     }}
-                    showBorrower={canManageLoans(user?.accountType)}
                     audience={isLibrarian(user?.accountType) ? 'staff' : 'public'}
                     showReserveButton={canPlaceTitleHold && specimen.canHoldItem === true}
                     onReserve={() => {
@@ -994,7 +993,6 @@ interface SpecimenCardProps {
   selected?: boolean;
   onToggleSelect?: () => void;
   audience: AvailabilityAudience;
-  showBorrower?: boolean;
   showReserveButton?: boolean;
   onReserve?: () => void;
   onUpdated?: () => void;
@@ -1016,7 +1014,6 @@ function SpecimenCard({
   selected = false,
   onToggleSelect,
   audience,
-  showBorrower,
   showReserveButton,
   onReserve,
   onUpdated,
@@ -1025,6 +1022,8 @@ function SpecimenCard({
 }: SpecimenCardProps) {
   // specimen is physical Item
   const { t } = useTranslation();
+  const { user: authUser } = useAuth();
+  const canReadBorrowers = canReadUsers(authUser, api.getToken());
   const staffCopy = isItemStaffView(specimen) ? specimen : null;
   const ready = isReadyToCirculate(specimen);
   const incomplete = specimen.borrowable === false && !ready;
@@ -1100,9 +1099,16 @@ function SpecimenCard({
         <p className="mt-1 text-xs text-gray-600 dark:text-gray-300">{t(staffDetailKey)}</p>
       )}
 
-      {showBorrower && staffCopy?.borrowed && staffCopy.loanId && (
-        <SpecimenBorrowerLine loanId={staffCopy.loanId} />
-      )}
+      <CopyLoanStatus
+        audience={audience}
+        linked={canReadBorrowers}
+        copy={{
+          borrowed: specimen.borrowed,
+          availability: specimen.availability,
+          dueDate: specimen.dueDate,
+          borrower: specimen.borrower,
+        }}
+      />
 
       {audience === 'staff' && incomplete && missing.length > 0 ? (
         <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
