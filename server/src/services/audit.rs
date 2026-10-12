@@ -101,6 +101,10 @@ pub mod event {
     pub const ITEM_CLAIMED_RETURNED: &str = "item.claimed_returned";
     pub const ITEM_CLAIMS_RETURNED_RESOLVED: &str = "item.claims_returned_resolved";
     pub const ITEM_WEEDING_UPDATED: &str = "item.weeding_updated";
+    pub const ITEM_WITHDRAWN: &str = "item.withdrawn";
+    pub const ITEM_WITHDRAWALS_BATCH: &str = "item.withdrawals_batch";
+    pub const ITEM_WITHDRAWAL_CANCELLED: &str = "item.withdrawal_cancelled";
+    pub const ITEM_WITHDRAWAL_COMPLETED: &str = "item.withdrawal_completed";
     pub const ITEM_MARKED_TO_SEARCH: &str = "item.marked_to_search";
     pub const ITEM_FOUND_ON_SHELF: &str = "item.found_on_shelf";
 

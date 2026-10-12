@@ -456,7 +456,12 @@ impl From<Biblio> for BiblioPublicView {
             series: biblio.series,
             collections: biblio.collections,
             edition: biblio.edition,
-            items: biblio.items.into_iter().map(ItemPublicView::from).collect(),
+            items: biblio
+                .items
+                .into_iter()
+                .filter(|item| item.weeding_status != WeedingStatus::Withdrawn)
+                .map(ItemPublicView::from)
+                .collect(),
         }
     }
 }
@@ -537,6 +542,7 @@ impl From<BiblioShort> for BiblioShortPublic {
             items: biblio
                 .items
                 .into_iter()
+                .filter(|item| item.weeding_status != WeedingStatus::Withdrawn)
                 .map(ItemShortPublic::from)
                 .collect(),
         }

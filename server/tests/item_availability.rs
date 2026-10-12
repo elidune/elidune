@@ -456,12 +456,12 @@ async fn transit_loan_tosearch_and_blocked_copies() {
 
     let (status, wd) = app
         .post_json(
-            &format!("/api/v1/items/{withdrawn}/weeding"),
-            &json!({ "status": "withdrawn" }),
+            &format!("/api/v1/items/{withdrawn}/withdrawals"),
+            &json!({ "reason": "worn", "destination": "pulp" }),
             Some(&admin_token),
         )
         .await;
-    assert_eq!(status, StatusCode::OK, "withdraw: {wd}");
+    assert_eq!(status, StatusCode::CREATED, "withdraw: {wd}");
     let (status, cand) = app
         .post_json(
             &format!("/api/v1/items/{candidate}/weeding"),

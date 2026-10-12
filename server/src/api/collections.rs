@@ -118,7 +118,15 @@ pub async fn get_collection_biblios(
     let body = if claims.is_librarian() {
         BiblioShortListResponse::Staff(biblios.into_iter().map(BiblioShortStaff::from).collect())
     } else {
-        BiblioShortListResponse::Public(biblios.into_iter().map(BiblioShortPublic::from).collect())
+        BiblioShortListResponse::Public(
+            biblios
+                .into_iter()
+                .filter(|biblio| {
+                    biblio.weeding_status != crate::models::item::WeedingStatus::Withdrawn
+                })
+                .map(BiblioShortPublic::from)
+                .collect(),
+        )
     };
     Ok(Json(body))
 }

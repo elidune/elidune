@@ -40,6 +40,24 @@ pub mod error_code {
     pub const RATE_LIMITED: &str = "rate_limited";
     /// Checkout of a copy that is `to_pick` for a different patron.
     pub const ITEM_TO_PICK_FOR_OTHER: &str = "item_to_pick_for_other";
+    /// Delete refused because the copy has a loan, hold, or fine. Weed it instead.
+    pub const ITEM_HAS_HISTORY_USE_WEEDING: &str = "item_has_history_use_weeding";
+    /// Delete refused because the bibliographic record still has copies.
+    pub const BIBLIO_HAS_ITEMS: &str = "biblio_has_items";
+    /// Delete refused because the bibliographic record has holds.
+    pub const BIBLIO_HAS_HOLDS: &str = "biblio_has_holds";
+    pub const ITEM_ON_LOAN: &str = "item_on_loan";
+    pub const ITEM_IN_TRANSIT: &str = "item_in_transit";
+    pub const ITEM_ON_HOLD: &str = "item_on_hold";
+    pub const WITHDRAWAL_REASON_DETAIL_REQUIRED: &str = "withdrawal_reason_detail_required";
+    pub const WITHDRAWAL_DESTINATION_REQUIRED: &str = "withdrawal_destination_required";
+    pub const WITHDRAWAL_ALREADY_ACTIVE: &str = "withdrawal_already_active";
+    pub const WITHDRAWAL_NOT_ACTIVE: &str = "withdrawal_not_active";
+    pub const WITHDRAWAL_NOT_LEGACY: &str = "withdrawal_not_legacy";
+    /// `POST /items/{id}/weeding` with `status: withdrawn`.
+    pub const WITHDRAWN_VIA_WITHDRAWAL: &str = "withdrawn_via_withdrawal";
+    /// Leaving `withdrawn` requires cancelling the active withdrawal.
+    pub const WITHDRAWAL_USE_CANCEL: &str = "withdrawal_use_cancel";
 }
 
 /// Main application error type
@@ -127,6 +145,25 @@ pub enum AppError {
         user_id: i64,
         user_name: String,
     },
+
+    /// Stable `error_code` with an explicit HTTP status (400, 409, or 422).
+    #[error("{message}")]
+    Coded {
+        status: u16,
+        code: &'static str,
+        message: String,
+    },
+}
+
+impl AppError {
+    #[must_use]
+    pub fn coded(status: u16, code: &'static str, message: impl Into<String>) -> Self {
+        Self::Coded {
+            status,
+            code,
+            message: message.into(),
+        }
+    }
 }
 
 impl From<sqlx::Error> for AppError {
@@ -329,6 +366,20 @@ impl AppError {
                 message:
                     "This copy is on the pick list for another patron — use force=true to override"
                         .to_string(),
+            },
+            AppError::Coded {
+                status,
+                code,
+                message,
+            } => HttpErrorFields {
+                status: StatusCode::from_u16(*status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+                code,
+                label: match *status {
+                    400 => "Validation Error",
+                    409 => "Conflict",
+                    _ => "Business Rule Violation",
+                },
+                message: message.clone(),
             },
         }
     }

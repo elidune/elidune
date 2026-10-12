@@ -46,6 +46,21 @@ impl Repository {
             );
         }
 
+        if query.exclude_fully_withdrawn.unwrap_or(false) {
+            where_parts.push(
+                "NOT (\
+                    EXISTS (SELECT 1 FROM items iw WHERE iw.biblio_id = b.id AND iw.archived_at IS NULL) \
+                    AND NOT EXISTS (\
+                        SELECT 1 FROM items ic \
+                        WHERE ic.biblio_id = b.id \
+                          AND ic.archived_at IS NULL \
+                          AND ic.weeding_status <> 'withdrawn'\
+                    )\
+                )"
+                .to_string(),
+            );
+        }
+
         if let Some(ref mt) = query.media_type {
             params.push(Param::Text(mt.clone()));
             where_parts.push(format!("b.media_type = ${}", params.len()));

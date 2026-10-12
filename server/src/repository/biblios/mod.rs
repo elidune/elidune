@@ -17,6 +17,7 @@ use sqlx::FromRow;
 
 use super::Repository;
 use crate::models::item::ItemShort;
+use crate::models::withdrawal::{ItemWithdrawal, WithdrawalList, WithdrawalQuery, WithdrawalWrite};
 use crate::{
     error::AppResult,
     models::{
@@ -101,7 +102,7 @@ pub trait BibliosRepository: Send + Sync {
     ) -> AppResult<bool>;
     async fn items_get_by_barcode(&self, barcode: &str) -> AppResult<Option<(i64, bool)>>;
     async fn items_reactivate(&self, item_id: i64, biblio_id: i64, item: &Item) -> AppResult<Item>;
-    /// Set weeding status. Withdrawn cancels item-targeted holds and advances the queue.
+    /// Set candidate or on-shelf weeding status. Withdrawal uses `item_withdrawals_create`.
     async fn items_set_weeding(
         &self,
         item_id: i64,
@@ -148,6 +149,30 @@ pub trait BibliosRepository: Send + Sync {
         id: i64,
         biblio: &'a mut crate::models::biblio::Biblio,
     ) -> AppResult<&'a mut crate::models::biblio::Biblio>;
+    async fn item_withdrawals_create(
+        &self,
+        item_id: i64,
+        agent_id: i64,
+        input: &WithdrawalWrite,
+    ) -> AppResult<ItemWithdrawal>;
+    async fn item_withdrawals_create_many(
+        &self,
+        item_ids: &[i64],
+        agent_id: i64,
+        input: &WithdrawalWrite,
+    ) -> AppResult<Vec<ItemWithdrawal>>;
+    async fn item_withdrawals_cancel(&self, id: i64, agent_id: i64) -> AppResult<ItemWithdrawal>;
+    async fn item_withdrawals_complete(
+        &self,
+        id: i64,
+        input: &WithdrawalWrite,
+    ) -> AppResult<ItemWithdrawal>;
+    async fn item_withdrawals_list(&self, query: &WithdrawalQuery) -> AppResult<WithdrawalList>;
+    async fn item_withdrawals_export_rows(
+        &self,
+        query: &WithdrawalQuery,
+    ) -> AppResult<Vec<ItemWithdrawal>>;
+    async fn user_preferred_language(&self, user_id: i64) -> AppResult<Option<String>>;
 }
 
 #[async_trait::async_trait]
@@ -364,6 +389,44 @@ impl BibliosRepository for Repository {
         biblio: &'a mut crate::models::biblio::Biblio,
     ) -> crate::error::AppResult<&'a mut crate::models::biblio::Biblio> {
         Repository::biblios_full_bibliographic_replace(self, id, biblio).await
+    }
+    async fn item_withdrawals_create(
+        &self,
+        item_id: i64,
+        agent_id: i64,
+        input: &WithdrawalWrite,
+    ) -> AppResult<ItemWithdrawal> {
+        Repository::item_withdrawals_create(self, item_id, agent_id, input).await
+    }
+    async fn item_withdrawals_create_many(
+        &self,
+        item_ids: &[i64],
+        agent_id: i64,
+        input: &WithdrawalWrite,
+    ) -> AppResult<Vec<ItemWithdrawal>> {
+        Repository::item_withdrawals_create_many(self, item_ids, agent_id, input).await
+    }
+    async fn item_withdrawals_cancel(&self, id: i64, agent_id: i64) -> AppResult<ItemWithdrawal> {
+        Repository::item_withdrawals_cancel(self, id, agent_id).await
+    }
+    async fn item_withdrawals_complete(
+        &self,
+        id: i64,
+        input: &WithdrawalWrite,
+    ) -> AppResult<ItemWithdrawal> {
+        Repository::item_withdrawals_complete(self, id, input).await
+    }
+    async fn item_withdrawals_list(&self, query: &WithdrawalQuery) -> AppResult<WithdrawalList> {
+        Repository::item_withdrawals_list(self, query).await
+    }
+    async fn item_withdrawals_export_rows(
+        &self,
+        query: &WithdrawalQuery,
+    ) -> AppResult<Vec<ItemWithdrawal>> {
+        Repository::item_withdrawals_export_rows(self, query).await
+    }
+    async fn user_preferred_language(&self, user_id: i64) -> AppResult<Option<String>> {
+        Repository::user_preferred_language(self, user_id).await
     }
 }
 

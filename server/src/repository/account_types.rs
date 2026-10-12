@@ -43,7 +43,7 @@ impl Repository {
             r#"
             SELECT code, name, items_rights, users_rights, loans_rights,
                    items_archive_rights, holds_rights, settings_rights, events_rights,
-                   acquisitions_rights
+                   acquisitions_rights, weeding_rights, weeding_cancel_rights
             FROM account_types
             ORDER BY code
             "#,
@@ -58,7 +58,7 @@ impl Repository {
             r#"
             SELECT code, name, items_rights, users_rights, loans_rights,
                    items_archive_rights, holds_rights, settings_rights, events_rights,
-                   acquisitions_rights
+                   acquisitions_rights, weeding_rights, weeding_cancel_rights
             FROM account_types
             WHERE code = $1
             "#,
@@ -96,6 +96,8 @@ impl Repository {
         add_opt!(data.settings_rights, "settings_rights");
         add_opt!(data.events_rights, "events_rights");
         add_opt!(data.acquisitions_rights, "acquisitions_rights");
+        add_opt!(data.weeding_rights, "weeding_rights");
+        add_opt!(data.weeding_cancel_rights, "weeding_cancel_rights");
 
         if sets.is_empty() {
             return Err(AppError::Validation("No fields to update".to_string()));
@@ -103,7 +105,8 @@ impl Repository {
 
         let q = format!(
             "UPDATE account_types SET {} WHERE code = ${} RETURNING code, name, items_rights, users_rights, loans_rights, \
-             items_archive_rights, holds_rights, settings_rights, events_rights, acquisitions_rights",
+             items_archive_rights, holds_rights, settings_rights, events_rights, acquisitions_rights, \
+             weeding_rights, weeding_cancel_rights",
             sets.join(", "),
             idx
         );
@@ -127,6 +130,8 @@ impl Repository {
         bind_opt!(data.settings_rights);
         bind_opt!(data.events_rights);
         bind_opt!(data.acquisitions_rights);
+        bind_opt!(data.weeding_rights);
+        bind_opt!(data.weeding_cancel_rights);
 
         b = b.bind(code);
 

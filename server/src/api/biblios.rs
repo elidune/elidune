@@ -157,9 +157,12 @@ impl<T: for<'a> ToSchema<'a>> PaginatedResponse<T> {
 pub async fn list_biblios(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    Query(query): Query<BiblioQuery>,
+    Query(mut query): Query<BiblioQuery>,
 ) -> AppResult<Json<BiblioSearchResponse>> {
     claims.require_read_items()?;
+    if !claims.is_librarian() {
+        query.exclude_fully_withdrawn = Some(true);
+    }
 
     let (biblios, total) = state.services.catalog.search_biblios(&query).await?;
     let page = query.page.unwrap_or(1);
@@ -207,6 +210,11 @@ pub async fn get_biblio(
     claims.require_read_items()?;
 
     let biblio = state.services.catalog.get_biblio(id).await?;
+    if !claims.is_librarian() && biblio.is_fully_withdrawn() {
+        return Err(crate::error::AppError::NotFound(
+            "Bibliographic record not found".into(),
+        ));
+    }
     let body = if claims.is_librarian() {
         BiblioReadResponse::Staff(BiblioStaffView::from(biblio))
     } else {
@@ -654,10 +662,26 @@ pub async fn list_items(
     claims.require_read_items()?;
 
     let items = state.services.catalog.get_items(biblio_id).await?;
+    if !claims.is_librarian()
+        && !items.is_empty()
+        && items
+            .iter()
+            .all(|item| item.weeding_status == crate::models::item::WeedingStatus::Withdrawn)
+    {
+        return Err(crate::error::AppError::NotFound(
+            "Bibliographic record not found".into(),
+        ));
+    }
     let body = if claims.is_librarian() {
         ItemListResponse::Staff(items.into_iter().map(ItemStaffView::from).collect())
     } else {
-        ItemListResponse::Public(items.into_iter().map(ItemPublicView::from).collect())
+        ItemListResponse::Public(
+            items
+                .into_iter()
+                .filter(|item| item.weeding_status != crate::models::item::WeedingStatus::Withdrawn)
+                .map(ItemPublicView::from)
+                .collect(),
+        )
     };
     Ok(Json(body))
 }

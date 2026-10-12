@@ -526,6 +526,12 @@ impl From<Biblio> for BiblioShort {
 }
 
 impl Biblio {
+    /// True when every remaining copy is withdrawn. Empty records are not withdrawn.
+    #[must_use]
+    pub fn is_fully_withdrawn(&self) -> bool {
+        self.weeding_status == crate::models::item::WeedingStatus::Withdrawn
+    }
+
     /// Mark the record withdrawn when every remaining copy is withdrawn.
     pub fn refresh_weeding_status(&mut self) {
         self.weeding_status = crate::models::item::WeedingStatus::for_copies(
@@ -726,6 +732,10 @@ pub struct BiblioQuery {
     /// When `true`, include bibliographic records that have **no** active (non-archived) linked items.
     /// When omitted or `false`, only biblios with at least one active item are returned (recommended for patron-facing catalog).
     pub include_without_active_items: Option<bool>,
+    /// When `true`, omit records whose every non-archived copy is withdrawn.
+    /// OPAC and reader search force this on.
+    #[serde(default)]
+    pub exclude_fully_withdrawn: Option<bool>,
     pub page: Option<i64>,
     pub per_page: Option<i64>,
 }

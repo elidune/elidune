@@ -54,6 +54,16 @@ pub async fn get_biblio_by_item(
 ) -> AppResult<Json<BiblioReadResponse>> {
     claims.require_read_items()?;
     let biblio = state.services.catalog.get_biblio_for_item(item_id).await?;
+    if !claims.is_librarian()
+        && biblio
+            .items
+            .iter()
+            .any(|item| item.weeding_status == crate::models::item::WeedingStatus::Withdrawn)
+    {
+        return Err(crate::error::AppError::NotFound(
+            "Bibliographic record not found".into(),
+        ));
+    }
     let body = if claims.is_librarian() {
         BiblioReadResponse::Staff(BiblioStaffView::from(biblio))
     } else {
@@ -91,6 +101,16 @@ pub async fn get_biblio_by_barcode(
         .catalog
         .get_biblio_for_item_barcode(barcode.as_str())
         .await?;
+    if !claims.is_librarian()
+        && biblio
+            .items
+            .iter()
+            .any(|item| item.weeding_status == crate::models::item::WeedingStatus::Withdrawn)
+    {
+        return Err(crate::error::AppError::NotFound(
+            "Bibliographic record not found".into(),
+        ));
+    }
     let body = if claims.is_librarian() {
         BiblioReadResponse::Staff(BiblioStaffView::from(biblio))
     } else {
@@ -175,7 +195,7 @@ pub async fn delete_item(
     Path(item_id): Path<i64>,
     Query(params): Query<DeleteItemParams>,
 ) -> AppResult<StatusCode> {
-    claims.require_write_items()?;
+    claims.require_delete_items()?;
     let force = params.force.unwrap_or(false);
     match state.services.catalog.delete_item(item_id, force).await {
         Ok(biblio_id) => {
@@ -241,7 +261,7 @@ pub async fn set_item_weeding(
     Path(item_id): Path<i64>,
     ValidatedJson(body): ValidatedJson<SetWeedingRequest>,
 ) -> AppResult<Json<Item>> {
-    claims.require_write_items()?;
+    claims.require_weeding()?;
     match state
         .services
         .catalog
