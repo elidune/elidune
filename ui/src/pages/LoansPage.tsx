@@ -697,13 +697,11 @@ export default function LoansPage() {
     }
 
     const barcode = specimenBarcode.trim();
-    if (!force) {
-      const snapshot = await readDeskCopy(barcode);
-      const alert = deskScanAlert(snapshot, { patronId: selectedUser.id });
-      if (alert) {
-        setCheckoutScanAlert({ ...alert, barcode });
-        return;
-      }
+    const snapshot = await readDeskCopy(barcode);
+    const alert = deskScanAlert(snapshot, { patronId: selectedUser.id });
+    if (alert) {
+      setCheckoutScanAlert({ ...alert, barcode });
+      return;
     }
     setCheckoutScanAlert(null);
 
@@ -743,9 +741,9 @@ export default function LoansPage() {
       const blocked = toPick
         ? { kind: 'onHold' as const, patronName: toPick.userName }
         : deskScanAlertFromCheckoutMessage(rawMessage);
-      if (blocked && !force) {
+      if (blocked) {
         setCheckoutScanAlert({ ...blocked, barcode });
-        return;
+        throw error;
       }
       if (errorCode === 'business_rule_violation' && !force) {
         setBarcodeInput('');
@@ -757,7 +755,7 @@ export default function LoansPage() {
         });
         if (ok) return handleBorrow(specimenBarcode, true);
       }
-      throw new Error(displayMsg);
+      throw error;
     }
   };
 
@@ -1276,20 +1274,17 @@ export default function LoansPage() {
                     {checkoutScanAlert ? (
                       <DeskScanNotice
                         alert={checkoutScanAlert}
-                        forceDisabled={isBorrowLoading}
-                        onForce={() => {
-                          setIsBorrowLoading(true);
-                          void handleBorrow(checkoutScanAlert.barcode, true)
-                            .catch((err: unknown) => {
-                              if (isCheckoutDeclined(err)) return;
-                              const msg =
-                                err instanceof Error && err.message
-                                  ? err.message
-                                  : t('loans.errorCreatingLoan');
-                              showToast({ variant: 'error', message: msg });
-                            })
-                            .finally(() => setIsBorrowLoading(false));
-                        }}
+                        onReturn={
+                          checkoutScanAlert.kind === 'onLoan'
+                            ? () => {
+                                setReturnBarcodeInput(checkoutScanAlert.barcode);
+                                setReturnError('');
+                                setReturnResult(null);
+                                setReturnScanAlert(null);
+                                setActiveTab('return');
+                              }
+                            : undefined
+                        }
                       />
                     ) : null}
                   </div>
@@ -1491,7 +1486,7 @@ export default function LoansPage() {
                       }
                     />
                   </form>
-                  {returnScanAlert ? <DeskScanNotice alert={returnScanAlert} /> : null}
+                  {returnScanAlert ? <DeskScanNotice alert={returnScanAlert} place="return" /> : null}
                   {returnError && (
                     <div
                       role="alert"

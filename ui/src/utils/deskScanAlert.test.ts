@@ -9,7 +9,28 @@ import {
   deskScanAlertFromCheckIn,
   deskScanAlertFromCheckoutMessage,
   deskScanAlertMessage,
+  deskScanNoticeAction,
 } from './deskScanAlert.ts';
+
+const catalogs = { fr, en, de, es } as const;
+
+function lookup(catalog: unknown, key: string): string | null {
+  const parts = key.split('.');
+  let cursor: unknown = catalog;
+  for (const part of parts) {
+    if (!cursor || typeof cursor !== 'object' || !(part in cursor)) return null;
+    cursor = (cursor as Record<string, unknown>)[part];
+  }
+  return typeof cursor === 'string' ? cursor : null;
+}
+
+function translate(lang: keyof typeof catalogs) {
+  const catalog = catalogs[lang];
+  return (key: string, values?: Record<string, unknown>) => {
+    const template = lookup(catalog, key) ?? key;
+    return template.replace(/\{\{(\w+)\}\}/g, (_, name: string) => String(values?.[name] ?? ''));
+  };
+}
 
 describe('desk scan alert', () => {
   it('warns when the copy is on loan to someone else or on hold', () => {
@@ -66,25 +87,59 @@ describe('desk scan alert', () => {
     );
   });
 
-  it('names the other reader when the lookup has one', () => {
-    const t = (key: string, values?: Record<string, unknown>) => {
-      const parts = key.split('.');
-      let cursor: unknown = fr;
-      for (const part of parts) {
-        if (!cursor || typeof cursor !== 'object' || !(part in cursor)) return key;
-        cursor = (cursor as Record<string, unknown>)[part];
-      }
-      const template = typeof cursor === 'string' ? cursor : key;
-      return template.replace(/\{\{(\w+)\}\}/g, (_, name: string) => String(values?.[name] ?? ''));
-    };
+  it('asks for the return first when the copy is on loan, and never offers a loan', () => {
+    const onLoan = { kind: 'onLoan' as const, patronName: 'Ada Lovelace' };
+    const onHold = { kind: 'onHold' as const, patronName: 'Grace Hopper' };
+    assert.equal(deskScanNoticeAction(onLoan), 'return');
+    assert.equal(deskScanNoticeAction(onLoan, 'return'), null);
+    assert.equal(deskScanNoticeAction(onHold), null);
+    assert.equal(deskScanNoticeAction(onHold, 'checkout'), null);
+
     assert.equal(
-      deskScanAlertMessage({ kind: 'onLoan', patronName: 'Ada Lovelace' }, t),
+      deskScanAlertMessage(onLoan, translate('fr')),
+      "Cet exemplaire est encore en prêt à Ada Lovelace. Faites d'abord le retour.",
+    );
+    assert.equal(
+      deskScanAlertMessage({ kind: 'onLoan', patronName: null }, translate('fr')),
+      "Cet exemplaire est encore en prêt à un autre lecteur. Faites d'abord le retour.",
+    );
+    assert.equal(
+      deskScanAlertMessage(onLoan, translate('en')),
+      'This copy is still on loan to Ada Lovelace. Process the return first.',
+    );
+    assert.equal(
+      deskScanAlertMessage(onLoan, translate('de')),
+      'Dieses Exemplar ist noch an Ada Lovelace ausgeliehen. Erfassen Sie zuerst die Rückgabe.',
+    );
+    assert.equal(
+      deskScanAlertMessage(onLoan, translate('es')),
+      'Este ejemplar sigue en préstamo a Ada Lovelace. Registre primero la devolución.',
+    );
+    assert.equal(
+      deskScanAlertMessage(onLoan, translate('fr'), 'return'),
       'Cet exemplaire est en prêt à Ada Lovelace.',
     );
+
     assert.equal(
-      deskScanAlertMessage({ kind: 'onHold', patronName: null }, t),
+      deskScanAlertMessage(onHold, translate('fr')),
+      'Cet exemplaire est réservé pour Grace Hopper.',
+    );
+    assert.equal(
+      deskScanAlertMessage({ kind: 'onHold', patronName: null }, translate('fr')),
       'Cet exemplaire est réservé pour un autre lecteur.',
     );
+
+    for (const lang of ['fr', 'en', 'de', 'es'] as const) {
+      const loans = catalogs[lang].loans as Record<string, unknown>;
+      assert.equal('scanAlertForce' in loans, false);
+      const checkout = deskScanAlertMessage(onLoan, translate(lang));
+      const hold = deskScanAlertMessage(onHold, translate(lang));
+      assert.equal(checkout.includes('force'), false);
+      assert.equal(hold.includes('force'), false);
+      assert.equal(checkout.includes('{{'), false);
+      assert.equal(lookup(catalogs[lang], 'loans.scanAlertGoToReturn')?.includes('{{'), false);
+      assert.equal(lookup(catalogs[lang], 'errors.apiCode.item_to_pick_for_other')?.toLowerCase().includes('force'), false);
+    }
   });
 });
 

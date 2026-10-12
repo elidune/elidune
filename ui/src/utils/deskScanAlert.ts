@@ -107,8 +107,29 @@ export function deskScanAlertFromCheckoutMessage(message: string | null | undefi
 
 type Translate = (key: string, values?: Record<string, unknown>) => string;
 
-export function deskScanAlertMessage(alert: DeskScanAlert, t: Translate): string {
+/** Where the notice is shown. Checkout blocks the loan; return only informs. */
+export type DeskScanPlace = 'checkout' | 'return';
+
+/**
+ * The notice never lends the copy.
+ * On checkout, an on-loan copy can switch to the return screen. An on-hold copy has no action.
+ */
+export function deskScanNoticeAction(alert: DeskScanAlert, place: DeskScanPlace = 'checkout'): 'return' | null {
+  if (place === 'checkout' && alert.kind === 'onLoan') return 'return';
+  return null;
+}
+
+export function deskScanAlertMessage(
+  alert: DeskScanAlert,
+  t: Translate,
+  place: DeskScanPlace = 'checkout',
+): string {
   if (alert.kind === 'onLoan') {
+    if (place === 'return') {
+      return alert.patronName
+        ? t('loans.scanAlertSeenOnLoan', { name: alert.patronName })
+        : t('loans.scanAlertSeenOnLoanUnknown');
+    }
     return alert.patronName
       ? t('loans.scanAlertOnLoan', { name: alert.patronName })
       : t('loans.scanAlertOnLoanUnknown');

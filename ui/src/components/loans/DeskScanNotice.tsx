@@ -1,21 +1,32 @@
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle } from 'lucide-react';
 import Button from '@/components/common/Button';
-import { deskScanAlertMessage, type DeskScanAlert } from '@/utils/deskScanAlert';
+import {
+  deskScanAlertMessage,
+  deskScanNoticeAction,
+  type DeskScanAlert,
+  type DeskScanPlace,
+} from '@/utils/deskScanAlert';
 
 interface DeskScanNoticeProps {
   alert: DeskScanAlert;
-  /** Checkout only. Runs the loan with `force` and does not open a dialog. */
-  onForce?: () => void;
-  forceDisabled?: boolean;
+  /** Checkout asks for a return first. Return only reports a loan or a hold. */
+  place?: DeskScanPlace;
+  /**
+   * Switches to the return screen with the barcode already filled in.
+   * Offered only when the copy is on loan at checkout. It does not create a loan.
+   */
+  onReturn?: () => void;
 }
 
 /**
  * Inline notice for a scanned copy that is on loan to another reader or on hold.
  * `role="status"` keeps it out of the scan field’s focus so the next barcode can be entered.
+ * There is no force-loan action.
  */
-export default function DeskScanNotice({ alert, onForce, forceDisabled = false }: DeskScanNoticeProps) {
+export default function DeskScanNotice({ alert, place = 'checkout', onReturn }: DeskScanNoticeProps) {
   const { t } = useTranslation();
+  const action = deskScanNoticeAction(alert, place);
   return (
     <div
       role="status"
@@ -23,11 +34,13 @@ export default function DeskScanNotice({ alert, onForce, forceDisabled = false }
     >
       <div className="flex min-w-0 flex-1 items-start gap-2">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700 dark:text-amber-300" aria-hidden />
-        <p className="text-sm font-medium">{deskScanAlertMessage(alert, (key, values) => t(key, values))}</p>
+        <p className="text-sm font-medium">
+          {deskScanAlertMessage(alert, (key, values) => t(key, values), place)}
+        </p>
       </div>
-      {onForce ? (
-        <Button type="button" size="sm" variant="secondary" onClick={onForce} disabled={forceDisabled}>
-          {t('loans.scanAlertForce')}
+      {action === 'return' && onReturn ? (
+        <Button type="button" size="sm" variant="secondary" onClick={onReturn}>
+          {t('loans.scanAlertGoToReturn')}
         </Button>
       ) : null}
     </div>
