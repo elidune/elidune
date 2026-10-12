@@ -217,19 +217,15 @@ async fn event_audiences_create_update_read_and_reject_empty() {
     assert_eq!(all_body["allAudiences"], true);
     assert_eq!(all_body["publicTypes"], json!([]));
 
-    let (list_status, list_body) = app
-        .get_json_with_auth(
-            "/api/v1/events?startDate=2026-09-03&endDate=2026-09-03&perPage=100",
+    let listed = app
+        .find_paged_row(
             &token,
+            "/api/v1/events?startDate=2026-09-03&endDate=2026-09-03",
+            "events",
+            &format!("event {multi_id}"),
+            |event| fixtures::json_id(&event["id"]) == multi_id,
         )
         .await;
-    assert_eq!(list_status, StatusCode::OK, "list: {list_body}");
-    let listed = list_body["events"]
-        .as_array()
-        .expect("events")
-        .iter()
-        .find(|event| fixtures::json_id(&event["id"]) == multi_id)
-        .expect("updated event in list");
     assert_eq!(listed["allAudiences"], true);
 
     for id in [legacy_id, multi_id] {

@@ -169,16 +169,26 @@ async fn staff_lists_suggestions_patrons_see_own() {
         "patron must not see another patron's suggestion: {mine}"
     );
 
-    let (status, staff) = app
-        .get_json_with_auth("/api/v1/suggestions", &admin_token)
+    let staff_a = app
+        .find_paged_row(
+            &admin_token,
+            "/api/v1/suggestions",
+            "suggestions",
+            &format!("suggestion {title_a}"),
+            |row| row["title"] == title_a,
+        )
         .await;
-    assert_eq!(status, StatusCode::OK, "{staff}");
-    let staff_items = staff["suggestions"].as_array().expect("suggestions array");
-    assert!(
-        staff_items.iter().any(|s| s["title"] == title_a)
-            && staff_items.iter().any(|s| s["title"] == title_b),
-        "staff list must include both: {staff}"
-    );
+    let staff_b = app
+        .find_paged_row(
+            &admin_token,
+            "/api/v1/suggestions",
+            "suggestions",
+            &format!("suggestion {title_b}"),
+            |row| row["title"] == title_b,
+        )
+        .await;
+    assert_eq!(staff_a["title"], title_a);
+    assert_eq!(staff_b["title"], title_b);
 }
 
 #[tokio::test]

@@ -230,7 +230,10 @@ async fn staff_force_override_is_audited() {
 
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     let (status, audit) = app
-        .get_json_with_auth("/api/v1/audit?eventType=hold.max_overridden", &admin_token)
+        .get_json_with_auth(
+            &format!("/api/v1/audit?eventType=hold.max_overridden&entityId={reader_id}"),
+            &admin_token,
+        )
         .await;
     assert_eq!(status, StatusCode::OK, "audit query: {audit}");
     let entries = audit["entries"].as_array().cloned().unwrap_or_default();
