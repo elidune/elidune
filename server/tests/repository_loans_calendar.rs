@@ -548,6 +548,132 @@ async fn library_country_must_be_iso_and_timezone_must_belong_to_it() {
 }
 
 #[tokio::test]
+async fn library_default_language_is_public_and_admin_writable() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (_reader_id, reader_token) =
+        fixtures::create_reader(&app, &admin_token, "langreader").await;
+
+    let column_default_is_null: bool = sqlx::query_scalar(
+        r#"
+        SELECT column_default IS NULL AND is_nullable = 'YES'
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'library_info'
+          AND column_name = 'language'
+        "#,
+    )
+    .fetch_one(app.state.services.repository.pool())
+    .await
+    .expect("language column metadata");
+    assert!(
+        column_default_is_null,
+        "language column must default to NULL"
+    );
+
+    let (status, mut body) = app.get_json("/api/v1/library-info").await;
+    assert_eq!(status, axum::http::StatusCode::OK, "{body}");
+    assert!(
+        body.get("language").is_some(),
+        "public library-info must include language: {body}"
+    );
+    if !body["language"].is_null() {
+        let (status, cleared) = app
+            .put_json(
+                "/api/v1/library-info",
+                &json!({ "language": null }),
+                Some(&admin_token),
+            )
+            .await;
+        assert_eq!(
+            status,
+            axum::http::StatusCode::OK,
+            "reset language: {cleared}"
+        );
+        body = cleared;
+    }
+    assert!(
+        body["language"].is_null(),
+        "unset library language is null: {body}"
+    );
+
+    let (status, public_body) = app.get_json("/api/v1/library-info").await;
+    assert_eq!(status, axum::http::StatusCode::OK, "{public_body}");
+    assert!(public_body["language"].is_null(), "{public_body}");
+
+    let (status, body) = app
+        .put_json(
+            "/api/v1/library-info",
+            &json!({ "language": "de" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, axum::http::StatusCode::OK, "{body}");
+    assert_eq!(body["language"], "de");
+
+    let (status, public_body) = app.get_json("/api/v1/library-info").await;
+    assert_eq!(status, axum::http::StatusCode::OK, "{public_body}");
+    assert_eq!(public_body["language"], "de");
+
+    let (status, body) = app
+        .put_json(
+            "/api/v1/library-info",
+            &json!({ "language": "it" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, axum::http::StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["code"], "validation_error");
+
+    let (status, public_body) = app.get_json("/api/v1/library-info").await;
+    assert_eq!(status, axum::http::StatusCode::OK, "{public_body}");
+    assert_eq!(
+        public_body["language"], "de",
+        "invalid write must not stick"
+    );
+
+    let (status, body) = app
+        .put_json(
+            "/api/v1/library-info",
+            &json!({ "language": "en" }),
+            Some(&reader_token),
+        )
+        .await;
+    assert_eq!(status, axum::http::StatusCode::FORBIDDEN, "{body}");
+
+    let (status, public_body) = app.get_json("/api/v1/library-info").await;
+    assert_eq!(status, axum::http::StatusCode::OK, "{public_body}");
+    assert_eq!(
+        public_body["language"], "de",
+        "non-admin write must not stick"
+    );
+
+    let (status, body) = app
+        .put_json(
+            "/api/v1/library-info",
+            &json!({ "language": null }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, axum::http::StatusCode::OK, "{body}");
+    assert!(body["language"].is_null(), "{body}");
+
+    let (status, public_body) = app.get_json("/api/v1/library-info").await;
+    assert_eq!(status, axum::http::StatusCode::OK, "{public_body}");
+    assert!(public_body["language"].is_null(), "{public_body}");
+
+    let rejected = sqlx::query("UPDATE library_info SET language = 'it' WHERE id = 1")
+        .execute(app.state.services.repository.pool())
+        .await;
+    assert!(
+        rejected.is_err(),
+        "database check must reject languages outside fr, en, de, es"
+    );
+}
+
+#[tokio::test]
 async fn three_week_network_closure_slides_checkout_and_renewal() {
     let _guard = CALENDAR_LOCK.lock().await;
     let Some(app) = TestApp::spawn().await else {

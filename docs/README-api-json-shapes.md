@@ -943,9 +943,13 @@ List responses omit **`attachmentDataBase64`**; **`GET /events/:id`**, **`POST /
   "addrCountry": "France",
   "phones": ["+33 1 23 45 67 89"],
   "email": "mediatheque@mairie.fr",
+  "timezone": "Europe/Paris",
+  "language": null,
   "updatedAt": "2026-01-15T10:00:00Z"
 }
 ```
+
+`language` is the library default UI language: `"fr"`, `"en"`, `"de"`, `"es"`, or `null` when unset. Clients fall back to `fr` only when it is `null`. `PUT /library-info` (admin write-settings) omits the field to leave it unchanged and sends JSON `null` to clear it. Any other value is `400` `validation_error`.
 
 ---
 

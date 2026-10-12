@@ -18,6 +18,7 @@ pub type LibraryInfoSnapshot = Option<(
     Option<serde_json::Value>,
     Option<String>,
     String,
+    Option<String>,
     Option<DateTime<Utc>>,
 )>;
 
@@ -37,6 +38,7 @@ pub trait LibraryInfoRepository: Send + Sync {
         phones_json: Option<serde_json::Value>,
         email: &Option<String>,
         timezone: &Option<String>,
+        language: Option<Option<String>>,
     ) -> AppResult<()>;
 }
 
@@ -57,6 +59,7 @@ impl LibraryInfoRepository for Repository {
         phones_json: Option<serde_json::Value>,
         email: &Option<String>,
         timezone: &Option<String>,
+        language: Option<Option<String>>,
     ) -> AppResult<()> {
         Repository::library_info_upsert(
             self,
@@ -69,6 +72,7 @@ impl LibraryInfoRepository for Repository {
             phones_json,
             email,
             timezone,
+            language,
         )
         .await
     }
@@ -80,7 +84,7 @@ impl Repository {
         let result = sqlx::query(
             r#"
             SELECT name, addr_line1, addr_line2, addr_postcode, addr_city, addr_country,
-                   phones, email, timezone, updated_at
+                   phones, email, timezone, language, updated_at
             FROM library_info WHERE id = 1
             "#,
         )
@@ -98,6 +102,7 @@ impl Repository {
                 row.get("phones"),
                 row.get("email"),
                 row.get("timezone"),
+                row.get("language"),
                 row.get("updated_at"),
             )
         }))
@@ -141,13 +146,23 @@ impl Repository {
         phones_json: Option<serde_json::Value>,
         email: &Option<String>,
         timezone: &Option<String>,
+        language: Option<Option<String>>,
     ) -> AppResult<()> {
+        // `None` leaves the stored code. `Some(None)` clears it. `Some(Some)` sets it.
+        // COALESCE cannot express that third state.
+        let (language_set, language_value) = match language {
+            None => (false, None),
+            Some(value) => (true, value),
+        };
         sqlx::query(
             r#"
             INSERT INTO library_info (id, name, addr_line1, addr_line2, addr_postcode,
-                                      addr_city, addr_country, phones, email, timezone, updated_at)
+                                      addr_city, addr_country, phones, email, timezone, language,
+                                      updated_at)
             VALUES (1, $1, $2, $3, $4, $5, $6, COALESCE($7::jsonb, '[]'::jsonb), $8,
-                    COALESCE($9, 'Europe/Paris'), NOW())
+                    COALESCE($9, 'Europe/Paris'),
+                    CASE WHEN $10 THEN $11::text ELSE NULL END,
+                    NOW())
             ON CONFLICT (id) DO UPDATE SET
                 name          = COALESCE($1, library_info.name),
                 addr_line1    = COALESCE($2, library_info.addr_line1),
@@ -158,6 +173,7 @@ impl Repository {
                 phones        = COALESCE($7::jsonb, library_info.phones),
                 email         = COALESCE($8, library_info.email),
                 timezone      = COALESCE($9, library_info.timezone),
+                language      = CASE WHEN $10 THEN $11::text ELSE library_info.language END,
                 updated_at    = NOW()
             "#,
         )
@@ -170,6 +186,8 @@ impl Repository {
         .bind(phones_json)
         .bind(email)
         .bind(timezone)
+        .bind(language_set)
+        .bind(language_value)
         .execute(&self.pool)
         .await?;
         Ok(())
