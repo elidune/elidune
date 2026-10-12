@@ -18,6 +18,21 @@ impl Repository {
         user_public_type: Option<i64>,
         media_type: Option<&str>,
     ) -> AppResult<(i16, i16, i16, i16, LoanSettingsRenewAt)> {
+        let mut conn = self.pool.acquire().await?;
+        self.resolve_loan_settings_conn(&mut conn, user_public_type, media_type)
+            .await
+    }
+
+    /// Same as [`Self::resolve_loan_settings`] on an existing connection.
+    ///
+    /// Checkout and renew pass the transaction that holds `FOR UPDATE` so the
+    /// reads do not take a second pool connection.
+    pub(crate) async fn resolve_loan_settings_conn(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        user_public_type: Option<i64>,
+        media_type: Option<&str>,
+    ) -> AppResult<(i16, i16, i16, i16, LoanSettingsRenewAt)> {
         let default_duration = 21i16;
         let default_nb_max_media = 5i16;
         let default_nb_max_total = 5i16;
@@ -32,7 +47,7 @@ impl Repository {
             sqlx::query("SELECT duration, nb_max, nb_renews, renew_at FROM public_type_loan_settings WHERE public_type_id = $1 AND media_type = $2")
                 .bind(pt_id)
                 .bind(mt)
-                .fetch_optional(&self.pool)
+                .fetch_optional(&mut *conn)
                 .await?
         } else {
             None
@@ -41,7 +56,7 @@ impl Repository {
         let ptls_default = if let Some(pt_id) = user_public_type {
             sqlx::query("SELECT duration, nb_max, nb_renews, renew_at FROM public_type_loan_settings WHERE public_type_id = $1 AND media_type IS NULL")
                 .bind(pt_id)
-                .fetch_optional(&self.pool)
+                .fetch_optional(&mut *conn)
                 .await?
         } else {
             None
@@ -50,14 +65,14 @@ impl Repository {
         let ls_spec = if let Some(mt) = media_type {
             sqlx::query("SELECT duration, nb_max, nb_renews, renew_at FROM loans_settings WHERE media_type = $1")
                 .bind(mt)
-                .fetch_optional(&self.pool)
+                .fetch_optional(&mut *conn)
                 .await?
         } else {
             None
         };
 
         let ls_default = sqlx::query("SELECT duration, nb_max, nb_renews, renew_at FROM loans_settings WHERE media_type IS NULL")
-            .fetch_optional(&self.pool)
+            .fetch_optional(&mut *conn)
             .await?;
 
         let duration = ptls_spec
@@ -142,12 +157,23 @@ impl Repository {
         &self,
         media_type: Option<&str>,
     ) -> AppResult<i16> {
+        let mut conn = self.pool.acquire().await?;
+        self.resolve_renew_window_days_conn(&mut conn, media_type)
+            .await
+    }
+
+    /// Same as [`Self::resolve_renew_window_days`] on an existing connection.
+    pub(crate) async fn resolve_renew_window_days_conn(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        media_type: Option<&str>,
+    ) -> AppResult<i16> {
         if let Some(mt) = media_type {
             let spec: Option<i16> = sqlx::query_scalar(
                 "SELECT renew_window_days FROM loans_settings WHERE media_type = $1",
             )
             .bind(mt)
-            .fetch_optional(&self.pool)
+            .fetch_optional(&mut *conn)
             .await?;
             if let Some(days) = spec {
                 return Ok(days);
@@ -156,7 +182,7 @@ impl Repository {
         let global: Option<i16> = sqlx::query_scalar(
             "SELECT renew_window_days FROM loans_settings WHERE media_type IS NULL",
         )
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *conn)
         .await?;
         Ok(global.unwrap_or(crate::renewal::DEFAULT_RENEW_WINDOW_DAYS))
     }

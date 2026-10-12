@@ -110,9 +110,17 @@ impl Repository {
 
     /// IANA name stored on the library row, or [`crate::services::calendar::DEFAULT_TIMEZONE`].
     pub async fn library_timezone_name(&self) -> AppResult<String> {
+        let mut conn = self.pool.acquire().await?;
+        self.library_timezone_name_conn(&mut conn).await
+    }
+
+    pub(crate) async fn library_timezone_name_conn(
+        &self,
+        conn: &mut sqlx::PgConnection,
+    ) -> AppResult<String> {
         let name: Option<String> =
             sqlx::query_scalar("SELECT timezone FROM library_info WHERE id = 1")
-                .fetch_optional(&self.pool)
+                .fetch_optional(&mut *conn)
                 .await?
                 .flatten();
         Ok(name.unwrap_or_else(|| crate::services::calendar::DEFAULT_TIMEZONE.to_string()))
@@ -120,7 +128,16 @@ impl Repository {
 
     /// Parsed library zone. A corrupt stored name falls back to Europe/Paris.
     pub async fn library_zone(&self) -> AppResult<chrono_tz::Tz> {
-        let name = self.library_timezone_name().await?;
+        let mut conn = self.pool.acquire().await?;
+        self.library_zone_conn(&mut conn).await
+    }
+
+    /// Parsed library zone using the caller's connection (checkout/renew transaction).
+    pub(crate) async fn library_zone_conn(
+        &self,
+        conn: &mut sqlx::PgConnection,
+    ) -> AppResult<chrono_tz::Tz> {
+        let name = self.library_timezone_name_conn(conn).await?;
         match crate::services::calendar::parse_timezone(&name) {
             Ok(zone) => Ok(zone),
             Err(_) => {

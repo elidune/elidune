@@ -177,6 +177,8 @@ pub struct BatchCreateLoanItem {
 pub struct BatchCreateLoansRequest {
     pub user_id: String,
     pub barcodes: Vec<String>,
+    /// Same checkout override as `POST /loans`. Never overrides an open loan
+    /// (reserved-item override is tracked in #167).
     #[serde(default)]
     pub force: bool,
 }
@@ -197,8 +199,14 @@ pub struct BatchCreateLoanItemResult {
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub loan_id: Option<String>,
+    /// Human-readable failure text. Omitted when the checkout succeeded.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /// Machine-readable failure code, the same string as `ErrorResponse.code`
+    /// (`item_on_loan_to_other_borrower`, `item_already_on_loan_to_borrower`,
+    /// `not_found`, `business_rule_violation`, …). Omitted when the checkout succeeded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
 }
 
 /// Batch create loans — check out multiple items for one patron at once
@@ -209,7 +217,7 @@ pub struct BatchCreateLoanItemResult {
     security(("bearer_auth" = [])),
     request_body = BatchCreateLoansRequest,
     responses(
-        (status = 200, description = "Batch loan results (partial success possible)", body = BatchCreateLoansResponse),
+        (status = 200, description = "Batch loan results (partial success possible). A failed item keeps `error` and adds machine-readable `code` (same values as `ErrorResponse.code`).", body = BatchCreateLoansResponse),
         (status = 400, description = "Invalid input", body = crate::error::ErrorResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse)
     )
@@ -268,10 +276,12 @@ pub async fn batch_create_loans(
                     success: true,
                     loan_id: Some(loan_id.to_string()),
                     error: None,
+                    code: None,
                 });
             }
             Err(e) => {
                 errors += 1;
+                let (_, code, _) = e.audit_http_fields();
                 state.services.audit.log(
                     audit::event::LOAN_CREATED,
                     Some(claims.user_id),
@@ -286,6 +296,7 @@ pub async fn batch_create_loans(
                     success: false,
                     loan_id: None,
                     error: Some(e.to_string()),
+                    code: Some(code.to_string()),
                 });
             }
         }

@@ -214,6 +214,15 @@ Request — `ChangePasswordRequest`:
 { "userId": "927364819265437697", "itemId": "818273645564928001", "itemIdentification": null, "force": false }
 ```
 
+`itemId` or `itemIdentification` (barcode) identifies the copy. `force` bypasses patron, subscription, loan-limit, unpaid-fine, transit, and hold-queue checks. It never overrides an open loan (reserved-item override is tracked in #167).
+
+| Situation | HTTP | `code` |
+|-----------|------|--------|
+| Copy on loan to another borrower (`force` true or false, any role) | 409 | `item_on_loan_to_other_borrower` |
+| Copy already on loan to this borrower | 409 | `item_already_on_loan_to_borrower` |
+
+The same-borrower `message` tells staff to renew the existing loan. The previous open loan stays open. A race on `idx_loans_one_active_per_item` returns the same 409 codes.
+
 ### `LoanResponse` (POST /loans response)
 ```json
 { "id": "927364819265437700", "issueAt": "2026-04-24T00:00:00Z", "message": "Loan created" }
@@ -1200,12 +1209,20 @@ See [README-background-tasks.md](README-background-tasks.md) for full polling gu
 ```json
 {
   "created": 1,
-  "errors": 0,
+  "errors": 1,
   "results": [
-    { "barcode": "978-2-07-040850-4", "success": true, "loanId": "927364819265437700" }
+    { "barcode": "978-2-07-040850-4", "success": true, "loanId": "927364819265437700" },
+    {
+      "barcode": "978-2-07-040851-1",
+      "success": false,
+      "error": "This item is on loan to another borrower.",
+      "code": "item_on_loan_to_other_borrower"
+    }
   ]
 }
 ```
+
+`error` is the same human-readable string as before. `code` is added only on failures and uses the same values as `ErrorResponse.code` (`item_on_loan_to_other_borrower`, `item_already_on_loan_to_borrower`, `not_found`, `business_rule_violation`, …). Successful items omit both.
 
 ---
 
@@ -1323,7 +1340,9 @@ Common `code` values:
 | `not_found` | 404 |
 | `validation_error` | 400 |
 | `conflict` | 409 |
-| `business_rule` | 422 |
+| `item_on_loan_to_other_borrower` | 409 |
+| `item_already_on_loan_to_borrower` | 409 |
+| `business_rule_violation` | 422 |
 | `internal_error` | 500 |
 
 ---
@@ -1454,7 +1473,7 @@ interface BatchReturnItemResult {
 }
 interface BatchReturnResponse { returned: number; errors: number; results: BatchReturnItemResult[]; }
 interface BatchCreateLoanItemResult {
-  barcode: string; success: boolean; loanId?: string | null; error?: string;
+  barcode: string; success: boolean; loanId?: string | null; error?: string; code?: string;
 }
 interface BatchCreateLoansResponse { created: number; errors: number; results: BatchCreateLoanItemResult[]; }
 

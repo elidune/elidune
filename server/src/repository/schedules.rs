@@ -449,12 +449,25 @@ impl Repository {
         from: NaiveDate,
         to: NaiveDate,
     ) -> AppResult<OpeningCalendar> {
+        let mut conn = self.pool.acquire().await?;
+        self.schedules_opening_calendar_conn(&mut conn, from, to)
+            .await
+    }
+
+    /// Same as [`Self::schedules_opening_calendar`] on an existing connection.
+    #[tracing::instrument(skip(self, conn), err)]
+    pub(crate) async fn schedules_opening_calendar_conn(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        from: NaiveDate,
+        to: NaiveDate,
+    ) -> AppResult<OpeningCalendar> {
         let closure_rows = sqlx::query_as::<_, ClosureRow>(
             "SELECT closure_date, source_id FROM schedule_closures WHERE closure_date >= $1 AND closure_date <= $2",
         )
         .bind(from)
         .bind(to)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *conn)
         .await?;
         let mut closures = HashSet::new();
         let mut site_closures: HashMap<i64, HashSet<NaiveDate>> = HashMap::new();
@@ -483,7 +496,7 @@ impl Repository {
         )
         .bind(from)
         .bind(to)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *conn)
         .await?;
 
         let mut periods = Vec::new();

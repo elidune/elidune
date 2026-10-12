@@ -6,7 +6,7 @@ use sqlx::Row;
 use super::super::Repository;
 use super::LOAN_DETAILS_FIRST_AUTHOR_SQL;
 use crate::{
-    error::{AppError, AppResult},
+    error::{error_code, AppError, AppResult},
     models::{
         biblio::BiblioShort,
         circulation::CirculationStatus,
@@ -26,9 +26,11 @@ impl Repository {
     ///
     /// Serializes on the item row (`FOR UPDATE`) and relies on
     /// `idx_loans_one_active_per_item` so concurrent checkouts cannot create two
-    /// active loans on the same copy. A `force` checkout archives any existing
-    /// active loan in the same transaction (without advancing the hold queue —
-    /// force then cancels active holds).
+    /// active loans on the same copy. An open loan is never closed here: another
+    /// borrower is `409 item_on_loan_to_other_borrower`, the same borrower is
+    /// `409 item_already_on_loan_to_borrower`. `force` does not change that.
+    /// Settings and due-date reads use this transaction so they do not take a
+    /// second pool connection while the item lock is held.
     pub async fn loans_create(&self, loan: &CreateLoan) -> AppResult<LoanCreateOutcome> {
         let now = Utc::now();
 
@@ -94,15 +96,10 @@ impl Repository {
         .await?;
 
         if let Some(ref existing_loan) = existing {
-            if !loan.force {
-                return Err(AppError::BusinessRule(
-                    "Item is already borrowed".to_string(),
-                ));
-            }
-            // Close the previous loan in this transaction. Do not notify the next
-            // hold — force checkout cancels the queue below.
-            self.loans_archive_and_delete_tx(&mut tx, existing_loan, now)
-                .await?;
+            return Err(open_loan_conflict(
+                Some(existing_loan.user_id),
+                loan.user_id,
+            ));
         }
 
         if let Some(transit) = self.transits_active_for_item_tx(&mut tx, item_id).await? {
@@ -146,11 +143,13 @@ impl Repository {
                 .flatten();
 
         let (duration_days, nb_max_media, nb_max_total, _, _) = self
-            .resolve_loan_settings(user_public_type, media_type.as_deref())
+            .resolve_loan_settings_conn(&mut tx, user_public_type, media_type.as_deref())
             .await?;
 
         let site_id: Option<i64> = item_row.get("source_id");
-        let expiry_at = self.loans_due_at(now, duration_days, site_id).await?;
+        let expiry_at = self
+            .loans_due_at(&mut tx, now, duration_days, site_id)
+            .await?;
 
         let current_loans_total: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM loans WHERE user_id = $1 AND returned_at IS NULL",
@@ -221,6 +220,12 @@ impl Repository {
             }
         }
 
+        // Savepoint so a unique-index conflict can be re-read on this connection.
+        // PostgreSQL aborts the statement; without the savepoint the transaction
+        // cannot look up which borrower holds the copy.
+        sqlx::query("SAVEPOINT loan_insert")
+            .execute(&mut *tx)
+            .await?;
         let loan_id = match sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO loans (user_id, item_id, date, expiry_at, nb_renews)
@@ -235,11 +240,23 @@ impl Repository {
         .fetch_one(&mut *tx)
         .await
         {
-            Ok(id) => id,
+            Ok(id) => {
+                sqlx::query("RELEASE SAVEPOINT loan_insert")
+                    .execute(&mut *tx)
+                    .await?;
+                id
+            }
             Err(e) if is_active_loan_unique_violation(&e) => {
-                return Err(AppError::BusinessRule(
-                    "Item is already borrowed".to_string(),
-                ));
+                sqlx::query("ROLLBACK TO SAVEPOINT loan_insert")
+                    .execute(&mut *tx)
+                    .await?;
+                let existing_user_id: Option<i64> = sqlx::query_scalar(
+                    "SELECT user_id FROM loans WHERE item_id = $1 AND returned_at IS NULL",
+                )
+                .bind(item_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+                return Err(open_loan_conflict(existing_user_id, loan.user_id));
             }
             Err(e) => return Err(e.into()),
         };
@@ -671,12 +688,31 @@ impl Repository {
             ));
         }
 
-        let user = self.users_get_by_id(loan.user_id).await?;
+        // Account, fines, settings, and the due-date calendar stay on this
+        // transaction. A second pool connection here deadlocks under load the
+        // same way checkout used to.
+        let account = sqlx::query(
+            "SELECT status, archived_at, account_type, public_type FROM users WHERE id = $1",
+        )
+        .bind(loan.user_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("User with id {} not found", loan.user_id)))?;
+        let status: Option<crate::models::user::UserStatus> = account.get("status");
+        let archived_at: Option<DateTime<Utc>> = account.get("archived_at");
+        let account_type: String = account.get("account_type");
+        let public_type: Option<i64> = account.get("public_type");
+        let can_borrow = status == Some(crate::models::user::UserStatus::Active)
+            && archived_at.is_none()
+            && !account_type.eq_ignore_ascii_case("guest");
+
         let (fines_over_threshold, fines_message) = if bypass_account_gates {
             (false, String::new())
         } else {
-            let unpaid = self.fines_total_unpaid(loan.user_id).await?;
-            let threshold = self.fines_get_unpaid_threshold(user.public_type).await?;
+            let unpaid = self.fines_total_unpaid_conn(&mut tx, loan.user_id).await?;
+            let threshold = self
+                .fines_get_unpaid_threshold_conn(&mut tx, public_type)
+                .await?;
             let check = UnpaidThresholdCheck { unpaid, threshold };
             (check.blocks_circulation(), check.desk_block_message())
         };
@@ -684,10 +720,10 @@ impl Repository {
             .holds_waiting_hold_blocks_renewal_tx(&mut tx, loan.item_id, loan.user_id)
             .await?;
         let (duration_days, _nb_max_media, _nb_max_total, max_renews, renew_at_policy) = self
-            .resolve_loan_settings(user.public_type, media_type.as_deref())
+            .resolve_loan_settings_conn(&mut tx, public_type, media_type.as_deref())
             .await?;
         let renew_window_days = self
-            .resolve_renew_window_days(media_type.as_deref())
+            .resolve_renew_window_days_conn(&mut tx, media_type.as_deref())
             .await?;
         let renewal_loan = RenewalLoan {
             renewal_count: loan.nb_renews.unwrap_or(0),
@@ -703,15 +739,10 @@ impl Repository {
             max_renewals: max_renews,
             renew_window_days,
             now,
-            zone: self.library_zone().await?,
+            zone: self.library_zone_conn(&mut tx).await?,
         };
-        if let Err(refusal) = renewal_eligibility(
-            &renewal_loan,
-            &RenewalUser {
-                can_borrow: user.can_borrow(),
-            },
-            &ctx,
-        ) {
+        if let Err(refusal) = renewal_eligibility(&renewal_loan, &RenewalUser { can_borrow }, &ctx)
+        {
             return Err(refusal.into_app_error(&renewal_loan, &ctx));
         }
         let current_renews = renewal_loan.renewal_count;
@@ -721,7 +752,9 @@ impl Repository {
             LoanSettingsRenewAt::Now => now,
             LoanSettingsRenewAt::AtDueDate => current_expiry,
         };
-        let new_expiry_date = self.loans_due_at(anchor, duration_days, site_id).await?;
+        let new_expiry_date = self
+            .loans_due_at(&mut tx, anchor, duration_days, site_id)
+            .await?;
         if new_expiry_date <= current_expiry {
             return Err(AppError::BusinessRule(
                 "Renewal would not move the due date, so it was not counted".to_string(),
@@ -740,6 +773,25 @@ impl Repository {
         tx.commit().await?;
 
         Ok((new_expiry_date, new_renews))
+    }
+}
+
+/// 409 for a copy that already has an open loan. `None` means the conflicting
+/// row disappeared between the unique-index error and the re-read; treat that
+/// as another borrower so the response stays 409.
+fn open_loan_conflict(existing_user_id: Option<i64>, requester_id: i64) -> AppError {
+    if existing_user_id == Some(requester_id) {
+        AppError::coded(
+            409,
+            error_code::ITEM_ALREADY_ON_LOAN_TO_BORROWER,
+            "This item is already on loan to this borrower. Renew the existing loan instead of creating a new one.",
+        )
+    } else {
+        AppError::coded(
+            409,
+            error_code::ITEM_ON_LOAN_TO_OTHER_BORROWER,
+            "This item is on loan to another borrower.",
+        )
     }
 }
 

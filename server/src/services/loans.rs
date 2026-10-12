@@ -161,6 +161,7 @@ impl LoansService {
     ///
     /// The repository enforces the hold queue on the copy: only the patron whose turn it is
     /// (`ready`, else first `pending`) may borrow unless `force=true` (staff clears active holds on that copy).
+    /// `force` never closes or replaces an open loan. A copy already on loan is 409.
     pub async fn create_loan(
         &self,
         loan: CreateLoan,

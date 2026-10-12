@@ -102,8 +102,12 @@ impl Repository {
     /// `anchor + duration_days`, then the next open day of `site_id` when
     /// [`Self::skip_closed_days`] is on. The civil date is the library timezone,
     /// not the container zone. `site_id` is the loan site (`items.source_id`).
+    ///
+    /// `conn` is the caller's connection. Checkout and renew pass the transaction
+    /// that holds `FOR UPDATE` so calendar reads do not take a second pool connection.
     pub(crate) async fn loans_due_at(
         &self,
+        conn: &mut sqlx::PgConnection,
         anchor: chrono::DateTime<chrono::Utc>,
         duration_days: i16,
         site_id: Option<i64>,
@@ -112,10 +116,12 @@ impl Repository {
         if !self.skip_closed_days() {
             return Ok(candidate);
         }
-        let zone = self.library_zone().await?;
+        let zone = self.library_zone_conn(conn).await?;
         let start = crate::services::calendar::local_date(zone, candidate);
         let end = start + chrono::Duration::days(crate::circulation_calendar::MAX_LOOKAHEAD_DAYS);
-        let calendar = self.schedules_opening_calendar(start, end).await?;
+        let calendar = self
+            .schedules_opening_calendar_conn(conn, start, end)
+            .await?;
         Ok(crate::services::calendar::slide_due_date(
             candidate, zone, site_id, &calendar,
         ))

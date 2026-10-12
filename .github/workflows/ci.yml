@@ -195,6 +195,7 @@ jobs:
           --test my_account
           --test lost_item_found
           --test fine_audit_tx
+          --test loan_open_conflict
           -- --nocapture
 
   coverage:
@@ -280,6 +281,7 @@ jobs:
           --test my_account
           --test lost_item_found
           --test fine_audit_tx
+          --test loan_open_conflict
           --lcov
           --output-path lcov.info
           --fail-under-lines 20
