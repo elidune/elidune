@@ -15,10 +15,23 @@ Library management system (LMS) — monorepo containing the Rust REST API and th
 
 ## Quick start (development)
 
-**API** (requires PostgreSQL and Redis):
+**API** (requires PostgreSQL and Redis).
+
+`server/config/default.toml` is gitignored. Copy the sample and edit it before the first start:
 
 ```bash
 cd server
+cp config/sample.toml config/default.toml
+```
+
+Change these keys from `config/sample.toml`. The process exits on startup while the sample placeholders are still in place:
+
+- `users.jwt_secret` — replace `change-this-secret-in-production` with a different secret of at least 32 characters
+- `meilisearch.api_key` — replace `changeme` with a key of at least 16 characters, or remove the key (Meilisearch is optional)
+
+`database.url` and `redis.url` are already set to local defaults (`postgres://elidune:elidune@localhost:5432/elidune` and `redis://127.0.0.1:6379`). Point them at your PostgreSQL and Redis if those differ.
+
+```bash
 cargo run -- --config config/default.toml
 ```
 
@@ -43,6 +56,8 @@ docker compose -f docker/docker-compose.yml up --build -d
 # All-in-one (single container, demo / simple install)
 docker compose -f docker/docker-compose.all-in-one.yml up --build -d
 ```
+
+Docker Compose does not read `config/default.toml`. The API starts with no `--config` argument; `ELIDUNE_*` environment variables are the configuration and override a TOML file when one is loaded (`ELIDUNE_` prefix, `__` between nested keys). Set `ELIDUNE_USERS__JWT_SECRET` before the first start (at least 32 characters, not `change-this-secret-in-production`). When Meilisearch is enabled, `ELIDUNE_MEILISEARCH__API_KEY` must be at least 16 characters. Compose already supplies `ELIDUNE_DATABASE__URL` and `ELIDUNE_REDIS__URL` for the bundled services.
 
 See [docs/README-docker.md](docs/README-docker.md) for ports, volumes, GHCR images, and production reverse-proxy setup.
 

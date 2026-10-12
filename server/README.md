@@ -93,14 +93,29 @@ Library management system — JSON REST API written in Rust (Axum, PostgreSQL, R
 
 ## Configuration model
 
-The server loads **one TOML file** passed on the command line:
+The server loads an optional TOML file (`--config`), then applies `ELIDUNE_*` environment variables on top. The prefix is `ELIDUNE` and nested keys use `__` (`ELIDUNE_USERS__JWT_SECRET` overrides `users.jwt_secret`). A variable replaces the same key from the file. With no `--config` argument, environment variables are the whole configuration — that is how the Docker images start the API.
+
+Before the first start from source, copy the sample. `config/default.toml` is gitignored (`**/config/default.toml`):
 
 ```bash
-elidune-server --config /path/to/config.toml
+cp config/sample.toml config/default.toml
 ```
 
-Edit `config/default.toml` (or a copy) for database URL, JWT secret, Redis URL, email, Meilisearch, and rate limits.  
-Environment variables **do not** replace TOML for `database.url` or `users.jwt_secret` — set those in the file.  
+Change these keys from `config/sample.toml`. Startup refuses the sample placeholders:
+
+| Key | Sample value | What to set |
+|---|---|---|
+| `users.jwt_secret` | `change-this-secret-in-production` | A different secret, at least 32 characters |
+| `meilisearch.api_key` | `changeme` | At least 16 characters, or remove the key (Meilisearch is optional) |
+
+`database.url` (`postgres://elidune:elidune@localhost:5432/elidune`) and `redis.url` (`redis://127.0.0.1:6379`) are local defaults. Point them at the PostgreSQL and Redis you will use.
+
+```bash
+elidune-server --config config/default.toml
+```
+
+Docker Compose does not mount that file. Set the same values with environment variables, at least `ELIDUNE_USERS__JWT_SECRET` (the compose default is still the rejected placeholder). `ELIDUNE_DATABASE__URL` and `ELIDUNE_REDIS__URL` already point at the bundled services. `ELIDUNE_MEILISEARCH__API_KEY` must be at least 16 characters when set; the compose default (`change-this-meili-key`) meets that length.
+
 `RUST_LOG` is supported (tracing), and `.env` is loaded if present for local development.
 
 ### Auth rate limits
@@ -132,7 +147,7 @@ docker compose -f docker/docker-compose.yml up -d --build
 ```
 
 - API: `http://localhost:8080` (Swagger: `http://localhost:8080/swagger-ui`)
-- Compose uses `docker/config.docker.toml` (mounted read-only). **Change `jwt_secret` and database passwords** before production.
+- Compose configures the API with `ELIDUNE_*` environment variables (no TOML mount). Set `ELIDUNE_USERS__JWT_SECRET` before the first start; see [Configuration model](#configuration-model).
 - Optional tools profile: `docker compose -f docker/docker-compose.yml --profile tools up -d` (includes pgAdmin on port 5050).
 
 To rebuild only after changing the Rust code:
@@ -150,15 +165,14 @@ The `docker/Dockerfile` builds **only** the Elidune server binary (no UI). Build
 docker build -f docker/Dockerfile -t elidune-server:local .
 ```
 
-Run (example):
+The image command is `elidune-server` with no `--config` flag, so settings come from `ELIDUNE_*` environment variables. To use a file instead, pass `--config` and mount it:
 
 ```bash
 docker run --rm -p 8080:8080 \
   -v /absolute/path/to/your/config.toml:/app/config/default.toml:ro \
-  elidune-server:local
+  elidune-server:local \
+  --config /app/config/default.toml
 ```
-
-The image default command is `elidune-server --config /app/config/default.toml`.
 
 ### Prebuilt all-in-one image (API + UI + DB stack)
 
@@ -182,7 +196,13 @@ Install SQLx CLI (for migrations):
 cargo install sqlx-cli --no-default-features --features postgres,rustls
 ```
 
-Create the database and user (example names match `config/default.toml`):
+Copy the sample config (gitignored destination) and edit `users.jwt_secret`, `meilisearch.api_key`, `database.url`, and `redis.url` before the first start. See [Configuration model](#configuration-model).
+
+```bash
+cp config/sample.toml config/default.toml
+```
+
+Create the database and user (example names match `config/sample.toml`):
 
 ```bash
 export DATABASE_URL="postgres://elidune:elidune@localhost:5432/elidune"
