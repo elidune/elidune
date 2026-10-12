@@ -67,7 +67,7 @@ export default function ConfirmDialog({
       <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{message}</p>
       {children}
       {error ? (
-        <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">
+        <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400 whitespace-pre-wrap">
           {error}
         </p>
       ) : null}

@@ -70,14 +70,40 @@ export function readSessionUserFromAccessToken(accessToken: string | null | unde
 }
 
 export function readAcquisitionsRightsFromJwt(accessToken: string | null | undefined): 'n' | 'r' | 'w' | null {
+  return readRightsLevelFromJwt(accessToken, 'acquisitionsRights');
+}
+
+function readRightsLevelFromJwt(
+  accessToken: string | null | undefined,
+  field: string,
+): 'n' | 'r' | 'w' | null {
   if (!accessToken?.trim()) return null;
   const payload = decodeAccessTokenPayload(accessToken);
   if (!payload) return null;
   const rights = payload.rights;
   if (rights && typeof rights === 'object') {
-    const r = rights as Record<string, unknown>;
-    const fromNested = normalizeAcquisitionsRightsValue(r.acquisitionsRights);
-    if (fromNested) return fromNested;
+    const nested = normalizeAcquisitionsRightsValue((rights as Record<string, unknown>)[field]);
+    if (nested) return nested;
   }
-  return normalizeAcquisitionsRightsValue(payload.acquisitionsRights);
+  return normalizeAcquisitionsRightsValue(payload[field]);
+}
+
+export function readWeedingRightsFromJwt(accessToken: string | null | undefined): 'n' | 'r' | 'w' | null {
+  return readRightsLevelFromJwt(accessToken, 'weedingRights');
+}
+
+export function readWeedingCancelRightsFromJwt(
+  accessToken: string | null | undefined,
+): 'n' | 'r' | 'w' | null {
+  return readRightsLevelFromJwt(accessToken, 'weedingCancelRights');
+}
+
+export function readItemsArchiveRightsFromJwt(
+  accessToken: string | null | undefined,
+): 'n' | 'r' | 'w' | null {
+  return readRightsLevelFromJwt(accessToken, 'itemsArchiveRights');
+}
+
+export function readItemsRightsFromJwt(accessToken: string | null | undefined): 'n' | 'r' | 'w' | null {
+  return readRightsLevelFromJwt(accessToken, 'itemsRights');
 }

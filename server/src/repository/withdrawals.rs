@@ -299,6 +299,28 @@ impl Repository {
         Ok(row.into())
     }
 
+    pub async fn item_withdrawals_get(&self, id: i64) -> AppResult<ItemWithdrawal> {
+        self.load_withdrawal(id).await
+    }
+
+    /// The non-cancelled withdrawal for a copy, if one exists.
+    pub async fn item_withdrawals_active_for_item(
+        &self,
+        item_id: i64,
+    ) -> AppResult<ItemWithdrawal> {
+        let sql = format!(
+            "{SELECT_WITHDRAWAL} WHERE w.item_id = $1 AND w.cancelled_at IS NULL ORDER BY w.withdrawn_at DESC, w.id DESC LIMIT 1"
+        );
+        let row = sqlx::query_as::<_, WithdrawalRow>(&sql)
+            .bind(item_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| {
+                AppError::NotFound(format!("Item {item_id} has no active withdrawal"))
+            })?;
+        Ok(row.into())
+    }
+
     async fn load_withdrawals_ordered(&self, ids: &[i64]) -> AppResult<Vec<ItemWithdrawal>> {
         if ids.is_empty() {
             return Ok(Vec::new());

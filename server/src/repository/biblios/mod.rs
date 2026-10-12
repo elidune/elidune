@@ -176,6 +176,8 @@ pub trait BibliosRepository: Send + Sync {
         input: &WithdrawalWrite,
     ) -> AppResult<ItemWithdrawal>;
     async fn item_withdrawals_list(&self, query: &WithdrawalQuery) -> AppResult<WithdrawalList>;
+    async fn item_withdrawals_get(&self, id: i64) -> AppResult<ItemWithdrawal>;
+    async fn item_withdrawals_active_for_item(&self, item_id: i64) -> AppResult<ItemWithdrawal>;
     async fn item_withdrawals_export_rows(
         &self,
         query: &WithdrawalQuery,
@@ -435,6 +437,12 @@ impl BibliosRepository for Repository {
     }
     async fn item_withdrawals_list(&self, query: &WithdrawalQuery) -> AppResult<WithdrawalList> {
         Repository::item_withdrawals_list(self, query).await
+    }
+    async fn item_withdrawals_get(&self, id: i64) -> AppResult<ItemWithdrawal> {
+        Repository::item_withdrawals_get(self, id).await
+    }
+    async fn item_withdrawals_active_for_item(&self, item_id: i64) -> AppResult<ItemWithdrawal> {
+        Repository::item_withdrawals_active_for_item(self, item_id).await
     }
     async fn item_withdrawals_export_rows(
         &self,
