@@ -316,7 +316,7 @@ No other personal field (`firstname`, `lastname`, `login`, email, phone, address
 
 ### `LoanDetails` (embedded in return responses)
 
-`POST /loans/:id/return`, `POST /loans/items/:item_id/return`, and `POST /loans/batch-return` (`results[].loan`) keep the field name `user`. Its shape follows the same rule as `GET /loans/:id/user`, except the caller is never treated as "the borrower" just because they checked the copy in: `users_rights` read or write receives `UserShortStaff`; otherwise `user` is only `{ id, cardNumber, initials }` (no `firstname`, `lastname`, `email`, or `login`).
+`POST /loans/:id/return`, `POST /loans/items/:barcode/return`, and `POST /loans/batch-return` (`results[].loan`) keep the field name `user`. Its shape follows the same rule as `GET /loans/:id/user`, except the caller is never treated as "the borrower" just because they checked the copy in: `users_rights` read or write receives `UserShortStaff`; otherwise `user` is only `{ id, cardNumber, initials }` (no `firstname`, `lastname`, `email`, or `login`).
 
 ```json
 {

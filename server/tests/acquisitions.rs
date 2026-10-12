@@ -15,6 +15,60 @@ fn decimal_str(value: &serde_json::Value) -> String {
         .unwrap_or_else(|| value.to_string().trim_matches('"').to_string())
 }
 
+/// Valid ISBN-13, unique per call.
+///
+/// `9780000` plus the high digits of a nanosecond timestamp stays the same for
+/// about three hours, so a later run on the same database gets
+/// 409 `duplicate_isbn_needs_confirmation`.
+fn unique_isbn13() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_nanos();
+    let seq = u128::from(SEQ.fetch_add(1, Ordering::Relaxed));
+    let pid = u128::from(std::process::id());
+    let mixed = nanos
+        .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+        .wrapping_add(pid << 17)
+        .wrapping_add(seq);
+    let body = mixed % 1_000_000_000;
+    let twelve = format!("978{body:09}");
+    let check = isbn13_check_digit(&twelve);
+    format!("{twelve}{check}")
+}
+
+fn isbn13_check_digit(body12: &str) -> char {
+    let sum: u32 = body12
+        .bytes()
+        .enumerate()
+        .map(|(index, byte)| {
+            let digit = u32::from(byte - b'0');
+            if index % 2 == 0 {
+                digit
+            } else {
+                digit * 3
+            }
+        })
+        .sum();
+    let check = (10 - (sum % 10)) % 10;
+    char::from_digit(check, 10).expect("isbn-13 check digit")
+}
+
+#[test]
+fn isbn13_check_digit_matches_the_306_40615_example() {
+    assert_eq!(isbn13_check_digit("978030640615"), '7');
+    let generated = unique_isbn13();
+    assert_eq!(generated.len(), 13);
+    assert!(generated.chars().all(|c| c.is_ascii_digit()));
+    assert_eq!(
+        isbn13_check_digit(&generated[..12]),
+        generated.chars().nth(12).expect("check digit")
+    );
+}
+
 #[tokio::test]
 async fn reader_cannot_access_acquisitions_admin_can() {
     let Some(app) = TestApp::spawn().await else {
@@ -147,7 +201,7 @@ async fn order_partial_and_full_receipt_creates_items_and_updates_budget() {
                 "title": format!("Ordered title {suffix}"),
                 "mediaType": "printedText",
                 "lang": "french",
-                "isbn": format!("9780000{suffix}").chars().take(13).collect::<String>()
+                "isbn": unique_isbn13()
             }),
             Some(&admin_token),
         )
@@ -319,12 +373,7 @@ async fn isbn_intent_receipt_creates_stub_biblio_and_item() {
     assert_eq!(status, StatusCode::CREATED, "{vendor}");
     let vendor_id = vendor["id"].as_str().unwrap();
 
-    let isbn = format!("9781111{suffix}");
-    let isbn: String = isbn
-        .chars()
-        .filter(|c| c.is_ascii_digit())
-        .take(13)
-        .collect();
+    let isbn = unique_isbn13();
 
     let (status, order) = app
         .post_json(

@@ -1156,7 +1156,7 @@ export interface UserAggregateStats {
   usersByAccountType?: StatEntry[];
   usersBySex?: StatEntry[];
   newUsersBySex?: StatEntry[];
-  activeBorrowersBySex?: StatEntry[];
+  /** Group accounts (`account_type = group`). */
   groupsTotal?: number;
 }
 

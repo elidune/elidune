@@ -18,7 +18,7 @@ const USER_MODEL: &str = include_str!("../src/models/user.rs");
 const LOANS_RIGHTS_DOC_ROWS: &[(&str, &str)] = &[
     ("POST /loans", "require_write_loans()"),
     ("POST /loans/:id/return", "require_write_loans()"),
-    ("POST /loans/items/:item_id/return", "require_write_loans()"),
+    ("POST /loans/items/:barcode/return", "require_write_loans()"),
     ("POST /loans/items/:item_id/renew", "require_write_loans()"),
     ("POST /loans/batch-return", "require_write_loans()"),
     ("POST /loans/batch-create", "require_write_loans()"),
