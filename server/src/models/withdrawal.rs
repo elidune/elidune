@@ -449,9 +449,9 @@ pub struct BatchWithdrawalResponse {
 pub fn withdrawals_csv(rows: &[ItemWithdrawal], language: Language) -> String {
     let french = matches!(language, Language::French);
     let headers = if french {
-        "identifiant,exemplaire,code_barres,cote,titre,site,date,motif,precision,destination,agent,reprise,date_sortie,agent_sortie"
+        "identifiant,exemplaire,code_barres,cote,titre,site,Date de retrait,motif,precision,destination,agent,reprise,Éliminé le,agent_sortie"
     } else {
-        "id,item_id,barcode,call_number,title,site,withdrawn_at,reason,detail,destination,agent,legacy,disposed_at,disposed_by"
+        "id,item_id,barcode,call_number,title,site,Withdrawn on,reason,detail,destination,agent,legacy,Disposed on,disposed_by"
     };
     let mut csv = String::from('\u{feff}');
     csv.push_str(headers);
@@ -569,7 +569,8 @@ mod tests {
         let csv = withdrawals_csv(&[sample(None, true)], Language::French);
         assert!(csv.contains("non renseignée (reprise)"));
         assert!(csv.contains("Autre"));
-        assert!(csv.contains("date_sortie"));
+        assert!(csv.contains("Date de retrait"));
+        assert!(csv.contains("Éliminé le"));
     }
 
     #[test]
@@ -580,6 +581,8 @@ mod tests {
         );
         let csv = withdrawals_csv(&[sample(None, true)], Language::English);
         assert!(csv.contains("not specified (legacy import)"));
+        assert!(csv.contains("Withdrawn on"));
+        assert!(csv.contains("Disposed on"));
         assert!(!csv.contains("non renseignée (reprise)"));
     }
 }

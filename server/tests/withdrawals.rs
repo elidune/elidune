@@ -592,7 +592,8 @@ async fn legacy_backfill_exports_an_unspecified_destination_and_can_be_completed
         "content type"
     );
     assert!(french.contains("non renseignée (reprise)"), "{french}");
-    assert!(french.contains("date_sortie"), "{french}");
+    assert!(french.contains("Date de retrait"), "{french}");
+    assert!(french.contains("Éliminé le"), "{french}");
     assert!(french.starts_with('\u{feff}'));
 
     let (status, english, _) = get_text(
@@ -606,7 +607,8 @@ async fn legacy_backfill_exports_an_unspecified_destination_and_can_be_completed
         english.contains("not specified (legacy import)"),
         "{english}"
     );
-    assert!(english.contains("disposed_at"), "{english}");
+    assert!(english.contains("Withdrawn on"), "{english}");
+    assert!(english.contains("Disposed on"), "{english}");
 
     let withdrawal_id = fixtures::json_id(&row["id"]);
     let (status, completed) = patch_json(
@@ -1224,7 +1226,8 @@ async fn dispose_batch_is_atomic_and_blocks_cancel() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "csv: {csv}");
-    assert!(csv.contains("disposed_at"), "{csv}");
+    assert!(csv.contains("Withdrawn on"), "{csv}");
+    assert!(csv.contains("Disposed on"), "{csv}");
     assert!(csv.contains("disposed_by"), "{csv}");
     assert!(csv.contains("2020-01-02T03:04:05"), "{csv}");
 
