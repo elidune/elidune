@@ -5,11 +5,14 @@ import en from '../locales/en/translation.json' with { type: 'json' };
 import es from '../locales/es/translation.json' with { type: 'json' };
 import fr from '../locales/fr/translation.json' with { type: 'json' };
 import {
+  CheckoutScanNoticeShown,
+  checkoutScanNoticeFromRefusal,
   deskScanAlert,
   deskScanAlertFromCheckIn,
   deskScanAlertFromCheckoutMessage,
   deskScanAlertMessage,
   deskScanNoticeAction,
+  isCheckoutScanNoticeShown,
 } from './deskScanAlert.ts';
 
 const catalogs = { fr, en, de, es } as const;
@@ -140,6 +143,47 @@ describe('desk scan alert', () => {
       assert.equal(lookup(catalogs[lang], 'loans.scanAlertGoToReturn')?.includes('{{'), false);
       assert.equal(lookup(catalogs[lang], 'errors.apiCode.item_to_pick_for_other')?.toLowerCase().includes('force'), false);
     }
+  });
+
+  it('keeps the generic business-rule error only when no specific notice applies', () => {
+    const holdMessage =
+      'This copy has an active hold for another patron — only the queued patron may borrow it, or use force=true to override';
+    assert.deepEqual(
+      checkoutScanNoticeFromRefusal({ code: 'business_rule_violation', message: holdMessage }),
+      { kind: 'onHold', patronName: null },
+    );
+    assert.deepEqual(
+      checkoutScanNoticeFromRefusal({
+        code: 'item_to_pick_for_other',
+        message: 'This copy is on the pick list for another patron — use force=true to override',
+        patronName: 'Grace Hopper',
+      }),
+      { kind: 'onHold', patronName: 'Grace Hopper' },
+    );
+    assert.deepEqual(
+      checkoutScanNoticeFromRefusal({
+        code: 'business_rule_violation',
+        message: 'Item is already borrowed',
+      }),
+      { kind: 'onLoan', patronName: null },
+    );
+    assert.equal(
+      checkoutScanNoticeFromRefusal({
+        code: 'business_rule_violation',
+        message: 'User subscription expired on 2026-01-01 — use force=true to override',
+      }),
+      null,
+    );
+    assert.equal(
+      checkoutScanNoticeFromRefusal({
+        code: 'business_rule_violation',
+        message: 'Maximum loans for this document type reached (3/3)',
+      }),
+      null,
+    );
+    const shown = new CheckoutScanNoticeShown();
+    assert.equal(isCheckoutScanNoticeShown(shown), true);
+    assert.equal(isCheckoutScanNoticeShown(new Error('Action refusée par une règle métier')), false);
   });
 });
 

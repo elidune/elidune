@@ -105,6 +105,40 @@ export function deskScanAlertFromCheckoutMessage(message: string | null | undefi
   return null;
 }
 
+/** API code for a copy on the pick list of another reader. */
+const ITEM_TO_PICK_FOR_OTHER = 'item_to_pick_for_other';
+
+/**
+ * Specific checkout notice for a refusal, or null when the desk should show the generic error.
+ * A non-null result replaces the business-rule banner and the error toast.
+ */
+export function checkoutScanNoticeFromRefusal(input: {
+  code?: string | null;
+  message?: string | null;
+  patronName?: string | null;
+}): DeskScanAlert | null {
+  if (input.code?.trim() === ITEM_TO_PICK_FOR_OTHER) {
+    return { kind: 'onHold', patronName: clean(input.patronName) };
+  }
+  const fromMessage = deskScanAlertFromCheckoutMessage(input.message);
+  if (!fromMessage) return null;
+  const name = clean(input.patronName);
+  if (name && !fromMessage.patronName) return { ...fromMessage, patronName: name };
+  return fromMessage;
+}
+
+/** Thrown after the yellow scan notice is shown, so the form does not also toast the generic error. */
+export class CheckoutScanNoticeShown extends Error {
+  constructor() {
+    super('checkout-scan-notice');
+    this.name = 'CheckoutScanNoticeShown';
+  }
+}
+
+export function isCheckoutScanNoticeShown(error: unknown): boolean {
+  return error instanceof CheckoutScanNoticeShown;
+}
+
 type Translate = (key: string, values?: Record<string, unknown>) => string;
 
 /** Where the notice is shown. Checkout blocks the loan; return only informs. */

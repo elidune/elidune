@@ -41,9 +41,11 @@ import {
   type LostFoundPanelAction,
 } from '@/utils/lostFound';
 import {
+  CheckoutScanNoticeShown,
+  checkoutScanNoticeFromRefusal,
   deskScanAlert,
   deskScanAlertFromCheckIn,
-  deskScanAlertFromCheckoutMessage,
+  isCheckoutScanNoticeShown,
   readerName,
   type DeskCopySnapshot,
   type DeskScanAlert,
@@ -701,7 +703,7 @@ export default function LoansPage() {
     const alert = deskScanAlert(snapshot, { patronId: selectedUser.id });
     if (alert) {
       setCheckoutScanAlert({ ...alert, barcode });
-      return;
+      throw new CheckoutScanNoticeShown();
     }
     setCheckoutScanAlert(null);
 
@@ -738,12 +740,14 @@ export default function LoansPage() {
         throw error;
       }
       const toPick = readItemToPickForOther(error);
-      const blocked = toPick
-        ? { kind: 'onHold' as const, patronName: toPick.userName }
-        : deskScanAlertFromCheckoutMessage(rawMessage);
+      const blocked = checkoutScanNoticeFromRefusal({
+        code: errorCode,
+        message: rawMessage,
+        patronName: toPick?.userName,
+      });
       if (blocked) {
         setCheckoutScanAlert({ ...blocked, barcode });
-        throw error;
+        throw new CheckoutScanNoticeShown();
       }
       if (errorCode === 'business_rule_violation' && !force) {
         setBarcodeInput('');
@@ -2293,6 +2297,14 @@ function BorrowForm({
       }
     } catch (err: unknown) {
       if (isCheckoutDeclined(err)) return;
+      if (isCheckoutScanNoticeShown(err)) {
+        setError('');
+        setTimeout(() => {
+          barcodeInputRef.current?.focus();
+          barcodeInputRef.current?.select();
+        }, 100);
+        return;
+      }
       const msg = getApiErrorMessage(err, t) || t('loans.errorCreatingLoan');
       setError(msg);
       showToast({ variant: 'error', message: msg });
