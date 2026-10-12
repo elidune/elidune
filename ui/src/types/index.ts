@@ -1442,7 +1442,9 @@ export type ApiErrorCode =
   | 'database_error'
   | 'internal_error'
   | 'rate_limited'
-  | 'item_to_pick_for_other';
+  | 'item_to_pick_for_other'
+  | 'item_on_loan_to_other_borrower'
+  | 'item_already_on_loan_to_borrower';
 
 // Settings — renewal anchoring (serialized wire values: now, at_due_date)
 export type LoanSettingsRenewAt = 'now' | 'at_due_date';

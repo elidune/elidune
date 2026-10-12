@@ -50,6 +50,7 @@ import {
   type DeskCopySnapshot,
   type DeskScanAlert,
 } from '@/utils/deskScanAlert';
+import { checkoutForceFlag, checkoutMayForce, checkoutNoticeForConflict } from '@/utils/loanConflict';
 import { renewedUntilMessage } from '@/utils/localeDate';
 import { patronId } from '@/utils/patronLink';
 import { isWeedingServerMessage } from '@/utils/weeding';
@@ -93,7 +94,7 @@ type ReturnView =
   | { kind: 'item'; title: string | null; barcode: string | null; availability: string | null }
   | ({ kind: 'lostFound' } & LostFoundSummary);
 
-type CheckoutScanAlert = DeskScanAlert & { barcode: string };
+type CheckoutScanAlert = DeskScanAlert & { barcode: string; loanId?: string | null };
 type DeskLoanOp = 'return' | 'renew' | CirculationExceptionKind;
 
 type CheckoutRecap = {
@@ -702,7 +703,7 @@ export default function LoansPage() {
     const snapshot = await readDeskCopy(barcode);
     const alert = deskScanAlert(snapshot, { patronId: selectedUser.id });
     if (alert) {
-      setCheckoutScanAlert({ ...alert, barcode });
+      setCheckoutScanAlert({ ...alert, barcode, loanId: snapshot?.loanId ?? null });
       throw new CheckoutScanNoticeShown();
     }
     setCheckoutScanAlert(null);
@@ -711,7 +712,7 @@ export default function LoansPage() {
       const created = await api.createLoan({
         userId: selectedUser.id,
         itemIdentification: barcode,
-        force: force || undefined,
+        force: checkoutForceFlag(snapshot?.availability, force),
       }, newIdempotencyKey());
       const res = await api.getUserLoans(selectedUser.id, {
         page: loansPage,
@@ -730,18 +731,24 @@ export default function LoansPage() {
         message: t('loans.checkoutSuccess', { title, patron: patronName }),
       });
     } catch (error: unknown) {
-      const axiosError = error as { response?: { data?: { code?: string; message?: string } } };
-      const axiosData = axiosError?.response?.data;
-      const errorCode = axiosData?.code ?? '';
-      const rawMessage = typeof axiosData?.message === 'string' ? axiosData.message : '';
+      const rawMessage = getApiErrorRawMessage(error) ?? '';
       const displayMsg = getApiErrorMessage(error, t) || t('loans.errorCreatingLoan');
       const confirmMsg = rawMessage || displayMsg;
+      const conflict = checkoutNoticeForConflict(error, {
+        patronId: selectedUser.id,
+        snapshot,
+        listedLoanId: loans.find((loan) => (loan.itemIdentification ?? '').trim() === barcode)?.id ?? null,
+      });
+      if (conflict) {
+        setCheckoutScanAlert({ ...conflict, barcode });
+        throw new CheckoutScanNoticeShown();
+      }
       if (isWeedingServerMessage(rawMessage)) {
         throw error;
       }
       const toPick = readItemToPickForOther(error);
       const blocked = checkoutScanNoticeFromRefusal({
-        code: errorCode,
+        code: getApiErrorCode(error),
         message: rawMessage,
         patronName: toPick?.userName,
       });
@@ -749,7 +756,7 @@ export default function LoansPage() {
         setCheckoutScanAlert({ ...blocked, barcode });
         throw new CheckoutScanNoticeShown();
       }
-      if (errorCode === 'business_rule_violation' && !force) {
+      if (checkoutMayForce(error) && !force) {
         setBarcodeInput('');
         const ok = await new Promise<boolean>((resolve) => {
           setForceBorrowDialog({
@@ -955,13 +962,16 @@ export default function LoansPage() {
     },
   ];
 
-  const handleRenewLoan = async (loanId: string) => {
-    if (borrowLoanActionInFlightRef.current) return;
+  const completeRenew = async (
+    busyId: string,
+    request: () => Promise<{ expiryAt: string }>,
+  ): Promise<boolean> => {
+    if (borrowLoanActionInFlightRef.current) return false;
     borrowLoanActionInFlightRef.current = true;
-    setBorrowLoanAction({ loanId, op: 'renew' });
+    setBorrowLoanAction({ loanId: busyId, op: 'renew' });
     setRenewError('');
     try {
-      const renewed = await api.renewLoan(loanId, newIdempotencyKey());
+      const renewed = await request();
       if (selectedUser) {
         const res = await api.getUserLoans(selectedUser.id, {
           page: loansPage,
@@ -974,14 +984,27 @@ export default function LoansPage() {
         variant: 'success',
         message: renewedUntilMessage(renewed.expiryAt, t, i18n.language),
       });
+      return true;
     } catch (error: unknown) {
       const msg = getApiErrorMessage(error, t) || t('loans.errorRenewingLoan');
       setRenewError(msg);
       showToast({ variant: 'error', message: msg });
+      return false;
     } finally {
       borrowLoanActionInFlightRef.current = false;
       setBorrowLoanAction(null);
     }
+  };
+
+  const handleRenewLoan = (loanId: string) =>
+    completeRenew(loanId, () => api.renewLoan(loanId, newIdempotencyKey()));
+
+  const renewFromCheckout = async (alert: CheckoutScanAlert) => {
+    if (alert.kind !== 'alreadyOnLoan') return;
+    const ok = alert.loanId
+      ? await handleRenewLoan(alert.loanId)
+      : await completeRenew(alert.barcode, () => api.renewLoanByBarcode(alert.barcode, newIdempotencyKey()));
+    if (ok) setCheckoutScanAlert(null);
   };
 
   const loansSortedByStart = useMemo(() => sortLoansByStartDateAsc(loans), [loans]);
@@ -1278,6 +1301,7 @@ export default function LoansPage() {
                     {checkoutScanAlert ? (
                       <DeskScanNotice
                         alert={checkoutScanAlert}
+                        renewing={borrowLoanAction?.op === 'renew'}
                         onReturn={
                           checkoutScanAlert.kind === 'onLoan'
                             ? () => {
@@ -1286,6 +1310,13 @@ export default function LoansPage() {
                                 setReturnResult(null);
                                 setReturnScanAlert(null);
                                 setActiveTab('return');
+                              }
+                            : undefined
+                        }
+                        onRenew={
+                          checkoutScanAlert.kind === 'alreadyOnLoan'
+                            ? () => {
+                                void renewFromCheckout(checkoutScanAlert);
                               }
                             : undefined
                         }
@@ -1973,6 +2004,7 @@ async function readDeskCopy(barcode: string): Promise<DeskCopySnapshot | null> {
     }
     return {
       availability: copy.availability,
+      loanId: copy.loanId ?? null,
       loanUserId,
       loanUserName,
       holdUserId: copy.holdUserId ?? null,
