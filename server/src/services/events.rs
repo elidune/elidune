@@ -617,14 +617,12 @@ pub(crate) fn announcement_children_fragments(
 
 /// Localized intro for [`announcement_children_fragments`].
 /// Resolved with [`Language::from`], so aliases (`deu`, `spa`, …) match the
-/// rest of the server. French is the fallback.
+/// rest of the server. French is the fallback ([`crate::services::i18n`]).
 fn children_intro(language: Option<&str>) -> &'static str {
-    match language.map(Language::from).unwrap_or(Language::French) {
-        Language::English => "This invitation concerns:",
-        Language::German => "Diese Einladung betrifft:",
-        Language::Spanish => "Esta invitación se refiere a:",
-        _ => "Cette invitation concerne :",
-    }
+    crate::services::i18n::label(
+        language.map(Language::from),
+        crate::services::i18n::Label::InvitationConcerns,
+    )
 }
 
 fn child_display_name(child: &AnnouncementChild) -> String {
