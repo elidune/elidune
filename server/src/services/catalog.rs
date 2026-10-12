@@ -20,7 +20,7 @@ use crate::{
 
 #[derive(Clone)]
 pub struct CatalogService {
-    repository: Arc<dyn BibliosRepository>,
+    pub(crate) repository: Arc<dyn BibliosRepository>,
     entities: Arc<dyn CatalogEntitiesRepository>,
     search: Option<Arc<MeilisearchService>>,
     audit: AuditService,
@@ -134,7 +134,7 @@ impl CatalogService {
     }
 
     /// Fire-and-forget: push a fresh Meilisearch document for the given biblio.
-    async fn sync_index(&self, id: i64) {
+    pub(crate) async fn sync_index(&self, id: i64) {
         if let Some(ref svc) = self.search {
             match self.repository.biblios_get_meili_document(id).await {
                 Ok(Some(doc)) => {
@@ -182,6 +182,7 @@ impl CatalogService {
                     include_without_active_items: query
                         .include_without_active_items
                         .unwrap_or(false),
+                    exclude_fully_withdrawn: query.exclude_fully_withdrawn.unwrap_or(false),
                 };
                 let page = query.page.unwrap_or(1).max(1);
                 let per_page = query.per_page.unwrap_or(20).clamp(1, 200);

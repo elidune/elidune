@@ -28,6 +28,7 @@ pub mod task;
 pub mod transit;
 pub mod user;
 pub mod visitor_count;
+pub mod withdrawal;
 
 // Re-export commonly used types
 pub use author::Author;

@@ -10,7 +10,7 @@ use axum::{
 
 use crate::{
     api::biblios::PaginatedResponse,
-    error::AppResult,
+    error::{AppError, AppResult},
     models::{
         biblio::BiblioQuery,
         catalog_view::{BiblioPublicView, BiblioShortPublic},
@@ -57,6 +57,7 @@ pub async fn opac_search(
     let page = query.page.unwrap_or(1).max(1);
     query.per_page = Some(per_page);
     query.page = Some(page);
+    query.exclude_fully_withdrawn = Some(true);
 
     let (biblios, total) = state.services.catalog.search_biblios(&query).await?;
     Ok(Json(PaginatedResponse::new(
@@ -83,6 +84,9 @@ pub async fn opac_get_biblio(
     Path(biblio_id): Path<i64>,
 ) -> AppResult<Json<BiblioPublicView>> {
     let biblio = state.services.catalog.get_biblio(biblio_id).await?;
+    if biblio.is_fully_withdrawn() {
+        return Err(AppError::NotFound("Bibliographic record not found".into()));
+    }
     Ok(Json(BiblioPublicView::from(biblio)))
 }
 
@@ -100,6 +104,10 @@ pub async fn opac_availability(
     State(state): State<crate::AppState>,
     Path(biblio_id): Path<i64>,
 ) -> AppResult<Json<serde_json::Value>> {
+    let biblio = state.services.catalog.get_biblio(biblio_id).await?;
+    if biblio.is_fully_withdrawn() {
+        return Err(AppError::NotFound("Bibliographic record not found".into()));
+    }
     let active_loans = state
         .services
         .loans

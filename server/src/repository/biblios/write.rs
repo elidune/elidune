@@ -446,31 +446,37 @@ impl Repository {
 
         Ok(())
     }
-    /// Delete a biblio (soft delete — sets archived_at)
+    /// Delete a biblio (soft delete — sets archived_at).
+    ///
+    /// Allowed only when the record has no copies and no holds. `force` does not bypass that.
     #[tracing::instrument(skip(self), err)]
     pub async fn biblios_delete(&self, id: i64, force: bool) -> AppResult<()> {
+        let _ = force;
         let now = Utc::now();
 
-        let loans = self.loans_get_active_ids_for_biblio(id).await?;
-
-        if !loans.is_empty() {
-            if !force {
-                return Err(AppError::BusinessRule(
-                    "Biblio has borrowed items. Use force=true to delete anyway.".to_string(),
-                ));
-            } else {
-                for loan_id in loans {
-                    self.loans_return(loan_id).await?;
-                }
-            }
+        let item_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM items WHERE biblio_id = $1")
+            .bind(id)
+            .fetch_one(&self.pool)
+            .await?;
+        if item_count > 0 {
+            return Err(crate::error::AppError::coded(
+                422,
+                crate::error::error_code::BIBLIO_HAS_ITEMS,
+                "This bibliographic record still has copies and cannot be deleted. Weed the copies instead; a record whose copies are all withdrawn is hidden from the OPAC.",
+            ));
         }
 
-        // Include item id so archived barcodes stay unique (idx_items_barcode_unique applies to all rows).
-        sqlx::query("UPDATE items SET archived_at = $1, updated_at = $1, barcode = CONCAT('ARCH_', id::text, '_', COALESCE(barcode, '')) WHERE biblio_id = $2 AND archived_at IS NULL")
-            .bind(now)
+        let hold_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM holds WHERE biblio_id = $1")
             .bind(id)
-            .execute(&self.pool)
+            .fetch_one(&self.pool)
             .await?;
+        if hold_count > 0 {
+            return Err(crate::error::AppError::coded(
+                422,
+                crate::error::error_code::BIBLIO_HAS_HOLDS,
+                "This bibliographic record has holds and cannot be deleted.",
+            ));
+        }
 
         sqlx::query("UPDATE biblios SET archived_at = $1, updated_at = $1 WHERE id = $2")
             .bind(now)

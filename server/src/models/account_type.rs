@@ -18,6 +18,8 @@ pub struct AccountTypeDefinition {
     pub settings_rights: Option<String>,
     pub events_rights: Option<String>,
     pub acquisitions_rights: Option<String>,
+    pub weeding_rights: Option<String>,
+    pub weeding_cancel_rights: Option<String>,
 }
 
 /// Partial update for `account_types` (admin only). Omit a field to leave it unchanged.
@@ -33,4 +35,6 @@ pub struct UpdateAccountTypeDefinition {
     pub settings_rights: Option<String>,
     pub events_rights: Option<String>,
     pub acquisitions_rights: Option<String>,
+    pub weeding_rights: Option<String>,
+    pub weeding_cancel_rights: Option<String>,
 }

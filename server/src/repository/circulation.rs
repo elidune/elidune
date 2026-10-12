@@ -353,14 +353,7 @@ fn merge_notes(existing: Option<String>, extra: Option<&str>) -> Option<String> 
 }
 
 pub(crate) fn parse_item_price(price: Option<&str>) -> Option<Decimal> {
-    let raw = price?.trim();
-    if raw.is_empty() {
-        return None;
-    }
-    rust_decimal::Decimal::from_str_exact(raw)
-        .or_else(|_| raw.parse())
-        .ok()
-        .filter(|d| *d > Decimal::ZERO)
+    crate::models::item::parse_stored_item_price(price).filter(|amount| *amount > Decimal::ZERO)
 }
 
 #[cfg(test)]

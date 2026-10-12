@@ -9,7 +9,7 @@ use crate::api::{
     account_types, acquisitions, admin_config, audit, auth, biblios, collections, email_templates,
     equipment, events, fines, first_setup, health, holds, inventory, items, library_info, loans,
     maintenance, metrics, opac, public_types, schedules, series, sources, stats, suggestions,
-    tasks, transits, users, visitor_counts, z3950,
+    tasks, transits, users, visitor_counts, withdrawals, z3950,
 };
 
 #[derive(OpenApi)]
@@ -58,6 +58,13 @@ use crate::api::{
         items::update_item,
         items::delete_item,
         items::set_item_weeding,
+        withdrawals::withdraw_item,
+        withdrawals::batch_withdraw,
+        withdrawals::cancel_withdrawal,
+        withdrawals::dispose_withdrawals,
+        withdrawals::complete_legacy_withdrawal,
+        withdrawals::list_withdrawals,
+        withdrawals::export_withdrawals_csv,
         // Users
         users::list_users,
         users::get_user,
@@ -327,6 +334,19 @@ use crate::api::{
             biblios::PaginatedResponse<crate::models::my_account::MyLoanView>,
             biblios::PaginatedResponse<crate::models::my_account::MyHoldView>,
             crate::models::dto::weeding::SetWeedingRequest,
+            crate::models::withdrawal::WithdrawalReason,
+            crate::models::withdrawal::WithdrawalDestination,
+            crate::models::withdrawal::WithdrawalQuery,
+            crate::models::withdrawal::WithdrawalWrite,
+            crate::models::withdrawal::BatchWithdrawalRequest,
+            crate::models::withdrawal::BatchDisposeRequest,
+            crate::models::withdrawal::WithdrawalDisposeFailure,
+            crate::models::withdrawal::WithdrawalDisposeRejectedBody,
+            crate::models::withdrawal::ItemWithdrawal,
+            crate::models::withdrawal::ReasonTotal,
+            crate::models::withdrawal::DestinationTotal,
+            crate::models::withdrawal::WithdrawalList,
+            crate::models::withdrawal::BatchWithdrawalResponse,
             // Pagination
             biblios::PaginatedResponse<crate::models::biblio::BiblioShort>,
             biblios::PaginatedResponse<crate::models::user::UserShort>,

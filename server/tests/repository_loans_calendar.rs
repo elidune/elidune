@@ -685,6 +685,16 @@ async fn sunday_due_date_slides_to_monday() {
         .await
         .expect("slot");
     }
+    // Other tests in this file leave network closures (for example today+21).
+    // On a Monday that date is the Monday this renewal must land on.
+    sqlx::query(
+        "DELETE FROM schedule_closures WHERE source_id IS NULL AND closure_date >= $1 AND closure_date <= $2",
+    )
+    .bind(target)
+    .bind(target + Duration::days(14))
+    .execute(repo.pool())
+    .await
+    .expect("clear network closures in the slide window");
 
     // Other tests in this file leave network closures and later-starting
     // periods in the shared database. Drop anything that covers the target

@@ -22,6 +22,8 @@ pub struct SearchFilters {
     pub archive: Option<bool>,
     /// When `true`, do not restrict to biblios that have active items (Meili `has_active_items`).
     pub include_without_active_items: bool,
+    /// Hide bibliographic records whose every remaining copy is withdrawn.
+    pub exclude_fully_withdrawn: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -223,6 +225,9 @@ fn build_filter_expr(filters: &SearchFilters) -> Option<String> {
     }
     if !filters.include_without_active_items {
         parts.push("has_active_items = true".to_string());
+    }
+    if filters.exclude_fully_withdrawn {
+        parts.push("is_withdrawn = false".to_string());
     }
 
     if parts.is_empty() {

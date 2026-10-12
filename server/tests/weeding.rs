@@ -72,6 +72,20 @@ async fn set_weeding(
     .await
 }
 
+async fn withdraw_copy(
+    app: &TestApp,
+    admin_token: &str,
+    item_id: i64,
+    reason: &str,
+) -> (StatusCode, serde_json::Value) {
+    app.post_json(
+        &format!("/api/v1/items/{item_id}/withdrawals"),
+        &json!({ "reason": reason, "destination": "pulp" }),
+        Some(admin_token),
+    )
+    .await
+}
+
 async fn checkout(
     app: &TestApp,
     admin_token: &str,
@@ -198,7 +212,7 @@ async fn withdrawn_blocks_checkout_renew_and_new_holds() {
     );
     let loan_id = fixtures::json_id(&loan_body["id"]);
 
-    let (status, body) = set_weeding(
+    let (status, refused) = set_weeding(
         &app,
         &admin_token,
         item_id,
@@ -206,32 +220,20 @@ async fn withdrawn_blocks_checkout_renew_and_new_holds() {
         "last copy discarded",
     )
     .await;
-    assert_eq!(status, StatusCode::OK, "withdraw: {body}");
-    assert_eq!(body["weedingStatus"], "withdrawn");
-    assert!(
-        body["archivedAt"].is_null(),
-        "withdraw must not reuse archived_at: {body}"
-    );
-
-    let (status, renew_body) = app
-        .post_json(
-            &format!("/api/v1/loans/{loan_id}/renew"),
-            &json!({}),
-            Some(&admin_token),
-        )
-        .await;
     assert_eq!(
         status,
         StatusCode::UNPROCESSABLE_ENTITY,
-        "withdrawn renew: {renew_body}"
+        "old withdraw: {refused}"
     );
-    assert!(
-        renew_body["message"]
-            .as_str()
-            .unwrap_or_default()
-            .contains(WeedingStatus::RENEW_BLOCKED),
-        "renew error: {renew_body}"
+    assert_eq!(refused["code"], "withdrawn_via_withdrawal");
+
+    let (status, on_loan) = withdraw_copy(&app, &admin_token, item_id, "worn").await;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "on loan: {on_loan}"
     );
+    assert_eq!(on_loan["code"], "item_on_loan");
 
     let (status, return_body) = app
         .post_empty(
@@ -242,8 +244,18 @@ async fn withdrawn_blocks_checkout_renew_and_new_holds() {
     assert_eq!(
         status,
         StatusCode::OK,
-        "return withdrawn loan: {return_body}"
+        "return before withdraw: {return_body}"
     );
+
+    let (status, body) = withdraw_copy(&app, &admin_token, item_id, "worn").await;
+    assert_eq!(status, StatusCode::CREATED, "withdraw: {body}");
+    let copy = item_copy(&app, &admin_token, item_id).await;
+    assert_eq!(copy["weedingStatus"], "withdrawn");
+    assert!(
+        copy["archivedAt"].is_null(),
+        "withdraw must not reuse archived_at: {copy}"
+    );
+    assert!(copy["weedingReason"].is_null());
 
     let (status, checkout_body) = checkout(&app, &admin_token, reader_id, item_id).await;
     assert_eq!(
@@ -338,16 +350,24 @@ async fn withdraw_advances_hold_queue_and_keeps_title_holds_on_siblings() {
         .await;
     assert_eq!(status, StatusCode::OK, "return A: {ret}");
 
-    let (status, wd) = set_weeding(
-        &app,
-        &admin_token,
-        item_a,
-        "withdrawn",
-        "withdraw ready copy",
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "withdraw A: {wd}");
-    assert!(wd["archivedAt"].is_null());
+    let (status, blocked) = withdraw_copy(&app, &admin_token, item_a, "surplus").await;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "ready hold blocks withdraw: {blocked}"
+    );
+    assert_eq!(blocked["code"], "item_on_hold");
+
+    sqlx::query("UPDATE holds SET status = 'pending' WHERE id = $1")
+        .bind(pinned_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("pending hold still points at the copy");
+
+    let (status, wd) = withdraw_copy(&app, &admin_token, item_a, "surplus").await;
+    assert_eq!(status, StatusCode::CREATED, "withdraw A: {wd}");
+    let copy = item_copy(&app, &admin_token, item_a).await;
+    assert!(copy["archivedAt"].is_null());
 
     let (status, after) = app
         .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}/holds"), &admin_token)
@@ -391,19 +411,14 @@ async fn last_item_withdrawn_keeps_biblio_findable_and_unarchived() {
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
     unlock_admin(&app, &admin_token).await;
-    let (biblio_id, item_ids) =
-        create_title_with_copies(&app, &admin_token, "Last Copy Withdrawn", 1).await;
+    let (_, reader_token) = fixtures::create_reader(&app, &admin_token, "wdlast").await;
+    let title = format!("Last Copy Withdrawn {}", fixtures::unique_suffix());
+    let (biblio_id, item_ids) = create_title_with_copies(&app, &admin_token, &title, 1).await;
 
-    let (status, body) = set_weeding(
-        &app,
-        &admin_token,
-        item_ids[0],
-        "withdrawn",
-        "collection weeding",
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "withdraw last: {body}");
-    assert!(body["archivedAt"].is_null());
+    let (status, body) = withdraw_copy(&app, &admin_token, item_ids[0], "obsolete").await;
+    assert_eq!(status, StatusCode::CREATED, "withdraw last: {body}");
+    let copy = item_copy(&app, &admin_token, item_ids[0]).await;
+    assert!(copy["archivedAt"].is_null());
 
     let (status, biblio) = app
         .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}"), &admin_token)
@@ -420,6 +435,50 @@ async fn last_item_withdrawn_keeps_biblio_findable_and_unarchived() {
     assert_eq!(biblio["weedingStatus"], "withdrawn");
     assert_eq!(biblio["items"][0]["weedingStatus"], "withdrawn");
     assert!(biblio["items"][0]["archivedAt"].is_null());
+
+    let (status, opac) = app
+        .get_json(&format!("/api/v1/opac/biblios/{biblio_id}"))
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "opac hides a fully withdrawn record: {opac}"
+    );
+    assert_eq!(opac["code"], "not_found");
+
+    let (status, reader) = app
+        .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}"), &reader_token)
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "reader catalog: {reader}");
+
+    let encoded = title.replace(' ', "%20");
+    let (status, staff_search) = app
+        .get_json_with_auth(
+            &format!("/api/v1/biblios?title={encoded}&perPage=5"),
+            &admin_token,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "staff search: {staff_search}");
+    assert!(
+        staff_search["items"]
+            .as_array()
+            .expect("hits")
+            .iter()
+            .any(|row| fixtures::json_id(&row["id"]) == biblio_id),
+        "staff still find a fully withdrawn record: {staff_search}"
+    );
+    let (status, opac_search) = app
+        .get_json(&format!("/api/v1/opac/biblios?title={encoded}&perPage=5"))
+        .await;
+    assert_eq!(status, StatusCode::OK, "opac search: {opac_search}");
+    assert!(
+        opac_search["items"]
+            .as_array()
+            .expect("opac hits")
+            .iter()
+            .all(|row| fixtures::json_id(&row["id"]) != biblio_id),
+        "opac search omits a fully withdrawn record: {opac_search}"
+    );
 }
 
 #[tokio::test]
@@ -470,12 +529,13 @@ async fn weeding_is_orthogonal_to_circulation_exceptions_and_archived_at() {
         "circulation exception must remain: {copy}"
     );
 
-    let (status, wd2) =
-        set_weeding(&app, &admin_token, item_id, "withdrawn", "do not replace").await;
-    assert_eq!(status, StatusCode::OK, "withdraw after lost: {wd2}");
+    let (status, wd2) = withdraw_copy(&app, &admin_token, item_id, "lostNotReplaced").await;
+    assert_eq!(status, StatusCode::CREATED, "withdraw after lost: {wd2}");
+    assert_eq!(wd2["reason"], "lostNotReplaced");
     let copy = item_copy(&app, &admin_token, item_id).await;
     assert_eq!(copy["weedingStatus"], "withdrawn");
     assert!(copy["archivedAt"].is_null());
+    assert_ne!(copy["circulationStatus"], json!(null));
 }
 
 #[tokio::test]

@@ -210,6 +210,7 @@ pub fn build_app_with_options(state: AppState, options: AppBuildOptions) -> Rout
         .merge(public_router)
         .merge(api::biblios::router())
         .merge(api::items::router())
+        .merge(api::withdrawals::router())
         .merge(api::users::router())
         .merge(api::loans::router())
         .merge(api::batch::router())

@@ -7,7 +7,7 @@ use chrono::Utc;
 use super::super::Repository;
 use crate::models::item::ItemShort;
 use crate::{
-    error::{AppError, AppResult},
+    error::{error_code, AppError, AppResult},
     models::item::Item,
 };
 
@@ -367,27 +367,61 @@ impl Repository {
         Ok(item)
     }
 
-    /// Delete an item (physical copy — soft delete, sets archived_at)
+    /// Delete an item (physical copy — soft delete, sets archived_at).
+    ///
+    /// `force` does not bypass circulation history. A copy with any loan, hold, or fine
+    /// must be weeded instead.
     #[tracing::instrument(skip(self), err)]
     pub async fn items_delete(&self, id: i64, force: bool) -> AppResult<()> {
+        let _ = force;
         let now = Utc::now();
 
-        let borrowed = self.loans_count_active_for_item(id).await?;
+        let (has_loan, has_hold, has_fine): (bool, bool, bool) = sqlx::query_as(
+            r#"
+            SELECT
+                (
+                    EXISTS (SELECT 1 FROM loans WHERE item_id = $1)
+                    OR EXISTS (SELECT 1 FROM loans_archives WHERE item_id = $1)
+                ),
+                EXISTS (SELECT 1 FROM holds WHERE item_id = $1),
+                (
+                    EXISTS (
+                        SELECT 1 FROM fines f
+                        JOIN loans l ON l.id = f.loan_id
+                        WHERE l.item_id = $1
+                    )
+                    OR EXISTS (
+                        SELECT 1 FROM fines f
+                        JOIN loans_archives la ON la.id = f.loan_id
+                        WHERE la.item_id = $1
+                    )
+                )
+            "#,
+        )
+        .bind(id)
+        .fetch_one(&self.pool)
+        .await?;
 
-        if borrowed > 0 {
-            if !force {
-                return Err(AppError::Conflict(
-                    "Item is currently borrowed. Use force=true to delete anyway.".to_string(),
-                ));
+        if has_loan || has_hold || has_fine {
+            let mut kinds = Vec::new();
+            if has_loan {
+                kinds.push("loan");
             }
-            let loan_ids = self.loans_get_active_ids_for_item(id).await?;
-            for loan_id in loan_ids {
-                self.loans_return(loan_id).await?;
+            if has_hold {
+                kinds.push("hold");
             }
+            if has_fine {
+                kinds.push("fine");
+            }
+            return Err(AppError::coded(
+                422,
+                error_code::ITEM_HAS_HISTORY_USE_WEEDING,
+                format!(
+                    "This copy has {} history and cannot be deleted. Weed it instead.",
+                    kinds.join(", ")
+                ),
+            ));
         }
-
-        // Cancel copy-targeted holds and advance the title queue onto a sibling.
-        self.holds_cancel_active_for_item(id).await?;
 
         sqlx::query("UPDATE items SET archived_at = $1, updated_at = $1, barcode = CONCAT('ARCH_', id::text, '_', COALESCE(barcode, '')) WHERE id = $2 AND archived_at IS NULL")
             .bind(now)
@@ -507,7 +541,8 @@ impl Repository {
         Ok(row.map(ItemShort::from))
     }
 
-    /// Set weeding status. Withdrawn cancels item-targeted holds and advances the queue.
+    /// Set candidate or on-shelf weeding status.
+    /// Withdrawal is a separate event (`POST /items/{id}/withdrawals`).
     /// Does not touch `archived_at` or circulation exceptions.
     #[tracing::instrument(skip(self), err)]
     pub async fn items_set_weeding(
@@ -525,14 +560,37 @@ impl Repository {
             ));
         }
 
+        if status == WeedingStatus::Withdrawn {
+            return Err(AppError::coded(
+                422,
+                error_code::WITHDRAWN_VIA_WITHDRAWAL,
+                "Withdraw a copy with POST /api/v1/items/{id}/withdrawals",
+            ));
+        }
+
         let mut tx = self.pool.begin().await?;
-        let biblio_id: i64 = sqlx::query_scalar(
-            "SELECT biblio_id FROM items WHERE id = $1 AND archived_at IS NULL FOR UPDATE",
+        let current: Option<WeedingStatus> = sqlx::query_scalar(
+            "SELECT weeding_status FROM items WHERE id = $1 AND archived_at IS NULL FOR UPDATE",
         )
         .bind(item_id)
         .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))?;
+        .await?;
+        let Some(current) = current else {
+            return Err(AppError::NotFound(format!("Item {item_id} not found")));
+        };
+        let active_withdrawal: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM item_withdrawals WHERE item_id = $1 AND cancelled_at IS NULL)",
+        )
+        .bind(item_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if current == WeedingStatus::Withdrawn || active_withdrawal {
+            return Err(AppError::coded(
+                422,
+                error_code::WITHDRAWAL_USE_CANCEL,
+                "Cancel the active withdrawal before changing weeding status",
+            ));
+        }
 
         sqlx::query(
             r#"
@@ -548,16 +606,6 @@ impl Repository {
         .bind(&reason)
         .execute(&mut *tx)
         .await?;
-
-        if status == WeedingStatus::Withdrawn {
-            let cancelled = self
-                .holds_cancel_active_for_item_tx(&mut tx, item_id)
-                .await?;
-            if cancelled > 0 {
-                self.holds_notify_next_available_copy_tx(&mut tx, biblio_id, Some(item_id))
-                    .await?;
-            }
-        }
 
         tx.commit().await?;
         self.items_get_active_by_id(item_id).await

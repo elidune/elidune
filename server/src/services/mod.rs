@@ -34,6 +34,7 @@ pub mod task_manager;
 pub mod transits;
 pub mod users;
 pub mod visitor_counts;
+pub mod withdrawals;
 pub mod z3950;
 
 // Re-export for existing `services::email` / `services::email_templates` paths

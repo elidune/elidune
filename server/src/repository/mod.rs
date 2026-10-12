@@ -32,6 +32,7 @@ pub mod stats;
 pub mod transits;
 pub mod users;
 pub mod visitor_counts;
+pub mod withdrawals;
 pub mod z3950;
 
 pub use account_types::AccountTypesCatalogRepository;

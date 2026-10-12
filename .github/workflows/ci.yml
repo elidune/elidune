@@ -187,6 +187,7 @@ jobs:
           --test auth_rate_limit
           --test password_reset
           --test weeding
+          --test withdrawals
           --test holds_max_active
           --test holds_title_level
           --test holds_to_pick
@@ -270,6 +271,7 @@ jobs:
           --test auth_rate_limit
           --test password_reset
           --test weeding
+          --test withdrawals
           --test holds_max_active
           --test holds_title_level
           --test holds_to_pick

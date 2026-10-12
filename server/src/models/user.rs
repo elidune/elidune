@@ -853,6 +853,15 @@ pub struct UserRights {
     /// Acquisitions (`/acquisitions`): vendors, funds, orders, receipt. Distinct from cataloging.
     #[serde(default)]
     pub acquisitions_rights: Rights,
+    /// Weeding: write withdraws, read lists and exports. Distinct from cataloging and deletion.
+    #[serde(default)]
+    pub weeding_rights: Rights,
+    /// Cancel an active withdrawal. Distinct from `weeding_rights`.
+    #[serde(default)]
+    pub weeding_cancel_rights: Rights,
+    /// Delete a physical copy (`DELETE /items/{id}`). Distinct from weeding.
+    #[serde(default)]
+    pub items_archive_rights: Rights,
 }
 
 impl Default for UserRights {
@@ -865,6 +874,9 @@ impl Default for UserRights {
             settings_rights: Rights::None,
             events_rights: Rights::None,
             acquisitions_rights: Rights::None,
+            weeding_rights: Rights::None,
+            weeding_cancel_rights: Rights::None,
+            items_archive_rights: Rights::None,
         }
     }
 }
@@ -959,6 +971,50 @@ impl UserClaims {
         } else {
             Err(AppError::Authorization(
                 "Insufficient rights to write items".to_string(),
+            ))
+        }
+    }
+
+    /// List and export withdrawals (`weeding_rights` read or write).
+    pub fn require_read_weeding(&self) -> Result<(), AppError> {
+        if self.rights.weeding_rights.rank() >= Rights::Read.rank() {
+            Ok(())
+        } else {
+            Err(AppError::Authorization(
+                "Insufficient rights to view weeding".to_string(),
+            ))
+        }
+    }
+
+    /// Withdraw a copy or complete a legacy withdrawal.
+    pub fn require_weeding(&self) -> Result<(), AppError> {
+        if self.rights.weeding_rights.rank() >= Rights::Write.rank() {
+            Ok(())
+        } else {
+            Err(AppError::Authorization(
+                "Insufficient rights to weed copies".to_string(),
+            ))
+        }
+    }
+
+    /// Cancel an active withdrawal. Separate from [`Self::require_weeding`].
+    pub fn require_cancel_withdrawal(&self) -> Result<(), AppError> {
+        if self.rights.weeding_cancel_rights.rank() >= Rights::Write.rank() {
+            Ok(())
+        } else {
+            Err(AppError::Authorization(
+                "Insufficient rights to cancel a withdrawal".to_string(),
+            ))
+        }
+    }
+
+    /// Delete a physical copy. Separate from weeding (`items_archive_rights`).
+    pub fn require_delete_items(&self) -> Result<(), AppError> {
+        if self.rights.items_archive_rights.rank() >= Rights::Write.rank() {
+            Ok(())
+        } else {
+            Err(AppError::Authorization(
+                "Insufficient rights to delete copies".to_string(),
             ))
         }
     }
@@ -1252,6 +1308,54 @@ mod erasure_tests {
         };
         assert!(selector.require_write_acquisitions().is_ok());
         assert!(selector.require_write_items().is_err());
+    }
+
+    #[test]
+    fn weeding_cancel_and_delete_are_separate_rights() {
+        use crate::models::user::{AccountTypeSlug, Rights, UserClaims, UserRights};
+
+        let weeder = UserClaims {
+            sub: "1".into(),
+            user_id: 1,
+            account_type: AccountTypeSlug::Librarian,
+            rights: UserRights {
+                weeding_rights: Rights::Write,
+                weeding_cancel_rights: Rights::None,
+                items_archive_rights: Rights::None,
+                items_rights: Rights::Write,
+                ..UserRights::default()
+            },
+            exp: 0,
+            iat: 0,
+            token_version: 1,
+            scope: None,
+        };
+        assert!(weeder.require_weeding().is_ok());
+        assert!(weeder.require_read_weeding().is_ok());
+        assert!(weeder.require_cancel_withdrawal().is_err());
+        assert!(weeder.require_delete_items().is_err());
+
+        let canceller = UserClaims {
+            sub: "2".into(),
+            user_id: 2,
+            account_type: AccountTypeSlug::Librarian,
+            rights: UserRights {
+                weeding_rights: Rights::Read,
+                weeding_cancel_rights: Rights::Write,
+                items_archive_rights: Rights::Write,
+                items_rights: Rights::None,
+                ..UserRights::default()
+            },
+            exp: 0,
+            iat: 0,
+            token_version: 1,
+            scope: None,
+        };
+        assert!(canceller.require_weeding().is_err());
+        assert!(canceller.require_read_weeding().is_ok());
+        assert!(canceller.require_cancel_withdrawal().is_ok());
+        assert!(canceller.require_delete_items().is_ok());
+        assert!(canceller.require_write_items().is_err());
     }
 
     #[test]
