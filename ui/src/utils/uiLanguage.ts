@@ -40,6 +40,31 @@ export function libraryLanguageFromSettings(source: object | null | undefined): 
   return trimmed ? trimmed : null;
 }
 
+/** Keep `<html lang>` aligned with the active UI language. */
+export function syncHtmlLang(
+  language: string | null | undefined,
+  root?: { lang: string } | null,
+): void {
+  const lang = supportedLanguageCode(language) ?? UI_LANGUAGE_FALLBACK;
+  const target = root === undefined
+    ? (typeof document !== 'undefined' ? document.documentElement : null)
+    : root;
+  if (target) target.lang = lang;
+}
+
+/**
+ * Switch translations immediately. The public selector must not wait for a reload.
+ */
+export async function applyUiLanguage(
+  i18n: { changeLanguage: (language: string) => Promise<unknown> },
+  language: SupportedLanguage,
+  root?: { lang: string } | null,
+): Promise<SupportedLanguage> {
+  await i18n.changeLanguage(language);
+  syncHtmlLang(language, root);
+  return language;
+}
+
 /**
  * Resolution order:
  * account preference > explicit public choice > supported browser language > library language > fr.

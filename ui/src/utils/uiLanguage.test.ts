@@ -1,10 +1,62 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { createInstance } from 'i18next';
+import de from '../locales/de/translation.json' with { type: 'json' };
+import en from '../locales/en/translation.json' with { type: 'json' };
+import es from '../locales/es/translation.json' with { type: 'json' };
+import fr from '../locales/fr/translation.json' with { type: 'json' };
 import { PUBLIC_LANGUAGE_STORAGE_KEY } from '../locales/languages.ts';
 import {
+  applyUiLanguage,
   libraryLanguageFromSettings,
   resolveUiLanguage,
 } from './uiLanguage.ts';
+
+const SELECTOR_LABEL = {
+  fr: 'Langue',
+  en: 'Language',
+  de: 'Sprache',
+  es: 'Idioma',
+} as const;
+
+describe('public language choice applies without a reload', () => {
+  it('switches the selector label, catalogue tab, and html lang for fr, de, and es', async () => {
+    const i18n = createInstance();
+    await i18n.init({
+      resources: {
+        en: { translation: en },
+        fr: { translation: fr },
+        de: { translation: de },
+        es: { translation: es },
+      },
+      lng: 'en',
+      fallbackLng: 'fr',
+      supportedLngs: ['en', 'fr', 'de', 'es'],
+      interpolation: { escapeValue: false },
+    });
+    const root = { lang: 'en' };
+    assert.equal(i18n.t('language.selector'), 'Language');
+    assert.equal(i18n.t('opac.tabCatalog'), 'Catalogue');
+
+    for (const code of ['fr', 'de', 'es'] as const) {
+      const next = resolveUiLanguage({
+        explicitChoice: code,
+        browserLanguage: 'en-US',
+        libraryLanguage: 'fr',
+      });
+      await applyUiLanguage(i18n, next, root);
+      assert.equal(i18n.resolvedLanguage ?? i18n.language, code);
+      assert.equal(root.lang, code);
+      assert.equal(i18n.t('language.selector'), SELECTOR_LABEL[code]);
+    }
+
+    assert.equal(de.opac.tabCatalog, 'Katalog');
+    assert.equal(es.opac.tabCatalog, 'Catálogo');
+    assert.notEqual(de.opac.tabCatalog, 'Catalogue');
+    assert.notEqual(es.opac.tabCatalog, 'Catalogue');
+    assert.equal(i18n.t('opac.tabCatalog'), 'Catálogo');
+  });
+});
 
 describe('UI language resolution', () => {
   it('prefers the account preference over an explicit choice, the browser, and the library', () => {

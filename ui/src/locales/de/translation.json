@@ -2122,7 +2122,7 @@
     "borrowed": "Ausgeliehen",
     "searchPlaceholder": "Titel, Autor, ISBN, Stichwort…",
     "tabEvents": "Veranstaltungen",
-    "tabCatalog": "Catalogue",
+    "tabCatalog": "Katalog",
     "eventsEmpty": "Kommende Bibliotheksveranstaltungen erscheinen hier.",
     "resultsCount_one": "{{count}} Dokument gefunden",
     "resultsCount_other": "{{count}} Dokumente gefunden",

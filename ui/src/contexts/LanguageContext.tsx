@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   SUPPORTED_LANGUAGES,
@@ -11,6 +11,7 @@ import {
   type SupportedLanguage,
 } from '@/locales';
 import {
+  applyUiLanguage,
   libraryLanguageFromSettings,
   preferenceToUiLanguage,
   resolveUiLanguage,
@@ -79,9 +80,10 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   const { user, isAuthenticated, isLoading, refreshProfile } = useAuth();
   const { libraryInfo } = useLibrary();
   const language = fromI18nLanguage(i18n.resolvedLanguage ?? i18n.language);
+  const applyingChoice = useRef(false);
 
   useEffect(() => {
-    if (isLoading) return;
+    if (isLoading || applyingChoice.current) return;
 
     const next = resolveUiLanguage({
       accountLanguage: isAuthenticated ? user?.language : null,
@@ -106,21 +108,32 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
   const setLanguage = useCallback(async (lang: SupportedLanguage) => {
     if (!SUPPORTED_LANGUAGES.includes(lang)) return;
 
-    await i18n.changeLanguage(lang);
+    const next = resolveUiLanguage({
+      accountLanguage: isAuthenticated ? lang : null,
+      explicitChoice: lang,
+      browserLanguage: typeof navigator !== 'undefined' ? navigator.language : null,
+      libraryLanguage: libraryLanguageFromSettings(libraryInfo),
+    });
 
-    if (isAuthenticated) {
-      persistAccountLanguage(lang);
-      try {
-        await api.updateProfile({ language: toServerLanguage(lang) });
-        await refreshProfile();
-      } catch (error) {
-        console.error('Failed to save language preference to server:', error);
-      }
-      return;
+    if (isAuthenticated) persistAccountLanguage(next);
+    else persistPublicLanguage(next);
+
+    applyingChoice.current = true;
+    try {
+      await applyUiLanguage(i18n, next);
+    } finally {
+      applyingChoice.current = false;
     }
 
-    persistPublicLanguage(lang);
-  }, [i18n, isAuthenticated, refreshProfile]);
+    if (!isAuthenticated) return;
+
+    try {
+      await api.updateProfile({ language: toServerLanguage(next) });
+      await refreshProfile();
+    } catch (error) {
+      console.error('Failed to save language preference to server:', error);
+    }
+  }, [i18n, isAuthenticated, libraryInfo, refreshProfile]);
 
   return (
     <LanguageContext.Provider

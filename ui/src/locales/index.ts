@@ -7,11 +7,11 @@ import frTranslation from './fr/translation.json';
 import deTranslation from './de/translation.json';
 import esTranslation from './es/translation.json';
 import {
-  fromI18nLanguage,
   I18N_STORAGE_KEY,
   PUBLIC_LANGUAGE_STORAGE_KEY,
   SUPPORTED_LANGUAGES,
 } from './languages';
+import { syncHtmlLang } from '../utils/uiLanguage';
 
 export {
   fromI18nLanguage,
@@ -85,14 +85,9 @@ i18n
     },
   });
 
-function syncDocumentLanguage(language: string | undefined) {
-  if (typeof document === 'undefined') return;
-  document.documentElement.lang = fromI18nLanguage(language);
-}
-
-syncDocumentLanguage(i18n.resolvedLanguage ?? i18n.language);
+syncHtmlLang(i18n.resolvedLanguage ?? i18n.language);
 i18n.on('languageChanged', (language) => {
-  syncDocumentLanguage(language);
+  syncHtmlLang(language);
 });
 
 export default i18n;
