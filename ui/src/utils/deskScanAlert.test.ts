@@ -100,23 +100,24 @@ describe('desk scan alert', () => {
 
     assert.equal(
       deskScanAlertMessage(onLoan, translate('fr')),
-      "Cet exemplaire est encore en prêt à Ada Lovelace. Faites d'abord le retour.",
+      "Cet exemplaire est encore en prêt au lecteur AL. Faites d'abord le retour.",
     );
+    assert.equal(deskScanAlertMessage(onLoan, translate('fr')).includes('Ada Lovelace'), false);
     assert.equal(
       deskScanAlertMessage({ kind: 'onLoan', patronName: null }, translate('fr')),
       "Cet exemplaire est encore en prêt à un autre lecteur. Faites d'abord le retour.",
     );
     assert.equal(
       deskScanAlertMessage(onLoan, translate('en')),
-      'This copy is still on loan to Ada Lovelace. Process the return first.',
+      'This copy is still on loan to the reader AL. Process the return first.',
     );
     assert.equal(
       deskScanAlertMessage(onLoan, translate('de')),
-      'Dieses Exemplar ist noch an Ada Lovelace ausgeliehen. Erfassen Sie zuerst die Rückgabe.',
+      'Dieses Exemplar ist noch an den Leser AL ausgeliehen. Erfassen Sie zuerst die Rückgabe.',
     );
     assert.equal(
       deskScanAlertMessage(onLoan, translate('es')),
-      'Este ejemplar sigue en préstamo a Ada Lovelace. Registre primero la devolución.',
+      'Este ejemplar sigue en préstamo al lector AL. Registre primero la devolución.',
     );
     assert.equal(
       deskScanAlertMessage(onLoan, translate('fr'), 'return'),

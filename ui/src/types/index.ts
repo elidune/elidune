@@ -3,6 +3,8 @@ import {
   readHoldsRightsFromJwt,
   readItemsArchiveRightsFromJwt,
   readItemsRightsFromJwt,
+  normalizeUsersRightsLevel,
+  readUsersRightsFromJwt,
   readWeedingCancelRightsFromJwt,
   readWeedingRightsFromJwt,
 } from '@/utils/jwtRights';
@@ -115,6 +117,8 @@ export interface AuthMeRights {
   itemsArchiveRights?: string | null;
   /** Bibliographic record write, including `DELETE /biblios/{id}`. */
   itemsRights?: string | null;
+  /** Borrower records (`n` / `o` / `r` / `w` or `none` / `own` / `read` / `write`). */
+  usersRights?: string | null;
 }
 
 // User types
@@ -140,6 +144,8 @@ export interface User {
   weedingCancelRights?: string | null;
   itemsArchiveRights?: string | null;
   itemsRights?: string | null;
+  /** Borrower records when exposed on the profile. JWT `rights.usersRights` is preferred. */
+  usersRights?: string | null;
   rights?: AuthMeRights | null;
   // Address fields
   addrStreet?: string;
@@ -1648,6 +1654,24 @@ export const canManageItems = (accountType?: string): boolean =>
 
 export const canManageUsers = (accountType?: string): boolean =>
   isLibrarian(accountType);
+
+/**
+ * Staff may open another borrower's record.
+ * JWT `rights.usersRights` wins. `read` and `write` qualify. `own` does not.
+ */
+export function canReadUsers(
+  user: Pick<User, 'usersRights' | 'rights'> | null | undefined,
+  authToken?: string | null,
+): boolean {
+  const fromJwt = authToken ? readUsersRightsFromJwt(authToken) : null;
+  const level =
+    fromJwt ??
+    normalizeUsersRightsLevel(
+      (user?.rights && typeof user.rights === 'object' ? user.rights.usersRights : null) ??
+        user?.usersRights,
+    );
+  return level === 'r' || level === 'w';
+}
 
 export const canManageLoans = (accountType?: string): boolean =>
   isLibrarian(accountType);

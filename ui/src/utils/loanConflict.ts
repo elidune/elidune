@@ -1,4 +1,8 @@
-import type { DeskCopySnapshot, DeskScanAlert } from './deskScanAlert.ts';
+import {
+  otherBorrowerFromPerson,
+  type DeskCopySnapshot,
+  type DeskScanAlert,
+} from './deskScanAlert.ts';
 
 /** 409 from POST /loans when the copy is on loan to another reader. */
 export const ITEM_ON_LOAN_TO_OTHER_BORROWER = 'item_on_loan_to_other_borrower';
@@ -63,9 +67,19 @@ export function checkoutNoticeForConflict(error: unknown, context: ConflictConte
     const owner = text(context.snapshot?.loanUserId);
     const patronId = text(context.patronId);
     const otherReader = Boolean(owner && patronId && owner !== patronId);
+    const snapshot = context.snapshot;
     return {
       kind: 'onLoan',
-      patronName: otherReader ? text(context.snapshot?.loanUserName) : null,
+      patronName: null,
+      otherBorrower: otherReader
+        ? otherBorrowerFromPerson({
+            userId: owner,
+            cardNumber: snapshot?.loanUserCard,
+            firstname: snapshot?.loanUserFirstname,
+            lastname: snapshot?.loanUserLastname,
+            fullName: snapshot?.loanUserName,
+          })
+        : null,
       loanId: null,
     };
   }

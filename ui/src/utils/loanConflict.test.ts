@@ -87,9 +87,11 @@ describe('checkout 409 when the copy is already on loan', () => {
       });
       assert.deepEqual(notice, {
         kind: 'onLoan',
-        patronName: 'Ada Lovelace',
+        patronName: null,
+        otherBorrower: { userId: '2', cardNumber: null, initials: 'AL' },
         loanId: null,
       });
+      assert.equal(JSON.stringify(notice).includes('Ada Lovelace'), false);
       assert.equal(deskScanNoticeAction(notice!), 'return');
       assert.equal(checkoutMayForce(error), false);
     }
