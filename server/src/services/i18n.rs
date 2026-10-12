@@ -53,12 +53,17 @@ pub fn label(lang: Option<Language>, key: Label) -> &'static str {
     }
 }
 
-/// `Label: value`. French keeps a space before the colon.
+/// `Label: value`. French keeps a space before the colon, except the reminder
+/// phrases `emprunté le` and `à rendre le`, which take the date directly.
 #[must_use]
 pub fn labeled(lang: Option<Language>, key: Label, value: &str) -> String {
     let name = label(lang, key);
     if patron_language(lang) == PatronLanguage::French {
-        format!("{name} : {value}")
+        if matches!(key, Label::BorrowedOn | Label::DueOn) {
+            format!("{name} {value}")
+        } else {
+            format!("{name} : {value}")
+        }
     } else {
         format!("{name}: {value}")
     }
@@ -193,7 +198,11 @@ mod tests {
             assert_eq!(label(Some(lang), Label::Barcode), "Code-barres", "{lang:?}");
             assert_eq!(
                 labeled(Some(lang), Label::DueOn, "01/02/2026"),
-                "à rendre le : 01/02/2026"
+                "à rendre le 01/02/2026"
+            );
+            assert_eq!(
+                labeled(Some(lang), Label::BorrowedOn, "10/01/2026"),
+                "emprunté le 10/01/2026"
             );
         }
     }

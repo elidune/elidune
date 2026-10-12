@@ -310,14 +310,14 @@ mod tests {
         );
         assert_eq!(template["name"], "Réservation disponible");
         assert_eq!(template["subject"], "Votre réservation est disponible");
-        assert!(template["body_plain"]
-            .as_str()
-            .unwrap_or("")
-            .contains("vous avez réservé"));
-        assert!(template["body_html"]
-            .as_str()
-            .unwrap_or("")
-            .contains("<strong>réservation</strong>"));
+        let plain = template["body_plain"].as_str().unwrap_or("");
+        let html = template["body_html"].as_str().unwrap_or("");
+        assert!(plain.contains("Le document que vous avez réservé vous attend"));
+        assert!(plain.contains("À retirer jusqu'au {{expires_at}} inclus"));
+        assert!(html.contains("Le document que vous avez réservé vous attend"));
+        assert!(html.contains("jusqu'au <strong>{{expires_at}}</strong> inclus"));
+        assert!(!plain.contains("disponible au retrait"));
+        assert!(!html.contains("disponible au retrait"));
     }
 
     #[test]

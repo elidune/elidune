@@ -640,7 +640,7 @@ mod tests {
         let french = loan_list_plain(&loans, zone, Some(Language::French));
         assert_eq!(
             french,
-            "- L'Étranger (Camus) — emprunté le : 10/01/2026, à rendre le : 24/01/2026"
+            "- L'Étranger (Camus) — emprunté le 10/01/2026, à rendre le 24/01/2026"
         );
         assert!(!french.contains("borrowed:"));
         assert!(!french.contains("due:"));
@@ -667,7 +667,7 @@ mod tests {
         let missing = overdue_row(None, None);
         let plain = loan_list_plain(&[&missing], zone, Some(Language::French));
         assert!(plain.contains("(titre inconnu)"));
-        assert!(plain.contains("à rendre le : n. d."));
+        assert!(plain.contains("à rendre le n. d."));
         let english_missing = loan_list_plain(&[&missing], zone, Some(Language::English));
         assert!(english_missing.contains("(unknown title)"));
         assert!(english_missing.contains("due: N/A"));

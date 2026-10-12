@@ -7,20 +7,20 @@ SET
     subject = 'Votre réservation est disponible',
     body_plain = $plain$Bonjour {{firstname}} {{lastname}},
 
-Le document que vous avez réservé est disponible :
+Le document que vous avez réservé vous attend :
 
 {{title}}
 {{barcode_line}}
 
-Merci de le retirer avant le {{expires_at}}.
+À retirer jusqu'au {{expires_at}} inclus.
 
 Cordialement,
 L'équipe de la bibliothèque$plain$,
     body_html = $html$<html><body style="font-family: Arial, sans-serif; color: #333;">
 <p>Bonjour <strong>{{firstname}} {{lastname}}</strong>,</p>
-<p>Votre <strong>réservation</strong> est disponible au retrait :</p>
+<p>Le document que vous avez réservé vous attend :</p>
 <p><strong>{{title}}</strong><br>{{barcode_line_html}}</p>
-<p>Merci de le retirer avant le <strong>{{expires_at}}</strong>.</p>
+<p>À retirer jusqu'au <strong>{{expires_at}}</strong> inclus.</p>
 <p>Cordialement,<br><em>L'équipe de la bibliothèque</em></p>
 </body></html>$html$
 WHERE template_id = 'hold_ready'
