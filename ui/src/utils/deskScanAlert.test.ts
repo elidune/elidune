@@ -209,7 +209,7 @@ describe('loan borrower identifier shapes', () => {
     const sentence = checkoutSentence(ref);
     assert.equal(
       sentence,
-      'This copy is still on loan to the reader (barcode L-10042). Process the return first.',
+      'This copy is still on loan to the reader (library card no. L-10042). Process the return first.',
     );
     assert.equal(sentence.includes('Julien Dubois'), false);
     assert.equal(sentence.includes('BC-9'), false);
@@ -248,10 +248,29 @@ describe('loan borrower identifier shapes', () => {
     const sentence = checkoutSentence(ref);
     assert.equal(
       sentence,
-      'This copy is still on loan to the reader (barcode BC-9). Process the return first.',
+      'This copy is still on loan to the reader (library card no. BC-9). Process the return first.',
     );
     assert.equal(sentence.includes('Julien'), false);
     assert.equal(sentence.includes('Dubois'), false);
+  });
+
+  it('calls a reader card a card number in every locale, not a barcode', () => {
+    const ref = otherBorrowerFromPayload({ id: '42', cardNumber: 'CARTE-0002', initials: 'JD' });
+    const expected = {
+      fr: "Cet exemplaire est encore en prêt au lecteur carte n° CARTE-0002. Faites d'abord le retour.",
+      en: 'This copy is still on loan to the reader (library card no. CARTE-0002). Process the return first.',
+      de: 'Dieses Exemplar ist noch an den Leser (Leseausweis-Nr. CARTE-0002) ausgeliehen. Erfassen Sie zuerst die Rückgabe.',
+      es: 'Este ejemplar sigue en préstamo al lector (carné n.º CARTE-0002). Registre primero la devolución.',
+    } as const;
+    for (const lang of ['fr', 'en', 'de', 'es'] as const) {
+      const sentence = deskScanAlertMessage(
+        { kind: 'onLoan', patronName: 'Julien Dubois', otherBorrower: ref },
+        translate(lang),
+      );
+      assert.equal(sentence, expected[lang]);
+      assert.equal(/code-barres|barcode|código de barras/i.test(sentence), false);
+      assert.equal(sentence.includes('Julien Dubois'), false);
+    }
   });
 });
 

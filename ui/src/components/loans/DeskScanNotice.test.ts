@@ -112,7 +112,8 @@ describe('desk 409 notice hides the other borrower name', () => {
     assert.match(html, new RegExp(`<a[^>]*href="/users/${USER_ID}"[^>]*>${CARD}</a>`));
     assert.match(html, /exemplaire/);
     assert.match(html, /lecteur/i);
-    assert.match(html, /code-barres/);
+    assert.match(html, /carte n°/);
+    assert.equal(html.includes('code-barres'), false);
   });
 
   it('shows the card number as plain text without read permission', async () => {
@@ -174,6 +175,12 @@ describe('desk 409 notice hides the other borrower name', () => {
   });
 
   it('keeps the name out of every locale, and out of the 409 notice payload', async () => {
+    const cardWording = {
+      fr: 'carte n°',
+      en: 'library card no.',
+      de: 'Leseausweis-Nr.',
+      es: 'carné n.º',
+    } as const;
     for (const lng of ['fr', 'en', 'de', 'es'] as const satisfies readonly Lang[]) {
       const html = renderNotice(await i18nFor(lng), true, {
         kind: 'onLoan',
@@ -183,6 +190,8 @@ describe('desk 409 notice hides the other borrower name', () => {
       assert.equal(html.includes(FULL_NAME), false, lng);
       assert.equal(html.includes('Julien'), false, lng);
       assert.equal(html.includes(CARD), true, lng);
+      assert.equal(html.includes(cardWording[lng]), true, lng);
+      assert.equal(/code-barres|barcode|código de barras/i.test(html), false, lng);
     }
 
     const withCard = conflict409({ loanUserCard: CARD });
