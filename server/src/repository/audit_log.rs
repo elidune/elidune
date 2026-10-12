@@ -106,28 +106,51 @@ impl Repository {
         error_code: Option<&str>,
         error_message: Option<&str>,
     ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r#"
-            INSERT INTO audit_log (
-                event_type, user_id, entity_type, entity_id, ip_address, payload,
-                outcome, http_status, error_code, error_message
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-            "#,
+        insert_audit_row(
+            &self.pool,
+            event_type,
+            user_id,
+            entity_type,
+            entity_id,
+            ip_address,
+            payload,
+            outcome,
+            http_status,
+            error_code,
+            error_message,
         )
-        .bind(event_type)
-        .bind(user_id)
-        .bind(entity_type)
-        .bind(entity_id)
-        .bind(ip_address)
-        .bind(payload)
-        .bind(outcome)
-        .bind(http_status)
-        .bind(error_code)
-        .bind(error_message)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
+        .await
+    }
+
+    /// Insert one audit row on an open transaction. The caller commits or rolls back.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn audit_insert_tx(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        event_type: &str,
+        user_id: Option<i64>,
+        entity_type: Option<&str>,
+        entity_id: Option<i64>,
+        ip_address: Option<&str>,
+        payload: Option<Value>,
+        outcome: &str,
+        http_status: Option<i16>,
+        error_code: Option<&str>,
+        error_message: Option<&str>,
+    ) -> Result<(), sqlx::Error> {
+        insert_audit_row(
+            &mut **tx,
+            event_type,
+            user_id,
+            entity_type,
+            entity_id,
+            ip_address,
+            payload,
+            outcome,
+            http_status,
+            error_code,
+            error_message,
+        )
+        .await
     }
 
     /// Query audit log entries with filters and pagination.
@@ -350,4 +373,45 @@ impl Repository {
 
         Ok(deleted as u64)
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn insert_audit_row<'e, E>(
+    executor: E,
+    event_type: &str,
+    user_id: Option<i64>,
+    entity_type: Option<&str>,
+    entity_id: Option<i64>,
+    ip_address: Option<&str>,
+    payload: Option<Value>,
+    outcome: &str,
+    http_status: Option<i16>,
+    error_code: Option<&str>,
+    error_message: Option<&str>,
+) -> Result<(), sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    sqlx::query(
+        r#"
+        INSERT INTO audit_log (
+            event_type, user_id, entity_type, entity_id, ip_address, payload,
+            outcome, http_status, error_code, error_message
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+        "#,
+    )
+    .bind(event_type)
+    .bind(user_id)
+    .bind(entity_type)
+    .bind(entity_id)
+    .bind(ip_address)
+    .bind(payload)
+    .bind(outcome)
+    .bind(http_status)
+    .bind(error_code)
+    .bind(error_message)
+    .execute(executor)
+    .await?;
+    Ok(())
 }

@@ -258,40 +258,32 @@ impl Repository {
         payment: Decimal,
         notes: Option<&str>,
     ) -> AppResult<Fine> {
-        sqlx::query_as::<_, Fine>(
-            r#"
-            UPDATE fines SET
-                paid_amount = paid_amount + $2,
-                notes       = COALESCE($3, notes),
-                paid_at     = CASE WHEN paid_amount + $2 >= amount THEN NOW() ELSE NULL END,
-                status      = CASE
-                    WHEN paid_amount + $2 >= amount THEN 'paid'
-                    ELSE 'partial'
-                END
-            WHERE id = $1
-            RETURNING *
-            "#,
-        )
-        .bind(id)
-        .bind(payment)
-        .bind(notes)
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Fine {id} not found")))
+        apply_fine_payment(&self.pool, id, payment, notes).await
+    }
+
+    /// Apply a payment inside an open transaction.
+    pub async fn fines_pay_tx(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        id: i64,
+        payment: Decimal,
+        notes: Option<&str>,
+    ) -> AppResult<Fine> {
+        apply_fine_payment(&mut **tx, id, payment, notes).await
     }
 
     /// Waive a fine (write off)
     #[tracing::instrument(skip(self), err)]
     pub async fn fines_waive(&self, id: i64, notes: Option<&str>) -> AppResult<Fine> {
-        sqlx::query_as::<_, Fine>(
-            "UPDATE fines SET status = 'waived', paid_at = NOW(), notes = COALESCE($2, notes)
-             WHERE id = $1 RETURNING *",
-        )
-        .bind(id)
-        .bind(notes)
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Fine {id} not found")))
+        waive_fine(&self.pool, id, notes).await
+    }
+
+    /// Waive a fine inside an open transaction.
+    pub async fn fines_waive_tx(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        id: i64,
+        notes: Option<&str>,
+    ) -> AppResult<Fine> {
+        waive_fine(&mut **tx, id, notes).await
     }
 
     /// Get fine rules (per media type + default)
@@ -787,6 +779,52 @@ fn lost_notice(fine: Option<(i64, Decimal, Decimal, FineStatus)>) -> AppResult<L
 
 fn cents(amount: Decimal) -> AppResult<i64> {
     money_to_cents(amount).map_err(|msg| AppError::Internal(msg.to_string()))
+}
+
+async fn apply_fine_payment<'e, E>(
+    executor: E,
+    id: i64,
+    payment: Decimal,
+    notes: Option<&str>,
+) -> AppResult<Fine>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    sqlx::query_as::<_, Fine>(
+        r#"
+        UPDATE fines SET
+            paid_amount = paid_amount + $2,
+            notes       = COALESCE($3, notes),
+            paid_at     = CASE WHEN paid_amount + $2 >= amount THEN NOW() ELSE NULL END,
+            status      = CASE
+                WHEN paid_amount + $2 >= amount THEN 'paid'
+                ELSE 'partial'
+            END
+        WHERE id = $1
+        RETURNING *
+        "#,
+    )
+    .bind(id)
+    .bind(payment)
+    .bind(notes)
+    .fetch_optional(executor)
+    .await?
+    .ok_or_else(|| AppError::NotFound(format!("Fine {id} not found")))
+}
+
+async fn waive_fine<'e, E>(executor: E, id: i64, notes: Option<&str>) -> AppResult<Fine>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    sqlx::query_as::<_, Fine>(
+        "UPDATE fines SET status = 'waived', paid_at = NOW(), notes = COALESCE($2, notes)
+         WHERE id = $1 RETURNING *",
+    )
+    .bind(id)
+    .bind(notes)
+    .fetch_optional(executor)
+    .await?
+    .ok_or_else(|| AppError::NotFound(format!("Fine {id} not found")))
 }
 
 fn is_open_fine_unique_violation(err: &sqlx::Error) -> bool {

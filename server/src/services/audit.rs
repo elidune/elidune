@@ -1,9 +1,12 @@
 //! Audit log service for recording all mutations, auth events, and system events.
 //!
-//! Uses a fire-and-forget pattern so logging never blocks the calling handler.
-//! Sensitive fields are stripped from payloads before insertion.
+//! Most events use a fire-and-forget insert so logging never blocks the caller.
+//! Fine money movements use [`AuditService::log_in_tx`] so the audit row commits
+//! with the charge update. Sensitive fields are stripped from payloads before insertion.
 
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use axum::http::HeaderMap;
 use chrono::{DateTime, Utc};
@@ -274,11 +277,25 @@ pub use crate::models::audit::{AuditLogEntry, AuditLogPage, AuditQueryParams};
 #[derive(Clone)]
 pub struct AuditService {
     repository: Repository,
+    /// Next [`Self::log_in_tx`] insert uses an outcome the check constraint rejects.
+    fail_next_tx_insert: Arc<AtomicBool>,
 }
 
 impl AuditService {
     pub fn new(repository: Repository) -> Self {
-        Self { repository }
+        Self {
+            repository,
+            fail_next_tx_insert: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// Fail the next transactional audit insert inside the database.
+    ///
+    /// The insert violates `audit_log_outcome_check`, so the caller's
+    /// transaction rolls back. Shared by every clone of this service.
+    #[doc(hidden)]
+    pub fn fail_next_transactional_insert(&self) {
+        self.fail_next_tx_insert.store(true, Ordering::SeqCst);
     }
 
     /// Fire-and-forget audit log insertion. Never blocks the caller.
@@ -297,31 +314,14 @@ impl AuditService {
         let repository = self.repository.clone();
         let event_type = event_type.to_string();
         let entity_type: Option<String> = entity_type.map(|s| s.to_string());
-        let payload: Option<Value> = payload.and_then(|p| match serde_json::to_value(p) {
-            Ok(v) => Some(mask_sensitive_fields(v)),
-            Err(e) => {
-                tracing::warn!(
-                    "audit log payload serialization failed for '{}': {}",
-                    event_type,
-                    e
-                );
-                None
-            }
-        });
+        let payload = audit_payload(&event_type, payload);
 
         let outcome_db = meta.outcome.as_db_str().to_string();
         let http_st = meta.http_status;
         let err_code = meta.error_code.clone();
         let err_msg = meta.error_message.clone();
 
-        tracing::info!(
-            target: "audit",
-            event_type = %event_type,
-            outcome = %outcome_db,
-            http_status = http_st,
-            error_code = err_code.as_deref(),
-            "audit event"
-        );
+        trace_audit(&event_type, &outcome_db, http_st, err_code.as_deref());
 
         tokio::spawn(async move {
             let result = repository
@@ -343,6 +343,51 @@ impl AuditService {
                 tracing::warn!("Failed to write audit log entry '{}': {}", event_type, e);
             }
         });
+    }
+
+    /// Insert an audit row on `tx`. An insert error is returned so the caller
+    /// can roll the surrounding mutation back.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn log_in_tx<P: Serialize>(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        event_type: &'static str,
+        user_id: Option<i64>,
+        entity_type: Option<&'static str>,
+        entity_id: Option<i64>,
+        ip_address: Option<String>,
+        payload: Option<P>,
+        meta: AuditLogMeta,
+    ) -> AppResult<()> {
+        let event_type = event_type.to_string();
+        let entity_type: Option<String> = entity_type.map(|s| s.to_string());
+        let payload = audit_payload(&event_type, payload);
+        let mut outcome_db = meta.outcome.as_db_str().to_string();
+        if self.fail_next_tx_insert.swap(false, Ordering::SeqCst) {
+            // Rejected by audit_log_outcome_check. The statement aborts `tx`.
+            outcome_db = "forced-failure".to_string();
+        }
+        let http_st = meta.http_status;
+        let err_code = meta.error_code.clone();
+        let err_msg = meta.error_message.clone();
+
+        trace_audit(&event_type, &outcome_db, http_st, err_code.as_deref());
+
+        Repository::audit_insert_tx(
+            tx,
+            &event_type,
+            user_id,
+            entity_type.as_deref(),
+            entity_id,
+            ip_address.as_deref(),
+            payload,
+            &outcome_db,
+            http_st,
+            err_code.as_deref(),
+            err_msg.as_deref(),
+        )
+        .await?;
+        Ok(())
     }
 
     /// Query audit log entries with filters and pagination.
@@ -370,6 +415,36 @@ impl AuditService {
     pub async fn cleanup(&self, retention_days: u32) -> AppResult<u64> {
         self.repository.audit_cleanup(retention_days).await
     }
+}
+
+fn audit_payload<P: Serialize>(event_type: &str, payload: Option<P>) -> Option<Value> {
+    payload.and_then(|p| match serde_json::to_value(p) {
+        Ok(v) => Some(mask_sensitive_fields(v)),
+        Err(e) => {
+            tracing::warn!(
+                "audit log payload serialization failed for '{}': {}",
+                event_type,
+                e
+            );
+            None
+        }
+    })
+}
+
+fn trace_audit(
+    event_type: &str,
+    outcome: &str,
+    http_status: Option<i16>,
+    error_code: Option<&str>,
+) {
+    tracing::info!(
+        target: "audit",
+        event_type = %event_type,
+        outcome = %outcome,
+        http_status = http_status,
+        error_code = error_code,
+        "audit event"
+    );
 }
 
 /// Strip sensitive field names from a JSONB payload before storing.

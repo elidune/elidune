@@ -262,10 +262,24 @@ impl CirculationService {
         actor: Option<i64>,
         client_ip: Option<String>,
     ) -> AppResult<LostFoundResolution> {
-        let applied = self
+        let mut pending = self
             .repository
             .circulation_resolve_lost_found(item_id, req.disposition, req.notes.as_deref())
             .await?;
+
+        if let Some(settlement) = pending.apply.settlement.clone() {
+            self.audit_settlement_tx(
+                &mut pending.tx,
+                actor,
+                client_ip.clone(),
+                item_id,
+                req.disposition,
+                &settlement,
+            )
+            .await?;
+        }
+        pending.tx.commit().await?;
+        let applied = pending.apply;
 
         if let Some(ref hold) = applied.readied_hold {
             self.notify_resolved_hold(
@@ -323,9 +337,6 @@ impl CirculationService {
             })),
             AuditLogMeta::success(),
         );
-        if let Some(settlement) = applied.settlement.as_ref() {
-            self.audit_settlement(actor, client_ip, item_id, settlement, &response);
-        }
         Ok(response)
     }
 
@@ -418,48 +429,56 @@ impl CirculationService {
         }
     }
 
-    fn audit_settlement(
+    async fn audit_settlement_tx(
         &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         actor: Option<i64>,
         client_ip: Option<String>,
         item_id: i64,
+        disposition: LostFoundDisposition,
         settlement: &LostFineSettlement,
-        response: &LostFoundResolution,
-    ) {
-        if settlement.refunded_amount > rust_decimal::Decimal::ZERO {
-            self.audit.log(
-                audit::event::FINE_REFUNDED,
-                actor,
-                Some("fine"),
-                Some(settlement.fine_id),
-                client_ip.clone(),
-                Some(serde_json::json!({
-                    "itemId": item_id.to_string(),
-                    "userId": settlement.user_id.to_string(),
-                    "refundedAmount": response.refunded_amount,
-                    "disposition": response.disposition,
-                })),
-                AuditLogMeta::success(),
-            );
+    ) -> AppResult<()> {
+        let refunded_amount = cents(settlement.refunded_amount)?;
+        let cancelled_amount = cents(settlement.cancelled_amount)?;
+        if settlement.refunded_amount > Decimal::ZERO {
+            self.audit
+                .log_in_tx(
+                    tx,
+                    audit::event::FINE_REFUNDED,
+                    actor,
+                    Some("fine"),
+                    Some(settlement.fine_id),
+                    client_ip.clone(),
+                    Some(serde_json::json!({
+                        "itemId": item_id.to_string(),
+                        "userId": settlement.user_id.to_string(),
+                        "refundedAmount": refunded_amount,
+                        "disposition": disposition,
+                    })),
+                    AuditLogMeta::success(),
+                )
+                .await?;
         }
-        if settlement.cancelled_amount > rust_decimal::Decimal::ZERO
-            || settlement.refunded_amount.is_zero()
-        {
-            self.audit.log(
-                audit::event::FINE_CANCELLED,
-                actor,
-                Some("fine"),
-                Some(settlement.fine_id),
-                client_ip,
-                Some(serde_json::json!({
-                    "itemId": item_id.to_string(),
-                    "userId": settlement.user_id.to_string(),
-                    "cancelledAmount": response.cancelled_amount,
-                    "disposition": response.disposition,
-                })),
-                AuditLogMeta::success(),
-            );
+        if settlement.cancelled_amount > Decimal::ZERO || settlement.refunded_amount.is_zero() {
+            self.audit
+                .log_in_tx(
+                    tx,
+                    audit::event::FINE_CANCELLED,
+                    actor,
+                    Some("fine"),
+                    Some(settlement.fine_id),
+                    client_ip,
+                    Some(serde_json::json!({
+                        "itemId": item_id.to_string(),
+                        "userId": settlement.user_id.to_string(),
+                        "cancelledAmount": cancelled_amount,
+                        "disposition": disposition,
+                    })),
+                    AuditLogMeta::success(),
+                )
+                .await?;
         }
+        Ok(())
     }
 
     fn audit_exception(

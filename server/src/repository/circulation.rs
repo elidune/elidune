@@ -237,12 +237,15 @@ impl Repository {
     /// Accept a lost copy back, or record that staff left it lost.
     /// Lost status is not changed on `leave`. Fee settlement runs only when the
     /// copy is accepted (`circulate` or `damaged`).
+    ///
+    /// The transaction stays open so the caller can write fine audit rows
+    /// before commit. Dropping [`LostFoundPending`] rolls the resolution back.
     pub async fn circulation_resolve_lost_found(
         &self,
         item_id: i64,
         disposition: LostFoundDisposition,
         notes: Option<&str>,
-    ) -> AppResult<LostFoundApply> {
+    ) -> AppResult<LostFoundPending> {
         let now = Utc::now();
         let mut tx = self.pool.begin().await?;
 
@@ -270,15 +273,17 @@ impl Repository {
         let barcode: Option<String> = item_row.get("barcode");
 
         if disposition == LostFoundDisposition::Leave {
-            tx.commit().await?;
-            return Ok(LostFoundApply {
-                item_id,
-                item_status: CirculationStatus::Lost,
-                borrowable: item_row.get("borrowable"),
-                settlement: None,
-                readied_hold: None,
-                title,
-                barcode,
+            return Ok(LostFoundPending {
+                tx,
+                apply: LostFoundApply {
+                    item_id,
+                    item_status: CirculationStatus::Lost,
+                    borrowable: item_row.get("borrowable"),
+                    settlement: None,
+                    readied_hold: None,
+                    title,
+                    barcode,
+                },
             });
         }
 
@@ -319,18 +324,25 @@ impl Repository {
             None
         };
 
-        tx.commit().await?;
-
-        Ok(LostFoundApply {
-            item_id,
-            item_status: next,
-            borrowable,
-            settlement,
-            readied_hold,
-            title,
-            barcode,
+        Ok(LostFoundPending {
+            tx,
+            apply: LostFoundApply {
+                item_id,
+                item_status: next,
+                borrowable,
+                settlement,
+                readied_hold,
+                title,
+                barcode,
+            },
         })
     }
+}
+
+/// Uncommitted lost-found resolution. Commit after fine audit rows are written.
+pub struct LostFoundPending {
+    pub tx: sqlx::Transaction<'static, sqlx::Postgres>,
+    pub apply: LostFoundApply,
 }
 
 /// Persistence result for resolving a lost copy that was found.
