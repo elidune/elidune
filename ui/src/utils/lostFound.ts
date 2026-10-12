@@ -71,16 +71,57 @@ export function lostFeeKind(fields: LostReturnFields): LostFineDeskStatus | 'non
   return 'none';
 }
 
-/** What circulate/damaged will do to the replacement charge. Leave does not use this. */
+export interface LostFeeAmounts {
+  /** Replacement charge, cents. */
+  charge?: number | null;
+  /** Amount already collected, or the amount refunded, cents. */
+  paid?: number | null;
+  /** Unpaid remainder, or the amount cancelled, cents. */
+  rest?: number | null;
+}
+
+function euroOrNull(value: number | null | undefined, locale: string): string | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return formatCentsAsEuros(value, locale);
+}
+
+/**
+ * What happens to the reader's money for every action except damaged.
+ * Amounts are included only when the API sent them (integer cents).
+ */
+export function lostFoundMoneyMessage(
+  kind: LostFineDeskStatus | 'none',
+  amounts: LostFeeAmounts,
+  locale: string,
+  t: Translate,
+): string {
+  if (kind === 'none') return t('loans.lostFound.feeNone');
+  if (kind === 'unpaid') {
+    const amount = euroOrNull(amounts.charge ?? amounts.rest, locale);
+    return amount
+      ? t('loans.lostFound.feeUnpaid', { amount })
+      : t('loans.lostFound.feeUnpaidPlain');
+  }
+  if (kind === 'paid') {
+    const amount = euroOrNull(amounts.paid ?? amounts.charge, locale);
+    return amount ? t('loans.lostFound.feePaid', { amount }) : t('loans.lostFound.feePaidPlain');
+  }
+  const paid = euroOrNull(amounts.paid, locale);
+  const rest = euroOrNull(amounts.rest, locale);
+  if (paid && rest) return t('loans.lostFound.feePartial', { paid, rest });
+  return t('loans.lostFound.feePartialPlain');
+}
+
+/** Money sentence for a lost return, before a disposition is chosen. */
 export function lostFoundFeeMessage(fields: LostReturnFields, locale: string, t: Translate): string {
   const kind = lostFeeKind(fields);
-  const charge = formatCentsAsEuros(cents(fields.fineAmount), locale);
-  const paid = formatCentsAsEuros(cents(fields.paidAmount), locale);
-  const rest = formatCentsAsEuros(Math.max(0, cents(fields.fineAmount) - cents(fields.paidAmount)), locale);
-  if (kind === 'unpaid') return t('loans.lostFound.feeUnpaid', { amount: charge });
-  if (kind === 'paid') return t('loans.lostFound.feePaid', { amount: paid });
-  if (kind === 'partial') return t('loans.lostFound.feePartial', { paid, rest });
-  return t('loans.lostFound.feeNone');
+  const charge = fields.fineAmount;
+  const paid = fields.paidAmount;
+  const rest =
+    typeof charge === 'number' && typeof paid === 'number'
+      ? Math.max(0, cents(charge) - cents(paid))
+      : null;
+  return lostFoundMoneyMessage(kind, { charge, paid, rest }, locale, t);
 }
 
 function notMarkedLost(message: string | null): boolean {
@@ -138,29 +179,101 @@ export function lostFoundErrorMessage(input: LostFoundErrorInput, t: Translate):
   return t(ref.key);
 }
 
+/**
+ * Only the damaged disposition uses this sentence.
+ * Circulate, leave, and dismiss describe the charge instead.
+ */
+export const FEES_UNCHANGED_KEY = 'loans.lostFound.feesUnchanged';
+
+export function feesUnchangedLabel(t: Translate): string {
+  return t(FEES_UNCHANGED_KEY);
+}
+
+function joinSentences(lead: string, tail: string): string {
+  const left = lead.trim();
+  const right = tail.trim();
+  if (!left) return right;
+  if (!right || left.includes(right)) return left;
+  return `${left} ${right}`;
+}
+
+/** Hint under one desk choice. Damaged is the only line that says fees stay as they are. */
+export function lostFoundChoiceHint(
+  disposition: LostFoundDisposition,
+  fields: LostReturnFields,
+  locale: string,
+  t: Translate,
+): string {
+  if (disposition === 'damaged') {
+    return joinSentences(t('loans.lostFound.damagedHint'), feesUnchangedLabel(t));
+  }
+  const hint =
+    disposition === 'leave' ? t('loans.lostFound.leaveHint') : t('loans.lostFound.circulateHint');
+  return joinSentences(hint, lostFoundFeeMessage(fields, locale, t));
+}
+
+export type LostFoundPanelAction = LostFoundDisposition | 'dismissed' | null;
+
+/** Label for the return-summary “action taken” row. `null` means the desk has not chosen yet. */
+export function lostFoundActionLabel(action: LostFoundPanelAction, t: Translate): string {
+  if (action === 'circulate') return t('loans.lostFound.circulate');
+  if (action === 'damaged') return t('loans.lostFound.damaged');
+  if (action === 'leave') return t('loans.lostFound.leave');
+  if (action === 'dismissed') return t('loans.lostFound.summaryActionDismissed');
+  return t('loans.lostFound.summaryActionPending');
+}
+
+/**
+ * Fee line for the alert and the return summary.
+ * Damaged always uses the single unchanged-fees label.
+ * Every other action states the charge: cancelled, refunded, or partial.
+ */
+export function lostFoundPanelFee(
+  action: LostFoundPanelAction,
+  fields: LostReturnFields,
+  outcome: LostFoundOutcome | null,
+  locale: string,
+  t: Translate,
+): string {
+  if (action === 'damaged') return feesUnchangedLabel(t);
+  if (action === 'circulate' && outcome) {
+    return feeDoneMessage(outcome, locale, t) ?? t('loans.lostFound.feeNone');
+  }
+  return lostFoundFeeMessage(fields, locale, t);
+}
+
 function feeDoneMessage(outcome: LostFoundOutcome, locale: string, t: Translate): string | null {
   const action = outcome.fineAction ?? 'none';
   if (action === 'none') return null;
-  const refunded = formatCentsAsEuros(cents(outcome.refundedAmount), locale);
-  const cancelled = formatCentsAsEuros(cents(outcome.cancelledAmount), locale);
-  if (action === 'cancelled') return t('loans.lostFound.doneCancelled', { amount: cancelled });
-  if (action === 'refunded') return t('loans.lostFound.doneRefunded', { amount: refunded });
-  if (action === 'partial') return t('loans.lostFound.donePartial', { paid: refunded, rest: cancelled });
+  if (action === 'cancelled') {
+    return lostFoundMoneyMessage('unpaid', { charge: outcome.cancelledAmount, rest: outcome.cancelledAmount }, locale, t);
+  }
+  if (action === 'refunded') {
+    return lostFoundMoneyMessage('paid', { paid: outcome.refundedAmount, charge: outcome.refundedAmount }, locale, t);
+  }
+  if (action === 'partial') {
+    return lostFoundMoneyMessage(
+      'partial',
+      { paid: outcome.refundedAmount, rest: outcome.cancelledAmount },
+      locale,
+      t,
+    );
+  }
   return null;
 }
 
 /** Sentences for the toast after a successful lost-found call. */
 export function lostFoundResolutionMessage(outcome: LostFoundOutcome, locale: string, t: Translate): string {
   const parts: string[] = [];
+  if (outcome.disposition === 'damaged') {
+    parts.push(joinSentences(t('loans.lostFound.doneDamaged'), feesUnchangedLabel(t)));
+    return parts.join(' ');
+  }
   if (outcome.disposition === 'leave') {
     parts.push(t('loans.lostFound.doneLeave'));
     return parts.join(' ');
   }
-  parts.push(
-    outcome.disposition === 'damaged'
-      ? t('loans.lostFound.doneDamaged')
-      : t('loans.lostFound.doneCirculate'),
-  );
+  parts.push(t('loans.lostFound.doneCirculate'));
   const fee = feeDoneMessage(outcome, locale, t);
   if (fee) parts.push(fee);
   if (outcome.disposition === 'circulate' && outcome.hold != null) {
