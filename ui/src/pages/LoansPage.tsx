@@ -18,7 +18,6 @@ import {
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardHeader, Button, Badge, Table, MessageModal, ConfirmDialog, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, BarcodeScanField, Typeahead } from '@/components/common';
-import PatronLink from '@/components/users/PatronLink';
 import ItemAvailabilityBadge from '@/components/items/ItemAvailabilityBadge';
 import ActiveLoanCard from '@/components/loans/ActiveLoanCard';
 import CirculationExceptionDialog from '@/components/loans/CirculationExceptionDialog';
@@ -72,12 +71,15 @@ import { newIdempotencyKey } from '@/utils/idempotency';
 import { nextReminderTierFromCount } from '@/utils/reminderPolicy';
 import { useCirculationExceptionAction, type CirculationExceptionKind } from '@/hooks/loans/useCirculationExceptionAction';
 import { useAuth } from '@/contexts/AuthContext';
+import OverdueBorrowerSummary from '@/components/loans/OverdueBorrowerSummary';
+import ReturnBorrowerLine from '@/components/loans/ReturnBorrowerLine';
 import PatronOptionLabel from '@/components/users/PatronOptionLabel';
 import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
 import { useToast } from '@/contexts/ToastContext';
 import { canReadUsers, isAdmin } from '@/types';
-import type { User as UserType, Loan, UserShort, OverdueBorrower, OverdueBorrowerMinimal, OverdueLoanInfo, ReminderReport, ItemCheckIn, LostFoundDisposition, LostReturnFields } from '@/types';
+import type { User as UserType, Loan, UserShort, OverdueLoanInfo, ReminderReport, ItemCheckIn, LostFoundDisposition, LostReturnFields } from '@/types';
 import { isItemStaffView, isLoanDetailsStaff } from '@/utils/catalogView';
+import { readerIdentifierText } from '@/utils/readerIdentifier';
 
 type TabType = 'borrow' | 'return' | 'overdue' | 'claims';
 type LostFoundSummary = {
@@ -106,32 +108,6 @@ type CheckoutRecap = {
 };
 
 const BORROW_LOANS_PAGE_SIZE = 20;
-
-function isOverdueBorrowerMinimal(
-  user: OverdueBorrower
-): user is OverdueBorrowerMinimal {
-  return 'initials' in user || 'cardNumber' in user;
-}
-
-function overdueBorrowerLabel(user: OverdueLoanInfo['user'] | undefined): {
-  name: string;
-  initials: string;
-  contact: string;
-} {
-  if (!user) return { name: '—', initials: '?', contact: '—' };
-  if (isOverdueBorrowerMinimal(user)) {
-    return {
-      name: user.initials || user.cardNumber || user.id,
-      initials: (user.initials || '?').toUpperCase(),
-      contact: user.cardNumber || '—',
-    };
-  }
-  const name = [user.firstname, user.lastname].filter(Boolean).join(' ').trim() || '—';
-  const initials =
-    `${user.firstname?.[0] ?? ''}${user.lastname?.[0] ?? ''}`.trim().toUpperCase() || '?';
-  const contact = [user.email, user.phone].filter(Boolean).join(' · ') || '—';
-  return { name, initials, contact };
-}
 
 function maxReminderSentAt(loans: OverdueLoanInfo[]): string | null {
   let best: string | null = null;
@@ -539,8 +515,8 @@ export default function LoansPage() {
       m.set(key, list);
     }
     return Array.from(m.entries()).sort((a, b) => {
-      const fa = overdueBorrowerLabel(a[1][0]?.user).name;
-      const fb = overdueBorrowerLabel(b[1][0]?.user).name;
+      const fa = readerIdentifierText(a[1][0]?.user, (number) => number);
+      const fb = readerIdentifierText(b[1][0]?.user, (number) => number);
       return fa.localeCompare(fb, undefined, { sensitivity: 'base' });
     });
   }, [overdueData]);
@@ -1618,7 +1594,12 @@ export default function LoansPage() {
                 <LostFoundSummaryPanel summary={returnResult} locale={i18n.language} t={t} />
               )}
               {returnResult?.kind === 'loan' && (
-                <ReturnRecapPanel loan={returnResult.loan} locale={i18n.language} t={t} />
+                <ReturnRecapPanel
+                  loan={returnResult.loan}
+                  locale={i18n.language}
+                  t={t}
+                  canReadBorrowers={canReadBorrowers}
+                />
               )}
               {returnResult?.kind === 'pick' && (
                 <PickCheckInBanner notice={returnResult.notice} t={t} />
@@ -1743,8 +1724,6 @@ export default function LoansPage() {
                   {overdueByUser.map(([uid, userLoans]) => {
                     const u = userLoans[0];
                     const lastAny = maxReminderSentAt(userLoans);
-                    const borrower = overdueBorrowerLabel(u.user);
-                    const initials = borrower.initials;
                     const locale = i18n.language;
                     return (
                       <details
@@ -1758,28 +1737,11 @@ export default function LoansPage() {
                       >
                         <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden flex items-center gap-3 px-3 py-3 sm:px-4 sm:py-3.5 hover:bg-rose-50/50 dark:hover:bg-rose-950/15 open:bg-rose-50/60 dark:open:bg-rose-950/20 transition-colors">
                           <ChevronDown className="h-4 w-4 shrink-0 text-gray-400 transition-transform duration-200 group-open:rotate-180" aria-hidden />
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-100 text-sm font-bold text-rose-800 dark:bg-rose-900/50 dark:text-rose-200">
-                            {initials}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                              <PatronLink
-                                userId={uid}
-                                className="font-semibold text-gray-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                {borrower.name}
-                              </PatronLink>
-                              <span className="shrink-0">
-                                <Badge variant="danger" size="sm">
-                                  {userLoans.length}
-                                </Badge>
-                              </span>
-                            </div>
-                            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400 truncate">
-                              {borrower.contact}
-                            </p>
-                          </div>
+                          <OverdueBorrowerSummary
+                            user={u.user}
+                            count={userLoans.length}
+                            linked={canReadBorrowers}
+                          />
                           <div className="hidden sm:flex shrink-0 flex-col items-end gap-0.5 text-right text-[11px] text-gray-400 dark:text-gray-500">
                             <span className="whitespace-nowrap uppercase tracking-wide">
                               {t('loans.lastReminderAny')}
@@ -2256,28 +2218,17 @@ function ReturnRecapPanel({
   loan,
   locale,
   t,
+  canReadBorrowers,
 }: {
   loan: Loan;
   locale: string;
   t: TFunction;
+  canReadBorrowers: boolean;
 }) {
   const biblio = loan.biblio;
   const authorLine = biblio.author
     ? [biblio.author.firstname, biblio.author.lastname].filter(Boolean).join(' ').trim()
     : '';
-  const named =
-    loan.user != null
-      ? [loan.user.firstname, loan.user.lastname].filter(Boolean).join(' ').trim()
-      : '';
-  const borrower = named || loan.user?.initials || loan.user?.cardNumber || '—';
-
-  const initials =
-    loan.user?.initials ||
-    (loan.user != null
-      ? `${loan.user.firstname?.[0] ?? ''}${loan.user.lastname?.[0] ?? ''}`.trim()
-      : '') ||
-    '?';
-
   const df = (iso: string) =>
     new Date(iso).toLocaleDateString(locale, {
       day: 'numeric',
@@ -2333,14 +2284,8 @@ function ReturnRecapPanel({
             </div>
           </div>
 
-          <div className="flex items-center gap-3 bg-gray-50/90 px-5 py-4 dark:bg-gray-800/35">
-            <div
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs font-bold uppercase text-indigo-800 dark:bg-indigo-900/55 dark:text-indigo-200"
-              aria-hidden
-            >
-              {initials}
-            </div>
-            <p className="min-w-0 truncate text-base font-semibold text-gray-900 dark:text-white">{borrower}</p>
+          <div className="bg-gray-50/90 px-5 py-4 dark:bg-gray-800/35">
+            <ReturnBorrowerLine user={loan.user} linked={canReadBorrowers} />
           </div>
         </div>
       </div>

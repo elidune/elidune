@@ -1127,6 +1127,7 @@
     "borrowSectionHint": "Exemplar-Barcode eingeben und bestätigen, um die Ausleihe zu buchen.",
     "returnSectionHint": "Barcode des zurückgegebenen Exemplars eingeben und bestätigen, um die Rückgabe zu erfassen.",
     "scanAlertOnLoan": "Dieses Exemplar ist noch an den Leser {{identifier}} ausgeliehen. Erfassen Sie zuerst die Rückgabe.",
+    "readerCardNo": "Leseausweis-Nr. {{number}}",
     "scanAlertOnLoanCard": "Dieses Exemplar ist noch an den Leser (Leseausweis-Nr. {{identifier}}) ausgeliehen. Erfassen Sie zuerst die Rückgabe.",
     "scanAlertOnLoanUnknown": "Dieses Exemplar ist noch an einen anderen Leser ausgeliehen. Erfassen Sie zuerst die Rückgabe.",
     "scanAlertSeenOnLoan": "Dieses Exemplar ist an {{name}} ausgeliehen.",
@@ -1821,8 +1822,12 @@
       "usersByPublicType": "Benutzer nach Zielgruppe",
       "usersByAgeBand": "Benutzer nach Altersgruppe",
       "usersByAccountType": "Benutzer nach Kontotyp",
+      "usersBySex": "Benutzer nach Geschlecht",
       "newUsersByPublicType": "Neue Benutzer nach Zielgruppe",
-      "activeBorrowersByPublicType": "Ausleiher nach Zielgruppe"
+      "newUsersBySex": "Neue Benutzer nach Geschlecht",
+      "activeBorrowersByPublicType": "Ausleiher nach Zielgruppe",
+      "groupsTotal": "Gruppen",
+      "ageNotProvided": "nicht angegeben"
     },
     "loansEvolution": "Entwicklung der Ausleihen",
     "year": "Jahr",

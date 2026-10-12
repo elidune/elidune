@@ -48,8 +48,9 @@ import { useCirculationExceptionAction, type CirculationExceptionKind } from '@/
 import { RenewSubscriptionModal, UserEditorForm } from '@/components/users';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
-import { canManageUsers, isLibrarian, type User as UserType, type Loan, type LoanStatsResponse, type AdvancedStatsParams, type StatsInterval, type Author, type Hold } from '@/types';
-import { isLoanDetailsStaff } from '@/utils/catalogView';
+import { canManageUsers, canReadUsers, isLibrarian, type User as UserType, type LoanListItem, type LoanStatsResponse, type AdvancedStatsParams, type StatsInterval, type Author, type Hold } from '@/types';
+import { isUserRecordLoan } from '@/utils/catalogView';
+import UserRecordLoanIdentity from '@/components/users/UserRecordLoanIdentity';
 import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 import { deferFromEffect } from '@/utils/deferFromEffect';
@@ -88,7 +89,7 @@ export default function UserDetailPage() {
   const [borrowForceError, setBorrowForceError] = useState<string | null>(null);
   const [isEditLoading, setIsEditLoading] = useState(false);
   const [isBorrowLoading, setIsBorrowLoading] = useState(false);
-  const [loanDetails, setLoanDetails] = useState<Loan | null>(null);
+  const [loanDetails, setLoanDetails] = useState<LoanListItem | null>(null);
   const [renewError, setRenewError] = useState('');
   const [loanAction, setLoanAction] = useState<{ loanId: string; op: 'return' | 'renew' | CirculationExceptionKind } | null>(null);
   const loanActionInFlightRef = useRef(false);
@@ -183,7 +184,7 @@ export default function UserDetailPage() {
   const activeLoans = useMemo(
     () =>
       sortLoansByStartDateAsc(
-        (activeLoansPages?.pages.flatMap((p) => p.items) ?? []).filter(isLoanDetailsStaff),
+        (activeLoansPages?.pages.flatMap((p) => p.items) ?? []).filter(isUserRecordLoan),
       ),
     [activeLoansPages],
   );
@@ -210,7 +211,7 @@ export default function UserDetailPage() {
     },
     enabled: !!id && detailTab === 'pastLoans',
   });
-  const pastLoans = (pastLoansPages?.pages.flatMap((p) => p.items) ?? []).filter(isLoanDetailsStaff);
+  const pastLoans = (pastLoansPages?.pages.flatMap((p) => p.items) ?? []).filter(isUserRecordLoan);
 
   useEffect(() => {
     const el = activeLoansLoadMoreRef.current;
@@ -504,8 +505,9 @@ export default function UserDetailPage() {
   const overdueLoans = activeLoans.filter((l) => l.isOverdue);
   const signInLogin = user.login?.trim() ?? '';
   const canUnlockSignIn = canManageUsers(currentUser?.accountType) && signInLogin !== '';
+  const canReadBorrowers = canReadUsers(currentUser, api.getToken());
 
-  const renderLoanTitle = (loan: Loan) => (
+  const renderLoanTitle = (loan: LoanListItem) => (
     <button
       type="button"
       onClick={(e) => {
@@ -518,7 +520,7 @@ export default function UserDetailPage() {
     </button>
   );
 
-  const formatAuthor = (author?: Author | null) => {
+  const formatAuthor = (author?: Pick<Author, 'firstname' | 'lastname'> | null) => {
     if (!author) return '-';
     return `${author.firstname || ''} ${author.lastname || ''}`.trim() || '-';
   };
@@ -527,23 +529,26 @@ export default function UserDetailPage() {
     {
       key: 'title',
       header: t('loans.document'),
-      render: (loan: Loan) => (
+      render: (loan: LoanListItem) => (
         <div className="flex items-start gap-3 min-w-0">
           <LoanMediaTypeBadge mediaType={loan.biblio.mediaType} size="table" />
-          <div className="min-w-0">{renderLoanTitle(loan)}</div>
+          <div className="min-w-0">
+            {renderLoanTitle(loan)}
+            <UserRecordLoanIdentity loan={loan} linked={canReadBorrowers} placement="row" />
+          </div>
         </div>
       ),
     },
     {
       key: 'date',
       header: t('loans.borrowDate'),
-      render: (loan: Loan) =>
+      render: (loan: LoanListItem) =>
         new Date(loan.startDate).toLocaleDateString(i18n.language),
     },
     {
       key: 'expiryAt',
       header: t('loans.dueDate'),
-      render: (loan: Loan) => (
+      render: (loan: LoanListItem) => (
         <div className="flex items-center gap-2">
           <span>{new Date(loan.expiryAt).toLocaleDateString(i18n.language)}</span>
         </div>
@@ -552,13 +557,13 @@ export default function UserDetailPage() {
     {
       key: 'renews',
       header: t('loans.renewals'),
-      render: (loan: Loan) => loan.nbRenews,
+      render: (loan: LoanListItem) => loan.nbRenews,
     },
     {
       key: 'actions',
       header: t('common.actions'),
       align: 'right' as const,
-      render: (loan: Loan) => {
+      render: (loan: LoanListItem) => {
         const claimed = isClaimedReturnedLoan(loan, claimedLoanIds);
         const busy = loanAction?.loanId === loan.id ? loanAction.op : null;
         return (
@@ -611,28 +616,31 @@ export default function UserDetailPage() {
     {
       key: 'title',
       header: t('loans.document'),
-      render: (loan: Loan) => (
+      render: (loan: LoanListItem) => (
         <div className="flex items-start gap-3 min-w-0">
           <LoanMediaTypeBadge mediaType={loan.biblio.mediaType} size="table" />
-          <div className="min-w-0">{renderLoanTitle(loan)}</div>
+          <div className="min-w-0">
+            {renderLoanTitle(loan)}
+            <UserRecordLoanIdentity loan={loan} linked={canReadBorrowers} placement="row" />
+          </div>
         </div>
       ),
     },
     {
       key: 'date',
       header: t('loans.borrowDate'),
-      render: (loan: Loan) => new Date(loan.startDate).toLocaleDateString(i18n.language),
+      render: (loan: LoanListItem) => new Date(loan.startDate).toLocaleDateString(i18n.language),
     },
     {
       key: 'returnedAt',
       header: t('loans.returnDate'),
-      render: (loan: Loan) =>
+      render: (loan: LoanListItem) =>
         loan.returnedAt ? new Date(loan.returnedAt).toLocaleDateString(i18n.language) : '-',
     },
     {
       key: 'renews',
       header: t('loans.renewals'),
-      render: (loan: Loan) => loan.nbRenews,
+      render: (loan: LoanListItem) => loan.nbRenews,
     },
   ];
 
@@ -1111,6 +1119,10 @@ export default function UserDetailPage() {
                     : new Date(loanDetails.expiryAt).toLocaleDateString(i18n.language)}
                 </p>
               </div>
+            </div>
+
+            <div className="pt-2 border-t border-gray-200 dark:border-gray-800">
+              <UserRecordLoanIdentity loan={loanDetails} linked={canReadBorrowers} placement="detail" />
             </div>
 
             <div className="pt-2 border-t border-gray-200 dark:border-gray-800">

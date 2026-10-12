@@ -42,6 +42,14 @@ export function isLoanDetailsPublic(loan: LoanListItem): loan is LoanDetailsPubl
   return !isLoanDetailsStaff(loan);
 }
 
+/**
+ * `GET /users/:id/loans` row. Staff receive `LoanDetailsStaff`.
+ * A reader opening their own loans receives the minimized borrower (`LoanDetailsPublic`).
+ */
+export function isUserRecordLoan(loan: LoanListItem): loan is LoanListItem {
+  return typeof loan?.id === 'string' && loan.biblio != null;
+}
+
 export function isHoldDetailsStaff(hold: HoldListItem): hold is HoldDetailsStaff {
   return isBiblioShortStaff(hold.biblio);
 }
