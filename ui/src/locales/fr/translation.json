@@ -1818,6 +1818,8 @@
       "newUsersTotal": "Nouveaux inscrits",
       "activeBorrowersTotal": "Emprunteurs",
       "usersByPublicType": "Utilisateurs par public",
+      "usersByAgeBand": "Utilisateurs par tranche d'âge",
+      "usersByAccountType": "Utilisateurs par type de compte",
       "newUsersByPublicType": "Nouveaux inscrits par public",
       "activeBorrowersByPublicType": "Emprunteurs par public"
     },

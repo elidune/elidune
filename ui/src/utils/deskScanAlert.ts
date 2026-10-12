@@ -192,19 +192,37 @@ export function deskScanAlert(
 }
 
 export function readerName(
-  person: { firstname?: string | null; lastname?: string | null } | null | undefined,
+  person:
+    | {
+        firstname?: string | null;
+        lastname?: string | null;
+        initials?: string | null;
+        cardNumber?: string | null;
+      }
+    | null
+    | undefined,
 ): string | null {
   if (!person) return null;
   const name = [person.firstname, person.lastname]
     .map((part) => (typeof part === 'string' ? part.trim() : ''))
     .filter(Boolean)
     .join(' ');
-  return name || null;
+  if (name) return name;
+  const initials = typeof person.initials === 'string' ? person.initials.trim() : '';
+  if (initials) return initials;
+  const card = typeof person.cardNumber === 'string' ? person.cardNumber.trim() : '';
+  return card || null;
 }
 
 export interface CheckInScanBody {
   loan?: {
-    user?: { id?: string | null; firstname?: string | null; lastname?: string | null } | null;
+    user?: {
+      id?: string | null;
+      firstname?: string | null;
+      lastname?: string | null;
+      initials?: string | null;
+      cardNumber?: string | null;
+    } | null;
   } | null;
   hold?: {
     userId?: string | null;

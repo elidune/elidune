@@ -69,65 +69,16 @@ pub struct StatEntry {
     pub value: i64,
 }
 
-/// Sorting options for user loan statistics
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub enum UserStatsSortBy {
-    /// Sort by total number of loans (active + historical)
-    TotalLoans,
-    /// Sort by number of active loans
-    ActiveLoans,
-    /// Sort by number of overdue loans
-    OverdueLoans,
-}
-
-/// Mode for user statistics endpoint
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub enum UserStatsMode {
-    /// Leaderboard-style response (list of users with their loan counts)
-    Leaderboard,
-    /// Aggregated response (totals for new users, active borrowers, etc.)
-    Aggregate,
-}
-
-/// Query parameters for user loan statistics
+/// Query parameters for aggregate user statistics.
+///
+/// `mode`, `sortBy`, and `limit` are ignored. The named borrower leaderboard is not returned.
 #[derive(Debug, Deserialize, IntoParams, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UserStatsQuery {
-    /// Field to sort by (total_loans, active_loans, overdue_loans) - only used in leaderboard mode
-    #[serde(default)]
-    pub sort_by: Option<UserStatsSortBy>,
-    /// Maximum number of users to return (default: 50, max: 1000) - only used in leaderboard mode
-    pub limit: Option<i64>,
-    /// Start date (ISO 8601 format) for period-based statistics (E1 section)
+    /// Start date (ISO 8601 format) for period-based statistics
     pub start_date: Option<String>,
-    /// End date (ISO 8601 format) for period-based statistics (E1 section)
+    /// End date (ISO 8601 format) for period-based statistics
     pub end_date: Option<String>,
-    /// Response mode: leaderboard (default) or aggregate
-    #[serde(default)]
-    pub mode: Option<UserStatsMode>,
-}
-
-/// User loan statistics entry
-#[serde_as]
-#[derive(Serialize, ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct UserLoanStats {
-    /// User ID
-    #[serde_as(as = "DisplayFromStr")]
-    #[schema(value_type = String)]
-    pub user_id: i64,
-    /// First name
-    pub firstname: Option<String>,
-    /// Last name
-    pub lastname: Option<String>,
-    /// Total number of loans (active + archived)
-    pub total_loans: i64,
-    /// Number of active loans
-    pub active_loans: i64,
-    /// Number of overdue loans
-    pub overdue_loans: i64,
 }
 
 /// Query parameters for main library statistics (GET /stats)
@@ -188,7 +139,10 @@ pub struct LoanStatsResponse {
     pub by_media_type: Vec<StatEntry>,
 }
 
-/// Aggregated user statistics for E1 section (new users, active borrowers)
+/// Aggregate user statistics for `GET /stats/users`.
+///
+/// Counts and breakdowns only. There is no named borrower list.
+/// Patrons are not assigned to a library site, so there is no site series.
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UserStatsAggregate {
@@ -210,19 +164,10 @@ pub struct UserStatsAggregate {
     pub active_borrowers_by_public_type: Vec<StatEntry>,
     /// Total number of group accounts (collectivites)
     pub groups_total: i64,
-}
-
-/// User statistics response, either leaderboard-style or aggregate
-#[derive(Serialize, ToSchema)]
-#[serde(tag = "mode", rename_all = "camelCase")]
-pub enum UserStatsResponse {
-    /// Leaderboard-style statistics
-    Leaderboard {
-        /// Users with their loan statistics
-        users: Vec<UserLoanStats>,
-    },
-    /// Aggregated statistics (no per-user breakdown)
-    Aggregate(UserStatsAggregate),
+    /// All non-deleted users by age band (`0-17`, `18-29`, `30-49`, `50-64`, `65+`, `unknown`).
+    pub users_by_age_band: Vec<StatEntry>,
+    /// All non-deleted users by account type code (`reader`, `librarian`, …).
+    pub users_by_account_type: Vec<StatEntry>,
 }
 
 /// Time series entry for loan statistics

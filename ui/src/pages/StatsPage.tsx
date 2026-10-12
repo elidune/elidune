@@ -1,5 +1,4 @@
 import { lazy, Suspense, useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -14,11 +13,10 @@ import {
   TrendingUp,
   Table2,
 } from 'lucide-react';
-import { Card, CardHeader, Badge, Table, Input, ScrollableListRegion } from '@/components/common';
+import { Card, CardHeader, Input, ScrollableListRegion } from '@/components/common';
 import api from '@/services/api';
-import type { Stats, AdvancedStatsParams, MediaType, MediaTypeOption, StatsInterval, UserLoanStats, UserAggregateStats, CatalogStats, CatalogStatsBreakdown } from '@/types';
+import type { Stats, AdvancedStatsParams, MediaType, MediaTypeOption, StatsInterval, UserAggregateStats, CatalogStats, CatalogStatsBreakdown } from '@/types';
 import { translateStatLabel } from '@/utils/codeLabels';
-import { patronId } from '@/utils/patronLink';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 import { deferFromEffect } from '@/utils/deferFromEffect';
 
@@ -64,13 +62,10 @@ interface LoanTimeData {
   returns: number;
 }
 
-type UserStatsData = UserLoanStats;
-
 type StatsDetailTab = 'catalog' | 'users' | 'loans' | 'advanced';
 
 export default function StatsPage() {
   const { t, i18n } = useTranslation();
-  const navigate = useNavigate();
   
   // Filter states for loan evolution chart
   const [startDate, setStartDate] = useState(() => {
@@ -94,15 +89,8 @@ export default function StatsPage() {
   const [catalogStatsByMediaType, setCatalogStatsByMediaType] = useState(false);
   const [catalogStatsByPublicType, setCatalogStatsByPublicType] = useState(false);
 
-  // User stats state (GET /stats/users: leaderboard vs aggregate)
-  type UserStatsMode = 'leaderboard' | 'aggregate';
-  const [userStatsMode, setUserStatsMode] = useState<UserStatsMode>('aggregate');
-  const [userStats, setUserStats] = useState<UserStatsData[]>([]);
   const [userStatsAggregate, setUserStatsAggregate] = useState<UserAggregateStats | null>(null);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
-  const [userSortBy, setUserSortBy] = useState<'totalLoans' | 'activeLoans' | 'overdueLoans'>('totalLoans');
-  const [userStatsLimit, setUserStatsLimit] = useState(20);
-  const [userStatsLeaderboardYear, setUserStatsLeaderboardYear] = useState<number | 'all'>('all');
   const [userStatsAggregateYear, setUserStatsAggregateYear] = useState<number | 'all'>('all');
   const [statsDetailTab, setStatsDetailTab] = useState<StatsDetailTab>('catalog');
 
@@ -234,48 +222,21 @@ export default function StatsPage() {
 
     const fetchUserStats = async () => {
       try {
-        if (userStatsMode === 'aggregate') {
-          const params: {
-            startDate?: string;
-            endDate?: string;
-          } = {};
-          
-          // Add date range only if a specific year is selected
-          if (userStatsAggregateYear !== 'all') {
-            const dateRange = yearToDateRange(userStatsAggregateYear);
-            params.startDate = dateRange.startDate;
-            params.endDate = dateRange.endDate;
-          }
-          
-          const data = await api.getUserAggregateStats(params);
-          setUserStatsAggregate(data);
-          setUserStats([]);
-        } else {
-          const params: {
-            sortBy?: 'totalLoans' | 'activeLoans' | 'overdueLoans';
-            limit?: number;
-            startDate?: string;
-            endDate?: string;
-          } = {
-            sortBy: userSortBy,
-            limit: userStatsLimit,
-          };
-          
-          // Add date range only if a specific year is selected
-          if (userStatsLeaderboardYear !== 'all') {
-            const dateRange = yearToDateRange(userStatsLeaderboardYear);
-            params.startDate = dateRange.startDate;
-            params.endDate = dateRange.endDate;
-          }
-          
-          const data = await api.getUserLoanStats(params);
-          const list = Array.isArray(data) ? data : (data as Record<string, unknown>)?.users ?? (data as Record<string, unknown>)?.items ?? [];
-          setUserStats(list as UserStatsData[]);
-          setUserStatsAggregate(null);
+        const params: {
+          startDate?: string;
+          endDate?: string;
+        } = {};
+
+        if (userStatsAggregateYear !== 'all') {
+          const dateRange = yearToDateRange(userStatsAggregateYear);
+          params.startDate = dateRange.startDate;
+          params.endDate = dateRange.endDate;
         }
+
+        const data = await api.getUserAggregateStats(params);
+        setUserStatsAggregate(data);
       } catch (error) {
         console.error('Error fetching user stats:', error);
-        setUserStats([]);
         setUserStatsAggregate(null);
       } finally {
         setIsLoadingUsers(false);
@@ -286,7 +247,7 @@ export default function StatsPage() {
       setIsLoadingUsers(true);
       void fetchUserStats();
     });
-  }, [statsDetailTab, userStatsMode, userSortBy, userStatsLimit, userStatsLeaderboardYear, userStatsAggregateYear]);
+  }, [statsDetailTab, userStatsAggregateYear]);
 
   const formatDate = (dateStr: string) => {
     const interval = statsParams?.interval || 'day';
@@ -317,52 +278,6 @@ export default function StatsPage() {
     }
   };
 
-
-  const userColumns = [
-    {
-      key: 'name',
-      header: t('nav.users'),
-      render: (user: UserStatsData) => (
-        <div className="flex items-center gap-3">
-          <div className="flex-shrink-0 h-8 w-8 rounded-full bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center">
-            <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400">
-              {user.firstname?.[0]}{user.lastname?.[0]}
-            </span>
-          </div>
-          <span className="font-medium text-gray-900 dark:text-white">
-            {user.firstname} {user.lastname}
-          </span>
-        </div>
-      ),
-    },
-    {
-      key: 'totalLoans',
-      header: t('stats.totalLoans'),
-      render: (user: UserStatsData) => (
-        <span className="text-gray-600 dark:text-gray-300">{user.totalLoans}</span>
-      ),
-    },
-    {
-      key: 'activeLoans',
-      header: t('stats.activeLoansSort'),
-      render: (user: UserStatsData) => (
-        <Badge variant={user.activeLoans > 0 ? 'info' : 'default'}>
-          {user.activeLoans}
-        </Badge>
-      ),
-    },
-    {
-      key: 'overdueLoans',
-      header: t('stats.overdueLoansSort'),
-      render: (user: UserStatsData) => (
-        user.overdueLoans > 0 ? (
-          <Badge variant="danger">{user.overdueLoans}</Badge>
-        ) : (
-          <span className="text-gray-400">0</span>
-        )
-      ),
-    },
-  ];
 
   if (statsQuery.isLoading) {
     return (
@@ -606,76 +521,25 @@ export default function StatsPage() {
                     {t('stats.usersSection.title')}
                   </h2>
                   <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {userStatsMode === 'leaderboard' ? t('stats.topBorrowers') : t('stats.usersSection.aggregateSubtitle')}
+                    {t('stats.usersSection.aggregateSubtitle')}
                   </p>
                 </div>
               </div>
               <div className="flex flex-wrap items-center gap-3">
-                <span className="text-sm text-gray-500 dark:text-gray-400">{t('stats.usersSection.mode')}</span>
+                <span className="text-sm text-gray-500 dark:text-gray-400">{t('stats.year')}</span>
                 <select
-                  value={userStatsMode}
-                  onChange={(e) => setUserStatsMode(e.target.value as UserStatsMode)}
+                  value={userStatsAggregateYear}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setUserStatsAggregateYear(v === 'all' ? 'all' : Number(v));
+                  }}
                   className={formControlClass()}
                 >
-                  <option value="aggregate">{t('stats.usersSection.modeAggregate')}</option>
-                  <option value="leaderboard">{t('stats.usersSection.modeLeaderboard')}</option>
+                  <option value="all">{t('stats.usersSection.allYears')}</option>
+                  {yearOptions.map((y) => (
+                    <option key={y} value={y}>{y}</option>
+                  ))}
                 </select>
-                {userStatsMode === 'aggregate' && (
-                  <>
-                    <span className="text-sm text-gray-500 dark:text-gray-400">{t('stats.year')}</span>
-                    <select
-                      value={userStatsAggregateYear}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setUserStatsAggregateYear(v === 'all' ? 'all' : Number(v));
-                      }}
-                      className={formControlClass()}
-                    >
-                      <option value="all">{t('stats.usersSection.allYears')}</option>
-                      {yearOptions.map((y) => (
-                        <option key={y} value={y}>{y}</option>
-                      ))}
-                    </select>
-                  </>
-                )}
-                {userStatsMode === 'leaderboard' && (
-                  <>
-                    <span className="text-sm text-gray-500 dark:text-gray-400">{t('stats.year')}</span>
-                    <select
-                      value={userStatsLeaderboardYear}
-                      onChange={(e) => {
-                        const v = e.target.value;
-                        setUserStatsLeaderboardYear(v === 'all' ? 'all' : Number(v));
-                      }}
-                      className={formControlClass()}
-                    >
-                      <option value="all">{t('stats.usersSection.allYears')}</option>
-                      {yearOptions.map((y) => (
-                        <option key={y} value={y}>{y}</option>
-                      ))}
-                    </select>
-                    <span className="text-sm text-gray-500 dark:text-gray-400">{t('stats.sortBy')}</span>
-                    <select
-                      value={userSortBy}
-                      onChange={(e) => setUserSortBy(e.target.value as typeof userSortBy)}
-                      className={formControlClass()}
-                    >
-                      <option value="totalLoans">{t('stats.totalLoans')}</option>
-                      <option value="activeLoans">{t('stats.activeLoansSort')}</option>
-                      <option value="overdueLoans">{t('stats.overdueLoansSort')}</option>
-                    </select>
-                    <span className="text-sm text-gray-500 dark:text-gray-400">{t('stats.usersSection.limit')}</span>
-                    <select
-                      value={userStatsLimit}
-                      onChange={(e) => setUserStatsLimit(Number(e.target.value))}
-                      className={formControlClass()}
-                    >
-                      {[10, 20, 50, 100].map((n) => (
-                        <option key={n} value={n}>{n}</option>
-                      ))}
-                    </select>
-                  </>
-                )}
               </div>
             </div>
           </div>
@@ -685,7 +549,7 @@ export default function StatsPage() {
           <div className="flex items-center justify-center py-12 flex-shrink-0">
             <div className="h-8 w-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
           </div>
-        ) : userStatsMode === 'aggregate' ? (
+        ) : (
           <ScrollableListRegion aria-label={t('stats.usersSection.title')}>
           <div className="p-4 sm:p-6">
             {userStatsAggregate ? (
@@ -758,24 +622,42 @@ export default function StatsPage() {
                     </div>
                   </div>
                 )}
+                {((userStatsAggregate.usersByAgeBand?.length ?? 0) > 0 ||
+                  (userStatsAggregate.usersByAccountType?.length ?? 0) > 0) && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                    {userStatsAggregate.usersByAgeBand && userStatsAggregate.usersByAgeBand.length > 0 && (
+                      <div>
+                        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('stats.usersSection.usersByAgeBand')}</h3>
+                        <ul className="space-y-1">
+                          {userStatsAggregate.usersByAgeBand.map((e) => (
+                            <li key={e.label} className="flex justify-between text-sm">
+                              <span className="text-gray-600 dark:text-gray-400">{e.label}</span>
+                              <span className="font-medium">{e.value.toLocaleString()}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {userStatsAggregate.usersByAccountType && userStatsAggregate.usersByAccountType.length > 0 && (
+                      <div>
+                        <h3 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{t('stats.usersSection.usersByAccountType')}</h3>
+                        <ul className="space-y-1">
+                          {userStatsAggregate.usersByAccountType.map((e) => (
+                            <li key={e.label} className="flex justify-between text-sm">
+                              <span className="text-gray-600 dark:text-gray-400">{translateStatLabel(t, e.label, 'accountType')}</span>
+                              <span className="font-medium">{e.value.toLocaleString()}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
               <p className="text-sm text-gray-500 dark:text-gray-400">{t('common.noResults')}</p>
             )}
           </div>
-          </ScrollableListRegion>
-        ) : (
-          <ScrollableListRegion aria-label={t('stats.usersSection.title')}>
-          <Table
-            columns={userColumns}
-            data={userStats}
-            keyExtractor={(user) => patronId(user.userId) ?? user.userId}
-            onRowClick={(user) => {
-              const id = patronId(user.userId);
-              if (id) navigate(`/users/${id}`);
-            }}
-            emptyMessage={t('common.noResults')}
-          />
           </ScrollableListRegion>
         )}
       </Card>

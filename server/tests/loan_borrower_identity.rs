@@ -163,3 +163,412 @@ async fn loan_borrower_identity_follows_users_rights() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert!(body["barcode"].is_null(), "cleared card stays null: {body}");
 }
+
+fn assert_no_identity_keys(body: &Value) {
+    const FORBIDDEN: &[&str] = &[
+        "firstname",
+        "lastname",
+        "email",
+        "userEmail",
+        "phone",
+        "login",
+    ];
+    fn walk(value: &Value, path: &str) {
+        match value {
+            Value::Object(map) => {
+                for key in FORBIDDEN {
+                    assert!(
+                        !map.contains_key(*key),
+                        "identity key {key} at {path}: {value}"
+                    );
+                }
+                for (key, child) in map {
+                    walk(child, &format!("{path}.{key}"));
+                }
+            }
+            Value::Array(items) => {
+                for (index, child) in items.iter().enumerate() {
+                    walk(child, &format!("{path}[{index}]"));
+                }
+            }
+            _ => {}
+        }
+    }
+    walk(body, "$");
+}
+
+async fn name_reader(app: &TestApp, reader_id: i64, card: &str, email: &str) {
+    sqlx::query(
+        r#"
+        UPDATE users
+        SET firstname = 'Isolde',
+            lastname = 'Moreau',
+            email = $2,
+            phone = '0612345678',
+            barcode = $3
+        WHERE id = $1
+        "#,
+    )
+    .bind(reader_id)
+    .bind(email)
+    .bind(card)
+    .execute(app.state.services.repository.pool())
+    .await
+    .expect("set borrower identity");
+}
+
+async fn checkout(app: &TestApp, admin_token: &str, reader_id: i64, tag: &str) -> (i64, String) {
+    let suffix = fixtures::unique_suffix();
+    let barcode = format!("{tag}-{suffix}");
+    let (status, biblio) = app
+        .post_json(
+            "/api/v1/biblios",
+            &json!({
+                "title": format!("{tag} {suffix}"),
+                "mediaType": "printedText",
+                "lang": "french",
+                "items": [{ "barcode": barcode, "borrowable": true }]
+            }),
+            Some(admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{biblio}");
+    let item_id = fixtures::json_id(&biblio["biblio"]["items"][0]["id"]);
+    let (status, created) = app
+        .post_json(
+            "/api/v1/loans",
+            &json!({
+                "userId": reader_id.to_string(),
+                "itemId": item_id.to_string(),
+                "force": false
+            }),
+            Some(admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    (fixtures::json_id(&created["id"]), barcode)
+}
+
+fn assert_staff_profile(body: &Value, reader_id: i64, login: &str, card: &str) {
+    assert_eq!(body["id"], reader_id.to_string(), "{body}");
+    assert_eq!(body["firstname"], "Isolde", "{body}");
+    assert_eq!(body["lastname"], "Moreau", "{body}");
+    assert_eq!(body["login"], login, "{body}");
+    assert_eq!(body["barcode"], card, "{body}");
+    assert!(body.get("cardNumber").is_none(), "{body}");
+    assert!(body.get("initials").is_none(), "{body}");
+    assert!(body.get("email").is_none(), "{body}");
+    assert!(body.get("phone").is_none(), "{body}");
+}
+
+#[tokio::test]
+async fn return_routes_follow_users_rights() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let secret = app.state.config.users.jwt_secret.clone();
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "return_id").await;
+    let card = format!("CARD-{}", fixtures::unique_suffix());
+    name_reader(&app, reader_id, &card, "isolde.return@secret.test").await;
+    let login: String = sqlx::query_scalar("SELECT login FROM users WHERE id = $1")
+        .bind(reader_id)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .expect("reader login");
+    let loans_only = retarget(&admin_token, &secret, Rights::None, Rights::Write);
+    let users_read = retarget(&admin_token, &secret, Rights::Read, Rights::Write);
+    let personal = [
+        "Isolde",
+        "Moreau",
+        "isolde.return@secret.test",
+        "0612345678",
+        login.as_str(),
+    ];
+
+    let (loan_id, _) = checkout(&app, &admin_token, reader_id, "RETID").await;
+    let (status, body) = app
+        .post_empty(
+            &format!("/api/v1/loans/{loan_id}/return"),
+            Some(&loans_only),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "return by id: {body}");
+    assert_minimized(&body["loan"]["user"], reader_id, Some(&card), "IM");
+    assert_no_personal_text(&body, &personal);
+
+    let (loan_id, _) = checkout(&app, &admin_token, reader_id, "RETIDFULL").await;
+    let (status, body) = app
+        .post_empty(
+            &format!("/api/v1/loans/{loan_id}/return"),
+            Some(&users_read),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "return by id full: {body}");
+    assert_staff_profile(&body["loan"]["user"], reader_id, &login, &card);
+
+    let (_, barcode) = checkout(&app, &admin_token, reader_id, "RETITEM").await;
+    let (status, body) = app
+        .post_empty(
+            &format!("/api/v1/loans/items/{barcode}/return"),
+            Some(&loans_only),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "return by item: {body}");
+    assert_minimized(&body["loan"]["user"], reader_id, Some(&card), "IM");
+    assert_no_personal_text(&body, &personal);
+
+    let (_, barcode) = checkout(&app, &admin_token, reader_id, "RETITEMFULL").await;
+    let (status, body) = app
+        .post_empty(
+            &format!("/api/v1/loans/items/{barcode}/return"),
+            Some(&users_read),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "return by item full: {body}");
+    assert_staff_profile(&body["loan"]["user"], reader_id, &login, &card);
+
+    let (_, barcode) = checkout(&app, &admin_token, reader_id, "RETBATCH").await;
+    let (status, body) = app
+        .post_json(
+            "/api/v1/loans/batch-return",
+            &json!({ "barcodes": [barcode] }),
+            Some(&loans_only),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "batch return: {body}");
+    assert_eq!(body["results"][0]["success"], true, "{body}");
+    assert_minimized(
+        &body["results"][0]["loan"]["user"],
+        reader_id,
+        Some(&card),
+        "IM",
+    );
+    assert_no_personal_text(&body, &personal);
+
+    let (_, barcode) = checkout(&app, &admin_token, reader_id, "RETBATCHFULL").await;
+    let (status, body) = app
+        .post_json(
+            "/api/v1/loans/batch-return",
+            &json!({ "barcodes": [barcode] }),
+            Some(&users_read),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "batch return full: {body}");
+    assert_staff_profile(
+        &body["results"][0]["loan"]["user"],
+        reader_id,
+        &login,
+        &card,
+    );
+}
+
+async fn overdue_row(app: &TestApp, token: &str, loan_id: i64) -> Value {
+    let (status, body) = app
+        .get_json_with_auth("/api/v1/loans/overdue?page=1&perPage=200", token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "overdue: {body}");
+    body["loans"]
+        .as_array()
+        .expect("loans")
+        .iter()
+        .find(|row| fixtures::json_id(&row["loanId"]) == loan_id)
+        .cloned()
+        .unwrap_or_else(|| panic!("loan {loan_id} missing from overdue page"))
+}
+
+#[tokio::test]
+async fn overdue_without_users_read_is_minimal() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let secret = app.state.config.users.jwt_secret.clone();
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "overdue_min").await;
+    let card = format!("CARD-{}", fixtures::unique_suffix());
+    name_reader(&app, reader_id, &card, "isolde.overdue@secret.test").await;
+    let (loan_id, _) = checkout(&app, &admin_token, reader_id, "OVERMIN").await;
+    sqlx::query("UPDATE loans SET expiry_at = '1970-01-02T00:00:00Z' WHERE id = $1")
+        .bind(loan_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("backdate due date");
+
+    let loans_only = retarget(&admin_token, &secret, Rights::None, Rights::Read);
+    let row = overdue_row(&app, &loans_only, loan_id).await;
+    assert_minimized(&row["user"], reader_id, Some(&card), "IM");
+    assert_no_identity_keys(&row);
+    assert_no_personal_text(
+        &row,
+        &[
+            "Isolde",
+            "Moreau",
+            "isolde.overdue@secret.test",
+            "0612345678",
+        ],
+    );
+    assert!(row.get("userId").is_none(), "{row}");
+    assert!(row.get("firstname").is_none(), "{row}");
+    assert!(row.get("userEmail").is_none(), "{row}");
+}
+
+#[tokio::test]
+async fn overdue_with_users_read_includes_phone() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let secret = app.state.config.users.jwt_secret.clone();
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "overdue_full").await;
+    let card = format!("CARD-{}", fixtures::unique_suffix());
+    name_reader(&app, reader_id, &card, "isolde.phone@secret.test").await;
+    let (loan_id, _) = checkout(&app, &admin_token, reader_id, "OVERFULL").await;
+    sqlx::query("UPDATE loans SET expiry_at = '1970-01-02T00:00:00Z' WHERE id = $1")
+        .bind(loan_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("backdate due date");
+
+    let users_read = retarget(&admin_token, &secret, Rights::Read, Rights::Read);
+    let row = overdue_row(&app, &users_read, loan_id).await;
+    let user = &row["user"];
+    assert_eq!(user["id"], reader_id.to_string(), "{user}");
+    assert_eq!(user["firstname"], "Isolde", "{user}");
+    assert_eq!(user["lastname"], "Moreau", "{user}");
+    assert_eq!(user["email"], "isolde.phone@secret.test", "{user}");
+    assert_eq!(user["phone"], "0612345678", "{user}");
+    assert!(user.get("cardNumber").is_none(), "{user}");
+    assert!(user.get("initials").is_none(), "{user}");
+    assert!(user.get("login").is_none(), "{user}");
+}
+
+#[tokio::test]
+async fn user_loans_follow_users_rights_not_account_type() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let secret = app.state.config.users.jwt_secret.clone();
+    let (reader_id, reader_token) = fixtures::create_reader(&app, &admin_token, "uloans").await;
+    let (other_id, _) = fixtures::create_reader(&app, &admin_token, "uloans_other").await;
+    let card = format!("CARD-{}", fixtures::unique_suffix());
+    name_reader(&app, reader_id, &card, "isolde.loans@secret.test").await;
+    let login: String = sqlx::query_scalar("SELECT login FROM users WHERE id = $1")
+        .bind(reader_id)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .expect("reader login");
+    checkout(&app, &admin_token, reader_id, "ULOAN").await;
+    checkout(&app, &admin_token, other_id, "ULOANOTHER").await;
+
+    let loans_only = retarget(&admin_token, &secret, Rights::None, Rights::Read);
+    let (status, body) = app
+        .get_json_with_auth(&format!("/api/v1/users/{reader_id}/loans"), &loans_only)
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "admin account without users read: {body}"
+    );
+
+    let users_read = retarget(&admin_token, &secret, Rights::Read, Rights::Read);
+    let (status, body) = app
+        .get_json_with_auth(&format!("/api/v1/users/{reader_id}/loans"), &users_read)
+        .await;
+    assert_eq!(status, StatusCode::OK, "users read: {body}");
+    let row = &body["items"][0];
+    assert_staff_profile(&row["user"], reader_id, &login, &card);
+
+    let (status, body) = app
+        .get_json_with_auth(&format!("/api/v1/users/{reader_id}/loans"), &reader_token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "patron own loans: {body}");
+    assert_minimized(&body["items"][0]["user"], reader_id, Some(&card), "IM");
+    assert_no_personal_text(
+        &body,
+        &[
+            "Isolde",
+            "Moreau",
+            "isolde.loans@secret.test",
+            login.as_str(),
+        ],
+    );
+
+    let (status, denied) = app
+        .get_json_with_auth(&format!("/api/v1/users/{other_id}/loans"), &reader_token)
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "patron other loans: {denied}"
+    );
+}
+
+#[tokio::test]
+async fn patron_reads_own_loan_borrower_and_not_another() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_id, reader_token) = fixtures::create_reader(&app, &admin_token, "ownuser").await;
+    let (other_id, _) = fixtures::create_reader(&app, &admin_token, "ownother").await;
+    let card = format!("CARD-{}", fixtures::unique_suffix());
+    name_reader(&app, reader_id, &card, "isolde.own@secret.test").await;
+    let login: String = sqlx::query_scalar("SELECT login FROM users WHERE id = $1")
+        .bind(reader_id)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .expect("reader login");
+    let (own_loan, _) = checkout(&app, &admin_token, reader_id, "OWNLOAN").await;
+    let (other_loan, _) = checkout(&app, &admin_token, other_id, "OTHERLOAN").await;
+
+    let (status, body) = app
+        .get_json_with_auth(&format!("/api/v1/loans/{own_loan}/user"), &reader_token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "own borrower: {body}");
+    assert_staff_profile(&body, reader_id, &login, &card);
+
+    let (status, denied) = app
+        .get_json_with_auth(&format!("/api/v1/loans/{other_loan}/user"), &reader_token)
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "other borrower: {denied}");
+}
+
+#[tokio::test]
+async fn stats_users_omits_named_borrowers() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let secret = app.state.config.users.jwt_secret.clone();
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "statsname").await;
+    let card = format!("CARD-{}", fixtures::unique_suffix());
+    name_reader(&app, reader_id, &card, "isolde.stats@secret.test").await;
+    checkout(&app, &admin_token, reader_id, "STATS").await;
+
+    for path in [
+        "/api/v1/stats/users",
+        "/api/v1/stats/users?mode=leaderboard&sortBy=totalLoans&limit=50",
+    ] {
+        for token in [
+            admin_token.clone(),
+            retarget(&admin_token, &secret, Rights::None, Rights::Read),
+            retarget(&admin_token, &secret, Rights::Read, Rights::Read),
+        ] {
+            let (status, body) = app.get_json_with_auth(path, &token).await;
+            assert_eq!(status, StatusCode::OK, "{path} {body}");
+            assert!(body.get("mode").is_none(), "{path} {body}");
+            assert!(body.get("users").is_none(), "{path} {body}");
+            assert!(body["usersTotal"].as_i64().unwrap_or(0) >= 1, "{body}");
+            assert!(body["usersByPublicType"].is_array(), "{body}");
+            assert!(body["usersByAgeBand"].is_array(), "{body}");
+            assert!(body["usersByAccountType"].is_array(), "{body}");
+            assert!(body.get("usersBySite").is_none(), "{body}");
+            assert_no_identity_keys(&body);
+            assert_no_personal_text(
+                &body,
+                &["Isolde", "Moreau", "isolde.stats@secret.test", "0612345678"],
+            );
+        }
+    }
+}

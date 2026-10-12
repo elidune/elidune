@@ -1040,7 +1040,14 @@ export interface LoanDetailsStaff {
   isOverdue: boolean;
 }
 
-/** Loan list row for a reader (`LoanDetailsPublic`). Embedded copies are {@link BiblioShortPublic}. */
+/** Borrower on a loan row when the caller cannot read users. */
+export interface LoanBorrowerMinimized {
+  id: string;
+  cardNumber: string | null;
+  initials: string;
+}
+
+/** Loan list row without users read (`LoanDetailsOwn`). Embedded copies are {@link BiblioShortPublic}. */
 export interface LoanDetailsPublic {
   id: string;
   itemId: string;
@@ -1050,7 +1057,7 @@ export interface LoanDetailsPublic {
   nbRenews: number;
   returnedAt: string | null;
   biblio: BiblioShortPublic;
-  user: UserShortPublic | null;
+  user: LoanBorrowerMinimized | null;
   itemIdentification: string | null;
   isOverdue: boolean;
 }
@@ -1092,7 +1099,7 @@ export interface StatEntry {
   eliminations?: number;
 }
 
-// Aggregate user stats from /stats/users?mode=aggregate
+/** Aggregate user stats from `GET /stats/users`. No named borrowers. */
 export interface UserAggregateStats {
   newUsersTotal: number;
   activeBorrowersTotal: number;
@@ -1100,6 +1107,8 @@ export interface UserAggregateStats {
   newUsersByPublicType?: StatEntry[];
   activeBorrowersByPublicType?: StatEntry[];
   usersByPublicType?: StatEntry[];
+  usersByAgeBand?: StatEntry[];
+  usersByAccountType?: StatEntry[];
   usersBySex?: StatEntry[];
   newUsersBySex?: StatEntry[];
   activeBorrowersBySex?: StatEntry[];
@@ -1111,15 +1120,6 @@ export interface LoanTimeStats {
   date: string;
   loans: number;
   returns: number;
-}
-
-export interface UserLoanStats {
-  userId: string;
-  firstname: string;
-  lastname: string;
-  totalLoans: number;
-  activeLoans: number;
-  overdueLoans: number;
 }
 
 // Catalog stats from /stats/catalog
@@ -1956,13 +1956,28 @@ export interface AuditLogPage {
   perPage: number;
 }
 
+/** `GET /loans/overdue` borrower when the caller can read users. */
+export interface OverdueBorrowerFull {
+  id: string;
+  firstname?: string | null;
+  lastname?: string | null;
+  email?: string | null;
+  phone?: string | null;
+}
+
+/** `GET /loans/overdue` borrower without users read rights. */
+export interface OverdueBorrowerMinimal {
+  id: string;
+  cardNumber?: string | null;
+  initials?: string | null;
+}
+
+export type OverdueBorrower = OverdueBorrowerFull | OverdueBorrowerMinimal;
+
 // Overdue loans dashboard
 export interface OverdueLoanInfo {
   loanId: string;
-  userId: string;
-  firstname?: string;
-  lastname?: string;
-  userEmail?: string;
+  user: OverdueBorrower;
   biblioId?: string;
   title?: string;
   authors?: string;
@@ -1971,6 +1986,7 @@ export interface OverdueLoanInfo {
   expiryAt: string | null;
   lastReminderSentAt: string | null;
   reminderCount: number;
+  nextReminderTier?: string | null;
 }
 
 export interface OverdueLoansPage {

@@ -7,8 +7,7 @@ use crate::{
     error::AppResult,
     models::biblio::MediaType,
     models::dto::stats::{
-        CatalogStatsResponse, Interval, LoanStatsResponse, StatsResponse, UserLoanStats,
-        UserStatsAggregate, UserStatsSortBy,
+        CatalogStatsResponse, Interval, LoanStatsResponse, StatsResponse, UserStatsAggregate,
     },
     models::stats_builder::{
         SavedStatsQuery, SavedStatsQueryWrite, StatsBuilderBody, StatsTableResponse,
@@ -34,14 +33,6 @@ impl StatsService {
 
     pub async fn get_stats(&self, filter: Option<StatsFilter>) -> AppResult<StatsResponse> {
         self.repository.stats_get_stats(filter).await
-    }
-
-    pub async fn get_user_stats(
-        &self,
-        sort_by: UserStatsSortBy,
-        limit: i64,
-    ) -> AppResult<Vec<UserLoanStats>> {
-        self.repository.stats_get_user_stats(sort_by, limit).await
     }
 
     pub async fn get_loan_stats(

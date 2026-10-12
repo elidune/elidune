@@ -76,7 +76,7 @@ import PatronOptionLabel from '@/components/users/PatronOptionLabel';
 import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
 import { useToast } from '@/contexts/ToastContext';
 import { canReadUsers, isAdmin } from '@/types';
-import type { User as UserType, Loan, UserShort, OverdueLoanInfo, ReminderReport, ItemCheckIn, LostFoundDisposition, LostReturnFields } from '@/types';
+import type { User as UserType, Loan, UserShort, OverdueBorrower, OverdueBorrowerMinimal, OverdueLoanInfo, ReminderReport, ItemCheckIn, LostFoundDisposition, LostReturnFields } from '@/types';
 import { isItemStaffView, isLoanDetailsStaff } from '@/utils/catalogView';
 
 type TabType = 'borrow' | 'return' | 'overdue' | 'claims';
@@ -106,6 +106,32 @@ type CheckoutRecap = {
 };
 
 const BORROW_LOANS_PAGE_SIZE = 20;
+
+function isOverdueBorrowerMinimal(
+  user: OverdueBorrower
+): user is OverdueBorrowerMinimal {
+  return 'initials' in user || 'cardNumber' in user;
+}
+
+function overdueBorrowerLabel(user: OverdueLoanInfo['user'] | undefined): {
+  name: string;
+  initials: string;
+  contact: string;
+} {
+  if (!user) return { name: '—', initials: '?', contact: '—' };
+  if (isOverdueBorrowerMinimal(user)) {
+    return {
+      name: user.initials || user.cardNumber || user.id,
+      initials: (user.initials || '?').toUpperCase(),
+      contact: user.cardNumber || '—',
+    };
+  }
+  const name = [user.firstname, user.lastname].filter(Boolean).join(' ').trim() || '—';
+  const initials =
+    `${user.firstname?.[0] ?? ''}${user.lastname?.[0] ?? ''}`.trim().toUpperCase() || '?';
+  const contact = [user.email, user.phone].filter(Boolean).join(' · ') || '—';
+  return { name, initials, contact };
+}
 
 function maxReminderSentAt(loans: OverdueLoanInfo[]): string | null {
   let best: string | null = null;
@@ -507,14 +533,14 @@ export default function LoansPage() {
     if (!loans?.length) return [];
     const m = new Map<string, OverdueLoanInfo[]>();
     for (const loan of loans) {
-      const key = patronId(loan.userId) ?? '';
+      const key = patronId(loan.user?.id) ?? '';
       const list = m.get(key) ?? [];
       list.push(loan);
       m.set(key, list);
     }
     return Array.from(m.entries()).sort((a, b) => {
-      const fa = `${a[1][0]?.lastname ?? ''} ${a[1][0]?.firstname ?? ''}`.trim();
-      const fb = `${b[1][0]?.lastname ?? ''} ${b[1][0]?.firstname ?? ''}`.trim();
+      const fa = overdueBorrowerLabel(a[1][0]?.user).name;
+      const fb = overdueBorrowerLabel(b[1][0]?.user).name;
       return fa.localeCompare(fb, undefined, { sensitivity: 'base' });
     });
   }, [overdueData]);
@@ -1717,8 +1743,8 @@ export default function LoansPage() {
                   {overdueByUser.map(([uid, userLoans]) => {
                     const u = userLoans[0];
                     const lastAny = maxReminderSentAt(userLoans);
-                    const initials =
-                      `${u.firstname?.[0] ?? ''}${u.lastname?.[0] ?? ''}`.trim().toUpperCase() || '?';
+                    const borrower = overdueBorrowerLabel(u.user);
+                    const initials = borrower.initials;
                     const locale = i18n.language;
                     return (
                       <details
@@ -1742,7 +1768,7 @@ export default function LoansPage() {
                                 className="font-semibold text-gray-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400"
                                 onClick={(e) => e.stopPropagation()}
                               >
-                                {u.firstname} {u.lastname}
+                                {borrower.name}
                               </PatronLink>
                               <span className="shrink-0">
                                 <Badge variant="danger" size="sm">
@@ -1751,7 +1777,7 @@ export default function LoansPage() {
                               </span>
                             </div>
                             <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400 truncate">
-                              {u.userEmail ?? '—'}
+                              {borrower.contact}
                             </p>
                           </div>
                           <div className="hidden sm:flex shrink-0 flex-col items-end gap-0.5 text-right text-[11px] text-gray-400 dark:text-gray-500">
@@ -2239,15 +2265,18 @@ function ReturnRecapPanel({
   const authorLine = biblio.author
     ? [biblio.author.firstname, biblio.author.lastname].filter(Boolean).join(' ').trim()
     : '';
-  const borrower =
+  const named =
     loan.user != null
-      ? [loan.user.firstname, loan.user.lastname].filter(Boolean).join(' ').trim() || '—'
-      : '—';
+      ? [loan.user.firstname, loan.user.lastname].filter(Boolean).join(' ').trim()
+      : '';
+  const borrower = named || loan.user?.initials || loan.user?.cardNumber || '—';
 
   const initials =
-    loan.user != null
-      ? `${loan.user.firstname?.[0] ?? ''}${loan.user.lastname?.[0] ?? ''}`.trim() || '?'
-      : '?';
+    loan.user?.initials ||
+    (loan.user != null
+      ? `${loan.user.firstname?.[0] ?? ''}${loan.user.lastname?.[0] ?? ''}`.trim()
+      : '') ||
+    '?';
 
   const df = (iso: string) =>
     new Date(iso).toLocaleDateString(locale, {

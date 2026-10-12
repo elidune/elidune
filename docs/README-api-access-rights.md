@@ -149,7 +149,7 @@ The client IP is the TCP peer unless `server.trusted_proxies` (`ELIDUNE_SERVER__
 | `DELETE /users/:id` | JWT + `require_write_users()` |
 | `PUT /users/:id/account-type` | JWT + `require_admin()` |
 | `PUT /users/:id/force-password-change` | JWT + `require_admin()` |
-| `GET /users/:id/loans` | JWT + `require_self_or_staff(id)`; other users also need `loans_rights >= read` |
+| `GET /users/:id/loans` | JWT; the caller may read their own loans. Another patron requires `users_rights >= read` and `loans_rights >= read` |
 | `GET /users/:id/loans/export` | JWT + `require_self_or_staff(id)` |
 | `GET /users/:id/holds` | JWT + `require_read_holds_staff()` + `require_read_users()` |
 | `GET /users/:id/fines` | JWT + `require_read_users()` |
@@ -163,12 +163,12 @@ Loan checkout, return, renew, exceptions, and batch loan operations require **`l
 | `GET /loans/settings` | JWT + `require_read_settings()` |
 | `PUT /loans/settings` | JWT + `require_write_settings()` |
 | `POST /loans` | JWT + `require_write_loans()` |
-| `GET /loans/:id/user` | JWT + `require_write_loans()`. `UserShortStaff` only when `users_rights >= read`; otherwise `{ id, cardNumber, initials }`. `loans_rights` write does not return the name. |
+| `GET /loans/:id/user` | JWT + `require_write_loans()` for another borrower. The borrower may call with `loans_rights >= own` and receives their own `UserShortStaff`. Any other caller receives `UserShortStaff` only when `users_rights >= read`; otherwise `{ id, cardNumber, initials }`. |
 | `POST /loans/:id/return` | JWT + `require_write_loans()` |
 | `POST /loans/:id/renew` | JWT: caller is the borrower, or `loans_rights >= write`; `force` requires `require_write_loans()` |
 | `POST /loans/items/:item_id/return` | JWT + `require_write_loans()` |
 | `POST /loans/items/:item_id/renew` | JWT + `require_write_loans()` |
-| `GET /loans/overdue` | JWT + `require_read_loans()` |
+| `GET /loans/overdue` | JWT + `require_read_loans()`. `user` includes `firstname`, `lastname`, `email`, and `phone` only when `users_rights >= read`; otherwise `{ id, cardNumber, initials }`. |
 | `POST /loans/send-overdue-reminders` | JWT + `require_admin()` |
 | `POST /loans/batch-return` | JWT + `require_write_loans()` |
 | `POST /loans/batch-create` | JWT + `require_write_loans()` |
@@ -178,7 +178,7 @@ Loan checkout, return, renew, exceptions, and batch loan operations require **`l
 | `POST /loans/:id/claimed-returned` | JWT + `require_write_loans()` |
 | `POST /loans/:id/claims-returned/resolve` | JWT + `require_write_loans()` |
 | `POST /loans/items/:item_id/lost-found` | JWT + `require_write_loans()` |
-| `GET /users/:id/loans` | JWT + `require_self_or_staff(id)`; other users also need `loans_rights >= read` |
+| `GET /users/:id/loans` | JWT; the caller may read their own loans. Another patron requires `users_rights >= read` and `loans_rights >= read` |
 | `GET /users/:id/loans/export` | JWT + `require_self_or_staff(id)` |
 
 ## Holds
@@ -235,7 +235,7 @@ Loan checkout, return, renew, exceptions, and batch loan operations require **`l
 |---|---|---|
 | `GET /stats` | JWT + `require_read_items()` | |
 | `GET /stats/loans` | JWT + `require_read_loans()` | non-admin: scoped to own data; admin: global or `user_id` filter |
-| `GET /stats/users` | JWT + `require_read_loans()` | |
+| `GET /stats/users` | JWT + `require_read_loans()` | Aggregates only. No named borrower list. |
 | `GET /stats/catalog` | JWT + `require_read_items()` | |
 
 ## Settings domains

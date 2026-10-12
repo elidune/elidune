@@ -36,7 +36,6 @@ import type {
   AdvancedStatsParams,
   LoanStatsResponse,
   MediaType,
-  UserLoanStats,
   UserAggregateStats,
   CatalogStats,
   StatsSchema,
@@ -1451,24 +1450,8 @@ class ApiService {
     startDate?: string;
     endDate?: string;
   }): Promise<UserAggregateStats> {
-    const response = await this.client.get<UserAggregateStats>('/stats/users', {
-      params: { ...params, mode: 'aggregate' },
-    });
+    const response = await this.client.get<UserAggregateStats>('/stats/users', { params });
     return response.data;
-  }
-
-  async getUserLoanStats(params?: {
-    sortBy?: 'totalLoans' | 'activeLoans' | 'overdueLoans';
-    limit?: number;
-    startDate?: string;
-    endDate?: string;
-  }): Promise<UserLoanStats[]> {
-    const response = await this.client.get('/stats/users', { params });
-    const data = response.data;
-    if (Array.isArray(data)) return data;
-    if (data?.users && Array.isArray(data.users)) return data.users;
-    if (data?.items && Array.isArray(data.items)) return data.items;
-    return [];
   }
 
   async getLoanStats(params: AdvancedStatsParams): Promise<LoanStatsResponse> {
