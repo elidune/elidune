@@ -206,7 +206,7 @@ No `firstname`, `lastname`, `email`, `phone`, address, or `login`. `cardNumber` 
 | Code | Sets `blocked` | Checkout without `force` |
 |------|----------------|--------------------------|
 | `account_blocked` | yes | `User::can_borrow` is false (not active, archived, or guest) |
-| `card_lost` | yes | `users.card_lost` (card declared lost or stolen). Checkout is always **422** `{ "code": "card_lost", "error": "Business Rule Violation", "message": "..." }`. `force=true` does not override, including for an admin. `POST /loans/batch-create` reports the same code on `results[].code` |
+| `card_lost` | yes | `users.card_lost` (card declared lost or stolen). Checkout and renewal are always **422** `{ "code": "card_lost", "error": "Business Rule Violation", "message": "Library card is reported lost or stolen" }`. `force=true` does not override, including for an admin. `POST /loans/batch-create` reports the same code on `results[].code`. `GET /me/loans` sets `canRenew` false and `renewalRefusalCode` to `card_lost`. Returning a copy and paying a fine stay allowed |
 | `subscription_expired` | yes | `users.expiry_at` is before now |
 | `unpaid_fines` | yes | unpaid balance is **strictly above** the configured threshold (public-type override, else `circulation_settings.unpaid_fine_threshold`). Not a hardcoded amount. Equal to the threshold does not block |
 | `max_loans` | yes | active loans are at or above the total cap above. A per-media cap is enforced only when that item is checked out, so it is not a card-scan reason |
@@ -273,6 +273,8 @@ No `firstname`, `lastname`, `email`, `phone`, address, or `login`. `cardNumber` 
 | Copy already on loan to this borrower | 409 | `item_already_on_loan_to_borrower` |
 
 `card_lost` body is `{ "code": "card_lost", "error": "Business Rule Violation", "message": "Library card is reported lost or stolen" }`.
+
+`POST /loans/:id/renew` (staff, and the patron renewing their own loan) and `POST /loans/items/:item_id/renew` return that same body when `users.card_lost` is set. `?force=true` does not override it, including for an admin. `GET /me/loans` reports `canRenew: false` and `renewalRefusalCode: "card_lost"`. There is no batch renewal route. Check-in (`POST /loans/:id/return` and `POST /loans/items/:barcode/return`) and `POST /fines/:id/pay` stay accepted for that patron.
 
 The same-borrower `message` tells staff to renew the existing loan. The previous open loan stays open. A race on `idx_loans_one_active_per_item` returns the same 409 codes.
 

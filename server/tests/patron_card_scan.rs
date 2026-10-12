@@ -483,13 +483,117 @@ fn assert_card_lost_body(status: StatusCode, body: &Value) {
     assert_eq!(sorted_keys(body), ["code", "error", "message"], "{body}");
     assert_eq!(body["code"], "card_lost", "{body}");
     assert_eq!(body["error"], "Business Rule Violation", "{body}");
-    assert!(
-        body["message"]
-            .as_str()
-            .unwrap_or("")
-            .contains("lost or stolen"),
+    assert_eq!(
+        body["message"], "Library card is reported lost or stolen",
         "{body}"
     );
+}
+
+#[tokio::test]
+async fn lost_card_renewal_refused_with_admin_force_return_and_payment_accepted() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let audience = create_audience(&app, &admin_token, 5, "100.00").await;
+    let (reader_id, _) = create_patron(&app, &admin_token, "renewlost", Some(audience)).await;
+    let (_, item_id) = borrowable_item(&app, &admin_token).await;
+    let (status, loan) = checkout(&app, &admin_token, reader_id, item_id, false).await;
+    assert_eq!(status, StatusCode::CREATED, "{loan}");
+    let loan_id = fixtures::json_id(&loan["id"]);
+    let barcode: Option<String> = sqlx::query_scalar("SELECT barcode FROM items WHERE id = $1")
+        .bind(item_id)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .expect("item barcode");
+    let barcode = barcode.expect("barcode");
+
+    sqlx::query("UPDATE users SET card_lost = TRUE WHERE id = $1")
+        .bind(reader_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("mark card lost");
+
+    let (status, forced) = app
+        .post_empty(
+            &format!("/api/v1/loans/{loan_id}/renew?force=true"),
+            Some(&admin_token),
+        )
+        .await;
+    assert_card_lost_body(status, &forced);
+
+    let (status, by_barcode) = app
+        .post_empty(
+            &format!("/api/v1/loans/items/{barcode}/renew?force=true"),
+            Some(&admin_token),
+        )
+        .await;
+    assert_card_lost_body(status, &by_barcode);
+
+    let login: Option<String> = sqlx::query_scalar("SELECT login FROM users WHERE id = $1")
+        .bind(reader_id)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .expect("patron login");
+    let (status, session) = app
+        .post_json(
+            "/api/v1/auth/login",
+            &json!({ "username": login, "password": "readerpass1234" }),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "patron login: {session}");
+    let patron_token = session["token"].as_str().expect("token");
+
+    let (status, mine) = app
+        .get_json_with_auth("/api/v1/me/loans?perPage=50", patron_token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{mine}");
+    let row = mine["items"]
+        .as_array()
+        .expect("items")
+        .iter()
+        .find(|row| fixtures::json_id(&row["id"]) == loan_id)
+        .expect("loan on /me/loans");
+    assert_eq!(row["canRenew"], false, "{row}");
+    assert_eq!(row["renewalRefusalCode"], "card_lost", "{row}");
+
+    let (status, patron_renew) = app
+        .post_empty(
+            &format!("/api/v1/loans/{loan_id}/renew"),
+            Some(patron_token),
+        )
+        .await;
+    assert_card_lost_body(status, &patron_renew);
+
+    let fine_id = next_id();
+    sqlx::query(
+        "INSERT INTO fines (id, loan_id, user_id, amount, paid_amount, status, charge_type)
+         VALUES ($1, $2, $3, 5.00, 0, 'pending', 'overdue')",
+    )
+    .bind(fine_id)
+    .bind(loan_id)
+    .bind(reader_id)
+    .execute(app.state.services.repository.pool())
+    .await
+    .expect("insert fine");
+    let (status, paid) = app
+        .post_json(
+            &format!("/api/v1/fines/{fine_id}/pay"),
+            &json!({ "amount": "5.00" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "payment: {paid}");
+    assert_eq!(paid["status"], "paid", "{paid}");
+
+    let (status, returned) = app
+        .post_empty(
+            &format!("/api/v1/loans/{loan_id}/return"),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "return: {returned}");
 }
 
 #[tokio::test]

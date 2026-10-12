@@ -33,8 +33,10 @@ pub mod error_code {
     pub const INTERNAL: &str = "internal_error";
     pub const Z3950: &str = "z3950_error";
     pub const BUSINESS_RULE: &str = "business_rule_violation";
-    /// Checkout refused because `users.card_lost` is set. `force` does not override.
+    /// Checkout and renewal refused because `users.card_lost` is set. `force` does not override.
     pub const CARD_LOST: &str = "card_lost";
+    /// Client `message` for [`CARD_LOST`].
+    pub const CARD_LOST_MESSAGE: &str = "Library card is reported lost or stolen";
     /// Renewal requested before `due date - renewWindowDays`.
     pub const RENEWAL_TOO_EARLY: &str = "renewal_too_early";
     pub const DUPLICATE_ISBN: &str = "duplicate_isbn_needs_confirmation";

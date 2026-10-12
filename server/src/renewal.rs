@@ -33,12 +33,15 @@ pub struct RenewalLoan {
 #[derive(Debug, Clone, Copy)]
 pub struct RenewalUser {
     pub can_borrow: bool,
+    /// `users.card_lost`. Renewal always refuses. Staff `force` does not skip it.
+    pub card_lost: bool,
 }
 
 /// Precomputed account-level facts and the settings for this loan's medium.
 #[derive(Debug, Clone)]
 pub struct RenewalContext {
     /// Staff `force`: skip `account_blocked` and `fines_over_threshold`.
+    /// Does not skip `card_lost`.
     pub bypass_account_gates: bool,
     pub fines_over_threshold: bool,
     /// Desk message used when the refusal is `fines_over_threshold`.
@@ -53,6 +56,8 @@ pub struct RenewalContext {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum RenewalRefusal {
+    /// `users.card_lost`. Not skipped by staff `force`.
+    CardLost,
     AccountBlocked,
     FinesOverThreshold,
     Withdrawn,
@@ -66,6 +71,7 @@ impl RenewalRefusal {
     #[must_use]
     pub fn code(self) -> &'static str {
         match self {
+            Self::CardLost => crate::error::error_code::CARD_LOST,
             Self::AccountBlocked => "account_blocked",
             Self::FinesOverThreshold => "fines_over_threshold",
             Self::Withdrawn => "withdrawn",
@@ -78,6 +84,7 @@ impl RenewalRefusal {
 
     fn static_message(self) -> &'static str {
         match self {
+            Self::CardLost => crate::error::error_code::CARD_LOST_MESSAGE,
             Self::AccountBlocked => {
                 "User account is not active or cannot borrow — use force=true to override"
             }
@@ -96,6 +103,11 @@ impl RenewalRefusal {
     #[must_use]
     pub fn into_app_error(self, loan: &RenewalLoan, ctx: &RenewalContext) -> AppError {
         match self {
+            Self::CardLost => AppError::coded(
+                422,
+                crate::error::error_code::CARD_LOST,
+                crate::error::error_code::CARD_LOST_MESSAGE,
+            ),
             Self::RenewalTooEarly => {
                 let opens = renewal_opens_at(loan.due_at, ctx.renew_window_days);
                 AppError::RenewalTooEarly(renewal_too_early_message(opens, ctx.zone))
@@ -140,6 +152,9 @@ pub fn renewal_eligibility(
     user: &RenewalUser,
     ctx: &RenewalContext,
 ) -> Result<(), RenewalRefusal> {
+    if user.card_lost {
+        return Err(RenewalRefusal::CardLost);
+    }
     if !ctx.bypass_account_gates && !user.can_borrow {
         return Err(RenewalRefusal::AccountBlocked);
     }
@@ -206,7 +221,10 @@ mod tests {
     }
 
     fn user(can_borrow: bool) -> RenewalUser {
-        RenewalUser { can_borrow }
+        RenewalUser {
+            can_borrow,
+            card_lost: false,
+        }
     }
 
     fn ctx(now: DateTime<Utc>) -> RenewalContext {
@@ -288,6 +306,34 @@ mod tests {
             renewal_eligibility(&row, &borrower, &context).unwrap_err(),
             RenewalRefusal::RenewalTooEarly
         );
+    }
+
+    #[test]
+    fn lost_card_blocks_renewal_even_when_force_skips_account_gates() {
+        let row = loan();
+        let now = Utc.with_ymd_and_hms(2026, 10, 26, 12, 0, 0).unwrap();
+        let mut context = ctx(now);
+        context.bypass_account_gates = true;
+        let borrower = RenewalUser {
+            can_borrow: false,
+            card_lost: true,
+        };
+        let refusal = renewal_eligibility(&row, &borrower, &context).unwrap_err();
+        assert_eq!(refusal, RenewalRefusal::CardLost);
+        assert_eq!(refusal.code(), "card_lost");
+        let err = refusal.into_app_error(&row, &context);
+        match err {
+            crate::error::AppError::Coded {
+                status,
+                code,
+                message,
+            } => {
+                assert_eq!(status, 422);
+                assert_eq!(code, "card_lost");
+                assert_eq!(message, "Library card is reported lost or stolen");
+            }
+            other => panic!("expected coded card_lost, got {other:?}"),
+        }
     }
 
     #[test]
