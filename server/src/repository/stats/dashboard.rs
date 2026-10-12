@@ -8,7 +8,7 @@ use crate::{
     models::biblio::MediaType,
     models::dto::stats::{
         Interval, ItemStats, LoanStats, LoanStatsResponse, StatEntry, StatsResponse,
-        TimeSeriesEntry, UserLoanStats, UserStats, UserStatsSortBy,
+        TimeSeriesEntry, UserStats,
     },
     repository::Repository,
 };
@@ -401,75 +401,6 @@ impl Repository {
                 by_media_type: loans_by_media_type,
             },
         })
-    }
-
-    /// Get per-user loan statistics (total, active, overdue)
-    #[tracing::instrument(skip(self), err)]
-    pub async fn stats_get_user_stats(
-        &self,
-        sort_by: UserStatsSortBy,
-        limit: i64,
-    ) -> AppResult<Vec<UserLoanStats>> {
-        let pool = &self.pool;
-
-        let order_by = match sort_by {
-            UserStatsSortBy::TotalLoans => "total_loans",
-            UserStatsSortBy::ActiveLoans => "active_loans",
-            UserStatsSortBy::OverdueLoans => "overdue_loans",
-        };
-
-        let query = format!(
-            r#"
-            SELECT 
-                u.id as user_id,
-                u.firstname,
-                u.lastname,
-                COALESCE(t.total_loans, 0) as total_loans,
-                COALESCE(a.active_loans, 0) as active_loans,
-                COALESCE(o.overdue_loans, 0) as overdue_loans
-            FROM users u
-            LEFT JOIN (
-                SELECT user_id, COUNT(*) as total_loans
-                FROM (
-                    SELECT user_id FROM loans
-                    UNION ALL
-                    SELECT user_id FROM loans_archives
-                ) l
-                GROUP BY user_id
-            ) t ON t.user_id = u.id
-            LEFT JOIN (
-                SELECT user_id, COUNT(*) as active_loans
-                FROM loans
-                WHERE returned_at IS NULL
-                GROUP BY user_id
-            ) a ON a.user_id = u.id
-            LEFT JOIN (
-                SELECT user_id, COUNT(*) as overdue_loans
-                FROM loans
-                WHERE returned_at IS NULL AND expiry_at < NOW()
-                GROUP BY user_id
-            ) o ON o.user_id = u.id
-            WHERE (u.status IS NULL OR u.status <> 'deleted')
-            ORDER BY {order_by} DESC, u.id ASC
-            LIMIT $1
-            "#
-        );
-
-        let rows = sqlx::query(&query).bind(limit).fetch_all(pool).await?;
-
-        let stats = rows
-            .into_iter()
-            .map(|row| UserLoanStats {
-                user_id: row.get("user_id"),
-                firstname: row.get("firstname"),
-                lastname: row.get("lastname"),
-                total_loans: row.get("total_loans"),
-                active_loans: row.get("active_loans"),
-                overdue_loans: row.get("overdue_loans"),
-            })
-            .collect();
-
-        Ok(stats)
     }
 
     /// Get advanced loan statistics with time series
@@ -905,6 +836,51 @@ impl Repository {
         .fetch_one(pool)
         .await?;
 
+        // Age bands match `borrower_age_band`. Null birthdate is `unknown`.
+        let users_by_age_band: Vec<StatEntry> = sqlx::query(
+            r#"
+            SELECT CASE
+                     WHEN birthdate IS NULL THEN 'unknown'
+                     WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, birthdate)) < 18 THEN '0-17'
+                     WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, birthdate)) < 30 THEN '18-29'
+                     WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, birthdate)) < 50 THEN '30-49'
+                     WHEN EXTRACT(YEAR FROM AGE(CURRENT_DATE, birthdate)) < 65 THEN '50-64'
+                     ELSE '65+'
+                   END as label,
+                   COUNT(*) as value
+            FROM users
+            WHERE (status IS NULL OR status <> 'deleted')
+            GROUP BY 1
+            ORDER BY value DESC
+            "#,
+        )
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|row| StatEntry {
+            label: row.get("label"),
+            value: row.get("value"),
+        })
+        .collect();
+
+        let users_by_account_type: Vec<StatEntry> = sqlx::query(
+            r#"
+            SELECT COALESCE(account_type, 'unknown') as label, COUNT(*) as value
+            FROM users
+            WHERE (status IS NULL OR status <> 'deleted')
+            GROUP BY 1
+            ORDER BY value DESC
+            "#,
+        )
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|row| StatEntry {
+            label: row.get("label"),
+            value: row.get("value"),
+        })
+        .collect();
+
         Ok(crate::models::dto::stats::UserStatsAggregate {
             users_total,
             users_by_public_type,
@@ -915,6 +891,8 @@ impl Repository {
             active_borrowers_total,
             active_borrowers_by_public_type,
             groups_total,
+            users_by_age_band,
+            users_by_account_type,
         })
     }
 

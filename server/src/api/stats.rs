@@ -19,8 +19,8 @@ use super::{AuthenticatedUser, StaffUser};
 pub use crate::models::dto::stats::{
     CatalogBreakdownStats, CatalogSourceStats, CatalogStatsQuery, CatalogStatsResponse,
     CatalogStatsTotals, Interval, ItemStats, LoanStats, LoanStatsQuery, LoanStatsResponse,
-    StatEntry, StatsQuery, StatsResponse, TimeSeriesEntry, UserLoanStats, UserStats,
-    UserStatsAggregate, UserStatsMode, UserStatsQuery, UserStatsResponse, UserStatsSortBy,
+    StatEntry, StatsQuery, StatsResponse, TimeSeriesEntry, UserStats, UserStatsAggregate,
+    UserStatsQuery,
 };
 
 /// Build the stats routes for this domain (staff/authenticated; no IP governor — see public API layer in `main.rs`).
@@ -209,7 +209,9 @@ pub async fn get_loan_stats(
     Ok(Json(stats))
 }
 
-/// Get user loan statistics (leaderboard-style)
+/// Aggregate user statistics. Never includes a named borrower list.
+///
+/// Patrons are not stored against a library site, so the body has no site breakdown.
 #[utoipa::path(
     get,
     path = "/stats/users",
@@ -217,7 +219,7 @@ pub async fn get_loan_stats(
     security(("bearer_auth" = [])),
     params(UserStatsQuery),
     responses(
-        (status = 200, description = "User loan statistics (leaderboard or aggregate)", body = UserStatsResponse),
+        (status = 200, description = "Aggregate user statistics (no named borrowers)", body = UserStatsAggregate),
         (status = 403, description = "Insufficient permissions")
     )
 )]
@@ -225,7 +227,7 @@ pub async fn get_user_stats(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     Query(query): Query<UserStatsQuery>,
-) -> AppResult<Json<UserStatsResponse>> {
+) -> AppResult<Json<UserStatsAggregate>> {
     // Reading this requires loan statistics access
     claims.require_read_loans()?;
 
@@ -280,29 +282,13 @@ pub async fn get_user_stats(
         })?
         .map(|dt| dt.with_timezone(&Utc));
 
-    let mode = query.mode.unwrap_or(UserStatsMode::Leaderboard);
+    let aggregates = state
+        .services
+        .stats
+        .get_user_aggregates(start_date, end_date)
+        .await?;
 
-    match mode {
-        UserStatsMode::Leaderboard => {
-            let sort_by = query.sort_by.unwrap_or(UserStatsSortBy::TotalLoans);
-
-            // Apply sane defaults and bounds for limit
-            let limit = query.limit.unwrap_or(50).clamp(1, 1000);
-
-            let users = state.services.stats.get_user_stats(sort_by, limit).await?;
-
-            Ok(Json(UserStatsResponse::Leaderboard { users }))
-        }
-        UserStatsMode::Aggregate => {
-            let aggregates = state
-                .services
-                .stats
-                .get_user_aggregates(start_date, end_date)
-                .await?;
-
-            Ok(Json(UserStatsResponse::Aggregate(aggregates)))
-        }
-    }
+    Ok(Json(aggregates))
 }
 
 /// Get catalog statistics (items/physical copies: active, entered, archived) with optional breakdowns.

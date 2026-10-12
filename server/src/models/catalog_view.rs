@@ -626,6 +626,44 @@ impl From<UserShort> for UserShortPublic {
     }
 }
 
+/// Id, library card, and initials. No name, login, email, phone, or address.
+#[serde_as]
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LoanBorrowerMinimized {
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub id: i64,
+    /// `users.barcode`. Null when the patron has no card on file.
+    pub card_number: Option<String>,
+    /// Uppercase first letter of `firstname` plus first letter of `lastname`.
+    /// A missing or blank part is skipped.
+    pub initials: String,
+}
+
+impl From<UserShort> for LoanBorrowerMinimized {
+    fn from(user: UserShort) -> Self {
+        Self {
+            id: user.id,
+            card_number: user.barcode.filter(|value| !value.trim().is_empty()),
+            initials: borrower_initials(user.firstname.as_deref(), user.lastname.as_deref()),
+        }
+    }
+}
+
+/// Uppercase first letter of each name part. Blank and missing parts are skipped.
+#[must_use]
+pub fn borrower_initials(firstname: Option<&str>, lastname: Option<&str>) -> String {
+    let mut initials = String::new();
+    for part in [firstname, lastname] {
+        let Some(ch) = part.and_then(|value| value.trim().chars().next()) else {
+            continue;
+        };
+        initials.extend(ch.to_uppercase());
+    }
+    initials
+}
+
 /// Hold list row for staff. Embedded copies are [`BiblioShortStaff`].
 #[serde_as]
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -800,6 +838,48 @@ impl From<LoanDetails> for LoanDetailsPublic {
             returned_at: loan.returned_at,
             biblio: BiblioShortPublic::from(loan.biblio),
             user: loan.user.map(UserShortPublic::from),
+            item_identification: loan.item_identification,
+            is_overdue: loan.is_overdue,
+        }
+    }
+}
+
+/// Loan list row when the caller cannot read users.
+///
+/// Copy fields match [`LoanDetailsPublic`]. `user` is [`LoanBorrowerMinimized`].
+#[serde_as]
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LoanDetailsOwn {
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub id: i64,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub item_id: i64,
+    pub start_date: DateTime<Utc>,
+    pub expiry_at: DateTime<Utc>,
+    pub renewal_date: Option<DateTime<Utc>>,
+    pub nb_renews: i16,
+    pub returned_at: Option<DateTime<Utc>>,
+    pub biblio: BiblioShortPublic,
+    pub user: Option<LoanBorrowerMinimized>,
+    pub item_identification: Option<String>,
+    pub is_overdue: bool,
+}
+
+impl From<LoanDetails> for LoanDetailsOwn {
+    fn from(loan: LoanDetails) -> Self {
+        Self {
+            id: loan.id,
+            item_id: loan.item_id,
+            start_date: loan.start_date,
+            expiry_at: loan.expiry_at,
+            renewal_date: loan.renewal_date,
+            nb_renews: loan.nb_renews,
+            returned_at: loan.returned_at,
+            biblio: BiblioShortPublic::from(loan.biblio),
+            user: loan.user.map(LoanBorrowerMinimized::from),
             item_identification: loan.item_identification,
             is_overdue: loan.is_overdue,
         }

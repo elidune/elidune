@@ -1818,6 +1818,8 @@
       "newUsersTotal": "Neue Benutzer",
       "activeBorrowersTotal": "Ausleiher",
       "usersByPublicType": "Benutzer nach Zielgruppe",
+      "usersByAgeBand": "Benutzer nach Altersgruppe",
+      "usersByAccountType": "Benutzer nach Kontotyp",
       "newUsersByPublicType": "Neue Benutzer nach Zielgruppe",
       "activeBorrowersByPublicType": "Ausleiher nach Zielgruppe"
     },

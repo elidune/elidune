@@ -400,6 +400,11 @@ impl UsersService {
         self.repository.users_get_by_id(id).await
     }
 
+    /// Short patron row, including `barcode`. Missing users are `None`.
+    pub async fn get_short(&self, id: i64) -> AppResult<Option<UserShort>> {
+        self.repository.users_get_short(id).await
+    }
+
     /// Search users
     pub async fn search_users(&self, query: &UserQuery) -> AppResult<(Vec<UserShort>, i64)> {
         self.repository.users_search(query).await

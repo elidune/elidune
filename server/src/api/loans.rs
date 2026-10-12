@@ -18,7 +18,7 @@ use utoipa::{IntoParams, ToSchema};
 use crate::{
     error::{AppError, AppResult},
     models::{
-        catalog_view::{LoanDetailsPublic, LoanDetailsStaff, UserShortStaff},
+        catalog_view::{borrower_initials, LoanDetailsOwn, LoanDetailsStaff, UserShortStaff},
         loan::{CreateLoan, LoanDetails, LoanMarcExportEncoding, LoanMarcExportFormat},
         my_account::MyLoanView,
         user::Rights,
@@ -26,7 +26,7 @@ use crate::{
     services::{
         audit::{self},
         idempotency,
-        reminders::{OverdueLoansPage, ReminderReport},
+        reminders::{OverdueLoanInfo, OverdueLoansPage, ReminderReport, ReminderTier},
     },
 };
 
@@ -76,8 +76,9 @@ pub fn router() -> axum::Router<crate::AppState> {
 /// Borrower of an active loan.
 ///
 /// Callers with `users_rights` read or write receive [`UserShortStaff`].
-/// Everyone else who may call this route (`loans_rights` write only) receives
-/// [`LoanBorrowerMinimized`]. `loans_rights` does not unlock the staff profile.
+/// Everyone else receives [`LoanBorrowerMinimized`]. `loans_rights` does not
+/// unlock the staff profile. The borrower of the loan receives their own
+/// [`UserShortStaff`] from `GET /loans/{id}/user` even when `users_rights` is only own.
 #[derive(Serialize, ToSchema)]
 #[serde(untagged)]
 pub enum LoanBorrowerResponse {
@@ -85,41 +86,59 @@ pub enum LoanBorrowerResponse {
     Minimized(LoanBorrowerMinimized),
 }
 
-/// Id, library card, and initials. No name, login, email, phone, or address.
+pub use crate::models::catalog_view::LoanBorrowerMinimized;
+
+fn project_borrower(
+    user: crate::models::user::UserShort,
+    claims: &crate::models::user::UserClaims,
+    own_identity: bool,
+) -> LoanBorrowerResponse {
+    let users_read = claims.rights.users_rights.rank() >= Rights::Read.rank();
+    if users_read || (own_identity && user.id == claims.user_id) {
+        LoanBorrowerResponse::Full(UserShortStaff::from(user))
+    } else {
+        LoanBorrowerResponse::Minimized(LoanBorrowerMinimized::from(user))
+    }
+}
+
+/// `LoanDetails` as returned by check-in routes. `user` follows [`LoanBorrowerResponse`].
 #[serde_as]
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct LoanBorrowerMinimized {
+pub struct LoanDetailsView {
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub id: i64,
-    /// `users.barcode`. Null when the patron has no card on file.
-    pub card_number: Option<String>,
-    /// Uppercase first letter of `firstname` plus first letter of `lastname`.
-    /// A missing or blank part is skipped.
-    pub initials: String,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub item_id: i64,
+    pub start_date: DateTime<Utc>,
+    pub expiry_at: DateTime<Utc>,
+    pub renewal_date: Option<DateTime<Utc>>,
+    pub nb_renews: i16,
+    pub returned_at: Option<DateTime<Utc>>,
+    pub biblio: crate::models::biblio::BiblioShort,
+    pub user: Option<LoanBorrowerResponse>,
+    pub item_identification: Option<String>,
+    pub is_overdue: bool,
 }
 
-impl From<crate::models::user::UserShort> for LoanBorrowerMinimized {
-    fn from(user: crate::models::user::UserShort) -> Self {
+impl LoanDetailsView {
+    pub fn from_loan(loan: LoanDetails, claims: &crate::models::user::UserClaims) -> Self {
         Self {
-            id: user.id,
-            card_number: user.barcode.filter(|value| !value.trim().is_empty()),
-            initials: borrower_initials(user.firstname.as_deref(), user.lastname.as_deref()),
+            id: loan.id,
+            item_id: loan.item_id,
+            start_date: loan.start_date,
+            expiry_at: loan.expiry_at,
+            renewal_date: loan.renewal_date,
+            nb_renews: loan.nb_renews,
+            returned_at: loan.returned_at,
+            user: loan.user.map(|user| project_borrower(user, claims, false)),
+            biblio: loan.biblio,
+            item_identification: loan.item_identification,
+            is_overdue: loan.is_overdue,
         }
     }
-}
-
-/// Uppercase first letter of each name part. Blank and missing parts are skipped.
-fn borrower_initials(firstname: Option<&str>, lastname: Option<&str>) -> String {
-    let mut initials = String::new();
-    for part in [firstname, lastname] {
-        let Some(ch) = part.and_then(|value| value.trim().chars().next()) else {
-            continue;
-        };
-        initials.extend(ch.to_uppercase());
-    }
-    initials
 }
 
 /// Get the patron linked to an active loan (circulation desk).
@@ -130,8 +149,8 @@ fn borrower_initials(firstname: Option<&str>, lastname: Option<&str>) -> String 
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Active loan ID")),
     responses(
-        (status = 200, description = "Borrower identity. `users_rights` read or write: `UserShortStaff` (includes `login` and `barcode`). Otherwise only `id`, `cardNumber`, and `initials`. `loans_rights` write does not return the staff profile.", body = LoanBorrowerResponse),
-        (status = 403, description = "Insufficient loans write rights"),
+        (status = 200, description = "Borrower identity. `users_rights` read or write, or the caller is the borrower: `UserShortStaff` (includes `login` and `barcode`). Otherwise only `id`, `cardNumber`, and `initials`. `loans_rights` write does not return the staff profile of another patron.", body = LoanBorrowerResponse),
+        (status = 403, description = "Another borrower's loan requires loans write. The borrower needs loans own."),
         (status = 404, description = "Loan not found")
     )
 )]
@@ -140,16 +159,22 @@ pub async fn get_loan_borrower(
     AuthenticatedUser(claims): AuthenticatedUser,
     Path(loan_id): Path<i64>,
 ) -> AppResult<Json<LoanBorrowerResponse>> {
-    claims.require_write_loans()?;
+    if claims.rights.loans_rights.rank() < Rights::Own.rank() {
+        return Err(AppError::Authorization(
+            "Insufficient rights to read this loan borrower".into(),
+        ));
+    }
     let user = state.services.loans.get_loan_borrower(loan_id).await?;
-    // `loans_rights` write is enough to call this route. It is not enough to
-    // read the patron's name. `users_rights` own is below read.
-    let body = if claims.rights.users_rights.rank() >= Rights::Read.rank() {
-        LoanBorrowerResponse::Full(UserShortStaff::from(user))
-    } else {
-        LoanBorrowerResponse::Minimized(LoanBorrowerMinimized::from(user))
-    };
-    Ok(Json(body))
+    let is_self = user.id == claims.user_id;
+    // Loans write reads any borrower. Loans own/read reads only the caller's loan.
+    if !is_self && claims.rights.loans_rights.rank() < Rights::Write.rank() {
+        return Err(AppError::Authorization(
+            "Insufficient rights to read this loan borrower".into(),
+        ));
+    }
+    // `loans_rights` write is not enough to read another patron's name.
+    // The borrower receives their own staff profile.
+    Ok(Json(project_borrower(user, &claims, true)))
 }
 
 /// Create loan request
@@ -238,7 +263,7 @@ pub struct LoanResponse {
 pub struct ReturnResponse {
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub loan: Option<LoanDetails>,
+    pub loan: Option<LoanDetailsView>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hold: Option<crate::models::hold::Hold>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -351,12 +376,14 @@ pub async fn update_loan_settings(
     Ok(Json(rows))
 }
 
-/// Staff or reader loan page. Selected with [`crate::models::user::UserClaims::is_librarian`].
+/// Staff or own loan page. Selected with `users_rights`, not account type.
 #[derive(Serialize, ToSchema)]
 #[serde(untagged)]
 pub enum UserLoanListResponse {
+    /// `users_rights` read or write: staff copies and [`UserShortStaff`].
     Staff(PaginatedResponse<LoanDetailsStaff>),
-    Public(PaginatedResponse<LoanDetailsPublic>),
+    /// Own loans without users read: public copies and [`LoanBorrowerMinimized`].
+    Own(PaginatedResponse<LoanDetailsOwn>),
 }
 
 /// Get loans for a specific user (paginated).
@@ -370,7 +397,8 @@ pub enum UserLoanListResponse {
         GetUserLoansQuery
     ),
     responses(
-        (status = 200, description = "User's loans. Librarians and admins receive `LoanDetailsStaff` (copy weeding, full availability, patron `login`). Readers receive `LoanDetailsPublic`.", body = UserLoanListResponse),
+        (status = 200, description = "User's loans. `users_rights` read or write: `LoanDetailsStaff` (patron `login` and `barcode`). Otherwise `LoanDetailsOwn` (`user` is `id`, `cardNumber`, `initials` only). Another patron also requires `loans_rights` read.", body = UserLoanListResponse),
+        (status = 403, description = "Another patron requires users read and loans read"),
         (status = 404, description = "User not found")
     )
 )]
@@ -380,18 +408,19 @@ pub async fn get_user_loans(
     Path(user_id): Path<i64>,
     Query(query): Query<GetUserLoansQuery>,
 ) -> AppResult<Json<UserLoanListResponse>> {
-    claims.require_self_or_staff(user_id)?;
-
-    if claims.rights.loans_rights.rank() < Rights::Read.rank() && user_id != claims.user_id {
-        return Err(AppError::Authorization(
-            "Insufficient rights to read loans for another user".into(),
-        ));
+    if user_id != claims.user_id {
+        claims.require_read_users()?;
+        if claims.rights.loans_rights.rank() < Rights::Read.rank() {
+            return Err(AppError::Authorization(
+                "Insufficient rights to read loans for another user".into(),
+            ));
+        }
     }
 
     let page = query.page.unwrap_or(1).max(1);
     let per_page = query.per_page.unwrap_or(20).clamp(1, 200);
 
-    let (items, total) = if query.archived.unwrap_or(false) {
+    let (mut items, total) = if query.archived.unwrap_or(false) {
         state
             .services
             .loans
@@ -405,7 +434,12 @@ pub async fn get_user_loans(
             .await?
     };
 
-    let body = if claims.is_librarian() {
+    let borrower = state.services.users.get_short(user_id).await?;
+    for item in &mut items {
+        item.user = borrower.clone();
+    }
+
+    let body = if claims.rights.users_rights.rank() >= Rights::Read.rank() {
         UserLoanListResponse::Staff(PaginatedResponse::new(
             items.into_iter().map(LoanDetailsStaff::from).collect(),
             total,
@@ -413,8 +447,8 @@ pub async fn get_user_loans(
             per_page,
         ))
     } else {
-        UserLoanListResponse::Public(PaginatedResponse::new(
-            items.into_iter().map(LoanDetailsPublic::from).collect(),
+        UserLoanListResponse::Own(PaginatedResponse::new(
+            items.into_iter().map(LoanDetailsOwn::from).collect(),
             total,
             page,
             per_page,
@@ -707,7 +741,9 @@ pub async fn return_loan(
             "lost_found"
         }
         .to_string(),
-        loan: returned.loan,
+        loan: returned
+            .loan
+            .map(|loan| LoanDetailsView::from_loan(loan, &claims)),
         hold: None,
         destination_site_id: None,
         destination_site_name: None,
@@ -870,7 +906,9 @@ pub async fn return_loan_by_item(
             };
             let mut response = ReturnResponse {
                 status: status.to_string(),
-                loan: check_in.loan,
+                loan: check_in
+                    .loan
+                    .map(|loan| LoanDetailsView::from_loan(loan, &claims)),
                 hold: check_in.hold,
                 destination_site_id: check_in.destination_site_id,
                 destination_site_name: check_in.destination_site_name,
@@ -1027,6 +1065,109 @@ async fn renew_loan_by_item_inner(
     ))
 }
 
+/// Borrower on an overdue row when the caller can read users.
+#[serde_as]
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct OverdueBorrowerFull {
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub id: i64,
+    pub firstname: Option<String>,
+    pub lastname: Option<String>,
+    pub email: Option<String>,
+    pub phone: Option<String>,
+}
+
+/// Overdue borrower: full contact, or `{ id, cardNumber, initials }`.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(untagged)]
+pub enum OverdueBorrower {
+    Full(OverdueBorrowerFull),
+    Minimized(LoanBorrowerMinimized),
+}
+
+/// One overdue loan for the desk. Identity lives only on `user`.
+#[serde_as]
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct OverdueLoanView {
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub loan_id: i64,
+    pub user: OverdueBorrower,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub biblio_id: i64,
+    pub title: Option<String>,
+    pub authors: Option<String>,
+    pub item_barcode: Option<String>,
+    pub loan_date: DateTime<Utc>,
+    pub expiry_at: Option<DateTime<Utc>>,
+    pub last_reminder_sent_at: Option<DateTime<Utc>>,
+    pub reminder_count: i32,
+    pub next_reminder_tier: Option<ReminderTier>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct OverdueLoansView {
+    pub loans: Vec<OverdueLoanView>,
+    pub total: i64,
+    pub page: i64,
+    pub per_page: i64,
+}
+
+impl OverdueLoansView {
+    fn from_page(page: OverdueLoansPage, claims: &crate::models::user::UserClaims) -> Self {
+        let users_read = claims.rights.users_rights.rank() >= Rights::Read.rank();
+        let loans = page
+            .loans
+            .into_iter()
+            .map(|row| OverdueLoanView::from_info(row, users_read))
+            .collect();
+        Self {
+            loans,
+            total: page.total,
+            page: page.page,
+            per_page: page.per_page,
+        }
+    }
+}
+
+impl OverdueLoanView {
+    fn from_info(row: OverdueLoanInfo, users_read: bool) -> Self {
+        let user = if users_read {
+            OverdueBorrower::Full(OverdueBorrowerFull {
+                id: row.user_id,
+                firstname: row.firstname,
+                lastname: row.lastname,
+                email: row.user_email,
+                phone: row.user_phone,
+            })
+        } else {
+            OverdueBorrower::Minimized(LoanBorrowerMinimized {
+                id: row.user_id,
+                card_number: row.user_barcode.filter(|value| !value.trim().is_empty()),
+                initials: borrower_initials(row.firstname.as_deref(), row.lastname.as_deref()),
+            })
+        };
+        Self {
+            loan_id: row.loan_id,
+            user,
+            biblio_id: row.biblio_id,
+            title: row.title,
+            authors: row.authors,
+            item_barcode: row.item_barcode,
+            loan_date: row.loan_date,
+            expiry_at: row.expiry_at,
+            last_reminder_sent_at: row.last_reminder_sent_at,
+            reminder_count: row.reminder_count,
+            next_reminder_tier: row.next_reminder_tier,
+        }
+    }
+}
+
 /// Get all overdue loans (admin dashboard)
 #[utoipa::path(
     get,
@@ -1035,7 +1176,7 @@ async fn renew_loan_by_item_inner(
     security(("bearer_auth" = [])),
     params(OverdueLoansQuery),
     responses(
-        (status = 200, description = "Paginated overdue loans", body = OverdueLoansPage),
+        (status = 200, description = "Paginated overdue loans. `users_rights` read or write: `user` is `id`, `firstname`, `lastname`, `email`, and `phone`. Otherwise `user` is only `id`, `cardNumber`, and `initials`.", body = OverdueLoansView),
         (status = 403, description = "Insufficient permissions")
     )
 )]
@@ -1043,7 +1184,7 @@ pub async fn get_overdue_loans(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     Query(query): Query<OverdueLoansQuery>,
-) -> AppResult<Json<OverdueLoansPage>> {
+) -> AppResult<Json<OverdueLoansView>> {
     claims.require_read_loans()?;
 
     let page = state
@@ -1052,7 +1193,7 @@ pub async fn get_overdue_loans(
         .get_overdue_loans(query.page.unwrap_or(1), query.per_page.unwrap_or(50))
         .await?;
 
-    Ok(Json(page))
+    Ok(Json(OverdueLoansView::from_page(page, &claims)))
 }
 
 /// Trigger overdue reminder emails (admin only)

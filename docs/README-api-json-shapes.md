@@ -230,7 +230,9 @@ The same-borrower `message` tells staff to renew the existing loan. The previous
 
 ### `GET /loans/:id/user`
 
-Requires `loans_rights` write. The body depends on `users_rights`. Loans write does not bypass that check. `users_rights` own is not read.
+`loans_rights` write may read any active loan. `loans_rights` own or read may read only the caller's own loan (a patron). Below own is 403. A loan that belongs to someone else is 403 when `loans_rights` is below write.
+
+The body depends on `users_rights`, with one exception: the borrower receives their own `UserShortStaff` even when `users_rights` is only own. Loans write does not unlock another patron's name. `users_rights` own is not read for someone else's loan.
 
 `users_rights` read or write — `UserShortStaff` (`barcode` is `users.barcode`):
 
@@ -259,21 +261,27 @@ Any other caller who may hit this route — `LoanBorrowerMinimized`. `cardNumber
 
 No other personal field (`firstname`, `lastname`, `login`, email, phone, address) is included in that shape.
 
-### `LoanDetails` (GET /loans/:id, embedded in return response)
+### `LoanDetails` (embedded in return responses)
+
+`POST /loans/:id/return`, `POST /loans/items/:item_id/return`, and `POST /loans/batch-return` (`results[].loan`) keep the field name `user`. Its shape follows the same rule as `GET /loans/:id/user`, except the caller is never treated as "the borrower" just because they checked the copy in: `users_rights` read or write receives `UserShortStaff`; otherwise `user` is only `{ id, cardNumber, initials }` (no `firstname`, `lastname`, `email`, or `login`).
+
 ```json
 {
   "id": "927364819265437700",
+  "itemId": "818273645564928001",
   "startDate": "2026-03-24T10:00:00Z",
-  "issueAt": "2026-04-24T00:00:00Z",
+  "expiryAt": "2026-04-24T00:00:00Z",
   "renewalDate": null,
   "nbRenews": 0,
-  "returnedAt": null,
-  "biblio": { ...BiblioShort... },
-  "user": { ...UserShort... },
+  "returnedAt": "2026-03-30T10:00:00Z",
+  "biblio": { "...": "BiblioShort" },
+  "user": { "id": "927364819265437697", "cardNumber": "LIB-0001", "initials": "JD" },
   "itemIdentification": "978-2-07-040850-4",
   "isOverdue": false
 }
 ```
+
+With `users_rights` read or write, `user` is the `UserShortStaff` object shown under `GET /loans/:id/user` (`barcode`, not `cardNumber`).
 
 ### `ReturnResponse` (POST /loans/:id/return)
 ```json
@@ -314,6 +322,12 @@ When the copy is lost, the same response adds `wasLost: true` and, when a replac
 
 ### Query params — `SendRemindersQuery`
 `?dryRun=true`
+
+### `GET /users/:id/loans`
+
+The caller may read their own loans. Another patron requires `users_rights` read (or write) and `loans_rights` read. Account type is not the gate.
+
+Each row's `user` follows the users-rights rule. With users read, the row is `LoanDetailsStaff` (`user.login`, `user.barcode`, copy `weedingStatus`). Without users read, the row is `LoanDetailsOwn`: public copies, and `user` is only `{ id, cardNumber, initials }`. A patron therefore does not receive their own name or login on this list.
 
 ### Query params — `GetUserLoansQuery`
 `?archived=false`
@@ -1117,28 +1131,18 @@ Tier delays are days after the due date. Templates are ids from `GET /settings/e
 ```
 
 ### `UserStatsQuery` (query params — `GET /stats/users`)
-`?sortBy=totalLoans&limit=50&startDate=2026-01-01&endDate=2026-12-31&mode=leaderboard`
+`?startDate=2026-01-01&endDate=2026-12-31`
 
-`sortBy` values: `totalLoans` | `activeLoans` | `overdueLoans`  
-`mode` values: `leaderboard` | `aggregate`
+`mode`, `sortBy`, and `limit` are ignored. The response is always the aggregate object below. There is no named borrower leaderboard, for any rights.
 
-### `UserStatsResponse` — leaderboard mode
+### `UserStatsAggregate` (`GET /stats/users`)
 ```json
 {
-  "mode": "leaderboard",
-  "users": [
-    { "userId": "...", "firstname": "Jean", "lastname": "Doe", "totalLoans": 42, "activeLoans": 3, "overdueLoans": 0 }
-  ]
-}
-```
-
-### `UserStatsResponse` — aggregate mode
-```json
-{
-  "mode": "aggregate",
   "usersTotal": 1250,
   "usersByPublicType": [{ "label": "adult", "value": 900 }],
-  "usersBySex": [],
+  "usersByAgeBand": [{ "label": "30-49", "value": 400 }, { "label": "unknown", "value": 50 }],
+  "usersByAccountType": [{ "label": "reader", "value": 1100 }],
+  "usersBySex": [{ "label": "female", "value": 640 }],
   "newUsersTotal": 85,
   "newUsersByPublicType": [],
   "newUsersBySex": [],
@@ -1147,6 +1151,8 @@ Tier delays are days after the due date. Templates are ids from `GET /settings/e
   "groupsTotal": 12
 }
 ```
+
+`usersByAgeBand` labels are `0-17`, `18-29`, `30-49`, `50-64`, `65+`, and `unknown` (no birthdate). `usersByAccountType` labels are account-type codes. Patrons are not assigned to a library site, so this body has no site breakdown. No field contains a patron name, login, email, or user id.
 
 ### `CatalogStatsQuery` (query params — `GET /stats/catalog`)
 `?startDate=2026-01-01&endDate=2026-12-31&bySource=true&byMediaType=true&byPublicType=false`
@@ -1356,14 +1362,22 @@ See [README-background-tasks.md](README-background-tasks.md) for full polling gu
 
 `tier` is the notice that was queued (or would be queued on `dryRun=true`): `first` | `second` | `formalNotice`. Same-tier loans for one patron share one mail.
 
-### `OverdueLoanInfo` (entries in GET /loans/overdue)
+### `OverdueLoanView` (entries in GET /loans/overdue)
+
+Borrower identity is only the nested `user` object.
+
+`users_rights` read or write — full contact, including phone:
+
 ```json
 {
   "loanId": "927364819265437700",
-  "userId": "927364819265437697",
-  "firstname": "Jean",
-  "lastname": "Doe",
-  "userEmail": "jdoe@example.com",
+  "user": {
+    "id": "927364819265437697",
+    "firstname": "Jean",
+    "lastname": "Doe",
+    "email": "jdoe@example.com",
+    "phone": "0612345678"
+  },
   "biblioId": "818273645564928000",
   "title": "Les Misérables",
   "authors": "Victor Hugo",
@@ -1376,11 +1390,17 @@ See [README-background-tasks.md](README-background-tasks.md) for full polling gu
 }
 ```
 
+Otherwise `user` is exactly `{ id, cardNumber, initials }`. `email`, `phone`, `firstname`, and `lastname` are absent.
+
+```json
+{ "id": "927364819265437697", "cardNumber": "LIB-0001", "initials": "JD" }
+```
+
 `nextReminderTier` is `first` | `second` | `formalNotice` | `null`. `null` means sending has stopped (formal notice already sent, highest enabled tier already sent, or the item is lost / claimed-returned). The send action uses this field to show which tier is next; it does not skip a disabled or already-sent tier.
 
 ### `OverdueLoansPage`
 ```json
-{ "loans": [...OverdueLoanInfo...], "total": 18, "page": 1, "perPage": 20 }
+{ "loans": [...OverdueLoanView...], "total": 18, "page": 1, "perPage": 20 }
 ```
 
 ---
@@ -1424,8 +1444,6 @@ type TaskKind     = 'marcBatchImport' | 'maintenance';
 type TaskStatus   = 'pending' | 'running' | 'completed' | 'failed';
 type ImportAction = 'created' | 'mergedBibliographic' | 'replacedArchived' | 'replacedConfirmed';
 type Interval     = 'day' | 'week' | 'month' | 'year';
-type UserStatsMode   = 'leaderboard' | 'aggregate';
-type UserStatsSortBy = 'totalLoans' | 'activeLoans' | 'overdueLoans';
 type MaintenanceAction =
   | 'cleanupSeries' | 'cleanupCollections' | 'cleanupOrphanAuthors'
   | 'mergeDuplicateSeries' | 'mergeDuplicateCollections'

@@ -6,11 +6,7 @@ use utoipa::ToSchema;
 
 use serde_with::{serde_as, DisplayFromStr};
 
-use crate::{
-    error::AppResult,
-    models::{dto::circulation::LostFineDeskStatus, loan::LoanDetails},
-    services::audit,
-};
+use crate::{error::AppResult, models::dto::circulation::LostFineDeskStatus, services::audit};
 
 use super::{AuthenticatedUser, ClientIp};
 
@@ -37,7 +33,7 @@ pub struct BatchReturnRequest {
 pub struct BatchReturnItemResult {
     pub barcode: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub loan: Option<LoanDetails>,
+    pub loan: Option<super::loans::LoanDetailsView>,
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -121,7 +117,9 @@ pub async fn batch_return(
                 let lost = check_in.lost.as_ref();
                 results.push(BatchReturnItemResult {
                     barcode: barcode.clone(),
-                    loan: check_in.loan,
+                    loan: check_in
+                        .loan
+                        .map(|loan| super::loans::LoanDetailsView::from_loan(loan, &claims)),
                     success: true,
                     error: None,
                     was_lost: lost.map(|l| l.was_lost),

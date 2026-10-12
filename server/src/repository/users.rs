@@ -434,6 +434,28 @@ impl Repository {
         self.with_guardian(user_row.into()).await
     }
 
+    /// Patron summary for loan embeds (`barcode` included).
+    pub async fn users_get_short(
+        &self,
+        id: i64,
+    ) -> AppResult<Option<crate::models::user::UserShort>> {
+        use crate::models::user::UserShortRow;
+        let row = sqlx::query_as::<_, UserShortRow>(
+            r#"
+            SELECT u.id, u.login, u.barcode, u.firstname, u.lastname, u.account_type, u.public_type,
+                   (SELECT COUNT(*)::bigint FROM loans l WHERE l.user_id = u.id AND l.returned_at IS NULL) AS nb_loans,
+                   (SELECT COUNT(*)::bigint FROM loans l WHERE l.user_id = u.id AND l.returned_at IS NULL AND l.expiry_at < NOW()) AS nb_late_loans,
+                   u.status, u.created_at, u.expiry_at
+            FROM users u
+            WHERE u.id = $1
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(Into::into))
+    }
+
     /// Legal guardian of `child_id`, if a `user_guardians` row exists.
     pub async fn users_guardian_id(&self, child_id: i64) -> AppResult<Option<i64>> {
         Ok(sqlx::query_scalar::<_, i64>(
