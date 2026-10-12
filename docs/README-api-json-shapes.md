@@ -206,7 +206,7 @@ No `firstname`, `lastname`, `email`, `phone`, address, or `login`. `cardNumber` 
 | Code | Sets `blocked` | Checkout without `force` |
 |------|----------------|--------------------------|
 | `account_blocked` | yes | `User::can_borrow` is false (not active, archived, or guest) |
-| `card_lost` | yes | `users.card_lost` (card declared lost or stolen). **422** `business_rule_violation`. `force=true` overrides |
+| `card_lost` | yes | `users.card_lost` (card declared lost or stolen). Checkout is always **422** `{ "code": "card_lost", "error": "Business Rule Violation", "message": "..." }`. `force=true` does not override, including for an admin. `POST /loans/batch-create` reports the same code on `results[].code` |
 | `subscription_expired` | yes | `users.expiry_at` is before now |
 | `unpaid_fines` | yes | unpaid balance is **strictly above** the configured threshold (public-type override, else `circulation_settings.unpaid_fine_threshold`). Not a hardcoded amount. Equal to the threshold does not block |
 | `max_loans` | yes | active loans are at or above the total cap above. A per-media cap is enforced only when that item is checked out, so it is not a card-scan reason |
@@ -264,12 +264,15 @@ No `firstname`, `lastname`, `email`, `phone`, address, or `login`. `cardNumber` 
 { "userId": "927364819265437697", "itemId": "818273645564928001", "itemIdentification": null, "force": false }
 ```
 
-`itemId` or `itemIdentification` (barcode) identifies the copy. `force` bypasses patron, subscription, loan-limit, unpaid-fine, transit, and hold-queue checks. It never overrides an open loan (reserved-item override is tracked in #167).
+`itemId` or `itemIdentification` (barcode) identifies the copy. `force` bypasses patron account, subscription, loan-limit, unpaid-fine, transit, and hold-queue checks. It never overrides an open loan (reserved-item override is tracked in #167). It never overrides a lost or stolen card.
 
 | Situation | HTTP | `code` |
 |-----------|------|--------|
+| Patron `users.card_lost` (`force` true or false, any role, including admin) | 422 | `card_lost` |
 | Copy on loan to another borrower (`force` true or false, any role) | 409 | `item_on_loan_to_other_borrower` |
 | Copy already on loan to this borrower | 409 | `item_already_on_loan_to_borrower` |
+
+`card_lost` body is `{ "code": "card_lost", "error": "Business Rule Violation", "message": "Library card is reported lost or stolen" }`.
 
 The same-borrower `message` tells staff to renew the existing loan. The previous open loan stays open. A race on `idx_loans_one_active_per_item` returns the same 409 codes.
 
@@ -1338,7 +1341,7 @@ See [README-background-tasks.md](README-background-tasks.md) for full polling gu
 }
 ```
 
-`error` is the same human-readable string as before. `code` is added only on failures and uses the same values as `ErrorResponse.code` (`item_on_loan_to_other_borrower`, `item_already_on_loan_to_borrower`, `not_found`, `business_rule_violation`, …). Successful items omit both.
+`error` is the same human-readable string as before. `code` is added only on failures and uses the same values as `ErrorResponse.code` (`item_on_loan_to_other_borrower`, `item_already_on_loan_to_borrower`, `card_lost`, `not_found`, `business_rule_violation`, …). A lost card is `card_lost` on that item even when the request sets `force: true`. Successful items omit both.
 
 ---
 
@@ -1473,6 +1476,7 @@ Common `code` values:
 | `item_on_loan_to_other_borrower` | 409 |
 | `item_already_on_loan_to_borrower` | 409 |
 | `business_rule_violation` | 422 |
+| `card_lost` | 422 |
 | `internal_error` | 500 |
 
 ---

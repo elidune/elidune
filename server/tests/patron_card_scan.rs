@@ -448,21 +448,47 @@ async fn card_scan_lost_card_blocks_checkout() {
 
     let (_, item_id) = borrowable_item(&app, &admin_token).await;
     let (status, refused) = checkout(&app, &admin_token, reader_id, item_id, false).await;
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
-    assert_eq!(refused["code"], "business_rule_violation", "{refused}");
+    assert_card_lost_body(status, &refused);
+
+    let (status, forced) = checkout(&app, &admin_token, reader_id, item_id, true).await;
+    assert_card_lost_body(status, &forced);
+
+    let (status, batch) = app
+        .post_json(
+            "/api/v1/loans/batch-create",
+            &json!({
+                "userId": reader_id.to_string(),
+                "barcodes": ["LOST-CARD-COPY"],
+                "force": true
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{batch}");
+    assert_eq!(batch["created"], 0, "{batch}");
+    assert_eq!(batch["errors"], 1, "{batch}");
+    assert_eq!(batch["results"][0]["success"], false, "{batch}");
+    assert_eq!(batch["results"][0]["code"], "card_lost", "{batch}");
     assert!(
-        refused["message"]
+        batch["results"][0]["error"]
             .as_str()
             .unwrap_or("")
             .contains("lost or stolen"),
-        "{refused}"
+        "{batch}"
     );
+}
 
-    let (status, forced) = checkout(&app, &admin_token, reader_id, item_id, true).await;
-    assert_eq!(
-        status,
-        StatusCode::CREATED,
-        "force overrides a lost card: {forced}"
+fn assert_card_lost_body(status: StatusCode, body: &Value) {
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(sorted_keys(body), ["code", "error", "message"], "{body}");
+    assert_eq!(body["code"], "card_lost", "{body}");
+    assert_eq!(body["error"], "Business Rule Violation", "{body}");
+    assert!(
+        body["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("lost or stolen"),
+        "{body}"
     );
 }
 

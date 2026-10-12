@@ -16,7 +16,7 @@ use utoipa::ToSchema;
 pub enum PatronBlockReason {
     /// [`crate::models::user::User::can_borrow`] is false.
     AccountBlocked,
-    /// `users.card_lost`. Checkout refuses unless `force`.
+    /// `users.card_lost`. Checkout always returns `422` `card_lost`. `force` does not override.
     CardLost,
     /// `users.expiry_at` is before now. Checkout refuses unless `force`.
     SubscriptionExpired,
