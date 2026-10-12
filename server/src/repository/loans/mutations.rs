@@ -340,8 +340,10 @@ impl Repository {
         self.loans_archive_and_delete_tx(&mut tx, &loan, now)
             .await?;
 
-        // A physical return is an inventory check: clear claims-returned so the
-        // copy re-enters the borrowable pool. Damaged / lost stay as set.
+        // A physical return is an inventory check: clear claims-returned and
+        // missing-shelf (`to_search`) so the copy re-enters the borrowable pool
+        // and the hold / transit queue below can take it. A force loan leaves
+        // those flags in place. Damaged / lost stay as set.
         sqlx::query(
             r#"
             UPDATE items SET
@@ -349,12 +351,13 @@ impl Repository {
                 borrowable = TRUE,
                 updated_at = $2
             WHERE id = $1
-              AND circulation_status = $3
+              AND circulation_status IN ($3, $4)
             "#,
         )
         .bind(loan.item_id)
         .bind(now)
         .bind(crate::models::circulation::CirculationStatus::CLAIMED_RETURNED)
+        .bind(crate::models::circulation::CirculationStatus::TO_SEARCH)
         .execute(&mut *tx)
         .await?;
 
