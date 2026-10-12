@@ -224,6 +224,7 @@ export default function BatchDeleteSpecimensDialog({
           (err as { response?: { data?: { message?: string } } })?.response?.data?.message ?? '';
         const borrowed =
           !forceDelete &&
+          code !== 'item_has_history_use_weeding' &&
           (code === 'business_rule_violation' ||
             code === 'conflict' ||
             (typeof rawMsg === 'string' && (rawMsg.includes('borrowed') || rawMsg.includes('force=true'))));

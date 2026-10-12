@@ -1,4 +1,11 @@
-import { readAcquisitionsRightsFromJwt, readHoldsRightsFromJwt } from '@/utils/jwtRights';
+import {
+  readAcquisitionsRightsFromJwt,
+  readHoldsRightsFromJwt,
+  readItemsArchiveRightsFromJwt,
+  readItemsRightsFromJwt,
+  readWeedingCancelRightsFromJwt,
+  readWeedingRightsFromJwt,
+} from '@/utils/jwtRights';
 
 // Library info types
 export interface LibraryInfo {
@@ -87,6 +94,14 @@ export interface AuthMeRights {
   borrowsRights?: string | null;
   /** Acquisitions (`n`/`r`/`w` or `none`/`read`/`write`) — distinct from cataloging. */
   acquisitionsRights?: string | null;
+  /** Weeding list/export (`r`/`w`) and withdraw (`w`). Missing means `n`. */
+  weedingRights?: string | null;
+  /** Cancel an active withdrawal (`w`). Missing means `n`. */
+  weedingCancelRights?: string | null;
+  /** Delete a physical copy (`w`). Missing means `n`. */
+  itemsArchiveRights?: string | null;
+  /** Bibliographic record write, including `DELETE /biblios/{id}`. */
+  itemsRights?: string | null;
 }
 
 // User types
@@ -108,6 +123,10 @@ export interface User {
   holdsRights?: string | null;
   /** Acquisitions permission when exposed on the profile (`n`/`r`/`w` or `none`/`read`/`write`). */
   acquisitionsRights?: string | null;
+  weedingRights?: string | null;
+  weedingCancelRights?: string | null;
+  itemsArchiveRights?: string | null;
+  itemsRights?: string | null;
   rights?: AuthMeRights | null;
   // Address fields
   addrStreet?: string;
@@ -450,11 +469,113 @@ export type ItemPublicAvailability = Exclude<ItemAvailability, 'toSearch'>;
  */
 export type BiblioWeedingStatus = ItemWeedingStatus;
 
-/** POST /items/{id}/weeding — do not send weeding fields on PUT /items. */
+/** POST /items/{id}/weeding — candidate / onShelf only. `withdrawn` is rejected. */
 export interface SetItemWeeding {
   status: ItemWeedingStatus;
   /** Optional short reason (max 200 characters). */
   reason?: string;
+}
+
+/** Closed weeding reason. JSON camelCase. */
+export type WithdrawalReason =
+  | 'worn'
+  | 'obsolete'
+  | 'newEdition'
+  | 'surplus'
+  | 'notBorrowed'
+  | 'outOfPolicy'
+  | 'lostNotReplaced'
+  | 'other';
+
+/** Where a weeded copy goes. Null only on legacy rows. */
+export type WithdrawalDestination = 'pulp' | 'donation' | 'sale' | 'deposit';
+
+/** Create a withdrawal or complete a legacy row. */
+export interface WithdrawalWrite {
+  reason: WithdrawalReason;
+  reasonDetail?: string | null;
+  destination: WithdrawalDestination;
+}
+
+export interface BatchWithdrawalRequest {
+  itemIds: string[];
+  reason: WithdrawalReason;
+  reasonDetail?: string | null;
+  destination: WithdrawalDestination;
+}
+
+/** One withdrawal event. `disposedAt` is null until the copy is marked disposed. */
+export interface ItemWithdrawal {
+  id: string;
+  itemId: string;
+  withdrawnAt: string;
+  reason: WithdrawalReason;
+  reasonDetail: string | null;
+  destination: WithdrawalDestination | null;
+  agentId: string | null;
+  agentName?: string | null;
+  cancelledAt: string | null;
+  cancelledBy: string | null;
+  legacy: boolean;
+  /** Set by the dispose batch. Migrated rows carry the withdrawal date. */
+  disposedAt?: string | null;
+  disposedBy?: string | null;
+  /** Display name when the server sends one (same role as `agentName`). */
+  disposedByName?: string | null;
+  barcode: string | null;
+  callNumber: string | null;
+  biblioId: string | null;
+  biblioTitle: string | null;
+  siteId: string | null;
+  siteName: string | null;
+}
+
+export interface BatchWithdrawalResponse {
+  withdrawals: ItemWithdrawal[];
+}
+
+export interface WithdrawalReasonTotal {
+  reason: WithdrawalReason;
+  count: number;
+}
+
+export interface WithdrawalDestinationTotal {
+  destination: WithdrawalDestination | null;
+  count: number;
+}
+
+export interface WithdrawalList {
+  items: ItemWithdrawal[];
+  total: number;
+  page: number;
+  perPage: number;
+  totalsByReason: WithdrawalReasonTotal[];
+  totalsByDestination: WithdrawalDestinationTotal[];
+}
+
+/** Query for `GET /item-withdrawals` and the CSV export. */
+export interface WithdrawalListParams {
+  from?: string;
+  to?: string;
+  siteId?: string;
+  reason?: WithdrawalReason;
+  /** `unset` selects a NULL destination. */
+  destination?: WithdrawalDestination | 'unset';
+  collectionId?: string;
+  callNumber?: string;
+  page?: number;
+  perPage?: number;
+  includeCancelled?: boolean;
+  /** Omitted means both disposed and not yet disposed. */
+  disposed?: boolean;
+  /** CSV only: `french` or `english`. */
+  lang?: 'french' | 'english';
+  /**
+   * Not in the published list contract. The item file needs the active row.
+   * Ignored by a server that does not know the parameter — do not rely on it
+   * for the item file (see `getActiveItemWithdrawal`).
+   */
+  itemId?: string;
 }
 
 /**
@@ -1468,6 +1589,10 @@ export interface AccountTypeDefinition {
   eventsRights: string | null;
   /** Present after the acquisitions domain lands (`n`/`r`/`w`). */
   acquisitionsRights?: string | null;
+  /** Weeding (`n`/`r`/`w`). */
+  weedingRights?: string | null;
+  /** Cancel a withdrawal (`n`/`r`/`w`). */
+  weedingCancelRights?: string | null;
 }
 
 export type AccountTypeRightLevel = 'n' | 'r' | 'w';
@@ -1486,6 +1611,8 @@ export interface UpdateAccountTypeRequest {
   settingsRights?: AccountTypeRightLevel | null;
   eventsRights?: AccountTypeRightLevel | null;
   acquisitionsRights?: AccountTypeRightLevel | null;
+  weedingRights?: AccountTypeRightLevel | null;
+  weedingCancelRights?: AccountTypeRightLevel | null;
 }
 
 // Account types for permissions
@@ -1594,6 +1721,50 @@ export const canManageAcquisitions = (
   authToken?: string | null,
 ): boolean => {
   return resolveAcquisitionsRights(user, authToken) === 'w';
+};
+
+type WeedingRightUser = Pick<
+  User,
+  'weedingRights' | 'weedingCancelRights' | 'itemsArchiveRights' | 'itemsRights' | 'rights'
+> | null | undefined;
+
+function resolveNamedRight(
+  user: WeedingRightUser,
+  authToken: string | null | undefined,
+  profileKey: 'weedingRights' | 'weedingCancelRights' | 'itemsArchiveRights' | 'itemsRights',
+  fromJwt: (token: string | null | undefined) => AccountTypeRightLevel | null,
+): AccountTypeRightLevel | null {
+  const jwt = authToken ? fromJwt(authToken) : null;
+  if (jwt) return jwt;
+  if (!user) return null;
+  const nested = user.rights && typeof user.rights === 'object' ? user.rights : null;
+  return normalizeAcquisitionsRightsLevel(nested?.[profileKey] ?? user[profileKey]);
+}
+
+/** Staff weeding list and CSV (`r` or `w`). A missing claim is deny. */
+export const canViewWeeding = (user: WeedingRightUser, authToken?: string | null): boolean => {
+  const level = resolveNamedRight(user, authToken, 'weedingRights', readWeedingRightsFromJwt);
+  return level === 'r' || level === 'w';
+};
+
+/** Withdraw, batch withdraw, legacy completion, and candidate / on-shelf weeding. */
+export const canManageWeeding = (user: WeedingRightUser, authToken?: string | null): boolean => {
+  return resolveNamedRight(user, authToken, 'weedingRights', readWeedingRightsFromJwt) === 'w';
+};
+
+/** Cancel an active, not-yet-disposed withdrawal. */
+export const canCancelWeeding = (user: WeedingRightUser, authToken?: string | null): boolean => {
+  return resolveNamedRight(user, authToken, 'weedingCancelRights', readWeedingCancelRightsFromJwt) === 'w';
+};
+
+/** `DELETE /items/{id}`. Separate from weeding. */
+export const canArchiveItems = (user: WeedingRightUser, authToken?: string | null): boolean => {
+  return resolveNamedRight(user, authToken, 'itemsArchiveRights', readItemsArchiveRightsFromJwt) === 'w';
+};
+
+/** `DELETE /biblios/{id}` still requires `itemsRights = w`. */
+export const canDeleteBiblios = (user: WeedingRightUser, authToken?: string | null): boolean => {
+  return resolveNamedRight(user, authToken, 'itemsRights', readItemsRightsFromJwt) === 'w';
 };
 
 /** PUT /settings/email-templates/:templateId/:language */

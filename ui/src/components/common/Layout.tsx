@@ -21,6 +21,7 @@ import {
   CalendarDays,
   LibraryBig,
   ClipboardList,
+  Leaf,
   Bookmark,
   BookmarkCheck,
   ListChecks,
@@ -33,7 +34,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import Button from './Button';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLibrary } from '@/contexts/LibraryContext';
-import { isLibrarian, isAdmin, canPatronSelfServiceHolds, canViewAcquisitions } from '@/types';
+import { isLibrarian, isAdmin, canPatronSelfServiceHolds, canViewAcquisitions, canViewWeeding } from '@/types';
 import { useAccountTypesQuery } from '@/hooks/useAccountTypesQuery';
 import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
 import api from '@/services/api';
@@ -63,6 +64,7 @@ export default function Layout({ children }: LayoutProps) {
   const { theme, setTheme } = useTheme();
   const staff = isLibrarian(user?.accountType);
   const showAcquisitions = canViewAcquisitions(user, api.getToken());
+  const showWeeding = canViewWeeding(user, api.getToken());
   const { libraryName } = useLibrary();
   const location = useLocation();
   const navigate = useNavigate();
@@ -113,6 +115,7 @@ export default function Layout({ children }: LayoutProps) {
       items: [
         { name: t('nav.catalog'), href: '/biblios', icon: BookOpen, show: staff },
         { name: t('nav.inventory'), href: '/inventory', icon: ClipboardList, show: staff },
+        { name: t('nav.weeding'), href: '/weeding', icon: Leaf, show: showWeeding },
         { name: t('nav.z3950Search'), href: '/z3950', icon: Globe, show: staff },
         { name: t('nav.importIso'), href: '/import-iso', icon: Upload, show: staff },
       ],

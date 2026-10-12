@@ -23,18 +23,20 @@ import {
 import { Card, CardHeader, Button, Badge, Modal, Input, BarcodeScanField } from '@/components/common';
 import CallNumberField from '@/components/specimen/CallNumberField';
 import { buildSuggestedCallNumber, validateCallNumber } from '@/utils/callNumber';
-import { formControlClass, formLabelClass } from '@/utils/formControl';
+import { formChoiceControlClass, formControlClass, formLabelClass } from '@/utils/formControl';
 import { useAuth } from '@/contexts/AuthContext';
-import { canManageItems, canManageLoans, canPatronSelfServiceHolds, isLibrarian, type MediaType } from '@/types';
+import { canArchiveItems, canDeleteBiblios, canManageItems, canManageLoans, canManageWeeding, canPatronSelfServiceHolds, isLibrarian, type MediaType } from '@/types';
 import SpecimenBorrowerLine from '@/components/specimen/SpecimenBorrowerLine';
 import PlaceHoldDialog from '@/components/holds/PlaceHoldDialog';
 import BatchDeleteSpecimensDialog from '@/components/specimen/BatchDeleteSpecimensDialog';
 import WeedingStatusControl from '@/components/items/WeedingStatusControl';
+import WithdrawalDialog from '@/components/items/WithdrawalDialog';
 import api from '@/services/api';
 import ItemAvailabilityBadge, { ItemHoldPatronLine } from '@/components/items/ItemAvailabilityBadge';
 import type { Author, AuthorPublic, BiblioStaffView, ItemPublicView, ItemStaffView, Source } from '@/types';
 import { isBiblioStaffView, isItemStaffView } from '@/utils/catalogView';
-import { isTitleWithdrawn } from '@/utils/weeding';
+import { isItemWithdrawn, isTitleWithdrawn } from '@/utils/weeding';
+import { isCatalogDeletionRefusal } from '@/utils/withdrawals';
 import { staffUnavailableDetailKey, type AvailabilityAudience } from '@/utils/itemAvailability';
 import { useTranslation } from 'react-i18next';
 import { LANG_OPTIONS, FUNCTION_OPTIONS, PUBLIC_TYPE_OPTIONS, getCodeLabel } from '@/utils/codeLabels';
@@ -151,6 +153,12 @@ export default function BiblioDetailPage() {
   const [reserveSpecimen, setReserveSpecimen] = useState<ItemStaffView | ItemPublicView | null>(null);
   const [holdDialogOpen, setHoldDialogOpen] = useState(false);
   const [showBatchDeleteSpecimens, setShowBatchDeleteSpecimens] = useState(false);
+  const [selectedCopyIds, setSelectedCopyIds] = useState<string[]>([]);
+  const [batchWithdrawOpen, setBatchWithdrawOpen] = useState(false);
+  const token = api.getToken();
+  const canWeed = canManageWeeding(user, token);
+  const canArchive = canArchiveItems(user, token);
+  const canDeleteBiblio = canDeleteBiblios(user, token);
 
   const invalidateBiblio = () => {
     if (id) void queryClient.invalidateQueries({ queryKey: ['biblio', id] });
@@ -200,7 +208,10 @@ export default function BiblioDetailPage() {
     } catch (error: unknown) {
       const code = getApiErrorCode(error);
       const msg = (error as { response?: { data?: { message?: string } } })?.response?.data?.message ?? '';
-      if (
+      if (isCatalogDeletionRefusal(code)) {
+        setDeleteItemBorrowedError(false);
+        setDeleteBiblioApiError(getApiErrorMessage(error, t));
+      } else if (
         !force &&
         (
           code === 'business_rule_violation' ||
@@ -242,8 +253,11 @@ export default function BiblioDetailPage() {
       setDeleteSpecimenBorrowedError(false);
       invalidateBiblio();
     } catch (error: unknown) {
-      if (!force) {
-        const code = getApiErrorCode(error);
+      const code = getApiErrorCode(error);
+      if (isCatalogDeletionRefusal(code)) {
+        setDeleteSpecimenBorrowedError(false);
+        setDeleteSpecimenApiError(getApiErrorMessage(error, t));
+      } else if (!force) {
         const msg = (error as { response?: { data?: { message?: string } } })?.response?.data?.message ?? '';
         if (
           code === 'business_rule_violation' ||
@@ -414,9 +428,11 @@ export default function BiblioDetailPage() {
                 >
                   {t('common.edit')}
                 </Button>
-                <Button variant="danger" onClick={() => setShowDeleteModal(true)} leftIcon={<Trash2 className="h-4 w-4" />}>
-                  {t('common.delete')}
-                </Button>
+                {canDeleteBiblio ? (
+                  <Button variant="danger" onClick={() => setShowDeleteModal(true)} leftIcon={<Trash2 className="h-4 w-4" />}>
+                    {t('common.delete')}
+                  </Button>
+                ) : null}
               </>
             )}
           </div>
@@ -528,7 +544,12 @@ export default function BiblioDetailPage() {
               action={
                 canManageItems(user?.accountType) && (
                   <div className="flex flex-wrap items-center gap-2">
-                    {(item.items?.length ?? 0) > 0 && (
+                    {canWeed && selectedCopyIds.length > 0 && (
+                      <Button size="sm" variant="danger" onClick={() => setBatchWithdrawOpen(true)}>
+                        {t('weeding.withdrawSelected', { count: selectedCopyIds.length })}
+                      </Button>
+                    )}
+                    {canArchive && (item.items?.length ?? 0) > 0 && (
                       <Button
                         size="sm"
                         variant="ghost"
@@ -557,6 +578,21 @@ export default function BiblioDetailPage() {
                     key={specimen.id}
                     specimen={specimen}
                     canManage={canManageItems(user?.accountType)}
+                    canDelete={canArchive}
+                    selectable={
+                      canWeed &&
+                      isItemStaffView(specimen) &&
+                      specimen.id != null &&
+                      !isItemWithdrawn(specimen)
+                    }
+                    selected={specimen.id != null && selectedCopyIds.includes(specimen.id)}
+                    onToggleSelect={() => {
+                      if (specimen.id == null) return;
+                      const id = specimen.id;
+                      setSelectedCopyIds((prev) =>
+                        prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id],
+                      );
+                    }}
                     showBorrower={canManageLoans(user?.accountType)}
                     audience={isLibrarian(user?.accountType) ? 'staff' : 'public'}
                     showReserveButton={canPlaceTitleHold && specimen.canHoldItem === true}
@@ -902,7 +938,18 @@ export default function BiblioDetailPage() {
         />
       )}
 
-      {item && item.id != null && (
+      <WithdrawalDialog
+        open={batchWithdrawOpen}
+        mode="create"
+        itemIds={selectedCopyIds}
+        onClose={() => setBatchWithdrawOpen(false)}
+        onSuccess={() => {
+          setSelectedCopyIds([]);
+          invalidateBiblio();
+        }}
+      />
+
+      {item && item.id != null && canArchive && (
         <BatchDeleteSpecimensDialog
           isOpen={showBatchDeleteSpecimens}
           onClose={() => setShowBatchDeleteSpecimens(false)}
@@ -942,6 +989,10 @@ function InfoRow({ icon: Icon, label, value }: InfoRowProps) {
 interface SpecimenCardProps {
   specimen: ItemStaffView | ItemPublicView;
   canManage: boolean;
+  canDelete: boolean;
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: () => void;
   audience: AvailabilityAudience;
   showBorrower?: boolean;
   showReserveButton?: boolean;
@@ -960,6 +1011,10 @@ function missingFieldLabel(t: (key: string) => string, field: CirculationField):
 function SpecimenCard({
   specimen,
   canManage,
+  canDelete,
+  selectable = false,
+  selected = false,
+  onToggleSelect,
   audience,
   showBorrower,
   showReserveButton,
@@ -979,9 +1034,20 @@ function SpecimenCard({
   return (
     <div className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
       <div className="flex items-center justify-between mb-2">
-        <p className="font-medium text-gray-900 dark:text-white">
-          {specimen.barcode || t('items.noBarcode')}
-        </p>
+        <div className="flex items-center gap-2 min-w-0">
+          {selectable ? (
+            <input
+              type="checkbox"
+              className={formChoiceControlClass()}
+              checked={selected}
+              onChange={() => onToggleSelect?.()}
+              aria-label={t('weeding.selectCopy', { barcode: specimen.barcode || specimen.id || '' })}
+            />
+          ) : null}
+          <p className="font-medium text-gray-900 dark:text-white truncate">
+            {specimen.barcode || t('items.noBarcode')}
+          </p>
+        </div>
         <div className="flex items-center gap-2">
           <ItemAvailabilityBadge availability={specimen.availability} audience={audience} />
           {canManage && (
@@ -995,15 +1061,17 @@ function SpecimenCard({
               >
                 <Edit className="h-4 w-4" />
               </button>
-              <button
-                type="button"
-                onClick={onDelete}
-                className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-red-600 dark:text-red-400"
-                title={t('common.delete')}
-                aria-label={t('common.delete')}
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
+              {canDelete ? (
+                <button
+                  type="button"
+                  onClick={onDelete}
+                  className="p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-red-600 dark:text-red-400"
+                  title={t('common.delete')}
+                  aria-label={t('common.delete')}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              ) : null}
             </div>
           )}
         </div>
@@ -1060,8 +1128,8 @@ function SpecimenCard({
         </div>
       )}
 
-      {canManage && staffCopy ? (
-        <WeedingStatusControl item={staffCopy} canManage={canManage} onUpdated={onUpdated} />
+      {audience === 'staff' && staffCopy ? (
+        <WeedingStatusControl item={staffCopy} onUpdated={onUpdated} />
       ) : null}
     </div>
   );

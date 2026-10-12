@@ -23,6 +23,7 @@ import {
   BiblioEditPage,
   BiblioCreatePage,
   InventoryPage,
+  WeedingPage,
   UsersPage,
   MyLoansPage,
   MyHoldsPage,
@@ -44,7 +45,7 @@ import {
   AcquisitionsOrderDetailPage,
   AcquisitionsSuggestionsPage,
 } from '@/pages';
-import { canViewAcquisitions, isLibrarian } from '@/types';
+import { canViewAcquisitions, canViewWeeding, isLibrarian } from '@/types';
 import api from '@/services/api';
 import { FirstSetupGate } from '@/components/first-setup/FirstSetupGate';
 
@@ -102,6 +103,16 @@ function LibrarianRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
 
   if (!isLibrarian(user?.accountType)) {
+    return <Navigate to="/home" replace />;
+  }
+
+  return <>{children}</>;
+}
+
+function WeedingRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+
+  if (!canViewWeeding(user, api.getToken())) {
     return <Navigate to="/home" replace />;
   }
 
@@ -230,6 +241,16 @@ function AppRoutes() {
             <LibrarianRoute>
               <InventoryPage />
             </LibrarianRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/weeding"
+        element={
+          <ProtectedRoute>
+            <WeedingRoute>
+              <WeedingPage />
+            </WeedingRoute>
           </ProtectedRoute>
         }
       />

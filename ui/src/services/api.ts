@@ -51,6 +51,12 @@ import type {
   CreateItem,
   UpdateItem,
   SetItemWeeding,
+  ItemWithdrawal,
+  WithdrawalWrite,
+  BatchWithdrawalRequest,
+  BatchWithdrawalResponse,
+  WithdrawalList,
+  WithdrawalListParams,
   EnqueueResult,
   MarcImportPreview,
   RecordValidationIssue,
@@ -680,10 +686,93 @@ class ApiService {
     return response.data;
   }
 
-  /** `POST /items/:id/weeding` — dedicated write; do not send weeding on PUT /items. */
+  /** `POST /items/:id/weeding` — candidate / onShelf. `withdrawn` is rejected. */
   async setItemWeeding(itemId: string, data: SetItemWeeding): Promise<Item> {
     const response = await this.client.post<Item>(`/items/${itemId}/weeding`, data);
     return response.data;
+  }
+
+  /** `POST /items/:id/withdrawals` — one copy. */
+  async withdrawItem(itemId: string, data: WithdrawalWrite): Promise<ItemWithdrawal> {
+    const response = await this.client.post<ItemWithdrawal>(`/items/${itemId}/withdrawals`, data);
+    return response.data;
+  }
+
+  /** `POST /items/withdrawals` — atomic batch, one reason and destination. */
+  async withdrawItems(data: BatchWithdrawalRequest): Promise<BatchWithdrawalResponse> {
+    const response = await this.client.post<BatchWithdrawalResponse>('/items/withdrawals', data);
+    return response.data;
+  }
+
+  /**
+   * Active withdrawal for the item file.
+   * `GET /items/:id/withdrawals` is not on the published list contract (and not on #143 yet).
+   * 404 means there is no active row. 405 means the route is still POST-only.
+   */
+  async getActiveItemWithdrawal(itemId: string): Promise<ItemWithdrawal | null> {
+    try {
+      const response = await this.client.get<ItemWithdrawal>(`/items/${itemId}/withdrawals`);
+      return response.data;
+    } catch (err) {
+      const axiosErr = err as AxiosError;
+      if (axiosErr.response?.status === 404) return null;
+      throw err;
+    }
+  }
+
+  async listItemWithdrawals(params: WithdrawalListParams): Promise<WithdrawalList> {
+    const response = await this.client.get<WithdrawalList>('/item-withdrawals', { params });
+    return response.data;
+  }
+
+  async cancelItemWithdrawal(id: string): Promise<ItemWithdrawal> {
+    const response = await this.client.post<ItemWithdrawal>(`/item-withdrawals/${id}/cancel`);
+    return response.data;
+  }
+
+  async completeLegacyWithdrawal(id: string, data: WithdrawalWrite): Promise<ItemWithdrawal> {
+    const response = await this.client.patch<ItemWithdrawal>(`/item-withdrawals/${id}`, data);
+    return response.data;
+  }
+
+  /**
+   * `POST /item-withdrawals/dispose` — contract v2, not on #143 yet.
+   * Body `{ withdrawalIds }`. The batch is atomic.
+   */
+  async disposeItemWithdrawals(withdrawalIds: string[]): Promise<BatchWithdrawalResponse> {
+    const response = await this.client.post<BatchWithdrawalResponse>('/item-withdrawals/dispose', {
+      withdrawalIds,
+    });
+    return response.data;
+  }
+
+  async exportItemWithdrawalsCsv(
+    params: WithdrawalListParams,
+  ): Promise<{ blob: Blob; filename: string }> {
+    try {
+      const response = await this.client.get('/item-withdrawals/export.csv', {
+        params,
+        responseType: 'blob',
+      });
+      const cd = response.headers['content-disposition'] as string | undefined;
+      const quoted = cd?.match(/filename="([^"]+)"/);
+      const plain = cd?.match(/filename=([^;\s]+)/);
+      const raw = quoted?.[1] ?? plain?.[1]?.replace(/^"|"$/g, '');
+      const filename = raw?.trim() || 'weeding.csv';
+      return { blob: response.data as Blob, filename };
+    } catch (err) {
+      const axiosErr = err as AxiosError<Blob | ApiError>;
+      const data = axiosErr.response?.data;
+      if (data instanceof Blob && axiosErr.response) {
+        const text = await data.text();
+        try {
+          axiosErr.response.data = JSON.parse(text) as ApiError;
+        } catch {
+          axiosErr.response.data = { message: text } as ApiError;
+        }
+      }
+      throw axiosErr;
+    }
   }
 
   async deleteItem(itemId: string, force = false): Promise<void> {

@@ -21,6 +21,8 @@ const RIGHT_FIELDS = [
   'settingsRights',
   'eventsRights',
   'acquisitionsRights',
+  'weedingRights',
+  'weedingCancelRights',
 ] as const;
 
 type RightField = (typeof RIGHT_FIELDS)[number];
@@ -164,7 +166,7 @@ export default function AccountTypesSettings() {
       ) : null}
 
       <div className="overflow-x-auto px-4 pb-4">
-        <table className="w-full min-w-[56rem] text-sm">
+        <table className="w-full min-w-[68rem] text-sm">
           <thead>
             <tr className="border-b border-gray-200 dark:border-gray-700">
               <th className="text-left py-2 pr-2 font-medium text-gray-600 dark:text-gray-400">
