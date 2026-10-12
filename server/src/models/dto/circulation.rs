@@ -113,7 +113,7 @@ pub enum LostFineDeskStatus {
 pub enum LostFoundDisposition {
     /// Back on the shelf and lendable. Holds and transits run as on a normal return.
     Circulate,
-    /// Accepted back, but not lendable.
+    /// Accepted back, but not lendable. The replacement charge stays as it is.
     Damaged,
     /// Copy stays lost. The replacement charge is left as it is.
     Leave,
@@ -123,11 +123,15 @@ pub enum LostFoundDisposition {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum LostFineAction {
+    /// No linked charge was settled. Used when the copy stays lost, or when
+    /// `circulate` finds no open replacement charge.
     None,
     Cancelled,
     Refunded,
     /// Collected part refunded; unpaid remainder cancelled.
     Partial,
+    /// `damaged`: the replacement charge was not cancelled, refunded, or waived.
+    Unchanged,
 }
 
 /// Lost-copy facts added to a return response. Present only when the copy is lost.
@@ -181,9 +185,9 @@ pub struct LostFoundResolution {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub fine_id: Option<i64>,
-    /// Cents refunded. Zero when nothing had been collected.
+    /// Cents refunded. Zero when nothing had been collected, and always zero for `damaged`.
     pub refunded_amount: i64,
-    /// Cents of the charge that were cancelled (the uncollected remainder).
+    /// Cents of the charge that were cancelled (the uncollected remainder). Always zero for `damaged`.
     pub cancelled_amount: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hold: Option<crate::models::hold::Hold>,
