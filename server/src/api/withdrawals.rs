@@ -10,8 +10,8 @@ use axum::{
 use crate::{
     error::AppResult,
     models::withdrawal::{
-        BatchWithdrawalRequest, BatchWithdrawalResponse, ItemWithdrawal, WithdrawalList,
-        WithdrawalQuery, WithdrawalWrite,
+        BatchDisposeRequest, BatchWithdrawalRequest, BatchWithdrawalResponse, ItemWithdrawal,
+        WithdrawalList, WithdrawalQuery, WithdrawalWrite,
     },
     services::audit,
 };
@@ -24,6 +24,7 @@ pub fn router() -> axum::Router<crate::AppState> {
         .route("/items/withdrawals", post(batch_withdraw))
         .route("/items/:id/withdrawals", post(withdraw_item))
         .route("/item-withdrawals/export.csv", get(export_withdrawals_csv))
+        .route("/item-withdrawals/dispose", post(dispose_withdrawals))
         .route("/item-withdrawals", get(list_withdrawals))
         .route("/item-withdrawals/:id/cancel", post(cancel_withdrawal))
         .route("/item-withdrawals/:id", patch(complete_legacy_withdrawal))
@@ -161,7 +162,7 @@ pub async fn batch_withdraw(
         (status = 200, description = "Withdrawal cancelled and the copy returned to onShelf", body = ItemWithdrawal),
         (status = 403, description = "Missing weeding cancel right", body = crate::error::ErrorResponse),
         (status = 404, description = "Withdrawal not found", body = crate::error::ErrorResponse),
-        (status = 409, description = "Withdrawal is already cancelled", body = crate::error::ErrorResponse)
+        (status = 409, description = "Withdrawal is already cancelled or already disposed", body = crate::error::ErrorResponse)
     )
 )]
 pub async fn cancel_withdrawal(
@@ -200,6 +201,78 @@ pub async fn cancel_withdrawal(
                 Some(id),
                 ip,
                 None::<()>,
+                audit::AuditLogMeta::from_app_error(&e),
+            );
+            Err(e)
+        }
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/item-withdrawals/dispose",
+    tag = "items",
+    security(("bearer_auth" = [])),
+    request_body = BatchDisposeRequest,
+    responses(
+        (status = 200, description = "Every withdrawal marked disposed, or none", body = BatchWithdrawalResponse),
+        (status = 400, description = "Empty batch, duplicate ids, or invalid disposedAt", body = crate::error::ErrorResponse),
+        (status = 403, description = "Missing weeding right", body = crate::error::ErrorResponse),
+        (status = 409, description = "Every rejected id is cancelled or already disposed", body = crate::models::withdrawal::WithdrawalDisposeRejectedBody),
+        (status = 422, description = "At least one id is unknown. Nothing was disposed", body = crate::models::withdrawal::WithdrawalDisposeRejectedBody)
+    )
+)]
+pub async fn dispose_withdrawals(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Json(body): Json<BatchDisposeRequest>,
+) -> AppResult<Json<BatchWithdrawalResponse>> {
+    claims.require_weeding()?;
+    match state
+        .services
+        .catalog
+        .dispose_withdrawals(
+            &body.withdrawal_ids,
+            claims.user_id,
+            body.disposed_at.as_deref(),
+        )
+        .await
+    {
+        Ok(response) => {
+            state.services.audit.log(
+                audit::event::ITEM_WITHDRAWALS_DISPOSED,
+                Some(claims.user_id),
+                Some("item_withdrawal"),
+                None,
+                ip.clone(),
+                Some(serde_json::json!({
+                    "withdrawalIds": body
+                        .withdrawal_ids
+                        .iter()
+                        .map(|id| id.to_string())
+                        .collect::<Vec<_>>(),
+                    "count": response.withdrawals.len(),
+                    "disposedAt": body.disposed_at,
+                })),
+                audit::AuditLogMeta::success(),
+            );
+            Ok(Json(response))
+        }
+        Err(e) => {
+            state.services.audit.log(
+                audit::event::ITEM_WITHDRAWALS_DISPOSED,
+                Some(claims.user_id),
+                Some("item_withdrawal"),
+                None,
+                ip,
+                Some(serde_json::json!({
+                    "withdrawalIds": body
+                        .withdrawal_ids
+                        .iter()
+                        .map(|id| id.to_string())
+                        .collect::<Vec<_>>(),
+                })),
                 audit::AuditLogMeta::from_app_error(&e),
             );
             Err(e)

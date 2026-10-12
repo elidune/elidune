@@ -13,9 +13,9 @@ SET weeding_rights = 'w',
 WHERE code IN ('librarian', 'admin');
 
 COMMENT ON COLUMN account_types.weeding_rights IS
-    'n/r/w: withdraw copies, complete legacy rows, list and export. Distinct from items_rights.';
+    'n/r/w: withdraw copies, record disposal, complete legacy rows, list and export. Distinct from items_rights.';
 COMMENT ON COLUMN account_types.weeding_cancel_rights IS
-    'n/r/w: cancel an active withdrawal. Write is required. Distinct from weeding_rights.';
+    'n/r/w: cancel an active withdrawal that is not yet disposed. Write is required. Distinct from weeding_rights.';
 COMMENT ON COLUMN account_types.items_archive_rights IS
     'n/r/w: delete a physical copy (DELETE /items/{id}). Distinct from weeding_rights.';
 
@@ -29,8 +29,15 @@ CREATE TABLE IF NOT EXISTS item_withdrawals (
     agent_id       BIGINT REFERENCES users (id) ON DELETE SET NULL,
     cancelled_at   TIMESTAMPTZ,
     cancelled_by   BIGINT REFERENCES users (id) ON DELETE SET NULL,
+    disposed_at    TIMESTAMPTZ,
+    disposed_by    BIGINT REFERENCES users (id) ON DELETE SET NULL,
     legacy         BOOLEAN NOT NULL DEFAULT FALSE
 );
+
+ALTER TABLE item_withdrawals
+    ADD COLUMN IF NOT EXISTS disposed_at TIMESTAMPTZ;
+ALTER TABLE item_withdrawals
+    ADD COLUMN IF NOT EXISTS disposed_by BIGINT REFERENCES users (id) ON DELETE SET NULL;
 
 ALTER TABLE item_withdrawals DROP CONSTRAINT IF EXISTS item_withdrawals_reason_chk;
 ALTER TABLE item_withdrawals
@@ -77,10 +84,16 @@ COMMENT ON COLUMN item_withdrawals.legacy IS
     'True when the row was backfilled from items.weeding_status/weeding_reason. Destination may be completed later.';
 COMMENT ON COLUMN item_withdrawals.destination IS
     'pulp, donation, sale, or deposit. NULL only on legacy rows that were not yet completed.';
+COMMENT ON COLUMN item_withdrawals.disposed_at IS
+    'When the copy physically left the library. NULL until staff record disposal. Legacy #56/#68 rows use withdrawn_at.';
+COMMENT ON COLUMN item_withdrawals.disposed_by IS
+    'Staff member who recorded disposal. NULL on the #56/#68 backfill and until disposal is recorded.';
 
 -- #56/#68 rows: reason other, free text as detail, destination NULL, legacy true.
+-- Those copies are already gone, so disposed_at is the withdrawal date and disposed_by stays NULL.
 INSERT INTO item_withdrawals (
-    id, item_id, withdrawn_at, reason, reason_detail, destination, agent_id, legacy
+    id, item_id, withdrawn_at, reason, reason_detail, destination, agent_id, legacy,
+    disposed_at, disposed_by
 )
 SELECT
     (SELECT COALESCE(MAX(id), 0) FROM item_withdrawals)
@@ -97,10 +110,16 @@ SELECT
     END,
     NULL,
     NULL,
-    TRUE
+    TRUE,
+    COALESCE(i.updated_at, i.created_at, NOW()),
+    NULL
 FROM items i
 WHERE i.weeding_status = 'withdrawn'
   AND NOT EXISTS (
       SELECT 1 FROM item_withdrawals w
       WHERE w.item_id = i.id AND w.cancelled_at IS NULL
   );
+
+UPDATE item_withdrawals
+SET disposed_at = withdrawn_at
+WHERE legacy AND disposed_at IS NULL;

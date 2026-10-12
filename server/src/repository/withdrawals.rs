@@ -7,8 +7,9 @@ use sqlx::{postgres::PgArguments, Arguments, FromRow, Postgres, Transaction};
 use crate::{
     error::{error_code, AppError, AppResult},
     models::withdrawal::{
-        DestinationTotal, ItemWithdrawal, ReasonTotal, WithdrawalDestination, WithdrawalList,
-        WithdrawalQuery, WithdrawalReason, WithdrawalWrite,
+        DestinationTotal, ItemWithdrawal, ReasonTotal, WithdrawalDestination,
+        WithdrawalDisposeFailure, WithdrawalList, WithdrawalQuery, WithdrawalReason,
+        WithdrawalWrite,
     },
 };
 
@@ -36,6 +37,9 @@ const SELECT_WITHDRAWAL: &str = r#"
         NULLIF(btrim(concat_ws(' ', ag.firstname, ag.lastname)), '') AS agent_name,
         w.cancelled_at,
         w.cancelled_by,
+        w.disposed_at,
+        w.disposed_by,
+        NULLIF(btrim(concat_ws(' ', dp.firstname, dp.lastname)), '') AS disposed_by_name,
         w.legacy,
         i.barcode,
         i.call_number,
@@ -48,7 +52,21 @@ const SELECT_WITHDRAWAL: &str = r#"
     LEFT JOIN biblios b ON b.id = i.biblio_id
     LEFT JOIN sources so ON so.id = i.source_id
     LEFT JOIN users ag ON ag.id = w.agent_id
+    LEFT JOIN users dp ON dp.id = w.disposed_by
 "#;
+
+#[derive(FromRow)]
+struct CancelLock {
+    cancelled_at: Option<DateTime<Utc>>,
+    disposed_at: Option<DateTime<Utc>>,
+    item_id: i64,
+}
+
+#[derive(FromRow)]
+struct DisposalLock {
+    cancelled_at: Option<DateTime<Utc>>,
+    disposed_at: Option<DateTime<Utc>>,
+}
 
 #[derive(FromRow)]
 struct WithdrawalRow {
@@ -62,6 +80,9 @@ struct WithdrawalRow {
     agent_name: Option<String>,
     cancelled_at: Option<DateTime<Utc>>,
     cancelled_by: Option<i64>,
+    disposed_at: Option<DateTime<Utc>>,
+    disposed_by: Option<i64>,
+    disposed_by_name: Option<String>,
     legacy: bool,
     barcode: Option<String>,
     call_number: Option<String>,
@@ -84,6 +105,9 @@ impl From<WithdrawalRow> for ItemWithdrawal {
             agent_name: row.agent_name,
             cancelled_at: row.cancelled_at,
             cancelled_by: row.cancelled_by,
+            disposed_at: row.disposed_at,
+            disposed_by: row.disposed_by,
+            disposed_by_name: row.disposed_by_name,
             legacy: row.legacy,
             barcode: row.barcode,
             call_number: row.call_number,
@@ -119,6 +143,13 @@ fn prepare_filter(query: &WithdrawalQuery, export: bool) -> AppResult<PreparedFi
 
     if !query.include_cancelled.unwrap_or(false) {
         parts.push("w.cancelled_at IS NULL".to_string());
+    }
+    if let Some(disposed) = query.disposed {
+        parts.push(if disposed {
+            "w.disposed_at IS NOT NULL".to_string()
+        } else {
+            "w.disposed_at IS NULL".to_string()
+        });
     }
     if let Some(from) = parse_bound(query.from.as_deref(), "from")? {
         params.push(Param::Time(from));
@@ -424,15 +455,27 @@ impl Repository {
         agent_id: i64,
     ) -> AppResult<ItemWithdrawal> {
         let mut tx = self.pool.begin().await?;
-        let state: Option<(Option<DateTime<Utc>>, i64)> = sqlx::query_as(
-            "SELECT cancelled_at, item_id FROM item_withdrawals WHERE id = $1 FOR UPDATE",
+        let state = sqlx::query_as::<_, CancelLock>(
+            "SELECT cancelled_at, disposed_at, item_id FROM item_withdrawals WHERE id = $1 FOR UPDATE",
         )
         .bind(id)
         .fetch_optional(&mut *tx)
         .await?;
-        let Some((cancelled_at, item_id)) = state else {
+        let Some(CancelLock {
+            cancelled_at,
+            disposed_at,
+            item_id,
+        }) = state
+        else {
             return Err(AppError::NotFound(format!("Withdrawal {id} not found")));
         };
+        if disposed_at.is_some() {
+            return Err(AppError::coded(
+                409,
+                error_code::WITHDRAWAL_ALREADY_DISPOSED,
+                format!("Withdrawal {id} is already disposed and cannot be cancelled"),
+            ));
+        }
         if cancelled_at.is_some() {
             return Err(AppError::coded(
                 409,
@@ -461,6 +504,85 @@ impl Repository {
         .await?;
         tx.commit().await?;
         self.load_withdrawal(id).await
+    }
+
+    /// Mark every id disposed, or none. Locks rows in id order.
+    pub async fn item_withdrawals_dispose(
+        &self,
+        ids: &[i64],
+        agent_id: i64,
+        disposed_at: DateTime<Utc>,
+    ) -> AppResult<Vec<ItemWithdrawal>> {
+        let mut tx = self.pool.begin().await?;
+        let mut lock_order = ids.to_vec();
+        lock_order.sort_unstable();
+        let mut locked: std::collections::HashMap<i64, DisposalLock> =
+            std::collections::HashMap::new();
+        for id in lock_order {
+            let row = sqlx::query_as::<_, DisposalLock>(
+                "SELECT cancelled_at, disposed_at FROM item_withdrawals WHERE id = $1 FOR UPDATE",
+            )
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if let Some(state) = row {
+                locked.insert(id, state);
+            }
+        }
+
+        let mut failures = Vec::new();
+        for id in ids {
+            let Some(row) = locked.get(id) else {
+                failures.push(WithdrawalDisposeFailure {
+                    id: *id,
+                    code: error_code::NOT_FOUND.to_string(),
+                    message: format!("Withdrawal {id} not found"),
+                });
+                continue;
+            };
+            if row.cancelled_at.is_some() {
+                failures.push(WithdrawalDisposeFailure {
+                    id: *id,
+                    code: error_code::WITHDRAWAL_NOT_ACTIVE.to_string(),
+                    message: format!("Withdrawal {id} is cancelled"),
+                });
+                continue;
+            }
+            if row.disposed_at.is_some() {
+                failures.push(WithdrawalDisposeFailure {
+                    id: *id,
+                    code: error_code::WITHDRAWAL_ALREADY_DISPOSED.to_string(),
+                    message: format!("Withdrawal {id} is already disposed"),
+                });
+            }
+        }
+        if !failures.is_empty() {
+            let status = if failures
+                .iter()
+                .any(|failure| failure.code == error_code::NOT_FOUND)
+            {
+                422
+            } else {
+                409
+            };
+            return Err(AppError::WithdrawalDisposeRejected {
+                status,
+                failures: Box::new(failures),
+            });
+        }
+
+        for id in ids {
+            sqlx::query(
+                "UPDATE item_withdrawals SET disposed_at = $2, disposed_by = $3 WHERE id = $1",
+            )
+            .bind(id)
+            .bind(disposed_at)
+            .bind(agent_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        self.load_withdrawals_ordered(ids).await
     }
 
     pub async fn item_withdrawals_complete(

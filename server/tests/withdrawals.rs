@@ -514,7 +514,8 @@ async fn legacy_backfill_exports_an_unspecified_destination_and_can_be_completed
     sqlx::query(
         r#"
         INSERT INTO item_withdrawals (
-            id, item_id, withdrawn_at, reason, reason_detail, destination, agent_id, legacy
+            id, item_id, withdrawn_at, reason, reason_detail, destination, agent_id, legacy,
+            disposed_at, disposed_by
         )
         SELECT
             (SELECT COALESCE(MAX(id), 0) FROM item_withdrawals)
@@ -531,7 +532,9 @@ async fn legacy_backfill_exports_an_unspecified_destination_and_can_be_completed
             END,
             NULL,
             NULL,
-            TRUE
+            TRUE,
+            COALESCE(i.updated_at, i.created_at, NOW()),
+            NULL
         FROM items i
         WHERE i.weeding_status = 'withdrawn'
           AND NOT EXISTS (
@@ -561,6 +564,9 @@ async fn legacy_backfill_exports_an_unspecified_destination_and_can_be_completed
     assert!(row["destination"].is_null());
     assert_eq!(row["legacy"], true);
     assert_eq!(row["callNumber"], shelf);
+    assert_eq!(row["disposedAt"], row["withdrawnAt"]);
+    assert!(row["disposedBy"].is_null());
+    assert!(row["disposedByName"].is_null());
 
     let (status, missing) = app
         .get_json_with_auth("/api/v1/item-withdrawals/export.csv", &admin_token)
@@ -586,6 +592,7 @@ async fn legacy_backfill_exports_an_unspecified_destination_and_can_be_completed
         "content type"
     );
     assert!(french.contains("non renseignée (reprise)"), "{french}");
+    assert!(french.contains("date_sortie"), "{french}");
     assert!(french.starts_with('\u{feff}'));
 
     let (status, english, _) = get_text(
@@ -599,6 +606,7 @@ async fn legacy_backfill_exports_an_unspecified_destination_and_can_be_completed
         english.contains("not specified (legacy import)"),
         "{english}"
     );
+    assert!(english.contains("disposed_at"), "{english}");
 
     let withdrawal_id = fixtures::json_id(&row["id"]);
     let (status, completed) = patch_json(
@@ -984,4 +992,248 @@ async fn opac_hides_withdrawn_copies_and_never_exposes_the_reason() {
         .find(|row| fixtures::json_id(&row["id"]) == biblio_id)
         .expect("mixed title stays searchable");
     assert_eq!(hit["items"].as_array().expect("copies").len(), 1);
+}
+
+fn dispose_failure(body: &Value, id: i64) -> &Value {
+    body["failures"]
+        .as_array()
+        .expect("failures")
+        .iter()
+        .find(|row| fixtures::json_id(&row["id"]) == id)
+        .unwrap_or_else(|| panic!("no failure for {id}: {body}"))
+}
+
+#[tokio::test]
+async fn dispose_batch_is_atomic_and_blocks_cancel() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    unlock_admin(&app, &admin_token).await;
+    let (status, me) = app
+        .get_json_with_auth("/api/v1/auth/me", &admin_token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "me: {me}");
+    let admin_id = fixtures::json_id(&me["id"]);
+    let (_, reader_token) = fixtures::create_reader(&app, &admin_token, "wvdisp").await;
+    let suffix = fixtures::unique_suffix();
+    let title = format!("Dispose batch {suffix}");
+    let (biblio_id, item_ids) = create_title(&app, &admin_token, &title, 4).await;
+    let shelf = format!("DSP-{suffix}");
+    for item_id in &item_ids {
+        sqlx::query("UPDATE items SET call_number = $2 WHERE id = $1")
+            .bind(item_id)
+            .bind(&shelf)
+            .execute(app.state.services.repository.pool())
+            .await
+            .expect("shelf");
+    }
+    let fresh = item_ids[1];
+    let to_cancel = item_ids[2];
+    let to_dispose = item_ids[3];
+
+    let (status, fresh_row) = withdraw(&app, &admin_token, fresh, "worn", "pulp").await;
+    assert_eq!(status, StatusCode::CREATED, "fresh: {fresh_row}");
+    assert!(fresh_row["disposedAt"].is_null());
+    assert!(fresh_row["disposedBy"].is_null());
+    let fresh_id = fixtures::json_id(&fresh_row["id"]);
+    let (status, cancel_row) = withdraw(&app, &admin_token, to_cancel, "surplus", "donation").await;
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "cancel candidate: {cancel_row}"
+    );
+    let cancel_id = fixtures::json_id(&cancel_row["id"]);
+    let (status, disposed_row) = withdraw(&app, &admin_token, to_dispose, "obsolete", "sale").await;
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "dispose candidate: {disposed_row}"
+    );
+    let disposed_id = fixtures::json_id(&disposed_row["id"]);
+
+    let (status, forbidden) = app
+        .post_json(
+            "/api/v1/item-withdrawals/dispose",
+            &json!({ "withdrawalIds": [fresh_id.to_string()] }),
+            Some(&reader_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "reader dispose: {forbidden}");
+    assert_eq!(forbidden["code"], "authorization_failed");
+
+    let (status, empty) = app
+        .post_json(
+            "/api/v1/item-withdrawals/dispose",
+            &json!({ "withdrawalIds": [] }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "empty dispose: {empty}");
+    assert_eq!(empty["code"], "validation_error");
+
+    let (status, duplicate) = app
+        .post_json(
+            "/api/v1/item-withdrawals/dispose",
+            &json!({ "withdrawalIds": [fresh_id.to_string(), fresh_id.to_string()] }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "duplicate dispose: {duplicate}"
+    );
+    assert_eq!(duplicate["code"], "validation_error");
+
+    let (status, cancelled) = app
+        .post_empty(
+            &format!("/api/v1/item-withdrawals/{cancel_id}/cancel"),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "cancel: {cancelled}");
+
+    let (status, marked) = app
+        .post_json(
+            "/api/v1/item-withdrawals/dispose",
+            &json!({ "withdrawalIds": [disposed_id.to_string()] }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "dispose one: {marked}");
+    assert!(marked["withdrawals"][0]["disposedAt"].is_string());
+    assert_eq!(
+        fixtures::json_id(&marked["withdrawals"][0]["disposedBy"]),
+        admin_id
+    );
+    assert!(marked["withdrawals"][0]["disposedByName"].is_string());
+
+    let (status, mixed) = app
+        .post_json(
+            "/api/v1/item-withdrawals/dispose",
+            &json!({
+                "withdrawalIds": [
+                    fresh_id.to_string(),
+                    cancel_id.to_string(),
+                    disposed_id.to_string(),
+                    "-1"
+                ]
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "mixed: {mixed}");
+    assert_eq!(mixed["code"], "withdrawal_dispose_rejected");
+    assert_eq!(dispose_failure(&mixed, -1)["code"], "not_found");
+    assert_eq!(
+        dispose_failure(&mixed, cancel_id)["code"],
+        "withdrawal_not_active"
+    );
+    assert_eq!(
+        dispose_failure(&mixed, disposed_id)["code"],
+        "withdrawal_already_disposed"
+    );
+    assert_eq!(mixed["failures"].as_array().expect("failures").len(), 3);
+
+    let still_open: Option<chrono::DateTime<chrono::Utc>> =
+        sqlx::query_scalar("SELECT disposed_at FROM item_withdrawals WHERE id = $1")
+            .bind(fresh_id)
+            .fetch_one(app.state.services.repository.pool())
+            .await
+            .expect("fresh disposed_at");
+    assert!(
+        still_open.is_none(),
+        "a rejected batch must not dispose the valid id"
+    );
+
+    let (status, conflicts) = app
+        .post_json(
+            "/api/v1/item-withdrawals/dispose",
+            &json!({
+                "withdrawalIds": [cancel_id.to_string(), disposed_id.to_string()]
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT, "conflicts: {conflicts}");
+    assert_eq!(conflicts["code"], "withdrawal_dispose_rejected");
+    assert_eq!(conflicts["failures"].as_array().expect("failures").len(), 2);
+
+    let (status, dated) = app
+        .post_json(
+            "/api/v1/item-withdrawals/dispose",
+            &json!({
+                "withdrawalIds": [fresh_id.to_string()],
+                "disposedAt": "2020-01-02T03:04:05Z"
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "dated dispose: {dated}");
+    let disposed_at = dated["withdrawals"][0]["disposedAt"]
+        .as_str()
+        .expect("date");
+    assert!(
+        disposed_at.starts_with("2020-01-02T03:04:05"),
+        "{disposed_at}"
+    );
+
+    let (status, blocked) = app
+        .post_empty(
+            &format!("/api/v1/item-withdrawals/{fresh_id}/cancel"),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT, "cancel disposed: {blocked}");
+    assert_eq!(blocked["code"], "withdrawal_already_disposed");
+    let weeding: String = sqlx::query_scalar("SELECT weeding_status FROM items WHERE id = $1")
+        .bind(fresh)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .expect("status");
+    assert_eq!(weeding, "withdrawn");
+
+    let list_query = format!(
+        "from={}&to={}&callNumber={}&disposed=",
+        enc("2019-01-01T00:00:00Z"),
+        enc("2035-01-01T00:00:00Z"),
+        enc(&shelf)
+    );
+    let (status, yes) = app
+        .get_json_with_auth(
+            &format!("/api/v1/item-withdrawals?{list_query}true"),
+            &admin_token,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "disposed filter: {yes}");
+    assert_eq!(yes["total"], 2, "{yes}");
+    let (status, no) = app
+        .get_json_with_auth(
+            &format!("/api/v1/item-withdrawals?{list_query}false"),
+            &admin_token,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "not disposed: {no}");
+    assert_eq!(no["total"], 0, "{no}");
+
+    let (status, csv, _) = get_text(
+        &app,
+        &format!("/api/v1/item-withdrawals/export.csv?{list_query}true&lang=english"),
+        &admin_token,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "csv: {csv}");
+    assert!(csv.contains("disposed_at"), "{csv}");
+    assert!(csv.contains("disposed_by"), "{csv}");
+    assert!(csv.contains("2020-01-02T03:04:05"), "{csv}");
+
+    let (status, opac) = app
+        .get_json(&format!("/api/v1/opac/biblios/{biblio_id}"))
+        .await;
+    assert_eq!(status, StatusCode::OK, "opac keeps the shelf copy: {opac}");
+    let public = opac.to_string();
+    assert!(!public.contains("disposedAt"), "{opac}");
+    assert!(!public.contains("disposedBy"), "{opac}");
+    assert!(!public.contains("2020-01-02T03:04:05"), "{opac}");
 }

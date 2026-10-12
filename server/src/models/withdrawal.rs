@@ -299,6 +299,8 @@ pub struct WithdrawalQuery {
     pub page: Option<i64>,
     pub per_page: Option<i64>,
     pub include_cancelled: Option<bool>,
+    /// `true` keeps rows with `disposedAt` set. `false` keeps rows not yet disposed.
+    pub disposed: Option<bool>,
     /// `french` or `english`. Export only; overrides the caller's profile language.
     pub lang: Option<String>,
 }
@@ -336,6 +338,40 @@ impl BatchWithdrawalRequest {
     }
 }
 
+/// Mark existing withdrawals as physically disposed. `disposedAt` defaults to now.
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct BatchDisposeRequest {
+    #[serde_as(as = "Vec<DisplayFromStr>")]
+    #[schema(value_type = Vec<String>)]
+    pub withdrawal_ids: Vec<i64>,
+    /// RFC3339. Omit to use the server clock.
+    pub disposed_at: Option<String>,
+}
+
+/// One id the batch disposal refused. The batch writes nothing when any id fails.
+#[serde_as]
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WithdrawalDisposeFailure {
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub id: i64,
+    pub code: String,
+    pub message: String,
+}
+
+/// Body of a rejected disposal batch. `code` is `withdrawal_dispose_rejected`.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct WithdrawalDisposeRejectedBody {
+    pub code: String,
+    pub error: String,
+    pub message: String,
+    pub failures: Vec<WithdrawalDisposeFailure>,
+}
+
 /// One withdrawal event, with the copy fields the staff list needs.
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -359,6 +395,11 @@ pub struct ItemWithdrawal {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub cancelled_by: Option<i64>,
+    pub disposed_at: Option<DateTime<Utc>>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub disposed_by: Option<i64>,
+    pub disposed_by_name: Option<String>,
     pub legacy: bool,
     pub barcode: Option<String>,
     pub call_number: Option<String>,
@@ -408,9 +449,9 @@ pub struct BatchWithdrawalResponse {
 pub fn withdrawals_csv(rows: &[ItemWithdrawal], language: Language) -> String {
     let french = matches!(language, Language::French);
     let headers = if french {
-        "identifiant,exemplaire,code_barres,cote,titre,site,date,motif,precision,destination,agent,reprise"
+        "identifiant,exemplaire,code_barres,cote,titre,site,date,motif,precision,destination,agent,reprise,date_sortie,agent_sortie"
     } else {
-        "id,item_id,barcode,call_number,title,site,withdrawn_at,reason,detail,destination,agent,legacy"
+        "id,item_id,barcode,call_number,title,site,withdrawn_at,reason,detail,destination,agent,legacy,disposed_at,disposed_by"
     };
     let mut csv = String::from('\u{feff}');
     csv.push_str(headers);
@@ -445,6 +486,10 @@ pub fn withdrawals_csv(rows: &[ItemWithdrawal], language: Language) -> String {
             destination,
             row.agent_name.clone().unwrap_or_default(),
             legacy.to_string(),
+            row.disposed_at
+                .map(|at| at.to_rfc3339())
+                .unwrap_or_default(),
+            row.disposed_by_name.clone().unwrap_or_default(),
         ];
         csv.push_str(&fields.map(|f| escape_csv(&f)).join(","));
         csv.push('\n');
@@ -490,6 +535,9 @@ mod tests {
             agent_name: None,
             cancelled_at: None,
             cancelled_by: None,
+            disposed_at: None,
+            disposed_by: None,
+            disposed_by_name: None,
             legacy,
             barcode: Some("BC".into()),
             call_number: None,
@@ -521,6 +569,7 @@ mod tests {
         let csv = withdrawals_csv(&[sample(None, true)], Language::French);
         assert!(csv.contains("non renseignée (reprise)"));
         assert!(csv.contains("Autre"));
+        assert!(csv.contains("date_sortie"));
     }
 
     #[test]

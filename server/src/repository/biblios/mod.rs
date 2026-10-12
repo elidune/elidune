@@ -162,6 +162,12 @@ pub trait BibliosRepository: Send + Sync {
         input: &WithdrawalWrite,
     ) -> AppResult<Vec<ItemWithdrawal>>;
     async fn item_withdrawals_cancel(&self, id: i64, agent_id: i64) -> AppResult<ItemWithdrawal>;
+    async fn item_withdrawals_dispose(
+        &self,
+        ids: &[i64],
+        agent_id: i64,
+        disposed_at: chrono::DateTime<chrono::Utc>,
+    ) -> AppResult<Vec<ItemWithdrawal>>;
     async fn item_withdrawals_complete(
         &self,
         id: i64,
@@ -408,6 +414,14 @@ impl BibliosRepository for Repository {
     }
     async fn item_withdrawals_cancel(&self, id: i64, agent_id: i64) -> AppResult<ItemWithdrawal> {
         Repository::item_withdrawals_cancel(self, id, agent_id).await
+    }
+    async fn item_withdrawals_dispose(
+        &self,
+        ids: &[i64],
+        agent_id: i64,
+        disposed_at: chrono::DateTime<chrono::Utc>,
+    ) -> AppResult<Vec<ItemWithdrawal>> {
+        Repository::item_withdrawals_dispose(self, ids, agent_id, disposed_at).await
     }
     async fn item_withdrawals_complete(
         &self,

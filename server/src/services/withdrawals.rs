@@ -1,6 +1,8 @@
-//! Weeding withdrawals: one event per copy, batch, cancel, legacy completion, list, CSV.
+//! Weeding withdrawals: one event per copy, batch, cancel, disposal, legacy completion, list, CSV.
 
 use std::collections::HashSet;
+
+use chrono::{DateTime, Utc};
 
 use crate::{
     error::{error_code, AppError, AppResult},
@@ -83,6 +85,43 @@ impl CatalogService {
             self.sync_index(biblio_id).await;
         }
         Ok(withdrawal)
+    }
+
+    pub async fn dispose_withdrawals(
+        &self,
+        ids: &[i64],
+        agent_id: i64,
+        disposed_at: Option<&str>,
+    ) -> AppResult<BatchWithdrawalResponse> {
+        if ids.is_empty() {
+            return Err(AppError::Validation(
+                "withdrawalIds must contain at least one withdrawal".into(),
+            ));
+        }
+        if ids.len() > BATCH_LIMIT {
+            return Err(AppError::Validation(format!(
+                "A batch disposes at most {BATCH_LIMIT} withdrawals"
+            )));
+        }
+        let mut seen = HashSet::new();
+        if ids.iter().any(|id| !seen.insert(*id)) {
+            return Err(AppError::Validation(
+                "withdrawalIds contains a duplicate withdrawal".into(),
+            ));
+        }
+        let when = match disposed_at.map(str::trim).filter(|value| !value.is_empty()) {
+            None => Utc::now(),
+            Some(raw) => DateTime::parse_from_rfc3339(raw)
+                .map(|value| value.with_timezone(&Utc))
+                .map_err(|_| {
+                    AppError::Validation("disposedAt must be an RFC3339 timestamp".into())
+                })?,
+        };
+        let withdrawals = self
+            .repository
+            .item_withdrawals_dispose(ids, agent_id, when)
+            .await?;
+        Ok(BatchWithdrawalResponse { withdrawals })
     }
 
     pub async fn complete_legacy_withdrawal(

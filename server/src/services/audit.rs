@@ -104,6 +104,7 @@ pub mod event {
     pub const ITEM_WITHDRAWN: &str = "item.withdrawn";
     pub const ITEM_WITHDRAWALS_BATCH: &str = "item.withdrawals_batch";
     pub const ITEM_WITHDRAWAL_CANCELLED: &str = "item.withdrawal_cancelled";
+    pub const ITEM_WITHDRAWALS_DISPOSED: &str = "item.withdrawals_disposed";
     pub const ITEM_WITHDRAWAL_COMPLETED: &str = "item.withdrawal_completed";
     pub const ITEM_MARKED_TO_SEARCH: &str = "item.marked_to_search";
     pub const ITEM_FOUND_ON_SHELF: &str = "item.found_on_shelf";
