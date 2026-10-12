@@ -430,6 +430,8 @@
     "loadError": "Die Abholliste konnte nicht geladen werden."
   },
   "holds": {
+    "noticeWaiting_one": "Wartende Vormerkung: {{count}}",
+    "noticeWaiting_other": "Wartende Vormerkungen: {{count}}",
     "position": "Position",
     "createdAt": "Erstellt am",
     "expiresAt": "Läuft ab am",

@@ -27,6 +27,7 @@ import { formChoiceControlClass, formControlClass, formLabelClass } from '@/util
 import { useAuth } from '@/contexts/AuthContext';
 import { canArchiveItems, canDeleteBiblios, canManageItems, canManageWeeding, canPatronSelfServiceHolds, canReadUsers, isLibrarian, type MediaType } from '@/types';
 import CopyLoanStatus from '@/components/items/CopyLoanStatus';
+import NoticeHoldsWaiting from '@/components/holds/NoticeHoldsWaiting';
 import PlaceHoldDialog from '@/components/holds/PlaceHoldDialog';
 import BatchDeleteSpecimensDialog from '@/components/specimen/BatchDeleteSpecimensDialog';
 import WeedingStatusControl from '@/components/items/WeedingStatusControl';
@@ -398,6 +399,7 @@ export default function BiblioDetailPage() {
                 <Badge variant="danger">{t('weeding.status.withdrawn')}</Badge>
               )}
             </div>
+            <NoticeHoldsWaiting holdsCount={item.holdsCount} />
           </div>
         </div>
 
@@ -571,11 +573,6 @@ export default function BiblioDetailPage() {
                 )
               }
             />
-            {item.holdsCount > 0 ? (
-              <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">
-                {t('items.holdsWaiting', { count: item.holdsCount })}
-              </p>
-            ) : null}
             {item.items && item.items.length > 0 ? (
               <div className="space-y-3">
                 {item.items.map((specimen) => (

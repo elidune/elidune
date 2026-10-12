@@ -430,6 +430,8 @@
     "loadError": "Could not load the pick list."
   },
   "holds": {
+    "noticeWaiting_one": "Hold waiting: {{count}}",
+    "noticeWaiting_other": "Holds waiting: {{count}}",
     "position": "Position",
     "createdAt": "Created",
     "expiresAt": "Expires",

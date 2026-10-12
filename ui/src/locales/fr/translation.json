@@ -430,6 +430,8 @@
     "loadError": "Impossible de charger la liste de prélèvement."
   },
   "holds": {
+    "noticeWaiting_one": "Réservation en attente : {{count}}",
+    "noticeWaiting_other": "Réservations en attente : {{count}}",
     "position": "Position",
     "createdAt": "Créée le",
     "expiresAt": "Expire le",
