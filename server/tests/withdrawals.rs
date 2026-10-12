@@ -592,8 +592,11 @@ async fn legacy_backfill_exports_an_unspecified_destination_and_can_be_completed
         "content type"
     );
     assert!(french.contains("non renseignée (reprise)"), "{french}");
-    assert!(french.contains("Date de retrait"), "{french}");
-    assert!(french.contains("Éliminé le"), "{french}");
+    assert!(
+        french.contains("Identifiant;Exemplaire;Code-barres;Cote;Titre;Site;Date de retrait;Motif;Précision;Destination;Retiré par;Reprise;Éliminé le;Éliminé par"),
+        "{french}"
+    );
+    assert!(!french.contains('_'), "{french}");
     assert!(french.starts_with('\u{feff}'));
 
     let (status, english, _) = get_text(
@@ -607,8 +610,12 @@ async fn legacy_backfill_exports_an_unspecified_destination_and_can_be_completed
         english.contains("not specified (legacy import)"),
         "{english}"
     );
-    assert!(english.contains("Withdrawn on"), "{english}");
-    assert!(english.contains("Disposed on"), "{english}");
+    assert!(
+        english.contains("Identifiant;Exemplaire;Code-barres;Cote;Titre;Site;Date de retrait;Motif;Précision;Destination;Retiré par;Reprise;Éliminé le;Éliminé par"),
+        "{english}"
+    );
+    assert!(!english.contains("Withdrawn on"), "{english}");
+    assert!(!english.contains('_'), "{english}");
 
     let withdrawal_id = fixtures::json_id(&row["id"]);
     let (status, completed) = patch_json(
@@ -1228,7 +1235,7 @@ async fn dispose_batch_is_atomic_and_blocks_cancel() {
     assert_eq!(status, StatusCode::OK, "csv: {csv}");
     assert!(csv.starts_with('\u{feff}'), "{csv}");
     assert!(
-        csv.contains("id;item_id;barcode;call_number;title;site;Withdrawn on;reason;detail;destination;agent;legacy;Disposed on;disposed_by"),
+        csv.contains("Identifiant;Exemplaire;Code-barres;Cote;Titre;Site;Date de retrait;Motif;Précision;Destination;Retiré par;Reprise;Éliminé le;Éliminé par"),
         "{csv}"
     );
     assert!(csv.contains("02/01/2020"), "{csv}");
@@ -1304,7 +1311,7 @@ async fn csv_neutralizes_formulas_and_uses_french_excel_layout() {
         .expect("header");
     assert_eq!(
         header,
-        "identifiant;exemplaire;code_barres;cote;titre;site;Date de retrait;motif;precision;destination;agent;reprise;Éliminé le;agent_sortie"
+        "Identifiant;Exemplaire;Code-barres;Cote;Titre;Site;Date de retrait;Motif;Précision;Destination;Retiré par;Reprise;Éliminé le;Éliminé par"
     );
     assert!(
         csv.contains("\"'=HYPERLINK(\"\"http://evil\"\")\""),

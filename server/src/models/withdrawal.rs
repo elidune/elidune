@@ -447,21 +447,20 @@ pub struct BatchWithdrawalResponse {
 /// Field separator for the single French-Excel disposal file. There is no query parameter.
 const CSV_SEPARATOR: char = ';';
 
+/// Plain French headers, in column order. The same list is used for every language.
+const CSV_HEADERS: &str = "Identifiant;Exemplaire;Code-barres;Cote;Titre;Site;Date de retrait;Motif;Précision;Destination;Retiré par;Reprise;Éliminé le;Éliminé par";
+
 /// UTF-8 CSV for the municipal disposal record.
 ///
-/// One file: a leading BOM, `;` separators, and dates as `DD/MM/YYYY` in `zone`.
-/// A NULL legacy destination is a localized phrase. Cells that Excel would treat
-/// as formulas are prefixed with `'` before quoting.
+/// One file: a leading BOM, `;` separators, plain French headers, and dates as
+/// `DD/MM/YYYY` in `zone`. `language` localizes cell labels only. A NULL legacy
+/// destination is a localized phrase. Cells that Excel would treat as formulas
+/// are prefixed with `'` before quoting.
 #[must_use]
 pub fn withdrawals_csv(rows: &[ItemWithdrawal], language: Language, zone: chrono_tz::Tz) -> String {
     let french = matches!(language, Language::French);
-    let headers = if french {
-        "identifiant;exemplaire;code_barres;cote;titre;site;Date de retrait;motif;precision;destination;agent;reprise;Éliminé le;agent_sortie"
-    } else {
-        "id;item_id;barcode;call_number;title;site;Withdrawn on;reason;detail;destination;agent;legacy;Disposed on;disposed_by"
-    };
     let mut csv = String::from('\u{feff}');
-    csv.push_str(headers);
+    csv.push_str(CSV_HEADERS);
     csv.push('\n');
     for row in rows {
         let destination = match row.destination {
@@ -592,9 +591,9 @@ mod tests {
         assert!(csv.starts_with('\u{feff}'));
         assert!(csv.contains("non renseignée (reprise)"));
         assert!(csv.contains("Autre"));
-        assert!(csv.contains(
-            "identifiant;exemplaire;code_barres;cote;titre;site;Date de retrait;motif;precision;destination;agent;reprise;Éliminé le;agent_sortie"
-        ));
+        assert!(csv.contains(super::CSV_HEADERS));
+        assert!(!csv.contains('_'));
+        assert!(!csv.contains("Withdrawn on"));
         assert!(csv.contains("12/10/2026"));
         assert!(!csv.contains("2026-10-12T"));
     }
@@ -608,9 +607,10 @@ mod tests {
         let csv = withdrawals_csv(&[sample(None, true)], Language::English, paris());
         assert!(csv.starts_with('\u{feff}'));
         assert!(csv.contains("not specified (legacy import)"));
-        assert!(csv.contains(
-            "id;item_id;barcode;call_number;title;site;Withdrawn on;reason;detail;destination;agent;legacy;Disposed on;disposed_by"
-        ));
+        assert!(csv.contains(super::CSV_HEADERS));
+        assert!(!csv.contains('_'));
+        assert!(!csv.contains("Withdrawn on"));
+        assert!(!csv.contains("disposed_by"));
         assert!(csv.contains("12/10/2026"));
         assert!(!csv.contains("non renseignée (reprise)"));
         assert!(!csv.contains("2026-10-12T"));
