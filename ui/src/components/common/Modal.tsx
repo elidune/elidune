@@ -12,6 +12,10 @@ interface ModalProps {
   size?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
   /** Renders above other modals (e.g. nested error dialog). */
   stackOnTop?: boolean;
+  /** Alert dialogs announce a decision the desk must acknowledge. */
+  role?: 'dialog' | 'alertdialog';
+  /** Element id of the message body, exposed as `aria-describedby`. */
+  descriptionId?: string;
 }
 
 export default function Modal({
@@ -22,6 +26,8 @@ export default function Modal({
   footer,
   size = 'md',
   stackOnTop = false,
+  role = 'dialog',
+  descriptionId,
 }: ModalProps) {
   const { t } = useTranslation();
   const titleId = useId();
@@ -56,9 +62,10 @@ export default function Modal({
   return (
     <div
       ref={dialogRef}
-      role="dialog"
+      role={role}
       aria-modal="true"
       aria-labelledby={titleId}
+      aria-describedby={descriptionId}
       className={`fixed inset-0 flex items-stretch sm:items-center justify-center p-0 sm:p-4 ${stackOnTop ? 'z-[100]' : 'z-50'}`}
     >
       {/* Backdrop */}

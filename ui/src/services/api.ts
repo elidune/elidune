@@ -15,7 +15,6 @@ import type {
   LoanListItem,
   HoldListItem,
   ImportResult,
-  Loan,
   MyLoan,
   MyHold,
   Stats,
@@ -101,6 +100,8 @@ import type {
   HoldQuota,
   HoldPickListRow,
   ItemCheckIn,
+  LostFoundResolution,
+  ResolveLostFoundRequest,
   ItemTransit,
   CreateTransit,
   TransitActionRequest,
@@ -948,8 +949,8 @@ class ApiService {
     return response.data;
   }
 
-  async returnLoan(loanId: string): Promise<{ status: string; loan: Loan }> {
-    const response = await this.client.post(`/loans/${loanId}/return`);
+  async returnLoan(loanId: string): Promise<ItemCheckIn> {
+    const response = await this.client.post<ItemCheckIn>(`/loans/${loanId}/return`);
     return response.data;
   }
 
@@ -960,6 +961,15 @@ class ApiService {
 
   async returnLoanByBarcode(itemBarcode: string): Promise<ItemCheckIn> {
     const response = await this.client.post<ItemCheckIn>(`/loans/items/${itemBarcode}/return`);
+    return response.data;
+  }
+
+  /** Resolve a lost copy found at the desk. `itemId` is the numeric item id, not the barcode. */
+  async resolveLostFound(itemId: string, body: ResolveLostFoundRequest): Promise<LostFoundResolution> {
+    const response = await this.client.post<LostFoundResolution>(
+      `/loans/items/${encodeURIComponent(itemId)}/lost-found`,
+      body,
+    );
     return response.data;
   }
 

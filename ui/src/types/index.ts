@@ -2149,8 +2149,23 @@ export interface HoldPickListRow {
   overdue: boolean;
 }
 
+/** Desk view of a replacement charge on a lost copy (`pending` is reported as `unpaid`). */
+export type LostFineDeskStatus = 'unpaid' | 'paid' | 'partial';
+
+/**
+ * Optional fields on a return when the copy's status is lost.
+ * Omitted on a normal return. Amounts are cents. Absent fine fields mean no open charge.
+ */
+export interface LostReturnFields {
+  wasLost?: boolean;
+  fineId?: string;
+  fineStatus?: LostFineDeskStatus;
+  fineAmount?: number;
+  paidAmount?: number;
+}
+
 /** Desk check-in of a barcode (`POST /loans/items/{barcode}/return`). */
-export interface ItemCheckIn {
+export interface ItemCheckIn extends LostReturnFields {
   status: string;
   loan?: Loan | null;
   hold?: Hold | null;
@@ -2159,9 +2174,32 @@ export interface ItemCheckIn {
   patronName?: string | null;
   destinationSiteName?: string | null;
   pickupSiteName?: string | null;
-  destinationSiteId?: string | null;
   pickupSiteId?: string | null;
+  destinationSiteId?: string | null;
   transitStarted?: boolean;
+}
+
+/** Staff decision after the lost-copy alert (`POST /loans/items/{itemId}/lost-found`). */
+export type LostFoundDisposition = 'circulate' | 'damaged' | 'leave';
+
+export type LostFineAction = 'none' | 'cancelled' | 'refunded' | 'partial';
+
+export interface ResolveLostFoundRequest {
+  disposition: LostFoundDisposition;
+  notes?: string;
+}
+
+/** Amounts are cents. `hold` is set only when a pending hold was readied. */
+export interface LostFoundResolution {
+  itemId: string;
+  itemStatus: string;
+  borrowable: boolean;
+  disposition: LostFoundDisposition;
+  fineAction: LostFineAction;
+  fineId?: string;
+  refundedAmount: number;
+  cancelledAmount: number;
+  hold?: Hold | null;
 }
 
 /** GET/PUT /holds/policy — global max pending+ready holds (camelCase). */
@@ -2487,7 +2525,7 @@ export interface ReadingHistoryEntry {
 // Batch operations (scanner / return kiosk)
 // ──────────────────────────────────────────────────────────────────
 
-export interface BatchReturnResult {
+export interface BatchReturnResult extends LostReturnFields {
   barcode: string;
   success: boolean;
   loan?: Loan | null;

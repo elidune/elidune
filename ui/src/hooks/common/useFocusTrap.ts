@@ -18,13 +18,16 @@ export function getFocusable(root: HTMLElement): HTMLElement[] {
   });
 }
 
+const MODAL_SELECTOR =
+  '[role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"]';
+
 export function isTopmostDialog(el: HTMLElement): boolean {
-  const dialogs = document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]');
+  const dialogs = document.querySelectorAll<HTMLElement>(MODAL_SELECTOR);
   return dialogs[dialogs.length - 1] === el;
 }
 
 export function noModalDialogOpen(): boolean {
-  return document.querySelectorAll('[role="dialog"][aria-modal="true"]').length === 0;
+  return document.querySelectorAll(MODAL_SELECTOR).length === 0;
 }
 
 interface UseFocusTrapOptions {
