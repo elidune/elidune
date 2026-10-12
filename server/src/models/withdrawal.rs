@@ -461,7 +461,7 @@ pub struct WithdrawalCsvSource {
     pub authors: Option<String>,
     pub site_name: Option<String>,
     pub acquired_at: Option<DateTime<Utc>>,
-    /// `items.price` text. No column default: unknown is NULL. Integer cents; `0` is a real price.
+    /// `items.price` text in decimal euros (`"12.50"`). No column default: unknown is NULL.
     pub purchase_price: Option<String>,
 }
 
@@ -475,8 +475,8 @@ const CSV_HEADERS: &str = "Code-barres;Titre;Auteur;Cote;Site;Date d'acquisition
 ///
 /// One file: a leading BOM, `;` separators, plain French headers, and dates as
 /// `DD/MM/YYYY` in `zone`. `language` localizes cell labels only. A NULL legacy
-/// destination is a localized phrase. Purchase price is integer cents rendered as
-/// euros with a comma decimal (`0` → `0,00`). Cells that Excel would treat as
+/// destination is a localized phrase. Purchase price is the stored euro decimal
+/// (`"12.50"` → `12,50`, `"0"` → `0,00`). Cells that Excel would treat as
 /// formulas are prefixed with `'` before quoting.
 #[must_use]
 pub fn withdrawals_csv(
@@ -519,23 +519,20 @@ pub fn withdrawals_csv(
     csv
 }
 
-/// Integer cents as euros with a comma decimal (`1250` → `12,50`, `0` → `0,00`).
+/// Stored euro text as `12,50`. Blank, unparseable, and negative values are empty.
 ///
-/// Blank, non-integer, and negative values are an empty cell. Zero is kept:
-/// `items.price` has no default, so a stored `0` is a free copy, not “unknown”.
+/// Uses the same decimal parse as replacement billing. Zero stays `0,00` because
+/// `items.price` has no default and a stored `0` is a free copy.
 fn format_purchase_price(raw: Option<&str>) -> String {
-    let Some(raw) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
+    use rust_decimal::Decimal;
+
+    let Some(amount) = crate::models::item::parse_stored_item_price(raw) else {
         return String::new();
     };
-    let Ok(cents) = raw.parse::<i64>() else {
-        return String::new();
-    };
-    if cents < 0 {
+    if amount < Decimal::ZERO {
         return String::new();
     }
-    let euros = cents / 100;
-    let cents_part = cents % 100;
-    format!("{euros},{cents_part:02}")
+    format!("{:.2}", amount.round_dp(2)).replace('.', ",")
 }
 
 /// `DD/MM/YYYY` in the library zone.
@@ -662,7 +659,7 @@ mod tests {
         row.site_name = Some("\tcmd".into());
         row.agent_name = Some("\rcmd".into());
         row.disposed_by_name = Some("A;B".into());
-        row.purchase_price = Some("1250".into());
+        row.purchase_price = Some("12.50".into());
         // 15 March 23:30 UTC is 16 March in Europe/Paris (CET, UTC+1).
         row.acquired_at = Some(
             chrono::Utc
@@ -689,15 +686,14 @@ mod tests {
     #[test]
     fn purchase_price_prints_euros_with_a_comma_or_stays_empty() {
         let cases = [
-            (Some("1250"), "12,50"),
-            (Some("50"), "0,50"),
-            (Some("100"), "1,00"),
-            (Some(" 1250 "), "12,50"),
+            (Some("12.50"), "12,50"),
+            (Some(" 12.50 "), "12,50"),
+            (Some("15"), "15,00"),
             (Some("0"), "0,00"),
-            (Some(" 0 "), "0,00"),
+            (Some("0.00"), "0,00"),
             (Some(""), ""),
-            (Some("12.50"), ""),
-            (Some("-100"), ""),
+            (Some("12,50"), ""),
+            (Some("-1.50"), ""),
             (None, ""),
         ];
         for (raw, expected) in cases {

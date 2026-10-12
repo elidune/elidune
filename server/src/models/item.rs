@@ -5,6 +5,7 @@
 //! Weeding (`weeding_status`) is orthogonal to `archived_at` and circulation exceptions.
 
 use chrono::{DateTime, Utc};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use sqlx::FromRow;
@@ -13,6 +14,19 @@ use validator::Validate;
 
 fn default_borrowable() -> bool {
     true
+}
+
+/// `items.price` as a decimal euro amount (`"12.50"`, `"15"`, `"0"`).
+///
+/// Blank and unparseable text are `None`. Zero and negative amounts are kept.
+/// Replacement billing drops non-positive amounts after this parse.
+#[must_use]
+pub fn parse_stored_item_price(price: Option<&str>) -> Option<Decimal> {
+    let raw = price?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    Decimal::from_str_exact(raw).or_else(|_| raw.parse()).ok()
 }
 
 /// Item weeding lifecycle. Stored as snake_case strings; serialized as camelCase.
