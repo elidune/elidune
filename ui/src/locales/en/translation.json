@@ -103,6 +103,9 @@
     "dark": "Dark",
     "system": "System"
   },
+  "language": {
+    "selector": "Language"
+  },
   "home": {
     "libraryInfo": "Library information",
     "noAddress": "No address",

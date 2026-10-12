@@ -64,6 +64,15 @@ describe('account type labels', () => {
     assert.equal(localizedAccountTypeLabel(tEs, 'reader'), 'Lector');
   });
 
+  it('translates the English seed name shown in the sidebar', () => {
+    const administrator = [role('admin', 'Administrator')];
+    assert.equal(localizedAccountTypeLabel(tFr, 'admin', administrator), 'Administrateur');
+    assert.equal(localizedAccountTypeLabel(tEn, 'admin', administrator), 'Administrator');
+    assert.equal(localizedAccountTypeLabel(tDe, 'admin', administrator), 'Administrator');
+    assert.equal(localizedAccountTypeLabel(tEs, 'admin', administrator), 'Administrador');
+    assert.equal(localizedAccountTypeLabel(tFr, 'Administrator', administrator), 'Administrateur');
+  });
+
   it('keeps a customized catalog name and falls back for unknown codes', () => {
     assert.equal(
       localizedAccountTypeLabel(tFr, 'reader', [role('reader', 'Reader')]),

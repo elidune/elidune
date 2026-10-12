@@ -198,7 +198,8 @@ export function translateStatLabel(
     }
     case 'accountType': {
       const normalized = String(label ?? '').trim();
-      const slugKey = ACCOUNT_TYPE_SLUG_LABEL_KEYS[normalized.toLowerCase()];
+      // en-US folding so the English seed "Administrator" still matches under a Turkish locale.
+      const slugKey = ACCOUNT_TYPE_SLUG_LABEL_KEYS[normalized.toLocaleLowerCase('en-US')];
       if (slugKey) return t(slugKey);
       const numKey = ACCOUNT_TYPE_LEGACY_LABEL_KEYS[normalized];
       if (numKey) return t(numKey);

@@ -9,6 +9,7 @@ import { ThemeProvider } from '@/contexts/ThemeContext';
 import { LanguageProvider } from '@/contexts/LanguageContext';
 import { LibraryProvider } from '@/contexts/LibraryContext';
 import { Layout, PublicPageChrome } from '@/components/common';
+import PublicLanguageSelector from '@/components/common/PublicLanguageSelector';
 import {
   FirstSetupPage,
   MaintenancePage,
@@ -513,6 +514,7 @@ export default function App() {
               <LibraryProvider>
                 <LanguageProvider>
                   <BrowserRouter>
+                    <PublicLanguageSelector />
                     <FirstSetupGate>
                       <Suspense fallback={<FullPageSpinner />}>
                         <AppRoutes />

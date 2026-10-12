@@ -5,12 +5,18 @@ import {
   LANGUAGE_NAMES,
   LANGUAGE_FLAGS,
   I18N_STORAGE_KEY,
+  PUBLIC_LANGUAGE_STORAGE_KEY,
   fromI18nLanguage,
-  fromServerLanguage,
   toServerLanguage,
   type SupportedLanguage,
 } from '@/locales';
+import {
+  libraryLanguageFromSettings,
+  preferenceToUiLanguage,
+  resolveUiLanguage,
+} from '@/utils/uiLanguage';
 import { useAuth } from './AuthContext';
+import { useLibrary } from './LibraryContext';
 import api from '@/services/api';
 
 interface LanguageContextType {
@@ -23,7 +29,15 @@ interface LanguageContextType {
 
 const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
-function persistLanguage(lang: SupportedLanguage) {
+function storageOrNull(): Storage | null {
+  try {
+    return typeof localStorage !== 'undefined' ? localStorage : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistAccountLanguage(lang: SupportedLanguage) {
   try {
     localStorage.setItem(I18N_STORAGE_KEY, lang);
   } catch {
@@ -31,7 +45,7 @@ function persistLanguage(lang: SupportedLanguage) {
   }
 }
 
-function clearPersistedLanguage() {
+function clearAccountLanguageCache() {
   try {
     localStorage.removeItem(I18N_STORAGE_KEY);
   } catch {
@@ -39,53 +53,73 @@ function clearPersistedLanguage() {
   }
 }
 
-function browserLanguage(): SupportedLanguage {
-  return fromI18nLanguage(typeof navigator !== 'undefined' ? navigator.language : undefined);
+function readExplicitPublicLanguage(): string | null {
+  const storage = storageOrNull();
+  if (!storage) return null;
+  try {
+    const value = storage.getItem(PUBLIC_LANGUAGE_STORAGE_KEY);
+    return value?.trim() ? value.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistPublicLanguage(lang: SupportedLanguage) {
+  const storage = storageOrNull();
+  if (!storage) return;
+  try {
+    storage.setItem(PUBLIC_LANGUAGE_STORAGE_KEY, lang);
+  } catch {
+    // Ignore quota / private-mode failures.
+  }
 }
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const { i18n } = useTranslation();
   const { user, isAuthenticated, isLoading, refreshProfile } = useAuth();
+  const { libraryInfo } = useLibrary();
   const language = fromI18nLanguage(i18n.resolvedLanguage ?? i18n.language);
 
   useEffect(() => {
     if (isLoading) return;
 
-    if (isAuthenticated && user?.language) {
-      const userLang = fromServerLanguage(user.language);
-      if (!userLang) return;
-      const currentLang = fromI18nLanguage(i18n.resolvedLanguage ?? i18n.language);
-      if (SUPPORTED_LANGUAGES.includes(userLang) && userLang !== currentLang) {
-        void i18n.changeLanguage(userLang);
-      }
-      persistLanguage(userLang);
-      return;
+    const next = resolveUiLanguage({
+      accountLanguage: isAuthenticated ? user?.language : null,
+      explicitChoice: readExplicitPublicLanguage(),
+      browserLanguage: typeof navigator !== 'undefined' ? navigator.language : null,
+      libraryLanguage: libraryLanguageFromSettings(libraryInfo),
+    });
+
+    if (isAuthenticated) {
+      const account = preferenceToUiLanguage(user?.language);
+      if (account) persistAccountLanguage(account);
+    } else {
+      clearAccountLanguageCache();
     }
 
-    if (!isAuthenticated) {
-      clearPersistedLanguage();
-      const nextLang = browserLanguage();
-      const currentLang = fromI18nLanguage(i18n.resolvedLanguage ?? i18n.language);
-      if (nextLang !== currentLang) {
-        void i18n.changeLanguage(nextLang);
-      }
+    const current = fromI18nLanguage(i18n.resolvedLanguage ?? i18n.language);
+    if (next !== current) {
+      void i18n.changeLanguage(next);
     }
-  }, [isLoading, isAuthenticated, user?.language, i18n]);
+  }, [isLoading, isAuthenticated, user?.language, libraryInfo, i18n]);
 
   const setLanguage = useCallback(async (lang: SupportedLanguage) => {
     if (!SUPPORTED_LANGUAGES.includes(lang)) return;
 
     await i18n.changeLanguage(lang);
-    persistLanguage(lang);
 
     if (isAuthenticated) {
+      persistAccountLanguage(lang);
       try {
         await api.updateProfile({ language: toServerLanguage(lang) });
         await refreshProfile();
       } catch (error) {
         console.error('Failed to save language preference to server:', error);
       }
+      return;
     }
+
+    persistPublicLanguage(lang);
   }, [i18n, isAuthenticated, refreshProfile]);
 
   return (
