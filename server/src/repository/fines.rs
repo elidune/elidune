@@ -363,6 +363,15 @@ impl Repository {
     /// and zero-amount fines are excluded (grace-period cases never become unpaid).
     #[tracing::instrument(skip(self), err)]
     pub async fn fines_total_unpaid(&self, user_id: i64) -> AppResult<Decimal> {
+        let mut conn = self.pool.acquire().await?;
+        self.fines_total_unpaid_conn(&mut conn, user_id).await
+    }
+
+    pub(crate) async fn fines_total_unpaid_conn(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        user_id: i64,
+    ) -> AppResult<Decimal> {
         let total: Option<Decimal> = sqlx::query_scalar(
             "SELECT SUM(amount - paid_amount) FROM fines
              WHERE user_id = $1
@@ -370,7 +379,7 @@ impl Repository {
                AND amount > paid_amount",
         )
         .bind(user_id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *conn)
         .await?;
         Ok(total.unwrap_or(Decimal::ZERO))
     }
@@ -379,6 +388,16 @@ impl Repository {
     #[tracing::instrument(skip(self), err)]
     pub async fn fines_get_unpaid_threshold(
         &self,
+        public_type_id: Option<i64>,
+    ) -> AppResult<Decimal> {
+        let mut conn = self.pool.acquire().await?;
+        self.fines_get_unpaid_threshold_conn(&mut conn, public_type_id)
+            .await
+    }
+
+    pub(crate) async fn fines_get_unpaid_threshold_conn(
+        &self,
+        conn: &mut sqlx::PgConnection,
         public_type_id: Option<i64>,
     ) -> AppResult<Decimal> {
         let total: Option<Decimal> = sqlx::query_scalar(
@@ -395,7 +414,7 @@ impl Repository {
             "#,
         )
         .bind(public_type_id)
-        .fetch_one(&self.pool)
+        .fetch_one(&mut *conn)
         .await?;
         Ok(total.unwrap_or(Decimal::ZERO))
     }

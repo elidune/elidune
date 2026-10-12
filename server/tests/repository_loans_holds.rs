@@ -5,7 +5,7 @@ mod common;
 use axum::http::StatusCode;
 use common::fixtures;
 use common::TestApp;
-use elidune_server::error::AppError;
+use elidune_server::error::{error_code, AppError};
 use elidune_server::models::hold::{CreateHold, HoldStatus};
 use elidune_server::models::loan::CreateLoan;
 use elidune_server::repository::Repository;
@@ -36,10 +36,24 @@ fn create_loan(user_id: i64, item_id: i64, force: bool) -> CreateLoan {
     }
 }
 
-fn assert_already_borrowed(err: AppError) {
+fn assert_open_loan_conflict(err: AppError, code: &'static str) {
     match err {
-        AppError::BusinessRule(msg) => assert_eq!(msg, "Item is already borrowed"),
-        other => panic!("expected already borrowed business rule, got {other:?}"),
+        AppError::Coded {
+            status,
+            code: got,
+            message,
+        } => {
+            assert_eq!(status, 409);
+            assert_eq!(got, code);
+            assert!(!message.is_empty());
+            if code == error_code::ITEM_ALREADY_ON_LOAN_TO_BORROWER {
+                assert!(
+                    message.to_lowercase().contains("renew"),
+                    "same-borrower message should point at renewal: {message}"
+                );
+            }
+        }
+        other => panic!("expected 409 {code}, got {other:?}"),
     }
 }
 
@@ -139,7 +153,7 @@ async fn sequential_checkout_same_item_fails_with_already_borrowed() {
         .loans_create(&create_loan(reader_b_id, item_id, false))
         .await
         .expect_err("second checkout must fail");
-    assert_already_borrowed(err);
+    assert_open_loan_conflict(err, error_code::ITEM_ON_LOAN_TO_OTHER_BORROWER);
     assert_eq!(repo.loans_count_active_for_item(item_id).await.unwrap(), 1);
 }
 
@@ -171,7 +185,7 @@ async fn concurrent_checkout_same_item_only_one_succeeds() {
     } else {
         r2.err().unwrap()
     };
-    assert_already_borrowed(err);
+    assert_open_loan_conflict(err, error_code::ITEM_ON_LOAN_TO_OTHER_BORROWER);
     assert_eq!(repo.loans_count_active_for_item(item_id).await.unwrap(), 1);
 }
 
@@ -213,7 +227,7 @@ async fn unique_index_rejects_second_active_loan_on_item() {
 }
 
 #[tokio::test]
-async fn force_checkout_replaces_existing_active_loan() {
+async fn force_checkout_does_not_replace_existing_active_loan() {
     let Some(app) = TestApp::spawn().await else {
         return;
     };
@@ -229,17 +243,48 @@ async fn force_checkout_replaces_existing_active_loan() {
         .loans_create(&create_loan(reader_a_id, item_id, false))
         .await
         .expect("first checkout");
+    let before = repo.loans_get_by_id(first.loan_id).await.unwrap();
 
-    let second = repo
+    let err = repo
         .loans_create(&create_loan(reader_b_id, item_id, true))
         .await
-        .expect("force checkout should replace the active loan");
+        .expect_err("force must not replace an open loan");
+    assert_open_loan_conflict(err, error_code::ITEM_ON_LOAN_TO_OTHER_BORROWER);
 
-    assert_ne!(first.loan_id, second.loan_id);
+    let after = repo.loans_get_by_id(first.loan_id).await.unwrap();
+    assert_eq!(format!("{before:?}"), format!("{after:?}"));
+    assert!(after.returned_at.is_none());
     assert_eq!(repo.loans_count_active_for_item(item_id).await.unwrap(), 1);
-
     let active_ids = repo.loans_get_active_ids_for_item(item_id).await.unwrap();
-    assert_eq!(active_ids, vec![second.loan_id]);
+    assert_eq!(active_ids, vec![first.loan_id]);
+}
+
+#[tokio::test]
+async fn same_borrower_checkout_points_at_renewal() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "sameloan").await;
+    let item_id =
+        seed_borrowable_item(&app, &admin_token, "SAME-LOAN-001", "Same Borrower Loan").await;
+    let repo = app.state.services.repository.as_ref().clone();
+
+    let first = repo
+        .loans_create(&create_loan(reader_id, item_id, false))
+        .await
+        .expect("first checkout");
+
+    let err = repo
+        .loans_create(&create_loan(reader_id, item_id, true))
+        .await
+        .expect_err("same borrower must not open a second loan");
+    assert_open_loan_conflict(err, error_code::ITEM_ALREADY_ON_LOAN_TO_BORROWER);
+    assert_eq!(
+        repo.loans_get_active_ids_for_item(item_id).await.unwrap(),
+        vec![first.loan_id]
+    );
 }
 
 #[tokio::test]
@@ -259,8 +304,14 @@ async fn concurrent_force_checkouts_leave_one_active_loan() {
     let loan_b = create_loan(reader_b_id, item_id, true);
     let (r1, r2) = tokio::join!(repo.loans_create(&loan_a), repo.loans_create(&loan_b),);
 
-    assert!(r1.is_ok(), "force checkout A: {r1:?}");
-    assert!(r2.is_ok(), "force checkout B: {r2:?}");
+    let oks = [&r1, &r2].iter().filter(|r| r.is_ok()).count();
+    assert_eq!(oks, 1, "force must not open two loans: {r1:?} {r2:?}");
+    let err = if r1.is_err() {
+        r1.err().unwrap()
+    } else {
+        r2.err().unwrap()
+    };
+    assert_open_loan_conflict(err, error_code::ITEM_ON_LOAN_TO_OTHER_BORROWER);
     assert_eq!(repo.loans_count_active_for_item(item_id).await.unwrap(), 1);
 }
 
@@ -292,11 +343,15 @@ async fn concurrent_checkout_respects_hold_queue() {
     match r_b.err().unwrap() {
         AppError::BusinessRule(msg) => {
             assert!(
-                msg.contains("active hold") || msg == "Item is already borrowed",
+                msg.contains("active hold"),
                 "unexpected business rule: {msg}"
             );
         }
-        other => panic!("expected business rule for B, got {other:?}"),
+        AppError::Coded { status, code, .. } => {
+            assert_eq!(status, 409);
+            assert_eq!(code, error_code::ITEM_ON_LOAN_TO_OTHER_BORROWER);
+        }
+        other => panic!("expected hold rule or open-loan 409 for B, got {other:?}"),
     }
 
     assert_eq!(repo.loans_count_active_for_item(item_id).await.unwrap(), 1);

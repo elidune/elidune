@@ -214,6 +214,15 @@ Request — `ChangePasswordRequest`:
 { "userId": "927364819265437697", "itemId": "818273645564928001", "itemIdentification": null, "force": false }
 ```
 
+`itemId` or `itemIdentification` (barcode) identifies the copy. `force` bypasses patron, subscription, loan-limit, unpaid-fine, transit, and hold-queue checks. It never overrides an open loan (reserved-item override is tracked in #167).
+
+| Situation | HTTP | `code` |
+|-----------|------|--------|
+| Copy on loan to another borrower (`force` true or false, any role) | 409 | `item_on_loan_to_other_borrower` |
+| Copy already on loan to this borrower | 409 | `item_already_on_loan_to_borrower` |
+
+The same-borrower `message` tells staff to renew the existing loan. The previous open loan stays open. A race on `idx_loans_one_active_per_item` returns the same 409 codes.
+
 ### `LoanResponse` (POST /loans response)
 ```json
 { "id": "927364819265437700", "issueAt": "2026-04-24T00:00:00Z", "message": "Loan created" }
@@ -1323,7 +1332,9 @@ Common `code` values:
 | `not_found` | 404 |
 | `validation_error` | 400 |
 | `conflict` | 409 |
-| `business_rule` | 422 |
+| `item_on_loan_to_other_borrower` | 409 |
+| `item_already_on_loan_to_borrower` | 409 |
+| `business_rule_violation` | 422 |
 | `internal_error` | 500 |
 
 ---

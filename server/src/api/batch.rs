@@ -177,6 +177,8 @@ pub struct BatchCreateLoanItem {
 pub struct BatchCreateLoansRequest {
     pub user_id: String,
     pub barcodes: Vec<String>,
+    /// Same checkout override as `POST /loans`. Never overrides an open loan
+    /// (reserved-item override is tracked in #167).
     #[serde(default)]
     pub force: bool,
 }

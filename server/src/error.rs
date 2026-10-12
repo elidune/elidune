@@ -42,6 +42,10 @@ pub mod error_code {
     pub const ITEM_TO_PICK_FOR_OTHER: &str = "item_to_pick_for_other";
     /// Check-in of a known copy that has no active loan.
     pub const ITEM_NOT_ON_LOAN: &str = "item_not_on_loan";
+    /// Checkout refused: the copy already has an open loan for a different borrower.
+    pub const ITEM_ON_LOAN_TO_OTHER_BORROWER: &str = "item_on_loan_to_other_borrower";
+    /// Checkout refused: the copy already has an open loan for this borrower. Renew it.
+    pub const ITEM_ALREADY_ON_LOAN_TO_BORROWER: &str = "item_already_on_loan_to_borrower";
     /// Delete refused because the copy has a loan, hold, or fine. Weed it instead.
     pub const ITEM_HAS_HISTORY_USE_WEEDING: &str = "item_has_history_use_weeding";
     /// Delete refused because the bibliographic record still has copies.
@@ -549,5 +553,27 @@ mod tests {
         assert_eq!(status, 404);
         assert_eq!(code, error_code::ITEM_NOT_ON_LOAN);
         assert_eq!(message, "Item ABC is not on loan");
+    }
+
+    #[test]
+    fn open_loan_conflicts_are_409_with_stable_codes() {
+        let other = AppError::coded(
+            409,
+            error_code::ITEM_ON_LOAN_TO_OTHER_BORROWER,
+            "This item is on loan to another borrower.",
+        );
+        let (status, code, _) = other.audit_http_fields();
+        assert_eq!(status, 409);
+        assert_eq!(code, error_code::ITEM_ON_LOAN_TO_OTHER_BORROWER);
+
+        let same = AppError::coded(
+            409,
+            error_code::ITEM_ALREADY_ON_LOAN_TO_BORROWER,
+            "Renew the existing loan.",
+        );
+        let (status, code, message) = same.audit_http_fields();
+        assert_eq!(status, 409);
+        assert_eq!(code, error_code::ITEM_ALREADY_ON_LOAN_TO_BORROWER);
+        assert!(message.to_lowercase().contains("renew"));
     }
 }

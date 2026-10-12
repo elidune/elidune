@@ -111,6 +111,11 @@ pub struct CreateLoanRequest {
     /// When true, bypasses patron/subscription/limits/unpaid-fine checks and hold-queue rules.
     /// Pinned `pending`/`ready` holds on the copy are cancelled. A `to_pick` hold is released
     /// back to `pending`, or reassigned to another shelf copy.
+    ///
+    /// Never overrides an open loan: a copy already on loan returns 409
+    /// (`item_on_loan_to_other_borrower` or `item_already_on_loan_to_borrower`)
+    /// whether or not this flag is set, including for admins. Reserved-item override
+    /// is tracked in #167.
     pub force: Option<bool>,
 }
 
@@ -477,7 +482,7 @@ pub struct GetUserLoansQuery {
         (status = 201, description = "Loan created", body = LoanResponse),
         (status = 400, description = "Invalid request"),
         (status = 404, description = "User or specimen not found"),
-        (status = 409, description = "Specimen already borrowed, max loans reached, or Idempotency-Key conflict"),
+        (status = 409, description = "Open loan on this copy (`item_on_loan_to_other_borrower` or `item_already_on_loan_to_borrower`; `force` never overrides an open loan), or Idempotency-Key conflict"),
         (status = 422, description = "Business rule: unpaid fines exceed the configured threshold (staff may retry with force=true)")
     )
 )]
