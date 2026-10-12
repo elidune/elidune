@@ -127,7 +127,7 @@
       "email": "Email",
       "address": "Address",
       "contact": "Contact",
-      "saveSuccess": "Information saved successfully",
+      "saveSuccess": "Settings saved",
       "namePlaceholder": "e.g. Central Library",
       "addrLine1Placeholder": "e.g. 12 Library Lane",
       "addrLine2Placeholder": "Building, floor...",

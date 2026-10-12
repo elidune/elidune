@@ -540,7 +540,7 @@ export default function LoginPage() {
             aria-hidden="true"
             className="absolute -right-4 -top-4 h-48 w-48 sm:h-56 sm:w-56 object-contain opacity-[0.07] dark:opacity-[0.05] select-none pointer-events-none"
           />
-          <div className="relative pr-28 sm:pr-32">
+          <div className="relative min-[421px]:pr-28 sm:pr-32">
             <h1 className="text-3xl sm:text-4xl font-bold text-gray-900 dark:text-white mb-5">
               {libraryInfo?.name?.trim() ||
                 libraryName?.trim() ||

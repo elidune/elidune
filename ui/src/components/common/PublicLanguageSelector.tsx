@@ -21,7 +21,9 @@ export default function PublicLanguageSelector() {
   if (isLoading || isAuthenticated || api.isAuthenticated()) return null;
 
   return (
-    <div className="fixed top-3 right-3 z-40">
+    // At 420px and below the fixed control sat on the public header card's corner.
+    // In normal flow it stays above that card and remains a usable select.
+    <div className="z-40 max-[421px]:flex max-[421px]:justify-end max-[421px]:px-3 max-[421px]:pt-3 min-[421px]:fixed min-[421px]:top-3 min-[421px]:right-3">
       <label htmlFor="public-language" className="sr-only">
         {t('language.selector')}
       </label>
