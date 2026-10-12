@@ -444,14 +444,21 @@ pub struct BatchWithdrawalResponse {
     pub withdrawals: Vec<ItemWithdrawal>,
 }
 
-/// UTF-8 CSV for the municipal disposal record. A NULL legacy destination is a localized phrase.
+/// Field separator for the single French-Excel disposal file. There is no query parameter.
+const CSV_SEPARATOR: char = ';';
+
+/// UTF-8 CSV for the municipal disposal record.
+///
+/// One file: a leading BOM, `;` separators, and dates as `DD/MM/YYYY` in `zone`.
+/// A NULL legacy destination is a localized phrase. Cells that Excel would treat
+/// as formulas are prefixed with `'` before quoting.
 #[must_use]
-pub fn withdrawals_csv(rows: &[ItemWithdrawal], language: Language) -> String {
+pub fn withdrawals_csv(rows: &[ItemWithdrawal], language: Language, zone: chrono_tz::Tz) -> String {
     let french = matches!(language, Language::French);
     let headers = if french {
-        "identifiant,exemplaire,code_barres,cote,titre,site,Date de retrait,motif,precision,destination,agent,reprise,Éliminé le,agent_sortie"
+        "identifiant;exemplaire;code_barres;cote;titre;site;Date de retrait;motif;precision;destination;agent;reprise;Éliminé le;agent_sortie"
     } else {
-        "id,item_id,barcode,call_number,title,site,Withdrawn on,reason,detail,destination,agent,legacy,Disposed on,disposed_by"
+        "id;item_id;barcode;call_number;title;site;Withdrawn on;reason;detail;destination;agent;legacy;Disposed on;disposed_by"
     };
     let mut csv = String::from('\u{feff}');
     csv.push_str(headers);
@@ -480,28 +487,39 @@ pub fn withdrawals_csv(rows: &[ItemWithdrawal], language: Language) -> String {
             row.call_number.clone().unwrap_or_default(),
             row.biblio_title.clone().unwrap_or_default(),
             row.site_name.clone().unwrap_or_default(),
-            row.withdrawn_at.to_rfc3339(),
+            format_csv_date(row.withdrawn_at, zone),
             row.reason.label(language).to_string(),
             row.reason_detail.clone().unwrap_or_default(),
             destination,
             row.agent_name.clone().unwrap_or_default(),
             legacy.to_string(),
             row.disposed_at
-                .map(|at| at.to_rfc3339())
+                .map(|at| format_csv_date(at, zone))
                 .unwrap_or_default(),
             row.disposed_by_name.clone().unwrap_or_default(),
         ];
-        csv.push_str(&fields.map(|f| escape_csv(&f)).join(","));
+        csv.push_str(&fields.map(|f| escape_csv(&f)).join(";"));
         csv.push('\n');
     }
     csv
 }
 
+/// `DD/MM/YYYY` in the library zone.
+fn format_csv_date(at: DateTime<Utc>, zone: chrono_tz::Tz) -> String {
+    at.with_timezone(&zone).format("%d/%m/%Y").to_string()
+}
+
+/// Prefix formula-like cells, then quote when the separator, a quote, or a line break is present.
 fn escape_csv(value: &str) -> String {
-    if value.contains([',', '"', '\n', '\r']) {
-        format!("\"{}\"", value.replace('"', "\"\""))
+    let mut neutralized = String::new();
+    if value.starts_with(['=', '+', '-', '@', '\t', '\r']) {
+        neutralized.push('\'');
+    }
+    neutralized.push_str(value);
+    if neutralized.contains([CSV_SEPARATOR, '"', '\n', '\r']) {
+        format!("\"{}\"", neutralized.replace('"', "\"\""))
     } else {
-        value.to_string()
+        neutralized
     }
 }
 
@@ -564,13 +582,21 @@ mod tests {
         );
     }
 
+    fn paris() -> chrono_tz::Tz {
+        chrono_tz::Europe::Paris
+    }
+
     #[test]
     fn french_csv_renders_legacy_destination() {
-        let csv = withdrawals_csv(&[sample(None, true)], Language::French);
+        let csv = withdrawals_csv(&[sample(None, true)], Language::French, paris());
+        assert!(csv.starts_with('\u{feff}'));
         assert!(csv.contains("non renseignée (reprise)"));
         assert!(csv.contains("Autre"));
-        assert!(csv.contains("Date de retrait"));
-        assert!(csv.contains("Éliminé le"));
+        assert!(csv.contains(
+            "identifiant;exemplaire;code_barres;cote;titre;site;Date de retrait;motif;precision;destination;agent;reprise;Éliminé le;agent_sortie"
+        ));
+        assert!(csv.contains("12/10/2026"));
+        assert!(!csv.contains("2026-10-12T"));
     }
 
     #[test]
@@ -579,10 +605,47 @@ mod tests {
             legacy_destination_label(Language::English),
             "not specified (legacy import)"
         );
-        let csv = withdrawals_csv(&[sample(None, true)], Language::English);
+        let csv = withdrawals_csv(&[sample(None, true)], Language::English, paris());
+        assert!(csv.starts_with('\u{feff}'));
         assert!(csv.contains("not specified (legacy import)"));
-        assert!(csv.contains("Withdrawn on"));
-        assert!(csv.contains("Disposed on"));
+        assert!(csv.contains(
+            "id;item_id;barcode;call_number;title;site;Withdrawn on;reason;detail;destination;agent;legacy;Disposed on;disposed_by"
+        ));
+        assert!(csv.contains("12/10/2026"));
         assert!(!csv.contains("non renseignée (reprise)"));
+        assert!(!csv.contains("2026-10-12T"));
+    }
+
+    #[test]
+    fn csv_neutralizes_formulas_and_formats_dates_in_the_library_zone() {
+        let mut row = sample(Some(WithdrawalDestination::Pulp), false);
+        row.reason_detail = Some("=HYPERLINK(\"http://evil\")".into());
+        row.barcode = Some("+1".into());
+        row.call_number = Some("-cmd".into());
+        row.biblio_title = Some("@sum".into());
+        row.site_name = Some("\tcmd".into());
+        row.agent_name = Some("\rcmd".into());
+        row.disposed_by_name = Some("A;B".into());
+        // 23:30 UTC is the next civil day in Europe/Paris (UTC+2 in October).
+        row.withdrawn_at = chrono::Utc
+            .with_ymd_and_hms(2026, 10, 12, 23, 30, 0)
+            .unwrap();
+        row.disposed_at = Some(chrono::Utc.with_ymd_and_hms(2026, 1, 1, 23, 30, 0).unwrap());
+
+        let csv = withdrawals_csv(&[row], Language::French, paris());
+        assert!(
+            csv.contains("\"'=HYPERLINK(\"\"http://evil\"\")\""),
+            "{csv}"
+        );
+        assert!(csv.contains(";'+1;"), "{csv}");
+        assert!(csv.contains("'-cmd"), "{csv}");
+        assert!(csv.contains("'@sum"), "{csv}");
+        assert!(csv.contains("'\tcmd"), "{csv}");
+        assert!(csv.contains("\"'\rcmd\""), "{csv}");
+        assert!(csv.contains("\"A;B\""), "{csv}");
+        assert!(csv.contains("13/10/2026"), "{csv}");
+        assert!(csv.contains("02/01/2026"), "{csv}");
+        assert!(!csv.contains("2026-10-12T"), "{csv}");
+        assert!(!csv.contains("2026-01-01T"), "{csv}");
     }
 }

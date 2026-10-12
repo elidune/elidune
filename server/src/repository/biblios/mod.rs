@@ -179,6 +179,7 @@ pub trait BibliosRepository: Send + Sync {
         query: &WithdrawalQuery,
     ) -> AppResult<Vec<ItemWithdrawal>>;
     async fn user_preferred_language(&self, user_id: i64) -> AppResult<Option<String>>;
+    async fn library_zone(&self) -> AppResult<chrono_tz::Tz>;
 }
 
 #[async_trait::async_trait]
@@ -441,6 +442,9 @@ impl BibliosRepository for Repository {
     }
     async fn user_preferred_language(&self, user_id: i64) -> AppResult<Option<String>> {
         Repository::user_preferred_language(self, user_id).await
+    }
+    async fn library_zone(&self) -> AppResult<chrono_tz::Tz> {
+        Repository::library_zone(self).await
     }
 }
 

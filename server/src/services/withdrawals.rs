@@ -143,8 +143,9 @@ impl CatalogService {
         user_id: i64,
     ) -> AppResult<String> {
         let language = self.export_language(query, user_id).await?;
+        let zone = self.repository.library_zone().await?;
         let rows = self.repository.item_withdrawals_export_rows(query).await?;
-        Ok(withdrawals_csv(&rows, language))
+        Ok(withdrawals_csv(&rows, language, zone))
     }
 
     async fn export_language(&self, query: &WithdrawalQuery, user_id: i64) -> AppResult<Language> {

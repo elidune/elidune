@@ -364,7 +364,7 @@ pub async fn list_withdrawals(
     security(("bearer_auth" = [])),
     params(WithdrawalQuery),
     responses(
-        (status = 200, description = "CSV disposal list for the period. A null legacy destination is localized.", content_type = "text/csv"),
+        (status = 200, description = "One UTF-8 CSV file with a BOM, semicolon separators, and DD/MM/YYYY dates in the library timezone. Formula-like cells are prefixed with a quote. A null legacy destination is localized.", content_type = "text/csv"),
         (status = 400, description = "from and to are required", body = crate::error::ErrorResponse)
     )
 )]

@@ -1226,10 +1226,13 @@ async fn dispose_batch_is_atomic_and_blocks_cancel() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "csv: {csv}");
-    assert!(csv.contains("Withdrawn on"), "{csv}");
-    assert!(csv.contains("Disposed on"), "{csv}");
-    assert!(csv.contains("disposed_by"), "{csv}");
-    assert!(csv.contains("2020-01-02T03:04:05"), "{csv}");
+    assert!(csv.starts_with('\u{feff}'), "{csv}");
+    assert!(
+        csv.contains("id;item_id;barcode;call_number;title;site;Withdrawn on;reason;detail;destination;agent;legacy;Disposed on;disposed_by"),
+        "{csv}"
+    );
+    assert!(csv.contains("02/01/2020"), "{csv}");
+    assert!(!csv.contains("2020-01-02T03:04:05"), "{csv}");
 
     let (status, opac) = app
         .get_json(&format!("/api/v1/opac/biblios/{biblio_id}"))
@@ -1239,4 +1242,77 @@ async fn dispose_batch_is_atomic_and_blocks_cancel() {
     assert!(!public.contains("disposedAt"), "{opac}");
     assert!(!public.contains("disposedBy"), "{opac}");
     assert!(!public.contains("2020-01-02T03:04:05"), "{opac}");
+}
+
+#[tokio::test]
+async fn csv_neutralizes_formulas_and_uses_french_excel_layout() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    unlock_admin(&app, &admin_token).await;
+    let (_biblio_id, items) = create_title(&app, &admin_token, "Formula export", 1).await;
+    let item_id = items[0];
+    let shelf = format!("FORM-{}", fixtures::unique_suffix());
+    sqlx::query("UPDATE items SET call_number = $2 WHERE id = $1")
+        .bind(item_id)
+        .bind(&shelf)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("shelfmark");
+
+    let detail = r#"=HYPERLINK("http://evil")"#;
+    let (status, created) = app
+        .post_json(
+            &format!("/api/v1/items/{item_id}/withdrawals"),
+            &json!({
+                "reason": "other",
+                "reasonDetail": detail,
+                "destination": "pulp"
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "withdraw: {created}");
+    let withdrawn_at = created["withdrawnAt"].as_str().expect("withdrawnAt");
+    let instant = chrono::DateTime::parse_from_rfc3339(withdrawn_at)
+        .expect("rfc3339")
+        .with_timezone(&chrono::Utc);
+    let expected_date = instant
+        .with_timezone(&chrono_tz::Europe::Paris)
+        .format("%d/%m/%Y")
+        .to_string();
+
+    let query = format!(
+        "from={}&to={}&callNumber={}&separator=comma",
+        enc("2020-01-01T00:00:00Z"),
+        enc("2035-01-01T00:00:00Z"),
+        enc(&shelf)
+    );
+    let (status, csv, _) = get_text(
+        &app,
+        &format!("/api/v1/item-withdrawals/export.csv?{query}&lang=french"),
+        &admin_token,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "csv: {csv}");
+    assert!(csv.starts_with('\u{feff}'), "BOM: {csv}");
+    let header = csv
+        .trim_start_matches('\u{feff}')
+        .lines()
+        .next()
+        .expect("header");
+    assert_eq!(
+        header,
+        "identifiant;exemplaire;code_barres;cote;titre;site;Date de retrait;motif;precision;destination;agent;reprise;Éliminé le;agent_sortie"
+    );
+    assert!(
+        csv.contains("\"'=HYPERLINK(\"\"http://evil\"\")\""),
+        "{csv}"
+    );
+    assert!(
+        csv.contains(&expected_date),
+        "date {expected_date} in {csv}"
+    );
+    assert!(!csv.contains(withdrawn_at), "no RFC3339 instant in {csv}");
 }
