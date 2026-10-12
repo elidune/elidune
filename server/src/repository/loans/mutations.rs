@@ -640,7 +640,7 @@ impl Repository {
     /// as [`Self::loans_create`]) so concurrent renews cannot both pass the max-renewals
     /// check. Refusals come from [`renewal_eligibility`] while the loan row is locked.
     /// `bypass_account_gates` is staff `force` and skips only `account_blocked` and
-    /// `fines_over_threshold`. A returned loan is refused before that function.
+    /// `fines_over_threshold`. A lost card is still refused. A returned loan is refused before that function.
     /// The due-date calendar slide stays after eligibility succeeds.
     pub async fn loans_renew(
         &self,
@@ -692,7 +692,7 @@ impl Repository {
         // transaction. A second pool connection here deadlocks under load the
         // same way checkout used to.
         let account = sqlx::query(
-            "SELECT status, archived_at, account_type, public_type FROM users WHERE id = $1",
+            "SELECT status, archived_at, account_type, public_type, card_lost FROM users WHERE id = $1",
         )
         .bind(loan.user_id)
         .fetch_optional(&mut *tx)
@@ -705,6 +705,7 @@ impl Repository {
         let can_borrow = status == Some(crate::models::user::UserStatus::Active)
             && archived_at.is_none()
             && !account_type.eq_ignore_ascii_case("guest");
+        let card_lost: bool = account.get("card_lost");
 
         let (fines_over_threshold, fines_message) = if bypass_account_gates {
             (false, String::new())
@@ -741,8 +742,14 @@ impl Repository {
             now,
             zone: self.library_zone_conn(&mut tx).await?,
         };
-        if let Err(refusal) = renewal_eligibility(&renewal_loan, &RenewalUser { can_borrow }, &ctx)
-        {
+        if let Err(refusal) = renewal_eligibility(
+            &renewal_loan,
+            &RenewalUser {
+                can_borrow,
+                card_lost,
+            },
+            &ctx,
+        ) {
             return Err(refusal.into_app_error(&renewal_loan, &ctx));
         }
         let current_renews = renewal_loan.renewal_count;

@@ -110,6 +110,7 @@ impl Repository {
         let fines_over_threshold = UnpaidThresholdCheck { unpaid, threshold }.blocks_circulation();
         let renewal_user = RenewalUser {
             can_borrow: owner.can_borrow(),
+            card_lost: self.users_card_lost(user_id).await?,
         };
         let zone = self.library_zone().await?;
         let now = Utc::now();

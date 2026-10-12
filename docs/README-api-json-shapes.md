@@ -166,6 +166,56 @@ Request — `ChangePasswordRequest`:
 | `page` | `page` |
 | `perPage` | `perPage` |
 
+`GET /users` (including `?barcode=` and `?name=`) still requires `users_rights` read or write. A loans-only desk agent receives **403**. Name search is not a card scan.
+
+### `GET /users/by-card/:card_number`
+
+Exact `users.barcode` match for the circulation desk (one path segment, case-sensitive, not a prefix). Deleted patrons are **404**.
+
+Allowed when `users_rights` is read or write, **or** `loans_rights` is read or write. `loans_rights` own and `users_rights` own do not qualify. Neither right is **403**.
+
+`users_rights` read or write — the full `User` body (name, email, phone, address, `login`, `barcode`) plus `loanStatus`.
+
+`loans_rights` read or write without users read — only:
+
+```json
+{
+  "id": "927364819265437697",
+  "cardNumber": "LIB-0001",
+  "initials": "JD",
+  "loanStatus": {
+    "subscriptionValid": true,
+    "subscriptionExpiresAt": null,
+    "blocked": false,
+    "blockReasons": [],
+    "activeLoans": 0,
+    "overdueLoans": 0,
+    "maxLoans": 5,
+    "unpaidFinesCents": 0,
+    "readyHolds": 0
+  }
+}
+```
+
+No `firstname`, `lastname`, `email`, `phone`, address, or `login`. `cardNumber` is `users.barcode` and is null only when the stored card is blank. `initials` is the uppercase first letter of `firstname` plus the uppercase first letter of `lastname`; a missing or blank part is skipped.
+
+`loanStatus` is the same object for both callers. `subscriptionExpiresAt` is the library-local `YYYY-MM-DD` of `users.expiry_at`, or null when the patron has no expiry. `subscriptionValid` is false when that instant is already past (same comparison as checkout). `maxLoans` is the audience total cap (`nb_max` on the public-type default loan row, else the global default, else 5). Null would mean no total cap; the resolver does not produce that today. `unpaidFinesCents` is the unpaid remainder in integer cents.
+
+`blocked` is true when checkout **without** `force` would refuse this patron. `blockReasons` uses that same order, then overdue:
+
+| Code | Sets `blocked` | Checkout without `force` |
+|------|----------------|--------------------------|
+| `account_blocked` | yes | `User::can_borrow` is false (not active, archived, or guest) |
+| `card_lost` | yes | `users.card_lost` (card declared lost or stolen). Checkout and renewal are always **422** `{ "code": "card_lost", "error": "Business Rule Violation", "message": "Library card is reported lost or stolen" }`. `force=true` does not override, including for an admin. `POST /loans/batch-create` reports the same code on `results[].code`. `GET /me/loans` sets `canRenew` false and `renewalRefusalCode` to `card_lost`. Returning a copy and paying a fine stay allowed |
+| `subscription_expired` | yes | `users.expiry_at` is before now |
+| `unpaid_fines` | yes | unpaid balance is **strictly above** the configured threshold (public-type override, else `circulation_settings.unpaid_fine_threshold`). Not a hardcoded amount. Equal to the threshold does not block |
+| `max_loans` | yes | active loans are at or above the total cap above. A per-media cap is enforced only when that item is checked out, so it is not a card-scan reason |
+| `overdue_loans` | no | at least one unreturned loan is past `expiry_at`. Checkout does **not** refuse for this alone |
+
+`readyHolds` is the number of this patron's holds in status `ready`. The calling agent has no site on the user row or the JWT, so the count includes every pickup site (including a null `pickup_site_id`). If an agent site is supplied later, the count is `holds.pickup_site_id` equal to that site.
+
+409 checkout conflict bodies are unchanged.
+
 ### `UserPayload` (POST/PUT /users body)
 ```json
 {
@@ -214,12 +264,17 @@ Request — `ChangePasswordRequest`:
 { "userId": "927364819265437697", "itemId": "818273645564928001", "itemIdentification": null, "force": false }
 ```
 
-`itemId` or `itemIdentification` (barcode) identifies the copy. `force` bypasses patron, subscription, loan-limit, unpaid-fine, transit, and hold-queue checks. It never overrides an open loan (reserved-item override is tracked in #167).
+`itemId` or `itemIdentification` (barcode) identifies the copy. `force` bypasses patron account, subscription, loan-limit, unpaid-fine, transit, and hold-queue checks. It never overrides an open loan (reserved-item override is tracked in #167). It never overrides a lost or stolen card.
 
 | Situation | HTTP | `code` |
 |-----------|------|--------|
+| Patron `users.card_lost` (`force` true or false, any role, including admin) | 422 | `card_lost` |
 | Copy on loan to another borrower (`force` true or false, any role) | 409 | `item_on_loan_to_other_borrower` |
 | Copy already on loan to this borrower | 409 | `item_already_on_loan_to_borrower` |
+
+`card_lost` body is `{ "code": "card_lost", "error": "Business Rule Violation", "message": "Library card is reported lost or stolen" }`.
+
+`POST /loans/:id/renew` (staff, and the patron renewing their own loan) and `POST /loans/items/:item_id/renew` return that same body when `users.card_lost` is set. `?force=true` does not override it, including for an admin. `GET /me/loans` reports `canRenew: false` and `renewalRefusalCode: "card_lost"`. There is no batch renewal route. Check-in (`POST /loans/:id/return` and `POST /loans/items/:barcode/return`) and `POST /fines/:id/pay` stay accepted for that patron.
 
 The same-borrower `message` tells staff to renew the existing loan. The previous open loan stays open. A race on `idx_loans_one_active_per_item` returns the same 409 codes.
 
@@ -1288,7 +1343,7 @@ See [README-background-tasks.md](README-background-tasks.md) for full polling gu
 }
 ```
 
-`error` is the same human-readable string as before. `code` is added only on failures and uses the same values as `ErrorResponse.code` (`item_on_loan_to_other_borrower`, `item_already_on_loan_to_borrower`, `not_found`, `business_rule_violation`, …). Successful items omit both.
+`error` is the same human-readable string as before. `code` is added only on failures and uses the same values as `ErrorResponse.code` (`item_on_loan_to_other_borrower`, `item_already_on_loan_to_borrower`, `card_lost`, `not_found`, `business_rule_violation`, …). A lost card is `card_lost` on that item even when the request sets `force: true`. Successful items omit both.
 
 ---
 
@@ -1423,6 +1478,7 @@ Common `code` values:
 | `item_on_loan_to_other_borrower` | 409 |
 | `item_already_on_loan_to_borrower` | 409 |
 | `business_rule_violation` | 422 |
+| `card_lost` | 422 |
 | `internal_error` | 500 |
 
 ---

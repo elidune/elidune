@@ -205,6 +205,7 @@ pub struct CreateLoanRequest {
 #[serde(rename_all = "camelCase")]
 pub struct RenewLoanQuery {
     /// When true, bypasses account and unpaid-fine threshold checks (staff only; audited).
+    /// A lost or stolen card stays `422` `card_lost`.
     pub force: Option<bool>,
 }
 
@@ -573,7 +574,7 @@ pub struct GetUserLoansQuery {
         (status = 400, description = "Invalid request"),
         (status = 404, description = "User or specimen not found"),
         (status = 409, description = "Open loan on this copy (`item_on_loan_to_other_borrower` or `item_already_on_loan_to_borrower`; `force` never overrides an open loan), or Idempotency-Key conflict"),
-        (status = 422, description = "Business rule: unpaid fines exceed the configured threshold (staff may retry with force=true)")
+        (status = 422, description = "Business rule. Unpaid fines above the configured threshold may be retried with force=true. A lost or stolen card (`users.card_lost`) is always `card_lost` and is not forceable, for any role.")
     )
 )]
 pub async fn create_loan(
@@ -772,7 +773,7 @@ pub async fn return_loan(
         (status = 200, description = "Loan renewed", body = LoanResponse),
         (status = 404, description = "Loan not found"),
         (status = 409, description = "Idempotency-Key reused with a different payload"),
-        (status = 422, description = "Renewal refused. `code` is `account_blocked`, `fines_over_threshold`, `withdrawn`, `claimed_returned`, `hold_waiting`, `max_renewals`, `renewal_too_early`, or `business_rule_violation` when the loan is already returned or the due date would not move")
+        (status = 422, description = "Renewal refused. `code` is `card_lost` (not forceable, any role), `account_blocked`, `fines_over_threshold`, `withdrawn`, `claimed_returned`, `hold_waiting`, `max_renewals`, `renewal_too_early`, or `business_rule_violation` when the loan is already returned or the due date would not move")
     )
 )]
 pub async fn renew_loan(
@@ -992,7 +993,7 @@ pub async fn resolve_lost_found(
         (status = 200, description = "Loan renewed", body = LoanResponse),
         (status = 404, description = "Item or active loan not found"),
         (status = 409, description = "Idempotency-Key reused with a different payload"),
-        (status = 422, description = "Renewal refused. `code` is `account_blocked`, `fines_over_threshold`, `withdrawn`, `claimed_returned`, `hold_waiting`, `max_renewals`, `renewal_too_early`, or `business_rule_violation` when the loan is already returned or the due date would not move")
+        (status = 422, description = "Renewal refused. `code` is `card_lost` (not forceable, any role), `account_blocked`, `fines_over_threshold`, `withdrawn`, `claimed_returned`, `hold_waiting`, `max_renewals`, `renewal_too_early`, or `business_rule_violation` when the loan is already returned or the due date would not move")
     )
 )]
 pub async fn renew_loan_by_item(

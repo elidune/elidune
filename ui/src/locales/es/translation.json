@@ -1087,6 +1087,15 @@
     "overdueLoadError": "No se pudieron cargar los préstamos atrasados",
     "sendRemindersError": "No se pudieron enviar los recordatorios",
     "userNotFound": "Usuario no encontrado con el n.º de carné: {{barcode}}",
+    "cardBlocked": "Préstamo imposible sin forzar: {{reasons}}",
+    "blockReason": {
+      "account_blocked": "cuenta bloqueada",
+      "card_lost": "carné perdido",
+      "subscription_expired": "suscripción caducada",
+      "unpaid_fines": "multas impagadas",
+      "max_loans": "límite de préstamos alcanzado",
+      "overdue_loans": "préstamos vencidos"
+    },
     "errorFindingUser": "Error al buscar usuario",
     "noUserSelected": "Ningún usuario seleccionado",
     "errorCreatingLoan": "Error al crear el préstamo",

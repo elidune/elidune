@@ -1087,6 +1087,15 @@
     "overdueLoadError": "Überfällige Ausleihen konnten nicht geladen werden",
     "sendRemindersError": "Erinnerungen konnten nicht gesendet werden",
     "userNotFound": "Benutzer mit Leseausweis-Nr. nicht gefunden: {{barcode}}",
+    "cardBlocked": "Ausleihe nur mit Überschreibung: {{reasons}}",
+    "blockReason": {
+      "account_blocked": "Konto gesperrt",
+      "card_lost": "Karte verloren",
+      "subscription_expired": "Abonnement abgelaufen",
+      "unpaid_fines": "offene Gebühren",
+      "max_loans": "Ausleihlimit erreicht",
+      "overdue_loans": "überfällige Ausleihen"
+    },
     "errorFindingUser": "Fehler beim Suchen des Benutzers",
     "noUserSelected": "Kein Benutzer ausgewählt",
     "errorCreatingLoan": "Fehler beim Erstellen der Ausleihe",

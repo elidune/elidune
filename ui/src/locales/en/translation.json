@@ -1087,6 +1087,15 @@
     "overdueLoadError": "Could not load overdue loans",
     "sendRemindersError": "Could not send reminders",
     "userNotFound": "User not found with card number: {{barcode}}",
+    "cardBlocked": "Cannot lend without an override: {{reasons}}",
+    "blockReason": {
+      "account_blocked": "account blocked",
+      "card_lost": "card lost",
+      "subscription_expired": "subscription expired",
+      "unpaid_fines": "unpaid fines",
+      "max_loans": "loan limit reached",
+      "overdue_loans": "overdue loans"
+    },
     "errorFindingUser": "Error finding user",
     "noUserSelected": "No user selected",
     "errorCreatingLoan": "Error creating loan",

@@ -156,6 +156,7 @@ impl LoansService {
     ///
     /// Enforces user-level rules before delegating to the repository:
     /// - blocked users cannot borrow unless `force` is set
+    /// - a lost or stolen library card is always rejected (`422` `card_lost`), including `force` and any role
     /// - expired subscriptions are rejected unless `force` is set
     /// - unpaid fines above the configured threshold are rejected unless `force` is set
     ///
@@ -181,6 +182,14 @@ impl LoansService {
             return Err(AppError::BusinessRule(
                 "User account is not active or cannot borrow — use force=true to override"
                     .to_string(),
+            ));
+        }
+
+        if self.repository.users_card_lost(user.id).await? {
+            return Err(AppError::coded(
+                422,
+                crate::error::error_code::CARD_LOST,
+                crate::error::error_code::CARD_LOST_MESSAGE,
             ));
         }
 
@@ -625,6 +634,7 @@ impl LoansService {
     }
 
     /// Renew a loan. `force` bypasses account and unpaid-fine gates (fines are audited).
+    /// A lost or stolen card is always `422` `card_lost`, including `force`.
     ///
     /// [`renewal_eligibility`] runs before any write and again inside the locked update.
     pub async fn renew_loan(
@@ -641,6 +651,14 @@ impl LoansService {
             ));
         }
         let user = self.repository.users_get_by_id(snapshot.user_id).await?;
+        let card_lost = self.repository.users_card_lost(user.id).await?;
+        if card_lost {
+            return Err(AppError::coded(
+                422,
+                crate::error::error_code::CARD_LOST,
+                crate::error::error_code::CARD_LOST_MESSAGE,
+            ));
+        }
         let check = self
             .fines
             .check_unpaid_threshold(user.id, user.public_type)
@@ -671,6 +689,7 @@ impl LoansService {
         };
         let renewal_user = RenewalUser {
             can_borrow: user.can_borrow(),
+            card_lost,
         };
         if let Err(refusal) = renewal_eligibility(&snapshot.loan, &renewal_user, &ctx) {
             return Err(refusal.into_app_error(&snapshot.loan, &ctx));
@@ -1258,6 +1277,9 @@ mod tests {
             _: i64,
         ) -> AppResult<Option<crate::repository::users::HoldReadyUserContact>> {
             Ok(None)
+        }
+        async fn users_card_lost(&self, _: i64) -> AppResult<bool> {
+            Ok(false)
         }
     }
 

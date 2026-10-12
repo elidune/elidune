@@ -175,7 +175,8 @@ pub struct BatchCreateLoanItem {
 pub struct BatchCreateLoansRequest {
     pub user_id: String,
     pub barcodes: Vec<String>,
-    /// Same checkout override as `POST /loans`. Never overrides an open loan
+    /// Same checkout override as `POST /loans`. A lost card is `results[].code`
+    /// `card_lost` even when this is true. Never overrides an open loan
     /// (reserved-item override is tracked in #167).
     #[serde(default)]
     pub force: bool,
@@ -215,7 +216,7 @@ pub struct BatchCreateLoanItemResult {
     security(("bearer_auth" = [])),
     request_body = BatchCreateLoansRequest,
     responses(
-        (status = 200, description = "Batch loan results (partial success possible). A failed item keeps `error` and adds machine-readable `code` (same values as `ErrorResponse.code`).", body = BatchCreateLoansResponse),
+        (status = 200, description = "Batch loan results (partial success possible). A failed item keeps `error` and adds machine-readable `code` (same values as `ErrorResponse.code`). A lost card is `card_lost` on that item even when `force` is true.", body = BatchCreateLoansResponse),
         (status = 400, description = "Invalid input", body = crate::error::ErrorResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse)
     )
