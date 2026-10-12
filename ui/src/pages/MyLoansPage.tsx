@@ -1,13 +1,14 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { BookOpen, Calendar, RotateCcw, AlertTriangle } from 'lucide-react';
-import { Card, CardHeader, Button, Badge, Pagination, ListSkeleton, QueryErrorBanner } from '@/components/common';
+import { BookOpen, Calendar, AlertTriangle } from 'lucide-react';
+import { Card, CardHeader, Badge, Pagination, ListSkeleton, QueryErrorBanner } from '@/components/common';
 import { useToast } from '@/contexts/ToastContext';
 import LoansMarcExportButton from '@/components/loans/LoansMarcExportButton';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/services/api';
 import type { MyLoan } from '@/types';
-import { getApiErrorMessage, isAccountRenewalRefusal, renewalRefusalText } from '@/utils/apiError';
+import MyLoanRenewActions from '@/components/loans/MyLoanRenewActions';
+import { getApiErrorCode, getApiErrorMessage, renewalRefusalText } from '@/utils/apiError';
 import { renewedUntilMessage } from '@/utils/localeDate';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
@@ -77,7 +78,12 @@ export default function MyLoansPage() {
       }
     } catch (error) {
       console.error('Error renewing loan:', error);
-      setRenewError(getApiErrorMessage(error, t) || t('loans.errorRenewingLoan'));
+      const code = getApiErrorCode(error);
+      const msg =
+        code === 'card_lost'
+          ? renewalRefusalText(t, code, null, i18n.language)
+          : getApiErrorMessage(error, t) || t('loans.errorRenewingLoan');
+      setRenewError(msg ?? t('loans.errorRenewingLoan'));
     } finally {
       renewInFlightRef.current = false;
     }
@@ -179,10 +185,6 @@ function LoanCard({ loan, onRenew, isOverdue = false }: LoanCardProps) {
   const daysUntilDue = Math.ceil(
     (new Date(loan.dueDate).getTime() - referenceMs) / (1000 * 60 * 60 * 24)
   );
-  const rowRefusal = isAccountRenewalRefusal(loan.renewalRefusalCode)
-    ? null
-    : renewalRefusalText(t, loan.renewalRefusalCode, loan.renewalOpensAt, i18n.language);
-
   return (
     <div
       className={`flex flex-col sm:flex-row sm:items-center gap-4 p-4 rounded-xl border ${
@@ -223,18 +225,12 @@ function LoanCard({ loan, onRenew, isOverdue = false }: LoanCardProps) {
           )}
         </div>
 
-        <Button
-          size="sm"
-          variant="secondary"
-          disabled={!loan.canRenew}
-          onClick={() => onRenew(loan.id)}
-          leftIcon={<RotateCcw className="h-4 w-4" />}
-        >
-          {t('loans.renew')}
-        </Button>
-        {rowRefusal ? (
-          <p className="text-sm text-gray-600 dark:text-gray-300 sm:text-right max-w-xs">{rowRefusal}</p>
-        ) : null}
+        <MyLoanRenewActions
+          canRenew={loan.canRenew}
+          renewalRefusalCode={loan.renewalRefusalCode}
+          renewalOpensAt={loan.renewalOpensAt}
+          onRenew={() => onRenew(loan.id)}
+        />
       </div>
     </div>
   );

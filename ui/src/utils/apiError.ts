@@ -216,6 +216,9 @@ export function formatIsoCalendarDate(isoDate: string, language: string): string
 /**
  * Same sentence for a list row and for a POST `/loans/{id}/renew` error.
  * `renewal_too_early` without a date falls back to the dateless sentence.
+ * `card_lost` on the patron list asks them to come to the desk. The staff
+ * checkout error uses `errors.apiCode.card_lost` instead, so it is not an
+ * API-error refusal code here.
  */
 export function renewalRefusalText(
   t: TFunction,
@@ -223,6 +226,7 @@ export function renewalRefusalText(
   opensAt: string | null | undefined,
   language: string,
 ): string | null {
+  if (code === 'card_lost') return t('loans.renewalRefusal.card_lost');
   if (!isRenewalRefusalCode(code)) return null;
   if (code === 'renewal_too_early') {
     if (!opensAt) return t('loans.renewalTooEarly');

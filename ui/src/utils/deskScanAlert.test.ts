@@ -242,7 +242,7 @@ describe('loan borrower identifier shapes', () => {
     const sentence = checkoutSentence(ref);
     assert.equal(
       sentence,
-      'This copy is still on loan to the reader (library card no. L-10042). Process the return first.',
+      'This copy is still on loan to the reader (card number L-10042). Process the return first.',
     );
     assert.equal(sentence.includes('Julien Dubois'), false);
     assert.equal(sentence.includes('BC-9'), false);
@@ -281,7 +281,7 @@ describe('loan borrower identifier shapes', () => {
     const sentence = checkoutSentence(ref);
     assert.equal(
       sentence,
-      'This copy is still on loan to the reader (library card no. BC-9). Process the return first.',
+      'This copy is still on loan to the reader (card number BC-9). Process the return first.',
     );
     assert.equal(sentence.includes('Julien'), false);
     assert.equal(sentence.includes('Dubois'), false);
@@ -291,9 +291,9 @@ describe('loan borrower identifier shapes', () => {
     const ref = otherBorrowerFromPayload({ id: '42', cardNumber: 'CARTE-0002', initials: 'JD' });
     const expected = {
       fr: "Cet exemplaire est encore en prêt au lecteur carte n° CARTE-0002. Faites d'abord le retour.",
-      en: 'This copy is still on loan to the reader (library card no. CARTE-0002). Process the return first.',
+      en: 'This copy is still on loan to the reader (card number CARTE-0002). Process the return first.',
       de: 'Dieses Exemplar ist noch an den Leser (Leseausweis-Nr. CARTE-0002) ausgeliehen. Erfassen Sie zuerst die Rückgabe.',
-      es: 'Este ejemplar sigue en préstamo al lector (carné n.º CARTE-0002). Registre primero la devolución.',
+      es: 'Este ejemplar sigue en préstamo al lector (n.º de carné CARTE-0002). Registre primero la devolución.',
     } as const;
     for (const lang of ['fr', 'en', 'de', 'es'] as const) {
       const sentence = deskScanAlertMessage(

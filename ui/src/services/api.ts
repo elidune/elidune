@@ -966,8 +966,15 @@ class ApiService {
     return response.data;
   }
 
-  async renewLoan(loanId: string, idempotencyKey?: string): Promise<{ id: string; expiryAt: string; message: string }> {
-    const response = await this.client.post(`/loans/${loanId}/renew`, undefined, this.idempotencyConfig(idempotencyKey));
+  async renewLoan(
+    loanId: string,
+    idempotencyKey?: string,
+    options?: { force?: boolean },
+  ): Promise<{ id: string; expiryAt: string; message: string }> {
+    const response = await this.client.post(`/loans/${loanId}/renew`, undefined, {
+      ...this.idempotencyConfig(idempotencyKey),
+      params: options?.force ? { force: true } : undefined,
+    });
     return response.data;
   }
 
@@ -985,12 +992,15 @@ class ApiService {
     return response.data;
   }
 
-  async renewLoanByBarcode(itemBarcode: string, idempotencyKey?: string): Promise<{ id: string; expiryAt: string; message: string }> {
-    const response = await this.client.post(
-      `/loans/items/${itemBarcode}/renew`,
-      undefined,
-      this.idempotencyConfig(idempotencyKey),
-    );
+  async renewLoanByBarcode(
+    itemBarcode: string,
+    idempotencyKey?: string,
+    options?: { force?: boolean },
+  ): Promise<{ id: string; expiryAt: string; message: string }> {
+    const response = await this.client.post(`/loans/items/${itemBarcode}/renew`, undefined, {
+      ...this.idempotencyConfig(idempotencyKey),
+      params: options?.force ? { force: true } : undefined,
+    });
     return response.data;
   }
 

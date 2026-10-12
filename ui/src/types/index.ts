@@ -1068,6 +1068,7 @@ export interface ClaimsReturnedQueueItem {
  * and apply to every loan.
  */
 export type MyLoanRenewalRefusal =
+  | 'card_lost'
   | 'account_blocked'
   | 'fines_over_threshold'
   | 'withdrawn'

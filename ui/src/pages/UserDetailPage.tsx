@@ -23,6 +23,7 @@ import { useAccountTypesQuery } from '@/hooks/useAccountTypesQuery';
 import { Card, Button, Badge, Modal, Input, Table, ConfirmDialog, MessageModal, ScrollableListRegion, BarcodeScanField } from '@/components/common';
 import api from '@/services/api';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
+import { circulationMayForce } from '@/utils/circulationForce';
 import { renewedUntilMessage } from '@/utils/localeDate';
 import { isWeedingServerMessage } from '@/utils/weeding';
 import { isSubscriptionExpired } from '@/utils/userSubscription';
@@ -33,6 +34,7 @@ import { readItemToPickForOther } from '@/utils/toPickDesk';
 import { newIdempotencyKey } from '@/utils/idempotency';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
 import HoldStatusBadge from '@/components/holds/HoldStatusBadge';
+import CirculationForceButton from '@/components/loans/CirculationForceButton';
 import ToPickForceLoanDialog from '@/components/loans/ToPickForceLoanDialog';
 import HoldPickupCell from '@/components/holds/HoldPickupCell';
 import HoldTransitActions from '@/components/holds/HoldTransitActions';
@@ -93,6 +95,8 @@ export default function UserDetailPage() {
   const [isBorrowLoading, setIsBorrowLoading] = useState(false);
   const [loanDetails, setLoanDetails] = useState<LoanListItem | null>(null);
   const [renewError, setRenewError] = useState('');
+  const [renewForceCode, setRenewForceCode] = useState<string | null>(null);
+  const [renewForceLoanId, setRenewForceLoanId] = useState<string | null>(null);
   const [loanAction, setLoanAction] = useState<{ loanId: string; op: 'return' | 'renew' | CirculationExceptionKind } | null>(null);
   const loanActionInFlightRef = useRef(false);
 
@@ -452,21 +456,28 @@ export default function UserDetailPage() {
     }
   };
 
-  const handleRenewLoan = async (loanId: string) => {
+  const handleRenewLoan = async (loanId: string, force = false) => {
     if (loanActionInFlightRef.current) return;
     loanActionInFlightRef.current = true;
     setLoanAction({ loanId, op: 'renew' });
     setRenewError('');
+    setRenewForceCode(null);
+    setRenewForceLoanId(null);
     try {
-      const renewed = await api.renewLoan(loanId, newIdempotencyKey());
+      const renewed = await api.renewLoan(loanId, newIdempotencyKey(), { force: force || undefined });
       await refreshLoans();
       showToast({
         variant: 'success',
         message: renewedUntilMessage(renewed.expiryAt, t, i18n.language),
       });
     } catch (error) {
+      const code = getApiErrorCode(error);
       const msg = getApiErrorMessage(error, t) || t('loans.errorRenewingLoan');
       setRenewError(msg);
+      if (!force && circulationMayForce('renewal', code)) {
+        setRenewForceCode(code);
+        setRenewForceLoanId(loanId);
+      }
       showToast({ variant: 'error', message: msg });
     } finally {
       loanActionInFlightRef.current = false;
@@ -988,7 +999,17 @@ export default function UserDetailPage() {
                 className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 flex items-start gap-2"
               >
                 <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
-                <p className="text-sm font-medium text-red-800 dark:text-red-200">{renewError}</p>
+                <div className="min-w-0 flex-1 space-y-2">
+                  <p className="text-sm font-medium text-red-800 dark:text-red-200">{renewError}</p>
+                  <CirculationForceButton
+                    surface="renewal"
+                    code={renewForceCode}
+                    disabled={loanAction?.op === 'renew'}
+                    onForce={() => {
+                      if (renewForceLoanId) void handleRenewLoan(renewForceLoanId, true);
+                    }}
+                  />
+                </div>
               </div>
             </div>
           )}
@@ -1349,6 +1370,7 @@ export default function UserDetailPage() {
           })();
         }}
         message={forceBorrowDialog?.message ?? ''}
+        confirmLabel={t('loans.forceLoan')}
         stackOnTop
       />
 
@@ -1419,7 +1441,12 @@ function BorrowForm({
         onToPickForOther?.(toPick.userName, specimenCode.trim());
         return;
       }
-      if (errorCode === 'business_rule_violation' && !force) {
+      if (errorCode === 'card_lost') {
+        setError(displayMsg);
+        showToast({ variant: 'error', message: displayMsg });
+        return;
+      }
+      if (circulationMayForce('loan', errorCode) && !force) {
         onBusinessRuleViolation?.(confirmMsg, specimenCode.trim());
         return;
       }
