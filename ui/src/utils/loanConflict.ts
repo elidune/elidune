@@ -51,6 +51,8 @@ function readLoanId(data: Record<string, unknown> | null): string | null {
 
 /**
  * Notice for a 409 checkout of a copy that is already on loan.
+ * `POST /loans` body is `{ code, error: "Conflict", message }` with no loan id.
+ * The English `message` is not shown. Renewal uses the barcode snapshot or the reader's open loan.
  * The same codes are returned with or without `force`; neither opens a force retry.
  */
 export function checkoutNoticeForConflict(error: unknown, context: ConflictContext): CheckoutLoanNotice | null {

@@ -33,7 +33,14 @@ function translate(lang: keyof typeof catalogs) {
   };
 }
 
-/** Mocked POST /loans response. `force` is the flag that was sent, if any. */
+/** English `message` strings from `POST /loans` 409 (`error` is always `"Conflict"`). */
+const SERVER_MESSAGE: Record<string, string> = {
+  [ITEM_ON_LOAN_TO_OTHER_BORROWER]: 'This item is on loan to another borrower.',
+  [ITEM_ALREADY_ON_LOAN_TO_BORROWER]:
+    'This item is already on loan to this borrower. Renew the existing loan instead of creating a new one.',
+};
+
+/** Mocked POST /loans response. `force` is the flag that was sent, if any. The body has no loan id. */
 function mockLoanResponse(
   status: number,
   code: string,
@@ -58,7 +65,7 @@ function mockLoanResponse(
       data: {
         code,
         error: status === 409 ? 'Conflict' : 'Unprocessable Entity',
-        message: 'Item is already borrowed',
+        message: SERVER_MESSAGE[code] ?? 'Some other rule failed',
         ...extra,
       },
     },
@@ -87,6 +94,10 @@ describe('checkout 409 when the copy is already on loan', () => {
       assert.equal(checkoutMayForce(error), false);
     }
     assert.equal(checkoutForceFlag('onLoan', true), undefined);
+    const body = mockLoanResponse(409, ITEM_ON_LOAN_TO_OTHER_BORROWER).response.data;
+    assert.equal(body.error, 'Conflict');
+    assert.equal(body.message, SERVER_MESSAGE[ITEM_ON_LOAN_TO_OTHER_BORROWER]);
+    assert.equal('loanId' in body, false);
   });
 
   it('asks to renew the same reader’s loan and never sends force', () => {
@@ -129,6 +140,21 @@ describe('checkout 409 when the copy is already on loan', () => {
     assert.equal(checkoutForceFlag('onLoan', true), undefined);
     assert.equal(checkoutMayForce(mockLoanResponse(422, 'business_rule_violation')), true);
     assert.equal(checkoutNoticeForConflict(mockLoanResponse(409, 'conflict'), { patronId: '1', snapshot: null }), null);
+    const sameBody = mockLoanResponse(409, ITEM_ALREADY_ON_LOAN_TO_BORROWER).response.data;
+    assert.equal(sameBody.error, 'Conflict');
+    assert.equal(sameBody.message, SERVER_MESSAGE[ITEM_ALREADY_ON_LOAN_TO_BORROWER]);
+    assert.equal('loanId' in sameBody, false);
+    assert.equal(
+      checkoutNoticeForConflict(
+        {
+          barcode: 'BC-100',
+          success: false,
+          error: SERVER_MESSAGE[ITEM_ON_LOAN_TO_OTHER_BORROWER],
+        },
+        { patronId: '1', snapshot: null },
+      ),
+      null,
+    );
   });
 
   it('stores both sentences in fr, en, de, and es', () => {
