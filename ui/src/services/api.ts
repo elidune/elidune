@@ -6,6 +6,7 @@ import type {
   LoginResponse,
   User,
   UserShortStaff,
+  PatronCardLookup,
   Biblio,
   BiblioShort,
   BiblioShortStaff,
@@ -816,6 +817,18 @@ class ApiService {
   }
 
   // ─── Users ──────────────────────────────────────────────────────
+
+  /**
+   * `GET /users/by-card/:cardNumber` — exact library card.
+   * Loans read/write without users read: `{ id, cardNumber, initials, loanStatus }`.
+   * Users read: the full user plus `loanStatus`.
+   */
+  async getUserByCard(cardNumber: string): Promise<PatronCardLookup> {
+    const response = await this.client.get<PatronCardLookup>(
+      `/users/by-card/${encodeURIComponent(cardNumber)}`,
+    );
+    return response.data;
+  }
 
   async getUsers(params?: {
     name?: string;

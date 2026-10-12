@@ -290,6 +290,51 @@ export interface UserShortPublic {
 /** Staff list row. Same JSON as {@link UserShortStaff}. */
 export type UserShort = UserShortStaff;
 
+/**
+ * `loanStatus.blockReasons` on `GET /users/by-card/:cardNumber`.
+ * `overdue_loans` does not set `blocked` by itself.
+ */
+export type PatronBlockReason =
+  | 'account_blocked'
+  | 'card_lost'
+  | 'subscription_expired'
+  | 'unpaid_fines'
+  | 'max_loans'
+  | 'overdue_loans';
+
+/** Circulation snapshot returned with a card scan. */
+export interface PatronLoanStatus {
+  subscriptionValid: boolean;
+  /** Library-local `YYYY-MM-DD`, or null when the patron has no expiry. */
+  subscriptionExpiresAt: string | null;
+  /** True when checkout without force would refuse this patron. */
+  blocked: boolean;
+  blockReasons: PatronBlockReason[];
+  activeLoans: number;
+  overdueLoans: number;
+  /** Audience total cap. Null only when no total cap is configured. */
+  maxLoans: number | null;
+  unpaidFinesCents: number;
+  /**
+   * Holds ready for pickup. Every site when the agent has no site
+   * (users and the JWT store none).
+   */
+  readyHolds: number;
+}
+
+/** Loans staff without users read. `GET /users/by-card/:cardNumber`. */
+export interface DeskCardLookup {
+  id: string;
+  cardNumber: string | null;
+  initials: string;
+  loanStatus: PatronLoanStatus;
+}
+
+/** Users read. Full user plus the same `loanStatus`. */
+export type StaffCardLookup = User & { loanStatus: PatronLoanStatus };
+
+export type PatronCardLookup = DeskCardLookup | StaffCardLookup;
+
 export interface LoginRequest {
   username: string;
   password: string;

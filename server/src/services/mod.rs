@@ -22,6 +22,7 @@ pub mod loans;
 pub mod maintenance_service;
 pub mod marc;
 pub mod operational_metrics;
+pub mod patron_card;
 pub mod public_types;
 pub mod redis;
 pub mod reminders;

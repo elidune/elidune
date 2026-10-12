@@ -1085,6 +1085,15 @@
     "overdueLoadError": "Impossible de charger les retards",
     "sendRemindersError": "Impossible d'envoyer les rappels",
     "userNotFound": "Utilisateur non trouvé avec le code-barres : {{barcode}}",
+    "cardBlocked": "Prêt impossible sans forçage : {{reasons}}",
+    "blockReason": {
+      "account_blocked": "compte bloqué",
+      "card_lost": "carte perdue",
+      "subscription_expired": "abonnement expiré",
+      "unpaid_fines": "amendes impayées",
+      "max_loans": "nombre maximum de prêts atteint",
+      "overdue_loans": "prêts en retard"
+    },
     "errorFindingUser": "Erreur lors de la recherche de l'utilisateur",
     "noUserSelected": "Aucun utilisateur sélectionné",
     "errorCreatingLoan": "Erreur lors de la création de l'emprunt",

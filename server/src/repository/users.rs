@@ -13,6 +13,15 @@ use crate::{
     },
 };
 
+/// Counters for `GET /users/by-card/{card_number}`.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct PatronCardCounters {
+    pub card_lost: bool,
+    pub active_loans: i64,
+    pub overdue_loans: i64,
+    pub ready_holds: i64,
+}
+
 /// Minimal user info used for bulk email targeting
 #[derive(Debug, sqlx::FromRow)]
 pub struct UserEmailTarget {
@@ -258,6 +267,8 @@ pub trait UsersRepository: Send + Sync {
         &self,
         user_id: i64,
     ) -> AppResult<Option<HoldReadyUserContact>>;
+    /// `users.card_lost`. Missing user is false so checkout can return its own not-found.
+    async fn users_card_lost(&self, id: i64) -> AppResult<bool>;
 }
 
 // ---------------------------------------------------------------------------
@@ -413,6 +424,10 @@ impl UsersRepository for Repository {
         user_id: i64,
     ) -> crate::error::AppResult<Option<HoldReadyUserContact>> {
         Repository::users_hold_ready_contact(self, user_id).await
+    }
+
+    async fn users_card_lost(&self, id: i64) -> crate::error::AppResult<bool> {
+        Repository::users_card_lost(self, id).await
     }
 }
 
@@ -1497,6 +1512,65 @@ impl Repository {
             .fetch_all(&self.pool)
             .await?;
         Ok(group_announcement_recipients(rows))
+    }
+
+    /// True when this patron's library card is declared lost or stolen.
+    pub async fn users_card_lost(&self, id: i64) -> AppResult<bool> {
+        let lost: Option<bool> = sqlx::query_scalar("SELECT card_lost FROM users WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(lost.unwrap_or(false))
+    }
+
+    /// Active, non-deleted patron id for an exact `users.barcode` match.
+    ///
+    /// Comparison is case-sensitive and not a prefix. A deleted patron is not found.
+    pub async fn users_id_by_exact_barcode(&self, card_number: &str) -> AppResult<Option<i64>> {
+        let id: Option<i64> = sqlx::query_scalar(
+            r#"
+            SELECT id FROM users
+            WHERE barcode = $1
+              AND (status IS NULL OR status <> 'deleted')
+            "#,
+        )
+        .bind(card_number)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(id)
+    }
+
+    /// Loan, hold, and lost-card counters for a card scan.
+    ///
+    /// `agent_site_id` of `None` counts ready holds at every pickup site.
+    pub async fn patron_card_counters(
+        &self,
+        user_id: i64,
+        agent_site_id: Option<i64>,
+    ) -> AppResult<PatronCardCounters> {
+        sqlx::query_as::<_, PatronCardCounters>(
+            r#"
+            SELECT
+                u.card_lost,
+                (SELECT COUNT(*)::bigint FROM loans l
+                  WHERE l.user_id = u.id AND l.returned_at IS NULL) AS active_loans,
+                (SELECT COUNT(*)::bigint FROM loans l
+                  WHERE l.user_id = u.id
+                    AND l.returned_at IS NULL
+                    AND l.expiry_at < NOW()) AS overdue_loans,
+                (SELECT COUNT(*)::bigint FROM holds h
+                  WHERE h.user_id = u.id
+                    AND h.status = 'ready'
+                    AND ($2::bigint IS NULL OR h.pickup_site_id = $2)) AS ready_holds
+            FROM users u
+            WHERE u.id = $1
+            "#,
+        )
+        .bind(user_id)
+        .bind(agent_site_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("User with id {user_id} not found")))
     }
 
     pub async fn users_hold_ready_contact(

@@ -5,6 +5,7 @@ pub mod fines;
 pub mod holds;
 pub mod library_info;
 pub mod loans;
+pub mod patron_card;
 pub mod sse;
 pub mod stats;
 pub mod transits;

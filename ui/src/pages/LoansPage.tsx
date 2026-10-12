@@ -76,7 +76,7 @@ import PatronOptionLabel from '@/components/users/PatronOptionLabel';
 import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
 import { useToast } from '@/contexts/ToastContext';
 import { canReadUsers, isAdmin } from '@/types';
-import type { User as UserType, Loan, UserShort, OverdueBorrower, OverdueBorrowerMinimal, OverdueLoanInfo, ReminderReport, ItemCheckIn, LostFoundDisposition, LostReturnFields } from '@/types';
+import type { User as UserType, Loan, UserShort, OverdueBorrower, OverdueBorrowerMinimal, OverdueLoanInfo, ReminderReport, ItemCheckIn, LostFoundDisposition, LostReturnFields, PatronCardLookup, PatronLoanStatus, DeskCardLookup } from '@/types';
 import { isItemStaffView, isLoanDetailsStaff } from '@/utils/catalogView';
 
 type TabType = 'borrow' | 'return' | 'overdue' | 'claims';
@@ -106,6 +106,40 @@ type CheckoutRecap = {
 };
 
 const BORROW_LOANS_PAGE_SIZE = 20;
+
+function isDeskCardLookup(body: PatronCardLookup): body is DeskCardLookup {
+  return !('firstname' in body) && !('login' in body) && !('email' in body);
+}
+
+function patronFromCardScan(body: PatronCardLookup): {
+  user: UserType;
+  loanStatus: PatronLoanStatus;
+} {
+  if (!isDeskCardLookup(body)) {
+    const { loanStatus, ...user } = body;
+    return { user, loanStatus };
+  }
+  return {
+    loanStatus: body.loanStatus,
+    user: {
+      id: body.id,
+      username: body.cardNumber ?? body.id,
+      barcode: body.cardNumber ?? undefined,
+      firstname: body.initials,
+      lastname: '',
+    },
+  };
+}
+
+function deskPatronLabel(user: UserType): string {
+  const name = [user.firstname, user.lastname].filter(Boolean).join(' ').trim();
+  return name || user.barcode || user.id;
+}
+
+function deskPatronInitials(user: UserType): string {
+  if (!user.lastname) return (user.firstname || '?').slice(0, 2);
+  return `${user.firstname?.[0] ?? '?'}${user.lastname[0] ?? ''}`;
+}
 
 function isOverdueBorrowerMinimal(
   user: OverdueBorrower
@@ -184,6 +218,7 @@ export default function LoansPage() {
   const [userSearchRetry, setUserSearchRetry] = useState(0);
   const [loansReloadToken, setLoansReloadToken] = useState(0);
   const [isPatronLookupBusy, setIsPatronLookupBusy] = useState(false);
+  const [deskLoanStatus, setDeskLoanStatus] = useState<PatronLoanStatus | null>(null);
   const patronLookupInFlightRef = useRef(false);
   const borrowLoanActionInFlightRef = useRef(false);
 
@@ -633,6 +668,9 @@ export default function LoansPage() {
     if (!selectedUser) {
       return;
     }
+    if (!canReadBorrowers) {
+      return;
+    }
 
     const loadUserLoans = async () => {
       setIsLoadingLoans(true);
@@ -654,7 +692,7 @@ export default function LoansPage() {
     };
 
     return deferFromEffect(() => { void loadUserLoans(); });
-  }, [selectedUser, loansPage, loansReloadToken, showToast, t]);
+  }, [selectedUser, loansPage, loansReloadToken, showToast, t, canReadBorrowers]);
 
   const [prevSelectedUser, setPrevSelectedUser] = useState(selectedUser);
   if (selectedUser !== prevSelectedUser) {
@@ -673,6 +711,7 @@ export default function LoansPage() {
     try {
       const fullUser = await api.getUser(user.id);
       setSelectedUser(fullUser);
+      setDeskLoanStatus(null);
       setLoansPage(1);
       setLastCheckout(null);
       setUserSearchDraft('');
@@ -692,28 +731,26 @@ export default function LoansPage() {
     patronLookupInFlightRef.current = true;
     setIsPatronLookupBusy(true);
     try {
-      const response = await api.getUsers({
-        barcode: barcode.trim(),
-        perPage: 1,
-      });
-
-      if (response.items.length > 0) {
-        const fullUser = await api.getUser(response.items[0].id);
-        setSelectedUser(fullUser);
-        setLoansPage(1);
-        setLastCheckout(null);
-        setUserSearchDraft('');
-        setUserSearchResults([]);
-        if (userBarcodeInputRef.current) {
-          userBarcodeInputRef.current.value = '';
-        }
-      } else {
-        const msg = t('loans.userNotFound', { barcode });
-        setMessageDialog(msg);
-        showToast({ variant: 'error', message: msg });
+      const found = await api.getUserByCard(barcode.trim());
+      const { user, loanStatus } = patronFromCardScan(found);
+      setSelectedUser(user);
+      setDeskLoanStatus(loanStatus);
+      if (!canReadBorrowers) {
+        setLoans([]);
+        setLoansTotal(0);
+        setLoansLoadError(null);
+      }
+      setLoansPage(1);
+      setLastCheckout(null);
+      setUserSearchDraft('');
+      setUserSearchResults([]);
+      if (userBarcodeInputRef.current) {
+        userBarcodeInputRef.current.value = '';
       }
     } catch (error) {
-      const msg = getApiErrorMessage(error, t) || t('loans.errorFindingUser');
+      const msg = getHttpStatus(error) === 404
+        ? t('loans.userNotFound', { barcode })
+        : getApiErrorMessage(error, t) || t('loans.errorFindingUser');
       setMessageDialog(msg);
       showToast({ variant: 'error', message: msg });
     } finally {
@@ -757,17 +794,21 @@ export default function LoansPage() {
         itemIdentification: barcode,
         force: checkoutForceFlag(snapshot?.availability, force),
       }, newIdempotencyKey());
-      const res = await api.getUserLoans(selectedUser.id, {
-        page: loansPage,
-        perPage: BORROW_LOANS_PAGE_SIZE,
-      });
-      setLoans(res.items.filter(isLoanDetailsStaff));
-      setLoansTotal(res.total);
-      const matched = res.items.find((loan) => loan.id === created.id);
+      let matched: Loan | undefined;
+      if (canReadBorrowers) {
+        const res = await api.getUserLoans(selectedUser.id, {
+          page: loansPage,
+          perPage: BORROW_LOANS_PAGE_SIZE,
+        });
+        const items = res.items.filter(isLoanDetailsStaff);
+        setLoans(items);
+        setLoansTotal(res.total);
+        matched = items.find((loan) => loan.id === created.id);
+      }
       const title = matched?.biblio.title?.trim() || t('loans.noTitle');
       const checkedOutBarcode = matched?.itemIdentification?.trim() || barcode;
       const dueDate = matched?.expiryAt || created.expiryAt;
-      const patronName = `${selectedUser.firstname} ${selectedUser.lastname}`.trim();
+      const patronName = deskPatronLabel(selectedUser);
       setLastCheckout({ title, barcode: checkedOutBarcode, dueDate, patronName });
       showToast({
         variant: 'success',
@@ -1291,19 +1332,33 @@ export default function LoansPage() {
                   <div className="flex items-center justify-between gap-3">
                     <div className="flex min-w-0 items-center gap-2.5">
                       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-sm font-bold text-amber-800 dark:bg-amber-900/55 dark:text-amber-200">
-                        {selectedUser.firstname?.[0] || '?'}
-                        {selectedUser.lastname?.[0] || ''}
+                        {deskPatronInitials(selectedUser)}
                       </div>
                       <div className="min-w-0">
                         <p className="truncate font-semibold text-gray-900 dark:text-white">
-                          {selectedUser.firstname} {selectedUser.lastname}
+                          {deskPatronLabel(selectedUser)}
                         </p>
                         <p className="truncate text-xs text-gray-500 dark:text-gray-400">
-                          {localizedAccountTypeLabel(t, selectedUser.accountType)}
+                          {selectedUser.accountType
+                            ? localizedAccountTypeLabel(t, selectedUser.accountType)
+                            : null}
                           {selectedUser.barcode && ` · ${selectedUser.barcode}`}
-                          {overdueLoans.length > 0 &&
-                            ` · ${t('loans.overdueCount', { count: overdueLoans.length })}`}
+                          {(canReadBorrowers ? overdueLoans.length : deskLoanStatus?.overdueLoans ?? 0) > 0 &&
+                            ` · ${t('loans.overdueCount', {
+                              count: canReadBorrowers
+                                ? overdueLoans.length
+                                : deskLoanStatus?.overdueLoans ?? 0,
+                            })}`}
                         </p>
+                        {deskLoanStatus?.blocked ? (
+                          <p className="truncate text-xs font-medium text-red-700 dark:text-red-300">
+                            {t('loans.cardBlocked', {
+                              reasons: deskLoanStatus.blockReasons
+                                .map((code) => t(`loans.blockReason.${code}`))
+                                .join(', '),
+                            })}
+                          </p>
+                        ) : null}
                       </div>
                     </div>
                     <Button
@@ -1312,6 +1367,7 @@ export default function LoansPage() {
                       className="shrink-0"
                       onClick={() => {
                         setSelectedUser(null);
+                        setDeskLoanStatus(null);
                         setLoans([]);
                         setLoansTotal(0);
                         setLoansPage(1);

@@ -156,6 +156,7 @@ impl LoansService {
     ///
     /// Enforces user-level rules before delegating to the repository:
     /// - blocked users cannot borrow unless `force` is set
+    /// - a lost or stolen library card is rejected unless `force` is set
     /// - expired subscriptions are rejected unless `force` is set
     /// - unpaid fines above the configured threshold are rejected unless `force` is set
     ///
@@ -181,6 +182,12 @@ impl LoansService {
             return Err(AppError::BusinessRule(
                 "User account is not active or cannot borrow — use force=true to override"
                     .to_string(),
+            ));
+        }
+
+        if self.repository.users_card_lost(user.id).await? && !loan.force {
+            return Err(AppError::BusinessRule(
+                "Library card is reported lost or stolen — use force=true to override".to_string(),
             ));
         }
 
@@ -1258,6 +1265,9 @@ mod tests {
             _: i64,
         ) -> AppResult<Option<crate::repository::users::HoldReadyUserContact>> {
             Ok(None)
+        }
+        async fn users_card_lost(&self, _: i64) -> AppResult<bool> {
+            Ok(false)
         }
     }
 

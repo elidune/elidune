@@ -9,9 +9,10 @@ use serde::Deserialize;
 
 use crate::{
     error::AppResult,
-    models::catalog_view::UserShortStaff,
+    models::catalog_view::{borrower_initials, UserShortStaff},
+    models::dto::patron_card::{CardLookupResponse, DeskCardLookup, StaffCardLookup},
     models::user::{
-        EventsConsentSource, UpdateAccountType, UpdateProfile, User, UserPayload, UserQuery,
+        EventsConsentSource, Rights, UpdateAccountType, UpdateProfile, User, UserPayload, UserQuery,
     },
     services::audit,
 };
@@ -23,6 +24,7 @@ pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::{get, put};
     axum::Router::new()
         .route("/users", get(list_users).post(create_user))
+        .route("/users/by-card/:card_number", get(get_user_by_card))
         .route(
             "/users/:id",
             get(get_user).put(update_user).delete(delete_user),
@@ -73,6 +75,67 @@ pub async fn list_users(
         page,
         per_page,
     )))
+}
+
+/// Exact library-card lookup for the circulation desk.
+///
+/// The calling agent has no site on the user row or the JWT, so `loanStatus.readyHolds`
+/// counts every pickup site. Name search stays on `GET /users` and still requires users read.
+#[utoipa::path(
+    get,
+    path = "/users/by-card/{card_number}",
+    tag = "users",
+    security(("bearer_auth" = [])),
+    params(
+        ("card_number" = String, Path, description = "Exact library card (`users.barcode`). Not a prefix or a name.")
+    ),
+    responses(
+        (status = 200, description = "Patron for this card. `users_rights` read or write: full `User` plus `loanStatus`. `loans_rights` read or write without users read: `id`, `cardNumber`, `initials`, and `loanStatus` only. `loanStatus.blocked` matches checkout without force. `blockReasons` adds `overdue_loans` when a loan is past due; that code does not set `blocked`. `readyHolds` counts `ready` holds at every site because the agent has no site.", body = CardLookupResponse),
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Caller has neither users read nor loans read"),
+        (status = 404, description = "No active patron with this exact card")
+    )
+)]
+pub async fn get_user_by_card(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Path(card_number): Path<String>,
+) -> AppResult<Json<CardLookupResponse>> {
+    let users_read = claims.rights.users_rights.rank() >= Rights::Read.rank();
+    let loans_read = claims.rights.loans_rights.rank() >= Rights::Read.rank();
+    if !users_read && !loans_read {
+        return Err(crate::error::AppError::Authorization(
+            "Insufficient rights to look up a patron card".to_string(),
+        ));
+    }
+
+    // No site is stored on the staff user or the JWT. None counts every pickup site.
+    let lookup = crate::services::patron_card::lookup_patron_by_card(
+        &state.services.repository,
+        &state.services.fines,
+        &card_number,
+        None,
+    )
+    .await?;
+
+    if users_read {
+        return Ok(Json(CardLookupResponse::Staff(Box::new(StaffCardLookup {
+            user: lookup.user,
+            loan_status: lookup.loan_status,
+        }))));
+    }
+
+    let card_number = lookup.user.barcode.filter(|value| !value.trim().is_empty());
+    let initials = borrower_initials(
+        lookup.user.firstname.as_deref(),
+        lookup.user.lastname.as_deref(),
+    );
+    Ok(Json(CardLookupResponse::Desk(DeskCardLookup {
+        id: lookup.user.id,
+        card_number,
+        initials,
+        loan_status: lookup.loan_status,
+    })))
 }
 
 /// Get user details by ID
