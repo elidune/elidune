@@ -21,9 +21,9 @@ export default function PublicLanguageSelector() {
   if (isLoading || isAuthenticated || api.isAuthenticated()) return null;
 
   return (
-    // At 420px and below the fixed control sat on the public header card's corner.
-    // In normal flow it stays above that card and remains a usable select.
-    <div className="z-40 max-[421px]:flex max-[421px]:justify-end max-[421px]:px-3 max-[421px]:pt-3 min-[421px]:fixed min-[421px]:top-3 min-[421px]:right-3">
+    // In normal flow, above the page, so it never sits on the header card corner
+    // or the decorative image. This keeps the narrow layout used at 420px.
+    <div className="z-40 flex justify-end px-3 pt-3">
       <label htmlFor="public-language" className="sr-only">
         {t('language.selector')}
       </label>

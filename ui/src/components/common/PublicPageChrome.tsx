@@ -14,7 +14,7 @@ export default function PublicPageChrome({ children }: PublicPageChromeProps) {
   return (
     <div className="min-h-screen flex flex-col bg-gray-50 dark:bg-gray-950">
       <header className="shrink-0 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
-        <div className="mx-auto flex w-full max-w-5xl items-center gap-3 px-4 py-3 min-[421px]:pr-28 sm:pr-32">
+        <div className="mx-auto flex w-full max-w-5xl items-center gap-3 px-4 py-3">
           <Link to="/" className="flex min-w-0 items-center gap-2">
             <img src="/elidune_logo.png" alt="Elidune" className="h-9 w-9 shrink-0 object-contain" />
             <span className="truncate text-sm font-semibold text-gray-900 dark:text-white">
