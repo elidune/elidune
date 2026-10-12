@@ -255,6 +255,13 @@ export interface UserShortStaff {
   login?: string | null;
   /** Library card number. Shown when `login` is empty. */
   barcode?: string | null;
+  /**
+   * Library card on the minimized `GET /loans/:id/user` body.
+   * Preferred over `barcode`. Null when the reader has no card.
+   */
+  cardNumber?: string | null;
+  /** Uppercase initials from the minimized loan-user body. No dots. */
+  initials?: string | null;
   firstname?: string | null;
   lastname?: string | null;
   accountType?: string | null;

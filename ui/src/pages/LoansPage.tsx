@@ -713,6 +713,7 @@ export default function LoansPage() {
               otherBorrower: otherBorrowerFromPerson({
                 userId: snapshot?.loanUserId,
                 cardNumber: snapshot?.loanUserCard,
+                initials: snapshot?.loanUserInitials,
                 firstname: snapshot?.loanUserFirstname,
                 lastname: snapshot?.loanUserLastname,
                 fullName: snapshot?.loanUserName,
@@ -2010,14 +2011,24 @@ async function readDeskCopy(barcode: string): Promise<DeskCopySnapshot | null> {
     let loanUserId: string | null = null;
     let loanUserName: string | null = null;
     let loanUserCard: string | null = null;
+    let loanUserInitials: string | null = null;
     let loanUserFirstname: string | null = null;
     let loanUserLastname: string | null = null;
     if (copy.availability === 'onLoan' && copy.loanId) {
       try {
         const borrower = await api.getLoanBorrower(copy.loanId);
-        loanUserId = borrower.id;
+        const ref = otherBorrowerFromPerson({
+          userId: borrower.id,
+          cardNumber: borrower.cardNumber,
+          barcode: borrower.barcode,
+          initials: borrower.initials,
+          firstname: borrower.firstname,
+          lastname: borrower.lastname,
+        });
+        loanUserId = ref?.userId ?? borrower.id;
         loanUserName = readerName(borrower);
-        loanUserCard = borrower.barcode?.trim() || null;
+        loanUserCard = ref?.cardNumber ?? null;
+        loanUserInitials = ref?.initials ?? null;
         loanUserFirstname = borrower.firstname ?? null;
         loanUserLastname = borrower.lastname ?? null;
       } catch {
@@ -2031,6 +2042,7 @@ async function readDeskCopy(barcode: string): Promise<DeskCopySnapshot | null> {
       loanUserId,
       loanUserName,
       loanUserCard,
+      loanUserInitials,
       loanUserFirstname,
       loanUserLastname,
       holdUserId: copy.holdUserId ?? null,

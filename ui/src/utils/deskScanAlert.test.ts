@@ -13,6 +13,8 @@ import {
   deskScanAlertMessage,
   deskScanNoticeAction,
   isCheckoutScanNoticeShown,
+  otherBorrowerFromPayload,
+  type OtherBorrowerRef,
 } from './deskScanAlert.ts';
 
 const catalogs = { fr, en, de, es } as const;
@@ -185,6 +187,71 @@ describe('desk scan alert', () => {
     const shown = new CheckoutScanNoticeShown();
     assert.equal(isCheckoutScanNoticeShown(shown), true);
     assert.equal(isCheckoutScanNoticeShown(new Error('Action refusée par une règle métier')), false);
+  });
+});
+
+describe('loan borrower identifier shapes', () => {
+  function checkoutSentence(ref: OtherBorrowerRef | null): string {
+    return deskScanAlertMessage(
+      { kind: 'onLoan', patronName: 'Julien Dubois', otherBorrower: ref },
+      translate('en'),
+    );
+  }
+
+  it('shows the card from the minimized borrower shape', () => {
+    const ref = otherBorrowerFromPayload({
+      id: '42',
+      cardNumber: 'L-10042',
+      barcode: 'BC-9',
+      initials: 'JD',
+    });
+    assert.deepEqual(ref, { userId: '42', cardNumber: 'L-10042', initials: 'JD' });
+    const sentence = checkoutSentence(ref);
+    assert.equal(
+      sentence,
+      'This copy is still on loan to the reader (barcode L-10042). Process the return first.',
+    );
+    assert.equal(sentence.includes('Julien Dubois'), false);
+    assert.equal(sentence.includes('BC-9'), false);
+  });
+
+  it('uses server initials when cardNumber is null, without re-deriving or adding dots', () => {
+    const ref = otherBorrowerFromPayload({
+      id: '42',
+      cardNumber: null,
+      initials: 'JD',
+      firstname: 'Ada',
+      lastname: 'Lovelace',
+    });
+    assert.deepEqual(ref, { userId: '42', cardNumber: null, initials: 'JD' });
+    const dotted = otherBorrowerFromPayload({ id: 42, cardNumber: null, initials: 'J.D.' });
+    assert.equal(dotted?.initials, 'JD');
+    assert.equal(dotted?.initials?.includes('.'), false);
+    const sentence = checkoutSentence(ref);
+    assert.equal(sentence, 'This copy is still on loan to the reader JD. Process the return first.');
+    assert.equal(sentence.includes('Ada'), false);
+    assert.equal(sentence.includes('Lovelace'), false);
+    assert.equal(sentence.includes('J.D.'), false);
+  });
+
+  it('derives the card and initials from the legacy barcode and name fields', () => {
+    const ref = otherBorrowerFromPayload({
+      id: '42',
+      barcode: 'BC-9',
+      firstname: 'Julien',
+      lastname: 'Dubois',
+    });
+    assert.deepEqual(ref, { userId: '42', cardNumber: 'BC-9', initials: 'JD' });
+    const blob = JSON.stringify(ref);
+    assert.equal(blob.includes('Julien'), false);
+    assert.equal(blob.includes('Dubois'), false);
+    const sentence = checkoutSentence(ref);
+    assert.equal(
+      sentence,
+      'This copy is still on loan to the reader (barcode BC-9). Process the return first.',
+    );
+    assert.equal(sentence.includes('Julien'), false);
+    assert.equal(sentence.includes('Dubois'), false);
   });
 });
 

@@ -28,8 +28,10 @@ export interface DeskCopySnapshot {
   loanId?: string | null;
   loanUserId?: string | null;
   loanUserName?: string | null;
-  /** Library card / barcode of the borrower who has the copy. */
+  /** Library card: `cardNumber` when the loan user payload has it, otherwise `barcode`. */
   loanUserCard?: string | null;
+  /** Server initials when the loan user payload sends them. No dots. */
+  loanUserInitials?: string | null;
   loanUserFirstname?: string | null;
   loanUserLastname?: string | null;
   holdUserId?: string | null;
@@ -82,21 +84,72 @@ export function borrowerInitials(
   return letters.join('') || null;
 }
 
-/** Card number when present, otherwise initials. The full name is dropped. */
+/** Uppercase initials with dots and spaces removed. "JD" stays "JD". */
+function serverInitials(value: string | null | undefined): string | null {
+  const text = value?.trim();
+  if (!text) return null;
+  const compact = [...text].filter((char) => char !== '.' && !/\s/u.test(char)).join('');
+  if (!compact) return null;
+  return compact.toLocaleUpperCase();
+}
+
+/**
+ * Desk identifier for another borrower.
+ * Card is `cardNumber`, or `barcode` when `cardNumber` is absent.
+ * A card is shown as-is. Otherwise server `initials` are used. Names are only
+ * a last resort for deriving initials, and the full name is never stored.
+ */
 export function otherBorrowerFromPerson(input: {
   userId?: string | null;
   cardNumber?: string | null;
+  barcode?: string | null;
+  initials?: string | null;
   firstname?: string | null;
   lastname?: string | null;
   fullName?: string | null;
 }): OtherBorrowerRef | null {
   const userId = clean(input.userId);
-  const cardNumber = clean(input.cardNumber);
+  const cardNumber = clean(input.cardNumber) ?? clean(input.barcode);
   const initials =
+    serverInitials(input.initials) ??
     borrowerInitials({ firstname: input.firstname, lastname: input.lastname }) ??
     borrowerInitials(input.fullName);
   if (!userId && !cardNumber && !initials) return null;
   return { userId, cardNumber, initials };
+}
+
+function payloadText(value: unknown): string | null {
+  if (typeof value === 'number' && Number.isSafeInteger(value)) return String(value);
+  return clean(typeof value === 'string' ? value : null);
+}
+
+function payloadRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+/**
+ * Borrower object from `GET /loans/:id/user` or a 409 body.
+ * Minimized: `{ id, cardNumber, initials }`. Legacy: `barcode`, `firstname`, `lastname`.
+ */
+export function otherBorrowerFromPayload(payload: unknown): OtherBorrowerRef | null {
+  const source = payloadRecord(payload);
+  if (!source) return null;
+  const userId = payloadText(source.id) ?? payloadText(source.userId);
+  const cardNumber = payloadText(source.cardNumber);
+  const barcode = payloadText(source.barcode);
+  const initials = payloadText(source.initials);
+  const firstname = payloadText(source.firstname);
+  const lastname = payloadText(source.lastname);
+  if (!cardNumber && !barcode && !initials && !firstname && !lastname) return null;
+  return otherBorrowerFromPerson({
+    userId,
+    cardNumber,
+    barcode,
+    initials,
+    firstname,
+    lastname,
+  });
 }
 
 /** Identifier shown for a checkout conflict. The full name is never the label. */

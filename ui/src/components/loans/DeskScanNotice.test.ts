@@ -10,6 +10,7 @@ import en from '../../locales/en/translation.json' with { type: 'json' };
 import es from '../../locales/es/translation.json' with { type: 'json' };
 import fr from '../../locales/fr/translation.json' with { type: 'json' };
 import { canReadUsers } from '@/types';
+import { otherBorrowerFromPayload } from '@/utils/deskScanAlert';
 import {
   ITEM_ON_LOAN_TO_OTHER_BORROWER,
   checkoutNoticeForConflict,
@@ -130,6 +131,31 @@ describe('desk 409 notice hides the other borrower name', () => {
     assert.equal(html.includes(FULL_NAME), false);
     assert.equal(html.includes('Julien'), false);
     assert.equal(html.includes('Dubois'), false);
+  });
+
+  it('renders server initials as plain text without borrower read permission', async () => {
+    const ref = otherBorrowerFromPayload({
+      id: USER_ID,
+      cardNumber: null,
+      initials: 'J.D.',
+      firstname: 'Julien',
+      lastname: 'Dubois',
+    });
+    assert.deepEqual(ref, { userId: USER_ID, cardNumber: null, initials: 'JD' });
+    const i18n = await i18nFor('fr');
+    const html = renderNotice(i18n, canReadUsers(null, accessToken('own')), {
+      kind: 'onLoan',
+      patronName: FULL_NAME,
+      otherBorrower: ref,
+    });
+    assert.equal(html.includes('<a'), false);
+    assert.equal(html.includes('href='), false);
+    assert.equal(html.includes('JD'), true);
+    assert.equal(html.includes('J.D.'), false);
+    assert.equal(html.includes(FULL_NAME), false);
+    assert.equal(html.includes('Julien'), false);
+    assert.equal(html.includes('Dubois'), false);
+    assert.equal(html.includes('code-barres'), false);
   });
 
   it('falls back to initials and still hides the name', async () => {
