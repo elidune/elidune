@@ -40,6 +40,8 @@ pub mod error_code {
     pub const RATE_LIMITED: &str = "rate_limited";
     /// Checkout of a copy that is `to_pick` for a different patron.
     pub const ITEM_TO_PICK_FOR_OTHER: &str = "item_to_pick_for_other";
+    /// Check-in of a known copy that has no active loan.
+    pub const ITEM_NOT_ON_LOAN: &str = "item_not_on_loan";
     /// Delete refused because the copy has a loan, hold, or fine. Weed it instead.
     pub const ITEM_HAS_HISTORY_USE_WEEDING: &str = "item_has_history_use_weeding";
     /// Delete refused because the bibliographic record still has copies.
@@ -149,6 +151,10 @@ pub enum AppError {
         user_id: i64,
         user_name: String,
     },
+
+    /// Check-in of a known copy that is not on loan (HTTP 404, `item_not_on_loan`).
+    #[error("{0}")]
+    ItemNotOnLoan(String),
 
     /// Stable `error_code` with an explicit HTTP status (400, 409, or 422).
     #[error("{message}")]
@@ -378,6 +384,12 @@ impl AppError {
                     "This copy is on the pick list for another patron — use force=true to override"
                         .to_string(),
             },
+            AppError::ItemNotOnLoan(msg) => HttpErrorFields {
+                status: StatusCode::NOT_FOUND,
+                code: ec::ITEM_NOT_ON_LOAN,
+                label: "Not Found",
+                message: msg.clone(),
+            },
             AppError::Coded {
                 status,
                 code,
@@ -528,5 +540,14 @@ mod tests {
         assert_eq!(status, 422);
         assert_eq!(code, error_code::RENEWAL_TOO_EARLY);
         assert!(message.contains("2026-10-25"));
+    }
+
+    #[test]
+    fn item_not_on_loan_stays_not_found_with_a_dedicated_code() {
+        let err = AppError::ItemNotOnLoan("Item ABC is not on loan".into());
+        let (status, code, message) = err.audit_http_fields();
+        assert_eq!(status, 404);
+        assert_eq!(code, error_code::ITEM_NOT_ON_LOAN);
+        assert_eq!(message, "Item ABC is not on loan");
     }
 }
