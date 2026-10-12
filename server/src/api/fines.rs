@@ -93,18 +93,8 @@ pub async fn pay_fine(
     let fine = state
         .services
         .fines
-        .pay(id, req.amount, req.notes.as_deref())
+        .pay(id, req.amount, req.notes.as_deref(), claims.user_id, ip)
         .await?;
-
-    state.services.audit.log(
-        audit::event::FINE_PAID,
-        Some(claims.user_id),
-        Some("fine"),
-        Some(id),
-        ip,
-        Some(serde_json::json!({ "amount": req.amount })),
-        audit::AuditLogMeta::success(),
-    );
 
     Ok(Json(fine))
 }
@@ -131,17 +121,11 @@ pub async fn waive_fine(
     Path(id): Path<i64>,
     Json(req): Json<WaiveFineRequest>,
 ) -> AppResult<Json<Fine>> {
-    let fine = state.services.fines.waive(id, req.notes.as_deref()).await?;
-
-    state.services.audit.log(
-        audit::event::FINE_WAIVED,
-        Some(claims.user_id),
-        Some("fine"),
-        Some(id),
-        ip,
-        None::<()>,
-        audit::AuditLogMeta::success(),
-    );
+    let fine = state
+        .services
+        .fines
+        .waive(id, req.notes.as_deref(), claims.user_id, ip)
+        .await?;
 
     Ok(Json(fine))
 }

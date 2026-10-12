@@ -159,9 +159,11 @@ impl Services {
             audit_service.clone(),
             dynamic_config.clone(),
         );
-        let fines_service = fines::FinesService::new(
+        let fines_service = fines::FinesService::with_money_audit(
             repo.clone() as Arc<dyn FinesRepository>,
             repo.clone() as Arc<dyn calendar::OpeningDays>,
+            repo.clone(),
+            audit_service.clone(),
         );
 
         Ok(Self {

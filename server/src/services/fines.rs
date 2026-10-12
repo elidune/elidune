@@ -16,8 +16,11 @@ use crate::{
         fine::{Fine, FineAccrualLoan, FineRule},
         user::UserStatus,
     },
-    repository::FinesRepository,
-    services::calendar::{self, OpeningDays},
+    repository::{FinesRepository, Repository},
+    services::{
+        audit::{self, AuditLogMeta, AuditService},
+        calendar::{self, OpeningDays},
+    },
 };
 
 /// Result of comparing a patron's unpaid balance to the configured threshold.
@@ -49,10 +52,18 @@ impl UnpaidThresholdCheck {
     }
 }
 
+/// Database and audit writer used to commit a fine money movement with its audit row.
+#[derive(Clone)]
+struct FineMoney {
+    db: Arc<Repository>,
+    audit: AuditService,
+}
+
 #[derive(Clone)]
 pub struct FinesService {
     repository: Arc<dyn FinesRepository>,
     calendar: Arc<dyn OpeningDays>,
+    money: Option<FineMoney>,
 }
 
 impl FinesService {
@@ -60,6 +71,22 @@ impl FinesService {
         Self {
             repository,
             calendar,
+            money: None,
+        }
+    }
+
+    /// Production constructor. Payments and waivers commit their audit row
+    /// in the same transaction as the fine update.
+    pub fn with_money_audit(
+        repository: Arc<dyn FinesRepository>,
+        calendar: Arc<dyn OpeningDays>,
+        db: Arc<Repository>,
+        audit: AuditService,
+    ) -> Self {
+        Self {
+            repository,
+            calendar,
+            money: Some(FineMoney { db, audit }),
         }
     }
 
@@ -150,21 +177,77 @@ impl FinesService {
         Ok(report)
     }
 
-    /// Apply a payment to a fine
-    #[tracing::instrument(skip(self), err)]
-    pub async fn pay(&self, id: i64, amount: Decimal, notes: Option<&str>) -> AppResult<Fine> {
+    /// Apply a payment to a fine and write `fine.paid` in the same transaction.
+    /// A full payment and a partial payment use the same event.
+    #[tracing::instrument(skip(self, notes, client_ip), err)]
+    pub async fn pay(
+        &self,
+        id: i64,
+        amount: Decimal,
+        notes: Option<&str>,
+        actor_id: i64,
+        client_ip: Option<String>,
+    ) -> AppResult<Fine> {
         if amount <= Decimal::ZERO {
             return Err(AppError::Validation(
                 "Payment amount must be positive".to_string(),
             ));
         }
-        self.repository.fines_pay(id, amount, notes).await
+        let money = self.money()?;
+        let mut tx = money.db.pool().begin().await?;
+        let fine = Repository::fines_pay_tx(&mut tx, id, amount, notes).await?;
+        money
+            .audit
+            .log_in_tx(
+                &mut tx,
+                audit::event::FINE_PAID,
+                Some(actor_id),
+                Some("fine"),
+                Some(id),
+                client_ip,
+                Some(serde_json::json!({ "amount": amount })),
+                AuditLogMeta::success(),
+            )
+            .await?;
+        tx.commit().await?;
+        Ok(fine)
     }
 
-    /// Waive (write off) a fine
-    #[tracing::instrument(skip(self), err)]
-    pub async fn waive(&self, id: i64, notes: Option<&str>) -> AppResult<Fine> {
-        self.repository.fines_waive(id, notes).await
+    /// Waive (write off) a fine and write `fine.waived` in the same transaction.
+    #[tracing::instrument(skip(self, notes, client_ip), err)]
+    pub async fn waive(
+        &self,
+        id: i64,
+        notes: Option<&str>,
+        actor_id: i64,
+        client_ip: Option<String>,
+    ) -> AppResult<Fine> {
+        let money = self.money()?;
+        let mut tx = money.db.pool().begin().await?;
+        let fine = Repository::fines_waive_tx(&mut tx, id, notes).await?;
+        money
+            .audit
+            .log_in_tx(
+                &mut tx,
+                audit::event::FINE_WAIVED,
+                Some(actor_id),
+                Some("fine"),
+                Some(id),
+                client_ip,
+                None::<()>,
+                AuditLogMeta::success(),
+            )
+            .await?;
+        tx.commit().await?;
+        Ok(fine)
+    }
+
+    fn money(&self) -> AppResult<&FineMoney> {
+        self.money.as_ref().ok_or_else(|| {
+            AppError::Internal(
+                "Fine money movements require a transactional audit ledger".to_string(),
+            )
+        })
     }
 
     /// Get total unpaid fines for a user
