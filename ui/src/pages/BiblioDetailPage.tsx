@@ -571,6 +571,11 @@ export default function BiblioDetailPage() {
                 )
               }
             />
+            {item.holdsCount > 0 ? (
+              <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">
+                {t('items.holdsWaiting', { count: item.holdsCount })}
+              </p>
+            ) : null}
             {item.items && item.items.length > 0 ? (
               <div className="space-y-3">
                 {item.items.map((specimen) => (

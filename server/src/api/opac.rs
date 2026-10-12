@@ -75,7 +75,7 @@ pub async fn opac_search(
     tag = "opac",
     params(("id" = i64, Path, description = "Biblio ID")),
     responses(
-        (status = 200, description = "Bibliographic record details as `BiblioPublicView`. Copies use public availability (`toSearch` is `unavailable`). Each copy includes `dueDate` (active loan `expiry_at`, or null) and `onHold` (an active hold is waiting for this copy, or an unassigned title hold is waiting for the record). No hold patron, borrower, loan id, login, notes, or weeding fields.", body = BiblioPublicView),
+        (status = 200, description = "Bibliographic record details as `BiblioPublicView`. Copies use public availability (`toSearch` is `unavailable`). The record includes `holdsCount` (pending holds still waiting for a copy; no patron). Each copy includes `dueDate` (active loan `expiry_at`, or null) and `onHold` (true only when this copy is `to_pick` or `ready`, or in transit for a hold). An unassigned `pending` title hold does not set `onHold`. No hold patron, borrower, loan id, login, notes, or weeding fields.", body = BiblioPublicView),
         (status = 404, description = "Biblio not found", body = crate::error::ErrorResponse)
     )
 )]

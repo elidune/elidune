@@ -95,7 +95,7 @@ The client IP is the TCP peer unless `server.trusted_proxies` (`ELIDUNE_SERVER__
 | Endpoint | Required auth |
 |---|---|
 | `GET /biblios` | JWT + `require_read_items()` |
-| `GET /biblios/:id` | JWT + `require_read_items()`. Copies include `dueDate` and `onHold` for every caller. `borrower` requires `loans_rights` read or write (`{ id, cardNumber, initials }`); `users_rights` read or write returns `UserShortStaff` instead. Patrons receive neither `borrower` nor `loanId`. |
+| `GET /biblios/:id` | JWT + `require_read_items()`. Every caller, including patrons, receives `holdsCount` (pending holds waiting for a copy; no patron) plus `dueDate` and `onHold` on each copy. `onHold` is true only for a copy in `to_pick` or `ready`, or in transit for a hold. `borrower` requires `loans_rights` read or write (`{ id, cardNumber, initials }`); `users_rights` read or write returns `UserShortStaff` instead. Patrons receive neither `borrower` nor `loanId`. |
 | `POST /biblios` | JWT + `require_write_items()` |
 | `PUT /biblios/:id` | JWT + `require_write_items()` |
 | `DELETE /biblios/:id` | JWT + `require_write_items()` |

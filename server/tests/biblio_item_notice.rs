@@ -202,6 +202,7 @@ async fn biblio_notice_due_date_hold_flag_and_borrower_follow_rights() {
         ("opac", opac_status, &opac),
     ] {
         assert_eq!(status, StatusCode::OK, "{label} {body}");
+        assert_eq!(body["holdsCount"], 0, "{label} {body}");
         assert_text_hidden(body, &secret_bits);
         let loaned = copy_by_id(body, loaned_id);
         let free = copy_by_id(body, free_id);
@@ -217,6 +218,7 @@ async fn biblio_notice_due_date_hold_flag_and_borrower_follow_rights() {
     for token in [&loans_read, &loans_write, &users_own] {
         let (status, body) = app.get_json_with_auth(&path, token).await;
         assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["holdsCount"], 0, "{body}");
         assert_text_hidden(
             &body,
             &[
@@ -286,14 +288,26 @@ async fn biblio_notice_due_date_hold_flag_and_borrower_follow_rights() {
         )
         .await;
     assert_eq!(status, StatusCode::CREATED, "{hold}");
+    assert_eq!(hold["status"], "to_pick", "{hold}");
     assert_eq!(fixtures::json_id(&hold["itemId"]), free_id, "{hold}");
 
     let (status, after) = app.get_json_with_auth(&path, &borrower_token).await;
     assert_eq!(status, StatusCode::OK, "{after}");
     assert_text_hidden(&after, &secret_bits);
+    assert_eq!(
+        after["holdsCount"], 0,
+        "an assigned to_pick hold is not waiting: {after}"
+    );
     assert_eq!(copy_by_id(&after, loaned_id)["onHold"], false, "{after}");
-    assert_eq!(copy_by_id(&after, free_id)["onHold"], true, "{after}");
-    assert_no_borrower(copy_by_id(&after, free_id));
+    let reserved = copy_by_id(&after, free_id);
+    assert_eq!(reserved["availability"], "onHold", "{reserved}");
+    assert_eq!(reserved["onHold"], true, "{reserved}");
+    assert_no_borrower(reserved);
+
+    let (status, staff_reserved) = app.get_json_with_auth(&path, &loans_write).await;
+    assert_eq!(status, StatusCode::OK, "{staff_reserved}");
+    assert_eq!(staff_reserved["holdsCount"], 0, "{staff_reserved}");
+    assert_eq!(copy_by_id(&staff_reserved, free_id)["onHold"], true);
 
     let only_barcode = format!("NTC-ONE-{suffix}");
     let (only_biblio, only_copies) = create_biblio(
@@ -327,17 +341,172 @@ async fn biblio_notice_due_date_hold_flag_and_borrower_follow_rights() {
     assert_eq!(status, StatusCode::OK, "{queued_notice}");
     let queued_copy = copy_by_id(&queued_notice, only_id);
     assert_eq!(queued_copy["availability"], "onLoan", "{queued_copy}");
-    assert_eq!(queued_copy["onHold"], true, "{queued_copy}");
+    assert_eq!(
+        queued_copy["onHold"], false,
+        "an unassigned pending hold must not mark the copy: {queued_copy}"
+    );
+    assert_eq!(queued_notice["holdsCount"], 1, "{queued_notice}");
     assert_same_instant(&queued_copy["dueDate"], &only_loan["expiryAt"]);
     assert_no_borrower(queued_copy);
     assert_text_hidden(&queued_notice, &secret_bits);
 
     let (status, staff_queued) = app.get_json_with_auth(&only_path, &loans_write).await;
     assert_eq!(status, StatusCode::OK, "{staff_queued}");
-    assert_eq!(copy_by_id(&staff_queued, only_id)["onHold"], true);
+    assert_eq!(staff_queued["holdsCount"], 1, "{staff_queued}");
+    assert_eq!(copy_by_id(&staff_queued, only_id)["onHold"], false);
     assert_minimized(
         &copy_by_id(&staff_queued, only_id)["borrower"],
         borrower_id,
         card.as_str(),
     );
+}
+
+#[tokio::test]
+async fn shelved_copy_with_unassigned_title_hold_stays_available() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let secret = app.state.config.users.jwt_secret.clone();
+    let (borrower_id, _) = fixtures::create_reader(&app, &admin_token, "shelf_bor").await;
+    let (holder_id, holder_token) = fixtures::create_reader(&app, &admin_token, "shelf_hold").await;
+    sqlx::query("UPDATE users SET firstname = 'Quentin', lastname = 'Queue' WHERE id = $1")
+        .bind(holder_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("name the holder");
+
+    let barcode = format!("SHELF-{}", fixtures::unique_suffix());
+    let (biblio_id, copies) = create_biblio(
+        &app,
+        &admin_token,
+        vec![json!({ "barcode": barcode, "borrowable": true })],
+    )
+    .await;
+    let item_id = copies[0];
+    let loan = checkout(&app, &admin_token, borrower_id, item_id).await;
+    let (status, hold) = app
+        .post_json(
+            "/api/v1/holds",
+            &json!({
+                "userId": holder_id.to_string(),
+                "biblioId": biblio_id.to_string()
+            }),
+            Some(&holder_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{hold}");
+    assert_eq!(hold["status"], "pending", "{hold}");
+    assert!(hold["itemId"].is_null(), "{hold}");
+
+    // Closing the loan in SQL leaves the copy on the shelf without the return
+    // service assigning this pending hold.
+    sqlx::query("UPDATE loans SET returned_at = NOW() WHERE id = $1")
+        .bind(fixtures::json_id(&loan["id"]))
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("shelve the copy without assigning the hold");
+
+    let staff = retarget(&admin_token, &secret, Rights::None, Rights::Read);
+    let (public_status, public_body) = app
+        .get_json(&format!("/api/v1/opac/biblios/{biblio_id}"))
+        .await;
+    let (staff_status, staff_body) = app
+        .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}"), &staff)
+        .await;
+    for (label, status, body) in [
+        ("public", public_status, &public_body),
+        ("staff", staff_status, &staff_body),
+    ] {
+        assert_eq!(status, StatusCode::OK, "{label} {body}");
+        assert_eq!(body["holdsCount"], 1, "{label} {body}");
+        let copy = copy_by_id(body, item_id);
+        assert_eq!(copy["availability"], "available", "{label} {copy}");
+        assert_eq!(copy["onHold"], false, "{label} {copy}");
+        assert!(copy["dueDate"].is_null(), "{label} {copy}");
+        assert_no_borrower(copy);
+        assert_text_hidden(body, &["Quentin", "Queue"]);
+    }
+}
+
+#[tokio::test]
+async fn ready_hold_plus_pending_hold_counts_only_pending() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let secret = app.state.config.users.jwt_secret.clone();
+    let (borrower_id, _) = fixtures::create_reader(&app, &admin_token, "ready_bor").await;
+    let (first_id, first_token) = fixtures::create_reader(&app, &admin_token, "ready_1").await;
+    let (second_id, second_token) = fixtures::create_reader(&app, &admin_token, "ready_2").await;
+    sqlx::query("UPDATE users SET firstname = 'Ada', lastname = 'Ready' WHERE id = $1")
+        .bind(first_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("name the ready patron");
+    sqlx::query("UPDATE users SET firstname = 'Bea', lastname = 'Pending' WHERE id = $1")
+        .bind(second_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("name the waiting patron");
+
+    let barcode = format!("READY-{}", fixtures::unique_suffix());
+    let (biblio_id, copies) = create_biblio(
+        &app,
+        &admin_token,
+        vec![json!({ "barcode": barcode, "borrowable": true })],
+    )
+    .await;
+    let item_id = copies[0];
+    let loan = checkout(&app, &admin_token, borrower_id, item_id).await;
+
+    for (user_id, token) in [(first_id, &first_token), (second_id, &second_token)] {
+        let (status, hold) = app
+            .post_json(
+                "/api/v1/holds",
+                &json!({
+                    "userId": user_id.to_string(),
+                    "biblioId": biblio_id.to_string()
+                }),
+                Some(token),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{hold}");
+        assert_eq!(hold["status"], "pending", "{hold}");
+        assert!(hold["itemId"].is_null(), "{hold}");
+    }
+
+    let loan_id = fixtures::json_id(&loan["id"]);
+    let (status, returned) = app
+        .post_empty(
+            &format!("/api/v1/loans/{loan_id}/return"),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{returned}");
+
+    let staff = retarget(&admin_token, &secret, Rights::Read, Rights::Write);
+    let (public_status, public_body) = app
+        .get_json(&format!("/api/v1/opac/biblios/{biblio_id}"))
+        .await;
+    let (staff_status, staff_body) = app
+        .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}"), &staff)
+        .await;
+    for (label, status, body) in [
+        ("public", public_status, &public_body),
+        ("staff", staff_status, &staff_body),
+    ] {
+        assert_eq!(status, StatusCode::OK, "{label} {body}");
+        assert_eq!(
+            body["holdsCount"], 1,
+            "the ready hold is on the copy; only the pending hold counts: {label} {body}"
+        );
+        let copy = copy_by_id(body, item_id);
+        assert_eq!(copy["onHold"], true, "{label} {copy}");
+        assert_eq!(copy["availability"], "onHold", "{label} {copy}");
+        assert!(copy.get("borrower").is_none(), "{label} {copy}");
+        assert!(copy.get("loanId").is_none(), "{label} {copy}");
+    }
+    assert_no_borrower(copy_by_id(&public_body, item_id));
+    assert_text_hidden(&public_body, &["Ada", "Ready", "Bea", "Pending"]);
 }

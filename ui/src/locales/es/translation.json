@@ -644,6 +644,8 @@
     "keywordsAndSubject": "Palabras clave y tema",
     "specimenCount_one": "{{count}} ejemplar",
     "specimenCount_other": "{{count}} ejemplares",
+    "holdsWaiting_one": "{{count}} reserva esperando un ejemplar",
+    "holdsWaiting_other": "{{count}} reservas esperando un ejemplar",
     "noSpecimens": "No hay ejemplares registrados",
     "forceDeleteItem": "Forzar eliminación",
     "itemBorrowedForceDelete": "Este documento tiene ejemplares prestados. ¿Forzar la eliminación de todos modos?",

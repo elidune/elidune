@@ -332,16 +332,15 @@ pub struct Item {
     #[sqlx(default)]
     #[serde(skip)]
     pub due_date: Option<DateTime<Utc>>,
-    /// True when an active hold (`pending`, `to_pick`, or `ready`) is waiting
-    /// for this copy or for the title.
+    /// True only when this copy is assigned to a hold.
     ///
-    /// A hold with `item_id` set counts only for that copy. A title hold
-    /// (`item_id` null, same `biblio_id`) counts for every copy of the record,
-    /// including a copy that is on loan. A hold already assigned to another
-    /// copy does not. This is independent of [`ItemAvailability::OnHold`]:
-    /// loan precedence can leave `availability` at `onLoan` while a queue is
-    /// still waiting. Not part of the item write contract. Catalog views
-    /// expose it as `onHold`.
+    /// That is a hold in `to_pick` or `ready` with `holds.item_id` equal to
+    /// this copy, or an active `item_transits` row (`requested` or
+    /// `in_transit`) whose `hold_id` is set. An unassigned title hold
+    /// (`pending`, `item_id` null) does not set this on any copy, so a shelved
+    /// copy stays `available`. Independent of [`ItemAvailability`]: transit
+    /// precedence can leave `availability` at `inTransit` while this is true.
+    /// Not part of the item write contract. Catalog views expose it as `onHold`.
     #[sqlx(default)]
     #[serde(skip)]
     pub on_hold: bool,

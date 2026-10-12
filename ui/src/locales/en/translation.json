@@ -644,6 +644,8 @@
     "keywordsAndSubject": "Keywords and Subject",
     "specimenCount_one": "{{count}} copy",
     "specimenCount_other": "{{count}} copies",
+    "holdsWaiting_one": "{{count}} hold waiting for a copy",
+    "holdsWaiting_other": "{{count}} holds waiting for a copy",
     "noSpecimens": "No copies registered",
     "forceDeleteItem": "Force delete",
     "itemBorrowedForceDelete": "This item has borrowed specimens. Force delete anyway?",

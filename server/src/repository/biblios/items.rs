@@ -90,13 +90,18 @@ fn item_sql(where_and_order: &str) -> String {
                    (active_loan.id IS NOT NULL) as borrowed,
                    active_loan.id as loan_id,
                    active_loan.expiry_at as due_date,
-                   EXISTS (
-                       SELECT 1 FROM holds h
-                       WHERE h.status IN ('pending', 'to_pick', 'ready')
-                         AND (
-                             h.item_id = i.id
-                             OR (h.item_id IS NULL AND h.biblio_id = i.biblio_id)
-                         )
+                   (
+                       EXISTS (
+                           SELECT 1 FROM holds h
+                           WHERE h.item_id = i.id
+                             AND h.status IN ('to_pick', 'ready')
+                       )
+                       OR EXISTS (
+                           SELECT 1 FROM item_transits t
+                           WHERE t.item_id = i.id
+                             AND t.hold_id IS NOT NULL
+                             AND t.status IN ('requested', 'in_transit')
+                       )
                    ) AS on_hold,
                    {ITEM_AVAILABILITY_COLUMNS}
             FROM items i

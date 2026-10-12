@@ -198,7 +198,7 @@ pub async fn list_biblios(
         ("full_record" = Option<bool>, Query, description = "If true, include full MARC record data")
     ),
     responses(
-        (status = 200, description = "Bibliographic record details. Librarians and admins receive `BiblioStaffView`. Readers receive `BiblioPublicView` (`toSearch` collapsed to `unavailable`, no hold patron, notes, weeding, loan id, or borrower). Every copy includes `dueDate` (active loan `expiry_at`, or null) and `onHold` (an active hold is waiting for this copy, or an unassigned title hold is waiting for the record). Staff with `loans_rights` read or write also receive `borrower` on a copy that is on loan: `{ id, cardNumber, initials }` unless `users_rights` is read or write, which returns `UserShortStaff`.", body = BiblioReadResponse),
+        (status = 200, description = "Bibliographic record details. Librarians and admins receive `BiblioStaffView`. Readers receive `BiblioPublicView` (`toSearch` collapsed to `unavailable`, no hold patron, notes, weeding, loan id, or borrower). The record includes `holdsCount` (pending holds still waiting for a copy; `to_pick`, `ready`, and in-transit holds are excluded). Every copy includes `dueDate` (active loan `expiry_at`, or null) and `onHold` (true only when this copy is `to_pick` or `ready`, or in transit for a hold). An unassigned `pending` title hold does not set `onHold`. Staff with `loans_rights` read or write also receive `borrower` on a copy that is on loan: `{ id, cardNumber, initials }` unless `users_rights` is read or write, which returns `UserShortStaff`.", body = BiblioReadResponse),
         (status = 404, description = "Biblio not found")
     )
 )]

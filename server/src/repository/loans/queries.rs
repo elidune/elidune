@@ -526,6 +526,7 @@ impl Repository {
             updated_at: row.try_get("biblio_updated_at").ok().flatten(),
             archived_at: row.try_get("biblio_archived_at").ok().flatten(),
             weeding_status: crate::models::item::WeedingStatus::OnShelf,
+            holds_count: 0,
             authors,
             series,
             collections,

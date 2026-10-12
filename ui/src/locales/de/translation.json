@@ -644,6 +644,8 @@
     "keywordsAndSubject": "Schlagwörter und Thema",
     "specimenCount_one": "{{count}} Exemplar",
     "specimenCount_other": "{{count}} Exemplare",
+    "holdsWaiting_one": "{{count}} Vormerkung wartet auf ein Exemplar",
+    "holdsWaiting_other": "{{count}} Vormerkungen warten auf ein Exemplar",
     "noSpecimens": "Keine Exemplare registriert",
     "forceDeleteItem": "Trotzdem löschen",
     "itemBorrowedForceDelete": "Dieser Eintrag hat ausgeliehene Exemplare. Trotzdem löschen?",

@@ -803,8 +803,8 @@ export interface ItemStaffView {
   availability: ItemAvailability;
   canHoldItem: boolean;
   /**
-   * Active hold waiting for this copy, or an unassigned title hold waiting
-   * for the record. Independent of `availability === 'onHold'`.
+   * True only when this copy is `to_pick` or `ready`, or in transit for a hold.
+   * An unassigned `pending` title hold leaves this false.
    */
   onHold: boolean;
   holdUserId?: string | null;
@@ -841,8 +841,8 @@ export interface ItemPublicView {
   availability: ItemPublicAvailability;
   canHoldItem: boolean;
   /**
-   * Active hold waiting for this copy, or an unassigned title hold waiting
-   * for the record. Independent of `availability === 'onHold'`.
+   * True only when this copy is `to_pick` or `ready`, or in transit for a hold.
+   * An unassigned `pending` title hold leaves this false.
    */
   onHold: boolean;
 }
@@ -931,6 +931,8 @@ export interface BiblioStaffView {
   updatedAt: string | null;
   archivedAt: string | null;
   weedingStatus: ItemWeedingStatus;
+  /** `pending` holds still waiting for a copy. No patron identity. */
+  holdsCount: number;
   authors: Author[];
   series: Serie[];
   collections: Collection[];
@@ -969,6 +971,8 @@ export interface BiblioPublicView {
   createdAt: string | null;
   updatedAt: string | null;
   archivedAt: string | null;
+  /** `pending` holds still waiting for a copy. No patron identity. */
+  holdsCount: number;
   authors: AuthorPublic[];
   series: Serie[];
   collections: Collection[];

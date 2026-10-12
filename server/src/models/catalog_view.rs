@@ -120,7 +120,7 @@ pub struct ItemStaffView {
     pub due_date: Option<DateTime<Utc>>,
     pub availability: ItemAvailability,
     pub can_hold_item: bool,
-    /// Active hold waiting for this copy or for the title. See [`Item::on_hold`].
+    /// This copy is assigned to a hold, or in transit for one. See [`Item::on_hold`].
     pub on_hold: bool,
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
@@ -205,7 +205,7 @@ pub struct ItemPublicView {
     pub due_date: Option<DateTime<Utc>>,
     pub availability: ItemPublicAvailability,
     pub can_hold_item: bool,
-    /// Active hold waiting for this copy or for the title. See [`Item::on_hold`].
+    /// This copy is assigned to a hold, or in transit for one. See [`Item::on_hold`].
     pub on_hold: bool,
 }
 
@@ -350,6 +350,10 @@ pub struct BiblioStaffView {
     pub updated_at: Option<DateTime<Utc>>,
     pub archived_at: Option<DateTime<Utc>>,
     pub weeding_status: WeedingStatus,
+    /// `pending` holds still waiting for a copy. `to_pick`, `ready`, and holds
+    /// with an active item transit are excluded; those copies set `onHold`.
+    /// No patron identity. Present for every caller.
+    pub holds_count: i64,
     pub authors: Vec<Author>,
     pub series: Vec<Serie>,
     pub collections: Vec<Collection>,
@@ -387,6 +391,7 @@ impl From<Biblio> for BiblioStaffView {
             updated_at: biblio.updated_at,
             archived_at: biblio.archived_at,
             weeding_status: biblio.weeding_status,
+            holds_count: biblio.holds_count,
             authors: biblio.authors,
             series: biblio.series,
             collections: biblio.collections,
@@ -438,6 +443,10 @@ pub struct BiblioPublicView {
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
     pub archived_at: Option<DateTime<Utc>>,
+    /// `pending` holds still waiting for a copy. `to_pick`, `ready`, and holds
+    /// with an active item transit are excluded; those copies set `onHold`.
+    /// No patron identity.
+    pub holds_count: i64,
     pub authors: Vec<AuthorPublic>,
     pub series: Vec<Serie>,
     pub collections: Vec<Collection>,
@@ -473,6 +482,7 @@ impl From<Biblio> for BiblioPublicView {
             created_at: biblio.created_at,
             updated_at: biblio.updated_at,
             archived_at: biblio.archived_at,
+            holds_count: biblio.holds_count,
             authors: biblio.authors.into_iter().map(AuthorPublic::from).collect(),
             series: biblio.series,
             collections: biblio.collections,

@@ -644,6 +644,8 @@
     "keywordsAndSubject": "Mots-clés et sujet",
     "specimenCount_one": "{{count}} exemplaire",
     "specimenCount_other": "{{count}} exemplaires",
+    "holdsWaiting_one": "{{count}} réservation en attente d'un exemplaire",
+    "holdsWaiting_other": "{{count}} réservations en attente d'un exemplaire",
     "noSpecimens": "Aucun exemplaire enregistré",
     "forceDeleteItem": "Forcer la suppression",
     "itemBorrowedForceDelete": "Ce document a des exemplaires empruntés. Forcer la suppression malgré tout ?",
