@@ -17,7 +17,9 @@ use sqlx::FromRow;
 
 use super::Repository;
 use crate::models::item::ItemShort;
-use crate::models::withdrawal::{ItemWithdrawal, WithdrawalList, WithdrawalQuery, WithdrawalWrite};
+use crate::models::withdrawal::{
+    ItemWithdrawal, WithdrawalCsvSource, WithdrawalList, WithdrawalQuery, WithdrawalWrite,
+};
 use crate::{
     error::AppResult,
     models::{
@@ -177,7 +179,7 @@ pub trait BibliosRepository: Send + Sync {
     async fn item_withdrawals_export_rows(
         &self,
         query: &WithdrawalQuery,
-    ) -> AppResult<Vec<ItemWithdrawal>>;
+    ) -> AppResult<Vec<WithdrawalCsvSource>>;
     async fn user_preferred_language(&self, user_id: i64) -> AppResult<Option<String>>;
     async fn library_zone(&self) -> AppResult<chrono_tz::Tz>;
 }
@@ -437,7 +439,7 @@ impl BibliosRepository for Repository {
     async fn item_withdrawals_export_rows(
         &self,
         query: &WithdrawalQuery,
-    ) -> AppResult<Vec<ItemWithdrawal>> {
+    ) -> AppResult<Vec<WithdrawalCsvSource>> {
         Repository::item_withdrawals_export_rows(self, query).await
     }
     async fn user_preferred_language(&self, user_id: i64) -> AppResult<Option<String>> {

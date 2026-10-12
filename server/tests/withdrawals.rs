@@ -9,6 +9,8 @@ use common::TestApp;
 use http_body_util::BodyExt;
 use serde_json::{json, Value};
 
+const CSV_HEADER: &str = "Code-barres;Titre;Auteur;Cote;Site;Date d'acquisition;Prix d'achat;Motif;Précision;Destination;Date de retrait;Retiré par;Éliminé le;Éliminé par";
+
 async fn unlock_admin(app: &TestApp, admin_token: &str) {
     let (status, me) = app.get_json_with_auth("/api/v1/auth/me", admin_token).await;
     if status != StatusCode::OK {
@@ -592,12 +594,22 @@ async fn legacy_backfill_exports_an_unspecified_destination_and_can_be_completed
         "content type"
     );
     assert!(french.contains("non renseignée (reprise)"), "{french}");
-    assert!(
-        french.contains("Identifiant;Exemplaire;Code-barres;Cote;Titre;Site;Date de retrait;Motif;Précision;Destination;Retiré par;Reprise;Éliminé le;Éliminé par"),
-        "{french}"
-    );
+    assert!(french.contains(CSV_HEADER), "{french}");
     assert!(!french.contains('_'), "{french}");
     assert!(french.starts_with('\u{feff}'));
+    let french_line = french
+        .trim_start_matches('\u{feff}')
+        .lines()
+        .nth(1)
+        .expect("french data");
+    let french_cols: Vec<&str> = french_line.split(';').collect();
+    assert_eq!(french_cols.len(), 14, "{french_line}");
+    assert_eq!(french_cols[1], format!("Legacy weeding {suffix}"));
+    assert_eq!(french_cols[2], "");
+    assert_eq!(french_cols[3], shelf);
+    assert_eq!(french_cols[4], format!("Legacy site {suffix}"));
+    assert_eq!(french_cols[6], "", "unknown price is an empty cell");
+    assert_eq!(french_cols[9], "non renseignée (reprise)");
 
     let (status, english, _) = get_text(
         &app,
@@ -610,10 +622,15 @@ async fn legacy_backfill_exports_an_unspecified_destination_and_can_be_completed
         english.contains("not specified (legacy import)"),
         "{english}"
     );
-    assert!(
-        english.contains("Identifiant;Exemplaire;Code-barres;Cote;Titre;Site;Date de retrait;Motif;Précision;Destination;Retiré par;Reprise;Éliminé le;Éliminé par"),
-        "{english}"
-    );
+    assert!(english.contains(CSV_HEADER), "{english}");
+    let english_line = english
+        .trim_start_matches('\u{feff}')
+        .lines()
+        .nth(1)
+        .expect("english data");
+    let english_cols: Vec<&str> = english_line.split(';').collect();
+    assert_eq!(english_cols[6], "");
+    assert_eq!(english_cols[9], "not specified (legacy import)");
     assert!(!english.contains("Withdrawn on"), "{english}");
     assert!(!english.contains('_'), "{english}");
 
@@ -1029,17 +1046,20 @@ async fn dispose_batch_is_atomic_and_blocks_cancel() {
     let title = format!("Dispose batch {suffix}");
     let (biblio_id, item_ids) = create_title(&app, &admin_token, &title, 4).await;
     let shelf = format!("DSP-{suffix}");
-    for item_id in &item_ids {
-        sqlx::query("UPDATE items SET call_number = $2 WHERE id = $1")
-            .bind(item_id)
-            .bind(&shelf)
-            .execute(app.state.services.repository.pool())
-            .await
-            .expect("shelf");
-    }
     let fresh = item_ids[1];
     let to_cancel = item_ids[2];
     let to_dispose = item_ids[3];
+    for item_id in &item_ids {
+        sqlx::query(
+            "UPDATE items SET call_number = $2, price = CASE WHEN id = $3 THEN '0' ELSE price END WHERE id = $1",
+        )
+        .bind(item_id)
+        .bind(&shelf)
+        .bind(fresh)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("shelf");
+    }
 
     let (status, fresh_row) = withdraw(&app, &admin_token, fresh, "worn", "pulp").await;
     assert_eq!(status, StatusCode::CREATED, "fresh: {fresh_row}");
@@ -1234,12 +1254,14 @@ async fn dispose_batch_is_atomic_and_blocks_cancel() {
     .await;
     assert_eq!(status, StatusCode::OK, "csv: {csv}");
     assert!(csv.starts_with('\u{feff}'), "{csv}");
-    assert!(
-        csv.contains("Identifiant;Exemplaire;Code-barres;Cote;Titre;Site;Date de retrait;Motif;Précision;Destination;Retiré par;Reprise;Éliminé le;Éliminé par"),
-        "{csv}"
-    );
+    assert!(csv.contains(CSV_HEADER), "{csv}");
     assert!(csv.contains("02/01/2020"), "{csv}");
     assert!(!csv.contains("2020-01-02T03:04:05"), "{csv}");
+    for line in csv.trim_start_matches('\u{feff}').lines().skip(1) {
+        let cols: Vec<&str> = line.split(';').collect();
+        assert_eq!(cols.len(), 14, "{line}");
+        assert_eq!(cols[6], "", "unknown or zero price stays empty: {line}");
+    }
 
     let (status, opac) = app
         .get_json(&format!("/api/v1/opac/biblios/{biblio_id}"))
@@ -1258,15 +1280,38 @@ async fn csv_neutralizes_formulas_and_uses_french_excel_layout() {
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
     unlock_admin(&app, &admin_token).await;
-    let (_biblio_id, items) = create_title(&app, &admin_token, "Formula export", 1).await;
+    let (biblio_id, items) = create_title(&app, &admin_token, "Formula export", 1).await;
     let item_id = items[0];
     let shelf = format!("FORM-{}", fixtures::unique_suffix());
-    sqlx::query("UPDATE items SET call_number = $2 WHERE id = $1")
+    let acquired_at = chrono::DateTime::parse_from_rfc3339("2026-03-15T23:30:00Z")
+        .expect("acquired")
+        .with_timezone(&chrono::Utc);
+    sqlx::query("UPDATE items SET call_number = $2, price = '1250', created_at = $3 WHERE id = $1")
         .bind(item_id)
         .bind(&shelf)
+        .bind(acquired_at)
         .execute(app.state.services.repository.pool())
         .await
         .expect("shelfmark");
+    for (lastname, firstname, position) in [("Zola", "Emile", 2_i16), ("Hugo", "Victor", 1)] {
+        let author_id: i64 = sqlx::query_scalar(
+            "INSERT INTO authors (lastname, firstname) VALUES ($1, $2) RETURNING id",
+        )
+        .bind(lastname)
+        .bind(firstname)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .expect("author");
+        sqlx::query(
+            "INSERT INTO biblio_authors (biblio_id, author_id, position) VALUES ($1, $2, $3)",
+        )
+        .bind(biblio_id)
+        .bind(author_id)
+        .bind(position)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("biblio author");
+    }
 
     let detail = r#"=HYPERLINK("http://evil")"#;
     let (status, created) = app
@@ -1309,10 +1354,7 @@ async fn csv_neutralizes_formulas_and_uses_french_excel_layout() {
         .lines()
         .next()
         .expect("header");
-    assert_eq!(
-        header,
-        "Identifiant;Exemplaire;Code-barres;Cote;Titre;Site;Date de retrait;Motif;Précision;Destination;Retiré par;Reprise;Éliminé le;Éliminé par"
-    );
+    assert_eq!(header, CSV_HEADER);
     assert!(
         csv.contains("\"'=HYPERLINK(\"\"http://evil\"\")\""),
         "{csv}"
@@ -1322,4 +1364,17 @@ async fn csv_neutralizes_formulas_and_uses_french_excel_layout() {
         "date {expected_date} in {csv}"
     );
     assert!(!csv.contains(withdrawn_at), "no RFC3339 instant in {csv}");
+    let data = csv
+        .trim_start_matches('\u{feff}')
+        .lines()
+        .nth(1)
+        .expect("data");
+    let cols: Vec<&str> = data.split(';').collect();
+    assert_eq!(cols.len(), 14, "{data}");
+    assert_eq!(cols[1], "Formula export");
+    assert_eq!(cols[2], "Hugo Victor, Zola Emile");
+    assert_eq!(cols[3], shelf);
+    assert_eq!(cols[5], "16/03/2026");
+    assert_eq!(cols[6], "12,50");
+    assert_eq!(cols[10], expected_date);
 }

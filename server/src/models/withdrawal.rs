@@ -444,21 +444,46 @@ pub struct BatchWithdrawalResponse {
     pub withdrawals: Vec<ItemWithdrawal>,
 }
 
+/// One export row. Staff JSON stays on [`ItemWithdrawal`]; these joins exist only for the CSV.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct WithdrawalCsvSource {
+    pub withdrawn_at: DateTime<Utc>,
+    pub reason: WithdrawalReason,
+    pub reason_detail: Option<String>,
+    pub destination: Option<WithdrawalDestination>,
+    pub agent_name: Option<String>,
+    pub disposed_at: Option<DateTime<Utc>>,
+    pub disposed_by_name: Option<String>,
+    pub legacy: bool,
+    pub barcode: Option<String>,
+    pub call_number: Option<String>,
+    pub biblio_title: Option<String>,
+    pub authors: Option<String>,
+    pub site_name: Option<String>,
+    pub acquired_at: Option<DateTime<Utc>>,
+    /// `items.price`, an integer number of cents stored as text.
+    pub purchase_price: Option<String>,
+}
+
 /// Field separator for the single French-Excel disposal file. There is no query parameter.
 const CSV_SEPARATOR: char = ';';
 
 /// Plain French headers, in column order. The same list is used for every language.
-const CSV_HEADERS: &str = "Identifiant;Exemplaire;Code-barres;Cote;Titre;Site;Date de retrait;Motif;Précision;Destination;Retiré par;Reprise;Éliminé le;Éliminé par";
+const CSV_HEADERS: &str = "Code-barres;Titre;Auteur;Cote;Site;Date d'acquisition;Prix d'achat;Motif;Précision;Destination;Date de retrait;Retiré par;Éliminé le;Éliminé par";
 
 /// UTF-8 CSV for the municipal disposal record.
 ///
 /// One file: a leading BOM, `;` separators, plain French headers, and dates as
 /// `DD/MM/YYYY` in `zone`. `language` localizes cell labels only. A NULL legacy
-/// destination is a localized phrase. Cells that Excel would treat as formulas
-/// are prefixed with `'` before quoting.
+/// destination is a localized phrase. Purchase price is cents rendered as euros
+/// with a comma decimal. Cells that Excel would treat as formulas are prefixed
+/// with `'` before quoting.
 #[must_use]
-pub fn withdrawals_csv(rows: &[ItemWithdrawal], language: Language, zone: chrono_tz::Tz) -> String {
-    let french = matches!(language, Language::French);
+pub fn withdrawals_csv(
+    rows: &[WithdrawalCsvSource],
+    language: Language,
+    zone: chrono_tz::Tz,
+) -> String {
     let mut csv = String::from('\u{feff}');
     csv.push_str(CSV_HEADERS);
     csv.push('\n');
@@ -468,30 +493,21 @@ pub fn withdrawals_csv(rows: &[ItemWithdrawal], language: Language, zone: chrono
             None if row.legacy => legacy_destination_label(language).to_string(),
             None => String::new(),
         };
-        let legacy = if french {
-            if row.legacy {
-                "oui"
-            } else {
-                "non"
-            }
-        } else if row.legacy {
-            "yes"
-        } else {
-            "no"
-        };
         let fields = [
-            row.id.to_string(),
-            row.item_id.to_string(),
             row.barcode.clone().unwrap_or_default(),
-            row.call_number.clone().unwrap_or_default(),
             row.biblio_title.clone().unwrap_or_default(),
+            row.authors.clone().unwrap_or_default(),
+            row.call_number.clone().unwrap_or_default(),
             row.site_name.clone().unwrap_or_default(),
-            format_csv_date(row.withdrawn_at, zone),
+            row.acquired_at
+                .map(|at| format_csv_date(at, zone))
+                .unwrap_or_default(),
+            format_purchase_price(row.purchase_price.as_deref()),
             row.reason.label(language).to_string(),
             row.reason_detail.clone().unwrap_or_default(),
             destination,
+            format_csv_date(row.withdrawn_at, zone),
             row.agent_name.clone().unwrap_or_default(),
-            legacy.to_string(),
             row.disposed_at
                 .map(|at| format_csv_date(at, zone))
                 .unwrap_or_default(),
@@ -501,6 +517,22 @@ pub fn withdrawals_csv(rows: &[ItemWithdrawal], language: Language, zone: chrono
         csv.push('\n');
     }
     csv
+}
+
+/// Integer cents as euros with a comma decimal (`1250` → `12,50`). Unknown values are empty.
+fn format_purchase_price(raw: Option<&str>) -> String {
+    let Some(raw) = raw.map(str::trim).filter(|value| !value.is_empty()) else {
+        return String::new();
+    };
+    let Ok(cents) = raw.parse::<i64>() else {
+        return String::new();
+    };
+    if cents <= 0 {
+        return String::new();
+    }
+    let euros = cents / 100;
+    let cents_part = cents % 100;
+    format!("{euros},{cents_part:02}")
 }
 
 /// `DD/MM/YYYY` in the library zone.
@@ -534,34 +566,29 @@ pub fn parse_export_language(raw: &str) -> Option<Language> {
 #[cfg(test)]
 mod tests {
     use super::{
-        legacy_destination_label, normalize_reason_detail, withdrawals_csv, ItemWithdrawal,
+        legacy_destination_label, normalize_reason_detail, withdrawals_csv, WithdrawalCsvSource,
         WithdrawalDestination, WithdrawalInputError, WithdrawalReason,
     };
     use crate::models::Language;
     use chrono::TimeZone;
 
-    fn sample(destination: Option<WithdrawalDestination>, legacy: bool) -> ItemWithdrawal {
-        ItemWithdrawal {
-            id: 1,
-            item_id: 2,
+    fn sample(destination: Option<WithdrawalDestination>, legacy: bool) -> WithdrawalCsvSource {
+        WithdrawalCsvSource {
             withdrawn_at: chrono::Utc.with_ymd_and_hms(2026, 10, 12, 8, 0, 0).unwrap(),
             reason: WithdrawalReason::Other,
             reason_detail: Some("old note".into()),
             destination,
-            agent_id: None,
             agent_name: None,
-            cancelled_at: None,
-            cancelled_by: None,
             disposed_at: None,
-            disposed_by: None,
             disposed_by_name: None,
             legacy,
             barcode: Some("BC".into()),
             call_number: None,
-            biblio_id: Some(9),
             biblio_title: Some("Title".into()),
-            site_id: None,
+            authors: None,
             site_name: None,
+            acquired_at: None,
+            purchase_price: None,
         }
     }
 
@@ -589,12 +616,14 @@ mod tests {
     fn french_csv_renders_legacy_destination() {
         let csv = withdrawals_csv(&[sample(None, true)], Language::French, paris());
         assert!(csv.starts_with('\u{feff}'));
-        assert!(csv.contains("non renseignée (reprise)"));
-        assert!(csv.contains("Autre"));
-        assert!(csv.contains(super::CSV_HEADERS));
+        let mut lines = csv.trim_start_matches('\u{feff}').lines();
+        assert_eq!(lines.next(), Some(super::CSV_HEADERS));
+        assert_eq!(
+            lines.next(),
+            Some("BC;Title;;;;;;Autre;old note;non renseignée (reprise);12/10/2026;;;")
+        );
         assert!(!csv.contains('_'));
         assert!(!csv.contains("Withdrawn on"));
-        assert!(csv.contains("12/10/2026"));
         assert!(!csv.contains("2026-10-12T"));
     }
 
@@ -606,12 +635,15 @@ mod tests {
         );
         let csv = withdrawals_csv(&[sample(None, true)], Language::English, paris());
         assert!(csv.starts_with('\u{feff}'));
-        assert!(csv.contains("not specified (legacy import)"));
-        assert!(csv.contains(super::CSV_HEADERS));
+        let mut lines = csv.trim_start_matches('\u{feff}').lines();
+        assert_eq!(lines.next(), Some(super::CSV_HEADERS));
+        assert_eq!(
+            lines.next(),
+            Some("BC;Title;;;;;;Other;old note;not specified (legacy import);12/10/2026;;;")
+        );
         assert!(!csv.contains('_'));
         assert!(!csv.contains("Withdrawn on"));
         assert!(!csv.contains("disposed_by"));
-        assert!(csv.contains("12/10/2026"));
         assert!(!csv.contains("non renseignée (reprise)"));
         assert!(!csv.contains("2026-10-12T"));
     }
@@ -623,9 +655,17 @@ mod tests {
         row.barcode = Some("+1".into());
         row.call_number = Some("-cmd".into());
         row.biblio_title = Some("@sum".into());
+        row.authors = Some("=Hugo".into());
         row.site_name = Some("\tcmd".into());
         row.agent_name = Some("\rcmd".into());
         row.disposed_by_name = Some("A;B".into());
+        row.purchase_price = Some("1250".into());
+        // 15 March 23:30 UTC is 16 March in Europe/Paris (CET, UTC+1).
+        row.acquired_at = Some(
+            chrono::Utc
+                .with_ymd_and_hms(2026, 3, 15, 23, 30, 0)
+                .unwrap(),
+        );
         // 23:30 UTC is the next civil day in Europe/Paris (UTC+2 in October).
         row.withdrawn_at = chrono::Utc
             .with_ymd_and_hms(2026, 10, 12, 23, 30, 0)
@@ -633,19 +673,39 @@ mod tests {
         row.disposed_at = Some(chrono::Utc.with_ymd_and_hms(2026, 1, 1, 23, 30, 0).unwrap());
 
         let csv = withdrawals_csv(&[row], Language::French, paris());
-        assert!(
-            csv.contains("\"'=HYPERLINK(\"\"http://evil\"\")\""),
-            "{csv}"
+        let line = csv.trim_start_matches('\u{feff}').lines().nth(1).unwrap();
+        assert_eq!(
+            line,
+            "'+1;'@sum;'=Hugo;'-cmd;'\tcmd;16/03/2026;12,50;Autre;\"'=HYPERLINK(\"\"http://evil\"\")\";Pilon;13/10/2026;\"'\rcmd\";02/01/2026;\"A;B\""
         );
-        assert!(csv.contains(";'+1;"), "{csv}");
-        assert!(csv.contains("'-cmd"), "{csv}");
-        assert!(csv.contains("'@sum"), "{csv}");
-        assert!(csv.contains("'\tcmd"), "{csv}");
-        assert!(csv.contains("\"'\rcmd\""), "{csv}");
-        assert!(csv.contains("\"A;B\""), "{csv}");
-        assert!(csv.contains("13/10/2026"), "{csv}");
-        assert!(csv.contains("02/01/2026"), "{csv}");
         assert!(!csv.contains("2026-10-12T"), "{csv}");
         assert!(!csv.contains("2026-01-01T"), "{csv}");
+        assert!(!csv.contains("2026-03-15T"), "{csv}");
+    }
+
+    #[test]
+    fn purchase_price_prints_euros_with_a_comma_or_stays_empty() {
+        let cases = [
+            (Some("1250"), "12,50"),
+            (Some("50"), "0,50"),
+            (Some("100"), "1,00"),
+            (Some(" 1250 "), "12,50"),
+            (Some("0"), ""),
+            (Some(""), ""),
+            (Some("12.50"), ""),
+            (Some("-100"), ""),
+            (None, ""),
+        ];
+        for (raw, expected) in cases {
+            let mut row = sample(Some(WithdrawalDestination::Donation), false);
+            row.reason_detail = None;
+            row.purchase_price = raw.map(str::to_string);
+            let csv = withdrawals_csv(&[row], Language::French, paris());
+            let line = csv.trim_start_matches('\u{feff}').lines().nth(1).unwrap();
+            let price = line.split(';').nth(6).unwrap();
+            assert_eq!(price, expected, "raw {raw:?} line {line}");
+            assert_ne!(price, "0");
+            assert_ne!(price, "0,00");
+        }
     }
 }

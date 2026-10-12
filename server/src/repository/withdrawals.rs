@@ -7,7 +7,7 @@ use sqlx::{postgres::PgArguments, Arguments, FromRow, Postgres, Transaction};
 use crate::{
     error::{error_code, AppError, AppResult},
     models::withdrawal::{
-        DestinationTotal, ItemWithdrawal, ReasonTotal, WithdrawalDestination,
+        DestinationTotal, ItemWithdrawal, ReasonTotal, WithdrawalCsvSource, WithdrawalDestination,
         WithdrawalDisposeFailure, WithdrawalList, WithdrawalQuery, WithdrawalReason,
         WithdrawalWrite,
     },
@@ -47,6 +47,39 @@ const SELECT_WITHDRAWAL: &str = r#"
         b.title AS biblio_title,
         i.source_id AS site_id,
         so.name AS site_name
+    FROM item_withdrawals w
+    JOIN items i ON i.id = w.item_id
+    LEFT JOIN biblios b ON b.id = i.biblio_id
+    LEFT JOIN sources so ON so.id = i.source_id
+    LEFT JOIN users ag ON ag.id = w.agent_id
+    LEFT JOIN users dp ON dp.id = w.disposed_by
+"#;
+
+const SELECT_WITHDRAWAL_CSV: &str = r#"
+    SELECT
+        w.withdrawn_at,
+        w.reason,
+        w.reason_detail,
+        w.destination,
+        NULLIF(btrim(concat_ws(' ', ag.firstname, ag.lastname)), '') AS agent_name,
+        w.disposed_at,
+        NULLIF(btrim(concat_ws(' ', dp.firstname, dp.lastname)), '') AS disposed_by_name,
+        w.legacy,
+        i.barcode,
+        i.call_number,
+        b.title AS biblio_title,
+        NULLIF(btrim((
+            SELECT string_agg(
+                btrim(concat_ws(' ', a.lastname, NULLIF(btrim(a.firstname), ''))),
+                ', ' ORDER BY ba.position, a.id
+            )
+            FROM biblio_authors ba
+            JOIN authors a ON a.id = ba.author_id
+            WHERE ba.biblio_id = i.biblio_id
+        )), '') AS authors,
+        so.name AS site_name,
+        i.created_at AS acquired_at,
+        i.price AS purchase_price
     FROM item_withdrawals w
     JOIN items i ON i.id = w.item_id
     LEFT JOIN biblios b ON b.id = i.biblio_id
@@ -730,16 +763,17 @@ impl Repository {
     pub async fn item_withdrawals_export_rows(
         &self,
         query: &WithdrawalQuery,
-    ) -> AppResult<Vec<ItemWithdrawal>> {
+    ) -> AppResult<Vec<WithdrawalCsvSource>> {
         let prepared = prepare_filter(query, true)?;
         let sql = format!(
-            "{SELECT_WITHDRAWAL} WHERE {} ORDER BY w.withdrawn_at ASC, w.id ASC LIMIT 100000",
+            "{SELECT_WITHDRAWAL_CSV} WHERE {} ORDER BY w.withdrawn_at ASC, w.id ASC LIMIT 100000",
             prepared.where_sql
         );
-        let rows = sqlx::query_as_with::<_, WithdrawalRow, _>(&sql, bind_params(&prepared.params))
-            .fetch_all(&self.pool)
-            .await?;
-        Ok(rows.into_iter().map(ItemWithdrawal::from).collect())
+        let rows =
+            sqlx::query_as_with::<_, WithdrawalCsvSource, _>(&sql, bind_params(&prepared.params))
+                .fetch_all(&self.pool)
+                .await?;
+        Ok(rows)
     }
 
     pub async fn user_preferred_language(&self, user_id: i64) -> AppResult<Option<String>> {
