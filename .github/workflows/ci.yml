@@ -193,6 +193,7 @@ jobs:
           --test item_availability
           --test my_account
           --test lost_item_found
+          --test fine_audit_tx
           -- --nocapture
 
   coverage:
@@ -276,6 +277,7 @@ jobs:
           --test item_availability
           --test my_account
           --test lost_item_found
+          --test fine_audit_tx
           --lcov
           --output-path lcov.info
           --fail-under-lines 20
