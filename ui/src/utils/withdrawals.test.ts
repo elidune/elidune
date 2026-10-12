@@ -7,6 +7,7 @@ import {
   csvExportLanguage,
   exportPeriodError,
   localDayBoundIso,
+  parseDisposeFailures,
   toWithdrawalListParams,
   validateWithdrawalWrite,
   emptyWithdrawalFilters,
@@ -53,6 +54,29 @@ describe('disposal state', () => {
     assert.equal(canMarkDisposed(disposed), false);
     assert.equal(canCompleteLegacyWithdrawal(disposed), true);
     assert.equal(canCompleteLegacyWithdrawal({ ...active, legacy: false }), false);
+  });
+});
+
+describe('dispose batch failures', () => {
+  it('reads per-id codes and ignores incomplete rows', () => {
+    assert.deepEqual(
+      parseDisposeFailures({
+        code: 'withdrawal_dispose_rejected',
+        failures: [
+          { id: '9002', code: 'withdrawal_not_active', message: 'cancelled' },
+          { id: '9003', code: 'withdrawal_already_disposed', message: 'disposed' },
+          { id: 9999, code: 'not_found', message: 'missing' },
+          { code: 'not_found' },
+        ],
+      }),
+      [
+        { id: '9002', code: 'withdrawal_not_active', message: 'cancelled' },
+        { id: '9003', code: 'withdrawal_already_disposed', message: 'disposed' },
+        { id: '9999', code: 'not_found', message: 'missing' },
+      ],
+    );
+    assert.deepEqual(parseDisposeFailures({ code: 'validation_error' }), []);
+    assert.deepEqual(parseDisposeFailures(null), []);
   });
 });
 

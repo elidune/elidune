@@ -16,7 +16,7 @@ import { useSourcesQuery } from '@/hooks/holds/useSourcesQuery';
 import api from '@/services/api';
 import { canManageWeeding } from '@/types';
 import type { Collection, ItemWithdrawal } from '@/types';
-import { getApiErrorMessage } from '@/utils/apiError';
+import { disposeBatchErrorMessage, getApiErrorMessage } from '@/utils/apiError';
 import { formChoiceControlClass, formChoiceLabelClass, formControlClass, formLabelClass } from '@/utils/formControl';
 import {
   WITHDRAWAL_DESTINATIONS,
@@ -101,7 +101,7 @@ export default function WeedingPage() {
       setSelected([]);
       void queryClient.invalidateQueries({ queryKey: ['item-withdrawals'] });
     },
-    onError: (err) => setDisposeError(getApiErrorMessage(err, t)),
+    onError: (err) => setDisposeError(disposeBatchErrorMessage(err, t)),
   });
 
   const total = listQuery.data?.total ?? 0;

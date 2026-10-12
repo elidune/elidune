@@ -736,12 +736,16 @@ class ApiService {
   }
 
   /**
-   * `POST /item-withdrawals/dispose` — contract v2, not on #143 yet.
-   * Body `{ withdrawalIds }`. The batch is atomic.
+   * `POST /item-withdrawals/dispose`. `disposedAt` is optional RFC3339 (server default: now).
+   * The batch is atomic.
    */
-  async disposeItemWithdrawals(withdrawalIds: string[]): Promise<BatchWithdrawalResponse> {
+  async disposeItemWithdrawals(
+    withdrawalIds: string[],
+    disposedAt?: string,
+  ): Promise<BatchWithdrawalResponse> {
     const response = await this.client.post<BatchWithdrawalResponse>('/item-withdrawals/dispose', {
       withdrawalIds,
+      ...(disposedAt ? { disposedAt } : {}),
     });
     return response.data;
   }

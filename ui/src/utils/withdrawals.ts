@@ -32,10 +32,11 @@ export const WITHDRAWAL_DETAIL_MIN = 3;
  * Error `code` values from the #139 contract, including disposal (contract v2).
  * `authorization_failed`, `not_found`, and `validation_error` already have generic copy.
  *
- * Disposal codes are not on the server yet. The UI expects:
- * - `withdrawal_already_disposed` (409) — cancel, or a dispose batch, once `disposedAt` is set
- * - `withdrawal_dispose_rejected` (409) — the whole dispose batch is rejected because it
- *   contains a cancelled or already-disposed row
+ * Dispose batch (`POST /item-withdrawals/dispose`):
+ * - 409 `withdrawal_dispose_rejected` when every rejected id is cancelled or already disposed
+ * - 422 `withdrawal_dispose_rejected` when any id is unknown
+ * - `failures[]` carries per-id `withdrawal_not_active`, `withdrawal_already_disposed`, or `not_found`
+ * - 409 `withdrawal_already_disposed` when cancelling a row whose `disposedAt` is set
  */
 export const WITHDRAWAL_API_ERROR_CODES = [
   'withdrawal_reason_detail_required',
@@ -214,4 +215,31 @@ export function withdrawalAgentName(row: Pick<ItemWithdrawal, 'agentName' | 'age
   if (name) return name;
   const id = row.agentId?.trim();
   return id || null;
+}
+
+export interface DisposeFailure {
+  id: string;
+  code: string;
+  message: string;
+}
+
+/** Per-id rows on a rejected `POST /item-withdrawals/dispose` body. */
+export function parseDisposeFailures(data: unknown): DisposeFailure[] {
+  if (!data || typeof data !== 'object') return [];
+  const raw = (data as { failures?: unknown }).failures;
+  if (!Array.isArray(raw)) return [];
+  const failures: DisposeFailure[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const row = entry as { id?: unknown; code?: unknown; message?: unknown };
+    const id = row.id != null ? String(row.id).trim() : '';
+    const code = typeof row.code === 'string' ? row.code.trim() : '';
+    if (!id || !code) continue;
+    failures.push({
+      id,
+      code,
+      message: typeof row.message === 'string' ? row.message.trim() : '',
+    });
+  }
+  return failures;
 }

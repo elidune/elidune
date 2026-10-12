@@ -3,6 +3,7 @@ import axios, { type AxiosError, type AxiosResponse } from 'axios';
 import i18n from '@/locales';
 import type { ApiError, MyLoanRenewalRefusal } from '@/types';
 import { weedingServerMessageI18nKey } from '@/utils/weeding';
+import { parseDisposeFailures } from '@/utils/withdrawals';
 
 /** Calendar date embedded in `Renewal is possible from YYYY-MM-DD.` */
 const RENEWAL_OPEN_DATE = /(\d{4}-\d{2}-\d{2})/;
@@ -298,6 +299,26 @@ function translateKey(t: TFunction, key: string): string | null {
  * Get a user-facing error message from an API error response.
  * Order: rate limit (429) → API error code → response body message → HTTP status → network / timeout → generic.
  */
+/**
+ * Dispose-batch message. 422 and 409 share `withdrawal_dispose_rejected`;
+ * `failures` lists each id with its own code.
+ */
+export function disposeBatchErrorMessage(error: unknown, t: TFunction): string {
+  const code = getApiErrorCode(error);
+  const status = getHttpStatus(error);
+  const head =
+    code === 'withdrawal_dispose_rejected' && status === 422
+      ? t('errors.apiCode.withdrawal_dispose_rejected_unknown')
+      : getApiErrorMessage(error, t);
+  const data = asAxiosError(error)?.response?.data;
+  const lines = parseDisposeFailures(data).map((failure) => {
+    const fromCode = translateKey(t, `errors.apiCode.${failure.code}`);
+    const detail = fromCode ?? (failure.message || failure.code);
+    return t('weeding.disposeFailure', { id: failure.id, detail });
+  });
+  return lines.length > 0 ? [head, ...lines].join('\n') : head;
+}
+
 export function getApiErrorMessage(error: unknown, t: TFunction): string {
   const axiosError = asAxiosError(error);
   const status = axiosError?.response?.status;
