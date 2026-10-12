@@ -14,11 +14,13 @@ import {
   Phone,
 } from 'lucide-react';
 import { Card, Button, Input, Modal, CountrySelect, LibraryTimezoneControl } from '@/components/common';
-import api from '@/services/api';
 import { useLibraryInfoQuery, useUpdateLibraryInfoMutation } from '@/hooks/common/useLibraryInfoQuery';
-import { getApiErrorMessage, libraryInfoTimezoneFieldError } from '@/utils/apiError';
-import { formControlClass, formLabelClass } from '@/utils/formControl';
+import { LANGUAGE_NAMES, PUBLIC_LANGUAGE_OPTIONS } from '@/locales';
+import api from '@/services/api';
+import { getApiErrorMessage, libraryInfoLanguageFieldError, libraryInfoTimezoneFieldError } from '@/utils/apiError';
 import { deferFromEffect } from '@/utils/deferFromEffect';
+import { formControlClass, formLabelClass } from '@/utils/formControl';
+import { libraryLanguageChoice, libraryLanguageForUpdate } from '@/utils/uiLanguage';
 import {
   applyCountryChange,
   countryCodeFromStored,
@@ -47,6 +49,8 @@ interface LibraryGeneralForm {
   email: string;
   phones: string[];
   timezone: string;
+  /** `''` is “not set” and is saved as JSON `null`. */
+  language: string;
 }
 
 function libraryInfoToForm(info: LibraryInfo | undefined): LibraryGeneralForm {
@@ -60,6 +64,7 @@ function libraryInfoToForm(info: LibraryInfo | undefined): LibraryGeneralForm {
     email: info?.email ?? '',
     phones: info?.phones ?? [],
     timezone: info?.timezone?.trim() ?? '',
+    language: libraryLanguageChoice(info?.language),
   };
 }
 
@@ -74,6 +79,7 @@ function GeneralTab() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [timezoneError, setTimezoneError] = useState<string | null>(null);
   const [countryError, setCountryError] = useState<string | null>(null);
+  const [languageError, setLanguageError] = useState<string | null>(null);
 
   // Seed from a cache hit on the first render. Synced starts unset so a library
   // info payload already in the query cache is copied into the draft (same class
@@ -86,6 +92,7 @@ function GeneralTab() {
       setForm(libraryInfoToForm(data));
       setTimezoneError(null);
       setCountryError(null);
+      setLanguageError(null);
     }
   }
 
@@ -93,6 +100,7 @@ function GeneralTab() {
     setSaveError(null);
     setTimezoneError(null);
     setCountryError(null);
+    setLanguageError(null);
     setSaveSuccess(false);
     if (!/^[A-Z]{2}$/.test(form.addrCountry)) {
       setCountryError(t('library.general.countryRequired'));
@@ -113,13 +121,19 @@ function GeneralTab() {
         email: form.email || null,
         phones: form.phones.filter(Boolean),
         timezone: form.timezone.trim() || null,
+        language: libraryLanguageForUpdate(form.language),
       });
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err: unknown) {
-      const timezoneMessage = libraryInfoTimezoneFieldError(err, t);
-      if (timezoneMessage) setTimezoneError(timezoneMessage);
-      else setSaveError(getApiErrorMessage(err, t));
+      const languageMessage = libraryInfoLanguageFieldError(err, t);
+      if (languageMessage) {
+        setLanguageError(languageMessage);
+      } else {
+        const timezoneMessage = libraryInfoTimezoneFieldError(err, t);
+        if (timezoneMessage) setTimezoneError(timezoneMessage);
+        else setSaveError(getApiErrorMessage(err, t));
+      }
     }
   };
 
@@ -197,6 +211,46 @@ function GeneralTab() {
 
         {/* Name */}
         {field('library.general.name', 'name', { placeholder: t('library.general.namePlaceholder') })}
+
+        <div>
+          <label htmlFor="library-default-language" className={formLabelClass()}>
+            {t('library.general.defaultLanguage')}
+          </label>
+          <select
+            id="library-default-language"
+            value={form.language}
+            onChange={(event) => {
+              setForm((current) => ({ ...current, language: event.target.value }));
+              if (languageError) setLanguageError(null);
+            }}
+            className={formControlClass({ error: !!languageError, className: 'w-full' })}
+            aria-invalid={languageError ? true : undefined}
+            aria-describedby={
+              languageError
+                ? 'library-default-language-help library-default-language-error'
+                : 'library-default-language-help'
+            }
+          >
+            <option value="">{t('library.general.defaultLanguageUnset')}</option>
+            {PUBLIC_LANGUAGE_OPTIONS.map((code) => (
+              <option key={code} value={code}>
+                {LANGUAGE_NAMES[code]}
+              </option>
+            ))}
+          </select>
+          <p id="library-default-language-help" className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {t('library.general.defaultLanguageHelp')}
+          </p>
+          {languageError && (
+            <p
+              id="library-default-language-error"
+              className="mt-1 text-sm text-red-600 dark:text-red-400"
+              role="alert"
+            >
+              {languageError}
+            </p>
+          )}
+        </div>
 
         {/* Address */}
         <div className="space-y-3">

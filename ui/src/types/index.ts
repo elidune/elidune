@@ -20,8 +20,9 @@ export interface LibraryInfo {
   /** IANA time zone name (for example `Europe/Paris`). */
   timezone: string;
   /**
-   * UI language from `GET /api/v1/library-info`: `fr`, `en`, `de`, or `es`.
-   * Absent or blank means the client falls back to French.
+   * UI language from `GET /api/v1/library-info`: `fr`, `en`, `de`, `es`, or `null`.
+   * Absent, null, or blank means the client falls back to French.
+   * Optional so this client still typechecks before the server field exists.
    */
   language?: string | null;
   updatedAt?: string | null;
@@ -38,6 +39,13 @@ export interface UpdateLibraryInfoRequest {
   phones?: string[] | null;
   /** IANA time zone name. Omitted values are left unchanged. */
   timezone?: string | null;
+  /**
+   * Default public UI language. Omit the field to leave the stored value unchanged.
+   * `null` clears it. Allowed values are exactly `fr`, `en`, `de`, and `es`.
+   * Any other value is HTTP 400 `validation_error`.
+   * Optional so this client still typechecks before the server field exists.
+   */
+  language?: string | null;
 }
 
 // Schedule types

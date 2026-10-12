@@ -140,7 +140,11 @@
       "timezonePlaceholder": "Choisir un fuseau horaire",
       "timezoneDerived": "Fuseau horaire : {{zone}} ({{offset}}), déduit du pays.",
       "timezoneMismatch": "Ne correspond pas au pays",
-      "timezoneRequired": "Choisissez un fuseau horaire pour ce pays."
+      "timezoneRequired": "Choisissez un fuseau horaire pour ce pays.",
+      "defaultLanguage": "Langue par défaut de la bibliothèque",
+      "defaultLanguageUnset": "Non définie",
+      "defaultLanguageHelp": "Utilisée quand la langue du navigateur n’est pas prise en charge et qu’aucun choix n’a été enregistré. Non définie conserve le français.",
+      "defaultLanguageInvalid": "Choisissez Non définie, Français, English, Deutsch ou Español."
     },
     "tabs": {
       "hours": "Horaires d'ouverture",

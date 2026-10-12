@@ -52,6 +52,36 @@ export function syncHtmlLang(
   if (target) target.lang = lang;
 }
 
+/** Empty select value for “not set”. The update body sends JSON `null`. */
+export const LIBRARY_LANGUAGE_UNSET = '';
+
+/**
+ * Select value for the library default language.
+ * Missing, null, blank, and unsupported codes stay unset.
+ */
+export function libraryLanguageChoice(value: string | null | undefined): string {
+  return supportedLanguageCode(value) ?? LIBRARY_LANGUAGE_UNSET;
+}
+
+/**
+ * PUT body for the library default language.
+ * A supported UI code is sent as-is. “Not set” is `null`, which clears the stored value.
+ */
+export function libraryLanguageForUpdate(choice: string | null | undefined): string | null {
+  return supportedLanguageCode(choice);
+}
+
+/** True when a 400 `validation_error` is about the library `language` field. */
+export function isLibraryLanguageValidationError(error: {
+  status?: number | null;
+  code?: string | null;
+  message?: string | null;
+}): boolean {
+  return error.status === 400
+    && error.code === 'validation_error'
+    && /\blanguage\b/i.test(error.message ?? '');
+}
+
 /**
  * Switch translations immediately. The public selector must not wait for a reload.
  */

@@ -8,6 +8,9 @@ import fr from '../locales/fr/translation.json' with { type: 'json' };
 import { PUBLIC_LANGUAGE_STORAGE_KEY } from '../locales/languages.ts';
 import {
   applyUiLanguage,
+  isLibraryLanguageValidationError,
+  libraryLanguageChoice,
+  libraryLanguageForUpdate,
   libraryLanguageFromSettings,
   resolveUiLanguage,
 } from './uiLanguage.ts';
@@ -222,5 +225,87 @@ describe('UI language resolution', () => {
       }),
       'en',
     );
+  });
+});
+
+describe('library default language setting', () => {
+  it('sends null for Non définie and a UI code for Français, English, Deutsch, and Español', () => {
+    assert.equal(libraryLanguageChoice(null), '');
+    assert.equal(libraryLanguageChoice(undefined), '');
+    assert.equal(libraryLanguageChoice(''), '');
+    assert.equal(libraryLanguageChoice('it'), '');
+    assert.equal(libraryLanguageForUpdate(''), null);
+    assert.equal(libraryLanguageForUpdate(null), null);
+
+    for (const code of ['fr', 'en', 'de', 'es'] as const) {
+      assert.equal(libraryLanguageChoice(code), code);
+      assert.equal(libraryLanguageForUpdate(code), code);
+    }
+  });
+
+  it('treats a 400 validation_error about language as an inline field error', () => {
+    assert.equal(
+      isLibraryLanguageValidationError({
+        status: 400,
+        code: 'validation_error',
+        message: 'language must be one of: fr, en, de, es',
+      }),
+      true,
+    );
+    assert.equal(
+      isLibraryLanguageValidationError({
+        status: 400,
+        code: 'validation_error',
+        message: "Unrecognized country 'ZZ'",
+      }),
+      false,
+    );
+    assert.equal(
+      isLibraryLanguageValidationError({
+        status: 400,
+        code: 'invalid_timezone',
+        message: 'language must be one of: fr, en, de, es',
+      }),
+      false,
+    );
+    assert.equal(
+      isLibraryLanguageValidationError({
+        status: 500,
+        code: 'validation_error',
+        message: 'language must be one of: fr, en, de, es',
+      }),
+      false,
+    );
+  });
+
+  it('translates the library default language label, unset option, and help text', () => {
+    const labels = {
+      fr: {
+        defaultLanguage: 'Langue par défaut de la bibliothèque',
+        defaultLanguageUnset: 'Non définie',
+      },
+      en: {
+        defaultLanguage: 'Library default language',
+        defaultLanguageUnset: 'Not set',
+      },
+      de: {
+        defaultLanguage: 'Standardsprache der Bibliothek',
+        defaultLanguageUnset: 'Nicht festgelegt',
+      },
+      es: {
+        defaultLanguage: 'Idioma predeterminado de la biblioteca',
+        defaultLanguageUnset: 'Sin definir',
+      },
+    } as const;
+    const catalogs = { fr, en, de, es };
+    for (const code of ['fr', 'en', 'de', 'es'] as const) {
+      const general = catalogs[code].library.general;
+      assert.equal(general.defaultLanguage, labels[code].defaultLanguage);
+      assert.equal(general.defaultLanguageUnset, labels[code].defaultLanguageUnset);
+      assert.equal(typeof general.defaultLanguageHelp, 'string');
+      assert.ok(general.defaultLanguageHelp.length > 0);
+      assert.equal(typeof general.defaultLanguageInvalid, 'string');
+      assert.ok(general.defaultLanguageInvalid.length > 0);
+    }
   });
 });
