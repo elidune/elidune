@@ -2557,6 +2557,9 @@ export interface BatchCreateResult {
   barcode: string;
   success: boolean;
   loanId?: string | null;
+  /** Stable API code. Absent on older servers, which send only `error`. */
+  code?: string | null;
+  /** English server text. Shown only when `code` is missing. */
   error?: string | null;
 }
 
