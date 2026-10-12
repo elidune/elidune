@@ -148,7 +148,8 @@ async fn checkout_skips_one_off_closure() {
     seed_period_with_weekdays(&app, &(0..=6).collect::<Vec<_>>()).await;
     let raw = Utc::now() + Duration::days(21);
     let holiday = local_date(paris(), raw);
-    app.state
+    let closure_id = app
+        .state
         .services
         .repository
         .schedules_create_closure(&CreateScheduleClosure {
@@ -157,7 +158,8 @@ async fn checkout_skips_one_off_closure() {
             source_id: None,
         })
         .await
-        .expect("create closure");
+        .expect("create closure")
+        .id;
 
     let before = Utc::now();
     let outcome = app
@@ -192,6 +194,7 @@ async fn checkout_skips_one_off_closure() {
         due_local, holiday,
         "due date must not land on the one-off closure"
     );
+    delete_closures(&app, &[closure_id]).await;
 }
 
 #[tokio::test]
@@ -222,13 +225,15 @@ async fn renew_skips_holiday() {
         .expect("move due date into the renewal window");
 
     let holiday = local_date(paris(), due + Duration::days(21));
-    repo.schedules_create_closure(&CreateScheduleClosure {
-        closure_date: holiday.to_string(),
-        reason: Some("renew holiday".into()),
-        source_id: None,
-    })
-    .await
-    .expect("create closure");
+    let closure_id = repo
+        .schedules_create_closure(&CreateScheduleClosure {
+            closure_date: holiday.to_string(),
+            reason: Some("renew holiday".into()),
+            source_id: None,
+        })
+        .await
+        .expect("create closure")
+        .id;
 
     let (new_expiry, renews) = repo
         .loans_renew(checkout.loan_id, false)
@@ -254,6 +259,7 @@ async fn renew_skips_holiday() {
         "renewed expiry {} should be current due + duration, skipping {holiday}",
         new_expiry.date_naive()
     );
+    delete_closures(&app, &[closure_id]).await;
 }
 
 #[tokio::test]
