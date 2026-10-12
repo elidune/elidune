@@ -19,14 +19,24 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardHeader, Button, Badge, Table, MessageModal, ConfirmDialog, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, BarcodeScanField, Typeahead } from '@/components/common';
 import PatronLink from '@/components/users/PatronLink';
+import ItemAvailabilityBadge from '@/components/items/ItemAvailabilityBadge';
 import ActiveLoanCard from '@/components/loans/ActiveLoanCard';
 import CirculationExceptionDialog from '@/components/loans/CirculationExceptionDialog';
 import ClaimsReturnedQueue from '@/components/loans/ClaimsReturnedQueue';
 import LoanExceptionActions from '@/components/loans/LoanExceptionActions';
 import ToPickForceLoanDialog from '@/components/loans/ToPickForceLoanDialog';
+import LostFoundAlertDialog from '@/components/loans/LostFoundAlertDialog';
 import Pagination from '@/components/common/Pagination';
 import api from '@/services/api';
-import { getApiErrorMessage } from '@/utils/apiError';
+import { getApiErrorCode, getApiErrorMessage, getApiErrorRawMessage, getHttpStatus } from '@/utils/apiError';
+import {
+  classifyLostFoundError,
+  isLostReturn,
+  itemIdFromCopies,
+  itemIdFromLostReturn,
+  lostFoundErrorMessage,
+  lostFoundResolutionMessage,
+} from '@/utils/lostFound';
 import { renewedUntilMessage } from '@/utils/localeDate';
 import { patronId } from '@/utils/patronLink';
 import { isWeedingServerMessage } from '@/utils/weeding';
@@ -52,13 +62,14 @@ import PatronOptionLabel from '@/components/users/PatronOptionLabel';
 import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
 import { useToast } from '@/contexts/ToastContext';
 import { isAdmin } from '@/types';
-import type { User as UserType, Loan, UserShort, OverdueLoanInfo, ReminderReport } from '@/types';
+import type { User as UserType, Loan, UserShort, OverdueLoanInfo, ReminderReport, ItemCheckIn, LostFoundDisposition, LostReturnFields } from '@/types';
 import { isLoanDetailsStaff } from '@/utils/catalogView';
 
 type TabType = 'borrow' | 'return' | 'overdue' | 'claims';
 type ReturnView =
   | { kind: 'loan'; loan: Loan }
-  | { kind: 'pick'; notice: PickCheckInNotice };
+  | { kind: 'pick'; notice: PickCheckInNotice }
+  | { kind: 'item'; title: string | null; barcode: string | null; availability: string | null };
 type DeskLoanOp = 'return' | 'renew' | CirculationExceptionKind;
 
 type CheckoutRecap = {
@@ -129,6 +140,14 @@ export default function LoansPage() {
   const [returnResult, setReturnResult] = useState<ReturnView | null>(null);
   const [isProcessingReturn, setIsProcessingReturn] = useState(false);
   const [returnError, setReturnError] = useState('');
+  const [lostFound, setLostFound] = useState<(LostReturnFields & { itemId: string | null }) | null>(null);
+  const [lostFoundError, setLostFoundError] = useState<string | null>(null);
+  const [lostFoundPending, setLostFoundPending] = useState<LostFoundDisposition | null>(null);
+  const lostFoundOpenRef = useRef(false);
+  const lostFoundFlightRef = useRef(false);
+  useEffect(() => {
+    lostFoundOpenRef.current = lostFound !== null;
+  }, [lostFound]);
   const [renewError, setRenewError] = useState('');
   const [messageDialog, setMessageDialog] = useState<string | null>(null);
 
@@ -154,6 +173,7 @@ export default function LoansPage() {
   /** Restore keyboard/scanner focus to the visible barcode field after dialogs close. */
   const focusScanInput = useCallback(() => {
     const apply = () => {
+      if (lostFoundOpenRef.current) return;
       if (activeTab === 'return') {
         returnBarcodeInputRef.current?.focus();
         return;
@@ -204,9 +224,14 @@ export default function LoansPage() {
     }
     if (activeTab === 'return' && prev !== null && prev !== 'return') {
       requestAnimationFrame(() => {
+        if (lostFoundOpenRef.current) return;
         returnBarcodeInputRef.current?.focus();
-        setTimeout(() => returnBarcodeInputRef.current?.focus(), 0);
-        setTimeout(() => returnBarcodeInputRef.current?.focus(), 100);
+        setTimeout(() => {
+          if (!lostFoundOpenRef.current) returnBarcodeInputRef.current?.focus();
+        }, 0);
+        setTimeout(() => {
+          if (!lostFoundOpenRef.current) returnBarcodeInputRef.current?.focus();
+        }, 100);
       });
     }
     prevActiveTabRef.current = activeTab;
@@ -214,14 +239,133 @@ export default function LoansPage() {
 
   /** Keep return barcode field focused for scanner workflow after each submit and when the recap updates. */
   useEffect(() => {
-    if (activeTab !== 'return' || isProcessingReturn) return;
-    const run = () => returnBarcodeInputRef.current?.focus();
-    requestAnimationFrame(() => {
+    if (activeTab !== 'return' || isProcessingReturn || lostFound) return;
+    let cancelled = false;
+    const timers: number[] = [];
+    const run = () => {
+      if (cancelled || lostFoundOpenRef.current) return;
+      returnBarcodeInputRef.current?.focus();
+    };
+    const frame = requestAnimationFrame(() => {
       run();
-      setTimeout(run, 0);
-      setTimeout(run, 100);
+      timers.push(window.setTimeout(run, 0));
+      timers.push(window.setTimeout(run, 100));
     });
-  }, [activeTab, isProcessingReturn, returnResult]);
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+      timers.forEach((id) => window.clearTimeout(id));
+    };
+  }, [activeTab, isProcessingReturn, returnResult, lostFound]);
+
+  const openLostFound = useCallback(
+    async (
+      result: ItemCheckIn,
+      hints: { itemId?: string | null; barcode?: string | null },
+    ): Promise<boolean> => {
+      if (!isLostReturn(result)) return false;
+      let itemId = itemIdFromLostReturn(result, hints.itemId);
+      const barcode = hints.barcode?.trim();
+      if (!itemId && barcode) {
+        try {
+          const notice = await api.getItemByBarcode(barcode);
+          itemId = itemIdFromCopies(notice.items, barcode);
+        } catch {
+          itemId = null;
+        }
+      }
+      setLostFoundPending(null);
+      setLostFoundError(itemId ? null : t('loans.lostFound.errorNotFound'));
+      setLostFound({
+        itemId,
+        wasLost: true,
+        fineId: result.fineId,
+        fineStatus: result.fineStatus,
+        fineAmount: result.fineAmount,
+        paidAmount: result.paidAmount,
+      });
+      if (result.loan) setReturnResult({ kind: 'loan', loan: result.loan });
+      return true;
+    },
+    [t],
+  );
+
+  const refetchLostFoundItem = useCallback(
+    async (itemId: string) => {
+      try {
+        const notice = await api.getItem(itemId);
+        const copies = notice.items ?? [];
+        const copy = copies.find((item) => item.id === itemId) ?? copies[0];
+        if (!copy) return;
+        setReturnResult({
+          kind: 'item',
+          title: notice.title ?? null,
+          barcode: copy.barcode ?? null,
+          availability: copy.availability ?? null,
+        });
+      } catch (error: unknown) {
+        showToast({
+          variant: 'error',
+          message: lostFoundErrorMessage(
+            {
+              status: getHttpStatus(error),
+              code: getApiErrorCode(error),
+              message: getApiErrorRawMessage(error),
+            },
+            (key) => t(key),
+          ),
+        });
+      }
+    },
+    [showToast, t],
+  );
+
+  const dismissLostFound = useCallback(() => {
+    if (lostFoundFlightRef.current) return;
+    setLostFound(null);
+    setLostFoundError(null);
+    setLostFoundPending(null);
+    showToast({ variant: 'info', message: t('loans.lostFound.dismissed') });
+  }, [showToast, t]);
+
+  const resolveLostFoundChoice = useCallback(
+    async (disposition: LostFoundDisposition) => {
+      const itemId = lostFound?.itemId;
+      if (!itemId || lostFoundFlightRef.current) return;
+      lostFoundFlightRef.current = true;
+      setLostFoundPending(disposition);
+      setLostFoundError(null);
+      try {
+        const resolution = await api.resolveLostFound(itemId, { disposition });
+        showToast({
+          variant: 'success',
+          message: lostFoundResolutionMessage(resolution, i18n.language, (key, values) =>
+            t(key, values),
+          ),
+        });
+        setLostFound(null);
+        setLostFoundError(null);
+      } catch (error: unknown) {
+        const input = {
+          status: getHttpStatus(error),
+          code: getApiErrorCode(error),
+          message: getApiErrorRawMessage(error),
+        };
+        if (classifyLostFoundError(input).kind === 'alreadyProcessed') {
+          setLostFound(null);
+          setLostFoundError(null);
+          showToast({ variant: 'info', message: t('loans.lostFound.alreadyProcessed') });
+          await refetchLostFoundItem(itemId);
+          return;
+        }
+        setLostFoundError(lostFoundErrorMessage(input, (key) => t(key)));
+      } finally {
+        lostFoundFlightRef.current = false;
+        setLostFoundPending(null);
+      }
+    },
+    [i18n.language, lostFound, refetchLostFoundItem, showToast, t],
+  );
 
   const loadOverdue = useCallback(async () => {
     setOverdueLoading(true);
@@ -243,9 +387,11 @@ export default function LoansPage() {
       overdueLoanActionInFlightRef.current = true;
       setOverdueLoanAction({ loanId, op: 'return' });
       try {
-        await api.returnLoan(loanId);
+        const known = overdueData?.loans.find((loan) => loan.loanId === loanId);
+        const result = await api.returnLoan(loanId);
         setOverdueError(null);
         await loadOverdue();
+        if (await openLostFound(result, { barcode: known?.itemBarcode })) return;
         showToast({ variant: 'success', message: t('loans.returnSuccess') });
       } catch (e: unknown) {
         const msg = getApiErrorMessage(e, t) || t('loans.errorReturningLoan');
@@ -256,7 +402,7 @@ export default function LoansPage() {
         setOverdueLoanAction(null);
       }
     },
-    [loadOverdue, showToast, t],
+    [loadOverdue, openLostFound, overdueData, showToast, t],
   );
 
   const handleOverdueRenew = useCallback(
@@ -588,7 +734,8 @@ export default function LoansPage() {
     setBorrowLoanAction({ loanId, op: 'return' });
     setRenewError('');
     try {
-      await api.returnLoan(loanId);
+      const known = loans.find((loan) => loan.id === loanId);
+      const result = await api.returnLoan(loanId);
       if (selectedUser) {
         const res = await api.getUserLoans(selectedUser.id, {
           page: loansPage,
@@ -596,6 +743,14 @@ export default function LoansPage() {
         });
         setLoans(res.items.filter(isLoanDetailsStaff));
         setLoansTotal(res.total);
+      }
+      if (
+        await openLostFound(result, {
+          itemId: known?.itemId,
+          barcode: known?.itemIdentification,
+        })
+      ) {
+        return;
       }
       showToast({ variant: 'success', message: t('loans.returnSuccess') });
     } catch (error: unknown) {
@@ -618,7 +773,12 @@ export default function LoansPage() {
     setReturnResult(null);
 
     try {
-      const result = await api.returnLoanByBarcode(specimenBarcode.trim());
+      const barcode = specimenBarcode.trim();
+      const result = await api.returnLoanByBarcode(barcode);
+      if (await openLostFound(result, { barcode })) {
+        setReturnBarcodeInput('');
+        return;
+      }
       const pick = interpretPickCheckIn(result);
       if (pick) {
         const notice = await resolvePickNotice(pick);
@@ -1230,7 +1390,7 @@ export default function LoansPage() {
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
-                      if (returnBarcodeInput.trim() && !isProcessingReturn) {
+                      if (returnBarcodeInput.trim() && !isProcessingReturn && lostFound === null) {
                         void handleReturnByBarcode(returnBarcodeInput);
                       }
                     }}
@@ -1247,14 +1407,14 @@ export default function LoansPage() {
                       placeholder={t('loans.scanOrEnterBarcode')}
                       leftIcon={<BookOpen className="h-4 w-4" />}
                       autoFocus
-                      disabled={isProcessingReturn}
+                      disabled={isProcessingReturn || lostFound !== null}
                       aria-busy={isProcessingReturn}
                       scannerTitle={t('loans.returnLoan')}
                       onCameraScan={(barcode) => {
                         setReturnBarcodeInput(barcode);
                         setReturnError('');
                         setReturnResult(null);
-                        if (!isProcessingReturn) {
+                        if (!isProcessingReturn && lostFound === null) {
                           void handleReturnByBarcode(barcode);
                         }
                       }}
@@ -1263,7 +1423,7 @@ export default function LoansPage() {
                           type="submit"
                           size="icon"
                           variant="primary"
-                          disabled={isProcessingReturn || !returnBarcodeInput.trim()}
+                          disabled={isProcessingReturn || lostFound !== null || !returnBarcodeInput.trim()}
                           aria-label={t('common.validate')}
                           className="bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500 dark:hover:bg-emerald-600"
                         >
@@ -1325,6 +1485,19 @@ export default function LoansPage() {
               )}
               {returnResult?.kind === 'pick' && (
                 <PickCheckInBanner notice={returnResult.notice} t={t} />
+              )}
+              {returnResult?.kind === 'item' && (
+                <div className="rounded-xl border border-gray-200 bg-white p-5 dark:border-gray-800 dark:bg-gray-900">
+                  <p className="text-base font-semibold text-gray-900 dark:text-white">
+                    {returnResult.title?.trim() || t('loans.noTitle')}
+                  </p>
+                  <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    {t('items.barcode')}: <span className="font-mono">{returnResult.barcode ?? '-'}</span>
+                  </p>
+                  <div className="mt-3">
+                    <ItemAvailabilityBadge availability={returnResult.availability} audience="staff" />
+                  </div>
+                </div>
               )}
             </div>
           </Card>
@@ -1699,6 +1872,18 @@ export default function LoansPage() {
         }}
         message={forceBorrowDialog?.message ?? ''}
         stackOnTop
+      />
+
+      <LostFoundAlertDialog
+        isOpen={lostFound !== null}
+        fee={lostFound ?? {}}
+        canResolve={Boolean(lostFound?.itemId)}
+        pending={lostFoundPending}
+        error={lostFoundError}
+        onDismiss={dismissLostFound}
+        onResolve={(disposition) => {
+          void resolveLostFoundChoice(disposition);
+        }}
       />
 
       <ToPickForceLoanDialog
