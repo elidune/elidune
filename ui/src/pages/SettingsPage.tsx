@@ -844,7 +844,7 @@ function PublicTypeEditForm({
 }: {
   pt: PublicType;
   onSave: (data: UpdatePublicType) => void;
-  globalThreshold?: string;
+  globalThreshold?: string | null;
   globalMaxActiveHolds?: number;
 }) {
   const { t } = useTranslation();
@@ -1634,7 +1634,7 @@ function PublicTypeCreateModal({ onSave, onCancel }: { onSave: (data: CreatePubl
               step="0.01"
               min="0"
               placeholder={
-                finePolicy
+                finePolicy?.unpaidFineThreshold
                   ? t('settings.publicTypes.unpaidFineThresholdInherit', {
                       amount: finePolicy.unpaidFineThreshold,
                     })
@@ -1643,7 +1643,7 @@ function PublicTypeCreateModal({ onSave, onCancel }: { onSave: (data: CreatePubl
               value={form.unpaidFineThreshold}
               error={thresholdError ?? undefined}
               hint={
-                finePolicy
+                finePolicy?.unpaidFineThreshold
                   ? t('settings.publicTypes.unpaidFineThresholdInherit', {
                       amount: finePolicy.unpaidFineThreshold,
                     })

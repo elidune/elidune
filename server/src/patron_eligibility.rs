@@ -20,7 +20,9 @@ pub enum PatronBlockReason {
     CardLost,
     /// `users.expiry_at` is before now. Checkout refuses unless `force`.
     SubscriptionExpired,
-    /// Unpaid balance is strictly above the configured threshold.
+    /// Unpaid balance is strictly above the effective threshold
+    /// (public-type value when set, else the global circulation threshold).
+    /// No amount-based block when that threshold is null.
     UnpaidFines,
     /// Active loans are at or above the audience total cap.
     /// Checkout refuses unless `force`. A per-media cap is applied only when

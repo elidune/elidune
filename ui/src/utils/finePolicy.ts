@@ -35,5 +35,6 @@ export function parseMoneyAmountInput(raw: string, allowEmpty: boolean): ParsedM
 export function normalizeFinePolicy(data: unknown): CirculationFinePolicy {
   const o = data && typeof data === 'object' ? (data as Record<string, unknown>) : {};
   const raw = o.unpaidFineThreshold ?? o.unpaid_fine_threshold;
-  return { unpaidFineThreshold: moneyAmountToInput(raw as string | number | null) || '0.00' };
+  const display = moneyAmountToInput(raw as string | number | null);
+  return { unpaidFineThreshold: display === '' ? null : display };
 }

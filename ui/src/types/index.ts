@@ -2453,9 +2453,9 @@ export interface FineRule {
   notes?: string | null;
 }
 
-/** GET/PUT /fines/policy — global unpaid-fine threshold (camelCase). */
+/** GET/PUT /fines/policy — global unpaid-fine threshold (camelCase). `null` disables amount-based blocking. */
 export interface CirculationFinePolicy {
-  unpaidFineThreshold: string;
+  unpaidFineThreshold: string | null;
 }
 
 export type AccrueOutcome =

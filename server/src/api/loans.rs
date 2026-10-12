@@ -548,7 +548,7 @@ pub struct GetUserLoansQuery {
         (status = 400, description = "Invalid request"),
         (status = 404, description = "User or specimen not found"),
         (status = 409, description = "Open loan on this copy (`item_on_loan_to_other_borrower` or `item_already_on_loan_to_borrower`; `force` never overrides an open loan), or Idempotency-Key conflict"),
-        (status = 422, description = "Business rule. Unpaid fines above the configured threshold may be retried with force=true. A lost or stolen card (`users.card_lost`) is always `card_lost` and is not forceable, for any role.")
+        (status = 422, description = "Business rule. Unpaid fines strictly above the configured threshold may be retried with force=true. A null threshold does not block on amount. A lost or stolen card (`users.card_lost`) is always `card_lost` and is not forceable, for any role.")
     )
 )]
 pub async fn create_loan(

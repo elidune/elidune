@@ -8,12 +8,19 @@ use utoipa::ToSchema;
 use crate::models::fine::Fine;
 
 /// Global unpaid-fine threshold that gates checkout and renew.
+///
+/// `null` disables amount-based blocking. A number blocks when the unpaid
+/// balance is strictly above it. `0` blocks any positive unpaid balance.
+/// Paid and waived fines do not count. A public type `unpaidFineThreshold`
+/// overrides this value when set; `null` on the public type inherits this one.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, sqlx::FromRow)]
 #[serde(rename_all = "camelCase")]
 pub struct CirculationFinePolicy {
-    /// Block new loans and renewals when unpaid fines exceed this amount.
-    /// Default `0` blocks any positive unpaid balance. Paid and waived fines do not count.
-    pub unpaid_fine_threshold: Decimal,
+    /// `null` disables amount-based blocking.
+    /// A number blocks checkout and renew when unpaid fines are strictly above it.
+    /// `0` blocks any positive unpaid balance.
+    #[schema(value_type = Option<String>)]
+    pub unpaid_fine_threshold: Option<Decimal>,
 }
 
 /// How an accrue attempt resolved for one loan.

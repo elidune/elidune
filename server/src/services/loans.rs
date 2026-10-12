@@ -115,7 +115,8 @@ impl LoansService {
             .await
     }
 
-    /// Block checkout/renew when unpaid fines exceed the configured threshold.
+    /// Block checkout/renew when unpaid fines are strictly above the effective threshold.
+    /// A null threshold does not block on amount.
     /// `force=true` bypasses the gate and is audited (actor, unpaid total, threshold).
     async fn enforce_unpaid_fine_threshold(
         &self,
@@ -158,7 +159,8 @@ impl LoansService {
     /// - blocked users cannot borrow unless `force` is set
     /// - a lost or stolen library card is always rejected (`422` `card_lost`), including `force` and any role
     /// - expired subscriptions are rejected unless `force` is set
-    /// - unpaid fines above the configured threshold are rejected unless `force` is set
+    /// - unpaid fines strictly above the effective threshold are rejected unless `force` is set
+    ///   (a null threshold does not block on amount)
     ///
     /// The repository enforces the hold queue on the copy: only the patron whose turn it is
     /// (`ready`, else first `pending`) may borrow unless `force=true` (staff clears active holds on that copy).
@@ -938,14 +940,14 @@ mod tests {
 
     struct FakeFinesRepo {
         unpaid: rust_decimal::Decimal,
-        threshold: rust_decimal::Decimal,
+        threshold: Option<rust_decimal::Decimal>,
     }
 
     impl Default for FakeFinesRepo {
         fn default() -> Self {
             Self {
                 unpaid: rust_decimal::Decimal::ZERO,
-                threshold: rust_decimal::Decimal::ZERO,
+                threshold: None,
             }
         }
     }
@@ -1352,16 +1354,18 @@ mod tests {
         async fn fines_get_unpaid_threshold(
             &self,
             _: Option<i64>,
-        ) -> AppResult<rust_decimal::Decimal> {
+        ) -> AppResult<Option<rust_decimal::Decimal>> {
             Ok(self.threshold)
         }
-        async fn fines_get_global_unpaid_threshold(&self) -> AppResult<rust_decimal::Decimal> {
+        async fn fines_get_global_unpaid_threshold(
+            &self,
+        ) -> AppResult<Option<rust_decimal::Decimal>> {
             Ok(self.threshold)
         }
         async fn fines_set_global_unpaid_threshold(
             &self,
-            threshold: rust_decimal::Decimal,
-        ) -> AppResult<rust_decimal::Decimal> {
+            threshold: Option<rust_decimal::Decimal>,
+        ) -> AppResult<Option<rust_decimal::Decimal>> {
             Ok(threshold)
         }
         async fn fines_get_open_for_loan(
@@ -1543,6 +1547,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_create_loan_null_threshold_does_not_block() {
+        let user = make_user(15, None, None);
+        let svc = make_service_with_fines(
+            Some(user),
+            107,
+            FakeFinesRepo {
+                unpaid: decimal("40"),
+                threshold: None,
+            },
+            None,
+        );
+        assert!(svc
+            .create_loan(make_loan(15, false), None, None)
+            .await
+            .is_ok());
+    }
+
+    #[tokio::test]
     async fn test_create_loan_unpaid_under_threshold_succeeds() {
         let user = make_user(8, None, None);
         let svc = make_service_with_fines(
@@ -1550,7 +1572,7 @@ mod tests {
             104,
             FakeFinesRepo {
                 unpaid: decimal("4.99"),
-                threshold: decimal("5"),
+                threshold: Some(decimal("5")),
             },
             None,
         );
@@ -1568,7 +1590,7 @@ mod tests {
             0,
             FakeFinesRepo {
                 unpaid: decimal("15"),
-                threshold: decimal("10"),
+                threshold: Some(decimal("10")),
             },
             None,
         );
@@ -1594,7 +1616,7 @@ mod tests {
             105,
             FakeFinesRepo {
                 unpaid: decimal("15"),
-                threshold: decimal("10"),
+                threshold: Some(decimal("10")),
             },
             None,
         );
@@ -1612,7 +1634,7 @@ mod tests {
             106,
             FakeFinesRepo {
                 unpaid: decimal("0"),
-                threshold: decimal("0"),
+                threshold: Some(decimal("0")),
             },
             None,
         );
@@ -1631,7 +1653,7 @@ mod tests {
             200,
             FakeFinesRepo {
                 unpaid: decimal("1"),
-                threshold: decimal("5"),
+                threshold: Some(decimal("5")),
             },
             Some(loan),
         );
@@ -1647,7 +1669,7 @@ mod tests {
             201,
             FakeFinesRepo {
                 unpaid: decimal("20"),
-                threshold: decimal("0"),
+                threshold: Some(decimal("0")),
             },
             Some(loan),
         );
@@ -1670,7 +1692,7 @@ mod tests {
             202,
             FakeFinesRepo {
                 unpaid: decimal("20"),
-                threshold: decimal("0"),
+                threshold: Some(decimal("0")),
             },
             Some(loan),
         );

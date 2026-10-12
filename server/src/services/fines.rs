@@ -31,23 +31,31 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnpaidThresholdCheck {
     pub unpaid: Decimal,
-    pub threshold: Decimal,
+    /// `None` means amount-based blocking is off.
+    pub threshold: Option<Decimal>,
 }
 
 impl UnpaidThresholdCheck {
-    /// Block when the unpaid remainder is strictly above the threshold.
+    /// Block when a threshold is set and the unpaid remainder is strictly above it.
     /// A zero unpaid balance never blocks (including grace-period / zero-amount cases).
+    /// `None` does not block, whatever the unpaid balance is.
     #[must_use]
     pub fn blocks_circulation(&self) -> bool {
-        self.unpaid > Decimal::ZERO && self.unpaid > self.threshold
+        match self.threshold {
+            Some(threshold) => self.unpaid > Decimal::ZERO && self.unpaid > threshold,
+            None => false,
+        }
     }
 
     /// Desk-facing refusal: amount due and that staff can force.
     #[must_use]
     pub fn desk_block_message(&self) -> String {
+        let Some(threshold) = self.threshold else {
+            return String::new();
+        };
         format!(
             "Unpaid fines of {} exceed the {} threshold — pay or waive the balance, or use force=true to override",
-            self.unpaid, self.threshold
+            self.unpaid, threshold
         )
     }
 }
@@ -265,10 +273,10 @@ impl FinesService {
         })
     }
 
-    /// Replace the global unpaid-fine threshold.
+    /// Replace the global unpaid-fine threshold. `None` disables amount-based blocking.
     #[tracing::instrument(skip(self), err)]
-    pub async fn set_policy(&self, threshold: Decimal) -> AppResult<CirculationFinePolicy> {
-        if threshold < Decimal::ZERO {
+    pub async fn set_policy(&self, threshold: Option<Decimal>) -> AppResult<CirculationFinePolicy> {
+        if threshold.is_some_and(|value| value < Decimal::ZERO) {
             return Err(AppError::Validation(
                 "Unpaid fine threshold cannot be negative".to_string(),
             ));
@@ -282,7 +290,7 @@ impl FinesService {
     }
 
     /// Compare this patron's unpaid balance to the effective threshold
-    /// (public-type override, else global).
+    /// (public-type value when set, else the global value, else no amount-based block).
     #[tracing::instrument(skip(self), err)]
     pub async fn check_unpaid_threshold(
         &self,
@@ -627,16 +635,16 @@ mod tests {
         async fn fines_total_unpaid(&self, _: i64) -> AppResult<Decimal> {
             Ok(Decimal::ZERO)
         }
-        async fn fines_get_unpaid_threshold(&self, _: Option<i64>) -> AppResult<Decimal> {
-            Ok(Decimal::ZERO)
+        async fn fines_get_unpaid_threshold(&self, _: Option<i64>) -> AppResult<Option<Decimal>> {
+            Ok(None)
         }
-        async fn fines_get_global_unpaid_threshold(&self) -> AppResult<Decimal> {
-            Ok(Decimal::ZERO)
+        async fn fines_get_global_unpaid_threshold(&self) -> AppResult<Option<Decimal>> {
+            Ok(None)
         }
         async fn fines_set_global_unpaid_threshold(
             &self,
-            threshold: Decimal,
-        ) -> AppResult<Decimal> {
+            threshold: Option<Decimal>,
+        ) -> AppResult<Option<Decimal>> {
             Ok(threshold)
         }
         async fn fines_get_open_for_loan(&self, loan_id: i64) -> AppResult<Option<Fine>> {
@@ -806,7 +814,7 @@ mod tests {
     fn check(unpaid: &str, threshold: &str) -> UnpaidThresholdCheck {
         UnpaidThresholdCheck {
             unpaid: d(unpaid),
-            threshold: d(threshold),
+            threshold: Some(d(threshold)),
         }
     }
 
@@ -832,5 +840,14 @@ mod tests {
     #[test]
     fn unpaid_under_threshold_does_not_block() {
         assert!(!check("4.99", "5").blocks_circulation());
+    }
+
+    #[test]
+    fn null_threshold_does_not_block() {
+        let open = UnpaidThresholdCheck {
+            unpaid: d("25"),
+            threshold: None,
+        };
+        assert!(!open.blocks_circulation());
     }
 }

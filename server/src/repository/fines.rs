@@ -40,9 +40,15 @@ pub trait FinesRepository: Send + Sync {
         grace_days: i32,
     ) -> AppResult<FineRule>;
     async fn fines_total_unpaid(&self, user_id: i64) -> AppResult<Decimal>;
-    async fn fines_get_unpaid_threshold(&self, public_type_id: Option<i64>) -> AppResult<Decimal>;
-    async fn fines_get_global_unpaid_threshold(&self) -> AppResult<Decimal>;
-    async fn fines_set_global_unpaid_threshold(&self, threshold: Decimal) -> AppResult<Decimal>;
+    async fn fines_get_unpaid_threshold(
+        &self,
+        public_type_id: Option<i64>,
+    ) -> AppResult<Option<Decimal>>;
+    async fn fines_get_global_unpaid_threshold(&self) -> AppResult<Option<Decimal>>;
+    async fn fines_set_global_unpaid_threshold(
+        &self,
+        threshold: Option<Decimal>,
+    ) -> AppResult<Option<Decimal>>;
     async fn fines_get_open_for_loan(&self, loan_id: i64) -> AppResult<Option<Fine>>;
     async fn fines_upsert_open(
         &self,
@@ -96,13 +102,19 @@ impl FinesRepository for Repository {
     async fn fines_total_unpaid(&self, user_id: i64) -> AppResult<Decimal> {
         Repository::fines_total_unpaid(self, user_id).await
     }
-    async fn fines_get_unpaid_threshold(&self, public_type_id: Option<i64>) -> AppResult<Decimal> {
+    async fn fines_get_unpaid_threshold(
+        &self,
+        public_type_id: Option<i64>,
+    ) -> AppResult<Option<Decimal>> {
         Repository::fines_get_unpaid_threshold(self, public_type_id).await
     }
-    async fn fines_get_global_unpaid_threshold(&self) -> AppResult<Decimal> {
+    async fn fines_get_global_unpaid_threshold(&self) -> AppResult<Option<Decimal>> {
         Repository::fines_get_global_unpaid_threshold(self).await
     }
-    async fn fines_set_global_unpaid_threshold(&self, threshold: Decimal) -> AppResult<Decimal> {
+    async fn fines_set_global_unpaid_threshold(
+        &self,
+        threshold: Option<Decimal>,
+    ) -> AppResult<Option<Decimal>> {
         Repository::fines_set_global_unpaid_threshold(self, threshold).await
     }
     async fn fines_get_open_for_loan(&self, loan_id: i64) -> AppResult<Option<Fine>> {
@@ -384,12 +396,12 @@ impl Repository {
         Ok(total.unwrap_or(Decimal::ZERO))
     }
 
-    /// Effective unpaid-fine threshold: public-type override when set, else global default.
+    /// Effective unpaid-fine threshold: public-type value when set, else global, else none.
     #[tracing::instrument(skip(self), err)]
     pub async fn fines_get_unpaid_threshold(
         &self,
         public_type_id: Option<i64>,
-    ) -> AppResult<Decimal> {
+    ) -> AppResult<Option<Decimal>> {
         let mut conn = self.pool.acquire().await?;
         self.fines_get_unpaid_threshold_conn(&mut conn, public_type_id)
             .await
@@ -399,8 +411,8 @@ impl Repository {
         &self,
         conn: &mut sqlx::PgConnection,
         public_type_id: Option<i64>,
-    ) -> AppResult<Decimal> {
-        let total: Option<Decimal> = sqlx::query_scalar(
+    ) -> AppResult<Option<Decimal>> {
+        let threshold: Option<Decimal> = sqlx::query_scalar(
             r#"
             SELECT COALESCE(
                 (
@@ -408,33 +420,32 @@ impl Repository {
                     FROM public_types
                     WHERE id = $1 AND unpaid_fine_threshold IS NOT NULL
                 ),
-                (SELECT unpaid_fine_threshold FROM circulation_settings WHERE id = 1),
-                0
+                (SELECT unpaid_fine_threshold FROM circulation_settings WHERE id = 1)
             )
             "#,
         )
         .bind(public_type_id)
         .fetch_one(&mut *conn)
         .await?;
-        Ok(total.unwrap_or(Decimal::ZERO))
+        Ok(threshold)
     }
 
     #[tracing::instrument(skip(self), err)]
-    pub async fn fines_get_global_unpaid_threshold(&self) -> AppResult<Decimal> {
-        let total: Option<Decimal> = sqlx::query_scalar(
+    pub async fn fines_get_global_unpaid_threshold(&self) -> AppResult<Option<Decimal>> {
+        let threshold = sqlx::query_scalar::<_, Option<Decimal>>(
             "SELECT unpaid_fine_threshold FROM circulation_settings WHERE id = 1",
         )
         .fetch_optional(&self.pool)
         .await?;
-        Ok(total.unwrap_or(Decimal::ZERO))
+        Ok(threshold.flatten())
     }
 
     #[tracing::instrument(skip(self), err)]
     pub async fn fines_set_global_unpaid_threshold(
         &self,
-        threshold: Decimal,
-    ) -> AppResult<Decimal> {
-        let total: Decimal = sqlx::query_scalar(
+        threshold: Option<Decimal>,
+    ) -> AppResult<Option<Decimal>> {
+        let stored: Option<Decimal> = sqlx::query_scalar(
             r#"
             INSERT INTO circulation_settings (id, unpaid_fine_threshold)
             VALUES (1, $1)
@@ -445,7 +456,7 @@ impl Repository {
         .bind(threshold)
         .fetch_one(&self.pool)
         .await?;
-        Ok(total)
+        Ok(stored)
     }
 
     /// Open (pending/partial) fine for a loan, if any.

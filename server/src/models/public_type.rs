@@ -22,7 +22,9 @@ pub struct PublicType {
     pub age_max: Option<i16>,
     /// Subscription price in cents (e.g. 1500 = 15.00€)
     pub subscription_price: Option<i32>,
-    /// Optional unpaid-fine threshold override. `None` inherits the global circulation policy.
+    /// Optional unpaid-fine threshold override.
+    /// `None` inherits the global circulation policy (`null` there means no amount-based block).
+    /// A number blocks when the unpaid balance is strictly above it. `0` blocks any positive unpaid balance.
     pub unpaid_fine_threshold: Option<rust_decimal::Decimal>,
     /// Optional max `pending`/`ready` holds. `None` inherits the global circulation policy.
     pub max_active_holds: Option<i16>,
@@ -74,7 +76,9 @@ pub struct CreatePublicType {
     pub age_min: Option<i16>,
     pub age_max: Option<i16>,
     pub subscription_price: Option<i32>,
-    /// Optional unpaid-fine threshold override. `None` inherits the global circulation policy.
+    /// Optional unpaid-fine threshold override.
+    /// `None` inherits the global circulation policy (`null` there means no amount-based block).
+    /// A number blocks when the unpaid balance is strictly above it. `0` blocks any positive unpaid balance.
     pub unpaid_fine_threshold: Option<rust_decimal::Decimal>,
     /// Optional max `pending`/`ready` holds. `None` inherits the global circulation policy.
     pub max_active_holds: Option<i16>,
@@ -118,6 +122,7 @@ pub struct UpdatePublicType {
     #[serde(default, with = "serde_with::rust::double_option")]
     pub subscription_price: Option<Option<i32>>,
     /// `null` clears the override so the global unpaid-fine threshold applies.
+    /// A number enables amount-based blocking for this audience (`0` blocks any positive unpaid balance).
     #[serde(default, with = "serde_with::rust::double_option")]
     pub unpaid_fine_threshold: Option<Option<rust_decimal::Decimal>>,
     /// `null` clears the override so the global active-hold cap applies.

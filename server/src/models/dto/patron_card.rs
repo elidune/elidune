@@ -28,7 +28,9 @@ pub struct PatronLoanStatus {
     /// Audience total loan cap. Null only when no total cap is configured.
     /// The settings resolver falls back to 5, so this is a number with current rules.
     pub max_loans: Option<i32>,
-    /// Unpaid fine remainder in integer cents. Compared to the configured threshold, not a hardcoded amount.
+    /// Unpaid fine remainder in integer cents.
+    /// `unpaid_fines` is set only when this is strictly above the effective threshold
+    /// (public-type value when set, else the global threshold). A null threshold does not block.
     pub unpaid_fines_cents: i64,
     /// Holds in status `ready` for this patron.
     ///

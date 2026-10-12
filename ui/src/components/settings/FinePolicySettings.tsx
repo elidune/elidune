@@ -13,9 +13,7 @@ export default function FinePolicySettings() {
   const { showToast } = useToast();
   const { data, isLoading, isError, refetch } = useFinePolicyQuery();
   const updatePolicy = useUpdateFinePolicyMutation();
-  const [draft, setDraft] = useState(
-    () => moneyAmountToInput(data?.unpaidFineThreshold) || '0.00',
-  );
+  const [draft, setDraft] = useState(() => moneyAmountToInput(data?.unpaidFineThreshold));
   const [fieldError, setFieldError] = useState<string | null>(null);
   // Start unsynced so a cached policy (already loaded by the settings shell) is copied
   // into the draft. Initialising synced state to `data` skips that copy.
@@ -23,22 +21,22 @@ export default function FinePolicySettings() {
   if (data !== syncedPolicy) {
     setSyncedPolicy(data);
     if (data) {
-      setDraft(moneyAmountToInput(data.unpaidFineThreshold) || '0.00');
+      setDraft(moneyAmountToInput(data.unpaidFineThreshold));
       setFieldError(null);
     }
   }
 
   const handleSave = async () => {
     if (!data) return;
-    const parsed = parseMoneyAmountInput(draft, false);
-    if (!parsed.ok || parsed.value == null) {
+    const parsed = parseMoneyAmountInput(draft, true);
+    if (!parsed.ok) {
       setFieldError(t('settings.finePolicy.invalidAmount'));
       return;
     }
     setFieldError(null);
     try {
       const next = await updatePolicy.mutateAsync({ unpaidFineThreshold: parsed.value });
-      setDraft(moneyAmountToInput(next.unpaidFineThreshold) || parsed.value);
+      setDraft(moneyAmountToInput(next.unpaidFineThreshold));
       showToast({ variant: 'success', message: t('settings.finePolicy.saveSuccess') });
     } catch (err: unknown) {
       showToast({ variant: 'error', message: getApiErrorMessage(err, t) });

@@ -216,13 +216,15 @@ pub async fn upsert_fine_rule(
 }
 
 /// Get the global unpaid-fine threshold used by checkout and renew.
+///
+/// `unpaidFineThreshold` is `null` when amount-based blocking is off.
 #[utoipa::path(
     get,
     path = "/fines/policy",
     tag = "fines",
     security(("bearer_auth" = [])),
     responses(
-        (status = 200, description = "Global circulation fine policy", body = CirculationFinePolicy),
+        (status = 200, description = "Global circulation fine policy. unpaidFineThreshold null disables amount-based blocking.", body = CirculationFinePolicy),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 403, description = "Insufficient permissions", body = crate::error::ErrorResponse)
     )
@@ -236,6 +238,9 @@ pub async fn get_fine_policy(
 }
 
 /// Update the global unpaid-fine threshold.
+///
+/// Send `unpaidFineThreshold: null` to disable amount-based blocking, or a
+/// non-negative amount to enable it. `0` blocks any positive unpaid balance.
 #[utoipa::path(
     put,
     path = "/fines/policy",
@@ -243,7 +248,7 @@ pub async fn get_fine_policy(
     security(("bearer_auth" = [])),
     request_body = CirculationFinePolicy,
     responses(
-        (status = 200, description = "Circulation fine policy saved", body = CirculationFinePolicy),
+        (status = 200, description = "Circulation fine policy saved. unpaidFineThreshold null disables amount-based blocking; 0 blocks any positive unpaid balance.", body = CirculationFinePolicy),
         (status = 400, description = "Invalid threshold", body = crate::error::ErrorResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 403, description = "Staff access required", body = crate::error::ErrorResponse)
