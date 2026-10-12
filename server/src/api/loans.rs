@@ -73,6 +73,55 @@ pub fn router() -> axum::Router<crate::AppState> {
         .route("/loans/items/:item_id/renew", post(renew_loan_by_item))
 }
 
+/// Borrower of an active loan.
+///
+/// Callers with `users_rights` read or write receive [`UserShortStaff`].
+/// Everyone else who may call this route (`loans_rights` write only) receives
+/// [`LoanBorrowerMinimized`]. `loans_rights` does not unlock the staff profile.
+#[derive(Serialize, ToSchema)]
+#[serde(untagged)]
+pub enum LoanBorrowerResponse {
+    Full(UserShortStaff),
+    Minimized(LoanBorrowerMinimized),
+}
+
+/// Id, library card, and initials. No name, login, email, phone, or address.
+#[serde_as]
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct LoanBorrowerMinimized {
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub id: i64,
+    /// `users.barcode`. Null when the patron has no card on file.
+    pub card_number: Option<String>,
+    /// Uppercase first letter of `firstname` plus first letter of `lastname`.
+    /// A missing or blank part is skipped.
+    pub initials: String,
+}
+
+impl From<crate::models::user::UserShort> for LoanBorrowerMinimized {
+    fn from(user: crate::models::user::UserShort) -> Self {
+        Self {
+            id: user.id,
+            card_number: user.barcode.filter(|value| !value.trim().is_empty()),
+            initials: borrower_initials(user.firstname.as_deref(), user.lastname.as_deref()),
+        }
+    }
+}
+
+/// Uppercase first letter of each name part. Blank and missing parts are skipped.
+fn borrower_initials(firstname: Option<&str>, lastname: Option<&str>) -> String {
+    let mut initials = String::new();
+    for part in [firstname, lastname] {
+        let Some(ch) = part.and_then(|value| value.trim().chars().next()) else {
+            continue;
+        };
+        initials.extend(ch.to_uppercase());
+    }
+    initials
+}
+
 /// Get the patron linked to an active loan (circulation desk).
 #[utoipa::path(
     get,
@@ -81,7 +130,7 @@ pub fn router() -> axum::Router<crate::AppState> {
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Active loan ID")),
     responses(
-        (status = 200, description = "Borrower profile (`UserShortStaff`, includes `login`)", body = UserShortStaff),
+        (status = 200, description = "Borrower identity. `users_rights` read or write: `UserShortStaff` (includes `login` and `barcode`). Otherwise only `id`, `cardNumber`, and `initials`. `loans_rights` write does not return the staff profile.", body = LoanBorrowerResponse),
         (status = 403, description = "Insufficient loans write rights"),
         (status = 404, description = "Loan not found")
     )
@@ -90,10 +139,17 @@ pub async fn get_loan_borrower(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     Path(loan_id): Path<i64>,
-) -> AppResult<Json<UserShortStaff>> {
+) -> AppResult<Json<LoanBorrowerResponse>> {
     claims.require_write_loans()?;
     let user = state.services.loans.get_loan_borrower(loan_id).await?;
-    Ok(Json(UserShortStaff::from(user)))
+    // `loans_rights` write is enough to call this route. It is not enough to
+    // read the patron's name. `users_rights` own is below read.
+    let body = if claims.rights.users_rights.rank() >= Rights::Read.rank() {
+        LoanBorrowerResponse::Full(UserShortStaff::from(user))
+    } else {
+        LoanBorrowerResponse::Minimized(LoanBorrowerMinimized::from(user))
+    };
+    Ok(Json(body))
 }
 
 /// Create loan request
@@ -1193,4 +1249,18 @@ pub async fn list_claims_returned(
         .list_claims_returned(page, per_page)
         .await?;
     Ok(Json(PaginatedResponse::new(items, total, page, per_page)))
+}
+
+#[cfg(test)]
+mod borrower_identity_tests {
+    use super::borrower_initials;
+
+    #[test]
+    fn initials_use_the_first_letter_of_each_present_part() {
+        assert_eq!(borrower_initials(Some("ada"), Some("lovelace")), "AL");
+        assert_eq!(borrower_initials(Some(" Ada "), None), "A");
+        assert_eq!(borrower_initials(None, Some("  lovelace")), "L");
+        assert_eq!(borrower_initials(Some("   "), Some("")), "");
+        assert_eq!(borrower_initials(Some("émile"), Some("zola")), "ÉZ");
+    }
 }

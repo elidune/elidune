@@ -517,7 +517,8 @@ impl User {
 pub struct UserShortRow {
     id: i64,
     login: Option<String>,
-    /// Present only on the staff user-search query. Other summaries leave it empty.
+    /// Set when the query selects `users.barcode` (staff user search, loan borrower).
+    /// Queries that omit the column leave it empty.
     #[sqlx(default)]
     barcode: Option<String>,
     firstname: Option<String>,

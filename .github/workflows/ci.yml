@@ -196,6 +196,7 @@ jobs:
           --test lost_item_found
           --test fine_audit_tx
           --test loan_open_conflict
+          --test loan_borrower_identity
           -- --nocapture
 
   coverage:
@@ -282,6 +283,7 @@ jobs:
           --test lost_item_found
           --test fine_audit_tx
           --test loan_open_conflict
+          --test loan_borrower_identity
           --lcov
           --output-path lcov.info
           --fail-under-lines 20
