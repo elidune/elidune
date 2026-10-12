@@ -1,5 +1,6 @@
 //! API-facing DTOs shared across HTTP handlers and services (not HTTP-specific).
 
+pub mod card;
 pub mod circulation;
 pub mod fines;
 pub mod holds;

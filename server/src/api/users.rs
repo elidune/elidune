@@ -10,6 +10,9 @@ use serde::Deserialize;
 use crate::{
     error::AppResult,
     models::catalog_view::{borrower_initials, UserShortStaff},
+    models::dto::card::{
+        ReplaceCardRequest, ReplaceCardResponse, ReportCardLostRequest, ReportCardLostResponse,
+    },
     models::dto::patron_card::{CardLookupResponse, DeskCardLookup, StaffCardLookup},
     models::user::{
         EventsConsentSource, Rights, UpdateAccountType, UpdateProfile, User, UserPayload, UserQuery,
@@ -21,7 +24,7 @@ use super::{biblios::PaginatedResponse, AuthenticatedUser, ClientIp, ValidatedJs
 
 /// Build the users routes for this domain.
 pub fn router() -> axum::Router<crate::AppState> {
-    use axum::routing::{get, put};
+    use axum::routing::{get, post, put};
     axum::Router::new()
         .route("/users", get(list_users).post(create_user))
         .route("/users/by-card/:card_number", get(get_user_by_card))
@@ -29,6 +32,8 @@ pub fn router() -> axum::Router<crate::AppState> {
             "/users/:id",
             get(get_user).put(update_user).delete(delete_user),
         )
+        .route("/users/:id/card-lost", post(report_card_lost))
+        .route("/users/:id/replace-card", post(replace_card))
         .route("/users/:id/account-type", put(update_account_type))
         .route(
             "/users/:id/force-password-change",
@@ -172,8 +177,8 @@ pub async fn get_user(
     request_body = UserPayload,
     responses(
         (status = 201, description = "User created", body = User),
-        (status = 400, description = "Invalid input, including missing guardianId for child patrons"),
-        (status = 409, description = "Login already exists")
+        (status = 400, description = "Invalid input, including missing guardianId for child patrons", body = crate::error::ErrorResponse),
+        (status = 409, description = "Login already exists, card number already assigned, or a retired card number (`card_number_retired`)", body = crate::error::ErrorResponse)
     )
 )]
 pub async fn create_user(
@@ -229,8 +234,9 @@ pub async fn create_user(
     request_body = UserPayload,
     responses(
         (status = 200, description = "User updated", body = User),
-        (status = 400, description = "Invalid input, including clearing guardianId while the patron remains a child"),
-        (status = 404, description = "User not found")
+        (status = 400, description = "Invalid input, including clearing guardianId while the patron remains a child", body = crate::error::ErrorResponse),
+        (status = 404, description = "User not found", body = crate::error::ErrorResponse),
+        (status = 409, description = "Login already exists, card number already assigned, or a retired card number (`card_number_retired`)", body = crate::error::ErrorResponse)
     )
 )]
 pub async fn update_user(
@@ -268,6 +274,149 @@ pub async fn update_user(
                 Some(id),
                 ip.clone(),
                 Some(serde_json::json!({ "id": id })),
+                audit::AuditLogMeta::from_app_error(&e),
+            );
+            Err(e)
+        }
+    }
+}
+
+/// Report the patron's library card lost or stolen.
+///
+/// Sets `users.card_lost`. Checkout and renewal refuse with `422` `card_lost` until
+/// [`replace_card`] assigns a new number. Staff need `users_rights` write.
+#[utoipa::path(
+    post,
+    path = "/users/{id}/card-lost",
+    tag = "users",
+    security(("bearer_auth" = [])),
+    params(
+        ("id" = i64, Path, description = "User ID")
+    ),
+    request_body = ReportCardLostRequest,
+    responses(
+        (status = 200, description = "Card flagged lost. `reason` is `lost`, `stolen`, or `other`. `detail` is optional.", body = ReportCardLostResponse),
+        (status = 400, description = "Missing or unknown reason, or detail longer than 500 characters", body = crate::error::ErrorResponse),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
+        (status = 403, description = "Caller does not have users write", body = crate::error::ErrorResponse),
+        (status = 404, description = "User not found", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn report_card_lost(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(id): Path<i64>,
+    ValidatedJson(body): ValidatedJson<ReportCardLostRequest>,
+) -> AppResult<Json<ReportCardLostResponse>> {
+    claims.require_write_users()?;
+    let requested = serde_json::json!({
+        "reason": body.reason.as_str(),
+        "detail": body.detail,
+        "actorId": claims.user_id,
+    });
+    match state
+        .services
+        .users
+        .report_card_lost(id, body.reason, body.detail)
+        .await
+    {
+        Ok(reported) => {
+            state.services.audit.log(
+                audit::event::USER_CARD_LOST,
+                Some(claims.user_id),
+                Some("user"),
+                Some(id),
+                ip,
+                Some(serde_json::json!({
+                    "reason": reported.reason.as_str(),
+                    "detail": reported.detail,
+                    "actorId": claims.user_id,
+                })),
+                audit::AuditLogMeta::success(),
+            );
+            Ok(Json(reported))
+        }
+        Err(e) => {
+            state.services.audit.log(
+                audit::event::USER_CARD_LOST,
+                Some(claims.user_id),
+                Some("user"),
+                Some(id),
+                ip.clone(),
+                Some(requested),
+                audit::AuditLogMeta::from_app_error(&e),
+            );
+            Err(e)
+        }
+    }
+}
+
+/// Replace the patron's library card.
+///
+/// The new `barcode` must be unique and must not be a retired number. The previous
+/// number is stored in `retired_card_numbers` and can never be assigned again.
+/// `users.card_lost` is cleared so checkout is allowed again.
+#[utoipa::path(
+    post,
+    path = "/users/{id}/replace-card",
+    tag = "users",
+    security(("bearer_auth" = [])),
+    params(
+        ("id" = i64, Path, description = "User ID")
+    ),
+    request_body = ReplaceCardRequest,
+    responses(
+        (status = 200, description = "New card number assigned, previous number retired, and card_lost cleared", body = ReplaceCardResponse),
+        (status = 400, description = "Missing barcode, or the new number is the current number", body = crate::error::ErrorResponse),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
+        (status = 403, description = "Caller does not have users write", body = crate::error::ErrorResponse),
+        (status = 404, description = "User not found", body = crate::error::ErrorResponse),
+        (status = 409, description = "Barcode already assigned, or a retired card number (`card_number_retired`)", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn replace_card(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(id): Path<i64>,
+    ValidatedJson(body): ValidatedJson<ReplaceCardRequest>,
+) -> AppResult<Json<ReplaceCardResponse>> {
+    claims.require_write_users()?;
+    let requested = serde_json::json!({
+        "barcode": body.barcode,
+        "actorId": claims.user_id,
+    });
+    match state
+        .services
+        .users
+        .replace_card(id, &body.barcode, claims.user_id)
+        .await
+    {
+        Ok(replaced) => {
+            state.services.audit.log(
+                audit::event::USER_CARD_REPLACED,
+                Some(claims.user_id),
+                Some("user"),
+                Some(id),
+                ip,
+                Some(serde_json::json!({
+                    "previousBarcode": replaced.previous_barcode,
+                    "barcode": replaced.barcode,
+                    "actorId": claims.user_id,
+                })),
+                audit::AuditLogMeta::success(),
+            );
+            Ok(Json(replaced))
+        }
+        Err(e) => {
+            state.services.audit.log(
+                audit::event::USER_CARD_REPLACED,
+                Some(claims.user_id),
+                Some("user"),
+                Some(id),
+                ip.clone(),
+                Some(requested),
                 audit::AuditLogMeta::from_app_error(&e),
             );
             Err(e)

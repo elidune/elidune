@@ -13,8 +13,9 @@ use totp_lite::totp_custom;
 use crate::{
     auth_policy::validate_password_strength,
     config::UsersConfig,
-    error::{AppError, AppResult},
+    error::{error_code, AppError, AppResult},
     models::{
+        dto::card::{CardLostReason, ReplaceCardResponse, ReportCardLostResponse},
         secret::{ExposeSecret, PlaintextPassword},
         user::{
             AccountTypeSlug, EventsConsentSource, GuardianIdPatch, UpdateProfile, User, UserClaims,
@@ -439,6 +440,12 @@ impl UsersService {
             return Err(AppError::Conflict("Login already exists".to_string()));
         }
 
+        if let Some(raw) = user.barcode.clone() {
+            let barcode = normalize_barcode(&raw)?;
+            self.ensure_card_number_available(&barcode, None).await?;
+            user.barcode = Some(barcode);
+        }
+
         // Email is optional, no uniqueness check needed
 
         // Hash password if provided
@@ -575,7 +582,7 @@ impl UsersService {
     pub async fn update_user(
         &self,
         id: i64,
-        user: UserPayload,
+        mut user: UserPayload,
         consent_source: EventsConsentSource,
     ) -> AppResult<User> {
         // user.validate_required_patron_fields()?;
@@ -590,6 +597,13 @@ impl UsersService {
             }
         }
         // Email is optional, no uniqueness check needed
+
+        if let Some(raw) = user.barcode.clone() {
+            let barcode = normalize_barcode(&raw)?;
+            self.ensure_card_number_available(&barcode, Some(id))
+                .await?;
+            user.barcode = Some(barcode);
+        }
 
         self.ensure_guardian_on_update(id, &existing, &user).await?;
 
@@ -608,6 +622,67 @@ impl UsersService {
         self.record_events_consent(id, resulting_type, requested_consent, consent_source)
             .await?;
         self.repository.users_get_by_id(id).await
+    }
+
+    /// Mark the patron's library card lost or stolen. Checkout stays blocked until replacement.
+    #[tracing::instrument(skip(self, detail), err)]
+    pub async fn report_card_lost(
+        &self,
+        user_id: i64,
+        reason: CardLostReason,
+        detail: Option<String>,
+    ) -> AppResult<ReportCardLostResponse> {
+        let detail = normalize_card_lost_detail(detail)?;
+        self.repository.users_set_card_lost(user_id, true).await?;
+        Ok(ReportCardLostResponse {
+            user_id,
+            card_lost: true,
+            reason,
+            detail,
+        })
+    }
+
+    /// Assign a new library card number, clear `card_lost`, and retire the previous number.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn replace_card(
+        &self,
+        user_id: i64,
+        barcode: &str,
+        actor_id: i64,
+    ) -> AppResult<ReplaceCardResponse> {
+        let barcode = normalize_barcode(barcode)?;
+        self.ensure_card_number_available(&barcode, Some(user_id))
+            .await?;
+        let replaced = self
+            .repository
+            .users_replace_card(user_id, &barcode, actor_id)
+            .await?;
+        Ok(ReplaceCardResponse {
+            user: replaced.user,
+            card_lost: false,
+            previous_barcode: replaced.previous_barcode,
+            barcode: replaced.barcode,
+        })
+    }
+
+    async fn ensure_card_number_available(
+        &self,
+        barcode: &str,
+        exclude_user_id: Option<i64>,
+    ) -> AppResult<()> {
+        if self.repository.retired_card_number_exists(barcode).await? {
+            return Err(retired_card_error(barcode));
+        }
+        if self
+            .repository
+            .users_barcode_taken(barcode, exclude_user_id)
+            .await?
+        {
+            return Err(AppError::Conflict(format!(
+                "Card number {barcode} is already assigned"
+            )));
+        }
+        Ok(())
     }
 
     /// Anonymize a patron for stats (PII scrub + history identity cut).
@@ -881,4 +956,43 @@ impl UsersService {
             })
             .collect()
     }
+}
+
+fn normalize_barcode(raw: &str) -> AppResult<String> {
+    let barcode = raw.trim();
+    if barcode.is_empty() {
+        return Err(AppError::Validation(
+            "barcode must not be empty".to_string(),
+        ));
+    }
+    if barcode.len() > 100 {
+        return Err(AppError::Validation(
+            "barcode must be at most 100 characters".to_string(),
+        ));
+    }
+    Ok(barcode.to_string())
+}
+
+fn normalize_card_lost_detail(detail: Option<String>) -> AppResult<Option<String>> {
+    let Some(detail) = detail else {
+        return Ok(None);
+    };
+    let detail = detail.trim();
+    if detail.is_empty() {
+        return Ok(None);
+    }
+    if detail.len() > 500 {
+        return Err(AppError::Validation(
+            "detail must be at most 500 characters".to_string(),
+        ));
+    }
+    Ok(Some(detail.to_string()))
+}
+
+fn retired_card_error(barcode: &str) -> AppError {
+    AppError::coded(
+        409,
+        error_code::CARD_NUMBER_RETIRED,
+        format!("Card number {barcode} was retired and cannot be assigned again"),
+    )
 }

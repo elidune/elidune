@@ -2,16 +2,24 @@
 
 use async_trait::async_trait;
 use chrono::Utc;
+use snowflaked::Generator;
 use sqlx::Row;
 
 use super::Repository;
 use crate::{
-    error::{AppError, AppResult},
+    error::{error_code, AppError, AppResult},
     models::user::{
         AccountTypeSlug, GuardianIdPatch, Rights, UpdateProfile, User, UserErasureResult,
         UserPayload, UserQuery, UserRights, UserShort, UserStatus,
     },
 };
+
+/// Result of assigning a new library card number.
+pub struct ReplacedCard {
+    pub user: User,
+    pub previous_barcode: Option<String>,
+    pub barcode: String,
+}
 
 /// Counters for `GET /users/by-card/{card_number}`.
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -864,7 +872,8 @@ impl Repository {
         .bind(user.expiry_at)
         .bind(true)
         .fetch_one(&mut *tx)
-        .await?;
+        .await
+        .map_err(map_user_unique_violation)?;
 
         if let Some(guardian_id) = user.guardian_id.as_id() {
             sqlx::query(
@@ -1017,7 +1026,10 @@ impl Repository {
             builder = builder.bind(hash);
         }
 
-        builder.execute(&self.pool).await?;
+        builder
+            .execute(&self.pool)
+            .await
+            .map_err(map_user_unique_violation)?;
 
         match user.guardian_id {
             GuardianIdPatch::Set(guardian_id) => {
@@ -1584,6 +1596,206 @@ impl Repository {
         .fetch_optional(&self.pool)
         .await
         .map_err(Into::into)
+    }
+
+    /// Set or clear `users.card_lost`. A missing or deleted patron is not found.
+    pub async fn users_set_card_lost(&self, id: i64, lost: bool) -> AppResult<()> {
+        let updated = sqlx::query(
+            r#"
+            UPDATE users
+            SET card_lost = $2, update_at = NOW()
+            WHERE id = $1 AND (status IS NULL OR status <> 'deleted')
+            "#,
+        )
+        .bind(id)
+        .bind(lost)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        if updated == 0 {
+            return Err(AppError::NotFound(format!("User with id {id} not found")));
+        }
+        Ok(())
+    }
+
+    /// True when `barcode` is already on another user row, including a deleted row that still holds it.
+    pub async fn users_barcode_taken(
+        &self,
+        barcode: &str,
+        exclude_id: Option<i64>,
+    ) -> AppResult<bool> {
+        let taken: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 FROM users
+                WHERE barcode = $1
+                  AND ($2::bigint IS NULL OR id <> $2)
+            )
+            "#,
+        )
+        .bind(barcode)
+        .bind(exclude_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(taken)
+    }
+
+    /// True when this exact card number was retired by a replacement.
+    pub async fn retired_card_number_exists(&self, barcode: &str) -> AppResult<bool> {
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM retired_card_numbers WHERE card_number = $1)",
+        )
+        .bind(barcode)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(exists)
+    }
+
+    /// Assign `new_barcode`, clear `card_lost`, and keep the previous number permanently retired.
+    ///
+    /// `new_barcode` must already be trimmed and non-empty. The previous number, when present,
+    /// is inserted before the user row changes so a concurrent assign cannot take it.
+    pub async fn users_replace_card(
+        &self,
+        user_id: i64,
+        new_barcode: &str,
+        actor_id: i64,
+    ) -> AppResult<ReplacedCard> {
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query(
+            r#"
+            SELECT barcode, status
+            FROM users
+            WHERE id = $1
+            FOR UPDATE
+            "#,
+        )
+        .bind(user_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("User with id {user_id} not found")))?;
+
+        let status: Option<String> = row.get("status");
+        if status.as_deref() == Some(UserStatus::Deleted.as_str()) {
+            return Err(AppError::NotFound(format!(
+                "User with id {user_id} not found"
+            )));
+        }
+
+        let previous: Option<String> = row.get("barcode");
+        let previous = previous.filter(|value| !value.trim().is_empty());
+        if previous
+            .as_deref()
+            .is_some_and(|current| current == new_barcode)
+        {
+            return Err(AppError::Validation(
+                "New barcode must be different from the current card number".to_string(),
+            ));
+        }
+
+        let retired: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM retired_card_numbers WHERE card_number = $1)",
+        )
+        .bind(new_barcode)
+        .fetch_one(&mut *tx)
+        .await?;
+        if retired {
+            return Err(retired_number_error(new_barcode));
+        }
+
+        let taken: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 FROM users
+                WHERE barcode = $1 AND id <> $2
+            )
+            "#,
+        )
+        .bind(new_barcode)
+        .bind(user_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if taken {
+            return Err(AppError::Conflict(format!(
+                "Card number {new_barcode} is already assigned"
+            )));
+        }
+
+        if let Some(ref old) = previous {
+            sqlx::query(
+                r#"
+                INSERT INTO retired_card_numbers (id, card_number, user_id, retired_by)
+                VALUES ($1, $2, $3, $4)
+                "#,
+            )
+            .bind(next_retired_card_id())
+            .bind(old)
+            .bind(user_id)
+            .bind(actor_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(map_user_unique_violation)?;
+        }
+
+        sqlx::query(
+            r#"
+            UPDATE users
+            SET barcode = $1, card_lost = FALSE, update_at = NOW()
+            WHERE id = $2
+            "#,
+        )
+        .bind(new_barcode)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(map_user_unique_violation)?;
+
+        tx.commit().await?;
+
+        let user = self.users_get_by_id(user_id).await?;
+        Ok(ReplacedCard {
+            user,
+            previous_barcode: previous,
+            barcode: new_barcode.to_string(),
+        })
+    }
+}
+
+static RETIRED_CARD_IDS: std::sync::LazyLock<std::sync::Mutex<Generator>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(Generator::new(12)));
+
+fn next_retired_card_id() -> i64 {
+    RETIRED_CARD_IDS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .generate()
+}
+
+fn retired_number_error(barcode: &str) -> AppError {
+    AppError::coded(
+        409,
+        error_code::CARD_NUMBER_RETIRED,
+        format!("Card number {barcode} was retired and cannot be assigned again"),
+    )
+}
+
+fn map_user_unique_violation(err: sqlx::Error) -> AppError {
+    let constraint = match &err {
+        sqlx::Error::Database(db) if db.code().as_deref() == Some("23505") => {
+            db.constraint().map(str::to_owned)
+        }
+        _ => None,
+    };
+    match constraint.as_deref() {
+        Some("users_barcode_key") => {
+            AppError::Conflict("Card number is already assigned".to_string())
+        }
+        Some("retired_card_numbers_card_number_key") => AppError::coded(
+            409,
+            error_code::CARD_NUMBER_RETIRED,
+            "Card number was retired and cannot be assigned again".to_string(),
+        ),
+        _ => AppError::Database(Box::new(err)),
     }
 }
 

@@ -74,6 +74,8 @@ use crate::api::{
         users::create_user,
         users::update_user,
         users::delete_user,
+        users::report_card_lost,
+        users::replace_card,
         users::update_my_profile,
         users::update_account_type,
         // Loans
@@ -373,6 +375,11 @@ use crate::api::{
             crate::models::user::UserShort,
             crate::models::user::UserQuery,
             crate::models::user::UserPayload,
+            crate::models::dto::card::CardLostReason,
+            crate::models::dto::card::ReportCardLostRequest,
+            crate::models::dto::card::ReportCardLostResponse,
+            crate::models::dto::card::ReplaceCardRequest,
+            crate::models::dto::card::ReplaceCardResponse,
             crate::models::user::UpdateProfile,
             crate::models::user::UpdateAccountType,
             crate::models::account_type::AccountTypeDefinition,
@@ -709,6 +716,24 @@ mod tests {
     fn openapi_schema_compiles() {
         let doc = ApiDoc::openapi();
         assert!(!doc.paths.paths.is_empty());
+    }
+
+    #[test]
+    fn card_lost_and_replace_routes_are_documented() {
+        let doc = ApiDoc::openapi();
+        let value = serde_json::to_value(&doc).expect("openapi json");
+        for path in ["/users/{id}/card-lost", "/users/{id}/replace-card"] {
+            assert!(
+                value["paths"][path]["post"].is_object(),
+                "{path} must be documented"
+            );
+        }
+        let schemas = &value["components"]["schemas"];
+        assert!(schemas["ReportCardLostRequest"].is_object());
+        assert!(schemas["ReplaceCardRequest"].is_object());
+        assert!(schemas["ReportCardLostResponse"].is_object());
+        assert!(schemas["ReplaceCardResponse"].is_object());
+        assert!(schemas["ErrorResponse"].is_object());
     }
 
     #[test]
