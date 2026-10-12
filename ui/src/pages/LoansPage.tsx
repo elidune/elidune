@@ -1163,7 +1163,7 @@ export default function LoansPage() {
                         <BarcodeScanField
                           ref={userBarcodeInputRef}
                           name="userBarcode"
-                          placeholder={t('loans.scanOrEnterBarcode')}
+                          placeholder={t('loans.scanOrEnterCard')}
                           leftIcon={<CreditCard className="h-4 w-4" />}
                           autoFocus
                           disabled={isPatronLookupBusy}

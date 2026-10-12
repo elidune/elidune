@@ -45,6 +45,35 @@ describe('item barcode label', () => {
   });
 });
 
+describe('reader card labels', () => {
+  it('uses card-number wording for a reader and keeps barcode wording for items', () => {
+    assert.equal(fr.profile.barcode, 'N° de carte');
+    assert.equal(en.profile.barcode, 'Library card no.');
+    assert.equal(de.profile.barcode, 'Ausweis-Nr.');
+    assert.equal(es.profile.barcode, 'Carné n.º');
+    assert.equal(fr.users.searchPlaceholder, 'Rechercher par nom, prénom ou n° de carte...');
+    assert.equal(en.users.searchPlaceholder, 'Search by name, first name or library card no....');
+    assert.equal(de.users.searchPlaceholder, 'Nach Name, Vorname oder Ausweis-Nr. suchen...');
+    assert.equal(es.users.searchPlaceholder, 'Buscar por nombre, apellido o carné n.º...');
+    assert.equal(fr.loans.userNotFound, 'Utilisateur non trouvé avec le n° de carte : {{barcode}}');
+    assert.equal(en.loans.userNotFound, 'User not found with library card no.: {{barcode}}');
+    assert.equal(de.loans.userNotFound, 'Benutzer mit Ausweis-Nr. nicht gefunden: {{barcode}}');
+    assert.equal(es.loans.userNotFound, 'Usuario no encontrado con carné n.º: {{barcode}}');
+    assert.equal(fr.loans.scanOrEnterCard, 'Scanner ou saisir le n° de carte');
+    assert.equal(en.loans.scanOrEnterCard, 'Scan or enter the library card no.');
+    assert.equal(de.loans.scanOrEnterCard, 'Ausweis-Nr. scannen oder eingeben');
+    assert.equal(es.loans.scanOrEnterCard, 'Escanear o introducir el carné n.º');
+    assert.equal(fr.loans.scanOrEnterBarcode, 'Scanner ou saisir le code-barres');
+    assert.equal(en.loans.scanOrEnterBarcode, 'Scan or enter the barcode');
+    assert.equal(fr.items.barcode, 'Code-barres');
+    assert.equal(en.items.barcode, 'Barcode');
+    assert.match(fr.users.deleteConfirm, /n° de carte/);
+    assert.equal(fr.users.deleteConfirm.includes('code-barres'), false);
+    assert.match(en.users.deleteConfirm, /library card no\./);
+    assert.equal(/\bbarcode\b/i.test(en.users.deleteConfirm), false);
+  });
+});
+
 describe('account type labels', () => {
   const tFr = tFrom(fr);
   const tEn = tFrom(en);
