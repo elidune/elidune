@@ -285,3 +285,99 @@ async fn burst_of_twenty_checkouts_one_loan_no_500() {
         );
     }
 }
+
+fn batch_item<'a>(body: &'a Value, barcode: &str) -> &'a Value {
+    body["results"]
+        .as_array()
+        .expect("results")
+        .iter()
+        .find(|row| row["barcode"] == barcode)
+        .unwrap_or_else(|| panic!("missing batch row for {barcode}: {body}"))
+}
+
+#[tokio::test]
+async fn batch_create_reports_open_loan_codes() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_a, _) = fixtures::create_reader(&app, &admin_token, "batch_a").await;
+    let (reader_b, _) = fixtures::create_reader(&app, &admin_token, "batch_b").await;
+    let suffix = fixtures::unique_suffix();
+    let other_barcode = format!("BATCH-OTHER-{suffix}");
+    let same_barcode = format!("BATCH-SAME-{suffix}");
+    let missing_barcode = format!("BATCH-MISSING-{suffix}");
+    let other_item = seed_item(&app, &admin_token, &other_barcode).await;
+    let same_item = seed_item(&app, &admin_token, &same_barcode).await;
+
+    for (user_id, item_id) in [(reader_a, other_item), (reader_b, same_item)] {
+        let (status, body) = app
+            .post_json(
+                "/api/v1/loans",
+                &loan_body(user_id, Some(item_id), None, false),
+                Some(&admin_token),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+    }
+
+    let (status, body) = app
+        .post_json(
+            "/api/v1/loans/batch-create",
+            &json!({
+                "userId": reader_b.to_string(),
+                "barcodes": [other_barcode, same_barcode, missing_barcode],
+                "force": true,
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["created"], 0);
+    assert_eq!(body["errors"], 3);
+
+    let other = batch_item(&body, &other_barcode);
+    assert_eq!(other["success"], false);
+    assert_eq!(other["code"], OTHER);
+    let other_error = other["error"].as_str().expect("error string");
+    assert!(
+        other_error.contains("another borrower"),
+        "error text should stay the human message: {other_error}"
+    );
+
+    let same = batch_item(&body, &same_barcode);
+    assert_eq!(same["success"], false);
+    assert_eq!(same["code"], SAME);
+    let same_error = same["error"].as_str().expect("error string");
+    assert!(
+        same_error.to_lowercase().contains("renew"),
+        "error text should still point at renewal: {same_error}"
+    );
+
+    let missing = batch_item(&body, &missing_barcode);
+    assert_eq!(missing["success"], false);
+    assert_eq!(missing["code"], "not_found");
+    assert!(missing["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("Not found"));
+
+    assert_eq!(
+        app.state
+            .services
+            .repository
+            .loans_count_active_for_item(other_item)
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        app.state
+            .services
+            .repository
+            .loans_count_active_for_item(same_item)
+            .await
+            .unwrap(),
+        1
+    );
+}

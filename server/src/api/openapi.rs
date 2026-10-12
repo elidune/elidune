@@ -6,10 +6,10 @@ use utoipa::{Modify, OpenApi};
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::api::{
-    account_types, acquisitions, admin_config, audit, auth, biblios, collections, email_templates,
-    equipment, events, fines, first_setup, health, holds, inventory, items, library_info, loans,
-    maintenance, metrics, opac, public_types, schedules, series, sources, stats, suggestions,
-    tasks, transits, users, visitor_counts, withdrawals, z3950,
+    account_types, acquisitions, admin_config, audit, auth, batch, biblios, collections,
+    email_templates, equipment, events, fines, first_setup, health, holds, inventory, items,
+    library_info, loans, maintenance, metrics, opac, public_types, schedules, series, sources,
+    stats, suggestions, tasks, transits, users, visitor_counts, withdrawals, z3950,
 };
 
 #[derive(OpenApi)]
@@ -80,6 +80,7 @@ use crate::api::{
         loans::list_my_loans,
         loans::export_user_loans_marc,
         loans::create_loan,
+        batch::batch_create_loans,
         loans::get_loan_borrower,
         loans::return_loan,
         loans::renew_loan,

@@ -1209,12 +1209,20 @@ See [README-background-tasks.md](README-background-tasks.md) for full polling gu
 ```json
 {
   "created": 1,
-  "errors": 0,
+  "errors": 1,
   "results": [
-    { "barcode": "978-2-07-040850-4", "success": true, "loanId": "927364819265437700" }
+    { "barcode": "978-2-07-040850-4", "success": true, "loanId": "927364819265437700" },
+    {
+      "barcode": "978-2-07-040851-1",
+      "success": false,
+      "error": "This item is on loan to another borrower.",
+      "code": "item_on_loan_to_other_borrower"
+    }
   ]
 }
 ```
+
+`error` is the same human-readable string as before. `code` is added only on failures and uses the same values as `ErrorResponse.code` (`item_on_loan_to_other_borrower`, `item_already_on_loan_to_borrower`, `not_found`, `business_rule_violation`, …). Successful items omit both.
 
 ---
 
@@ -1465,7 +1473,7 @@ interface BatchReturnItemResult {
 }
 interface BatchReturnResponse { returned: number; errors: number; results: BatchReturnItemResult[]; }
 interface BatchCreateLoanItemResult {
-  barcode: string; success: boolean; loanId?: string | null; error?: string;
+  barcode: string; success: boolean; loanId?: string | null; error?: string; code?: string;
 }
 interface BatchCreateLoansResponse { created: number; errors: number; results: BatchCreateLoanItemResult[]; }
 
