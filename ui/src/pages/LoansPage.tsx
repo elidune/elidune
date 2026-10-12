@@ -46,6 +46,7 @@ import {
   deskScanAlert,
   deskScanAlertFromCheckIn,
   isCheckoutScanNoticeShown,
+  otherBorrowerFromPerson,
   readerName,
   type DeskCopySnapshot,
   type DeskScanAlert,
@@ -74,7 +75,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import PatronOptionLabel from '@/components/users/PatronOptionLabel';
 import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
 import { useToast } from '@/contexts/ToastContext';
-import { isAdmin } from '@/types';
+import { canReadUsers, isAdmin } from '@/types';
 import type { User as UserType, Loan, UserShort, OverdueLoanInfo, ReminderReport, ItemCheckIn, LostFoundDisposition, LostReturnFields } from '@/types';
 import { isItemStaffView, isLoanDetailsStaff } from '@/utils/catalogView';
 
@@ -129,6 +130,7 @@ function daysPastDue(expiryAt: string | null): number {
 export default function LoansPage() {
   const { t, i18n } = useTranslation();
   const { user: authUser } = useAuth();
+  const canReadBorrowers = canReadUsers(authUser, api.getToken());
   const { showToast } = useToast();
   const userIsAdmin = isAdmin(authUser?.accountType);
   const [activeTab, setActiveTab] = useState<TabType>('borrow');
@@ -703,7 +705,22 @@ export default function LoansPage() {
     const snapshot = await readDeskCopy(barcode);
     const alert = deskScanAlert(snapshot, { patronId: selectedUser.id });
     if (alert) {
-      setCheckoutScanAlert({ ...alert, barcode, loanId: snapshot?.loanId ?? null });
+      const shown =
+        alert.kind === 'onLoan'
+          ? {
+              kind: 'onLoan' as const,
+              patronName: null,
+              otherBorrower: otherBorrowerFromPerson({
+                userId: snapshot?.loanUserId,
+                cardNumber: snapshot?.loanUserCard,
+                initials: snapshot?.loanUserInitials,
+                firstname: snapshot?.loanUserFirstname,
+                lastname: snapshot?.loanUserLastname,
+                fullName: snapshot?.loanUserName,
+              }),
+            }
+          : alert;
+      setCheckoutScanAlert({ ...shown, barcode, loanId: snapshot?.loanId ?? null });
       throw new CheckoutScanNoticeShown();
     }
     setCheckoutScanAlert(null);
@@ -1301,6 +1318,7 @@ export default function LoansPage() {
                     {checkoutScanAlert ? (
                       <DeskScanNotice
                         alert={checkoutScanAlert}
+                        canReadBorrowers={canReadBorrowers}
                         renewing={borrowLoanAction?.op === 'renew'}
                         onReturn={
                           checkoutScanAlert.kind === 'onLoan'
@@ -1992,11 +2010,27 @@ async function readDeskCopy(barcode: string): Promise<DeskCopySnapshot | null> {
     if (!copy || !isItemStaffView(copy)) return null;
     let loanUserId: string | null = null;
     let loanUserName: string | null = null;
+    let loanUserCard: string | null = null;
+    let loanUserInitials: string | null = null;
+    let loanUserFirstname: string | null = null;
+    let loanUserLastname: string | null = null;
     if (copy.availability === 'onLoan' && copy.loanId) {
       try {
         const borrower = await api.getLoanBorrower(copy.loanId);
-        loanUserId = borrower.id;
+        const ref = otherBorrowerFromPerson({
+          userId: borrower.id,
+          cardNumber: borrower.cardNumber,
+          barcode: borrower.barcode,
+          initials: borrower.initials,
+          firstname: borrower.firstname,
+          lastname: borrower.lastname,
+        });
+        loanUserId = ref?.userId ?? borrower.id;
         loanUserName = readerName(borrower);
+        loanUserCard = ref?.cardNumber ?? null;
+        loanUserInitials = ref?.initials ?? null;
+        loanUserFirstname = borrower.firstname ?? null;
+        loanUserLastname = borrower.lastname ?? null;
       } catch {
         loanUserId = null;
         loanUserName = null;
@@ -2007,6 +2041,10 @@ async function readDeskCopy(barcode: string): Promise<DeskCopySnapshot | null> {
       loanId: copy.loanId ?? null,
       loanUserId,
       loanUserName,
+      loanUserCard,
+      loanUserInitials,
+      loanUserFirstname,
+      loanUserLastname,
       holdUserId: copy.holdUserId ?? null,
       holdUserName: copy.holdUserName ?? null,
     };

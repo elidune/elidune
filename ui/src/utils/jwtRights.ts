@@ -107,3 +107,27 @@ export function readItemsArchiveRightsFromJwt(
 export function readItemsRightsFromJwt(accessToken: string | null | undefined): 'n' | 'r' | 'w' | null {
   return readRightsLevelFromJwt(accessToken, 'itemsRights');
 }
+
+export function normalizeUsersRightsLevel(raw: unknown): 'n' | 'o' | 'r' | 'w' | null {
+  const s = raw != null ? String(raw).trim().toLowerCase() : '';
+  if (s === 'n' || s === 'none') return 'n';
+  if (s === 'o' || s === 'own') return 'o';
+  if (s === 'r' || s === 'read') return 'r';
+  if (s === 'w' || s === 'write') return 'w';
+  return null;
+}
+
+/** `rights.usersRights` from the access token. `own` is below read. */
+export function readUsersRightsFromJwt(
+  accessToken: string | null | undefined,
+): 'n' | 'o' | 'r' | 'w' | null {
+  if (!accessToken?.trim()) return null;
+  const payload = decodeAccessTokenPayload(accessToken);
+  if (!payload) return null;
+  const rights = payload.rights;
+  if (rights && typeof rights === 'object') {
+    const nested = normalizeUsersRightsLevel((rights as Record<string, unknown>).usersRights);
+    if (nested) return nested;
+  }
+  return normalizeUsersRightsLevel(payload.usersRights);
+}

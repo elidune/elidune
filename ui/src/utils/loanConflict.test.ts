@@ -87,13 +87,48 @@ describe('checkout 409 when the copy is already on loan', () => {
       });
       assert.deepEqual(notice, {
         kind: 'onLoan',
-        patronName: 'Ada Lovelace',
+        patronName: null,
+        otherBorrower: { userId: '2', cardNumber: null, initials: 'AL' },
         loanId: null,
       });
+      assert.equal(JSON.stringify(notice).includes('Ada Lovelace'), false);
       assert.equal(deskScanNoticeAction(notice!), 'return');
       assert.equal(checkoutMayForce(error), false);
     }
     assert.equal(checkoutForceFlag('onLoan', true), undefined);
+
+    const minimized = mockLoanResponse(409, ITEM_ON_LOAN_TO_OTHER_BORROWER, {
+      borrower: { id: '2', cardNumber: 'L-10042', initials: 'JD' },
+    });
+    const fromBody = checkoutNoticeForConflict(minimized, {
+      patronId: '1',
+      snapshot: {
+        loanUserId: '2',
+        loanUserName: 'Ada Lovelace',
+        loanUserFirstname: 'Ada',
+        loanUserLastname: 'Lovelace',
+      },
+    });
+    assert.deepEqual(fromBody?.otherBorrower, { userId: '2', cardNumber: 'L-10042', initials: 'JD' });
+    assert.equal(JSON.stringify(fromBody).includes('Ada'), false);
+    assert.equal(JSON.stringify(fromBody).includes('Lovelace'), false);
+
+    const initialsOnly = mockLoanResponse(409, ITEM_ON_LOAN_TO_OTHER_BORROWER, {
+      user: { id: '2', cardNumber: null, initials: 'JD' },
+    });
+    assert.deepEqual(
+      checkoutNoticeForConflict(initialsOnly, { patronId: '1', snapshot: null })?.otherBorrower,
+      { userId: '2', cardNumber: null, initials: 'JD' },
+    );
+
+    const legacy = mockLoanResponse(409, ITEM_ON_LOAN_TO_OTHER_BORROWER, {
+      details: { borrower: { id: '2', barcode: 'BC-9', firstname: 'Julien', lastname: 'Dubois' } },
+    });
+    const legacyNotice = checkoutNoticeForConflict(legacy, { patronId: '1', snapshot: null });
+    assert.deepEqual(legacyNotice?.otherBorrower, { userId: '2', cardNumber: 'BC-9', initials: 'JD' });
+    assert.equal(JSON.stringify(legacyNotice).includes('Julien'), false);
+    assert.equal(JSON.stringify(legacyNotice).includes('Dubois'), false);
+
     const body = mockLoanResponse(409, ITEM_ON_LOAN_TO_OTHER_BORROWER).response.data;
     assert.equal(body.error, 'Conflict');
     assert.equal(body.message, SERVER_MESSAGE[ITEM_ON_LOAN_TO_OTHER_BORROWER]);

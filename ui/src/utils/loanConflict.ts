@@ -1,4 +1,10 @@
-import type { DeskCopySnapshot, DeskScanAlert } from './deskScanAlert.ts';
+import {
+  otherBorrowerFromPayload,
+  otherBorrowerFromPerson,
+  type DeskCopySnapshot,
+  type DeskScanAlert,
+  type OtherBorrowerRef,
+} from './deskScanAlert.ts';
 
 /** 409 from POST /loans when the copy is on loan to another reader. */
 export const ITEM_ON_LOAN_TO_OTHER_BORROWER = 'item_on_loan_to_other_borrower';
@@ -39,6 +45,32 @@ function readCode(error: unknown): string | null {
   return text(responseOf(error).data?.code);
 }
 
+function readConflictBorrower(data: Record<string, unknown> | null): OtherBorrowerRef | null {
+  if (!data) return null;
+  const details =
+    data.details && typeof data.details === 'object' && !Array.isArray(data.details)
+      ? (data.details as Record<string, unknown>)
+      : null;
+  const candidates = [data.borrower, data.user, details?.borrower, details?.user, details];
+  for (const candidate of candidates) {
+    const ref = otherBorrowerFromPayload(candidate);
+    if (ref) return ref;
+  }
+  return null;
+}
+
+function snapshotBorrower(snapshot: DeskCopySnapshot | null): OtherBorrowerRef | null {
+  if (!snapshot) return null;
+  return otherBorrowerFromPerson({
+    userId: snapshot.loanUserId,
+    cardNumber: snapshot.loanUserCard,
+    initials: snapshot.loanUserInitials,
+    firstname: snapshot.loanUserFirstname,
+    lastname: snapshot.loanUserLastname,
+    fullName: snapshot.loanUserName,
+  });
+}
+
 function readLoanId(data: Record<string, unknown> | null): string | null {
   if (!data) return null;
   const direct = text(data.loanId) ?? text(data.loan_id);
@@ -60,12 +92,15 @@ export function checkoutNoticeForConflict(error: unknown, context: ConflictConte
   if (status !== 409) return null;
   const code = text(data?.code);
   if (code === ITEM_ON_LOAN_TO_OTHER_BORROWER) {
-    const owner = text(context.snapshot?.loanUserId);
+    const fromBody = readConflictBorrower(data);
+    const fromSnapshot = snapshotBorrower(context.snapshot);
+    const owner = fromBody?.userId ?? text(context.snapshot?.loanUserId);
     const patronId = text(context.patronId);
-    const otherReader = Boolean(owner && patronId && owner !== patronId);
+    const sameReader = Boolean(owner && patronId && owner === patronId);
     return {
       kind: 'onLoan',
-      patronName: otherReader ? text(context.snapshot?.loanUserName) : null,
+      patronName: null,
+      otherBorrower: sameReader ? null : (fromBody ?? fromSnapshot),
       loanId: null,
     };
   }
