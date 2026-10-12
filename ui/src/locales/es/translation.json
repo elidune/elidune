@@ -103,6 +103,9 @@
     "dark": "Oscuro",
     "system": "Sistema"
   },
+  "language": {
+    "selector": "Idioma"
+  },
   "home": {
     "libraryInfo": "Información de la biblioteca",
     "noAddress": "Sin dirección",
@@ -137,7 +140,11 @@
       "timezonePlaceholder": "Elegir una zona horaria",
       "timezoneDerived": "Zona horaria: {{zone}} ({{offset}}), deducida del país.",
       "timezoneMismatch": "No corresponde al país",
-      "timezoneRequired": "Elija una zona horaria para este país."
+      "timezoneRequired": "Elija una zona horaria para este país.",
+      "defaultLanguage": "Idioma predeterminado de la biblioteca",
+      "defaultLanguageUnset": "Sin definir",
+      "defaultLanguageHelp": "Se usa cuando el idioma del navegador no está admitido y no hay una elección guardada. Sin definir mantiene el francés.",
+      "defaultLanguageInvalid": "Elija Sin definir, Français, English, Deutsch o Español."
     },
     "tabs": {
       "hours": "Horario de apertura",
@@ -2119,7 +2126,7 @@
     "borrowed": "Prestado",
     "searchPlaceholder": "Título, autor, ISBN, palabra clave…",
     "tabEvents": "Eventos",
-    "tabCatalog": "Catalogue",
+    "tabCatalog": "Catálogo",
     "eventsEmpty": "Los próximos eventos de la biblioteca aparecerán aquí.",
     "resultsCount_one": "{{count}} documento encontrado",
     "resultsCount_other": "{{count}} documentos encontrados",

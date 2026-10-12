@@ -2,6 +2,7 @@ import type { TFunction } from 'i18next';
 import axios, { type AxiosError, type AxiosResponse } from 'axios';
 import i18n from '@/locales';
 import type { ApiError, MyLoanRenewalRefusal } from '@/types';
+import { isLibraryLanguageValidationError } from '@/utils/uiLanguage';
 import { weedingServerMessageI18nKey } from '@/utils/weeding';
 import { parseDisposeFailures } from '@/utils/withdrawals';
 
@@ -32,6 +33,21 @@ export function libraryInfoTimezoneFieldError(error: unknown, t: TFunction): str
   if (code === 'timezone_country_mismatch') return t('errors.apiCode.timezone_country_mismatch');
   if (code === 'timezone_required') return t('errors.apiCode.timezone_required');
   return null;
+}
+
+/**
+ * Inline message for PUT /library-info when `language` is rejected with HTTP 400
+ * `validation_error`. Other 400s stay on the form banner.
+ */
+export function libraryInfoLanguageFieldError(error: unknown, t: TFunction): string | null {
+  if (!isLibraryLanguageValidationError({
+    status: getHttpStatus(error),
+    code: getApiErrorCode(error),
+    message: getApiErrorRawMessage(error),
+  })) {
+    return null;
+  }
+  return t('library.general.defaultLanguageInvalid');
 }
 
 export function getApiErrorCode(error: unknown): string | null {

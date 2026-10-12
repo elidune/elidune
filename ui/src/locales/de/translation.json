@@ -103,6 +103,9 @@
     "dark": "Dunkel",
     "system": "System"
   },
+  "language": {
+    "selector": "Sprache"
+  },
   "home": {
     "libraryInfo": "Bibliotheksinformationen",
     "noAddress": "Keine Adresse",
@@ -137,7 +140,11 @@
       "timezonePlaceholder": "Zeitzone wählen",
       "timezoneDerived": "Zeitzone: {{zone}} ({{offset}}), aus dem Land abgeleitet.",
       "timezoneMismatch": "Entspricht nicht dem Land",
-      "timezoneRequired": "Wählen Sie eine Zeitzone für dieses Land."
+      "timezoneRequired": "Wählen Sie eine Zeitzone für dieses Land.",
+      "defaultLanguage": "Standardsprache der Bibliothek",
+      "defaultLanguageUnset": "Nicht festgelegt",
+      "defaultLanguageHelp": "Gilt für Besucher, deren Browsersprache nicht unterstützt wird und die keine Sprache gewählt haben. Nicht festgelegt bleibt bei Französisch.",
+      "defaultLanguageInvalid": "Wählen Sie Nicht festgelegt, Français, English, Deutsch oder Español."
     },
     "tabs": {
       "hours": "Öffnungszeiten",
@@ -2119,7 +2126,7 @@
     "borrowed": "Ausgeliehen",
     "searchPlaceholder": "Titel, Autor, ISBN, Stichwort…",
     "tabEvents": "Veranstaltungen",
-    "tabCatalog": "Catalogue",
+    "tabCatalog": "Katalog",
     "eventsEmpty": "Kommende Bibliotheksveranstaltungen erscheinen hier.",
     "resultsCount_one": "{{count}} Dokument gefunden",
     "resultsCount_other": "{{count}} Dokumente gefunden",

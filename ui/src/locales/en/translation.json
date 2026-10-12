@@ -103,6 +103,9 @@
     "dark": "Dark",
     "system": "System"
   },
+  "language": {
+    "selector": "Language"
+  },
   "home": {
     "libraryInfo": "Library information",
     "noAddress": "No address",
@@ -137,7 +140,11 @@
       "timezonePlaceholder": "Choose a time zone",
       "timezoneDerived": "Time zone: {{zone}} ({{offset}}), derived from the country.",
       "timezoneMismatch": "Does not match the country",
-      "timezoneRequired": "Choose a time zone for this country."
+      "timezoneRequired": "Choose a time zone for this country.",
+      "defaultLanguage": "Library default language",
+      "defaultLanguageUnset": "Not set",
+      "defaultLanguageHelp": "Used when the browser language is not supported and no choice has been saved. Not set keeps French.",
+      "defaultLanguageInvalid": "Choose Not set, Français, English, Deutsch, or Español."
     },
     "tabs": {
       "hours": "Opening hours",
