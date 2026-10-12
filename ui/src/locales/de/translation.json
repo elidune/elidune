@@ -1192,6 +1192,7 @@
     "userSearchError": "Benutzer konnten nicht gesucht werden",
     "userLoadError": "Dieser Benutzer konnte nicht geladen werden",
     "loansLoadError": "Ausleihen konnten nicht geladen werden",
+    "loansNotAllowed": "Sie dürfen diese Ausleihen nicht einsehen.",
     "specimenBarcode": "Exemplar-Barcode",
     "loanDetails": "Ausleihe-Details",
     "borrowedSpecimen": "Ausgeliehenes Exemplar",

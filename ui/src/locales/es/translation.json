@@ -1192,6 +1192,7 @@
     "userSearchError": "No se pudieron buscar usuarios",
     "userLoadError": "No se pudo cargar este usuario",
     "loansLoadError": "No se pudieron cargar los préstamos",
+    "loansNotAllowed": "No tiene permiso para ver estos préstamos.",
     "specimenBarcode": "Código de barras del ejemplar",
     "loanDetails": "Detalles del préstamo",
     "borrowedSpecimen": "Ejemplar prestado",

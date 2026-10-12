@@ -1192,6 +1192,7 @@
     "userSearchError": "Could not search patrons",
     "userLoadError": "Could not load this patron",
     "loansLoadError": "Could not load loans",
+    "loansNotAllowed": "You are not allowed to view these loans.",
     "specimenBarcode": "Specimen barcode",
     "loanDetails": "Loan details",
     "borrowedSpecimen": "Borrowed copy",

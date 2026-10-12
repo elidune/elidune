@@ -24,6 +24,7 @@ import CirculationExceptionDialog from '@/components/loans/CirculationExceptionD
 import ClaimsReturnedQueue from '@/components/loans/ClaimsReturnedQueue';
 import LoanExceptionActions from '@/components/loans/LoanExceptionActions';
 import DeskScanNotice from '@/components/loans/DeskScanNotice';
+import LoansAccessNotice from '@/components/loans/LoansAccessNotice';
 import LostFoundAlertDialog from '@/components/loans/LostFoundAlertDialog';
 import Pagination from '@/components/common/Pagination';
 import api from '@/services/api';
@@ -80,6 +81,7 @@ import { canReadUsers, isAdmin } from '@/types';
 import type { User as UserType, Loan, UserShort, OverdueLoanInfo, ReminderReport, ItemCheckIn, LostFoundDisposition, LostReturnFields } from '@/types';
 import { isItemStaffView, isLoanDetailsStaff } from '@/utils/catalogView';
 import { readerIdentifierText } from '@/utils/readerIdentifier';
+import { checkoutRecap, deskMayLoadPatronLoans, readPatronLoans } from '@/utils/loanListAccess';
 
 type TabType = 'borrow' | 'return' | 'overdue' | 'claims';
 type LostFoundSummary = {
@@ -157,6 +159,7 @@ export default function LoansPage() {
   const [userSearchError, setUserSearchError] = useState<string | null>(null);
   const [userSelectError, setUserSelectError] = useState<string | null>(null);
   const [loansLoadError, setLoansLoadError] = useState<string | null>(null);
+  const [loansNotAllowed, setLoansNotAllowed] = useState(false);
   const [userSearchRetry, setUserSearchRetry] = useState(0);
   const [loansReloadToken, setLoansReloadToken] = useState(0);
   const [isPatronLookupBusy, setIsPatronLookupBusy] = useState(false);
@@ -461,15 +464,50 @@ export default function LoansPage() {
     [i18n.language, loadOverdue, showToast, t],
   );
 
+  const applyPatronLoans = useCallback(
+    async (options: { notify: boolean }) => {
+      if (!selectedUser) return { ok: false as const, denied: false };
+      if (!deskMayLoadPatronLoans(canReadBorrowers)) {
+        setLoans([]);
+        setLoansTotal(0);
+        setLoansLoadError(null);
+        setLoansNotAllowed(true);
+        return { ok: false as const, denied: true };
+      }
+      const result = await readPatronLoans(() =>
+        api.getUserLoans(selectedUser.id, {
+          page: loansPage,
+          perPage: BORROW_LOANS_PAGE_SIZE,
+        }),
+      );
+      if (result.ok) {
+        setLoans(result.page.items.filter(isLoanDetailsStaff));
+        setLoansTotal(result.page.total);
+        setLoansLoadError(null);
+        setLoansNotAllowed(false);
+        return result;
+      }
+      if (result.denied) {
+        setLoans([]);
+        setLoansTotal(0);
+        setLoansLoadError(null);
+        setLoansNotAllowed(true);
+        return result;
+      }
+      setLoansNotAllowed(false);
+      const msg = getApiErrorMessage(result.error, t) || t('loans.loansLoadError');
+      setLoansLoadError(msg);
+      if (options.notify) {
+        showToast({ variant: 'error', message: msg });
+      }
+      return result;
+    },
+    [canReadBorrowers, loansPage, selectedUser, showToast, t],
+  );
+
   const reloadSelectedUserLoans = useCallback(async () => {
-    if (!selectedUser) return;
-    const res = await api.getUserLoans(selectedUser.id, {
-      page: loansPage,
-      perPage: BORROW_LOANS_PAGE_SIZE,
-    });
-    setLoans(res.items.filter(isLoanDetailsStaff));
-    setLoansTotal(res.total);
-  }, [selectedUser, loansPage]);
+    await applyPatronLoans({ notify: false });
+  }, [applyPatronLoans]);
 
   const { data: claimsIdPage } = useQuery({
     queryKey: ['loans-claims-returned', 'ids'],
@@ -612,25 +650,15 @@ export default function LoansPage() {
 
     const loadUserLoans = async () => {
       setIsLoadingLoans(true);
-      setLoansLoadError(null);
       try {
-        const res = await api.getUserLoans(selectedUser.id, {
-          page: loansPage,
-          perPage: BORROW_LOANS_PAGE_SIZE,
-        });
-        setLoans(res.items.filter(isLoanDetailsStaff));
-        setLoansTotal(res.total);
-      } catch (error) {
-        const msg = getApiErrorMessage(error, t) || t('loans.loansLoadError');
-        setLoansLoadError(msg);
-        showToast({ variant: 'error', message: msg });
+        await applyPatronLoans({ notify: true });
       } finally {
         setIsLoadingLoans(false);
       }
     };
 
     return deferFromEffect(() => { void loadUserLoans(); });
-  }, [selectedUser, loansPage, loansReloadToken, showToast, t]);
+  }, [selectedUser, loansPage, loansReloadToken, applyPatronLoans]);
 
   const [prevSelectedUser, setPrevSelectedUser] = useState(selectedUser);
   if (selectedUser !== prevSelectedUser) {
@@ -638,6 +666,8 @@ export default function LoansPage() {
     if (!selectedUser) {
       setLoans([]);
       setLoansTotal(0);
+      setLoansLoadError(null);
+      setLoansNotAllowed(false);
     }
   }
 
@@ -733,21 +763,22 @@ export default function LoansPage() {
         itemIdentification: barcode,
         force: checkoutForceFlag(snapshot?.availability, force),
       }, newIdempotencyKey());
-      const res = await api.getUserLoans(selectedUser.id, {
-        page: loansPage,
-        perPage: BORROW_LOANS_PAGE_SIZE,
-      });
-      setLoans(res.items.filter(isLoanDetailsStaff));
-      setLoansTotal(res.total);
-      const matched = res.items.find((loan) => loan.id === created.id);
-      const title = matched?.biblio.title?.trim() || t('loans.noTitle');
-      const checkedOutBarcode = matched?.itemIdentification?.trim() || barcode;
-      const dueDate = matched?.expiryAt || created.expiryAt;
+      const loaded = await applyPatronLoans({ notify: false });
+      const matched = loaded.ok
+        ? loaded.page.items.find((loan) => loan.id === created.id)
+        : undefined;
       const patronName = `${selectedUser.firstname} ${selectedUser.lastname}`.trim();
-      setLastCheckout({ title, barcode: checkedOutBarcode, dueDate, patronName });
+      const recap = checkoutRecap({
+        created,
+        barcode,
+        patronName,
+        noTitle: t('loans.noTitle'),
+        listed: matched ?? null,
+      });
+      setLastCheckout(recap);
       showToast({
         variant: 'success',
-        message: t('loans.checkoutSuccess', { title, patron: patronName }),
+        message: t('loans.checkoutSuccess', { title: recap.title, patron: recap.patronName }),
       });
     } catch (error: unknown) {
       const rawMessage = getApiErrorRawMessage(error) ?? '';
@@ -798,12 +829,7 @@ export default function LoansPage() {
       const known = loans.find((loan) => loan.id === loanId);
       const result = await api.returnLoan(loanId);
       if (selectedUser) {
-        const res = await api.getUserLoans(selectedUser.id, {
-          page: loansPage,
-          perPage: BORROW_LOANS_PAGE_SIZE,
-        });
-        setLoans(res.items.filter(isLoanDetailsStaff));
-        setLoansTotal(res.total);
+        await applyPatronLoans({ notify: false });
       }
       if (
         await openLostFound(result, {
@@ -992,12 +1018,7 @@ export default function LoansPage() {
     try {
       const renewed = await request();
       if (selectedUser) {
-        const res = await api.getUserLoans(selectedUser.id, {
-          page: loansPage,
-          perPage: BORROW_LOANS_PAGE_SIZE,
-        });
-        setLoans(res.items.filter(isLoanDetailsStaff));
-        setLoansTotal(res.total);
+        await applyPatronLoans({ notify: false });
       }
       showToast({
         variant: 'success',
@@ -1400,7 +1421,15 @@ export default function LoansPage() {
                   )}
                 </div>
                 <ScrollableListRegion aria-label={t('loans.activeLoans')}>
-                  {isLoadingLoans && !loans.length ? (
+                  {loansNotAllowed ? (
+                    <div className="px-4 py-12 flex justify-center">
+                      <LoansAccessNotice
+                        denied
+                        onRetry={() => setLoansReloadToken((n) => n + 1)}
+                        fallbackMessage={t('loans.loansLoadError')}
+                      />
+                    </div>
+                  ) : isLoadingLoans && !loans.length ? (
                     <ListSkeleton rows={6} />
                   ) : (
                     <ResponsiveRecordList

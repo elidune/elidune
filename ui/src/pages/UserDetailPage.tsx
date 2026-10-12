@@ -41,6 +41,7 @@ import { useActiveTransitsQuery } from '@/hooks/holds/useActiveTransitsQuery';
 import { useSourcesQuery } from '@/hooks/holds/useSourcesQuery';
 import { useTransitActions } from '@/hooks/holds/useTransitActions';
 import { indexTransitsByHoldId } from '@/utils/transitDisplay';
+import LoansAccessNotice from '@/components/loans/LoansAccessNotice';
 import LoansMarcExportButton from '@/components/loans/LoansMarcExportButton';
 import CirculationExceptionDialog from '@/components/loans/CirculationExceptionDialog';
 import LoanExceptionActions from '@/components/loans/LoanExceptionActions';
@@ -50,6 +51,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import { canManageUsers, canReadUsers, isLibrarian, type User as UserType, type LoanListItem, type LoanStatsResponse, type AdvancedStatsParams, type StatsInterval, type Author, type Hold } from '@/types';
 import { isUserRecordLoan } from '@/utils/catalogView';
+import { loansQueryRetry } from '@/utils/loanListAccess';
 import UserRecordLoanIdentity from '@/components/users/UserRecordLoanIdentity';
 import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
@@ -170,6 +172,9 @@ export default function UserDetailPage() {
     isFetchingNextPage: isFetchingNextActiveLoans,
     hasNextPage: hasNextActivePage,
     fetchNextPage: fetchNextActivePage,
+    isError: isActiveLoansError,
+    error: activeLoansError,
+    refetch: refetchActiveLoans,
   } = useInfiniteQuery({
     queryKey: ['user-active-loans', id],
     queryFn: ({ pageParam }) =>
@@ -180,6 +185,7 @@ export default function UserDetailPage() {
       return totalLoaded < lastPage.total ? lastPage.page + 1 : undefined;
     },
     enabled: !!id && detailTab === 'activeLoans',
+    retry: loansQueryRetry,
   });
   const activeLoans = useMemo(
     () =>
@@ -196,6 +202,9 @@ export default function UserDetailPage() {
     isFetchingNextPage: isFetchingNextPastLoans,
     hasNextPage: hasNextPastPage,
     fetchNextPage: fetchNextPastPage,
+    isError: isPastLoansError,
+    error: pastLoansError,
+    refetch: refetchPastLoans,
   } = useInfiniteQuery({
     queryKey: ['user-past-loans', id],
     queryFn: ({ pageParam }) =>
@@ -210,6 +219,7 @@ export default function UserDetailPage() {
       return totalLoaded < lastPage.total ? lastPage.page + 1 : undefined;
     },
     enabled: !!id && detailTab === 'pastLoans',
+    retry: loansQueryRetry,
   });
   const pastLoans = (pastLoansPages?.pages.flatMap((p) => p.items) ?? []).filter(isUserRecordLoan);
 
@@ -1000,19 +1010,33 @@ export default function UserDetailPage() {
               aria-label={t('loans.activeLoans')}
               className="flex-1 min-h-0 !max-h-none overflow-auto"
             >
-              <Table
-                columns={loanColumnsActive}
-                data={activeLoans}
-                keyExtractor={(loan) => loan.id}
-                isLoading={isLoadingActiveLoans && activeLoans.length === 0}
-                emptyMessage={t('loans.noLoans')}
-              />
-              <div ref={activeLoansLoadMoreRef} className="h-4 flex-shrink-0" aria-hidden />
-              {isFetchingNextActiveLoans && (
-                <div className="flex items-center justify-center gap-2 py-4 text-sm text-gray-500 dark:text-gray-400">
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  <span>{t('common.loading')}</span>
+              {isActiveLoansError ? (
+                <div className="p-4">
+                  <LoansAccessNotice
+                    error={activeLoansError}
+                    onRetry={() => {
+                      void refetchActiveLoans();
+                    }}
+                    fallbackMessage={t('loans.loansLoadError')}
+                  />
                 </div>
+              ) : (
+                <>
+                  <Table
+                    columns={loanColumnsActive}
+                    data={activeLoans}
+                    keyExtractor={(loan) => loan.id}
+                    isLoading={isLoadingActiveLoans && activeLoans.length === 0}
+                    emptyMessage={t('loans.noLoans')}
+                  />
+                  <div ref={activeLoansLoadMoreRef} className="h-4 flex-shrink-0" aria-hidden />
+                  {isFetchingNextActiveLoans && (
+                    <div className="flex items-center justify-center gap-2 py-4 text-sm text-gray-500 dark:text-gray-400">
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      <span>{t('common.loading')}</span>
+                    </div>
+                  )}
+                </>
               )}
             </ScrollableListRegion>
           )}
@@ -1022,19 +1046,33 @@ export default function UserDetailPage() {
               aria-label={t('users.pastLoansTab')}
               className="flex-1 min-h-0 !max-h-none overflow-auto"
             >
-              <Table
-                columns={loanColumnsPast}
-                data={pastLoans}
-                keyExtractor={(loan) => loan.id}
-                isLoading={isLoadingPastLoans && pastLoans.length === 0}
-                emptyMessage={t('loans.noLoans')}
-              />
-              <div ref={pastLoansLoadMoreRef} className="h-4 flex-shrink-0" aria-hidden />
-              {isFetchingNextPastLoans && (
-                <div className="flex items-center justify-center gap-2 py-4 text-sm text-gray-500 dark:text-gray-400">
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  <span>{t('common.loading')}</span>
+              {isPastLoansError ? (
+                <div className="p-4">
+                  <LoansAccessNotice
+                    error={pastLoansError}
+                    onRetry={() => {
+                      void refetchPastLoans();
+                    }}
+                    fallbackMessage={t('loans.loansLoadError')}
+                  />
                 </div>
+              ) : (
+                <>
+                  <Table
+                    columns={loanColumnsPast}
+                    data={pastLoans}
+                    keyExtractor={(loan) => loan.id}
+                    isLoading={isLoadingPastLoans && pastLoans.length === 0}
+                    emptyMessage={t('loans.noLoans')}
+                  />
+                  <div ref={pastLoansLoadMoreRef} className="h-4 flex-shrink-0" aria-hidden />
+                  {isFetchingNextPastLoans && (
+                    <div className="flex items-center justify-center gap-2 py-4 text-sm text-gray-500 dark:text-gray-400">
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      <span>{t('common.loading')}</span>
+                    </div>
+                  )}
+                </>
               )}
             </ScrollableListRegion>
           )}
