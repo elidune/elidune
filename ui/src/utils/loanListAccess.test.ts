@@ -15,6 +15,7 @@ import {
   isLoansForbidden,
   loansQueryRetry,
   readPatronLoans,
+  userRecordQueryRetry,
 } from './loanListAccess.ts';
 
 function httpError(status: number, code?: string) {
@@ -32,6 +33,8 @@ describe('patron loan list access', () => {
     assert.equal(isLoansForbidden(httpError(403, 'authentication_failed')), false);
     assert.equal(isLoansForbidden(httpError(500)), false);
     assert.equal(loansQueryRetry(0, httpError(403)), false);
+    assert.equal(userRecordQueryRetry(0, httpError(403)), false);
+    assert.equal(userRecordQueryRetry(0, httpError(500)), true);
     assert.equal(loansQueryRetry(0, httpError(500)), true);
     assert.equal(loansQueryRetry(1, httpError(500)), false);
   });
@@ -115,6 +118,31 @@ describe('LoansAccessNotice', () => {
     assert.equal(html.includes('role="alert"'), false);
     assert.equal(html.includes('Could not load loans'), false);
     assert.equal(html.includes('<button'), false);
+  });
+
+  it('uses the reader-record sentence once and still has no retry', async () => {
+    const i18n = createInstance();
+    await i18n.init({
+      lng: 'fr',
+      resources: { fr: { translation: fr }, en: { translation: en } },
+    });
+    const html = renderToStaticMarkup(
+      createElement(
+        I18nextProvider,
+        { i18n },
+        createElement(LoansAccessNotice, {
+          denied: true,
+          message: i18n.t('users.recordNotAllowed'),
+          onRetry: () => undefined,
+          fallbackMessage: 'Impossible de charger cet usager',
+        }),
+      ) as ReactElement,
+    );
+    const phrase = 'pas autorisé à consulter cette fiche lecteur.';
+    assert.equal(html.split(phrase).length - 1, 1);
+    assert.equal(html.includes('role="status"'), true);
+    assert.equal(html.includes('<button'), false);
+    assert.equal(html.includes('Réessayer'), false);
   });
 
   it('shows a single retry banner for a server error', async () => {

@@ -42,9 +42,10 @@ import {
 } from '@/utils/lostFound';
 import {
   CheckoutScanNoticeShown,
+  checkoutAlertAfterSuccessfulReturn,
   checkoutScanNoticeFromRefusal,
   deskScanAlert,
-  deskScanAlertFromCheckIn,
+  deskScanAlertAfterReturn,
   isCheckoutScanNoticeShown,
   otherBorrowerFromPerson,
   readerName,
@@ -73,6 +74,8 @@ import { nextReminderTierFromCount } from '@/utils/reminderPolicy';
 import { useCirculationExceptionAction, type CirculationExceptionKind } from '@/hooks/loans/useCirculationExceptionAction';
 import { useAuth } from '@/contexts/AuthContext';
 import OverdueBorrowerSummary from '@/components/loans/OverdueBorrowerSummary';
+import OverdueDueDate from '@/components/loans/OverdueDueDate';
+import { OVERDUE_FACTS_CLASS } from '@/utils/overdueDueDate';
 import ReturnBorrowerLine from '@/components/loans/ReturnBorrowerLine';
 import PatronOptionLabel from '@/components/users/PatronOptionLabel';
 import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
@@ -424,6 +427,17 @@ export default function LoansPage() {
         const known = overdueData?.loans.find((loan) => loan.loanId === loanId);
         const result = await api.returnLoan(loanId);
         setOverdueError(null);
+        setCheckoutScanAlert((current) =>
+          checkoutAlertAfterSuccessfulReturn(current, {
+            barcode: known?.itemBarcode,
+            loanId,
+          }),
+        );
+        setReturnScanAlert((current) =>
+          current?.kind === 'onLoan' && known?.itemBarcode && returnBarcodeInput.trim() === known.itemBarcode
+            ? null
+            : current,
+        );
         await loadOverdue();
         if (await openLostFound(result, { barcode: known?.itemBarcode })) return;
         showToast({ variant: 'success', message: t('loans.returnSuccess') });
@@ -436,7 +450,7 @@ export default function LoansPage() {
         setOverdueLoanAction(null);
       }
     },
-    [loadOverdue, openLostFound, overdueData, showToast, t],
+    [loadOverdue, openLostFound, overdueData, returnBarcodeInput, showToast, t],
   );
 
   const handleOverdueRenew = useCallback(
@@ -828,6 +842,12 @@ export default function LoansPage() {
     try {
       const known = loans.find((loan) => loan.id === loanId);
       const result = await api.returnLoan(loanId);
+      setCheckoutScanAlert((current) =>
+        checkoutAlertAfterSuccessfulReturn(current, {
+          barcode: known?.itemIdentification,
+          loanId,
+        }),
+      );
       if (selectedUser) {
         await applyPatronLoans({ notify: false });
       }
@@ -866,7 +886,13 @@ export default function LoansPage() {
 
     try {
       const result = await api.returnLoanByBarcode(barcode);
-      setReturnScanAlert(preview ?? deskScanAlertFromCheckIn(result));
+      setReturnScanAlert(deskScanAlertAfterReturn(result));
+      setCheckoutScanAlert((current) =>
+        checkoutAlertAfterSuccessfulReturn(current, {
+          barcode,
+          loanId: result.loan?.id ?? null,
+        }),
+      );
       if (await openLostFound(result, { barcode })) {
         setReturnBarcodeInput('');
         return;
@@ -1805,26 +1831,18 @@ export default function LoansPage() {
                                 key={row.loanId}
                                 className="border-b border-gray-100/90 dark:border-gray-800/80 px-3 py-3 sm:px-4 last:border-b-0"
                               >
-                                <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_11rem] gap-x-4 gap-y-2">
+                                <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-2">
                                   <p className="text-sm font-semibold leading-snug text-gray-900 dark:text-white sm:col-start-1 sm:row-start-1 line-clamp-2">
                                     {row.title || t('loans.noTitle')}
                                   </p>
                                   <p className="text-xs text-gray-500 dark:text-gray-400 sm:col-start-1 sm:row-start-2 line-clamp-2 min-h-[1.25rem]">
                                     {row.authors ?? '\u00a0'}
                                   </p>
-                                  <div className="flex min-w-0 flex-nowrap items-center justify-start gap-x-2 overflow-x-auto text-xs sm:col-start-2 sm:row-start-1 sm:justify-end sm:text-right">
-                                    <code className="shrink-0 rounded bg-white/90 dark:bg-gray-900/80 px-2 py-0.5 font-mono text-[11px] text-gray-700 dark:text-gray-300 border border-gray-200/80 dark:border-gray-700">
+                                  <div className={`${OVERDUE_FACTS_CLASS} sm:col-start-2 sm:row-start-1`}>
+                                    <code className="shrink-0 whitespace-nowrap rounded bg-white/90 dark:bg-gray-900/80 px-2 py-0.5 font-mono text-[11px] text-gray-700 dark:text-gray-300 border border-gray-200/80 dark:border-gray-700">
                                       {row.itemBarcode ?? '—'}
                                     </code>
-                                    <span className="shrink-0 tabular-nums text-gray-600 dark:text-gray-300">
-                                      {row.expiryAt
-                                        ? new Date(row.expiryAt).toLocaleDateString(locale, {
-                                            day: 'numeric',
-                                            month: 'short',
-                                            year: 'numeric',
-                                          })
-                                        : '—'}
-                                    </span>
+                                    <OverdueDueDate iso={row.expiryAt} locale={locale} />
                                     {late > 0 ? (
                                       <span className="shrink-0 rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums tracking-wide text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">
                                         {t('loans.overdueDaysLate', { count: late })}

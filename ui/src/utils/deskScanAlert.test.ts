@@ -7,7 +7,9 @@ import fr from '../locales/fr/translation.json' with { type: 'json' };
 import {
   CheckoutScanNoticeShown,
   checkoutScanNoticeFromRefusal,
+  checkoutAlertAfterSuccessfulReturn,
   deskScanAlert,
+  deskScanAlertAfterReturn,
   deskScanAlertFromCheckIn,
   deskScanAlertFromCheckoutMessage,
   deskScanAlertMessage,
@@ -187,6 +189,37 @@ describe('desk scan alert', () => {
     const shown = new CheckoutScanNoticeShown();
     assert.equal(isCheckoutScanNoticeShown(shown), true);
     assert.equal(isCheckoutScanNoticeShown(new Error('Action refusée par une règle métier')), false);
+  });
+});
+
+describe('successful return clears the on-loan warning', () => {
+  it('does not keep “on loan to JD” after the return, and still reports a new hold', () => {
+    const stale = {
+      loan: { user: { id: '7', initials: 'JD', cardNumber: 'L-10042' } },
+    };
+    assert.equal(deskScanAlertAfterReturn(stale), null);
+    assert.equal(
+      deskScanAlertMessage(
+        { kind: 'onLoan', patronName: 'JD', otherBorrower: { userId: '7', cardNumber: null, initials: 'JD' } },
+        translate('fr'),
+        'return',
+      ).includes('JD'),
+      true,
+    );
+    assert.deepEqual(
+      deskScanAlertAfterReturn({
+        ...stale,
+        hold: { user: { firstname: 'Ada', lastname: 'Lovelace' } },
+      }),
+      { kind: 'onHold', patronName: 'Ada Lovelace' },
+    );
+    const checkout = { kind: 'onLoan' as const, barcode: 'I-9', loanId: 'loan-1' };
+    assert.equal(checkoutAlertAfterSuccessfulReturn(checkout, { barcode: 'I-9' }), null);
+    assert.equal(checkoutAlertAfterSuccessfulReturn(checkout, { loanId: 'loan-1' }), null);
+    assert.equal(
+      checkoutAlertAfterSuccessfulReturn(checkout, { barcode: 'OTHER', loanId: 'loan-2' })?.barcode,
+      'I-9',
+    );
   });
 });
 

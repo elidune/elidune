@@ -6,6 +6,8 @@ import { isLoansForbidden } from '@/utils/loanListAccess';
 interface LoansAccessNoticeProps {
   error?: unknown;
   denied?: boolean;
+  /** Overrides the loans sentence. The reader record uses its own wording. */
+  message?: string;
   onRetry: () => void;
   fallbackMessage: string;
 }
@@ -14,6 +16,7 @@ interface LoansAccessNoticeProps {
 export default function LoansAccessNotice({
   error,
   denied = false,
+  message,
   onRetry,
   fallbackMessage,
 }: LoansAccessNoticeProps) {
@@ -21,7 +24,7 @@ export default function LoansAccessNotice({
   if (denied || isLoansForbidden(error)) {
     return (
       <p role="status" className="text-sm text-gray-600 dark:text-gray-400">
-        {t('loans.loansNotAllowed')}
+        {message ?? t('loans.loansNotAllowed')}
       </p>
     );
   }
