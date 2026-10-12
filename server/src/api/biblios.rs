@@ -14,10 +14,11 @@ use utoipa::ToSchema;
 use crate::{
     error::{AppError, AppResult},
     models::catalog_view::{
-        BiblioPublicView, BiblioShortPublic, BiblioShortStaff, BiblioStaffView, ItemPublicView,
-        ItemStaffView,
+        project_borrower, BiblioPublicView, BiblioShortPublic, BiblioShortStaff, BiblioStaffView,
+        ItemPublicView, ItemStaffView,
     },
     models::task::TaskKind,
+    models::user::Rights,
     models::{
         biblio::{Biblio, BiblioQuery},
         import_report::ImportReport,
@@ -197,7 +198,7 @@ pub async fn list_biblios(
         ("full_record" = Option<bool>, Query, description = "If true, include full MARC record data")
     ),
     responses(
-        (status = 200, description = "Bibliographic record details. Librarians and admins receive `BiblioStaffView`. Readers receive `BiblioPublicView` (`toSearch` collapsed to `unavailable`, no hold patron, notes, or weeding fields).", body = BiblioReadResponse),
+        (status = 200, description = "Bibliographic record details. Librarians and admins receive `BiblioStaffView`. Readers receive `BiblioPublicView` (`toSearch` collapsed to `unavailable`, no hold patron, notes, weeding, loan id, or borrower). Every copy includes `dueDate` (active loan `expiry_at`, or null) and `onHold` (an active hold is waiting for this copy, or an unassigned title hold is waiting for the record). Staff with `loans_rights` read or write also receive `borrower` on a copy that is on loan: `{ id, cardNumber, initials }` unless `users_rights` is read or write, which returns `UserShortStaff`.", body = BiblioReadResponse),
         (status = 404, description = "Biblio not found")
     )
 )]
@@ -216,11 +217,43 @@ pub async fn get_biblio(
         ));
     }
     let body = if claims.is_librarian() {
-        BiblioReadResponse::Staff(BiblioStaffView::from(biblio))
+        let mut view = BiblioStaffView::from(biblio);
+        attach_notice_borrowers(&state, &claims, &mut view.items).await?;
+        BiblioReadResponse::Staff(view)
     } else {
         BiblioReadResponse::Public(BiblioPublicView::from(biblio))
     };
     Ok(Json(body))
+}
+
+/// Borrower on each on-loan copy for staff who can read loans.
+///
+/// `users_rights` read or write selects the staff profile. Loans rights alone
+/// select `{ id, cardNumber, initials }`. Anyone else keeps `borrower` omitted.
+async fn attach_notice_borrowers(
+    state: &crate::AppState,
+    claims: &crate::models::user::UserClaims,
+    items: &mut [ItemStaffView],
+) -> AppResult<()> {
+    if claims.rights.loans_rights.rank() < Rights::Read.rank() {
+        return Ok(());
+    }
+    let ids: Vec<i64> = items.iter().filter_map(|item| item.id).collect();
+    let borrowers = state
+        .services
+        .loans
+        .active_borrowers_by_item_ids(&ids)
+        .await?;
+    for item in items.iter_mut() {
+        let Some(id) = item.id else {
+            continue;
+        };
+        let Some(user) = borrowers.get(&id) else {
+            continue;
+        };
+        item.borrower = Some(project_borrower(user.clone(), claims, false));
+    }
+    Ok(())
 }
 
 /// Query params for create biblio
@@ -650,7 +683,7 @@ pub struct DeleteBiblioParams {
         ("id" = i64, Path, description = "Biblio ID")
     ),
     responses(
-        (status = 200, description = "List of physical items. Librarians and admins receive `ItemStaffView`. Readers receive `ItemPublicView`.", body = ItemListResponse),
+        (status = 200, description = "List of physical items. Librarians and admins receive `ItemStaffView`. Readers receive `ItemPublicView`. Copies include `dueDate` and `onHold` (same rules as `GET /biblios/{id}`). This list does not include `borrower`.", body = ItemListResponse),
         (status = 404, description = "Biblio not found")
     )
 )]

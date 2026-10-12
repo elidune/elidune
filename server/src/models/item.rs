@@ -327,6 +327,24 @@ pub struct Item {
     #[sqlx(default)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hold_user_name: Option<String>,
+    /// Active loan `expiry_at`. Not part of the item write contract.
+    /// Copied onto catalog views as `dueDate`.
+    #[sqlx(default)]
+    #[serde(skip)]
+    pub due_date: Option<DateTime<Utc>>,
+    /// True when an active hold (`pending`, `to_pick`, or `ready`) is waiting
+    /// for this copy or for the title.
+    ///
+    /// A hold with `item_id` set counts only for that copy. A title hold
+    /// (`item_id` null, same `biblio_id`) counts for every copy of the record,
+    /// including a copy that is on loan. A hold already assigned to another
+    /// copy does not. This is independent of [`ItemAvailability::OnHold`]:
+    /// loan precedence can leave `availability` at `onLoan` while a queue is
+    /// still waiting. Not part of the item write contract. Catalog views
+    /// expose it as `onHold`.
+    #[sqlx(default)]
+    #[serde(skip)]
+    pub on_hold: bool,
 }
 
 impl Item {

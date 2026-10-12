@@ -28,6 +28,10 @@ pub trait LoansRepository: Send + Sync {
         &self,
         loan_id: i64,
     ) -> AppResult<crate::models::user::UserShort>;
+    async fn loans_active_borrowers_by_item_ids(
+        &self,
+        item_ids: &[i64],
+    ) -> AppResult<std::collections::HashMap<i64, crate::models::user::UserShort>>;
     async fn loans_get_by_item_identification(&self, item_identification: &str) -> AppResult<Loan>;
     async fn loans_get_for_user(
         &self,
@@ -139,6 +143,13 @@ impl LoansRepository for Repository {
         loan_id: i64,
     ) -> crate::error::AppResult<crate::models::user::UserShort> {
         Repository::loans_get_borrower_for_loan(self, loan_id).await
+    }
+    async fn loans_active_borrowers_by_item_ids(
+        &self,
+        item_ids: &[i64],
+    ) -> crate::error::AppResult<std::collections::HashMap<i64, crate::models::user::UserShort>>
+    {
+        Repository::loans_active_borrowers_by_item_ids(self, item_ids).await
     }
     async fn loans_get_by_item_identification(
         &self,

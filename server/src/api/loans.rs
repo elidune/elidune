@@ -18,7 +18,7 @@ use utoipa::{IntoParams, ToSchema};
 use crate::{
     error::{AppError, AppResult},
     models::{
-        catalog_view::{borrower_initials, LoanDetailsOwn, LoanDetailsStaff, UserShortStaff},
+        catalog_view::{borrower_initials, project_borrower, LoanDetailsOwn, LoanDetailsStaff},
         loan::{CreateLoan, LoanDetails, LoanMarcExportEncoding, LoanMarcExportFormat},
         my_account::MyLoanView,
         user::Rights,
@@ -73,33 +73,7 @@ pub fn router() -> axum::Router<crate::AppState> {
         .route("/loans/items/:item_id/renew", post(renew_loan_by_item))
 }
 
-/// Borrower of an active loan.
-///
-/// Callers with `users_rights` read or write receive [`UserShortStaff`].
-/// Everyone else receives [`LoanBorrowerMinimized`]. `loans_rights` does not
-/// unlock the staff profile. The borrower of the loan receives their own
-/// [`UserShortStaff`] from `GET /loans/{id}/user` even when `users_rights` is only own.
-#[derive(Serialize, ToSchema)]
-#[serde(untagged)]
-pub enum LoanBorrowerResponse {
-    Full(UserShortStaff),
-    Minimized(LoanBorrowerMinimized),
-}
-
-pub use crate::models::catalog_view::LoanBorrowerMinimized;
-
-fn project_borrower(
-    user: crate::models::user::UserShort,
-    claims: &crate::models::user::UserClaims,
-    own_identity: bool,
-) -> LoanBorrowerResponse {
-    let users_read = claims.rights.users_rights.rank() >= Rights::Read.rank();
-    if users_read || (own_identity && user.id == claims.user_id) {
-        LoanBorrowerResponse::Full(UserShortStaff::from(user))
-    } else {
-        LoanBorrowerResponse::Minimized(LoanBorrowerMinimized::from(user))
-    }
-}
+pub use crate::models::catalog_view::{LoanBorrowerMinimized, LoanBorrowerResponse};
 
 /// `LoanDetails` as returned by check-in routes. `user` follows [`LoanBorrowerResponse`].
 #[serde_as]

@@ -657,6 +657,8 @@
     "borrowedBy": "Borrowed by:",
     "dueBack": "due back on {{date}}",
     "borrowedByLoading": "Borrowed by: …",
+    "dueOn": "Due {{date}}",
+    "holdWaiting": "A hold is waiting",
     "available": "Available",
     "borrowableYes": "Borrowable",
     "borrowableNo": "Not borrowable",

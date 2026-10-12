@@ -288,6 +288,8 @@ impl AcquisitionsService {
                     can_hold_item,
                     hold_user_id: None,
                     hold_user_name: None,
+                    due_date: None,
+                    on_hold: false,
                 };
 
                 let created_item = self.catalog.create_item(biblio_id, item).await?;

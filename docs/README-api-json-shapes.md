@@ -608,6 +608,28 @@ Each preview item is a **`BiblioShort`-shaped object** (flattened) plus **`valid
 { "id": "818273645564928001", "barcode": "978-2-07-040850-4", "callNumber": "FIC DOY", "borrowable": true, "sourceName": "Fonds général" }
 ```
 
+### Copy availability on `GET /biblios/:id`
+
+Each copy on the bibliographic notice includes:
+
+| Field | Patron and OPAC (`ItemPublicView`) | Staff (`ItemStaffView`) |
+|---|---|---|
+| `dueDate` | Active loan `expiry_at`, or `null` | Same |
+| `onHold` | Boolean, see below | Same |
+| `loanId` | Omitted | Kept |
+| `borrower` | Omitted | Only when the caller has `loans_rights` read or write and the copy is on loan |
+
+`onHold` is not the `availability` value `onHold`. It is true when an active hold (`pending`, `to_pick`, or `ready`) is waiting:
+
+- for **this copy**, when `holds.item_id` is this copy, or
+- for **the title**, when `holds.item_id` is null and `holds.biblio_id` is this record. That unassigned title hold sets `onHold` on every copy, including a copy that is on loan. A hold already assigned to another copy does not.
+
+`availability` still prefers `onLoan` over `onHold`, so a loaned copy can be `availability: "onLoan"` with `onHold: true` and a `dueDate`.
+
+`borrower` uses the loan identity helper. `loans_rights` read or write without `users_rights` read returns `{ "id", "cardNumber", "initials" }`. `users_rights` read or write returns `UserShortStaff` (name, `login`, `barcode`). Users read without loans read omits `borrower`. Patrons and `GET /opac/biblios/:id` never receive `borrower`, `loanId`, or a hold patron.
+
+`dueDate` and `onHold` are also on the other full-copy views (`GET /biblios/:id/items`, `GET /items/:id`, `GET /items/barcode/:barcode`, `GET /opac/biblios/:id`). Those routes do not add `borrower`. List hits (`ItemShort`) omit all four fields.
+
 ---
 
 ## Z39.50 (`/api/v1/z3950`)

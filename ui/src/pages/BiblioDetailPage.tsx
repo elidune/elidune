@@ -1020,7 +1020,6 @@ function SpecimenCard({
   onEdit,
   onDelete,
 }: SpecimenCardProps) {
-  // specimen is physical Item
   const { t } = useTranslation();
   const { user: authUser } = useAuth();
   const canReadBorrowers = canReadUsers(authUser, api.getToken());
@@ -1106,7 +1105,8 @@ function SpecimenCard({
           borrowed: specimen.borrowed,
           availability: specimen.availability,
           dueDate: specimen.dueDate,
-          borrower: specimen.borrower,
+          onHold: specimen.onHold,
+          borrower: staffCopy?.borrower,
         }}
       />
 

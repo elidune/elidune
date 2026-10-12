@@ -657,6 +657,8 @@
     "borrowedBy": "Emprunté par :",
     "dueBack": "retour prévu le {{date}}",
     "borrowedByLoading": "Emprunté par : …",
+    "dueOn": "Retour le {{date}}",
+    "holdWaiting": "Une réservation est en attente",
     "available": "Disponible",
     "borrowableYes": "Empruntable",
     "borrowableNo": "Non empruntable",

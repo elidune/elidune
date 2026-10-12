@@ -20,7 +20,7 @@ use super::biblio::{
 use super::hold::{HoldDetails, HoldStatus};
 use super::item::{Item, ItemAvailability, ItemShort, WeedingStatus};
 use super::loan::LoanDetails;
-use super::user::{AccountTypeSlug, UserShort, UserStatus};
+use super::user::{AccountTypeSlug, Rights, UserClaims, UserShort, UserStatus};
 use super::Language;
 
 /// Availability returned to readers and the OPAC.
@@ -78,8 +78,9 @@ impl From<Author> for AuthorPublic {
 
 /// Full physical copy returned to staff.
 ///
-/// Includes weeding, copy notes, circulation status, the active loan id, and the
-/// patron assigned when [`ItemAvailability`] is `onHold`.
+/// Includes weeding, copy notes, circulation status, the active loan id, `dueDate`,
+/// `onHold`, and the patron assigned when [`ItemAvailability`] is `onHold`.
+/// `borrower` is filled only by `GET /biblios/{id}` for callers with loans read or write.
 #[serde_as]
 #[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -115,14 +116,24 @@ pub struct ItemStaffView {
     #[schema(value_type = Option<String>)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub loan_id: Option<i64>,
+    /// Active loan `expiry_at`. Null when the copy is not on loan.
+    pub due_date: Option<DateTime<Utc>>,
     pub availability: ItemAvailability,
     pub can_hold_item: bool,
+    /// Active hold waiting for this copy or for the title. See [`Item::on_hold`].
+    pub on_hold: bool,
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hold_user_id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hold_user_name: Option<String>,
+    /// Set on `GET /biblios/{id}` when the caller has `loans_rights` read or write
+    /// and the copy is on loan. `users_rights` read or write selects [`UserShortStaff`];
+    /// otherwise [`LoanBorrowerMinimized`]. Omitted for everyone else, including
+    /// staff who can read users but cannot read loans.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub borrower: Option<LoanBorrowerResponse>,
 }
 
 impl From<Item> for ItemStaffView {
@@ -148,17 +159,21 @@ impl From<Item> for ItemStaffView {
             source_name: item.source_name,
             borrowed: item.borrowed,
             loan_id: item.loan_id,
+            due_date: item.due_date,
             availability: item.availability,
             can_hold_item: item.can_hold_item,
+            on_hold: item.on_hold,
             hold_user_id: item.hold_user_id,
             hold_user_name: item.hold_user_name,
+            borrower: None,
         }
     }
 }
 
 /// Full physical copy returned to readers and the OPAC.
 ///
-/// No hold patron, notes, weeding, circulation status, loan id, or other staff field.
+/// No hold patron, notes, weeding, circulation status, loan id, borrower, or other staff field.
+/// [`Self::due_date`] and [`Self::on_hold`] are safe for patrons and the OPAC.
 /// [`Self::availability`] uses [`ItemPublicAvailability`]. [`Self::can_hold_item`] matches
 /// the staff rule.
 #[serde_as]
@@ -186,8 +201,12 @@ pub struct ItemPublicView {
     pub archived_at: Option<DateTime<Utc>>,
     pub source_name: Option<String>,
     pub borrowed: bool,
+    /// Active loan `expiry_at`. Null when the copy is not on loan.
+    pub due_date: Option<DateTime<Utc>>,
     pub availability: ItemPublicAvailability,
     pub can_hold_item: bool,
+    /// Active hold waiting for this copy or for the title. See [`Item::on_hold`].
+    pub on_hold: bool,
 }
 
 impl From<Item> for ItemPublicView {
@@ -207,8 +226,10 @@ impl From<Item> for ItemPublicView {
             archived_at: item.archived_at,
             source_name: item.source_name,
             borrowed: item.borrowed,
+            due_date: item.due_date,
             availability: ItemPublicAvailability::from(item.availability),
             can_hold_item: item.can_hold_item,
+            on_hold: item.on_hold,
         }
     }
 }
@@ -623,6 +644,37 @@ impl From<UserShort> for UserShortPublic {
             created_at: user.created_at,
             expiry_at: user.expiry_at,
         }
+    }
+}
+
+/// Borrower of an active loan.
+///
+/// Callers with `users_rights` read or write receive [`UserShortStaff`].
+/// Everyone else who is allowed to see a borrower receives [`LoanBorrowerMinimized`].
+/// `loans_rights` does not unlock the staff profile.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(untagged)]
+pub enum LoanBorrowerResponse {
+    Full(UserShortStaff),
+    Minimized(LoanBorrowerMinimized),
+}
+
+/// Staff profile when the caller can read users, otherwise id, card, and initials.
+///
+/// `own_identity` is for `GET /loans/{id}/user`: the borrower of that loan receives
+/// [`UserShortStaff`] even when `users_rights` is only own. Catalog notices pass
+/// `false`, so a patron never receives another person's identity from the notice.
+#[must_use]
+pub fn project_borrower(
+    user: UserShort,
+    claims: &UserClaims,
+    own_identity: bool,
+) -> LoanBorrowerResponse {
+    let users_read = claims.rights.users_rights.rank() >= Rights::Read.rank();
+    if users_read || (own_identity && user.id == claims.user_id) {
+        LoanBorrowerResponse::Full(UserShortStaff::from(user))
+    } else {
+        LoanBorrowerResponse::Minimized(LoanBorrowerMinimized::from(user))
     }
 }
 

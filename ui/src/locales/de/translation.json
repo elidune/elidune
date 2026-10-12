@@ -657,6 +657,8 @@
     "borrowedBy": "Ausgeliehen von:",
     "dueBack": "Rückgabe vorgesehen am {{date}}",
     "borrowedByLoading": "Ausgeliehen von: …",
+    "dueOn": "Fällig am {{date}}",
+    "holdWaiting": "Eine Vormerkung wartet",
     "available": "Verfügbar",
     "borrowableYes": "Ausleihbar",
     "borrowableNo": "Nicht ausleihbar",
