@@ -35,7 +35,7 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { useLibrary } from '@/contexts/LibraryContext';
 import { isLibrarian, isAdmin, canPatronSelfServiceHolds, canViewAcquisitions } from '@/types';
 import { useAccountTypesQuery } from '@/hooks/useAccountTypesQuery';
-import { accountTypeDisplayName } from '@/utils/accountTypeDisplay';
+import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
 import api from '@/services/api';
 import { version as uiVersion } from '../../../package.json';
 import {
@@ -302,7 +302,7 @@ export default function Layout({ children }: LayoutProps) {
                     {user?.firstname} {user?.lastname}
                   </p>
                   <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                    {accountTypeDisplayName(accountTypes, user?.accountType)}
+                    {localizedAccountTypeLabel(t, user?.accountType, accountTypes)}
                   </p>
                 </div>
               </Link>

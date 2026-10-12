@@ -5,6 +5,7 @@ import { Button, Input } from '@/components/common';
 import { useAuth } from '@/contexts/AuthContext';
 import { isAdmin, type MediaType, type MediaTypeOption } from '@/types';
 import api from '@/services/api';
+import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 import { deferFromEffect } from '@/utils/deferFromEffect';
 import type { StatsInterval, AdvancedStatsParams, UserShort } from '@/types';
@@ -200,7 +201,7 @@ export default function StatsFilters({ onFiltersChange }: StatsFiltersProps) {
                 <option value="">{t('stats.allUsers')}</option>
                 {users.map((u) => (
                   <option key={u.id} value={u.id}>
-                    {u.firstname} {u.lastname} ({u.accountType})
+                    {u.firstname} {u.lastname} ({localizedAccountTypeLabel(t, u.accountType)})
                   </option>
                 ))}
               </select>

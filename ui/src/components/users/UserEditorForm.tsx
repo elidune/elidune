@@ -7,7 +7,7 @@ import EventsConsentFields from '@/components/users/EventsConsentFields';
 import GuardianPicker from '@/components/users/GuardianPicker';
 import api from '@/services/api';
 import type { AccountTypeDefinition, PublicType, User, UserShort } from '@/types';
-import { defaultAccountTypeCode } from '@/utils/accountTypeDisplay';
+import { defaultAccountTypeCode, localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
 import { getApiErrorMessage, getApiErrorRawMessage } from '@/utils/apiError';
 import { SEX_OPTIONS } from '@/utils/codeLabels';
 import { searchFrenchCommunePicks } from '@/utils/frenchCommuneSearch';
@@ -517,11 +517,13 @@ export default function UserEditorForm({
             >
               {formData.accountType &&
                 !accountTypes.some((a) => a.code.toLowerCase() === formData.accountType.toLowerCase()) && (
-                  <option value={formData.accountType}>{formData.accountType}</option>
+                  <option value={formData.accountType}>
+                    {localizedAccountTypeLabel(t, formData.accountType, accountTypes)}
+                  </option>
                 )}
               {accountTypes.map((at) => (
                 <option key={at.code} value={at.code}>
-                  {at.name}
+                  {localizedAccountTypeLabel(t, at.code, accountTypes)}
                 </option>
               ))}
             </select>

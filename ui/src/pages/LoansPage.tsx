@@ -49,6 +49,7 @@ import { nextReminderTierFromCount } from '@/utils/reminderPolicy';
 import { useCirculationExceptionAction, type CirculationExceptionKind } from '@/hooks/loans/useCirculationExceptionAction';
 import { useAuth } from '@/contexts/AuthContext';
 import PatronOptionLabel from '@/components/users/PatronOptionLabel';
+import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
 import { useToast } from '@/contexts/ToastContext';
 import { isAdmin } from '@/types';
 import type { User as UserType, Loan, UserShort, OverdueLoanInfo, ReminderReport } from '@/types';
@@ -979,7 +980,7 @@ export default function LoansPage() {
                               </span>
                               {user.accountType ? (
                                 <span className="block text-sm text-gray-500 dark:text-gray-400">
-                                  {user.accountType}
+                                  {localizedAccountTypeLabel(t, user.accountType)}
                                 </span>
                               ) : null}
                             </span>
@@ -1031,7 +1032,7 @@ export default function LoansPage() {
                           {selectedUser.firstname} {selectedUser.lastname}
                         </p>
                         <p className="truncate text-xs text-gray-500 dark:text-gray-400">
-                          {selectedUser.accountType}
+                          {localizedAccountTypeLabel(t, selectedUser.accountType)}
                           {selectedUser.barcode && ` · ${selectedUser.barcode}`}
                           {overdueLoans.length > 0 &&
                             ` · ${t('loans.overdueCount', { count: overdueLoans.length })}`}
