@@ -64,6 +64,18 @@ describe('account type labels', () => {
     assert.equal(localizedAccountTypeLabel(tEs, 'reader'), 'Lector');
   });
 
+  it('has an explicit administrator label in every locale', () => {
+    // German copy uses masculine generics (Leser, Bibliothekar), not gendered forms.
+    assert.equal(en.codes.accountType.admin, 'Administrator');
+    assert.equal(fr.codes.accountType.admin, 'Administrateur');
+    assert.equal(de.codes.accountType.admin, 'Administrator');
+    assert.equal(es.codes.accountType.admin, 'Administrador');
+    assert.equal(en.users.administrator, 'Administrator');
+    assert.equal(fr.users.administrator, 'Administrateur');
+    assert.equal(de.users.administrator, 'Administrator');
+    assert.equal(es.users.administrator, 'Administrador');
+  });
+
   it('translates the English seed name shown in the sidebar', () => {
     const administrator = [role('admin', 'Administrator')];
     assert.equal(localizedAccountTypeLabel(tFr, 'admin', administrator), 'Administrateur');

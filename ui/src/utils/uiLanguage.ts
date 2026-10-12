@@ -7,23 +7,6 @@ import {
 /** Ultimate UI language when nothing else in the resolution chain is supported. */
 export const UI_LANGUAGE_FALLBACK: SupportedLanguage = 'fr';
 
-/**
- * Fields that may carry the library UI language on a public settings payload.
- *
- * `GET /api/v1/library-info` is the public library endpoint. Its body is name,
- * address, phones, email, timezone, and updatedAt — no language, locale, or
- * default-locale field. The runtime `settings` table (email, logging, reminders,
- * audit, holds, circulation) is not public and has no UI locale either.
- * When none of these keys is present, callers fall back to French.
- */
-const LIBRARY_LANGUAGE_FIELDS = [
-  'language',
-  'defaultLocale',
-  'defaultLanguage',
-  'locale',
-  'uiLanguage',
-] as const;
-
 export interface ResolveUiLanguageInput {
   /** Account preference (`french` or `fr`). Wins when it maps to a UI language. */
   accountLanguage?: string | null;
@@ -45,17 +28,16 @@ export function preferenceToUiLanguage(value: string | null | undefined): Suppor
 }
 
 /**
- * Read the library UI language from a public settings object.
- * Returns null when the payload has no configured language (the current API).
+ * Read `language` from `GET /api/v1/library-info`.
+ * Accepted values are the UI codes `fr`, `en`, `de`, and `es`.
+ * Returns null when the field is missing, null, or blank so the caller uses French.
  */
 export function libraryLanguageFromSettings(source: object | null | undefined): string | null {
   if (!source) return null;
-  const record = source as Record<string, unknown>;
-  for (const key of LIBRARY_LANGUAGE_FIELDS) {
-    const value = record[key];
-    if (typeof value === 'string' && value.trim()) return value.trim();
-  }
-  return null;
+  const value = (source as { language?: unknown }).language;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
 }
 
 /**

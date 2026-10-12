@@ -75,17 +75,43 @@ describe('UI language resolution', () => {
     assert.equal(
       resolveUiLanguage({
         browserLanguage: 'it-IT',
-        libraryLanguage: libraryLanguageFromSettings({ language: 'spanish' }),
+        libraryLanguage: libraryLanguageFromSettings({ language: 'es' }),
       }),
       'es',
     );
+  });
+
+  it('uses library-info language (fr, en, de, es) when the browser language is unsupported', () => {
+    for (const code of ['fr', 'en', 'de', 'es'] as const) {
+      const payload = { name: 'Stadtbibliothek', timezone: 'Europe/Berlin', language: code };
+      assert.equal(libraryLanguageFromSettings(payload), code);
+      assert.equal(
+        resolveUiLanguage({
+          browserLanguage: 'it',
+          libraryLanguage: libraryLanguageFromSettings(payload),
+        }),
+        code,
+      );
+    }
+  });
+
+  it('falls back to french only when library-info language is absent or empty', () => {
+    assert.equal(libraryLanguageFromSettings({ name: 'Médiathèque', timezone: 'Europe/Paris' }), null);
+    assert.equal(libraryLanguageFromSettings({ language: '' }), null);
+    assert.equal(libraryLanguageFromSettings({ language: '   ' }), null);
+    assert.equal(libraryLanguageFromSettings({ language: null }), null);
+    assert.equal(libraryLanguageFromSettings(null), null);
     assert.equal(
-      resolveUiLanguage({
-        browserLanguage: 'pt-BR',
-        libraryLanguage: libraryLanguageFromSettings({ defaultLocale: 'en' }),
-      }),
-      'en',
+      libraryLanguageFromSettings({ language: '', defaultLocale: 'en' }),
+      null,
     );
+    for (const libraryLanguage of [
+      libraryLanguageFromSettings({ name: 'Médiathèque' }),
+      libraryLanguageFromSettings({ language: '' }),
+      libraryLanguageFromSettings({ language: '   ' }),
+    ]) {
+      assert.equal(resolveUiLanguage({ browserLanguage: 'it', libraryLanguage }), 'fr');
+    }
   });
 
   it('falls back to french when the browser language is unsupported and the library has no language', () => {

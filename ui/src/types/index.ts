@@ -19,6 +19,11 @@ export interface LibraryInfo {
   phones: string[];
   /** IANA time zone name (for example `Europe/Paris`). */
   timezone: string;
+  /**
+   * UI language from `GET /api/v1/library-info`: `fr`, `en`, `de`, or `es`.
+   * Absent or blank means the client falls back to French.
+   */
+  language?: string | null;
   updatedAt?: string | null;
 }
 
