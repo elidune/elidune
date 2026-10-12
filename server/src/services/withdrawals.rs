@@ -137,6 +137,16 @@ impl CatalogService {
         self.repository.item_withdrawals_list(query).await
     }
 
+    pub async fn get_withdrawal(&self, id: i64) -> AppResult<ItemWithdrawal> {
+        self.repository.item_withdrawals_get(id).await
+    }
+
+    pub async fn get_active_item_withdrawal(&self, item_id: i64) -> AppResult<ItemWithdrawal> {
+        self.repository
+            .item_withdrawals_active_for_item(item_id)
+            .await
+    }
+
     pub async fn export_withdrawals_csv(
         &self,
         query: &WithdrawalQuery,

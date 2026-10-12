@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -17,10 +17,12 @@ import api from '@/services/api';
 import { canManageWeeding } from '@/types';
 import type { Collection, ItemWithdrawal } from '@/types';
 import { disposeBatchErrorMessage, getApiErrorMessage } from '@/utils/apiError';
+import WithdrawalDialog from '@/components/items/WithdrawalDialog';
 import { formChoiceControlClass, formChoiceLabelClass, formControlClass, formLabelClass } from '@/utils/formControl';
 import {
   WITHDRAWAL_DESTINATIONS,
   WITHDRAWAL_REASONS,
+  addScannedWithdrawalCopy,
   canMarkDisposed,
   csvExportLanguage,
   emptyWithdrawalFilters,
@@ -28,6 +30,8 @@ import {
   toWithdrawalListParams,
   withdrawalActorName,
   withdrawalAgentName,
+  withdrawalExportFilename,
+  type ScannedWithdrawalCopy,
   type WithdrawalListFilters,
 } from '@/utils/withdrawals';
 
@@ -58,6 +62,11 @@ export default function WeedingPage() {
   const [disposeError, setDisposeError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
   const [collectionSearch, setCollectionSearch] = useState('');
+  const [scanList, setScanList] = useState<ScannedWithdrawalCopy[]>([]);
+  const scanListRef = useRef<ScannedWithdrawalCopy[]>([]);
+  const [barcode, setBarcode] = useState('');
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [batchOpen, setBatchOpen] = useState(false);
 
   const params = useMemo(() => toWithdrawalListParams(filters), [filters]);
   const listQuery = useQuery({
@@ -86,11 +95,40 @@ export default function WeedingPage() {
         toWithdrawalListParams(filters, { forExport: true, lang }),
       );
     },
-    onSuccess: ({ blob, filename }) => {
+    onSuccess: ({ blob }) => {
       setExportError(null);
-      downloadBlob(blob, filename);
+      downloadBlob(blob, withdrawalExportFilename(i18n.language, filters.from, filters.to));
     },
     onError: (err) => setExportError(getApiErrorMessage(err, t)),
+  });
+
+  const scanMutation = useMutation({
+    mutationFn: (code: string) => api.getItemByBarcode(code),
+    onSuccess: (notice, code) => {
+      const copies = notice.items ?? [];
+      const item = copies.find(
+        (copy) => (copy.barcode ?? '').trim() === code && copy.id != null,
+      ) ?? copies.find((copy) => copy.id != null);
+      if (!item?.id || !notice.id) {
+        setScanError(t('weeding.scanNotFound'));
+        return;
+      }
+      if ('weedingStatus' in item && item.weedingStatus === 'withdrawn') {
+        setScanError(t('weeding.scanAlreadyWithdrawn'));
+        return;
+      }
+      const next = addScannedWithdrawalCopy(scanListRef.current, {
+        itemId: item.id,
+        biblioId: notice.id,
+        barcode: (item.barcode ?? code).trim(),
+        title: (notice.title ?? '').trim() || t('items.noTitle'),
+      });
+      scanListRef.current = next.list;
+      setScanList(next.list);
+      setScanError(next.duplicate ? t('weeding.scanDuplicate') : null);
+      if (!next.duplicate) setBarcode('');
+    },
+    onError: (err) => setScanError(getApiErrorMessage(err, t)),
   });
 
   const disposeMutation = useMutation({
@@ -290,7 +328,7 @@ export default function WeedingPage() {
           ) : null}
           {canDispose ? (
             <Button
-              variant="danger"
+              variant={selected.length === 0 ? 'secondary' : 'danger'}
               disabled={selected.length === 0 || disposeMutation.isPending}
               onClick={() => {
                 setDisposeError(null);
@@ -319,6 +357,82 @@ export default function WeedingPage() {
           </p>
         ) : null}
       </Card>
+
+      {canDispose ? (
+        <Card>
+          <CardHeader title={t('weeding.scanTitle')} subtitle={t('weeding.scanHint')} />
+          <form
+            className="flex flex-wrap gap-2"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const code = barcode.trim();
+              if (!code || scanMutation.isPending) return;
+              setScanError(null);
+              scanMutation.mutate(code);
+            }}
+          >
+            <input
+              className={formControlClass({ className: 'min-w-[16rem] flex-1' })}
+              value={barcode}
+              onChange={(event) => setBarcode(event.target.value)}
+              placeholder={t('weeding.scanPlaceholder')}
+              aria-label={t('weeding.scanPlaceholder')}
+            />
+            <Button type="submit" variant="secondary" isLoading={scanMutation.isPending}>
+              {t('weeding.scanAdd')}
+            </Button>
+            <Button
+              type="button"
+              variant={scanList.length === 0 ? 'secondary' : 'danger'}
+              disabled={scanList.length === 0}
+              onClick={() => setBatchOpen(true)}
+            >
+              {t('weeding.withdrawSelected', { count: scanList.length })}
+            </Button>
+          </form>
+          {scanError ? (
+            <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{scanError}</p>
+          ) : null}
+          {scanList.length === 0 ? (
+            <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">{t('weeding.scanEmpty')}</p>
+          ) : (
+            <ul className="mt-3 space-y-2">
+              {scanList.map((copy) => (
+                <li key={copy.itemId} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="min-w-0 truncate text-gray-800 dark:text-gray-100">
+                    {copy.barcode} · {copy.title}
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      const next = scanListRef.current.filter((row) => row.itemId !== copy.itemId);
+                      scanListRef.current = next;
+                      setScanList(next);
+                    }}
+                  >
+                    {t('weeding.scanRemove')}
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <WithdrawalDialog
+            open={batchOpen}
+            mode="create"
+            itemIds={scanList.map((copy) => copy.itemId)}
+            onClose={() => setBatchOpen(false)}
+            onSuccess={() => {
+              setBatchOpen(false);
+              scanListRef.current = [];
+              setScanList([]);
+              setScanError(null);
+              void queryClient.invalidateQueries({ queryKey: ['item-withdrawals'] });
+            }}
+          />
+        </Card>
+      ) : null}
 
       <Totals
         reasons={listQuery.data?.totalsByReason ?? []}
@@ -482,29 +596,27 @@ function WithdrawalRow({
     : null;
 
   return (
-    <li className="rounded-lg border border-gray-200 dark:border-gray-700 p-3 bg-gray-50 dark:bg-gray-800/40">
-      <div className="flex items-start gap-3">
+    <li className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/40">
+      <div className="flex items-start gap-3 p-3">
         {selectable ? (
           <input
             type="checkbox"
             className={`${formChoiceControlClass()} mt-1`}
             checked={selected}
+            onClick={(event) => event.stopPropagation()}
             onChange={onToggle}
             aria-label={t('weeding.selectRow', { barcode: row.barcode || row.id })}
           />
         ) : (
           <span className="w-4 shrink-0" aria-hidden />
         )}
-        <div className="min-w-0 flex-1 space-y-2">
+        <Link
+          to={`/weeding/${row.id}`}
+          className="group min-w-0 flex-1 space-y-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+        >
           <div className="flex flex-wrap items-center gap-2">
-            <p className="font-medium text-gray-900 dark:text-white">
-              {row.biblioId ? (
-                <Link className="hover:underline" to={`/biblios/${row.biblioId}`}>
-                  {row.biblioTitle || t('items.noTitle')}
-                </Link>
-              ) : (
-                row.biblioTitle || t('items.noTitle')
-              )}
+            <p className="font-medium text-gray-900 underline-offset-2 group-hover:underline dark:text-white">
+              {row.biblioTitle || t('items.noTitle')}
             </p>
             {row.cancelledAt ? <Badge size="sm" variant="default">{t('weeding.cancelled')}</Badge> : null}
             {row.legacy ? <Badge size="sm">{t('weeding.legacyBadge')}</Badge> : null}
@@ -534,7 +646,7 @@ function WithdrawalRow({
           {!selectable && !row.cancelledAt && disposed ? (
             <p className="text-xs text-gray-500 dark:text-gray-400">{t('weeding.alreadyDisposed')}</p>
           ) : null}
-        </div>
+        </Link>
       </div>
     </li>
   );

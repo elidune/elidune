@@ -12,6 +12,7 @@ export { default as BiblioEditPage } from './BiblioEditPage';
 export { default as BiblioCreatePage } from './BiblioCreatePage';
 export { default as InventoryPage } from './InventoryPage';
 export { default as WeedingPage } from './WeedingPage';
+export { default as WithdrawalDetailPage } from './WithdrawalDetailPage';
 export { default as UsersPage } from './UsersPage';
 export { default as MyLoansPage } from './MyLoansPage';
 export { default as MyHoldsPage } from './MyHoldsPage';

@@ -176,6 +176,44 @@ export function csvExportLanguage(language: string | null | undefined): 'french'
   return (language ?? '').toLowerCase().startsWith('fr') ? 'french' : 'english';
 }
 
+const EXPORT_FILENAME_STEM: Record<string, string> = {
+  fr: 'retraits',
+  en: 'withdrawals',
+  de: 'aussonderungen',
+  es: 'expurgos',
+};
+
+/** `retraits_<du>_<au>.csv` in French, with a localized stem for the other UI languages. */
+export function withdrawalExportFilename(
+  language: string | null | undefined,
+  from: string,
+  to: string,
+): string {
+  const lang = (language ?? 'en').toLowerCase().split('-')[0];
+  const stem = EXPORT_FILENAME_STEM[lang] ?? EXPORT_FILENAME_STEM.en;
+  const safe = (value: string) => value.replace(/[^\d-]/g, '');
+  return `${stem}_${safe(from)}_${safe(to)}.csv`;
+}
+
+/** One copy queued for a batch withdrawal. Copies may belong to different biblios. */
+export interface ScannedWithdrawalCopy {
+  itemId: string;
+  biblioId: string | null;
+  barcode: string;
+  title: string;
+}
+
+/** Append a copy unless its item id is already in the list. */
+export function addScannedWithdrawalCopy(
+  list: ScannedWithdrawalCopy[],
+  next: ScannedWithdrawalCopy,
+): { list: ScannedWithdrawalCopy[]; duplicate: boolean } {
+  if (list.some((row) => row.itemId === next.itemId)) {
+    return { list, duplicate: true };
+  }
+  return { list: [...list, next], duplicate: false };
+}
+
 export function toWithdrawalListParams(
   filters: WithdrawalListFilters,
   options?: { forExport?: boolean; lang?: 'french' | 'english' },

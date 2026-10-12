@@ -22,12 +22,18 @@ pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::{get, patch, post};
     axum::Router::new()
         .route("/items/withdrawals", post(batch_withdraw))
-        .route("/items/:id/withdrawals", post(withdraw_item))
+        .route(
+            "/items/:id/withdrawals",
+            post(withdraw_item).get(get_active_item_withdrawal),
+        )
         .route("/item-withdrawals/export.csv", get(export_withdrawals_csv))
         .route("/item-withdrawals/dispose", post(dispose_withdrawals))
         .route("/item-withdrawals", get(list_withdrawals))
         .route("/item-withdrawals/:id/cancel", post(cancel_withdrawal))
-        .route("/item-withdrawals/:id", patch(complete_legacy_withdrawal))
+        .route(
+            "/item-withdrawals/:id",
+            get(get_withdrawal).patch(complete_legacy_withdrawal),
+        )
 }
 
 #[utoipa::path(
@@ -335,6 +341,54 @@ pub async fn complete_legacy_withdrawal(
             Err(e)
         }
     }
+}
+
+#[utoipa::path(
+    get,
+    path = "/items/{id}/withdrawals",
+    tag = "items",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Physical copy (item) ID")),
+    responses(
+        (status = 200, description = "Active withdrawal for this copy", body = ItemWithdrawal),
+        (status = 403, description = "Missing weeding right", body = crate::error::ErrorResponse),
+        (status = 404, description = "No active withdrawal", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn get_active_item_withdrawal(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Path(item_id): Path<i64>,
+) -> AppResult<Json<ItemWithdrawal>> {
+    claims.require_read_weeding()?;
+    let withdrawal = state
+        .services
+        .catalog
+        .get_active_item_withdrawal(item_id)
+        .await?;
+    Ok(Json(withdrawal))
+}
+
+#[utoipa::path(
+    get,
+    path = "/item-withdrawals/{id}",
+    tag = "items",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Withdrawal ID")),
+    responses(
+        (status = 200, description = "Withdrawal record", body = ItemWithdrawal),
+        (status = 403, description = "Missing weeding right", body = crate::error::ErrorResponse),
+        (status = 404, description = "Withdrawal not found", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn get_withdrawal(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Path(id): Path<i64>,
+) -> AppResult<Json<ItemWithdrawal>> {
+    claims.require_read_weeding()?;
+    let withdrawal = state.services.catalog.get_withdrawal(id).await?;
+    Ok(Json(withdrawal))
 }
 
 #[utoipa::path(

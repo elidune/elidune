@@ -24,6 +24,7 @@ import {
   BiblioCreatePage,
   InventoryPage,
   WeedingPage,
+  WithdrawalDetailPage,
   UsersPage,
   MyLoansPage,
   MyHoldsPage,
@@ -250,6 +251,16 @@ function AppRoutes() {
           <ProtectedRoute>
             <WeedingRoute>
               <WeedingPage />
+            </WeedingRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/weeding/:id"
+        element={
+          <ProtectedRoute>
+            <WeedingRoute>
+              <WithdrawalDetailPage />
             </WeedingRoute>
           </ProtectedRoute>
         }

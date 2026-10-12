@@ -705,9 +705,8 @@ class ApiService {
   }
 
   /**
-   * Active withdrawal for the item file.
-   * `GET /items/:id/withdrawals` is not on the published list contract (and not on #143 yet).
-   * 404 means there is no active row. 405 means the route is still POST-only.
+   * Active withdrawal for one copy. `GET /items/:id/withdrawals`.
+   * 404 means there is no active row.
    */
   async getActiveItemWithdrawal(itemId: string): Promise<ItemWithdrawal | null> {
     try {
@@ -718,6 +717,12 @@ class ApiService {
       if (axiosErr.response?.status === 404) return null;
       throw err;
     }
+  }
+
+  /** `GET /item-withdrawals/:id`, including a cancelled row. */
+  async getWithdrawal(id: string): Promise<ItemWithdrawal> {
+    const response = await this.client.get<ItemWithdrawal>(`/item-withdrawals/${id}`);
+    return response.data;
   }
 
   async listItemWithdrawals(params: WithdrawalListParams): Promise<WithdrawalList> {

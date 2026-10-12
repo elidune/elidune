@@ -1387,3 +1387,78 @@ async fn csv_neutralizes_formulas_and_uses_french_excel_layout() {
     assert_eq!(cols[6], "12,50");
     assert_eq!(cols[10], expected_date);
 }
+
+#[tokio::test]
+async fn withdrawal_fiche_is_readable_by_copy_and_by_id() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    unlock_admin(&app, &admin_token).await;
+    let (_, item_ids) = create_title(&app, &admin_token, "Withdrawal fiche", 1).await;
+    let item_id = item_ids[0];
+
+    let (status, missing) = app
+        .get_json_with_auth(
+            &format!("/api/v1/items/{item_id}/withdrawals"),
+            &admin_token,
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "no active row: {missing}");
+
+    let (status, created) = withdraw(&app, &admin_token, item_id, "worn", "pulp").await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let id = created["id"].as_str().expect("id");
+
+    let (status, by_item) = app
+        .get_json_with_auth(
+            &format!("/api/v1/items/{item_id}/withdrawals"),
+            &admin_token,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{by_item}");
+    assert_eq!(by_item["id"], id);
+    assert!(by_item["disposedAt"].is_null());
+
+    let (status, by_id) = app
+        .get_json_with_auth(&format!("/api/v1/item-withdrawals/{id}"), &admin_token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{by_id}");
+    let item_id_str = item_id.to_string();
+    assert_eq!(by_id["itemId"].as_str(), Some(item_id_str.as_str()));
+    assert_eq!(by_id["reason"], "worn");
+}
+
+#[tokio::test]
+async fn batch_withdraw_accepts_copies_from_different_biblios() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    unlock_admin(&app, &admin_token).await;
+    let (_, first) = create_title(&app, &admin_token, "Batch biblio A", 1).await;
+    let (_, second) = create_title(&app, &admin_token, "Batch biblio B", 1).await;
+
+    let (status, body) = app
+        .post_json(
+            "/api/v1/items/withdrawals",
+            &json!({
+                "itemIds": [first[0].to_string(), second[0].to_string()],
+                "reason": "surplus",
+                "destination": "donation"
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let rows = body["withdrawals"].as_array().expect("withdrawals");
+    assert_eq!(rows.len(), 2);
+    let item_ids: Vec<&str> = rows
+        .iter()
+        .map(|row| row["itemId"].as_str().unwrap_or_default())
+        .collect();
+    let first_id = first[0].to_string();
+    let second_id = second[0].to_string();
+    assert!(item_ids.contains(&first_id.as_str()));
+    assert!(item_ids.contains(&second_id.as_str()));
+}
