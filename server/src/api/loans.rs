@@ -68,7 +68,7 @@ pub fn router() -> axum::Router<crate::AppState> {
             "/loans/:id/claims-returned/resolve",
             post(resolve_loan_claims_returned),
         )
-        .route("/loans/items/:item_id/return", post(return_loan_by_item))
+        .route("/loans/items/:barcode/return", post(return_loan_by_item))
         .route("/loans/items/:item_id/lost-found", post(resolve_lost_found))
         .route("/loans/items/:item_id/renew", post(renew_loan_by_item))
 }
@@ -857,10 +857,10 @@ async fn renew_loan_inner(
 /// Check in a barcode. Returns an active loan, or completes a `to_pick` hold on a shelf copy.
 #[utoipa::path(
     post,
-    path = "/loans/items/{item_id}/return",
+    path = "/loans/items/{barcode}/return",
     tag = "loans",
     security(("bearer_auth" = [])),
-    params(("item_id" = String, Path, description = "Item barcode or call number")),
+    params(("barcode" = String, Path, description = "Item barcode or call number")),
     responses(
         (status = 200, description = "Item returned, or a to_pick hold checked in", body = ReturnResponse),
         (status = 404, description = "Unknown barcode (`not_found`), or a known item that is not on loan (`item_not_on_loan`)", body = crate::error::ErrorResponse),
@@ -871,13 +871,13 @@ pub async fn return_loan_by_item(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     ClientIp(ip): ClientIp,
-    Path(item_id): Path<String>,
+    Path(barcode): Path<String>,
 ) -> AppResult<Json<ReturnResponse>> {
     claims.require_write_loans()?;
     match state
         .services
         .loans
-        .return_loan_by_item(&item_id, Some(claims.user_id), ip.clone())
+        .return_loan_by_item(&barcode, Some(claims.user_id), ip.clone())
         .await
     {
         Ok(check_in) => {
@@ -889,7 +889,7 @@ pub async fn return_loan_by_item(
                     Some("loan"),
                     Some(loan_id),
                     ip,
-                    Some((item_id.as_str(), loan)),
+                    Some((barcode.as_str(), loan)),
                     audit::AuditLogMeta::success(),
                 );
             }
@@ -928,7 +928,7 @@ pub async fn return_loan_by_item(
                 Some("loan"),
                 None,
                 ip,
-                Some(serde_json::json!({ "item_identification": item_id })),
+                Some(serde_json::json!({ "item_identification": barcode })),
                 audit::AuditLogMeta::from_app_error(&e),
             );
             Err(e)
