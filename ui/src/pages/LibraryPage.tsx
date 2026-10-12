@@ -198,8 +198,11 @@ function GeneralTab() {
       <div className="p-6 space-y-5 max-w-lg">
         {/* Feedback */}
         {saveSuccess && (
-          <div className="flex items-center gap-2 p-3 rounded-lg bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 text-sm">
-            <Check className="h-4 w-4 flex-shrink-0" />
+          <div
+            role="status"
+            className="flex items-center gap-2 p-3 rounded-lg bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 text-sm"
+          >
+            <Check className="h-4 w-4 flex-shrink-0" aria-hidden="true" />
             {t('library.general.saveSuccess')}
           </div>
         )}

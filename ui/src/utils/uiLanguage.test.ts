@@ -119,6 +119,46 @@ describe('UI language resolution', () => {
     );
   });
 
+  it('uses the library language on the page when the browser language is unsupported, and French when it is null', async () => {
+    const i18n = createInstance();
+    await i18n.init({
+      resources: {
+        en: { translation: en },
+        fr: { translation: fr },
+        de: { translation: de },
+        es: { translation: es },
+      },
+      lng: 'en',
+      fallbackLng: 'fr',
+      supportedLngs: ['en', 'fr', 'de', 'es'],
+      interpolation: { escapeValue: false },
+    });
+    const root = { lang: 'en' };
+
+    const fromLibrary = resolveUiLanguage({
+      browserLanguage: 'it-IT',
+      libraryLanguage: libraryLanguageFromSettings({ language: 'de', timezone: 'Europe/Berlin' }),
+    });
+    assert.equal(fromLibrary, 'de');
+    await applyUiLanguage(i18n, fromLibrary, root);
+    assert.equal(i18n.resolvedLanguage ?? i18n.language, 'de');
+    assert.equal(root.lang, 'de');
+    assert.equal(i18n.t('language.selector'), 'Sprache');
+    assert.equal(i18n.t('library.general.saveSuccess'), 'Einstellungen gespeichert');
+
+    const fromFallback = resolveUiLanguage({
+      browserLanguage: 'it-IT',
+      libraryLanguage: libraryLanguageFromSettings({ language: null, timezone: 'Europe/Paris' }),
+    });
+    assert.equal(fromFallback, 'fr');
+    await applyUiLanguage(i18n, fromFallback, root);
+    assert.equal(i18n.resolvedLanguage ?? i18n.language, 'fr');
+    assert.equal(root.lang, 'fr');
+    assert.equal(i18n.t('language.selector'), 'Langue');
+    assert.equal(i18n.t('library.general.saveSuccess'), 'Réglages enregistrés');
+    assert.notEqual(fromFallback, 'en');
+  });
+
   it('uses the library language when the browser language is unsupported', () => {
     assert.equal(
       resolveUiLanguage({
