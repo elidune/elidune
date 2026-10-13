@@ -30,9 +30,7 @@ import { isSubscriptionExpired } from '@/utils/userSubscription';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
 import { isClaimedReturnedLoan } from '@/utils/circulationStatus';
-import { readItemToPickForOther, toPickForceFromError } from '@/utils/toPickDesk';
-import { isItemStaffView } from '@/utils/catalogView';
-import type { BorrowerRef } from '@/utils/readerIdentifier';
+import { interpretPickCheckIn, readItemToPickForOther } from '@/utils/toPickDesk';
 import { newIdempotencyKey } from '@/utils/idempotency';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
 import HoldStatusBadge from '@/components/holds/HoldStatusBadge';
@@ -89,7 +87,6 @@ export default function UserDetailPage() {
     null
   );
   const [toPickForce, setToPickForce] = useState<{
-    patronName: string | null;
     cardNumber: string | null;
     initials: string | null;
     specimenCode: string;
@@ -1324,29 +1321,29 @@ export default function UserDetailPage() {
 
       <ToPickForceLoanDialog
         isOpen={toPickForce !== null}
-        patronName={toPickForce?.patronName ?? null}
         cardNumber={toPickForce?.cardNumber ?? null}
         initials={toPickForce?.initials ?? null}
         isLoading={toPickForceLoading}
         onCancel={() => {
           if (!toPickForceLoading) setToPickForce(null);
         }}
-        onForce={() => {
+        onSetAside={() => {
           const ctx = toPickForce;
-          if (!ctx) return;
+          if (!ctx || toPickForceLoading) return;
           setToPickForceLoading(true);
           void (async () => {
             try {
-              await api.createLoan({
-                userId: user.id,
-                itemIdentification: ctx.specimenCode,
-                force: true,
-              }, newIdempotencyKey());
+              const result = await api.returnLoanByBarcode(ctx.specimenCode);
+              const pick = interpretPickCheckIn(result);
               setToPickForce(null);
-              await refreshLoans();
-              showToast({ variant: 'success', message: t('loans.checkoutSuccessShort') });
+              const message = pick
+                ? pick.kind === 'ready'
+                  ? t('loans.pickReady', { patron: pick.patronName?.trim() || t('loans.pickPatronUnknown') })
+                  : t('loans.pickTransit', { site: pick.siteName?.trim() || t('loans.pickSiteUnknown') })
+                : t('loans.returnSuccess');
+              showToast({ variant: 'success', message });
             } catch (e) {
-              setBorrowForceError(getApiErrorMessage(e, t) || t('loans.errorCreatingLoan'));
+              setBorrowForceError(getApiErrorMessage(e, t) || t('loans.errorReturningLoan'));
               setToPickForce(null);
             } finally {
               setToPickForceLoading(false);
@@ -1407,7 +1404,7 @@ interface BorrowFormProps {
   onSuccess: () => void;
   onBusinessRuleViolation?: (message: string, specimenCode: string) => void;
   onToPickForOther?: (
-    identity: { patronName: string | null; cardNumber: string | null; initials: string | null },
+    identity: { cardNumber: string | null; initials: string | null },
     specimenCode: string,
   ) => void;
 }
@@ -1448,13 +1445,10 @@ function BorrowForm({
       }
       const toPick = readItemToPickForOther(err);
       if (toPick && !force) {
-        const holdFor = await holdForOnCopy(specimenCode.trim());
-        const identity = toPickForceFromError(err, holdFor) ?? {
-          patronName: null,
-          cardNumber: toPick.cardNumber,
-          initials: toPick.initials,
-        };
-        onToPickForOther?.(identity, specimenCode.trim());
+        onToPickForOther?.(
+          { cardNumber: toPick.cardNumber, initials: toPick.initials },
+          specimenCode.trim(),
+        );
         return;
       }
       if (errorCode === 'card_lost') {
@@ -1506,19 +1500,6 @@ function BorrowForm({
       )}
     </form>
   );
-}
-
-/** holdFor from the copy, so a users-read profile can show the name. The 422 body cannot. */
-async function holdForOnCopy(barcode: string): Promise<BorrowerRef | null> {
-  try {
-    const notice = await api.getItemByBarcode(barcode);
-    const copies = notice.items ?? [];
-    const copy = copies.find((item) => (item.barcode ?? '').trim() === barcode) ?? copies[0];
-    if (!copy || !isItemStaffView(copy)) return null;
-    return copy.holdFor ?? null;
-  } catch {
-    return null;
-  }
 }
 
 

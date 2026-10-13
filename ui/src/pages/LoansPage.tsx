@@ -62,10 +62,8 @@ import {
   CheckoutDeclined,
   interpretPickCheckIn,
   isCheckoutDeclined,
-  toPickForceFromDeskCopy,
-  toPickForceFromError,
+  readItemToPickForOther,
   type PickCheckInNotice,
-  type ToPickForceIdentity,
 } from '@/utils/toPickDesk';
 import { sourceLabel } from '@/utils/transitDisplay';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
@@ -217,8 +215,12 @@ export default function LoansPage() {
   const [sendRemindersConfirmOpen, setSendRemindersConfirmOpen] = useState(false);
   const [forceBorrowDialog, setForceBorrowDialog] = useState<{ message: string } | null>(null);
   const forceBorrowResolveRef = useRef<((v: boolean) => void) | null>(null);
-  const [toPickForceDialog, setToPickForceDialog] = useState<ToPickForceIdentity | null>(null);
-  const toPickResolveRef = useRef<((v: boolean) => void) | null>(null);
+  const [toPickAside, setToPickAside] = useState<{
+    cardNumber: string | null;
+    initials: string | null;
+    barcode: string;
+  } | null>(null);
+  const [toPickAsideLoading, setToPickAsideLoading] = useState(false);
   const [checkoutScanAlert, setCheckoutScanAlert] = useState<CheckoutScanAlert | null>(null);
   const [returnScanAlert, setReturnScanAlert] = useState<DeskScanAlert | null>(null);
 
@@ -788,13 +790,6 @@ export default function LoansPage() {
     }
   };
 
-  const confirmToPickForce = (identity: ToPickForceIdentity) =>
-    new Promise<boolean>((resolve) => {
-      setBarcodeInput('');
-      setToPickForceDialog(identity);
-      toPickResolveRef.current = resolve;
-    });
-
   const handleBorrow = async (specimenBarcode: string, force = false) => {
     if (!selectedUser || !specimenBarcode.trim()) {
       throw new Error(t('loans.noUserSelected'));
@@ -802,16 +797,8 @@ export default function LoansPage() {
 
     const barcode = specimenBarcode.trim();
     const snapshot = await readDeskCopy(barcode);
-    if (!force) {
-      const held = toPickForceFromDeskCopy(snapshot, selectedUser.id);
-      if (held) {
-        const ok = await confirmToPickForce(held);
-        if (!ok) throw new CheckoutDeclined();
-        return handleBorrow(specimenBarcode, true);
-      }
-    }
     const alert = deskScanAlert(snapshot, { patronId: selectedUser.id });
-    if (alert && !(force && alert.kind === 'onHold')) {
+    if (alert && alert.kind !== 'onHold') {
       const shown =
         alert.kind === 'onLoan'
           ? {
@@ -870,13 +857,14 @@ export default function LoansPage() {
       if (isWeedingServerMessage(rawMessage)) {
         throw error;
       }
-      if (!force) {
-        const held = toPickForceFromError(error, snapshot?.holdFor);
-        if (held) {
-          const ok = await confirmToPickForce(held);
-          if (!ok) throw new CheckoutDeclined();
-          return handleBorrow(specimenBarcode, true);
-        }
+      const toPick = readItemToPickForOther(error);
+      if (toPick) {
+        setToPickAside({
+          cardNumber: toPick.cardNumber,
+          initials: toPick.initials,
+          barcode,
+        });
+        throw new CheckoutDeclined();
       }
       const blocked = checkoutScanNoticeFromRefusal({
         code: getApiErrorCode(error),
@@ -2069,21 +2057,49 @@ export default function LoansPage() {
       />
 
       <ToPickForceLoanDialog
-        isOpen={toPickForceDialog !== null}
-        patronName={toPickForceDialog?.patronName ?? null}
-        cardNumber={toPickForceDialog?.cardNumber ?? null}
-        initials={toPickForceDialog?.initials ?? null}
+        isOpen={toPickAside !== null}
+        cardNumber={toPickAside?.cardNumber ?? null}
+        initials={toPickAside?.initials ?? null}
+        isLoading={toPickAsideLoading}
         onCancel={() => {
-          setToPickForceDialog(null);
-          toPickResolveRef.current?.(false);
-          toPickResolveRef.current = null;
+          if (toPickAsideLoading) return;
+          setToPickAside(null);
           focusScanInput();
         }}
-        onForce={() => {
-          setToPickForceDialog(null);
-          toPickResolveRef.current?.(true);
-          toPickResolveRef.current = null;
-          focusScanInput();
+        onSetAside={() => {
+          const barcode = toPickAside?.barcode;
+          if (!barcode || toPickAsideLoading) return;
+          setToPickAsideLoading(true);
+          void (async () => {
+            try {
+              const result = await api.returnLoanByBarcode(barcode);
+              const pick = interpretPickCheckIn(result);
+              setToPickAside(null);
+              setReturnBarcodeInput('');
+              setReturnError('');
+              setReturnScanAlert(null);
+              if (pick) {
+                setReturnResult({ kind: 'pick', notice: pick });
+                const message =
+                  pick.kind === 'ready'
+                    ? t('loans.pickReady', { patron: pick.patronName?.trim() || t('loans.pickPatronUnknown') })
+                    : t('loans.pickTransit', { site: pick.siteName?.trim() || t('loans.pickSiteUnknown') });
+                showToast({ variant: 'success', message });
+              } else {
+                setReturnResult(null);
+                showToast({ variant: 'success', message: t('loans.returnSuccess') });
+              }
+              setActiveTab('return');
+            } catch (error: unknown) {
+              showToast({
+                variant: 'error',
+                message: getApiErrorMessage(error, t) || t('loans.errorReturningLoan'),
+              });
+            } finally {
+              setToPickAsideLoading(false);
+              focusScanInput();
+            }
+          })();
         }}
       />
 

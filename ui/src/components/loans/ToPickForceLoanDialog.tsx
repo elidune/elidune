@@ -4,38 +4,35 @@ import { toPickPatronPhrase } from '@/utils/holdPatron';
 
 export interface ToPickForceLoanDialogProps {
   isOpen: boolean;
-  /** Full name. Set only when holdFor is a users-read profile. */
-  patronName?: string | null;
   cardNumber?: string | null;
   initials?: string | null;
   onCancel: () => void;
-  onForce: () => void;
+  /** Check the copy in on the existing to_pick path (hold shelf or transit). */
+  onSetAside: () => void;
   isLoading?: boolean;
 }
 
 /** Desk warning when the scanned copy is `to_pick` for someone else. */
 export default function ToPickForceLoanDialog({
   isOpen,
-  patronName,
   cardNumber,
   initials,
   onCancel,
-  onForce,
+  onSetAside,
   isLoading = false,
 }: ToPickForceLoanDialogProps) {
   const { t } = useTranslation();
-  const named = patronName?.trim() ?? '';
-  const patron = named || toPickPatronPhrase({ cardNumber, initials }, t);
+  const patron = toPickPatronPhrase({ cardNumber, initials }, t);
 
   return (
     <ConfirmDialog
       isOpen={isOpen}
       onClose={onCancel}
-      onConfirm={onForce}
+      onConfirm={onSetAside}
       title={t('loans.toPickForOtherTitle')}
       message={t('loans.toPickForOtherMessage', { patron })}
-      confirmLabel={t('loans.forceLoan')}
-      confirmVariant="danger"
+      confirmLabel={t('loans.toPickSetAside')}
+      confirmVariant="primary"
       isLoading={isLoading}
       stackOnTop
     />
