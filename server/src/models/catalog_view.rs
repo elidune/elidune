@@ -34,9 +34,11 @@ use super::Language;
 /// (not own), users read, or copy-deletion write (`items_archive_rights` write).
 /// Account type is ignored.
 ///
-/// `holdFor` on a staff copy still follows users read (full identity) or loans read
-/// without users read (id, card number, initials). Patrons and the OPAC stay on the
-/// public view, which omits lost, missing, weeding-in-progress, and withdrawn copies.
+/// `holdFor` on a staff copy requires `holds_rights` read or write. Holds rights
+/// alone return id, card number, and initials. Holds rights plus users read return
+/// the staff patron. Users read or loans read without holds rights leave `holdFor`
+/// empty. Patrons and the OPAC stay on the public view, which omits lost, missing,
+/// weeding-in-progress, and withdrawn copies.
 #[must_use]
 pub fn sees_internal_catalog(claims: &UserClaims) -> bool {
     let rights = &claims.rights;
@@ -179,11 +181,12 @@ pub struct ItemStaffView {
     /// This copy is assigned to a hold, or in transit for one. See [`Item::on_hold`].
     pub on_hold: bool,
     /// Patron this copy is held for. Present only when [`Self::availability`] is
-    /// `onHold` and the caller may see a hold patron.
+    /// `onHold` and the caller has `holds_rights` read or write.
     ///
-    /// `users_rights` read or write: [`UserShortStaff`]. `loans_rights` read or
-    /// write without users read: [`LoanBorrowerMinimized`] (`id`, `cardNumber`,
-    /// `initials`). Omitted for patrons, the OPAC, and staff with neither right.
+    /// Holds rights alone: [`LoanBorrowerMinimized`] (`id`, `cardNumber`,
+    /// `initials`). Holds rights and `users_rights` read or write:
+    /// [`UserShortStaff`]. Omitted without holds rights, including when the
+    /// caller has users read or loans read. Patrons and the OPAC omit it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hold_for: Option<LoanBorrowerResponse>,
     /// Set on `GET /biblios/{id}` when the caller has `loans_rights` read or write
@@ -785,19 +788,18 @@ fn hold_patron_source(
 
 /// `holdFor` on a staff catalog copy.
 ///
-/// Uses [`project_borrower`] with `own_identity` false. `users_rights` read or
-/// write selects [`UserShortStaff`]. `loans_rights` read or write without users
-/// read selects [`LoanBorrowerMinimized`]. Anyone else receives `None`, including
-/// patrons and the OPAC.
+/// Absent unless `holds_rights` is read or write. Holds rights alone select
+/// [`LoanBorrowerMinimized`] via [`project_borrower`] (`own_identity` false).
+/// Holds rights together with `users_rights` read or write select
+/// [`UserShortStaff`]. `users_rights` or `loans_rights` without holds rights
+/// receive `None`. Shelf labels do not use this helper.
 #[must_use]
 pub fn project_hold_for(
     source: HoldPatronSource,
     claims: &UserClaims,
     full: &HashMap<i64, UserShort>,
 ) -> Option<LoanBorrowerResponse> {
-    let users_read = claims.rights.users_rights.rank() >= Rights::Read.rank();
-    let loans_read = claims.rights.loans_rights.rank() >= Rights::Read.rank();
-    if !users_read && !loans_read {
+    if claims.rights.holds_rights.rank() < Rights::Read.rank() {
         return None;
     }
     let user = full.get(&source.id).cloned().unwrap_or_else(|| {
@@ -1158,6 +1160,8 @@ impl From<LoanDetails> for LoanDetailsOwn {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+
     use super::*;
     use crate::models::user::UserRights;
 
@@ -1310,5 +1314,93 @@ mod tests {
             AccountTypeSlug::Reader,
             weeder
         )));
+    }
+
+    fn held_patron() -> (HoldPatronSource, HashMap<i64, UserShort>) {
+        let source = HoldPatronSource {
+            id: 42,
+            barcode: Some("CARD".into()),
+            firstname: Some("Ada".into()),
+            lastname: Some("Lovelace".into()),
+        };
+        let user = UserShort {
+            id: 42,
+            login: Some("ada".into()),
+            barcode: Some("CARD".into()),
+            firstname: Some("Ada".into()),
+            lastname: Some("Lovelace".into()),
+            account_type: None,
+            public_type: None,
+            nb_loans: None,
+            nb_late_loans: None,
+            status: None,
+            created_at: None,
+            expiry_at: None,
+        };
+        let mut full = HashMap::new();
+        full.insert(42, user);
+        (source, full)
+    }
+
+    /// (1) no holds rights -> absent, even with users read and loans read.
+    /// (2) holds rights -> `{ id, cardNumber, initials }`.
+    /// (3) holds rights and users read -> staff identity.
+    #[test]
+    fn hold_for_follows_holds_rights_then_users_read() {
+        let (source, full) = held_patron();
+
+        let users_read_without_holds = claims(
+            AccountTypeSlug::Reader,
+            UserRights {
+                users_rights: Rights::Read,
+                loans_rights: Rights::Read,
+                holds_rights: Rights::None,
+                ..UserRights::default()
+            },
+        );
+        assert!(
+            project_hold_for(source.clone(), &users_read_without_holds, &full).is_none(),
+            "users read without holds rights must omit holdFor"
+        );
+
+        let holds_only = claims(
+            AccountTypeSlug::Reader,
+            UserRights {
+                users_rights: Rights::None,
+                loans_rights: Rights::None,
+                holds_rights: Rights::Read,
+                ..UserRights::default()
+            },
+        );
+        let minimal = serde_json::to_value(
+            project_hold_for(source.clone(), &holds_only, &full).expect("holds rights"),
+        )
+        .expect("json");
+        assert_eq!(minimal["id"], "42", "{minimal}");
+        assert_eq!(minimal["cardNumber"], "CARD", "{minimal}");
+        assert_eq!(minimal["initials"], "AL", "{minimal}");
+        assert!(minimal.get("firstname").is_none(), "{minimal}");
+        assert!(minimal.get("login").is_none(), "{minimal}");
+        assert!(minimal.get("barcode").is_none(), "{minimal}");
+
+        let holds_and_users = claims(
+            AccountTypeSlug::Reader,
+            UserRights {
+                users_rights: Rights::Read,
+                loans_rights: Rights::None,
+                holds_rights: Rights::Read,
+                ..UserRights::default()
+            },
+        );
+        let staff = serde_json::to_value(
+            project_hold_for(source, &holds_and_users, &full).expect("holds and users read"),
+        )
+        .expect("json");
+        assert_eq!(staff["firstname"], "Ada", "{staff}");
+        assert_eq!(staff["lastname"], "Lovelace", "{staff}");
+        assert_eq!(staff["login"], "ada", "{staff}");
+        assert_eq!(staff["barcode"], "CARD", "{staff}");
+        assert!(staff.get("cardNumber").is_none(), "{staff}");
+        assert!(staff.get("email").is_none(), "{staff}");
     }
 }
