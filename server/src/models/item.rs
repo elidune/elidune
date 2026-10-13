@@ -321,9 +321,9 @@ pub struct Item {
     #[serde(default = "default_borrowable")]
     pub borrowable: bool,
     /// Item circulation exception (`items.circulation_status`). Read-only on
-    /// `PUT /items/{id}`: including `circulationStatus` returns 422
-    /// `circulation_status_read_only` and writes nothing. Use the dedicated
-    /// actions (lost, missing, to-search).
+    /// `PUT /items/{id}`: a present `circulationStatus` key (any JSON value)
+    /// returns 422 `circulation_status_read_only` and writes nothing. Use the
+    /// dedicated actions (lost, missing, to-search).
     pub circulation_status: Option<i16>,
     /// Orthogonal weeding lifecycle. Not derived from `archived_at`.
     #[serde(default)]

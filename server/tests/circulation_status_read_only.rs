@@ -1,7 +1,8 @@
 //! `PUT /items/:id` must not write `circulationStatus` (#200).
 //!
-//! A body that includes the field is rejected with 422 `circulation_status_read_only`
-//! and no other column is updated. Omitting the field still updates the copy.
+//! A body that includes the key, with any JSON value, is rejected with 422
+//! `circulation_status_read_only` and no other column is updated. Omitting the
+//! field still updates the copy.
 
 mod common;
 
@@ -82,26 +83,34 @@ async fn put_with_circulation_status_is_422_and_writes_nothing() {
     let before = snapshot(&app, item_id).await;
     assert_eq!(before.2, Some(4));
 
-    let (status, body) = app
-        .put_json(
-            &format!("/api/v1/items/{item_id}"),
-            &json!({
-                "callNumber": "SHELF-B",
-                "notes": "changed",
-                "borrowable": true,
-                "circulationStatus": 1
-            }),
-            Some(&admin_token),
-        )
-        .await;
+    let cases = [
+        ("integer", json!(1)),
+        ("string", json!("lost")),
+        ("null", json!(null)),
+        ("object", json!({"status": "lost"})),
+    ];
+    for (label, circulation_status) in cases {
+        let (status, body) = app
+            .put_json(
+                &format!("/api/v1/items/{item_id}"),
+                &json!({
+                    "callNumber": "SHELF-B",
+                    "notes": "changed",
+                    "borrowable": true,
+                    "circulationStatus": circulation_status,
+                }),
+                Some(&admin_token),
+            )
+            .await;
 
-    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
-    assert_read_only_body(&body);
-    assert_eq!(
-        snapshot(&app, item_id).await,
-        before,
-        "circulationStatus on PUT must not apply any other field"
-    );
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{label}: {body}");
+        assert_read_only_body(&body);
+        assert_eq!(
+            snapshot(&app, item_id).await,
+            before,
+            "{label}: circulationStatus on PUT must not apply any other field"
+        );
+    }
 }
 
 #[tokio::test]
