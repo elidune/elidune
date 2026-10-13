@@ -712,8 +712,9 @@
     "copyNoun_one": "{{count}} ejemplar",
     "copyNoun_other": "{{count}} ejemplares",
     "availableOfTotal": "{{availablePart}} de {{totalPart}}",
-    "onSiteClause_one": ", de los cuales {{count}} de consulta en sala",
-    "onSiteClause_other": ", de los cuales {{count}} de consulta en sala",
+    "publicWithOnSite": "{{availablePart}} de {{total}} · {{onSitePart}}",
+    "onSiteAside_one": "{{count}} de consulta en sala",
+    "onSiteAside_other": "{{count}} de consulta en sala",
     "staffCopyBreakdown": "{{totalPart}} ({{breakdown}}){{weedingClause}}",
     "staffWeedingClause": ", de los cuales {{weeding}}",
     "staffStatus": {

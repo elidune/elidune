@@ -712,8 +712,9 @@
     "copyNoun_one": "{{count}} copy",
     "copyNoun_other": "{{count}} copies",
     "availableOfTotal": "{{availablePart}} of {{totalPart}}",
-    "onSiteClause_one": ", including {{count}} for on-site consultation",
-    "onSiteClause_other": ", including {{count}} for on-site consultation",
+    "publicWithOnSite": "{{availablePart}} of {{total}} · {{onSitePart}}",
+    "onSiteAside_one": "{{count}} for on-site consultation",
+    "onSiteAside_other": "{{count}} for on-site consultation",
     "staffCopyBreakdown": "{{totalPart}} ({{breakdown}}){{weedingClause}}",
     "staffWeedingClause": ", including {{weeding}}",
     "staffStatus": {

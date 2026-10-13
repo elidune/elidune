@@ -90,26 +90,66 @@ describe('OPAC copy availability', () => {
     ];
     assert.equal(
       copyAvailabilityLabel(i18n.getFixedT('fr'), items),
-      '1 disponible sur 3 exemplaires, dont 1 en consultation sur place',
+      '1 disponible sur 3 · 1 en consultation sur place',
     );
     assert.equal(
       copyAvailabilityLabel(i18n.getFixedT('en'), items),
-      '1 available of 3 copies, including 1 for on-site consultation',
+      '1 available of 3 · 1 for on-site consultation',
     );
     assert.equal(
       copyAvailabilityLabel(i18n.getFixedT('de'), items),
-      '1 verfügbar von 3 Exemplaren, davon 1 nur vor Ort',
+      '1 verfügbar von 3 · 1 nur vor Ort',
     );
     assert.equal(
       copyAvailabilityLabel(i18n.getFixedT('es'), items),
-      '1 disponible de 3 ejemplares, de los cuales 1 de consulta en sala',
+      '1 disponible de 3 · 1 de consulta en sala',
     );
     assert.equal(
       copyAvailabilityLabel(i18n.getFixedT('fr'), [
         { availability: 'onSiteOnly' },
         { availability: 'onSiteOnly' },
       ]),
-      '0 disponible sur 2 exemplaires, dont 2 en consultation sur place',
+      '0 disponible sur 2 · 2 en consultation sur place',
+    );
+    assert.equal(
+      copyAvailabilityLabel(i18n.getFixedT('en'), [
+        { availability: 'available', borrowable: true },
+        { availability: 'available', borrowable: false },
+        { availability: 'onSiteOnly', borrowable: false },
+        { availability: 'onSiteOnly', borrowable: false },
+        { availability: 'onLoan', borrowable: true },
+      ]),
+      '1 available of 5 · 2 for on-site consultation',
+    );
+    assert.equal(
+      copyAvailabilityLabel(i18n.getFixedT('fr'), [
+        { availability: 'available', borrowable: true },
+        { availability: 'available', borrowable: true },
+        { availability: 'onSiteOnly', borrowable: false },
+        { availability: 'onSiteOnly', borrowable: false },
+        { availability: 'onLoan', borrowable: true },
+      ]),
+      '2 disponibles sur 5 · 2 en consultation sur place',
+    );
+    assert.equal(
+      copyAvailabilityLabel(i18n.getFixedT('de'), [
+        { availability: 'available' },
+        { availability: 'available' },
+        { availability: 'onSiteOnly' },
+        { availability: 'onSiteOnly' },
+        { availability: 'onLoan' },
+      ]),
+      '2 verfügbar von 5 · 2 nur vor Ort',
+    );
+    assert.equal(
+      copyAvailabilityLabel(i18n.getFixedT('es'), [
+        { availability: 'available' },
+        { availability: 'available' },
+        { availability: 'onSiteOnly' },
+        { availability: 'onSiteOnly' },
+        { availability: 'onLoan' },
+      ]),
+      '2 disponibles de 5 · 2 de consulta en sala',
     );
     assert.equal(summaryAvailability(items, 'public'), 'available');
     assert.equal(

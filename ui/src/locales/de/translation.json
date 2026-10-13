@@ -712,8 +712,9 @@
     "copyNoun_one": "{{count}} Exemplar",
     "copyNoun_other": "{{count}} Exemplare",
     "availableOfTotal": "{{availablePart}} von {{totalPart}}",
-    "onSiteClause_one": ", davon {{count}} nur vor Ort",
-    "onSiteClause_other": ", davon {{count}} nur vor Ort",
+    "publicWithOnSite": "{{availablePart}} von {{total}} · {{onSitePart}}",
+    "onSiteAside_one": "{{count}} nur vor Ort",
+    "onSiteAside_other": "{{count}} nur vor Ort",
     "staffCopyBreakdown": "{{totalPart}} ({{breakdown}}){{weedingClause}}",
     "staffWeedingClause": ", davon {{weeding}}",
     "staffStatus": {

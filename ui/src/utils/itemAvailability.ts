@@ -68,14 +68,14 @@ export function availabilityBadgeVariant(
   }
 }
 
-/** Copies the server marked `available`. Do not recompute this from other fields. */
+/** Borrowable copies the server marked `available`. `borrowable: false` stays out of N. */
 export function countAvailableCopies(
-  items?: ReadonlyArray<{ availability?: string | null }> | null,
+  items?: ReadonlyArray<{ availability?: string | null; borrowable?: boolean | null }> | null,
 ): number {
   if (!items?.length) return 0;
   let count = 0;
   for (const item of items) {
-    if (item.availability === 'available') count += 1;
+    if (item.availability === 'available' && item.borrowable !== false) count += 1;
   }
   return count;
 }
@@ -96,19 +96,24 @@ export function formatCopyAvailability(t: TFunction, available: number, total: n
 /**
  * OPAC and reader search line. `M` is `items.length`: the server already omits
  * lost, declared missing, weeding-in-progress, and withdrawn copies. `N` counts
- * only `available`. `onSiteOnly` stays inside `M` and is named separately.
+ * only borrowable `available` copies. `onSiteOnly` stays inside `M` and is
+ * named after a middle dot, never inside `N`.
  */
 export function copyAvailabilityLabel(
   t: TFunction,
-  items?: ReadonlyArray<{ availability?: string | null }> | null,
+  items?: ReadonlyArray<{ availability?: string | null; borrowable?: boolean | null }> | null,
 ): string | null {
   const total = items?.length ?? 0;
   const available = countAvailableCopies(items);
   const onSite = countCopiesWithAvailability(items, 'onSiteOnly');
-  if (Math.max(total, available, onSite) === 0) return null;
-  const line = formatCopyAvailability(t, available, Math.max(total, available, onSite));
-  if (onSite === 0) return line;
-  return line + t('items.onSiteClause', { count: onSite });
+  const copies = Math.max(total, available, onSite);
+  if (copies === 0) return null;
+  if (onSite === 0) return formatCopyAvailability(t, available, copies);
+  return t('items.publicWithOnSite', {
+    availablePart: t('items.availableCount', { count: available }),
+    total: copies,
+    onSitePart: t('items.onSiteAside', { count: onSite }),
+  });
 }
 
 const STAFF_BUCKET_ORDER = [
