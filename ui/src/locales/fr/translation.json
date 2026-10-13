@@ -574,6 +574,7 @@
     "onLoan": "En prêt",
     "toSearch": "À rechercher",
     "unavailable": "Indisponible",
+    "onSiteOnly": "Consultation sur place",
     "reservedFor": "Réservé pour"
   },
   "items": {
@@ -711,6 +712,8 @@
     "copyNoun_one": "{{count}} exemplaire",
     "copyNoun_other": "{{count}} exemplaires",
     "availableOfTotal": "{{availablePart}} sur {{totalPart}}",
+    "onSiteClause_one": ", dont {{count}} en consultation sur place",
+    "onSiteClause_other": ", dont {{count}} en consultation sur place",
     "staffCopyBreakdown": "{{totalPart}} ({{breakdown}}){{weedingClause}}",
     "staffWeedingClause": ", dont {{weeding}}",
     "staffStatus": {
@@ -724,6 +727,12 @@
       "inTransit_other": "{{count}} en transit",
       "toSearch_one": "{{count}} à rechercher",
       "toSearch_other": "{{count}} à rechercher",
+      "onSiteOnly_one": "{{count}} en consultation sur place",
+      "onSiteOnly_other": "{{count}} en consultation sur place",
+      "lost_one": "{{count}} perdu",
+      "lost_other": "{{count}} perdus",
+      "missing_one": "{{count}} manquant",
+      "missing_other": "{{count}} manquants",
       "unavailable_one": "{{count}} indisponible",
       "unavailable_other": "{{count}} indisponibles",
       "candidate_one": "{{count}} candidat au désherbage",

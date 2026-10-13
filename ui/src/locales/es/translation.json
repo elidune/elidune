@@ -574,6 +574,7 @@
     "onLoan": "En préstamo",
     "toSearch": "Por buscar",
     "unavailable": "No disponible",
+    "onSiteOnly": "Consulta en sala",
     "reservedFor": "Reservado para"
   },
   "items": {
@@ -711,6 +712,8 @@
     "copyNoun_one": "{{count}} ejemplar",
     "copyNoun_other": "{{count}} ejemplares",
     "availableOfTotal": "{{availablePart}} de {{totalPart}}",
+    "onSiteClause_one": ", de los cuales {{count}} de consulta en sala",
+    "onSiteClause_other": ", de los cuales {{count}} de consulta en sala",
     "staffCopyBreakdown": "{{totalPart}} ({{breakdown}}){{weedingClause}}",
     "staffWeedingClause": ", de los cuales {{weeding}}",
     "staffStatus": {
@@ -724,6 +727,12 @@
       "inTransit_other": "{{count}} en tránsito",
       "toSearch_one": "{{count}} por buscar",
       "toSearch_other": "{{count}} por buscar",
+      "onSiteOnly_one": "{{count}} de consulta en sala",
+      "onSiteOnly_other": "{{count}} de consulta en sala",
+      "lost_one": "{{count}} perdido",
+      "lost_other": "{{count}} perdidos",
+      "missing_one": "{{count}} faltante",
+      "missing_other": "{{count}} faltantes",
       "unavailable_one": "{{count}} no disponible",
       "unavailable_other": "{{count}} no disponibles",
       "candidate_one": "{{count}} candidato a expurgo",

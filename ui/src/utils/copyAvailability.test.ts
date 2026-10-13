@@ -9,6 +9,8 @@ import {
   copyAvailabilityLabel,
   formatCopyAvailability,
   staffCopyAvailabilityLabel,
+  staffCopyBucket,
+  summaryAvailability,
 } from './itemAvailability.ts';
 
 describe('OPAC copy availability', () => {
@@ -80,6 +82,42 @@ describe('OPAC copy availability', () => {
     assert.equal(copyAvailabilityLabel(i18n.getFixedT('en'), items), '1 available of 3 copies');
   });
 
+  it('counts on-site copies in the public total and names them', () => {
+    const items = [
+      { availability: 'available' },
+      { availability: 'onSiteOnly' },
+      { availability: 'onLoan' },
+    ];
+    assert.equal(
+      copyAvailabilityLabel(i18n.getFixedT('fr'), items),
+      '1 disponible sur 3 exemplaires, dont 1 en consultation sur place',
+    );
+    assert.equal(
+      copyAvailabilityLabel(i18n.getFixedT('en'), items),
+      '1 available of 3 copies, including 1 for on-site consultation',
+    );
+    assert.equal(
+      copyAvailabilityLabel(i18n.getFixedT('de'), items),
+      '1 verfügbar von 3 Exemplaren, davon 1 nur vor Ort',
+    );
+    assert.equal(
+      copyAvailabilityLabel(i18n.getFixedT('es'), items),
+      '1 disponible de 3 ejemplares, de los cuales 1 de consulta en sala',
+    );
+    assert.equal(
+      copyAvailabilityLabel(i18n.getFixedT('fr'), [
+        { availability: 'onSiteOnly' },
+        { availability: 'onSiteOnly' },
+      ]),
+      '0 disponible sur 2 exemplaires, dont 2 en consultation sur place',
+    );
+    assert.equal(summaryAvailability(items, 'public'), 'available');
+    assert.equal(
+      summaryAvailability([{ availability: 'onSiteOnly' }, { availability: 'unavailable' }], 'public'),
+      'onSiteOnly',
+    );
+  });
+
   it('breaks the staff total down by availability and weeding', () => {
     const items = [
       { availability: 'available', weedingStatus: 'onShelf' },
@@ -104,5 +142,36 @@ describe('OPAC copy availability', () => {
       '4 ejemplares (1 disponible, 1 en préstamo, 1 por buscar, 1 no disponible), de los cuales 1 candidato a expurgo, 1 retirado',
     );
     assert.equal(staffCopyAvailabilityLabel(i18n.getFixedT('fr'), []), null);
+  });
+
+  it('splits lost and missing from staff unavailable and keeps weeding candidates available', () => {
+    const items = [
+      { availability: 'available', weedingStatus: 'candidate', borrowable: true, circulationStatus: 0 },
+      { availability: 'unavailable', borrowable: false, circulationStatus: 1, weedingStatus: 'onShelf' },
+      { availability: 'unavailable', borrowable: false, circulationStatus: 5, weedingStatus: 'onShelf' },
+      { availability: 'unavailable', borrowable: false, circulationStatus: null, weedingStatus: 'onShelf' },
+      { availability: 'unavailable', borrowable: false, circulationStatus: 2, weedingStatus: 'onShelf' },
+    ];
+    assert.equal(staffCopyBucket(items[0]), 'available');
+    assert.equal(staffCopyBucket(items[1]), 'lost');
+    assert.equal(staffCopyBucket(items[2]), 'missing');
+    assert.equal(staffCopyBucket(items[3]), 'onSiteOnly');
+    assert.equal(staffCopyBucket(items[4]), 'unavailable');
+    assert.equal(
+      staffCopyAvailabilityLabel(i18n.getFixedT('fr'), items),
+      '5 exemplaires (1 disponible, 1 en consultation sur place, 1 perdu, 1 manquant, 1 indisponible), dont 1 candidat au désherbage',
+    );
+    assert.equal(
+      staffCopyAvailabilityLabel(i18n.getFixedT('en'), items),
+      '5 copies (1 available, 1 for on-site consultation, 1 lost, 1 missing, 1 unavailable), including 1 weeding candidate',
+    );
+    assert.equal(
+      staffCopyAvailabilityLabel(i18n.getFixedT('de'), items),
+      '5 Exemplare (1 verfügbar, 1 nur vor Ort, 1 verloren, 1 vermisst, 1 nicht verfügbar), davon 1 Aussonderungskandidat',
+    );
+    assert.equal(
+      staffCopyAvailabilityLabel(i18n.getFixedT('es'), items),
+      '5 ejemplares (1 disponible, 1 de consulta en sala, 1 perdido, 1 faltante, 1 no disponible), de los cuales 1 candidato a expurgo',
+    );
   });
 });

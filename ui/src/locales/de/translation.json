@@ -574,6 +574,7 @@
     "onLoan": "Ausgeliehen",
     "toSearch": "Zu suchen",
     "unavailable": "Nicht verfügbar",
+    "onSiteOnly": "Nur vor Ort",
     "reservedFor": "Reserviert für"
   },
   "items": {
@@ -711,6 +712,8 @@
     "copyNoun_one": "{{count}} Exemplar",
     "copyNoun_other": "{{count}} Exemplare",
     "availableOfTotal": "{{availablePart}} von {{totalPart}}",
+    "onSiteClause_one": ", davon {{count}} nur vor Ort",
+    "onSiteClause_other": ", davon {{count}} nur vor Ort",
     "staffCopyBreakdown": "{{totalPart}} ({{breakdown}}){{weedingClause}}",
     "staffWeedingClause": ", davon {{weeding}}",
     "staffStatus": {
@@ -724,6 +727,12 @@
       "inTransit_other": "{{count}} unterwegs",
       "toSearch_one": "{{count}} zu suchen",
       "toSearch_other": "{{count}} zu suchen",
+      "onSiteOnly_one": "{{count}} nur vor Ort",
+      "onSiteOnly_other": "{{count}} nur vor Ort",
+      "lost_one": "{{count}} verloren",
+      "lost_other": "{{count}} verloren",
+      "missing_one": "{{count}} vermisst",
+      "missing_other": "{{count}} vermisst",
       "unavailable_one": "{{count}} nicht verfügbar",
       "unavailable_other": "{{count}} nicht verfügbar",
       "candidate_one": "{{count}} Aussonderungskandidat",

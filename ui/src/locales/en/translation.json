@@ -574,6 +574,7 @@
     "onLoan": "On loan",
     "toSearch": "To search",
     "unavailable": "Unavailable",
+    "onSiteOnly": "On-site consultation",
     "reservedFor": "Reserved for"
   },
   "items": {
@@ -711,6 +712,8 @@
     "copyNoun_one": "{{count}} copy",
     "copyNoun_other": "{{count}} copies",
     "availableOfTotal": "{{availablePart}} of {{totalPart}}",
+    "onSiteClause_one": ", including {{count}} for on-site consultation",
+    "onSiteClause_other": ", including {{count}} for on-site consultation",
     "staffCopyBreakdown": "{{totalPart}} ({{breakdown}}){{weedingClause}}",
     "staffWeedingClause": ", including {{weeding}}",
     "staffStatus": {
@@ -724,6 +727,12 @@
       "inTransit_other": "{{count}} in transit",
       "toSearch_one": "{{count}} to search",
       "toSearch_other": "{{count}} to search",
+      "onSiteOnly_one": "{{count}} for on-site consultation",
+      "onSiteOnly_other": "{{count}} for on-site consultation",
+      "lost_one": "{{count}} lost",
+      "lost_other": "{{count}} lost",
+      "missing_one": "{{count}} missing",
+      "missing_other": "{{count}} missing",
       "unavailable_one": "{{count}} unavailable",
       "unavailable_other": "{{count}} unavailable",
       "candidate_one": "{{count}} weeding candidate",
