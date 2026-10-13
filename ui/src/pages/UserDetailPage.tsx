@@ -761,7 +761,12 @@ export default function UserDetailPage() {
       align: 'right' as const,
       render: (h: Hold) => (
         <div className="flex flex-wrap justify-end gap-2">
-          <HoldTransitActions hold={h} transit={transitByHoldId.get(h.id)} actions={transitActions} />
+          <HoldTransitActions
+            hold={h}
+            transit={transitByHoldId.get(h.id)}
+            actions={transitActions}
+            sources={sources}
+          />
           {h.status === 'pending' || h.status === 'ready' ? (
             <Button
               size="sm"
@@ -1465,7 +1470,7 @@ export default function UserDetailPage() {
         onClose={exceptionAction.close}
         onConfirm={(payload) => void exceptionAction.submit(payload)}
       />
-      <TransitActionModals actions={transitActions} />
+      <TransitActionModals actions={transitActions} sources={sources} />
     </div>
   );
 }

@@ -315,7 +315,12 @@ export default function HoldsPage() {
 
   const actionCell = (r: HoldListItem) => (
     <div className="flex flex-wrap justify-end gap-2">
-      <HoldTransitActions hold={r} transit={transitByHoldId.get(r.id)} actions={transitActions} />
+      <HoldTransitActions
+        hold={r}
+        transit={transitByHoldId.get(r.id)}
+        actions={transitActions}
+        sources={sources}
+      />
       {cancelCell(r)}
     </div>
   );
@@ -508,6 +513,7 @@ export default function HoldsPage() {
                             hold={r}
                             transit={transitByHoldId.get(r.id)}
                             actions={transitActions}
+                            sources={sources}
                           />
                         }
                         onCancel={() => setCancelHoldId(r.id)}
@@ -781,7 +787,7 @@ export default function HoldsPage() {
         message={t('holds.cancelConfirm')}
         confirmVariant="danger"
       />
-      <TransitActionModals actions={transitActions} />
+      <TransitActionModals actions={transitActions} sources={sources} />
     </div>
   );
 }

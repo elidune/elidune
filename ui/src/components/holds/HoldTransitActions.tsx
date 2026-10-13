@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { Package, PackageCheck, Truck } from 'lucide-react';
 import { Button } from '@/components/common';
-import type { HoldListItem, ItemTransit } from '@/types';
+import type { HoldListItem, ItemTransit, Source } from '@/types';
 import type { useTransitActions } from '@/hooks/holds/useTransitActions';
 import {
   canReceiveTransit,
@@ -13,10 +13,12 @@ export default function HoldTransitActions({
   hold,
   transit,
   actions,
+  sources,
 }: {
   hold: HoldListItem;
   transit?: ItemTransit | null;
   actions: ReturnType<typeof useTransitActions>;
+  sources: readonly Source[];
 }) {
   const { t } = useTranslation();
   const { busyKey, isLoading, open } = actions;
@@ -54,7 +56,7 @@ export default function HoldTransitActions({
     );
   }
 
-  if (canStartHoldTransit(hold, transit)) {
+  if (canStartHoldTransit(hold, transit, sources)) {
     return (
       <Button
         size="sm"

@@ -3,12 +3,13 @@ import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { Button, Input, Modal } from '@/components/common';
 import api from '@/services/api';
-import type { CreateTransit, HoldListItem } from '@/types';
+import type { CreateTransit, HoldListItem, Source } from '@/types';
 import { formChoiceLabelClass, formControlClass, formLabelClass } from '@/utils/formControl';
-import { copyAlreadyAtPickupSite } from '@/utils/transitDisplay';
+import { allocatedCopySourceId, copyAlreadyAtPickupSite } from '@/utils/transitDisplay';
 
 export default function StartTransitDialog({
   hold,
+  sources,
   isOpen,
   isLoading,
   error,
@@ -16,6 +17,7 @@ export default function StartTransitDialog({
   onConfirm,
 }: {
   hold: HoldListItem | null;
+  sources: readonly Source[];
   isOpen: boolean;
   isLoading: boolean;
   error?: string | null;
@@ -48,7 +50,12 @@ export default function StartTransitDialog({
   const copies = copiesQuery.data?.items ?? [];
   const pinned = hold?.itemId ?? '';
   const selectedCopy = pinned || itemId;
-  const selectedSourceId = copies.find((c) => c.id === selectedCopy)?.sourceId;
+  const fetchedCopy = copies.find((c) => c.id === selectedCopy);
+  const selectedSourceId = fetchedCopy
+    ? fetchedCopy.sourceId
+    : hold && selectedCopy === pinned
+      ? allocatedCopySourceId(hold, sources)
+      : null;
   const sameSite = hold ? copyAlreadyAtPickupSite(hold, selectedSourceId) : false;
   const needsCopy = !pinned;
   const canSubmit = !!hold && !!selectedCopy && !sameSite && !isLoading;
