@@ -12,6 +12,7 @@ import de from '../../locales/de/translation.json' with { type: 'json' };
 import en from '../../locales/en/translation.json' with { type: 'json' };
 import es from '../../locales/es/translation.json' with { type: 'json' };
 import fr from '../../locales/fr/translation.json' with { type: 'json' };
+import type { ItemPublicView, ItemStaffView } from '@/types';
 import CopyLoanStatus from './CopyLoanStatus.tsx';
 import PublicCopyReturnLine from './PublicCopyReturnLine.tsx';
 import {
@@ -43,6 +44,9 @@ async function i18nFor(lng: 'fr' | 'en'): Promise<I18nInstance> {
   });
   return i18n;
 }
+
+void (true satisfies 'dueDate' extends keyof ItemPublicView ? false : true);
+void (true satisfies 'dueDate' extends keyof ItemStaffView ? true : false);
 
 function render(i18n: I18nInstance, node: ReactElement): string {
   return renderToStaticMarkup(
@@ -114,11 +118,12 @@ describe('item copy loan status', () => {
     assert.equal(html.includes('/users/'), false);
     assert.equal(html.includes('href='), false);
 
+    const heldCopy = { availability: 'onHold' as const, borrower: LEAK.borrower, loanId: 'loan-99' };
     const held = render(
       i18n,
       createElement(CopyLoanStatus, {
         audience: 'public',
-        copy: { availability: 'onHold', borrower: LEAK.borrower, loanId: 'loan-99' },
+        copy: heldCopy,
       }),
     );
     assert.equal(held.includes('Réservé'), true);
@@ -127,11 +132,12 @@ describe('item copy loan status', () => {
     assert.equal(held.includes('loan-99'), false);
     assert.equal(held.includes('retour prévu'), false);
 
+    const idleCopy = { borrowed: false, availability: 'available' as const, borrower: LEAK.borrower };
     const idle = render(
       i18n,
       createElement(CopyLoanStatus, {
         audience: 'public',
-        copy: { borrowed: false, availability: 'available', borrower: LEAK.borrower },
+        copy: idleCopy,
       }),
     );
     assert.equal(idle, '');
@@ -213,8 +219,8 @@ describe('item copy loan status', () => {
     );
     assert.equal(opac.includes('On loan, due back October 20, 2026'), true);
     assert.equal(publicExpectedReturnLine(en.t, { availability: 'onLoan' }, 'en'), null);
-    assert.equal(publicOnLoanLabel(en.t, { availability: 'onLoan', dueDate: LEAK.dueDate }, 'en'), 'On loan');
-    assert.equal(publicOnLoanLabel(fr.t, { availability: 'onLoan', dueDate: LEAK.dueDate }, 'fr'), 'En prêt');
+    assert.equal(publicOnLoanLabel(en.t, { availability: 'onLoan' }, 'en'), 'On loan');
+    assert.equal(publicOnLoanLabel(fr.t, { availability: 'onLoan' }, 'fr'), 'En prêt');
     const overdue = render(
       en,
       createElement(PublicCopyReturnLine, {
@@ -229,7 +235,7 @@ describe('item copy loan status', () => {
       fr,
       createElement(CopyLoanStatus, {
         audience: 'public',
-        copy: { availability: 'onLoan', dueDate: '2020-01-01T00:00:00Z', borrowed: true },
+        copy: { availability: 'onLoan', borrowed: true },
       }),
     );
     assert.equal(overdueFr.includes('En prêt'), true);

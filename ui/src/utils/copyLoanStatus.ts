@@ -1,18 +1,22 @@
 import type { TFunction } from 'i18next';
 import type { BorrowerRef } from '@/utils/readerIdentifier';
 
-export interface CopyCirculationFields {
+/** Reader/OPAC copy status. No `dueDate`, loan id, or borrower. */
+export interface PublicCopyStatusFields {
   borrowed?: boolean | null;
   availability?: string | null;
-  dueDate?: string | null;
   /**
-   * Library-local `YYYY-MM-DD` on a public copy when `availability` is `onLoan`
-   * and the loan is not overdue. Absent otherwise, including when overdue.
-   * Staff views ignore it. The public UI does not derive overdue from `dueDate`.
+   * Library-local `YYYY-MM-DD` when `availability` is `onLoan` and the loan is
+   * not overdue. Absent otherwise, including when overdue.
    */
   expectedReturnDate?: string | null;
   /** Copy is assigned to a hold, or in transit for one. */
   onHold?: boolean | null;
+}
+
+/** Staff copy status. `dueDate` stays on this type only. */
+export interface CopyCirculationFields extends PublicCopyStatusFields {
+  dueDate?: string | null;
   loanId?: string | null;
   borrower?: BorrowerRef | null;
 }
@@ -97,13 +101,13 @@ export function publicExpectedReturnLine(
 }
 
 /**
- * Public/OPAC on-loan label. The server omits `expectedReturnDate` when the loan
- * is overdue; this does not read `dueDate` or decide overdue itself.
+ * Public/OPAC on-loan label. The server omits `expectedReturnDate` when overdue.
+ * This type has no `dueDate`, so the label cannot show that instant or compute overdue.
  * With a date: "On loan, due back …". Without one: "On loan".
  */
 export function publicOnLoanLabel(
   t: TFunction,
-  copy: Pick<CopyCirculationFields, 'availability' | 'expectedReturnDate' | 'dueDate'>,
+  copy: Pick<PublicCopyStatusFields, 'availability' | 'expectedReturnDate'>,
   locale: string,
 ): string | null {
   if (copy.availability !== 'onLoan') return null;

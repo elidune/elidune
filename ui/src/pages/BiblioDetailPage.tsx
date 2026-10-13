@@ -1105,19 +1105,30 @@ function SpecimenCard({
         <p className="mt-1 text-xs text-gray-600 dark:text-gray-300">{t(staffDetailKey)}</p>
       )}
 
-      <CopyLoanStatus
-        audience={audience}
-        linked={canReadBorrowers}
-        copy={{
-          borrowed: specimen.borrowed,
-          availability: specimen.availability,
-          dueDate: audience === 'staff' ? specimen.dueDate : undefined,
-          onHold: specimen.onHold,
-          borrower: staffCopy?.borrower,
-          expectedReturnDate:
-            'expectedReturnDate' in specimen ? specimen.expectedReturnDate : undefined,
-        }}
-      />
+      {audience === 'staff' && staffCopy ? (
+        <CopyLoanStatus
+          audience="staff"
+          linked={canReadBorrowers}
+          copy={{
+            borrowed: staffCopy.borrowed,
+            availability: staffCopy.availability,
+            dueDate: staffCopy.dueDate,
+            onHold: staffCopy.onHold,
+            borrower: staffCopy.borrower,
+          }}
+        />
+      ) : (
+        <CopyLoanStatus
+          audience="public"
+          copy={{
+            borrowed: specimen.borrowed,
+            availability: specimen.availability,
+            onHold: specimen.onHold,
+            expectedReturnDate:
+              'expectedReturnDate' in specimen ? specimen.expectedReturnDate : undefined,
+          }}
+        />
+      )}
 
       {audience === 'staff' && incomplete && missing.length > 0 ? (
         <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">

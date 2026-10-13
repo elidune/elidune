@@ -8,20 +8,22 @@ import {
   itemBorrowerIdentity,
   publicOnLoanLabel,
   type CopyCirculationFields,
+  type PublicCopyStatusFields,
 } from '@/utils/copyLoanStatus';
 
-interface CopyLoanStatusProps {
-  audience: 'staff' | 'public';
-  copy: CopyCirculationFields;
+type CopyLoanStatusProps = {
   /** Staff link to the reader record. Ignored on the public view. */
   linked?: boolean;
-}
+} & (
+  | { audience: 'staff'; copy: CopyCirculationFields }
+  | { audience: 'public'; copy: PublicCopyStatusFields }
+);
 
 /**
  * Circulation lines on an item card.
  * Staff never load the loan: without a borrower on the item they show “Emprunté” only.
- * Readers and the OPAC never show a borrower or `dueDate`. An on-loan copy with no
- * expected return date is “On loan” only; overdue is not computed here.
+ * Readers and the OPAC take {@link PublicCopyStatusFields}, which has no `dueDate`.
+ * An on-loan copy with no expected return date is “On loan” only.
  */
 export default function CopyLoanStatus({ audience, copy, linked = false }: CopyLoanStatusProps) {
   const { t, i18n } = useTranslation();
