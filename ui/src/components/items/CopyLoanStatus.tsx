@@ -1,10 +1,12 @@
 import { useTranslation } from 'react-i18next';
 import ReaderIdentifier from '@/components/users/ReaderIdentifier';
+import PublicCopyReturnLine from '@/components/items/PublicCopyReturnLine';
 import {
   formatCopyDueDate,
   isCopyBorrowed,
   isCopyOnHold,
   itemBorrowerIdentity,
+  publicExpectedReturnLine,
   type CopyCirculationFields,
 } from '@/utils/copyLoanStatus';
 
@@ -28,11 +30,20 @@ export default function CopyLoanStatus({ audience, copy, linked = false }: CopyL
   const assignedBesideStatus = copy.onHold === true && !onHold;
 
   if (audience !== 'staff') {
-    const due = borrowed ? formatCopyDueDate(copy.dueDate, i18n.language) : null;
-    if (!borrowed && !onHold && !assignedBesideStatus) return null;
+    const expected = publicExpectedReturnLine(t, copy, i18n.language);
+    const due = !expected && borrowed ? formatCopyDueDate(copy.dueDate, i18n.language) : null;
+    if (!borrowed && !onHold && !assignedBesideStatus && !expected) return null;
     return (
       <div data-copy-status="public">
-        {borrowed ? <p className="text-sm text-gray-500 dark:text-gray-400">{t('items.borrowed')}</p> : null}
+        {expected ? (
+          <PublicCopyReturnLine
+            availability={copy.availability}
+            expectedReturnDate={copy.expectedReturnDate}
+            className="text-sm text-gray-500 dark:text-gray-400"
+          />
+        ) : borrowed ? (
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t('items.borrowed')}</p>
+        ) : null}
         {due ? (
           <p className="text-sm text-gray-500 dark:text-gray-400">{t('items.dueBack', { date: due })}</p>
         ) : null}

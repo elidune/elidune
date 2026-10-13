@@ -1,9 +1,15 @@
+import type { TFunction } from 'i18next';
 import type { BorrowerRef } from '@/utils/readerIdentifier';
 
 export interface CopyCirculationFields {
   borrowed?: boolean | null;
   availability?: string | null;
   dueDate?: string | null;
+  /**
+   * Library-local `YYYY-MM-DD` on a public copy when `availability` is `onLoan`.
+   * Absent otherwise. Staff views ignore it.
+   */
+  expectedReturnDate?: string | null;
   /** Copy is assigned to a hold, or in transit for one. */
   onHold?: boolean | null;
   loanId?: string | null;
@@ -48,4 +54,43 @@ export function formatCopyDueDate(iso: string | null | undefined, locale: string
     month: 'short',
     year: 'numeric',
   });
+}
+
+const CALENDAR_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/**
+ * `YYYY-MM-DD` as a local calendar date. `new Date('YYYY-MM-DD')` is UTC midnight
+ * and shifts the day west of UTC, so the fields are passed to the local constructor.
+ */
+export function formatLocalCalendarDate(
+  iso: string | null | undefined,
+  locale: string,
+): string | null {
+  if (!iso?.trim()) return null;
+  const match = CALENDAR_DATE.exec(iso.trim());
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    return null;
+  }
+  return date.toLocaleDateString(locale, {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
+/** Public/OPAC sentence. Null when the date key is absent or the copy is not on loan. */
+export function publicExpectedReturnLine(
+  t: TFunction,
+  copy: Pick<CopyCirculationFields, 'availability' | 'expectedReturnDate'>,
+  locale: string,
+): string | null {
+  if (copy.availability !== 'onLoan') return null;
+  const date = formatLocalCalendarDate(copy.expectedReturnDate, locale);
+  if (!date) return null;
+  return t('opac.expectedReturn', { date });
 }

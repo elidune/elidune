@@ -2276,6 +2276,7 @@
     "filterComics": "Cómic",
     "available": "Disponible",
     "borrowed": "Prestado",
+    "expectedReturn": "En préstamo, devolución prevista el {{date}}",
     "searchPlaceholder": "Título, autor, ISBN, palabra clave…",
     "tabEvents": "Eventos",
     "tabCatalog": "Catálogo",

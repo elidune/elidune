@@ -1114,6 +1114,8 @@ function SpecimenCard({
           dueDate: specimen.dueDate,
           onHold: specimen.onHold,
           borrower: staffCopy?.borrower,
+          expectedReturnDate:
+            'expectedReturnDate' in specimen ? specimen.expectedReturnDate : undefined,
         }}
       />
 
