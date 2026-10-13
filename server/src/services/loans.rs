@@ -277,7 +277,7 @@ impl LoansService {
                 Some(outcome.loan_id),
                 client_ip.clone(),
                 Some(serde_json::json!({
-                    "user_id": loan.user_id,
+                    "patron_id": loan.user_id,
                     "item_id": loan.item_id,
                     "loan_id": outcome.loan_id,
                     "code": error_code::SUBSCRIPTION_EXPIRED,

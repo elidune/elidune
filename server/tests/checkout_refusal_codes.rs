@@ -250,7 +250,8 @@ async fn expired_subscription_is_subscription_expired_and_force_still_checks_out
     assert_eq!(fixtures::json_id(&row["userId"]), actor_id);
     assert_eq!(row["entityType"], "loan");
     assert_eq!(row["payload"]["code"], "subscription_expired");
-    assert_eq!(fixtures::json_id(&row["payload"]["user_id"]), reader_id);
+    assert!(row["payload"].get("user_id").is_none(), "{row}");
+    assert_eq!(fixtures::json_id(&row["payload"]["patron_id"]), reader_id);
     assert_eq!(fixtures::json_id(&row["payload"]["item_id"]), item_id);
     assert_eq!(fixtures::json_id(&row["payload"]["loan_id"]), loan_id);
 }
