@@ -3,11 +3,9 @@
 
 mod common;
 
-use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
-use std::sync::mpsc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::http::StatusCode;
 use common::fixtures;
@@ -86,68 +84,35 @@ fn config_for_reset(
     config
 }
 
-fn spawn_smtp() -> (u16, mpsc::Receiver<String>) {
+/// Accepts TCP connections and never speaks SMTP, so an inline send blocks until the client timeout.
+fn spawn_unresponsive_smtp() -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").expect("smtp bind");
     let port = listener.local_addr().expect("smtp addr").port();
-    let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(stream) = stream else { continue };
-            let tx = tx.clone();
             thread::spawn(move || {
-                let _ = capture_smtp_message(stream, &tx);
+                thread::sleep(Duration::from_secs(120));
+                drop(stream);
             });
         }
     });
-    (port, rx)
+    port
 }
 
-fn capture_smtp_message(
-    stream: std::net::TcpStream,
-    tx: &mpsc::Sender<String>,
-) -> std::io::Result<()> {
-    stream.set_read_timeout(Some(Duration::from_secs(5)))?;
-    stream.set_write_timeout(Some(Duration::from_secs(5)))?;
-    let mut write = stream.try_clone()?;
-    let mut reader = BufReader::new(stream);
-    write.write_all(b"220 localhost ESMTP\r\n")?;
-    write.flush()?;
-    let mut line = String::new();
-    let mut data = false;
-    let mut body = String::new();
-    loop {
-        line.clear();
-        if reader.read_line(&mut line)? == 0 {
-            break;
-        }
-        if data {
-            if line.trim_end_matches(['\r', '\n']) == "." {
-                data = false;
-                let _ = tx.send(body.clone());
-                body.clear();
-                write.write_all(b"250 OK\r\n")?;
-                write.flush()?;
-            } else {
-                body.push_str(&line);
-            }
-            continue;
-        }
-        let cmd = line.to_ascii_uppercase();
-        if cmd.starts_with("EHLO") || cmd.starts_with("HELO") {
-            write.write_all(b"250-localhost\r\n250 OK\r\n")?;
-        } else if cmd.starts_with("DATA") {
-            data = true;
-            write.write_all(b"354 Go ahead\r\n")?;
-        } else if cmd.starts_with("QUIT") {
-            write.write_all(b"221 Bye\r\n")?;
-            write.flush()?;
-            break;
-        } else {
-            write.write_all(b"250 OK\r\n")?;
-        }
-        write.flush()?;
-    }
-    Ok(())
+async fn outbox_bodies(app: &TestApp, to: &str) -> Vec<String> {
+    sqlx::query_scalar("SELECT body FROM email_outbox WHERE to_addr = $1 ORDER BY created_at")
+        .bind(to)
+        .fetch_all(app.state.services.repository.pool())
+        .await
+        .expect("outbox bodies")
+}
+
+fn assert_queued_link(bodies: &[String], link_prefix: &str) {
+    assert!(
+        bodies.iter().any(|body| body.contains(link_prefix)),
+        "queued reset mail missing {link_prefix}: {bodies:?}"
+    );
 }
 
 async fn reset_nonce(app: &TestApp, user_id: i64) -> i64 {
@@ -158,7 +123,7 @@ async fn reset_nonce(app: &TestApp, user_id: i64) -> i64 {
         .expect("nonce")
 }
 
-async fn reader_login(app: &TestApp, admin_token: &str, prefix: &str) -> (i64, String) {
+async fn reader_login(app: &TestApp, admin_token: &str, prefix: &str) -> (i64, String, String) {
     let (user_id, _) = fixtures::create_reader(app, admin_token, prefix).await;
     let user = app
         .state
@@ -167,7 +132,11 @@ async fn reader_login(app: &TestApp, admin_token: &str, prefix: &str) -> (i64, S
         .get_by_id(user_id)
         .await
         .expect("reader");
-    (user_id, user.login.expect("login"))
+    (
+        user_id,
+        user.login.expect("login"),
+        user.email.expect("email"),
+    )
 }
 
 fn assert_accepted(status: StatusCode, body: &serde_json::Value) {
@@ -181,9 +150,8 @@ fn assert_accepted(status: StatusCode, body: &serde_json::Value) {
 
 #[tokio::test]
 async fn forged_reset_url_is_ignored_and_mail_uses_public_base_url() {
-    let (port, mail) = spawn_smtp();
     let Some(app) = TestApp::spawn_with_config(
-        config_for_reset(None, Some(&format!("{PUBLIC_BASE}/")), port),
+        config_for_reset(None, Some(&format!("{PUBLIC_BASE}/")), 1),
         elidune_server::AppBuildOptions::for_tests(),
     )
     .await
@@ -191,7 +159,7 @@ async fn forged_reset_url_is_ignored_and_mail_uses_public_base_url() {
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
-    let (_, login) = reader_login(&app, &admin_token, "resetpub").await;
+    let (_, login, email) = reader_login(&app, &admin_token, "resetpub").await;
 
     let (status, body) = app
         .post_json_with_headers(
@@ -208,20 +176,18 @@ async fn forged_reset_url_is_ignored_and_mail_uses_public_base_url() {
         )
         .await;
     assert_accepted(status, &body);
-    let raw = mail
-        .recv_timeout(Duration::from_secs(5))
-        .expect("smtp data");
+    let queued = outbox_bodies(&app, &email).await;
     let expected = format!("{PUBLIC_BASE}/reset-password?token=");
-    assert!(raw.contains(&expected), "mail body: {raw}");
+    assert_queued_link(&queued, &expected);
+    let raw = queued.join("\n");
     assert!(!raw.contains("evil.example"), "client host leaked: {raw}");
     assert!(!raw.contains("//reset-password"), "double slash: {raw}");
 }
 
 #[tokio::test]
 async fn omitted_reset_url_is_not_a_validation_error() {
-    let (port, mail) = spawn_smtp();
     let Some(app) = TestApp::spawn_with_config(
-        config_for_reset(None, Some(PUBLIC_BASE), port),
+        config_for_reset(None, Some(PUBLIC_BASE), 1),
         elidune_server::AppBuildOptions::for_tests(),
     )
     .await
@@ -229,7 +195,7 @@ async fn omitted_reset_url_is_not_a_validation_error() {
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
-    let (_, login) = reader_login(&app, &admin_token, "resetomit").await;
+    let (_, login, email) = reader_login(&app, &admin_token, "resetomit").await;
     let (status, body) = app
         .post_json(
             "/api/v1/auth/request-password-reset",
@@ -239,18 +205,17 @@ async fn omitted_reset_url_is_not_a_validation_error() {
         .await;
     assert_ne!(status, StatusCode::BAD_REQUEST, "{body}");
     assert_accepted(status, &body);
-    let raw = mail
-        .recv_timeout(Duration::from_secs(5))
-        .expect("smtp data");
-    assert!(raw.contains(&format!("{PUBLIC_BASE}/reset-password?token=")));
+    assert_queued_link(
+        &outbox_bodies(&app, &email).await,
+        &format!("{PUBLIC_BASE}/reset-password?token="),
+    );
 }
 
 #[tokio::test]
 async fn configured_template_is_used_instead_of_public_base_and_client_url() {
-    let (port, mail) = spawn_smtp();
     let template = "https://staff.example/custom?token=<token>";
     let Some(app) = TestApp::spawn_with_config(
-        config_for_reset(Some(template), Some(PUBLIC_BASE), port),
+        config_for_reset(Some(template), Some(PUBLIC_BASE), 1),
         elidune_server::AppBuildOptions::for_tests(),
     )
     .await
@@ -258,7 +223,7 @@ async fn configured_template_is_used_instead_of_public_base_and_client_url() {
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
-    let (_, login) = reader_login(&app, &admin_token, "resetmpl").await;
+    let (_, login, email) = reader_login(&app, &admin_token, "resetmpl").await;
     let (status, body) = app
         .post_json(
             "/api/v1/auth/request-password-reset",
@@ -270,9 +235,8 @@ async fn configured_template_is_used_instead_of_public_base_and_client_url() {
         )
         .await;
     assert_accepted(status, &body);
-    let raw = mail
-        .recv_timeout(Duration::from_secs(5))
-        .expect("smtp data");
+    let queued = outbox_bodies(&app, &email).await;
+    let raw = queued.join("\n");
     assert!(raw.contains("https://staff.example/custom?token="), "{raw}");
     assert!(!raw.contains("evil.example"), "{raw}");
     assert!(!raw.contains("/reset-password?token="), "{raw}");
@@ -280,9 +244,8 @@ async fn configured_template_is_used_instead_of_public_base_and_client_url() {
 
 #[tokio::test]
 async fn missing_template_and_public_base_url_sends_nothing_and_stays_generic() {
-    let (port, mail) = spawn_smtp();
     let Some(app) = TestApp::spawn_with_config(
-        config_for_reset(None, None, port),
+        config_for_reset(None, None, 1),
         elidune_server::AppBuildOptions::for_tests(),
     )
     .await
@@ -290,7 +253,7 @@ async fn missing_template_and_public_base_url_sends_nothing_and_stays_generic() 
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
-    let (user_id, login) = reader_login(&app, &admin_token, "resetnone").await;
+    let (user_id, login, email) = reader_login(&app, &admin_token, "resetnone").await;
     let before = reset_nonce(&app, user_id).await;
 
     let (status, body) = app
@@ -305,6 +268,10 @@ async fn missing_template_and_public_base_url_sends_nothing_and_stays_generic() 
         .await;
     assert_accepted(status, &body);
     assert_eq!(reset_nonce(&app, user_id).await, before, "no token issued");
+    assert!(
+        outbox_bodies(&app, &email).await.is_empty(),
+        "no email when the link cannot be built"
+    );
 
     let (unknown_status, unknown_body) = app
         .post_json(
@@ -314,10 +281,10 @@ async fn missing_template_and_public_base_url_sends_nothing_and_stays_generic() 
         )
         .await;
     assert_accepted(unknown_status, &unknown_body);
-    assert!(
-        mail.recv_timeout(Duration::from_millis(400)).is_err(),
-        "no email when the link cannot be built"
-    );
+    assert_eq!(unknown_body, body);
+    assert!(outbox_bodies(&app, "nobody-reset@example.com")
+        .await
+        .is_empty());
 }
 
 fn reset_options(login_max: u32, reset_max: u32) -> elidune_server::AppBuildOptions {
@@ -331,9 +298,8 @@ fn reset_options(login_max: u32, reset_max: u32) -> elidune_server::AppBuildOpti
 
 #[tokio::test]
 async fn five_reset_requests_do_not_block_login() {
-    let (port, mail) = spawn_smtp();
     let Some(app) = TestApp::spawn_with_config(
-        config_for_reset(None, Some(PUBLIC_BASE), port),
+        config_for_reset(None, Some(PUBLIC_BASE), 1),
         reset_options(3, 10),
     )
     .await
@@ -341,7 +307,7 @@ async fn five_reset_requests_do_not_block_login() {
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
-    let (_, login) = reader_login(&app, &admin_token, "resetlogin").await;
+    let (_, login, email) = reader_login(&app, &admin_token, "resetlogin").await;
 
     for _ in 0..5 {
         let (status, body) = app
@@ -352,9 +318,10 @@ async fn five_reset_requests_do_not_block_login() {
             )
             .await;
         assert_accepted(status, &body);
-        mail.recv_timeout(Duration::from_secs(5))
-            .expect("each request under the reset quota sends mail");
     }
+    let queued = outbox_bodies(&app, &email).await;
+    assert_eq!(queued.len(), 5, "each request under the quota queues mail");
+    assert_queued_link(&queued, &format!("{PUBLIC_BASE}/reset-password?token="));
 
     let (status, body) = app
         .post_json(
@@ -369,9 +336,8 @@ async fn five_reset_requests_do_not_block_login() {
 
 #[tokio::test]
 async fn fourth_reset_request_sends_no_mail_and_stays_generic() {
-    let (port, mail) = spawn_smtp();
     let Some(app) = TestApp::spawn_with_config(
-        config_for_reset(None, Some(PUBLIC_BASE), port),
+        config_for_reset(None, Some(PUBLIC_BASE), 1),
         reset_options(100, 3),
     )
     .await
@@ -379,7 +345,7 @@ async fn fourth_reset_request_sends_no_mail_and_stays_generic() {
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
-    let (user_id, login) = reader_login(&app, &admin_token, "resetcap").await;
+    let (user_id, login, email) = reader_login(&app, &admin_token, "resetcap").await;
 
     for _ in 0..3 {
         let (status, body) = app
@@ -390,9 +356,8 @@ async fn fourth_reset_request_sends_no_mail_and_stays_generic() {
             )
             .await;
         assert_accepted(status, &body);
-        mail.recv_timeout(Duration::from_secs(5))
-            .expect("mail within the quota");
     }
+    assert_eq!(outbox_bodies(&app, &email).await.len(), 3);
     let nonce = reset_nonce(&app, user_id).await;
 
     let (status, body) = app
@@ -405,17 +370,17 @@ async fn fourth_reset_request_sends_no_mail_and_stays_generic() {
     assert_accepted(status, &body);
     assert_ne!(status, StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(reset_nonce(&app, user_id).await, nonce, "no token issued");
-    assert!(
-        mail.recv_timeout(Duration::from_millis(400)).is_err(),
-        "quota must not send another email"
+    assert_eq!(
+        outbox_bodies(&app, &email).await.len(),
+        3,
+        "quota must not queue another email"
     );
 }
 
 #[tokio::test]
 async fn unknown_account_gets_the_same_generic_success() {
-    let (port, mail) = spawn_smtp();
     let Some(app) = TestApp::spawn_with_config(
-        config_for_reset(None, Some(PUBLIC_BASE), port),
+        config_for_reset(None, Some(PUBLIC_BASE), 1),
         reset_options(100, 10),
     )
     .await
@@ -423,7 +388,7 @@ async fn unknown_account_gets_the_same_generic_success() {
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
-    let (_, login) = reader_login(&app, &admin_token, "resetknown").await;
+    let (_, login, email) = reader_login(&app, &admin_token, "resetknown").await;
 
     let (known_status, known_body) = app
         .post_json(
@@ -433,8 +398,7 @@ async fn unknown_account_gets_the_same_generic_success() {
         )
         .await;
     assert_accepted(known_status, &known_body);
-    mail.recv_timeout(Duration::from_secs(5))
-        .expect("known account is mailed");
+    assert_eq!(outbox_bodies(&app, &email).await.len(), 1);
 
     let (status, body) = app
         .post_json(
@@ -446,7 +410,82 @@ async fn unknown_account_gets_the_same_generic_success() {
     assert_accepted(status, &body);
     assert_eq!(body, known_body);
     assert!(
-        mail.recv_timeout(Duration::from_millis(400)).is_err(),
-        "unknown account sends no mail"
+        outbox_bodies(&app, "nobody-quota@example.com")
+            .await
+            .is_empty(),
+        "unknown account queues no mail"
     );
+}
+
+/// Well under the SMTP client timeout, so an inline send to a silent relay cannot pass.
+const RESET_ACCEPT_BUDGET: Duration = Duration::from_secs(2);
+
+#[tokio::test]
+async fn unreachable_smtp_accepts_immediately_and_queues_the_reset() {
+    let port = spawn_unresponsive_smtp();
+    let Some(app) = TestApp::spawn_with_config(
+        config_for_reset(None, Some(PUBLIC_BASE), port),
+        elidune_server::AppBuildOptions::for_tests(),
+    )
+    .await
+    else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (_, login, email) = reader_login(&app, &admin_token, "resetsmtp").await;
+
+    let started = Instant::now();
+    let (status, body) = app
+        .post_json(
+            "/api/v1/auth/request-password-reset",
+            &json!({ "identifier": login }),
+            None,
+        )
+        .await;
+    let elapsed = started.elapsed();
+    assert_accepted(status, &body);
+    assert!(
+        elapsed < RESET_ACCEPT_BUDGET,
+        "password reset blocked on SMTP for {elapsed:?}"
+    );
+
+    let queued = outbox_bodies(&app, &email).await;
+    assert_eq!(
+        queued.len(),
+        1,
+        "reset mail must be queued, not sent inline"
+    );
+    assert_queued_link(&queued, &format!("{PUBLIC_BASE}/reset-password?token="));
+    let pending: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::bigint FROM email_outbox WHERE to_addr = $1 AND status = 'pending'",
+    )
+    .bind(&email)
+    .fetch_one(app.state.services.repository.pool())
+    .await
+    .expect("pending count");
+    assert_eq!(
+        pending, 1,
+        "queued reset stays pending until the outbox worker"
+    );
+
+    let started = Instant::now();
+    let (unknown_status, unknown_body) = app
+        .post_json(
+            "/api/v1/auth/request-password-reset",
+            &json!({ "identifier": "nobody-smtp@example.com" }),
+            None,
+        )
+        .await;
+    assert!(
+        started.elapsed() < RESET_ACCEPT_BUDGET,
+        "unknown account must not wait on SMTP"
+    );
+    assert_accepted(unknown_status, &unknown_body);
+    assert_eq!(
+        unknown_body, body,
+        "response must not reveal account existence"
+    );
+    assert!(outbox_bodies(&app, "nobody-smtp@example.com")
+        .await
+        .is_empty());
 }

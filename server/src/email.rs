@@ -1,6 +1,7 @@
 //! Email service for sending 2FA codes, notifications, and overdue reminders.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use chrono::Utc;
 use lettre::{
@@ -102,22 +103,24 @@ impl EmailService {
             .await
     }
 
-    /// Send password reset email
+    /// Render a password-reset message and queue it on `email_outbox`.
+    ///
+    /// The outbox worker performs SMTP delivery, so this does not contact the relay.
+    /// Returns the new outbox row id.
     pub async fn send_password_reset(
         &self,
         to: &str,
         token: &str,
         lang: Option<Language>,
         reset_url: Option<&str>,
-    ) -> AppResult<()> {
+    ) -> AppResult<i64> {
         let template = self.load_template("password_reset", lang).await?;
         let vars: Vec<(&str, &str)> = match reset_url {
             Some(url) => vec![("token", token), ("reset_url", url)],
             None => vec![("token", token), ("reset_url", "")],
         };
         let (subject, body_plain, body_html) = email_templates::substitute(&template, &vars);
-        self.send_email_with_html(to, &subject, &body_plain, &body_html)
-            .await
+        self.enqueue(to, &subject, &body_plain, &body_html).await
     }
 
     /// Send a test email using the current live SMTP configuration
@@ -368,7 +371,7 @@ impl EmailService {
             mailer_builder
         };
 
-        let mailer = mailer_builder.build();
+        let mailer = mailer_builder.timeout(Some(SMTP_TIMEOUT)).build();
 
         mailer
             .send(&email)
@@ -377,6 +380,10 @@ impl EmailService {
         Ok(())
     }
 }
+
+/// Cap one SMTP attempt. Lettre's default is 60s, which stalls the outbox worker
+/// (and used to stall the password-reset request) when a relay never answers.
+const SMTP_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// SMTP AUTH credentials. Empty or whitespace-only username/password means no AUTH,
 /// so a relay that does not offer authentication can still be used.

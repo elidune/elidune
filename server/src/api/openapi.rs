@@ -881,9 +881,11 @@ mod tests {
         assert!(responses.get("404").is_none(), "{responses}");
         assert!(responses.get("429").is_none(), "{responses}");
         let description = responses["200"]["description"].as_str().unwrap_or("");
+        let lower = description.to_ascii_lowercase();
+        assert!(lower.contains("generic"), "{description}");
         assert!(
-            description.to_ascii_lowercase().contains("generic"),
-            "{description}"
+            lower.contains("queued") && lower.contains("smtp"),
+            "reset acceptance must document asynchronous delivery: {description}"
         );
     }
 
