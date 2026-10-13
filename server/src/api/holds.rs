@@ -13,7 +13,9 @@ use utoipa::{IntoParams, ToSchema};
 use crate::{
     error::{AppError, AppResult},
     models::{
-        catalog_view::{HoldDetailsPublic, HoldDetailsStaff},
+        catalog_view::{
+            partial_user_short, HoldDetailsPublic, HoldDetailsStaff, LoanBorrowerMinimized,
+        },
         dto::holds::{HoldPickListItem, HoldQuota, HoldsPolicy},
         hold::{CreateHold, Hold},
         my_account::MyHoldView,
@@ -60,7 +62,7 @@ pub struct PickListQuery {
     security(("bearer_auth" = [])),
     params(PickListQuery),
     responses(
-        (status = 200, description = "Copies to pull from the shelf", body = [HoldPickListItem]),
+        (status = 200, description = "Hold-shelf labels for copies to pull. Labels are displayed on an open shelf, so `holdFor` is always `{ id, cardNumber, initials }`, including when the caller has `users_rights` read or write. The patron name is never included. `pickupDeadline` is `holds.expires_at` (null while `to_pick`). `pickDueAt` is the shelf-pick due time.", body = [HoldPickListItem]),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 403, description = "Staff access required", body = crate::error::ErrorResponse)
     )
@@ -70,7 +72,30 @@ pub async fn list_pick_list(
     StaffUser(_claims): StaffUser,
     Query(query): Query<PickListQuery>,
 ) -> AppResult<Json<Vec<HoldPickListItem>>> {
-    Ok(Json(state.services.holds.list_pick(query.site_id).await?))
+    let rows = state.services.holds.list_pick(query.site_id).await?;
+    let items = rows
+        .into_iter()
+        .map(|row| {
+            let user =
+                partial_user_short(row.user_id, row.card_number, row.firstname, row.lastname);
+            HoldPickListItem {
+                hold_id: row.hold_id,
+                item_id: row.item_id,
+                barcode: row.barcode,
+                call_number: row.call_number,
+                title: row.title,
+                user_id: row.user_id,
+                hold_for: LoanBorrowerMinimized::from(user),
+                pickup_site_id: row.pickup_site_id,
+                pickup_site_name: row.pickup_site_name,
+                pick_started_at: row.pick_started_at,
+                pick_due_at: row.pick_due_at,
+                pickup_deadline: row.pickup_deadline,
+                overdue: row.overdue,
+            }
+        })
+        .collect();
+    Ok(Json(items))
 }
 
 /// The assigned copy was not on the shelf. Staff only.
@@ -182,7 +207,7 @@ pub enum HoldListResponse {
     security(("bearer_auth" = [])),
     params(ListHoldsQuery),
     responses(
-        (status = 200, description = "Holds. Librarians and admins receive `HoldDetailsStaff` (embedded `UserShortStaff.login` and staff copies). Readers receive `HoldDetailsPublic`.", body = HoldListResponse),
+        (status = 200, description = "Holds. Librarians and admins receive `HoldDetailsStaff`. `user` is `UserShortStaff` when `users_rights` is read or write, otherwise `{ id, cardNumber, initials }`. `expiresAt` is the pickup deadline. Readers receive `HoldDetailsPublic` for their own holds.", body = HoldListResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse)
     )
 )]
@@ -212,7 +237,10 @@ pub async fn list_holds(
     };
     let body = if claims.is_librarian() {
         HoldListResponse::Staff(PaginatedResponse::new(
-            items.into_iter().map(HoldDetailsStaff::from).collect(),
+            items
+                .into_iter()
+                .map(|hold| HoldDetailsStaff::for_caller(hold, &claims))
+                .collect(),
             total,
             page,
             per_page,
@@ -461,7 +489,7 @@ pub async fn get_hold_quota(
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Item ID")),
     responses(
-        (status = 200, description = "Hold queue for this item (`HoldDetailsStaff`)", body = Vec<HoldDetailsStaff>),
+        (status = 200, description = "Hold queue for this item (`HoldDetailsStaff`). `user` is `UserShortStaff` with users read, otherwise `{ id, cardNumber, initials }`. `expiresAt` is the pickup deadline.", body = Vec<HoldDetailsStaff>),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 404, description = "Item not found", body = crate::error::ErrorResponse)
     )
@@ -473,7 +501,11 @@ pub async fn list_holds_for_item(
 ) -> AppResult<Json<Vec<HoldDetailsStaff>>> {
     claims.require_read_holds_staff()?;
     let list = state.services.holds.get_for_item(item_id).await?;
-    Ok(Json(list.into_iter().map(HoldDetailsStaff::from).collect()))
+    Ok(Json(
+        list.into_iter()
+            .map(|hold| HoldDetailsStaff::for_caller(hold, &claims))
+            .collect(),
+    ))
 }
 
 #[utoipa::path(
@@ -483,7 +515,7 @@ pub async fn list_holds_for_item(
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Biblio ID")),
     responses(
-        (status = 200, description = "Hold queue for this bibliographic record (notice-level FIFO, `HoldDetailsStaff`)", body = Vec<HoldDetailsStaff>),
+        (status = 200, description = "Hold queue for this bibliographic record (notice-level FIFO, `HoldDetailsStaff`). `user` is `UserShortStaff` with users read, otherwise `{ id, cardNumber, initials }`. `expiresAt` is the pickup deadline.", body = Vec<HoldDetailsStaff>),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 404, description = "Biblio not found", body = crate::error::ErrorResponse)
     )
@@ -495,7 +527,11 @@ pub async fn list_holds_for_biblio(
 ) -> AppResult<Json<Vec<HoldDetailsStaff>>> {
     claims.require_read_holds_staff()?;
     let list = state.services.holds.get_for_biblio(biblio_id).await?;
-    Ok(Json(list.into_iter().map(HoldDetailsStaff::from).collect()))
+    Ok(Json(
+        list.into_iter()
+            .map(|hold| HoldDetailsStaff::for_caller(hold, &claims))
+            .collect(),
+    ))
 }
 
 #[utoipa::path(
@@ -505,7 +541,7 @@ pub async fn list_holds_for_biblio(
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "User ID")),
     responses(
-        (status = 200, description = "User's holds (`HoldDetailsStaff`)", body = Vec<HoldDetailsStaff>),
+        (status = 200, description = "User's holds (`HoldDetailsStaff`). Caller already has users read, so `user` is `UserShortStaff`. `expiresAt` is the pickup deadline.", body = Vec<HoldDetailsStaff>),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 404, description = "User not found", body = crate::error::ErrorResponse)
     )
@@ -518,7 +554,11 @@ pub async fn list_holds_for_user(
     claims.require_read_holds_staff()?;
     claims.require_read_users()?;
     let list = state.services.holds.get_for_user(user_id).await?;
-    Ok(Json(list.into_iter().map(HoldDetailsStaff::from).collect()))
+    Ok(Json(
+        list.into_iter()
+            .map(|hold| HoldDetailsStaff::for_caller(hold, &claims))
+            .collect(),
+    ))
 }
 
 #[utoipa::path(

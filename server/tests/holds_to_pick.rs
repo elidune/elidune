@@ -285,13 +285,12 @@ async fn unassigned_copies_stay_lendable_and_to_pick_copy_is_reserved() {
         fixtures::json_id(&hold["id"])
     );
     assert_eq!(fixtures::json_id(&blocked["details"]["userId"]), holder_id);
-    assert!(
-        blocked["details"]["userName"]
-            .as_str()
-            .unwrap_or_default()
-            .starts_with("Reader "),
-        "desk can name the patron: {blocked}"
-    );
+    assert!(blocked["details"].get("userName").is_none(), "{blocked}");
+    assert!(blocked["details"]["cardNumber"].is_null(), "{blocked}");
+    let initials = blocked["details"]["initials"].as_str().unwrap_or("");
+    assert_eq!(initials.chars().count(), 2, "{blocked}");
+    assert!(initials.starts_with('R'), "{blocked}");
+    assert!(!blocked.to_string().contains("Reader"), "{blocked}");
 }
 
 #[tokio::test]
@@ -398,26 +397,32 @@ async fn pick_list_lists_to_pick_rows_and_filters_by_copy_site() {
         vec![
             "barcode",
             "callNumber",
+            "holdFor",
             "holdId",
             "itemId",
             "overdue",
             "pickDueAt",
             "pickStartedAt",
+            "pickupDeadline",
             "pickupSiteId",
             "pickupSiteName",
             "title",
             "userId",
-            "userName",
         ]
     );
     assert_eq!(row["barcode"], barcode);
     assert_eq!(row["callNumber"], "843 MIS");
     assert_eq!(row["title"], "Pick List Title");
     assert_eq!(fixtures::json_id(&row["userId"]), reader_id);
-    assert!(row["userName"]
-        .as_str()
-        .unwrap_or_default()
-        .starts_with("Reader "));
+    assert_eq!(fixtures::json_id(&row["holdFor"]["id"]), reader_id);
+    assert!(row["holdFor"]["cardNumber"].is_null(), "{row}");
+    let initials = row["holdFor"]["initials"].as_str().unwrap_or("");
+    assert_eq!(initials.chars().count(), 2, "{row}");
+    assert!(initials.starts_with('R'), "{row}");
+    assert!(row["holdFor"].get("firstname").is_none(), "{row}");
+    assert!(row.get("userName").is_none(), "{row}");
+    assert!(!row.to_string().contains("Reader"), "{row}");
+    assert!(row["pickupDeadline"].is_null(), "{row}");
     assert_eq!(fixtures::json_id(&row["pickupSiteId"]), pickup);
     assert!(row["pickupSiteName"].is_string());
     assert!(row["pickStartedAt"].is_string());

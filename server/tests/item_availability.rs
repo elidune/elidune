@@ -127,6 +127,20 @@ fn assert_no_patron(copy: &Value) {
         copy.get("holdUserName").is_none(),
         "reader saw holdUserName: {copy}"
     );
+    assert!(copy.get("holdFor").is_none(), "reader saw holdFor: {copy}");
+}
+
+fn assert_staff_holder(copy: &Value, reader_id: i64, name: &str) {
+    assert!(copy.get("holdUserId").is_none(), "{copy}");
+    assert!(copy.get("holdUserName").is_none(), "{copy}");
+    let hold_for = &copy["holdFor"];
+    assert_eq!(fixtures::json_id(&hold_for["id"]), reader_id, "{hold_for}");
+    let shown = format!(
+        "{} {}",
+        hold_for["firstname"].as_str().unwrap_or(""),
+        hold_for["lastname"].as_str().unwrap_or("")
+    );
+    assert_eq!(shown.trim(), name, "{hold_for}");
 }
 
 async fn staff_biblio(app: &TestApp, token: &str, biblio_id: i64) -> Value {
@@ -159,8 +173,7 @@ async fn to_pick_is_on_hold_for_staff_and_hidden_for_readers() {
     let staff = staff_biblio(&app, &admin_token, biblio_id).await;
     let staff_copy = find_copy(&staff, hold_id_item);
     assert_state(staff_copy, "onHold", false);
-    assert_eq!(fixtures::json_id(&staff_copy["holdUserId"]), reader_id);
-    assert_eq!(staff_copy["holdUserName"], name);
+    assert_staff_holder(staff_copy, reader_id, &name);
 
     let (status, reader) = app
         .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}"), &reader_token)
@@ -187,7 +200,7 @@ async fn to_pick_is_on_hold_for_staff_and_hidden_for_readers() {
         .await;
     assert_eq!(status, StatusCode::OK, "item detail: {item_detail}");
     assert_state(find_copy(&item_detail, hold_id_item), "onHold", false);
-    assert_eq!(find_copy(&item_detail, hold_id_item)["holdUserName"], name);
+    assert_staff_holder(find_copy(&item_detail, hold_id_item), reader_id, &name);
 
     let (status, reader_item) = app
         .get_json_with_auth(&format!("/api/v1/items/{hold_id_item}"), &reader_token)
@@ -206,7 +219,7 @@ async fn to_pick_is_on_hold_for_staff_and_hidden_for_readers() {
         .find(|item| fixtures::json_id(&item["id"]) == hold_id_item)
         .expect("listed copy");
     assert_state(listed_copy, "onHold", false);
-    assert_eq!(listed_copy["holdUserName"], name);
+    assert_staff_holder(listed_copy, reader_id, &name);
 
     let (status, search) = app
         .get_json_with_auth(
@@ -225,7 +238,7 @@ async fn to_pick_is_on_hold_for_staff_and_hidden_for_readers() {
         .find(|row| fixtures::json_id(&row["id"]) == biblio_id)
         .expect("search hit");
     assert_state(find_copy(hit, hold_id_item), "onHold", false);
-    assert_eq!(find_copy(hit, hold_id_item)["holdUserName"], name);
+    assert_staff_holder(find_copy(hit, hold_id_item), reader_id, &name);
 
     let (status, opac_search) = app
         .get_json(&format!(
@@ -285,11 +298,11 @@ async fn ready_stays_on_hold_and_shelf_copy_is_available() {
     let body = staff_biblio(&app, &admin_token, biblio_id).await;
     assert_state(find_copy(&body, held), "onHold", false);
     assert_eq!(
-        fixtures::json_id(&find_copy(&body, held)["holdUserId"]),
+        fixtures::json_id(&find_copy(&body, held)["holdFor"]["id"]),
         reader_id
     );
     assert_state(find_copy(&body, shelf), "available", true);
-    assert!(find_copy(&body, shelf).get("holdUserId").is_none());
+    assert!(find_copy(&body, shelf).get("holdFor").is_none());
 }
 
 #[tokio::test]
@@ -498,6 +511,7 @@ async fn transit_loan_tosearch_and_blocked_copies() {
 const PUBLIC_FORBIDDEN_KEYS: &[&str] = &[
     "holdUserId",
     "holdUserName",
+    "holdFor",
     "login",
     "notes",
     "weedingStatus",
@@ -796,8 +810,8 @@ async fn reader_patron_summary_omits_login_staff_picker_includes_it() {
         .find(|row| fixtures::json_id(&row["userId"]) == reader_id)
         .expect("staff hold")["user"];
     assert_eq!(staff_user["login"], login);
-    assert!(
-        staff_user.get("barcode").is_none() || staff_user["barcode"].is_null(),
-        "card number stays off embedded hold patrons: {staff_user}"
+    assert_eq!(
+        staff_user["barcode"], card,
+        "users read receives the card on the hold patron: {staff_user}"
     );
 }

@@ -8,6 +8,8 @@
 //! [`crate::models::my_account::MyHoldView`] from `GET /me/loans` and `GET /me/holds`.
 //! Those payloads are not these catalog embeds.
 
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
@@ -79,8 +81,9 @@ impl From<Author> for AuthorPublic {
 /// Full physical copy returned to staff.
 ///
 /// Includes weeding, copy notes, circulation status, the active loan id, `dueDate`,
-/// `onHold`, and the patron assigned when [`ItemAvailability`] is `onHold`.
-/// `borrower` is filled only by `GET /biblios/{id}` for callers with loans read or write.
+/// and `onHold`. `holdFor` is the patron this copy is held for, projected from
+/// the caller's rights. `borrower` is filled only by `GET /biblios/{id}` for
+/// callers with loans read or write.
 #[serde_as]
 #[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -122,12 +125,14 @@ pub struct ItemStaffView {
     pub can_hold_item: bool,
     /// This copy is assigned to a hold, or in transit for one. See [`Item::on_hold`].
     pub on_hold: bool,
-    #[serde_as(as = "Option<DisplayFromStr>")]
-    #[schema(value_type = Option<String>)]
+    /// Patron this copy is held for. Present only when [`Self::availability`] is
+    /// `onHold` and the caller may see a hold patron.
+    ///
+    /// `users_rights` read or write: [`UserShortStaff`]. `loans_rights` read or
+    /// write without users read: [`LoanBorrowerMinimized`] (`id`, `cardNumber`,
+    /// `initials`). Omitted for patrons, the OPAC, and staff with neither right.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub hold_user_id: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub hold_user_name: Option<String>,
+    pub hold_for: Option<LoanBorrowerResponse>,
     /// Set on `GET /biblios/{id}` when the caller has `loans_rights` read or write
     /// and the copy is on loan. `users_rights` read or write selects [`UserShortStaff`];
     /// otherwise [`LoanBorrowerMinimized`]. Omitted for everyone else, including
@@ -163,8 +168,7 @@ impl From<Item> for ItemStaffView {
             availability: item.availability,
             can_hold_item: item.can_hold_item,
             on_hold: item.on_hold,
-            hold_user_id: item.hold_user_id,
-            hold_user_name: item.hold_user_name,
+            hold_for: None,
             borrower: None,
         }
     }
@@ -250,12 +254,9 @@ pub struct ItemShortStaff {
     pub borrowed: bool,
     pub availability: ItemAvailability,
     pub can_hold_item: bool,
-    #[serde_as(as = "Option<DisplayFromStr>")]
-    #[schema(value_type = Option<String>)]
+    /// Same rule as [`ItemStaffView::hold_for`].
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub hold_user_id: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub hold_user_name: Option<String>,
+    pub hold_for: Option<LoanBorrowerResponse>,
 }
 
 impl From<ItemShort> for ItemShortStaff {
@@ -270,8 +271,7 @@ impl From<ItemShort> for ItemShortStaff {
             borrowed: item.borrowed,
             availability: item.availability,
             can_hold_item: item.can_hold_item,
-            hold_user_id: item.hold_user_id,
-            hold_user_name: item.hold_user_name,
+            hold_for: None,
         }
     }
 }
@@ -669,6 +669,113 @@ pub enum LoanBorrowerResponse {
     Minimized(LoanBorrowerMinimized),
 }
 
+/// Identity of the patron a copy is held for. Not serialized by itself.
+#[derive(Debug, Clone)]
+pub struct HoldPatronSource {
+    pub id: i64,
+    pub barcode: Option<String>,
+    pub firstname: Option<String>,
+    pub lastname: Option<String>,
+}
+
+impl Item {
+    /// Assigned hold patron when this copy is `onHold`.
+    #[must_use]
+    pub fn hold_patron_source(&self) -> Option<HoldPatronSource> {
+        hold_patron_source(
+            self.hold_user_id,
+            self.hold_user_barcode.clone(),
+            self.hold_user_firstname.clone(),
+            self.hold_user_lastname.clone(),
+        )
+    }
+}
+
+impl ItemShort {
+    /// Assigned hold patron when this copy is `onHold`.
+    #[must_use]
+    pub fn hold_patron_source(&self) -> Option<HoldPatronSource> {
+        hold_patron_source(
+            self.hold_user_id,
+            self.hold_user_barcode.clone(),
+            self.hold_user_firstname.clone(),
+            self.hold_user_lastname.clone(),
+        )
+    }
+}
+
+fn hold_patron_source(
+    id: Option<i64>,
+    barcode: Option<String>,
+    firstname: Option<String>,
+    lastname: Option<String>,
+) -> Option<HoldPatronSource> {
+    Some(HoldPatronSource {
+        id: id?,
+        barcode: barcode.filter(|value| !value.trim().is_empty()),
+        firstname,
+        lastname,
+    })
+}
+
+/// `holdFor` on a staff catalog copy.
+///
+/// Uses [`project_borrower`] with `own_identity` false. `users_rights` read or
+/// write selects [`UserShortStaff`]. `loans_rights` read or write without users
+/// read selects [`LoanBorrowerMinimized`]. Anyone else receives `None`, including
+/// patrons and the OPAC.
+#[must_use]
+pub fn project_hold_for(
+    source: HoldPatronSource,
+    claims: &UserClaims,
+    full: &HashMap<i64, UserShort>,
+) -> Option<LoanBorrowerResponse> {
+    let users_read = claims.rights.users_rights.rank() >= Rights::Read.rank();
+    let loans_read = claims.rights.loans_rights.rank() >= Rights::Read.rank();
+    if !users_read && !loans_read {
+        return None;
+    }
+    let user = full.get(&source.id).cloned().unwrap_or_else(|| {
+        partial_user_short(source.id, source.barcode, source.firstname, source.lastname)
+    });
+    Some(project_borrower(user, claims, false))
+}
+
+/// Patron row built from the columns already on a catalog or pick-list query.
+#[must_use]
+pub fn partial_user_short(
+    id: i64,
+    barcode: Option<String>,
+    firstname: Option<String>,
+    lastname: Option<String>,
+) -> UserShort {
+    UserShort {
+        id,
+        login: None,
+        barcode,
+        firstname,
+        lastname,
+        account_type: None,
+        public_type: None,
+        nb_loans: None,
+        nb_late_loans: None,
+        status: None,
+        created_at: None,
+        expiry_at: None,
+    }
+}
+
+/// Staff hold list and hold slip.
+///
+/// [`UserShortStaff`] only with `users_rights` read or write. Every other caller
+/// who is allowed to see the row receives [`LoanBorrowerMinimized`]: card number
+/// or initials, never the name. `GET /holds/pick-list` does not use this helper:
+/// shelf labels are always minimized.
+#[must_use]
+pub fn project_listed_hold_patron(user: UserShort, claims: &UserClaims) -> LoanBorrowerResponse {
+    project_borrower(user, claims, false)
+}
+
 /// Staff profile when the caller can read users, otherwise id, card, and initials.
 ///
 /// `own_identity` is for `GET /loans/{id}/user`: the borrower of that loan receives
@@ -747,17 +854,21 @@ pub struct HoldDetailsStaff {
     #[schema(value_type = Option<String>)]
     pub pickup_site_id: Option<i64>,
     pub biblio: BiblioShortStaff,
-    pub user: Option<UserShortStaff>,
+    /// `users_rights` read or write: [`UserShortStaff`]. Otherwise `{ id, cardNumber, initials }`.
+    pub user: Option<LoanBorrowerResponse>,
     pub created_at: DateTime<Utc>,
     pub notified_at: Option<DateTime<Utc>>,
+    /// Pickup deadline. Set when the hold is `ready`.
     pub expires_at: Option<DateTime<Utc>>,
     pub status: HoldStatus,
     pub position: i32,
     pub notes: Option<String>,
 }
 
-impl From<HoldDetails> for HoldDetailsStaff {
-    fn from(hold: HoldDetails) -> Self {
+impl HoldDetailsStaff {
+    /// Staff hold row. `expiresAt` is the pickup deadline.
+    #[must_use]
+    pub fn for_caller(hold: HoldDetails, claims: &UserClaims) -> Self {
         Self {
             id: hold.id,
             user_id: hold.user_id,
@@ -765,7 +876,9 @@ impl From<HoldDetails> for HoldDetailsStaff {
             item_id: hold.item_id,
             pickup_site_id: hold.pickup_site_id,
             biblio: BiblioShortStaff::from(hold.biblio),
-            user: hold.user.map(UserShortStaff::from),
+            user: hold
+                .user
+                .map(|user| project_listed_hold_patron(user, claims)),
             created_at: hold.created_at,
             notified_at: hold.notified_at,
             expires_at: hold.expires_at,
@@ -978,7 +1091,9 @@ mod tests {
             availability: ItemAvailability::ToSearch,
             can_hold_item: false,
             hold_user_id: Some(3),
-            hold_user_name: Some("Ada".into()),
+            hold_user_barcode: Some("CARD".into()),
+            hold_user_firstname: Some("Ada".into()),
+            hold_user_lastname: Some("Lovelace".into()),
         };
         let body = serde_json::to_value(ItemShortPublic::from(item)).unwrap();
         assert_eq!(body["availability"], "unavailable");
@@ -986,6 +1101,9 @@ mod tests {
         assert!(body.get("weedingStatus").is_none());
         assert!(body.get("holdUserId").is_none());
         assert!(body.get("holdUserName").is_none());
+        assert!(body.get("holdFor").is_none());
+        assert!(body.get("firstname").is_none());
+        assert!(body.get("lastname").is_none());
         assert!(body.get("notes").is_none());
         assert!(body.get("login").is_none());
     }

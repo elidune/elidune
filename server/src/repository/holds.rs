@@ -68,7 +68,7 @@ pub trait HoldsRepository: Send + Sync {
     async fn holds_list_pick(
         &self,
         site_id: Option<i64>,
-    ) -> AppResult<Vec<crate::models::dto::holds::HoldPickListItem>>;
+    ) -> AppResult<Vec<crate::models::dto::holds::HoldPickListRow>>;
     /// Days before a pick-list row is overdue. Does not expire the hold.
     async fn holds_get_pick_delay_days(&self) -> AppResult<i16>;
     async fn holds_set_pick_delay_days(&self, pick_delay_days: i16) -> AppResult<i16>;
@@ -176,7 +176,7 @@ impl HoldsRepository for Repository {
     async fn holds_list_pick(
         &self,
         site_id: Option<i64>,
-    ) -> AppResult<Vec<crate::models::dto::holds::HoldPickListItem>> {
+    ) -> AppResult<Vec<crate::models::dto::holds::HoldPickListRow>> {
         Repository::holds_list_pick(self, site_id).await
     }
     async fn holds_get_pick_delay_days(&self) -> AppResult<i16> {
@@ -259,7 +259,9 @@ impl Repository {
                 availability,
                 can_hold_item,
                 hold_user_id: None,
-                hold_user_name: None,
+                hold_user_barcode: None,
+                hold_user_firstname: None,
+                hold_user_lastname: None,
             };
             m.insert(id, (r.biblio_id, item));
         }
@@ -273,7 +275,7 @@ impl Repository {
         }
         let rows: Vec<UserShortRow> = sqlx::query_as(
             r#"
-            SELECT u.id, u.login, u.firstname, u.lastname, u.account_type, u.public_type,
+            SELECT u.id, u.login, u.barcode, u.firstname, u.lastname, u.account_type, u.public_type,
                    (SELECT COUNT(*)::bigint FROM loans l WHERE l.user_id = u.id AND l.returned_at IS NULL) AS nb_loans,
                    (SELECT COUNT(*)::bigint FROM loans l WHERE l.user_id = u.id AND l.returned_at IS NULL AND l.expiry_at < NOW()) AS nb_late_loans,
                    u.status, u.created_at, u.expiry_at
@@ -1294,7 +1296,7 @@ impl Repository {
     pub async fn holds_list_pick(
         &self,
         site_id: Option<i64>,
-    ) -> AppResult<Vec<crate::models::dto::holds::HoldPickListItem>> {
+    ) -> AppResult<Vec<crate::models::dto::holds::HoldPickListRow>> {
         let delay = self.holds_get_pick_delay_days().await?;
         let rows = sqlx::query(
             r#"
@@ -1305,15 +1307,15 @@ impl Repository {
                 i.call_number,
                 b.title,
                 h.user_id,
-                COALESCE(
-                    NULLIF(btrim(concat_ws(' ', u.firstname, u.lastname)), ''),
-                    h.user_id::text
-                ) AS user_name,
+                NULLIF(btrim(u.barcode), '') AS card_number,
+                u.firstname,
+                u.lastname,
                 h.pickup_site_id,
                 pickup.name AS pickup_site_name,
                 COALESCE(h.pick_started_at, h.created_at) AS pick_started_at,
                 COALESCE(h.pick_started_at, h.created_at)
                     + make_interval(days => $2::int) AS pick_due_at,
+                h.expires_at AS pickup_deadline,
                 (COALESCE(h.pick_started_at, h.created_at)
                     + make_interval(days => $2::int)) < NOW() AS overdue
             FROM holds h
@@ -1333,18 +1335,21 @@ impl Repository {
 
         let items = rows
             .iter()
-            .map(|row| crate::models::dto::holds::HoldPickListItem {
+            .map(|row| crate::models::dto::holds::HoldPickListRow {
                 hold_id: row.get("hold_id"),
                 item_id: row.get("item_id"),
                 barcode: row.get("barcode"),
                 call_number: row.get("call_number"),
                 title: row.get::<Option<String>, _>("title").unwrap_or_default(),
                 user_id: row.get("user_id"),
-                user_name: row.get("user_name"),
+                card_number: row.get("card_number"),
+                firstname: row.get("firstname"),
+                lastname: row.get("lastname"),
                 pickup_site_id: row.get("pickup_site_id"),
                 pickup_site_name: row.get("pickup_site_name"),
                 pick_started_at: row.get("pick_started_at"),
                 pick_due_at: row.get("pick_due_at"),
+                pickup_deadline: row.get("pickup_deadline"),
                 overdue: row.get("overdue"),
             })
             .collect();
@@ -2062,20 +2067,21 @@ impl Repository {
     }
 
     /// Lending gate. The hold assigned to this copy, if any (`pending` pin, `to_pick`,
-    /// or `ready`), with the patron display name. An unassigned title hold does not
-    /// block checkout of a shelf copy.
+    /// or `ready`), with the patron's card number and initials. An unassigned title
+    /// hold does not block checkout of a shelf copy.
+    ///
+    /// The tuple is `(hold_id, user_id, status, card_number, initials)`.
     pub async fn holds_assigned_hold_blocks_lending_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, Postgres>,
         item_id: i64,
-    ) -> AppResult<Option<(i64, i64, HoldStatus, String)>> {
-        let row = sqlx::query_as(
+    ) -> AppResult<Option<(i64, i64, HoldStatus, Option<String>, String)>> {
+        let row: Option<AssignedHoldBlockRow> = sqlx::query_as(
             r#"
-            SELECT h.id, h.user_id, h.status,
-                   COALESCE(
-                       NULLIF(btrim(concat_ws(' ', u.firstname, u.lastname)), ''),
-                       h.user_id::text
-                   )
+            SELECT h.id AS hold_id, h.user_id, h.status,
+                   NULLIF(btrim(u.barcode), '') AS card_number,
+                   u.firstname,
+                   u.lastname
             FROM holds h
             LEFT JOIN users u ON u.id = h.user_id
             WHERE h.item_id = $1
@@ -2089,8 +2095,29 @@ impl Repository {
         .bind(item_id)
         .fetch_optional(&mut **tx)
         .await?;
-        Ok(row)
+        Ok(row.map(|row| {
+            (
+                row.hold_id,
+                row.user_id,
+                row.status,
+                row.card_number,
+                crate::models::catalog_view::borrower_initials(
+                    row.firstname.as_deref(),
+                    row.lastname.as_deref(),
+                ),
+            )
+        }))
     }
+}
+
+#[derive(sqlx::FromRow)]
+struct AssignedHoldBlockRow {
+    hold_id: i64,
+    user_id: i64,
+    status: HoldStatus,
+    card_number: Option<String>,
+    firstname: Option<String>,
+    lastname: Option<String>,
 }
 
 /// Unique indexes — last line of defense if two inserts race.

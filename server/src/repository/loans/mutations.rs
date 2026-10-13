@@ -201,7 +201,7 @@ impl Repository {
         // patron is a distinct desk warning. `force=true` clears pinned holds and
         // releases a `to_pick` assignment back to the queue.
         if !loan.force {
-            if let Some((hold_id, user_id, status, user_name)) = self
+            if let Some((hold_id, user_id, status, card_number, initials)) = self
                 .holds_assigned_hold_blocks_lending_tx(&mut tx, item_id)
                 .await?
             {
@@ -210,7 +210,8 @@ impl Repository {
                         return Err(AppError::ItemToPickForOther {
                             hold_id,
                             user_id,
-                            user_name,
+                            card_number,
+                            initials,
                         });
                     }
                     return Err(AppError::BusinessRule(
@@ -467,7 +468,9 @@ impl Repository {
             availability,
             can_hold_item,
             hold_user_id: None,
-            hold_user_name: None,
+            hold_user_barcode: None,
+            hold_user_firstname: None,
+            hold_user_lastname: None,
         };
 
         let details = LoanDetails {

@@ -29,6 +29,7 @@ fn assert_no_borrower(copy: &Value) {
     assert!(copy.get("loanId").is_none(), "loanId leaked: {copy}");
     assert!(copy.get("holdUserId").is_none(), "{copy}");
     assert!(copy.get("holdUserName").is_none(), "{copy}");
+    assert!(copy.get("holdFor").is_none(), "{copy}");
     assert!(copy.get("cardNumber").is_none(), "{copy}");
     assert!(copy.get("initials").is_none(), "{copy}");
     assert!(copy.get("firstname").is_none(), "{copy}");

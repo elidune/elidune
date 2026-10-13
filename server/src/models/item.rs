@@ -316,17 +316,23 @@ pub struct Item {
     #[sqlx(default)]
     #[serde(default)]
     pub can_hold_item: bool,
-    /// Patron id when `availability` is `onHold`. Present on staff responses only.
-    #[serde_as(as = "Option<DisplayFromStr>")]
-    #[schema(value_type = Option<String>)]
+    /// Patron id when `availability` is `onHold`. Not part of the item JSON.
+    /// Staff catalog views project it into `holdFor`.
     #[sqlx(default)]
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip)]
     pub hold_user_id: Option<i64>,
-    /// Patron display name (`firstname` + `lastname`) when `availability` is `onHold`.
-    /// Present on staff responses only. Readers and the OPAC never receive it.
+    /// `users.barcode` for that patron. Not part of the item JSON.
     #[sqlx(default)]
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hold_user_name: Option<String>,
+    #[serde(skip)]
+    pub hold_user_barcode: Option<String>,
+    /// Used only to build `holdFor.initials`. Not part of the item JSON.
+    #[sqlx(default)]
+    #[serde(skip)]
+    pub hold_user_firstname: Option<String>,
+    /// Used only to build `holdFor.initials`. Not part of the item JSON.
+    #[sqlx(default)]
+    #[serde(skip)]
+    pub hold_user_lastname: Option<String>,
     /// Active loan `expiry_at`. Not part of the item write contract.
     /// Copied onto catalog views as `dueDate`.
     #[sqlx(default)]
@@ -415,16 +421,22 @@ pub struct ItemShort {
     #[sqlx(default)]
     #[serde(default)]
     pub can_hold_item: bool,
-    /// Present on staff catalog views only, and only when [`Self::availability`] is [`ItemAvailability::OnHold`].
-    #[serde_as(as = "Option<DisplayFromStr>")]
-    #[schema(value_type = Option<String>)]
+    /// Patron id when [`Self::availability`] is [`ItemAvailability::OnHold`]. Not serialized.
     #[sqlx(default)]
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip)]
     pub hold_user_id: Option<i64>,
-    /// Present on staff catalog views only, and only when [`Self::availability`] is [`ItemAvailability::OnHold`].
+    /// `users.barcode` for that patron. Not serialized.
     #[sqlx(default)]
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub hold_user_name: Option<String>,
+    #[serde(skip)]
+    pub hold_user_barcode: Option<String>,
+    /// Used only to build initials. Not serialized.
+    #[sqlx(default)]
+    #[serde(skip)]
+    pub hold_user_firstname: Option<String>,
+    /// Used only to build initials. Not serialized.
+    #[sqlx(default)]
+    #[serde(skip)]
+    pub hold_user_lastname: Option<String>,
 }
 
 impl From<Item> for ItemShort {
@@ -440,7 +452,9 @@ impl From<Item> for ItemShort {
             availability: item.availability,
             can_hold_item: item.can_hold_item,
             hold_user_id: item.hold_user_id,
-            hold_user_name: item.hold_user_name,
+            hold_user_barcode: item.hold_user_barcode,
+            hold_user_firstname: item.hold_user_firstname,
+            hold_user_lastname: item.hold_user_lastname,
         }
     }
 }

@@ -256,7 +256,7 @@ impl HoldsService {
     pub async fn list_pick(
         &self,
         site_id: Option<i64>,
-    ) -> AppResult<Vec<crate::models::dto::holds::HoldPickListItem>> {
+    ) -> AppResult<Vec<crate::models::dto::holds::HoldPickListRow>> {
         self.repository.holds_list_pick(site_id).await
     }
 
@@ -432,7 +432,7 @@ mod tests {
         async fn holds_list_pick(
             &self,
             _: Option<i64>,
-        ) -> AppResult<Vec<crate::models::dto::holds::HoldPickListItem>> {
+        ) -> AppResult<Vec<crate::models::dto::holds::HoldPickListRow>> {
             Ok(vec![])
         }
         async fn holds_get_pick_delay_days(&self) -> AppResult<i16> {

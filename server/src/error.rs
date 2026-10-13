@@ -159,7 +159,8 @@ pub enum AppError {
     ItemToPickForOther {
         hold_id: i64,
         user_id: i64,
-        user_name: String,
+        card_number: Option<String>,
+        initials: String,
     },
 
     /// Check-in of a known copy that is not on loan (HTTP 404, `item_not_on_loan`).
@@ -246,7 +247,10 @@ pub fn rate_limited_response(retry_after_secs: u64) -> Response {
 pub struct ItemToPickDetails {
     pub hold_id: String,
     pub user_id: String,
-    pub user_name: String,
+    /// Library card (`users.barcode`). Null when the patron has no card on file.
+    pub card_number: Option<String>,
+    /// Uppercase first letters of the patron's first and last name.
+    pub initials: String,
 }
 
 /// Checkout refused because the copy is `to_pick` for someone else.
@@ -480,7 +484,8 @@ impl IntoResponse for AppError {
             AppError::ItemToPickForOther {
                 hold_id,
                 user_id,
-                user_name,
+                card_number,
+                initials,
             } => {
                 let body = Json(ItemToPickForOtherResponse {
                     code: ec::ITEM_TO_PICK_FOR_OTHER.to_string(),
@@ -490,7 +495,8 @@ impl IntoResponse for AppError {
                     details: ItemToPickDetails {
                         hold_id: hold_id.to_string(),
                         user_id: user_id.to_string(),
-                        user_name,
+                        card_number,
+                        initials,
                     },
                 });
                 (StatusCode::UNPROCESSABLE_ENTITY, body).into_response()

@@ -479,6 +479,37 @@ impl Repository {
         Ok(row.map(Into::into))
     }
 
+    /// Batch patron summaries (`barcode` included) for hold identity projection.
+    pub async fn users_get_short_by_ids(
+        &self,
+        ids: &[i64],
+    ) -> AppResult<std::collections::HashMap<i64, crate::models::user::UserShort>> {
+        use crate::models::user::UserShortRow;
+        if ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+        let rows = sqlx::query_as::<_, UserShortRow>(
+            r#"
+            SELECT u.id, u.login, u.barcode, u.firstname, u.lastname, u.account_type, u.public_type,
+                   (SELECT COUNT(*)::bigint FROM loans l WHERE l.user_id = u.id AND l.returned_at IS NULL) AS nb_loans,
+                   (SELECT COUNT(*)::bigint FROM loans l WHERE l.user_id = u.id AND l.returned_at IS NULL AND l.expiry_at < NOW()) AS nb_late_loans,
+                   u.status, u.created_at, u.expiry_at
+            FROM users u
+            WHERE u.id = ANY($1)
+            "#,
+        )
+        .bind(ids)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                let user = UserShort::from(row);
+                (user.id, user)
+            })
+            .collect())
+    }
+
     /// Legal guardian of `child_id`, if a `user_guardians` row exists.
     pub async fn users_guardian_id(&self, child_id: i64) -> AppResult<Option<i64>> {
         Ok(sqlx::query_scalar::<_, i64>(

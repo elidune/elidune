@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use utoipa::ToSchema;
 
+use crate::models::catalog_view::LoanBorrowerMinimized;
+
 /// Global holds policy.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, sqlx::FromRow)]
 #[serde(rename_all = "camelCase")]
@@ -45,11 +47,36 @@ impl HoldQuota {
     }
 }
 
-/// One `to_pick` row for the staff shelf-pick list.
+/// `to_pick` row before the API projects the patron.
 ///
-/// JSON is camelCase and contains exactly these fields, sorted by `callNumber`.
+/// Name parts stay on this type. The HTTP body is [`HoldPickListItem`].
+#[derive(Debug, Clone)]
+pub struct HoldPickListRow {
+    pub hold_id: i64,
+    pub item_id: i64,
+    pub barcode: Option<String>,
+    pub call_number: Option<String>,
+    pub title: String,
+    pub user_id: i64,
+    pub card_number: Option<String>,
+    pub firstname: Option<String>,
+    pub lastname: Option<String>,
+    pub pickup_site_id: Option<i64>,
+    pub pickup_site_name: Option<String>,
+    pub pick_started_at: chrono::DateTime<chrono::Utc>,
+    pub pick_due_at: chrono::DateTime<chrono::Utc>,
+    /// `holds.expires_at`. Null while the hold is still `to_pick`.
+    pub pickup_deadline: Option<chrono::DateTime<chrono::Utc>>,
+    pub overdue: bool,
+}
+
+/// One `to_pick` row for the staff shelf-pick list (hold-shelf label).
+///
+/// JSON is camelCase. `holdFor` is always [`LoanBorrowerMinimized`]: these
+/// labels are displayed on an open shelf, so `users_rights` does not unlock
+/// the name. `pickupDeadline` is the hold's pickup deadline (`holds.expires_at`).
 #[serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct HoldPickListItem {
     #[serde_as(as = "DisplayFromStr")]
@@ -64,14 +91,16 @@ pub struct HoldPickListItem {
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub user_id: i64,
-    /// Patron display name (`firstname` + `lastname`).
-    pub user_name: String,
+    /// Always `{ id, cardNumber, initials }`. Open-shelf labels never include the name.
+    pub hold_for: LoanBorrowerMinimized,
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub pickup_site_id: Option<i64>,
     pub pickup_site_name: Option<String>,
     pub pick_started_at: chrono::DateTime<chrono::Utc>,
     pub pick_due_at: chrono::DateTime<chrono::Utc>,
+    /// Pickup deadline. Null while the hold is `to_pick`.
+    pub pickup_deadline: Option<chrono::DateTime<chrono::Utc>>,
     pub overdue: bool,
 }
 

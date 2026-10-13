@@ -35,12 +35,7 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) active_transit ON TRUE
 LEFT JOIN LATERAL (
-    SELECT
-        h.user_id,
-        COALESCE(
-            NULLIF(btrim(concat_ws(' ', u.firstname, u.lastname)), ''),
-            h.user_id::text
-        ) AS user_name
+    SELECT h.user_id, u.barcode, u.firstname, u.lastname
     FROM holds h
     LEFT JOIN users u ON u.id = h.user_id
     WHERE h.item_id = i.id
@@ -75,8 +70,14 @@ const ITEM_AVAILABILITY_COLUMNS: &str = r#"
                        WHEN copy_state.availability = 'onHold' THEN assigned_hold.user_id
                    END AS hold_user_id,
                    CASE
-                       WHEN copy_state.availability = 'onHold' THEN assigned_hold.user_name
-                   END AS hold_user_name
+                       WHEN copy_state.availability = 'onHold' THEN NULLIF(btrim(assigned_hold.barcode), '')
+                   END AS hold_user_barcode,
+                   CASE
+                       WHEN copy_state.availability = 'onHold' THEN assigned_hold.firstname
+                   END AS hold_user_firstname,
+                   CASE
+                       WHEN copy_state.availability = 'onHold' THEN assigned_hold.lastname
+                   END AS hold_user_lastname
 "#;
 
 fn item_sql(where_and_order: &str) -> String {
