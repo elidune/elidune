@@ -428,11 +428,34 @@ pub async fn update_loan_settings(
 pub enum UserLoanListResponse {
     /// `users_rights` read or write: staff copies and [`UserShortStaff`].
     Staff(PaginatedResponse<LoanDetailsStaff>),
-    /// Own loans without users read: public copies and [`LoanBorrowerMinimized`].
+    /// No users read: public copies and [`LoanBorrowerMinimized`].
     Own(PaginatedResponse<LoanDetailsOwn>),
 }
 
+/// Current loans of another patron need loans read. History still needs users read first.
+fn authorize_other_patron_loans(
+    claims: &crate::models::user::UserClaims,
+    archived: bool,
+) -> AppResult<()> {
+    let can_read_loans = claims.rights.loans_rights.rank() >= Rights::Read.rank();
+    if !archived && can_read_loans {
+        return Ok(());
+    }
+    claims.require_read_users()?;
+    if can_read_loans {
+        return Ok(());
+    }
+    Err(AppError::Authorization(
+        "Insufficient rights to read loans for another user".into(),
+    ))
+}
+
 /// Get loans for a specific user (paginated).
+///
+/// The caller may read their own loans. Current loans of another patron require
+/// `loans_rights` read or write. `archived=true` for another patron still requires
+/// `users_rights` read and `loans_rights` read. With users read, each row is
+/// `LoanDetailsStaff`. With loans rights only, `user` is `{ id, cardNumber, initials }`.
 #[utoipa::path(
     get,
     path = "/users/{id}/loans",
@@ -443,9 +466,9 @@ pub enum UserLoanListResponse {
         GetUserLoansQuery
     ),
     responses(
-        (status = 200, description = "User's loans. `users_rights` read or write: `LoanDetailsStaff` (patron `login` and `barcode`). Otherwise `LoanDetailsOwn` (`user` is `id`, `cardNumber`, `initials` only). Another patron also requires `loans_rights` read. `archived=true` adds `closureReason` (`returned` | `lost`) and `foundAt` (timestamp, or null until a lost copy is found) on each closed loan.", body = UserLoanListResponse),
-        (status = 403, description = "Another patron requires users read and loans read"),
-        (status = 404, description = "User not found")
+        (status = 200, description = "User's loans. `users_rights` read or write: `LoanDetailsStaff` (patron `login` and `barcode`). Without users read: `LoanDetailsOwn` (`user` is `id`, `cardNumber`, `initials` only; no contact fields and no rest of the patron record). The caller may read their own loans. Current loans of another patron require `loans_rights` read or write. `archived=true` for another patron still requires `users_rights` read and `loans_rights` read, and adds `closureReason` (`returned` | `lost`) and `foundAt` (timestamp, or null until a lost copy is found) on each closed loan.", body = UserLoanListResponse),
+        (status = 403, description = "Forbidden. Body is `{ code, error, message }` (`code` is `authorization_failed`). Current loans of another patron need `loans_rights` read. `archived=true` without `users_rights` read returns the same users-read denial as before.", body = crate::error::ErrorResponse),
+        (status = 404, description = "User not found", body = crate::error::ErrorResponse)
     )
 )]
 pub async fn get_user_loans(
@@ -454,19 +477,15 @@ pub async fn get_user_loans(
     Path(user_id): Path<i64>,
     Query(query): Query<GetUserLoansQuery>,
 ) -> AppResult<Json<UserLoanListResponse>> {
+    let archived = query.archived.unwrap_or(false);
     if user_id != claims.user_id {
-        claims.require_read_users()?;
-        if claims.rights.loans_rights.rank() < Rights::Read.rank() {
-            return Err(AppError::Authorization(
-                "Insufficient rights to read loans for another user".into(),
-            ));
-        }
+        authorize_other_patron_loans(&claims, archived)?;
     }
 
     let page = query.page.unwrap_or(1).max(1);
     let per_page = query.per_page.unwrap_or(20).clamp(1, 200);
 
-    let (mut items, total) = if query.archived.unwrap_or(false) {
+    let (mut items, total) = if archived {
         state
             .services
             .loans
@@ -1488,5 +1507,76 @@ mod borrower_identity_tests {
         assert_eq!(borrower_initials(None, Some("  lovelace")), "L");
         assert_eq!(borrower_initials(Some("   "), Some("")), "");
         assert_eq!(borrower_initials(Some("émile"), Some("zola")), "ÉZ");
+    }
+}
+
+#[cfg(test)]
+mod user_loans_access_tests {
+    use super::authorize_other_patron_loans;
+    use crate::error::AppError;
+    use crate::models::user::{AccountTypeSlug, Rights, UserClaims, UserRights};
+
+    fn claims(users: Rights, loans: Rights) -> UserClaims {
+        UserClaims {
+            sub: "1".into(),
+            user_id: 1,
+            account_type: AccountTypeSlug::Admin,
+            rights: UserRights {
+                users_rights: users,
+                loans_rights: loans,
+                ..UserRights::default()
+            },
+            exp: 0,
+            iat: 0,
+            token_version: 0,
+            scope: None,
+        }
+    }
+
+    fn denial(users: Rights, loans: Rights, archived: bool) -> String {
+        match authorize_other_patron_loans(&claims(users, loans), archived) {
+            Ok(()) => {
+                panic!("expected a denial for users={users:?} loans={loans:?} archived={archived}")
+            }
+            Err(AppError::Authorization(message)) => message,
+            Err(other) => panic!("unexpected error: {other}"),
+        }
+    }
+
+    #[test]
+    fn current_loans_of_another_patron_allow_loans_read_without_users_read() {
+        for loans in [Rights::Read, Rights::Write] {
+            for users in [Rights::None, Rights::Own] {
+                assert!(authorize_other_patron_loans(&claims(users, loans), false).is_ok());
+            }
+        }
+    }
+
+    #[test]
+    fn archived_loans_without_users_read_keep_the_users_denial() {
+        let message = denial(Rights::None, Rights::Write, true);
+        assert_eq!(message, "Insufficient rights to read users");
+        assert_eq!(
+            denial(Rights::None, Rights::None, false),
+            "Insufficient rights to read users"
+        );
+        assert_eq!(
+            denial(Rights::Own, Rights::Read, true),
+            "Insufficient rights to read users"
+        );
+    }
+
+    #[test]
+    fn users_read_still_requires_loans_read() {
+        assert_eq!(
+            denial(Rights::Read, Rights::None, false),
+            "Insufficient rights to read loans for another user"
+        );
+        assert_eq!(
+            denial(Rights::Write, Rights::Own, true),
+            "Insufficient rights to read loans for another user"
+        );
+        assert!(authorize_other_patron_loans(&claims(Rights::Read, Rights::Read), true).is_ok());
+        assert!(authorize_other_patron_loans(&claims(Rights::Write, Rights::Write), false).is_ok());
     }
 }

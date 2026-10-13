@@ -151,7 +151,7 @@ Staff versus public JSON on catalog reads (`GET /biblios`, `GET /biblios/:id`, `
 | `DELETE /users/:id` | JWT + `require_write_users()` |
 | `PUT /users/:id/account-type` | JWT + `require_admin()` |
 | `PUT /users/:id/force-password-change` | JWT + `require_admin()` |
-| `GET /users/:id/loans` | JWT; the caller may read their own loans. Another patron requires `users_rights >= read` and `loans_rights >= read` |
+| `GET /users/:id/loans` | JWT; the caller may read their own loans. Current loans of another patron require `loans_rights >= read` (`users_rights >= read` still returns the staff row). `archived=true` for another patron still requires `users_rights >= read` and `loans_rights >= read` |
 | `GET /users/:id/loans/export` | JWT + `require_self_or_staff(id)` |
 | `GET /users/:id/holds` | JWT + `require_read_holds_staff()` + `require_read_users()` |
 | `GET /users/:id/fines` | JWT + `require_read_users()` |
@@ -180,7 +180,7 @@ Loan checkout, return, renew, exceptions, and batch loan operations require **`l
 | `POST /loans/:id/claimed-returned` | JWT + `require_write_loans()` |
 | `POST /loans/:id/claims-returned/resolve` | JWT + `require_write_loans()` |
 | `POST /loans/items/:item_id/lost-found` | JWT + `require_write_loans()` |
-| `GET /users/:id/loans` | JWT; the caller may read their own loans. Another patron requires `users_rights >= read` and `loans_rights >= read` |
+| `GET /users/:id/loans` | JWT; the caller may read their own loans. Current loans of another patron require `loans_rights >= read` (`users_rights >= read` still returns the staff row). `archived=true` for another patron still requires `users_rights >= read` and `loans_rights >= read` |
 | `GET /users/:id/loans/export` | JWT + `require_self_or_staff(id)` |
 
 ## Holds
