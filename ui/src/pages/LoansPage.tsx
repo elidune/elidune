@@ -509,8 +509,8 @@ export default function LoansPage() {
         setLoans([]);
         setLoansTotal(0);
         setLoansLoadError(null);
-        setLoansNotAllowed(true);
-        return { ok: false as const, denied: true };
+        setLoansNotAllowed(false);
+        return { ok: false as const, denied: false };
       }
       const result = await readPatronLoans(() =>
         api.getUserLoans(selectedUser.id, {
@@ -1485,7 +1485,13 @@ export default function LoansPage() {
                   )}
                 </div>
                 <ScrollableListRegion aria-label={t('loans.activeLoans')}>
-                  {loansNotAllowed ? (
+                  {selectedUser && !canReadBorrowers ? (
+                    <div className="px-4 py-12 flex justify-center">
+                      <p role="status" className="max-w-md text-center text-sm text-gray-600 dark:text-gray-400">
+                        {t('loans.deskHandlesLoans')}
+                      </p>
+                    </div>
+                  ) : loansNotAllowed ? (
                     <div className="px-4 py-12 flex justify-center">
                       <LoansAccessNotice
                         denied
@@ -2001,6 +2007,7 @@ export default function LoansPage() {
 
       {activeTab === 'claims' && (
         <ClaimsReturnedQueue
+          linkReaders={canReadBorrowers}
           disabled={exceptionAction.isLoading || exceptionOpen || borrowLoanAction != null}
           busyLoanId={exceptionAction.target?.loanId ?? (borrowLoanAction?.loanId ?? overdueLoanAction?.loanId ?? null)}
           busyKind={

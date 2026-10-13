@@ -49,7 +49,7 @@ import {
 } from '@/pages';
 import type { User } from '@/types';
 import api from '@/services/api';
-import { staffAccess } from '@/utils/staffAccess';
+import { readerRecordFallback, staffAccess } from '@/utils/staffAccess';
 import { FirstSetupGate } from '@/components/first-setup/FirstSetupGate';
 
 const UserDetailPage = lazy(() => import('@/pages/UserDetailPage'));
@@ -120,6 +120,16 @@ function RightsRoute({
 
 function accessOf(user: User | null, token: string | null) {
   return staffAccess(user, token);
+}
+
+/** Reader records need users read. A desk agent is sent back to circulation. */
+function UsersRecordRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  const access = accessOf(user, api.getToken());
+  if (!access.usersRead) {
+    return <Navigate to={readerRecordFallback(access)} replace />;
+  }
+  return <>{children}</>;
 }
 
 /** Shareable `/events`: guests get public chrome; staff EventsPage stays at `/events/manage`. */
@@ -323,9 +333,9 @@ function AppRoutes() {
         path="/users"
         element={
           <ProtectedRoute>
-            <RightsRoute allow={(user, token) => accessOf(user, token).usersRead}>
+            <UsersRecordRoute>
               <UsersPage />
-            </RightsRoute>
+            </UsersRecordRoute>
           </ProtectedRoute>
         }
       />
@@ -334,9 +344,9 @@ function AppRoutes() {
         path="/users/:id"
         element={
           <ProtectedRoute>
-            <RightsRoute allow={(user, token) => accessOf(user, token).usersRead}>
+            <UsersRecordRoute>
               <UserDetailPage />
-            </RightsRoute>
+            </UsersRecordRoute>
           </ProtectedRoute>
         }
       />

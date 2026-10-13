@@ -13,7 +13,7 @@ import OverdueBorrowerSummary from '@/components/loans/OverdueBorrowerSummary';
 import { ownContactOnly } from '@/types';
 import { ownContactPayload } from '@/utils/ownContactForm';
 import { borrowerShownToAgent } from '@/utils/readerIdentifier';
-import { staffAccess } from '@/utils/staffAccess';
+import { readerRecordFallback, staffAccess } from '@/utils/staffAccess';
 
 function token(rights: Record<string, string>): string {
   const payload = Buffer.from(JSON.stringify({ rights })).toString('base64url');
@@ -59,6 +59,7 @@ describe('staff menus follow rights', () => {
     assert.equal(access.fullSettings, false);
     assert.equal(access.librarySettings, false);
     assert.equal(ownContactOnly(null, READER), true);
+    assert.equal(readerRecordFallback(access), '/home');
   });
 
   it('opens the desk for loans read and hides reader records', () => {
@@ -70,6 +71,7 @@ describe('staff menus follow rights', () => {
     assert.equal(access.itemsWrite, false);
     assert.equal(access.homeStats, true);
     assert.equal(ownContactOnly(null, LOANS_ONLY), true);
+    assert.equal(readerRecordFallback(access), '/loans');
   });
 
   it('opens cataloging and weeding for items write without the circulation desk', () => {

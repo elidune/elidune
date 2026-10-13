@@ -59,6 +59,14 @@ export interface StaffAccess {
   backgroundTasks: boolean;
 }
 
+/**
+ * Where to send someone who opened a reader record without users read.
+ * Loans read or write stays on the circulation desk. Everyone else goes home.
+ */
+export function readerRecordFallback(access: Pick<StaffAccess, 'loansRead'>): string {
+  return access.loansRead ? '/loans' : '/home';
+}
+
 /** Menu and route flags. Account type is not consulted. */
 export function staffAccess(user: AccessUser, authToken?: string | null): StaffAccess {
   const internalCatalog = seesInternalCatalog(user, authToken);

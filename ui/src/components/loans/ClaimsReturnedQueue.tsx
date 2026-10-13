@@ -13,20 +13,23 @@ import LoanExceptionActions from './LoanExceptionActions';
 const PAGE_SIZE = 20;
 
 interface ClaimsReturnedQueueProps {
+  /** Reader records need users read. Without it the patron cell stays blank. */
+  linkReaders?: boolean;
   disabled?: boolean;
   busyLoanId?: string | null;
   busyKind?: CirculationExceptionKind | null;
   onOpen: (loanId: string, kind: CirculationExceptionKind, label?: string) => void;
 }
 
-function ClaimPatronLink({ userId }: { userId: string }) {
+function ClaimPatronLink({ userId, linkReader }: { userId: string; linkReader: boolean }) {
   const id = patronId(userId);
   const { data } = useQuery({
     queryKey: ['user', id],
     queryFn: () => api.getUser(id!),
-    enabled: id != null,
+    enabled: linkReader && id != null,
     staleTime: 5 * 60_000,
   });
+  if (!linkReader) return <span>—</span>;
   const name = data ? `${data.firstname ?? ''} ${data.lastname ?? ''}`.trim() : id;
   return (
     <PatronLink
@@ -39,6 +42,7 @@ function ClaimPatronLink({ userId }: { userId: string }) {
 }
 
 export default function ClaimsReturnedQueue({
+  linkReaders = true,
   disabled = false,
   busyLoanId,
   busyKind,
@@ -79,7 +83,9 @@ export default function ClaimsReturnedQueue({
     {
       key: 'patron',
       header: t('loans.exceptions.patron'),
-      render: (row: ClaimsReturnedQueueItem) => <ClaimPatronLink userId={row.userId} />,
+      render: (row: ClaimsReturnedQueueItem) => (
+        <ClaimPatronLink userId={row.userId} linkReader={linkReaders} />
+      ),
     },
     {
       key: 'dates',
@@ -165,7 +171,7 @@ export default function ClaimsReturnedQueue({
                       </div>
                       <p className="text-sm text-gray-600 dark:text-gray-300">
                         <span className="text-gray-500">{t('loans.exceptions.patron')}: </span>
-                        <ClaimPatronLink userId={row.userId} />
+                        <ClaimPatronLink userId={row.userId} linkReader={linkReaders} />
                       </p>
                       <p className="text-xs text-gray-500 dark:text-gray-400">
                         {t('loans.dueDate')}: {df(row.expiryAt)} · {t('loans.exceptions.flaggedAt')}: {df(row.itemUpdatedAt)}

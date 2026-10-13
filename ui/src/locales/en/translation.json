@@ -1300,6 +1300,7 @@
     "userLoadError": "Could not load this patron",
     "loansLoadError": "Could not load loans",
     "loansNotAllowed": "You are not allowed to view these loans.",
+    "deskHandlesLoans": "This reader's loans are handled here: scan the copy to lend or return it.",
     "specimenBarcode": "Copy barcode",
     "loanDetails": "Loan details",
     "borrowedSpecimen": "Borrowed copy",

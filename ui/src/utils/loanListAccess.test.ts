@@ -12,6 +12,7 @@ import LoansAccessNotice from '@/components/loans/LoansAccessNotice';
 import {
   checkoutRecap,
   deskMayLoadPatronLoans,
+  patronActiveLoansPanel,
   isLoansForbidden,
   loansQueryRetry,
   readPatronLoans,
@@ -51,9 +52,33 @@ describe('patron loan list access', () => {
     assert.equal(loaded.ok, true);
   });
 
-  it('does not call patron loans from the desk without users read', () => {
+  it('keeps a loans-only desk on the desk flow instead of a permission sentence', async () => {
+    assert.equal(patronActiveLoansPanel(false), 'desk');
+    assert.equal(patronActiveLoansPanel(true), 'list');
     assert.equal(deskMayLoadPatronLoans(false), false);
     assert.equal(deskMayLoadPatronLoans(true), true);
+
+    const i18n = createInstance();
+    await i18n.init({
+      lng: 'fr',
+      resources: {
+        en: { translation: en },
+        fr: { translation: fr },
+        de: { translation: de },
+        es: { translation: es },
+      },
+      interpolation: { escapeValue: false },
+    });
+    for (const lng of ['fr', 'en', 'de', 'es'] as const) {
+      const hint = i18n.t('loans.deskHandlesLoans', { lng });
+      const denied = i18n.t('loans.loansNotAllowed', { lng });
+      assert.notEqual(hint, 'loans.deskHandlesLoans');
+      assert.equal(hint.includes(denied), false);
+    }
+    const french = i18n.t('loans.deskHandlesLoans', { lng: 'fr' });
+    assert.match(french, /lecteur/);
+    assert.match(french, /exemplaire/);
+    assert.equal(french.toLowerCase().includes('autorisé'), false);
   });
 
   it('builds the checkout recap from the created loan when the list is missing', () => {

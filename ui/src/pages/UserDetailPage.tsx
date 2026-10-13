@@ -77,6 +77,7 @@ export default function UserDetailPage() {
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
   const canReadBorrowers = canReadUsers(currentUser, api.getToken());
+  const canListReaderLoans = canReadBorrowers && canReadLoans(currentUser, api.getToken());
   const { t, i18n } = useTranslation();
   const { showToast } = useToast();
   const holdsLoadMoreRef = useRef<HTMLDivElement>(null);
@@ -196,7 +197,7 @@ export default function UserDetailPage() {
       const totalLoaded = allPages.reduce((sum, p) => sum + p.items.length, 0);
       return totalLoaded < lastPage.total ? lastPage.page + 1 : undefined;
     },
-    enabled: !!id && detailTab === 'activeLoans',
+    enabled: !!id && canListReaderLoans && detailTab === 'activeLoans',
     retry: loansQueryRetry,
   });
   const activeLoans = useMemo(
@@ -230,7 +231,7 @@ export default function UserDetailPage() {
       const totalLoaded = allPages.reduce((sum, p) => sum + p.items.length, 0);
       return totalLoaded < lastPage.total ? lastPage.page + 1 : undefined;
     },
-    enabled: !!id && detailTab === 'pastLoans',
+    enabled: !!id && canListReaderLoans && detailTab === 'pastLoans',
     retry: loansQueryRetry,
   });
   const pastLoans = (pastLoansPages?.pages.flatMap((p) => p.items) ?? []).filter(isUserRecordLoan);
@@ -972,7 +973,11 @@ export default function UserDetailPage() {
                       { id: 'fines' as UserDetailTab, label: t('users.finesTab') },
                       { id: 'holds' as UserDetailTab, label: t('users.holdsTab') },
                       { id: 'stats' as UserDetailTab, label: t('users.loanStatistics') },
-                    ].filter((tab) => tab.id !== 'fines' || finesVisible)
+                    ].filter((tab) => {
+                      if (tab.id === 'fines') return finesVisible;
+                      if (tab.id === 'activeLoans' || tab.id === 'pastLoans') return canListReaderLoans;
+                      return true;
+                    })
                   ).map((tab) => (
                     <button
                       key={tab.id}

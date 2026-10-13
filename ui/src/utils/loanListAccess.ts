@@ -27,11 +27,20 @@ export async function readPatronLoans<T>(load: () => Promise<T>): Promise<Patron
 }
 
 /**
- * Desk checkout may record a loan with loans-write alone.
- * GET /users/:id/loans also requires users-read, so skip it otherwise.
+ * What the desk shows under “active loans” for the scanned reader.
+ *
+ * `GET /users/{id}/loans` for another reader requires users read and loans read
+ * (#217). Loans write alone does not list those loans, and the minimized
+ * `{id, cardNumber, initials}` body is only the caller’s own loans.
+ * The reader record itself is users read, so a desk agent stays on the desk.
  */
+export function patronActiveLoansPanel(canReadUsersRight: boolean): 'list' | 'desk' {
+  return canReadUsersRight ? 'list' : 'desk';
+}
+
+/** Desk checkout may record a loan with loans write alone. Skip the list otherwise. */
 export function deskMayLoadPatronLoans(canReadUsersRight: boolean): boolean {
-  return canReadUsersRight;
+  return patronActiveLoansPanel(canReadUsersRight) === 'list';
 }
 
 export interface CheckoutListMatch {

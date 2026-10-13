@@ -1300,6 +1300,7 @@
     "userLoadError": "No se pudo cargar este usuario",
     "loansLoadError": "No se pudieron cargar los préstamos",
     "loansNotAllowed": "No tiene permiso para ver estos préstamos.",
+    "deskHandlesLoans": "Los préstamos de este lector se gestionan aquí: escanee el ejemplar para prestarlo o devolverlo.",
     "specimenBarcode": "Código de barras del ejemplar",
     "loanDetails": "Detalles del préstamo",
     "borrowedSpecimen": "Ejemplar prestado",
