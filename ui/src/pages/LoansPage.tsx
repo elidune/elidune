@@ -24,7 +24,6 @@ import ClaimsReturnedQueue from '@/components/loans/ClaimsReturnedQueue';
 import LoanExceptionActions from '@/components/loans/LoanExceptionActions';
 import DeskScanNotice from '@/components/loans/DeskScanNotice';
 import ToPickForceLoanDialog from '@/components/loans/ToPickForceLoanDialog';
-import LoansAccessNotice from '@/components/loans/LoansAccessNotice';
 import LostFoundAlertDialog from '@/components/loans/LostFoundAlertDialog';
 import Pagination from '@/components/common/Pagination';
 import api from '@/services/api';
@@ -79,16 +78,22 @@ import DeskNameSearch from '@/components/loans/DeskNameSearch';
 import DeskPatronStatus from '@/components/loans/DeskPatronStatus';
 import OverdueBorrowerSummary from '@/components/loans/OverdueBorrowerSummary';
 import OverdueDueDate from '@/components/loans/OverdueDueDate';
+import PatronLoansOutcome from '@/components/loans/PatronLoansOutcome';
 import { OVERDUE_FACTS_CLASS } from '@/utils/overdueDueDate';
 import ReturnBorrowerLine from '@/components/loans/ReturnBorrowerLine';
 import { useToast } from '@/contexts/ToastContext';
 import { canReadUsers, isAdmin } from '@/types';
-import type { User as UserType, Loan, UserShort, OverdueLoanInfo, ReminderReport, ItemCheckIn, LostFoundDisposition, LostReturnFields, PatronLoanStatus } from '@/types';
-import { isItemStaffView, isLoanDetailsStaff } from '@/utils/catalogView';
+import type { User as UserType, Loan, UserShort, OverdueLoanInfo, ReminderReport, ItemCheckIn, LostFoundDisposition, LostReturnFields, PatronLoanStatus, LoanListItem } from '@/types';
+import { isItemStaffView, isUserRecordLoan } from '@/utils/catalogView';
 import { circulationMayForce } from '@/utils/circulationForce';
 import { deskNameSearchVisible, deskPatronIdentity, patronFromCardScan, presentCardScanError } from '@/utils/deskPatron';
 import { readerIdentifierText, type BorrowerRef } from '@/utils/readerIdentifier';
-import { checkoutRecap, deskMayLoadPatronLoans, readPatronLoans } from '@/utils/loanListAccess';
+import {
+  checkoutRecap,
+  currentUserLoansQuery,
+  deskBorrower,
+  readPatronLoans,
+} from '@/utils/loanListAccess';
 
 type TabType = 'borrow' | 'return' | 'overdue' | 'claims';
 type LostFoundSummary = {
@@ -146,13 +151,13 @@ export default function LoansPage() {
   const { t, i18n } = useTranslation();
   const { user: authUser } = useAuth();
   const canReadBorrowers = canReadUsers(authUser, api.getToken());
-  const { showToast } = useToast();
+  const { showToast, dismissPersistentErrors } = useToast();
   const userIsAdmin = isAdmin(authUser?.accountType);
   const [activeTab, setActiveTab] = useState<TabType>('borrow');
   
   // Borrow section state
   const [selectedUser, setSelectedUser] = useState<UserType | null>(null);
-  const [loans, setLoans] = useState<Loan[]>([]);
+  const [loans, setLoans] = useState<LoanListItem[]>([]);
   const [loansPage, setLoansPage] = useState(1);
   const [loansTotal, setLoansTotal] = useState(0);
   const [isLoadingLoans, setIsLoadingLoans] = useState(false);
@@ -170,7 +175,7 @@ export default function LoansPage() {
   const [userSearchError, setUserSearchError] = useState<string | null>(null);
   const [userSelectError, setUserSelectError] = useState<string | null>(null);
   const [loansLoadError, setLoansLoadError] = useState<string | null>(null);
-  const [loansNotAllowed, setLoansNotAllowed] = useState(false);
+  const [loansAccessDenied, setLoansAccessDenied] = useState(false);
   const [userSearchRetry, setUserSearchRetry] = useState(0);
   const [loansReloadToken, setLoansReloadToken] = useState(0);
   const [isPatronLookupBusy, setIsPatronLookupBusy] = useState(false);
@@ -247,8 +252,18 @@ export default function LoansPage() {
     });
   }, [activeTab, selectedUser]);
 
+  const selectedReaderIdRef = useRef<string | null>(null);
+  const selectDeskReader = useCallback((user: UserType | null) => {
+    const nextId = user?.id ?? null;
+    if (selectedReaderIdRef.current !== nextId) {
+      selectedReaderIdRef.current = nextId;
+      dismissPersistentErrors();
+    }
+    setSelectedUser(user);
+  }, [dismissPersistentErrors]);
+
   const resetBorrowFlow = useCallback(() => {
-    setSelectedUser(null);
+    selectDeskReader(null);
     setPatronIdentity(null);
     setDeskLoanStatus(null);
     setCardScanError(null);
@@ -257,6 +272,7 @@ export default function LoansPage() {
     setLoans([]);
     setLoansTotal(0);
     setLoansPage(1);
+    setLoansAccessDenied(false);
     setUserSearchDraft('');
     setUserSearchResults([]);
     setBarcodeInput('');
@@ -268,7 +284,7 @@ export default function LoansPage() {
     if (userBarcodeInputRef.current) {
       userBarcodeInputRef.current.value = '';
     }
-  }, []);
+  }, [selectDeskReader]);
 
   const prevActiveTabRef = useRef<TabType | null>(null);
 
@@ -348,7 +364,7 @@ export default function LoansPage() {
         kind: 'lostFound',
         title: loan?.biblio?.title?.trim() || null,
         barcode: (loan?.itemIdentification ?? barcode ?? '').trim() || null,
-        patronName: readerName(loan?.user),
+        patronName: readerName(loan?.user, canReadBorrowers),
         foundAt: new Date().toISOString(),
         action: null,
         feeText: lostFoundPanelFee(null, result, null, i18n.language, (key, values) =>
@@ -357,7 +373,7 @@ export default function LoansPage() {
       });
       return true;
     },
-    [i18n.language, t],
+    [canReadBorrowers, i18n.language, t],
   );
 
   const dismissLostFound = useCallback(() => {
@@ -505,34 +521,30 @@ export default function LoansPage() {
   const applyPatronLoans = useCallback(
     async (options: { notify: boolean }) => {
       if (!selectedUser) return { ok: false as const, denied: false };
-      if (!deskMayLoadPatronLoans(canReadBorrowers)) {
-        setLoans([]);
-        setLoansTotal(0);
-        setLoansLoadError(null);
-        setLoansNotAllowed(true);
-        return { ok: false as const, denied: true };
-      }
       const result = await readPatronLoans(() =>
-        api.getUserLoans(selectedUser.id, {
-          page: loansPage,
-          perPage: BORROW_LOANS_PAGE_SIZE,
-        }),
+        api.getUserLoans(selectedUser.id, currentUserLoansQuery(loansPage, BORROW_LOANS_PAGE_SIZE)),
       );
       if (result.ok) {
-        setLoans(result.page.items.filter(isLoanDetailsStaff));
+        setLoans(
+          result.page.items.filter(isUserRecordLoan).map((loan) =>
+            canReadBorrowers
+              ? loan
+              : { ...loan, user: deskBorrower(loan.user, false) },
+          ) as LoanListItem[],
+        );
         setLoansTotal(result.page.total);
         setLoansLoadError(null);
-        setLoansNotAllowed(false);
+        setLoansAccessDenied(false);
         return result;
       }
       if (result.denied) {
         setLoans([]);
         setLoansTotal(0);
         setLoansLoadError(null);
-        setLoansNotAllowed(true);
+        setLoansAccessDenied(true);
         return result;
       }
-      setLoansNotAllowed(false);
+      setLoansAccessDenied(false);
       const msg = getApiErrorMessage(result.error, t) || t('loans.loansLoadError');
       setLoansLoadError(msg);
       if (options.notify) {
@@ -701,11 +713,12 @@ export default function LoansPage() {
   const [prevSelectedUser, setPrevSelectedUser] = useState(selectedUser);
   if (selectedUser !== prevSelectedUser) {
     setPrevSelectedUser(selectedUser);
+    setLoansAccessDenied(false);
+    if (selectedUser) setIsLoadingLoans(true);
     if (!selectedUser) {
       setLoans([]);
       setLoansTotal(0);
       setLoansLoadError(null);
-      setLoansNotAllowed(false);
     }
   }
 
@@ -716,7 +729,7 @@ export default function LoansPage() {
     setUserSelectError(null);
     try {
       const fullUser = await api.getUser(user.id);
-      setSelectedUser(fullUser);
+      selectDeskReader(fullUser);
       setPatronIdentity(
         deskPatronIdentity({
           id: fullUser.id,
@@ -761,7 +774,7 @@ export default function LoansPage() {
     try {
       const found = await api.getUserByCard(barcode.trim());
       const scanned = patronFromCardScan(found);
-      setSelectedUser(scanned.user);
+      selectDeskReader(scanned.user);
       setPatronIdentity(scanned.identity);
       setDeskLoanStatus(scanned.loanStatus);
       setCardScanError(null);
@@ -769,6 +782,7 @@ export default function LoansPage() {
         setLoans([]);
         setLoansTotal(0);
         setLoansLoadError(null);
+        setLoansAccessDenied(false);
       }
       setLoansPage(1);
       setLastCheckout(null);
@@ -797,7 +811,10 @@ export default function LoansPage() {
 
     const barcode = specimenBarcode.trim();
     const snapshot = await readDeskCopy(barcode);
-    const alert = deskScanAlert(snapshot, { patronId: selectedUser.id });
+    const alert = deskScanAlert(snapshot, {
+      patronId: selectedUser.id,
+      revealIdentity: canReadBorrowers,
+    });
     if (alert && alert.kind !== 'onHold') {
       const shown =
         alert.kind === 'onLoan'
@@ -935,11 +952,11 @@ export default function LoansPage() {
 
     const barcode = specimenBarcode.trim();
     const snapshot = await readDeskCopy(barcode);
-    const preview = deskScanAlert(snapshot, {});
+    const preview = deskScanAlert(snapshot, { revealIdentity: canReadBorrowers });
 
     try {
       const result = await api.returnLoanByBarcode(barcode);
-      setReturnScanAlert(deskScanAlertAfterReturn(result));
+      setReturnScanAlert(deskScanAlertAfterReturn(result, canReadBorrowers));
       setCheckoutScanAlert((current) =>
         checkoutAlertAfterSuccessfulReturn(current, {
           barcode,
@@ -986,7 +1003,7 @@ export default function LoansPage() {
     {
       key: 'title',
       header: t('loans.document'),
-      render: (loan: Loan) => {
+      render: (loan: LoanListItem) => {
         const specs = loan.biblio?.items;
         const spec = specs?.length
           ? (specs.find((s) => s.borrowed) ?? specs[0])
@@ -1015,13 +1032,13 @@ export default function LoansPage() {
     {
       key: 'date',
       header: t('loans.borrowDate'),
-      render: (loan: Loan) =>
+      render: (loan: LoanListItem) =>
         new Date(loan.startDate).toLocaleDateString(i18n.language),
     },
     {
       key: 'expiryAt',
       header: t('loans.dueDate'),
-      render: (loan: Loan) => (
+      render: (loan: LoanListItem) => (
         <div className="flex items-center gap-2">
           <span>{new Date(loan.expiryAt).toLocaleDateString(i18n.language)}</span>
           {loan.isOverdue && <Badge variant="danger">{t('loans.overdue')}</Badge>}
@@ -1031,13 +1048,13 @@ export default function LoansPage() {
     {
       key: 'renews',
       header: t('loans.renewals'),
-      render: (loan: Loan) => loan.nbRenews,
+      render: (loan: LoanListItem) => loan.nbRenews,
     },
     {
       key: 'actions',
       header: t('common.actions'),
       align: 'right' as const,
-      render: (loan: Loan) => {
+      render: (loan: LoanListItem) => {
         const claimed = isClaimedReturnedLoan(loan, claimedLoanIds);
         const busy = borrowLoanAction?.loanId === loan.id ? borrowLoanAction.op : null;
         return (
@@ -1355,7 +1372,7 @@ export default function LoansPage() {
                       size="sm"
                       className="shrink-0"
                       onClick={() => {
-                        setSelectedUser(null);
+                        selectDeskReader(null);
                         setPatronIdentity(null);
                         setDeskLoanStatus(null);
                         setCardScanError(null);
@@ -1364,6 +1381,7 @@ export default function LoansPage() {
                         setLoans([]);
                         setLoansTotal(0);
                         setLoansPage(1);
+                        setLoansAccessDenied(false);
                         setUserSearchDraft('');
                         setBarcodeInput('');
                         setLastCheckout(null);
@@ -1481,17 +1499,14 @@ export default function LoansPage() {
                   )}
                 </div>
                 <ScrollableListRegion aria-label={t('loans.activeLoans')}>
-                  {loansNotAllowed ? (
-                    <div className="px-4 py-12 flex justify-center">
-                      <LoansAccessNotice
-                        denied
-                        onRetry={() => setLoansReloadToken((n) => n + 1)}
-                        fallbackMessage={t('loans.loansLoadError')}
-                      />
-                    </div>
-                  ) : isLoadingLoans && !loans.length ? (
+                  {isLoadingLoans && !loans.length && !loansAccessDenied ? (
                     <ListSkeleton rows={6} />
                   ) : (
+                    <PatronLoansOutcome
+                      denied={loansAccessDenied}
+                      itemCount={loansSortedByStart.length}
+                      emptyMessage={t('loans.noLoans')}
+                    >
                     <ResponsiveRecordList
                       desktop={
                         <Table
@@ -1545,6 +1560,7 @@ export default function LoansPage() {
                         )
                       }
                     />
+                    </PatronLoansOutcome>
                   )}
                 </ScrollableListRegion>
                 {loansTotal > 0 && (
@@ -1773,10 +1789,16 @@ export default function LoansPage() {
                         className="inline-flex items-center gap-1.5 rounded-lg bg-white/90 dark:bg-gray-900/60 border border-indigo-100 dark:border-indigo-900 px-2.5 py-1 text-xs text-gray-700 dark:text-gray-300"
                       >
                         <span className="font-medium">
-                          {d.firstname} {d.lastname}
+                          {canReadBorrowers
+                            ? [d.firstname, d.lastname].filter(Boolean).join(' ').trim() || '—'
+                            : '—'}
                         </span>
-                        <span className="text-gray-400">·</span>
-                        <span className="truncate max-w-[10rem]">{d.email}</span>
+                        {canReadBorrowers ? (
+                          <>
+                            <span className="text-gray-400">·</span>
+                            <span className="truncate max-w-[10rem]">{d.email}</span>
+                          </>
+                        ) : null}
                         <Badge variant="default" size="sm">
                           {d.loanCount}
                         </Badge>
@@ -1788,7 +1810,8 @@ export default function LoansPage() {
                   <ul className="text-red-700 dark:text-red-400 text-xs space-y-1 border-t border-red-200/50 dark:border-red-900/40 pt-2">
                     {reminderReport.errors.map((e) => (
                       <li key={`${e.userId}-${e.email}`}>
-                        {e.email}: {e.errorMessage}
+                        {canReadBorrowers ? `${e.email}: ` : null}
+                        {e.errorMessage}
                       </li>
                     ))}
                   </ul>
@@ -1990,6 +2013,7 @@ export default function LoansPage() {
 
       {activeTab === 'claims' && (
         <ClaimsReturnedQueue
+          linkReaders={canReadBorrowers}
           disabled={exceptionAction.isLoading || exceptionOpen || borrowLoanAction != null}
           busyLoanId={exceptionAction.target?.loanId ?? (borrowLoanAction?.loanId ?? overdueLoanAction?.loanId ?? null)}
           busyKind={
@@ -2134,20 +2158,21 @@ async function readDeskCopy(barcode: string): Promise<DeskCopySnapshot | null> {
     if (copy.availability === 'onLoan' && copy.loanId) {
       try {
         const borrower = await api.getLoanBorrower(copy.loanId);
+        const reveal = canReadUsers(null, api.getToken());
         const ref = otherBorrowerFromPerson({
           userId: borrower.id,
           cardNumber: borrower.cardNumber,
           barcode: borrower.barcode,
           initials: borrower.initials,
-          firstname: borrower.firstname,
-          lastname: borrower.lastname,
+          firstname: reveal ? borrower.firstname : null,
+          lastname: reveal ? borrower.lastname : null,
         });
         loanUserId = ref?.userId ?? borrower.id;
-        loanUserName = readerName(borrower);
+        loanUserName = reveal ? readerName(borrower) : null;
         loanUserCard = ref?.cardNumber ?? null;
         loanUserInitials = ref?.initials ?? null;
-        loanUserFirstname = borrower.firstname ?? null;
-        loanUserLastname = borrower.lastname ?? null;
+        loanUserFirstname = reveal ? (borrower.firstname ?? null) : null;
+        loanUserLastname = reveal ? (borrower.lastname ?? null) : null;
       } catch {
         loanUserId = null;
         loanUserName = null;
@@ -2172,7 +2197,7 @@ async function readDeskCopy(barcode: string): Promise<DeskCopySnapshot | null> {
 async function resolvePickNotice(notice: PickCheckInNotice): Promise<PickCheckInNotice> {
   let patronName = notice.patronName;
   let siteName = notice.siteName;
-  if (notice.kind === 'ready' && !patronName && notice.userId) {
+  if (notice.kind === 'ready' && !patronName && notice.userId && canReadUsers(null, api.getToken())) {
     try {
       const user = await api.getUser(notice.userId);
       const joined = [user.firstname, user.lastname].filter(Boolean).join(' ').trim();

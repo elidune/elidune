@@ -1,5 +1,8 @@
 import { useState, useRef, useCallback, useEffect, Fragment } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useAuth } from '@/contexts/AuthContext';
+import api from '@/services/api';
+import { canReadUsers } from '@/types';
 import { Link } from 'react-router-dom';
 import {
   Plus,
@@ -24,7 +27,6 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { Card, Button, Modal, Input, Badge, ScrollableListRegion, BarcodeScanField } from '@/components/common';
-import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { useBackgroundTasks } from '@/contexts/BackgroundTasksContext';
 import { formatTaskProgressDetail, taskProgressPercent } from '@/utils/backgroundTaskDisplay';
@@ -1409,6 +1411,8 @@ function ConsolidationModal({
   onSuccess: (sessionId: string) => void;
 }) {
   const { t, i18n } = useTranslation();
+  const { user: authUser } = useAuth();
+  const canReadBorrowers = canReadUsers(authUser, api.getToken());
   const { trackTask, getTask } = useBackgroundTasks();
   const [page, setPage] = useState(1);
   const [result, setResult] = useState<InventoryConsolidationResult | null>(null);
@@ -1649,8 +1653,9 @@ function ConsolidationModal({
                         {preview.items.map((row) => {
                           const loan = row.activeLoan;
                           const readerName =
-                            loan &&
-                            [loan.userFirstname, loan.userLastname].filter(Boolean).join(' ').trim();
+                            canReadBorrowers && loan
+                              ? [loan.userFirstname, loan.userLastname].filter(Boolean).join(' ').trim()
+                              : '';
                           return (
                             <tr
                               key={row.itemId}
@@ -1683,7 +1688,7 @@ function ConsolidationModal({
                               <td className="py-2 px-3 text-xs text-gray-600 dark:text-gray-400">
                                 {row.onLoan && loan ? (
                                   <span>
-                                    {readerName || loan.userEmail || loan.userId}
+                                    {canReadBorrowers ? readerName || loan.userEmail || '—' : '—'}
                                     {loan.expiryAt && (
                                       <span className="block text-gray-500 dark:text-gray-500">
                                         {new Date(loan.expiryAt).toLocaleDateString(i18n.language)}

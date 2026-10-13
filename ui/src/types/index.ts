@@ -3,6 +3,7 @@ import {
   readHoldsRightsFromJwt,
   readItemsArchiveRightsFromJwt,
   readItemsRightsFromJwt,
+  readOwnableRightFromJwt,
   normalizeUsersRightsLevel,
   readUsersRightsFromJwt,
   readWeedingCancelRightsFromJwt,
@@ -119,6 +120,12 @@ export interface AuthMeRights {
   itemsRights?: string | null;
   /** Borrower records (`n` / `o` / `r` / `w` or `none` / `own` / `read` / `write`). */
   usersRights?: string | null;
+  /** Circulation (`n` / `o` / `r` / `w`). `own` is the patron's own loans. */
+  loansRights?: string | null;
+  /** Library settings (`n` / `r` / `w`). */
+  settingsRights?: string | null;
+  /** Cultural events (`n` / `r` / `w`). */
+  eventsRights?: string | null;
 }
 
 // User types
@@ -146,6 +153,12 @@ export interface User {
   itemsRights?: string | null;
   /** Borrower records when exposed on the profile. JWT `rights.usersRights` is preferred. */
   usersRights?: string | null;
+  /** Circulation when exposed on the profile. JWT `rights.loansRights` is preferred. */
+  loansRights?: string | null;
+  /** Settings when exposed on the profile. JWT `rights.settingsRights` is preferred. */
+  settingsRights?: string | null;
+  /** Events when exposed on the profile. JWT `rights.eventsRights` is preferred. */
+  eventsRights?: string | null;
   rights?: AuthMeRights | null;
   // Address fields
   addrStreet?: string;
@@ -1779,11 +1792,63 @@ export const isLibrarian = (accountType?: string): boolean => {
   return normalized === 'admin' || normalized === 'librarian';
 };
 
-export const canManageItems = (accountType?: string): boolean =>
-  isLibrarian(accountType);
+type RightsUser = Pick<
+  User,
+  | 'itemsRights'
+  | 'usersRights'
+  | 'loansRights'
+  | 'holdsRights'
+  | 'settingsRights'
+  | 'eventsRights'
+  | 'weedingRights'
+  | 'weedingCancelRights'
+  | 'itemsArchiveRights'
+  | 'acquisitionsRights'
+  | 'rights'
+> | null | undefined;
 
-export const canManageUsers = (accountType?: string): boolean =>
-  isLibrarian(accountType);
+/** `own` ranks below `read`. Missing claims are deny. */
+export function resolveUsersRights(
+  user: Pick<User, 'usersRights' | 'rights'> | null | undefined,
+  authToken?: string | null,
+): 'n' | 'o' | 'r' | 'w' | null {
+  const fromJwt = authToken ? readUsersRightsFromJwt(authToken) : null;
+  if (fromJwt) return fromJwt;
+  return normalizeUsersRightsLevel(
+    (user?.rights && typeof user.rights === 'object' ? user.rights.usersRights : null) ??
+      user?.usersRights,
+  );
+}
+
+function resolveOwnableRight(
+  user: RightsUser,
+  authToken: string | null | undefined,
+  field: 'loansRights' | 'settingsRights' | 'eventsRights',
+): 'n' | 'o' | 'r' | 'w' | null {
+  const fromJwt = authToken ? readOwnableRightFromJwt(authToken, field) : null;
+  if (fromJwt) return fromJwt;
+  if (!user) return null;
+  const nested = user.rights && typeof user.rights === 'object' ? user.rights : null;
+  return normalizeUsersRightsLevel(nested?.[field] ?? user[field]);
+}
+
+function atLeastRead(level: 'n' | 'o' | 'r' | 'w' | null): boolean {
+  return level === 'r' || level === 'w';
+}
+
+/** Catalog write (`itemsRights` write). Patrons share `read` and stay on the public view. */
+export const canManageItems = (user: RightsUser, authToken?: string | null): boolean =>
+  resolveNamedRight(user, authToken, 'itemsRights', readItemsRightsFromJwt) === 'w';
+
+/** `itemsRights` read or write. Readers have read; it does not select the staff catalog. */
+export const canReadItems = (user: RightsUser, authToken?: string | null): boolean => {
+  const level = resolveNamedRight(user, authToken, 'itemsRights', readItemsRightsFromJwt);
+  return level === 'r' || level === 'w';
+};
+
+/** Borrower-record mutations (`usersRights` write). */
+export const canManageUsers = (user: RightsUser, authToken?: string | null): boolean =>
+  resolveUsersRights(user, authToken) === 'w';
 
 /**
  * Staff may open another borrower's record.
@@ -1793,18 +1858,67 @@ export function canReadUsers(
   user: Pick<User, 'usersRights' | 'rights'> | null | undefined,
   authToken?: string | null,
 ): boolean {
-  const fromJwt = authToken ? readUsersRightsFromJwt(authToken) : null;
-  const level =
-    fromJwt ??
-    normalizeUsersRightsLevel(
-      (user?.rights && typeof user.rights === 'object' ? user.rights.usersRights : null) ??
-        user?.usersRights,
-    );
-  return level === 'r' || level === 'w';
+  return atLeastRead(resolveUsersRights(user, authToken));
 }
 
-export const canManageLoans = (accountType?: string): boolean =>
-  isLibrarian(accountType);
+/**
+ * Reader updating their own account (`usersRights` own, or no users right).
+ * `read` and `write` still use the staff profile form.
+ */
+export function ownContactOnly(
+  user: Pick<User, 'usersRights' | 'rights'> | null | undefined,
+  authToken?: string | null,
+): boolean {
+  const level = resolveUsersRights(user, authToken);
+  return level !== 'r' && level !== 'w';
+}
+
+/** Desk circulation (`loansRights` read or write). `own` is the patron's loans. */
+export const canReadLoans = (user: RightsUser, authToken?: string | null): boolean =>
+  atLeastRead(resolveOwnableRight(user, authToken, 'loansRights'));
+
+export const canManageLoans = (user: RightsUser, authToken?: string | null): boolean =>
+  resolveOwnableRight(user, authToken, 'loansRights') === 'w';
+
+/** Staff holds, pick list, and transits. `own` does not qualify. */
+export function canReadHoldsStaff(user: RightsUser, authToken?: string | null): boolean {
+  return atLeastRead(normalizeUsersRightsLevel(resolveHoldsRights(user, authToken)));
+}
+
+/** Place a hold for oneself (`own`) or for another reader (`write`). */
+export function canCreateHold(user: RightsUser, authToken?: string | null): boolean {
+  const level = normalizeUsersRightsLevel(resolveHoldsRights(user, authToken));
+  return level === 'o' || level === 'w';
+}
+
+/** Place or cancel a hold for another reader. */
+export function canWriteHolds(user: RightsUser, authToken?: string | null): boolean {
+  return normalizeUsersRightsLevel(resolveHoldsRights(user, authToken)) === 'w';
+}
+
+export const canReadSettings = (user: RightsUser, authToken?: string | null): boolean =>
+  atLeastRead(resolveOwnableRight(user, authToken, 'settingsRights'));
+
+export const canWriteSettings = (user: RightsUser, authToken?: string | null): boolean =>
+  resolveOwnableRight(user, authToken, 'settingsRights') === 'w';
+
+export const canWriteEvents = (user: RightsUser, authToken?: string | null): boolean =>
+  resolveOwnableRight(user, authToken, 'eventsRights') === 'w';
+
+/**
+ * Staff catalog JSON (#217). Account type is ignored.
+ * `itemsRights` read alone stays on the public view.
+ */
+export function seesInternalCatalog(user: RightsUser, authToken?: string | null): boolean {
+  return (
+    canManageItems(user, authToken) ||
+    canViewWeeding(user, authToken) ||
+    canReadLoans(user, authToken) ||
+    canReadHoldsStaff(user, authToken) ||
+    canReadUsers(user, authToken) ||
+    canArchiveItems(user, authToken)
+  );
+}
 
 /** Normalized holds level from profile only (`none` | `own` | `read` | `write`). */
 export function resolveHoldsRightsFromProfile(
@@ -1835,15 +1949,17 @@ export const canPatronSelfServiceHolds = (
   user: Pick<User, 'holdsRights' | 'rights'> | null | undefined,
   authToken?: string | null,
 ): boolean => {
-  const r = resolveHoldsRights(user, authToken);
-  return r === 'own' || r === 'read' || r === 'write';
+  const level = normalizeUsersRightsLevel(resolveHoldsRights(user, authToken));
+  return level === 'o' || level === 'r' || level === 'w';
 };
 
-export const canViewStats = (accountType?: string): boolean =>
-  isLibrarian(accountType);
+/** Library statistics. Same staff view as the internal catalog (#217). */
+export const canViewStats = (user: RightsUser, authToken?: string | null): boolean =>
+  seesInternalCatalog(user, authToken);
 
-export const canManageSettings = (accountType?: string): boolean =>
-  isAdmin(accountType);
+/** Email templates and other settings mutations (`settingsRights` write). */
+export const canManageSettings = (user: RightsUser, authToken?: string | null): boolean =>
+  canWriteSettings(user, authToken);
 
 /** Normalized acquisitions level: `n` | `r` | `w`. */
 export function normalizeAcquisitionsRightsLevel(raw: unknown): AccountTypeRightLevel | null {

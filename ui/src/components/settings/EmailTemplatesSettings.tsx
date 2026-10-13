@@ -28,7 +28,7 @@ export default function EmailTemplatesSettings() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { language: uiLanguage } = useLanguage();
-  const canEdit = canManageSettings(user?.accountType);
+  const canEdit = canManageSettings(user, api.getToken());
 
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [selectedLanguage, setSelectedLanguage] = useState<string | null>(null);

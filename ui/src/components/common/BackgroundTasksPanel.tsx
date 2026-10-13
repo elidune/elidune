@@ -13,7 +13,8 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import { useBackgroundTasks } from '@/contexts/BackgroundTasksContext';
 import type { BackgroundTask } from '@/types';
-import { isLibrarian } from '@/types';
+import api from '@/services/api';
+import { staffAccess } from '@/utils/staffAccess';
 import {
   formatTaskProgressDetail,
   formatTaskResultSummary,
@@ -102,7 +103,7 @@ export function BackgroundTasksNavItem({
   const { user } = useAuth();
   const { activeCount, unreadCount, drawerOpen, toggleDrawer } = useBackgroundTasks();
 
-  if (!isLibrarian(user?.accountType)) return null;
+  if (!staffAccess(user, api.getToken()).backgroundTasks) return null;
 
   const showActiveBadge = activeCount > 0;
   const showUnreadBadge = !showActiveBadge && unreadCount > 0;
@@ -193,7 +194,7 @@ export function BackgroundTasksDrawer() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [drawerOpen, setDrawerOpen]);
 
-  if (!isLibrarian(user?.accountType) || !drawerOpen) return null;
+  if (!staffAccess(user, api.getToken()).backgroundTasks || !drawerOpen) return null;
 
   return (
     <>

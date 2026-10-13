@@ -87,7 +87,7 @@ describe('to-pick set-aside dialog', () => {
       assert.match(html, /<h2[^>]*class="[^"]*break-words[^"]*"/);
       assert.equal(/<h2[^>]*truncate/.test(html), false);
     }
-    assert.equal(catalogs.fr.loans.toPickForOtherTitle, 'Exemplaire en attente pour un autre usager');
+    assert.equal(catalogs.fr.loans.toPickForOtherTitle, 'Exemplaire en attente pour un autre lecteur');
     assert.equal(catalogs.fr.loans.toPickSetAside, 'Mettre de côté');
     assert.equal(catalogs.fr.common.cancel, 'Annuler');
   });

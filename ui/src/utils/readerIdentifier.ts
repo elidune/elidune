@@ -109,6 +109,22 @@ function compactInitials(value: string | null | undefined): string | null {
   return compact || null;
 }
 
+/**
+ * What an agent may render for another reader.
+ * With users read, the payload is unchanged.
+ * Without it, only `id`, `cardNumber` (or the staff card stored in `barcode`),
+ * and server `initials` remain. Names are not turned into initials.
+ */
+export function borrowerShownToAgent(
+  user: BorrowerRef | null | undefined,
+  revealIdentity: boolean,
+): BorrowerRef | null | undefined {
+  if (!user || revealIdentity) return user;
+  const card = clean(user.cardNumber) ?? clean(user.barcode);
+  const initials = clean(user.initials)?.replace(/\./g, '') || null;
+  return { id: user.id ?? null, cardNumber: card, initials };
+}
+
 /** Email and phone only exist on the full overdue borrower. Blank values are omitted. */
 export function borrowerContact(user: BorrowerRef | null | undefined): {
   email: string | null;

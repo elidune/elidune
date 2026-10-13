@@ -4,7 +4,12 @@ import type { PatronLoanStatus } from '@/types';
 import { formatIsoCalendarDate } from '@/utils/apiError';
 import { checkoutBlockingReasons } from '@/utils/deskPatron';
 import { formatCentsAsEuros } from '@/utils/lostFound';
-import { borrowerAvatarInitials, isMinimizedBorrower, type BorrowerRef } from '@/utils/readerIdentifier';
+import {
+  borrowerAvatarInitials,
+  borrowerShownToAgent,
+  isMinimizedBorrower,
+  type BorrowerRef,
+} from '@/utils/readerIdentifier';
 import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
 
 interface DeskPatronStatusProps {
@@ -34,7 +39,8 @@ function subscriptionLabel(
  */
 export default function DeskPatronStatus({ identity, linked, loanStatus }: DeskPatronStatusProps) {
   const { t, i18n } = useTranslation();
-  const minimized = isMinimizedBorrower(identity);
+  const shown = borrowerShownToAgent(identity, linked) ?? identity;
+  const minimized = !linked || isMinimizedBorrower(shown);
   const blocking = loanStatus ? checkoutBlockingReasons(loanStatus.blockReasons) : [];
   const overdueWarning = loanStatus?.blockReasons.includes('overdue_loans') ?? false;
   const cardLost = loanStatus?.blockReasons.includes('card_lost') ?? false;
@@ -49,18 +55,18 @@ export default function DeskPatronStatus({ identity, linked, loanStatus }: DeskP
     <div className="min-w-0 flex-1">
       <div className="flex min-w-0 items-center gap-2.5">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-sm font-bold text-amber-800 dark:bg-amber-900/55 dark:text-amber-200">
-          {borrowerAvatarInitials(identity)}
+          {borrowerAvatarInitials(shown)}
         </div>
         <div className="min-w-0">
           <ReaderIdentifier
-            user={identity}
+            user={shown}
             linked={linked}
             className="font-semibold text-gray-900 hover:text-indigo-600 dark:text-white dark:hover:text-indigo-400"
           />
-          {!minimized && (identity.accountType || identity.barcode) ? (
+          {!minimized && (shown.accountType || shown.barcode) ? (
             <p className="truncate text-xs text-gray-500 dark:text-gray-400">
-              {identity.accountType ? localizedAccountTypeLabel(t, identity.accountType) : null}
-              {identity.barcode ? `${identity.accountType ? ' · ' : ''}${identity.barcode}` : ''}
+              {shown.accountType ? localizedAccountTypeLabel(t, shown.accountType) : null}
+              {shown.barcode ? `${shown.accountType ? ' · ' : ''}${shown.barcode}` : ''}
             </p>
           ) : null}
         </div>

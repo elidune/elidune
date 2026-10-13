@@ -108,6 +108,22 @@ export function readItemsRightsFromJwt(accessToken: string | null | undefined): 
   return readRightsLevelFromJwt(accessToken, 'itemsRights');
 }
 
+/** Loans, holds, and users include `own`, which ranks below `read`. */
+export function readOwnableRightFromJwt(
+  accessToken: string | null | undefined,
+  field: string,
+): 'n' | 'o' | 'r' | 'w' | null {
+  if (!accessToken?.trim()) return null;
+  const payload = decodeAccessTokenPayload(accessToken);
+  if (!payload) return null;
+  const rights = payload.rights;
+  if (rights && typeof rights === 'object') {
+    const nested = normalizeUsersRightsLevel((rights as Record<string, unknown>)[field]);
+    if (nested) return nested;
+  }
+  return normalizeUsersRightsLevel(payload[field]);
+}
+
 export function normalizeUsersRightsLevel(raw: unknown): 'n' | 'o' | 'r' | 'w' | null {
   const s = raw != null ? String(raw).trim().toLowerCase() : '';
   if (s === 'n' || s === 'none') return 'n';

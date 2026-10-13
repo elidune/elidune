@@ -6,7 +6,7 @@ import HoldScopeBadge from '@/components/holds/HoldScopeBadge';
 import { useToast } from '@/contexts/ToastContext';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
-import { canReadUsers, isLibrarian } from '@/types';
+import { canReadUsers, canWriteHolds } from '@/types';
 import { isItemStaffView } from '@/utils/catalogView';
 import { isItemWithdrawn } from '@/utils/weeding';
 import type { ItemPublicView, ItemStaffView, UserShort } from '@/types';
@@ -42,7 +42,6 @@ export default function PlaceHoldDialog({
   biblioTitle,
   specimen,
   pinCopyDefault = false,
-  accountType,
   currentUserId,
   onSuccess,
 }: PlaceHoldDialogProps) {
@@ -51,7 +50,7 @@ export default function PlaceHoldDialog({
   const canOpenReader = canReadUsers(authUser, api.getToken());
   const { showToast } = useToast();
   const queryClient = useQueryClient();
-  const staff = isLibrarian(accountType);
+  const staff = canWriteHolds(authUser, api.getToken());
   const canPinCopy =
     !!specimen?.id &&
     (isItemStaffView(specimen) ? !isItemWithdrawn(specimen) : true);

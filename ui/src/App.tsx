@@ -47,8 +47,9 @@ import {
   AcquisitionsOrderDetailPage,
   AcquisitionsSuggestionsPage,
 } from '@/pages';
-import { canViewAcquisitions, canViewWeeding, isLibrarian } from '@/types';
+import type { User } from '@/types';
 import api from '@/services/api';
+import { readerRecordFallback, staffAccess } from '@/utils/staffAccess';
 import { FirstSetupGate } from '@/components/first-setup/FirstSetupGate';
 
 const UserDetailPage = lazy(() => import('@/pages/UserDetailPage'));
@@ -101,43 +102,33 @@ function RootPage() {
   return <LoginPage />;
 }
 
-function LibrarianRoute({ children }: { children: React.ReactNode }) {
+function RightsRoute({
+  allow,
+  fallback = '/home',
+  children,
+}: {
+  allow: (user: User | null, token: string | null) => boolean;
+  fallback?: string;
+  children: React.ReactNode;
+}) {
   const { user } = useAuth();
-
-  if (!isLibrarian(user?.accountType)) {
-    return <Navigate to="/home" replace />;
+  if (!allow(user, api.getToken())) {
+    return <Navigate to={fallback} replace />;
   }
-
   return <>{children}</>;
 }
 
-function WeedingRoute({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
-
-  if (!canViewWeeding(user, api.getToken())) {
-    return <Navigate to="/home" replace />;
-  }
-
-  return <>{children}</>;
+function accessOf(user: User | null, token: string | null) {
+  return staffAccess(user, token);
 }
 
-function AcquisitionsRoute({ children }: { children: React.ReactNode }) {
+/** Reader records need users read. A desk agent is sent back to circulation. */
+function UsersRecordRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
-
-  if (!canViewAcquisitions(user, api.getToken())) {
-    return <Navigate to="/home" replace />;
+  const access = accessOf(user, api.getToken());
+  if (!access.usersRead) {
+    return <Navigate to={readerRecordFallback(access)} replace />;
   }
-
-  return <>{children}</>;
-}
-
-function StaffCatalogListRoute({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
-
-  if (!isLibrarian(user?.accountType)) {
-    return <Navigate to="/catalog" replace />;
-  }
-
   return <>{children}</>;
 }
 
@@ -198,9 +189,9 @@ function AppRoutes() {
         path="/biblios"
         element={
           <ProtectedRoute>
-            <StaffCatalogListRoute>
+            <RightsRoute allow={(user, token) => accessOf(user, token).internalCatalog} fallback="/catalog">
               <BibliosPage />
-            </StaffCatalogListRoute>
+            </RightsRoute>
           </ProtectedRoute>
         }
       />
@@ -209,9 +200,9 @@ function AppRoutes() {
         path="/biblios/new"
         element={
           <ProtectedRoute>
-            <LibrarianRoute>
+            <RightsRoute allow={(user, token) => accessOf(user, token).itemsWrite}>
               <BiblioCreatePage />
-            </LibrarianRoute>
+            </RightsRoute>
           </ProtectedRoute>
         }
       />
@@ -220,9 +211,9 @@ function AppRoutes() {
         path="/biblios/:id/edit"
         element={
           <ProtectedRoute>
-            <LibrarianRoute>
+            <RightsRoute allow={(user, token) => accessOf(user, token).itemsWrite}>
               <BiblioEditPage />
-            </LibrarianRoute>
+            </RightsRoute>
           </ProtectedRoute>
         }
       />
@@ -240,9 +231,9 @@ function AppRoutes() {
         path="/inventory"
         element={
           <ProtectedRoute>
-            <LibrarianRoute>
+            <RightsRoute allow={(user, token) => accessOf(user, token).itemsWrite}>
               <InventoryPage />
-            </LibrarianRoute>
+            </RightsRoute>
           </ProtectedRoute>
         }
       />
@@ -250,9 +241,9 @@ function AppRoutes() {
         path="/weeding"
         element={
           <ProtectedRoute>
-            <WeedingRoute>
+            <RightsRoute allow={(user, token) => accessOf(user, token).weeding}>
               <WeedingPage />
-            </WeedingRoute>
+            </RightsRoute>
           </ProtectedRoute>
         }
       />
@@ -260,9 +251,9 @@ function AppRoutes() {
         path="/weeding/:id"
         element={
           <ProtectedRoute>
-            <WeedingRoute>
+            <RightsRoute allow={(user, token) => accessOf(user, token).weeding}>
               <WithdrawalDetailPage />
-            </WeedingRoute>
+            </RightsRoute>
           </ProtectedRoute>
         }
       />
@@ -289,9 +280,9 @@ function AppRoutes() {
         path="/loans"
         element={
           <ProtectedRoute>
-            <LibrarianRoute>
+            <RightsRoute allow={(user, token) => accessOf(user, token).loansRead}>
               <LoansPage />
-            </LibrarianRoute>
+            </RightsRoute>
           </ProtectedRoute>
         }
       />
@@ -300,9 +291,9 @@ function AppRoutes() {
         path="/holds"
         element={
           <ProtectedRoute>
-            <LibrarianRoute>
+            <RightsRoute allow={(user, token) => accessOf(user, token).holdsStaff}>
               <HoldsPage />
-            </LibrarianRoute>
+            </RightsRoute>
           </ProtectedRoute>
         }
       />
@@ -311,9 +302,9 @@ function AppRoutes() {
         path="/pick-list"
         element={
           <ProtectedRoute>
-            <LibrarianRoute>
+            <RightsRoute allow={(user, token) => accessOf(user, token).holdsStaff}>
               <PickListPage />
-            </LibrarianRoute>
+            </RightsRoute>
           </ProtectedRoute>
         }
       />
@@ -322,9 +313,9 @@ function AppRoutes() {
         path="/transits"
         element={
           <ProtectedRoute>
-            <LibrarianRoute>
+            <RightsRoute allow={(user, token) => accessOf(user, token).holdsStaff}>
               <TransitsPage />
-            </LibrarianRoute>
+            </RightsRoute>
           </ProtectedRoute>
         }
       />
@@ -342,9 +333,9 @@ function AppRoutes() {
         path="/users"
         element={
           <ProtectedRoute>
-            <LibrarianRoute>
+            <UsersRecordRoute>
               <UsersPage />
-            </LibrarianRoute>
+            </UsersRecordRoute>
           </ProtectedRoute>
         }
       />
@@ -353,9 +344,9 @@ function AppRoutes() {
         path="/users/:id"
         element={
           <ProtectedRoute>
-            <LibrarianRoute>
+            <UsersRecordRoute>
               <UserDetailPage />
-            </LibrarianRoute>
+            </UsersRecordRoute>
           </ProtectedRoute>
         }
       />
@@ -364,9 +355,9 @@ function AppRoutes() {
         path="/stats"
         element={
           <ProtectedRoute>
-            <LibrarianRoute>
+            <RightsRoute allow={(user, token) => accessOf(user, token).stats}>
               <StatsPage />
-            </LibrarianRoute>
+            </RightsRoute>
           </ProtectedRoute>
         }
       />
@@ -375,9 +366,14 @@ function AppRoutes() {
         path="/settings"
         element={
           <ProtectedRoute>
-            <LibrarianRoute>
+            <RightsRoute
+              allow={(user, token) => {
+                const access = accessOf(user, token);
+                return access.fullSettings || access.librarySettings;
+              }}
+            >
               <SettingsPage />
-            </LibrarianRoute>
+            </RightsRoute>
           </ProtectedRoute>
         }
       />
@@ -386,9 +382,9 @@ function AppRoutes() {
         path="/z3950"
         element={
           <ProtectedRoute>
-            <LibrarianRoute>
+            <RightsRoute allow={(user, token) => accessOf(user, token).itemsWrite}>
               <Z3950SearchPage />
-            </LibrarianRoute>
+            </RightsRoute>
           </ProtectedRoute>
         }
       />
@@ -397,9 +393,9 @@ function AppRoutes() {
         path="/import-iso"
         element={
           <ProtectedRoute>
-            <LibrarianRoute>
+            <RightsRoute allow={(user, token) => accessOf(user, token).itemsWrite}>
               <ImportIsoPage />
-            </LibrarianRoute>
+            </RightsRoute>
           </ProtectedRoute>
         }
       />
@@ -408,9 +404,9 @@ function AppRoutes() {
         path="/acquisitions"
         element={
           <ProtectedRoute>
-            <AcquisitionsRoute>
+            <RightsRoute allow={(user, token) => accessOf(user, token).acquisitions}>
               <Navigate to="/acquisitions/orders" replace />
-            </AcquisitionsRoute>
+            </RightsRoute>
           </ProtectedRoute>
         }
       />
@@ -419,9 +415,9 @@ function AppRoutes() {
         path="/acquisitions/vendors"
         element={
           <ProtectedRoute>
-            <AcquisitionsRoute>
+            <RightsRoute allow={(user, token) => accessOf(user, token).acquisitions}>
               <AcquisitionsVendorsPage />
-            </AcquisitionsRoute>
+            </RightsRoute>
           </ProtectedRoute>
         }
       />
@@ -430,9 +426,9 @@ function AppRoutes() {
         path="/acquisitions/funds"
         element={
           <ProtectedRoute>
-            <AcquisitionsRoute>
+            <RightsRoute allow={(user, token) => accessOf(user, token).acquisitions}>
               <AcquisitionsFundsPage />
-            </AcquisitionsRoute>
+            </RightsRoute>
           </ProtectedRoute>
         }
       />
@@ -441,9 +437,9 @@ function AppRoutes() {
         path="/acquisitions/orders"
         element={
           <ProtectedRoute>
-            <AcquisitionsRoute>
+            <RightsRoute allow={(user, token) => accessOf(user, token).acquisitions}>
               <AcquisitionsOrdersPage />
-            </AcquisitionsRoute>
+            </RightsRoute>
           </ProtectedRoute>
         }
       />
@@ -452,9 +448,9 @@ function AppRoutes() {
         path="/acquisitions/orders/:id"
         element={
           <ProtectedRoute>
-            <AcquisitionsRoute>
+            <RightsRoute allow={(user, token) => accessOf(user, token).acquisitions}>
               <AcquisitionsOrderDetailPage />
-            </AcquisitionsRoute>
+            </RightsRoute>
           </ProtectedRoute>
         }
       />
@@ -463,9 +459,9 @@ function AppRoutes() {
         path="/acquisitions/suggestions"
         element={
           <ProtectedRoute>
-            <AcquisitionsRoute>
+            <RightsRoute allow={(user, token) => accessOf(user, token).acquisitions}>
               <AcquisitionsSuggestionsPage />
-            </AcquisitionsRoute>
+            </RightsRoute>
           </ProtectedRoute>
         }
       />
@@ -474,9 +470,9 @@ function AppRoutes() {
         path="/events/manage"
         element={
           <ProtectedRoute>
-            <LibrarianRoute>
+            <RightsRoute allow={(user, token) => accessOf(user, token).eventsWrite}>
               <EventsPage />
-            </LibrarianRoute>
+            </RightsRoute>
           </ProtectedRoute>
         }
       />
@@ -489,9 +485,9 @@ function AppRoutes() {
         path="/library"
         element={
           <ProtectedRoute>
-            <LibrarianRoute>
+            <RightsRoute allow={(user, token) => accessOf(user, token).librarySettings}>
               <Navigate to="/settings?tab=library" replace />
-            </LibrarianRoute>
+            </RightsRoute>
           </ProtectedRoute>
         }
       />

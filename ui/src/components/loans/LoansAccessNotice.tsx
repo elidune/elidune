@@ -12,7 +12,7 @@ interface LoansAccessNoticeProps {
   fallbackMessage: string;
 }
 
-/** One loans-list failure. A 403 is a neutral status, not an alert plus a toast. */
+/** One loans-list failure. A 403 is an access sentence, not an empty list or a toast. */
 export default function LoansAccessNotice({
   error,
   denied = false,
