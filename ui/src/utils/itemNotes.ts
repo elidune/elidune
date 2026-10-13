@@ -60,7 +60,7 @@ export function copyNoteUpdate(
  * Drops the retired `notes` key (the server returns 400) and caps note fields by code point.
  */
 export function itemWritePayload<T extends object>(body: T): Omit<T, 'notes'> {
-  const out: Record<string, unknown> = { ...body };
+  const out: Record<string, unknown> = { ...(body as Record<string, unknown>) };
   delete out.notes;
   if (typeof out.publicNote === 'string') out.publicNote = clampCopyNote(out.publicNote);
   if (typeof out.internalNote === 'string') out.internalNote = clampCopyNote(out.internalNote);
