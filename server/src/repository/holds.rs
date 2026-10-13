@@ -1522,6 +1522,91 @@ impl Repository {
         }))
     }
 
+    /// Scan of a known copy that is not on loan. Offers it to the next pending
+    /// hold the same way a return does (`ready`, or transit). `None` when the
+    /// barcode is not a live copy. An existing `ready` hold is returned as-is
+    /// so the desk does not treat the copy as free.
+    pub async fn holds_check_in_shelf_copy(
+        &self,
+        identification: &str,
+    ) -> AppResult<Option<crate::models::dto::holds::ShelfCheckIn>> {
+        let mut tx = self.pool.begin().await?;
+        let item: Option<(i64, Option<String>, Option<String>)> = sqlx::query_as(
+            r#"
+            SELECT i.id, i.barcode, b.title
+            FROM items i
+            JOIN biblios b ON b.id = i.biblio_id
+            WHERE i.barcode = $1 AND i.archived_at IS NULL
+            FOR UPDATE OF i
+            "#,
+        )
+        .bind(identification)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some((item_id, barcode, title)) = item else {
+            return Ok(None);
+        };
+
+        let readied = self
+            .holds_notify_next_tx(&mut tx, item_id, self.hold_ready_expiry_days())
+            .await?;
+        let transit: Option<(i64, Option<String>)> = sqlx::query_as(
+            r#"
+            SELECT t.to_source_id, src.name
+            FROM item_transits t
+            LEFT JOIN sources src ON src.id = t.to_source_id
+            WHERE t.item_id = $1 AND t.status IN ('requested', 'in_transit')
+            LIMIT 1
+            "#,
+        )
+        .bind(item_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let newly_ready = readied.is_some();
+        let hold = if newly_ready {
+            readied
+        } else if transit.is_some() {
+            sqlx::query_as::<_, Hold>(
+                r#"
+                SELECT * FROM holds
+                WHERE item_id = $1 AND status = 'pending'
+                ORDER BY position ASC, created_at ASC
+                LIMIT 1
+                "#,
+            )
+            .bind(item_id)
+            .fetch_optional(&mut *tx)
+            .await?
+        } else {
+            sqlx::query_as::<_, Hold>(
+                r#"
+                SELECT * FROM holds
+                WHERE item_id = $1 AND status = 'ready'
+                ORDER BY position ASC, created_at ASC
+                LIMIT 1
+                "#,
+            )
+            .bind(item_id)
+            .fetch_optional(&mut *tx)
+            .await?
+        };
+        let (destination_site_id, destination_site_name) = match transit {
+            Some((site_id, name)) => (Some(site_id), name),
+            None => (None, None),
+        };
+        tx.commit().await?;
+        Ok(Some(crate::models::dto::holds::ShelfCheckIn {
+            item_id,
+            hold,
+            title,
+            barcode,
+            transit_started: destination_site_id.is_some(),
+            destination_site_id,
+            destination_site_name,
+            newly_ready,
+        }))
+    }
+
     #[tracing::instrument(skip(self), err)]
     pub async fn holds_mark_ready(&self, id: i64, expiry_days: i32) -> AppResult<Hold> {
         let expires_at = Utc::now() + chrono::Duration::days(expiry_days as i64);

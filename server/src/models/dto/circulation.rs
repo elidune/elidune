@@ -214,3 +214,34 @@ pub struct ClaimsReturnedQueueItem {
     pub item_updated_at: Option<chrono::DateTime<chrono::Utc>>,
     pub notes: Option<String>,
 }
+
+/// How loudly the desk should show a successful scan note.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum DeskNoticeLevel {
+    /// Information only. The scan succeeded.
+    #[serde(rename = "informational")]
+    Informational,
+}
+
+/// Non-blocking note on a successful check-in.
+///
+/// `code` `item_not_on_loan` means the copy had no active loan. The scan still
+/// ran (hold set aside, transit, or put back on the shelf).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DeskNotice {
+    #[schema(value_type = String)]
+    pub code: &'static str,
+    pub level: DeskNoticeLevel,
+}
+
+impl DeskNotice {
+    #[must_use]
+    pub fn item_not_on_loan() -> Self {
+        Self {
+            code: crate::error::error_code::ITEM_NOT_ON_LOAN,
+            level: DeskNoticeLevel::Informational,
+        }
+    }
+}

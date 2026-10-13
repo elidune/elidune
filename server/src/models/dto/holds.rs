@@ -117,6 +117,21 @@ pub struct ToPickCompletion {
     pub destination_site_name: Option<String>,
 }
 
+/// A known copy that is not on loan was scanned at the desk.
+///
+/// `newly_ready` is true only when this scan promoted a pending hold to `ready`.
+#[derive(Debug, Clone)]
+pub struct ShelfCheckIn {
+    pub item_id: i64,
+    pub hold: Option<crate::models::hold::Hold>,
+    pub title: Option<String>,
+    pub barcode: Option<String>,
+    pub transit_started: bool,
+    pub destination_site_id: Option<i64>,
+    pub destination_site_name: Option<String>,
+    pub newly_ready: bool,
+}
+
 /// A `to_search` copy was scanned and returned to the shelf.
 #[derive(Debug, Clone)]
 pub struct ShelfFound {

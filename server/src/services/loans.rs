@@ -29,7 +29,7 @@ use crate::{
 use z3950_rs::marc_rs::{BinaryWriter, Encoding as MarcEncoding, MarcFormat, XmlWriter};
 
 /// Desk scan of a barcode: a loan return, a `to_pick` check-in, a found `to_search` copy,
-/// or a lost copy that is no longer on loan.
+/// a lost copy that is no longer on loan, or a known shelf copy with no active loan.
 #[derive(Debug, Clone)]
 pub struct ItemCheckIn {
     pub loan: Option<LoanDetails>,
@@ -39,6 +39,8 @@ pub struct ItemCheckIn {
     pub destination_site_name: Option<String>,
     /// Set when the copy is lost. Status is unchanged.
     pub lost: Option<crate::models::dto::circulation::LostItemOnReturn>,
+    /// Informational note. Set when the copy was not on loan.
+    pub notice: Option<crate::models::dto::circulation::DeskNotice>,
 }
 
 /// Result of `POST /loans/{id}/return`. `loan` is absent when the loan was already
@@ -288,6 +290,8 @@ impl LoansService {
 
     /// Check in a barcode. An active loan is returned. A shelf copy assigned as
     /// `to_pick` becomes `ready` (same site, patron notified) or starts transit.
+    /// A known copy that is not on loan succeeds with an informational notice
+    /// and, when a pending hold can take it, sets that hold aside.
     pub async fn return_loan_by_item(
         &self,
         item_identification: &str,
@@ -313,6 +317,7 @@ impl LoansService {
                     destination_site_id: None,
                     destination_site_name: None,
                     lost: outcome.lost,
+                    notice: None,
                 })
             }
             Err(AppError::NotFound(_)) => {
@@ -334,6 +339,7 @@ impl LoansService {
                         destination_site_id: None,
                         destination_site_name: None,
                         lost: Some(found.notice),
+                        notice: None,
                     });
                 }
                 if let Some(done) = self
@@ -348,6 +354,7 @@ impl LoansService {
                             done.barcode.as_deref(),
                             audit_actor,
                             client_ip,
+                            "pick_check_in",
                         )
                         .await;
                     }
@@ -358,6 +365,7 @@ impl LoansService {
                         destination_site_id: done.destination_site_id,
                         destination_site_name: done.destination_site_name,
                         lost: None,
+                        notice: None,
                     });
                 }
                 if let Some(found) = self
@@ -375,6 +383,7 @@ impl LoansService {
                                 found.barcode.as_deref(),
                                 audit_actor,
                                 client_ip.clone(),
+                                "pick_check_in",
                             )
                             .await;
                         }
@@ -398,16 +407,56 @@ impl LoansService {
                         destination_site_id: found.destination_site_id,
                         destination_site_name: found.destination_site_name,
                         lost: None,
+                        notice: None,
                     });
                 }
-                if self
+                if let Some(done) = self
                     .repository
-                    .loans_item_exists_by_barcode(item_identification)
+                    .loans_check_in_shelf_copy(item_identification)
                     .await?
                 {
-                    return Err(AppError::ItemNotOnLoan(format!(
-                        "Item {item_identification} is not on loan"
-                    )));
+                    if done.newly_ready {
+                        if let Some(hold) = done.hold.as_ref() {
+                            if !done.transit_started
+                                && hold.status == crate::models::hold::HoldStatus::Ready
+                            {
+                                self.notify_picked_hold_ready(
+                                    hold,
+                                    done.title.as_deref().unwrap_or("(unknown title)"),
+                                    done.barcode.as_deref(),
+                                    audit_actor,
+                                    client_ip.clone(),
+                                    "item_not_on_loan",
+                                )
+                                .await;
+                            }
+                        }
+                    }
+                    self.audit.log(
+                        audit::event::ITEM_NOT_ON_LOAN,
+                        audit_actor,
+                        Some("item"),
+                        Some(done.item_id),
+                        client_ip,
+                        Some(serde_json::json!({
+                            "barcode": item_identification,
+                            "notice": crate::error::error_code::ITEM_NOT_ON_LOAN,
+                            "hold_id": done.hold.as_ref().map(|hold| hold.id),
+                            "transit_started": done.transit_started,
+                        })),
+                        AuditLogMeta::success(),
+                    );
+                    return Ok(ItemCheckIn {
+                        loan: None,
+                        hold: done.hold,
+                        transit_started: done.transit_started,
+                        destination_site_id: done.destination_site_id,
+                        destination_site_name: done.destination_site_name,
+                        lost: None,
+                        notice: Some(
+                            crate::models::dto::circulation::DeskNotice::item_not_on_loan(),
+                        ),
+                    });
                 }
                 Err(AppError::NotFound(format!(
                     "No active loan found for item {item_identification}"
@@ -424,6 +473,7 @@ impl LoansService {
         barcode: Option<&str>,
         audit_actor: Option<i64>,
         client_ip: Option<String>,
+        trigger: &'static str,
     ) {
         self.audit.log(
             audit::event::HOLD_READY,
@@ -435,7 +485,7 @@ impl LoansService {
                 "user_id": hold.user_id,
                 "item_id": hold.item_id,
                 "expires_at": hold.expires_at,
-                "trigger": "pick_check_in",
+                "trigger": trigger,
             })),
             AuditLogMeta::success(),
         );
@@ -1096,6 +1146,12 @@ mod tests {
         }
         async fn loans_item_exists_by_barcode(&self, _: &str) -> AppResult<bool> {
             Ok(false)
+        }
+        async fn loans_check_in_shelf_copy(
+            &self,
+            _: &str,
+        ) -> AppResult<Option<crate::models::dto::holds::ShelfCheckIn>> {
+            Ok(None)
         }
         async fn loans_renewal_snapshot(
             &self,

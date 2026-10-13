@@ -49,6 +49,9 @@ pub struct BatchReturnItemResult {
     pub fine_amount: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub paid_amount: Option<i64>,
+    /// Set when the copy was not on loan. `code` is `item_not_on_loan`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notice: Option<crate::models::dto::circulation::DeskNotice>,
 }
 
 /// Batch return response
@@ -127,6 +130,7 @@ pub async fn batch_return(
                     fine_status: lost.and_then(|l| l.fine_status),
                     fine_amount: lost.and_then(|l| l.fine_amount),
                     paid_amount: lost.and_then(|l| l.paid_amount),
+                    notice: check_in.notice,
                 });
             }
             Err(e) => {
@@ -150,6 +154,7 @@ pub async fn batch_return(
                     fine_status: None,
                     fine_amount: None,
                     paid_amount: None,
+                    notice: None,
                 });
             }
         }

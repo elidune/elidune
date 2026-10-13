@@ -115,6 +115,8 @@ pub mod event {
     pub const ITEM_WITHDRAWAL_COMPLETED: &str = "item.withdrawal_completed";
     pub const ITEM_MARKED_TO_SEARCH: &str = "item.marked_to_search";
     pub const ITEM_FOUND_ON_SHELF: &str = "item.found_on_shelf";
+    /// Desk scan of a known copy that has no active loan (informational).
+    pub const ITEM_NOT_ON_LOAN: &str = "item.not_on_loan";
     pub const ITEM_LOST_FOUND_SEEN: &str = "item.lost_found_seen";
     pub const ITEM_LOST_FOUND_RESOLVED: &str = "item.lost_found_resolved";
     pub const ITEM_LOST_FOUND_LEFT: &str = "item.lost_found_left";

@@ -106,7 +106,7 @@ async fn test_golden_path_loan_hold_return() {
     assert_eq!(return_status, StatusCode::OK, "return: {return_body}");
 }
 
-/// #152 follow-up: a known copy with no active loan is not a missing barcode.
+/// A known copy with no active loan is an informational check-in, not a missing barcode.
 #[tokio::test]
 async fn check_in_known_item_without_loan_returns_item_not_on_loan() {
     let Some(app) = TestApp::spawn().await else {
@@ -131,10 +131,12 @@ async fn check_in_known_item_without_loan_returns_item_not_on_loan() {
             Some(&admin_token),
         )
         .await;
-    assert_eq!(status, StatusCode::NOT_FOUND, "check-in: {body}");
-    assert_eq!(body["code"], "item_not_on_loan");
-    assert_eq!(body["error"], "Not Found");
-    assert_eq!(body["message"], format!("Item {barcode} is not on loan"));
+    assert_eq!(status, StatusCode::OK, "check-in: {body}");
+    assert_eq!(body["status"], "available");
+    assert_eq!(body["notice"]["code"], "item_not_on_loan");
+    assert_eq!(body["notice"]["level"], "informational");
+    assert!(body.get("error").is_none(), "{body}");
+    assert!(body["hold"].is_null(), "{body}");
 }
 
 /// Unknown barcodes stay the generic not-found, distinct from `item_not_on_loan`.

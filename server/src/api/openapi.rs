@@ -393,6 +393,8 @@ use crate::api::{
             loans::CreateLoanRequest,
             loans::LoanResponse,
             loans::ReturnResponse,
+            crate::models::dto::circulation::DeskNotice,
+            crate::models::dto::circulation::DeskNoticeLevel,
             loans::OverdueLoansQuery,
             crate::models::fine::Fine,
             crate::models::fine::FineRule,
@@ -767,6 +769,27 @@ mod tests {
                 .iter()
                 .any(|param| param["in"] == "path" && param["name"] == "barcode"),
             "path param must be named barcode: {params:?}"
+        );
+        let ok = post["responses"]["200"]["description"]
+            .as_str()
+            .unwrap_or("");
+        assert!(
+            ok.contains("item_not_on_loan") && ok.contains("informational"),
+            "200 must document the informational notice: {ok}"
+        );
+        let missing = post["responses"]["404"]["description"]
+            .as_str()
+            .unwrap_or("");
+        assert!(
+            !missing.contains("item_not_on_loan"),
+            "unknown barcode stays not_found: {missing}"
+        );
+        assert!(value["components"]["schemas"]["DeskNotice"].is_object());
+        assert!(
+            value["components"]["schemas"]["ReturnResponse"]["properties"]["notice"].is_object()
+        );
+        assert!(
+            value["components"]["schemas"]["ReturnResponse"]["properties"]["holdFor"].is_object()
         );
     }
 
