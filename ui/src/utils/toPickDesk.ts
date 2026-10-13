@@ -3,7 +3,7 @@ import type { ItemCheckIn } from '@/types';
 
 export const ITEM_TO_PICK_FOR_OTHER = 'item_to_pick_for_other';
 
-/** Thrown when staff dismiss the force-loan dialog. Callers must not toast it. */
+/** Thrown when staff dismiss the to-pick dialog. Callers must not toast it. */
 export class CheckoutDeclined extends Error {
   constructor() {
     super('checkout-declined');

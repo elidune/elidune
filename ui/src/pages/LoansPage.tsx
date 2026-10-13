@@ -23,6 +23,7 @@ import CirculationExceptionDialog from '@/components/loans/CirculationExceptionD
 import ClaimsReturnedQueue from '@/components/loans/ClaimsReturnedQueue';
 import LoanExceptionActions from '@/components/loans/LoanExceptionActions';
 import DeskScanNotice from '@/components/loans/DeskScanNotice';
+import ToPickForceLoanDialog from '@/components/loans/ToPickForceLoanDialog';
 import LoansAccessNotice from '@/components/loans/LoansAccessNotice';
 import LostFoundAlertDialog from '@/components/loans/LostFoundAlertDialog';
 import Pagination from '@/components/common/Pagination';
@@ -58,6 +59,7 @@ import { isWeedingServerMessage } from '@/utils/weeding';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
 import { isClaimedReturnedLoan } from '@/utils/circulationStatus';
 import {
+  CheckoutDeclined,
   interpretPickCheckIn,
   isCheckoutDeclined,
   readItemToPickForOther,
@@ -213,6 +215,12 @@ export default function LoansPage() {
   const [sendRemindersConfirmOpen, setSendRemindersConfirmOpen] = useState(false);
   const [forceBorrowDialog, setForceBorrowDialog] = useState<{ message: string } | null>(null);
   const forceBorrowResolveRef = useRef<((v: boolean) => void) | null>(null);
+  const [toPickAside, setToPickAside] = useState<{
+    cardNumber: string | null;
+    initials: string | null;
+    barcode: string;
+  } | null>(null);
+  const [toPickAsideLoading, setToPickAsideLoading] = useState(false);
   const [checkoutScanAlert, setCheckoutScanAlert] = useState<CheckoutScanAlert | null>(null);
   const [returnScanAlert, setReturnScanAlert] = useState<DeskScanAlert | null>(null);
 
@@ -790,7 +798,7 @@ export default function LoansPage() {
     const barcode = specimenBarcode.trim();
     const snapshot = await readDeskCopy(barcode);
     const alert = deskScanAlert(snapshot, { patronId: selectedUser.id });
-    if (alert) {
+    if (alert && alert.kind !== 'onHold') {
       const shown =
         alert.kind === 'onLoan'
           ? {
@@ -850,11 +858,17 @@ export default function LoansPage() {
         throw error;
       }
       const toPick = readItemToPickForOther(error);
+      if (toPick) {
+        setToPickAside({
+          cardNumber: toPick.cardNumber,
+          initials: toPick.initials,
+          barcode,
+        });
+        throw new CheckoutDeclined();
+      }
       const blocked = checkoutScanNoticeFromRefusal({
         code: getApiErrorCode(error),
         message: rawMessage,
-        cardNumber: toPick?.cardNumber,
-        initials: toPick?.initials,
       });
       if (blocked) {
         setCheckoutScanAlert({ ...blocked, barcode });
@@ -2040,6 +2054,53 @@ export default function LoansPage() {
         message={forceBorrowDialog?.message ?? ''}
         confirmLabel={t('loans.forceLoan')}
         stackOnTop
+      />
+
+      <ToPickForceLoanDialog
+        isOpen={toPickAside !== null}
+        cardNumber={toPickAside?.cardNumber ?? null}
+        initials={toPickAside?.initials ?? null}
+        isLoading={toPickAsideLoading}
+        onCancel={() => {
+          if (toPickAsideLoading) return;
+          setToPickAside(null);
+          focusScanInput();
+        }}
+        onSetAside={() => {
+          const barcode = toPickAside?.barcode;
+          if (!barcode || toPickAsideLoading) return;
+          setToPickAsideLoading(true);
+          void (async () => {
+            try {
+              const result = await api.returnLoanByBarcode(barcode);
+              const pick = interpretPickCheckIn(result);
+              setToPickAside(null);
+              setReturnBarcodeInput('');
+              setReturnError('');
+              setReturnScanAlert(null);
+              if (pick) {
+                setReturnResult({ kind: 'pick', notice: pick });
+                const message =
+                  pick.kind === 'ready'
+                    ? t('loans.pickReady', { patron: pick.patronName?.trim() || t('loans.pickPatronUnknown') })
+                    : t('loans.pickTransit', { site: pick.siteName?.trim() || t('loans.pickSiteUnknown') });
+                showToast({ variant: 'success', message });
+              } else {
+                setReturnResult(null);
+                showToast({ variant: 'success', message: t('loans.returnSuccess') });
+              }
+              setActiveTab('return');
+            } catch (error: unknown) {
+              showToast({
+                variant: 'error',
+                message: getApiErrorMessage(error, t) || t('loans.errorReturningLoan'),
+              });
+            } finally {
+              setToPickAsideLoading(false);
+              focusScanInput();
+            }
+          })();
+        }}
       />
 
       <LostFoundAlertDialog

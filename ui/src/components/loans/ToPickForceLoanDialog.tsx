@@ -7,7 +7,8 @@ export interface ToPickForceLoanDialogProps {
   cardNumber?: string | null;
   initials?: string | null;
   onCancel: () => void;
-  onForce: () => void;
+  /** Check the copy in on the existing to_pick path (hold shelf or transit). */
+  onSetAside: () => void;
   isLoading?: boolean;
 }
 
@@ -17,7 +18,7 @@ export default function ToPickForceLoanDialog({
   cardNumber,
   initials,
   onCancel,
-  onForce,
+  onSetAside,
   isLoading = false,
 }: ToPickForceLoanDialogProps) {
   const { t } = useTranslation();
@@ -27,11 +28,11 @@ export default function ToPickForceLoanDialog({
     <ConfirmDialog
       isOpen={isOpen}
       onClose={onCancel}
-      onConfirm={onForce}
+      onConfirm={onSetAside}
       title={t('loans.toPickForOtherTitle')}
       message={t('loans.toPickForOtherMessage', { patron })}
-      confirmLabel={t('loans.forceLoan')}
-      confirmVariant="danger"
+      confirmLabel={t('loans.toPickSetAside')}
+      confirmVariant="primary"
       isLoading={isLoading}
       stackOnTop
     />

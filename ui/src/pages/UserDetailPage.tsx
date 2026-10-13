@@ -30,7 +30,7 @@ import { isSubscriptionExpired } from '@/utils/userSubscription';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
 import { isClaimedReturnedLoan } from '@/utils/circulationStatus';
-import { readItemToPickForOther } from '@/utils/toPickDesk';
+import { interpretPickCheckIn, readItemToPickForOther } from '@/utils/toPickDesk';
 import { newIdempotencyKey } from '@/utils/idempotency';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
 import HoldStatusBadge from '@/components/holds/HoldStatusBadge';
@@ -1361,22 +1361,23 @@ export default function UserDetailPage() {
         onCancel={() => {
           if (!toPickForceLoading) setToPickForce(null);
         }}
-        onForce={() => {
+        onSetAside={() => {
           const ctx = toPickForce;
-          if (!ctx) return;
+          if (!ctx || toPickForceLoading) return;
           setToPickForceLoading(true);
           void (async () => {
             try {
-              await api.createLoan({
-                userId: user.id,
-                itemIdentification: ctx.specimenCode,
-                force: true,
-              }, newIdempotencyKey());
+              const result = await api.returnLoanByBarcode(ctx.specimenCode);
+              const pick = interpretPickCheckIn(result);
               setToPickForce(null);
-              await refreshLoans();
-              showToast({ variant: 'success', message: t('loans.checkoutSuccessShort') });
+              const message = pick
+                ? pick.kind === 'ready'
+                  ? t('loans.pickReady', { patron: pick.patronName?.trim() || t('loans.pickPatronUnknown') })
+                  : t('loans.pickTransit', { site: pick.siteName?.trim() || t('loans.pickSiteUnknown') })
+                : t('loans.returnSuccess');
+              showToast({ variant: 'success', message });
             } catch (e) {
-              setBorrowForceError(getApiErrorMessage(e, t) || t('loans.errorCreatingLoan'));
+              setBorrowForceError(getApiErrorMessage(e, t) || t('loans.errorReturningLoan'));
               setToPickForce(null);
             } finally {
               setToPickForceLoading(false);
