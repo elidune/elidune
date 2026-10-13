@@ -378,6 +378,8 @@ use crate::api::{
             crate::models::dto::card::CardLostReason,
             crate::models::dto::card::ReportCardLostRequest,
             crate::models::dto::card::ReportCardLostResponse,
+            crate::models::dto::card::ReportCardLostStaffBody,
+            crate::models::dto::card::ReportCardLostDeskBody,
             crate::models::dto::card::ReplaceCardRequest,
             crate::models::dto::card::ReplaceCardResponse,
             crate::models::user::UpdateProfile,
@@ -732,6 +734,8 @@ mod tests {
         assert!(schemas["ReportCardLostRequest"].is_object());
         assert!(schemas["ReplaceCardRequest"].is_object());
         assert!(schemas["ReportCardLostResponse"].is_object());
+        assert!(schemas["ReportCardLostStaffBody"].is_object());
+        assert!(schemas["ReportCardLostDeskBody"].is_object());
         assert!(schemas["ReplaceCardResponse"].is_object());
         assert!(schemas["ErrorResponse"].is_object());
     }

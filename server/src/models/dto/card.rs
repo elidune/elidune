@@ -38,11 +38,24 @@ pub struct ReportCardLostRequest {
     pub detail: Option<String>,
 }
 
-/// Card flagged lost. Checkout stays blocked until the card is replaced.
+/// Fields the handler needs to shape a response that matches the caller's rights.
+#[derive(Debug)]
+pub struct ReportedLostCard {
+    pub user_id: i64,
+    pub card_number: Option<String>,
+    pub firstname: Option<String>,
+    pub lastname: Option<String>,
+    pub reason: CardLostReason,
+    pub detail: Option<String>,
+}
+
+/// `POST /users/{id}/card-lost` for a caller who can read users.
+///
+/// No name, email, address, or login. Those stay on `GET /users/{id}`.
 #[serde_as]
 #[derive(Debug, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct ReportCardLostResponse {
+pub struct ReportCardLostStaffBody {
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub user_id: i64,
@@ -50,6 +63,32 @@ pub struct ReportCardLostResponse {
     pub reason: CardLostReason,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+}
+
+/// `POST /users/{id}/card-lost` for loans write without users read.
+///
+/// Same identity as a loans-only card scan: id, card number, initials.
+#[serde_as]
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportCardLostDeskBody {
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub id: i64,
+    /// `users.barcode`. Null when the stored card is blank.
+    pub card_number: Option<String>,
+    /// Uppercase first letter of `firstname` plus first letter of `lastname`.
+    pub initials: String,
+}
+
+/// Card flagged lost. The variant follows the caller's users rights.
+#[derive(Debug, Serialize, ToSchema)]
+#[serde(untagged)]
+pub enum ReportCardLostResponse {
+    /// Users read or write.
+    Staff(ReportCardLostStaffBody),
+    /// Loans write without users read.
+    Desk(ReportCardLostDeskBody),
 }
 
 /// `POST /users/{id}/replace-card` body. `barcode` is the new library card number.

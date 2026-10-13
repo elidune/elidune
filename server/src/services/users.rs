@@ -15,7 +15,7 @@ use crate::{
     config::UsersConfig,
     error::{error_code, AppError, AppResult},
     models::{
-        dto::card::{CardLostReason, ReplaceCardResponse, ReportCardLostResponse},
+        dto::card::{CardLostReason, ReplaceCardResponse, ReportedLostCard},
         secret::{ExposeSecret, PlaintextPassword},
         user::{
             AccountTypeSlug, EventsConsentSource, GuardianIdPatch, UpdateProfile, User, UserClaims,
@@ -631,12 +631,15 @@ impl UsersService {
         user_id: i64,
         reason: CardLostReason,
         detail: Option<String>,
-    ) -> AppResult<ReportCardLostResponse> {
+    ) -> AppResult<ReportedLostCard> {
         let detail = normalize_card_lost_detail(detail)?;
         self.repository.users_set_card_lost(user_id, true).await?;
-        Ok(ReportCardLostResponse {
+        let user = self.repository.users_get_by_id(user_id).await?;
+        Ok(ReportedLostCard {
             user_id,
-            card_lost: true,
+            card_number: user.barcode.filter(|value| !value.trim().is_empty()),
+            firstname: user.firstname,
+            lastname: user.lastname,
             reason,
             detail,
         })

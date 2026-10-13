@@ -347,31 +347,92 @@ async fn retired_card_number_reuse_is_conflict() {
     assert_eq!(current.as_deref(), Some(new_card.as_str()));
 }
 
+fn sorted_keys(value: &Value) -> Vec<&str> {
+    let mut keys: Vec<&str> = value
+        .as_object()
+        .expect("object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    keys
+}
+
 #[tokio::test]
-async fn loans_only_staff_cannot_report_or_replace_card() {
+async fn loans_only_staff_can_report_lost_but_cannot_replace_card() {
     let Some(app) = TestApp::spawn().await else {
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (status, me) = app
+        .get_json_with_auth("/api/v1/auth/me", &admin_token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{me}");
+    let actor_id = fixtures::json_id(&me["id"]);
     let secret = app.state.config.users.jwt_secret.clone();
+    let loans_read = retarget(&admin_token, &secret, Rights::None, Rights::Read);
     let loans_only = retarget(&admin_token, &secret, Rights::None, Rights::Write);
     let suffix = fixtures::unique_suffix();
-    let user_id = create_patron(&app, &admin_token, "loansonly", &format!("DESK-{suffix}")).await;
+    let card = format!("DESK-{suffix}");
+    let user_id = create_patron(&app, &admin_token, "loansonly", &card).await;
 
-    let (status, reported) = report(&app, &loans_only, user_id, &json!({ "reason": "lost" })).await;
-    assert_eq!(status, StatusCode::FORBIDDEN, "{reported}");
-    assert_error_shape(&reported);
-    assert_eq!(reported["code"], "authorization_failed", "{reported}");
+    let (status, read_only) =
+        report(&app, &loans_read, user_id, &json!({ "reason": "lost" })).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{read_only}");
+    assert_eq!(read_only["code"], "authorization_failed", "{read_only}");
+
+    let (status, reported) = report(
+        &app,
+        &loans_only,
+        user_id,
+        &json!({ "reason": "stolen", "detail": "wallet taken" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{reported}");
+    assert_eq!(
+        sorted_keys(&reported),
+        ["cardNumber", "id", "initials"],
+        "{reported}"
+    );
+    assert_eq!(reported["id"], user_id.to_string(), "{reported}");
+    assert_eq!(reported["cardNumber"], card, "{reported}");
+    assert_eq!(reported["initials"], "IM", "{reported}");
+    let text = reported.to_string();
+    for needle in ["Isolde", "Moreau", "wallet", "stolen", "@secret.test"] {
+        assert!(!text.contains(needle), "response leaked {needle:?}: {text}");
+    }
+
+    let lost: bool = sqlx::query_scalar("SELECT card_lost FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .expect("card_lost");
+    assert!(lost);
+
+    let audit = wait_audit(&app, &admin_token, "user.card_lost", user_id).await;
+    let entry = audit_entry(&audit, "user.card_lost").expect("entry");
+    assert_eq!(entry["outcome"], "success", "{entry}");
+    assert_eq!(fixtures::json_id(&entry["userId"]), actor_id, "{entry}");
+    assert_eq!(entry["payload"]["reason"], "stolen", "{entry}");
+    assert_eq!(entry["payload"]["detail"], "wallet taken", "{entry}");
+    assert_eq!(
+        fixtures::json_id(&entry["payload"]["actorId"]),
+        actor_id,
+        "{entry}"
+    );
 
     let (status, replaced) = replace(&app, &loans_only, user_id, &format!("NEXT-{suffix}")).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{replaced}");
     assert_error_shape(&replaced);
     assert_eq!(replaced["code"], "authorization_failed", "{replaced}");
 
-    let lost: bool = sqlx::query_scalar("SELECT card_lost FROM users WHERE id = $1")
+    let row = sqlx::query("SELECT barcode, card_lost FROM users WHERE id = $1")
         .bind(user_id)
         .fetch_one(app.state.services.repository.pool())
         .await
-        .expect("card_lost unchanged");
-    assert!(!lost);
+        .expect("card unchanged by refused replace");
+    let barcode: Option<String> = row.get("barcode");
+    let still_lost: bool = row.get("card_lost");
+    assert_eq!(barcode.as_deref(), Some(card.as_str()));
+    assert!(still_lost);
 }

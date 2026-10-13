@@ -11,7 +11,8 @@ use crate::{
     error::AppResult,
     models::catalog_view::{borrower_initials, UserShortStaff},
     models::dto::card::{
-        ReplaceCardRequest, ReplaceCardResponse, ReportCardLostRequest, ReportCardLostResponse,
+        ReplaceCardRequest, ReplaceCardResponse, ReportCardLostDeskBody, ReportCardLostRequest,
+        ReportCardLostResponse, ReportCardLostStaffBody,
     },
     models::dto::patron_card::{CardLookupResponse, DeskCardLookup, StaffCardLookup},
     models::user::{
@@ -284,7 +285,8 @@ pub async fn update_user(
 /// Report the patron's library card lost or stolen.
 ///
 /// Sets `users.card_lost`. Checkout and renewal refuse with `422` `card_lost` until
-/// [`replace_card`] assigns a new number. Staff need `users_rights` write.
+/// [`replace_card`] assigns a new number. Allowed for users write or loans write.
+/// Loans write without users read receives only `{ id, cardNumber, initials }`.
 #[utoipa::path(
     post,
     path = "/users/{id}/card-lost",
@@ -295,10 +297,10 @@ pub async fn update_user(
     ),
     request_body = ReportCardLostRequest,
     responses(
-        (status = 200, description = "Card flagged lost. `reason` is `lost`, `stolen`, or `other`. `detail` is optional.", body = ReportCardLostResponse),
+        (status = 200, description = "Card flagged lost. Users read or write: `userId`, `cardLost`, `reason` (`lost`, `stolen`, or `other`), and optional `detail`. Loans write without users read: `id`, `cardNumber`, and `initials` only.", body = ReportCardLostResponse),
         (status = 400, description = "Missing or unknown reason, or detail longer than 500 characters", body = crate::error::ErrorResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
-        (status = 403, description = "Caller does not have users write", body = crate::error::ErrorResponse),
+        (status = 403, description = "Caller has neither users write nor loans write", body = crate::error::ErrorResponse),
         (status = 404, description = "User not found", body = crate::error::ErrorResponse)
     )
 )]
@@ -309,7 +311,7 @@ pub async fn report_card_lost(
     Path(id): Path<i64>,
     ValidatedJson(body): ValidatedJson<ReportCardLostRequest>,
 ) -> AppResult<Json<ReportCardLostResponse>> {
-    claims.require_write_users()?;
+    claims.require_report_card_lost()?;
     let requested = serde_json::json!({
         "reason": body.reason.as_str(),
         "detail": body.detail,
@@ -335,7 +337,7 @@ pub async fn report_card_lost(
                 })),
                 audit::AuditLogMeta::success(),
             );
-            Ok(Json(reported))
+            Ok(Json(report_card_lost_body(&claims, reported)))
         }
         Err(e) => {
             state.services.audit.log(
@@ -349,6 +351,29 @@ pub async fn report_card_lost(
             );
             Err(e)
         }
+    }
+}
+
+fn report_card_lost_body(
+    claims: &crate::models::user::UserClaims,
+    reported: crate::models::dto::card::ReportedLostCard,
+) -> ReportCardLostResponse {
+    if claims.rights.users_rights.rank() >= Rights::Read.rank() {
+        ReportCardLostResponse::Staff(ReportCardLostStaffBody {
+            user_id: reported.user_id,
+            card_lost: true,
+            reason: reported.reason,
+            detail: reported.detail,
+        })
+    } else {
+        ReportCardLostResponse::Desk(ReportCardLostDeskBody {
+            id: reported.user_id,
+            card_number: reported.card_number,
+            initials: borrower_initials(
+                reported.firstname.as_deref(),
+                reported.lastname.as_deref(),
+            ),
+        })
     }
 }
 
