@@ -2278,6 +2278,7 @@
     "filterComics": "Bandes dessinées",
     "available": "Disponible",
     "borrowed": "Emprunté",
+    "expectedReturn": "En prêt, retour prévu le {{date}}",
     "searchPlaceholder": "Titre, auteur, ISBN, mot-clé…",
     "tabEvents": "Événements",
     "tabCatalog": "Catalogue",

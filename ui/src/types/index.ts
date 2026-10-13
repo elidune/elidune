@@ -841,8 +841,9 @@ export interface ItemStaffView {
 
 /**
  * Reader/OPAC notice copy (`ItemPublicView`).
- * No notes, weeding, circulation status, loan id, borrower, or hold patron.
- * `dueDate` and `onHold` are included. `availability` is never `toSearch`.
+ * No notes, weeding, circulation status, loan id, borrower, hold patron, or `dueDate`.
+ * `onHold` and `expectedReturnDate` (date only, on loan, omitted when overdue) are included.
+ * `availability` is never `toSearch`.
  */
 export interface ItemPublicView {
   id: string | null;
@@ -859,8 +860,12 @@ export interface ItemPublicView {
   archivedAt: string | null;
   sourceName: string | null;
   borrowed: boolean;
-  /** Active loan due instant. Null when the copy is not on loan. */
-  dueDate: string | null;
+  /**
+   * Library-local calendar date (`YYYY-MM-DD`, no time) of the open loan.
+   * Present only when `availability` is `onLoan` and the loan is not overdue.
+   * Omitted otherwise, including when overdue. No borrower and no `dueDate`.
+   */
+  expectedReturnDate?: string;
   availability: ItemPublicAvailability;
   canHoldItem: boolean;
   /**

@@ -2278,6 +2278,7 @@
     "filterComics": "Comics",
     "available": "Available",
     "borrowed": "On loan",
+    "expectedReturn": "On loan, due back {{date}}",
     "searchPlaceholder": "Title, author, ISBN, keyword…",
     "tabEvents": "Events",
     "tabCatalog": "Catalogue",

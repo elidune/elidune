@@ -29,6 +29,7 @@ import { useLibrary } from '@/contexts/LibraryContext';
 import { Card, Input, Button, LibraryInfoSection } from '@/components/common';
 import NoticeHoldsWaiting from '@/components/holds/NoticeHoldsWaiting';
 import ItemAvailabilityBadge from '@/components/items/ItemAvailabilityBadge';
+import PublicCopyReturnLine from '@/components/items/PublicCopyReturnLine';
 import { copyAvailabilityLabel, summaryAvailability } from '@/utils/itemAvailability';
 import { formatCatalogLanguage } from '@/utils/catalogLanguage';
 import { useLibrarySchedule } from '@/hooks/common/useLibrarySchedule';
@@ -393,6 +394,10 @@ function BiblioDetailPane({
                             {t('opac.site')}: {item.sourceName}
                           </p>
                         )}
+                        <PublicCopyReturnLine
+                          availability={item.availability}
+                          expectedReturnDate={item.expectedReturnDate}
+                        />
                       </div>
                     );
                   })}

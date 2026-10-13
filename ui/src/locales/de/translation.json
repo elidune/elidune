@@ -2278,6 +2278,7 @@
     "filterComics": "Comics",
     "available": "Verfügbar",
     "borrowed": "Ausgeliehen",
+    "expectedReturn": "Ausgeliehen, Rückgabe vorgesehen am {{date}}",
     "searchPlaceholder": "Titel, Autor, ISBN, Stichwort…",
     "tabEvents": "Veranstaltungen",
     "tabCatalog": "Katalog",
