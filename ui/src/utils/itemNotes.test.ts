@@ -6,6 +6,8 @@ import {
   copyNoteLength,
   copyNoteUpdate,
   copyNoteWrite,
+  biblioWritePayload,
+  itemWritePayload,
 } from './itemNotes.ts';
 
 describe('copy note writes', () => {
@@ -45,11 +47,46 @@ describe('copy note writes', () => {
     );
   });
 
-  it('caps a note at 4000 scalar values', () => {
-    const over = `${'é'.repeat(COPY_NOTE_MAX_CHARS)}😀`;
+  it('caps a note at 4000 code points, not UTF-16 units', () => {
+    const emoji = '😀';
+    assert.equal(emoji.length, 2);
+    assert.equal(copyNoteLength(emoji), [...emoji].length);
+    assert.equal(copyNoteLength(emoji), 1);
+
+    const over = emoji.repeat(COPY_NOTE_MAX_CHARS + 1);
+    assert.ok(over.length > COPY_NOTE_MAX_CHARS);
     const clamped = clampCopyNote(over);
-    assert.equal(copyNoteLength(clamped), COPY_NOTE_MAX_CHARS);
-    assert.equal(clamped.endsWith('😀'), false);
-    assert.equal(copyNoteWrite(null, over), 'é'.repeat(COPY_NOTE_MAX_CHARS));
+    assert.equal([...clamped].length, COPY_NOTE_MAX_CHARS);
+    assert.equal(clamped.length, COPY_NOTE_MAX_CHARS * 2);
+    assert.equal(copyNoteWrite(null, over)?.length, COPY_NOTE_MAX_CHARS * 2);
+  });
+
+  it('never sends the retired notes field', () => {
+    const body = itemWritePayload({
+      barcode: 'COPY',
+      notes: 'legacy field must not be sent',
+      publicNote: `${'😀'.repeat(COPY_NOTE_MAX_CHARS)}x`,
+      internalNote: '',
+    });
+    assert.equal('notes' in body, false);
+    assert.equal(JSON.stringify(body).includes('legacy field must not be sent'), false);
+    assert.equal([...(body.publicNote ?? '')].length, COPY_NOTE_MAX_CHARS);
+    assert.equal(body.internalNote, '');
+  });
+
+  it('strips notes on nested copies and keeps the bibliographic note', () => {
+    const body = biblioWritePayload({
+      title: 'Notice',
+      notes: 'bibliographic note',
+      items: [
+        { barcode: 'A', notes: 'copy note', publicNote: 'CD missing' },
+        { barcode: 'B', callNumber: '800' },
+      ],
+    });
+    assert.equal(body.notes, 'bibliographic note');
+    assert.equal('notes' in body.items[0], false);
+    assert.equal(body.items[0].publicNote, 'CD missing');
+    assert.equal('notes' in body.items[1], false);
+    assert.equal(body.items[1].callNumber, '800');
   });
 });

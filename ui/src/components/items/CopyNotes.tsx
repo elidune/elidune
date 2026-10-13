@@ -35,7 +35,6 @@ function NoteTextarea({
         id={id}
         value={value}
         rows={3}
-        maxLength={COPY_NOTE_MAX_CHARS}
         onChange={(event) => onChange(clampCopyNote(event.target.value))}
         className={formTextareaClass()}
         aria-describedby={countId}

@@ -693,6 +693,7 @@
     "publicNote": "Öffentliche Notiz (für Leser sichtbar)",
     "internalNote": "Interne Notiz (nur für das Personal)",
     "noteCharCount": "{{count}}/{{max}}",
+    "noteTooLong": "Eine Notiz darf höchstens {{max}} Zeichen enthalten.",
     "specimenPrice": "Exemplar-Preis",
     "editDocument": "Dokument bearbeiten",
     "allTypes": "Alle Typen",

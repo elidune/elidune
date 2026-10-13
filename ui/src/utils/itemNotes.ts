@@ -1,16 +1,20 @@
 /** Maximum length of an item `publicNote` or `internalNote` (Unicode scalar values). */
 export const COPY_NOTE_MAX_CHARS = 4000;
 
-/** Unicode scalar values, matching the server `chars().count()` limit. */
+/** Unicode code points (`[...str].length`), matching the server `chars().count()` limit. */
 export function copyNoteLength(value: string): number {
-  return Array.from(value).length;
+  return [...value].length;
 }
 
-/** Keep at most {@link COPY_NOTE_MAX_CHARS} scalar values. */
+/** Keep at most {@link COPY_NOTE_MAX_CHARS} code points. */
 export function clampCopyNote(value: string): string {
-  const chars = Array.from(value);
+  const chars = [...value];
   if (chars.length <= COPY_NOTE_MAX_CHARS) return value;
   return chars.slice(0, COPY_NOTE_MAX_CHARS).join('');
+}
+
+export function copyNoteWithinLimit(value: string): boolean {
+  return copyNoteLength(value) <= COPY_NOTE_MAX_CHARS;
 }
 
 function storedNote(value: string | null | undefined): string {
@@ -49,4 +53,25 @@ export function copyNoteUpdate(
   if (publicNote !== undefined) payload.publicNote = publicNote;
   if (internalNote !== undefined) payload.internalNote = internalNote;
   return payload;
+}
+
+/**
+ * Body for item create and `PUT /items/{id}`.
+ * Drops the retired `notes` key (the server returns 400) and caps note fields by code point.
+ */
+export function itemWritePayload<T extends object>(body: T): Omit<T, 'notes'> {
+  const out: Record<string, unknown> = { ...body };
+  delete out.notes;
+  if (typeof out.publicNote === 'string') out.publicNote = clampCopyNote(out.publicNote);
+  if (typeof out.internalNote === 'string') out.internalNote = clampCopyNote(out.internalNote);
+  return out as Omit<T, 'notes'>;
+}
+
+/** Strip retired copy `notes` from nested items. Bibliographic `notes` on the record itself stay. */
+export function biblioWritePayload<T extends { items?: readonly object[] | null }>(body: T): T {
+  if (!body.items) return body;
+  return {
+    ...body,
+    items: body.items.map((item) => itemWritePayload(item)),
+  };
 }

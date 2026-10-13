@@ -1,5 +1,6 @@
 import axios, { AxiosError, AxiosInstance } from 'axios';
 import { IDEMPOTENCY_HEADER, newIdempotencyKey } from '@/utils/idempotency';
+import { biblioWritePayload, itemWritePayload } from '@/utils/itemNotes';
 import { myLoansRequestParams } from '@/utils/loanClosure';
 import type {
   LoginRequest,
@@ -597,12 +598,12 @@ class ApiService {
     if (options?.confirmReplaceExistingId != null) {
       params.confirmReplaceExistingId = options.confirmReplaceExistingId;
     }
-    const response = await this.client.post<ImportResult<Biblio>>('/biblios', payload, { params });
+    const response = await this.client.post<ImportResult<Biblio>>('/biblios', biblioWritePayload(payload), { params });
     return response.data;
   }
 
   async updateBiblio(id: string, biblio: Partial<Biblio>): Promise<Biblio> {
-    const response = await this.client.put<Biblio>(`/biblios/${id}`, biblio);
+    const response = await this.client.put<Biblio>(`/biblios/${id}`, biblioWritePayload(biblio));
     return response.data;
   }
 
@@ -684,7 +685,7 @@ class ApiService {
 
   /** `PUT /items/:id` — path id is authoritative; body may omit `id` or match the path. */
   async updateItem(itemId: string, data: UpdateItem): Promise<Item> {
-    const response = await this.client.put<Item>(`/items/${itemId}`, data);
+    const response = await this.client.put<Item>(`/items/${itemId}`, itemWritePayload(data));
     return response.data;
   }
 
@@ -791,7 +792,7 @@ class ApiService {
   }
 
   async createItem(biblioId: string, data: CreateItem): Promise<Item> {
-    const response = await this.client.post<Item>(`/biblios/${biblioId}/items`, data);
+    const response = await this.client.post<Item>(`/biblios/${biblioId}/items`, itemWritePayload(data));
     return response.data;
   }
 
@@ -1718,10 +1719,7 @@ class ApiService {
     options?: { confirmReplaceExistingId?: string | null }
   ): Promise<ImportResult<Biblio>> {
     const itemsWithSource =
-      items?.map((item) => ({
-        ...item,
-        sourceId,
-      })) ?? undefined;
+      items?.map((item) => itemWritePayload({ ...item, sourceId })) ?? undefined;
 
     const response = await this.client.post<ImportResult<Biblio>>('/z3950/import', {
       biblioId,

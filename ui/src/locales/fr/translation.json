@@ -693,6 +693,7 @@
     "publicNote": "Note publique (visible par les lecteurs)",
     "internalNote": "Note interne (personnel uniquement)",
     "noteCharCount": "{{count}}/{{max}}",
+    "noteTooLong": "La note de l'exemplaire ne peut pas dépasser {{max}} caractères.",
     "specimenPrice": "Prix exemplaire",
     "editDocument": "Modifier le document",
     "allTypes": "Tous les types",

@@ -51,7 +51,7 @@ import {
   missingCirculationFields,
   type CirculationField,
 } from '@/utils/circulationReadiness';
-import { copyNoteUpdate } from '@/utils/itemNotes';
+import { COPY_NOTE_MAX_CHARS, copyNoteUpdate, copyNoteWithinLimit } from '@/utils/itemNotes';
 interface BibliosListCache {
   pages?: Array<{
     items?: Array<{ id?: string | null }>;
@@ -1358,6 +1358,10 @@ function EditSpecimenForm({ formId, item, specimen, onLoadingChange, onSuccess }
       return;
     }
     if (!validateCallNumber(formData.callNumber)) return;
+    if (!copyNoteWithinLimit(formData.publicNote) || !copyNoteWithinLimit(formData.internalNote)) {
+      setError(t('items.noteTooLong', { max: COPY_NOTE_MAX_CHARS }));
+      return;
+    }
     const specimenId = specimen.id;
     onLoadingChange(true);
     setError(null);
