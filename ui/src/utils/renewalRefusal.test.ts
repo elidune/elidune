@@ -63,9 +63,12 @@ describe('account renewal refusals', () => {
     const expired = httpError(422, 'subscription_expired', 'User subscription expired on 2020-01-15 — use force=true to override');
     assert.equal(
       renewalRefusalErrorMessage(expired, t),
-      'Abonnement expiré : renouvellement impossible',
+      'Abonnement expiré, renouvelez-le à l\'accueil pour prolonger vos prêts.',
     );
-    assert.equal(getApiErrorMessage(expired, t), 'Abonnement expiré : renouvellement impossible');
+    assert.equal(
+      getApiErrorMessage(expired, t),
+      'Abonnement expiré, renouvelez-le à l\'accueil pour prolonger vos prêts.',
+    );
     assert.equal(expired.response.data.message.includes('force=true'), true);
 
     const lost = httpError(422, 'card_lost', 'Library card is reported lost or stolen');

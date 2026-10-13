@@ -365,7 +365,7 @@ describe('my loans account renewal refusals', () => {
     );
     assert.equal(
       fr.loans.renewalRefusal.subscription_expired,
-      'Abonnement expiré : renouvellement impossible',
+      'Abonnement expiré, renouvelez-le à l\'accueil pour prolonger vos prêts.',
     );
   });
 
@@ -373,19 +373,19 @@ describe('my loans account renewal refusals', () => {
     const expected = {
       fr: {
         card_lost: 'Carte déclarée perdue : renouvellement impossible',
-        subscription_expired: 'Abonnement expiré : renouvellement impossible',
+        subscription_expired: 'Abonnement expiré, renouvelez-le à l\'accueil pour prolonger vos prêts.',
       },
       en: {
         card_lost: 'Card reported lost: renewal is not possible',
-        subscription_expired: 'Subscription expired: renewal is not possible',
+        subscription_expired: 'Subscription expired, renew it at the desk to extend your loans.',
       },
       de: {
         card_lost: 'Karte als verloren gemeldet: Verlängerung nicht möglich',
-        subscription_expired: 'Abonnement abgelaufen: Verlängerung nicht möglich',
+        subscription_expired: 'Abonnement abgelaufen, erneuern Sie es an der Ausleihe, um Ihre Ausleihen zu verlängern.',
       },
       es: {
         card_lost: 'Carné declarado perdido: renovación imposible',
-        subscription_expired: 'Suscripción caducada: renovación imposible',
+        subscription_expired: 'Suscripción caducada, renuévela en el mostrador para prolongar sus préstamos.',
       },
     } as const;
     for (const lang of ['fr', 'en', 'de', 'es'] as const) {

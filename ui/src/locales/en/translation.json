@@ -1203,7 +1203,7 @@
     "renewalTooEarly": "Renewal is not open yet.",
     "renewalRefusal": {
       "card_lost": "Card reported lost: renewal is not possible",
-      "subscription_expired": "Subscription expired: renewal is not possible",
+      "subscription_expired": "Subscription expired, renew it at the desk to extend your loans.",
       "account_blocked": "Your account cannot renew loans right now. Please contact the library.",
       "fines_over_threshold": "Unpaid fines are above the allowed threshold.",
       "withdrawn": "This copy is withdrawn and cannot be renewed.",
