@@ -18,7 +18,10 @@ use utoipa::{IntoParams, ToSchema};
 use crate::{
     error::{AppError, AppResult},
     models::{
-        catalog_view::{borrower_initials, project_borrower, LoanDetailsOwn, LoanDetailsStaff},
+        catalog_view::{
+            borrower_initials, project_borrower, project_hold_for, HoldPatronSource,
+            LoanDetailsOwn, LoanDetailsStaff,
+        },
         loan::{CreateLoan, LoanDetails, LoanMarcExportEncoding, LoanMarcExportFormat},
         my_account::MyLoanView,
         user::Rights,
@@ -236,12 +239,27 @@ pub struct LoanResponse {
 }
 
 /// Return response. `loan` is set when a loan was closed. `hold` is set when a
-/// shelf `to_pick` copy was checked in or a missing copy was found.
-/// `status` is `returned`, `lost_found`, `ready`, `in_transit`, or `available`.
+/// shelf `to_pick` copy was checked in or a pending hold was set aside from an
+/// available copy that was not on loan.
+/// `status` is `returned`, `lost_found`, `ready`, `in_transit`, `available`, or
+/// `unchanged`.
 /// `destinationSiteId` / `destinationSiteName` are set when status is `in_transit`.
 ///
-/// When the copy is lost, `wasLost` is true and the replacement charge (if any)
-/// is described in cents. The lost status itself is not changed.
+/// When an open loan is returned and the copy is still lost, `wasLost` is true
+/// and the replacement charge (if any) is described in cents. The lost status
+/// itself is not changed. A barcode scan of a copy that is already lost does
+/// not use this shape: it returns the blocked-status warning below.
+///
+/// `notice.code` `item_not_on_loan` (`level` `informational`) means an available
+/// copy had no active loan. `holdFor` is set with that notice when a hold was
+/// served. `users_rights` read or write returns the staff patron profile.
+/// `loans_rights` without users read returns `{ id, cardNumber, initials }`.
+///
+/// `notice.code` `item_not_available_status` (`level` `warning`) means the copy
+/// is lost, damaged, missing (`circulationStatus` `toSearch`), or withdrawn
+/// (`weedingStatus` `withdrawn`). `status` is `unchanged`. `circulationStatus`
+/// and `weedingStatus` are the current values. The scan does not set the copy
+/// available, assign a hold, or start transit.
 #[serde_as]
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -271,6 +289,49 @@ pub struct ReturnResponse {
     /// Amount already collected, in cents.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub paid_amount: Option<i64>,
+    /// Informational or warning note. Present when the copy was not returned as a loan.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notice: Option<crate::models::dto::circulation::DeskNotice>,
+    /// Patron the hold was set aside for. Same privacy rule as catalog `holdFor`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hold_for: Option<LoanBorrowerResponse>,
+    /// Current circulation exception. Set with `notice.code` `item_not_available_status`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub circulation_status: Option<crate::models::circulation::CirculationStatus>,
+    /// Current weeding status. Set with `notice.code` `item_not_available_status`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weeding_status: Option<crate::models::item::WeedingStatus>,
+}
+
+/// `holdFor` for a not-on-loan check-in. Loans-only staff get id, card, and initials.
+async fn project_check_in_hold_for(
+    state: &crate::AppState,
+    claims: &crate::models::user::UserClaims,
+    hold: Option<&crate::models::hold::Hold>,
+) -> AppResult<Option<LoanBorrowerResponse>> {
+    let Some(hold) = hold else {
+        return Ok(None);
+    };
+    let users = state
+        .services
+        .repository
+        .users_get_short_by_ids(&[hold.user_id])
+        .await?;
+    let Some(user) = users.get(&hold.user_id).cloned() else {
+        return Ok(None);
+    };
+    let source = HoldPatronSource {
+        id: user.id,
+        barcode: user.barcode.clone(),
+        firstname: user.firstname.clone(),
+        lastname: user.lastname.clone(),
+    };
+    let full = if claims.rights.users_rights.rank() >= Rights::Read.rank() {
+        users
+    } else {
+        std::collections::HashMap::new()
+    };
+    Ok(project_hold_for(source, claims, &full))
 }
 
 fn apply_lost(
@@ -756,6 +817,10 @@ pub async fn return_loan(
         fine_status: None,
         fine_amount: None,
         paid_amount: None,
+        notice: None,
+        hold_for: None,
+        circulation_status: None,
+        weeding_status: None,
     };
     apply_lost(&mut response, returned.lost);
     Ok(Json(response))
@@ -858,7 +923,9 @@ async fn renew_loan_inner(
     ))
 }
 
-/// Check in a barcode. Returns an active loan, or completes a `to_pick` hold on a shelf copy.
+/// Check in a barcode. Returns an active loan, completes a `to_pick` hold,
+/// accepts an available copy that is not on loan, or warns when the copy is
+/// lost, damaged, missing, or withdrawn.
 #[utoipa::path(
     post,
     path = "/loans/items/{barcode}/return",
@@ -866,8 +933,8 @@ async fn renew_loan_inner(
     security(("bearer_auth" = [])),
     params(("barcode" = String, Path, description = "Item barcode or call number")),
     responses(
-        (status = 200, description = "Item returned, or a to_pick hold checked in", body = ReturnResponse),
-        (status = 404, description = "Unknown barcode (`not_found`), or a known item that is not on loan (`item_not_on_loan`)", body = crate::error::ErrorResponse),
+        (status = 200, description = "Loan closed, a to_pick hold checked in, an available copy that is not on loan, or a blocked status. An available copy that is not on loan includes `notice` (`code` `item_not_on_loan`, `level` `informational`). A pending hold on that copy is set aside (`status` `ready`) or sent in transit. `holdFor` on that notice follows the catalog privacy rule: staff profile with users read, otherwise `{ id, cardNumber, initials }`. A copy that is lost, damaged, missing (`circulationStatus` `toSearch`), or withdrawn (`weedingStatus` `withdrawn`) includes `notice` (`code` `item_not_available_status`, `level` `warning`), `status` `unchanged`, and the current `circulationStatus` and `weedingStatus`. That scan does not change the status, assign a hold, or start transit.", body = ReturnResponse),
+        (status = 404, description = "Unknown barcode (`not_found`)", body = crate::error::ErrorResponse),
         (status = 409, description = "Already returned")
     )
 )]
@@ -897,7 +964,12 @@ pub async fn return_loan_by_item(
                     audit::AuditLogMeta::success(),
                 );
             }
-            let status = if check_in.lost.is_some() && check_in.loan.is_none() {
+            let blocked = check_in.notice.as_ref().is_some_and(|notice| {
+                notice.code == crate::error::error_code::ITEM_NOT_AVAILABLE_STATUS
+            });
+            let status = if blocked {
+                "unchanged"
+            } else if check_in.lost.is_some() && check_in.loan.is_none() {
                 "lost_found"
             } else if check_in.loan.is_some() {
                 "returned"
@@ -907,6 +979,11 @@ pub async fn return_loan_by_item(
                 "ready"
             } else {
                 "available"
+            };
+            let hold_for = if check_in.notice.is_some() {
+                project_check_in_hold_for(&state, &claims, check_in.hold.as_ref()).await?
+            } else {
+                None
             };
             let mut response = ReturnResponse {
                 status: status.to_string(),
@@ -921,6 +998,10 @@ pub async fn return_loan_by_item(
                 fine_status: None,
                 fine_amount: None,
                 paid_amount: None,
+                notice: check_in.notice,
+                hold_for,
+                circulation_status: check_in.circulation_status,
+                weeding_status: check_in.weeding_status,
             };
             apply_lost(&mut response, check_in.lost);
             Ok(Json(response))

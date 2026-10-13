@@ -208,6 +208,7 @@ jobs:
           --test own_user_record
           --test account_types_custom
           --test circulation_status_read_only
+          --test return_not_on_loan
           -- --nocapture
 
   coverage:
@@ -306,6 +307,7 @@ jobs:
           --test own_user_record
           --test account_types_custom
           --test circulation_status_read_only
+          --test return_not_on_loan
           --lcov
           --output-path lcov.info
           --fail-under-lines 20

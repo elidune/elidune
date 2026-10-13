@@ -290,10 +290,15 @@ async fn paid_replacement_is_refunded_on_barcode_return_then_circulate() {
         )
         .await;
     assert_eq!(status, StatusCode::OK, "scan: {body}");
-    assert_eq!(body["wasLost"], true);
-    assert_eq!(body["fineStatus"], "paid");
-    assert_eq!(body["fineAmount"], 1500);
-    assert_eq!(body["paidAmount"], 1500);
+    assert_eq!(
+        body["notice"]["code"], "item_not_available_status",
+        "{body}"
+    );
+    assert_eq!(body["notice"]["level"], "warning", "{body}");
+    assert_eq!(body["circulationStatus"], "lost", "{body}");
+    assert_eq!(body["status"], "unchanged", "{body}");
+    assert!(body.get("wasLost").is_none(), "{body}");
+    assert!(body.get("fineId").is_none(), "{body}");
     let (circulation, _) = item_flags(&app, &token, item_id).await;
     assert_eq!(circulation, 1);
 
@@ -539,7 +544,14 @@ async fn leave_keeps_lost_status_and_the_fee() {
         )
         .await;
     assert_eq!(status, StatusCode::OK, "scan: {body}");
-    assert_eq!(body["wasLost"], true);
+    assert_eq!(
+        body["notice"]["code"], "item_not_available_status",
+        "{body}"
+    );
+    assert_eq!(body["notice"]["level"], "warning", "{body}");
+    assert_eq!(body["circulationStatus"], "lost", "{body}");
+    assert_eq!(body["status"], "unchanged", "{body}");
+    assert!(body.get("wasLost").is_none(), "{body}");
     assert!(body.get("fineId").is_none(), "no linked fine: {body}");
 
     let (status, resolved) = resolve(&app, &token, item_id, "leave").await;
