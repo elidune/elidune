@@ -24,6 +24,7 @@ import { Card, Button, Badge, Modal, Input, Table, ConfirmDialog, MessageModal, 
 import api from '@/services/api';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
 import { circulationMayForce } from '@/utils/circulationForce';
+import { closureReasonText } from '@/utils/loanClosure';
 import { renewedUntilMessage } from '@/utils/localeDate';
 import { isWeedingServerMessage } from '@/utils/weeding';
 import { isSubscriptionExpired } from '@/utils/userSubscription';
@@ -688,6 +689,11 @@ export default function UserDetailPage() {
         loan.returnedAt ? new Date(loan.returnedAt).toLocaleDateString(i18n.language) : '-',
     },
     {
+      key: 'closure',
+      header: t('loans.closure.column'),
+      render: (loan: LoanListItem) => closureReasonText(loan, t, i18n.language) ?? '-',
+    },
+    {
       key: 'renews',
       header: t('loans.renewals'),
       render: (loan: LoanListItem) => loan.nbRenews,
@@ -1229,6 +1235,14 @@ export default function UserDetailPage() {
                     : new Date(loanDetails.expiryAt).toLocaleDateString(i18n.language)}
                 </p>
               </div>
+              {closureReasonText(loanDetails, t, i18n.language) ? (
+                <div>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{t('loans.closure.column')}</p>
+                  <p className="text-gray-900 dark:text-white">
+                    {closureReasonText(loanDetails, t, i18n.language)}
+                  </p>
+                </div>
+              ) : null}
             </div>
 
             <div className="pt-2 border-t border-gray-200 dark:border-gray-800">

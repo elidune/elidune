@@ -1,5 +1,6 @@
 import axios, { AxiosError, AxiosInstance } from 'axios';
 import { IDEMPOTENCY_HEADER, newIdempotencyKey } from '@/utils/idempotency';
+import { myLoansRequestParams } from '@/utils/loanClosure';
 import type {
   LoginRequest,
   AuthMeUser,
@@ -864,12 +865,11 @@ class ApiService {
   async getMyLoans(options?: {
     page?: number;
     perPage?: number;
+    /** Closed loans for the caller only. Default requests stay open loans. */
+    archived?: boolean;
   }): Promise<PaginatedResponse<MyLoan>> {
     const response = await this.client.get('/me/loans', {
-      params: {
-        page: options?.page,
-        perPage: options?.perPage,
-      },
+      params: myLoansRequestParams(options),
     });
     return normalizePaginatedResponse<MyLoan>(response.data);
   }
