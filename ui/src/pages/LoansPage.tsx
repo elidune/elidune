@@ -151,7 +151,7 @@ export default function LoansPage() {
   const { t, i18n } = useTranslation();
   const { user: authUser } = useAuth();
   const canReadBorrowers = canReadUsers(authUser, api.getToken());
-  const { showToast } = useToast();
+  const { showToast, dismissPersistentErrors } = useToast();
   const userIsAdmin = isAdmin(authUser?.accountType);
   const [activeTab, setActiveTab] = useState<TabType>('borrow');
   
@@ -251,8 +251,18 @@ export default function LoansPage() {
     });
   }, [activeTab, selectedUser]);
 
+  const selectedReaderIdRef = useRef<string | null>(null);
+  const selectDeskReader = useCallback((user: UserType | null) => {
+    const nextId = user?.id ?? null;
+    if (selectedReaderIdRef.current !== nextId) {
+      selectedReaderIdRef.current = nextId;
+      dismissPersistentErrors();
+    }
+    setSelectedUser(user);
+  }, [dismissPersistentErrors]);
+
   const resetBorrowFlow = useCallback(() => {
-    setSelectedUser(null);
+    selectDeskReader(null);
     setPatronIdentity(null);
     setDeskLoanStatus(null);
     setCardScanError(null);
@@ -272,7 +282,7 @@ export default function LoansPage() {
     if (userBarcodeInputRef.current) {
       userBarcodeInputRef.current.value = '';
     }
-  }, []);
+  }, [selectDeskReader]);
 
   const prevActiveTabRef = useRef<TabType | null>(null);
 
@@ -714,7 +724,7 @@ export default function LoansPage() {
     setUserSelectError(null);
     try {
       const fullUser = await api.getUser(user.id);
-      setSelectedUser(fullUser);
+      selectDeskReader(fullUser);
       setPatronIdentity(
         deskPatronIdentity({
           id: fullUser.id,
@@ -759,7 +769,7 @@ export default function LoansPage() {
     try {
       const found = await api.getUserByCard(barcode.trim());
       const scanned = patronFromCardScan(found);
-      setSelectedUser(scanned.user);
+      selectDeskReader(scanned.user);
       setPatronIdentity(scanned.identity);
       setDeskLoanStatus(scanned.loanStatus);
       setCardScanError(null);
@@ -1357,7 +1367,7 @@ export default function LoansPage() {
                       size="sm"
                       className="shrink-0"
                       onClick={() => {
-                        setSelectedUser(null);
+                        selectDeskReader(null);
                         setPatronIdentity(null);
                         setDeskLoanStatus(null);
                         setCardScanError(null);

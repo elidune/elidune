@@ -2,11 +2,14 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from 'react';
+import { useAuth } from '@/contexts/AuthContext';
+import { withoutPersistentErrorToasts } from '@/utils/toastPersistence';
 
 export type ToastVariant = 'info' | 'success' | 'error';
 
@@ -28,6 +31,8 @@ interface ToastContextValue {
   toasts: ToastItem[];
   showToast: (options: ShowToastOptions) => string;
   dismissToast: (id: string) => void;
+  /** Sticky error toasts only. Info and success keep their timers. */
+  dismissPersistentErrors: () => void;
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null);
@@ -51,6 +56,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  const dismissPersistentErrors = useCallback(() => {
+    setToasts((prev) => withoutPersistentErrorToasts(prev));
+  }, []);
+
   const showToast = useCallback(
     (options: ShowToastOptions): string => {
       const id = crypto.randomUUID();
@@ -70,11 +79,35 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo(
-    (): ToastContextValue => ({ toasts, showToast, dismissToast }),
-    [toasts, showToast, dismissToast]
+    (): ToastContextValue => ({ toasts, showToast, dismissToast, dismissPersistentErrors }),
+    [toasts, showToast, dismissToast, dismissPersistentErrors]
   );
 
-  return <ToastContext.Provider value={value}>{children}</ToastContext.Provider>;
+  return (
+    <ToastContext.Provider value={value}>
+      <DismissPersistentErrorsOnLogout />
+      {children}
+    </ToastContext.Provider>
+  );
+}
+
+/** A sticky desk error must not survive into the next session. */
+function DismissPersistentErrorsOnLogout() {
+  const { user } = useAuth();
+  const { dismissPersistentErrors } = useToast();
+  const hadUser = useRef(false);
+
+  useEffect(() => {
+    if (user) {
+      hadUser.current = true;
+      return;
+    }
+    if (!hadUser.current) return;
+    hadUser.current = false;
+    dismissPersistentErrors();
+  }, [user, dismissPersistentErrors]);
+
+  return null;
 }
 
 export function useToast(): ToastContextValue {
