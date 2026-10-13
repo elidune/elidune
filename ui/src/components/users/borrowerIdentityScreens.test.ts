@@ -20,9 +20,9 @@ type Lang = 'fr' | 'en' | 'de' | 'es';
 
 const CARD_PHRASE: Record<Lang, string> = {
   fr: 'carte n°',
-  en: 'library card no.',
+  en: 'card number',
   de: 'Leseausweis-Nr.',
-  es: 'carné n.º',
+  es: 'n.º de carné',
 };
 
 const AGE_UNKNOWN: Record<Lang, string> = {

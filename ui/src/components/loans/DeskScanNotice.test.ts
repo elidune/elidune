@@ -177,9 +177,9 @@ describe('desk 409 notice hides the other borrower name', () => {
   it('keeps the name out of every locale, and out of the 409 notice payload', async () => {
     const cardWording = {
       fr: 'carte n°',
-      en: 'library card no.',
+      en: 'card number',
       de: 'Leseausweis-Nr.',
-      es: 'carné n.º',
+      es: 'n.º de carné',
     } as const;
     for (const lng of ['fr', 'en', 'de', 'es'] as const satisfies readonly Lang[]) {
       const html = renderNotice(await i18nFor(lng), true, {

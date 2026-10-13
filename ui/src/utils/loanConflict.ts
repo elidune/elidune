@@ -1,3 +1,4 @@
+import { circulationMayForce } from './circulationForce.ts';
 import {
   otherBorrowerFromPayload,
   otherBorrowerFromPerson,
@@ -124,11 +125,12 @@ function renewLoanId(data: Record<string, unknown> | null, context: ConflictCont
   return text(context.listedLoanId);
 }
 
-/** These 409s are final. A checkout must not be retried with `force`. */
+/**
+ * These 409s are final. A checkout must not be retried with `force`.
+ * `422` `card_lost` is final too, including for an administrator.
+ */
 export function checkoutMayForce(error: unknown): boolean {
-  const code = readCode(error);
-  if (code === ITEM_ON_LOAN_TO_OTHER_BORROWER || code === ITEM_ALREADY_ON_LOAN_TO_BORROWER) return false;
-  return code === 'business_rule_violation';
+  return circulationMayForce('loan', readCode(error));
 }
 
 /** `force` is omitted when the copy is already on loan. */

@@ -5,7 +5,6 @@ import {
   BookMarked,
   RotateCcw,
   Check,
-  Search,
   CreditCard,
   X,
   AlertTriangle,
@@ -17,7 +16,7 @@ import {
   ClipboardList,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { Card, CardHeader, Button, Badge, Table, MessageModal, ConfirmDialog, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, BarcodeScanField, Typeahead } from '@/components/common';
+import { Card, CardHeader, Button, Badge, Table, MessageModal, ConfirmDialog, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, BarcodeScanField } from '@/components/common';
 import ItemAvailabilityBadge from '@/components/items/ItemAvailabilityBadge';
 import ActiveLoanCard from '@/components/loans/ActiveLoanCard';
 import CirculationExceptionDialog from '@/components/loans/CirculationExceptionDialog';
@@ -73,17 +72,20 @@ import { newIdempotencyKey } from '@/utils/idempotency';
 import { nextReminderTierFromCount } from '@/utils/reminderPolicy';
 import { useCirculationExceptionAction, type CirculationExceptionKind } from '@/hooks/loans/useCirculationExceptionAction';
 import { useAuth } from '@/contexts/AuthContext';
+import CirculationForceButton from '@/components/loans/CirculationForceButton';
+import DeskNameSearch from '@/components/loans/DeskNameSearch';
+import DeskPatronStatus from '@/components/loans/DeskPatronStatus';
 import OverdueBorrowerSummary from '@/components/loans/OverdueBorrowerSummary';
 import OverdueDueDate from '@/components/loans/OverdueDueDate';
 import { OVERDUE_FACTS_CLASS } from '@/utils/overdueDueDate';
 import ReturnBorrowerLine from '@/components/loans/ReturnBorrowerLine';
-import PatronOptionLabel from '@/components/users/PatronOptionLabel';
-import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
 import { useToast } from '@/contexts/ToastContext';
 import { canReadUsers, isAdmin } from '@/types';
-import type { User as UserType, Loan, UserShort, OverdueLoanInfo, ReminderReport, ItemCheckIn, LostFoundDisposition, LostReturnFields, PatronCardLookup, PatronLoanStatus, DeskCardLookup } from '@/types';
+import type { User as UserType, Loan, UserShort, OverdueLoanInfo, ReminderReport, ItemCheckIn, LostFoundDisposition, LostReturnFields, PatronLoanStatus } from '@/types';
 import { isItemStaffView, isLoanDetailsStaff } from '@/utils/catalogView';
-import { readerIdentifierText } from '@/utils/readerIdentifier';
+import { circulationMayForce } from '@/utils/circulationForce';
+import { deskNameSearchVisible, deskPatronIdentity, patronFromCardScan, presentCardScanError } from '@/utils/deskPatron';
+import { readerIdentifierText, type BorrowerRef } from '@/utils/readerIdentifier';
 import { checkoutRecap, deskMayLoadPatronLoans, readPatronLoans } from '@/utils/loanListAccess';
 
 type TabType = 'borrow' | 'return' | 'overdue' | 'claims';
@@ -114,38 +116,8 @@ type CheckoutRecap = {
 
 const BORROW_LOANS_PAGE_SIZE = 20;
 
-function isDeskCardLookup(body: PatronCardLookup): body is DeskCardLookup {
-  return !('firstname' in body) && !('login' in body) && !('email' in body);
-}
-
-function patronFromCardScan(body: PatronCardLookup): {
-  user: UserType;
-  loanStatus: PatronLoanStatus;
-} {
-  if (!isDeskCardLookup(body)) {
-    const { loanStatus, ...user } = body;
-    return { user, loanStatus };
-  }
-  return {
-    loanStatus: body.loanStatus,
-    user: {
-      id: body.id,
-      username: body.cardNumber ?? body.id,
-      barcode: body.cardNumber ?? undefined,
-      firstname: body.initials,
-      lastname: '',
-    },
-  };
-}
-
-function deskPatronLabel(user: UserType): string {
-  const name = [user.firstname, user.lastname].filter(Boolean).join(' ').trim();
-  return name || user.barcode || user.id;
-}
-
-function deskPatronInitials(user: UserType): string {
-  if (!user.lastname) return (user.firstname || '?').slice(0, 2);
-  return `${user.firstname?.[0] ?? '?'}${user.lastname[0] ?? ''}`;
+function deskPatronLabel(identity: BorrowerRef | null, cardLabel: (number: string) => string): string {
+  return readerIdentifierText(identity, cardLabel);
 }
 
 function maxReminderSentAt(loans: OverdueLoanInfo[]): string | null {
@@ -201,6 +173,10 @@ export default function LoansPage() {
   const [loansReloadToken, setLoansReloadToken] = useState(0);
   const [isPatronLookupBusy, setIsPatronLookupBusy] = useState(false);
   const [deskLoanStatus, setDeskLoanStatus] = useState<PatronLoanStatus | null>(null);
+  const [patronIdentity, setPatronIdentity] = useState<BorrowerRef | null>(null);
+  const [cardScanError, setCardScanError] = useState<string | null>(null);
+  const [renewForceCode, setRenewForceCode] = useState<string | null>(null);
+  const renewForceRef = useRef<(() => void) | null>(null);
   const patronLookupInFlightRef = useRef(false);
   const borrowLoanActionInFlightRef = useRef(false);
 
@@ -265,6 +241,11 @@ export default function LoansPage() {
 
   const resetBorrowFlow = useCallback(() => {
     setSelectedUser(null);
+    setPatronIdentity(null);
+    setDeskLoanStatus(null);
+    setCardScanError(null);
+    setRenewForceCode(null);
+    renewForceRef.current = null;
     setLoans([]);
     setLoansTotal(0);
     setLoansPage(1);
@@ -658,7 +639,7 @@ export default function LoansPage() {
 
   useEffect(() => {
     const query = userSearchDraft.trim();
-    if (!query) {
+    if (!deskNameSearchVisible(canReadBorrowers) || !query) {
       userSearchSeqRef.current += 1;
       return;
     }
@@ -690,7 +671,7 @@ export default function LoansPage() {
     }, 300);
 
     return () => window.clearTimeout(timer);
-  }, [userSearchDraft, userSearchRetry, showToast, t]);
+  }, [canReadBorrowers, userSearchDraft, userSearchRetry, showToast, t]);
 
   useEffect(() => {
     if (!selectedUser) {
@@ -728,11 +709,33 @@ export default function LoansPage() {
     try {
       const fullUser = await api.getUser(user.id);
       setSelectedUser(fullUser);
+      setPatronIdentity(
+        deskPatronIdentity({
+          id: fullUser.id,
+          barcode: fullUser.barcode,
+          firstname: fullUser.firstname,
+          lastname: fullUser.lastname,
+          accountType: fullUser.accountType,
+          email: fullUser.email,
+          phone: fullUser.phone,
+          login: fullUser.login,
+        }),
+      );
       setDeskLoanStatus(null);
+      setCardScanError(null);
       setLoansPage(1);
       setLastCheckout(null);
       setUserSearchDraft('');
       setUserSearchResults([]);
+      const card = fullUser.barcode?.trim();
+      if (card) {
+        try {
+          const byCard = await api.getUserByCard(card);
+          setDeskLoanStatus(byCard.loanStatus);
+        } catch {
+          setDeskLoanStatus(null);
+        }
+      }
     } catch (error) {
       const msg = getApiErrorMessage(error, t) || t('loans.userLoadError');
       setUserSelectError(msg);
@@ -749,9 +752,11 @@ export default function LoansPage() {
     setIsPatronLookupBusy(true);
     try {
       const found = await api.getUserByCard(barcode.trim());
-      const { user, loanStatus } = patronFromCardScan(found);
-      setSelectedUser(user);
-      setDeskLoanStatus(loanStatus);
+      const scanned = patronFromCardScan(found);
+      setSelectedUser(scanned.user);
+      setPatronIdentity(scanned.identity);
+      setDeskLoanStatus(scanned.loanStatus);
+      setCardScanError(null);
       if (!canReadBorrowers) {
         setLoans([]);
         setLoansTotal(0);
@@ -765,11 +770,12 @@ export default function LoansPage() {
         userBarcodeInputRef.current.value = '';
       }
     } catch (error) {
-      const msg = getHttpStatus(error) === 404
-        ? t('loans.userNotFound', { barcode })
-        : getApiErrorMessage(error, t) || t('loans.errorFindingUser');
-      setMessageDialog(msg);
-      showToast({ variant: 'error', message: msg });
+      const presented = presentCardScanError(
+        getHttpStatus(error),
+        getApiErrorMessage(error, t) || t('loans.errorFindingUser'),
+        t('loans.unknownCard'),
+      );
+      setCardScanError(presented.message);
     } finally {
       patronLookupInFlightRef.current = false;
       setIsPatronLookupBusy(false);
@@ -818,7 +824,7 @@ export default function LoansPage() {
       const recap = checkoutRecap({
         created,
         barcode,
-        patronName: deskPatronLabel(selectedUser),
+        patronName: deskPatronLabel(patronIdentity, (number) => t('loans.readerCardNo', { number })),
         noTitle: t('loans.noTitle'),
         listed: matched ?? null,
       });
@@ -854,7 +860,7 @@ export default function LoansPage() {
         setCheckoutScanAlert({ ...blocked, barcode });
         throw new CheckoutScanNoticeShown();
       }
-      if (checkoutMayForce(error) && !force) {
+      if (getApiErrorCode(error) !== 'card_lost' && checkoutMayForce(error) && !force) {
         setBarcodeInput('');
         const ok = await new Promise<boolean>((resolve) => {
           setForceBorrowDialog({
@@ -1069,14 +1075,17 @@ export default function LoansPage() {
 
   const completeRenew = async (
     busyId: string,
-    request: () => Promise<{ expiryAt: string }>,
+    request: (force: boolean) => Promise<{ expiryAt: string }>,
+    force = false,
   ): Promise<boolean> => {
     if (borrowLoanActionInFlightRef.current) return false;
     borrowLoanActionInFlightRef.current = true;
     setBorrowLoanAction({ loanId: busyId, op: 'renew' });
     setRenewError('');
+    setRenewForceCode(null);
+    renewForceRef.current = null;
     try {
-      const renewed = await request();
+      const renewed = await request(force);
       if (selectedUser) {
         await applyPatronLoans({ notify: false });
       }
@@ -1086,8 +1095,15 @@ export default function LoansPage() {
       });
       return true;
     } catch (error: unknown) {
+      const code = getApiErrorCode(error);
       const msg = getApiErrorMessage(error, t) || t('loans.errorRenewingLoan');
       setRenewError(msg);
+      if (!force && circulationMayForce('renewal', code)) {
+        setRenewForceCode(code);
+        renewForceRef.current = () => {
+          void completeRenew(busyId, request, true);
+        };
+      }
       showToast({ variant: 'error', message: msg });
       return false;
     } finally {
@@ -1097,18 +1113,21 @@ export default function LoansPage() {
   };
 
   const handleRenewLoan = (loanId: string) =>
-    completeRenew(loanId, () => api.renewLoan(loanId, newIdempotencyKey()));
+    completeRenew(loanId, (force) =>
+      api.renewLoan(loanId, newIdempotencyKey(), { force: force || undefined }),
+    );
 
   const renewFromCheckout = async (alert: CheckoutScanAlert) => {
     if (alert.kind !== 'alreadyOnLoan') return;
     const ok = alert.loanId
       ? await handleRenewLoan(alert.loanId)
-      : await completeRenew(alert.barcode, () => api.renewLoanByBarcode(alert.barcode, newIdempotencyKey()));
+      : await completeRenew(alert.barcode, (force) =>
+          api.renewLoanByBarcode(alert.barcode, newIdempotencyKey(), { force: force || undefined }),
+        );
     if (ok) setCheckoutScanAlert(null);
   };
 
   const loansSortedByStart = useMemo(() => sortLoansByStartDateAsc(loans), [loans]);
-  const overdueLoans = loans.filter((l) => l.isOverdue);
 
   return (
     <div className="space-y-6">
@@ -1221,7 +1240,7 @@ export default function LoansPage() {
                     {t('loans.selectUser')}
                   </h3>
                   <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 leading-relaxed">
-                    {t('loans.selectUserHint')}
+                    {t(canReadBorrowers ? 'loans.selectUserHint' : 'loans.selectUserHintScan')}
                   </p>
                 </div>
               </div>
@@ -1271,67 +1290,32 @@ export default function LoansPage() {
                           }}
                         />
                       </form>
-                    </div>
-
-                    {/* User search */}
-                    <div>
-                      <Typeahead
-                        label={t('loans.searchByName')}
-                        value={userSearchDraft}
-                        onChange={(next) => {
-                          setUserSearchDraft(next);
-                          setUserSearchError(null);
-                          setUserSelectError(null);
-                        }}
-                        items={visibleUserResults}
-                        getItemId={(user) => user.id}
-                        onSelect={(user) => void handleUserSelect(user)}
-                        placeholder={t('loans.searchUserPlaceholder')}
-                        leftIcon={<Search className="h-4 w-4" />}
-                        loading={visibleUserSearching}
-                        disabled={isPatronLookupBusy}
-                        variant="dropdown"
-                        renderItem={(user) => (
-                          <span className="flex items-center gap-3">
-                            <span className="flex-shrink-0 h-10 w-10 rounded-full bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center">
-                              <span className="text-sm font-medium text-amber-700 dark:text-amber-400">
-                                {user.firstname?.[0] || '?'}{user.lastname?.[0] || ''}
-                              </span>
-                            </span>
-                            <span className="flex-1 min-w-0">
-                              <span className="block">
-                                <PatronOptionLabel user={user} />
-                              </span>
-                              {user.accountType ? (
-                                <span className="block text-sm text-gray-500 dark:text-gray-400">
-                                  {localizedAccountTypeLabel(t, user.accountType)}
-                                </span>
-                              ) : null}
-                            </span>
-                          </span>
-                        )}
-                      />
-                      {(userSearchError || userSelectError) && (
+                      {cardScanError ? (
                         <div
                           role="alert"
-                          className="mt-2 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 flex flex-col sm:flex-row sm:items-center gap-2"
+                          className="mt-2 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800"
                         >
-                          <p className="text-sm font-medium text-red-800 dark:text-red-200 flex-1">
-                            {userSelectError || userSearchError}
-                          </p>
-                          {userSearchError && (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              onClick={() => setUserSearchRetry((n) => n + 1)}
-                            >
-                              {t('common.retry')}
-                            </Button>
-                          )}
+                          <p className="text-sm font-medium text-red-800 dark:text-red-200">{cardScanError}</p>
                         </div>
-                      )}
+                      ) : null}
                     </div>
+
+                    <DeskNameSearch
+                      canReadUsers={canReadBorrowers}
+                      value={userSearchDraft}
+                      onChange={(next) => {
+                        setUserSearchDraft(next);
+                        setUserSearchError(null);
+                        setUserSelectError(null);
+                      }}
+                      items={visibleUserResults}
+                      onSelect={(user) => void handleUserSelect(user)}
+                      loading={visibleUserSearching}
+                      disabled={isPatronLookupBusy}
+                      error={userSearchError}
+                      selectError={userSelectError}
+                      onRetry={() => setUserSearchRetry((n) => n + 1)}
+                    />
                   </div>
               </div>
             </div>
@@ -1345,45 +1329,25 @@ export default function LoansPage() {
                 className="sticky top-0 z-20 border-amber-200/80 bg-white/95 shadow-md backdrop-blur-sm dark:border-amber-900/40 dark:bg-gray-900/95"
               >
                 <div className="flex flex-col gap-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex min-w-0 items-center gap-2.5">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-sm font-bold text-amber-800 dark:bg-amber-900/55 dark:text-amber-200">
-                        {deskPatronInitials(selectedUser)}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="truncate font-semibold text-gray-900 dark:text-white">
-                          {deskPatronLabel(selectedUser)}
-                        </p>
-                        <p className="truncate text-xs text-gray-500 dark:text-gray-400">
-                          {selectedUser.accountType
-                            ? localizedAccountTypeLabel(t, selectedUser.accountType)
-                            : null}
-                          {selectedUser.barcode && ` · ${selectedUser.barcode}`}
-                          {(canReadBorrowers ? overdueLoans.length : deskLoanStatus?.overdueLoans ?? 0) > 0 &&
-                            ` · ${t('loans.overdueCount', {
-                              count: canReadBorrowers
-                                ? overdueLoans.length
-                                : deskLoanStatus?.overdueLoans ?? 0,
-                            })}`}
-                        </p>
-                        {deskLoanStatus?.blocked ? (
-                          <p className="truncate text-xs font-medium text-red-700 dark:text-red-300">
-                            {t('loans.cardBlocked', {
-                              reasons: deskLoanStatus.blockReasons
-                                .map((code) => t(`loans.blockReason.${code}`))
-                                .join(', '),
-                            })}
-                          </p>
-                        ) : null}
-                      </div>
-                    </div>
+                  <div className="flex items-start justify-between gap-3">
+                    {patronIdentity ? (
+                      <DeskPatronStatus
+                        identity={patronIdentity}
+                        linked={canReadBorrowers}
+                        loanStatus={deskLoanStatus}
+                      />
+                    ) : null}
                     <Button
                       variant="ghost"
                       size="sm"
                       className="shrink-0"
                       onClick={() => {
                         setSelectedUser(null);
+                        setPatronIdentity(null);
                         setDeskLoanStatus(null);
+                        setCardScanError(null);
+                        setRenewForceCode(null);
+                        renewForceRef.current = null;
                         setLoans([]);
                         setLoansTotal(0);
                         setLoansPage(1);
@@ -1465,7 +1429,7 @@ export default function LoansPage() {
                         {t('loans.activeLoans')}
                       </h3>
                       <p className="mt-1 text-sm text-gray-500 dark:text-gray-400 sm:hidden">
-                        {selectedUser.firstname} {selectedUser.lastname}
+                        {deskPatronLabel(patronIdentity, (number) => t('loans.readerCardNo', { number }))}
                       </p>
                     </div>
                   </div>
@@ -1475,7 +1439,15 @@ export default function LoansPage() {
                       className="mt-3 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 flex items-start gap-2"
                     >
                       <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
-                      <p className="text-sm font-medium text-red-800 dark:text-red-200">{renewError}</p>
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <p className="text-sm font-medium text-red-800 dark:text-red-200">{renewError}</p>
+                        <CirculationForceButton
+                          surface="renewal"
+                          code={renewForceCode}
+                          onForce={() => renewForceRef.current?.()}
+                          disabled={borrowLoanAction?.op === 'renew'}
+                        />
+                      </div>
                     </div>
                   )}
                   {loansLoadError && (
@@ -2066,6 +2038,7 @@ export default function LoansPage() {
           focusScanInput();
         }}
         message={forceBorrowDialog?.message ?? ''}
+        confirmLabel={t('loans.forceLoan')}
         stackOnTop
       />
 
