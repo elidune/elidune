@@ -2123,7 +2123,8 @@
       "withdrawal_not_legacy": "Solo los expurgos importados de la nota anterior se pueden completar.",
       "item_has_history_use_weeding": "Este ejemplar tiene historial (préstamo, reserva o multa). No se puede eliminar: expúrguelo.",
       "biblio_has_items": "Este registro todavía tiene ejemplares, incluidos retirados o archivados. No se puede eliminar.",
-      "biblio_has_holds": "Este registro tiene reservas y no se puede eliminar."
+      "biblio_has_holds": "Este registro tiene reservas y no se puede eliminar.",
+      "transit_same_site": "El ejemplar ya está en el punto de recogida, no es necesario ningún tránsito."
     }
   },
   "inventory": {

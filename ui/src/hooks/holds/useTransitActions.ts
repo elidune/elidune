@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
 import { useToast } from '@/contexts/ToastContext';
-import { getApiErrorMessage } from '@/utils/apiError';
+import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
 import type { CreateTransit, HoldListItem, ItemTransit } from '@/types';
 import { ACTIVE_TRANSITS_QUERY_KEY } from '@/hooks/holds/useActiveTransitsQuery';
 
@@ -65,6 +65,7 @@ export function useTransitActions() {
         const msg = getApiErrorMessage(err, t) || t('holds.transitActionError');
         setError(msg);
         showToast({ variant: 'error', message: msg });
+        if (getApiErrorCode(err) === 'transit_same_site') invalidate();
       } finally {
         inFlightRef.current = false;
         setBusyKey(null);
