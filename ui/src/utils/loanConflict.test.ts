@@ -173,7 +173,9 @@ describe('checkout 409 when the copy is already on loan', () => {
     });
     assert.equal(deskScanNoticeAction(notice!), 'renew');
     assert.equal(checkoutForceFlag('onLoan', true), undefined);
-    assert.equal(checkoutMayForce(mockLoanResponse(422, 'business_rule_violation')), true);
+    assert.equal(checkoutMayForce(mockLoanResponse(422, 'business_rule_violation')), false);
+    assert.equal(checkoutMayForce(mockLoanResponse(422, 'max_loans')), true);
+    assert.equal(checkoutMayForce(mockLoanResponse(422, 'max_loans'), false), false);
     assert.equal(checkoutMayForce(mockLoanResponse(422, 'card_lost')), false);
     assert.equal(checkoutNoticeForConflict(mockLoanResponse(409, 'conflict'), { patronId: '1', snapshot: null }), null);
     const sameBody = mockLoanResponse(409, ITEM_ALREADY_ON_LOAN_TO_BORROWER).response.data;

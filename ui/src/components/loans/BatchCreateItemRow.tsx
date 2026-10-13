@@ -5,11 +5,13 @@ import { batchCreateItemMessage } from '@/utils/batchCreate';
 
 interface BatchCreateItemRowProps {
   item: BatchCreateResult;
+  /** Loans write. A forceable code without it shows the message only. */
+  canForce: boolean;
   onForce: (barcode: string) => void;
 }
 
-/** One failed `POST /loans/batch-create` row. `card_lost` has no per-item force button. */
-export default function BatchCreateItemRow({ item, onForce }: BatchCreateItemRowProps) {
+/** One failed `POST /loans/batch-create` row. Only forceable codes show « Forcer le prêt ». */
+export default function BatchCreateItemRow({ item, canForce, onForce }: BatchCreateItemRowProps) {
   const { t } = useTranslation();
   if (item.success) return null;
   return (
@@ -20,6 +22,7 @@ export default function BatchCreateItemRow({ item, onForce }: BatchCreateItemRow
       <CirculationForceButton
         surface="batch"
         code={item.code}
+        canForce={canForce}
         onForce={() => onForce(item.barcode)}
       />
     </div>

@@ -133,17 +133,31 @@ export function normalizeUsersRightsLevel(raw: unknown): 'n' | 'o' | 'r' | 'w' |
   return null;
 }
 
-/** `rights.usersRights` from the access token. `own` is below read. */
-export function readUsersRightsFromJwt(
+function readOwnableRightFromJwt(
   accessToken: string | null | undefined,
+  field: 'usersRights' | 'loansRights',
 ): 'n' | 'o' | 'r' | 'w' | null {
   if (!accessToken?.trim()) return null;
   const payload = decodeAccessTokenPayload(accessToken);
   if (!payload) return null;
   const rights = payload.rights;
   if (rights && typeof rights === 'object') {
-    const nested = normalizeUsersRightsLevel((rights as Record<string, unknown>).usersRights);
+    const nested = normalizeUsersRightsLevel((rights as Record<string, unknown>)[field]);
     if (nested) return nested;
   }
-  return normalizeUsersRightsLevel(payload.usersRights);
+  return normalizeUsersRightsLevel(payload[field]);
+}
+
+/** `rights.usersRights` from the access token. `own` is below read. */
+export function readUsersRightsFromJwt(
+  accessToken: string | null | undefined,
+): 'n' | 'o' | 'r' | 'w' | null {
+  return readOwnableRightFromJwt(accessToken, 'usersRights');
+}
+
+/** `rights.loansRights` from the access token. Write is the circulation force right. */
+export function readLoansRightsFromJwt(
+  accessToken: string | null | undefined,
+): 'n' | 'o' | 'r' | 'w' | null {
+  return readOwnableRightFromJwt(accessToken, 'loansRights');
 }

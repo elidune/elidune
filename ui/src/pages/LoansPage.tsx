@@ -82,7 +82,7 @@ import PatronLoansOutcome from '@/components/loans/PatronLoansOutcome';
 import { OVERDUE_FACTS_CLASS } from '@/utils/overdueDueDate';
 import ReturnBorrowerLine from '@/components/loans/ReturnBorrowerLine';
 import { useToast } from '@/contexts/ToastContext';
-import { canReadUsers, isAdmin } from '@/types';
+import { canForceLoans, canReadUsers, isAdmin } from '@/types';
 import type { User as UserType, Loan, UserShort, OverdueLoanInfo, ReminderReport, ItemCheckIn, LostFoundDisposition, LostReturnFields, PatronLoanStatus, LoanListItem } from '@/types';
 import { isItemStaffView, isUserRecordLoan } from '@/utils/catalogView';
 import { circulationMayForce } from '@/utils/circulationForce';
@@ -151,6 +151,7 @@ export default function LoansPage() {
   const { t, i18n } = useTranslation();
   const { user: authUser } = useAuth();
   const canReadBorrowers = canReadUsers(authUser, api.getToken());
+  const canForceLoan = canForceLoans(authUser, api.getToken());
   const { showToast, dismissPersistentErrors } = useToast();
   const userIsAdmin = isAdmin(authUser?.accountType);
   const [activeTab, setActiveTab] = useState<TabType>('borrow');
@@ -889,7 +890,7 @@ export default function LoansPage() {
         setCheckoutScanAlert({ ...blocked, barcode });
         throw new CheckoutScanNoticeShown();
       }
-      if (getApiErrorCode(error) !== 'card_lost' && checkoutMayForce(error) && !force) {
+      if (!force && checkoutMayForce(error, canForceLoan)) {
         setBarcodeInput('');
         const ok = await new Promise<boolean>((resolve) => {
           setForceBorrowDialog({
@@ -1128,7 +1129,7 @@ export default function LoansPage() {
       const code = getApiErrorCode(error);
       const msg = getApiErrorMessage(error, t) || t('loans.errorRenewingLoan');
       setRenewError(msg);
-      if (!force && circulationMayForce('renewal', code)) {
+      if (!force && circulationMayForce('renewal', code, canForceLoan)) {
         setRenewForceCode(code);
         renewForceRef.current = () => {
           void completeRenew(busyId, request, true);
@@ -1475,6 +1476,7 @@ export default function LoansPage() {
                         <CirculationForceButton
                           surface="renewal"
                           code={renewForceCode}
+                          canForce={canForceLoan}
                           onForce={() => renewForceRef.current?.()}
                           disabled={borrowLoanAction?.op === 'renew'}
                         />

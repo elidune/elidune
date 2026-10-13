@@ -23,6 +23,7 @@ import { useAccountTypesQuery } from '@/hooks/useAccountTypesQuery';
 import { Card, Button, Badge, Modal, Input, Table, ConfirmDialog, MessageModal, ScrollableListRegion, BarcodeScanField } from '@/components/common';
 import api from '@/services/api';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
+import { deskCheckoutMessage } from '@/utils/deskCheckoutError';
 import { circulationMayForce } from '@/utils/circulationForce';
 import { closureReasonText } from '@/utils/loanClosure';
 import { renewedUntilMessage } from '@/utils/localeDate';
@@ -52,7 +53,7 @@ import { useCirculationExceptionAction, type CirculationExceptionKind } from '@/
 import { RenewSubscriptionModal, UserEditorForm } from '@/components/users';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
-import { canManageUsers, canReadLoans, canReadUsers, type User as UserType, type LoanListItem, type LoanStatsResponse, type AdvancedStatsParams, type StatsInterval, type Author, type Hold } from '@/types';
+import { canForceLoans, canManageUsers, canReadLoans, canReadUsers, type User as UserType, type LoanListItem, type LoanStatsResponse, type AdvancedStatsParams, type StatsInterval, type Author, type Hold } from '@/types';
 import PatronFinesPanel from '@/components/users/PatronFinesPanel';
 import { useUserFinesQuery } from '@/hooks/users/useUserFinesQuery';
 import { mayLoadPatronFines } from '@/utils/patronFines';
@@ -92,6 +93,7 @@ export default function UserDetailPage() {
     canReadBorrowers,
     canReadLoans(currentUser, api.getToken()),
   );
+  const canForceLoan = canForceLoans(currentUser, api.getToken());
   const { t, i18n } = useTranslation();
   const { showToast } = useToast();
   const holdsLoadMoreRef = useRef<HTMLDivElement>(null);
@@ -510,7 +512,7 @@ export default function UserDetailPage() {
       const code = getApiErrorCode(error);
       const msg = getApiErrorMessage(error, t) || t('loans.errorRenewingLoan');
       setRenewError(msg);
-      if (!force && circulationMayForce('renewal', code)) {
+      if (!force && circulationMayForce('renewal', code, canForceLoan)) {
         setRenewForceCode(code);
         setRenewForceLoanId(loanId);
       }
@@ -1050,6 +1052,7 @@ export default function UserDetailPage() {
                   <CirculationForceButton
                     surface="renewal"
                     code={renewForceCode}
+                    canForce={canForceLoan}
                     disabled={loanAction?.op === 'renew'}
                     onForce={() => {
                       if (renewForceLoanId) void handleRenewLoan(renewForceLoanId, true);
@@ -1378,6 +1381,7 @@ export default function UserDetailPage() {
             refreshLoans();
             showToast({ variant: 'success', message: t('loans.checkoutSuccessShort') });
           }}
+          canForce={canForceLoan}
           onBusinessRuleViolation={(msg, specimenCode) => {
             setShowBorrowModal(false);
             setForceBorrowDialog({
@@ -1475,6 +1479,7 @@ interface BorrowFormProps {
   userId: string;
   onLoadingChange: (loading: boolean) => void;
   onSuccess: () => void;
+  canForce: boolean;
   onBusinessRuleViolation?: (message: string, specimenCode: string) => void;
   onToPickForOther?: (
     identity: { cardNumber: string | null; initials: string | null },
@@ -1487,6 +1492,7 @@ function BorrowForm({
   userId,
   onLoadingChange,
   onSuccess,
+  canForce,
   onBusinessRuleViolation,
   onToPickForOther,
 }: BorrowFormProps) {
@@ -1509,7 +1515,7 @@ function BorrowForm({
       const axiosData = axiosErr?.response?.data;
       const errorCode = axiosData?.code ?? '';
       const rawMessage = typeof axiosData?.message === 'string' ? axiosData.message : '';
-      const displayMsg = getApiErrorMessage(err, t, { allowRawMessage: false }) || t('loans.errorCreatingLoan');
+      const displayMsg = deskCheckoutMessage(err, t);
       if (isWeedingServerMessage(rawMessage)) {
         setError(displayMsg);
         showToast({ variant: 'error', message: displayMsg });
@@ -1528,7 +1534,7 @@ function BorrowForm({
         showToast({ variant: 'error', message: displayMsg });
         return;
       }
-      if (circulationMayForce('loan', errorCode) && !force) {
+      if (!force && circulationMayForce('loan', errorCode, canForce)) {
         onBusinessRuleViolation?.(displayMsg, specimenCode.trim());
         return;
       }

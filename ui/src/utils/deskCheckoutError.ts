@@ -1,14 +1,22 @@
 import type { TFunction } from 'i18next';
-import { getApiErrorMessage } from '@/utils/apiError';
+import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
 import { isCheckoutScanNoticeShown } from '@/utils/deskScanAlert';
 import { isCheckoutDeclined } from '@/utils/toPickDesk';
 
 /**
  * Desk checkout copy.
- * API codes use `errors.apiCode.*`. An unmapped body is the generic error,
+ * A known `errors.apiCode.*` wins, including codes renewal also uses
+ * (`subscription_expired`, `fines_over_threshold`), so the desk does not show
+ * the patron renewal sentence. An unmapped body is the generic error,
  * never the English server sentence.
  */
 export function deskCheckoutMessage(error: unknown, t: TFunction): string {
+  const code = getApiErrorCode(error);
+  if (code) {
+    const key = `errors.apiCode.${code}`;
+    const translated = t(key);
+    if (translated !== key) return translated;
+  }
   return getApiErrorMessage(error, t, { allowRawMessage: false }) || t('loans.errorCreatingLoan');
 }
 

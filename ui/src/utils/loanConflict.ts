@@ -127,10 +127,11 @@ function renewLoanId(data: Record<string, unknown> | null, context: ConflictCont
 
 /**
  * These 409s are final. A checkout must not be retried with `force`.
- * `422` `card_lost` is final too, including for an administrator.
+ * Forceable 422 codes come from {@link circulationMayForce}. `card_lost` and
+ * `business_rule_violation` are not among them. `canForce` is loans write.
  */
-export function checkoutMayForce(error: unknown): boolean {
-  return circulationMayForce('loan', readCode(error));
+export function checkoutMayForce(error: unknown, canForce = true): boolean {
+  return circulationMayForce('loan', readCode(error), canForce);
 }
 
 /** `force` is omitted when the copy is already on loan. */
