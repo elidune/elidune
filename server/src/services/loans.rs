@@ -645,8 +645,9 @@ impl LoansService {
             .await
     }
 
-    /// Renew a loan. `force` bypasses account and unpaid-fine gates (fines are audited).
-    /// A lost or stolen card is always `422` `card_lost`, including `force`.
+    /// Renew a loan. `force` bypasses account status, an expired subscription, and
+    /// unpaid-fine gates (fines are audited). A lost or stolen card is always
+    /// `422` `card_lost`, including `force`.
     ///
     /// [`renewal_eligibility`] runs before any write and again inside the locked update.
     pub async fn renew_loan(
@@ -702,9 +703,10 @@ impl LoansService {
         let renewal_user = RenewalUser {
             can_borrow: user.can_borrow(),
             card_lost,
+            subscription_expiry: user.expiry_at,
         };
         if let Err(refusal) = renewal_eligibility(&snapshot.loan, &renewal_user, &ctx) {
-            return Err(refusal.into_app_error(&snapshot.loan, &ctx));
+            return Err(refusal.into_app_error(&snapshot.loan, &renewal_user, &ctx));
         }
         self.repository.loans_renew(loan_id, force).await
     }
@@ -1707,5 +1709,29 @@ mod tests {
             .renew_loan(202, true, Some(99), Some("127.0.0.1".into()))
             .await
             .is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_renew_loan_expired_subscription_rejected() {
+        let expired = Utc::now() - chrono::Duration::days(1);
+        let user = make_user(15, None, Some(expired));
+        let loan = make_active_loan(203, 15);
+        let svc = make_service_with_fines(Some(user), 203, FakeFinesRepo::default(), Some(loan));
+        match svc.renew_loan(203, false, None, None).await {
+            Err(AppError::RenewalRefused { code, message }) => {
+                assert_eq!(code, "subscription_expired");
+                assert!(message.contains("force=true"), "{message}");
+            }
+            other => panic!("expected subscription_expired, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_renew_loan_expired_subscription_force_succeeds() {
+        let expired = Utc::now() - chrono::Duration::days(1);
+        let user = make_user(16, None, Some(expired));
+        let loan = make_active_loan(204, 16);
+        let svc = make_service_with_fines(Some(user), 204, FakeFinesRepo::default(), Some(loan));
+        assert!(svc.renew_loan(204, true, Some(99), None).await.is_ok());
     }
 }

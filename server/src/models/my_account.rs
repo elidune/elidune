@@ -28,7 +28,8 @@ pub struct MyLoanView {
     pub can_renew: bool,
     /// [`RenewalRefusal`] from [`crate::renewal::renewal_eligibility`]. `card_lost`
     /// comes first and is not skipped by staff `force`. Account reasons
-    /// (`account_blocked`, `fines_over_threshold`) come before loan reasons.
+    /// (`account_blocked`, `subscription_expired`, `fines_over_threshold`) come
+    /// before loan reasons. Staff `force` skips those three.
     pub renewal_refusal_code: Option<RenewalRefusal>,
     /// Library-local `YYYY-MM-DD` when `renewal_refusal_code` is `renewal_too_early`.
     pub renewal_opens_at: Option<String>,

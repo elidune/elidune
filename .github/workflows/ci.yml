@@ -202,6 +202,7 @@ jobs:
           --test card_replacement
           --test hold_patron_identity
           --test public_catalog_copies
+          --test renewal_subscription
           -- --nocapture
 
   coverage:
@@ -294,6 +295,7 @@ jobs:
           --test card_replacement
           --test hold_patron_identity
           --test public_catalog_copies
+          --test renewal_subscription
           --lcov
           --output-path lcov.info
           --fail-under-lines 20

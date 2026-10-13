@@ -886,4 +886,25 @@ mod tests {
             "{description}"
         );
     }
+
+    #[test]
+    fn renewal_documents_subscription_expired() {
+        let doc = ApiDoc::openapi();
+        let value = serde_json::to_value(&doc).expect("openapi json");
+        for path in ["/loans/{id}/renew", "/loans/items/{item_id}/renew"] {
+            let description = value["paths"][path]["post"]["responses"]["422"]["description"]
+                .as_str()
+                .unwrap_or("");
+            assert!(
+                description.contains("subscription_expired"),
+                "{path}: {description}"
+            );
+        }
+        let schema = &value["components"]["schemas"]["RenewalRefusal"];
+        let rendered = schema.to_string();
+        assert!(
+            rendered.contains("subscription_expired"),
+            "RenewalRefusal must list subscription_expired: {schema}"
+        );
+    }
 }
