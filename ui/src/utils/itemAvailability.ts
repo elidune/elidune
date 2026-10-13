@@ -89,7 +89,16 @@ export function formatCopyAvailability(t: TFunction, available: number, total: n
   });
 }
 
-/** Search-result copy line. Null when the notice has no copies. */
+/**
+ * OPAC and reader search line: available copies over every copy in `items`.
+ *
+ * Public list copies (`ItemShortPublic`) do not carry `circulationStatus` or
+ * `weedingStatus`, and `toSearch` is serialized as `unavailable`. Lost,
+ * missing, damaged, claimed-returned, withdrawn, and reference-only copies
+ * share that one value, and `borrowable: false` is set for all of them.
+ * Do not drop `unavailable` copies from the total or label them as
+ * on-site consultation.
+ */
 export function copyAvailabilityLabel(
   t: TFunction,
   items?: ReadonlyArray<{ availability?: string | null }> | null,
@@ -98,6 +107,72 @@ export function copyAvailabilityLabel(
   const available = countAvailableCopies(items);
   if (Math.max(total, available) === 0) return null;
   return formatCopyAvailability(t, available, total);
+}
+
+const STAFF_AVAILABILITY_ORDER = [
+  'available',
+  'onLoan',
+  'onHold',
+  'inTransit',
+  'toSearch',
+  'unavailable',
+] as const;
+
+export interface StaffCopyCountSource {
+  availability?: string | null;
+  weedingStatus?: string | null;
+}
+
+/**
+ * Staff search line. `M` is every embedded copy. The parenthetical counts are
+ * the server `availability` values, which partition that total. Weeding
+ * candidate and withdrawn are extra, because weeding is orthogonal and the
+ * staff list payload includes `weedingStatus`.
+ */
+export function staffCopyAvailabilityLabel(
+  t: TFunction,
+  items?: ReadonlyArray<StaffCopyCountSource> | null,
+): string | null {
+  if (!items?.length) return null;
+
+  const availabilityCounts = new Map<string, number>();
+  let candidates = 0;
+  let withdrawn = 0;
+  for (const item of items) {
+    const status = item.availability?.trim() || 'unspecified';
+    availabilityCounts.set(status, (availabilityCounts.get(status) ?? 0) + 1);
+    if (item.weedingStatus === 'candidate') candidates += 1;
+    if (item.weedingStatus === 'withdrawn') withdrawn += 1;
+  }
+
+  const parts: string[] = [];
+  const seen = new Set<string>();
+  for (const status of STAFF_AVAILABILITY_ORDER) {
+    const count = availabilityCounts.get(status) ?? 0;
+    if (count === 0) continue;
+    seen.add(status);
+    parts.push(t(`items.staffStatus.${status}`, { count }));
+  }
+  for (const [status, count] of availabilityCounts) {
+    if (seen.has(status) || count === 0) continue;
+    parts.push(
+      status === 'unspecified'
+        ? t('items.staffStatus.unspecified', { count })
+        : t('items.staffStatus.other', { count, status }),
+    );
+  }
+
+  const weedingParts: string[] = [];
+  if (candidates > 0) weedingParts.push(t('items.staffStatus.candidate', { count: candidates }));
+  if (withdrawn > 0) weedingParts.push(t('items.staffStatus.withdrawn', { count: withdrawn }));
+
+  return t('items.staffCopyBreakdown', {
+    totalPart: t('items.copyNoun', { count: items.length }),
+    breakdown: parts.join(', '),
+    weedingClause: weedingParts.length
+      ? t('items.staffWeedingClause', { weeding: weedingParts.join(', ') })
+      : '',
+  });
 }
 
 /**

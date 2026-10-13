@@ -5,7 +5,11 @@ import de from '../locales/de/translation.json' with { type: 'json' };
 import en from '../locales/en/translation.json' with { type: 'json' };
 import es from '../locales/es/translation.json' with { type: 'json' };
 import fr from '../locales/fr/translation.json' with { type: 'json' };
-import { copyAvailabilityLabel, formatCopyAvailability } from './itemAvailability.ts';
+import {
+  copyAvailabilityLabel,
+  formatCopyAvailability,
+  staffCopyAvailabilityLabel,
+} from './itemAvailability.ts';
 
 describe('OPAC copy availability', () => {
   const i18n = i18next.createInstance();
@@ -64,5 +68,41 @@ describe('OPAC copy availability', () => {
   it('does not report zero copies when the available count exceeds a missing total', () => {
     assert.equal(formatCopyAvailability(i18n.getFixedT('en'), 2, 0), '2 available of 2 copies');
     assert.equal(formatCopyAvailability(i18n.getFixedT('fr'), 2, 0), '2 disponibles sur 2 exemplaires');
+  });
+
+  it('keeps public unavailable copies in the total', () => {
+    const items = [
+      { availability: 'available', borrowable: true },
+      { availability: 'unavailable', borrowable: false },
+      { availability: 'onLoan', borrowable: true },
+    ];
+    assert.equal(copyAvailabilityLabel(i18n.getFixedT('fr'), items), '1 disponible sur 3 exemplaires');
+    assert.equal(copyAvailabilityLabel(i18n.getFixedT('en'), items), '1 available of 3 copies');
+  });
+
+  it('breaks the staff total down by availability and weeding', () => {
+    const items = [
+      { availability: 'available', weedingStatus: 'onShelf' },
+      { availability: 'onLoan', weedingStatus: 'candidate' },
+      { availability: 'toSearch', weedingStatus: 'onShelf' },
+      { availability: 'unavailable', weedingStatus: 'withdrawn' },
+    ];
+    assert.equal(
+      staffCopyAvailabilityLabel(i18n.getFixedT('fr'), items),
+      '4 exemplaires (1 disponible, 1 en prêt, 1 à rechercher, 1 indisponible), dont 1 candidat au désherbage, 1 sorti',
+    );
+    assert.equal(
+      staffCopyAvailabilityLabel(i18n.getFixedT('en'), items),
+      '4 copies (1 available, 1 on loan, 1 to search, 1 unavailable), including 1 weeding candidate, 1 withdrawn',
+    );
+    assert.equal(
+      staffCopyAvailabilityLabel(i18n.getFixedT('de'), items),
+      '4 Exemplare (1 verfügbar, 1 ausgeliehen, 1 zu suchen, 1 nicht verfügbar), davon 1 Aussonderungskandidat, 1 ausgeschieden',
+    );
+    assert.equal(
+      staffCopyAvailabilityLabel(i18n.getFixedT('es'), items),
+      '4 ejemplares (1 disponible, 1 en préstamo, 1 por buscar, 1 no disponible), de los cuales 1 candidato a expurgo, 1 retirado',
+    );
+    assert.equal(staffCopyAvailabilityLabel(i18n.getFixedT('fr'), []), null);
   });
 });
