@@ -6,12 +6,28 @@ use sqlx::Postgres;
 
 use super::Repository;
 use crate::{
-    error::{AppError, AppResult},
+    error::{error_code, AppError, AppResult},
     models::{
         hold::{Hold, HoldStatus},
         transit::{CreateTransit, ItemTransit, TransitStatus},
     },
 };
+
+/// Joined copy and linked-hold columns used to fill the transit API fields.
+#[derive(Debug, sqlx::FromRow)]
+pub(crate) struct TransitCopyContext {
+    pub transit_id: i64,
+    pub barcode: Option<String>,
+    pub title: Option<String>,
+    pub source_id: Option<i64>,
+    pub source_name: Option<String>,
+    pub hold_status: Option<String>,
+    pub patron_id: Option<i64>,
+    pub patron_barcode: Option<String>,
+    pub patron_firstname: Option<String>,
+    pub patron_lastname: Option<String>,
+    pub patron_login: Option<String>,
+}
 
 #[async_trait]
 pub trait TransitsRepository: Send + Sync {
@@ -164,6 +180,46 @@ impl Repository {
         Ok((rows, total))
     }
 
+    /// Copy, site, and linked-hold patron columns for the transit API fields.
+    ///
+    /// The hold join follows `item_transits.hold_id`, including a cancelled or
+    /// expired hold. It does not look up a different active hold on the copy.
+    pub(crate) async fn transits_copy_context(
+        &self,
+        ids: &[i64],
+    ) -> AppResult<Vec<TransitCopyContext>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        sqlx::query_as::<_, TransitCopyContext>(
+            r#"
+            SELECT
+                t.id AS transit_id,
+                NULLIF(BTRIM(i.barcode), '') AS barcode,
+                NULLIF(BTRIM(b.title), '') AS title,
+                i.source_id,
+                NULLIF(BTRIM(so.name), '') AS source_name,
+                h.status AS hold_status,
+                u.id AS patron_id,
+                NULLIF(BTRIM(u.barcode), '') AS patron_barcode,
+                u.firstname AS patron_firstname,
+                u.lastname AS patron_lastname,
+                u.login AS patron_login
+            FROM item_transits t
+            JOIN items i ON i.id = t.item_id
+            JOIN biblios b ON b.id = i.biblio_id
+            LEFT JOIN sources so ON so.id = i.source_id
+            LEFT JOIN holds h ON h.id = t.hold_id
+            LEFT JOIN users u ON u.id = h.user_id
+            WHERE t.id = ANY($1)
+            "#,
+        )
+        .bind(ids)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
     pub async fn transits_active_for_item_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, Postgres>,
@@ -299,9 +355,13 @@ impl Repository {
         };
         self.transits_ensure_source(&mut tx, from_source_id).await?;
         self.transits_ensure_source(&mut tx, to_source_id).await?;
+        // Refuse before the hold update and the transit insert. Dropping `tx`
+        // rolls back the locks, so nothing is written.
         if from_source_id == to_source_id {
-            return Err(AppError::BusinessRule(
-                "Pickup site matches the item's current site — mark the hold ready instead of transiting".to_string(),
+            return Err(AppError::coded(
+                422,
+                error_code::TRANSIT_SAME_SITE,
+                "Pickup site matches the item's current site — mark the hold ready instead of transiting",
             ));
         }
 

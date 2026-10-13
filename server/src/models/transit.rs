@@ -6,7 +6,9 @@ use serde_with::{serde_as, DisplayFromStr};
 use sqlx::FromRow;
 use utoipa::ToSchema;
 
+use crate::models::catalog_view::{hold_for_identity, LoanBorrowerMinimized, LoanBorrowerResponse};
 use crate::models::hold::Hold;
+use crate::models::user::{Rights, UserRights, UserShort};
 
 /// Transit lifecycle (stored as lowercase strings in DB).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -79,7 +81,56 @@ impl sqlx::Encode<'_, sqlx::Postgres> for TransitStatus {
     }
 }
 
-/// Item movement row (`item_transits`).
+/// Patron on a transit row: library card and initials only.
+///
+/// Never the name, login, or the staff profile, including when the caller has
+/// users read. Null when the transit has no hold, the hold is cancelled or
+/// expired (or otherwise closed), or the caller has no holds read/write.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TransitPatron {
+    /// `users.barcode`. Null when the patron has no card on file.
+    pub card_number: Option<String>,
+    /// Uppercase first letter of `firstname` plus first letter of `lastname`.
+    pub initials: String,
+}
+
+impl From<LoanBorrowerMinimized> for TransitPatron {
+    fn from(minimized: LoanBorrowerMinimized) -> Self {
+        Self {
+            card_number: minimized.card_number,
+            initials: minimized.initials,
+        }
+    }
+}
+
+/// Card and initials for a transit, or `None` when the caller lacks holds read.
+///
+/// Calls the minimized arm of [`hold_for_identity`] (the same `{ cardNumber, initials }`
+/// shape as a hold slip or shelf label). Users read is cleared before that call so
+/// the staff profile is never selected. The helper still returns `None` when
+/// `holds_rights` is below read. The hold-status gate (pending, set aside, or
+/// ready) is applied by the caller.
+#[must_use]
+pub fn transit_patron(rights: &UserRights, patron: UserShort) -> Option<TransitPatron> {
+    let mut rights = rights.clone();
+    rights.users_rights = Rights::None;
+    let LoanBorrowerResponse::Minimized(minimized) = hold_for_identity(&rights, patron)? else {
+        return None;
+    };
+    Some(TransitPatron::from(minimized))
+}
+
+/// Item movement row (`item_transits`) plus the copy and patron for the queue.
+///
+/// `barcode`, `title`, `sourceId`, `sourceName`, and `patron` are filled when a
+/// transit is returned. They are not columns of `item_transits`.
+///
+/// `sourceId` is the copy's current site (`items.source_id`), next to `sourceName`.
+/// `patron` is `{ cardNumber, initials }` while the linked hold is pending, set
+/// aside (`to_pick`), or ready for pickup, and the caller may see that patron.
+/// It is null for a return to the home site, a cancelled or expired hold, and a
+/// caller without holds read or write.
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -90,6 +141,28 @@ pub struct ItemTransit {
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub item_id: i64,
+    /// Item barcode. Null when the copy has none.
+    #[serde(default)]
+    #[sqlx(skip)]
+    pub barcode: Option<String>,
+    /// Bibliographic title.
+    #[serde(default)]
+    #[sqlx(skip)]
+    pub title: Option<String>,
+    /// Current site of the copy (`items.source_id`), beside [`Self::source_name`].
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    #[serde(default)]
+    #[sqlx(skip)]
+    pub source_id: Option<i64>,
+    /// Current site name (`sources.name` for [`Self::source_id`]).
+    #[serde(default)]
+    #[sqlx(skip)]
+    pub source_name: Option<String>,
+    /// `{ cardNumber, initials }`, or null. See [`TransitPatron`].
+    #[serde(default)]
+    #[sqlx(skip)]
+    pub patron: Option<TransitPatron>,
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub hold_id: Option<i64>,
@@ -160,7 +233,60 @@ pub struct TransitWithHold {
 
 #[cfg(test)]
 mod tests {
-    use super::TransitStatus;
+    use super::{transit_patron, TransitStatus};
+    use crate::models::catalog_view::partial_user_short;
+    use crate::models::user::{Rights, UserRights};
+
+    #[test]
+    fn users_read_still_yields_card_and_initials_only() {
+        let mut patron = partial_user_short(
+            7,
+            Some("CARD".into()),
+            Some("Helene".into()),
+            Some("Holder".into()),
+        );
+        patron.login = Some("helene".into());
+        let rights = UserRights {
+            holds_rights: Rights::Write,
+            users_rights: Rights::Write,
+            ..UserRights::default()
+        };
+        let shown = transit_patron(&rights, patron).expect("holds rights");
+        assert_eq!(shown.card_number.as_deref(), Some("CARD"));
+        assert_eq!(shown.initials, "HH");
+        let value = serde_json::to_value(&shown).expect("json");
+        let mut keys: Vec<&str> = value
+            .as_object()
+            .expect("object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["cardNumber", "initials"]);
+        assert!(!value.to_string().contains("Helene"));
+        assert!(!value.to_string().contains("helene"));
+    }
+
+    #[test]
+    fn own_or_no_holds_rights_hides_the_patron_even_with_users_read() {
+        let patron = partial_user_short(
+            7,
+            Some("CARD".into()),
+            Some("Helene".into()),
+            Some("Holder".into()),
+        );
+        for holds_rights in [Rights::None, Rights::Own] {
+            let rights = UserRights {
+                holds_rights,
+                users_rights: Rights::Write,
+                ..UserRights::default()
+            };
+            assert!(
+                transit_patron(&rights, patron.clone()).is_none(),
+                "{holds_rights:?}"
+            );
+        }
+    }
 
     #[test]
     fn in_transit_always_blocks_checkout() {

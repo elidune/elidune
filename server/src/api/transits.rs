@@ -7,15 +7,29 @@ use axum::{
 };
 
 use crate::{
-    error::AppResult,
+    error::{AppError, AppResult},
     models::{
         dto::transits::ListTransitsQuery,
         transit::{CreateTransit, ItemTransit, TransitActionRequest, TransitWithHold},
+        user::{Rights, UserClaims},
     },
     services::audit,
 };
 
-use super::{biblios::PaginatedResponse, ClientIp, StaffUser};
+use super::{biblios::PaginatedResponse, AuthenticatedUser, ClientIp, StaffUser};
+
+/// Librarian or admin, or any account with holds read or write.
+///
+/// A librarian without holds rights still receives the row (`patron` is null).
+/// A custom desk account such as agent de guichet receives it when holds rights
+/// are at least read. Readers stay forbidden.
+fn require_transit_reader(claims: &UserClaims) -> Result<(), AppError> {
+    if claims.is_librarian() || claims.rights.holds_rights.rank() >= Rights::Read.rank() {
+        Ok(())
+    } else {
+        Err(AppError::Authorization("Staff access required".to_string()))
+    }
+}
 
 pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::{get, post};
@@ -39,23 +53,24 @@ pub fn router() -> axum::Router<crate::AppState> {
     security(("bearer_auth" = [])),
     params(ListTransitsQuery),
     responses(
-        (status = 200, description = "Transit list", body = PaginatedResponse<ItemTransit>),
+        (status = 200, description = "Transit list. Each row includes `barcode`, `title`, `sourceId`, `sourceName`, and `patron` (`{ cardNumber, initials }` or null). `patron` is set only while the linked hold is pending, set aside, or ready, and only when the caller has holds read or write. A return to the home site, a cancelled or expired hold, and a caller without holds rights yield `patron: null`. Users read does not add the name.", body = PaginatedResponse<ItemTransit>),
         (status = 401, description = "Not authenticated"),
-        (status = 403, description = "Staff access required")
+        (status = 403, description = "Librarian or admin, or holds read, is required")
     )
 )]
 pub async fn list_transits(
     State(state): State<crate::AppState>,
-    StaffUser(claims): StaffUser,
+    AuthenticatedUser(claims): AuthenticatedUser,
     Query(query): Query<ListTransitsQuery>,
 ) -> AppResult<Json<PaginatedResponse<ItemTransit>>> {
-    claims.require_read_holds_staff()?;
+    require_transit_reader(&claims)?;
     let page = query.page.unwrap_or(1).max(1);
     let per_page = query.per_page.unwrap_or(50).clamp(1, 200);
     let (items, total) = state
         .services
         .transits
         .list(
+            &claims,
             query.status,
             query.item_id,
             query.hold_id,
@@ -80,11 +95,11 @@ pub async fn list_transits(
 )]
 pub async fn get_transit(
     State(state): State<crate::AppState>,
-    StaffUser(claims): StaffUser,
+    AuthenticatedUser(claims): AuthenticatedUser,
     Path(id): Path<i64>,
 ) -> AppResult<Json<TransitWithHold>> {
-    claims.require_read_holds_staff()?;
-    Ok(Json(state.services.transits.get_by_id(id).await?))
+    require_transit_reader(&claims)?;
+    Ok(Json(state.services.transits.get_by_id(id, &claims).await?))
 }
 
 #[utoipa::path(
@@ -100,11 +115,13 @@ pub async fn get_transit(
 )]
 pub async fn get_hold_transit(
     State(state): State<crate::AppState>,
-    StaffUser(claims): StaffUser,
+    AuthenticatedUser(claims): AuthenticatedUser,
     Path(id): Path<i64>,
 ) -> AppResult<Json<Option<ItemTransit>>> {
-    claims.require_read_holds_staff()?;
-    Ok(Json(state.services.transits.active_for_hold(id).await?))
+    require_transit_reader(&claims)?;
+    Ok(Json(
+        state.services.transits.active_for_hold(id, &claims).await?,
+    ))
 }
 
 #[utoipa::path(
@@ -119,11 +136,13 @@ pub async fn get_hold_transit(
 )]
 pub async fn get_item_transit(
     State(state): State<crate::AppState>,
-    StaffUser(claims): StaffUser,
+    AuthenticatedUser(claims): AuthenticatedUser,
     Path(id): Path<i64>,
 ) -> AppResult<Json<Option<ItemTransit>>> {
-    claims.require_read_holds_staff()?;
-    Ok(Json(state.services.transits.active_for_item(id).await?))
+    require_transit_reader(&claims)?;
+    Ok(Json(
+        state.services.transits.active_for_item(id, &claims).await?,
+    ))
 }
 
 #[utoipa::path(
@@ -137,7 +156,7 @@ pub async fn get_item_transit(
         (status = 201, description = "Transit created", body = TransitWithHold),
         (status = 400, description = "Invalid request"),
         (status = 409, description = "Active transit already exists"),
-        (status = 422, description = "Business rule")
+        (status = 422, description = "Business rule. When the copy's site is already the pickup site the code is `transit_same_site` (`error` is `Business Rule Violation`) and nothing is written: no hold update and no transit row. Other rules stay `business_rule_violation`.", body = crate::error::ErrorResponse)
     )
 )]
 pub async fn create_hold_transit(
@@ -151,7 +170,7 @@ pub async fn create_hold_transit(
     match state
         .services
         .transits
-        .request(id, data, claims.user_id, ip.clone())
+        .request(&claims, id, data, claims.user_id, ip.clone())
         .await
     {
         Ok(body) => Ok((StatusCode::CREATED, Json(body))),
@@ -193,7 +212,7 @@ pub async fn ship_transit(
     match state
         .services
         .transits
-        .ship(id, claims.user_id, req.notes, ip.clone())
+        .ship(&claims, id, claims.user_id, req.notes, ip.clone())
         .await
     {
         Ok(transit) => Ok(Json(transit)),
@@ -235,7 +254,7 @@ pub async fn receive_transit(
     match state
         .services
         .transits
-        .receive(id, claims.user_id, req.notes, ip.clone())
+        .receive(&claims, id, claims.user_id, req.notes, ip.clone())
         .await
     {
         Ok(body) => Ok(Json(body)),
@@ -276,7 +295,14 @@ pub async fn cancel_transit(
     match state
         .services
         .transits
-        .cancel(id, claims.user_id, req.reverse, req.notes, ip.clone())
+        .cancel(
+            &claims,
+            id,
+            claims.user_id,
+            req.reverse,
+            req.notes,
+            ip.clone(),
+        )
         .await
     {
         Ok(body) => Ok(Json(body)),

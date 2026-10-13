@@ -86,6 +86,8 @@ pub mod error_code {
     pub const ACCOUNT_TYPE_SYSTEM: &str = "account_type_system";
     /// The change would leave no active account with settings write.
     pub const LAST_ACTIVE_ADMIN: &str = "last_active_admin";
+    /// `POST /holds/{id}/transits` when the copy's site is already the pickup site.
+    pub const TRANSIT_SAME_SITE: &str = "transit_same_site";
     /// `PUT /items/{id}` included `circulationStatus`. That column is not writable here.
     pub const CIRCULATION_STATUS_READ_ONLY: &str = "circulation_status_read_only";
     /// Client `message` for [`CIRCULATION_STATUS_READ_ONLY`].
