@@ -44,12 +44,17 @@ pub mod error_code {
     pub const MAX_LOANS: &str = "max_loans";
     /// Checkout refused: active loans of this document type are at or above that cap. Staff `force` overrides it.
     pub const MAX_MEDIA_LOANS: &str = "max_media_loans";
-    /// Checkout refused: the copy is not borrowable, or its circulation status blocks lending.
-    /// Staff `force` overrides it. A withdrawn copy stays `business_rule_violation`.
+    /// Checkout refused: the copy is not borrowable, or its circulation status is damaged.
+    /// Staff `force` overrides it. Lost, claimed returned, to search, and missing are
+    /// [`ITEM_STATUS_ACTION_REQUIRED`]. A withdrawn copy stays `business_rule_violation`.
     pub const ITEM_NOT_LOANABLE: &str = "item_not_loanable";
     /// Checkout refused: this copy is `ready` or pinned `pending` for another patron.
-    /// Staff `force` overrides it. `to_pick` is [`ITEM_TO_PICK_FOR_OTHER`]. Withdrawal of a held copy stays [`ITEM_ON_HOLD`].
+    /// Staff `force` does not override it. `to_pick` is [`ITEM_TO_PICK_FOR_OTHER`].
+    /// Withdrawal of a held copy stays [`ITEM_ON_HOLD`].
     pub const ITEM_HELD_FOR_OTHER: &str = "item_held_for_other";
+    /// Checkout refused: circulation status is lost, claimed returned, to search, or missing.
+    /// Staff `force` does not override it. The body includes `itemStatus`.
+    pub const ITEM_STATUS_ACTION_REQUIRED: &str = "item_status_action_required";
     /// Create, update, or card replacement tried to assign a retired library card number.
     pub const CARD_NUMBER_RETIRED: &str = "card_number_retired";
     /// Client `message` for [`CARD_LOST`].
@@ -59,7 +64,7 @@ pub mod error_code {
     pub const DUPLICATE_ISBN: &str = "duplicate_isbn_needs_confirmation";
     pub const DUPLICATE_BARCODE: &str = "duplicate_barcode_needs_confirmation";
     pub const RATE_LIMITED: &str = "rate_limited";
-    /// Checkout of a copy that is `to_pick` for a different patron.
+    /// Checkout of a copy that is `to_pick` for a different patron. Staff `force` does not override it.
     pub const ITEM_TO_PICK_FOR_OTHER: &str = "item_to_pick_for_other";
     /// Informational check-in code: a known available copy has no active loan.
     /// `POST /loans/items/{barcode}/return` returns HTTP 200 with this code in `notice`.
@@ -184,14 +189,9 @@ pub enum AppError {
     #[error("Rate limited, retry after {retry_after}s")]
     RateLimited { retry_after: u64 },
 
-    /// Copy is on the shelf-pick list for another patron. `force=true` still overrides.
-    #[error("This copy is on the pick list for another patron")]
-    ItemToPickForOther {
-        hold_id: i64,
-        user_id: i64,
-        card_number: Option<String>,
-        initials: String,
-    },
+    /// Checkout refused (HTTP 422). `forceable` comes from [`crate::checkout_refusal::checkout_refusal_forceable`].
+    #[error("{0}")]
+    CheckoutRefused(Box<crate::checkout_refusal::CheckoutRefusal>),
 
     /// Known copy with no active loan, when a caller still wants a hard error.
     /// The barcode return route does not use this variant: it returns HTTP 200
@@ -301,7 +301,7 @@ pub fn rate_limited_response(retry_after_secs: u64) -> Response {
 }
 
 /// Patron waiting on a `to_pick` copy, for the desk warning.
-#[derive(Serialize, utoipa::ToSchema)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ItemToPickDetails {
     pub hold_id: String,
@@ -310,16 +310,6 @@ pub struct ItemToPickDetails {
     pub card_number: Option<String>,
     /// Uppercase first letters of the patron's first and last name.
     pub initials: String,
-}
-
-/// Checkout refused because the copy is `to_pick` for someone else.
-#[derive(Serialize, utoipa::ToSchema)]
-#[serde(rename_all = "camelCase")]
-pub struct ItemToPickForOtherResponse {
-    pub code: String,
-    pub error: String,
-    pub message: String,
-    pub details: ItemToPickDetails,
 }
 
 struct HttpErrorFields {
@@ -449,13 +439,11 @@ impl AppError {
                 label: "Too Many Requests",
                 message: format!("Too many attempts. Try again in {retry_after} seconds."),
             },
-            AppError::ItemToPickForOther { .. } => HttpErrorFields {
+            AppError::CheckoutRefused(refusal) => HttpErrorFields {
                 status: StatusCode::UNPROCESSABLE_ENTITY,
-                code: ec::ITEM_TO_PICK_FOR_OTHER,
+                code: refusal.code,
                 label: "Business Rule Violation",
-                message:
-                    "This copy is on the pick list for another patron — use force=true to override"
-                        .to_string(),
+                message: refusal.message.clone(),
             },
             AppError::ItemNotOnLoan(msg) => HttpErrorFields {
                 status: StatusCode::NOT_FOUND,
@@ -540,24 +528,8 @@ impl IntoResponse for AppError {
                 });
                 (http, body).into_response()
             }
-            AppError::ItemToPickForOther {
-                hold_id,
-                user_id,
-                card_number,
-                initials,
-            } => {
-                let body = Json(ItemToPickForOtherResponse {
-                    code: ec::ITEM_TO_PICK_FOR_OTHER.to_string(),
-                    error: "Business Rule Violation".to_string(),
-                    message: "This copy is on the pick list for another patron — use force=true to override"
-                        .to_string(),
-                    details: ItemToPickDetails {
-                        hold_id: hold_id.to_string(),
-                        user_id: user_id.to_string(),
-                        card_number,
-                        initials,
-                    },
-                });
+            AppError::CheckoutRefused(refusal) => {
+                let body = Json(refusal.to_body());
                 (StatusCode::UNPROCESSABLE_ENTITY, body).into_response()
             }
             other => {

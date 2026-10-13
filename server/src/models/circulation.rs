@@ -83,6 +83,19 @@ impl CirculationStatus {
         }
     }
 
+    /// JSON value used by the API (`toSearch`, `claimedReturned`, …).
+    #[must_use]
+    pub fn as_api_str(self) -> &'static str {
+        match self {
+            Self::Available => "available",
+            Self::Lost => "lost",
+            Self::Damaged => "damaged",
+            Self::ClaimedReturned => "claimedReturned",
+            Self::ToSearch => "toSearch",
+            Self::Missing => "missing",
+        }
+    }
+
     #[must_use]
     pub fn as_db(self) -> i16 {
         match self {
@@ -195,6 +208,21 @@ impl CirculationAction {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn api_str_matches_json_serialization() {
+        for status in [
+            CirculationStatus::Available,
+            CirculationStatus::Lost,
+            CirculationStatus::Damaged,
+            CirculationStatus::ClaimedReturned,
+            CirculationStatus::ToSearch,
+            CirculationStatus::Missing,
+        ] {
+            let json = serde_json::to_value(status).expect("status json");
+            assert_eq!(json, status.as_api_str());
+        }
+    }
 
     #[test]
     fn from_db_maps_known_and_legacy_values() {

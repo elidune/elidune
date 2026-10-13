@@ -653,6 +653,7 @@ use crate::api::{
 
             // Errors
             crate::error::ErrorResponse,
+            crate::checkout_refusal::CheckoutRefusalBody,
         )
     ),
     tags(
@@ -946,20 +947,33 @@ mod tests {
             "max_media_loans",
             "item_not_loanable",
             "item_held_for_other",
+            "item_status_action_required",
+            "card_lost",
+            "item_to_pick_for_other",
+            "business_rule_violation",
         ] {
             assert!(
                 description.contains(code),
                 "POST /loans 422 must list {code}: {description}"
             );
         }
+        assert!(
+            description.contains("forceable"),
+            "POST /loans 422 must document forceable: {description}"
+        );
         let schema = value["paths"]["/loans"]["post"]["responses"]["422"]["content"]
             ["application/json"]["schema"]["$ref"]
             .as_str()
             .unwrap_or("");
         assert!(
-            schema.contains("ErrorResponse"),
-            "POST /loans 422 body must be ErrorResponse: {schema}"
+            schema.contains("CheckoutRefusalBody"),
+            "POST /loans 422 body must be CheckoutRefusalBody: {schema}"
         );
+        let properties = &value["components"]["schemas"]["CheckoutRefusalBody"]["properties"];
+        assert!(properties["forceable"].is_object(), "{properties}");
+        assert!(properties["itemStatus"].is_object(), "{properties}");
+        assert!(properties["code"].is_object(), "{properties}");
+        assert!(properties["message"].is_object(), "{properties}");
     }
 
     #[test]

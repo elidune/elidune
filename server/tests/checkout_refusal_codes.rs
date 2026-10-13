@@ -1,8 +1,8 @@
-//! Checkout (`POST /loans`) refusals that used to share `business_rule_violation`.
+//! Checkout (`POST /loans`) refusals.
 //!
-//! Each case keeps its previous HTTP 422 and desk message, and staff `force`
-//! still skips the same gates it skipped before. A lost card and a withdrawn
-//! copy are unchanged.
+//! Every 422 body includes server-computed `forceable`. Staff `force` skips a
+//! gate only when that flag is true. A non-forceable refusal wins over an
+//! earlier forceable one.
 
 mod common;
 
@@ -90,16 +90,32 @@ async fn checkout(
     .await
 }
 
+fn expected_forceable(code: &str) -> bool {
+    matches!(
+        code,
+        "subscription_expired"
+            | "fines_over_threshold"
+            | "max_loans"
+            | "max_media_loans"
+            | "item_not_loanable"
+    )
+}
+
 fn assert_refusal(status: StatusCode, body: &Value, code: &str, message_part: &str) {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
     assert_eq!(body["code"], code, "{body}");
     assert_eq!(body["error"], "Business Rule Violation", "{body}");
+    assert_eq!(body["forceable"], expected_forceable(code), "{body}");
     let message = body["message"].as_str().unwrap_or("");
     assert!(
         message.contains(message_part),
         "expected {message_part:?} in {body}"
     );
-    assert!(body.get("code").is_some() && body.get("error").is_some());
+    if code == "item_status_action_required" {
+        assert!(body["itemStatus"].is_string(), "{body}");
+    } else {
+        assert!(body.get("itemStatus").is_none(), "{body}");
+    }
 }
 
 async fn active_loan_count(app: &TestApp, user_id: i64) -> i64 {
@@ -159,22 +175,67 @@ async fn non_loanable_copy_is_item_not_loanable_and_force_still_checks_out() {
         StatusCode::CREATED,
         "force not-borrowable: {created}"
     );
+}
 
-    let (_, lost_id, _) = create_copy(&app, &admin_token, "Lost Copy", true).await;
-    sqlx::query("UPDATE items SET circulation_status = 1 WHERE id = $1")
-        .bind(lost_id)
+#[tokio::test]
+async fn damaged_copy_is_item_not_loanable_and_force_still_checks_out() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "chkdmg").await;
+    let (_, item_id, _) = create_copy(&app, &admin_token, "Damaged Copy", true).await;
+    sqlx::query("UPDATE items SET circulation_status = 2 WHERE id = $1")
+        .bind(item_id)
         .execute(app.state.services.repository.pool())
         .await
-        .expect("mark lost");
-    let (status, body) = checkout(&app, &admin_token, reader_id, lost_id, false).await;
+        .expect("mark damaged");
+
+    let (status, body) = checkout(&app, &admin_token, reader_id, item_id, false).await;
     assert_refusal(
         status,
         &body,
         "item_not_loanable",
-        "Item is marked lost and is not borrowable",
+        "Item is marked damaged and is not borrowable",
     );
-    let (status, created) = checkout(&app, &admin_token, reader_id, lost_id, true).await;
-    assert_eq!(status, StatusCode::CREATED, "force lost: {created}");
+    let (status, created) = checkout(&app, &admin_token, reader_id, item_id, true).await;
+    assert_eq!(status, StatusCode::CREATED, "force damaged: {created}");
+}
+
+#[tokio::test]
+async fn status_action_required_is_refused_with_force() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "chkstat").await;
+    for (db_status, api_status) in [
+        (1_i16, "lost"),
+        (3, "claimedReturned"),
+        (4, "toSearch"),
+        (5, "missing"),
+    ] {
+        let (_, item_id, _) =
+            create_copy(&app, &admin_token, &format!("Status {api_status}"), true).await;
+        sqlx::query("UPDATE items SET circulation_status = $2 WHERE id = $1")
+            .bind(item_id)
+            .bind(db_status)
+            .execute(app.state.services.repository.pool())
+            .await
+            .expect("set circulation status");
+        for force in [false, true] {
+            let (status, body) = checkout(&app, &admin_token, reader_id, item_id, force).await;
+            assert_refusal(
+                status,
+                &body,
+                "item_status_action_required",
+                &format!("Item circulation status is {api_status}."),
+            );
+            assert_eq!(body["itemStatus"], api_status, "{body}");
+            assert_eq!(body["forceable"], false, "{body}");
+        }
+        assert_eq!(active_loan_count(&app, reader_id).await, 0);
+    }
 }
 
 #[tokio::test]
@@ -387,7 +448,7 @@ async fn hold_for_another_patron_is_item_held_for_other() {
         "active hold for another patron",
     );
     assert!(
-        body["message"]
+        !body["message"]
             .as_str()
             .unwrap_or("")
             .contains("force=true"),
@@ -413,7 +474,55 @@ async fn hold_for_another_patron_is_item_held_for_other() {
     assert_eq!(status, StatusCode::CREATED, "queued patron: {created}");
 
     let (status, forced) = checkout(&app, &admin_token, other_id, item_id, true).await;
-    assert_eq!(status, StatusCode::CREATED, "force held copy: {forced}");
+    assert_refusal(
+        status,
+        &forced,
+        "item_held_for_other",
+        "active hold for another patron",
+    );
+    assert_eq!(forced["forceable"], false, "{forced}");
+    assert_eq!(active_loan_count(&app, other_id).await, 0);
+}
+
+#[tokio::test]
+async fn expired_subscription_loses_to_a_copy_held_for_another_patron() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (holder_id, _) = fixtures::create_reader(&app, &admin_token, "ordhold").await;
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "ordsub").await;
+    let (biblio_id, item_id, _) = create_copy(&app, &admin_token, "Held And Expired", true).await;
+    sqlx::query("UPDATE users SET expiry_at = '2020-01-15T12:00:00Z' WHERE id = $1")
+        .bind(reader_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("expire subscription");
+    sqlx::query(
+        r#"
+        INSERT INTO holds (id, user_id, item_id, biblio_id, position, status)
+        VALUES ($1, $2, $3, $4, 1, 'ready')
+        "#,
+    )
+    .bind(next_id())
+    .bind(holder_id)
+    .bind(item_id)
+    .bind(biblio_id)
+    .execute(app.state.services.repository.pool())
+    .await
+    .expect("ready hold");
+
+    for force in [false, true] {
+        let (status, body) = checkout(&app, &admin_token, reader_id, item_id, force).await;
+        assert_refusal(
+            status,
+            &body,
+            "item_held_for_other",
+            "active hold for another patron",
+        );
+        assert_eq!(body["forceable"], false, "{body}");
+    }
+    assert_eq!(active_loan_count(&app, reader_id).await, 0);
 }
 
 #[tokio::test]

@@ -51,7 +51,11 @@ pub trait LoansRepository: Send + Sync {
         user_id: i64,
         archived: bool,
     ) -> AppResult<Vec<LoanMarcExportRow>>;
-    async fn loans_create(&self, loan: &CreateLoan) -> AppResult<LoanCreateOutcome>;
+    async fn loans_create(
+        &self,
+        loan: &CreateLoan,
+        prior_refusals: Vec<crate::checkout_refusal::CheckoutRefusal>,
+    ) -> AppResult<LoanCreateOutcome>;
     async fn loans_return(&self, loan_id: i64) -> AppResult<LoanReturnOutcome>;
     /// Closed loan whose copy is still lost.
     async fn loans_lost_notice_for_closed_loan(
@@ -190,8 +194,12 @@ impl LoansRepository for Repository {
     ) -> crate::error::AppResult<Vec<LoanMarcExportRow>> {
         Repository::loans_get_for_marc_export(self, user_id, archived).await
     }
-    async fn loans_create(&self, loan: &CreateLoan) -> crate::error::AppResult<LoanCreateOutcome> {
-        Repository::loans_create(self, loan).await
+    async fn loans_create(
+        &self,
+        loan: &CreateLoan,
+        prior_refusals: Vec<crate::checkout_refusal::CheckoutRefusal>,
+    ) -> crate::error::AppResult<LoanCreateOutcome> {
+        Repository::loans_create_with_prior(self, loan, prior_refusals).await
     }
     async fn loans_return(&self, loan_id: i64) -> crate::error::AppResult<LoanReturnOutcome> {
         Repository::loans_return(self, loan_id).await
