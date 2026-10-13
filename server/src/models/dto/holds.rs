@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use utoipa::ToSchema;
 
-use crate::models::catalog_view::LoanBorrowerResponse;
+use crate::models::catalog_view::LoanBorrowerMinimized;
 
 /// Global holds policy.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, sqlx::FromRow)]
@@ -72,8 +72,9 @@ pub struct HoldPickListRow {
 
 /// One `to_pick` row for the staff shelf-pick list (hold-shelf label).
 ///
-/// JSON is camelCase. `holdFor` is [`LoanBorrowerResponse`]. `pickupDeadline`
-/// is the hold's pickup deadline (`holds.expires_at`).
+/// JSON is camelCase. `holdFor` is always [`LoanBorrowerMinimized`]: these
+/// labels are displayed on an open shelf, so `users_rights` does not unlock
+/// the name. `pickupDeadline` is the hold's pickup deadline (`holds.expires_at`).
 #[serde_as]
 #[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -90,9 +91,8 @@ pub struct HoldPickListItem {
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub user_id: i64,
-    /// `users_rights` read or write: [`crate::models::catalog_view::UserShortStaff`].
-    /// Otherwise `{ id, cardNumber, initials }`.
-    pub hold_for: LoanBorrowerResponse,
+    /// Always `{ id, cardNumber, initials }`. Open-shelf labels never include the name.
+    pub hold_for: LoanBorrowerMinimized,
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub pickup_site_id: Option<i64>,

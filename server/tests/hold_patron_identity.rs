@@ -315,9 +315,9 @@ async fn users_read_staff_get_full_hold_patron_on_biblio_list_and_slip() {
         .iter()
         .find(|row| fixtures::json_id(&row["holdId"]) == held.hold_id)
         .expect("label");
-    assert_full(&label["holdFor"], held.holder_id, &held.login, &held.card);
+    assert_minimized(&label["holdFor"], held.holder_id, &held.card);
     assert!(label["pickDueAt"].is_string(), "{label}");
-    assert_hidden(&label["holdFor"], &[held.email.as_str()]);
+    assert_hidden(label, &secret_needles(&held));
 
     let (status, returned) = app
         .post_empty(

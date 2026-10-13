@@ -414,8 +414,14 @@ async fn pick_list_lists_to_pick_rows_and_filters_by_copy_site() {
     assert_eq!(row["callNumber"], "843 MIS");
     assert_eq!(row["title"], "Pick List Title");
     assert_eq!(fixtures::json_id(&row["userId"]), reader_id);
-    assert_eq!(row["holdFor"]["firstname"], "Reader");
+    assert_eq!(fixtures::json_id(&row["holdFor"]["id"]), reader_id);
+    assert!(row["holdFor"]["cardNumber"].is_null(), "{row}");
+    let initials = row["holdFor"]["initials"].as_str().unwrap_or("");
+    assert_eq!(initials.chars().count(), 2, "{row}");
+    assert!(initials.starts_with('R'), "{row}");
+    assert!(row["holdFor"].get("firstname").is_none(), "{row}");
     assert!(row.get("userName").is_none(), "{row}");
+    assert!(!row.to_string().contains("Reader"), "{row}");
     assert!(row["pickupDeadline"].is_null(), "{row}");
     assert_eq!(fixtures::json_id(&row["pickupSiteId"]), pickup);
     assert!(row["pickupSiteName"].is_string());

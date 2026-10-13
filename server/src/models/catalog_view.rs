@@ -765,11 +765,12 @@ pub fn partial_user_short(
     }
 }
 
-/// Staff hold list, hold slip, and hold-shelf label.
+/// Staff hold list and hold slip.
 ///
 /// [`UserShortStaff`] only with `users_rights` read or write. Every other caller
 /// who is allowed to see the row receives [`LoanBorrowerMinimized`]: card number
-/// or initials, never the name.
+/// or initials, never the name. `GET /holds/pick-list` does not use this helper:
+/// shelf labels are always minimized.
 #[must_use]
 pub fn project_listed_hold_patron(user: UserShort, claims: &UserClaims) -> LoanBorrowerResponse {
     project_borrower(user, claims, false)

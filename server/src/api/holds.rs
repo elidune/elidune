@@ -10,18 +10,16 @@ use serde_with::serde_as;
 use serde_with::DisplayFromStr;
 use utoipa::{IntoParams, ToSchema};
 
-use std::collections::HashMap;
-
 use crate::{
     error::{AppError, AppResult},
     models::{
         catalog_view::{
-            partial_user_short, project_listed_hold_patron, HoldDetailsPublic, HoldDetailsStaff,
+            partial_user_short, HoldDetailsPublic, HoldDetailsStaff, LoanBorrowerMinimized,
         },
-        dto::holds::{HoldPickListItem, HoldPickListRow, HoldQuota, HoldsPolicy},
+        dto::holds::{HoldPickListItem, HoldQuota, HoldsPolicy},
         hold::{CreateHold, Hold},
         my_account::MyHoldView,
-        user::{Rights, UserShort},
+        user::Rights,
     },
     services::audit,
 };
@@ -64,24 +62,22 @@ pub struct PickListQuery {
     security(("bearer_auth" = [])),
     params(PickListQuery),
     responses(
-        (status = 200, description = "Hold-shelf labels for copies to pull. `holdFor` is `UserShortStaff` when `users_rights` is read or write, otherwise `{ id, cardNumber, initials }`. `pickupDeadline` is `holds.expires_at` (null while `to_pick`). `pickDueAt` is the shelf-pick due time. The patron name is omitted unless the caller can read users.", body = [HoldPickListItem]),
+        (status = 200, description = "Hold-shelf labels for copies to pull. Labels are displayed on an open shelf, so `holdFor` is always `{ id, cardNumber, initials }`, including when the caller has `users_rights` read or write. The patron name is never included. `pickupDeadline` is `holds.expires_at` (null while `to_pick`). `pickDueAt` is the shelf-pick due time.", body = [HoldPickListItem]),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 403, description = "Staff access required", body = crate::error::ErrorResponse)
     )
 )]
 pub async fn list_pick_list(
     State(state): State<crate::AppState>,
-    StaffUser(claims): StaffUser,
+    StaffUser(_claims): StaffUser,
     Query(query): Query<PickListQuery>,
 ) -> AppResult<Json<Vec<HoldPickListItem>>> {
     let rows = state.services.holds.list_pick(query.site_id).await?;
-    let full = pick_patrons(&state, &claims, &rows).await?;
     let items = rows
         .into_iter()
         .map(|row| {
-            let user = full.get(&row.user_id).cloned().unwrap_or_else(|| {
-                partial_user_short(row.user_id, row.card_number, row.firstname, row.lastname)
-            });
+            let user =
+                partial_user_short(row.user_id, row.card_number, row.firstname, row.lastname);
             HoldPickListItem {
                 hold_id: row.hold_id,
                 item_id: row.item_id,
@@ -89,7 +85,7 @@ pub async fn list_pick_list(
                 call_number: row.call_number,
                 title: row.title,
                 user_id: row.user_id,
-                hold_for: project_listed_hold_patron(user, &claims),
+                hold_for: LoanBorrowerMinimized::from(user),
                 pickup_site_id: row.pickup_site_id,
                 pickup_site_name: row.pickup_site_name,
                 pick_started_at: row.pick_started_at,
@@ -100,20 +96,6 @@ pub async fn list_pick_list(
         })
         .collect();
     Ok(Json(items))
-}
-
-async fn pick_patrons(
-    state: &crate::AppState,
-    claims: &crate::models::user::UserClaims,
-    rows: &[HoldPickListRow],
-) -> AppResult<HashMap<i64, UserShort>> {
-    if claims.rights.users_rights.rank() < Rights::Read.rank() {
-        return Ok(HashMap::new());
-    }
-    let mut ids: Vec<i64> = rows.iter().map(|row| row.user_id).collect();
-    ids.sort_unstable();
-    ids.dedup();
-    state.services.repository.users_get_short_by_ids(&ids).await
 }
 
 /// The assigned copy was not on the shelf. Staff only.
