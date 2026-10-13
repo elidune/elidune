@@ -2124,7 +2124,7 @@
       "item_has_history_use_weeding": "This copy has a history (a loan, a hold, or a fine) and cannot be deleted. Weed it instead.",
       "biblio_has_items": "This record still has copies, including withdrawn or archived ones. It cannot be deleted.",
       "biblio_has_holds": "This record has holds and cannot be deleted.",
-      "transit_same_site": "The copy is already at the pickup site, no transit is needed."
+      "transit_same_site": "The copy is already at the pickup site: set it aside for the hold."
     }
   },
   "inventory": {

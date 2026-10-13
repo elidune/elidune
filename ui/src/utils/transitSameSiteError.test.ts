@@ -6,8 +6,8 @@ import fr from '../locales/fr/translation.json' with { type: 'json' };
 import { getApiErrorCode, getApiErrorMessage } from './apiError.ts';
 
 const FR =
-  "L'exemplaire est déjà sur le site de retrait, aucun transit n'est nécessaire.";
-const EN = 'The copy is already at the pickup site, no transit is needed.';
+  "L'exemplaire est déjà sur le site de retrait : mettez-le de côté pour la réservation.";
+const EN = 'The copy is already at the pickup site: set it aside for the hold.';
 
 function sameSiteError() {
   return {

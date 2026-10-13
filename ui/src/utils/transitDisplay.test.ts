@@ -9,6 +9,7 @@ import { shelfPatronLabel } from './holdPatron.ts';
 import {
   canStartHoldTransit,
   copyAlreadyAtPickupSite,
+  sameSiteSetAsideBarcode,
   transitListBarcode,
   transitListPatron,
   transitListTitle,
@@ -81,6 +82,17 @@ describe('start transit when the copy site id equals the pickup site', () => {
   it('does not guess from a site name when sourceId is missing', () => {
     assert.equal(canStartHoldTransit(hold(), transit({ sourceId: undefined, sourceName: 'Main', status: 'received' })), true);
     assert.equal(copyAlreadyAtPickupSite('site-main', null), false);
+  });
+});
+
+describe('set aside after transit_same_site', () => {
+  it('offers the copy barcode already on screen and nothing else', () => {
+    const copies = [{ id: 'i1', barcode: ' EX-9 ' }, { id: 'i2', barcode: 'EX-2' }];
+    assert.equal(sameSiteSetAsideBarcode('transit_same_site', copies, 'i1'), 'EX-9');
+    assert.equal(sameSiteSetAsideBarcode('transit_same_site', copies, 'missing'), null);
+    assert.equal(sameSiteSetAsideBarcode('transit_same_site', [{ id: 'i1', barcode: '  ' }], 'i1'), null);
+    assert.equal(sameSiteSetAsideBarcode('business_rule_violation', copies, 'i1'), null);
+    assert.equal(sameSiteSetAsideBarcode('transit_same_site', copies, null), null);
   });
 });
 

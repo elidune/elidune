@@ -7,8 +7,18 @@ type TransitActions = ReturnType<typeof useTransitActions>;
 
 export default function TransitActionModals({ actions }: { actions: TransitActions }) {
   const { t } = useTranslation();
-  const { pending, isLoading, error, close, confirmStart, confirmShip, confirmReceive, confirmCancel } =
-    actions;
+  const {
+    pending,
+    isLoading,
+    error,
+    errorCode,
+    close,
+    confirmStart,
+    confirmSetAside,
+    confirmShip,
+    confirmReceive,
+    confirmCancel,
+  } = actions;
 
   return (
     <>
@@ -17,8 +27,10 @@ export default function TransitActionModals({ actions }: { actions: TransitActio
         isOpen={pending?.kind === 'start'}
         isLoading={isLoading}
         error={error}
+        errorCode={errorCode}
         onClose={close}
         onConfirm={confirmStart}
+        onSetAside={confirmSetAside}
       />
       <ConfirmDialog
         isOpen={pending?.kind === 'ship'}

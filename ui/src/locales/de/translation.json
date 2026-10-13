@@ -2124,7 +2124,7 @@
       "item_has_history_use_weeding": "Dieses Exemplar hat eine Historie (Ausleihe, Vormerkung oder Gebühr) und kann nicht gelöscht werden. Sondern Sie es aus.",
       "biblio_has_items": "Dieser Titel hat noch Exemplare, auch ausgesonderte oder archivierte. Er kann nicht gelöscht werden.",
       "biblio_has_holds": "Dieser Titel hat Vormerkungen und kann nicht gelöscht werden.",
-      "transit_same_site": "Das Exemplar ist bereits am Abholstandort, ein Transport ist nicht erforderlich."
+      "transit_same_site": "Das Exemplar ist bereits am Abholstandort: legen Sie es für die Vormerkung zurück."
     }
   },
   "inventory": {

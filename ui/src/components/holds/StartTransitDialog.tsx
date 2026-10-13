@@ -5,22 +5,27 @@ import { Button, Input, Modal } from '@/components/common';
 import api from '@/services/api';
 import type { CreateTransit, HoldListItem } from '@/types';
 import { formChoiceLabelClass, formControlClass, formLabelClass } from '@/utils/formControl';
-import { copyAlreadyAtPickupSite } from '@/utils/transitDisplay';
+import { copyAlreadyAtPickupSite, sameSiteSetAsideBarcode } from '@/utils/transitDisplay';
 
 export default function StartTransitDialog({
   hold,
   isOpen,
   isLoading,
   error,
+  errorCode,
   onClose,
   onConfirm,
+  onSetAside,
 }: {
   hold: HoldListItem | null;
   isOpen: boolean;
   isLoading: boolean;
   error?: string | null;
+  errorCode?: string | null;
   onClose: () => void;
   onConfirm: (data: CreateTransit) => void;
+  /** Existing barcode check-in. Omitted when this screen cannot set the copy aside. */
+  onSetAside?: (barcode: string) => void;
 }) {
   const { t } = useTranslation();
   const [itemId, setItemId] = useState(hold?.itemId ?? '');
@@ -48,6 +53,13 @@ export default function StartTransitDialog({
   const copies = copiesQuery.data?.items ?? [];
   const pinned = hold?.itemId ?? '';
   const selectedCopy = pinned || itemId;
+  const setAsideBarcode = onSetAside
+    ? sameSiteSetAsideBarcode(
+        errorCode,
+        [...copies, ...(hold?.biblio.items ?? [])],
+        selectedCopy,
+      )
+    : null;
   const selectedSourceId = copies.find((c) => c.id === selectedCopy)?.sourceId ?? null;
   const sameSite = hold ? copyAlreadyAtPickupSite(hold.pickupSiteId, selectedSourceId) : false;
   const sitePending = !!selectedCopy && (copiesQuery.isLoading || copiesQuery.isFetching);
@@ -129,9 +141,22 @@ export default function StartTransitDialog({
           onChange={(e) => setNotes(e.target.value)}
         />
         {error ? (
-          <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-            {error}
-          </p>
+          <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+            {setAsideBarcode ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                className="shrink-0"
+                isLoading={isLoading}
+                disabled={isLoading}
+                onClick={() => onSetAside?.(setAsideBarcode)}
+              >
+                {t('loans.toPickSetAside')}
+              </Button>
+            ) : null}
+          </div>
         ) : null}
       </div>
     </Modal>

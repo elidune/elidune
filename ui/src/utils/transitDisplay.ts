@@ -57,6 +57,23 @@ export function canCancelTransit(transit: ItemTransit): boolean {
   return isActiveTransitStatus(transit.status);
 }
 
+/**
+ * Barcode for the existing check-in (`POST /loans/items/{barcode}/return`) after
+ * `transit_same_site`. Only a barcode already on this screen qualifies. A missing
+ * barcode, or any other error, does not offer set-aside.
+ */
+export function sameSiteSetAsideBarcode(
+  errorCode: string | null | undefined,
+  copies: Array<{ id?: string | null; barcode?: string | null }>,
+  itemId?: string | null,
+): string | null {
+  if (errorCode !== 'transit_same_site') return null;
+  const id = clean(itemId);
+  if (!id) return null;
+  const match = copies.find((copy) => clean(copy.id) === id);
+  return clean(match?.barcode);
+}
+
 /** True when the copy's `sourceId` is the hold pickup site. Missing ids do not match. */
 export function copyAlreadyAtPickupSite(
   pickupSiteId?: string | null,
