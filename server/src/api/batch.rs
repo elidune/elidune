@@ -49,9 +49,16 @@ pub struct BatchReturnItemResult {
     pub fine_amount: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub paid_amount: Option<i64>,
-    /// Set when the copy was not on loan. `code` is `item_not_on_loan`.
+    /// Set when the copy was not on loan (`item_not_on_loan`) or the scan is
+    /// blocked (`item_not_available_status`, level `warning`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notice: Option<crate::models::dto::circulation::DeskNotice>,
+    /// Current circulation exception when `notice.code` is `item_not_available_status`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub circulation_status: Option<crate::models::circulation::CirculationStatus>,
+    /// Current weeding status when `notice.code` is `item_not_available_status`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub weeding_status: Option<crate::models::item::WeedingStatus>,
 }
 
 /// Batch return response
@@ -131,6 +138,8 @@ pub async fn batch_return(
                     fine_amount: lost.and_then(|l| l.fine_amount),
                     paid_amount: lost.and_then(|l| l.paid_amount),
                     notice: check_in.notice,
+                    circulation_status: check_in.circulation_status,
+                    weeding_status: check_in.weeding_status,
                 });
             }
             Err(e) => {
@@ -155,6 +164,8 @@ pub async fn batch_return(
                     fine_amount: None,
                     paid_amount: None,
                     notice: None,
+                    circulation_status: None,
+                    weeding_status: None,
                 });
             }
         }

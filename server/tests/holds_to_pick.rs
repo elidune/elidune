@@ -654,18 +654,23 @@ async fn pick_not_found_reassigns_and_hides_the_missing_copy() {
         )
         .await;
     assert_eq!(status, StatusCode::OK, "found scan: {scan}");
-    assert_eq!(scan["status"], "ready");
-    assert_eq!(scan["hold"]["status"], "ready");
-    assert_eq!(fixtures::json_id(&scan["hold"]["itemId"]), item_id);
+    assert_eq!(scan["status"], "unchanged", "{scan}");
+    assert_eq!(
+        scan["notice"]["code"], "item_not_available_status",
+        "{scan}"
+    );
+    assert_eq!(scan["notice"]["level"], "warning", "{scan}");
+    assert_eq!(scan["circulationStatus"], "toSearch", "{scan}");
+    assert!(scan["hold"].is_null(), "{scan}");
     let (circulation, borrowable) = item_flags(&app, item_id).await;
-    assert_eq!(circulation, 0);
-    assert!(borrowable);
+    assert_eq!(circulation, 4, "return scan must not clear to_search");
+    assert!(!borrowable);
     let stored = hold_row(&app, hold_id).await;
     assert_eq!(
         stored.status,
-        elidune_server::models::hold::HoldStatus::Ready
+        elidune_server::models::hold::HoldStatus::Pending
     );
-    assert_eq!(stored.item_id, Some(item_id));
+    assert_eq!(stored.item_id, None);
 }
 
 #[tokio::test]
@@ -807,9 +812,9 @@ async fn force_loan_of_to_search_return_restores_lendable_copy() {
     );
 }
 
-/// #115: the same check-in still offers the copy to the next hold.
+/// A barcode return of a `toSearch` copy must not clear it or assign a hold.
 #[tokio::test]
-async fn force_loan_of_to_search_return_assigns_waiting_hold() {
+async fn force_loan_of_to_search_barcode_return_does_not_assign_hold() {
     let Some(app) = TestApp::spawn().await else {
         return;
     };
@@ -858,22 +863,30 @@ async fn force_loan_of_to_search_return_assigns_waiting_hold() {
         )
         .await;
     assert_eq!(status, StatusCode::OK, "check-in: {ret}");
+    assert_eq!(ret["status"], "unchanged", "{ret}");
+    assert_eq!(ret["notice"]["code"], "item_not_available_status", "{ret}");
+    assert_eq!(ret["notice"]["level"], "warning", "{ret}");
+    assert_eq!(ret["circulationStatus"], "toSearch", "{ret}");
+    assert!(ret["hold"].is_null(), "{ret}");
+    assert!(ret["loan"].is_null(), "{ret}");
 
     let (circulation, borrowable) = item_flags(&app, item_id).await;
-    assert_eq!(circulation, 0, "check-in clears to_search");
-    assert!(borrowable);
+    assert_eq!(circulation, 4, "barcode return must not clear to_search");
+    assert!(!borrowable);
     let stored = hold_row(&app, hold_id).await;
     assert_eq!(
         stored.status,
-        elidune_server::models::hold::HoldStatus::Ready
+        elidune_server::models::hold::HoldStatus::Pending
     );
-    assert_eq!(stored.item_id, Some(item_id));
-    assert!(stored.notified_at.is_some());
+    assert_eq!(stored.item_id, None);
+    assert!(stored.notified_at.is_none());
 
-    let (status, blocked) = checkout(&app, &admin_token, borrower, item_id, false).await;
-    assert_eq!(
-        status,
-        StatusCode::UNPROCESSABLE_ENTITY,
-        "readied copy stays with the hold: {blocked}"
-    );
+    let still_out: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::bigint FROM loans WHERE item_id = $1 AND returned_at IS NULL",
+    )
+    .bind(item_id)
+    .fetch_one(app.state.services.repository.pool())
+    .await
+    .expect("open loan");
+    assert_eq!(still_out, 1, "the scan must not close the loan");
 }

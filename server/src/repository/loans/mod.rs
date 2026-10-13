@@ -75,6 +75,11 @@ pub trait LoansRepository: Send + Sync {
     ) -> AppResult<Option<crate::models::dto::holds::ShelfFound>>;
     /// Non-archived copy with this barcode. Used to tell a shelf copy from an unknown barcode.
     async fn loans_item_exists_by_barcode(&self, barcode: &str) -> AppResult<bool>;
+    /// Circulation and weeding status of a live copy, read before a return scan writes.
+    async fn loans_return_scan_copy(
+        &self,
+        barcode: &str,
+    ) -> AppResult<Option<crate::models::item::ReturnScanCopy>>;
     /// Known copy that is not on loan. Serves the next pending hold (`ready` or transit).
     async fn loans_check_in_shelf_copy(
         &self,
@@ -217,6 +222,12 @@ impl LoansRepository for Repository {
     }
     async fn loans_item_exists_by_barcode(&self, barcode: &str) -> crate::error::AppResult<bool> {
         Repository::loans_item_exists_by_barcode(self, barcode).await
+    }
+    async fn loans_return_scan_copy(
+        &self,
+        barcode: &str,
+    ) -> crate::error::AppResult<Option<crate::models::item::ReturnScanCopy>> {
+        Repository::loans_return_scan_copy(self, barcode).await
     }
     async fn loans_check_in_shelf_copy(
         &self,

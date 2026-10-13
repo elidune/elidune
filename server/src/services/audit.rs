@@ -117,6 +117,8 @@ pub mod event {
     pub const ITEM_FOUND_ON_SHELF: &str = "item.found_on_shelf";
     /// Desk scan of a known copy that has no active loan (informational).
     pub const ITEM_NOT_ON_LOAN: &str = "item.not_on_loan";
+    /// Barcode return refused because the copy is lost, damaged, missing, to-search, or withdrawn.
+    pub const ITEM_RETURN_BLOCKED_STATUS: &str = "item.return_blocked_status";
     pub const ITEM_LOST_FOUND_SEEN: &str = "item.lost_found_seen";
     pub const ITEM_LOST_FOUND_RESOLVED: &str = "item.lost_found_resolved";
     pub const ITEM_LOST_FOUND_LEFT: &str = "item.lost_found_left";

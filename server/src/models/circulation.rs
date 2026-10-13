@@ -56,7 +56,7 @@ pub enum CirculationStatus {
     ClaimedReturned,
     /// Not on the shelf during a pick. Still counted in the public catalog as
     /// temporarily unavailable until staff declare it [`Self::Missing`] or [`Self::Lost`].
-    /// A scan returns it to [`Self::Available`].
+    /// A barcode return scan does not clear it. `POST /loans/{id}/return` still does.
     #[serde(rename = "toSearch")]
     ToSearch,
     /// Declared missing. Omitted from the public and patron catalogs.
@@ -103,6 +103,17 @@ impl CirculationStatus {
     #[must_use]
     pub fn blocks_circulation(self) -> bool {
         !self.is_available()
+    }
+
+    /// Barcode return must not change these. Staff use the dedicated action
+    /// afterwards (for example lost-found). Claimed-returned is not included:
+    /// a return of that open loan still clears it.
+    #[must_use]
+    pub fn blocks_return_scan(self) -> bool {
+        matches!(
+            self,
+            Self::Lost | Self::Damaged | Self::Missing | Self::ToSearch
+        )
     }
 
     /// Next item status, or a desk-facing refusal.
@@ -216,6 +227,16 @@ mod tests {
             CirculationStatus::from_db(Some(99)),
             CirculationStatus::Available
         );
+    }
+
+    #[test]
+    fn return_scan_blocks_lost_damaged_missing_and_to_search() {
+        assert!(!CirculationStatus::Available.blocks_return_scan());
+        assert!(!CirculationStatus::ClaimedReturned.blocks_return_scan());
+        assert!(CirculationStatus::Lost.blocks_return_scan());
+        assert!(CirculationStatus::Damaged.blocks_return_scan());
+        assert!(CirculationStatus::Missing.blocks_return_scan());
+        assert!(CirculationStatus::ToSearch.blocks_return_scan());
     }
 
     #[test]

@@ -222,12 +222,22 @@ pub enum DeskNoticeLevel {
     /// Information only. The scan succeeded.
     #[serde(rename = "informational")]
     Informational,
+    /// The scan was accepted but did not change the copy. Staff must follow up.
+    #[serde(rename = "warning")]
+    Warning,
 }
 
 /// Non-blocking note on a successful check-in.
 ///
-/// `code` `item_not_on_loan` means the copy had no active loan. The scan still
-/// ran (hold set aside, transit, or put back on the shelf).
+/// `code` `item_not_on_loan` (`level` `informational`) means an available copy
+/// had no active loan. The scan still ran (hold set aside, transit, or put back
+/// on the shelf).
+///
+/// `code` `item_not_available_status` (`level` `warning`) means the copy is
+/// lost, damaged, missing (`toSearch`), or withdrawn. The scan does not change
+/// that status, assign a hold, or start transit. `circulationStatus` and
+/// `weedingStatus` on the same response are the current values. Staff use the
+/// dedicated action afterwards (for example lost-found).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct DeskNotice {
@@ -242,6 +252,14 @@ impl DeskNotice {
         Self {
             code: crate::error::error_code::ITEM_NOT_ON_LOAN,
             level: DeskNoticeLevel::Informational,
+        }
+    }
+
+    #[must_use]
+    pub fn item_not_available_status() -> Self {
+        Self {
+            code: crate::error::error_code::ITEM_NOT_AVAILABLE_STATUS,
+            level: DeskNoticeLevel::Warning,
         }
     }
 }

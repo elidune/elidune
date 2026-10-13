@@ -48,9 +48,12 @@ pub mod error_code {
     pub const RATE_LIMITED: &str = "rate_limited";
     /// Checkout of a copy that is `to_pick` for a different patron.
     pub const ITEM_TO_PICK_FOR_OTHER: &str = "item_to_pick_for_other";
-    /// Informational check-in code: a known copy has no active loan.
+    /// Informational check-in code: a known available copy has no active loan.
     /// `POST /loans/items/{barcode}/return` returns HTTP 200 with this code in `notice`.
     pub const ITEM_NOT_ON_LOAN: &str = "item_not_on_loan";
+    /// Warning check-in code: the copy is lost, damaged, missing, to-search, or withdrawn.
+    /// HTTP 200. The scan does not change that status, assign a hold, or start transit.
+    pub const ITEM_NOT_AVAILABLE_STATUS: &str = "item_not_available_status";
     /// Checkout refused: the copy already has an open loan for a different borrower.
     pub const ITEM_ON_LOAN_TO_OTHER_BORROWER: &str = "item_on_loan_to_other_borrower";
     /// Checkout refused: the copy already has an open loan for this borrower. Renew it.

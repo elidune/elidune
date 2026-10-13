@@ -149,7 +149,7 @@ fn count_entries(body: &serde_json::Value, event_type: &str) -> usize {
         .count()
 }
 
-/// Fine no longer open (waived) -> return reports wasLost without fine fields.
+/// A waived lost fine: the barcode scan warns and omits fine fields.
 #[tokio::test]
 async fn qa_return_omits_fine_fields_when_fine_closed() {
     let Some(app) = TestApp::spawn().await else {
@@ -175,7 +175,14 @@ async fn qa_return_omits_fine_fields_when_fine_closed() {
         )
         .await;
     assert_eq!(status, StatusCode::OK, "scan: {body}");
-    assert_eq!(body["wasLost"], true, "{body}");
+    assert_eq!(
+        body["notice"]["code"], "item_not_available_status",
+        "{body}"
+    );
+    assert_eq!(body["notice"]["level"], "warning", "{body}");
+    assert_eq!(body["circulationStatus"], "lost", "{body}");
+    assert_eq!(body["status"], "unchanged", "{body}");
+    assert!(body.get("wasLost").is_none(), "{body}");
     for k in ["fineId", "fineStatus", "fineAmount", "paidAmount"] {
         assert!(
             body.get(k).is_none(),

@@ -777,6 +777,14 @@ mod tests {
             ok.contains("item_not_on_loan") && ok.contains("informational"),
             "200 must document the informational notice: {ok}"
         );
+        assert!(
+            ok.contains("item_not_available_status")
+                && ok.contains("warning")
+                && ok.contains("circulationStatus")
+                && ok.contains("weedingStatus")
+                && ok.contains("unchanged"),
+            "200 must document the blocked-status warning: {ok}"
+        );
         let missing = post["responses"]["404"]["description"]
             .as_str()
             .unwrap_or("");
@@ -790,6 +798,14 @@ mod tests {
         );
         assert!(
             value["components"]["schemas"]["ReturnResponse"]["properties"]["holdFor"].is_object()
+        );
+        assert!(
+            value["components"]["schemas"]["ReturnResponse"]["properties"]["circulationStatus"]
+                .is_object()
+        );
+        assert!(
+            value["components"]["schemas"]["ReturnResponse"]["properties"]["weedingStatus"]
+                .is_object()
         );
     }
 

@@ -71,6 +71,13 @@ impl WeedingStatus {
         matches!(self, Self::Withdrawn)
     }
 
+    /// Weeded / discarded. `candidate` (weeding in progress) still circulates,
+    /// so a return scan of a candidate follows the normal loan or shelf path.
+    #[must_use]
+    pub fn blocks_return_scan(self) -> bool {
+        matches!(self, Self::Withdrawn)
+    }
+
     /// Biblio-level mark: withdrawn only when every remaining copy is withdrawn.
     #[must_use]
     pub fn for_copies<I>(statuses: I) -> Self
@@ -114,6 +121,23 @@ impl<'r> sqlx::Decode<'r, sqlx::Postgres> for WeedingStatus {
 impl sqlx::Encode<'_, sqlx::Postgres> for WeedingStatus {
     fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
         <String as sqlx::Encode<sqlx::Postgres>>::encode(self.as_db_str().to_string(), buf)
+    }
+}
+
+/// Live copy looked up by barcode before a return scan mutates anything.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReturnScanCopy {
+    pub item_id: i64,
+    pub circulation_status: crate::models::circulation::CirculationStatus,
+    pub weeding_status: WeedingStatus,
+}
+
+impl ReturnScanCopy {
+    /// Lost, damaged, missing, to-search, or withdrawn. A return scan must not
+    /// change the status, assign a hold, or start transit.
+    #[must_use]
+    pub fn blocks_return_scan(self) -> bool {
+        self.circulation_status.blocks_return_scan() || self.weeding_status.blocks_return_scan()
     }
 }
 

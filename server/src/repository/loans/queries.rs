@@ -20,6 +20,13 @@ use crate::{
 };
 
 #[derive(FromRow)]
+struct ReturnScanCopyRow {
+    id: i64,
+    circulation_status: Option<i16>,
+    weeding_status: crate::models::item::WeedingStatus,
+}
+
+#[derive(FromRow)]
 struct ActiveItemBorrowerRow {
     item_id: i64,
     #[sqlx(flatten)]
@@ -126,6 +133,31 @@ impl Repository {
                 item_identification
             ))
         })
+    }
+
+    /// Circulation and weeding of a live copy. `None` when the barcode is unknown.
+    pub async fn loans_return_scan_copy(
+        &self,
+        barcode: &str,
+    ) -> AppResult<Option<crate::models::item::ReturnScanCopy>> {
+        let row: Option<ReturnScanCopyRow> = sqlx::query_as(
+            r#"
+            SELECT id, circulation_status, weeding_status
+            FROM items
+            WHERE barcode = $1 AND archived_at IS NULL
+            LIMIT 1
+            "#,
+        )
+        .bind(barcode)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|row| crate::models::item::ReturnScanCopy {
+            item_id: row.id,
+            circulation_status: crate::models::circulation::CirculationStatus::from_db(
+                row.circulation_status,
+            ),
+            weeding_status: row.weeding_status,
+        }))
     }
 
     /// True when a non-archived item has this barcode.
