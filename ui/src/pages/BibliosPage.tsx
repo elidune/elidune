@@ -8,7 +8,7 @@ import BatchDeleteSpecimensDialog from '@/components/specimen/BatchDeleteSpecime
 import { useAuth } from '@/contexts/AuthContext';
 import ItemAvailabilityBadge from '@/components/items/ItemAvailabilityBadge';
 import { canManageItems, type MediaType, type MediaTypeOption, type Serie, type Collection } from '@/types';
-import { countAvailableCopies, summaryAvailability } from '@/utils/itemAvailability';
+import { staffCopyAvailabilityLabel, summaryAvailability } from '@/utils/itemAvailability';
 import api from '@/services/api';
 import type { BiblioShort, Author, PaginatedResponse } from '@/types';
 import { PUBLIC_TYPE_OPTIONS } from '@/utils/codeLabels';
@@ -383,15 +383,9 @@ export default function BibliosPage() {
       key: 'items',
       header: t('items.specimens'),
       render: (item: BiblioShort) => {
-        const list = item.items ?? [];
-        const total = list.length;
-        const available = countAvailableCopies(list);
-        if (total === 0) return <span className="text-gray-500 dark:text-gray-400">-</span>;
-        return (
-          <span className="text-gray-600 dark:text-gray-300">
-            {t('items.availableCopies', { count: available })}
-          </span>
-        );
+        const label = staffCopyAvailabilityLabel(t, item.items);
+        if (!label) return <span className="text-gray-500 dark:text-gray-400">-</span>;
+        return <span className="text-gray-600 dark:text-gray-300">{label}</span>;
       },
       className: 'hidden md:table-cell',
     },

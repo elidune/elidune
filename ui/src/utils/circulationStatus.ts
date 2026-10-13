@@ -6,8 +6,10 @@ export const CIRCULATION_STATUS = {
   LOST: 1,
   DAMAGED: 2,
   CLAIMED_RETURNED: 3,
-  /** Missing from the shelf (`CirculationStatus::ToSearch`). */
+  /** Not on the shelf during a pick (`CirculationStatus::ToSearch`). */
   TO_SEARCH: 4,
+  /** Declared missing (`CirculationStatus::Missing`). Omitted from public catalogs. */
+  MISSING: 5,
 } as const;
 
 export function loanBorrowedItem(loan: Loan): ItemShort | null {

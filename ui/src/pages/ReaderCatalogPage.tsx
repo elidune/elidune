@@ -15,7 +15,7 @@ import ItemAvailabilityBadge from '@/components/items/ItemAvailabilityBadge';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
 import {
-  countAvailableCopies,
+  copyAvailabilityLabel,
   primaryCopyLocation,
   summaryAvailability,
   uniqueCopySites,
@@ -147,7 +147,7 @@ export default function ReaderCatalogPage() {
                       )}
                       <div className="flex flex-wrap items-center gap-2 pt-0.5">
                         <span className="text-xs text-gray-600 dark:text-gray-300">
-                          {t('items.availableCopies', { count: countAvailableCopies(biblio.items) })}
+                          {copyAvailabilityLabel(t, biblio.items) ?? '—'}
                         </span>
                         <ItemAvailabilityBadge
                           availability={summaryAvailability(biblio.items, 'public')}

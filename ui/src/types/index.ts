@@ -529,10 +529,11 @@ export type ItemAvailability =
 
 /**
  * Availability on `ItemPublicView` / `ItemShortPublic` (`ItemPublicAvailability`).
- * Staff `toSearch` and `unavailable` both serialize as `unavailable`. No reason
- * and no `holdFor`.
+ * Lost, declared missing, weeding-in-progress, and withdrawn copies are omitted
+ * before this value is chosen. `onSiteOnly` is a copy excluded from loan.
+ * No reason and no `holdFor`.
  */
-export type ItemPublicAvailability = Exclude<ItemAvailability, 'toSearch'>;
+export type ItemPublicAvailability = 'available' | 'onLoan' | 'onSiteOnly' | 'unavailable';
 
 /**
  * Biblio weeding mark. Same JSON enum as {@link ItemWeedingStatus}.
@@ -651,7 +652,7 @@ export interface WithdrawalListParams {
 
 /**
  * Copy embedded in a staff list (`ItemShortStaff`).
- * No circulation status, loan id, or copy notes — those exist only on {@link ItemStaffView}.
+ * No loan id or copy notes — those exist only on {@link ItemStaffView}.
  */
 export interface ItemShortStaff {
   id: string;
@@ -661,6 +662,11 @@ export interface ItemShortStaff {
   weedingStatus: ItemWeedingStatus;
   sourceName: string | null;
   borrowed: boolean;
+  /**
+   * `items.circulation_status`. Null or 0 is available; 1 lost, 2 damaged,
+   * 3 claimed returned, 4 to search, 5 declared missing.
+   */
+  circulationStatus?: number | null;
   availability: ItemAvailability;
   canHoldItem: boolean;
   /**
