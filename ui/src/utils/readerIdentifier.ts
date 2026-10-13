@@ -85,6 +85,30 @@ export function borrowerAvatarInitials(user: BorrowerRef | null | undefined): st
   return letters || '?';
 }
 
+/**
+ * Open-shelf label and printed hold slip.
+ * Card number when one exists, otherwise initials. A name is never returned.
+ */
+export function shelfIdentifierText(
+  user: BorrowerRef | null | undefined,
+  cardLabel: (number: string) => string,
+): string {
+  if (!user) return '—';
+  const card = clean(user.cardNumber) ?? clean(user.barcode);
+  if (card) return cardLabel(card);
+  const explicit = compactInitials(user.initials);
+  if (explicit) return explicit;
+  const derived = `${clean(user.firstname)?.[0] ?? ''}${clean(user.lastname)?.[0] ?? ''}`.toUpperCase();
+  return derived || '—';
+}
+
+function compactInitials(value: string | null | undefined): string | null {
+  const text = clean(value);
+  if (!text || /\s/u.test(text)) return null;
+  const compact = [...text].filter((char) => char !== '.').join('');
+  return compact || null;
+}
+
 /** Email and phone only exist on the full overdue borrower. Blank values are omitted. */
 export function borrowerContact(user: BorrowerRef | null | undefined): {
   email: string | null;

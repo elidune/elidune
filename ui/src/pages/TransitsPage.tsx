@@ -12,8 +12,8 @@ import {
   ListSkeleton,
   Table,
 } from '@/components/common';
-import PatronLink from '@/components/users/PatronLink';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
+import HoldPatronLabel from '@/components/holds/HoldPatronLabel';
 import HoldPickupCell from '@/components/holds/HoldPickupCell';
 import HoldTransitActions from '@/components/holds/HoldTransitActions';
 import TransitActionModals from '@/components/holds/TransitActionModals';
@@ -24,8 +24,8 @@ import { useTransitActions } from '@/hooks/holds/useTransitActions';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { formChoiceLabelClass } from '@/utils/formControl';
-import { patronId } from '@/utils/patronLink';
-import { formatUserShortName } from '@/utils/userDisplay';
+import { canReadUsers } from '@/types';
+import { useAuth } from '@/contexts/AuthContext';
 import { isHoldDetailsStaff } from '@/utils/catalogView';
 import { holdSecondaryDocumentLabel, STAFF_HOLDS_FETCH_CAP } from '@/utils/holdDisplay';
 import { canCancelTransit, sourceLabel } from '@/utils/transitDisplay';
@@ -42,6 +42,8 @@ function transitCopyLabel(transit: ItemTransit, hold?: Hold | null): string {
 
 export default function TransitsPage() {
   const { t, i18n } = useTranslation();
+  const { user: authUser } = useAuth();
+  const canOpenReader = canReadUsers(authUser, api.getToken());
   const [filter, setFilter] = useState<TransitFilter>('active');
   const [page, setPage] = useState(1);
   const [prevFilter, setPrevFilter] = useState(filter);
@@ -120,15 +122,12 @@ export default function TransitsPage() {
             <span className="text-gray-400">{t('holds.transitNone')}</span>
           );
         }
-        const label = formatUserShortName(hold.user) || patronId(hold.userId, hold.user?.id) || '—';
         return (
-          <PatronLink
+          <HoldPatronLabel
+            user={hold.user}
+            linked={canOpenReader}
             className="text-indigo-600 dark:text-indigo-400 hover:underline"
-            userId={hold.userId}
-            fallbackId={hold.user?.id}
-          >
-            {label}
-          </PatronLink>
+          />
         );
       },
     },

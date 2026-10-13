@@ -1091,8 +1091,8 @@ function SpecimenCard({
         <ItemHoldPatronLine
           audience={audience}
           availability={staffCopy.availability}
-          holdUserId={staffCopy.holdUserId}
-          holdUserName={staffCopy.holdUserName}
+          holdFor={staffCopy.holdFor}
+          linked={canReadBorrowers}
         />
       ) : null}
 

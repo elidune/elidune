@@ -1,12 +1,13 @@
 import { useTranslation } from 'react-i18next';
-import { Badge } from '@/components/common';
-import PatronLink from '@/components/users/PatronLink';
+import Badge from '@/components/common/Badge';
+import ReaderIdentifier from '@/components/users/ReaderIdentifier';
 import {
   availabilityBadgeVariant,
   availabilityLabelKey,
   normalizeAvailability,
   type AvailabilityAudience,
 } from '@/utils/itemAvailability';
+import { readerIdentifierText, type BorrowerRef } from '@/utils/readerIdentifier';
 
 interface ItemAvailabilityBadgeProps {
   availability?: string | null;
@@ -32,31 +33,37 @@ export default function ItemAvailabilityBadge({
 interface ItemHoldPatronLineProps {
   audience: AvailabilityAudience;
   availability?: string | null;
-  holdUserId?: string | null;
-  holdUserName?: string | null;
+  /** Full staff profile, or `{ id, cardNumber, initials }`. Ignored for readers and the OPAC. */
+  holdFor?: BorrowerRef | null;
+  /** Link to the reader record. Pass only when the caller can read users. */
+  linked?: boolean;
 }
 
-/** Staff only. Readers and the OPAC never receive the patron, and this renders nothing for them. */
+/**
+ * Staff only. The name is shown when `holdFor` is the full profile.
+ * Loans-only staff see the card number or initials.
+ * Readers and the OPAC render nothing, even if a patron object is passed.
+ */
 export function ItemHoldPatronLine({
   audience,
   availability,
-  holdUserId,
-  holdUserName,
+  holdFor,
+  linked = false,
 }: ItemHoldPatronLineProps) {
   const { t } = useTranslation();
   if (audience !== 'staff') return null;
   if (normalizeAvailability(availability, 'staff') !== 'onHold') return null;
-  const name = holdUserName?.trim();
-  if (!name && !holdUserId) return null;
-  const label = t('availability.reservedFor', { name: name || holdUserId });
+  if (!holdFor) return null;
+  if (readerIdentifierText(holdFor, (number) => number) === '—') return null;
   return (
-    <p className="text-sm">
-      <PatronLink
-        userId={holdUserId}
+    <p className="text-sm text-gray-600 dark:text-gray-300">
+      {t('availability.reservedFor')}{' '}
+      <ReaderIdentifier
+        user={holdFor}
+        linked={linked}
+        cardLabelKey="holds.readerCardNo"
         className="text-indigo-600 dark:text-indigo-400 hover:underline"
-      >
-        {label}
-      </PatronLink>
+      />
     </p>
   );
 }

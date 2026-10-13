@@ -1,8 +1,10 @@
 /**
  * Non-blocking desk notice when a scanned copy is on loan to another reader
  * or on hold. Built from `GET /items/barcode/:barcode` (`availability`,
- * `holdUserName`) and `GET /loans/:id/user`, or from a check-in body.
+ * `holdFor`) and `GET /loans/:id/user`, or from a check-in body.
  */
+
+import { isMinimizedBorrower, type BorrowerRef } from '@/utils/readerIdentifier';
 
 export type DeskScanAlertKind = 'onLoan' | 'onHold' | 'alreadyOnLoan';
 
@@ -34,8 +36,8 @@ export interface DeskCopySnapshot {
   loanUserInitials?: string | null;
   loanUserFirstname?: string | null;
   loanUserLastname?: string | null;
-  holdUserId?: string | null;
-  holdUserName?: string | null;
+  /** Full staff profile, or `{ id, cardNumber, initials }`. */
+  holdFor?: BorrowerRef | null;
 }
 
 export interface DeskScanPatron {
@@ -185,8 +187,21 @@ export function deskScanAlert(
   if (copy.availability === 'onLoan' && !samePatron(patronId, copy.loanUserId)) {
     return { kind: 'onLoan', patronName: clean(copy.loanUserName) };
   }
-  if (copy.availability === 'onHold' && !samePatron(patronId, copy.holdUserId)) {
-    return { kind: 'onHold', patronName: clean(copy.holdUserName) };
+  if (copy.availability === 'onHold' && !samePatron(patronId, copy.holdFor?.id)) {
+    const holdFor = copy.holdFor;
+    if (holdFor && !isMinimizedBorrower(holdFor)) {
+      return { kind: 'onHold', patronName: readerName(holdFor) };
+    }
+    return {
+      kind: 'onHold',
+      patronName: null,
+      otherBorrower: otherBorrowerFromPerson({
+        userId: holdFor?.id,
+        cardNumber: holdFor?.cardNumber,
+        barcode: holdFor?.barcode,
+        initials: holdFor?.initials,
+      }),
+    };
   }
   return null;
 }
@@ -216,18 +231,29 @@ export function readerName(
 
 export interface CheckInScanBody {
   loan?: {
-    user?: {
-      id?: string | null;
-      firstname?: string | null;
-      lastname?: string | null;
-      initials?: string | null;
-      cardNumber?: string | null;
-    } | null;
+    user?: BorrowerRef | null;
   } | null;
   hold?: {
     userId?: string | null;
-    user?: { firstname?: string | null; lastname?: string | null } | null;
+    user?: BorrowerRef | null;
   } | null;
+}
+
+/** Name when the payload is a full profile. Card or initials when it is minimized. */
+function holdAlertFromUser(user: BorrowerRef | null | undefined): DeskScanAlert {
+  if (user && isMinimizedBorrower(user)) {
+    return {
+      kind: 'onHold',
+      patronName: null,
+      otherBorrower: otherBorrowerFromPerson({
+        userId: user.id,
+        cardNumber: user.cardNumber,
+        barcode: user.barcode,
+        initials: user.initials,
+      }),
+    };
+  }
+  return { kind: 'onHold', patronName: readerName(user) };
 }
 
 /**
@@ -237,10 +263,7 @@ export interface CheckInScanBody {
  */
 export function deskScanAlertAfterReturn(body: CheckInScanBody | null | undefined): DeskScanAlert | null {
   if (!body?.hold) return null;
-  return {
-    kind: 'onHold',
-    patronName: readerName(body.hold.user),
-  };
+  return holdAlertFromUser(body.hold.user);
 }
 
 /** Drop the checkout “still on loan” warning for the copy that was just returned. */
@@ -262,12 +285,7 @@ export function deskScanAlertFromCheckIn(body: CheckInScanBody | null | undefine
   if (body.loan) {
     return { kind: 'onLoan', patronName: readerName(body.loan.user) };
   }
-  if (body.hold) {
-    return {
-      kind: 'onHold',
-      patronName: readerName(body.hold.user),
-    };
-  }
+  if (body.hold) return holdAlertFromUser(body.hold.user);
   return null;
 }
 
@@ -293,9 +311,18 @@ export function checkoutScanNoticeFromRefusal(input: {
   code?: string | null;
   message?: string | null;
   patronName?: string | null;
+  cardNumber?: string | null;
+  initials?: string | null;
 }): DeskScanAlert | null {
   if (input.code?.trim() === ITEM_TO_PICK_FOR_OTHER) {
-    return { kind: 'onHold', patronName: clean(input.patronName) };
+    return {
+      kind: 'onHold',
+      patronName: null,
+      otherBorrower: otherBorrowerFromPerson({
+        cardNumber: input.cardNumber,
+        initials: input.initials,
+      }),
+    };
   }
   const fromMessage = deskScanAlertFromCheckoutMessage(input.message);
   if (!fromMessage) return null;
@@ -353,6 +380,13 @@ export function deskScanAlertMessage(
     if (!copy) return t('loans.scanAlertOnLoanUnknown');
     const key = copy.kind === 'card' ? 'loans.scanAlertOnLoanCard' : 'loans.scanAlertOnLoan';
     return t(key, { identifier: copy.label });
+  }
+  if (alert.otherBorrower) {
+    const copy = checkoutOnLoanCopy({ ...alert, patronName: null });
+    if (copy) {
+      const key = copy.kind === 'card' ? 'loans.scanAlertOnHoldCard' : 'loans.scanAlertOnHoldInitials';
+      return t(key, { identifier: copy.label });
+    }
   }
   return alert.patronName
     ? t('loans.scanAlertOnHold', { name: alert.patronName })

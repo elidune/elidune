@@ -14,6 +14,11 @@ interface ReaderIdentifierProps {
   linked?: boolean;
   /** Overdue full shape: email and phone, each omitted when null or blank. */
   showContact?: boolean;
+  /**
+   * i18n key for a card phrase, `{{number}}` included.
+   * Hold surfaces use `holds.readerCardNo`. Loans keep `loans.readerCardNo`.
+   */
+  cardLabelKey?: string;
   className?: string;
   onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
   aside?: ReactNode;
@@ -28,12 +33,13 @@ export default function ReaderIdentifier({
   user,
   linked = false,
   showContact = false,
+  cardLabelKey = 'loans.readerCardNo',
   className,
   onClick,
   aside,
 }: ReaderIdentifierProps) {
   const { t } = useTranslation();
-  const label = readerIdentifierText(user, (number) => t('loans.readerCardNo', { number }));
+  const label = readerIdentifierText(user, (number) => t(cardLabelKey, { number }));
   const id = linked ? patronId(user?.id) : null;
   const contact = showContact ? borrowerContact(user) : { email: null, phone: null };
   const name = id ? (

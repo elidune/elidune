@@ -6,13 +6,13 @@ import HoldScopeBadge from '@/components/holds/HoldScopeBadge';
 import { useToast } from '@/contexts/ToastContext';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
-import { isLibrarian } from '@/types';
+import { canReadUsers, isLibrarian } from '@/types';
 import { isItemStaffView } from '@/utils/catalogView';
 import { isItemWithdrawn } from '@/utils/weeding';
 import type { ItemPublicView, ItemStaffView, UserShort } from '@/types';
-import { patronId } from '@/utils/patronLink';
 import PatronOptionLabel from '@/components/users/PatronOptionLabel';
-import { formatUserShortName } from '@/utils/userDisplay';
+import { useAuth } from '@/contexts/AuthContext';
+import HoldPatronLabel from '@/components/holds/HoldPatronLabel';
 import { formChoiceLabelClass } from '@/utils/formControl';
 import { buildCreateHold, type HoldPlacementScope } from '@/utils/holdDisplay';
 import { useResetWhenInactive } from '@/hooks/common/useResetWhenInactive';
@@ -47,6 +47,8 @@ export default function PlaceHoldDialog({
   onSuccess,
 }: PlaceHoldDialogProps) {
   const { t } = useTranslation();
+  const { user: authUser } = useAuth();
+  const canOpenReader = canReadUsers(authUser, api.getToken());
   const { showToast } = useToast();
   const queryClient = useQueryClient();
   const staff = isLibrarian(accountType);
@@ -294,7 +296,7 @@ export default function PlaceHoldDialog({
               {queue.map((h) => (
                 <li key={h.id} className="flex flex-wrap items-center gap-2">
                   <span className="font-medium">
-                    {formatUserShortName(h.user) || patronId(h.userId, h.user?.id) || '—'}
+                    <HoldPatronLabel user={h.user} linked={canOpenReader} />
                   </span>
                   <HoldScopeBadge hold={h} />
                 </li>

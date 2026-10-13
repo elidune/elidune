@@ -17,12 +17,12 @@ import { useTransitActions } from '@/hooks/holds/useTransitActions';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
 import type { BiblioShort, BiblioStaffView, Hold, HoldListItem, UserShort } from '@/types';
+import { canReadUsers } from '@/types';
 import { isBiblioStaffView, isItemStaffView } from '@/utils/catalogView';
-import PatronLink from '@/components/users/PatronLink';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
-import { patronId } from '@/utils/patronLink';
 import PatronOptionLabel from '@/components/users/PatronOptionLabel';
-import { formatUserShortName } from '@/utils/userDisplay';
+import { useAuth } from '@/contexts/AuthContext';
+import HoldPatronLabel from '@/components/holds/HoldPatronLabel';
 import { useToast } from '@/contexts/ToastContext';
 import { formChoiceLabelClass, formControlClass, formLabelClass } from '@/utils/formControl';
 import {
@@ -43,6 +43,8 @@ function statusBadge(_t: (k: string) => string, status: Hold['status']) {
 
 export default function HoldsPage() {
   const { t, i18n } = useTranslation();
+  const { user: authUser } = useAuth();
+  const canOpenReader = canReadUsers(authUser, api.getToken());
   const { showToast } = useToast();
   const queryClient = useQueryClient();
 
@@ -322,19 +324,13 @@ export default function HoldsPage() {
     {
       key: 'user',
       header: t('holds.columnUser'),
-      render: (r: HoldListItem) => {
-        const id = patronId(r.userId, r.user?.id);
-        const label = formatUserShortName(r.user) || id || '—';
-        return (
-          <PatronLink
-            className="text-indigo-600 dark:text-indigo-400 hover:underline"
-            userId={r.userId}
-            fallbackId={r.user?.id}
-          >
-            {label}
-          </PatronLink>
-        );
-      },
+      render: (r: HoldListItem) => (
+        <HoldPatronLabel
+          user={r.user}
+          linked={canOpenReader}
+          className="text-indigo-600 dark:text-indigo-400 hover:underline"
+        />
+      ),
     },
     {
       key: 'item',
@@ -502,6 +498,7 @@ export default function HoldsPage() {
                       <HoldMobileCard
                         key={r.id}
                         hold={r}
+                        linked={canOpenReader}
                         emphasizePickup
                         statusBadge={(s) => statusBadge(t, s)}
                         pickupSources={sources}
@@ -715,7 +712,7 @@ export default function HoldsPage() {
                     {biblioQueueQuery.data!.map((h) => (
                       <li key={h.id} className="flex flex-wrap items-center gap-2">
                         <span className="font-medium">
-                          {formatUserShortName(h.user) || patronId(h.userId, h.user?.id) || '—'}
+                          <HoldPatronLabel user={h.user} linked={canOpenReader} />
                         </span>
                         <HoldScopeBadge hold={h} />
                       </li>

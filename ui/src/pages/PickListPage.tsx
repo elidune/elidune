@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Printer, SearchX } from 'lucide-react';
@@ -17,6 +16,7 @@ import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 import { defaultPickupSiteId } from '@/utils/transitDisplay';
+import HoldShelfSlip, { HoldShelfPatron } from '@/components/holds/HoldShelfSlip';
 import type { HoldPickListRow } from '@/types';
 import { useToast } from '@/contexts/ToastContext';
 
@@ -94,19 +94,19 @@ export default function PickListPage() {
     {
       key: 'patron',
       header: t('pickList.columnPatron'),
-      render: (row: HoldPickListRow) => (
-        <Link
-          className="text-indigo-600 dark:text-indigo-400 hover:underline"
-          to={`/users/${row.userId}`}
-        >
-          {row.userName}
-        </Link>
-      ),
+      render: (row: HoldPickListRow) => <HoldShelfPatron holdFor={row.holdFor} />,
     },
     {
       key: 'pickup',
       header: t('pickList.columnPickup'),
       render: (row: HoldPickListRow) => row.pickupSiteName?.trim() || '—',
+    },
+    {
+      key: 'pickupDeadline',
+      header: t('pickList.columnPickupDeadline'),
+      render: (row: HoldPickListRow) => (
+        <span className="tabular-nums">{formatDue(row.pickupDeadline)}</span>
+      ),
     },
     {
       key: 'due',
@@ -194,13 +194,30 @@ export default function PickListPage() {
             />
           </div>
         ) : (
-          <Table
-            columns={columns}
-            data={rows}
-            keyExtractor={(row) => row.holdId}
-            isLoading={pickQuery.isLoading || siteId === null}
-            emptyMessage={t('pickList.empty')}
-          />
+          <>
+            <div className="print:hidden">
+              <Table
+                columns={columns}
+                data={rows}
+                keyExtractor={(row) => row.holdId}
+                isLoading={pickQuery.isLoading || siteId === null}
+                emptyMessage={t('pickList.empty')}
+              />
+            </div>
+            <ul className="hidden print:block space-y-4 p-4">
+              {rows.map((row) => (
+                <li key={row.holdId}>
+                  <HoldShelfSlip
+                    title={row.title}
+                    barcode={row.barcode}
+                    callNumber={row.callNumber}
+                    holdFor={row.holdFor}
+                    pickupDeadline={row.pickupDeadline}
+                  />
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </Card>
 
