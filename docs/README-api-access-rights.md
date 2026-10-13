@@ -92,6 +92,8 @@ The client IP is the TCP peer unless `server.trusted_proxies` (`ELIDUNE_SERVER__
 
 ## Biblios
 
+Staff versus public JSON on catalog reads (`GET /biblios`, `GET /biblios/:id`, `GET /biblios/:id/items`, `GET /items/:id`, `GET /items/barcode/:barcode`, series and collection biblio lists) and on `GET /holds` follows rights, not account type. Internal catalog data uses the staff types when the caller has `items_rights` write, `weeding_rights` read, `loans_rights` read, `holds_rights` read, `users_rights` read, or `items_archive_rights` write. `items_rights` read alone is the public catalog. `holdFor` on a staff copy still requires users or loans read: users read returns the staff patron, loans read without users read returns `{ id, cardNumber, initials }`. Public responses still omit lost, declared missing, weeding-in-progress, and withdrawn copies.
+
 | Endpoint | Required auth |
 |---|---|
 | `GET /biblios` | JWT + `require_read_items()` |
@@ -144,8 +146,8 @@ The client IP is the TCP peer unless `server.trusted_proxies` (`ELIDUNE_SERVER__
 |---|---|
 | `GET /users` | JWT + `require_read_users()` |
 | `POST /users` | JWT + `require_write_users()` |
-| `GET /users/:id` | JWT + `require_read_users()` |
-| `PUT /users/:id` | JWT + `require_write_users()` |
+| `GET /users/:id` | JWT + `users_rights` read or write for any id. `users_rights` own returns the caller's record only; any other id is 403 |
+| `PUT /users/:id` | JWT + `users_rights` write for a staff update. `users_rights` own may change only the caller's address, email, phone, language, and consents (`eventsConsent`, `receiveReminders`). Account type, rights, card number, status, or fines in the body is 403 and writes nothing |
 | `DELETE /users/:id` | JWT + `require_write_users()` |
 | `PUT /users/:id/account-type` | JWT + `require_admin()` |
 | `PUT /users/:id/force-password-change` | JWT + `require_admin()` |

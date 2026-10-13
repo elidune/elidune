@@ -14,7 +14,7 @@ use crate::{
     api::biblios::BiblioShortListResponse,
     error::AppResult,
     models::biblio::{Collection, CollectionQuery, CreateCollection, UpdateCollection},
-    models::catalog_view::BiblioShortPublic,
+    models::catalog_view::{sees_internal_catalog, BiblioShortPublic},
     services::audit,
 };
 
@@ -103,7 +103,7 @@ pub async fn get_collection(
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Collection ID")),
     responses(
-        (status = 200, description = "Biblios in this collection. Librarians and admins receive `BiblioShortStaff` (`holdFor` on an `onHold` copy when the caller has users or loans read). Readers receive `BiblioShortPublic` with no hold patron.", body = BiblioShortListResponse),
+        (status = 200, description = "Biblios in this collection. Callers with internal catalog rights receive `BiblioShortStaff` (`holdFor` on an `onHold` copy when the caller has users or loans read). Catalog read alone receives `BiblioShortPublic` with no hold patron.", body = BiblioShortListResponse),
         (status = 404, description = "Not found"),
     )
 )]
@@ -115,7 +115,7 @@ pub async fn get_collection_biblios(
     claims.require_read_items()?;
     state.services.catalog.get_collection(id).await?;
     let biblios = state.services.catalog.get_biblios_by_collection(id).await?;
-    let body = if claims.is_librarian() {
+    let body = if sees_internal_catalog(&claims) {
         BiblioShortListResponse::Staff(
             super::catalog_hold::staff_biblio_shorts(&state, &claims, biblios).await?,
         )

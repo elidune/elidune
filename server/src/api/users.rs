@@ -8,20 +8,23 @@ use axum::{
 use serde::Deserialize;
 
 use crate::{
-    error::AppResult,
+    error::{AppError, AppResult},
     models::catalog_view::{borrower_initials, UserShortStaff},
     models::dto::card::{
         ReplaceCardRequest, ReplaceCardResponse, ReportCardLostDeskBody, ReportCardLostRequest,
         ReportCardLostResponse, ReportCardLostStaffBody,
     },
     models::dto::patron_card::{CardLookupResponse, DeskCardLookup, StaffCardLookup},
+    models::own_contact::parse_own_contact,
     models::user::{
-        EventsConsentSource, Rights, UpdateAccountType, UpdateProfile, User, UserPayload, UserQuery,
+        EventsConsentSource, Rights, UpdateAccountType, UpdateProfile, User, UserClaims,
+        UserPayload, UserQuery,
     },
     services::audit,
 };
 
 use super::{biblios::PaginatedResponse, AuthenticatedUser, ClientIp, ValidatedJson};
+use validator::Validate;
 
 /// Build the users routes for this domain.
 pub fn router() -> axum::Router<crate::AppState> {
@@ -154,7 +157,8 @@ pub async fn get_user_by_card(
         ("id" = i32, Path, description = "User ID")
     ),
     responses(
-        (status = 200, description = "User details", body = User),
+        (status = 200, description = "User details. `users_rights` read or write may load any id. `users_rights` own may load only the caller's id.", body = User),
+        (status = 403, description = "Own rights on another id, or no users rights"),
         (status = 404, description = "User not found")
     )
 )]
@@ -163,10 +167,23 @@ pub async fn get_user(
     AuthenticatedUser(claims): AuthenticatedUser,
     Path(id): Path<i64>,
 ) -> AppResult<Json<User>> {
-    claims.require_read_users()?;
+    require_read_user(&claims, id)?;
 
     let user = state.services.users.get_by_id(id).await?;
     Ok(Json(user))
+}
+
+/// `users_rights` read or write, or own rights on the caller's id.
+fn require_read_user(claims: &UserClaims, id: i64) -> Result<(), AppError> {
+    if claims.rights.users_rights.rank() >= Rights::Read.rank()
+        || (claims.rights.users_rights == Rights::Own && claims.user_id == id)
+    {
+        Ok(())
+    } else {
+        Err(AppError::Authorization(
+            "Insufficient rights to read this user".to_string(),
+        ))
+    }
 }
 
 /// Create a new user
@@ -234,8 +251,9 @@ pub async fn create_user(
     ),
     request_body = UserPayload,
     responses(
-        (status = 200, description = "User updated", body = User),
+        (status = 200, description = "User updated. `users_rights` write may change the staff payload. `users_rights` own may change only the caller's contact details and preferences: `addrStreet`, `addrZipCode`, `addrCity`, `email`, `phone`, `language`, `eventsConsent`, `receiveReminders`. Any other key (account type, rights, card number, status, fines, name, login) returns 403 and writes nothing.", body = User),
         (status = 400, description = "Invalid input, including clearing guardianId while the patron remains a child", body = crate::error::ErrorResponse),
+        (status = 403, description = "Own rights on another id, a forbidden own-record field, or no users write", body = crate::error::ErrorResponse),
         (status = 404, description = "User not found", body = crate::error::ErrorResponse),
         (status = 409, description = "Login already exists, card number already assigned, or a retired card number (`card_number_retired`)", body = crate::error::ErrorResponse)
     )
@@ -245,9 +263,49 @@ pub async fn update_user(
     AuthenticatedUser(claims): AuthenticatedUser,
     ClientIp(ip): ClientIp,
     Path(id): Path<i64>,
-    ValidatedJson(user): ValidatedJson<UserPayload>,
+    Json(body): Json<serde_json::Value>,
 ) -> AppResult<Json<User>> {
+    if claims.rights.users_rights == Rights::Own {
+        if claims.user_id != id {
+            return Err(AppError::Authorization(
+                "Insufficient rights to update this user".to_string(),
+            ));
+        }
+        let patch = parse_own_contact(&body)?;
+        let audit_payload = body.clone();
+        return match state.services.users.update_own_contact(id, patch).await {
+            Ok(updated) => {
+                state.services.audit.log(
+                    audit::event::USER_UPDATED,
+                    Some(claims.user_id),
+                    Some("user"),
+                    Some(id),
+                    ip,
+                    Some(audit_payload),
+                    audit::AuditLogMeta::success(),
+                );
+                Ok(Json(updated))
+            }
+            Err(e) => {
+                state.services.audit.log(
+                    audit::event::USER_UPDATED,
+                    Some(claims.user_id),
+                    Some("user"),
+                    Some(id),
+                    ip.clone(),
+                    Some(serde_json::json!({ "id": id })),
+                    audit::AuditLogMeta::from_app_error(&e),
+                );
+                Err(e)
+            }
+        };
+    }
+
     claims.require_write_users()?;
+    let user: UserPayload = serde_json::from_value(body)
+        .map_err(|e| AppError::Validation(format!("Invalid JSON body: {e}")))?;
+    user.validate()
+        .map_err(|e| AppError::Validation(e.to_string()))?;
     let audit_payload = user.clone();
     match state
         .services

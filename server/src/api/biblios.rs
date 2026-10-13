@@ -14,8 +14,8 @@ use utoipa::ToSchema;
 use crate::{
     error::{AppError, AppResult},
     models::catalog_view::{
-        project_borrower, BiblioPublicView, BiblioShortPublic, BiblioShortStaff, BiblioStaffView,
-        ItemPublicView, ItemStaffView,
+        project_borrower, sees_internal_catalog, BiblioPublicView, BiblioShortPublic,
+        BiblioShortStaff, BiblioStaffView, ItemPublicView, ItemStaffView,
     },
     models::task::TaskKind,
     models::user::Rights,
@@ -80,7 +80,7 @@ where
 }
 
 /// Staff or reader bibliographic record. The handler selects the variant with
-/// [`crate::models::user::UserClaims::is_librarian`].
+/// [`crate::models::catalog_view::sees_internal_catalog`].
 #[derive(Serialize, ToSchema)]
 #[serde(untagged)]
 pub enum BiblioReadResponse {
@@ -151,7 +151,7 @@ impl<T: for<'a> ToSchema<'a>> PaginatedResponse<T> {
         ("perPage" = Option<i64>, Query, description = "Items per page (default: 20)")
     ),
     responses(
-        (status = 200, description = "List of bibliographic records. Librarians and admins receive `BiblioShortStaff` (full availability, `circulationStatus`, weeding, hold patron, real copy total). Readers receive `BiblioShortPublic`: lost, declared missing, weeding-in-progress, and withdrawn copies are omitted. Remaining copies use `available`, `onLoan`, `onSiteOnly`, or `unavailable`. No borrower, `holdFor`, login, notes, or weeding fields.", body = BiblioSearchResponse),
+        (status = 200, description = "List of bibliographic records. Callers with internal catalog rights receive `BiblioShortStaff` (full availability, `circulationStatus`, weeding, hold patron, real copy total). Catalog read alone receives `BiblioShortPublic`: lost, declared missing, weeding-in-progress, and withdrawn copies are omitted. Remaining copies use `available`, `onLoan`, `onSiteOnly`, or `unavailable`. No borrower, `holdFor`, login, notes, or weeding fields.", body = BiblioSearchResponse),
         (status = 401, description = "Not authenticated")
     )
 )]
@@ -161,7 +161,7 @@ pub async fn list_biblios(
     Query(mut query): Query<BiblioQuery>,
 ) -> AppResult<Json<BiblioSearchResponse>> {
     claims.require_read_items()?;
-    if !claims.is_librarian() {
+    if !sees_internal_catalog(&claims) {
         query.exclude_fully_withdrawn = Some(true);
     }
 
@@ -169,7 +169,7 @@ pub async fn list_biblios(
     let page = query.page.unwrap_or(1);
     let per_page = query.per_page.unwrap_or(20);
 
-    let body = if claims.is_librarian() {
+    let body = if sees_internal_catalog(&claims) {
         BiblioSearchResponse::Staff(PaginatedResponse::new(
             super::catalog_hold::staff_biblio_shorts(&state, &claims, biblios).await?,
             total,
@@ -198,7 +198,7 @@ pub async fn list_biblios(
         ("full_record" = Option<bool>, Query, description = "If true, include full MARC record data")
     ),
     responses(
-        (status = 200, description = "Bibliographic record details. Librarians and admins receive `BiblioStaffView` (every copy, with `circulationStatus`). Readers receive `BiblioPublicView`: lost, declared missing, weeding-in-progress, and withdrawn copies are omitted. Remaining copies use public availability (`available`, `onLoan`, `onSiteOnly`, `unavailable`). The record includes `holdsCount` (pending holds still waiting for a copy; `to_pick`, `ready`, and in-transit holds are excluded). Every remaining copy includes `dueDate` (active loan `expiry_at`, or null) and `onHold` (true only when this copy is `to_pick` or `ready`, or in transit for a hold). An unassigned `pending` title hold does not set `onHold`. `holdFor` is set on a staff `onHold` copy when the caller has `users_rights` or `loans_rights` read or write. `users_rights` returns `UserShortStaff`. `loans_rights` without users read returns `{ id, cardNumber, initials }`. Patrons, the OPAC, and staff with neither right omit `holdFor`. Staff with `loans_rights` read or write also receive `borrower` on a copy that is on loan: `{ id, cardNumber, initials }` unless `users_rights` is read or write, which returns `UserShortStaff`.", body = BiblioReadResponse),
+        (status = 200, description = "Bibliographic record details. Callers with internal catalog rights receive `BiblioStaffView` (every copy, with `circulationStatus`). Catalog read alone receives `BiblioPublicView`: lost, declared missing, weeding-in-progress, and withdrawn copies are omitted. Remaining copies use public availability (`available`, `onLoan`, `onSiteOnly`, `unavailable`). The record includes `holdsCount` (pending holds still waiting for a copy; `to_pick`, `ready`, and in-transit holds are excluded). Every remaining copy includes `dueDate` (active loan `expiry_at`, or null) and `onHold` (true only when this copy is `to_pick` or `ready`, or in transit for a hold). An unassigned `pending` title hold does not set `onHold`. `holdFor` is set on a staff `onHold` copy when the caller has `users_rights` or `loans_rights` read or write. `users_rights` returns `UserShortStaff`. `loans_rights` without users read returns `{ id, cardNumber, initials }`. Patrons, the OPAC, and callers with neither right omit `holdFor`. Callers with `loans_rights` read or write also receive `borrower` on a copy that is on loan: `{ id, cardNumber, initials }` unless `users_rights` is read or write, which returns `UserShortStaff`.", body = BiblioReadResponse),
         (status = 404, description = "Biblio not found")
     )
 )]
@@ -211,12 +211,12 @@ pub async fn get_biblio(
     claims.require_read_items()?;
 
     let biblio = state.services.catalog.get_biblio(id).await?;
-    if !claims.is_librarian() && biblio.is_fully_withdrawn() {
+    if !sees_internal_catalog(&claims) && biblio.is_fully_withdrawn() {
         return Err(crate::error::AppError::NotFound(
             "Bibliographic record not found".into(),
         ));
     }
-    let body = if claims.is_librarian() {
+    let body = if sees_internal_catalog(&claims) {
         let mut view = super::catalog_hold::staff_biblio_view(&state, &claims, biblio).await?;
         attach_notice_borrowers(&state, &claims, &mut view.items).await?;
         BiblioReadResponse::Staff(view)
@@ -683,7 +683,7 @@ pub struct DeleteBiblioParams {
         ("id" = i64, Path, description = "Biblio ID")
     ),
     responses(
-        (status = 200, description = "List of physical items. Librarians and admins receive every copy as `ItemStaffView`, including `circulationStatus`. Readers receive `ItemPublicView` with lost, declared missing, weeding-in-progress, and withdrawn copies omitted. Remaining copies include `dueDate`, `onHold`, and public availability. Staff with users or loans read receive `holdFor` on an `onHold` copy (same rule as `GET /biblios/{id}`). Readers omit `holdFor`. This list does not include `borrower`.", body = ItemListResponse),
+        (status = 200, description = "List of physical items. Callers with internal catalog rights receive every copy as `ItemStaffView`, including `circulationStatus`. Catalog read alone receives `ItemPublicView` with lost, declared missing, weeding-in-progress, and withdrawn copies omitted. Remaining copies include `dueDate`, `onHold`, and public availability. Users or loans read receive `holdFor` on an `onHold` copy (same rule as `GET /biblios/{id}`). The public view omits `holdFor`. This list does not include `borrower`.", body = ItemListResponse),
         (status = 404, description = "Biblio not found")
     )
 )]
@@ -695,7 +695,7 @@ pub async fn list_items(
     claims.require_read_items()?;
 
     let items = state.services.catalog.get_items(biblio_id).await?;
-    if !claims.is_librarian()
+    if !sees_internal_catalog(&claims)
         && !items.is_empty()
         && items
             .iter()
@@ -705,7 +705,7 @@ pub async fn list_items(
             "Bibliographic record not found".into(),
         ));
     }
-    let body = if claims.is_librarian() {
+    let body = if sees_internal_catalog(&claims) {
         ItemListResponse::Staff(
             super::catalog_hold::staff_item_views(&state, &claims, items).await?,
         )

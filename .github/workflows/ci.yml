@@ -203,6 +203,8 @@ jobs:
           --test hold_patron_identity
           --test public_catalog_copies
           --test renewal_subscription
+          --test catalog_view_rights
+          --test own_user_record
           -- --nocapture
 
   coverage:
@@ -296,6 +298,8 @@ jobs:
           --test hold_patron_identity
           --test public_catalog_copies
           --test renewal_subscription
+          --test catalog_view_rights
+          --test own_user_record
           --lcov
           --output-path lcov.info
           --fail-under-lines 20

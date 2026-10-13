@@ -777,6 +777,29 @@ impl UsersService {
         self.repository.users_get_by_id(user_id).await
     }
 
+    /// Contact details and preferences on the caller's own record.
+    ///
+    /// Account type, rights, card number, status, and fines are not accepted here.
+    #[tracing::instrument(skip(self, patch), err)]
+    pub async fn update_own_contact(
+        &self,
+        user_id: i64,
+        patch: crate::models::own_contact::OwnContactPatch,
+    ) -> AppResult<User> {
+        let existing = self.repository.users_get_by_id(user_id).await?;
+        self.repository
+            .users_update_own_contact(user_id, &patch)
+            .await?;
+        self.record_events_consent(
+            user_id,
+            existing.public_type,
+            patch.events_consent,
+            EventsConsentSource::Profile,
+        )
+        .await?;
+        self.repository.users_get_by_id(user_id).await
+    }
+
     /// Update user's account type (admin only)
     #[tracing::instrument(skip(self), err)]
     pub async fn update_account_type(

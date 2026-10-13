@@ -14,7 +14,8 @@ use crate::{
     error::{AppError, AppResult},
     models::{
         catalog_view::{
-            partial_user_short, HoldDetailsPublic, HoldDetailsStaff, LoanBorrowerMinimized,
+            partial_user_short, sees_internal_catalog, HoldDetailsPublic, HoldDetailsStaff,
+            LoanBorrowerMinimized,
         },
         dto::holds::{HoldPickListItem, HoldQuota, HoldsPolicy},
         hold::{CreateHold, Hold},
@@ -191,7 +192,7 @@ pub async fn list_my_holds(
     Ok(Json(PaginatedResponse::new(items, total, page, per_page)))
 }
 
-/// Staff or reader hold page. Selected with [`crate::models::user::UserClaims::is_librarian`].
+/// Staff or reader hold page. Selected with [`crate::models::catalog_view::sees_internal_catalog`].
 #[derive(Serialize, ToSchema)]
 #[serde(untagged)]
 pub enum HoldListResponse {
@@ -207,7 +208,7 @@ pub enum HoldListResponse {
     security(("bearer_auth" = [])),
     params(ListHoldsQuery),
     responses(
-        (status = 200, description = "Holds. Librarians and admins receive `HoldDetailsStaff`. `user` is `UserShortStaff` when `users_rights` is read or write, otherwise `{ id, cardNumber, initials }`. `expiresAt` is the pickup deadline. Readers receive `HoldDetailsPublic` for their own holds.", body = HoldListResponse),
+        (status = 200, description = "Holds. Callers with internal catalog rights receive `HoldDetailsStaff`. `user` is `UserShortStaff` when `users_rights` is read or write, otherwise `{ id, cardNumber, initials }`. `expiresAt` is the pickup deadline. Catalog read alone receives `HoldDetailsPublic` for the rows they may list.", body = HoldListResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse)
     )
 )]
@@ -235,7 +236,7 @@ pub async fn list_holds(
             .list_for_user_paginated(claims.user_id, page, per_page, active_only)
             .await?
     };
-    let body = if claims.is_librarian() {
+    let body = if sees_internal_catalog(&claims) {
         HoldListResponse::Staff(PaginatedResponse::new(
             items
                 .into_iter()

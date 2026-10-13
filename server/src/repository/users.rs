@@ -8,6 +8,7 @@ use sqlx::Row;
 use super::Repository;
 use crate::{
     error::{error_code, AppError, AppResult},
+    models::own_contact::{ContactField, OwnContactPatch},
     models::user::{
         AccountTypeSlug, GuardianIdPatch, Rights, UpdateProfile, User, UserErasureResult,
         UserPayload, UserQuery, UserRights, UserShort, UserStatus,
@@ -1361,6 +1362,100 @@ impl Repository {
         }
 
         self.users_get_by_id(id).await
+    }
+
+    /// Contact details and reminder preference on the caller's own row.
+    ///
+    /// Does not touch account type, rights, card number, status, fees, or fines.
+    /// An empty patch is a no-op. Event consent is recorded by the service.
+    #[tracing::instrument(skip(self, patch), err)]
+    pub async fn users_update_own_contact(
+        &self,
+        id: i64,
+        patch: &OwnContactPatch,
+    ) -> AppResult<()> {
+        let mut sets = Vec::new();
+        let mut param_idx = 1_i32;
+
+        enum Bind {
+            Text(Option<String>),
+            Zip(Option<i32>),
+            Flag(bool),
+        }
+        let mut binds = Vec::new();
+
+        {
+            let mut push_text = |field: &ContactField<String>, column: &str| match field {
+                ContactField::Absent => {}
+                ContactField::Clear => {
+                    sets.push(format!("{column} = ${param_idx}"));
+                    param_idx += 1;
+                    binds.push(Bind::Text(None));
+                }
+                ContactField::Set(value) => {
+                    sets.push(format!("{column} = ${param_idx}"));
+                    param_idx += 1;
+                    binds.push(Bind::Text(Some(value.clone())));
+                }
+            };
+            push_text(&patch.email, "email");
+            push_text(&patch.addr_street, "addr_street");
+            push_text(&patch.addr_city, "addr_city");
+            push_text(&patch.phone, "phone");
+        }
+
+        match &patch.addr_zip_code {
+            ContactField::Absent => {}
+            ContactField::Clear => {
+                sets.push(format!("addr_zip_code = ${param_idx}"));
+                param_idx += 1;
+                binds.push(Bind::Zip(None));
+            }
+            ContactField::Set(zip) => {
+                sets.push(format!("addr_zip_code = ${param_idx}"));
+                param_idx += 1;
+                binds.push(Bind::Zip(Some(*zip)));
+            }
+        }
+
+        match &patch.language {
+            ContactField::Absent => {}
+            ContactField::Clear => {
+                sets.push(format!("language = ${param_idx}"));
+                param_idx += 1;
+                binds.push(Bind::Text(None));
+            }
+            ContactField::Set(language) => {
+                sets.push(format!("language = ${param_idx}"));
+                param_idx += 1;
+                binds.push(Bind::Text(Some(language.as_db_str().to_string())));
+            }
+        }
+
+        if let Some(flag) = patch.receive_reminders {
+            sets.push(format!("receive_reminders = ${param_idx}"));
+            param_idx += 1;
+            binds.push(Bind::Flag(flag));
+        }
+
+        if sets.is_empty() {
+            return Ok(());
+        }
+
+        let query = format!(
+            "UPDATE users SET {}, update_at = NOW() WHERE id = ${param_idx}",
+            sets.join(", ")
+        );
+        let mut builder = sqlx::query(&query);
+        for bind in binds {
+            builder = match bind {
+                Bind::Text(value) => builder.bind(value),
+                Bind::Zip(value) => builder.bind(value),
+                Bind::Flag(value) => builder.bind(value),
+            };
+        }
+        builder.bind(id).execute(&self.pool).await?;
+        Ok(())
     }
 
     /// Record an event-announcement consent change.
