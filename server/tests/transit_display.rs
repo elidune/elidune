@@ -333,3 +333,127 @@ async fn patron_is_null_when_the_linked_hold_is_expired() {
     assert!(row["patron"].is_null(), "expired hold: {row}");
     assert_no_identity(&row, &shipped.login);
 }
+
+#[tokio::test]
+async fn same_site_transit_is_422_and_writes_nothing() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let site = create_site(&app, &admin_token, "trnsame").await;
+    let (reader_id, reader_token) = fixtures::create_reader(&app, &admin_token, "trnsame").await;
+    let suffix = fixtures::unique_suffix();
+    let (status, created) = app
+        .post_json(
+            "/api/v1/biblios",
+            &json!({
+                "title": format!("SameSite-{suffix}"),
+                "mediaType": "printedText",
+                "lang": "french",
+                "items": [{
+                    "barcode": format!("SAME-{suffix}"),
+                    "borrowable": true,
+                    "sourceId": site.to_string()
+                }]
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "create biblio: {created}");
+    let biblio_id = fixtures::json_id(&created["biblio"]["id"]);
+    let item_id = fixtures::json_id(&created["biblio"]["items"][0]["id"]);
+
+    let (status, hold) = app
+        .post_json(
+            "/api/v1/holds",
+            &json!({
+                "userId": reader_id.to_string(),
+                "biblioId": biblio_id.to_string(),
+                "pickupSiteId": site.to_string()
+            }),
+            Some(&reader_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "place hold: {hold}");
+    assert_eq!(hold["status"], "to_pick", "{hold}");
+    let hold_id = fixtures::json_id(&hold["id"]);
+
+    let before_hold: (String, Option<i64>, Option<i64>) =
+        sqlx::query_as("SELECT status, item_id, pickup_site_id FROM holds WHERE id = $1")
+            .bind(hold_id)
+            .fetch_one(app.state.services.repository.pool())
+            .await
+            .expect("hold snapshot");
+    let before_source: Option<i64> =
+        sqlx::query_scalar("SELECT source_id FROM items WHERE id = $1")
+            .bind(item_id)
+            .fetch_one(app.state.services.repository.pool())
+            .await
+            .expect("item site");
+    let before_transits: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM item_transits WHERE item_id = $1 OR hold_id = $2")
+            .bind(item_id)
+            .bind(hold_id)
+            .fetch_one(app.state.services.repository.pool())
+            .await
+            .expect("transit count");
+
+    let (status, body) = app
+        .post_json(
+            &format!("/api/v1/holds/{hold_id}/transits"),
+            &json!({
+                "itemId": item_id.to_string(),
+                "fromSourceId": site.to_string(),
+                "toSourceId": site.to_string(),
+                "ship": true
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    let mut keys: Vec<&str> = body
+        .as_object()
+        .expect("error object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(keys, ["code", "error", "message"], "{body}");
+    assert_eq!(body["code"], "transit_same_site", "{body}");
+    assert_eq!(body["error"], "Business Rule Violation", "{body}");
+    assert!(
+        body["message"]
+            .as_str()
+            .is_some_and(|message| !message.is_empty()),
+        "{body}"
+    );
+
+    let after_hold: (String, Option<i64>, Option<i64>) =
+        sqlx::query_as("SELECT status, item_id, pickup_site_id FROM holds WHERE id = $1")
+            .bind(hold_id)
+            .fetch_one(app.state.services.repository.pool())
+            .await
+            .expect("hold after");
+    let after_source: Option<i64> = sqlx::query_scalar("SELECT source_id FROM items WHERE id = $1")
+        .bind(item_id)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .expect("item site after");
+    let after_transits: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM item_transits WHERE item_id = $1 OR hold_id = $2")
+            .bind(item_id)
+            .bind(hold_id)
+            .fetch_one(app.state.services.repository.pool())
+            .await
+            .expect("transit count after");
+    assert_eq!(after_hold, before_hold, "hold was written");
+    assert_eq!(after_source, before_source, "item site was written");
+    assert_eq!(after_transits, before_transits, "a transit row was written");
+    assert_eq!(before_transits, 0);
+
+    let (status, active) = app
+        .get_json_with_auth(&format!("/api/v1/holds/{hold_id}/transits"), &admin_token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{active}");
+    assert!(active.is_null(), "active transit: {active}");
+}

@@ -85,6 +85,7 @@ impl TransitsService {
         .await
     }
 
+    #[allow(clippy::too_many_arguments)]
     #[tracing::instrument(skip(self, claims), err)]
     pub async fn list(
         &self,

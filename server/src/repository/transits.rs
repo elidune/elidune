@@ -6,7 +6,7 @@ use sqlx::Postgres;
 
 use super::Repository;
 use crate::{
-    error::{AppError, AppResult},
+    error::{error_code, AppError, AppResult},
     models::{
         hold::{Hold, HoldStatus},
         transit::{CreateTransit, ItemTransit, TransitStatus},
@@ -184,7 +184,10 @@ impl Repository {
     ///
     /// The hold join follows `item_transits.hold_id`, including a cancelled or
     /// expired hold. It does not look up a different active hold on the copy.
-    pub async fn transits_copy_context(&self, ids: &[i64]) -> AppResult<Vec<TransitCopyContext>> {
+    pub(crate) async fn transits_copy_context(
+        &self,
+        ids: &[i64],
+    ) -> AppResult<Vec<TransitCopyContext>> {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
@@ -352,9 +355,13 @@ impl Repository {
         };
         self.transits_ensure_source(&mut tx, from_source_id).await?;
         self.transits_ensure_source(&mut tx, to_source_id).await?;
+        // Refuse before the hold update and the transit insert. Dropping `tx`
+        // rolls back the locks, so nothing is written.
         if from_source_id == to_source_id {
-            return Err(AppError::BusinessRule(
-                "Pickup site matches the item's current site — mark the hold ready instead of transiting".to_string(),
+            return Err(AppError::coded(
+                422,
+                error_code::TRANSIT_SAME_SITE,
+                "Pickup site matches the item's current site — mark the hold ready instead of transiting",
             ));
         }
 

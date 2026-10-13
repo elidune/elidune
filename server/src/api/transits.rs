@@ -138,7 +138,7 @@ pub async fn get_item_transit(
         (status = 201, description = "Transit created", body = TransitWithHold),
         (status = 400, description = "Invalid request"),
         (status = 409, description = "Active transit already exists"),
-        (status = 422, description = "Business rule")
+        (status = 422, description = "Business rule. When the copy's site is already the pickup site the code is `transit_same_site` (`error` is `Business Rule Violation`) and nothing is written: no hold update and no transit row. Other rules stay `business_rule_violation`.", body = crate::error::ErrorResponse)
     )
 )]
 pub async fn create_hold_transit(
