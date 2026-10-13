@@ -1328,6 +1328,13 @@
     "loanDate": "Ausleihdatum",
     "count_other": "{{count}} Ausleihen",
     "returnDate": "Rückgabedatum",
+    "noClosedLoans": "Keine früheren Ausleihen.",
+    "closure": {
+      "column": "Abschluss",
+      "returned": "Zurückgegeben",
+      "lost": "Verloren",
+      "lostFound": "Verloren, wiedergefunden am {{date}}"
+    },
     "dueToday": "Heute fällig",
     "dueInDays_one": "{{count}} Tag",
     "dueInDays_other": "{{count}} Tage",

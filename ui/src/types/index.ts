@@ -1085,6 +1085,9 @@ export interface ClaimsReturnedQueueItem {
   notes?: string | null;
 }
 
+/** Why a closed loan ended. Wire values from `LoanClosureReason`. */
+export type LoanClosureReason = 'returned' | 'lost';
+
 /**
  * Why `GET /me/loans` refuses a renewal (`MyLoanRenewalRefusal`).
  * Snake_case. Absent (`null`) when `canRenew` is true.
@@ -1121,6 +1124,10 @@ export interface MyLoan {
   /** Library-local `YYYY-MM-DD` when `renewalRefusalCode` is `renewal_too_early`. */
   renewalOpensAt: string | null;
   isOverdue: boolean;
+  /** Set on `GET /me/loans?archived=true`. Omitted on open loans. */
+  closureReason?: LoanClosureReason | null;
+  /** When a loan closed as `lost` had its copy found. Null until then. */
+  foundAt?: string | null;
 }
 
 /** Loan list row for staff (`LoanDetailsStaff`). Embedded copies are {@link BiblioShortStaff}. */
@@ -1132,6 +1139,10 @@ export interface LoanDetailsStaff {
   renewalDate: string | null;
   nbRenews: number;
   returnedAt: string | null;
+  /** Set on archived loans. Omitted on open loans. */
+  closureReason?: LoanClosureReason | null;
+  /** Timestamp when a lost copy was found, or null until then. */
+  foundAt?: string | null;
   biblio: BiblioShortStaff;
   user: UserShortStaff | null;
   itemIdentification: string | null;
@@ -1160,6 +1171,10 @@ export interface LoanDetailsPublic {
   renewalDate: string | null;
   nbRenews: number;
   returnedAt: string | null;
+  /** Set on archived loans. Omitted on open loans. */
+  closureReason?: LoanClosureReason | null;
+  /** Timestamp when a lost copy was found, or null until then. */
+  foundAt?: string | null;
   biblio: BiblioShortPublic;
   user: LoanBorrowerMinimized | null;
   itemIdentification: string | null;

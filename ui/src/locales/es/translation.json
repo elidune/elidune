@@ -1328,6 +1328,13 @@
     "loanDate": "Fecha de préstamo",
     "count_other": "{{count}} préstamos",
     "returnDate": "Fecha de devolución",
+    "noClosedLoans": "Ningún préstamo anterior.",
+    "closure": {
+      "column": "Cierre",
+      "returned": "Devuelto",
+      "lost": "Perdido",
+      "lostFound": "Perdido, encontrado el {{date}}"
+    },
     "dueToday": "Vence hoy",
     "dueInDays_one": "{{count}} día",
     "dueInDays_other": "{{count}} días",

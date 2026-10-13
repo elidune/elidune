@@ -9,6 +9,7 @@ import MyLoanRenewActions from '@/components/loans/MyLoanRenewActions';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/services/api';
 import type { MyLoan } from '@/types';
+import ClosedLoanHistory from '@/components/loans/ClosedLoanHistory';
 import { accountRenewalRefusal, getApiErrorCode, getApiErrorMessage, renewalRefusalText } from '@/utils/apiError';
 import { renewedUntilMessage } from '@/utils/localeDate';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
@@ -28,11 +29,17 @@ export default function MyLoansPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [renewError, setRenewError] = useState('');
   const [reloadToken, setReloadToken] = useState(0);
+  const [closedLoans, setClosedLoans] = useState<MyLoan[]>([]);
+  const [closedPage, setClosedPage] = useState(1);
+  const [closedTotal, setClosedTotal] = useState(0);
+  const [isLoadingClosed, setIsLoadingClosed] = useState(true);
+  const [closedError, setClosedError] = useState<string | null>(null);
 
   const [prevLoansUserId, setPrevLoansUserId] = useState(user?.id);
   if (user?.id !== prevLoansUserId) {
     setPrevLoansUserId(user?.id);
     setLoansPage(1);
+    setClosedPage(1);
   }
 
   useEffect(() => {
@@ -56,6 +63,29 @@ export default function MyLoansPage() {
 
     fetchLoans();
   }, [user?.id, loansPage, reloadToken, t]);
+
+  useEffect(() => {
+    const fetchClosed = async () => {
+      if (!user?.id) return;
+      setIsLoadingClosed(true);
+      setClosedError(null);
+      try {
+        const res = await api.getMyLoans({
+          archived: true,
+          page: closedPage,
+          perPage: MY_LOANS_PAGE_SIZE,
+        });
+        setClosedLoans(res.items);
+        setClosedTotal(res.total);
+      } catch (error) {
+        setClosedError(getApiErrorMessage(error, t) || t('loans.loansLoadError'));
+      } finally {
+        setIsLoadingClosed(false);
+      }
+    };
+
+    fetchClosed();
+  }, [user?.id, closedPage, reloadToken, t]);
 
   const renewInFlightRef = useRef(false);
 
@@ -155,6 +185,36 @@ export default function MyLoansPage() {
               currentPage={loansPage}
               totalPages={Math.max(1, Math.ceil(loansTotal / MY_LOANS_PAGE_SIZE))}
               onPageChange={setLoansPage}
+            />
+          </div>
+        )}
+      </Card>
+
+      <Card>
+        <CardHeader
+          title={t('users.pastLoansTab')}
+          subtitle={t('items.count', { count: closedTotal })}
+        />
+        {closedError && (
+          <div className="px-4 pb-4">
+            <QueryErrorBanner message={closedError} onRetry={() => setReloadToken((n) => n + 1)} />
+          </div>
+        )}
+        {isLoadingClosed ? (
+          <ListSkeleton rows={4} />
+        ) : closedError ? null : closedLoans.length === 0 ? (
+          <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+            <p>{t('loans.noClosedLoans')}</p>
+          </div>
+        ) : (
+          <ClosedLoanHistory loans={closedLoans} />
+        )}
+        {!closedError && closedTotal > 0 && (
+          <div className="pt-4 border-t border-gray-200 dark:border-gray-800">
+            <Pagination
+              currentPage={closedPage}
+              totalPages={Math.max(1, Math.ceil(closedTotal / MY_LOANS_PAGE_SIZE))}
+              onPageChange={setClosedPage}
             />
           </div>
         )}
