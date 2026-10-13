@@ -280,6 +280,7 @@ async fn unassigned_copies_stay_lendable_and_to_pick_copy_is_reserved() {
         "reserved: {blocked}"
     );
     assert_eq!(blocked["code"], "item_to_pick_for_other", "{blocked}");
+    assert_eq!(blocked["forceable"], false, "{blocked}");
     assert_eq!(
         fixtures::json_id(&blocked["details"]["holdId"]),
         fixtures::json_id(&hold["id"])
@@ -294,7 +295,7 @@ async fn unassigned_copies_stay_lendable_and_to_pick_copy_is_reserved() {
 }
 
 #[tokio::test]
-async fn forced_loan_releases_to_pick_back_to_pending_or_another_shelf_copy() {
+async fn force_does_not_check_out_a_copy_to_pick_for_another_patron() {
     let Some(app) = TestApp::spawn().await else {
         return;
     };
@@ -308,21 +309,21 @@ async fn forced_loan_releases_to_pick_back_to_pending_or_another_shelf_copy() {
     let hold = place_title(&app, &holder_token, holder_id, biblio_only, None).await;
     let hold_id = fixtures::json_id(&hold["id"]);
     let (status, forced) = checkout(&app, &admin_token, other_id, copies[0].id, true).await;
-    assert_eq!(status, StatusCode::CREATED, "force single copy: {forced}");
-    let released = hold_row(&app, hold_id).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{forced}");
+    assert_eq!(forced["code"], "item_to_pick_for_other", "{forced}");
+    assert_eq!(forced["forceable"], false, "{forced}");
+    let unchanged = hold_row(&app, hold_id).await;
     assert_eq!(
-        released.status,
-        elidune_server::models::hold::HoldStatus::Pending,
-        "no other shelf copy: back to the queue"
+        unchanged.status,
+        elidune_server::models::hold::HoldStatus::ToPick
     );
-    assert!(released.item_id.is_none());
-    assert!(released.notified_at.is_none());
+    assert_eq!(unchanged.item_id, Some(copies[0].id));
 
     let (holder2, token2) = fixtures::create_reader(&app, &admin_token, "relh2").await;
     let (other2, _) = fixtures::create_reader(&app, &admin_token, "relo2").await;
     let a = format!("REA-{}", fixtures::unique_suffix());
     let b = format!("REB-{}", fixtures::unique_suffix());
-    let (biblio_two, two) = create_title(
+    let (biblio_two, _) = create_title(
         &app,
         &admin_token,
         "Reassign Copy",
@@ -333,15 +334,15 @@ async fn forced_loan_releases_to_pick_back_to_pending_or_another_shelf_copy() {
     let hold_id = fixtures::json_id(&hold["id"]);
     let reserved = fixtures::json_id(&hold["itemId"]);
     let (status, forced) = checkout(&app, &admin_token, other2, reserved, true).await;
-    assert_eq!(status, StatusCode::CREATED, "force with sibling: {forced}");
-    let moved = hold_row(&app, hold_id).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{forced}");
+    assert_eq!(forced["code"], "item_to_pick_for_other", "{forced}");
+    assert_eq!(forced["forceable"], false, "{forced}");
+    let still = hold_row(&app, hold_id).await;
     assert_eq!(
-        moved.status,
+        still.status,
         elidune_server::models::hold::HoldStatus::ToPick
     );
-    assert_ne!(moved.item_id, Some(reserved));
-    assert!(two.iter().any(|c| Some(c.id) == moved.item_id));
-    assert!(moved.notified_at.is_none());
+    assert_eq!(still.item_id, Some(reserved));
 }
 
 #[tokio::test]
@@ -757,9 +758,10 @@ async fn mark_to_search(app: &TestApp, item_id: i64) {
     .expect("mark to_search");
 }
 
-/// #115: a `toSearch` copy lent with `force` must re-enter the shelf on check-in.
+/// A `toSearch` copy is not lendable, including with `force`. A loan already
+/// open when the copy is marked `toSearch` still clears that status on check-in (#115).
 #[tokio::test]
-async fn force_loan_of_to_search_return_restores_lendable_copy() {
+async fn to_search_checkout_is_not_forceable_and_return_restores_lendable_copy() {
     let Some(app) = TestApp::spawn().await else {
         return;
     };
@@ -777,18 +779,31 @@ async fn force_loan_of_to_search_return_restores_lendable_copy() {
     let item_id = copies[0].id;
     mark_to_search(&app, item_id).await;
 
-    let (status, blocked) = checkout(&app, &admin_token, borrower, item_id, false).await;
-    assert_eq!(
-        status,
-        StatusCode::UNPROCESSABLE_ENTITY,
-        "to_search is not lendable: {blocked}"
-    );
+    for force in [false, true] {
+        let (status, blocked) = checkout(&app, &admin_token, borrower, item_id, force).await;
+        assert_eq!(
+            status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "to_search is not lendable: {blocked}"
+        );
+        assert_eq!(blocked["code"], "item_status_action_required", "{blocked}");
+        assert_eq!(blocked["itemStatus"], "toSearch", "{blocked}");
+        assert_eq!(blocked["forceable"], false, "{blocked}");
+    }
 
-    let (status, loan) = checkout(&app, &admin_token, borrower, item_id, true).await;
-    assert_eq!(status, StatusCode::CREATED, "force loan: {loan}");
+    sqlx::query(
+        "UPDATE items SET circulation_status = 0, borrowable = TRUE, updated_at = NOW() WHERE id = $1",
+    )
+    .bind(item_id)
+    .execute(app.state.services.repository.pool())
+    .await
+    .expect("restore shelf copy");
+    let (status, loan) = checkout(&app, &admin_token, borrower, item_id, false).await;
+    assert_eq!(status, StatusCode::CREATED, "shelf loan: {loan}");
     let loan_id = fixtures::json_id(&loan["id"]);
+    mark_to_search(&app, item_id).await;
     let (circulation, borrowable) = item_flags(&app, item_id).await;
-    assert_eq!(circulation, 4, "force loan must not invent a found scan");
+    assert_eq!(circulation, 4);
     assert!(!borrowable);
 
     let (status, ret) = app
@@ -813,8 +828,9 @@ async fn force_loan_of_to_search_return_restores_lendable_copy() {
 }
 
 /// A barcode return of a `toSearch` copy must not clear it or assign a hold.
+/// Checkout of that copy stays refused, including with `force`.
 #[tokio::test]
-async fn force_loan_of_to_search_barcode_return_does_not_assign_hold() {
+async fn to_search_barcode_return_does_not_assign_hold_and_force_checkout_stays_refused() {
     let Some(app) = TestApp::spawn().await else {
         return;
     };
@@ -847,13 +863,32 @@ async fn force_loan_of_to_search_barcode_return_does_not_assign_hold() {
     assert_eq!(circulation, 4);
     assert!(!borrowable);
 
-    let (status, loan) = checkout(&app, &admin_token, borrower, item_id, true).await;
-    assert_eq!(status, StatusCode::CREATED, "force loan: {loan}");
+    let (status, refused) = checkout(&app, &admin_token, borrower, item_id, true).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
+    assert_eq!(refused["code"], "item_status_action_required", "{refused}");
+    assert_eq!(refused["itemStatus"], "toSearch", "{refused}");
+    assert_eq!(refused["forceable"], false, "{refused}");
     let still = hold_row(&app, hold_id).await;
     assert_eq!(
         still.status,
         elidune_server::models::hold::HoldStatus::Pending,
-        "an unassigned title hold survives a force loan of the missing copy"
+        "refusing checkout leaves the unassigned hold pending"
+    );
+
+    sqlx::query(
+        "UPDATE items SET circulation_status = 0, borrowable = TRUE, updated_at = NOW() WHERE id = $1",
+    )
+    .bind(item_id)
+    .execute(app.state.services.repository.pool())
+    .await
+    .expect("restore shelf copy");
+    let (status, loan) = checkout(&app, &admin_token, borrower, item_id, false).await;
+    assert_eq!(status, StatusCode::CREATED, "shelf loan: {loan}");
+    mark_to_search(&app, item_id).await;
+    let during = hold_row(&app, hold_id).await;
+    assert_eq!(
+        during.status,
+        elidune_server::models::hold::HoldStatus::Pending
     );
 
     let (status, ret) = app

@@ -657,7 +657,7 @@ pub struct GetUserLoansQuery {
         (status = 400, description = "Invalid request"),
         (status = 404, description = "User or specimen not found"),
         (status = 409, description = "Open loan on this copy (`item_on_loan_to_other_borrower` or `item_already_on_loan_to_borrower`; `force` never overrides an open loan), or Idempotency-Key conflict"),
-        (status = 422, description = "Business rule. Unpaid fines strictly above the effective threshold may be retried with force=true. Mode none, or inherit when the global mode is none, does not block on amount. A lost or stolen card (`users.card_lost`) is always `card_lost` and is not forceable, for any role.")
+        (status = 422, description = "Checkout refused. Body is `CheckoutRefusalBody`: `{ code, error, message, forceable }`, plus `itemStatus` when `code` is `item_status_action_required`, and `details` when `code` is `item_to_pick_for_other`. `forceable` is computed for the caller by `checkout_refusal_forceable`. It is true for `fines_over_threshold` (unpaid balance strictly above the effective threshold; mode none, or inherit when the global mode is none, does not block on amount), `max_loans` (total loan cap, also when the total cap and the document-type cap are both reached), `max_media_loans` (document-type cap only), and `item_not_loanable` (copy is not borrowable, or circulation status is damaged). `subscription_expired` (`users.expiry_at` before now) is forceable only when the caller has settings write (`settings_rights` `w`, the same admin bar as `require_write_settings`, independent of the account-type name). Any other caller gets `forceable: false`, and `force: true` still returns 422 `subscription_expired`. An override by a caller with settings write is audited as `loan.subscription_expired_overridden` (actor, loan id, patron user id, item id, code `subscription_expired`). It is false for `item_held_for_other` (copy is ready or pinned pending for another patron), `item_status_action_required` (circulation status is lost, claimedReturned, toSearch, or missing; `itemStatus` is that value), `card_lost`, `item_to_pick_for_other`, and `business_rule_violation` (deleted account, inactive account, withdrawn copy, item in transit). Staff `force` skips only refusals with `forceable: true` for that caller. When several gates apply, a non-forceable refusal is returned before any forceable one.", body = crate::checkout_refusal::CheckoutRefusalBody)
     )
 )]
 pub async fn create_loan(
@@ -692,7 +692,10 @@ pub async fn create_loan(
                 item_identification: request.item_identification.clone(),
                 force,
             };
-            async move { create_loan_inner(state, claims.user_id, ip, request).await }
+            let caller_rights = claims.rights.clone();
+            async move {
+                create_loan_inner(state, claims.user_id, ip, request, caller_rights).await
+            }
         },
     )
     .await?;
@@ -704,6 +707,7 @@ async fn create_loan_inner(
     actor_id: i64,
     ip: Option<String>,
     loan: CreateLoan,
+    caller_rights: crate::models::user::UserRights,
 ) -> AppResult<(StatusCode, LoanResponse)> {
     let user_id = loan.user_id;
     let item_id = loan.item_id;
@@ -713,7 +717,7 @@ async fn create_loan_inner(
     let outcome = match state
         .services
         .loans
-        .create_loan(loan, Some(actor_id), ip.clone())
+        .create_loan(loan, Some(actor_id), ip.clone(), &caller_rights)
         .await
     {
         Ok(outcome) => outcome,

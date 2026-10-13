@@ -452,10 +452,10 @@ async fn card_scan_lost_card_blocks_checkout() {
 
     let (_, item_id) = borrowable_item(&app, &admin_token).await;
     let (status, refused) = checkout(&app, &admin_token, reader_id, item_id, false).await;
-    assert_card_lost_body(status, &refused);
+    assert_card_lost_body(status, &refused, Some(false));
 
     let (status, forced) = checkout(&app, &admin_token, reader_id, item_id, true).await;
-    assert_card_lost_body(status, &forced);
+    assert_card_lost_body(status, &forced, Some(false));
 
     let (status, batch) = app
         .post_json(
@@ -482,9 +482,17 @@ async fn card_scan_lost_card_blocks_checkout() {
     );
 }
 
-fn assert_card_lost_body(status: StatusCode, body: &Value) {
+fn assert_card_lost_body(status: StatusCode, body: &Value, forceable: Option<bool>) {
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
-    assert_eq!(sorted_keys(body), ["code", "error", "message"], "{body}");
+    let keys: &[&str] = if forceable.is_some() {
+        &["code", "error", "forceable", "message"]
+    } else {
+        &["code", "error", "message"]
+    };
+    assert_eq!(sorted_keys(body), keys, "{body}");
+    if let Some(flag) = forceable {
+        assert_eq!(body["forceable"], flag, "{body}");
+    }
     assert_eq!(body["code"], "card_lost", "{body}");
     assert_eq!(body["error"], "Business Rule Violation", "{body}");
     assert_eq!(
@@ -524,7 +532,7 @@ async fn lost_card_renewal_refused_with_admin_force_return_and_payment_accepted(
             Some(&admin_token),
         )
         .await;
-    assert_card_lost_body(status, &forced);
+    assert_card_lost_body(status, &forced, None);
 
     let (status, by_barcode) = app
         .post_empty(
@@ -532,7 +540,7 @@ async fn lost_card_renewal_refused_with_admin_force_return_and_payment_accepted(
             Some(&admin_token),
         )
         .await;
-    assert_card_lost_body(status, &by_barcode);
+    assert_card_lost_body(status, &by_barcode, None);
 
     let login: Option<String> = sqlx::query_scalar("SELECT login FROM users WHERE id = $1")
         .bind(reader_id)
@@ -568,7 +576,7 @@ async fn lost_card_renewal_refused_with_admin_force_return_and_payment_accepted(
             Some(patron_token),
         )
         .await;
-    assert_card_lost_body(status, &patron_renew);
+    assert_card_lost_body(status, &patron_renew, None);
 
     let fine_id = next_id();
     sqlx::query(

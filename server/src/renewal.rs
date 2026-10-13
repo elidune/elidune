@@ -80,7 +80,7 @@ impl RenewalRefusal {
             Self::CardLost => crate::error::error_code::CARD_LOST,
             Self::AccountBlocked => "account_blocked",
             Self::SubscriptionExpired => crate::error::error_code::SUBSCRIPTION_EXPIRED,
-            Self::FinesOverThreshold => "fines_over_threshold",
+            Self::FinesOverThreshold => crate::error::error_code::FINES_OVER_THRESHOLD,
             Self::Withdrawn => "withdrawn",
             Self::ClaimedReturned => "claimed_returned",
             Self::HoldWaiting => "hold_waiting",
@@ -228,7 +228,10 @@ pub fn renewal_too_early_message(opens_at: DateTime<Utc>, zone: chrono_tz::Tz) -
 }
 
 /// Client message for an expired membership. The date is the library-local civil date.
-fn subscription_expired_message(expiry: Option<DateTime<Utc>>, zone: chrono_tz::Tz) -> String {
+pub(crate) fn subscription_expired_message(
+    expiry: Option<DateTime<Utc>>,
+    zone: chrono_tz::Tz,
+) -> String {
     match expiry {
         Some(expiry) => format!(
             "User subscription expired on {} — use force=true to override",

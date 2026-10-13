@@ -217,9 +217,11 @@ pub struct BatchCreateLoanItemResult {
     /// Human-readable failure text. Omitted when the checkout succeeded.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    /// Machine-readable failure code, the same string as `ErrorResponse.code`
+    /// Machine-readable failure code, the same string as checkout `code`
     /// (`item_on_loan_to_other_borrower`, `item_already_on_loan_to_borrower`,
-    /// `not_found`, `business_rule_violation`, …). Omitted when the checkout succeeded.
+    /// `not_found`, `subscription_expired`, `fines_over_threshold`, `max_loans`,
+    /// `max_media_loans`, `item_not_loanable`, `item_status_action_required`,
+    /// `item_held_for_other`, `business_rule_violation`, …). Omitted when the checkout succeeded.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
 }
@@ -232,7 +234,7 @@ pub struct BatchCreateLoanItemResult {
     security(("bearer_auth" = [])),
     request_body = BatchCreateLoansRequest,
     responses(
-        (status = 200, description = "Batch loan results (partial success possible). A failed item keeps `error` and adds machine-readable `code` (same values as `ErrorResponse.code`). A lost card is `card_lost` on that item even when `force` is true.", body = BatchCreateLoansResponse),
+        (status = 200, description = "Batch loan results (partial success possible). A failed item keeps `error` and adds machine-readable `code` (same values as `POST /loans`, including `subscription_expired`, `fines_over_threshold`, `max_loans`, `max_media_loans`, `item_not_loanable`, `item_status_action_required`, and `item_held_for_other`). `force` skips `subscription_expired` only when the caller has settings write (`settings_rights` `w`). It does not skip a non-forceable code (`item_held_for_other`, `item_status_action_required`, `card_lost`, `item_to_pick_for_other`, `business_rule_violation`, and `subscription_expired` without settings write).", body = BatchCreateLoansResponse),
         (status = 400, description = "Invalid input", body = crate::error::ErrorResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse)
     )
@@ -270,7 +272,7 @@ pub async fn batch_create_loans(
         match state
             .services
             .loans
-            .create_loan(loan_data, Some(claims.user_id), ip.clone())
+            .create_loan(loan_data, Some(claims.user_id), ip.clone(), &claims.rights)
             .await
         {
             Ok(outcome) => {

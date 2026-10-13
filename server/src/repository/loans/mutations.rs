@@ -6,6 +6,9 @@ use sqlx::Row;
 use super::super::Repository;
 use super::LOAN_DETAILS_FIRST_AUTHOR_SQL;
 use crate::{
+    checkout_refusal::{
+        finish_checkout_refusals, push_checkout_refusal, CheckoutRefusal, ToPickPatron,
+    },
     error::{error_code, AppError, AppResult},
     models::{
         biblio::BiblioShort,
@@ -15,7 +18,7 @@ use crate::{
             CreateLoan, Loan, LoanClosureReason, LoanCreateOutcome, LoanDetails, LoanReturnOutcome,
             LoanSettingsRenewAt,
         },
-        user::{UserShort, UserShortRow},
+        user::{UserRights, UserShort, UserShortRow},
     },
     renewal::{renewal_eligibility, LoanRenewalSnapshot, RenewalContext, RenewalLoan, RenewalUser},
     services::fines::UnpaidThresholdCheck,
@@ -31,7 +34,20 @@ impl Repository {
     /// `409 item_already_on_loan_to_borrower`. `force` does not change that.
     /// Settings and due-date reads use this transaction so they do not take a
     /// second pool connection while the item lock is held.
+    ///
+    /// `prior_refusals` are forceable patron gates (expired subscription, fines)
+    /// already collected by the service. A later non-forceable item gate wins.
     pub async fn loans_create(&self, loan: &CreateLoan) -> AppResult<LoanCreateOutcome> {
+        self.loans_create_with_prior(loan, Vec::new(), &UserRights::default())
+            .await
+    }
+
+    pub async fn loans_create_with_prior(
+        &self,
+        loan: &CreateLoan,
+        prior_refusals: Vec<CheckoutRefusal>,
+        caller_rights: &UserRights,
+    ) -> AppResult<LoanCreateOutcome> {
         let now = Utc::now();
 
         if loan.item_id.is_none() && loan.item_identification.is_none() {
@@ -81,11 +97,17 @@ impl Repository {
         );
         let weeding_status: crate::models::item::WeedingStatus = item_row.get("weeding_status");
         let media_type: Option<String> = item_row.get("media_type");
+        let mut refusals = prior_refusals;
 
         if weeding_status.blocks_circulation() {
-            return Err(AppError::BusinessRule(
-                crate::models::item::WeedingStatus::CHECKOUT_BLOCKED.to_string(),
-            ));
+            push_checkout_refusal(
+                &mut refusals,
+                loan.force,
+                CheckoutRefusal::business(
+                    crate::models::item::WeedingStatus::CHECKOUT_BLOCKED,
+                    caller_rights,
+                ),
+            )?;
         }
 
         let existing: Option<Loan> = sqlx::query_as::<_, Loan>(
@@ -103,39 +125,53 @@ impl Repository {
         }
 
         if let Some(transit) = self.transits_active_for_item_tx(&mut tx, item_id).await? {
-            if transit.status.blocks_checkout(loan.force) {
-                return Err(AppError::BusinessRule(
-                    "Item is in transit to another site and cannot be checked out".to_string(),
-                ));
-            }
-            if loan.force {
-                self.transits_cancel_active_for_item_tx(&mut tx, item_id, None)
-                    .await?;
+            // Requested and in-transit are `business_rule_violation`, which force does not skip.
+            if transit.status.blocks_checkout(false) {
+                push_checkout_refusal(
+                    &mut refusals,
+                    loan.force,
+                    CheckoutRefusal::business(
+                        "Item is in transit to another site and cannot be checked out",
+                        caller_rights,
+                    ),
+                )?;
             }
         }
 
-        if (!borrowable || circulation_status.blocks_circulation()) && !loan.force {
-            let msg = match circulation_status {
-                crate::models::circulation::CirculationStatus::Lost => {
-                    "Item is marked lost and is not borrowable"
-                }
-                crate::models::circulation::CirculationStatus::Damaged => {
-                    "Item is marked damaged and is not borrowable"
-                }
-                crate::models::circulation::CirculationStatus::ClaimedReturned => {
-                    "Item is in the claims-returned queue — resolve the claim before circulating"
-                }
-                crate::models::circulation::CirculationStatus::ToSearch => {
-                    "Item is missing from the shelf and is not borrowable"
-                }
-                crate::models::circulation::CirculationStatus::Missing => {
-                    "Item is declared missing and is not borrowable"
-                }
-                crate::models::circulation::CirculationStatus::Available => {
-                    "Item is not borrowable"
-                }
-            };
-            return Err(AppError::BusinessRule(msg.to_string()));
+        match circulation_status {
+            CirculationStatus::Lost
+            | CirculationStatus::ClaimedReturned
+            | CirculationStatus::ToSearch
+            | CirculationStatus::Missing => {
+                push_checkout_refusal(
+                    &mut refusals,
+                    loan.force,
+                    CheckoutRefusal::status_action(circulation_status, caller_rights),
+                )?;
+            }
+            CirculationStatus::Damaged => {
+                push_checkout_refusal(
+                    &mut refusals,
+                    loan.force,
+                    CheckoutRefusal::new(
+                        error_code::ITEM_NOT_LOANABLE,
+                        "Item is marked damaged and is not borrowable",
+                        caller_rights,
+                    ),
+                )?;
+            }
+            CirculationStatus::Available if !borrowable => {
+                push_checkout_refusal(
+                    &mut refusals,
+                    loan.force,
+                    CheckoutRefusal::new(
+                        error_code::ITEM_NOT_LOANABLE,
+                        "Item is not borrowable",
+                        caller_rights,
+                    ),
+                )?;
+            }
+            CirculationStatus::Available => {}
         }
 
         let user_public_type: Option<i64> =
@@ -180,49 +216,68 @@ impl Repository {
         let total_limit_reached = current_loans_total >= nb_max_total as i64;
         let media_limit_reached = current_loans_media >= nb_max_media as i64;
 
-        if (total_limit_reached || media_limit_reached) && !loan.force {
-            let msg = match (total_limit_reached, media_limit_reached) {
-                (true, true) => format!(
-                    "Maximum loans reached: total ({}/{}), this media type ({}/{})",
-                    current_loans_total, nb_max_total, current_loans_media, nb_max_media
+        if total_limit_reached || media_limit_reached {
+            let (code, msg) = match (total_limit_reached, media_limit_reached) {
+                (true, true) => (
+                    error_code::MAX_LOANS,
+                    format!(
+                        "Maximum loans reached: total ({}/{}), this media type ({}/{})",
+                        current_loans_total, nb_max_total, current_loans_media, nb_max_media
+                    ),
                 ),
-                (true, false) => format!(
-                    "Maximum total loans reached ({}/{})",
-                    current_loans_total, nb_max_total
+                (true, false) => (
+                    error_code::MAX_LOANS,
+                    format!(
+                        "Maximum total loans reached ({}/{})",
+                        current_loans_total, nb_max_total
+                    ),
                 ),
-                (false, true) => format!(
-                    "Maximum loans for this document type reached ({}/{})",
-                    current_loans_media, nb_max_media
+                (false, true) => (
+                    error_code::MAX_MEDIA_LOANS,
+                    format!(
+                        "Maximum loans for this document type reached ({}/{})",
+                        current_loans_media, nb_max_media
+                    ),
                 ),
                 (false, false) => unreachable!(),
             };
-            return Err(AppError::BusinessRule(msg));
+            push_checkout_refusal(
+                &mut refusals,
+                loan.force,
+                CheckoutRefusal::new(code, msg, caller_rights),
+            )?;
         }
 
         // Only a hold assigned to this copy (`ready`, `to_pick`, or a pinned `pending`)
-        // reserves it. An unassigned title hold does not. A `to_pick` copy for another
-        // patron is a distinct desk warning. `force=true` clears pinned holds and
-        // releases a `to_pick` assignment back to the queue.
-        if !loan.force {
-            if let Some((hold_id, user_id, status, card_number, initials)) = self
-                .holds_assigned_hold_blocks_lending_tx(&mut tx, item_id)
-                .await?
-            {
-                if user_id != loan.user_id {
-                    if status == crate::models::hold::HoldStatus::ToPick {
-                        return Err(AppError::ItemToPickForOther {
+        // reserves it. An unassigned title hold does not. Another patron's assignment
+        // is not forceable: staff set the copy aside or cancel the hold.
+        if let Some((hold_id, user_id, status, card_number, initials)) = self
+            .holds_assigned_hold_blocks_lending_tx(&mut tx, item_id)
+            .await?
+        {
+            if user_id != loan.user_id {
+                let refusal = if status == crate::models::hold::HoldStatus::ToPick {
+                    CheckoutRefusal::to_pick(
+                        ToPickPatron {
                             hold_id,
                             user_id,
                             card_number,
                             initials,
-                        });
-                    }
-                    return Err(AppError::BusinessRule(
-                        "This copy has an active hold for another patron — only the queued patron may borrow it, or use force=true to override".to_string(),
-                    ));
-                }
+                        },
+                        caller_rights,
+                    )
+                } else {
+                    CheckoutRefusal::new(
+                        error_code::ITEM_HELD_FOR_OTHER,
+                        "This copy has an active hold for another patron — only the queued patron may borrow it",
+                        caller_rights,
+                    )
+                };
+                push_checkout_refusal(&mut refusals, loan.force, refusal)?;
             }
         }
+
+        finish_checkout_refusals(refusals)?;
 
         // Savepoint so a unique-index conflict can be re-read on this connection.
         // PostgreSQL aborts the statement; without the savepoint the transaction

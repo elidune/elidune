@@ -5,7 +5,8 @@ use chrono::{DateTime, Utc};
 use std::sync::Arc;
 
 use crate::{
-    error::{AppError, AppResult},
+    checkout_refusal::{force_skips_checkout_refusal, push_checkout_refusal, CheckoutRefusal},
+    error::{error_code, AppError, AppResult},
     marc::{marc_record_for_loan_export, MarcRecord},
     models::{
         dto::loans::{LoanSettingsDto, UpdateLoanSettingsRequest},
@@ -14,10 +15,10 @@ use crate::{
             LoanMarcExportEncoding, LoanMarcExportFormat, LoanReturnOutcome, LoanSettingsRenewAt,
             LOANS_MARC_EXPORT_MAX,
         },
-        user::UserStatus,
+        user::{UserRights, UserStatus},
         Loan,
     },
-    renewal::{renewal_eligibility, RenewalContext, RenewalUser},
+    renewal::{renewal_eligibility, subscription_expired_message, RenewalContext, RenewalUser},
     repository::LoansServiceRepository,
     services::{
         audit::{self, AuditLogMeta, AuditService},
@@ -123,110 +124,167 @@ impl LoansService {
             .await
     }
 
-    /// Block checkout/renew when unpaid fines are strictly above the effective threshold.
+    /// Unpaid fines strictly above the effective threshold.
     /// A null threshold does not block on amount.
-    /// `force=true` bypasses the gate and is audited (actor, unpaid total, threshold).
-    async fn enforce_unpaid_fine_threshold(
+    /// When `force` skips the gate, the override is audited and no refusal is returned.
+    async fn checkout_fine_refusal(
         &self,
         user_id: i64,
         public_type_id: Option<i64>,
         force: bool,
-        operation: &'static str,
         audit_actor: Option<i64>,
         client_ip: Option<String>,
-    ) -> AppResult<()> {
+        caller_rights: &UserRights,
+    ) -> AppResult<Option<CheckoutRefusal>> {
         let check = self
             .fines
             .check_unpaid_threshold(user_id, public_type_id)
             .await?;
         if !check.blocks_circulation() {
-            return Ok(());
+            return Ok(None);
         }
-        if !force {
-            return Err(AppError::BusinessRule(check.desk_block_message()));
+        if force_skips_checkout_refusal(force, error_code::FINES_OVER_THRESHOLD, caller_rights) {
+            self.audit.log(
+                audit::event::LOAN_FINE_THRESHOLD_OVERRIDDEN,
+                audit_actor,
+                Some("user"),
+                Some(user_id),
+                client_ip,
+                Some(serde_json::json!({
+                    "unpaid": check.unpaid,
+                    "threshold": check.threshold,
+                    "operation": "checkout",
+                })),
+                AuditLogMeta::success(),
+            );
+            return Ok(None);
         }
-        self.audit.log(
-            audit::event::LOAN_FINE_THRESHOLD_OVERRIDDEN,
-            audit_actor,
-            Some("user"),
-            Some(user_id),
-            client_ip,
-            Some(serde_json::json!({
-                "unpaid": check.unpaid,
-                "threshold": check.threshold,
-                "operation": operation,
-            })),
-            AuditLogMeta::success(),
-        );
-        Ok(())
+        Ok(Some(CheckoutRefusal::new(
+            error_code::FINES_OVER_THRESHOLD,
+            check.desk_block_message(),
+            caller_rights,
+        )))
     }
 
     /// Create a new loan (borrow an item).
     ///
     /// Enforces user-level rules before delegating to the repository:
-    /// - blocked users cannot borrow unless `force` is set
-    /// - a lost or stolen library card is always rejected (`422` `card_lost`), including `force` and any role
-    /// - expired subscriptions are rejected unless `force` is set
-    /// - unpaid fines strictly above the effective threshold are rejected unless `force` is set
-    ///   (a null threshold does not block on amount)
+    /// - a deleted or inactive account is `422` `business_rule_violation` (`force` does not skip it)
+    /// - a lost or stolen library card is always rejected (`422` `card_lost`), including `force`
+    /// - expired subscriptions are `422` `subscription_expired` unless `force` skips that code
+    ///   for a caller with settings write
+    /// - unpaid fines strictly above the effective threshold are `422` `fines_over_threshold`
+    ///   unless `force` skips that code (a null threshold does not block on amount)
     ///
-    /// The repository enforces the hold queue on the copy: only the patron whose turn it is
-    /// (`ready`, else first `pending`) may borrow unless `force=true` (staff clears active holds on that copy).
-    /// `force` never closes or replaces an open loan. A copy already on loan is 409.
+    /// Forceable patron refusals are passed into the repository. A later non-forceable item
+    /// gate (another patron's hold, a circulation status that needs a desk action, a withdrawn
+    /// copy, transit) is returned first. `force` never closes or replaces an open loan.
     pub async fn create_loan(
         &self,
         loan: CreateLoan,
         audit_actor: Option<i64>,
         client_ip: Option<String>,
+        caller_rights: &UserRights,
     ) -> AppResult<LoanCreateOutcome> {
         let user = self.repository.users_get_by_id(loan.user_id).await?;
 
+        let mut refusals = Vec::new();
+        let mut subscription_overridden = false;
         let status = user.status.unwrap_or(UserStatus::Active);
         if status == UserStatus::Deleted {
-            return Err(AppError::BusinessRule(
-                "Cannot create a loan for a deleted user account".to_string(),
-            ));
+            push_checkout_refusal(
+                &mut refusals,
+                loan.force,
+                CheckoutRefusal::business(
+                    "Cannot create a loan for a deleted user account",
+                    caller_rights,
+                ),
+            )?;
         }
 
-        if !user.can_borrow() && !loan.force {
-            return Err(AppError::BusinessRule(
-                "User account is not active or cannot borrow — use force=true to override"
-                    .to_string(),
-            ));
+        if !user.can_borrow() {
+            push_checkout_refusal(
+                &mut refusals,
+                loan.force,
+                CheckoutRefusal::business(
+                    "User account is not active or cannot borrow",
+                    caller_rights,
+                ),
+            )?;
         }
 
         if self.repository.users_card_lost(user.id).await? {
-            return Err(AppError::coded(
-                422,
-                crate::error::error_code::CARD_LOST,
-                crate::error::error_code::CARD_LOST_MESSAGE,
-            ));
+            push_checkout_refusal(
+                &mut refusals,
+                loan.force,
+                CheckoutRefusal::new(
+                    error_code::CARD_LOST,
+                    error_code::CARD_LOST_MESSAGE,
+                    caller_rights,
+                ),
+            )?;
         }
 
         if let Some(expiry_at) = user.expiry_at {
-            if expiry_at < Utc::now() && !loan.force {
-                let zone = crate::services::calendar::parse_timezone(
-                    &self.repository.library_timezone_name().await?,
-                )
-                .unwrap_or_else(|_| crate::services::calendar::default_zone());
-                return Err(AppError::BusinessRule(format!(
-                    "User subscription expired on {} — use force=true to override",
-                    crate::services::calendar::format_patron_iso_date(zone, expiry_at)
-                )));
+            if expiry_at < Utc::now() {
+                if force_skips_checkout_refusal(
+                    loan.force,
+                    error_code::SUBSCRIPTION_EXPIRED,
+                    caller_rights,
+                ) {
+                    subscription_overridden = true;
+                } else {
+                    let zone = crate::services::calendar::parse_timezone(
+                        &self.repository.library_timezone_name().await?,
+                    )
+                    .unwrap_or_else(|_| crate::services::calendar::default_zone());
+                    push_checkout_refusal(
+                        &mut refusals,
+                        loan.force,
+                        CheckoutRefusal::new(
+                            error_code::SUBSCRIPTION_EXPIRED,
+                            subscription_expired_message(Some(expiry_at), zone),
+                            caller_rights,
+                        ),
+                    )?;
+                }
             }
         }
 
-        self.enforce_unpaid_fine_threshold(
-            loan.user_id,
-            user.public_type,
-            loan.force,
-            "checkout",
-            audit_actor,
-            client_ip.clone(),
-        )
-        .await?;
+        if let Some(fine_refusal) = self
+            .checkout_fine_refusal(
+                loan.user_id,
+                user.public_type,
+                loan.force,
+                audit_actor,
+                client_ip.clone(),
+                caller_rights,
+            )
+            .await?
+        {
+            push_checkout_refusal(&mut refusals, loan.force, fine_refusal)?;
+        }
 
-        let outcome = self.repository.loans_create(&loan).await?;
+        let outcome = self
+            .repository
+            .loans_create(&loan, refusals, caller_rights)
+            .await?;
+        if subscription_overridden {
+            self.audit.log(
+                audit::event::LOAN_SUBSCRIPTION_EXPIRED_OVERRIDDEN,
+                audit_actor,
+                Some("loan"),
+                Some(outcome.loan_id),
+                client_ip.clone(),
+                Some(serde_json::json!({
+                    "patron_id": loan.user_id,
+                    "item_id": loan.item_id,
+                    "loan_id": outcome.loan_id,
+                    "code": error_code::SUBSCRIPTION_EXPIRED,
+                })),
+                AuditLogMeta::success(),
+            );
+        }
         if let Some(item_id) = loan.item_id {
             self.events
                 .loan_created(outcome.loan_id, loan.user_id, item_id);
@@ -1118,7 +1176,13 @@ mod tests {
         ) -> AppResult<Vec<crate::models::loan::LoanMarcExportRow>> {
             Ok(vec![])
         }
-        async fn loans_create(&self, _: &CreateLoan) -> AppResult<LoanCreateOutcome> {
+        async fn loans_create(
+            &self,
+            _: &CreateLoan,
+            prior_refusals: Vec<crate::checkout_refusal::CheckoutRefusal>,
+            _: &crate::models::user::UserRights,
+        ) -> AppResult<LoanCreateOutcome> {
+            crate::checkout_refusal::finish_checkout_refusals(prior_refusals)?;
             Ok(LoanCreateOutcome {
                 loan_id: self.loan_id,
                 expiry_at: Utc::now(),
@@ -1547,40 +1611,80 @@ mod tests {
         let user = make_user(1, None, None);
         let svc = make_service(Some(user), 100);
         assert!(svc
-            .create_loan(make_loan(1, false), None, None)
+            .create_loan(
+                make_loan(1, false),
+                None,
+                None,
+                &crate::models::user::UserRights::default()
+            )
             .await
             .is_ok());
+    }
+
+    fn assert_checkout_refusal(err: AppError, code: &str, forceable: bool) -> String {
+        match err {
+            AppError::CheckoutRefused(refusal) => {
+                assert_eq!(refusal.code, code);
+                assert_eq!(refusal.forceable(), forceable);
+                refusal.message
+            }
+            other => panic!("expected {code}, got {other:?}"),
+        }
     }
 
     #[tokio::test]
     async fn test_create_loan_blocked_user_rejected() {
         let user = make_user(2, Some(UserStatus::Blocked), None);
         let svc = make_service(Some(user), 0);
-        assert!(matches!(
-            svc.create_loan(make_loan(2, false), None, None).await,
-            Err(AppError::BusinessRule(_))
-        ));
+        let err = svc
+            .create_loan(
+                make_loan(2, false),
+                None,
+                None,
+                &crate::models::user::UserRights::default(),
+            )
+            .await
+            .expect_err("blocked");
+        assert_checkout_refusal(err, "business_rule_violation", false);
     }
 
     #[tokio::test]
-    async fn test_create_loan_blocked_user_with_force_succeeds() {
+    async fn test_create_loan_blocked_user_with_force_still_rejected() {
         let user = make_user(3, Some(UserStatus::Blocked), None);
         let svc = make_service(Some(user), 101);
-        assert!(svc
-            .create_loan(make_loan(3, true), None, None)
+        let err = svc
+            .create_loan(
+                make_loan(3, true),
+                None,
+                None,
+                &crate::models::user::UserRights::default(),
+            )
             .await
-            .is_ok());
+            .expect_err("force does not skip an inactive account");
+        assert_checkout_refusal(err, "business_rule_violation", false);
     }
 
     #[tokio::test]
     async fn test_create_loan_deleted_user_always_rejected() {
         let user = make_user(4, Some(UserStatus::Deleted), None);
         let svc = make_service(Some(user), 0);
-        // force=true should NOT override a deleted account
-        assert!(matches!(
-            svc.create_loan(make_loan(4, true), None, None).await,
-            Err(AppError::BusinessRule(_))
-        ));
+        let err = svc
+            .create_loan(
+                make_loan(4, true),
+                None,
+                None,
+                &crate::models::user::UserRights::default(),
+            )
+            .await
+            .expect_err("deleted");
+        assert_checkout_refusal(err, "business_rule_violation", false);
+    }
+
+    fn settings_write_rights() -> crate::models::user::UserRights {
+        crate::models::user::UserRights {
+            settings_rights: crate::models::user::Rights::Write,
+            ..crate::models::user::UserRights::default()
+        }
     }
 
     #[tokio::test]
@@ -1588,10 +1692,12 @@ mod tests {
         let expired = Utc::now() - chrono::Duration::days(1);
         let user = make_user(5, None, Some(expired));
         let svc = make_service(Some(user), 0);
-        assert!(matches!(
-            svc.create_loan(make_loan(5, false), None, None).await,
-            Err(AppError::BusinessRule(_))
-        ));
+        let err = svc
+            .create_loan(make_loan(5, false), None, None, &settings_write_rights())
+            .await
+            .expect_err("expired");
+        let message = assert_checkout_refusal(err, "subscription_expired", true);
+        assert!(message.contains("force=true"), "{message}");
     }
 
     #[tokio::test]
@@ -1600,16 +1706,39 @@ mod tests {
         let user = make_user(6, None, Some(expired));
         let svc = make_service(Some(user), 102);
         assert!(svc
-            .create_loan(make_loan(6, true), None, None)
+            .create_loan(make_loan(6, true), None, None, &settings_write_rights())
             .await
             .is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_create_loan_expired_subscription_force_without_settings_write_rejected() {
+        let expired = Utc::now() - chrono::Duration::days(1);
+        let user = make_user(17, None, Some(expired));
+        let svc = make_service(Some(user), 0);
+        let err = svc
+            .create_loan(
+                make_loan(17, true),
+                None,
+                None,
+                &crate::models::user::UserRights::default(),
+            )
+            .await
+            .expect_err("desk force");
+        assert_checkout_refusal(err, "subscription_expired", false);
     }
 
     #[tokio::test]
     async fn test_create_loan_user_not_found() {
         let svc = make_service(None, 0); // no user pre-loaded
         assert!(matches!(
-            svc.create_loan(make_loan(99, false), None, None).await,
+            svc.create_loan(
+                make_loan(99, false),
+                None,
+                None,
+                &crate::models::user::UserRights::default()
+            )
+            .await,
             Err(AppError::NotFound(_))
         ));
     }
@@ -1620,7 +1749,12 @@ mod tests {
         let user = make_user(7, None, Some(future_date)); // subscription valid
         let svc = make_service(Some(user), 103);
         assert!(svc
-            .create_loan(make_loan(7, false), None, None)
+            .create_loan(
+                make_loan(7, false),
+                None,
+                None,
+                &crate::models::user::UserRights::default()
+            )
             .await
             .is_ok());
     }
@@ -1638,7 +1772,12 @@ mod tests {
             None,
         );
         assert!(svc
-            .create_loan(make_loan(15, false), None, None)
+            .create_loan(
+                make_loan(15, false),
+                None,
+                None,
+                &crate::models::user::UserRights::default()
+            )
             .await
             .is_ok());
     }
@@ -1656,7 +1795,12 @@ mod tests {
             None,
         );
         assert!(svc
-            .create_loan(make_loan(8, false), None, None)
+            .create_loan(
+                make_loan(8, false),
+                None,
+                None,
+                &crate::models::user::UserRights::default()
+            )
             .await
             .is_ok());
     }
@@ -1674,17 +1818,18 @@ mod tests {
             None,
         );
         let err = svc
-            .create_loan(make_loan(9, false), None, None)
+            .create_loan(
+                make_loan(9, false),
+                None,
+                None,
+                &crate::models::user::UserRights::default(),
+            )
             .await
             .expect_err("over-threshold checkout must fail");
-        match err {
-            AppError::BusinessRule(msg) => {
-                assert!(msg.contains("15"), "{msg}");
-                assert!(msg.contains("10"), "{msg}");
-                assert!(msg.contains("force=true"), "{msg}");
-            }
-            other => panic!("expected BusinessRule, got {other:?}"),
-        }
+        let message = assert_checkout_refusal(err, "fines_over_threshold", true);
+        assert!(message.contains("15"), "{message}");
+        assert!(message.contains("10"), "{message}");
+        assert!(message.contains("force=true"), "{message}");
     }
 
     #[tokio::test]
@@ -1700,7 +1845,12 @@ mod tests {
             None,
         );
         assert!(svc
-            .create_loan(make_loan(10, true), Some(99), Some("127.0.0.1".into()))
+            .create_loan(
+                make_loan(10, true),
+                Some(99),
+                Some("127.0.0.1".into()),
+                &crate::models::user::UserRights::default()
+            )
             .await
             .is_ok());
     }
@@ -1718,7 +1868,12 @@ mod tests {
             None,
         );
         assert!(svc
-            .create_loan(make_loan(11, false), None, None)
+            .create_loan(
+                make_loan(11, false),
+                None,
+                None,
+                &crate::models::user::UserRights::default()
+            )
             .await
             .is_ok());
     }

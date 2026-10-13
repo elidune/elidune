@@ -341,11 +341,13 @@ async fn concurrent_checkout_respects_hold_queue() {
     assert!(!b_ok, "patron B must not steal the held copy: {r_b:?}");
 
     match r_b.err().unwrap() {
-        AppError::BusinessRule(msg) => {
+        AppError::CheckoutRefused(refusal) if refusal.code == error_code::ITEM_HELD_FOR_OTHER => {
             assert!(
-                msg.contains("active hold"),
-                "unexpected business rule: {msg}"
+                refusal.message.contains("active hold"),
+                "{}",
+                refusal.message
             );
+            assert!(!refusal.forceable());
         }
         AppError::Coded { status, code, .. } => {
             assert_eq!(status, 409);
@@ -1152,7 +1154,8 @@ async fn lending_unassigned_shelf_copy_stays_allowed() {
         .await
         .expect_err("the assigned copy stays reserved");
     match err {
-        AppError::ItemToPickForOther { .. } => {}
+        AppError::CheckoutRefused(refusal)
+            if refusal.code == error_code::ITEM_TO_PICK_FOR_OTHER && !refusal.forceable() => {}
         other => panic!("expected item_to_pick_for_other, got {other:?}"),
     }
 }

@@ -41,11 +41,11 @@ async fn flags(app: &TestApp, id: i64) -> (i16, bool) {
         .await
         .unwrap()
 }
-async fn force_loan(app: &TestApp, t: &str, u: i64, i: i64) -> i64 {
+async fn open_loan(app: &TestApp, t: &str, u: i64, i: i64) -> i64 {
     let (s, b) = app
         .post_json(
             "/api/v1/loans",
-            &json!({"userId": u.to_string(), "itemId": i.to_string(), "force": true}),
+            &json!({"userId": u.to_string(), "itemId": i.to_string(), "force": false}),
             Some(t),
         )
         .await;
@@ -70,8 +70,8 @@ async fn qa_to_search_return_with_remote_hold_requests_transit() {
     let (bor, _) = fixtures::create_reader(&app, &t, "qatb").await;
     let (pat, pt) = fixtures::create_reader(&app, &t, "qatw").await;
     let (bib, item) = copy(&app, &t, "QA ToSearch Transit", a).await;
+    let loan = open_loan(&app, &t, bor, item).await;
     set_status(&app, item, CS::TO_SEARCH).await;
-    let loan = force_loan(&app, &t, bor, item).await;
     let (s, h) = app.post_json("/api/v1/holds", &json!({"userId": pat.to_string(), "biblioId": bib.to_string(), "pickupSiteId": b.to_string()}), Some(&pt)).await;
     assert_eq!(s, StatusCode::CREATED, "{h}");
     let hid = fixtures::json_id(&h["id"]);
@@ -93,9 +93,8 @@ async fn untouched(st: i16, tag: &str) {
     let a = site(&app, &t, tag).await;
     let (bor, _) = fixtures::create_reader(&app, &t, tag).await;
     let (_, item) = copy(&app, &t, tag, a).await;
-    set_status(&app, item, CS::TO_SEARCH).await;
-    let loan = force_loan(&app, &t, bor, item).await;
-    set_status(&app, item, st).await; // status changes during the loan
+    let loan = open_loan(&app, &t, bor, item).await;
+    set_status(&app, item, st).await;
     ret(&app, &t, loan).await;
     assert_eq!(
         flags(&app, item).await,
