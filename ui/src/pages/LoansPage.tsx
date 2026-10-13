@@ -58,10 +58,10 @@ import { patronId } from '@/utils/patronLink';
 import { isWeedingServerMessage } from '@/utils/weeding';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
 import { isClaimedReturnedLoan } from '@/utils/circulationStatus';
+import { deskBorrowErrorText, forceBorrowDialogMessage } from '@/utils/deskCheckoutError';
 import {
   CheckoutDeclined,
   interpretPickCheckIn,
-  isCheckoutDeclined,
   readItemToPickForOther,
   type PickCheckInNotice,
 } from '@/utils/toPickDesk';
@@ -843,8 +843,6 @@ export default function LoansPage() {
       });
     } catch (error: unknown) {
       const rawMessage = getApiErrorRawMessage(error) ?? '';
-      const displayMsg = getApiErrorMessage(error, t) || t('loans.errorCreatingLoan');
-      const confirmMsg = rawMessage || displayMsg;
       const conflict = checkoutNoticeForConflict(error, {
         patronId: selectedUser.id,
         snapshot,
@@ -878,11 +876,12 @@ export default function LoansPage() {
         setBarcodeInput('');
         const ok = await new Promise<boolean>((resolve) => {
           setForceBorrowDialog({
-            message: `${confirmMsg}\n\n${t('loans.forceBorrowConfirm')}`,
+            message: forceBorrowDialogMessage(error, t),
           });
           forceBorrowResolveRef.current = resolve;
         });
         if (ok) return handleBorrow(specimenBarcode, true);
+        throw new CheckoutDeclined();
       }
       throw error;
     }
@@ -2469,16 +2468,17 @@ function BorrowForm({
         });
       }
     } catch (err: unknown) {
-      if (isCheckoutDeclined(err)) return;
-      if (isCheckoutScanNoticeShown(err)) {
-        setError('');
-        setTimeout(() => {
-          barcodeInputRef.current?.focus();
-          barcodeInputRef.current?.select();
-        }, 100);
+      const msg = deskBorrowErrorText(err, t);
+      if (msg == null) {
+        if (isCheckoutScanNoticeShown(err)) {
+          setError('');
+          setTimeout(() => {
+            barcodeInputRef.current?.focus();
+            barcodeInputRef.current?.select();
+          }, 100);
+        }
         return;
       }
-      const msg = getApiErrorMessage(err, t) || t('loans.errorCreatingLoan');
       setError(msg);
       showToast({ variant: 'error', message: msg });
       setTimeout(() => {

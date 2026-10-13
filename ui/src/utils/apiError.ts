@@ -340,10 +340,14 @@ function translateKey(t: TFunction, key: string): string | null {
   return msg === key ? null : msg;
 }
 
-/**
- * Get a user-facing error message from an API error response.
- * Order: rate limit (429) → API error code → response body message → HTTP status → network / timeout → generic.
- */
+export interface ApiErrorMessageOptions {
+  /**
+   * When false, an unmapped body `message` is not shown.
+   * The desk uses this so English server text never reaches the librarian.
+   */
+  allowRawMessage?: boolean;
+}
+
 /**
  * Dispose-batch message. 422 and 409 share `withdrawal_dispose_rejected`;
  * `failures` lists each id with its own code.
@@ -364,7 +368,18 @@ export function disposeBatchErrorMessage(error: unknown, t: TFunction): string {
   return lines.length > 0 ? [head, ...lines].join('\n') : head;
 }
 
-export function getApiErrorMessage(error: unknown, t: TFunction): string {
+/**
+ * User-facing text for an API error.
+ * Order: rate limit (429) → weeding → renewal refusal → API error code →
+ * optional raw body → HTTP status → network / timeout → generic.
+ * Pass `allowRawMessage: false` to skip the English body and use the generic fallback.
+ */
+export function getApiErrorMessage(
+  error: unknown,
+  t: TFunction,
+  options?: ApiErrorMessageOptions,
+): string {
+  const allowRawMessage = options?.allowRawMessage !== false;
   const axiosError = asAxiosError(error);
   const status = axiosError?.response?.status;
   const rawData = axiosError?.response?.data;
@@ -386,6 +401,7 @@ export function getApiErrorMessage(error: unknown, t: TFunction): string {
   if (code !== null) {
     const fromCode = translateKey(t, `errors.apiCode.${code}`);
     if (fromCode !== null) return fromCode;
+    if (!allowRawMessage) return t('errors.generic');
   }
 
   let data = rawData;
@@ -393,7 +409,7 @@ export function getApiErrorMessage(error: unknown, t: TFunction): string {
     data = undefined;
   }
 
-  if (data && typeof data === 'object' && !Array.isArray(data)) {
+  if (allowRawMessage && data && typeof data === 'object' && !Array.isArray(data)) {
     const d = data as ApiError;
     if (typeof d.message === 'string' && d.message.trim()) return d.message.trim();
     if (typeof d.error === 'string' && d.error.trim()) return d.error.trim();
