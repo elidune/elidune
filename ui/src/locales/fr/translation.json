@@ -1202,7 +1202,8 @@
     "renewalPossibleFrom": "Prolongation possible à partir du {{date}}",
     "renewalTooEarly": "La prolongation n'est pas encore ouverte.",
     "renewalRefusal": {
-      "card_lost": "Carte déclarée perdue, adressez-vous à l'accueil",
+      "card_lost": "Carte déclarée perdue : renouvellement impossible",
+      "subscription_expired": "Abonnement expiré : renouvellement impossible",
       "account_blocked": "Votre compte ne permet pas de prolonger pour le moment, contactez la bibliothèque",
       "fines_over_threshold": "Amendes impayées au-dessus du seuil autorisé",
       "withdrawn": "Cet exemplaire est retiré et ne peut pas être prolongé.",

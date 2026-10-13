@@ -9,6 +9,7 @@ import de from '../../locales/de/translation.json' with { type: 'json' };
 import en from '../../locales/en/translation.json' with { type: 'json' };
 import es from '../../locales/es/translation.json' with { type: 'json' };
 import fr from '../../locales/fr/translation.json' with { type: 'json' };
+import AccountRenewalBanner from '@/components/loans/AccountRenewalBanner';
 import BatchCreateItemRow from '@/components/loans/BatchCreateItemRow';
 import CirculationForceButton from '@/components/loans/CirculationForceButton';
 import DeskNameSearch from '@/components/loans/DeskNameSearch';
@@ -258,6 +259,10 @@ describe('card_lost cannot be forced', () => {
     assert.equal(circulationMayForce('batch', 'business_rule_violation'), true);
     assert.equal(circulationMayForce('renewal', 'card_lost'), false);
     assert.equal(circulationMayForce('renewal', 'account_blocked'), true);
+    assert.equal(circulationMayForce('renewal', 'subscription_expired'), true);
+    assert.equal(circulationMayForce('renewal', 'fines_over_threshold'), true);
+    assert.equal(circulationMayForce('loan', 'subscription_expired'), false);
+    assert.equal(circulationMayForce('batch', 'subscription_expired'), false);
     const batch = render(
       i18n,
       createElement(BatchCreateItemRow, {
@@ -335,23 +340,87 @@ describe('unknown card', () => {
   });
 });
 
-describe('my loans card_lost', () => {
-  it('disables renew and asks the reader to come to the desk', async () => {
+describe('my loans account renewal refusals', () => {
+  it('keeps a lost card and an expired subscription off the loan row', async () => {
+    for (const code of ['card_lost', 'subscription_expired'] as const) {
+      for (const lang of ['fr', 'en', 'de', 'es'] as const) {
+        const i18n = await i18nFor(lang);
+        const html = render(
+          i18n,
+          createElement(MyLoanRenewActions, {
+            canRenew: false,
+            renewalRefusalCode: code,
+            renewalOpensAt: null,
+            onRenew: () => undefined,
+          }),
+        );
+        assert.match(html, /disabled/, `${lang} ${code}`);
+        assert.equal(html.includes(catalogs[lang].loans.renewalRefusal[code]), false, `${lang} ${code}`);
+        assert.equal(html.includes('Forcer'), false, `${lang} ${code}`);
+      }
+    }
+    assert.equal(
+      fr.loans.renewalRefusal.card_lost,
+      'Carte déclarée perdue : renouvellement impossible',
+    );
+    assert.equal(
+      fr.loans.renewalRefusal.subscription_expired,
+      'Abonnement expiré : renouvellement impossible',
+    );
+  });
+
+  it('shows one account banner for a lost card or an expired subscription', async () => {
+    const expected = {
+      fr: {
+        card_lost: 'Carte déclarée perdue : renouvellement impossible',
+        subscription_expired: 'Abonnement expiré : renouvellement impossible',
+      },
+      en: {
+        card_lost: 'Card reported lost: renewal is not possible',
+        subscription_expired: 'Subscription expired: renewal is not possible',
+      },
+      de: {
+        card_lost: 'Karte als verloren gemeldet: Verlängerung nicht möglich',
+        subscription_expired: 'Abonnement abgelaufen: Verlängerung nicht möglich',
+      },
+      es: {
+        card_lost: 'Carné declarado perdido: renovación imposible',
+        subscription_expired: 'Suscripción caducada: renovación imposible',
+      },
+    } as const;
     for (const lang of ['fr', 'en', 'de', 'es'] as const) {
       const i18n = await i18nFor(lang);
-      const html = render(
-        i18n,
-        createElement(MyLoanRenewActions, {
-          canRenew: false,
-          renewalRefusalCode: 'card_lost',
-          renewalOpensAt: null,
-          onRenew: () => undefined,
-        }),
-      );
-      assert.match(html, /disabled/);
-      assert.equal(html.includes(catalogs[lang].loans.renewalRefusal.card_lost), true, lang);
-      assert.equal(html.includes('Forcer'), false, lang);
+      for (const code of ['card_lost', 'subscription_expired'] as const) {
+        const html = render(i18n, createElement(AccountRenewalBanner, { code }));
+        assert.match(html, new RegExp(`data-account-renewal="${code}"`));
+        assert.equal(html.includes(expected[lang][code]), true, `${lang} ${code}`);
+        assert.equal(html.includes('Forcer'), false, `${lang} ${code}`);
+      }
+      const hidden = render(i18n, createElement(AccountRenewalBanner, { code: null }));
+      assert.equal(hidden, '');
     }
-    assert.equal(fr.loans.renewalRefusal.card_lost, 'Carte déclarée perdue, adressez-vous à l\'accueil');
+  });
+
+  it('offers force for an expired subscription and never for a lost card', async () => {
+    const i18n = await i18nFor('fr');
+    const expired = render(
+      i18n,
+      createElement(CirculationForceButton, {
+        surface: 'renewal',
+        code: 'subscription_expired',
+        onForce: () => undefined,
+      }),
+    );
+    assert.match(expired, /Forcer/);
+    const lost = render(
+      i18n,
+      createElement(CirculationForceButton, {
+        surface: 'renewal',
+        code: 'card_lost',
+        onForce: () => undefined,
+      }),
+    );
+    assert.equal(lost.includes('Forcer'), false);
+    assert.equal(lost.includes('<button'), false);
   });
 });

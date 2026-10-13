@@ -1202,7 +1202,8 @@
     "renewalPossibleFrom": "Renovación posible a partir del {{date}}",
     "renewalTooEarly": "La renovación aún no está abierta.",
     "renewalRefusal": {
-      "card_lost": "Carné declarado perdido. Diríjase al mostrador.",
+      "card_lost": "Carné declarado perdido: renovación imposible",
+      "subscription_expired": "Suscripción caducada: renovación imposible",
       "account_blocked": "Su cuenta no permite prolongar préstamos por el momento. Contacte con la biblioteca.",
       "fines_over_threshold": "Las multas impagadas superan el umbral permitido.",
       "withdrawn": "Este ejemplar está dado de baja y no se puede renovar.",

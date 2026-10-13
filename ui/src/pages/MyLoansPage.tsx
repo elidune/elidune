@@ -3,12 +3,13 @@ import { useTranslation } from 'react-i18next';
 import { BookOpen, Calendar, AlertTriangle } from 'lucide-react';
 import { Card, CardHeader, Badge, Pagination, ListSkeleton, QueryErrorBanner } from '@/components/common';
 import { useToast } from '@/contexts/ToastContext';
+import AccountRenewalBanner from '@/components/loans/AccountRenewalBanner';
 import LoansMarcExportButton from '@/components/loans/LoansMarcExportButton';
+import MyLoanRenewActions from '@/components/loans/MyLoanRenewActions';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/services/api';
 import type { MyLoan } from '@/types';
-import MyLoanRenewActions from '@/components/loans/MyLoanRenewActions';
-import { getApiErrorCode, getApiErrorMessage, renewalRefusalText } from '@/utils/apiError';
+import { accountRenewalRefusal, getApiErrorCode, getApiErrorMessage, renewalRefusalText } from '@/utils/apiError';
 import { renewedUntilMessage } from '@/utils/localeDate';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
@@ -90,14 +91,10 @@ export default function MyLoansPage() {
   };
 
   const loansSorted = useMemo(() => sortLoansByStartDateAsc(loans), [loans]);
-  const accountRefusal = useMemo(() => {
-    let fines = false;
-    for (const loan of loansSorted) {
-      if (loan.renewalRefusalCode === 'account_blocked') return 'account_blocked' as const;
-      if (loan.renewalRefusalCode === 'fines_over_threshold') fines = true;
-    }
-    return fines ? ('fines_over_threshold' as const) : null;
-  }, [loansSorted]);
+  const accountRefusal = useMemo(
+    () => accountRenewalRefusal(loansSorted.map((loan) => loan.renewalRefusalCode)),
+    [loansSorted],
+  );
 
   return (
     <div className="space-y-6">
@@ -131,14 +128,7 @@ export default function MyLoansPage() {
         </div>
       )}
 
-      {accountRefusal && (
-        <div className="flex items-start gap-3 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl">
-          <AlertTriangle className="h-5 w-5 text-amber-600 dark:text-amber-500 flex-shrink-0 mt-0.5" />
-          <p className="font-medium text-amber-900 dark:text-amber-100">
-            {renewalRefusalText(t, accountRefusal, null, i18n.language)}
-          </p>
-        </div>
-      )}
+      <AccountRenewalBanner code={accountRefusal} />
 
       <Card>
         <CardHeader
