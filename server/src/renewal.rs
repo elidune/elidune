@@ -35,13 +35,17 @@ pub struct RenewalUser {
     pub can_borrow: bool,
     /// `users.card_lost`. Renewal always refuses. Staff `force` does not skip it.
     pub card_lost: bool,
+    /// `users.expiry_at`. `None` is a membership with no end date.
+    /// Strictly before [`RenewalContext::now`] is `subscription_expired`.
+    /// Staff `force` skips it.
+    pub subscription_expiry: Option<DateTime<Utc>>,
 }
 
 /// Precomputed account-level facts and the settings for this loan's medium.
 #[derive(Debug, Clone)]
 pub struct RenewalContext {
-    /// Staff `force`: skip `account_blocked` and `fines_over_threshold`.
-    /// Does not skip `card_lost`.
+    /// Staff `force`: skip `account_blocked`, `subscription_expired`, and
+    /// `fines_over_threshold`. Does not skip `card_lost`.
     pub bypass_account_gates: bool,
     pub fines_over_threshold: bool,
     /// Desk message used when the refusal is `fines_over_threshold`.
@@ -59,6 +63,8 @@ pub enum RenewalRefusal {
     /// `users.card_lost`. Not skipped by staff `force`.
     CardLost,
     AccountBlocked,
+    /// `users.expiry_at` is before now. Skipped by staff `force`.
+    SubscriptionExpired,
     FinesOverThreshold,
     Withdrawn,
     ClaimedReturned,
@@ -73,6 +79,7 @@ impl RenewalRefusal {
         match self {
             Self::CardLost => crate::error::error_code::CARD_LOST,
             Self::AccountBlocked => "account_blocked",
+            Self::SubscriptionExpired => crate::error::error_code::SUBSCRIPTION_EXPIRED,
             Self::FinesOverThreshold => "fines_over_threshold",
             Self::Withdrawn => "withdrawn",
             Self::ClaimedReturned => "claimed_returned",
@@ -95,13 +102,21 @@ impl RenewalRefusal {
             Self::HoldWaiting => {
                 "Cannot renew: another patron is waiting in the hold queue for this copy"
             }
-            Self::FinesOverThreshold | Self::MaxRenewals | Self::RenewalTooEarly => "",
+            Self::SubscriptionExpired
+            | Self::FinesOverThreshold
+            | Self::MaxRenewals
+            | Self::RenewalTooEarly => "",
         }
     }
 
     /// Map a refusal onto the existing renew HTTP errors (422).
     #[must_use]
-    pub fn into_app_error(self, loan: &RenewalLoan, ctx: &RenewalContext) -> AppError {
+    pub fn into_app_error(
+        self,
+        loan: &RenewalLoan,
+        user: &RenewalUser,
+        ctx: &RenewalContext,
+    ) -> AppError {
         match self {
             Self::CardLost => AppError::coded(
                 422,
@@ -112,6 +127,10 @@ impl RenewalRefusal {
                 let opens = renewal_opens_at(loan.due_at, ctx.renew_window_days);
                 AppError::RenewalTooEarly(renewal_too_early_message(opens, ctx.zone))
             }
+            Self::SubscriptionExpired => AppError::RenewalRefused {
+                code: self.code(),
+                message: subscription_expired_message(user.subscription_expiry, ctx.zone),
+            },
             Self::FinesOverThreshold => AppError::RenewalRefused {
                 code: self.code(),
                 message: ctx.fines_message.clone(),
@@ -158,6 +177,13 @@ pub fn renewal_eligibility(
     if !ctx.bypass_account_gates && !user.can_borrow {
         return Err(RenewalRefusal::AccountBlocked);
     }
+    if !ctx.bypass_account_gates
+        && user
+            .subscription_expiry
+            .is_some_and(|expiry| expiry < ctx.now)
+    {
+        return Err(RenewalRefusal::SubscriptionExpired);
+    }
     if !ctx.bypass_account_gates && ctx.fines_over_threshold {
         return Err(RenewalRefusal::FinesOverThreshold);
     }
@@ -201,6 +227,17 @@ pub fn renewal_too_early_message(opens_at: DateTime<Utc>, zone: chrono_tz::Tz) -
     )
 }
 
+/// Client message for an expired membership. The date is the library-local civil date.
+fn subscription_expired_message(expiry: Option<DateTime<Utc>>, zone: chrono_tz::Tz) -> String {
+    match expiry {
+        Some(expiry) => format!(
+            "User subscription expired on {} — use force=true to override",
+            format_patron_iso_date(zone, expiry)
+        ),
+        None => "User subscription expired — use force=true to override".to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use chrono::{DateTime, TimeZone, Utc};
@@ -224,6 +261,7 @@ mod tests {
         RenewalUser {
             can_borrow,
             card_lost: false,
+            subscription_expiry: None,
         }
     }
 
@@ -317,11 +355,12 @@ mod tests {
         let borrower = RenewalUser {
             can_borrow: false,
             card_lost: true,
+            subscription_expiry: Some(Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap()),
         };
         let refusal = renewal_eligibility(&row, &borrower, &context).unwrap_err();
         assert_eq!(refusal, RenewalRefusal::CardLost);
         assert_eq!(refusal.code(), "card_lost");
-        let err = refusal.into_app_error(&row, &context);
+        let err = refusal.into_app_error(&row, &borrower, &context);
         match err {
             crate::error::AppError::Coded {
                 status,
@@ -334,6 +373,63 @@ mod tests {
             }
             other => panic!("expected coded card_lost, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn expired_subscription_blocks_before_loan_reasons_unless_force() {
+        let mut row = loan();
+        row.hold_waiting = true;
+        let now = Utc.with_ymd_and_hms(2026, 10, 26, 12, 0, 0).unwrap();
+        let mut context = ctx(now);
+        context.fines_over_threshold = true;
+        let expired = Utc.with_ymd_and_hms(2026, 1, 15, 11, 0, 0).unwrap();
+        let borrower = RenewalUser {
+            can_borrow: true,
+            card_lost: false,
+            subscription_expiry: Some(expired),
+        };
+        let refusal = renewal_eligibility(&row, &borrower, &context).unwrap_err();
+        assert_eq!(refusal, RenewalRefusal::SubscriptionExpired);
+        assert_eq!(refusal.code(), "subscription_expired");
+        let err = refusal.into_app_error(&row, &borrower, &context);
+        match err {
+            crate::error::AppError::RenewalRefused { code, message } => {
+                assert_eq!(code, "subscription_expired");
+                assert!(message.contains("2026-01-15"), "{message}");
+                assert!(message.contains("force=true"), "{message}");
+            }
+            other => panic!("expected subscription_expired, got {other:?}"),
+        }
+
+        let blocked = RenewalUser {
+            can_borrow: false,
+            ..borrower
+        };
+        assert_eq!(
+            renewal_eligibility(&row, &blocked, &context).unwrap_err(),
+            RenewalRefusal::AccountBlocked
+        );
+
+        context.bypass_account_gates = true;
+        assert_eq!(
+            renewal_eligibility(&row, &borrower, &context).unwrap_err(),
+            RenewalRefusal::HoldWaiting
+        );
+
+        row.hold_waiting = false;
+        assert!(renewal_eligibility(&row, &borrower, &context).is_ok());
+        context.bypass_account_gates = false;
+        context.fines_over_threshold = false;
+        let open_ended = RenewalUser {
+            subscription_expiry: None,
+            ..borrower
+        };
+        assert!(renewal_eligibility(&row, &open_ended, &context).is_ok());
+        let still_current = RenewalUser {
+            subscription_expiry: Some(now),
+            ..borrower
+        };
+        assert!(renewal_eligibility(&row, &still_current, &context).is_ok());
     }
 
     #[test]

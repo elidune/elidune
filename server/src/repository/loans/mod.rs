@@ -80,7 +80,7 @@ pub trait LoansRepository: Send + Sync {
         &self,
         loan_id: i64,
     ) -> AppResult<crate::renewal::LoanRenewalSnapshot>;
-    /// `bypass_account_gates` is staff `force`: skip account and unpaid-fine refusals.
+    /// `bypass_account_gates` is staff `force`: skip account, subscription-expiry, and unpaid-fine refusals.
     async fn loans_renew(
         &self,
         loan_id: i64,

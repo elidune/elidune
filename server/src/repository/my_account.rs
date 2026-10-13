@@ -111,6 +111,7 @@ impl Repository {
         let renewal_user = RenewalUser {
             can_borrow: owner.can_borrow(),
             card_lost: self.users_card_lost(user_id).await?,
+            subscription_expiry: owner.expiry_at,
         };
         let zone = self.library_zone().await?;
         let now = Utc::now();
