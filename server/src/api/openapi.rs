@@ -732,6 +732,33 @@ mod tests {
     }
 
     #[test]
+    fn public_item_schema_omits_due_date_while_staff_and_my_loans_keep_it() {
+        let doc = ApiDoc::openapi();
+        let value = serde_json::to_value(&doc).expect("openapi json");
+        let schemas = &value["components"]["schemas"];
+        let public_props = &schemas["ItemPublicView"]["properties"];
+        assert!(
+            public_props.get("dueDate").is_none(),
+            "ItemPublicView must not declare dueDate: {public_props}"
+        );
+        assert!(
+            schemas["ItemStaffView"]["properties"]["dueDate"].is_object(),
+            "ItemStaffView keeps dueDate"
+        );
+        assert!(
+            schemas["MyLoanView"]["properties"]["dueDate"].is_object(),
+            "MyLoanView keeps dueDate"
+        );
+        let opac = value["paths"]["/opac/biblios/{id}"]["get"]["responses"]["200"]["description"]
+            .as_str()
+            .unwrap_or("");
+        assert!(
+            opac.contains("omits `dueDate`"),
+            "OPAC docs must say the key is omitted: {opac}"
+        );
+    }
+
+    #[test]
     fn card_lost_and_replace_routes_are_documented() {
         let doc = ApiDoc::openapi();
         let value = serde_json::to_value(&doc).expect("openapi json");

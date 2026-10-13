@@ -4,7 +4,7 @@
 //! Soft delete is tracked solely via `archived_at` (NULL = active, set = archived).
 //! Weeding (`weeding_status`) is orthogonal to `archived_at` and circulation exceptions.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
@@ -382,10 +382,20 @@ pub struct Item {
     #[serde(skip)]
     pub hold_user_lastname: Option<String>,
     /// Active loan `expiry_at`. Not part of the item write contract.
-    /// Copied onto catalog views as `dueDate`.
+    /// Copied onto the staff catalog view as `dueDate`. The public view omits it.
     #[sqlx(default)]
     #[serde(skip)]
     pub due_date: Option<DateTime<Utc>>,
+    /// Library-local calendar date of [`Self::due_date`] while this copy is on loan
+    /// and that date is today or later in the library timezone.
+    ///
+    /// Filled after the catalog read. Cleared once the local due date is before
+    /// the local today. Not selected from SQL and not part of the item JSON.
+    /// [`crate::models::catalog_view::ItemPublicView`] exposes it as
+    /// `expectedReturnDate` only when public availability is `onLoan`.
+    #[sqlx(skip)]
+    #[serde(skip)]
+    pub expected_return_date: Option<NaiveDate>,
     /// True only when this copy is assigned to a hold.
     ///
     /// That is a hold in `to_pick` or `ready` with `holds.item_id` equal to

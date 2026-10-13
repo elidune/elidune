@@ -47,6 +47,25 @@ pub fn local_date(zone: Tz, instant: DateTime<Utc>) -> NaiveDate {
     instant.with_timezone(&zone).date_naive()
 }
 
+/// Library-local date a public copy is expected back.
+///
+/// `due` and `now` are compared as civil dates in `zone`, never as UTC dates.
+/// The date is returned while the local due date is today or later. It is
+/// `None` from the next local day (local due date strictly before local today).
+/// In the 00:00-02:00 window of a positive offset (Europe/Paris), UTC is still
+/// on the previous civil day: a due date of that previous local day is omitted
+/// even when its UTC date equals the UTC date of `now`.
+#[must_use]
+pub fn public_expected_return_date(
+    zone: Tz,
+    due: DateTime<Utc>,
+    now: DateTime<Utc>,
+) -> Option<NaiveDate> {
+    let due_day = local_date(zone, due);
+    let today = local_date(zone, now);
+    (due_day >= today).then_some(due_day)
+}
+
 /// `dd/mm/yyyy` in `zone`.
 #[must_use]
 pub fn format_patron_date(zone: Tz, instant: DateTime<Utc>) -> String {
@@ -183,6 +202,47 @@ mod tests {
 
     fn utc(y: i32, m: u32, d: u32, h: u32, min: u32) -> DateTime<Utc> {
         Utc.with_ymd_and_hms(y, m, d, h, min, 0).unwrap()
+    }
+
+    #[test]
+    fn expected_return_date_follows_paris_morning_not_utc() {
+        // 2026-07-15 22:30 UTC is 2026-07-16 00:30 in Paris (CEST, UTC+2).
+        // UTC is still on the 15th.
+        let now = utc(2026, 7, 15, 22, 30);
+        assert_eq!(
+            now.date_naive(),
+            NaiveDate::from_ymd_opt(2026, 7, 15).unwrap()
+        );
+        assert_eq!(
+            local_date(paris(), now),
+            NaiveDate::from_ymd_opt(2026, 7, 16).unwrap()
+        );
+
+        // Due today in Paris, at 00:30, which is still 2026-07-15 in UTC.
+        let due_today = paris()
+            .with_ymd_and_hms(2026, 7, 16, 0, 30, 0)
+            .unwrap()
+            .with_timezone(&Utc);
+        assert_eq!(
+            due_today.date_naive(),
+            NaiveDate::from_ymd_opt(2026, 7, 15).unwrap()
+        );
+        assert_eq!(
+            public_expected_return_date(paris(), due_today, now),
+            Some(NaiveDate::from_ymd_opt(2026, 7, 16).unwrap())
+        );
+
+        // Due yesterday in Paris. That UTC date equals UTC "today", so a UTC
+        // comparison would still show the date.
+        let due_yesterday = paris()
+            .with_ymd_and_hms(2026, 7, 15, 23, 0, 0)
+            .unwrap()
+            .with_timezone(&Utc);
+        assert_eq!(
+            due_yesterday.date_naive(),
+            NaiveDate::from_ymd_opt(2026, 7, 15).unwrap()
+        );
+        assert!(public_expected_return_date(paris(), due_yesterday, now).is_none());
     }
 
     #[test]

@@ -209,10 +209,16 @@ async fn biblio_notice_due_date_hold_flag_and_borrower_follow_rights() {
         let free = copy_by_id(body, free_id);
         assert_no_borrower(loaned);
         assert_no_borrower(free);
-        assert_same_instant(&loaned["dueDate"], &loan["expiryAt"]);
+        assert!(
+            loaned.get("dueDate").is_none(),
+            "{label} public copy omits dueDate: {loaned}"
+        );
+        assert!(
+            free.get("dueDate").is_none(),
+            "{label} public copy omits dueDate: {free}"
+        );
         assert_eq!(loaned["onHold"], false, "{loaned}");
         assert_eq!(loaned["availability"], "onLoan", "{loaned}");
-        assert!(free["dueDate"].is_null(), "{free}");
         assert_eq!(free["onHold"], false, "{free}");
     }
 
@@ -318,7 +324,7 @@ async fn biblio_notice_due_date_hold_flag_and_borrower_follow_rights() {
     )
     .await;
     let only_id = only_copies[0];
-    let only_loan = checkout(&app, &admin_token, borrower_id, only_id).await;
+    checkout(&app, &admin_token, borrower_id, only_id).await;
     let (status, queued) = app
         .post_json(
             "/api/v1/holds",
@@ -347,7 +353,10 @@ async fn biblio_notice_due_date_hold_flag_and_borrower_follow_rights() {
         "an unassigned pending hold must not mark the copy: {queued_copy}"
     );
     assert_eq!(queued_notice["holdsCount"], 1, "{queued_notice}");
-    assert_same_instant(&queued_copy["dueDate"], &only_loan["expiryAt"]);
+    assert!(
+        queued_copy.get("dueDate").is_none(),
+        "OPAC omits dueDate: {queued_copy}"
+    );
     assert_no_borrower(queued_copy);
     assert_text_hidden(&queued_notice, &secret_bits);
 
@@ -424,7 +433,14 @@ async fn shelved_copy_with_unassigned_title_hold_stays_available() {
         let copy = copy_by_id(body, item_id);
         assert_eq!(copy["availability"], "available", "{label} {copy}");
         assert_eq!(copy["onHold"], false, "{label} {copy}");
-        assert!(copy["dueDate"].is_null(), "{label} {copy}");
+        if label == "public" {
+            assert!(
+                copy.get("dueDate").is_none(),
+                "{label} omits dueDate: {copy}"
+            );
+        } else {
+            assert!(copy["dueDate"].is_null(), "{label} {copy}");
+        }
         assert_no_borrower(copy);
         assert_text_hidden(body, &["Quentin", "Queue"]);
     }
