@@ -19,7 +19,7 @@ use crate::models::item::WeedingStatus;
 /// `copy_state.availability` applies this precedence (first match wins):
 /// `onLoan`, `inTransit`, `onHold` (`to_pick`/`ready`), `toSearch`
 /// (`circulation_status` 4), `unavailable` (not borrowable, lost, damaged,
-/// claimed returned, withdrawn), else `available`.
+/// claimed returned, declared missing, withdrawn), else `available`.
 const ITEM_STATE_JOINS: &str = r#"
 LEFT JOIN LATERAL (
     SELECT l.id, l.expiry_at
@@ -53,7 +53,7 @@ LEFT JOIN LATERAL (
         WHEN COALESCE(i.circulation_status, 0) = 4 THEN 'toSearch'
         WHEN i.borrowable = FALSE
           OR i.weeding_status = 'withdrawn'
-          OR COALESCE(i.circulation_status, 0) IN (1, 2, 3)
+          OR COALESCE(i.circulation_status, 0) IN (1, 2, 3, 5)
         THEN 'unavailable'
         ELSE 'available'
     END AS availability
@@ -117,6 +117,7 @@ fn item_short_sql(where_and_order: &str) -> String {
     format!(
         r#"
             SELECT i.biblio_id, i.id, i.barcode, i.call_number, i.borrowable,
+                   i.circulation_status,
                    i.weeding_status,
                    so.name as source_name,
                    (active_loan.id IS NOT NULL) as borrowed,

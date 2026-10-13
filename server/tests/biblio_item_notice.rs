@@ -301,7 +301,7 @@ async fn biblio_notice_due_date_hold_flag_and_borrower_follow_rights() {
     );
     assert_eq!(copy_by_id(&after, loaned_id)["onHold"], false, "{after}");
     let reserved = copy_by_id(&after, free_id);
-    assert_eq!(reserved["availability"], "onHold", "{reserved}");
+    assert_eq!(reserved["availability"], "unavailable", "{reserved}");
     assert_eq!(reserved["onHold"], true, "{reserved}");
     assert_no_borrower(reserved);
 
@@ -504,7 +504,12 @@ async fn ready_hold_plus_pending_hold_counts_only_pending() {
         );
         let copy = copy_by_id(body, item_id);
         assert_eq!(copy["onHold"], true, "{label} {copy}");
-        assert_eq!(copy["availability"], "onHold", "{label} {copy}");
+        let availability = if label == "staff" {
+            "onHold"
+        } else {
+            "unavailable"
+        };
+        assert_eq!(copy["availability"], availability, "{label} {copy}");
         assert!(copy.get("borrower").is_none(), "{label} {copy}");
         assert!(copy.get("loanId").is_none(), "{label} {copy}");
     }

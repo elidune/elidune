@@ -151,7 +151,7 @@ impl<T: for<'a> ToSchema<'a>> PaginatedResponse<T> {
         ("perPage" = Option<i64>, Query, description = "Items per page (default: 20)")
     ),
     responses(
-        (status = 200, description = "List of bibliographic records. Librarians and admins receive `BiblioShortStaff` (full availability, weeding, hold patron). Readers receive `BiblioShortPublic` (`toSearch` collapsed to `unavailable`, no staff fields).", body = BiblioSearchResponse),
+        (status = 200, description = "List of bibliographic records. Librarians and admins receive `BiblioShortStaff` (full availability, `circulationStatus`, weeding, hold patron, real copy total). Readers receive `BiblioShortPublic`: lost, declared missing, weeding-in-progress, and withdrawn copies are omitted. Remaining copies use `available`, `onLoan`, `onSiteOnly`, or `unavailable`. No borrower, `holdFor`, login, notes, or weeding fields.", body = BiblioSearchResponse),
         (status = 401, description = "Not authenticated")
     )
 )]
@@ -198,7 +198,7 @@ pub async fn list_biblios(
         ("full_record" = Option<bool>, Query, description = "If true, include full MARC record data")
     ),
     responses(
-        (status = 200, description = "Bibliographic record details. Librarians and admins receive `BiblioStaffView`. Readers receive `BiblioPublicView` (`toSearch` collapsed to `unavailable`, no hold patron, notes, weeding, loan id, or borrower). The record includes `holdsCount` (pending holds still waiting for a copy; `to_pick`, `ready`, and in-transit holds are excluded). Every copy includes `dueDate` (active loan `expiry_at`, or null) and `onHold` (true only when this copy is `to_pick` or `ready`, or in transit for a hold). An unassigned `pending` title hold does not set `onHold`. `holdFor` is set on an `onHold` copy when the caller has `users_rights` or `loans_rights` read or write. `users_rights` returns `UserShortStaff`. `loans_rights` without users read returns `{ id, cardNumber, initials }`. Patrons, the OPAC, and staff with neither right omit `holdFor`. Staff with `loans_rights` read or write also receive `borrower` on a copy that is on loan: `{ id, cardNumber, initials }` unless `users_rights` is read or write, which returns `UserShortStaff`.", body = BiblioReadResponse),
+        (status = 200, description = "Bibliographic record details. Librarians and admins receive `BiblioStaffView` (every copy, with `circulationStatus`). Readers receive `BiblioPublicView`: lost, declared missing, weeding-in-progress, and withdrawn copies are omitted. Remaining copies use public availability (`available`, `onLoan`, `onSiteOnly`, `unavailable`). The record includes `holdsCount` (pending holds still waiting for a copy; `to_pick`, `ready`, and in-transit holds are excluded). Every remaining copy includes `dueDate` (active loan `expiry_at`, or null) and `onHold` (true only when this copy is `to_pick` or `ready`, or in transit for a hold). An unassigned `pending` title hold does not set `onHold`. `holdFor` is set on a staff `onHold` copy when the caller has `users_rights` or `loans_rights` read or write. `users_rights` returns `UserShortStaff`. `loans_rights` without users read returns `{ id, cardNumber, initials }`. Patrons, the OPAC, and staff with neither right omit `holdFor`. Staff with `loans_rights` read or write also receive `borrower` on a copy that is on loan: `{ id, cardNumber, initials }` unless `users_rights` is read or write, which returns `UserShortStaff`.", body = BiblioReadResponse),
         (status = 404, description = "Biblio not found")
     )
 )]
@@ -683,7 +683,7 @@ pub struct DeleteBiblioParams {
         ("id" = i64, Path, description = "Biblio ID")
     ),
     responses(
-        (status = 200, description = "List of physical items. Librarians and admins receive `ItemStaffView`. Readers receive `ItemPublicView`. Copies include `dueDate` and `onHold` (same rules as `GET /biblios/{id}`). Staff with users or loans read receive `holdFor` on an `onHold` copy (same rule as `GET /biblios/{id}`). Readers omit it. This list does not include `borrower`.", body = ItemListResponse),
+        (status = 200, description = "List of physical items. Librarians and admins receive every copy as `ItemStaffView`, including `circulationStatus`. Readers receive `ItemPublicView` with lost, declared missing, weeding-in-progress, and withdrawn copies omitted. Remaining copies include `dueDate`, `onHold`, and public availability. Staff with users or loans read receive `holdFor` on an `onHold` copy (same rule as `GET /biblios/{id}`). Readers omit `holdFor`. This list does not include `borrower`.", body = ItemListResponse),
         (status = 404, description = "Biblio not found")
     )
 )]
@@ -713,7 +713,7 @@ pub async fn list_items(
         ItemListResponse::Public(
             items
                 .into_iter()
-                .filter(|item| item.weeding_status != crate::models::item::WeedingStatus::Withdrawn)
+                .filter(crate::models::item::Item::included_in_public_catalog)
                 .map(ItemPublicView::from)
                 .collect(),
         )

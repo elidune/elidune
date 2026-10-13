@@ -89,6 +89,7 @@ pub fn next_reminder_tier(
 ) -> Option<ReminderTier> {
     match CirculationStatus::from_db(circulation_status) {
         CirculationStatus::Lost
+        | CirculationStatus::Missing
         | CirculationStatus::ClaimedReturned
         | CirculationStatus::ToSearch => None,
         _ => {

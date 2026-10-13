@@ -128,6 +128,9 @@ impl Repository {
                 crate::models::circulation::CirculationStatus::ToSearch => {
                     "Item is missing from the shelf and is not borrowable"
                 }
+                crate::models::circulation::CirculationStatus::Missing => {
+                    "Item is declared missing and is not borrowable"
+                }
                 crate::models::circulation::CirculationStatus::Available => {
                     "Item is not borrowable"
                 }
@@ -462,6 +465,7 @@ impl Repository {
             barcode: biblio_row.get("item_barcode"),
             call_number: biblio_row.get("item_call_number"),
             borrowable,
+            circulation_status: None,
             weeding_status,
             source_name: biblio_row.get("item_source_name"),
             borrowed: true,

@@ -41,9 +41,9 @@ pub fn router() -> axum::Router<crate::AppState> {
         ("id" = i64, Path, description = "Physical copy (item) ID")
     ),
     responses(
-        (status = 200, description = "Biblio with a single item entry. Librarians and admins receive `BiblioStaffView`. Readers receive `BiblioPublicView`. The record includes `holdsCount`. The copy includes `dueDate` and `onHold` (same rules as `GET /biblios/{id}`). Staff with users or loans read receive `holdFor` on an `onHold` copy. Readers omit it. This route does not include `borrower`.", body = BiblioReadResponse),
+        (status = 200, description = "Biblio with a single item entry. Librarians and admins receive `BiblioStaffView` including `circulationStatus`. Readers receive `BiblioPublicView` with public availability. Lost, declared missing, weeding-in-progress, and withdrawn copies are not returned. The record includes `holdsCount`. The copy includes `dueDate` and `onHold` (same rules as `GET /biblios/{id}`). Staff with users or loans read receive `holdFor` on an `onHold` copy. Readers omit `holdFor`. This route does not include `borrower`.", body = BiblioReadResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
-        (status = 404, description = "Item not found or archived", body = crate::error::ErrorResponse),
+        (status = 404, description = "Item not found, archived, or hidden from this caller", body = crate::error::ErrorResponse),
         (status = 410, description = "Bibliographic record is archived", body = crate::error::ErrorResponse)
     )
 )]
@@ -54,12 +54,7 @@ pub async fn get_biblio_by_item(
 ) -> AppResult<Json<BiblioReadResponse>> {
     claims.require_read_items()?;
     let biblio = state.services.catalog.get_biblio_for_item(item_id).await?;
-    if !claims.is_librarian()
-        && biblio
-            .items
-            .iter()
-            .any(|item| item.weeding_status == crate::models::item::WeedingStatus::Withdrawn)
-    {
+    if !claims.is_librarian() && copy_hidden_from_public(&biblio) {
         return Err(crate::error::AppError::NotFound(
             "Bibliographic record not found".into(),
         ));
@@ -74,6 +69,14 @@ pub async fn get_biblio_by_item(
     Ok(Json(body))
 }
 
+/// Lost, missing, weeding-in-progress, and withdrawn copies are not a public record.
+fn copy_hidden_from_public(biblio: &crate::models::biblio::Biblio) -> bool {
+    biblio
+        .items
+        .iter()
+        .any(|item| !item.included_in_public_catalog())
+}
+
 /// Get the bibliographic record for a physical copy identified by barcode.
 ///
 /// Response is a full [`Biblio`]; `items` contains **only** the matching copy.
@@ -86,9 +89,9 @@ pub async fn get_biblio_by_item(
         ("barcode" = String, Path, description = "Physical copy barcode (exact match)")
     ),
     responses(
-        (status = 200, description = "Biblio with a single item entry. Librarians and admins receive `BiblioStaffView`. Readers receive `BiblioPublicView`. The record includes `holdsCount`. The copy includes `dueDate` and `onHold` (same rules as `GET /biblios/{id}`). Staff with users or loans read receive `holdFor` on an `onHold` copy. Readers omit it. This route does not include `borrower`.", body = BiblioReadResponse),
+        (status = 200, description = "Biblio with a single item entry. Librarians and admins receive `BiblioStaffView` including `circulationStatus`. Readers receive `BiblioPublicView` with public availability. Lost, declared missing, weeding-in-progress, and withdrawn copies are not returned. The record includes `holdsCount`. The copy includes `dueDate` and `onHold` (same rules as `GET /biblios/{id}`). Staff with users or loans read receive `holdFor` on an `onHold` copy. Readers omit `holdFor`. This route does not include `borrower`.", body = BiblioReadResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
-        (status = 404, description = "No active item with this barcode", body = crate::error::ErrorResponse),
+        (status = 404, description = "No active item with this barcode, or it is hidden from this caller", body = crate::error::ErrorResponse),
         (status = 410, description = "Bibliographic record is archived", body = crate::error::ErrorResponse)
     )
 )]
@@ -103,12 +106,7 @@ pub async fn get_biblio_by_barcode(
         .catalog
         .get_biblio_for_item_barcode(barcode.as_str())
         .await?;
-    if !claims.is_librarian()
-        && biblio
-            .items
-            .iter()
-            .any(|item| item.weeding_status == crate::models::item::WeedingStatus::Withdrawn)
-    {
+    if !claims.is_librarian() && copy_hidden_from_public(&biblio) {
         return Err(crate::error::AppError::NotFound(
             "Bibliographic record not found".into(),
         ));
