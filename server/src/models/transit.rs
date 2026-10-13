@@ -6,9 +6,9 @@ use serde_with::{serde_as, DisplayFromStr};
 use sqlx::FromRow;
 use utoipa::ToSchema;
 
-use crate::models::catalog_view::{borrower_initials, hold_for_identity, LoanBorrowerResponse};
+use crate::models::catalog_view::{hold_for_identity, LoanBorrowerMinimized, LoanBorrowerResponse};
 use crate::models::hold::Hold;
-use crate::models::user::{UserRights, UserShort};
+use crate::models::user::{Rights, UserRights, UserShort};
 
 /// Transit lifecycle (stored as lowercase strings in DB).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -95,33 +95,30 @@ pub struct TransitPatron {
     pub initials: String,
 }
 
-impl TransitPatron {
-    /// Reduce [`hold_for_identity`] to the transit shape.
-    ///
-    /// Holds read without users read is already `{ id, cardNumber, initials }`.
-    /// Holds read with users read is the staff profile; only the card and
-    /// initials are kept.
-    fn from_identity(identity: LoanBorrowerResponse) -> Self {
-        match identity {
-            LoanBorrowerResponse::Minimized(minimized) => Self {
-                card_number: minimized.card_number,
-                initials: minimized.initials,
-            },
-            LoanBorrowerResponse::Full(staff) => Self {
-                card_number: staff.barcode.filter(|value| !value.trim().is_empty()),
-                initials: borrower_initials(staff.firstname.as_deref(), staff.lastname.as_deref()),
-            },
+impl From<LoanBorrowerMinimized> for TransitPatron {
+    fn from(minimized: LoanBorrowerMinimized) -> Self {
+        Self {
+            card_number: minimized.card_number,
+            initials: minimized.initials,
         }
     }
 }
 
-/// Card and initials for a transit, or `None` when [`hold_for_identity`] hides the patron.
+/// Card and initials for a transit, or `None` when the caller lacks holds read.
 ///
-/// The hold-status gate (active, set aside, or ready) is applied by the caller.
-/// This function does not invent a second rights rule.
+/// Calls the minimized arm of [`hold_for_identity`] (the same `{ cardNumber, initials }`
+/// shape as a hold slip or shelf label). Users read is cleared before that call so
+/// the staff profile is never selected. The helper still returns `None` when
+/// `holds_rights` is below read. The hold-status gate (pending, set aside, or
+/// ready) is applied by the caller.
 #[must_use]
 pub fn transit_patron(rights: &UserRights, patron: UserShort) -> Option<TransitPatron> {
-    hold_for_identity(rights, patron).map(TransitPatron::from_identity)
+    let mut rights = rights.clone();
+    rights.users_rights = Rights::None;
+    let LoanBorrowerResponse::Minimized(minimized) = hold_for_identity(&rights, patron)? else {
+        return None;
+    };
+    Some(TransitPatron::from(minimized))
 }
 
 /// Item movement row (`item_transits`) plus the copy and patron for the queue.
@@ -236,7 +233,60 @@ pub struct TransitWithHold {
 
 #[cfg(test)]
 mod tests {
-    use super::TransitStatus;
+    use super::{transit_patron, TransitStatus};
+    use crate::models::catalog_view::partial_user_short;
+    use crate::models::user::{Rights, UserRights};
+
+    #[test]
+    fn users_read_still_yields_card_and_initials_only() {
+        let mut patron = partial_user_short(
+            7,
+            Some("CARD".into()),
+            Some("Helene".into()),
+            Some("Holder".into()),
+        );
+        patron.login = Some("helene".into());
+        let rights = UserRights {
+            holds_rights: Rights::Write,
+            users_rights: Rights::Write,
+            ..UserRights::default()
+        };
+        let shown = transit_patron(&rights, patron).expect("holds rights");
+        assert_eq!(shown.card_number.as_deref(), Some("CARD"));
+        assert_eq!(shown.initials, "HH");
+        let value = serde_json::to_value(&shown).expect("json");
+        let mut keys: Vec<&str> = value
+            .as_object()
+            .expect("object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(keys, ["cardNumber", "initials"]);
+        assert!(!value.to_string().contains("Helene"));
+        assert!(!value.to_string().contains("helene"));
+    }
+
+    #[test]
+    fn own_or_no_holds_rights_hides_the_patron_even_with_users_read() {
+        let patron = partial_user_short(
+            7,
+            Some("CARD".into()),
+            Some("Helene".into()),
+            Some("Holder".into()),
+        );
+        for holds_rights in [Rights::None, Rights::Own] {
+            let rights = UserRights {
+                holds_rights,
+                users_rights: Rights::Write,
+                ..UserRights::default()
+            };
+            assert!(
+                transit_patron(&rights, patron.clone()).is_none(),
+                "{holds_rights:?}"
+            );
+        }
+    }
 
     #[test]
     fn in_transit_always_blocks_checkout() {

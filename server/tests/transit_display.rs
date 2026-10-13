@@ -5,7 +5,7 @@ mod common;
 use axum::http::StatusCode;
 use common::fixtures;
 use common::TestApp;
-use elidune_server::models::user::{Rights, UserClaims};
+use elidune_server::models::user::{AccountTypeSlug, Rights, UserClaims};
 use serde_json::{json, Value};
 
 fn retarget(token: &str, secret: &str, holds: Rights, users: Rights) -> String {
@@ -13,6 +13,65 @@ fn retarget(token: &str, secret: &str, holds: Rights, users: Rights) -> String {
     claims.rights.holds_rights = holds;
     claims.rights.users_rights = users;
     claims.create_token(secret).expect("mint test token")
+}
+
+async fn login_as(app: &TestApp, admin_token: &str, account_type: &str) -> String {
+    let login = format!("trn{account_type}_{}", fixtures::unique_suffix());
+    let public_type_id = fixtures::public_type_id_by_name(app, admin_token, "adult").await;
+    let (status, body) = app
+        .post_json(
+            "/api/v1/users",
+            &json!({
+                "login": login,
+                "password": "readerpass1234",
+                "firstname": "Desk",
+                "lastname": "Agent",
+                "email": format!("{login}@test.local"),
+                "accountType": account_type,
+                "publicType": public_type_id.to_string(),
+                "sex": "f",
+                "birthdate": "1990-06-01",
+                "addrCity": "Paris"
+            }),
+            Some(admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "create {account_type}: {body}");
+    let user_id = fixtures::json_id(&body["id"]);
+    app.state
+        .services
+        .users
+        .set_must_change_password(user_id, false)
+        .await
+        .expect("clear must_change_password");
+    let (status, body) = app
+        .post_json(
+            "/api/v1/auth/login",
+            &json!({ "username": login, "password": "readerpass1234" }),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "login {account_type}: {body}");
+    body["token"].as_str().expect("token").to_string()
+}
+
+async fn create_agentguichet(app: &TestApp, admin_token: &str) -> String {
+    let code = format!("agentguichet{}", fixtures::unique_suffix() % 1_000_000_000);
+    let (status, body) = app
+        .post_json(
+            "/api/v1/account-types",
+            &json!({
+                "code": code,
+                "name": format!("Agent guichet {code}"),
+                "holdsRights": "r",
+                "usersRights": "n",
+                "settingsRights": "n"
+            }),
+            Some(admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "agentguichet type: {body}");
+    code
 }
 
 fn assert_minimal_patron(patron: &Value, card: &str) {
@@ -260,6 +319,62 @@ async fn patron_is_null_without_holds_rights_and_minimal_with_them() {
     let still_minimal = transit_row(&app, &holds_and_users, shipped.transit_id).await;
     assert_minimal_patron(&still_minimal["patron"], &shipped.card);
     assert_no_identity(&still_minimal, &shipped.login);
+}
+
+#[tokio::test]
+async fn patron_stays_minimal_for_librarian_and_agentguichet() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let shipped = ship_cross_site(&app, &admin_token, "trndesk").await;
+    let secret = app.state.config.users.jwt_secret.clone();
+
+    let librarian = login_as(&app, &admin_token, "librarian").await;
+    let librarian_claims = UserClaims::from_token(&librarian, &secret).expect("librarian token");
+    assert_eq!(librarian_claims.account_type, AccountTypeSlug::Librarian);
+    assert!(librarian_claims.rights.holds_rights.rank() >= Rights::Read.rank());
+    assert!(librarian_claims.rights.users_rights.rank() >= Rights::Read.rank());
+    let row = transit_row(&app, &librarian, shipped.transit_id).await;
+    assert_minimal_patron(&row["patron"], &shipped.card);
+    assert_no_identity(&row, &shipped.login);
+
+    let desk_code = create_agentguichet(&app, &admin_token).await;
+    let desk = login_as(&app, &admin_token, &desk_code).await;
+    let desk_claims = UserClaims::from_token(&desk, &secret).expect("agentguichet token");
+    assert!(desk_claims
+        .account_type
+        .as_str()
+        .starts_with("agentguichet"));
+    assert!(desk_claims.rights.holds_rights.rank() >= Rights::Read.rank());
+    assert!(desk_claims.rights.users_rights.rank() < Rights::Read.rank());
+    let row = transit_row(&app, &desk, shipped.transit_id).await;
+    assert_minimal_patron(&row["patron"], &shipped.card);
+    assert_no_identity(&row, &shipped.login);
+
+    let no_holds = retarget(&librarian, &secret, Rights::None, Rights::Read);
+    let hidden = transit_row(&app, &no_holds, shipped.transit_id).await;
+    assert!(hidden["patron"].is_null(), "no holds rights: {hidden}");
+    assert_no_identity(&hidden, &shipped.login);
+
+    let (status, cancelled) = app
+        .delete_with_auth(&format!("/api/v1/holds/{}", shipped.hold_id), &admin_token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "cancel hold: {cancelled}");
+    let row = transit_row(&app, &librarian, shipped.transit_id).await;
+    assert!(row["patron"].is_null(), "cancelled hold, librarian: {row}");
+    assert_no_identity(&row, &shipped.login);
+
+    let expired = ship_cross_site(&app, &admin_token, "trndeskexp").await;
+    sqlx::query("UPDATE holds SET status = 'expired' WHERE id = $1")
+        .bind(expired.hold_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("expire hold");
+    let row = transit_row(&app, &librarian, expired.transit_id).await;
+    assert_eq!(fixtures::json_id(&row["holdId"]), expired.hold_id, "{row}");
+    assert!(row["patron"].is_null(), "expired hold, librarian: {row}");
+    assert_no_identity(&row, &expired.login);
 }
 
 #[tokio::test]
