@@ -5,7 +5,9 @@ use serde_with::serde_as;
 use sqlx::FromRow;
 use utoipa::ToSchema;
 
+use super::fine::{AudienceUnpaidThresholdMode, MoneyCents};
 use super::loan::LoanSettingsRenewAt;
+use super::serde_util::reject_null;
 
 /// Public type from database (borrower audience category)
 #[serde_as]
@@ -22,8 +24,18 @@ pub struct PublicType {
     pub age_max: Option<i16>,
     /// Subscription price in cents (e.g. 1500 = 15.00€)
     pub subscription_price: Option<i32>,
-    /// Optional unpaid-fine threshold override. `None` inherits the global circulation policy.
-    pub unpaid_fine_threshold: Option<rust_decimal::Decimal>,
+    /// `inherit` uses the global circulation mode. `none` never blocks on amount.
+    /// `amount` blocks when the unpaid balance is strictly above `unpaidThresholdCents`.
+    pub unpaid_threshold_mode: AudienceUnpaidThresholdMode,
+    /// Integer cents. Present only when `unpaidThresholdMode` is `amount`.
+    /// `0` blocks any positive unpaid balance.
+    #[sqlx(rename = "unpaid_fine_threshold")]
+    #[serde(
+        rename = "unpaidThresholdCents",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schema(value_type = Option<i64>)]
+    pub unpaid_threshold_cents: Option<MoneyCents>,
     /// Optional max `pending`/`ready` holds. `None` inherits the global circulation policy.
     pub max_active_holds: Option<i16>,
 }
@@ -74,8 +86,13 @@ pub struct CreatePublicType {
     pub age_min: Option<i16>,
     pub age_max: Option<i16>,
     pub subscription_price: Option<i32>,
-    /// Optional unpaid-fine threshold override. `None` inherits the global circulation policy.
-    pub unpaid_fine_threshold: Option<rust_decimal::Decimal>,
+    /// Omitted on create defaults to `inherit`. `amount` requires `unpaidThresholdCents`.
+    /// JSON `null` is rejected.
+    #[serde(default, deserialize_with = "reject_null")]
+    pub unpaid_threshold_mode: Option<AudienceUnpaidThresholdMode>,
+    /// Required when `unpaidThresholdMode` is `amount`. Ignored for `inherit` and `none`.
+    #[serde(default, deserialize_with = "reject_null")]
+    pub unpaid_threshold_cents: Option<i64>,
     /// Optional max `pending`/`ready` holds. `None` inherits the global circulation policy.
     pub max_active_holds: Option<i16>,
 }
@@ -102,8 +119,10 @@ pub struct ReplacePublicTypeLoanSettingsRequest {
 
 /// Update public type request.
 ///
-/// Nullable overrides use `Option<Option<T>>`: omit the field to keep the stored
-/// value, send JSON `null` to clear it (inherit the global cap / threshold).
+/// Nullable overrides other than the unpaid-fine mode use `Option<Option<T>>`:
+/// omit the field to keep the stored value, send JSON `null` to clear it.
+/// `unpaidThresholdMode` has no null: omit it to leave the mode and cents unchanged.
+/// JSON `null` is rejected. `amount` requires `unpaidThresholdCents` in the same body.
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdatePublicType {
@@ -117,9 +136,12 @@ pub struct UpdatePublicType {
     pub age_max: Option<Option<i16>>,
     #[serde(default, with = "serde_with::rust::double_option")]
     pub subscription_price: Option<Option<i32>>,
-    /// `null` clears the override so the global unpaid-fine threshold applies.
-    #[serde(default, with = "serde_with::rust::double_option")]
-    pub unpaid_fine_threshold: Option<Option<rust_decimal::Decimal>>,
+    /// Omit to leave the stored mode and cents unchanged. `amount` requires cents.
+    #[serde(default, deserialize_with = "reject_null")]
+    pub unpaid_threshold_mode: Option<AudienceUnpaidThresholdMode>,
+    /// Required in this body when mode is `amount`. Ignored when mode is omitted, `inherit`, or `none`.
+    #[serde(default, deserialize_with = "reject_null")]
+    pub unpaid_threshold_cents: Option<i64>,
     /// `null` clears the override so the global active-hold cap applies.
     #[serde(default, with = "serde_with::rust::double_option")]
     pub max_active_holds: Option<Option<i16>>,
@@ -158,20 +180,32 @@ mod tests {
     fn explicit_null_clears_nullable_overrides_and_omission_does_not() {
         let omitted: UpdatePublicType = serde_json::from_str("{}").expect("empty object");
         assert!(omitted.max_active_holds.is_none());
-        assert!(omitted.unpaid_fine_threshold.is_none());
+        assert!(omitted.unpaid_threshold_mode.is_none());
+        assert!(omitted.unpaid_threshold_cents.is_none());
         assert!(omitted.subscription_duration_days.is_none());
         assert!(omitted.age_min.is_none());
         assert!(omitted.subscription_price.is_none());
 
-        let cleared: UpdatePublicType = serde_json::from_str(
-            r#"{"maxActiveHolds":null,"unpaidFineThreshold":null,"ageMax":null}"#,
-        )
-        .expect("nulls");
+        let cleared: UpdatePublicType =
+            serde_json::from_str(r#"{"maxActiveHolds":null,"ageMax":null}"#).expect("nulls");
         assert_eq!(cleared.max_active_holds, Some(None));
-        assert_eq!(cleared.unpaid_fine_threshold, Some(None));
+        assert!(cleared.unpaid_threshold_mode.is_none());
         assert_eq!(cleared.age_max, Some(None));
+
+        assert!(
+            serde_json::from_str::<UpdatePublicType>(r#"{"unpaidThresholdMode":null}"#).is_err()
+        );
 
         let set: UpdatePublicType = serde_json::from_str(r#"{"maxActiveHolds":7}"#).expect("value");
         assert_eq!(set.max_active_holds, Some(Some(7)));
+
+        let amount: UpdatePublicType =
+            serde_json::from_str(r#"{"unpaidThresholdMode":"amount","unpaidThresholdCents":450}"#)
+                .expect("amount");
+        assert_eq!(
+            amount.unpaid_threshold_mode,
+            Some(super::AudienceUnpaidThresholdMode::Amount)
+        );
+        assert_eq!(amount.unpaid_threshold_cents, Some(450));
     }
 }

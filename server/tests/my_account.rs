@@ -242,7 +242,11 @@ async fn create_fine_public_type(app: &TestApp, admin_token: &str, threshold: &s
             &json!({
                 "name": name,
                 "label": name,
-                "unpaidFineThreshold": threshold
+                "unpaidThresholdMode": "amount",
+                "unpaidThresholdCents": elidune_server::models::fine::money_to_cents(
+                    threshold.parse().expect("threshold")
+                )
+                .expect("cents")
             }),
             Some(admin_token),
         )

@@ -1257,9 +1257,15 @@ class ApiService {
   }
 
   async updateFinePolicy(policy: CirculationFinePolicy): Promise<CirculationFinePolicy> {
-    const response = await this.client.put<unknown>('/fines/policy', {
-      unpaidFineThreshold: policy.unpaidFineThreshold,
-    });
+    const response = await this.client.put<unknown>(
+      '/fines/policy',
+      policy.unpaidThresholdMode === 'amount'
+        ? {
+            unpaidThresholdMode: 'amount',
+            unpaidThresholdCents: policy.unpaidThresholdCents,
+          }
+        : { unpaidThresholdMode: 'none' },
+    );
     return normalizeFinePolicy(response.data);
   }
 

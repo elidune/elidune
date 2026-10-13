@@ -5,15 +5,36 @@ use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use utoipa::ToSchema;
 
-use crate::models::fine::Fine;
+use crate::models::fine::{Fine, GlobalUnpaidThresholdMode};
+use crate::models::serde_util::reject_null;
 
-/// Global unpaid-fine threshold that gates checkout and renew.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, sqlx::FromRow)]
+/// Global unpaid-fine gate for checkout, renew, and the card-scan `unpaid_fines` reason.
+///
+/// `unpaidThresholdMode` is `none` (no amount-based block) or `amount`.
+/// `unpaidThresholdCents` is present only for `amount`. `0` blocks any positive unpaid balance.
+/// Blocking is strict: the unpaid remainder must be above the amount.
+/// Paid and waived fines do not count.
+/// A public type uses its own mode: `amount` uses that type's cents, `none` never blocks
+/// on amount, and `inherit` uses this global mode.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CirculationFinePolicy {
-    /// Block new loans and renewals when unpaid fines exceed this amount.
-    /// Default `0` blocks any positive unpaid balance. Paid and waived fines do not count.
-    pub unpaid_fine_threshold: Decimal,
+    pub unpaid_threshold_mode: GlobalUnpaidThresholdMode,
+    /// Integer cents. Required with mode `amount`. Omitted for mode `none`.
+    /// `0` blocks any positive unpaid balance.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unpaid_threshold_cents: Option<i64>,
+}
+
+/// PUT `/fines/policy`. An omitted `unpaidThresholdMode` leaves the stored policy unchanged.
+/// JSON `null` is rejected. Mode `amount` requires `unpaidThresholdCents`.
+#[derive(Debug, Clone, Default, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase", default)]
+pub struct UpdateCirculationFinePolicy {
+    #[serde(default, deserialize_with = "reject_null")]
+    pub unpaid_threshold_mode: Option<GlobalUnpaidThresholdMode>,
+    #[serde(default, deserialize_with = "reject_null")]
+    pub unpaid_threshold_cents: Option<i64>,
 }
 
 /// How an accrue attempt resolved for one loan.

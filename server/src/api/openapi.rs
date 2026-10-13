@@ -423,6 +423,9 @@ use crate::api::{
             crate::models::dto::fines::AccrueBatchError,
             crate::models::dto::fines::AccrueFinesRequest,
             crate::models::dto::fines::CirculationFinePolicy,
+            crate::models::dto::fines::UpdateCirculationFinePolicy,
+            crate::models::fine::GlobalUnpaidThresholdMode,
+            crate::models::fine::AudienceUnpaidThresholdMode,
             // Holds
             crate::models::hold::Hold,
             crate::models::hold::HoldDetails,

@@ -121,7 +121,11 @@ async fn create_audience(app: &TestApp, admin_token: &str, max_loans: i16, thres
             &json!({
                 "name": name,
                 "label": name,
-                "unpaidFineThreshold": threshold
+                "unpaidThresholdMode": "amount",
+                "unpaidThresholdCents": elidune_server::models::fine::money_to_cents(
+                    threshold.parse().expect("threshold")
+                )
+                .expect("cents")
             }),
             Some(admin_token),
         )
