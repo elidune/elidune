@@ -294,6 +294,7 @@ impl AcquisitionsService {
                     due_date: None,
                     expected_return_date: None,
                     on_hold: false,
+                    legacy_notes_present: false,
                 };
 
                 let created_item = self.catalog.create_item(biblio_id, item).await?;

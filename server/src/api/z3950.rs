@@ -112,6 +112,7 @@ impl From<ImportItem> for Item {
             due_date: None,
             expected_return_date: None,
             on_hold: false,
+            legacy_notes_present: false,
         }
     }
 }

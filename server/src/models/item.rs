@@ -16,6 +16,19 @@ fn default_borrowable() -> bool {
     true
 }
 
+/// Presence of the retired item JSON key `notes`, including `null`.
+fn deserialize_legacy_notes_present<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    serde::de::IgnoredAny::deserialize(deserializer)?;
+    Ok(true)
+}
+
+/// Returned as 400 `validation_error` when an item write still sends `notes`.
+pub const LEGACY_ITEM_NOTES_MESSAGE: &str =
+    "notes is no longer accepted on item writes. Use publicNote and internalNote.";
+
 /// `items.price` as a decimal euro amount (`"12.50"`, `"15"`, `"0"`).
 ///
 /// Blank and unparseable text are `None`. Zero and negative amounts are kept.
@@ -335,15 +348,28 @@ pub struct Item {
     pub weeding_reason: Option<String>,
     /// Copy note shown to patrons and the OPAC. Blank stores SQL NULL.
     ///
+    /// At most [`COPY_NOTE_MAX_CHARS`] Unicode scalar values (`chars().count()`), not bytes.
     /// On `PUT /items/{id}`, null keeps the stored value and `""` clears it.
     /// Create and biblio replace treat null and blank as empty.
     #[validate(length(max = 4000, message = "Public note must be at most 4000 characters"))]
     pub public_note: Option<String>,
     /// Staff-only copy note. Former `items.notes` values live here.
     ///
-    /// Same null and blank rules as [`Self::public_note`]. Patrons and the OPAC never receive it.
+    /// Same length and null/blank rules as [`Self::public_note`]. Patrons and the OPAC never receive it.
     #[validate(length(max = 4000, message = "Internal note must be at most 4000 characters"))]
     pub internal_note: Option<String>,
+    /// Set only when the JSON body includes the retired `notes` key (including `null`).
+    ///
+    /// Item writes reject that key with 400 `validation_error` and write nothing.
+    /// Omitted from responses and from the OpenAPI schema.
+    #[serde(
+        default,
+        rename = "notes",
+        skip_serializing,
+        deserialize_with = "deserialize_legacy_notes_present"
+    )]
+    #[sqlx(default)]
+    pub legacy_notes_present: bool,
     pub price: Option<String>,
     /// Write-only: treat a missing price as an explicit deferral when enabling circulation.
     #[sqlx(default)]
@@ -476,7 +502,7 @@ fn nonempty(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|s| !s.is_empty())
 }
 
-/// Maximum length of [`Item::public_note`] and [`Item::internal_note`].
+/// Maximum length of [`Item::public_note`] and [`Item::internal_note`], in Unicode scalar values.
 pub const COPY_NOTE_MAX_CHARS: usize = 4000;
 
 /// `None` means the caller omitted the note (a partial update keeps the stored value).
@@ -597,7 +623,7 @@ impl From<Item> for ItemShort {
 mod tests {
     use super::{
         included_in_public_catalog, note_stored_value, note_write_value, Item, ItemAvailability,
-        WeedingStatus,
+        WeedingStatus, COPY_NOTE_MAX_CHARS,
     };
 
     #[test]
@@ -765,6 +791,49 @@ mod tests {
         assert!(sample_item().validate_copy_notes().is_ok());
     }
 
+    #[test]
+    fn copy_note_limit_counts_unicode_scalars_not_bytes() {
+        use validator::Validate;
+
+        let accepted = "é".repeat(COPY_NOTE_MAX_CHARS);
+        assert_eq!(accepted.chars().count(), COPY_NOTE_MAX_CHARS);
+        assert!(accepted.len() > COPY_NOTE_MAX_CHARS);
+        let ok = Item {
+            public_note: Some(accepted.clone()),
+            internal_note: Some(accepted.clone()),
+            ..sample_item()
+        };
+        assert!(ok.validate_copy_notes().is_ok());
+        assert!(ok.validate().is_ok());
+
+        let rejected = "é".repeat(COPY_NOTE_MAX_CHARS + 1);
+        assert_eq!(rejected.chars().count(), COPY_NOTE_MAX_CHARS + 1);
+        let too_long = Item {
+            public_note: Some(rejected.clone()),
+            ..sample_item()
+        };
+        assert!(too_long.validate_copy_notes().is_err());
+        assert!(too_long.validate().is_err());
+        let internal_too_long = Item {
+            internal_note: Some(rejected),
+            ..sample_item()
+        };
+        assert!(internal_too_long.validate().is_err());
+    }
+
+    #[test]
+    fn legacy_notes_key_is_present_including_null_and_is_not_serialized() {
+        let with_text: Item = serde_json::from_str(r#"{"notes":"legacy"}"#).unwrap();
+        assert!(with_text.legacy_notes_present);
+        let with_null: Item = serde_json::from_str(r#"{"notes":null}"#).unwrap();
+        assert!(with_null.legacy_notes_present);
+        let absent: Item = serde_json::from_str("{}").unwrap();
+        assert!(!absent.legacy_notes_present);
+        let body = serde_json::to_value(with_text).unwrap();
+        assert!(body.get("notes").is_none());
+        assert!(body.get("legacyNotesPresent").is_none());
+    }
+
     fn sample_item() -> Item {
         Item {
             id: None,
@@ -797,6 +866,7 @@ mod tests {
             due_date: None,
             expected_return_date: None,
             on_hold: false,
+            legacy_notes_present: false,
         }
     }
 }

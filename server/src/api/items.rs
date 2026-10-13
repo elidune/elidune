@@ -196,6 +196,10 @@ where
 /// JSON value, returns 422 `circulation_status_read_only` and does not apply
 /// any other field. The key is detected before the body is read as [`Item`].
 /// Use the dedicated actions (lost, missing, to-search).
+///
+/// The retired `notes` key is rejected with 400 `validation_error` and writes
+/// nothing, including when the value is null. Use `publicNote` and
+/// `internalNote` (at most 4000 Unicode characters each).
 #[utoipa::path(
     put,
     path = "/items/{id}",
@@ -206,8 +210,8 @@ where
     ),
     request_body = Item,
     responses(
-        (status = 200, description = "Physical item updated. Response `publicNote` and `internalNote` are the stored values. Null on either note keeps the stored value; a blank string clears it.", body = Item),
-        (status = 400, description = "Validation error. Body is `{ code, error, message }` with `code` `validation_error`.", body = crate::error::ErrorResponse),
+        (status = 200, description = "Physical item updated. Response `publicNote` and `internalNote` are the stored values. Null on either note keeps the stored value; a blank string clears it. Each note is at most 4000 Unicode characters.", body = Item),
+        (status = 400, description = "Validation error. Body is `{ code, error, message }` with `code` `validation_error`. Includes a retired `notes` key (nothing is written) and a `publicNote` or `internalNote` longer than 4000 Unicode characters.", body = crate::error::ErrorResponse),
         (status = 404, description = "Biblio or item not found", body = crate::error::ErrorResponse),
         (status = 409, description = "An item with this barcode already exists", body = crate::error::ErrorResponse),
         (status = 422, description = "`circulationStatus` is read-only (`circulation_status_read_only`) for any JSON value. Use the dedicated actions (lost, missing, to-search). No other field in the request is applied.", body = crate::error::ErrorResponse)

@@ -314,8 +314,8 @@ pub struct ImportMarcBatchQuery {
     ),
     request_body = Biblio,
     responses(
-        (status = 201, description = "Biblio created or merged", body = CreateBiblioResponse),
-        (status = 400, description = "Invalid input"),
+        (status = 201, description = "Biblio created or merged. Nested copies use `publicNote` and `internalNote` (at most 4000 Unicode characters each).", body = CreateBiblioResponse),
+        (status = 400, description = "Validation error. Body is `{ code, error, message }` with `code` `validation_error`. A nested item that includes `notes` is rejected and nothing is written.", body = crate::error::ErrorResponse),
         (status = 409, description = "Duplicate ISBN requires confirmation", body = crate::models::import_report::DuplicateConfirmationRequired)
     )
 )]
@@ -732,8 +732,8 @@ pub async fn list_items(
     ),
     request_body = Item,
     responses(
-        (status = 201, description = "Physical item created. Body is `Item` with `publicNote` and `internalNote`.", body = Item),
-        (status = 400, description = "Validation error", body = crate::error::ErrorResponse),
+        (status = 201, description = "Physical item created. Body is `Item` with `publicNote` and `internalNote` (at most 4000 Unicode characters each).", body = Item),
+        (status = 400, description = "Validation error. Body is `{ code, error, message }` with `code` `validation_error`. `notes` is rejected and nothing is written.", body = crate::error::ErrorResponse),
         (status = 404, description = "Biblio not found", body = crate::error::ErrorResponse),
         (status = 409, description = "An item with this barcode already exists", body = crate::models::import_report::DuplicateItemBarcodeRequired)
     )

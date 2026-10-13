@@ -1557,6 +1557,7 @@ mod tests {
             due_date: None,
             expected_return_date: None,
             on_hold: false,
+            legacy_notes_present: false,
         };
         let public_body = serde_json::to_value(ItemPublicView::from(item.clone())).unwrap();
         assert_eq!(public_body["publicNote"], "CD missing");

@@ -94,8 +94,7 @@ async fn staff_sees_both_notes_patrons_and_opac_see_public_only() {
                     "barcode": barcode,
                     "borrowable": true,
                     "publicNote": public_note,
-                    "internalNote": internal_note,
-                    "notes": "legacy field must be ignored"
+                    "internalNote": internal_note
                 }]
             }),
             Some(&admin_token),
@@ -105,7 +104,6 @@ async fn staff_sees_both_notes_patrons_and_opac_see_public_only() {
     let biblio_id = fixtures::json_id(&created["biblio"]["id"]);
     let created_copy = copy_by_barcode(&created["biblio"], &barcode);
     assert_staff_copy(created_copy, &public_note, &internal_note);
-    assert!(!created.to_string().contains("legacy field must be ignored"));
 
     let (status, staff) = app
         .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}"), &admin_token)
@@ -331,4 +329,308 @@ async fn overlong_public_note_returns_validation_error_body() {
         "{body}"
     );
     assert_eq!(body.as_object().expect("object").len(), 3, "{body}");
+}
+
+fn assert_legacy_notes_rejected(body: &Value) {
+    let mut keys: Vec<&str> = body
+        .as_object()
+        .unwrap_or_else(|| panic!("error object: {body}"))
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(keys, ["code", "error", "message"], "{body}");
+    assert_eq!(body["code"], "validation_error", "{body}");
+    assert_eq!(body["error"], "Validation Error", "{body}");
+    let message = body["message"].as_str().unwrap_or_else(|| panic!("{body}"));
+    assert!(message.contains("notes"), "{message}");
+    assert!(message.contains("publicNote"), "{message}");
+    assert!(message.contains("internalNote"), "{message}");
+}
+
+async fn count_rows(app: &TestApp, sql: &str, value: &str) -> i64 {
+    sqlx::query_scalar(sql)
+        .bind(value)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .expect("count")
+}
+
+#[tokio::test]
+async fn put_with_legacy_notes_is_400_and_writes_nothing() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let suffix = fixtures::unique_suffix();
+    let barcode = format!("LEGPUT-{suffix}");
+    let (status, created) = app
+        .post_json(
+            "/api/v1/biblios",
+            &json!({
+                "title": format!("Legacy notes put {suffix}"),
+                "mediaType": "printedText",
+                "lang": "french",
+                "items": [{
+                    "barcode": barcode,
+                    "callNumber": "SHELF-A",
+                    "borrowable": true,
+                    "publicNote": "visible",
+                    "internalNote": "staff only"
+                }]
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let item_id = fixtures::json_id(&created["biblio"]["items"][0]["id"]);
+
+    async fn snapshot(
+        app: &TestApp,
+        item_id: i64,
+    ) -> (Option<String>, Option<String>, Option<String>) {
+        sqlx::query_as("SELECT call_number, public_note, internal_note FROM items WHERE id = $1")
+            .bind(item_id)
+            .fetch_one(app.state.services.repository.pool())
+            .await
+            .expect("read item")
+    }
+
+    let before = snapshot(&app, item_id).await;
+    for notes in [json!("still the old field"), Value::Null] {
+        let (status, body) = app
+            .put_json(
+                &format!("/api/v1/items/{item_id}"),
+                &json!({
+                    "barcode": barcode,
+                    "callNumber": "CHANGED",
+                    "borrowable": false,
+                    "publicNote": "should not stick",
+                    "internalNote": "should not stick",
+                    "notes": notes
+                }),
+                Some(&admin_token),
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+        assert_legacy_notes_rejected(&body);
+        assert_eq!(snapshot(&app, item_id).await, before, "{notes}");
+    }
+}
+
+#[tokio::test]
+async fn create_with_legacy_notes_is_400_and_writes_nothing() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let suffix = fixtures::unique_suffix();
+    let (status, created) = app
+        .post_json(
+            "/api/v1/biblios",
+            &json!({
+                "title": format!("Legacy notes parent {suffix}"),
+                "mediaType": "printedText",
+                "lang": "french"
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let biblio_id = fixtures::json_id(&created["biblio"]["id"]);
+    let item_barcode = format!("LEGITEM-{suffix}");
+
+    let (status, body) = app
+        .post_json(
+            &format!("/api/v1/biblios/{biblio_id}/items"),
+            &json!({
+                "barcode": item_barcode,
+                "borrowable": true,
+                "publicNote": "visible",
+                "notes": "legacy"
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_legacy_notes_rejected(&body);
+    assert_eq!(
+        count_rows(
+            &app,
+            "SELECT COUNT(*) FROM items WHERE barcode = $1",
+            &item_barcode
+        )
+        .await,
+        0
+    );
+
+    let nested_title = format!("Legacy notes nested {suffix}");
+    let nested_barcode = format!("LEGNST-{suffix}");
+    let (status, body) = app
+        .post_json(
+            "/api/v1/biblios",
+            &json!({
+                "title": nested_title,
+                "mediaType": "printedText",
+                "lang": "french",
+                "items": [{
+                    "barcode": nested_barcode,
+                    "borrowable": true,
+                    "internalNote": "should not be stored",
+                    "notes": null
+                }]
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_legacy_notes_rejected(&body);
+    assert_eq!(
+        count_rows(
+            &app,
+            "SELECT COUNT(*) FROM biblios WHERE title = $1",
+            &nested_title
+        )
+        .await,
+        0
+    );
+    assert_eq!(
+        count_rows(
+            &app,
+            "SELECT COUNT(*) FROM items WHERE barcode = $1",
+            &nested_barcode
+        )
+        .await,
+        0
+    );
+}
+
+#[tokio::test]
+async fn note_limit_counts_unicode_characters() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let suffix = fixtures::unique_suffix();
+    let (status, created) = app
+        .post_json(
+            "/api/v1/biblios",
+            &json!({
+                "title": format!("Unicode note {suffix}"),
+                "mediaType": "printedText",
+                "lang": "french"
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let biblio_id = fixtures::json_id(&created["biblio"]["id"]);
+    let accepted = "é".repeat(4000);
+    assert_eq!(accepted.chars().count(), 4000);
+    assert!(accepted.len() > 4000);
+
+    let (status, body) = app
+        .post_json(
+            &format!("/api/v1/biblios/{biblio_id}/items"),
+            &json!({
+                "barcode": format!("UNI-{suffix}"),
+                "borrowable": true,
+                "publicNote": accepted,
+                "internalNote": accepted
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(body["publicNote"], accepted);
+    assert_eq!(body["internalNote"], accepted);
+
+    let rejected = "é".repeat(4001);
+    assert_eq!(rejected.chars().count(), 4001);
+    for field in ["publicNote", "internalNote"] {
+        let barcode = format!("UNIBAD-{field}-{suffix}");
+        let (status, body) = app
+            .post_json(
+                &format!("/api/v1/biblios/{biblio_id}/items"),
+                &json!({
+                    "barcode": barcode,
+                    "borrowable": true,
+                    field: rejected
+                }),
+                Some(&admin_token),
+            )
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{field} {body}");
+        assert_eq!(body["code"], "validation_error", "{body}");
+        assert_eq!(body["error"], "Validation Error", "{body}");
+        assert!(
+            body["message"].as_str().unwrap_or("").contains("4000"),
+            "{body}"
+        );
+        assert_eq!(body.as_object().expect("object").len(), 3, "{body}");
+        assert_eq!(
+            count_rows(
+                &app,
+                "SELECT COUNT(*) FROM items WHERE barcode = $1",
+                &barcode
+            )
+            .await,
+            0,
+            "{field}"
+        );
+    }
+
+    let nested_title = format!("Unicode nested {suffix}");
+    let nested_note = "é".repeat(4000);
+    let (status, body) = app
+        .post_json(
+            "/api/v1/biblios",
+            &json!({
+                "title": nested_title,
+                "mediaType": "printedText",
+                "lang": "french",
+                "items": [{
+                    "barcode": format!("UNINEST-{suffix}"),
+                    "borrowable": true,
+                    "publicNote": nested_note
+                }]
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(body["biblio"]["items"][0]["publicNote"], nested_note);
+
+    let rejected_title = format!("Unicode nested reject {suffix}");
+    let (status, body) = app
+        .post_json(
+            "/api/v1/biblios",
+            &json!({
+                "title": rejected_title,
+                "mediaType": "printedText",
+                "lang": "french",
+                "items": [{
+                    "barcode": format!("UNIBADNEST-{suffix}"),
+                    "borrowable": true,
+                    "internalNote": "é".repeat(4001)
+                }]
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["code"], "validation_error", "{body}");
+    assert!(
+        body["message"].as_str().unwrap_or("").contains("4000"),
+        "{body}"
+    );
+    assert_eq!(
+        count_rows(
+            &app,
+            "SELECT COUNT(*) FROM biblios WHERE title = $1",
+            &rejected_title
+        )
+        .await,
+        0
+    );
 }

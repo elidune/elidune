@@ -539,6 +539,7 @@ impl Repository {
             due_date: None,
             expected_return_date: None,
             on_hold: false,
+            legacy_notes_present: false,
         };
 
         let series_ids: Vec<i64> = series.iter().filter_map(|s| s.id).collect();
