@@ -333,11 +333,14 @@ impl AuthAttemptLimiter {
     }
 }
 
-/// Password-reset requests, keyed `reset:{normalized identifier}`.
+/// Password-reset requests.
 ///
-/// Separate from [`AuthAttemptLimiter`] so requesting a reset link cannot
-/// fill the sign-in failure window. The HTTP handler answers with the same
-/// generic 200 once the quota is full; this type only tracks the window.
+/// A resolved account is counted on `user:{id}`, so its login and email share
+/// one window. An identifier that matches no account stays on
+/// `reset:{normalized identifier}`. Separate from [`AuthAttemptLimiter`] so
+/// requesting a reset link cannot fill the sign-in failure window. The HTTP
+/// handler answers with the same generic 200 once the quota is full; this
+/// type only tracks the window.
 #[derive(Debug)]
 pub struct PasswordResetAttemptLimiter {
     inner: AuthAttemptLimiter,
@@ -351,7 +354,7 @@ impl PasswordResetAttemptLimiter {
         }
     }
 
-    fn key(identifier: &str) -> String {
+    fn identifier_key(identifier: &str) -> String {
         let id = normalize_identifier(identifier);
         if id.is_empty() {
             String::new()
@@ -360,18 +363,36 @@ impl PasswordResetAttemptLimiter {
         }
     }
 
-    /// Seconds until another reset request is inside the quota, when full.
+    fn user_key(user_id: i64) -> String {
+        format!("user:{user_id}")
+    }
+
+    /// Seconds until another reset request for an unknown identifier is inside the quota.
     #[must_use]
     pub fn retry_after(&self, identifier: &str) -> Option<u64> {
-        self.inner.retry_after(&Self::key(identifier))
+        self.inner.retry_after(&Self::identifier_key(identifier))
     }
 
     pub fn record(&self, identifier: &str) {
-        self.inner.record_failure(&Self::key(identifier));
+        self.inner.record_failure(&Self::identifier_key(identifier));
     }
 
     pub fn clear(&self, identifier: &str) {
-        self.inner.clear(&Self::key(identifier));
+        self.inner.clear(&Self::identifier_key(identifier));
+    }
+
+    /// Seconds until another reset request for this account is inside the quota.
+    #[must_use]
+    pub fn retry_after_user(&self, user_id: i64) -> Option<u64> {
+        self.inner.retry_after(&Self::user_key(user_id))
+    }
+
+    pub fn record_user(&self, user_id: i64) {
+        self.inner.record_failure(&Self::user_key(user_id));
+    }
+
+    pub fn clear_user(&self, user_id: i64) {
+        self.inner.clear(&Self::user_key(user_id));
     }
 
     pub fn prune(&self) {
@@ -600,6 +621,25 @@ mod tests {
         assert_eq!(login.retry_after("ada@example.com"), None);
         resets.clear("ADA@example.com");
         assert_eq!(resets.retry_after("ada@example.com"), None);
+    }
+
+    #[test]
+    fn resolved_account_quota_is_separate_from_unknown_identifiers() {
+        let resets = PasswordResetAttemptLimiter::new(3, Duration::from_secs(3600));
+        for _ in 0..3 {
+            assert_eq!(resets.retry_after_user(42), None);
+            resets.record_user(42);
+        }
+        assert!(resets.retry_after_user(42).is_some());
+        assert_eq!(resets.retry_after("ada@example.com"), None);
+        assert_eq!(resets.retry_after_user(7), None);
+        for _ in 0..3 {
+            resets.record("ada@example.com");
+        }
+        assert!(resets.retry_after("ada@example.com").is_some());
+        resets.clear_user(42);
+        assert_eq!(resets.retry_after_user(42), None);
+        assert!(resets.retry_after("ada@example.com").is_some());
     }
 
     #[test]

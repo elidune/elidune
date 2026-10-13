@@ -489,3 +489,78 @@ async fn unreachable_smtp_accepts_immediately_and_queues_the_reset() {
         .await
         .is_empty());
 }
+
+#[tokio::test]
+async fn login_then_email_share_one_reset_quota_of_three() {
+    let Some(app) = TestApp::spawn_with_config(
+        config_for_reset(None, Some(PUBLIC_BASE), 1),
+        reset_options(100, 3),
+    )
+    .await
+    else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (user_id, login, email) = reader_login(&app, &admin_token, "resetshare").await;
+
+    for identifier in [login.as_str(), email.as_str(), login.as_str()] {
+        let (status, body) = app
+            .post_json(
+                "/api/v1/auth/request-password-reset",
+                &json!({ "identifier": identifier }),
+                None,
+            )
+            .await;
+        assert_accepted(status, &body);
+    }
+    assert_eq!(
+        outbox_bodies(&app, &email).await.len(),
+        3,
+        "login and email share one quota"
+    );
+    let nonce = reset_nonce(&app, user_id).await;
+
+    let (status, blocked) = app
+        .post_json(
+            "/api/v1/auth/request-password-reset",
+            &json!({ "identifier": email }),
+            None,
+        )
+        .await;
+    assert_accepted(status, &blocked);
+    assert_ne!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(reset_nonce(&app, user_id).await, nonce, "no token issued");
+    assert_eq!(
+        outbox_bodies(&app, &email).await.len(),
+        3,
+        "shared quota must not queue another email"
+    );
+
+    let (unknown_status, unknown_body) = app
+        .post_json(
+            "/api/v1/auth/request-password-reset",
+            &json!({ "identifier": "nobody-share@example.com" }),
+            None,
+        )
+        .await;
+    assert_accepted(unknown_status, &unknown_body);
+    assert_eq!(unknown_body, blocked, "quota must not reveal the account");
+    assert!(outbox_bodies(&app, "nobody-share@example.com")
+        .await
+        .is_empty());
+
+    let (_, other_login, other_email) = reader_login(&app, &admin_token, "resetother").await;
+    let (status, body) = app
+        .post_json(
+            "/api/v1/auth/request-password-reset",
+            &json!({ "identifier": other_login }),
+            None,
+        )
+        .await;
+    assert_accepted(status, &body);
+    assert_eq!(
+        outbox_bodies(&app, &other_email).await.len(),
+        1,
+        "another account keeps its own quota"
+    );
+}

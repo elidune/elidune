@@ -37,10 +37,11 @@ pub struct ServerConfig {
     /// Default: 900 (15 minutes).
     #[serde(default = "default_auth_identifier_window_secs")]
     pub auth_identifier_window_secs: u64,
-    /// Password-reset emails allowed per identifier inside
-    /// [`Self::auth_password_reset_window_secs`]. Default: 3. On top of the
-    /// per-IP cap. Past the quota the API still returns the generic 200 and
-    /// sends no mail.
+    /// Password-reset emails allowed for one resolved account inside
+    /// [`Self::auth_password_reset_window_secs`]. Default: 3. Login and email
+    /// for that account share the window. An unknown identifier keeps its own
+    /// window. On top of the per-IP cap. Past the quota the API still returns
+    /// the generic 200 and sends no mail.
     #[serde(default = "default_auth_password_reset_max")]
     pub auth_password_reset_max: u32,
     /// Sliding window for password-reset requests, in seconds. Default: 3600.
