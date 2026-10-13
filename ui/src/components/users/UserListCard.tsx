@@ -6,6 +6,7 @@ import { isSubscriptionExpired } from '@/utils/userSubscription';
 import { formatSubscriptionExpiryLine } from '@/utils/subscriptionDisplay';
 import { LIST_ROW_ICON_BTN, LIST_ROW_ICON_BTN_DANGER, LIST_ROW_ICON_BTN_MUTED } from '@/utils/listRowActionIconClass';
 import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
+import { localizedPublicTypeById } from '@/utils/publicTypeDisplay';
 
 interface UserListCardProps {
   user: UserShort;
@@ -38,9 +39,7 @@ export default function UserListCard({
   const loanCount = user.nbLoans ?? 0;
   const renewDisabled = !isSubscriptionExpired(user.expiryAt);
   const accountLabel = localizedAccountTypeLabel(t, user.accountType, accountTypes);
-  const publicLabel = user.publicType
-    ? publicTypes.find((p) => p.id === String(user.publicType))?.label
-    : null;
+  const publicLabel = localizedPublicTypeById(t, publicTypes, user.publicType);
 
   const created =
     user.createdAt != null && user.createdAt !== ''

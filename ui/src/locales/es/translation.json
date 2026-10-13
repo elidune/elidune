@@ -925,11 +925,11 @@
     "hasLoansWarning": "Este usuario todavía tiene {{count}} préstamo(s) activo(s).",
     "loans": "Préstamos",
     "newUser": "Nuevo usuario",
-    "count": "{{count}} usuario",
+    "count_one": "{{count}} usuario",
+    "count_other": "{{count}} usuarios",
     "noUsers": "No se encontraron usuarios",
     "subscriptionExpired": "Suscripción caducada",
     "subscriptionValidUntil": "Hasta el {{date}}",
-    "count_plural": "{{count}} usuarios",
     "cityPostalLookup": "Ciudad o código postal (búsqueda)",
     "cityPostalLookupHint": "Datos de Francia (API estatal). Rellena código postal y ciudad al seleccionar.",
     "cityPostalLookupPlaceholder": "p. ej. Annecy o Annecy (74000)",
@@ -2328,6 +2328,13 @@
       "general": "Público general",
       "specialized": "Especializado",
       "unknown": "No especificado"
+    },
+    "patronType": {
+      "child": "Infantil",
+      "adult": "Adulto",
+      "school": "Centro escolar",
+      "staff": "Personal",
+      "senior": "Sénior"
     },
     "occupation": {
       "unknown": "No especificado",

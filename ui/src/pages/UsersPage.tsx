@@ -25,6 +25,7 @@ import api from '@/services/api';
 import type { UserShort } from '@/types';
 import { isSubscriptionExpired } from '@/utils/userSubscription';
 import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
+import { localizedPublicTypeById } from '@/utils/publicTypeDisplay';
 const USERS_PER_PAGE = 20;
 
 export default function UsersPage() {
@@ -157,9 +158,9 @@ export default function UsersPage() {
             </p>
             <p className="text-sm text-gray-500 dark:text-gray-400">
               {localizedAccountTypeLabel(t, user.accountType, accountTypes)}
-              {user.publicType && (() => {
-                const pt = publicTypes.find((p) => p.id === String(user.publicType));
-                return pt ? <> · {pt.label}</> : null;
+              {(() => {
+                const publicLabel = localizedPublicTypeById(t, publicTypes, user.publicType);
+                return publicLabel ? <> · {publicLabel}</> : null;
               })()}
             </p>
           </div>

@@ -56,6 +56,7 @@ import { isUserRecordLoan } from '@/utils/catalogView';
 import { isLoansForbidden, loansQueryRetry, userRecordQueryRetry } from '@/utils/loanListAccess';
 import UserRecordLoanIdentity from '@/components/users/UserRecordLoanIdentity';
 import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
+import { localizedPublicTypeById } from '@/utils/publicTypeDisplay';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 import { deferFromEffect } from '@/utils/deferFromEffect';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
@@ -897,9 +898,9 @@ export default function UserDetailPage() {
             </h1>
             <div className="flex items-center gap-2 mt-1">
               <Badge>{localizedAccountTypeLabel(t, user.accountType, accountTypes)}</Badge>
-              {user.publicType != null && user.publicType !== '' && (() => {
-                const pt = publicTypes.find((p) => p.id === String(user.publicType));
-                return pt ? <Badge variant="info">{pt.label}</Badge> : null;
+              {(() => {
+                const publicLabel = localizedPublicTypeById(t, publicTypes, user.publicType);
+                return publicLabel ? <Badge variant="info">{publicLabel}</Badge> : null;
               })()}
               {overdueLoans.length > 0 && (
                 <Badge variant="danger">{t('loans.overdueCount', { count: overdueLoans.length })}</Badge>

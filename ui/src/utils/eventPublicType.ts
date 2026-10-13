@@ -1,4 +1,5 @@
 import type { PublicType } from '@/types';
+import { localizedPublicTypeLabel } from '@/utils/publicTypeDisplay';
 
 export interface EventAudienceSource {
   allAudiences?: boolean;
@@ -12,6 +13,7 @@ export function eventAudienceDisplayLabel(
   event: EventAudienceSource,
   publicTypes: PublicType[],
   allLabel: string,
+  t: (key: string) => string,
 ): string {
   if (event.allAudiences) return allLabel;
   const names = (event.publicTypes ?? []).map((name) => name.trim()).filter((name) => name !== '');
@@ -21,6 +23,9 @@ export function eventAudienceDisplayLabel(
   }
   if (names.length === 0) return '—';
   return names
-    .map((name) => publicTypes.find((pt) => pt.name === name)?.label ?? name)
+    .map((name) => {
+      const match = publicTypes.find((pt) => pt.name === name);
+      return match ? localizedPublicTypeLabel(t, match) : localizedPublicTypeLabel(t, { name, label: name });
+    })
     .join(', ');
 }
