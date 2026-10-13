@@ -704,6 +704,11 @@
     "volume": "Band {{number}}",
     "availableCopies_one": "{{count}} Exemplar",
     "availableCopies_other": "{{count}} Exemplare",
+    "availableCount_one": "{{count}} verfügbar",
+    "availableCount_other": "{{count}} verfügbar",
+    "copyTotal_one": "{{count}} Exemplar",
+    "copyTotal_other": "{{count}} Exemplaren",
+    "availableOfTotal": "{{availablePart}} von {{totalPart}}",
     "batchDeleteScan": {
       "openButton": "Per Scan löschen",
       "title": "Exemplare per Scan löschen",

@@ -29,7 +29,8 @@ import { useLibrary } from '@/contexts/LibraryContext';
 import { Card, Input, Button, LibraryInfoSection } from '@/components/common';
 import NoticeHoldsWaiting from '@/components/holds/NoticeHoldsWaiting';
 import ItemAvailabilityBadge from '@/components/items/ItemAvailabilityBadge';
-import { countAvailableCopies, summaryAvailability } from '@/utils/itemAvailability';
+import { copyAvailabilityLabel, summaryAvailability } from '@/utils/itemAvailability';
+import { formatCatalogLanguage } from '@/utils/catalogLanguage';
 import { useLibrarySchedule } from '@/hooks/common/useLibrarySchedule';
 import api from '@/services/api';
 import { loginFailureMessage } from '@/utils/apiError';
@@ -263,7 +264,7 @@ function BiblioDetailPane({
   biblioId: string;
   onClose: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   const { data: detail, isLoading } = useQuery({
     queryKey: ['opac-biblio', biblioId],
@@ -282,7 +283,12 @@ function BiblioDetailPane({
         { label: t('items.publisher'), value: detail.edition?.publisherName },
         { label: t('items.publicationDate'), value: detail.publicationDate ?? detail.edition?.date },
         { label: t('items.publicationPlace'), value: detail.edition?.placeOfPublication },
-        { label: t('items.language'), value: detail.lang ? t(`languages.${detail.lang}`, { defaultValue: detail.lang }) : null },
+        {
+          label: t('items.language'),
+          value: detail.lang
+            ? formatCatalogLanguage(detail.lang, i18n.language, t('codes.lang.unknown'))
+            : null,
+        },
       ].filter((r) => r.value)
     : [];
 
@@ -781,7 +787,7 @@ export default function LoginPage() {
                         ) : (
                           <div>
                             {biblios.map((biblio) => {
-                              const totalItems = biblio.items?.length ?? 0;
+                              const copiesLabel = copyAvailabilityLabel(t, biblio.items);
                               const authorName = biblio.author
                                 ? [biblio.author.firstname, biblio.author.lastname].filter(Boolean).join(' ')
                                 : null;
@@ -821,10 +827,10 @@ export default function LoginPage() {
                                     <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">
                                       {authorName ?? '—'}
                                     </p>
-                                    {totalItems > 0 && (
+                                    {copiesLabel && (
                                       <span className="inline-flex flex-wrap items-center gap-2">
                                         <span className="text-xs text-gray-600 dark:text-gray-300">
-                                          {t('items.availableCopies', { count: countAvailableCopies(biblio.items) })}
+                                          {copiesLabel}
                                         </span>
                                         <ItemAvailabilityBadge
                                           availability={summaryAvailability(biblio.items, 'public')}

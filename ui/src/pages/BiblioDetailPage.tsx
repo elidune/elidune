@@ -40,7 +40,8 @@ import { isItemWithdrawn, isTitleWithdrawn } from '@/utils/weeding';
 import { isCatalogDeletionRefusal } from '@/utils/withdrawals';
 import { staffUnavailableDetailKey, type AvailabilityAudience } from '@/utils/itemAvailability';
 import { useTranslation } from 'react-i18next';
-import { LANG_OPTIONS, FUNCTION_OPTIONS, PUBLIC_TYPE_OPTIONS, getCodeLabel } from '@/utils/codeLabels';
+import { FUNCTION_OPTIONS, PUBLIC_TYPE_OPTIONS, getCodeLabel } from '@/utils/codeLabels';
+import { formatCatalogLanguage } from '@/utils/catalogLanguage';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import {
@@ -458,7 +459,11 @@ export default function BiblioDetailPage() {
                   <InfoRow
                     icon={BookOpen}
                     label={t('items.language')}
-                    value={item.lang != null && item.lang !== '' ? getCodeLabel(t, LANG_OPTIONS, item.lang) : undefined}
+                    value={
+                      item.lang != null && item.lang !== ''
+                        ? formatCatalogLanguage(item.lang, i18n.language, t('codes.lang.unknown'))
+                        : undefined
+                    }
                   />
                   <InfoRow
                     icon={Tag}

@@ -1,3 +1,4 @@
+import type { TFunction } from 'i18next';
 import type { ItemAvailability, ItemPublicAvailability, ItemWeedingStatus } from '@/types';
 import { CIRCULATION_STATUS } from '@/utils/circulationStatus';
 import { isItemWithdrawn } from '@/utils/weeding';
@@ -73,6 +74,30 @@ export function countAvailableCopies(
     if (item.availability === 'available') count += 1;
   }
   return count;
+}
+
+/**
+ * "N available of M copies". `total` is the copy list length (the API has no
+ * separate total). Available is never allowed to imply a total of zero.
+ */
+export function formatCopyAvailability(t: TFunction, available: number, total: number): string {
+  const ready = Math.max(0, available);
+  const copies = Math.max(0, total, ready);
+  return t('items.availableOfTotal', {
+    availablePart: t('items.availableCount', { count: ready }),
+    totalPart: t('items.copyTotal', { count: copies }),
+  });
+}
+
+/** Search-result copy line. Null when the notice has no copies. */
+export function copyAvailabilityLabel(
+  t: TFunction,
+  items?: ReadonlyArray<{ availability?: string | null }> | null,
+): string | null {
+  const total = items?.length ?? 0;
+  const available = countAvailableCopies(items);
+  if (Math.max(total, available) === 0) return null;
+  return formatCopyAvailability(t, available, total);
 }
 
 /**

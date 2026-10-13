@@ -704,6 +704,11 @@
     "volume": "Volume {{number}}",
     "availableCopies_one": "{{count}} exemplaire",
     "availableCopies_other": "{{count}} exemplaires",
+    "availableCount_one": "{{count}} disponible",
+    "availableCount_other": "{{count}} disponibles",
+    "copyTotal_one": "{{count}} exemplaire",
+    "copyTotal_other": "{{count}} exemplaires",
+    "availableOfTotal": "{{availablePart}} sur {{totalPart}}",
     "batchDeleteScan": {
       "openButton": "Supprimer par scan",
       "title": "Supprimer des exemplaires par scan",

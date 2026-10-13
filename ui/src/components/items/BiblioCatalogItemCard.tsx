@@ -1,7 +1,7 @@
 import { ChevronRight, Edit, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { BiblioShort, Author } from '@/types';
-import { countAvailableCopies } from '@/utils/itemAvailability';
+import { copyAvailabilityLabel } from '@/utils/itemAvailability';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { LIST_ROW_ICON_BTN, LIST_ROW_ICON_BTN_DANGER } from '@/utils/listRowActionIconClass';
 
@@ -37,10 +37,7 @@ export default function BiblioCatalogItemCard({
   onDelete,
 }: BiblioCatalogItemCardProps) {
   const { t } = useTranslation();
-  const total = item.items?.length ?? 0;
-  const available = countAvailableCopies(item.items);
-  const specimensText =
-    total === 0 ? '—' : t('items.availableCopies', { count: available });
+  const specimensText = copyAvailabilityLabel(t, item.items) ?? '—';
 
   return (
     <div className="flex items-stretch border-b border-gray-100 dark:border-gray-800 last:border-b-0 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
