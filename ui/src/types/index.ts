@@ -1088,12 +1088,15 @@ export interface ClaimsReturnedQueueItem {
 /**
  * Why `GET /me/loans` refuses a renewal (`MyLoanRenewalRefusal`).
  * Snake_case. Absent (`null`) when `canRenew` is true.
- * Account reasons (`account_blocked`, `fines_over_threshold`) are checked first
- * and apply to every loan.
+ * Account reasons (`card_lost`, `account_blocked`, `subscription_expired`,
+ * `fines_over_threshold`) are checked first and apply to every loan.
+ * Staff `force` skips `account_blocked`, `subscription_expired`, and
+ * `fines_over_threshold`. It does not skip `card_lost`.
  */
 export type MyLoanRenewalRefusal =
   | 'card_lost'
   | 'account_blocked'
+  | 'subscription_expired'
   | 'fines_over_threshold'
   | 'withdrawn'
   | 'claimed_returned'

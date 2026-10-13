@@ -5,10 +5,14 @@ export type CirculationForceSurface = 'loan' | 'batch' | 'renewal';
 const LOAN_FORCEABLE = new Set(['business_rule_violation']);
 
 /**
- * Renewal `force` skips account and unpaid-fine gates only.
+ * Renewal `force` skips a blocked account, an expired subscription, and unpaid fines.
  * It does not skip `card_lost`, and it does not move a due date that would stay put.
  */
-const RENEWAL_FORCEABLE = new Set(['account_blocked', 'fines_over_threshold']);
+const RENEWAL_FORCEABLE = new Set([
+  'account_blocked',
+  'subscription_expired',
+  'fines_over_threshold',
+]);
 
 /**
  * Whether the desk may offer a force retry.

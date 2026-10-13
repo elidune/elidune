@@ -184,11 +184,27 @@ export function renewalTooEarlyOpenDate(error: unknown): string | null {
   return message?.match(RENEWAL_OPEN_DATE)?.[1] ?? null;
 }
 
-/** Account-wide refusals. The server checks these before any per-loan reason. */
-const ACCOUNT_RENEWAL_REFUSALS = ['account_blocked', 'fines_over_threshold'] as const;
+/**
+ * Account-wide refusals, in the order the server checks them.
+ * `card_lost` is first and is not skipped by staff `force`.
+ */
+const ACCOUNT_RENEWAL_REFUSALS = [
+  'card_lost',
+  'account_blocked',
+  'subscription_expired',
+  'fines_over_threshold',
+] as const;
 
+export type AccountRenewalRefusal = (typeof ACCOUNT_RENEWAL_REFUSALS)[number];
+
+/**
+ * Codes localized from a renew `422`.
+ * `card_lost` is absent: checkout keeps `errors.apiCode.card_lost`.
+ */
 const RENEWAL_REFUSAL_CODES: readonly MyLoanRenewalRefusal[] = [
-  ...ACCOUNT_RENEWAL_REFUSALS,
+  'account_blocked',
+  'subscription_expired',
+  'fines_over_threshold',
   'withdrawn',
   'claimed_returned',
   'hold_waiting',
@@ -202,8 +218,18 @@ export function isRenewalRefusalCode(code: string | null | undefined): code is M
 
 export function isAccountRenewalRefusal(
   code: string | null | undefined,
-): code is (typeof ACCOUNT_RENEWAL_REFUSALS)[number] {
-  return code === 'account_blocked' || code === 'fines_over_threshold';
+): code is AccountRenewalRefusal {
+  return !!code && (ACCOUNT_RENEWAL_REFUSALS as readonly string[]).includes(code);
+}
+
+/** Highest-priority account refusal among the reader's loans, or null. */
+export function accountRenewalRefusal(
+  codes: readonly (string | null | undefined)[],
+): AccountRenewalRefusal | null {
+  for (const candidate of ACCOUNT_RENEWAL_REFUSALS) {
+    if (codes.includes(candidate)) return candidate;
+  }
+  return null;
 }
 
 export function formatIsoCalendarDate(isoDate: string, language: string): string {
@@ -214,11 +240,10 @@ export function formatIsoCalendarDate(isoDate: string, language: string): string
 }
 
 /**
- * Same sentence for a list row and for a POST `/loans/{id}/renew` error.
+ * Same sentence for the account banner, a loan row, and a POST `/loans/{id}/renew` error.
  * `renewal_too_early` without a date falls back to the dateless sentence.
- * `card_lost` on the patron list asks them to come to the desk. The staff
- * checkout error uses `errors.apiCode.card_lost` instead, so it is not an
- * API-error refusal code here.
+ * `card_lost` is an account reason on the reader list. The staff checkout error
+ * uses `errors.apiCode.card_lost` instead, so it is not an API-error refusal code here.
  */
 export function renewalRefusalText(
   t: TFunction,

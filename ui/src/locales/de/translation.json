@@ -1203,7 +1203,8 @@
     "renewalPossibleFrom": "Verlängerung möglich ab {{date}}",
     "renewalTooEarly": "Die Verlängerung ist noch nicht möglich.",
     "renewalRefusal": {
-      "card_lost": "Karte als verloren gemeldet. Bitte wenden Sie sich an die Ausleihe.",
+      "card_lost": "Karte als verloren gemeldet: Verlängerung nicht möglich",
+      "subscription_expired": "Abonnement abgelaufen, erneuern Sie es an der Ausleihe, um Ihre Ausleihen zu verlängern.",
       "account_blocked": "Ihr Konto erlaubt derzeit keine Verlängerung. Bitte wenden Sie sich an die Bibliothek.",
       "fines_over_threshold": "Offene Gebühren liegen über dem zulässigen Betrag.",
       "withdrawn": "Dieses Exemplar ist ausgesondert und kann nicht verlängert werden.",

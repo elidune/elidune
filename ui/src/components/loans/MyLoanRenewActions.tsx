@@ -11,7 +11,7 @@ interface MyLoanRenewActionsProps {
   onRenew: () => void;
 }
 
-/** Patron renew control on « Mes prêts ». A lost card disables the button and explains why. */
+/** Patron renew control on « Mes prêts ». Account refusals are explained once in the page banner. */
 export default function MyLoanRenewActions({
   canRenew,
   renewalRefusalCode,
