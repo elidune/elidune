@@ -772,8 +772,10 @@ export interface Item {
 
 /**
  * Staff notice copy (`ItemStaffView`).
- * Includes weeding, copy notes, circulation status, the active loan id, and the
- * hold patron when `availability` is `onHold`. `priceDeferred` is sent only when true.
+ * Includes weeding, copy notes, circulation status, the active loan id, `dueDate`,
+ * `onHold`, and the hold patron when `availability` is `onHold`.
+ * `borrower` is present only on `GET /biblios/{id}` when the caller has loans
+ * read or write and the copy is on loan. `priceDeferred` is sent only when true.
  */
 export interface ItemStaffView {
   id: string | null;
@@ -796,20 +798,28 @@ export interface ItemStaffView {
   sourceName: string | null;
   borrowed: boolean;
   loanId?: string | null;
-  /** Future server field. Absent until the item payload carries a minimized borrower. */
-  borrower?: ItemCopyBorrower | null;
-  /** Future server field. Expected return, when the copy is on loan. */
-  dueDate?: string | null;
+  /** Active loan due instant. Null when the copy is not on loan. */
+  dueDate: string | null;
   availability: ItemAvailability;
   canHoldItem: boolean;
+  /**
+   * True only when this copy is `to_pick` or `ready`, or in transit for a hold.
+   * An unassigned `pending` title hold leaves this false.
+   */
+  onHold: boolean;
   holdUserId?: string | null;
   holdUserName?: string | null;
+  /**
+   * `GET /biblios/{id}` only. Minimized `{ id, cardNumber, initials }` without
+   * users read; `UserShortStaff` with users read.
+   */
+  borrower?: UserShortStaff | LoanBorrowerMinimized | null;
 }
 
 /**
  * Reader/OPAC notice copy (`ItemPublicView`).
- * No notes, weeding, circulation status, loan id, or hold patron.
- * `availability` is never `toSearch`.
+ * No notes, weeding, circulation status, loan id, borrower, or hold patron.
+ * `dueDate` and `onHold` are included. `availability` is never `toSearch`.
  */
 export interface ItemPublicView {
   id: string | null;
@@ -826,15 +836,15 @@ export interface ItemPublicView {
   archivedAt: string | null;
   sourceName: string | null;
   borrowed: boolean;
-  /**
-   * Future server field. The reader and OPAC views never render it,
-   * even when a later payload includes a card or initials.
-   */
-  borrower?: ItemCopyBorrower | null;
-  /** Future server field. Expected return, when the copy is on loan. */
-  dueDate?: string | null;
+  /** Active loan due instant. Null when the copy is not on loan. */
+  dueDate: string | null;
   availability: ItemPublicAvailability;
   canHoldItem: boolean;
+  /**
+   * True only when this copy is `to_pick` or `ready`, or in transit for a hold.
+   * An unassigned `pending` title hold leaves this false.
+   */
+  onHold: boolean;
 }
 
 /** `GET /biblios/{id}`, `GET /items/{id}`, and `GET /items/barcode/{barcode}`. */
@@ -921,6 +931,8 @@ export interface BiblioStaffView {
   updatedAt: string | null;
   archivedAt: string | null;
   weedingStatus: ItemWeedingStatus;
+  /** `pending` holds still waiting for a copy. No patron identity. */
+  holdsCount: number;
   authors: Author[];
   series: Serie[];
   collections: Collection[];
@@ -959,6 +971,8 @@ export interface BiblioPublicView {
   createdAt: string | null;
   updatedAt: string | null;
   archivedAt: string | null;
+  /** `pending` holds still waiting for a copy. No patron identity. */
+  holdsCount: number;
   authors: AuthorPublic[];
   series: Serie[];
   collections: Collection[];

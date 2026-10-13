@@ -25,9 +25,11 @@ export default function CopyLoanStatus({ audience, copy, linked = false }: CopyL
   const borrowed = isCopyBorrowed(copy);
   const onHold = isCopyOnHold(copy);
 
+  const assignedBesideStatus = copy.onHold === true && !onHold;
+
   if (audience !== 'staff') {
     const due = borrowed ? formatCopyDueDate(copy.dueDate, i18n.language) : null;
-    if (!borrowed && !onHold) return null;
+    if (!borrowed && !onHold && !assignedBesideStatus) return null;
     return (
       <div data-copy-status="public">
         {borrowed ? <p className="text-sm text-gray-500 dark:text-gray-400">{t('items.borrowed')}</p> : null}
@@ -35,21 +37,31 @@ export default function CopyLoanStatus({ audience, copy, linked = false }: CopyL
           <p className="text-sm text-gray-500 dark:text-gray-400">{t('items.dueBack', { date: due })}</p>
         ) : null}
         {onHold ? <p className="text-sm text-gray-500 dark:text-gray-400">{t('availability.onHold')}</p> : null}
+        {assignedBesideStatus ? (
+          <p className="text-sm text-gray-500 dark:text-gray-400">{t('items.holdWaiting')}</p>
+        ) : null}
       </div>
     );
   }
 
-  if (!borrowed) return null;
-  const identity = itemBorrowerIdentity(copy.borrower);
+  if (!borrowed && !assignedBesideStatus) return null;
+  const identity = borrowed ? itemBorrowerIdentity(copy.borrower) : null;
+  const due = borrowed ? formatCopyDueDate(copy.dueDate, i18n.language) : null;
   return (
-    <p data-copy-status="staff" className="text-sm text-gray-500 dark:text-gray-400">
-      {identity ? (
-        <>
-          {t('items.borrowedBy')} <ReaderIdentifier user={identity} linked={linked} />
-        </>
-      ) : (
-        t('items.borrowed')
-      )}
-    </p>
+    <div data-copy-status="staff" className="text-sm text-gray-500 dark:text-gray-400">
+      {borrowed ? (
+        <p>
+          {identity ? (
+            <>
+              {t('items.borrowedBy')} <ReaderIdentifier user={identity} linked={linked} />
+            </>
+          ) : (
+            t('items.borrowed')
+          )}
+        </p>
+      ) : null}
+      {due ? <p>{t('items.dueBack', { date: due })}</p> : null}
+      {assignedBesideStatus ? <p>{t('items.holdWaiting')}</p> : null}
+    </div>
   );
 }

@@ -608,6 +608,32 @@ Each preview item is a **`BiblioShort`-shaped object** (flattened) plus **`valid
 { "id": "818273645564928001", "barcode": "978-2-07-040850-4", "callNumber": "FIC DOY", "borrowable": true, "sourceName": "Fonds général" }
 ```
 
+### Copy availability on `GET /biblios/:id`
+
+The bibliographic notice (staff, patron, and `GET /opac/biblios/:id`) includes `holdsCount`: the number of `pending` holds still waiting for a copy, title-level and copy-level. `to_pick`, `ready`, and any hold with an active item transit (`requested` or `in_transit`) are not counted; those copies set `onHold`. The count carries no patron identity.
+
+Each copy includes:
+
+| Field | Patron and OPAC (`ItemPublicView`) | Staff (`ItemStaffView`) |
+|---|---|---|
+| `dueDate` | Active loan `expiry_at`, or `null` | Same |
+| `onHold` | Boolean, see below | Same |
+| `loanId` | Omitted | Kept |
+| `borrower` | Omitted | Only when the caller has `loans_rights` read or write and the copy is on loan |
+
+`onHold` is true only when this copy is actually assigned:
+
+- a hold in `to_pick` or `ready` with `holds.item_id` equal to this copy, or
+- the copy is in transit for a hold (an `item_transits` row in `requested` or `in_transit` with `hold_id` set).
+
+An unassigned title hold (`pending`, `item_id` null) does not set `onHold` on any copy. A shelved copy stays `availability: "available"` with `onHold: false` while `holdsCount` is 1. A hold already assigned to another copy does not set `onHold` here.
+
+Transit precedence can leave `availability: "inTransit"` with `onHold: true`. `to_pick` and `ready` use `availability: "onHold"`.
+
+`borrower` uses the loan identity helper. `loans_rights` read or write without `users_rights` read returns `{ "id", "cardNumber", "initials" }`. `users_rights` read or write returns `UserShortStaff` (name, `login`, `barcode`). Users read without loans read omits `borrower`. Patrons and `GET /opac/biblios/:id` never receive `borrower`, `loanId`, or a hold patron.
+
+`dueDate` and `onHold` are also on the other full-copy views (`GET /biblios/:id/items`, `GET /items/:id`, `GET /items/barcode/:barcode`, `GET /opac/biblios/:id`). `holdsCount` is on the full notice views, including `GET /items/:id` and `GET /opac/biblios/:id`. Those item routes do not add `borrower`. List hits (`ItemShort`) omit `dueDate`, `onHold`, `loanId`, and `borrower`.
+
 ---
 
 ## Z39.50 (`/api/v1/z3950`)

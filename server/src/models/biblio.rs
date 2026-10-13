@@ -480,6 +480,11 @@ pub struct Biblio {
     #[sqlx(skip)]
     #[serde(default, skip)]
     pub marc_record: Option<MarcRecord>,
+    /// `pending` holds still waiting for a copy. `to_pick`, `ready`, and holds
+    /// with an active item transit are excluded. Notice views expose `holdsCount`.
+    #[sqlx(skip)]
+    #[serde(skip)]
+    pub holds_count: i64,
 }
 
 /// Short biblio representation for lists

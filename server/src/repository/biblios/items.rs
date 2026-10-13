@@ -22,7 +22,7 @@ use crate::models::item::WeedingStatus;
 /// claimed returned, withdrawn), else `available`.
 const ITEM_STATE_JOINS: &str = r#"
 LEFT JOIN LATERAL (
-    SELECT l.id
+    SELECT l.id, l.expiry_at
     FROM loans l
     WHERE l.item_id = i.id AND l.returned_at IS NULL
     ORDER BY l.id DESC
@@ -89,6 +89,20 @@ fn item_sql(where_and_order: &str) -> String {
                    so.name as source_name,
                    (active_loan.id IS NOT NULL) as borrowed,
                    active_loan.id as loan_id,
+                   active_loan.expiry_at as due_date,
+                   (
+                       EXISTS (
+                           SELECT 1 FROM holds h
+                           WHERE h.item_id = i.id
+                             AND h.status IN ('to_pick', 'ready')
+                       )
+                       OR EXISTS (
+                           SELECT 1 FROM item_transits t
+                           WHERE t.item_id = i.id
+                             AND t.hold_id IS NOT NULL
+                             AND t.status IN ('requested', 'in_transit')
+                       )
+                   ) AS on_hold,
                    {ITEM_AVAILABILITY_COLUMNS}
             FROM items i
             LEFT JOIN sources so ON i.source_id = so.id

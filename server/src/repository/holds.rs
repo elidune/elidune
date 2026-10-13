@@ -1935,6 +1935,31 @@ impl Repository {
             .ok_or_else(|| AppError::NotFound("Item not found".to_string()))
     }
 
+    /// `pending` holds still waiting for a copy.
+    ///
+    /// `to_pick` and `ready` are excluded. A hold with an active item transit
+    /// (`requested` or `in_transit`) is also excluded: that copy reports `onHold`.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn holds_count_waiting_for_biblio(&self, biblio_id: i64) -> AppResult<i64> {
+        let count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM holds h
+            WHERE h.biblio_id = $1
+              AND h.status = 'pending'
+              AND NOT EXISTS (
+                  SELECT 1 FROM item_transits t
+                  WHERE t.hold_id = h.id
+                    AND t.status IN ('requested', 'in_transit')
+              )
+            "#,
+        )
+        .bind(biblio_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count)
+    }
+
     /// Count active holds across all copies of a bibliographic record (and title-level).
     #[tracing::instrument(skip(self), err)]
     pub async fn holds_count_active_for_biblio(&self, biblio_id: i64) -> AppResult<i64> {

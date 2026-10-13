@@ -41,7 +41,7 @@ pub fn router() -> axum::Router<crate::AppState> {
         ("id" = i64, Path, description = "Physical copy (item) ID")
     ),
     responses(
-        (status = 200, description = "Biblio with a single item entry. Librarians and admins receive `BiblioStaffView`. Readers receive `BiblioPublicView`.", body = BiblioReadResponse),
+        (status = 200, description = "Biblio with a single item entry. Librarians and admins receive `BiblioStaffView`. Readers receive `BiblioPublicView`. The record includes `holdsCount`. The copy includes `dueDate` and `onHold` (same rules as `GET /biblios/{id}`). This route does not include `borrower`.", body = BiblioReadResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 404, description = "Item not found or archived", body = crate::error::ErrorResponse),
         (status = 410, description = "Bibliographic record is archived", body = crate::error::ErrorResponse)
@@ -84,7 +84,7 @@ pub async fn get_biblio_by_item(
         ("barcode" = String, Path, description = "Physical copy barcode (exact match)")
     ),
     responses(
-        (status = 200, description = "Biblio with a single item entry. Librarians and admins receive `BiblioStaffView`. Readers receive `BiblioPublicView`.", body = BiblioReadResponse),
+        (status = 200, description = "Biblio with a single item entry. Librarians and admins receive `BiblioStaffView`. Readers receive `BiblioPublicView`. The record includes `holdsCount`. The copy includes `dueDate` and `onHold` (same rules as `GET /biblios/{id}`). This route does not include `borrower`.", body = BiblioReadResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 404, description = "No active item with this barcode", body = crate::error::ErrorResponse),
         (status = 410, description = "Bibliographic record is archived", body = crate::error::ErrorResponse)

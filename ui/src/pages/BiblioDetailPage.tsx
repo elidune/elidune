@@ -571,6 +571,11 @@ export default function BiblioDetailPage() {
                 )
               }
             />
+            {item.holdsCount > 0 ? (
+              <p className="mb-3 text-sm text-gray-500 dark:text-gray-400">
+                {t('items.holdsWaiting', { count: item.holdsCount })}
+              </p>
+            ) : null}
             {item.items && item.items.length > 0 ? (
               <div className="space-y-3">
                 {item.items.map((specimen) => (
@@ -1020,7 +1025,6 @@ function SpecimenCard({
   onEdit,
   onDelete,
 }: SpecimenCardProps) {
-  // specimen is physical Item
   const { t } = useTranslation();
   const { user: authUser } = useAuth();
   const canReadBorrowers = canReadUsers(authUser, api.getToken());
@@ -1106,7 +1110,8 @@ function SpecimenCard({
           borrowed: specimen.borrowed,
           availability: specimen.availability,
           dueDate: specimen.dueDate,
-          borrower: specimen.borrower,
+          onHold: specimen.onHold,
+          borrower: staffCopy?.borrower,
         }}
       />
 

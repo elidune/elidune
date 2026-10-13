@@ -459,6 +459,7 @@ impl From<MarcRecord> for Biblio {
             updated_at: None,
             archived_at: None,
             weeding_status: crate::models::item::WeedingStatus::OnShelf,
+            holds_count: 0,
             authors,
             series: series_list,
             collections: collections_vec,
@@ -516,6 +517,8 @@ impl From<&MarcItem> for Item {
             can_hold_item,
             hold_user_id: None,
             hold_user_name: None,
+            due_date: None,
+            on_hold: false,
         }
     }
 }
@@ -844,6 +847,7 @@ mod tests {
             updated_at: None,
             archived_at: None,
             weeding_status: crate::models::item::WeedingStatus::OnShelf,
+            holds_count: 0,
             authors: vec![],
             series: vec![],
             collections: vec![],

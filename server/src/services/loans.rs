@@ -633,6 +633,16 @@ impl LoansService {
         self.repository.loans_get_borrower_for_loan(loan_id).await
     }
 
+    /// Borrowers of open loans, keyed by item id.
+    pub async fn active_borrowers_by_item_ids(
+        &self,
+        item_ids: &[i64],
+    ) -> AppResult<std::collections::HashMap<i64, crate::models::user::UserShort>> {
+        self.repository
+            .loans_active_borrowers_by_item_ids(item_ids)
+            .await
+    }
+
     /// Renew a loan. `force` bypasses account and unpaid-fine gates (fines are audited).
     /// A lost or stolen card is always `422` `card_lost`, including `force`.
     ///
@@ -1008,6 +1018,12 @@ mod tests {
             _: i64,
         ) -> AppResult<crate::models::user::UserShort> {
             unimplemented!()
+        }
+        async fn loans_active_borrowers_by_item_ids(
+            &self,
+            _: &[i64],
+        ) -> AppResult<std::collections::HashMap<i64, crate::models::user::UserShort>> {
+            Ok(std::collections::HashMap::new())
         }
         async fn loans_get_by_item_identification(
             &self,

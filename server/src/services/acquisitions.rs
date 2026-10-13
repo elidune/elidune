@@ -288,6 +288,8 @@ impl AcquisitionsService {
                     can_hold_item,
                     hold_user_id: None,
                     hold_user_name: None,
+                    due_date: None,
+                    on_hold: false,
                 };
 
                 let created_item = self.catalog.create_item(biblio_id, item).await?;
@@ -454,6 +456,7 @@ fn stub_biblio(title: String, isbn: Option<Isbn>) -> Biblio {
         updated_at: None,
         archived_at: None,
         weeding_status: crate::models::item::WeedingStatus::OnShelf,
+        holds_count: 0,
         authors: Vec::new(),
         series: Vec::new(),
         collections: Vec::new(),

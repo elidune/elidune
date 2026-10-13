@@ -1,7 +1,9 @@
 //! Loans repository — read, list, export, and count queries.
 
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
-use sqlx::Row;
+use sqlx::{FromRow, Row};
 
 use super::super::Repository;
 use super::LOAN_DETAILS_FIRST_AUTHOR_SQL;
@@ -16,6 +18,13 @@ use crate::{
         user::{UserShort, UserShortRow},
     },
 };
+
+#[derive(FromRow)]
+struct ActiveItemBorrowerRow {
+    item_id: i64,
+    #[sqlx(flatten)]
+    user: UserShortRow,
+}
 
 impl Repository {
     /// Get loan by ID
@@ -46,6 +55,38 @@ impl Repository {
         .ok_or_else(|| AppError::NotFound(format!("Loan with id {loan_id} not found")))?;
 
         Ok(row.into())
+    }
+
+    /// Active-loan borrowers keyed by item id. At most one open loan per copy.
+    pub async fn loans_active_borrowers_by_item_ids(
+        &self,
+        item_ids: &[i64],
+    ) -> AppResult<HashMap<i64, UserShort>> {
+        if item_ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let rows = sqlx::query_as::<_, ActiveItemBorrowerRow>(
+            r#"
+            SELECT DISTINCT ON (lo.item_id)
+                   lo.item_id,
+                   u.id, u.login, u.barcode, u.firstname, u.lastname, u.account_type, u.public_type,
+                   (SELECT COUNT(*)::bigint FROM loans l WHERE l.user_id = u.id AND l.returned_at IS NULL) AS nb_loans,
+                   (SELECT COUNT(*)::bigint FROM loans l WHERE l.user_id = u.id AND l.returned_at IS NULL AND l.expiry_at < NOW()) AS nb_late_loans,
+                   u.status, u.created_at, u.expiry_at
+            FROM loans lo
+            JOIN users u ON u.id = lo.user_id
+            WHERE lo.item_id = ANY($1) AND lo.returned_at IS NULL
+            ORDER BY lo.item_id, lo.id DESC
+            "#,
+        )
+        .bind(item_ids)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows
+            .into_iter()
+            .map(|row| (row.item_id, UserShort::from(row.user)))
+            .collect())
     }
 
     /// Get active loan by item identification (barcode)
@@ -444,6 +485,8 @@ impl Repository {
             can_hold_item,
             hold_user_id: None,
             hold_user_name: None,
+            due_date: None,
+            on_hold: false,
         };
 
         let series_ids: Vec<i64> = series.iter().filter_map(|s| s.id).collect();
@@ -483,6 +526,7 @@ impl Repository {
             updated_at: row.try_get("biblio_updated_at").ok().flatten(),
             archived_at: row.try_get("biblio_archived_at").ok().flatten(),
             weeding_status: crate::models::item::WeedingStatus::OnShelf,
+            holds_count: 0,
             authors,
             series,
             collections,

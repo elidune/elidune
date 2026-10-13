@@ -55,6 +55,7 @@ impl Repository {
             .await?;
 
         biblio.items = self.biblios_get_items(id).await?;
+        biblio.holds_count = self.holds_count_waiting_for_biblio(id).await?;
         biblio.refresh_weeding_status();
 
         Ok(biblio)

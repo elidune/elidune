@@ -1,12 +1,13 @@
-import type { ItemCopyBorrower } from '@/types';
 import type { BorrowerRef } from '@/utils/readerIdentifier';
 
 export interface CopyCirculationFields {
   borrowed?: boolean | null;
   availability?: string | null;
   dueDate?: string | null;
+  /** Copy is assigned to a hold, or in transit for one. */
+  onHold?: boolean | null;
   loanId?: string | null;
-  borrower?: ItemCopyBorrower | null;
+  borrower?: BorrowerRef | null;
 }
 
 export function isCopyBorrowed(copy: CopyCirculationFields): boolean {
@@ -17,15 +18,25 @@ export function isCopyOnHold(copy: CopyCirculationFields): boolean {
   return copy.availability === 'onHold';
 }
 
-/** Card or initials from the item payload. An id alone is not an identifier. */
+/** Card, initials, or name from the item payload. An id alone is not an identifier. */
 export function itemBorrowerIdentity(
-  borrower: ItemCopyBorrower | null | undefined,
+  borrower: BorrowerRef | null | undefined,
 ): BorrowerRef | null {
   if (!borrower) return null;
-  const card = borrower.cardNumber?.trim() || null;
+  const card = borrower.cardNumber?.trim() || borrower.barcode?.trim() || null;
   const initials = borrower.initials?.trim() || null;
-  if (!card && !initials) return null;
-  return { id: borrower.id ?? null, cardNumber: card, initials };
+  const firstname = borrower.firstname?.trim() || null;
+  const lastname = borrower.lastname?.trim() || null;
+  if (!card && !initials && !firstname && !lastname) return null;
+  return {
+    id: borrower.id ?? null,
+    cardNumber: borrower.cardNumber ?? null,
+    initials: borrower.initials ?? null,
+    firstname,
+    lastname,
+    barcode: borrower.barcode ?? null,
+    login: borrower.login ?? null,
+  };
 }
 
 export function formatCopyDueDate(iso: string | null | undefined, locale: string): string | null {
