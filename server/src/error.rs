@@ -76,6 +76,12 @@ pub mod error_code {
     pub const WITHDRAWAL_ALREADY_DISPOSED: &str = "withdrawal_already_disposed";
     /// Batch disposal rejected. The body lists one reason per rejected id.
     pub const WITHDRAWAL_DISPOSE_REJECTED: &str = "withdrawal_dispose_rejected";
+    /// `DELETE /account-types/{code}` while a user still references the code.
+    pub const ACCOUNT_TYPE_IN_USE: &str = "account_type_in_use";
+    /// `DELETE /account-types/{code}` on a built-in system type.
+    pub const ACCOUNT_TYPE_SYSTEM: &str = "account_type_system";
+    /// The change would leave no active account with settings write.
+    pub const LAST_ACTIVE_ADMIN: &str = "last_active_admin";
 }
 
 /// Main application error type
@@ -193,6 +199,33 @@ impl AppError {
             code,
             message: message.into(),
         }
+    }
+
+    #[must_use]
+    pub fn account_type_in_use() -> Self {
+        Self::coded(
+            409,
+            error_code::ACCOUNT_TYPE_IN_USE,
+            "Account type is still assigned to one or more accounts",
+        )
+    }
+
+    #[must_use]
+    pub fn account_type_system() -> Self {
+        Self::coded(
+            409,
+            error_code::ACCOUNT_TYPE_SYSTEM,
+            "System account types cannot be deleted",
+        )
+    }
+
+    #[must_use]
+    pub fn last_active_admin() -> Self {
+        Self::coded(
+            409,
+            error_code::LAST_ACTIVE_ADMIN,
+            "This change would leave no active account with admin rights",
+        )
     }
 }
 

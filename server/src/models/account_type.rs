@@ -20,9 +20,30 @@ pub struct AccountTypeDefinition {
     pub acquisitions_rights: Option<String>,
     pub weeding_rights: Option<String>,
     pub weeding_cancel_rights: Option<String>,
+    /// Built-in types (`guest`, `reader`, `librarian`, `admin`, `group`) are true.
+    pub is_system: bool,
 }
 
-/// Partial update for `account_types` (admin only). Omit a field to leave it unchanged.
+/// Create a custom account type. Omitted rights are stored as `n`.
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateAccountType {
+    pub code: String,
+    pub name: String,
+    pub items_rights: Option<String>,
+    pub users_rights: Option<String>,
+    pub loans_rights: Option<String>,
+    pub items_archive_rights: Option<String>,
+    pub holds_rights: Option<String>,
+    pub settings_rights: Option<String>,
+    pub events_rights: Option<String>,
+    pub acquisitions_rights: Option<String>,
+    pub weeding_rights: Option<String>,
+    pub weeding_cancel_rights: Option<String>,
+}
+
+/// Partial update for `account_types`. Omit a field to leave it unchanged.
+/// `code` and `is_system` are immutable.
 #[derive(Debug, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateAccountTypeDefinition {

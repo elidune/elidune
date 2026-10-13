@@ -23,6 +23,7 @@ unpaid_threshold_mode on circulation_settings and public_types (051):
 an untouched global 0 (no successful fine.policy_updated audit) becomes none,
 any other stored global value stays amount; public-type NULL becomes inherit
 and a stored value, including 0, becomes amount.
+account_types.is_system marks built-in codes and users.account_type is ON DELETE RESTRICT (053).
 Legacy source DBs have no acquisitions, suggestion, or retired card-number tables; those are created by SQL migrations only.)
 
 Usage:

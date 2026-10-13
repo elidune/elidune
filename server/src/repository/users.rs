@@ -5,6 +5,7 @@ use chrono::Utc;
 use snowflaked::Generator;
 use sqlx::Row;
 
+use super::account_types::ActiveAdminForecast;
 use super::Repository;
 use crate::{
     error::{error_code, AppError, AppResult},
@@ -933,6 +934,24 @@ impl Repository {
         user: &UserPayload,
         password: Option<String>,
     ) -> AppResult<User> {
+        let deactivating = matches!(user.status, Some(status) if status != UserStatus::Active);
+        if let Some(ref account_type) = user.account_type {
+            self.account_types_get_by_code(account_type.as_str())
+                .await?;
+        }
+        if user.account_type.is_some() || deactivating {
+            self.guard_active_admins(&ActiveAdminForecast {
+                exclude_user_id: deactivating.then_some(id),
+                move_user_id: user.account_type.as_ref().map(|_| id),
+                move_to_type: user
+                    .account_type
+                    .as_ref()
+                    .map(|account_type| account_type.as_str().to_string()),
+                ..ActiveAdminForecast::default()
+            })
+            .await?;
+        }
+
         // Build dynamic update query ($1..$N consecutive; `update_at` uses NOW() in SQL, not a bind)
         let mut sets = vec![];
         let mut param_idx = 1;
@@ -1092,6 +1111,11 @@ impl Repository {
     #[tracing::instrument(skip(self), err)]
     pub async fn users_delete(&self, id: i64, force: bool) -> AppResult<UserErasureResult> {
         let user = self.users_get_by_id(id).await?;
+        self.guard_active_admins(&ActiveAdminForecast {
+            exclude_user_id: Some(id),
+            ..ActiveAdminForecast::default()
+        })
+        .await?;
 
         let active_loans = self.loans_get_active_ids_for_user(id).await?;
         let mut loans_force_returned = 0_u64;
@@ -1259,6 +1283,11 @@ impl Repository {
     /// Block a user
     #[tracing::instrument(skip(self), err)]
     pub async fn users_block(&self, id: i64) -> AppResult<User> {
+        self.guard_active_admins(&ActiveAdminForecast {
+            exclude_user_id: Some(id),
+            ..ActiveAdminForecast::default()
+        })
+        .await?;
         sqlx::query("UPDATE users SET status = $1, update_at = NOW() WHERE id = $2")
             .bind(UserStatus::Blocked)
             .bind(id)
@@ -1541,6 +1570,14 @@ impl Repository {
         id: i64,
         account_type: &AccountTypeSlug,
     ) -> AppResult<User> {
+        self.account_types_get_by_code(account_type.as_str())
+            .await?;
+        self.guard_active_admins(&ActiveAdminForecast {
+            move_user_id: Some(id),
+            move_to_type: Some(account_type.as_str().to_string()),
+            ..ActiveAdminForecast::default()
+        })
+        .await?;
         sqlx::query("UPDATE users SET account_type = $1, token_version = token_version + 1, update_at = NOW() WHERE id = $2")
             .bind(account_type.as_str())
             .bind(id)
