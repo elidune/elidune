@@ -1,0 +1,127 @@
+import type { ReactNode } from 'react';
+import { useId } from 'react';
+import { useTranslation } from 'react-i18next';
+import Input from '@/components/common/Input';
+import { formChoiceControlClass, formChoiceLabelClass, formLabelClass } from '@/utils/formControl';
+import type { AudienceUnpaidThresholdMode, GlobalUnpaidThresholdMode } from '@/types';
+
+type ScopeProps =
+  | {
+      scope: 'global';
+      mode: GlobalUnpaidThresholdMode;
+      onModeChange: (mode: GlobalUnpaidThresholdMode) => void;
+      inheritedAmount?: never;
+    }
+  | {
+      scope: 'audience';
+      mode: AudienceUnpaidThresholdMode;
+      onModeChange: (mode: AudienceUnpaidThresholdMode) => void;
+      /** Euro display of the global amount. Null when the global mode does not block. */
+      inheritedAmount?: string | null;
+    };
+
+export type UnpaidThresholdFieldsProps = ScopeProps & {
+  /** Shared radio name. Must be unique per form on the page. */
+  name: string;
+  amount: string;
+  onAmountChange: (value: string) => void;
+  error?: string | null;
+  legendEnd?: ReactNode;
+};
+
+const GLOBAL_MODES = ['none', 'amount'] as const;
+const AUDIENCE_MODES = ['inherit', 'none', 'amount'] as const;
+
+function modeLabel(
+  scope: 'global' | 'audience',
+  mode: AudienceUnpaidThresholdMode,
+  t: (key: string) => string,
+): string {
+  if (scope === 'global') {
+    return mode === 'amount' ? t('settings.finePolicy.modeAmount') : t('settings.finePolicy.modeNone');
+  }
+  if (mode === 'inherit') return t('settings.publicTypes.unpaidThresholdModeInherit');
+  if (mode === 'amount') return t('settings.publicTypes.unpaidThresholdModeAmount');
+  return t('settings.publicTypes.unpaidThresholdModeNone');
+}
+
+export function UnpaidThresholdFields(props: UnpaidThresholdFieldsProps) {
+  const { t } = useTranslation();
+  const hintId = useId();
+  const helpId = useId();
+  const modes = props.scope === 'global' ? GLOBAL_MODES : AUDIENCE_MODES;
+  const title =
+    props.scope === 'global'
+      ? t('settings.finePolicy.mode')
+      : t('settings.publicTypes.unpaidThresholdMode');
+  const amountLabel =
+    props.scope === 'global'
+      ? t('settings.finePolicy.unpaidFineThreshold')
+      : t('settings.publicTypes.unpaidFineThreshold');
+
+  const selectMode = (value: (typeof AUDIENCE_MODES)[number]) => {
+    if (props.scope === 'global') {
+      props.onModeChange(value === 'amount' ? 'amount' : 'none');
+      return;
+    }
+    props.onModeChange(value);
+  };
+
+  return (
+    <div className="flex items-start justify-between gap-3">
+      <fieldset
+        className="min-w-0 flex-1 space-y-2 border-0 p-0"
+        aria-describedby={props.scope === 'audience' ? helpId : undefined}
+      >
+        <legend className={formLabelClass({ marginBottom: false })}>{title}</legend>
+        <div className="flex flex-col gap-2">
+          {modes.map((value) => (
+            <label key={value} className={formChoiceLabelClass()}>
+              <input
+                type="radio"
+                name={props.name}
+                value={value}
+                checked={props.mode === value}
+                className={formChoiceControlClass('rounded-full')}
+                aria-describedby={
+                  value === 'inherit' && props.mode === 'inherit' ? hintId : undefined
+                }
+                onChange={() => selectMode(value)}
+              />
+              {modeLabel(props.scope, value, t)}
+            </label>
+          ))}
+        </div>
+        {props.scope === 'audience' && props.mode === 'inherit' && (
+          <p id={hintId} className="text-xs text-gray-500 dark:text-gray-400">
+            {props.inheritedAmount
+              ? t('settings.publicTypes.unpaidFineThresholdInherit', {
+                  amount: props.inheritedAmount,
+                })
+              : t('settings.publicTypes.unpaidFineThresholdInheritEmpty')}
+          </p>
+        )}
+        {props.mode === 'amount' && (
+          <Input
+            label={amountLabel}
+            type="number"
+            inputMode="decimal"
+            min="0"
+            step="0.01"
+            required
+            value={props.amount}
+            error={props.error ?? undefined}
+            hint={t('settings.finePolicy.thresholdHint')}
+            onChange={(e) => props.onAmountChange(e.target.value)}
+          />
+        )}
+        {props.scope === 'audience' && (
+          <p id={helpId} className="text-xs text-gray-500 dark:text-gray-400">
+            {t('settings.publicTypes.unpaidFineThresholdHelp')}
+          </p>
+        )}
+      </fieldset>
+      {props.legendEnd}
+    </div>
+  );
+}

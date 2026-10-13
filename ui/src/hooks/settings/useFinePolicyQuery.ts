@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
-import type { CirculationFinePolicy } from '@/types';
+import type { GlobalUnpaidThresholdBody } from '@/utils/finePolicy';
 
 export const FINE_POLICY_QUERY_KEY = ['fines', 'policy'] as const;
 
@@ -14,7 +14,7 @@ export function useFinePolicyQuery() {
 export function useUpdateFinePolicyMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (policy: CirculationFinePolicy) => api.updateFinePolicy(policy),
+    mutationFn: (policy: GlobalUnpaidThresholdBody) => api.updateFinePolicy(policy),
     onSuccess: (data) => {
       queryClient.setQueryData(FINE_POLICY_QUERY_KEY, data);
     },
