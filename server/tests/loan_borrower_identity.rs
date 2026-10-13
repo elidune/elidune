@@ -457,8 +457,18 @@ async fn user_loans_follow_users_rights_not_account_type() {
         .await;
     assert_eq!(
         status,
-        StatusCode::FORBIDDEN,
-        "admin account without users read: {body}"
+        StatusCode::OK,
+        "loans read without users read sees current loans: {body}"
+    );
+    assert_minimized(&body["items"][0]["user"], reader_id, Some(&card), "IM");
+    assert_no_personal_text(
+        &body,
+        &[
+            "Isolde",
+            "Moreau",
+            "isolde.loans@secret.test",
+            login.as_str(),
+        ],
     );
 
     let users_read = retarget(&admin_token, &secret, Rights::Read, Rights::Read);

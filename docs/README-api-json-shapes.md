@@ -380,9 +380,9 @@ When the copy is lost, the same response adds `wasLost: true` and, when a replac
 
 ### `GET /users/:id/loans`
 
-The caller may read their own loans. Another patron requires `users_rights` read (or write) and `loans_rights` read. Account type is not the gate.
+The caller may read their own loans. Current loans of another patron require `loans_rights` read (or write). `archived=true` for another patron still requires `users_rights` read (or write) and `loans_rights` read. Account type is not the gate. A refusal body is `{ code, error, message }`.
 
-Each row's `user` follows the users-rights rule. With users read, the row is `LoanDetailsStaff` (`user.login`, `user.barcode`, copy `weedingStatus`). Without users read, the row is `LoanDetailsOwn`: public copies, and `user` is only `{ id, cardNumber, initials }`. A patron therefore does not receive their own name or login on this list.
+Each row's `user` follows the users-rights rule. With users read, the row is `LoanDetailsStaff` (`user.login`, `user.barcode`, copy `weedingStatus`). Without users read, including a caller who has only loans rights, the row is `LoanDetailsOwn`: public copies, and `user` is only `{ id, cardNumber, initials }`. A patron therefore does not receive their own name or login on this list, and a loans-only agent does not receive contact details or the rest of the patron record.
 
 ### Query params — `GetUserLoansQuery`
 `?archived=false`
