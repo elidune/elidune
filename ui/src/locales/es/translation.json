@@ -916,6 +916,33 @@
     "unlockSignInSuccess": "Acceso desbloqueado para {{login}}.",
     "information": "Información",
     "pastLoansTab": "Préstamos anteriores",
+    "finesTab": "Multas",
+    "fines": {
+      "totalUnpaid": "Total impagado: {{amount}}",
+      "empty": "Ninguna multa para este lector.",
+      "loadError": "No se han podido cargar las multas.",
+      "columns": {
+        "reason": "Motivo",
+        "amount": "Importe",
+        "paid": "Importe pagado",
+        "refunded": "Importe reembolsado",
+        "status": "Estado"
+      },
+      "reasons": {
+        "overdue": "Retraso",
+        "replacement": "Ejemplar perdido",
+        "damage": "Ejemplar dañado",
+        "unknown": "No indicado"
+      },
+      "status": {
+        "pending": "Pendiente",
+        "partial": "Parcialmente pagada",
+        "paid": "Pagada",
+        "waived": "Exonerada",
+        "cancelled": "Anulada",
+        "refunded": "Reembolsada"
+      }
+    },
     "holdsTab": "Reservas",
     "loanStatistics": "Estadísticas de préstamos",
     "anonymize": "Anonimizar para estadísticas",
