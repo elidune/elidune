@@ -86,7 +86,8 @@ export default function Modal({
           <div className="h-9 w-9 shrink-0" aria-hidden />
           <h2
             id={titleId}
-            className="min-w-0 flex-1 break-words py-1 text-balance text-center text-lg font-semibold leading-snug text-gray-900 dark:text-white"
+            title={title}
+            className="min-w-0 flex-1 whitespace-normal break-words py-1 text-center text-lg font-semibold leading-snug text-gray-900 dark:text-white"
             dir="auto"
           >
             {title}
