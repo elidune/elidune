@@ -131,19 +131,22 @@ export function retryWaitAmount(seconds: number): { unit: 'second' | 'minute'; c
   };
 }
 
-/** Locale unit phrase (`45 seconds`, `11 min`) via `Intl.NumberFormat`. */
+/**
+ * Locale unit phrase (`45 seconds`, `11 minutes`) via `Intl.NumberFormat`.
+ * Long units stay understandable in the alert, including for screen readers.
+ */
 export function formatRetryWaitDuration(seconds: number, language: string): string {
   const { unit, count } = retryWaitAmount(seconds);
   return new Intl.NumberFormat(language, {
     style: 'unit',
     unit,
-    unitDisplay: unit === 'minute' ? 'short' : 'long',
+    unitDisplay: 'long',
   }).format(count);
 }
 
 /**
  * Human rate-limit wait. Under 60s the duration is exact seconds; longer waits
- * round to minutes (`about 11 min`). Call this whenever the shown wait changes,
+ * round to minutes (`about 11 minutes`). Call this whenever the shown wait changes,
  * including a countdown, so the unit stays in step with the number.
  */
 export function rateLimitWaitMessage(seconds: number, t: TFunction, language?: string): string {

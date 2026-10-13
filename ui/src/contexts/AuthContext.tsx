@@ -14,7 +14,8 @@ import { readSessionUserFromAccessToken } from '@/utils/jwtRights';
 const PROFILE_RATE_LIMIT_RETRIES = 3;
 
 export type ProfileWarning = {
-  messageKey: 'errors.tooManyRequests' | 'errors.tooManyRequestsWait' | 'errors.network' | 'errors.sessionUnavailable';
+  messageKey: 'errors.tooManyRequests' | 'errors.network' | 'errors.sessionUnavailable';
+  /** Present when the notice must include a humanized wait. */
   seconds?: number;
 };
 
@@ -27,7 +28,7 @@ function delay(ms: number): Promise<void> {
 function warningForKeptSession(error: unknown): ProfileWarning {
   if (isRateLimitedError(error)) {
     const seconds = getRetryAfterSeconds(error);
-    if (seconds != null) return { messageKey: 'errors.tooManyRequestsWait', seconds };
+    if (seconds != null) return { messageKey: 'errors.tooManyRequests', seconds };
     return { messageKey: 'errors.tooManyRequests' };
   }
   if (getHttpStatus(error) == null) return { messageKey: 'errors.network' };
