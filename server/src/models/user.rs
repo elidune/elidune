@@ -59,25 +59,27 @@ impl From<Option<String>> for Rights {
     }
 }
 
-/// Account type slug (string identifier)
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "lowercase")]
+/// Account type code. Built-in codes stay distinct variants. Any other
+/// non-empty code is a custom type stored in `account_types`.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AccountTypeSlug {
     Guest,
     Reader,
     Librarian,
     Admin,
     Group,
+    Custom(String),
 }
 
 impl AccountTypeSlug {
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(&self) -> &str {
         match self {
             AccountTypeSlug::Guest => "guest",
             AccountTypeSlug::Reader => "reader",
             AccountTypeSlug::Librarian => "librarian",
             AccountTypeSlug::Admin => "admin",
             AccountTypeSlug::Group => "group",
+            AccountTypeSlug::Custom(code) => code.as_str(),
         }
     }
 }
@@ -92,14 +94,48 @@ impl std::str::FromStr for AccountTypeSlug {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
+        let normalized = s.trim().to_ascii_lowercase();
+        if normalized.is_empty() {
+            return Err(format!("Invalid account type slug: {s}"));
+        }
+        match normalized.as_str() {
             "guest" => Ok(AccountTypeSlug::Guest),
             "reader" => Ok(AccountTypeSlug::Reader),
             "librarian" => Ok(AccountTypeSlug::Librarian),
             "admin" => Ok(AccountTypeSlug::Admin),
             "group" => Ok(AccountTypeSlug::Group),
-            _ => Err(format!("Invalid account type slug: {}", s)),
+            _ => Ok(AccountTypeSlug::Custom(normalized)),
         }
+    }
+}
+
+impl Serialize for AccountTypeSlug {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for AccountTypeSlug {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = String::deserialize(deserializer)?;
+        value.parse().map_err(serde::de::Error::custom)
+    }
+}
+
+impl<'s> ToSchema<'s> for AccountTypeSlug {
+    fn schema() -> (
+        &'s str,
+        utoipa::openapi::RefOr<utoipa::openapi::schema::Schema>,
+    ) {
+        (
+            "AccountTypeSlug",
+            utoipa::openapi::ObjectBuilder::new()
+                .schema_type(utoipa::openapi::SchemaType::String)
+                .description(Some(
+                    "Account type code. Built-in codes are guest, reader, librarian, admin, and group. Other codes are custom types.",
+                ))
+                .into(),
+        )
     }
 }
 
@@ -830,10 +866,11 @@ pub struct UpdateProfile {
     pub events_consent: Option<bool>,
 }
 
-/// Update account type request (admin only)
+/// Update account type request (settings write).
 #[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateAccountType {
-    /// New account type slug (guest, reader, librarian, admin, group)
+    /// Account type code. Built-in or custom codes from `account_types`.
     pub account_type: AccountTypeSlug,
 }
 

@@ -206,6 +206,7 @@ jobs:
           --test renewal_subscription
           --test catalog_view_rights
           --test own_user_record
+          --test account_types_custom
           -- --nocapture
 
   coverage:
@@ -302,6 +303,7 @@ jobs:
           --test renewal_subscription
           --test catalog_view_rights
           --test own_user_record
+          --test account_types_custom
           --lcov
           --output-path lcov.info
           --fail-under-lines 20

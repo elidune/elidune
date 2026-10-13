@@ -90,7 +90,9 @@ pub mod event {
     pub const USER_ACCOUNT_TYPE_CHANGED: &str = "user.account_type_changed";
     pub const USER_CARD_LOST: &str = "user.card_lost";
     pub const USER_CARD_REPLACED: &str = "user.card_replaced";
+    pub const ACCOUNT_TYPE_CREATED: &str = "account_type.created";
     pub const ACCOUNT_TYPE_UPDATED: &str = "account_type.updated";
+    pub const ACCOUNT_TYPE_DELETED: &str = "account_type.deleted";
 
     // Biblios
     pub const BIBLIO_CREATED: &str = "biblio.created";

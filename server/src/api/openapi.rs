@@ -247,7 +247,9 @@ use crate::api::{
         // Library account types (roles / rights)
         account_types::list_account_types,
         account_types::get_account_type,
+        account_types::create_account_type,
         account_types::update_account_type,
+        account_types::delete_account_type,
         // Admin config
         admin_config::get_config,
         admin_config::update_config_section,
@@ -385,6 +387,7 @@ use crate::api::{
             crate::models::user::UpdateProfile,
             crate::models::user::UpdateAccountType,
             crate::models::account_type::AccountTypeDefinition,
+            crate::models::account_type::CreateAccountType,
             crate::models::account_type::UpdateAccountTypeDefinition,
             // Loans
             loans::CreateLoanRequest,
@@ -670,7 +673,7 @@ use crate::api::{
         (name = "events", description = "Cultural events and school visits"),
         (name = "acquisitions", description = "Vendors, yearly funds, purchase orders, and receipt (creates catalog items only at receipt)"),
         (name = "suggestions", description = "Patron purchase suggestions: propose a title; staff accept opens a draft order intent (no biblio, no item)"),
-        (name = "account_types", description = "Library account types (guest, reader, librarian, admin, group) and per-domain rights"),
+        (name = "account_types", description = "Library account types (built-in and custom) and per-domain rights. Settings write is required."),
         (name = "library_info", description = "Library global information (name, address, phones, email, default UI language)"),
         (name = "email_templates", description = "Editable email templates exposed to the Settings UI"),
         (name = "series", description = "Series management"),

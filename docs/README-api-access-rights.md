@@ -263,3 +263,19 @@ Loan checkout, return, renew, exceptions, and batch loan operations require **`l
 | `GET /audit` | JWT + `require_admin()` |
 | `GET /audit/export` | JWT + `require_admin()` |
 | `POST /maintenance` | Admin (extractor — `AdminUser`) |
+
+## Account types
+
+Custom types are rows in `account_types` (`isSystem: false`). Built-in codes `guest`, `reader`, `librarian`, `admin`, and `group` are system types and cannot be deleted (`409`, `account_type_system`). Deleting a type that is still assigned returns `409` `account_type_in_use` (Postgres `23503` on `users.account_type` is mapped to the same code).
+
+An active admin is an active, non-archived account whose type has `settings_rights` write (`require_write_settings()`). Rights edits, user type changes, deactivation, and deletion that would leave zero active admins return `409` `last_active_admin`.
+
+Removing a right from a type bumps `token_version` for accounts of that type. Adding a right does not.
+
+| Endpoint | Required auth |
+|---|---|
+| `GET /account-types` | JWT + `require_write_settings()` |
+| `GET /account-types/:code` | JWT + `require_write_settings()` |
+| `POST /account-types` | JWT + `require_write_settings()` |
+| `PUT /account-types/:code` | JWT + `require_write_settings()` |
+| `DELETE /account-types/:code` | JWT + `require_write_settings()` |
