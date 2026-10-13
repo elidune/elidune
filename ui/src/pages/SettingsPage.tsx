@@ -11,7 +11,7 @@ import api from '@/services/api';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
 import { deferFromEffect } from '@/utils/deferFromEffect';
 import { formControlClass, formLabelClass, formChoiceLabelClass, formChoiceControlClass } from '@/utils/formControl';
-import { moneyAmountToInput, parseMoneyAmountInput } from '@/utils/finePolicy';
+import { centsToInput, eurosInputToCents, globalThresholdLabel } from '@/utils/finePolicy';
 import { holdCapToInput, parseHoldCapInput } from '@/utils/holdsPolicy';
 import { isAdmin } from '@/types';
 import { useFinePolicyQuery } from '@/hooks/settings/useFinePolicyQuery';
@@ -28,6 +28,7 @@ import type {
   PublicTypeLoanSettings,
   CreatePublicType,
   UpdatePublicType,
+  AudienceUnpaidThresholdMode,
 } from '@/types';
 
 const AdminServerSettings = lazy(() => import('@/components/settings/AdminServerSettings'));
@@ -749,7 +750,7 @@ function PublicTypesEditor() {
                   {detailsTab === 'general' ? (
                     <PublicTypeEditForm
                       pt={pt}
-                      globalThreshold={finePolicy?.unpaidFineThreshold}
+                      globalThreshold={globalThresholdLabel(finePolicy)}
                       globalMaxActiveHolds={holdsPolicy?.maxActiveHolds}
                       onSave={(data) => handleUpdate(pt.id, data)}
                     />
@@ -793,6 +794,16 @@ function PublicTypesEditor() {
   );
 }
 
+function audienceThresholdPayload(
+  mode: AudienceUnpaidThresholdMode,
+  amount: string,
+): { ok: true; mode: AudienceUnpaidThresholdMode; cents?: number } | { ok: false } {
+  if (mode !== 'amount') return { ok: true, mode };
+  const parsed = eurosInputToCents(amount);
+  if (!parsed.ok) return { ok: false };
+  return { ok: true, mode, cents: parsed.cents };
+}
+
 function emptyToNullInt(raw: string): number | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
@@ -817,7 +828,9 @@ function publicTypeFormState(pt: PublicType) {
     subscriptionPrice: pt.subscriptionPrice != null ? (pt.subscriptionPrice / 100).toString() : '',
     maxLoans: pt.maxLoans ?? '',
     loanDurationDays: pt.loanDurationDays ?? '',
-    unpaidFineThreshold: moneyAmountToInput(pt.unpaidFineThreshold),
+    unpaidThresholdMode: pt.unpaidThresholdMode ?? 'inherit',
+    unpaidThresholdAmount:
+      pt.unpaidThresholdMode === 'amount' ? centsToInput(pt.unpaidThresholdCents) : '',
     maxActiveHolds: holdCapToInput(pt.maxActiveHolds),
   };
 }
@@ -974,16 +987,32 @@ function PublicTypeEditForm({
         <div className="flex flex-col gap-1 sm:col-span-2">
           <div className="flex items-center justify-between gap-2">
             <label className={formLabelClass({ marginBottom: false })}>
-              {t('settings.publicTypes.unpaidFineThreshold')}
+              {t('settings.publicTypes.unpaidThresholdMode')}
             </label>
             <UseGlobalValueButton
-              show={String(form.unpaidFineThreshold).trim() !== ''}
+              show={form.unpaidThresholdMode !== 'inherit'}
               onClear={() => {
                 setThresholdError(null);
-                setForm((f) => ({ ...f, unpaidFineThreshold: '' }));
+                setForm((f) => ({ ...f, unpaidThresholdMode: 'inherit', unpaidThresholdAmount: '' }));
               }}
             />
           </div>
+          <select
+            value={form.unpaidThresholdMode}
+            onChange={(e) => {
+              setThresholdError(null);
+              setForm((f) => ({
+                ...f,
+                unpaidThresholdMode: e.target.value as AudienceUnpaidThresholdMode,
+              }));
+            }}
+            className={formControlClass()}
+          >
+            <option value="inherit">{t('settings.publicTypes.unpaidThresholdModeInherit')}</option>
+            <option value="none">{t('settings.publicTypes.unpaidThresholdModeNone')}</option>
+            <option value="amount">{t('settings.publicTypes.unpaidThresholdModeAmount')}</option>
+          </select>
+          {form.unpaidThresholdMode === 'amount' && (
           <input
             type="number"
             min="0"
@@ -994,13 +1023,14 @@ function PublicTypeEditForm({
                 ? t('settings.publicTypes.unpaidFineThresholdInherit', { amount: globalThreshold })
                 : t('settings.publicTypes.unpaidFineThresholdInheritEmpty')
             }
-            value={form.unpaidFineThreshold}
+            value={form.unpaidThresholdAmount}
             onChange={(e) => {
               setThresholdError(null);
-              setForm((f) => ({ ...f, unpaidFineThreshold: e.target.value }));
+              setForm((f) => ({ ...f, unpaidThresholdAmount: e.target.value }));
             }}
             className={formControlClass({ error: !!thresholdError })}
           />
+          )}
           <p className="text-xs text-gray-500 dark:text-gray-400">
             {t('settings.publicTypes.unpaidFineThresholdHelp')}
           </p>
@@ -1058,8 +1088,11 @@ function PublicTypeEditForm({
           variant="primary"
           leftIcon={<Save className="h-4 w-4" />}
           onClick={() => {
-            const parsedThreshold = parseMoneyAmountInput(form.unpaidFineThreshold, true);
-            if (!parsedThreshold.ok) {
+            const threshold = audienceThresholdPayload(
+              form.unpaidThresholdMode,
+              form.unpaidThresholdAmount,
+            );
+            if (!threshold.ok) {
               setThresholdError(t('settings.finePolicy.invalidAmount'));
               return;
             }
@@ -1077,7 +1110,8 @@ function PublicTypeEditForm({
               subscriptionPrice: emptyToNullPriceCents(String(form.subscriptionPrice)),
               maxLoans: emptyToNullInt(String(form.maxLoans)),
               loanDurationDays: emptyToNullInt(String(form.loanDurationDays)),
-              unpaidFineThreshold: parsedThreshold.value,
+              unpaidThresholdMode: threshold.mode,
+              unpaidThresholdCents: threshold.cents,
               maxActiveHolds: parsedCap.value,
             };
             onSave(payload);
@@ -1577,15 +1611,16 @@ function PublicTypeCreateModal({ onSave, onCancel }: { onSave: (data: CreatePubl
     subscriptionPrice: '',
     maxLoans: '',
     loanDurationDays: '',
-    unpaidFineThreshold: '',
+    unpaidThresholdMode: 'inherit' as AudienceUnpaidThresholdMode,
+    unpaidThresholdAmount: '',
     maxActiveHolds: '',
   });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name.trim() || !form.label.trim()) return;
-    const parsedThreshold = parseMoneyAmountInput(form.unpaidFineThreshold, true);
-    if (!parsedThreshold.ok) {
+    const threshold = audienceThresholdPayload(form.unpaidThresholdMode, form.unpaidThresholdAmount);
+    if (!threshold.ok) {
       setThresholdError(t('settings.finePolicy.invalidAmount'));
       return;
     }
@@ -1603,7 +1638,8 @@ function PublicTypeCreateModal({ onSave, onCancel }: { onSave: (data: CreatePubl
       subscriptionPrice: emptyToNullPriceCents(form.subscriptionPrice),
       maxLoans: emptyToNullInt(form.maxLoans),
       loanDurationDays: emptyToNullInt(form.loanDurationDays),
-      unpaidFineThreshold: parsedThreshold.value,
+      unpaidThresholdMode: threshold.mode,
+      unpaidThresholdCents: threshold.cents,
       maxActiveHolds: parsedCap.value,
     };
     onSave(payload);
@@ -1626,41 +1662,52 @@ function PublicTypeCreateModal({ onSave, onCancel }: { onSave: (data: CreatePubl
             <Input label={t('settings.publicTypes.maxLoans')} type="number" value={form.maxLoans} onChange={(e) => setForm((f) => ({ ...f, maxLoans: e.target.value }))} />
             <Input label={t('settings.publicTypes.loanDurationDays')} type="number" value={form.loanDurationDays} onChange={(e) => setForm((f) => ({ ...f, loanDurationDays: e.target.value }))} />
           </div>
-          <div>
-            <Input
-              label={t('settings.publicTypes.unpaidFineThreshold')}
-              type="number"
-              inputMode="decimal"
-              step="0.01"
-              min="0"
-              placeholder={
-                finePolicy?.unpaidFineThreshold
+          <div className="space-y-2">
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-medium text-gray-700 dark:text-gray-200">
+                {t('settings.publicTypes.unpaidThresholdMode')}
+              </span>
+              <select
+                value={form.unpaidThresholdMode}
+                onChange={(e) => {
+                  setThresholdError(null);
+                  setForm((f) => ({
+                    ...f,
+                    unpaidThresholdMode: e.target.value as AudienceUnpaidThresholdMode,
+                  }));
+                }}
+                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+              >
+                <option value="inherit">{t('settings.publicTypes.unpaidThresholdModeInherit')}</option>
+                <option value="none">{t('settings.publicTypes.unpaidThresholdModeNone')}</option>
+                <option value="amount">{t('settings.publicTypes.unpaidThresholdModeAmount')}</option>
+              </select>
+            </label>
+            {form.unpaidThresholdMode === 'amount' && (
+              <Input
+                label={t('settings.publicTypes.unpaidFineThreshold')}
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                min="0"
+                value={form.unpaidThresholdAmount}
+                error={thresholdError ?? undefined}
+                hint={t('settings.publicTypes.unpaidFineThresholdHelp')}
+                onChange={(e) => {
+                  setThresholdError(null);
+                  setForm((f) => ({ ...f, unpaidThresholdAmount: e.target.value }));
+                }}
+              />
+            )}
+            {form.unpaidThresholdMode === 'inherit' && (
+              <p className="text-xs text-gray-500 dark:text-gray-400">
+                {globalThresholdLabel(finePolicy)
                   ? t('settings.publicTypes.unpaidFineThresholdInherit', {
-                      amount: finePolicy.unpaidFineThreshold,
+                      amount: globalThresholdLabel(finePolicy),
                     })
-                  : t('settings.publicTypes.unpaidFineThresholdInheritEmpty')
-              }
-              value={form.unpaidFineThreshold}
-              error={thresholdError ?? undefined}
-              hint={
-                finePolicy?.unpaidFineThreshold
-                  ? t('settings.publicTypes.unpaidFineThresholdInherit', {
-                      amount: finePolicy.unpaidFineThreshold,
-                    })
-                  : t('settings.publicTypes.unpaidFineThresholdHelp')
-              }
-              onChange={(e) => {
-                setThresholdError(null);
-                setForm((f) => ({ ...f, unpaidFineThreshold: e.target.value }));
-              }}
-            />
-            <UseGlobalValueButton
-              show={form.unpaidFineThreshold.trim() !== ''}
-              onClear={() => {
-                setThresholdError(null);
-                setForm((f) => ({ ...f, unpaidFineThreshold: '' }));
-              }}
-            />
+                  : t('settings.publicTypes.unpaidFineThresholdInheritEmpty')}
+              </p>
+            )}
           </div>
           <div>
             <Input

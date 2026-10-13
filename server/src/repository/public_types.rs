@@ -120,13 +120,18 @@ impl Repository {
     /// Create a new public type
     #[tracing::instrument(skip(self), err)]
     pub async fn public_types_create(&self, data: &CreatePublicType) -> AppResult<PublicType> {
+        let (mode, amount) = crate::models::fine::resolve_audience_threshold_create(
+            data.unpaid_threshold_mode,
+            data.unpaid_threshold_cents,
+        )
+        .map_err(|err| err.into_app_error())?;
         let public_type = sqlx::query_as::<_, PublicType>(
             r#"
             INSERT INTO public_types (
                 name, label, subscription_duration_days, age_min, age_max,
-                subscription_price, unpaid_fine_threshold, max_active_holds
+                subscription_price, unpaid_threshold_mode, unpaid_fine_threshold, max_active_holds
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             RETURNING *
             "#,
         )
@@ -136,7 +141,8 @@ impl Repository {
         .bind(data.age_min)
         .bind(data.age_max)
         .bind(data.subscription_price)
-        .bind(data.unpaid_fine_threshold)
+        .bind(mode)
+        .bind(amount)
         .bind(data.max_active_holds)
         .fetch_one(&self.pool)
         .await?;
@@ -179,10 +185,14 @@ impl Repository {
             data.subscription_price,
             existing.subscription_price,
         );
-        let unpaid_fine_threshold = crate::models::public_type::merge_nullable(
-            data.unpaid_fine_threshold,
-            existing.unpaid_fine_threshold,
-        );
+        let (unpaid_threshold_mode, unpaid_fine_threshold) =
+            crate::models::fine::resolve_audience_threshold_update(
+                existing.unpaid_threshold_mode,
+                existing.unpaid_threshold_cents.map(|cents| cents.0),
+                data.unpaid_threshold_mode,
+                data.unpaid_threshold_cents,
+            )
+            .map_err(|err| err.into_app_error())?;
         let max_active_holds = crate::models::public_type::merge_nullable(
             data.max_active_holds,
             existing.max_active_holds,
@@ -193,8 +203,8 @@ impl Repository {
             UPDATE public_types SET
                 name = $1, label = $2, subscription_duration_days = $3,
                 age_min = $4, age_max = $5, subscription_price = $6,
-                unpaid_fine_threshold = $7, max_active_holds = $8
-            WHERE id = $9
+                unpaid_threshold_mode = $7, unpaid_fine_threshold = $8, max_active_holds = $9
+            WHERE id = $10
             RETURNING *
             "#,
         )
@@ -204,6 +214,7 @@ impl Repository {
         .bind(age_min)
         .bind(age_max)
         .bind(subscription_price)
+        .bind(unpaid_threshold_mode)
         .bind(unpaid_fine_threshold)
         .bind(max_active_holds)
         .bind(id)

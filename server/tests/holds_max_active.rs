@@ -319,13 +319,14 @@ async fn explicit_null_clears_public_type_hold_cap_and_fine_threshold() {
     let (status, body) = app
         .put_json(
             &format!("/api/v1/public-types/{public_type_id}"),
-            &json!({ "unpaidFineThreshold": "4.50" }),
+            &json!({ "unpaidThresholdMode": "amount", "unpaidThresholdCents": 450 }),
             Some(&admin_token),
         )
         .await;
     assert_eq!(status, StatusCode::OK, "set fine threshold: {body}");
     assert_eq!(body["maxActiveHolds"], 7);
-    assert_eq!(body["unpaidFineThreshold"], "4.50");
+    assert_eq!(body["unpaidThresholdMode"], "amount");
+    assert_eq!(body["unpaidThresholdCents"], 450);
 
     let (status, body) = app
         .put_json(
@@ -336,11 +337,13 @@ async fn explicit_null_clears_public_type_hold_cap_and_fine_threshold() {
         .await;
     assert_eq!(status, StatusCode::OK, "omit overrides: {body}");
     assert_eq!(body["maxActiveHolds"], 7, "omitted field must stay: {body}");
+    assert_eq!(body["unpaidThresholdMode"], "amount", "{body}");
+    assert_eq!(body["unpaidThresholdCents"], 450, "{body}");
 
     let (status, cleared) = app
         .put_json(
             &format!("/api/v1/public-types/{public_type_id}"),
-            &json!({ "maxActiveHolds": null, "unpaidFineThreshold": null }),
+            &json!({ "maxActiveHolds": null, "unpaidThresholdMode": "inherit" }),
             Some(&admin_token),
         )
         .await;
@@ -349,8 +352,8 @@ async fn explicit_null_clears_public_type_hold_cap_and_fine_threshold() {
         cleared["maxActiveHolds"].is_null(),
         "maxActiveHolds should inherit the global cap: {cleared}"
     );
-    assert!(
-        cleared["unpaidFineThreshold"].is_null(),
-        "unpaidFineThreshold should inherit the global policy: {cleared}"
+    assert_eq!(
+        cleared["unpaidThresholdMode"], "inherit",
+        "unpaid threshold should inherit the global policy: {cleared}"
     );
 }

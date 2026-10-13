@@ -1601,8 +1601,10 @@ export interface PublicType {
   subscriptionPrice?: number | null;
   maxLoans?: number | null;
   loanDurationDays?: number | null;
-  /** Override of global unpaid-fine threshold. null inherits circulation policy. */
-  unpaidFineThreshold?: string | null;
+  /** `inherit` uses the global mode. `none` never blocks on amount. `amount` uses `unpaidThresholdCents`. */
+  unpaidThresholdMode: AudienceUnpaidThresholdMode;
+  /** Integer cents. Present only when `unpaidThresholdMode` is `amount`. */
+  unpaidThresholdCents?: number | null;
   /** Override of global max active holds. null inherits circulation policy. */
   maxActiveHolds?: number | null;
 }
@@ -1649,8 +1651,9 @@ export interface CreatePublicType {
   subscriptionPrice?: number | null;
   maxLoans?: number | null;
   loanDurationDays?: number | null;
-  /** Omit or null to inherit the global circulation policy. */
-  unpaidFineThreshold?: string | null;
+  /** Omitted defaults to `inherit`. `amount` requires `unpaidThresholdCents`. */
+  unpaidThresholdMode?: AudienceUnpaidThresholdMode;
+  unpaidThresholdCents?: number | null;
   /** Omit or null to inherit the global holds policy. */
   maxActiveHolds?: number | null;
 }
@@ -1665,10 +1668,11 @@ export interface UpdatePublicType {
   maxLoans?: number | null;
   loanDurationDays?: number | null;
   /**
-   * Unpaid-fine threshold override. JSON `null` clears it (global threshold applies).
-   * Omit the field to keep the stored value.
+   * Omit to leave the stored mode and cents unchanged.
+   * `amount` requires `unpaidThresholdCents` in the same body.
    */
-  unpaidFineThreshold?: string | null;
+  unpaidThresholdMode?: AudienceUnpaidThresholdMode;
+  unpaidThresholdCents?: number | null;
   /**
    * Max-active-holds override. JSON `null` clears it (global cap applies).
    * Omit the field to keep the stored value.
@@ -2453,9 +2457,14 @@ export interface FineRule {
   notes?: string | null;
 }
 
-/** GET/PUT /fines/policy — global unpaid-fine threshold (camelCase). `null` disables amount-based blocking. */
+export type GlobalUnpaidThresholdMode = 'none' | 'amount';
+export type AudienceUnpaidThresholdMode = 'inherit' | 'none' | 'amount';
+
+/** GET/PUT /fines/policy — global unpaid-fine gate (camelCase). */
 export interface CirculationFinePolicy {
-  unpaidFineThreshold: string | null;
+  unpaidThresholdMode: GlobalUnpaidThresholdMode;
+  /** Integer cents. Present only when `unpaidThresholdMode` is `amount`. */
+  unpaidThresholdCents?: number | null;
 }
 
 export type AccrueOutcome =

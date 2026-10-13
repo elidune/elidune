@@ -22,6 +22,7 @@ pub mod my_account;
 pub mod public_type;
 pub mod schedule;
 pub mod secret;
+pub mod serde_util;
 pub mod source;
 pub mod stats_builder;
 pub mod task;

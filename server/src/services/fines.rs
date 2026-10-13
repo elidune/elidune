@@ -11,9 +11,12 @@ use crate::{
     models::{
         dto::fines::{
             AccrualBreakdown, AccrueBatchError, AccrueBatchReport, AccrueLoanResult, AccrueOutcome,
-            CirculationFinePolicy,
+            CirculationFinePolicy, UpdateCirculationFinePolicy,
         },
-        fine::{Fine, FineAccrualLoan, FineRule},
+        fine::{
+            money_to_cents, resolve_global_amount, Fine, FineAccrualLoan, FineRule,
+            GlobalUnpaidThresholdMode, StoredGlobalUnpaidThreshold,
+        },
         user::UserStatus,
     },
     repository::{FinesRepository, Repository},
@@ -264,33 +267,34 @@ impl FinesService {
         self.repository.fines_total_unpaid(user_id).await
     }
 
-    /// Global unpaid-fine threshold (public-type overrides are applied in
+    /// Global unpaid-fine mode (public-type modes are applied in
     /// [`Self::check_unpaid_threshold`]).
     #[tracing::instrument(skip(self), err)]
     pub async fn get_policy(&self) -> AppResult<CirculationFinePolicy> {
-        Ok(CirculationFinePolicy {
-            unpaid_fine_threshold: self.repository.fines_get_global_unpaid_threshold().await?,
-        })
+        policy_from_stored(self.repository.fines_get_global_unpaid_threshold().await?)
     }
 
-    /// Replace the global unpaid-fine threshold. `None` disables amount-based blocking.
+    /// Update the global unpaid-fine mode. An absent mode leaves the stored policy unchanged.
     #[tracing::instrument(skip(self), err)]
-    pub async fn set_policy(&self, threshold: Option<Decimal>) -> AppResult<CirculationFinePolicy> {
-        if threshold.is_some_and(|value| value < Decimal::ZERO) {
-            return Err(AppError::Validation(
-                "Unpaid fine threshold cannot be negative".to_string(),
-            ));
-        }
-        Ok(CirculationFinePolicy {
-            unpaid_fine_threshold: self
-                .repository
-                .fines_set_global_unpaid_threshold(threshold)
+    pub async fn set_policy(
+        &self,
+        update: &UpdateCirculationFinePolicy,
+    ) -> AppResult<CirculationFinePolicy> {
+        let Some(mode) = update.unpaid_threshold_mode else {
+            return self.get_policy().await;
+        };
+        let amount = resolve_global_amount(mode, update.unpaid_threshold_cents)
+            .map_err(|err| err.into_app_error())?;
+        policy_from_stored(
+            self.repository
+                .fines_set_global_unpaid_threshold(mode, amount)
                 .await?,
-        })
+        )
     }
 
-    /// Compare this patron's unpaid balance to the effective threshold
-    /// (public-type value when set, else the global value, else no amount-based block).
+    /// Compare this patron's unpaid balance to the effective threshold.
+    /// Type `amount` uses that value, type `none` does not block, type `inherit`
+    /// uses the global mode (`none` does not block, `amount` uses the global value).
     #[tracing::instrument(skip(self), err)]
     pub async fn check_unpaid_threshold(
         &self,
@@ -425,6 +429,20 @@ impl FinesService {
             user_id,
         })
     }
+}
+
+fn policy_from_stored(stored: StoredGlobalUnpaidThreshold) -> AppResult<CirculationFinePolicy> {
+    let cents = match stored.mode {
+        GlobalUnpaidThresholdMode::None => None,
+        GlobalUnpaidThresholdMode::Amount => Some(
+            money_to_cents(stored.amount)
+                .map_err(|message| AppError::Internal(message.to_string()))?,
+        ),
+    };
+    Ok(CirculationFinePolicy {
+        unpaid_threshold_mode: stored.mode,
+        unpaid_threshold_cents: cents,
+    })
 }
 
 fn skipped(loan: &FineAccrualLoan, outcome: AccrueOutcome) -> AccrueLoanResult {
@@ -638,14 +656,23 @@ mod tests {
         async fn fines_get_unpaid_threshold(&self, _: Option<i64>) -> AppResult<Option<Decimal>> {
             Ok(None)
         }
-        async fn fines_get_global_unpaid_threshold(&self) -> AppResult<Option<Decimal>> {
-            Ok(None)
+        async fn fines_get_global_unpaid_threshold(
+            &self,
+        ) -> AppResult<crate::models::fine::StoredGlobalUnpaidThreshold> {
+            Ok(crate::models::fine::StoredGlobalUnpaidThreshold {
+                mode: crate::models::fine::GlobalUnpaidThresholdMode::None,
+                amount: Decimal::ZERO,
+            })
         }
         async fn fines_set_global_unpaid_threshold(
             &self,
-            threshold: Option<Decimal>,
-        ) -> AppResult<Option<Decimal>> {
-            Ok(threshold)
+            mode: crate::models::fine::GlobalUnpaidThresholdMode,
+            amount: Option<Decimal>,
+        ) -> AppResult<crate::models::fine::StoredGlobalUnpaidThreshold> {
+            Ok(crate::models::fine::StoredGlobalUnpaidThreshold {
+                mode,
+                amount: amount.unwrap_or(Decimal::ZERO),
+            })
         }
         async fn fines_get_open_for_loan(&self, loan_id: i64) -> AppResult<Option<Fine>> {
             let g = self.state.lock().unwrap_or_else(|e| e.into_inner());

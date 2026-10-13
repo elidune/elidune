@@ -1359,14 +1359,21 @@ mod tests {
         }
         async fn fines_get_global_unpaid_threshold(
             &self,
-        ) -> AppResult<Option<rust_decimal::Decimal>> {
-            Ok(self.threshold)
+        ) -> AppResult<crate::models::fine::StoredGlobalUnpaidThreshold> {
+            Ok(crate::models::fine::StoredGlobalUnpaidThreshold {
+                mode: crate::models::fine::GlobalUnpaidThresholdMode::None,
+                amount: self.threshold.unwrap_or(rust_decimal::Decimal::ZERO),
+            })
         }
         async fn fines_set_global_unpaid_threshold(
             &self,
-            threshold: Option<rust_decimal::Decimal>,
-        ) -> AppResult<Option<rust_decimal::Decimal>> {
-            Ok(threshold)
+            mode: crate::models::fine::GlobalUnpaidThresholdMode,
+            amount: Option<rust_decimal::Decimal>,
+        ) -> AppResult<crate::models::fine::StoredGlobalUnpaidThreshold> {
+            Ok(crate::models::fine::StoredGlobalUnpaidThreshold {
+                mode,
+                amount: amount.unwrap_or(rust_decimal::Decimal::ZERO),
+            })
         }
         async fn fines_get_open_for_loan(
             &self,

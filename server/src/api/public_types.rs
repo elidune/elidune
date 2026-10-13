@@ -67,8 +67,10 @@ pub async fn get_public_type(
     security(("bearer_auth" = [])),
     request_body = CreatePublicType,
     responses(
-        (status = 201, description = "Public type created", body = PublicType),
-        (status = 403, description = "Insufficient permissions")
+        (status = 201, description = "Public type created. Omitted unpaidThresholdMode defaults to inherit. amount requires unpaidThresholdCents.", body = PublicType),
+        (status = 400, description = "Negative unpaidThresholdCents"),
+        (status = 403, description = "Insufficient permissions"),
+        (status = 422, description = "unpaidThresholdMode amount without unpaidThresholdCents, or JSON null")
     )
 )]
 pub async fn create_public_type(
@@ -115,8 +117,10 @@ pub async fn create_public_type(
     params(("id" = i64, Path, description = "Public type ID")),
     request_body = UpdatePublicType,
     responses(
-        (status = 200, description = "Public type updated", body = PublicType),
-        (status = 404, description = "Not found")
+        (status = 200, description = "Public type updated. Omitted unpaidThresholdMode leaves the stored mode and cents unchanged. amount requires unpaidThresholdCents.", body = PublicType),
+        (status = 400, description = "Negative unpaidThresholdCents"),
+        (status = 404, description = "Not found"),
+        (status = 422, description = "unpaidThresholdMode amount without unpaidThresholdCents, or JSON null")
     )
 )]
 pub async fn update_public_type(

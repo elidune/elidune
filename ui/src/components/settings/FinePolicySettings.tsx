@@ -5,15 +5,16 @@ import { Card, CardHeader, Button, Input } from '@/components/common';
 import { useToast } from '@/contexts/ToastContext';
 import { useFinePolicyQuery, useUpdateFinePolicyMutation } from '@/hooks/settings/useFinePolicyQuery';
 import { getApiErrorMessage } from '@/utils/apiError';
-import { moneyAmountToInput, parseMoneyAmountInput } from '@/utils/finePolicy';
-import type { CirculationFinePolicy } from '@/types';
+import { centsToInput, eurosInputToCents } from '@/utils/finePolicy';
+import type { CirculationFinePolicy, GlobalUnpaidThresholdMode } from '@/types';
 
 export default function FinePolicySettings() {
   const { t } = useTranslation();
   const { showToast } = useToast();
   const { data, isLoading, isError, refetch } = useFinePolicyQuery();
   const updatePolicy = useUpdateFinePolicyMutation();
-  const [draft, setDraft] = useState(() => moneyAmountToInput(data?.unpaidFineThreshold));
+  const [mode, setMode] = useState<GlobalUnpaidThresholdMode>(data?.unpaidThresholdMode ?? 'none');
+  const [draft, setDraft] = useState(() => centsToInput(data?.unpaidThresholdCents));
   const [fieldError, setFieldError] = useState<string | null>(null);
   // Start unsynced so a cached policy (already loaded by the settings shell) is copied
   // into the draft. Initialising synced state to `data` skips that copy.
@@ -21,22 +22,39 @@ export default function FinePolicySettings() {
   if (data !== syncedPolicy) {
     setSyncedPolicy(data);
     if (data) {
-      setDraft(moneyAmountToInput(data.unpaidFineThreshold));
+      setMode(data.unpaidThresholdMode);
+      setDraft(centsToInput(data.unpaidThresholdCents));
       setFieldError(null);
     }
   }
 
   const handleSave = async () => {
     if (!data) return;
-    const parsed = parseMoneyAmountInput(draft, true);
+    if (mode === 'none') {
+      setFieldError(null);
+      try {
+        const next = await updatePolicy.mutateAsync({ unpaidThresholdMode: 'none' });
+        setMode(next.unpaidThresholdMode);
+        setDraft(centsToInput(next.unpaidThresholdCents));
+        showToast({ variant: 'success', message: t('settings.finePolicy.saveSuccess') });
+      } catch (err: unknown) {
+        showToast({ variant: 'error', message: getApiErrorMessage(err, t) });
+      }
+      return;
+    }
+    const parsed = eurosInputToCents(draft);
     if (!parsed.ok) {
       setFieldError(t('settings.finePolicy.invalidAmount'));
       return;
     }
     setFieldError(null);
     try {
-      const next = await updatePolicy.mutateAsync({ unpaidFineThreshold: parsed.value });
-      setDraft(moneyAmountToInput(next.unpaidFineThreshold));
+      const next = await updatePolicy.mutateAsync({
+        unpaidThresholdMode: 'amount',
+        unpaidThresholdCents: parsed.cents,
+      });
+      setMode(next.unpaidThresholdMode);
+      setDraft(centsToInput(next.unpaidThresholdCents));
       showToast({ variant: 'success', message: t('settings.finePolicy.saveSuccess') });
     } catch (err: unknown) {
       showToast({ variant: 'error', message: getApiErrorMessage(err, t) });
@@ -81,21 +99,39 @@ export default function FinePolicySettings() {
           </div>
         )}
         {!isLoading && !isError && (
-          <div className="max-w-xs">
-            <Input
-              label={t('settings.finePolicy.unpaidFineThreshold')}
-              type="number"
-              inputMode="decimal"
-              min="0"
-              step="0.01"
-              value={draft}
-              error={fieldError ?? undefined}
-              hint={t('settings.finePolicy.thresholdHint')}
-              onChange={(e) => {
-                setDraft(e.target.value);
-                if (fieldError) setFieldError(null);
-              }}
-            />
+          <div className="max-w-xs space-y-3">
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-medium text-gray-700 dark:text-gray-200">
+                {t('settings.finePolicy.mode')}
+              </span>
+              <select
+                value={mode}
+                onChange={(e) => {
+                  setMode(e.target.value === 'amount' ? 'amount' : 'none');
+                  setFieldError(null);
+                }}
+                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
+              >
+                <option value="none">{t('settings.finePolicy.modeNone')}</option>
+                <option value="amount">{t('settings.finePolicy.modeAmount')}</option>
+              </select>
+            </label>
+            {mode === 'amount' && (
+              <Input
+                label={t('settings.finePolicy.unpaidFineThreshold')}
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="0.01"
+                value={draft}
+                error={fieldError ?? undefined}
+                hint={t('settings.finePolicy.thresholdHint')}
+                onChange={(e) => {
+                  setDraft(e.target.value);
+                  if (fieldError) setFieldError(null);
+                }}
+              />
+            )}
           </div>
         )}
       </div>

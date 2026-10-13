@@ -29,8 +29,9 @@ pub struct PatronLoanStatus {
     /// The settings resolver falls back to 5, so this is a number with current rules.
     pub max_loans: Option<i32>,
     /// Unpaid fine remainder in integer cents.
-    /// `unpaid_fines` is set only when this is strictly above the effective threshold
-    /// (public-type value when set, else the global threshold). A null threshold does not block.
+    /// `unpaid_fines` is set only when this is strictly above the effective threshold.
+    /// Public type `amount` uses that value, `none` does not block, `inherit` follows
+    /// the global mode (`none` does not block, `amount` uses its value).
     pub unpaid_fines_cents: i64,
     /// Holds in status `ready` for this patron.
     ///

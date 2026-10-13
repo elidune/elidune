@@ -208,7 +208,7 @@ No `firstname`, `lastname`, `email`, `phone`, address, or `login`. `cardNumber` 
 | `account_blocked` | yes | `User::can_borrow` is false (not active, archived, or guest) |
 | `card_lost` | yes | `users.card_lost` (card declared lost or stolen). Checkout and renewal are always **422** `{ "code": "card_lost", "error": "Business Rule Violation", "message": "Library card is reported lost or stolen" }`. `force=true` does not override, including for an admin. `POST /loans/batch-create` reports the same code on `results[].code`. `GET /me/loans` sets `canRenew` false and `renewalRefusalCode` to `card_lost`. Returning a copy and paying a fine stay allowed |
 | `subscription_expired` | yes | `users.expiry_at` is before now |
-| `unpaid_fines` | yes | unpaid balance is **strictly above** the effective threshold (public-type `unpaidFineThreshold` when set, else `circulation_settings.unpaid_fine_threshold`). Not a hardcoded amount. Equal to the threshold does not block. A null effective threshold does not block on amount |
+| `unpaid_fines` | yes | unpaid balance is **strictly above** the effective amount. Public type `amount` uses `unpaidThresholdCents`; `none` does not block; `inherit` uses the global mode (`none` does not block, `amount` uses the global cents). Equal to the amount does not block. `0` blocks any positive unpaid balance |
 | `max_loans` | yes | active loans are at or above the total cap above. A per-media cap is enforced only when that item is checked out, so it is not a card-scan reason |
 | `overdue_loans` | no | at least one unreturned loan is past `expiry_at`. Checkout does **not** refuse for this alone |
 
@@ -822,14 +822,17 @@ Exactly one of `itemId` / `biblioId` is required. `pickupSiteId` is optional (tr
 
 ### `CirculationFinePolicy` (GET/PUT /fines/policy)
 ```json
-{ "unpaidFineThreshold": null }
+{ "unpaidThresholdMode": "none" }
+```
+```json
+{ "unpaidThresholdMode": "amount", "unpaidThresholdCents": 0 }
 ```
 
-Global unpaid-balance gate for **checkout** and **renew**. `null` (the default) disables amount-based blocking. A number blocks when the unpaid remainder is **strictly above** it. `0` blocks any positive unpaid remainder. Paid and waived fines do not count.
+Global unpaid-balance gate for **checkout**, **renew**, and the card-scan `unpaid_fines` reason. `unpaidThresholdMode` is `none` or `amount`. `unpaidThresholdCents` is an integer and is present only for `amount`. `none` (the default on a new install) does not block on amount. `amount` blocks when the unpaid remainder is **strictly above** those cents. `0` blocks any positive unpaid remainder. Paid and waived fines do not count.
 
-Send `PUT /fines/policy` with `{ "unpaidFineThreshold": null }` to turn amount-based blocking off, or `{ "unpaidFineThreshold": "0.00" }` (or any non-negative amount) to turn it on.
+Omit `unpaidThresholdMode` to leave the stored policy unchanged. JSON `null` is rejected. `{ "unpaidThresholdMode": "amount" }` without `unpaidThresholdCents` is **422** `validation_error`. A negative cent value is **400**.
 
-A public type may set `unpaidFineThreshold` to override this value for that audience. `null` on the public type inherits the global value. If both are null, unpaid fines do not block checkout, renew, or the card-scan `unpaid_fines` reason.
+A public type has `unpaidThresholdMode` `inherit` | `none` | `amount` and, for `amount` only, `unpaidThresholdCents`. `inherit` uses this global mode. `none` never blocks that audience on amount, even when the global mode is `amount`. `amount` uses the type's own cents. New public types default to `inherit`. The same PUT rules apply: omit the mode to leave it unchanged; `amount` without cents is **422**.
 
 When the patron is over a configured threshold, `POST /loans` and `POST /loans/:id/renew` return **422** with a desk-facing message (amount due + that staff can retry with `force=true`). A successful force override writes audit event `loan.fine_threshold_overridden` (`actor`, `unpaid`, `threshold`, `operation`).
 

@@ -13,7 +13,7 @@ use crate::{
     models::{
         dto::fines::{
             AccrueBatchReport, AccrueFinesRequest, AccrueLoanResult, AccrueOutcome,
-            CirculationFinePolicy,
+            CirculationFinePolicy, UpdateCirculationFinePolicy,
         },
         fine::{Fine, FineRule, PayFineRequest, WaiveFineRequest},
     },
@@ -215,16 +215,16 @@ pub async fn upsert_fine_rule(
     }
 }
 
-/// Get the global unpaid-fine threshold used by checkout and renew.
+/// Get the global unpaid-fine mode used by checkout and renew.
 ///
-/// `unpaidFineThreshold` is `null` when amount-based blocking is off.
+/// `unpaidThresholdMode` is `none` or `amount`. `unpaidThresholdCents` is present only for `amount`.
 #[utoipa::path(
     get,
     path = "/fines/policy",
     tag = "fines",
     security(("bearer_auth" = [])),
     responses(
-        (status = 200, description = "Global circulation fine policy. unpaidFineThreshold null disables amount-based blocking.", body = CirculationFinePolicy),
+        (status = 200, description = "Global circulation fine policy. unpaidThresholdMode none does not block on amount. amount blocks when the unpaid balance is strictly above unpaidThresholdCents. 0 blocks any positive unpaid balance.", body = CirculationFinePolicy),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 403, description = "Insufficient permissions", body = crate::error::ErrorResponse)
     )
@@ -237,35 +237,32 @@ pub async fn get_fine_policy(
     Ok(Json(state.services.fines.get_policy().await?))
 }
 
-/// Update the global unpaid-fine threshold.
+/// Update the global unpaid-fine mode.
 ///
-/// Send `unpaidFineThreshold: null` to disable amount-based blocking, or a
-/// non-negative amount to enable it. `0` blocks any positive unpaid balance.
+/// Omit `unpaidThresholdMode` to leave the stored policy unchanged. JSON `null` is rejected.
+/// `none` does not block on amount. `amount` requires `unpaidThresholdCents`.
+/// `0` blocks any positive unpaid balance. A negative amount is 400.
 #[utoipa::path(
     put,
     path = "/fines/policy",
     tag = "fines",
     security(("bearer_auth" = [])),
-    request_body = CirculationFinePolicy,
+    request_body = UpdateCirculationFinePolicy,
     responses(
-        (status = 200, description = "Circulation fine policy saved. unpaidFineThreshold null disables amount-based blocking; 0 blocks any positive unpaid balance.", body = CirculationFinePolicy),
-        (status = 400, description = "Invalid threshold", body = crate::error::ErrorResponse),
+        (status = 200, description = "Circulation fine policy. Omitted unpaidThresholdMode leaves the stored policy unchanged. none does not block on amount. amount blocks when the unpaid balance is strictly above unpaidThresholdCents. 0 blocks any positive unpaid balance.", body = CirculationFinePolicy),
+        (status = 400, description = "Negative unpaidThresholdCents", body = crate::error::ErrorResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
-        (status = 403, description = "Staff access required", body = crate::error::ErrorResponse)
+        (status = 403, description = "Staff access required", body = crate::error::ErrorResponse),
+        (status = 422, description = "unpaidThresholdMode amount without unpaidThresholdCents, or JSON null", body = crate::error::ErrorResponse)
     )
 )]
 pub async fn update_fine_policy(
     State(state): State<crate::AppState>,
     StaffUser(claims): StaffUser,
     ClientIp(ip): ClientIp,
-    Json(req): Json<CirculationFinePolicy>,
+    Json(req): Json<UpdateCirculationFinePolicy>,
 ) -> AppResult<Json<CirculationFinePolicy>> {
-    match state
-        .services
-        .fines
-        .set_policy(req.unpaid_fine_threshold)
-        .await
-    {
+    match state.services.fines.set_policy(&req).await {
         Ok(policy) => {
             state.services.audit.log(
                 audit::event::FINE_POLICY_UPDATED,
@@ -274,7 +271,8 @@ pub async fn update_fine_policy(
                 Some(1),
                 ip,
                 Some(serde_json::json!({
-                    "unpaidFineThreshold": policy.unpaid_fine_threshold,
+                    "unpaidThresholdMode": policy.unpaid_threshold_mode,
+                    "unpaidThresholdCents": policy.unpaid_threshold_cents,
                 })),
                 audit::AuditLogMeta::success(),
             );
@@ -288,7 +286,8 @@ pub async fn update_fine_policy(
                 Some(1),
                 ip,
                 Some(serde_json::json!({
-                    "unpaidFineThreshold": req.unpaid_fine_threshold,
+                    "unpaidThresholdMode": req.unpaid_threshold_mode,
+                    "unpaidThresholdCents": req.unpaid_threshold_cents,
                 })),
                 audit::AuditLogMeta::from_app_error(&e),
             );
