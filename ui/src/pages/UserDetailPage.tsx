@@ -208,7 +208,6 @@ export default function UserDetailPage() {
         api.getUserLoans(id!, currentUserLoansQuery(pageParam, USER_LOANS_PAGE_SIZE)),
       );
       if (result.ok) return result.page;
-      if (result.denied) return emptyLoanPage<LoanListItem>();
       throw result.error;
     },
     initialPageParam: 1,
@@ -244,7 +243,6 @@ export default function UserDetailPage() {
       if (!query) return emptyLoanPage<LoanListItem>();
       const result = await readPatronLoans(() => api.getUserLoans(id!, query));
       if (result.ok) return result.page;
-      if (result.denied) return emptyLoanPage<LoanListItem>();
       throw result.error;
     },
     initialPageParam: 1,

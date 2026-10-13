@@ -1299,7 +1299,7 @@
     "userSearchError": "Impossible de rechercher les lecteurs",
     "userLoadError": "Impossible de charger ce lecteur",
     "loansLoadError": "Impossible de charger les emprunts",
-    "loansNotAllowed": "Vous n'êtes pas autorisé à consulter ces emprunts.",
+    "loansNotAllowed": "Vous n'avez pas accès à cette information.",
     "specimenBarcode": "Code-barres de l'exemplaire",
     "loanDetails": "Détails de l'emprunt",
     "borrowedSpecimen": "Exemplaire emprunté",

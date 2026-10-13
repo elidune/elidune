@@ -196,7 +196,7 @@ describe('LoansAccessNotice', () => {
         }),
       ) as ReactElement,
     );
-    const phrase = 'You are not allowed to view these loans.';
+    const phrase = 'You do not have access to this information.';
     assert.equal(html.split(phrase).length - 1, 1);
     assert.equal(html.includes('role="status"'), true);
     assert.equal(html.includes('role="alert"'), false);
@@ -248,6 +248,6 @@ describe('LoansAccessNotice', () => {
     );
     assert.equal(html.split('role="alert"').length - 1, 1);
     assert.equal(html.includes('<button'), true);
-    assert.equal(html.includes('You are not allowed to view these loans.'), false);
+    assert.equal(html.includes('You do not have access to this information.'), false);
   });
 });

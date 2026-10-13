@@ -78,6 +78,7 @@ import DeskNameSearch from '@/components/loans/DeskNameSearch';
 import DeskPatronStatus from '@/components/loans/DeskPatronStatus';
 import OverdueBorrowerSummary from '@/components/loans/OverdueBorrowerSummary';
 import OverdueDueDate from '@/components/loans/OverdueDueDate';
+import PatronLoansOutcome from '@/components/loans/PatronLoansOutcome';
 import { OVERDUE_FACTS_CLASS } from '@/utils/overdueDueDate';
 import ReturnBorrowerLine from '@/components/loans/ReturnBorrowerLine';
 import { useToast } from '@/contexts/ToastContext';
@@ -91,7 +92,6 @@ import {
   checkoutRecap,
   currentUserLoansQuery,
   deskBorrower,
-  emptyLoanPage,
   readPatronLoans,
 } from '@/utils/loanListAccess';
 
@@ -175,6 +175,7 @@ export default function LoansPage() {
   const [userSearchError, setUserSearchError] = useState<string | null>(null);
   const [userSelectError, setUserSelectError] = useState<string | null>(null);
   const [loansLoadError, setLoansLoadError] = useState<string | null>(null);
+  const [loansAccessDenied, setLoansAccessDenied] = useState(false);
   const [userSearchRetry, setUserSearchRetry] = useState(0);
   const [loansReloadToken, setLoansReloadToken] = useState(0);
   const [isPatronLookupBusy, setIsPatronLookupBusy] = useState(false);
@@ -271,6 +272,7 @@ export default function LoansPage() {
     setLoans([]);
     setLoansTotal(0);
     setLoansPage(1);
+    setLoansAccessDenied(false);
     setUserSearchDraft('');
     setUserSearchResults([]);
     setBarcodeInput('');
@@ -532,16 +534,17 @@ export default function LoansPage() {
         );
         setLoansTotal(result.page.total);
         setLoansLoadError(null);
+        setLoansAccessDenied(false);
         return result;
       }
       if (result.denied) {
-        // 403 (including authorization_failed) stays an empty list: no permission sentence.
-        const page = emptyLoanPage<LoanListItem>();
-        setLoans(page.items);
-        setLoansTotal(page.total);
+        setLoans([]);
+        setLoansTotal(0);
         setLoansLoadError(null);
-        return { ok: true as const, page };
+        setLoansAccessDenied(true);
+        return result;
       }
+      setLoansAccessDenied(false);
       const msg = getApiErrorMessage(result.error, t) || t('loans.loansLoadError');
       setLoansLoadError(msg);
       if (options.notify) {
@@ -710,6 +713,8 @@ export default function LoansPage() {
   const [prevSelectedUser, setPrevSelectedUser] = useState(selectedUser);
   if (selectedUser !== prevSelectedUser) {
     setPrevSelectedUser(selectedUser);
+    setLoansAccessDenied(false);
+    if (selectedUser) setIsLoadingLoans(true);
     if (!selectedUser) {
       setLoans([]);
       setLoansTotal(0);
@@ -777,6 +782,7 @@ export default function LoansPage() {
         setLoans([]);
         setLoansTotal(0);
         setLoansLoadError(null);
+        setLoansAccessDenied(false);
       }
       setLoansPage(1);
       setLastCheckout(null);
@@ -1376,6 +1382,7 @@ export default function LoansPage() {
                         setLoans([]);
                         setLoansTotal(0);
                         setLoansPage(1);
+                        setLoansAccessDenied(false);
                         setUserSearchDraft('');
                         setBarcodeInput('');
                         setLastCheckout(null);
@@ -1493,9 +1500,14 @@ export default function LoansPage() {
                   )}
                 </div>
                 <ScrollableListRegion aria-label={t('loans.activeLoans')}>
-                  {isLoadingLoans && !loans.length ? (
+                  {isLoadingLoans && !loans.length && !loansAccessDenied ? (
                     <ListSkeleton rows={6} />
                   ) : (
+                    <PatronLoansOutcome
+                      denied={loansAccessDenied}
+                      itemCount={loansSortedByStart.length}
+                      emptyMessage={t('loans.noLoans')}
+                    >
                     <ResponsiveRecordList
                       desktop={
                         <Table
@@ -1549,6 +1561,7 @@ export default function LoansPage() {
                         )
                       }
                     />
+                    </PatronLoansOutcome>
                   )}
                 </ScrollableListRegion>
                 {loansTotal > 0 && (

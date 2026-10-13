@@ -1299,7 +1299,7 @@
     "userSearchError": "Could not search patrons",
     "userLoadError": "Could not load this patron",
     "loansLoadError": "Could not load loans",
-    "loansNotAllowed": "You are not allowed to view these loans.",
+    "loansNotAllowed": "You do not have access to this information.",
     "specimenBarcode": "Copy barcode",
     "loanDetails": "Loan details",
     "borrowedSpecimen": "Borrowed copy",

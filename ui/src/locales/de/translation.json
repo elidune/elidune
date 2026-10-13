@@ -1299,7 +1299,7 @@
     "userSearchError": "Benutzer konnten nicht gesucht werden",
     "userLoadError": "Dieser Benutzer konnte nicht geladen werden",
     "loansLoadError": "Ausleihen konnten nicht geladen werden",
-    "loansNotAllowed": "Sie dürfen diese Ausleihen nicht einsehen.",
+    "loansNotAllowed": "Sie haben keinen Zugriff auf diese Information.",
     "specimenBarcode": "Exemplar-Barcode",
     "loanDetails": "Ausleihe-Details",
     "borrowedSpecimen": "Ausgeliehenes Exemplar",
