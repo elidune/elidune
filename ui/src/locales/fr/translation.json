@@ -2043,6 +2043,13 @@
   "errors": {
     "notFound": "Ressource introuvable",
     "generic": "Une erreur s'est produite",
+    "itemStatusAction": {
+      "lost": "Cet exemplaire est perdu. Utilisez « Retrouvé » avant le prêt.",
+      "claimedReturned": "Cet exemplaire est dit rendu. Clôturez d'abord l'enquête.",
+      "toSearch": "Cet exemplaire est à rechercher. Marquez-le comme retrouvé avant le prêt.",
+      "missing": "Cet exemplaire est manquant. Marquez-le comme retrouvé avant le prêt.",
+      "generic": "Traitez d'abord le statut de cet exemplaire avant le prêt."
+    },
     "tooManyRequests": "Trop de tentatives. Veuillez patienter avant de réessayer.",
     "tooManyRequestsWaitSeconds_one": "Trop de tentatives. Veuillez patienter {{duration}} avant de réessayer.",
     "tooManyRequestsWaitSeconds_other": "Trop de tentatives. Veuillez patienter {{duration}} avant de réessayer.",
@@ -2098,6 +2105,7 @@
       "max_media_loans": "Ce lecteur a atteint le nombre maximum de prêts pour ce type de document.",
       "item_not_loanable": "Cet exemplaire ne peut pas être prêté.",
       "item_held_for_other": "Un autre lecteur a la priorité sur cet exemplaire.",
+      "item_status_action_required": "Traitez d'abord le statut de cet exemplaire avant le prêt.",
       "duplicate_isbn_needs_confirmation": "Un document avec cet ISBN existe déjà.",
       "duplicate_barcode_needs_confirmation": "Un exemplaire avec ce code-barres existe déjà.",
       "z3950_error": "Erreur lors de la recherche Z39.50.",

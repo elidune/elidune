@@ -359,6 +359,7 @@ export function checkoutScanNoticeFromRefusal(input: {
   cardNumber?: string | null;
   initials?: string | null;
 }): DeskScanAlert | null {
+  // The set-aside dialog (« Mettre de côté » / « Annuler ») handles this code.
   if (input.code?.trim() === 'item_held_for_other') return null;
   if (input.code?.trim() === ITEM_TO_PICK_FOR_OTHER) {
     return {

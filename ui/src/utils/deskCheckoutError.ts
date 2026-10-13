@@ -1,17 +1,24 @@
 import type { TFunction } from 'i18next';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
 import { isCheckoutScanNoticeShown } from '@/utils/deskScanAlert';
+import { itemStatusActionMessage, readCheckoutItemStatus } from '@/utils/itemStatusAction';
 import { isCheckoutDeclined } from '@/utils/toPickDesk';
+
+const ITEM_STATUS_ACTION_REQUIRED = 'item_status_action_required';
 
 /**
  * Desk checkout copy.
  * A known `errors.apiCode.*` wins, including codes renewal also uses
  * (`subscription_expired`, `fines_over_threshold`), so the desk does not show
- * the patron renewal sentence. An unmapped body is the generic error,
+ * the patron renewal sentence. `item_status_action_required` uses the
+ * `itemStatus` sentence. An unmapped body is the generic error,
  * never the English server sentence.
  */
 export function deskCheckoutMessage(error: unknown, t: TFunction): string {
   const code = getApiErrorCode(error);
+  if (code === ITEM_STATUS_ACTION_REQUIRED) {
+    return itemStatusActionMessage(readCheckoutItemStatus(error), t);
+  }
   if (code) {
     const key = `errors.apiCode.${code}`;
     const translated = t(key);

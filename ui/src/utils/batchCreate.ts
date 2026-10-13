@@ -1,8 +1,11 @@
+import { itemStatusActionMessage } from './itemStatusAction.ts';
+
 type Translate = (key: string) => string;
 
 export interface BatchCreateItemError {
   code?: string | null;
   error?: string | null;
+  itemStatus?: string | null;
 }
 
 /**
@@ -13,6 +16,9 @@ export interface BatchCreateItemError {
  */
 export function batchCreateItemMessage(item: BatchCreateItemError, t: Translate): string {
   const code = typeof item.code === 'string' ? item.code.trim() : '';
+  if (code === 'item_status_action_required') {
+    return itemStatusActionMessage(item.itemStatus, t);
+  }
   if (code) {
     const key = `errors.apiCode.${code}`;
     const translated = t(key);

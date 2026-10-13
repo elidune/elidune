@@ -1,4 +1,4 @@
-import { circulationMayForce } from './circulationForce.ts';
+import { loanRefusalMayForce } from './circulationForce.ts';
 import {
   otherBorrowerFromPayload,
   otherBorrowerFromPerson,
@@ -40,10 +40,6 @@ function responseOf(error: unknown): { status: number | null; data: Record<strin
     status: typeof record.status === 'number' ? record.status : null,
     data: data && typeof data === 'object' && !Array.isArray(data) ? (data as Record<string, unknown>) : null,
   };
-}
-
-function readCode(error: unknown): string | null {
-  return text(responseOf(error).data?.code);
 }
 
 function readConflictBorrower(data: Record<string, unknown> | null): OtherBorrowerRef | null {
@@ -127,11 +123,12 @@ function renewLoanId(data: Record<string, unknown> | null, context: ConflictCont
 
 /**
  * These 409s are final. A checkout must not be retried with `force`.
- * Forceable 422 codes come from {@link circulationMayForce}. `card_lost` and
- * `business_rule_violation` are not among them. `canForce` is loans write.
+ * A 422 is forceable only when its `forceable` field is boolean true.
+ * A missing field is not forceable. The code and the caller's role are ignored.
+ * `canForce` is loans write.
  */
 export function checkoutMayForce(error: unknown, canForce = true): boolean {
-  return circulationMayForce('loan', readCode(error), canForce);
+  return loanRefusalMayForce(responseOf(error).data?.forceable, canForce);
 }
 
 /** `force` is omitted when the copy is already on loan. */

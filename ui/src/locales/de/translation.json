@@ -2043,6 +2043,13 @@
   "errors": {
     "notFound": "Ressource nicht gefunden",
     "generic": "Ein Fehler ist aufgetreten",
+    "itemStatusAction": {
+      "lost": "Dieses Exemplar ist verloren. Verwenden Sie „Wiedergefunden“, bevor Sie es ausleihen.",
+      "claimedReturned": "Dieses Exemplar ist als zurückgegeben angegeben. Schließen Sie zuerst die Nachforschung ab.",
+      "toSearch": "Dieses Exemplar ist zu suchen. Markieren Sie es als wiedergefunden, bevor Sie es ausleihen.",
+      "missing": "Dieses Exemplar wird vermisst. Markieren Sie es als wiedergefunden, bevor Sie es ausleihen.",
+      "generic": "Klären Sie zuerst den Status dieses Exemplars, bevor Sie es ausleihen."
+    },
     "tooManyRequests": "Zu viele Versuche. Bitte warten Sie, bevor Sie es erneut versuchen.",
     "tooManyRequestsWaitSeconds_one": "Zu viele Versuche. Bitte warten Sie {{duration}}, bevor Sie es erneut versuchen.",
     "tooManyRequestsWaitSeconds_other": "Zu viele Versuche. Bitte warten Sie {{duration}}, bevor Sie es erneut versuchen.",
@@ -2098,6 +2105,7 @@
       "max_media_loans": "Dieser Leser hat die maximale Anzahl an Ausleihen für diesen Medientyp erreicht.",
       "item_not_loanable": "Dieses Exemplar kann nicht ausgeliehen werden.",
       "item_held_for_other": "Ein anderer Leser hat Vorrang auf dieses Exemplar.",
+      "item_status_action_required": "Klären Sie zuerst den Status dieses Exemplars, bevor Sie es ausleihen.",
       "duplicate_isbn_needs_confirmation": "Ein Titel mit dieser ISBN existiert bereits.",
       "duplicate_barcode_needs_confirmation": "Ein Exemplar mit diesem Barcode existiert bereits.",
       "z3950_error": "Fehler bei der Z39.50-Suche.",

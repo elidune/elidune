@@ -6,7 +6,7 @@ import en from '../locales/en/translation.json' with { type: 'json' };
 import es from '../locales/es/translation.json' with { type: 'json' };
 import fr from '../locales/fr/translation.json' with { type: 'json' };
 import { CheckoutScanNoticeShown } from './deskScanAlert.ts';
-import { circulationMayForce } from './circulationForce.ts';
+import { loanRefusalMayForce } from './circulationForce.ts';
 import {
   deskBorrowErrorText,
   deskCheckoutMessage,
@@ -22,13 +22,18 @@ const catalogs = { fr, en, de, es };
 const HOLD_RAW =
   'This copy has an active hold for another patron — only the queued patron may borrow it, or use force=true to override';
 
-function axiosError(status: number, code: string | null, message: string) {
+function axiosError(
+  status: number,
+  code: string | null,
+  message: string,
+  extra: Record<string, unknown> = {},
+) {
   return {
     isAxiosError: true,
     message: 'Request failed',
     response: {
       status,
-      data: code ? { code, error: 'Unprocessable Entity', message } : { message },
+      data: code ? { code, error: 'Unprocessable Entity', message, ...extra } : { message },
     },
   };
 }
@@ -126,9 +131,11 @@ describe('desk checkout error mapping', () => {
         assert.equal(message.toLowerCase().includes('specimen'), false);
         assert.equal(message.toLowerCase().includes('usager'), false);
         assert.equal(message.toLowerCase().includes('patron'), false);
-        assert.equal(circulationMayForce('loan', code), true);
-        assert.equal(circulationMayForce('batch', code), true);
-        assert.equal(checkoutMayForce(axiosError(422, code, 'server'), false), false);
+        const flagged = axiosError(422, code, 'server', { forceable: code !== 'item_held_for_other' });
+        assert.equal(checkoutMayForce(flagged), code !== 'item_held_for_other');
+        assert.equal(checkoutMayForce(axiosError(422, code, 'server', { forceable: true }), false), false);
+        assert.equal(checkoutMayForce(axiosError(422, code, 'server')), false);
+        assert.equal(loanRefusalMayForce(undefined, true), false);
       }
     }
     const fr = await tFor('fr');
@@ -137,14 +144,78 @@ describe('desk checkout error mapping', () => {
       fr,
     );
     assert.equal(blocked, catalogs.fr.errors.apiCode.business_rule_violation);
-    assert.equal(checkoutMayForce(axiosError(422, 'business_rule_violation', 'in transit')), false);
-    assert.equal(circulationMayForce('loan', 'business_rule_violation', true), false);
+    assert.equal(checkoutMayForce(axiosError(422, 'business_rule_violation', 'in transit', { forceable: false })), false);
+    assert.equal(
+      checkoutMayForce(axiosError(422, 'subscription_expired', 'expired', { forceable: false }), true),
+      false,
+    );
+    assert.equal(
+      checkoutMayForce(axiosError(422, 'subscription_expired', 'expired', { forceable: true }), true),
+      true,
+    );
     const expiredCheckout = deskCheckoutMessage(
       axiosError(422, 'subscription_expired', 'User subscription expired on 2020-01-15 — use force=true to override'),
       fr,
     );
     assert.equal(expiredCheckout, "L'abonnement de ce lecteur est expiré.");
     assert.equal(expiredCheckout.includes('prolonger'), false);
+  });
+
+  it('tells the agent what to do for each item status and never treats it as forceable', async () => {
+    const expected = {
+      fr: {
+        lost: 'Cet exemplaire est perdu. Utilisez « Retrouvé » avant le prêt.',
+        claimedReturned: "Cet exemplaire est dit rendu. Clôturez d'abord l'enquête.",
+        toSearch: 'Cet exemplaire est à rechercher. Marquez-le comme retrouvé avant le prêt.',
+        missing: 'Cet exemplaire est manquant. Marquez-le comme retrouvé avant le prêt.',
+      },
+      en: {
+        lost: 'This copy is lost. Use “Found” before the loan.',
+        claimedReturned: 'This copy is claimed returned. Close the investigation first.',
+        toSearch: 'This copy is to search. Mark it as found before the loan.',
+        missing: 'This copy is missing. Mark it as found before the loan.',
+      },
+    } as const;
+    for (const lang of ['fr', 'en'] as const) {
+      const t = await tFor(lang);
+      for (const itemStatus of ['lost', 'claimedReturned', 'toSearch', 'missing'] as const) {
+        const error = axiosError(422, 'item_status_action_required', 'Item circulation status is lost.', {
+          forceable: false,
+          itemStatus,
+        });
+        const message = deskCheckoutMessage(error, t);
+        assert.equal(message, expected[lang][itemStatus]);
+        assert.equal(message.toLowerCase().includes('force'), false);
+        assert.equal(message.toLowerCase().includes('specimen'), false);
+        assert.equal(message.toLowerCase().includes('usager'), false);
+        assert.equal(checkoutMayForce(error), false);
+      }
+      const unknown = deskCheckoutMessage(
+        axiosError(422, 'item_status_action_required', 'Item circulation status is damaged.', {
+          forceable: false,
+          itemStatus: 'damaged',
+        }),
+        t,
+      );
+      assert.equal(unknown, catalogs[lang].errors.itemStatusAction.generic);
+      const absent = deskCheckoutMessage(
+        axiosError(422, 'item_status_action_required', 'Resolve it before checkout.', { forceable: false }),
+        t,
+      );
+      assert.equal(absent, catalogs[lang].errors.itemStatusAction.generic);
+    }
+    for (const lang of ['de', 'es'] as const) {
+      const t = await tFor(lang);
+      for (const itemStatus of ['lost', 'claimedReturned', 'toSearch', 'missing'] as const) {
+        const message = deskCheckoutMessage(
+          axiosError(422, 'item_status_action_required', 'status', { itemStatus, forceable: false }),
+          t,
+        );
+        assert.equal(message, catalogs[lang].errors.itemStatusAction[itemStatus]);
+        assert.equal(message.includes('{{'), false);
+        assert.equal(message.toLowerCase().includes('force'), false);
+      }
+    }
   });
 
   it('stays silent when the librarian cancels or a scan notice already explains the refusal', async () => {

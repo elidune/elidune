@@ -133,21 +133,6 @@ export function normalizeUsersRightsLevel(raw: unknown): 'n' | 'o' | 'r' | 'w' |
   return null;
 }
 
-function readOwnableRightFromJwt(
-  accessToken: string | null | undefined,
-  field: 'usersRights' | 'loansRights',
-): 'n' | 'o' | 'r' | 'w' | null {
-  if (!accessToken?.trim()) return null;
-  const payload = decodeAccessTokenPayload(accessToken);
-  if (!payload) return null;
-  const rights = payload.rights;
-  if (rights && typeof rights === 'object') {
-    const nested = normalizeUsersRightsLevel((rights as Record<string, unknown>)[field]);
-    if (nested) return nested;
-  }
-  return normalizeUsersRightsLevel(payload[field]);
-}
-
 /** `rights.usersRights` from the access token. `own` is below read. */
 export function readUsersRightsFromJwt(
   accessToken: string | null | undefined,

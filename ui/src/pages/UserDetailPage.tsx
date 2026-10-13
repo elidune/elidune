@@ -24,7 +24,8 @@ import { Card, Button, Badge, Modal, Input, Table, ConfirmDialog, MessageModal, 
 import api from '@/services/api';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
 import { deskCheckoutMessage } from '@/utils/deskCheckoutError';
-import { circulationMayForce } from '@/utils/circulationForce';
+import { renewalMayForce } from '@/utils/circulationForce';
+import { checkoutMayForce } from '@/utils/loanConflict';
 import { closureReasonText } from '@/utils/loanClosure';
 import { renewedUntilMessage } from '@/utils/localeDate';
 import { isWeedingServerMessage } from '@/utils/weeding';
@@ -112,6 +113,7 @@ export default function UserDetailPage() {
     cardNumber: string | null;
     initials: string | null;
     specimenCode: string;
+    message?: string | null;
   } | null>(null);
   const [toPickForceLoading, setToPickForceLoading] = useState(false);
   const [borrowForceError, setBorrowForceError] = useState<string | null>(null);
@@ -512,7 +514,7 @@ export default function UserDetailPage() {
       const code = getApiErrorCode(error);
       const msg = getApiErrorMessage(error, t) || t('loans.errorRenewingLoan');
       setRenewError(msg);
-      if (!force && circulationMayForce('renewal', code, canForceLoan)) {
+      if (!force && canForceLoan && renewalMayForce(code)) {
         setRenewForceCode(code);
         setRenewForceLoanId(loanId);
       }
@@ -1050,8 +1052,7 @@ export default function UserDetailPage() {
                 <div className="min-w-0 flex-1 space-y-2">
                   <p className="text-sm font-medium text-red-800 dark:text-red-200">{renewError}</p>
                   <CirculationForceButton
-                    surface="renewal"
-                    code={renewForceCode}
+                    forceable={renewalMayForce(renewForceCode)}
                     canForce={canForceLoan}
                     disabled={loanAction?.op === 'renew'}
                     onForce={() => {
@@ -1400,6 +1401,7 @@ export default function UserDetailPage() {
         isOpen={toPickForce !== null}
         cardNumber={toPickForce?.cardNumber ?? null}
         initials={toPickForce?.initials ?? null}
+        message={toPickForce?.message}
         isLoading={toPickForceLoading}
         onCancel={() => {
           if (!toPickForceLoading) setToPickForce(null);
@@ -1482,7 +1484,7 @@ interface BorrowFormProps {
   canForce: boolean;
   onBusinessRuleViolation?: (message: string, specimenCode: string) => void;
   onToPickForOther?: (
-    identity: { cardNumber: string | null; initials: string | null },
+    identity: { cardNumber: string | null; initials: string | null; message?: string | null },
     specimenCode: string,
   ) => void;
 }
@@ -1529,12 +1531,19 @@ function BorrowForm({
         );
         return;
       }
-      if (errorCode === 'card_lost') {
+      if (errorCode === 'item_held_for_other' && !force) {
+        onToPickForOther?.(
+          { cardNumber: null, initials: null, message: displayMsg },
+          specimenCode.trim(),
+        );
+        return;
+      }
+      if (errorCode === 'card_lost' || errorCode === 'item_status_action_required') {
         setError(displayMsg);
         showToast({ variant: 'error', message: displayMsg });
         return;
       }
-      if (!force && circulationMayForce('loan', errorCode, canForce)) {
+      if (!force && checkoutMayForce(err, canForce)) {
         onBusinessRuleViolation?.(displayMsg, specimenCode.trim());
         return;
       }

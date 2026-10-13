@@ -1593,6 +1593,7 @@ export type ApiErrorCode =
   | 'max_media_loans'
   | 'item_not_loanable'
   | 'item_held_for_other'
+  | 'item_status_action_required'
   | 'duplicate_isbn_needs_confirmation'
   | 'duplicate_barcode_needs_confirmation'
   | 'z3950_error'
@@ -2897,6 +2898,10 @@ export interface BatchCreateResult {
   code?: string | null;
   /** English server text. Shown only when `code` is missing. */
   error?: string | null;
+  /** Server-computed. Missing means the row is not forceable. */
+  forceable?: boolean | null;
+  /** Present on `item_status_action_required` (`lost`, `claimedReturned`, `toSearch`, `missing`). */
+  itemStatus?: string | null;
 }
 
 export interface BatchCreateResponse {
