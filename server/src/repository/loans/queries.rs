@@ -14,7 +14,7 @@ use crate::{
         author::Author,
         biblio::{Biblio, BiblioShort, Collection, Edition, Isbn, Serie},
         item::{Item, ItemShort},
-        loan::{Loan, LoanDetails, LoanMarcExportRow},
+        loan::{Loan, LoanClosureReason, LoanDetails, LoanMarcExportRow},
         user::{UserShort, UserShortRow},
     },
 };
@@ -24,6 +24,21 @@ struct ActiveItemBorrowerRow {
     item_id: i64,
     #[sqlx(flatten)]
     user: UserShortRow,
+}
+
+/// Closed-loan columns are selected only from `loans_archives`.
+/// Open-loan rows omit them, so the JSON fields stay absent.
+fn loan_closure_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> (Option<LoanClosureReason>, Option<Option<DateTime<Utc>>>) {
+    let reason = match row.try_get::<String, _>("closure_reason") {
+        Ok(value) => LoanClosureReason::parse(&value),
+        Err(_) => return (None, None),
+    };
+    let found_at = row
+        .try_get::<Option<DateTime<Utc>>, _>("found_at")
+        .unwrap_or(None);
+    (reason, Some(found_at))
 }
 
 impl Repository {
@@ -191,7 +206,7 @@ impl Repository {
         let sql = format!(
             r#"
             SELECT la.id, la.date, NULL::timestamptz as renew_at, la.nb_renews,
-                   la.expiry_at, la.returned_at,
+                   la.expiry_at, la.returned_at, la.closure_reason, la.found_at,
                    it.barcode as item_identification,
                    it.id as item_copy_id, it.barcode as item_barcode,
                    it.call_number as item_call_number, it.borrowable as item_borrowable,
@@ -580,6 +595,7 @@ impl Repository {
                     hold_user_lastname: None,
                 };
 
+                let (closure_reason, found_at) = loan_closure_from_row(&row);
                 LoanDetails {
                     id: row.get("id"),
                     item_id: row.get("item_copy_id"),
@@ -588,6 +604,8 @@ impl Repository {
                     renewal_date: renew_at,
                     nb_renews: row.get::<Option<i16>, _>("nb_renews").unwrap_or(0),
                     returned_at,
+                    closure_reason,
+                    found_at,
                     biblio: BiblioShort {
                         id: row.get("biblio_id"),
                         media_type: row.get("media_type"),

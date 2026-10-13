@@ -473,6 +473,7 @@ use crate::api::{
             crate::models::loan::LoanMarcExportEncoding,
             loans::SendRemindersQuery,
             crate::models::loan::LoanDetails,
+            crate::models::loan::LoanClosureReason,
             crate::services::reminders::ReminderReport,
             crate::services::reminders::ReminderDetail,
             crate::services::reminders::ReminderError,
@@ -907,6 +908,55 @@ mod tests {
         assert!(
             rendered.contains("subscription_expired"),
             "RenewalRefusal must list subscription_expired: {schema}"
+        );
+    }
+
+    #[test]
+    fn closed_loan_schemas_expose_closure_reason_and_found_at() {
+        let doc = ApiDoc::openapi();
+        let value = serde_json::to_value(&doc).expect("openapi json");
+        let schemas = &value["components"]["schemas"];
+        for name in [
+            "LoanDetails",
+            "LoanDetailsStaff",
+            "LoanDetailsPublic",
+            "LoanDetailsOwn",
+            "LoanDetailsView",
+            "MyLoanView",
+        ] {
+            let properties = &schemas[name]["properties"];
+            assert!(
+                properties["closureReason"].is_object(),
+                "{name} must expose closureReason: {properties}"
+            );
+            assert!(
+                properties["foundAt"].is_object(),
+                "{name} must expose foundAt: {properties}"
+            );
+            let found_at = properties["foundAt"].to_string();
+            assert!(
+                found_at.contains("date-time") || found_at.contains("DateTime"),
+                "{name} foundAt must be a timestamp: {found_at}"
+            );
+        }
+        let reason = &schemas["LoanClosureReason"];
+        let codes = reason["enum"]
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        assert_eq!(codes, vec!["returned", "lost"], "{reason}");
+
+        let me = value["paths"]["/me/loans"]["get"]["description"]
+            .as_str()
+            .unwrap_or("");
+        assert!(
+            me.contains("closureReason") && me.contains("foundAt") && me.contains("archived=true"),
+            "{me}"
         );
     }
 }

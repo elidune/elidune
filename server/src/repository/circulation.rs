@@ -12,7 +12,7 @@ use crate::{
         dto::circulation::{ClaimsReturnedQueueItem, LostFoundDisposition},
         fine::{Fine, FineChargeType},
         hold::Hold,
-        loan::Loan,
+        loan::{Loan, LoanClosureReason},
     },
     repository::fines::LostFineSettlement,
 };
@@ -133,7 +133,13 @@ impl Repository {
 
         let mut readied_hold = None;
         if close_loan {
-            self.loans_archive_and_delete_tx(&mut tx, &loan, now)
+            let closure_reason = match params.action {
+                CirculationAction::MarkLost | CirculationAction::ResolveNotFound => {
+                    LoanClosureReason::Lost
+                }
+                _ => LoanClosureReason::Returned,
+            };
+            self.loans_archive_and_delete_tx(&mut tx, &loan, now, closure_reason)
                 .await?;
             if notify_holds {
                 readied_hold = self
@@ -313,6 +319,15 @@ impl Repository {
         .bind(now)
         .execute(&mut *tx)
         .await?;
+
+        // Finding the copy does not reopen the loan. It stays closed as lost.
+        if matches!(
+            disposition,
+            LostFoundDisposition::Circulate | LostFoundDisposition::Damaged
+        ) {
+            self.loans_mark_lost_copy_found_tx(&mut tx, item_id, now)
+                .await?;
+        }
 
         // `damaged` must not cancel, refund, or waive. Relief is an explicit waive.
         let settlement = if disposition == LostFoundDisposition::Damaged {

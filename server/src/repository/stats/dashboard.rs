@@ -248,7 +248,7 @@ impl Repository {
         .await?;
 
         let returned_today: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM loans_archives WHERE returned_at >= DATE_TRUNC('day', NOW())",
+            "SELECT COUNT(*) FROM loans_archives WHERE closure_reason = 'returned' AND returned_at >= DATE_TRUNC('day', NOW())",
         )
         .fetch_one(pool)
         .await?;
@@ -525,14 +525,18 @@ impl Repository {
         })
         .collect();
 
-        // Query for returns (from loans_archives table)
+        // Returns are archives closed as returned. A loan closed as lost stays a
+        // loan (#157) and is not counted here.
         let returns_where_clause = Self::stats_loan_where_clause(
             "la.returned_at",
             "la.user_id",
             media_type,
             public_type,
             user_id,
-            &["la.returned_at IS NOT NULL"],
+            &[
+                "la.returned_at IS NOT NULL",
+                "la.closure_reason = 'returned'",
+            ],
         );
         let returns_date_trunc = date_trunc.replace("date", "la.returned_at");
 

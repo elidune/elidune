@@ -91,6 +91,14 @@ pub struct LoanDetailsView {
     pub renewal_date: Option<DateTime<Utc>>,
     pub nb_renews: i16,
     pub returned_at: Option<DateTime<Utc>>,
+    /// Set on closed loans (`returned` or `lost`). Omitted on open loans.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closure_reason: Option<crate::models::loan::LoanClosureReason>,
+    /// When a loan closed as lost had its copy found. Omitted on open loans.
+    /// JSON null until the copy is found.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<chrono::DateTime<chrono::Utc>>)]
+    pub found_at: Option<Option<DateTime<Utc>>>,
     pub biblio: crate::models::biblio::BiblioShort,
     pub user: Option<LoanBorrowerResponse>,
     pub item_identification: Option<String>,
@@ -107,6 +115,8 @@ impl LoanDetailsView {
             renewal_date: loan.renewal_date,
             nb_renews: loan.nb_renews,
             returned_at: loan.returned_at,
+            closure_reason: loan.closure_reason,
+            found_at: loan.found_at,
             user: loan.user.map(|user| project_borrower(user, claims, false)),
             biblio: loan.biblio,
             item_identification: loan.item_identification,
@@ -372,7 +382,7 @@ pub enum UserLoanListResponse {
         GetUserLoansQuery
     ),
     responses(
-        (status = 200, description = "User's loans. `users_rights` read or write: `LoanDetailsStaff` (patron `login` and `barcode`). Otherwise `LoanDetailsOwn` (`user` is `id`, `cardNumber`, `initials` only). Another patron also requires `loans_rights` read.", body = UserLoanListResponse),
+        (status = 200, description = "User's loans. `users_rights` read or write: `LoanDetailsStaff` (patron `login` and `barcode`). Otherwise `LoanDetailsOwn` (`user` is `id`, `cardNumber`, `initials` only). Another patron also requires `loans_rights` read. `archived=true` adds `closureReason` (`returned` | `lost`) and `foundAt` (timestamp, or null until a lost copy is found) on each closed loan.", body = UserLoanListResponse),
         (status = 403, description = "Another patron requires users read and loans read"),
         (status = 404, description = "User not found")
     )
@@ -489,13 +499,21 @@ pub async fn export_user_loans_marc(
 #[derive(Debug, Deserialize, Default, ToSchema, IntoParams)]
 #[serde(rename_all = "camelCase")]
 pub struct MyLoansQuery {
+    /// When true, return this caller's closed loans from `loans_archives`.
+    /// Each row includes `closureReason` (`returned` or `lost`) and `foundAt`
+    /// (set when a lost copy is later found). Default false: open loans only,
+    /// without those fields.
+    pub archived: Option<bool>,
     /// Page number (1-based, default 1)
     pub page: Option<i64>,
     /// Page size (default 20, max 200)
     pub per_page: Option<i64>,
 }
 
-/// The caller's active loans. Filtered in SQL by `user_id = caller`.
+/// The caller's loans. Filtered in SQL by `user_id = caller`.
+///
+/// Default is open loans. `archived=true` returns closed loans with
+/// `closureReason` and `foundAt`.
 #[utoipa::path(
     get,
     path = "/me/loans",
@@ -503,7 +521,7 @@ pub struct MyLoansQuery {
     security(("bearer_auth" = [])),
     params(MyLoansQuery),
     responses(
-        (status = 200, description = "The caller's active loans (`MyLoanView`)", body = PaginatedResponse<MyLoanView>),
+        (status = 200, description = "The caller's loans (`MyLoanView`). Default: open loans, no `closureReason` or `foundAt`. `archived=true`: this caller's closed loans only, each with `closureReason` (`returned` | `lost`) and `foundAt` (timestamp, or null until a lost copy is found).", body = PaginatedResponse<MyLoanView>),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse)
     )
 )]
@@ -514,18 +532,29 @@ pub async fn list_my_loans(
 ) -> AppResult<Json<PaginatedResponse<MyLoanView>>> {
     let page = query.page.unwrap_or(1).max(1);
     let per_page = query.per_page.unwrap_or(20).clamp(1, 200);
-    let (items, total) = state
-        .services
-        .repository
-        .loans_list_for_owner(claims.user_id, page, per_page)
-        .await?;
+    let archived = query.archived.unwrap_or(false);
+    let (items, total) = if archived {
+        state
+            .services
+            .repository
+            .loans_list_archived_for_owner(claims.user_id, page, per_page)
+            .await?
+    } else {
+        state
+            .services
+            .repository
+            .loans_list_for_owner(claims.user_id, page, per_page)
+            .await?
+    };
     Ok(Json(PaginatedResponse::new(items, total, page, per_page)))
 }
 
 #[derive(Debug, Deserialize, Default, ToSchema, IntoParams)]
 #[serde(rename_all = "camelCase")]
 pub struct GetUserLoansQuery {
-    /// If true, return past (returned) loans from the archive table
+    /// If true, return closed loans from the archive. Each row includes
+    /// `closureReason` (`returned` or `lost`) and `foundAt` (set when a lost
+    /// copy is later found).
     pub archived: Option<bool>,
     /// Page number (1-based, default 1)
     pub page: Option<i64>,
