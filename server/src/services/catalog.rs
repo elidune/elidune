@@ -456,6 +456,16 @@ impl CatalogService {
         item_id: i64,
         item: &'a mut Item,
     ) -> AppResult<(i64, &'a mut Item)> {
+        // Status changes are audited actions. Reject the whole request so a
+        // call number or notes edit cannot ride along with a silent ignore.
+        if item.circulation_status.is_some() {
+            return Err(AppError::coded(
+                422,
+                crate::error::error_code::CIRCULATION_STATUS_READ_ONLY,
+                crate::error::error_code::CIRCULATION_STATUS_READ_ONLY_MESSAGE,
+            ));
+        }
+
         if let Some(body_id) = item.id {
             if body_id != item_id {
                 return Err(AppError::Validation(

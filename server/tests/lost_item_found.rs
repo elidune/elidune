@@ -132,6 +132,23 @@ async fn audit_body(
     body
 }
 
+/// Item lost-found events are inserted after the response. Retry until the row is visible.
+async fn wait_audit(
+    app: &TestApp,
+    token: &str,
+    event_type: &str,
+    entity_id: i64,
+) -> serde_json::Value {
+    for _ in 0..25 {
+        let body = audit_body(app, token, event_type, entity_id).await;
+        if audit_entry(&body, event_type).is_some() {
+            return body;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(40)).await;
+    }
+    panic!("missing audit {event_type} for {entity_id}");
+}
+
 fn money_is_zero(value: &serde_json::Value) -> bool {
     decimal_str(value)
         .parse::<f64>()
@@ -233,7 +250,7 @@ async fn lost_return_keeps_status_and_circulate_cancels_unpaid_fee() {
         "second resolve: {again}"
     );
 
-    let seen = audit_body(&app, &token, "item.lost_found_seen", item_id).await;
+    let seen = wait_audit(&app, &token, "item.lost_found_seen", item_id).await;
     let seen_row = audit_entry(&seen, "item.lost_found_seen").expect("seen audit");
     assert_eq!(fixtures::json_id(&seen_row["userId"]), actor_id);
     assert!(seen_row["createdAt"].is_string());
@@ -362,7 +379,7 @@ async fn open_replacement_stays_when_found_damaged() {
     assert_eq!(before["totalUnpaid"], after["totalUnpaid"]);
     assert_no_fine_settlement_audit(&app, &token, fine_id).await;
 
-    let seen = audit_body(&app, &token, "item.lost_found_resolved", item_id).await;
+    let seen = wait_audit(&app, &token, "item.lost_found_resolved", item_id).await;
     let row = audit_entry(&seen, "item.lost_found_resolved").expect("resolved audit");
     assert_eq!(row["payload"]["disposition"], "damaged");
     assert_eq!(row["payload"]["fineAction"], "unchanged");
@@ -534,7 +551,7 @@ async fn leave_keeps_lost_status_and_the_fee() {
     let (circulation, borrowable) = item_flags(&app, &token, item_id).await;
     assert_eq!((circulation, borrowable), (1, false));
 
-    let left = audit_body(&app, &token, "item.lost_found_left", item_id).await;
+    let left = wait_audit(&app, &token, "item.lost_found_left", item_id).await;
     assert!(audit_entry(&left, "item.lost_found_left").is_some());
 }
 

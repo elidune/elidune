@@ -122,6 +122,10 @@ pub async fn get_biblio_by_barcode(
 }
 
 /// Update a physical item. The path id is authoritative.
+///
+/// `circulationStatus` is read-only. A request that includes it returns 422
+/// `circulation_status_read_only` and does not apply any other field. Use the
+/// dedicated actions (lost, missing, to-search).
 #[utoipa::path(
     put,
     path = "/items/{id}",
@@ -135,7 +139,8 @@ pub async fn get_biblio_by_barcode(
         (status = 200, description = "Physical item updated", body = Item),
         (status = 400, description = "Validation error", body = crate::error::ErrorResponse),
         (status = 404, description = "Biblio or item not found", body = crate::error::ErrorResponse),
-        (status = 409, description = "An item with this barcode already exists")
+        (status = 409, description = "An item with this barcode already exists"),
+        (status = 422, description = "`circulationStatus` is read-only (`circulation_status_read_only`). Use the dedicated actions (lost, missing, to-search). No other field in the request is applied.", body = crate::error::ErrorResponse)
     )
 )]
 pub async fn update_item(

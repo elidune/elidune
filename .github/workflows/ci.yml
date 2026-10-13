@@ -207,6 +207,7 @@ jobs:
           --test catalog_view_rights
           --test own_user_record
           --test account_types_custom
+          --test circulation_status_read_only
           -- --nocapture
 
   coverage:
@@ -304,6 +305,7 @@ jobs:
           --test catalog_view_rights
           --test own_user_record
           --test account_types_custom
+          --test circulation_status_read_only
           --lcov
           --output-path lcov.info
           --fail-under-lines 20

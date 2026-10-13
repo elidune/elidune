@@ -962,4 +962,42 @@ mod tests {
             "{me}"
         );
     }
+
+    #[test]
+    fn put_item_documents_read_only_circulation_status() {
+        let doc = ApiDoc::openapi();
+        let value = serde_json::to_value(&doc).expect("openapi json");
+        let put = &value["paths"]["/items/{id}"]["put"];
+        let description = put["description"].as_str().unwrap_or("");
+        let lower = description.to_ascii_lowercase();
+        assert!(
+            lower.contains("circulation_status_read_only"),
+            "{description}"
+        );
+        assert!(
+            description.contains("lost")
+                && description.contains("missing")
+                && description.contains("to-search"),
+            "{description}"
+        );
+        let rejected = &put["responses"]["422"];
+        let rejected_description = rejected["description"].as_str().unwrap_or("");
+        assert!(
+            rejected_description.contains("circulation_status_read_only"),
+            "{rejected}"
+        );
+        let schema = rejected["content"]["application/json"]["schema"]["$ref"]
+            .as_str()
+            .unwrap_or("");
+        assert!(
+            schema.contains("ErrorResponse"),
+            "422 body must be ErrorResponse: {rejected}"
+        );
+        let field = &value["components"]["schemas"]["Item"]["properties"]["circulationStatus"];
+        let field_description = field["description"].as_str().unwrap_or("");
+        assert!(
+            field_description.contains("circulation_status_read_only"),
+            "{field}"
+        );
+    }
 }

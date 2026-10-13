@@ -82,6 +82,11 @@ pub mod error_code {
     pub const ACCOUNT_TYPE_SYSTEM: &str = "account_type_system";
     /// The change would leave no active account with settings write.
     pub const LAST_ACTIVE_ADMIN: &str = "last_active_admin";
+    /// `PUT /items/{id}` included `circulationStatus`. That column is not writable here.
+    pub const CIRCULATION_STATUS_READ_ONLY: &str = "circulation_status_read_only";
+    /// Client `message` for [`CIRCULATION_STATUS_READ_ONLY`].
+    pub const CIRCULATION_STATUS_READ_ONLY_MESSAGE: &str =
+        "circulationStatus is read-only. Use the dedicated actions (lost, missing, to-search).";
 }
 
 /// Main application error type
