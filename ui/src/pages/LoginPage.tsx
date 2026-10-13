@@ -27,6 +27,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLibrary } from '@/contexts/LibraryContext';
 import { Card, Input, Button, LibraryInfoSection } from '@/components/common';
+import NoticeHoldsWaiting from '@/components/holds/NoticeHoldsWaiting';
 import ItemAvailabilityBadge from '@/components/items/ItemAvailabilityBadge';
 import { countAvailableCopies, summaryAvailability } from '@/utils/itemAvailability';
 import { useLibrarySchedule } from '@/hooks/common/useLibrarySchedule';
@@ -270,12 +271,6 @@ function BiblioDetailPane({
     staleTime: 5 * 60 * 1000,
   });
 
-  const { data: availability } = useQuery({
-    queryKey: ['opac-availability', biblioId],
-    queryFn: () => api.getOPACAvailability(biblioId),
-    staleTime: 2 * 60 * 1000,
-  });
-
   const authorLine = detail?.authors
     ?.map((a) => [a.firstname, a.lastname].filter(Boolean).join(' '))
     .join(', ');
@@ -327,6 +322,7 @@ function BiblioDetailPane({
           </div>
         ) : !detail ? null : (
           <>
+            <NoticeHoldsWaiting holdsCount={detail.holdsCount} />
             {metaRows.length > 0 && (
               <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
                 {metaRows.map((row) => (
@@ -370,11 +366,6 @@ function BiblioDetailPane({
             {detail.items && detail.items.length > 0 && (
               <div>
                 <p className="text-xs font-medium text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-2">{t('items.specimens')}</p>
-                {(availability?.holdCount ?? 0) > 0 && (
-                  <p className="text-xs text-amber-800 dark:text-amber-200 mb-2">
-                    {t('opac.holdsWaiting', { count: availability?.holdCount })}
-                  </p>
-                )}
                 <div className="space-y-1.5">
                   {detail.items.map((item) => {
                     return (

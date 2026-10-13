@@ -430,6 +430,8 @@
     "loadError": "No se pudo cargar la lista de recogida."
   },
   "holds": {
+    "noticeWaiting_one": "Reserva en espera: {{count}}",
+    "noticeWaiting_other": "Reservas en espera: {{count}}",
     "position": "Posición",
     "createdAt": "Creada el",
     "expiresAt": "Caduca el",
