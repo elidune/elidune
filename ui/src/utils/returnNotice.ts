@@ -5,15 +5,15 @@ type Translate = (key: string, values?: Record<string, unknown>) => string;
 export interface ReturnDeskNotice {
   level: 'informational' | 'warning';
   code: 'item_not_on_loan' | 'item_not_available_status';
-  /** Existing status i18n key. Set for a warning. */
-  statusLabelKey: string | null;
+  circulationStatus: string | null;
+  weedingStatus: string | null;
 }
 
 export interface ReturnScanFeedback {
   /**
    * `success` is a real return or a hold/transit.
    * `info` is a copy that was not on loan.
-   * `none` is a blocked status: no success toast.
+   * `none` is a warning notice: no success toast.
    */
   toast: 'success' | 'info' | 'none';
   notice: ReturnDeskNotice | null;
@@ -22,53 +22,82 @@ export interface ReturnScanFeedback {
 }
 
 /**
- * Status label already used on the copy.
- * A circulation exception wins over weeding so a lost copy stays "lost".
- * Declared missing has no standalone noun; the staff count phrase is the source.
+ * Existing label catalogs. The status string from the response is the key suffix.
+ * This is not a list of blocked statuses.
  */
-export function returnBlockedStatusLabelKey(
-  circulationStatus: string | null | undefined,
-  weedingStatus: string | null | undefined,
-): string {
-  switch ((circulationStatus ?? '').trim()) {
-    case 'lost':
-      return 'loans.exceptions.lost';
-    case 'damaged':
-      return 'loans.exceptions.damaged';
-    case 'toSearch':
-      return 'items.toSearch';
-    case 'missing':
-      return 'items.staffStatus.missing';
-    default:
-      break;
-  }
-  if ((weedingStatus ?? '').trim() === 'withdrawn') return 'weeding.status.withdrawn';
-  return 'availability.unavailable';
+const STATUS_LABEL_NAMESPACES = [
+  'loans.exceptions',
+  'weeding.status',
+  'availability',
+  'items',
+  'loans.closure',
+  'opac',
+] as const;
+
+function clean(value: string | null | undefined): string | null {
+  const text = value?.trim();
+  return text ? text : null;
 }
 
-/** Notice on a barcode check-in, or null when the body has none. */
+/** Catalog text, or null when that key is not translated. */
+function catalogLabel(t: Translate, key: string, values?: Record<string, unknown>): string | null {
+  const missing = `\u0000${key}`;
+  const text = t(key, { ...values, defaultValue: missing }).trim();
+  if (!text || text === key || text === missing) return null;
+  return text;
+}
+
+/**
+ * Label for one returned status token.
+ * Resting values (`available`, `onShelf`) are not a copy exception.
+ * Any other token uses the first existing status translation, then a generic fallback.
+ */
+export function returnStatusLabel(
+  status: string | null | undefined,
+  t: Translate,
+): string | null {
+  const value = clean(status);
+  if (!value || value === 'available' || value === 'onShelf') return null;
+  for (const namespace of STATUS_LABEL_NAMESPACES) {
+    const label = catalogLabel(t, `${namespace}.${value}`);
+    if (label) return label;
+  }
+  const counted = catalogLabel(t, `items.staffStatus.${value}`, { count: 1 });
+  if (counted) {
+    const word = counted.replace(/^\d+\s+/, '').trim();
+    if (word) return word;
+  }
+  return t('loans.returnNoticeUnknownStatus', { status: value });
+}
+
+/** Circulation exception first, then weeding. Unknown tokens use the generic label. */
+export function returnCopyStatusLabel(
+  circulationStatus: string | null | undefined,
+  weedingStatus: string | null | undefined,
+  t: Translate,
+): string {
+  return (
+    returnStatusLabel(circulationStatus, t) ??
+    returnStatusLabel(weedingStatus, t) ??
+    t('availability.unavailable')
+  );
+}
+
+/** Notice on a barcode check-in, or null when the body has none. Level and code decide the tone. */
 export function returnDeskNotice(body: ItemCheckIn | null | undefined): ReturnDeskNotice | null {
   const notice = body?.notice;
   if (!notice) return null;
-  if (notice.code === 'item_not_available_status' || notice.level === 'warning') {
-    return {
-      level: 'warning',
-      code: 'item_not_available_status',
-      statusLabelKey: returnBlockedStatusLabelKey(body?.circulationStatus, body?.weedingStatus),
-    };
+  const statuses = {
+    circulationStatus: clean(body?.circulationStatus),
+    weedingStatus: clean(body?.weedingStatus),
+  };
+  if (notice.level === 'warning' || notice.code === 'item_not_available_status') {
+    return { level: 'warning', code: 'item_not_available_status', ...statuses };
   }
-  if (notice.code === 'item_not_on_loan' || notice.level === 'informational') {
-    return { level: 'informational', code: 'item_not_on_loan', statusLabelKey: null };
+  if (notice.level === 'informational' || notice.code === 'item_not_on_loan') {
+    return { level: 'informational', code: 'item_not_on_loan', ...statuses };
   }
   return null;
-}
-
-/** Drop a leading count from the staff "N missing" phrase. */
-export function returnStatusLabel(key: string, t: Translate): string {
-  if (key === 'items.staffStatus.missing') {
-    return t(key, { count: 1 }).replace(/^\d+\s+/, '').trim();
-  }
-  return t(key);
 }
 
 export function returnNoticeMessage(
@@ -77,7 +106,7 @@ export function returnNoticeMessage(
   options?: { putBack?: boolean },
 ): string {
   if (notice.level === 'warning') {
-    const status = returnStatusLabel(notice.statusLabelKey ?? 'availability.unavailable', t);
+    const status = returnCopyStatusLabel(notice.circulationStatus, notice.weedingStatus, t);
     return t('loans.returnNoticeBlocked', { status });
   }
   const base = t('loans.returnNoticeNotOnLoan');

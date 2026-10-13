@@ -27,7 +27,12 @@ async function i18nFor(lng: 'fr' | 'en'): Promise<I18nInstance> {
 
 function render(
   i18n: I18nInstance,
-  notice: { level: 'informational' | 'warning'; code: 'item_not_on_loan' | 'item_not_available_status'; statusLabelKey: string | null },
+  notice: {
+    level: 'informational' | 'warning';
+    code: 'item_not_on_loan' | 'item_not_available_status';
+    circulationStatus: string | null;
+    weedingStatus: string | null;
+  },
   putBack = false,
 ): string {
   const tree = createElement(
@@ -42,7 +47,7 @@ describe('return desk notice banner', () => {
   it('shows an informational shelf note without success styling', async () => {
     const html = render(
       await i18nFor('fr'),
-      { level: 'informational', code: 'item_not_on_loan', statusLabelKey: null },
+      { level: 'informational', code: 'item_not_on_loan', circulationStatus: null, weedingStatus: null },
       true,
     );
     assert.match(html, /data-return-notice="informational"/);
@@ -57,7 +62,8 @@ describe('return desk notice banner', () => {
     const html = render(await i18nFor('en'), {
       level: 'warning',
       code: 'item_not_available_status',
-      statusLabelKey: 'loans.exceptions.lost',
+      circulationStatus: 'lost',
+      weedingStatus: 'onShelf',
     });
     assert.match(html, /data-return-notice="warning"/);
     assert.match(html, /role="alert"/);

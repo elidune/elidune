@@ -7,7 +7,7 @@ import es from '../locales/es/translation.json' with { type: 'json' };
 import fr from '../locales/fr/translation.json' with { type: 'json' };
 import type { ItemCheckIn } from '../types/index.ts';
 import {
-  returnBlockedStatusLabelKey,
+  returnCopyStatusLabel,
   returnDeskNotice,
   returnNoticeMessage,
   returnScanFeedback,
@@ -42,7 +42,12 @@ describe('return desk notice', () => {
           notice: { code: 'item_not_on_loan', level: 'informational' },
         }),
       ),
-      { level: 'informational', code: 'item_not_on_loan', statusLabelKey: null },
+      {
+        level: 'informational',
+        code: 'item_not_on_loan',
+        circulationStatus: null,
+        weedingStatus: null,
+      },
     );
     assert.deepEqual(
       returnDeskNotice(
@@ -56,14 +61,19 @@ describe('return desk notice', () => {
       {
         level: 'warning',
         code: 'item_not_available_status',
-        statusLabelKey: 'loans.exceptions.lost',
+        circulationStatus: 'lost',
+        weedingStatus: 'onShelf',
       },
     );
-    assert.equal(returnBlockedStatusLabelKey('damaged', 'onShelf'), 'loans.exceptions.damaged');
-    assert.equal(returnBlockedStatusLabelKey('missing', 'onShelf'), 'items.staffStatus.missing');
-    assert.equal(returnBlockedStatusLabelKey('toSearch', 'onShelf'), 'items.toSearch');
-    assert.equal(returnBlockedStatusLabelKey('available', 'withdrawn'), 'weeding.status.withdrawn');
-    assert.equal(returnBlockedStatusLabelKey('lost', 'withdrawn'), 'loans.exceptions.lost');
+    assert.equal(
+      returnDeskNotice(
+        body({
+          notice: { code: 'item_not_on_loan', level: 'warning' },
+          circulationStatus: 'damaged',
+        }),
+      )?.level,
+      'warning',
+    );
   });
 
   it('keeps a blocked scan off the success toast', () => {
@@ -78,7 +88,8 @@ describe('return desk notice', () => {
       notice: {
         level: 'warning',
         code: 'item_not_available_status',
-        statusLabelKey: 'loans.exceptions.lost',
+        circulationStatus: 'lost',
+        weedingStatus: 'onShelf',
       },
       putBack: false,
     });
@@ -136,6 +147,7 @@ describe('return desk notice', () => {
     assert.match(lostFr, /lecteur/);
 
     const cases = [
+      ['lost', 'onShelf', 'Perdu', 'Lost'],
       ['damaged', 'onShelf', 'Abîmé', 'Damaged'],
       ['toSearch', 'onShelf', 'À rechercher', 'To search'],
       ['missing', 'onShelf', 'manquant', 'missing'],
@@ -145,7 +157,7 @@ describe('return desk notice', () => {
       const notice = returnDeskNotice(
         body({
           status: 'unchanged',
-          notice: { code: 'item_not_available_status', level: 'warning' },
+          notice: { level: 'warning', code: 'item_not_available_status' },
           circulationStatus: circulation,
           weedingStatus: weeding,
         }),
@@ -154,5 +166,13 @@ describe('return desk notice', () => {
       assert.match(returnNoticeMessage(notice, tFr), new RegExp(frStatus));
       assert.match(returnNoticeMessage(notice, tEn), new RegExp(enStatus));
     }
+
+    const lostAndWithdrawn = returnCopyStatusLabel('lost', 'withdrawn', tEn);
+    assert.equal(lostAndWithdrawn, 'Lost');
+    const knownElsewhere = returnCopyStatusLabel('claimedReturned', 'onShelf', tEn);
+    assert.equal(knownElsewhere, 'Claimed returned');
+    const unknown = returnCopyStatusLabel('notAStatus', 'onShelf', tFr);
+    assert.equal(unknown, 'Inconnu (notAStatus)');
+    assert.equal(returnCopyStatusLabel(null, null, tEn), 'Unavailable');
   });
 });

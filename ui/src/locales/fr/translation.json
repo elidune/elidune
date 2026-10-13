@@ -1254,6 +1254,7 @@
     "returnNoticeNotOnLoan": "Cet exemplaire n'est pas en prêt à un lecteur.",
     "returnNoticePutBack": "Remettez-le en rayon.",
     "returnNoticeBlocked": "Cet exemplaire n'a pas été rendu à un lecteur. Statut : {{status}}.",
+    "returnNoticeUnknownStatus": "Inconnu ({{status}})",
     "lostFound": {
       "title": "Document déclaré perdu, retrouvé",
       "checkCondition": "Cet exemplaire a été déclaré perdu. Vérifiez son état avant de choisir.",
