@@ -619,6 +619,7 @@ Each copy includes:
 | `dueDate` | Active loan `expiry_at`, or `null` | Same |
 | `onHold` | Boolean, see below | Same |
 | `loanId` | Omitted | Kept |
+| `holdFor` | Omitted | On an `onHold` copy when the caller has `users_rights` or `loans_rights` read or write. Users read returns `UserShortStaff`. Loans read without users read returns `{ id, cardNumber, initials }`. Omitted when the caller has neither right. |
 | `borrower` | Omitted | Only when the caller has `loans_rights` read or write and the copy is on loan |
 
 `onHold` is true only when this copy is actually assigned:
@@ -630,7 +631,9 @@ An unassigned title hold (`pending`, `item_id` null) does not set `onHold` on an
 
 Transit precedence can leave `availability: "inTransit"` with `onHold: true`. `to_pick` and `ready` use `availability: "onHold"`.
 
-`borrower` uses the loan identity helper. `loans_rights` read or write without `users_rights` read returns `{ "id", "cardNumber", "initials" }`. `users_rights` read or write returns `UserShortStaff` (name, `login`, `barcode`). Users read without loans read omits `borrower`. Patrons and `GET /opac/biblios/:id` never receive `borrower`, `loanId`, or a hold patron.
+`holdFor` and `borrower` use the loan identity helper. `loans_rights` read or write without `users_rights` read returns `{ "id", "cardNumber", "initials" }`. `users_rights` read or write returns `UserShortStaff` (name, `login`, `barcode`). Users read without loans read still receives `holdFor` and omits `borrower`. Patrons and `GET /opac/biblios/:id` never receive `borrower`, `loanId`, or `holdFor`.
+
+Staff hold rows (`GET /holds`, `GET /biblios/:id/holds`, `GET /items/:id/holds`, `GET /users/:id/holds`) use the same identity on `user`. `expiresAt` is the pickup deadline. The hold-shelf label `GET /holds/pick-list` uses `holdFor` and `pickupDeadline` (`holds.expires_at`, null while `to_pick`) plus `pickDueAt`. Checkout of a `to_pick` copy for someone else is `422` `item_to_pick_for_other` with `details.cardNumber` and `details.initials`.
 
 `dueDate` and `onHold` are also on the other full-copy views (`GET /biblios/:id/items`, `GET /items/:id`, `GET /items/barcode/:barcode`, `GET /opac/biblios/:id`). `holdsCount` is on the full notice views, including `GET /items/:id` and `GET /opac/biblios/:id`. Those item routes do not add `borrower`. List hits (`ItemShort`) omit `dueDate`, `onHold`, `loanId`, and `borrower`.
 

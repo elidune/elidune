@@ -171,7 +171,7 @@ pub async fn list_biblios(
 
     let body = if claims.is_librarian() {
         BiblioSearchResponse::Staff(PaginatedResponse::new(
-            biblios.into_iter().map(BiblioShortStaff::from).collect(),
+            super::catalog_hold::staff_biblio_shorts(&state, &claims, biblios).await?,
             total,
             page,
             per_page,
@@ -198,7 +198,7 @@ pub async fn list_biblios(
         ("full_record" = Option<bool>, Query, description = "If true, include full MARC record data")
     ),
     responses(
-        (status = 200, description = "Bibliographic record details. Librarians and admins receive `BiblioStaffView`. Readers receive `BiblioPublicView` (`toSearch` collapsed to `unavailable`, no hold patron, notes, weeding, loan id, or borrower). The record includes `holdsCount` (pending holds still waiting for a copy; `to_pick`, `ready`, and in-transit holds are excluded). Every copy includes `dueDate` (active loan `expiry_at`, or null) and `onHold` (true only when this copy is `to_pick` or `ready`, or in transit for a hold). An unassigned `pending` title hold does not set `onHold`. Staff with `loans_rights` read or write also receive `borrower` on a copy that is on loan: `{ id, cardNumber, initials }` unless `users_rights` is read or write, which returns `UserShortStaff`.", body = BiblioReadResponse),
+        (status = 200, description = "Bibliographic record details. Librarians and admins receive `BiblioStaffView`. Readers receive `BiblioPublicView` (`toSearch` collapsed to `unavailable`, no hold patron, notes, weeding, loan id, or borrower). The record includes `holdsCount` (pending holds still waiting for a copy; `to_pick`, `ready`, and in-transit holds are excluded). Every copy includes `dueDate` (active loan `expiry_at`, or null) and `onHold` (true only when this copy is `to_pick` or `ready`, or in transit for a hold). An unassigned `pending` title hold does not set `onHold`. `holdFor` is set on an `onHold` copy when the caller has `users_rights` or `loans_rights` read or write. `users_rights` returns `UserShortStaff`. `loans_rights` without users read returns `{ id, cardNumber, initials }`. Patrons, the OPAC, and staff with neither right omit `holdFor`. Staff with `loans_rights` read or write also receive `borrower` on a copy that is on loan: `{ id, cardNumber, initials }` unless `users_rights` is read or write, which returns `UserShortStaff`.", body = BiblioReadResponse),
         (status = 404, description = "Biblio not found")
     )
 )]
@@ -217,7 +217,7 @@ pub async fn get_biblio(
         ));
     }
     let body = if claims.is_librarian() {
-        let mut view = BiblioStaffView::from(biblio);
+        let mut view = super::catalog_hold::staff_biblio_view(&state, &claims, biblio).await?;
         attach_notice_borrowers(&state, &claims, &mut view.items).await?;
         BiblioReadResponse::Staff(view)
     } else {
@@ -683,7 +683,7 @@ pub struct DeleteBiblioParams {
         ("id" = i64, Path, description = "Biblio ID")
     ),
     responses(
-        (status = 200, description = "List of physical items. Librarians and admins receive `ItemStaffView`. Readers receive `ItemPublicView`. Copies include `dueDate` and `onHold` (same rules as `GET /biblios/{id}`). This list does not include `borrower`.", body = ItemListResponse),
+        (status = 200, description = "List of physical items. Librarians and admins receive `ItemStaffView`. Readers receive `ItemPublicView`. Copies include `dueDate` and `onHold` (same rules as `GET /biblios/{id}`). Staff with users or loans read receive `holdFor` on an `onHold` copy (same rule as `GET /biblios/{id}`). Readers omit it. This list does not include `borrower`.", body = ItemListResponse),
         (status = 404, description = "Biblio not found")
     )
 )]
@@ -706,7 +706,9 @@ pub async fn list_items(
         ));
     }
     let body = if claims.is_librarian() {
-        ItemListResponse::Staff(items.into_iter().map(ItemStaffView::from).collect())
+        ItemListResponse::Staff(
+            super::catalog_hold::staff_item_views(&state, &claims, items).await?,
+        )
     } else {
         ItemListResponse::Public(
             items

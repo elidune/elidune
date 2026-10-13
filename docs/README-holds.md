@@ -32,7 +32,7 @@ A returned copy is already in staff hands, so it is **not** `to_pick`. It follow
 
 `circulation_settings.pick_delay_days` (`pickDelayDays` on `GET`/`PUT /holds/policy`, default 2) flags pick-list rows overdue. It does not expire or cancel the hold.
 
-Checkout of a `to_pick` copy by another patron is `422` with code `item_to_pick_for_other` and `details.holdId`, `details.userId`, `details.userName`. `force=true` still releases the assignment.
+Checkout of a `to_pick` copy by another patron is `422` with code `item_to_pick_for_other` and `details.holdId`, `details.userId`, `details.cardNumber`, `details.initials`. The body never includes the patron name. `force=true` still releases the assignment.
 
 ## Who may borrow a shelf copy
 

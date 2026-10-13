@@ -10,7 +10,7 @@ use serde::Deserialize;
 use crate::{
     api::biblios::BiblioReadResponse,
     error::AppResult,
-    models::catalog_view::{BiblioPublicView, BiblioStaffView},
+    models::catalog_view::BiblioPublicView,
     models::dto::weeding::SetWeedingRequest,
     models::item::Item,
     services::audit::{self},
@@ -41,7 +41,7 @@ pub fn router() -> axum::Router<crate::AppState> {
         ("id" = i64, Path, description = "Physical copy (item) ID")
     ),
     responses(
-        (status = 200, description = "Biblio with a single item entry. Librarians and admins receive `BiblioStaffView`. Readers receive `BiblioPublicView`. The record includes `holdsCount`. The copy includes `dueDate` and `onHold` (same rules as `GET /biblios/{id}`). This route does not include `borrower`.", body = BiblioReadResponse),
+        (status = 200, description = "Biblio with a single item entry. Librarians and admins receive `BiblioStaffView`. Readers receive `BiblioPublicView`. The record includes `holdsCount`. The copy includes `dueDate` and `onHold` (same rules as `GET /biblios/{id}`). Staff with users or loans read receive `holdFor` on an `onHold` copy. Readers omit it. This route does not include `borrower`.", body = BiblioReadResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 404, description = "Item not found or archived", body = crate::error::ErrorResponse),
         (status = 410, description = "Bibliographic record is archived", body = crate::error::ErrorResponse)
@@ -65,7 +65,9 @@ pub async fn get_biblio_by_item(
         ));
     }
     let body = if claims.is_librarian() {
-        BiblioReadResponse::Staff(BiblioStaffView::from(biblio))
+        BiblioReadResponse::Staff(
+            super::catalog_hold::staff_biblio_view(&state, &claims, biblio).await?,
+        )
     } else {
         BiblioReadResponse::Public(BiblioPublicView::from(biblio))
     };
@@ -84,7 +86,7 @@ pub async fn get_biblio_by_item(
         ("barcode" = String, Path, description = "Physical copy barcode (exact match)")
     ),
     responses(
-        (status = 200, description = "Biblio with a single item entry. Librarians and admins receive `BiblioStaffView`. Readers receive `BiblioPublicView`. The record includes `holdsCount`. The copy includes `dueDate` and `onHold` (same rules as `GET /biblios/{id}`). This route does not include `borrower`.", body = BiblioReadResponse),
+        (status = 200, description = "Biblio with a single item entry. Librarians and admins receive `BiblioStaffView`. Readers receive `BiblioPublicView`. The record includes `holdsCount`. The copy includes `dueDate` and `onHold` (same rules as `GET /biblios/{id}`). Staff with users or loans read receive `holdFor` on an `onHold` copy. Readers omit it. This route does not include `borrower`.", body = BiblioReadResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 404, description = "No active item with this barcode", body = crate::error::ErrorResponse),
         (status = 410, description = "Bibliographic record is archived", body = crate::error::ErrorResponse)
@@ -112,7 +114,9 @@ pub async fn get_biblio_by_barcode(
         ));
     }
     let body = if claims.is_librarian() {
-        BiblioReadResponse::Staff(BiblioStaffView::from(biblio))
+        BiblioReadResponse::Staff(
+            super::catalog_hold::staff_biblio_view(&state, &claims, biblio).await?,
+        )
     } else {
         BiblioReadResponse::Public(BiblioPublicView::from(biblio))
     };

@@ -516,7 +516,9 @@ impl From<&MarcItem> for Item {
             availability,
             can_hold_item,
             hold_user_id: None,
-            hold_user_name: None,
+            hold_user_barcode: None,
+            hold_user_firstname: None,
+            hold_user_lastname: None,
             due_date: None,
             on_hold: false,
         }

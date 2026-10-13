@@ -489,7 +489,9 @@ pub(crate) struct ItemShortRow {
     availability: crate::models::item::ItemAvailability,
     can_hold_item: bool,
     hold_user_id: Option<i64>,
-    hold_user_name: Option<String>,
+    hold_user_barcode: Option<String>,
+    hold_user_firstname: Option<String>,
+    hold_user_lastname: Option<String>,
 }
 
 impl From<ItemShortRow> for ItemShort {
@@ -505,7 +507,9 @@ impl From<ItemShortRow> for ItemShort {
             availability: r.availability,
             can_hold_item: r.can_hold_item,
             hold_user_id: r.hold_user_id,
-            hold_user_name: r.hold_user_name,
+            hold_user_barcode: r.hold_user_barcode,
+            hold_user_firstname: r.hold_user_firstname,
+            hold_user_lastname: r.hold_user_lastname,
         }
     }
 }
