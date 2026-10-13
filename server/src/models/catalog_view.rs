@@ -23,7 +23,7 @@ use super::biblio::{
 use super::hold::{HoldDetails, HoldStatus};
 use super::item::{Item, ItemAvailability, ItemShort, WeedingStatus};
 use super::loan::LoanDetails;
-use super::user::{AccountTypeSlug, Rights, UserClaims, UserShort, UserStatus};
+use super::user::{AccountTypeSlug, Rights, UserClaims, UserRights, UserShort, UserStatus};
 use super::Language;
 
 /// Staff catalog JSON (internal copy data) versus the public projection.
@@ -786,26 +786,50 @@ fn hold_patron_source(
     })
 }
 
+/// Which hold patron a caller may see.
+///
+/// One decision for `holdFor` and for later projections that show the same
+/// patron (an item transit, a patron's loans). Pass the caller's rights and
+/// the patron row. The result is:
+///
+/// 1. `None` when `holds_rights` is below read. Users read and loans read do
+///    not reveal the patron on their own.
+/// 2. [`LoanBorrowerMinimized`] (`id`, `cardNumber`, `initials`) when the
+///    caller has holds read or write and does not have users read.
+/// 3. [`UserShortStaff`] when the caller has holds read or write and users
+///    read or write.
+///
+/// The patron row is not loaded here. Callers that have users read should
+/// pass a full [`UserShort`] (login and barcode). Shelf labels and hold slips
+/// do not use this helper; they stay minimized.
+#[must_use]
+pub fn hold_for_identity(rights: &UserRights, patron: UserShort) -> Option<LoanBorrowerResponse> {
+    if rights.holds_rights.rank() < Rights::Read.rank() {
+        return None;
+    }
+    if rights.users_rights.rank() >= Rights::Read.rank() {
+        Some(LoanBorrowerResponse::Full(UserShortStaff::from(patron)))
+    } else {
+        Some(LoanBorrowerResponse::Minimized(
+            LoanBorrowerMinimized::from(patron),
+        ))
+    }
+}
+
 /// `holdFor` on a staff catalog copy.
 ///
-/// Absent unless `holds_rights` is read or write. Holds rights alone select
-/// [`LoanBorrowerMinimized`] via [`project_borrower`] (`own_identity` false).
-/// Holds rights together with `users_rights` read or write select
-/// [`UserShortStaff`]. `users_rights` or `loans_rights` without holds rights
-/// receive `None`. Shelf labels do not use this helper.
+/// Resolves the patron from `full` (or the copy columns) and applies
+/// [`hold_for_identity`].
 #[must_use]
 pub fn project_hold_for(
     source: HoldPatronSource,
     claims: &UserClaims,
     full: &HashMap<i64, UserShort>,
 ) -> Option<LoanBorrowerResponse> {
-    if claims.rights.holds_rights.rank() < Rights::Read.rank() {
-        return None;
-    }
-    let user = full.get(&source.id).cloned().unwrap_or_else(|| {
+    let patron = full.get(&source.id).cloned().unwrap_or_else(|| {
         partial_user_short(source.id, source.barcode, source.firstname, source.lastname)
     });
-    Some(project_borrower(user, claims, false))
+    hold_for_identity(&claims.rights, patron)
 }
 
 /// Patron row built from the columns already on a catalog or pick-list query.
@@ -1160,8 +1184,6 @@ impl From<LoanDetails> for LoanDetailsOwn {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-
     use super::*;
     use crate::models::user::UserRights;
 
@@ -1316,14 +1338,8 @@ mod tests {
         )));
     }
 
-    fn held_patron() -> (HoldPatronSource, HashMap<i64, UserShort>) {
-        let source = HoldPatronSource {
-            id: 42,
-            barcode: Some("CARD".into()),
-            firstname: Some("Ada".into()),
-            lastname: Some("Lovelace".into()),
-        };
-        let user = UserShort {
+    fn held_patron() -> UserShort {
+        UserShort {
             id: 42,
             login: Some("ada".into()),
             barcode: Some("CARD".into()),
@@ -1336,46 +1352,36 @@ mod tests {
             status: None,
             created_at: None,
             expiry_at: None,
-        };
-        let mut full = HashMap::new();
-        full.insert(42, user);
-        (source, full)
+        }
     }
 
     /// (1) no holds rights -> absent, even with users read and loans read.
     /// (2) holds rights -> `{ id, cardNumber, initials }`.
     /// (3) holds rights and users read -> staff identity.
     #[test]
-    fn hold_for_follows_holds_rights_then_users_read() {
-        let (source, full) = held_patron();
+    fn hold_for_identity_follows_holds_rights_then_users_read() {
+        let patron = held_patron();
 
-        let users_read_without_holds = claims(
-            AccountTypeSlug::Reader,
-            UserRights {
-                users_rights: Rights::Read,
-                loans_rights: Rights::Read,
-                holds_rights: Rights::None,
-                ..UserRights::default()
-            },
-        );
+        let users_read_without_holds = UserRights {
+            users_rights: Rights::Read,
+            loans_rights: Rights::Read,
+            holds_rights: Rights::None,
+            ..UserRights::default()
+        };
         assert!(
-            project_hold_for(source.clone(), &users_read_without_holds, &full).is_none(),
+            hold_for_identity(&users_read_without_holds, patron.clone()).is_none(),
             "users read without holds rights must omit holdFor"
         );
 
-        let holds_only = claims(
-            AccountTypeSlug::Reader,
-            UserRights {
-                users_rights: Rights::None,
-                loans_rights: Rights::None,
-                holds_rights: Rights::Read,
-                ..UserRights::default()
-            },
-        );
-        let minimal = serde_json::to_value(
-            project_hold_for(source.clone(), &holds_only, &full).expect("holds rights"),
-        )
-        .expect("json");
+        let holds_only = UserRights {
+            users_rights: Rights::None,
+            loans_rights: Rights::None,
+            holds_rights: Rights::Read,
+            ..UserRights::default()
+        };
+        let minimal =
+            serde_json::to_value(hold_for_identity(&holds_only, patron.clone()).expect("holds"))
+                .expect("json");
         assert_eq!(minimal["id"], "42", "{minimal}");
         assert_eq!(minimal["cardNumber"], "CARD", "{minimal}");
         assert_eq!(minimal["initials"], "AL", "{minimal}");
@@ -1383,17 +1389,14 @@ mod tests {
         assert!(minimal.get("login").is_none(), "{minimal}");
         assert!(minimal.get("barcode").is_none(), "{minimal}");
 
-        let holds_and_users = claims(
-            AccountTypeSlug::Reader,
-            UserRights {
-                users_rights: Rights::Read,
-                loans_rights: Rights::None,
-                holds_rights: Rights::Read,
-                ..UserRights::default()
-            },
-        );
+        let holds_and_users = UserRights {
+            users_rights: Rights::Read,
+            loans_rights: Rights::None,
+            holds_rights: Rights::Read,
+            ..UserRights::default()
+        };
         let staff = serde_json::to_value(
-            project_hold_for(source, &holds_and_users, &full).expect("holds and users read"),
+            hold_for_identity(&holds_and_users, patron).expect("holds and users read"),
         )
         .expect("json");
         assert_eq!(staff["firstname"], "Ada", "{staff}");
