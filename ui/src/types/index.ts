@@ -1796,6 +1796,16 @@ export interface AccountTypeDefinition {
   weedingRights?: string | null;
   /** Cancel a withdrawal (`n`/`r`/`w`). */
   weedingCancelRights?: string | null;
+  /**
+   * Desk override (`n`/`r`/`w`). Write may force a loan past a copy held for
+   * another reader and past an expired subscription. Distinct from settings.
+   */
+  circulationOverrideRights?: string | null;
+  /**
+   * Built-in types (`guest`, `reader`, `librarian`, `admin`, `group`) are true.
+   * Custom types are false. Absent when the server has not sent the field.
+   */
+  isSystem?: boolean;
 }
 
 export type AccountTypeRightLevel = 'n' | 'r' | 'w';
@@ -1816,6 +1826,24 @@ export interface UpdateAccountTypeRequest {
   acquisitionsRights?: AccountTypeRightLevel | null;
   weedingRights?: AccountTypeRightLevel | null;
   weedingCancelRights?: AccountTypeRightLevel | null;
+  circulationOverrideRights?: AccountTypeRightLevel | null;
+}
+
+/** POST /account-types — custom type. Omitted rights are stored as `n`. */
+export interface CreateAccountTypeRequest {
+  code: string;
+  name: string;
+  itemsRights?: AccountTypeRightLevel | null;
+  usersRights?: AccountTypeHoldsRightLevel | null;
+  loansRights?: AccountTypeHoldsRightLevel | null;
+  itemsArchiveRights?: AccountTypeRightLevel | null;
+  holdsRights?: AccountTypeHoldsRightLevel | null;
+  settingsRights?: AccountTypeRightLevel | null;
+  eventsRights?: AccountTypeRightLevel | null;
+  acquisitionsRights?: AccountTypeRightLevel | null;
+  weedingRights?: AccountTypeRightLevel | null;
+  weedingCancelRights?: AccountTypeRightLevel | null;
+  circulationOverrideRights?: AccountTypeRightLevel | null;
 }
 
 // Account types for permissions

@@ -3,12 +3,13 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, ChevronDown, ChevronRight, Loader2, Mail, MapPin, Phone } from 'lucide-react';
 import { Input } from '@/components/common';
+import AccountTypeSelect from '@/components/users/AccountTypeSelect';
 import EventsConsentFields from '@/components/users/EventsConsentFields';
 import GuardianPicker from '@/components/users/GuardianPicker';
 import api from '@/services/api';
 import type { AccountTypeDefinition, PublicType, User, UserShort } from '@/types';
 import { LANGUAGE_NAMES, PUBLIC_LANGUAGE_OPTIONS } from '@/locales';
-import { defaultAccountTypeCode, localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
+import { defaultAccountTypeCode } from '@/utils/accountTypeDisplay';
 import { localizedPublicTypeLabel } from '@/utils/publicTypeDisplay';
 import { getApiErrorMessage, getApiErrorRawMessage } from '@/utils/apiError';
 import { appendReaderLanguage, readerLanguageSelectValue } from '@/utils/readerLanguage';
@@ -189,6 +190,8 @@ export interface UserEditorFormProps {
   formId: string;
   publicTypes: PublicType[];
   accountTypes: AccountTypeDefinition[];
+  /** Shown when GET /account-types failed (the picker has no rows). */
+  accountTypesError?: string | null;
   /** Required when mode is `edit` */
   user?: User;
   onLoadingChange: (loading: boolean) => void;
@@ -200,6 +203,7 @@ export default function UserEditorForm({
   formId,
   publicTypes,
   accountTypes,
+  accountTypesError = null,
   user,
   onLoadingChange,
   onSuccess,
@@ -511,30 +515,17 @@ export default function UserEditorForm({
               {t('profile.accountType')}
               {requiredMark}
             </label>
-            <select
+            <AccountTypeSelect
               id={`${formId}-account-type`}
               value={formData.accountType}
-              onChange={(e) => {
-                setFormData({ ...formData, accountType: e.target.value });
+              accountTypes={accountTypes}
+              invalid={!!fieldErrors.accountType}
+              loadError={accountTypesError}
+              onChange={(code) => {
+                setFormData({ ...formData, accountType: code });
                 clearFieldError('accountType');
               }}
-              required
-              aria-required="true"
-              className={selectClass(!!fieldErrors.accountType)}
-              aria-invalid={!!fieldErrors.accountType}
-            >
-              {formData.accountType &&
-                !accountTypes.some((a) => a.code.toLowerCase() === formData.accountType.toLowerCase()) && (
-                  <option value={formData.accountType}>
-                    {localizedAccountTypeLabel(t, formData.accountType, accountTypes)}
-                  </option>
-                )}
-              {accountTypes.map((at) => (
-                <option key={at.code} value={at.code}>
-                  {localizedAccountTypeLabel(t, at.code, accountTypes)}
-                </option>
-              ))}
-            </select>
+            />
             {fieldErrors.accountType && (
               <p className="mt-1 text-sm text-red-600 dark:text-red-400">{fieldErrors.accountType}</p>
             )}

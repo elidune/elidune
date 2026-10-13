@@ -1729,13 +1729,23 @@
       "empty": "Aucun type de compte renvoyé par le serveur.",
       "code": "Code",
       "name": "Libellé",
-      "readOnlyHint": "Vous pouvez consulter les types de compte et leurs droits. Seuls les administrateurs peuvent les modifier.",
+      "readOnlyHint": "Vous pouvez consulter les types de compte et leurs droits. Seuls les comptes avec droit d'écriture sur les paramètres peuvent les modifier.",
       "forbidden": "Vous n'avez pas la permission de modifier les types de compte.",
+      "builtIn": "Intégré",
+      "create": "Nouveau type de compte",
+      "codePlaceholder": "agent_pret",
+      "codeInvalid": "1 à 50 caractères : une lettre, puis des lettres, des chiffres ou des tirets bas.",
+      "nameRequired": "Indiquez un libellé.",
+      "nameTooLong": "Le libellé ne peut pas dépasser 100 caractères.",
+      "deleteNamed": "Supprimer {{name}}",
+      "deleteConfirm": "Supprimer le type de compte « {{name}} » ? Réaffectez d'abord chaque lecteur qui l'utilise encore.",
+      "created": "Type de compte créé.",
       "reloginHint": "Les changements de droits s'appliquent aux nouvelles sessions. Déconnectez-vous et reconnectez-vous (ou attendez l'expiration du jeton) pour utiliser les droits mis à jour.",
       "rights": {
         "itemsRights": "Documents",
         "usersRights": "Lecteurs",
         "loansRights": "Prêts",
+        "circulationOverrideRights": "Forcer les dérogations au comptoir (exemplaire réservé pour un autre lecteur, abonnement expiré)",
         "itemsArchiveRights": "Archives",
         "holdsRights": "Réservations",
         "settingsRights": "Paramètres",
@@ -2161,7 +2171,10 @@
       "item_has_history_use_weeding": "Cet exemplaire a un historique (prêt, réservation ou amende). Il ne peut pas être supprimé : désherbez-le.",
       "biblio_has_items": "Cette notice a encore des exemplaires, y compris sortis ou archivés. Elle ne peut pas être supprimée.",
       "biblio_has_holds": "Cette notice a des réservations. Elle ne peut pas être supprimée.",
-      "transit_same_site": "L'exemplaire est déjà sur le site de retrait : mettez-le de côté pour la réservation."
+      "transit_same_site": "L'exemplaire est déjà sur le site de retrait : mettez-le de côté pour la réservation.",
+      "account_type_in_use": "Ce type de compte est encore attribué à au moins un lecteur. Réaffectez ces comptes avant de le supprimer.",
+      "account_type_system": "Les types de compte intégrés ne peuvent pas être supprimés.",
+      "last_active_admin": "Ce changement laisserait la bibliothèque sans compte actif autorisé à gérer les paramètres."
     }
   },
   "inventory": {

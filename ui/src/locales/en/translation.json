@@ -1729,13 +1729,23 @@
       "empty": "No account types returned by the server.",
       "code": "Code",
       "name": "Label",
-      "readOnlyHint": "You can view account types and their permissions. Only administrators can edit them.",
+      "readOnlyHint": "You can view account types and their permissions. Only accounts with settings write access can change them.",
       "forbidden": "You do not have permission to update account types.",
+      "builtIn": "Built-in",
+      "create": "New account type",
+      "codePlaceholder": "loan_agent",
+      "codeInvalid": "Use 1 to 50 characters: start with a letter, then letters, digits, or underscores.",
+      "nameRequired": "Enter a label.",
+      "nameTooLong": "The label must be at most 100 characters.",
+      "deleteNamed": "Delete {{name}}",
+      "deleteConfirm": "Delete the account type “{{name}}”? Reassign every reader who still uses it first.",
+      "created": "Account type created.",
       "reloginHint": "Permission changes apply to new sessions. Sign out and sign in again (or wait for your token to expire) to use updated rights.",
       "rights": {
         "itemsRights": "Items",
         "usersRights": "Users",
         "loansRights": "Loans",
+        "circulationOverrideRights": "Force desk exceptions (copy reserved for another reader, expired subscription)",
         "itemsArchiveRights": "Archive",
         "holdsRights": "Holds",
         "settingsRights": "Settings",
@@ -2161,7 +2171,10 @@
       "item_has_history_use_weeding": "This copy has a history (a loan, a hold, or a fine) and cannot be deleted. Weed it instead.",
       "biblio_has_items": "This record still has copies, including withdrawn or archived ones. It cannot be deleted.",
       "biblio_has_holds": "This record has holds and cannot be deleted.",
-      "transit_same_site": "The copy is already at the pickup site: set it aside for the hold."
+      "transit_same_site": "The copy is already at the pickup site: set it aside for the hold.",
+      "account_type_in_use": "This account type is still assigned to at least one reader. Reassign those accounts before deleting it.",
+      "account_type_system": "Built-in account types cannot be deleted.",
+      "last_active_admin": "This change would leave no active account that can manage settings."
     }
   },
   "inventory": {
