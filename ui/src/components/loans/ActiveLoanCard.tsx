@@ -2,12 +2,12 @@ import type { ReactNode } from 'react';
 import { Check, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button, Badge } from '@/components/common';
-import type { Loan } from '@/types';
+import type { LoanListItem } from '@/types';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
 
 interface ActiveLoanCardProps {
-  loan: Loan;
+  loan: LoanListItem;
   onRenew: () => void;
   onReturn: () => void;
   renewLoading?: boolean;

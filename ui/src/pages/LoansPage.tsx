@@ -24,7 +24,6 @@ import ClaimsReturnedQueue from '@/components/loans/ClaimsReturnedQueue';
 import LoanExceptionActions from '@/components/loans/LoanExceptionActions';
 import DeskScanNotice from '@/components/loans/DeskScanNotice';
 import ToPickForceLoanDialog from '@/components/loans/ToPickForceLoanDialog';
-import LoansAccessNotice from '@/components/loans/LoansAccessNotice';
 import LostFoundAlertDialog from '@/components/loans/LostFoundAlertDialog';
 import Pagination from '@/components/common/Pagination';
 import api from '@/services/api';
@@ -83,12 +82,12 @@ import { OVERDUE_FACTS_CLASS } from '@/utils/overdueDueDate';
 import ReturnBorrowerLine from '@/components/loans/ReturnBorrowerLine';
 import { useToast } from '@/contexts/ToastContext';
 import { canReadUsers, isAdmin } from '@/types';
-import type { User as UserType, Loan, UserShort, OverdueLoanInfo, ReminderReport, ItemCheckIn, LostFoundDisposition, LostReturnFields, PatronLoanStatus } from '@/types';
-import { isItemStaffView, isLoanDetailsStaff } from '@/utils/catalogView';
+import type { User as UserType, Loan, UserShort, OverdueLoanInfo, ReminderReport, ItemCheckIn, LostFoundDisposition, LostReturnFields, PatronLoanStatus, LoanListItem } from '@/types';
+import { isItemStaffView, isUserRecordLoan } from '@/utils/catalogView';
 import { circulationMayForce } from '@/utils/circulationForce';
 import { deskNameSearchVisible, deskPatronIdentity, patronFromCardScan, presentCardScanError } from '@/utils/deskPatron';
 import { readerIdentifierText, type BorrowerRef } from '@/utils/readerIdentifier';
-import { checkoutRecap, deskMayLoadPatronLoans, readPatronLoans } from '@/utils/loanListAccess';
+import { checkoutRecap, deskBorrower, readPatronLoans } from '@/utils/loanListAccess';
 
 type TabType = 'borrow' | 'return' | 'overdue' | 'claims';
 type LostFoundSummary = {
@@ -152,7 +151,7 @@ export default function LoansPage() {
   
   // Borrow section state
   const [selectedUser, setSelectedUser] = useState<UserType | null>(null);
-  const [loans, setLoans] = useState<Loan[]>([]);
+  const [loans, setLoans] = useState<LoanListItem[]>([]);
   const [loansPage, setLoansPage] = useState(1);
   const [loansTotal, setLoansTotal] = useState(0);
   const [isLoadingLoans, setIsLoadingLoans] = useState(false);
@@ -170,7 +169,6 @@ export default function LoansPage() {
   const [userSearchError, setUserSearchError] = useState<string | null>(null);
   const [userSelectError, setUserSelectError] = useState<string | null>(null);
   const [loansLoadError, setLoansLoadError] = useState<string | null>(null);
-  const [loansNotAllowed, setLoansNotAllowed] = useState(false);
   const [userSearchRetry, setUserSearchRetry] = useState(0);
   const [loansReloadToken, setLoansReloadToken] = useState(0);
   const [isPatronLookupBusy, setIsPatronLookupBusy] = useState(false);
@@ -505,13 +503,6 @@ export default function LoansPage() {
   const applyPatronLoans = useCallback(
     async (options: { notify: boolean }) => {
       if (!selectedUser) return { ok: false as const, denied: false };
-      if (!deskMayLoadPatronLoans(canReadBorrowers)) {
-        setLoans([]);
-        setLoansTotal(0);
-        setLoansLoadError(null);
-        setLoansNotAllowed(false);
-        return { ok: false as const, denied: false };
-      }
       const result = await readPatronLoans(() =>
         api.getUserLoans(selectedUser.id, {
           page: loansPage,
@@ -519,20 +510,24 @@ export default function LoansPage() {
         }),
       );
       if (result.ok) {
-        setLoans(result.page.items.filter(isLoanDetailsStaff));
+        setLoans(
+          result.page.items.filter(isUserRecordLoan).map((loan) =>
+            canReadBorrowers
+              ? loan
+              : { ...loan, user: deskBorrower(loan.user, false) },
+          ) as LoanListItem[],
+        );
         setLoansTotal(result.page.total);
         setLoansLoadError(null);
-        setLoansNotAllowed(false);
         return result;
       }
       if (result.denied) {
+        // The list still requires users read on the server. Until that changes, a 403 is an empty list.
         setLoans([]);
         setLoansTotal(0);
         setLoansLoadError(null);
-        setLoansNotAllowed(true);
-        return result;
+        return { ok: true as const, page: { items: [] as LoanListItem[], total: 0 } };
       }
-      setLoansNotAllowed(false);
       const msg = getApiErrorMessage(result.error, t) || t('loans.loansLoadError');
       setLoansLoadError(msg);
       if (options.notify) {
@@ -705,7 +700,6 @@ export default function LoansPage() {
       setLoans([]);
       setLoansTotal(0);
       setLoansLoadError(null);
-      setLoansNotAllowed(false);
     }
   }
 
@@ -990,7 +984,7 @@ export default function LoansPage() {
     {
       key: 'title',
       header: t('loans.document'),
-      render: (loan: Loan) => {
+      render: (loan: LoanListItem) => {
         const specs = loan.biblio?.items;
         const spec = specs?.length
           ? (specs.find((s) => s.borrowed) ?? specs[0])
@@ -1019,13 +1013,13 @@ export default function LoansPage() {
     {
       key: 'date',
       header: t('loans.borrowDate'),
-      render: (loan: Loan) =>
+      render: (loan: LoanListItem) =>
         new Date(loan.startDate).toLocaleDateString(i18n.language),
     },
     {
       key: 'expiryAt',
       header: t('loans.dueDate'),
-      render: (loan: Loan) => (
+      render: (loan: LoanListItem) => (
         <div className="flex items-center gap-2">
           <span>{new Date(loan.expiryAt).toLocaleDateString(i18n.language)}</span>
           {loan.isOverdue && <Badge variant="danger">{t('loans.overdue')}</Badge>}
@@ -1035,13 +1029,13 @@ export default function LoansPage() {
     {
       key: 'renews',
       header: t('loans.renewals'),
-      render: (loan: Loan) => loan.nbRenews,
+      render: (loan: LoanListItem) => loan.nbRenews,
     },
     {
       key: 'actions',
       header: t('common.actions'),
       align: 'right' as const,
-      render: (loan: Loan) => {
+      render: (loan: LoanListItem) => {
         const claimed = isClaimedReturnedLoan(loan, claimedLoanIds);
         const busy = borrowLoanAction?.loanId === loan.id ? borrowLoanAction.op : null;
         return (
@@ -1485,21 +1479,7 @@ export default function LoansPage() {
                   )}
                 </div>
                 <ScrollableListRegion aria-label={t('loans.activeLoans')}>
-                  {selectedUser && !canReadBorrowers ? (
-                    <div className="px-4 py-12 flex justify-center">
-                      <p role="status" className="max-w-md text-center text-sm text-gray-600 dark:text-gray-400">
-                        {t('loans.deskHandlesLoans')}
-                      </p>
-                    </div>
-                  ) : loansNotAllowed ? (
-                    <div className="px-4 py-12 flex justify-center">
-                      <LoansAccessNotice
-                        denied
-                        onRetry={() => setLoansReloadToken((n) => n + 1)}
-                        fallbackMessage={t('loans.loansLoadError')}
-                      />
-                    </div>
-                  ) : isLoadingLoans && !loans.length ? (
+                  {isLoadingLoans && !loans.length ? (
                     <ListSkeleton rows={6} />
                   ) : (
                     <ResponsiveRecordList

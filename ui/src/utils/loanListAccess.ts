@@ -27,20 +27,32 @@ export async function readPatronLoans<T>(load: () => Promise<T>): Promise<Patron
 }
 
 /**
- * What the desk shows under “active loans” for the scanned reader.
- *
- * `GET /users/{id}/loans` for another reader requires users read and loans read
- * (#217). Loans write alone does not list those loans, and the minimized
- * `{id, cardNumber, initials}` body is only the caller’s own loans.
- * The reader record itself is users read, so a desk agent stays on the desk.
+ * Borrower shown on a current-loan row.
+ * Users read keeps the payload. Otherwise only `id`, `cardNumber`, and `initials`.
+ * A staff `barcode` is accepted as the card. Names are not turned into initials.
  */
-export function patronActiveLoansPanel(canReadUsersRight: boolean): 'list' | 'desk' {
-  return canReadUsersRight ? 'list' : 'desk';
+export function deskBorrower(
+  user: {
+    id?: string | number | null;
+    cardNumber?: string | null;
+    barcode?: string | null;
+    initials?: string | null;
+    firstname?: string | null;
+    lastname?: string | null;
+    email?: string | null;
+  } | null | undefined,
+  revealIdentity: boolean,
+): { id: string; cardNumber: string | null; initials: string } | typeof user {
+  if (!user || revealIdentity) return user;
+  const card = clean(user.cardNumber) ?? clean(user.barcode);
+  const initials = clean(user.initials)?.replace(/\./g, '') ?? '';
+  return { id: user.id == null ? '' : String(user.id), cardNumber: card, initials };
 }
 
-/** Desk checkout may record a loan with loans write alone. Skip the list otherwise. */
-export function deskMayLoadPatronLoans(canReadUsersRight: boolean): boolean {
-  return patronActiveLoansPanel(canReadUsersRight) === 'list';
+function clean(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
 }
 
 export interface CheckoutListMatch {

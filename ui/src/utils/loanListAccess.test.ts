@@ -11,8 +11,7 @@ import fr from '../locales/fr/translation.json' with { type: 'json' };
 import LoansAccessNotice from '@/components/loans/LoansAccessNotice';
 import {
   checkoutRecap,
-  deskMayLoadPatronLoans,
-  patronActiveLoansPanel,
+  deskBorrower,
   isLoansForbidden,
   loansQueryRetry,
   readPatronLoans,
@@ -52,33 +51,33 @@ describe('patron loan list access', () => {
     assert.equal(loaded.ok, true);
   });
 
-  it('keeps a loans-only desk on the desk flow instead of a permission sentence', async () => {
-    assert.equal(patronActiveLoansPanel(false), 'desk');
-    assert.equal(patronActiveLoansPanel(true), 'list');
-    assert.equal(deskMayLoadPatronLoans(false), false);
-    assert.equal(deskMayLoadPatronLoans(true), true);
-
-    const i18n = createInstance();
-    await i18n.init({
-      lng: 'fr',
-      resources: {
-        en: { translation: en },
-        fr: { translation: fr },
-        de: { translation: de },
-        es: { translation: es },
+  it('keeps only the card and server initials on a loans-only current loan', () => {
+    const hidden = deskBorrower(
+      {
+        id: '7',
+        firstname: 'Marie',
+        lastname: 'Curie',
+        email: 'marie@library.test',
+        barcode: 'L-10042',
+        initials: 'MC',
       },
-      interpolation: { escapeValue: false },
-    });
-    for (const lng of ['fr', 'en', 'de', 'es'] as const) {
-      const hint = i18n.t('loans.deskHandlesLoans', { lng });
-      const denied = i18n.t('loans.loansNotAllowed', { lng });
-      assert.notEqual(hint, 'loans.deskHandlesLoans');
-      assert.equal(hint.includes(denied), false);
-    }
-    const french = i18n.t('loans.deskHandlesLoans', { lng: 'fr' });
-    assert.match(french, /lecteur/);
-    assert.match(french, /exemplaire/);
-    assert.equal(french.toLowerCase().includes('autorisé'), false);
+      false,
+    );
+    assert.deepEqual(hidden, { id: '7', cardNumber: 'L-10042', initials: 'MC' });
+    assert.equal(hidden != null && 'firstname' in hidden, false);
+    assert.equal(hidden != null && 'email' in hidden, false);
+
+    const alreadyMinimized = deskBorrower(
+      { id: '7', cardNumber: 'L-10042', initials: 'MC' },
+      false,
+    );
+    assert.deepEqual(alreadyMinimized, { id: '7', cardNumber: 'L-10042', initials: 'MC' });
+
+    const revealed = deskBorrower(
+      { id: '7', firstname: 'Marie', lastname: 'Curie', barcode: 'L-10042' },
+      true,
+    );
+    assert.equal(revealed != null && 'firstname' in revealed && revealed.firstname, 'Marie');
   });
 
   it('builds the checkout recap from the created loan when the list is missing', () => {

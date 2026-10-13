@@ -1300,7 +1300,6 @@
     "userLoadError": "Dieser Benutzer konnte nicht geladen werden",
     "loansLoadError": "Ausleihen konnten nicht geladen werden",
     "loansNotAllowed": "Sie dürfen diese Ausleihen nicht einsehen.",
-    "deskHandlesLoans": "Die Ausleihen dieses Lesers werden hier bearbeitet: Scannen Sie das Exemplar, um es auszuleihen oder zurückzugeben.",
     "specimenBarcode": "Exemplar-Barcode",
     "loanDetails": "Ausleihe-Details",
     "borrowedSpecimen": "Ausgeliehenes Exemplar",
