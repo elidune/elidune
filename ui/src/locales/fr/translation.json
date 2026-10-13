@@ -1161,7 +1161,7 @@
     "noUserSelected": "Aucun utilisateur sélectionné",
     "errorCreatingLoan": "Erreur lors de la création de l'emprunt",
     "forceBorrowConfirm": "Forcer l'emprunt malgré tout ?",
-    "toPickForOtherTitle": "Exemplaire réservé pour un autre lecteur",
+    "toPickForOtherTitle": "Exemplaire en attente pour un autre usager",
     "toPickForOtherMessage": "Cet exemplaire est à prélever pour {{patron}}. Forcer le prêt renvoie cette réservation dans la file.",
     "forceLoan": "Forcer le prêt",
     "pickReady": "Prêt pour {{patron}}, à placer sur l’étagère des réservations",

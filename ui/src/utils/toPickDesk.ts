@@ -1,5 +1,12 @@
 import axios from 'axios';
 import type { ItemCheckIn } from '@/types';
+import { deskScanAlert, type DeskCopySnapshot } from '@/utils/deskScanAlert';
+import {
+  borrowerCardNumber,
+  borrowerDisplayName,
+  isMinimizedBorrower,
+  type BorrowerRef,
+} from '@/utils/readerIdentifier';
 
 export const ITEM_TO_PICK_FOR_OTHER = 'item_to_pick_for_other';
 
@@ -13,6 +20,62 @@ export class CheckoutDeclined extends Error {
 
 export function isCheckoutDeclined(error: unknown): boolean {
   return error instanceof CheckoutDeclined;
+}
+
+/** Identity for the force-loan dialog. A name is set only for a full hold profile. */
+export interface ToPickForceIdentity {
+  patronName: string | null;
+  cardNumber: string | null;
+  initials: string | null;
+}
+
+/**
+ * Name when `holdFor` is a users-read profile. Otherwise the card, then initials.
+ * A name on the 422 body is never accepted.
+ */
+export function toPickForceIdentity(input: {
+  holdFor?: BorrowerRef | null;
+  cardNumber?: string | null;
+  initials?: string | null;
+}): ToPickForceIdentity {
+  const holdFor = input.holdFor ?? null;
+  if (holdFor && !isMinimizedBorrower(holdFor)) {
+    const name = borrowerDisplayName(holdFor);
+    if (name) return { patronName: name, cardNumber: null, initials: null };
+  }
+  return {
+    patronName: null,
+    cardNumber: (holdFor ? borrowerCardNumber(holdFor) : null) ?? text(input.cardNumber),
+    initials: text(holdFor?.initials) ?? text(input.initials),
+  };
+}
+
+/**
+ * Checkout pre-check: the copy is on hold for someone else.
+ * Same reader and an on-loan copy are not this dialog.
+ */
+export function toPickForceFromDeskCopy(
+  copy: DeskCopySnapshot | null | undefined,
+  patronId?: string | null,
+): ToPickForceIdentity | null {
+  if (!copy) return null;
+  const alert = deskScanAlert(copy, { patronId });
+  if (alert?.kind !== 'onHold') return null;
+  return toPickForceIdentity({ holdFor: copy.holdFor });
+}
+
+/** 422 `item_to_pick_for_other`, with the desk copy's holdFor when the lookup has it. */
+export function toPickForceFromError(
+  error: unknown,
+  holdFor?: BorrowerRef | null,
+): ToPickForceIdentity | null {
+  const parsed = readItemToPickForOther(error);
+  if (!parsed) return null;
+  return toPickForceIdentity({
+    holdFor,
+    cardNumber: parsed.cardNumber,
+    initials: parsed.initials,
+  });
 }
 
 export interface ItemToPickForOther {

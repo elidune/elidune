@@ -1161,7 +1161,7 @@
     "noUserSelected": "Kein Benutzer ausgewählt",
     "errorCreatingLoan": "Fehler beim Erstellen der Ausleihe",
     "forceBorrowConfirm": "Ausleihe trotzdem erzwingen?",
-    "toPickForOtherTitle": "Exemplar für einen anderen Leser vorgemerkt",
+    "toPickForOtherTitle": "Exemplar für eine andere Person vorgemerkt",
     "toPickForOtherMessage": "Dieses Exemplar wird für {{patron}} geholt. Eine erzwungene Ausleihe stellt die Vorbestellung wieder in die Warteschlange.",
     "forceLoan": "Ausleihe erzwingen",
     "pickReady": "Bereit für {{patron}}, ins Abholregal legen",

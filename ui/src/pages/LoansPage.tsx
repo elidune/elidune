@@ -23,6 +23,7 @@ import CirculationExceptionDialog from '@/components/loans/CirculationExceptionD
 import ClaimsReturnedQueue from '@/components/loans/ClaimsReturnedQueue';
 import LoanExceptionActions from '@/components/loans/LoanExceptionActions';
 import DeskScanNotice from '@/components/loans/DeskScanNotice';
+import ToPickForceLoanDialog from '@/components/loans/ToPickForceLoanDialog';
 import LoansAccessNotice from '@/components/loans/LoansAccessNotice';
 import LostFoundAlertDialog from '@/components/loans/LostFoundAlertDialog';
 import Pagination from '@/components/common/Pagination';
@@ -58,10 +59,13 @@ import { isWeedingServerMessage } from '@/utils/weeding';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
 import { isClaimedReturnedLoan } from '@/utils/circulationStatus';
 import {
+  CheckoutDeclined,
   interpretPickCheckIn,
   isCheckoutDeclined,
-  readItemToPickForOther,
+  toPickForceFromDeskCopy,
+  toPickForceFromError,
   type PickCheckInNotice,
+  type ToPickForceIdentity,
 } from '@/utils/toPickDesk';
 import { sourceLabel } from '@/utils/transitDisplay';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
@@ -213,6 +217,8 @@ export default function LoansPage() {
   const [sendRemindersConfirmOpen, setSendRemindersConfirmOpen] = useState(false);
   const [forceBorrowDialog, setForceBorrowDialog] = useState<{ message: string } | null>(null);
   const forceBorrowResolveRef = useRef<((v: boolean) => void) | null>(null);
+  const [toPickForceDialog, setToPickForceDialog] = useState<ToPickForceIdentity | null>(null);
+  const toPickResolveRef = useRef<((v: boolean) => void) | null>(null);
   const [checkoutScanAlert, setCheckoutScanAlert] = useState<CheckoutScanAlert | null>(null);
   const [returnScanAlert, setReturnScanAlert] = useState<DeskScanAlert | null>(null);
 
@@ -782,6 +788,13 @@ export default function LoansPage() {
     }
   };
 
+  const confirmToPickForce = (identity: ToPickForceIdentity) =>
+    new Promise<boolean>((resolve) => {
+      setBarcodeInput('');
+      setToPickForceDialog(identity);
+      toPickResolveRef.current = resolve;
+    });
+
   const handleBorrow = async (specimenBarcode: string, force = false) => {
     if (!selectedUser || !specimenBarcode.trim()) {
       throw new Error(t('loans.noUserSelected'));
@@ -789,8 +802,16 @@ export default function LoansPage() {
 
     const barcode = specimenBarcode.trim();
     const snapshot = await readDeskCopy(barcode);
+    if (!force) {
+      const held = toPickForceFromDeskCopy(snapshot, selectedUser.id);
+      if (held) {
+        const ok = await confirmToPickForce(held);
+        if (!ok) throw new CheckoutDeclined();
+        return handleBorrow(specimenBarcode, true);
+      }
+    }
     const alert = deskScanAlert(snapshot, { patronId: selectedUser.id });
-    if (alert) {
+    if (alert && !(force && alert.kind === 'onHold')) {
       const shown =
         alert.kind === 'onLoan'
           ? {
@@ -849,12 +870,17 @@ export default function LoansPage() {
       if (isWeedingServerMessage(rawMessage)) {
         throw error;
       }
-      const toPick = readItemToPickForOther(error);
+      if (!force) {
+        const held = toPickForceFromError(error, snapshot?.holdFor);
+        if (held) {
+          const ok = await confirmToPickForce(held);
+          if (!ok) throw new CheckoutDeclined();
+          return handleBorrow(specimenBarcode, true);
+        }
+      }
       const blocked = checkoutScanNoticeFromRefusal({
         code: getApiErrorCode(error),
         message: rawMessage,
-        cardNumber: toPick?.cardNumber,
-        initials: toPick?.initials,
       });
       if (blocked) {
         setCheckoutScanAlert({ ...blocked, barcode });
@@ -2040,6 +2066,25 @@ export default function LoansPage() {
         message={forceBorrowDialog?.message ?? ''}
         confirmLabel={t('loans.forceLoan')}
         stackOnTop
+      />
+
+      <ToPickForceLoanDialog
+        isOpen={toPickForceDialog !== null}
+        patronName={toPickForceDialog?.patronName ?? null}
+        cardNumber={toPickForceDialog?.cardNumber ?? null}
+        initials={toPickForceDialog?.initials ?? null}
+        onCancel={() => {
+          setToPickForceDialog(null);
+          toPickResolveRef.current?.(false);
+          toPickResolveRef.current = null;
+          focusScanInput();
+        }}
+        onForce={() => {
+          setToPickForceDialog(null);
+          toPickResolveRef.current?.(true);
+          toPickResolveRef.current = null;
+          focusScanInput();
+        }}
       />
 
       <LostFoundAlertDialog

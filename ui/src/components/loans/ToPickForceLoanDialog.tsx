@@ -4,6 +4,8 @@ import { toPickPatronPhrase } from '@/utils/holdPatron';
 
 export interface ToPickForceLoanDialogProps {
   isOpen: boolean;
+  /** Full name. Set only when holdFor is a users-read profile. */
+  patronName?: string | null;
   cardNumber?: string | null;
   initials?: string | null;
   onCancel: () => void;
@@ -14,6 +16,7 @@ export interface ToPickForceLoanDialogProps {
 /** Desk warning when the scanned copy is `to_pick` for someone else. */
 export default function ToPickForceLoanDialog({
   isOpen,
+  patronName,
   cardNumber,
   initials,
   onCancel,
@@ -21,7 +24,8 @@ export default function ToPickForceLoanDialog({
   isLoading = false,
 }: ToPickForceLoanDialogProps) {
   const { t } = useTranslation();
-  const patron = toPickPatronPhrase({ cardNumber, initials }, t);
+  const named = patronName?.trim() ?? '';
+  const patron = named || toPickPatronPhrase({ cardNumber, initials }, t);
 
   return (
     <ConfirmDialog

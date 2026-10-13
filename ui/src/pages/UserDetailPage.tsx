@@ -30,7 +30,9 @@ import { isSubscriptionExpired } from '@/utils/userSubscription';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
 import { isClaimedReturnedLoan } from '@/utils/circulationStatus';
-import { readItemToPickForOther } from '@/utils/toPickDesk';
+import { readItemToPickForOther, toPickForceFromError } from '@/utils/toPickDesk';
+import { isItemStaffView } from '@/utils/catalogView';
+import type { BorrowerRef } from '@/utils/readerIdentifier';
 import { newIdempotencyKey } from '@/utils/idempotency';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
 import HoldStatusBadge from '@/components/holds/HoldStatusBadge';
@@ -87,6 +89,7 @@ export default function UserDetailPage() {
     null
   );
   const [toPickForce, setToPickForce] = useState<{
+    patronName: string | null;
     cardNumber: string | null;
     initials: string | null;
     specimenCode: string;
@@ -1321,6 +1324,7 @@ export default function UserDetailPage() {
 
       <ToPickForceLoanDialog
         isOpen={toPickForce !== null}
+        patronName={toPickForce?.patronName ?? null}
         cardNumber={toPickForce?.cardNumber ?? null}
         initials={toPickForce?.initials ?? null}
         isLoading={toPickForceLoading}
@@ -1403,7 +1407,7 @@ interface BorrowFormProps {
   onSuccess: () => void;
   onBusinessRuleViolation?: (message: string, specimenCode: string) => void;
   onToPickForOther?: (
-    identity: { cardNumber: string | null; initials: string | null },
+    identity: { patronName: string | null; cardNumber: string | null; initials: string | null },
     specimenCode: string,
   ) => void;
 }
@@ -1444,10 +1448,13 @@ function BorrowForm({
       }
       const toPick = readItemToPickForOther(err);
       if (toPick && !force) {
-        onToPickForOther?.(
-          { cardNumber: toPick.cardNumber, initials: toPick.initials },
-          specimenCode.trim(),
-        );
+        const holdFor = await holdForOnCopy(specimenCode.trim());
+        const identity = toPickForceFromError(err, holdFor) ?? {
+          patronName: null,
+          cardNumber: toPick.cardNumber,
+          initials: toPick.initials,
+        };
+        onToPickForOther?.(identity, specimenCode.trim());
         return;
       }
       if (errorCode === 'card_lost') {
@@ -1499,6 +1506,19 @@ function BorrowForm({
       )}
     </form>
   );
+}
+
+/** holdFor from the copy, so a users-read profile can show the name. The 422 body cannot. */
+async function holdForOnCopy(barcode: string): Promise<BorrowerRef | null> {
+  try {
+    const notice = await api.getItemByBarcode(barcode);
+    const copies = notice.items ?? [];
+    const copy = copies.find((item) => (item.barcode ?? '').trim() === barcode) ?? copies[0];
+    if (!copy || !isItemStaffView(copy)) return null;
+    return copy.holdFor ?? null;
+  } catch {
+    return null;
+  }
 }
 
 
