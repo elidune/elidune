@@ -483,6 +483,8 @@ pub(crate) struct ItemShortRow {
     call_number: Option<String>,
     borrowable: bool,
     #[sqlx(default)]
+    circulation_status: Option<i16>,
+    #[sqlx(default)]
     weeding_status: crate::models::item::WeedingStatus,
     source_name: Option<String>,
     borrowed: bool,
@@ -501,6 +503,7 @@ impl From<ItemShortRow> for ItemShort {
             barcode: r.barcode,
             call_number: r.call_number,
             borrowable: r.borrowable,
+            circulation_status: r.circulation_status,
             weeding_status: r.weeding_status,
             source_name: r.source_name,
             borrowed: r.borrowed,

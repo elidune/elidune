@@ -219,12 +219,16 @@ impl Repository {
             barcode: Option<String>,
             call_number: Option<String>,
             borrowable: bool,
+            circulation_status: Option<i16>,
+            weeding_status: crate::models::item::WeedingStatus,
             source_name: Option<String>,
             borrowed: bool,
         }
         let rows: Vec<HoldItemShortRow> = sqlx::query_as(
             r#"
             SELECT it.id, it.biblio_id, it.barcode, it.call_number, it.borrowable,
+                   it.circulation_status,
+                   it.weeding_status,
                    so.name AS source_name,
                    EXISTS(
                        SELECT 1 FROM loans l
@@ -241,19 +245,19 @@ impl Repository {
         let mut m = HashMap::with_capacity(rows.len());
         for r in rows {
             let id = r.id;
-            let weeding_status = crate::models::item::WeedingStatus::OnShelf;
             let (availability, can_hold_item) = crate::models::item::ItemAvailability::local_pair(
                 r.borrowed,
                 r.borrowable,
-                None,
-                weeding_status,
+                r.circulation_status,
+                r.weeding_status,
             );
             let item = ItemShort {
                 id: r.id,
                 barcode: r.barcode,
                 call_number: r.call_number,
                 borrowable: r.borrowable,
-                weeding_status,
+                circulation_status: r.circulation_status,
+                weeding_status: r.weeding_status,
                 source_name: r.source_name,
                 borrowed: r.borrowed,
                 availability,

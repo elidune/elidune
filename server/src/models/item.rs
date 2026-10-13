@@ -121,20 +121,22 @@ impl sqlx::Encode<'_, sqlx::Postgres> for WeedingStatus {
 ///
 /// The server decides this. Clients must not infer it from `borrowed`,
 /// `borrowable`, or `circulationStatus`. Readers and the OPAC receive
-/// [`crate::models::catalog_view::ItemPublicAvailability`] instead: `toSearch`
-/// and `unavailable` are both `unavailable`, with no reason.
+/// [`crate::models::catalog_view::ItemPublicAvailability`] (`available`,
+/// `onLoan`, `onSiteOnly`, `unavailable`) and only for copies that
+/// [`included_in_public_catalog`] keeps.
 ///
 /// Precedence, first match wins:
 ///
 /// 1. `onLoan` — a `loans` row for this copy with `returned_at` null.
 /// 2. `inTransit` — an `item_transits` row in `requested` or `in_transit`.
 /// 3. `onHold` — a hold assigned to this copy with status `to_pick` or `ready`.
-/// 4. `toSearch` — `circulation_status` 4 (missing from the shelf).
+/// 4. `toSearch` — `circulation_status` 4 (to be searched; still in the public list).
 /// 5. `unavailable` — any other non-borrowable state:
 ///    reception incomplete (`borrowable` false);
 ///    lost (`circulation_status` 1);
-///    damaged (`circulation_status` 2);
+///    damaged (`circulation_status` 2, including in repair);
 ///    claimed returned (`circulation_status` 3) when no open loan remains;
+///    declared missing (`circulation_status` 5);
 ///    withdrawn (`weeding_status` `withdrawn`).
 ///    Weeding `candidate` does not by itself make a copy unavailable.
 /// 6. `available` — on the shelf and borrowable.
@@ -228,6 +230,24 @@ impl ItemAvailability {
             Self::from_local_flags(borrowed, borrowable, circulation_status, weeding);
         (availability, availability.can_hold_item(weeding))
     }
+}
+
+/// Whether a copy is sent on OPAC and patron catalog projections.
+///
+/// Omitted entirely (the public count is the length of what remains):
+/// lost (`circulation_status` 1), declared missing (`circulation_status` 5),
+/// weeding in progress (`candidate`, pilon), and withdrawn.
+/// A to-search copy (`circulation_status` 4) stays until it is declared missing or lost.
+#[must_use]
+pub fn included_in_public_catalog(weeding: WeedingStatus, circulation_status: Option<i16>) -> bool {
+    if matches!(weeding, WeedingStatus::Candidate | WeedingStatus::Withdrawn) {
+        return false;
+    }
+    !matches!(
+        crate::models::circulation::CirculationStatus::from_db(circulation_status),
+        crate::models::circulation::CirculationStatus::Lost
+            | crate::models::circulation::CirculationStatus::Missing
+    )
 }
 
 impl sqlx::Type<sqlx::Postgres> for ItemAvailability {
@@ -373,6 +393,12 @@ impl Item {
         self.weeding_status.blocks_circulation()
     }
 
+    /// OPAC and patron catalogs omit lost, missing, and weeding copies.
+    #[must_use]
+    pub fn included_in_public_catalog(&self) -> bool {
+        included_in_public_catalog(self.weeding_status, self.circulation_status)
+    }
+
     /// Whether barcode, site, and price (or an explicit deferral) are present.
     ///
     /// Used for acquisitions receipt and when enabling circulation on an incomplete copy.
@@ -406,6 +432,11 @@ pub struct ItemShort {
     pub barcode: Option<String>,
     pub call_number: Option<String>,
     pub borrowable: bool,
+    /// `items.circulation_status`. Staff lists expose this so lost and missing
+    /// stay distinct from a temporary `unavailable`.
+    #[serde(default)]
+    #[sqlx(default)]
+    pub circulation_status: Option<i16>,
     #[serde(default)]
     #[sqlx(default)]
     pub weeding_status: WeedingStatus,
@@ -439,6 +470,14 @@ pub struct ItemShort {
     pub hold_user_lastname: Option<String>,
 }
 
+impl ItemShort {
+    /// OPAC and patron catalogs omit lost, missing, and weeding copies.
+    #[must_use]
+    pub fn included_in_public_catalog(&self) -> bool {
+        included_in_public_catalog(self.weeding_status, self.circulation_status)
+    }
+}
+
 impl From<Item> for ItemShort {
     fn from(item: Item) -> Self {
         Self {
@@ -446,6 +485,7 @@ impl From<Item> for ItemShort {
             barcode: item.barcode,
             call_number: item.call_number,
             borrowable: item.borrowable,
+            circulation_status: item.circulation_status,
             weeding_status: item.weeding_status,
             source_name: item.source_name,
             borrowed: item.borrowed,
@@ -461,7 +501,7 @@ impl From<Item> for ItemShort {
 
 #[cfg(test)]
 mod tests {
-    use super::{Item, ItemAvailability, WeedingStatus};
+    use super::{included_in_public_catalog, Item, ItemAvailability, WeedingStatus};
 
     #[test]
     fn weeding_candidate_circulates_withdrawn_blocks() {
@@ -587,5 +627,21 @@ mod tests {
 
         let json = serde_json::to_value(ItemAvailability::OnHold).unwrap();
         assert_eq!(json, "onHold");
+    }
+
+    #[test]
+    fn public_catalog_omits_lost_missing_and_weeding_only() {
+        let shelf = WeedingStatus::OnShelf;
+        assert!(included_in_public_catalog(shelf, None));
+        assert!(included_in_public_catalog(shelf, Some(0)));
+        assert!(included_in_public_catalog(shelf, Some(2)));
+        assert!(included_in_public_catalog(shelf, Some(4)));
+        assert!(!included_in_public_catalog(shelf, Some(1)));
+        assert!(!included_in_public_catalog(shelf, Some(5)));
+        assert!(!included_in_public_catalog(WeedingStatus::Candidate, None));
+        assert!(!included_in_public_catalog(
+            WeedingStatus::Withdrawn,
+            Some(0)
+        ));
     }
 }

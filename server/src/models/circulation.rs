@@ -43,9 +43,9 @@ pub enum CirculationAction {
 
 /// Item circulation exception status (stored as `items.circulation_status` SMALLINT).
 ///
-/// `NULL` or `0` in the database is [`CirculationStatus::Available`]. Legacy
-/// numeric codes that are not 1–3 are treated as available (they do not enter
-/// this state machine).
+/// `NULL` or `0` in the database is [`CirculationStatus::Available`]. Known codes
+/// are 1 lost, 2 damaged, 3 claimed-returned, 4 to-search, 5 declared missing.
+/// Any other number is treated as available.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, Default)]
 #[serde(rename_all = "camelCase")]
 pub enum CirculationStatus {
@@ -54,10 +54,14 @@ pub enum CirculationStatus {
     Lost,
     Damaged,
     ClaimedReturned,
-    /// Missing from the shelf during a pick. Not lendable and not assignable to a hold.
-    /// A scan returns it to [`Self::Available`]; lost uses the existing lost transition.
+    /// Not on the shelf during a pick. Still counted in the public catalog as
+    /// temporarily unavailable until staff declare it [`Self::Missing`] or [`Self::Lost`].
+    /// A scan returns it to [`Self::Available`].
     #[serde(rename = "toSearch")]
     ToSearch,
+    /// Declared missing. Omitted from the public and patron catalogs.
+    /// Distinct from [`Self::ToSearch`], which stays listed until this declaration.
+    Missing,
 }
 
 impl CirculationStatus {
@@ -65,6 +69,7 @@ impl CirculationStatus {
     pub const DAMAGED: i16 = 2;
     pub const CLAIMED_RETURNED: i16 = 3;
     pub const TO_SEARCH: i16 = 4;
+    pub const MISSING: i16 = 5;
 
     #[must_use]
     pub fn from_db(value: Option<i16>) -> Self {
@@ -73,6 +78,7 @@ impl CirculationStatus {
             Some(Self::DAMAGED) => Self::Damaged,
             Some(Self::CLAIMED_RETURNED) => Self::ClaimedReturned,
             Some(Self::TO_SEARCH) => Self::ToSearch,
+            Some(Self::MISSING) => Self::Missing,
             _ => Self::Available,
         }
     }
@@ -85,6 +91,7 @@ impl CirculationStatus {
             Self::Damaged => Self::DAMAGED,
             Self::ClaimedReturned => Self::CLAIMED_RETURNED,
             Self::ToSearch => Self::TO_SEARCH,
+            Self::Missing => Self::MISSING,
         }
     }
 
@@ -102,13 +109,20 @@ impl CirculationStatus {
     pub fn transition(self, action: CirculationAction) -> Result<Self, &'static str> {
         match (self, action) {
             (
-                Self::Available | Self::Damaged | Self::ClaimedReturned | Self::ToSearch,
+                Self::Available
+                | Self::Damaged
+                | Self::ClaimedReturned
+                | Self::ToSearch
+                | Self::Missing,
                 CirculationAction::MarkLost,
             ) => Ok(Self::Lost),
             (Self::Lost, CirculationAction::MarkLost) => Err("Item is already marked lost"),
             (Self::Available | Self::Damaged, CirculationAction::MarkDamaged) => Ok(Self::Damaged),
             (Self::Lost, CirculationAction::MarkDamaged) => {
                 Err("Cannot mark a lost item as damaged")
+            }
+            (Self::Missing, CirculationAction::MarkDamaged) => {
+                Err("Cannot mark a missing item as damaged")
             }
             (Self::ClaimedReturned, CirculationAction::MarkDamaged) => {
                 Err("Resolve the claims-returned case before marking the item damaged")
@@ -120,9 +134,10 @@ impl CirculationStatus {
             (Self::ClaimedReturned, CirculationAction::ClaimReturned) => {
                 Err("Item is already in the claims-returned queue")
             }
-            (Self::Lost | Self::Damaged | Self::ToSearch, CirculationAction::ClaimReturned) => {
-                Err("Cannot flag claims-returned on a lost, damaged, or missing-shelf item")
-            }
+            (
+                Self::Lost | Self::Damaged | Self::ToSearch | Self::Missing,
+                CirculationAction::ClaimReturned,
+            ) => Err("Cannot flag claims-returned on a lost, damaged, or missing-shelf item"),
             (Self::ClaimedReturned, CirculationAction::ResolveFound) => Ok(Self::Available),
             (Self::ClaimedReturned, CirculationAction::ResolveNotFound) => Ok(Self::Lost),
             (_, CirculationAction::ResolveFound | CirculationAction::ResolveNotFound) => {
@@ -192,6 +207,10 @@ mod tests {
         assert_eq!(
             CirculationStatus::from_db(Some(4)),
             CirculationStatus::ToSearch
+        );
+        assert_eq!(
+            CirculationStatus::from_db(Some(5)),
+            CirculationStatus::Missing
         );
         assert_eq!(
             CirculationStatus::from_db(Some(99)),

@@ -27,27 +27,57 @@ use super::Language;
 
 /// Availability returned to readers and the OPAC.
 ///
-/// Staff [`ItemAvailability::ToSearch`] and [`ItemAvailability::Unavailable`] both become
-/// [`Self::Unavailable`]. The public value does not say why the copy is unavailable.
+/// Four values, and no reason: `available`, `onLoan`, `onSiteOnly` (not borrowable),
+/// `unavailable` (damaged, to be searched, in transit, in repair, or reserved).
+/// Lost, declared missing, weeding-in-progress, and withdrawn copies are omitted
+/// before this value is chosen. Staff [`ItemAvailability`] is unchanged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum ItemPublicAvailability {
     Available,
-    OnHold,
-    InTransit,
     OnLoan,
+    /// Excluded from loan. The copy stays on site.
+    OnSiteOnly,
     Unavailable,
 }
 
-impl From<ItemAvailability> for ItemPublicAvailability {
-    fn from(value: ItemAvailability) -> Self {
-        match value {
-            ItemAvailability::Available => Self::Available,
-            ItemAvailability::OnHold => Self::OnHold,
-            ItemAvailability::InTransit => Self::InTransit,
-            ItemAvailability::OnLoan => Self::OnLoan,
-            ItemAvailability::ToSearch | ItemAvailability::Unavailable => Self::Unavailable,
+impl ItemPublicAvailability {
+    /// Public availability of a copy that is still included in the catalog list.
+    ///
+    /// An open loan wins. Temporary states (damaged, to search, claimed returned,
+    /// in transit, reserved, in repair) are [`Self::Unavailable`]. A copy that is
+    /// simply not borrowable is [`Self::OnSiteOnly`].
+    #[must_use]
+    pub fn for_copy(
+        availability: ItemAvailability,
+        borrowable: bool,
+        circulation_status: Option<i16>,
+    ) -> Self {
+        if availability == ItemAvailability::OnLoan {
+            return Self::OnLoan;
         }
+        let circulation =
+            crate::models::circulation::CirculationStatus::from_db(circulation_status);
+        if matches!(
+            availability,
+            ItemAvailability::InTransit | ItemAvailability::OnHold | ItemAvailability::ToSearch
+        ) || matches!(
+            circulation,
+            crate::models::circulation::CirculationStatus::Damaged
+                | crate::models::circulation::CirculationStatus::ClaimedReturned
+                | crate::models::circulation::CirculationStatus::ToSearch
+                | crate::models::circulation::CirculationStatus::Lost
+                | crate::models::circulation::CirculationStatus::Missing
+        ) {
+            return Self::Unavailable;
+        }
+        if !borrowable {
+            return Self::OnSiteOnly;
+        }
+        if availability == ItemAvailability::Unavailable {
+            return Self::Unavailable;
+        }
+        Self::Available
     }
 }
 
@@ -231,7 +261,11 @@ impl From<Item> for ItemPublicView {
             source_name: item.source_name,
             borrowed: item.borrowed,
             due_date: item.due_date,
-            availability: ItemPublicAvailability::from(item.availability),
+            availability: ItemPublicAvailability::for_copy(
+                item.availability,
+                item.borrowable,
+                item.circulation_status,
+            ),
             can_hold_item: item.can_hold_item,
             on_hold: item.on_hold,
         }
@@ -252,6 +286,9 @@ pub struct ItemShortStaff {
     pub weeding_status: WeedingStatus,
     pub source_name: Option<String>,
     pub borrowed: bool,
+    /// `items.circulation_status`. Null or 0 is available; 1 lost, 2 damaged,
+    /// 3 claimed returned, 4 to search, 5 declared missing.
+    pub circulation_status: Option<i16>,
     pub availability: ItemAvailability,
     pub can_hold_item: bool,
     /// Same rule as [`ItemStaffView::hold_for`].
@@ -269,6 +306,7 @@ impl From<ItemShort> for ItemShortStaff {
             weeding_status: item.weeding_status,
             source_name: item.source_name,
             borrowed: item.borrowed,
+            circulation_status: item.circulation_status,
             availability: item.availability,
             can_hold_item: item.can_hold_item,
             hold_for: None,
@@ -302,7 +340,11 @@ impl From<ItemShort> for ItemShortPublic {
             borrowable: item.borrowable,
             source_name: item.source_name,
             borrowed: item.borrowed,
-            availability: ItemPublicAvailability::from(item.availability),
+            availability: ItemPublicAvailability::for_copy(
+                item.availability,
+                item.borrowable,
+                item.circulation_status,
+            ),
             can_hold_item: item.can_hold_item,
         }
     }
@@ -490,7 +532,7 @@ impl From<Biblio> for BiblioPublicView {
             items: biblio
                 .items
                 .into_iter()
-                .filter(|item| item.weeding_status != WeedingStatus::Withdrawn)
+                .filter(Item::included_in_public_catalog)
                 .map(ItemPublicView::from)
                 .collect(),
         }
@@ -573,7 +615,7 @@ impl From<BiblioShort> for BiblioShortPublic {
             items: biblio
                 .items
                 .into_iter()
-                .filter(|item| item.weeding_status != WeedingStatus::Withdrawn)
+                .filter(ItemShort::included_in_public_catalog)
                 .map(ItemShortPublic::from)
                 .collect(),
         }
@@ -1066,26 +1108,43 @@ mod tests {
     use super::*;
 
     #[test]
-    fn public_availability_hides_to_search_and_reason() {
+    fn public_availability_collapses_temporary_states_and_hides_staff_fields() {
         assert_eq!(
-            ItemPublicAvailability::from(ItemAvailability::ToSearch),
+            ItemPublicAvailability::for_copy(ItemAvailability::ToSearch, false, Some(4)),
             ItemPublicAvailability::Unavailable
         );
         assert_eq!(
-            ItemPublicAvailability::from(ItemAvailability::Unavailable),
+            ItemPublicAvailability::for_copy(ItemAvailability::InTransit, true, None),
             ItemPublicAvailability::Unavailable
         );
         assert_eq!(
-            ItemPublicAvailability::from(ItemAvailability::OnHold),
-            ItemPublicAvailability::OnHold
+            ItemPublicAvailability::for_copy(ItemAvailability::OnHold, true, None),
+            ItemPublicAvailability::Unavailable
+        );
+        assert_eq!(
+            ItemPublicAvailability::for_copy(ItemAvailability::Unavailable, false, Some(2)),
+            ItemPublicAvailability::Unavailable
+        );
+        assert_eq!(
+            ItemPublicAvailability::for_copy(ItemAvailability::Unavailable, false, None),
+            ItemPublicAvailability::OnSiteOnly
+        );
+        assert_eq!(
+            ItemPublicAvailability::for_copy(ItemAvailability::OnLoan, true, Some(4)),
+            ItemPublicAvailability::OnLoan
+        );
+        assert_eq!(
+            ItemPublicAvailability::for_copy(ItemAvailability::Available, true, None),
+            ItemPublicAvailability::Available
         );
 
         let item = ItemShort {
             id: 7,
             barcode: Some("B".into()),
             call_number: None,
-            borrowable: true,
-            weeding_status: WeedingStatus::Candidate,
+            borrowable: false,
+            circulation_status: Some(4),
+            weeding_status: WeedingStatus::OnShelf,
             source_name: None,
             borrowed: false,
             availability: ItemAvailability::ToSearch,
@@ -1099,11 +1158,13 @@ mod tests {
         assert_eq!(body["availability"], "unavailable");
         assert_eq!(body["canHoldItem"], false);
         assert!(body.get("weedingStatus").is_none());
+        assert!(body.get("circulationStatus").is_none());
         assert!(body.get("holdUserId").is_none());
         assert!(body.get("holdUserName").is_none());
         assert!(body.get("holdFor").is_none());
         assert!(body.get("firstname").is_none());
         assert!(body.get("lastname").is_none());
+        assert!(body.get("borrower").is_none());
         assert!(body.get("notes").is_none());
         assert!(body.get("login").is_none());
     }

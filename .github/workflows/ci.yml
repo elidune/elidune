@@ -201,6 +201,7 @@ jobs:
           --test biblio_item_notice
           --test card_replacement
           --test hold_patron_identity
+          --test public_catalog_copies
           -- --nocapture
 
   coverage:
@@ -292,6 +293,7 @@ jobs:
           --test biblio_item_notice
           --test card_replacement
           --test hold_patron_identity
+          --test public_catalog_copies
           --lcov
           --output-path lcov.info
           --fail-under-lines 20

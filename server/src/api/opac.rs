@@ -45,7 +45,7 @@ pub fn router() -> axum::Router<crate::AppState> {
         ("per_page" = Option<i64>, Query, description = "Items per page (default 20, max 50)")
     ),
     responses(
-        (status = 200, description = "Catalog search results. Copies are `ItemShortPublic`: public availability (`toSearch` is `unavailable`) and `canHoldItem`. No hold patron, login, notes, or weeding fields.", body = PaginatedResponse<BiblioShortPublic>)
+        (status = 200, description = "Catalog search results. Copies are `ItemShortPublic`. Lost, declared missing, weeding-in-progress, and withdrawn copies are omitted; the public count is the length of `items`. Each remaining copy has `availability` of `available`, `onLoan`, `onSiteOnly`, or `unavailable`, plus `canHoldItem`. No `holdFor`, borrower, login, notes, or weeding fields.", body = PaginatedResponse<BiblioShortPublic>)
     )
 )]
 pub async fn opac_search(
@@ -75,7 +75,7 @@ pub async fn opac_search(
     tag = "opac",
     params(("id" = i64, Path, description = "Biblio ID")),
     responses(
-        (status = 200, description = "Bibliographic record details as `BiblioPublicView`. Copies use public availability (`toSearch` is `unavailable`). The record includes `holdsCount` (pending holds still waiting for a copy; no patron). Each copy includes `dueDate` (active loan `expiry_at`, or null) and `onHold` (true only when this copy is `to_pick` or `ready`, or in transit for a hold). An unassigned `pending` title hold does not set `onHold`. No `holdFor`, borrower, loan id, login, notes, or weeding fields.", body = BiblioPublicView),
+        (status = 200, description = "Bibliographic record details as `BiblioPublicView`. Lost, declared missing, weeding-in-progress, and withdrawn copies are omitted. Remaining copies use `available`, `onLoan`, `onSiteOnly`, or `unavailable`. The record includes `holdsCount` (pending holds still waiting for a copy; no patron). Each remaining copy includes `dueDate` (active loan `expiry_at`, or null) and `onHold` (true only when this copy is `to_pick` or `ready`, or in transit for a hold). An unassigned `pending` title hold does not set `onHold`. No `holdFor`, borrower, loan id, login, notes, or weeding fields.", body = BiblioPublicView),
         (status = 404, description = "Biblio not found", body = crate::error::ErrorResponse)
     )
 )]

@@ -1,7 +1,8 @@
-//! Server-computed copy availability (#118).
+//! Server-computed copy availability (#118, #196).
 //!
-//! Staff responses use the full availability enum. Readers and the OPAC use the
-//! public enum (`toSearch` is `unavailable`) and a type that has no staff fields.
+//! Staff responses use the full availability enum. Readers and the OPAC use
+//! `available`, `onLoan`, `onSiteOnly`, or `unavailable`, and a type that has
+//! no staff fields. Lost, missing, and weeding copies are omitted from those lists.
 
 mod common;
 
@@ -180,7 +181,7 @@ async fn to_pick_is_on_hold_for_staff_and_hidden_for_readers() {
         .await;
     assert_eq!(status, StatusCode::OK, "reader biblio: {reader}");
     let reader_copy = find_copy(&reader, hold_id_item);
-    assert_state(reader_copy, "onHold", false);
+    assert_state(reader_copy, "unavailable", false);
     assert_no_patron(reader_copy);
     let raw = reader.to_string();
     assert!(!raw.contains("holdUserId"));
@@ -192,7 +193,7 @@ async fn to_pick_is_on_hold_for_staff_and_hidden_for_readers() {
         .await;
     assert_eq!(status, StatusCode::OK, "opac biblio: {opac}");
     let opac_copy = find_copy(&opac, hold_id_item);
-    assert_state(opac_copy, "onHold", false);
+    assert_state(opac_copy, "unavailable", false);
     assert_no_patron(opac_copy);
 
     let (status, item_detail) = app
@@ -253,7 +254,7 @@ async fn to_pick_is_on_hold_for_staff_and_hidden_for_readers() {
         .iter()
         .find(|row| fixtures::json_id(&row["id"]) == biblio_id)
         .expect("opac hit");
-    assert_state(find_copy(opac_hit, hold_id_item), "onHold", false);
+    assert_state(find_copy(opac_hit, hold_id_item), "unavailable", false);
     assert_no_patron(find_copy(opac_hit, hold_id_item));
 }
 
@@ -571,15 +572,6 @@ async fn seed_tosearch_copy(app: &TestApp, label: &str) -> HiddenCopy {
         .execute(app.state.services.repository.pool())
         .await
         .expect("copy notes");
-
-    let (status, weeding) = app
-        .post_json(
-            &format!("/api/v1/items/{item_id}/weeding"),
-            &json!({ "status": "candidate", "reason": "internal discard note" }),
-            Some(&admin_token),
-        )
-        .await;
-    assert_eq!(status, StatusCode::OK, "weeding: {weeding}");
 
     let (reader_id, _) =
         fixtures::create_reader(app, &admin_token, &format!("avhold{label}")).await;

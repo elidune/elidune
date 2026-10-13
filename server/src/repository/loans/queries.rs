@@ -568,6 +568,7 @@ impl Repository {
                     barcode: row.get("item_barcode"),
                     call_number: row.get("item_call_number"),
                     borrowable,
+                    circulation_status: None,
                     weeding_status,
                     source_name: row.get("item_source_name"),
                     borrowed: true,

@@ -578,9 +578,12 @@ async fn readers_and_opac_do_not_see_weeding_reason() {
         .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}"), &reader_token)
         .await;
     assert_eq!(status, StatusCode::OK, "reader biblio: {reader}");
-    assert!(reader["items"][0].get("weedingReason").is_none());
-    assert!(reader["items"][0].get("weedingStatus").is_none());
-    assert!(reader["items"][0].get("notes").is_none());
+    assert!(
+        reader["items"].as_array().expect("items").is_empty(),
+        "a weeding candidate is omitted from the patron catalog: {reader}"
+    );
+    assert!(!reader.to_string().contains("internal discard note"));
+    assert!(!reader.to_string().contains("staff copy note"));
     assert!(reader.get("weedingStatus").is_none());
     assert!(reader.get("weedingReason").is_none());
 
@@ -588,8 +591,11 @@ async fn readers_and_opac_do_not_see_weeding_reason() {
         .get_json(&format!("/api/v1/opac/biblios/{biblio_id}"))
         .await;
     assert_eq!(status, StatusCode::OK, "opac biblio: {opac}");
-    assert!(opac["items"][0].get("weedingReason").is_none());
-    assert!(opac["items"][0].get("weedingStatus").is_none());
-    assert!(opac["items"][0].get("notes").is_none());
+    assert!(
+        opac["items"].as_array().expect("items").is_empty(),
+        "a weeding candidate is omitted from the OPAC: {opac}"
+    );
+    assert!(!opac.to_string().contains("internal discard note"));
+    assert!(!opac.to_string().contains("staff copy note"));
     assert!(opac.get("weedingStatus").is_none());
 }
