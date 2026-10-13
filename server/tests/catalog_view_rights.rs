@@ -294,7 +294,7 @@ async fn staff_patron_opac_and_intermediate_catalog_views_follow_rights() {
             .expect("held")
             .get("holdFor")
             .is_none(),
-        "catalog write without users or loans read omits holdFor: {intermediate}"
+        "catalog write without holds rights omits holdFor: {intermediate}"
     );
 
     let (status, cataloger_items) = get(
@@ -366,7 +366,13 @@ async fn staff_patron_opac_and_intermediate_catalog_views_follow_rights() {
     .await;
     assert_eq!(status, StatusCode::OK, "{loans_view}");
     assert_staff_copies(&loans_view, &notice);
-    assert_minimized_hold_for(&loans_view, &notice);
+    assert!(
+        copy_by_id(&loans_view, notice.held_id)
+            .expect("held")
+            .get("holdFor")
+            .is_none(),
+        "loans read without holds rights omits holdFor: {loans_view}"
+    );
 
     let users_read = retarget(
         &notice.holder_token,
@@ -376,7 +382,7 @@ async fn staff_patron_opac_and_intermediate_catalog_views_follow_rights() {
             items_rights: Rights::Read,
             users_rights: Rights::Read,
             loans_rights: Rights::None,
-            holds_rights: Rights::Own,
+            holds_rights: Rights::None,
             ..UserRights::default()
         },
     );
@@ -387,7 +393,55 @@ async fn staff_patron_opac_and_intermediate_catalog_views_follow_rights() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{users_view}");
-    assert_full_hold_for(&users_view, &notice);
+    assert!(
+        copy_by_id(&users_view, notice.held_id)
+            .expect("held")
+            .get("holdFor")
+            .is_none(),
+        "users read without holds rights omits holdFor: {users_view}"
+    );
+
+    let holds_only = retarget(
+        &notice.holder_token,
+        &secret,
+        AccountTypeSlug::Reader,
+        UserRights {
+            items_rights: Rights::Read,
+            holds_rights: Rights::Read,
+            users_rights: Rights::None,
+            loans_rights: Rights::None,
+            ..UserRights::default()
+        },
+    );
+    let (status, holds_view) = get(
+        &app,
+        &format!("/api/v1/biblios/{}", notice.biblio_id),
+        Some(&holds_only),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{holds_view}");
+    assert_minimized_hold_for(&holds_view, &notice);
+
+    let holds_and_users = retarget(
+        &notice.holder_token,
+        &secret,
+        AccountTypeSlug::Reader,
+        UserRights {
+            items_rights: Rights::Read,
+            holds_rights: Rights::Read,
+            users_rights: Rights::Read,
+            loans_rights: Rights::None,
+            ..UserRights::default()
+        },
+    );
+    let (status, full_view) = get(
+        &app,
+        &format!("/api/v1/biblios/{}", notice.biblio_id),
+        Some(&holds_and_users),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{full_view}");
+    assert_full_hold_for(&full_view, &notice);
 
     let (status, patron_holds) = get(&app, "/api/v1/holds", Some(&notice.holder_token)).await;
     assert_eq!(status, StatusCode::OK, "{patron_holds}");
