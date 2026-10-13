@@ -35,6 +35,8 @@ pub mod error_code {
     pub const BUSINESS_RULE: &str = "business_rule_violation";
     /// Checkout and renewal refused because `users.card_lost` is set. `force` does not override.
     pub const CARD_LOST: &str = "card_lost";
+    /// Renewal refused because `users.expiry_at` is before now. Staff `force` overrides it.
+    pub const SUBSCRIPTION_EXPIRED: &str = "subscription_expired";
     /// Create, update, or card replacement tried to assign a retired library card number.
     pub const CARD_NUMBER_RETIRED: &str = "card_number_retired";
     /// Client `message` for [`CARD_LOST`].

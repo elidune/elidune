@@ -921,6 +921,33 @@
     "unlockSignInSuccess": "Connexion débloquée pour {{login}}.",
     "information": "Informations",
     "pastLoansTab": "Emprunts passés",
+    "finesTab": "Amendes",
+    "fines": {
+      "totalUnpaid": "Total impayé : {{amount}}",
+      "empty": "Aucune amende pour ce lecteur.",
+      "loadError": "Impossible de charger les amendes.",
+      "columns": {
+        "reason": "Motif",
+        "amount": "Montant",
+        "paid": "Montant payé",
+        "refunded": "Montant remboursé",
+        "status": "Statut"
+      },
+      "reasons": {
+        "overdue": "Retard",
+        "replacement": "Exemplaire perdu",
+        "damage": "Exemplaire abîmé",
+        "unknown": "Non précisé"
+      },
+      "status": {
+        "pending": "Impayée",
+        "partial": "Partiellement payée",
+        "paid": "Payée",
+        "waived": "Exonérée",
+        "cancelled": "Annulée",
+        "refunded": "Remboursée"
+      }
+    },
     "holdsTab": "Réservations",
     "loanStatistics": "Statistiques d'emprunts",
     "anonymize": "Anonymiser pour les stats",

@@ -2449,24 +2449,33 @@ export interface ListTransitsParams {
 // Fines / Penalties
 // ──────────────────────────────────────────────────────────────────
 
-export type FineStatus = 'pending' | 'partial' | 'paid' | 'waived';
+/** Wire values from `FineStatus`. Includes lost-copy settlements. */
+export type FineStatus = 'pending' | 'partial' | 'paid' | 'waived' | 'cancelled' | 'refunded';
 
 export type FineChargeType = 'overdue' | 'replacement' | 'damage';
 
+/**
+ * One row from `GET /users/{id}/fines`.
+ * Amounts are decimal euro strings (`"12.50"`), not cents.
+ * `refundedAmount` is omitted when it is zero.
+ */
 export interface Fine {
   id: string;
   loanId?: string;
   userId?: string;
   amount: string;
   paidAmount?: string;
+  refundedAmount?: string;
   status: FineStatus;
   createdAt?: string;
   paidAt?: string | null;
   notes?: string | null;
   chargeType?: FineChargeType;
+  itemId?: string;
 }
 
 export interface FinesResponse {
+  /** Decimal euro string. Open charges only (`pending` and `partial`). */
   totalUnpaid?: string;
   fines: Fine[];
 }

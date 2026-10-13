@@ -52,6 +52,9 @@ import { RenewSubscriptionModal, UserEditorForm } from '@/components/users';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import { canManageUsers, canReadUsers, isLibrarian, type User as UserType, type LoanListItem, type LoanStatsResponse, type AdvancedStatsParams, type StatsInterval, type Author, type Hold } from '@/types';
+import PatronFinesPanel from '@/components/users/PatronFinesPanel';
+import { useUserFinesQuery } from '@/hooks/users/useUserFinesQuery';
+import { mayLoadPatronFines } from '@/utils/patronFines';
 import { isUserRecordLoan } from '@/utils/catalogView';
 import { isLoansForbidden, loansQueryRetry, userRecordQueryRetry } from '@/utils/loanListAccess';
 import UserRecordLoanIdentity from '@/components/users/UserRecordLoanIdentity';
@@ -65,13 +68,14 @@ const LoansAreaChart = lazy(() => import('@/components/stats/LoansAreaChart'));
 const USER_LOANS_PAGE_SIZE = 20;
 const USER_HOLDS_PAGE_SIZE = 20;
 
-type UserDetailTab = 'info' | 'activeLoans' | 'pastLoans' | 'holds' | 'stats';
+type UserDetailTab = 'info' | 'activeLoans' | 'pastLoans' | 'fines' | 'holds' | 'stats';
 
 export default function UserDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
+  const canReadBorrowers = canReadUsers(currentUser, api.getToken());
   const { t, i18n } = useTranslation();
   const { showToast } = useToast();
   const holdsLoadMoreRef = useRef<HTMLDivElement>(null);
@@ -229,6 +233,14 @@ export default function UserDetailPage() {
     retry: loansQueryRetry,
   });
   const pastLoans = (pastLoansPages?.pages.flatMap((p) => p.items) ?? []).filter(isUserRecordLoan);
+  const finesVisible = mayLoadPatronFines(canReadBorrowers);
+  const {
+    data: finesData,
+    isLoading: isLoadingFines,
+    isError: isFinesError,
+    error: finesError,
+    refetch: refetchFines,
+  } = useUserFinesQuery(id, detailTab === 'fines' && finesVisible);
 
   useEffect(() => {
     const el = activeLoansLoadMoreRef.current;
@@ -543,7 +555,6 @@ export default function UserDetailPage() {
   const overdueLoans = activeLoans.filter((l) => l.isOverdue);
   const signInLogin = user.login?.trim() ?? '';
   const canUnlockSignIn = canManageUsers(currentUser?.accountType) && signInLogin !== '';
-  const canReadBorrowers = canReadUsers(currentUser, api.getToken());
 
   const renderLoanTitle = (loan: LoanListItem) => (
     <button
@@ -954,12 +965,13 @@ export default function UserDetailPage() {
                 >
                   {(
                     [
-                      { id: 'info' as const, label: t('users.information') },
-                      { id: 'activeLoans' as const, label: t('loans.activeLoans') },
-                      { id: 'pastLoans' as const, label: t('users.pastLoansTab') },
-                      { id: 'holds' as const, label: t('users.holdsTab') },
-                      { id: 'stats' as const, label: t('users.loanStatistics') },
-                    ] as const
+                      { id: 'info' as UserDetailTab, label: t('users.information') },
+                      { id: 'activeLoans' as UserDetailTab, label: t('loans.activeLoans') },
+                      { id: 'pastLoans' as UserDetailTab, label: t('users.pastLoansTab') },
+                      { id: 'fines' as UserDetailTab, label: t('users.finesTab') },
+                      { id: 'holds' as UserDetailTab, label: t('users.holdsTab') },
+                      { id: 'stats' as UserDetailTab, label: t('users.loanStatistics') },
+                    ].filter((tab) => tab.id !== 'fines' || finesVisible)
                   ).map((tab) => (
                     <button
                       key={tab.id}
@@ -1112,6 +1124,27 @@ export default function UserDetailPage() {
                   )}
                 </>
               )}
+            </ScrollableListRegion>
+          )}
+
+          {detailTab === 'fines' && finesVisible && (
+            <ScrollableListRegion
+              aria-label={t('users.finesTab')}
+              className="flex-1 min-h-0 !max-h-none overflow-auto"
+            >
+              <PatronFinesPanel
+                fines={finesData?.fines ?? []}
+                totalUnpaid={finesData?.totalUnpaid}
+                isLoading={isLoadingFines}
+                errorMessage={
+                  isFinesError
+                    ? getApiErrorMessage(finesError, t) || t('users.fines.loadError')
+                    : null
+                }
+                onRetry={() => {
+                  void refetchFines();
+                }}
+              />
             </ScrollableListRegion>
           )}
 
