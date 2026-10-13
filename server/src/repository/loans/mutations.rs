@@ -18,7 +18,7 @@ use crate::{
             CreateLoan, Loan, LoanClosureReason, LoanCreateOutcome, LoanDetails, LoanReturnOutcome,
             LoanSettingsRenewAt,
         },
-        user::{UserShort, UserShortRow},
+        user::{UserRights, UserShort, UserShortRow},
     },
     renewal::{renewal_eligibility, LoanRenewalSnapshot, RenewalContext, RenewalLoan, RenewalUser},
     services::fines::UnpaidThresholdCheck,
@@ -38,13 +38,15 @@ impl Repository {
     /// `prior_refusals` are forceable patron gates (expired subscription, fines)
     /// already collected by the service. A later non-forceable item gate wins.
     pub async fn loans_create(&self, loan: &CreateLoan) -> AppResult<LoanCreateOutcome> {
-        self.loans_create_with_prior(loan, Vec::new()).await
+        self.loans_create_with_prior(loan, Vec::new(), &UserRights::default())
+            .await
     }
 
     pub async fn loans_create_with_prior(
         &self,
         loan: &CreateLoan,
         prior_refusals: Vec<CheckoutRefusal>,
+        caller_rights: &UserRights,
     ) -> AppResult<LoanCreateOutcome> {
         let now = Utc::now();
 
@@ -101,7 +103,10 @@ impl Repository {
             push_checkout_refusal(
                 &mut refusals,
                 loan.force,
-                CheckoutRefusal::business(crate::models::item::WeedingStatus::CHECKOUT_BLOCKED),
+                CheckoutRefusal::business(
+                    crate::models::item::WeedingStatus::CHECKOUT_BLOCKED,
+                    caller_rights,
+                ),
             )?;
         }
 
@@ -127,6 +132,7 @@ impl Repository {
                     loan.force,
                     CheckoutRefusal::business(
                         "Item is in transit to another site and cannot be checked out",
+                        caller_rights,
                     ),
                 )?;
             }
@@ -140,7 +146,7 @@ impl Repository {
                 push_checkout_refusal(
                     &mut refusals,
                     loan.force,
-                    CheckoutRefusal::status_action(circulation_status),
+                    CheckoutRefusal::status_action(circulation_status, caller_rights),
                 )?;
             }
             CirculationStatus::Damaged => {
@@ -150,6 +156,7 @@ impl Repository {
                     CheckoutRefusal::new(
                         error_code::ITEM_NOT_LOANABLE,
                         "Item is marked damaged and is not borrowable",
+                        caller_rights,
                     ),
                 )?;
             }
@@ -157,7 +164,11 @@ impl Repository {
                 push_checkout_refusal(
                     &mut refusals,
                     loan.force,
-                    CheckoutRefusal::new(error_code::ITEM_NOT_LOANABLE, "Item is not borrowable"),
+                    CheckoutRefusal::new(
+                        error_code::ITEM_NOT_LOANABLE,
+                        "Item is not borrowable",
+                        caller_rights,
+                    ),
                 )?;
             }
             CirculationStatus::Available => {}
@@ -230,7 +241,11 @@ impl Repository {
                 ),
                 (false, false) => unreachable!(),
             };
-            push_checkout_refusal(&mut refusals, loan.force, CheckoutRefusal::new(code, msg))?;
+            push_checkout_refusal(
+                &mut refusals,
+                loan.force,
+                CheckoutRefusal::new(code, msg, caller_rights),
+            )?;
         }
 
         // Only a hold assigned to this copy (`ready`, `to_pick`, or a pinned `pending`)
@@ -242,16 +257,20 @@ impl Repository {
         {
             if user_id != loan.user_id {
                 let refusal = if status == crate::models::hold::HoldStatus::ToPick {
-                    CheckoutRefusal::to_pick(ToPickPatron {
-                        hold_id,
-                        user_id,
-                        card_number,
-                        initials,
-                    })
+                    CheckoutRefusal::to_pick(
+                        ToPickPatron {
+                            hold_id,
+                            user_id,
+                            card_number,
+                            initials,
+                        },
+                        caller_rights,
+                    )
                 } else {
                     CheckoutRefusal::new(
                         error_code::ITEM_HELD_FOR_OTHER,
                         "This copy has an active hold for another patron — only the queued patron may borrow it",
+                        caller_rights,
                     )
                 };
                 push_checkout_refusal(&mut refusals, loan.force, refusal)?;

@@ -15,7 +15,7 @@ use crate::{
             LoanMarcExportEncoding, LoanMarcExportFormat, LoanReturnOutcome, LoanSettingsRenewAt,
             LOANS_MARC_EXPORT_MAX,
         },
-        user::UserStatus,
+        user::{UserRights, UserStatus},
         Loan,
     },
     renewal::{renewal_eligibility, subscription_expired_message, RenewalContext, RenewalUser},
@@ -132,9 +132,9 @@ impl LoansService {
         user_id: i64,
         public_type_id: Option<i64>,
         force: bool,
-        operation: &'static str,
         audit_actor: Option<i64>,
         client_ip: Option<String>,
+        caller_rights: &UserRights,
     ) -> AppResult<Option<CheckoutRefusal>> {
         let check = self
             .fines
@@ -143,7 +143,7 @@ impl LoansService {
         if !check.blocks_circulation() {
             return Ok(None);
         }
-        if force_skips_checkout_refusal(force, error_code::FINES_OVER_THRESHOLD) {
+        if force_skips_checkout_refusal(force, error_code::FINES_OVER_THRESHOLD, caller_rights) {
             self.audit.log(
                 audit::event::LOAN_FINE_THRESHOLD_OVERRIDDEN,
                 audit_actor,
@@ -153,7 +153,7 @@ impl LoansService {
                 Some(serde_json::json!({
                     "unpaid": check.unpaid,
                     "threshold": check.threshold,
-                    "operation": operation,
+                    "operation": "checkout",
                 })),
                 AuditLogMeta::success(),
             );
@@ -162,6 +162,7 @@ impl LoansService {
         Ok(Some(CheckoutRefusal::new(
             error_code::FINES_OVER_THRESHOLD,
             check.desk_block_message(),
+            caller_rights,
         )))
     }
 
@@ -171,6 +172,7 @@ impl LoansService {
     /// - a deleted or inactive account is `422` `business_rule_violation` (`force` does not skip it)
     /// - a lost or stolen library card is always rejected (`422` `card_lost`), including `force`
     /// - expired subscriptions are `422` `subscription_expired` unless `force` skips that code
+    ///   for a caller with settings write
     /// - unpaid fines strictly above the effective threshold are `422` `fines_over_threshold`
     ///   unless `force` skips that code (a null threshold does not block on amount)
     ///
@@ -182,16 +184,21 @@ impl LoansService {
         loan: CreateLoan,
         audit_actor: Option<i64>,
         client_ip: Option<String>,
+        caller_rights: &UserRights,
     ) -> AppResult<LoanCreateOutcome> {
         let user = self.repository.users_get_by_id(loan.user_id).await?;
 
         let mut refusals = Vec::new();
+        let mut subscription_overridden = false;
         let status = user.status.unwrap_or(UserStatus::Active);
         if status == UserStatus::Deleted {
             push_checkout_refusal(
                 &mut refusals,
                 loan.force,
-                CheckoutRefusal::business("Cannot create a loan for a deleted user account"),
+                CheckoutRefusal::business(
+                    "Cannot create a loan for a deleted user account",
+                    caller_rights,
+                ),
             )?;
         }
 
@@ -199,7 +206,10 @@ impl LoansService {
             push_checkout_refusal(
                 &mut refusals,
                 loan.force,
-                CheckoutRefusal::business("User account is not active or cannot borrow"),
+                CheckoutRefusal::business(
+                    "User account is not active or cannot borrow",
+                    caller_rights,
+                ),
             )?;
         }
 
@@ -207,26 +217,37 @@ impl LoansService {
             push_checkout_refusal(
                 &mut refusals,
                 loan.force,
-                CheckoutRefusal::new(error_code::CARD_LOST, error_code::CARD_LOST_MESSAGE),
+                CheckoutRefusal::new(
+                    error_code::CARD_LOST,
+                    error_code::CARD_LOST_MESSAGE,
+                    caller_rights,
+                ),
             )?;
         }
 
         if let Some(expiry_at) = user.expiry_at {
-            if expiry_at < Utc::now()
-                && !force_skips_checkout_refusal(loan.force, error_code::SUBSCRIPTION_EXPIRED)
-            {
-                let zone = crate::services::calendar::parse_timezone(
-                    &self.repository.library_timezone_name().await?,
-                )
-                .unwrap_or_else(|_| crate::services::calendar::default_zone());
-                push_checkout_refusal(
-                    &mut refusals,
+            if expiry_at < Utc::now() {
+                if force_skips_checkout_refusal(
                     loan.force,
-                    CheckoutRefusal::new(
-                        error_code::SUBSCRIPTION_EXPIRED,
-                        subscription_expired_message(Some(expiry_at), zone),
-                    ),
-                )?;
+                    error_code::SUBSCRIPTION_EXPIRED,
+                    caller_rights,
+                ) {
+                    subscription_overridden = true;
+                } else {
+                    let zone = crate::services::calendar::parse_timezone(
+                        &self.repository.library_timezone_name().await?,
+                    )
+                    .unwrap_or_else(|_| crate::services::calendar::default_zone());
+                    push_checkout_refusal(
+                        &mut refusals,
+                        loan.force,
+                        CheckoutRefusal::new(
+                            error_code::SUBSCRIPTION_EXPIRED,
+                            subscription_expired_message(Some(expiry_at), zone),
+                            caller_rights,
+                        ),
+                    )?;
+                }
             }
         }
 
@@ -235,16 +256,35 @@ impl LoansService {
                 loan.user_id,
                 user.public_type,
                 loan.force,
-                "checkout",
                 audit_actor,
                 client_ip.clone(),
+                caller_rights,
             )
             .await?
         {
             push_checkout_refusal(&mut refusals, loan.force, fine_refusal)?;
         }
 
-        let outcome = self.repository.loans_create(&loan, refusals).await?;
+        let outcome = self
+            .repository
+            .loans_create(&loan, refusals, caller_rights)
+            .await?;
+        if subscription_overridden {
+            self.audit.log(
+                audit::event::LOAN_SUBSCRIPTION_EXPIRED_OVERRIDDEN,
+                audit_actor,
+                Some("loan"),
+                Some(outcome.loan_id),
+                client_ip.clone(),
+                Some(serde_json::json!({
+                    "user_id": loan.user_id,
+                    "item_id": loan.item_id,
+                    "loan_id": outcome.loan_id,
+                    "code": error_code::SUBSCRIPTION_EXPIRED,
+                })),
+                AuditLogMeta::success(),
+            );
+        }
         if let Some(item_id) = loan.item_id {
             self.events
                 .loan_created(outcome.loan_id, loan.user_id, item_id);
@@ -1140,6 +1180,7 @@ mod tests {
             &self,
             _: &CreateLoan,
             prior_refusals: Vec<crate::checkout_refusal::CheckoutRefusal>,
+            _: &crate::models::user::UserRights,
         ) -> AppResult<LoanCreateOutcome> {
             crate::checkout_refusal::finish_checkout_refusals(prior_refusals)?;
             Ok(LoanCreateOutcome {
@@ -1570,7 +1611,12 @@ mod tests {
         let user = make_user(1, None, None);
         let svc = make_service(Some(user), 100);
         assert!(svc
-            .create_loan(make_loan(1, false), None, None)
+            .create_loan(
+                make_loan(1, false),
+                None,
+                None,
+                &crate::models::user::UserRights::default()
+            )
             .await
             .is_ok());
     }
@@ -1591,7 +1637,12 @@ mod tests {
         let user = make_user(2, Some(UserStatus::Blocked), None);
         let svc = make_service(Some(user), 0);
         let err = svc
-            .create_loan(make_loan(2, false), None, None)
+            .create_loan(
+                make_loan(2, false),
+                None,
+                None,
+                &crate::models::user::UserRights::default(),
+            )
             .await
             .expect_err("blocked");
         assert_checkout_refusal(err, "business_rule_violation", false);
@@ -1602,7 +1653,12 @@ mod tests {
         let user = make_user(3, Some(UserStatus::Blocked), None);
         let svc = make_service(Some(user), 101);
         let err = svc
-            .create_loan(make_loan(3, true), None, None)
+            .create_loan(
+                make_loan(3, true),
+                None,
+                None,
+                &crate::models::user::UserRights::default(),
+            )
             .await
             .expect_err("force does not skip an inactive account");
         assert_checkout_refusal(err, "business_rule_violation", false);
@@ -1613,10 +1669,22 @@ mod tests {
         let user = make_user(4, Some(UserStatus::Deleted), None);
         let svc = make_service(Some(user), 0);
         let err = svc
-            .create_loan(make_loan(4, true), None, None)
+            .create_loan(
+                make_loan(4, true),
+                None,
+                None,
+                &crate::models::user::UserRights::default(),
+            )
             .await
             .expect_err("deleted");
         assert_checkout_refusal(err, "business_rule_violation", false);
+    }
+
+    fn settings_write_rights() -> crate::models::user::UserRights {
+        crate::models::user::UserRights {
+            settings_rights: crate::models::user::Rights::Write,
+            ..crate::models::user::UserRights::default()
+        }
     }
 
     #[tokio::test]
@@ -1625,7 +1693,7 @@ mod tests {
         let user = make_user(5, None, Some(expired));
         let svc = make_service(Some(user), 0);
         let err = svc
-            .create_loan(make_loan(5, false), None, None)
+            .create_loan(make_loan(5, false), None, None, &settings_write_rights())
             .await
             .expect_err("expired");
         let message = assert_checkout_refusal(err, "subscription_expired", true);
@@ -1638,16 +1706,39 @@ mod tests {
         let user = make_user(6, None, Some(expired));
         let svc = make_service(Some(user), 102);
         assert!(svc
-            .create_loan(make_loan(6, true), None, None)
+            .create_loan(make_loan(6, true), None, None, &settings_write_rights())
             .await
             .is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_create_loan_expired_subscription_force_without_settings_write_rejected() {
+        let expired = Utc::now() - chrono::Duration::days(1);
+        let user = make_user(17, None, Some(expired));
+        let svc = make_service(Some(user), 0);
+        let err = svc
+            .create_loan(
+                make_loan(17, true),
+                None,
+                None,
+                &crate::models::user::UserRights::default(),
+            )
+            .await
+            .expect_err("desk force");
+        assert_checkout_refusal(err, "subscription_expired", false);
     }
 
     #[tokio::test]
     async fn test_create_loan_user_not_found() {
         let svc = make_service(None, 0); // no user pre-loaded
         assert!(matches!(
-            svc.create_loan(make_loan(99, false), None, None).await,
+            svc.create_loan(
+                make_loan(99, false),
+                None,
+                None,
+                &crate::models::user::UserRights::default()
+            )
+            .await,
             Err(AppError::NotFound(_))
         ));
     }
@@ -1658,7 +1749,12 @@ mod tests {
         let user = make_user(7, None, Some(future_date)); // subscription valid
         let svc = make_service(Some(user), 103);
         assert!(svc
-            .create_loan(make_loan(7, false), None, None)
+            .create_loan(
+                make_loan(7, false),
+                None,
+                None,
+                &crate::models::user::UserRights::default()
+            )
             .await
             .is_ok());
     }
@@ -1676,7 +1772,12 @@ mod tests {
             None,
         );
         assert!(svc
-            .create_loan(make_loan(15, false), None, None)
+            .create_loan(
+                make_loan(15, false),
+                None,
+                None,
+                &crate::models::user::UserRights::default()
+            )
             .await
             .is_ok());
     }
@@ -1694,7 +1795,12 @@ mod tests {
             None,
         );
         assert!(svc
-            .create_loan(make_loan(8, false), None, None)
+            .create_loan(
+                make_loan(8, false),
+                None,
+                None,
+                &crate::models::user::UserRights::default()
+            )
             .await
             .is_ok());
     }
@@ -1712,7 +1818,12 @@ mod tests {
             None,
         );
         let err = svc
-            .create_loan(make_loan(9, false), None, None)
+            .create_loan(
+                make_loan(9, false),
+                None,
+                None,
+                &crate::models::user::UserRights::default(),
+            )
             .await
             .expect_err("over-threshold checkout must fail");
         let message = assert_checkout_refusal(err, "fines_over_threshold", true);
@@ -1734,7 +1845,12 @@ mod tests {
             None,
         );
         assert!(svc
-            .create_loan(make_loan(10, true), Some(99), Some("127.0.0.1".into()))
+            .create_loan(
+                make_loan(10, true),
+                Some(99),
+                Some("127.0.0.1".into()),
+                &crate::models::user::UserRights::default()
+            )
             .await
             .is_ok());
     }
@@ -1752,7 +1868,12 @@ mod tests {
             None,
         );
         assert!(svc
-            .create_loan(make_loan(11, false), None, None)
+            .create_loan(
+                make_loan(11, false),
+                None,
+                None,
+                &crate::models::user::UserRights::default()
+            )
             .await
             .is_ok());
     }

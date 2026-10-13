@@ -90,6 +90,8 @@ async fn checkout(
     .await
 }
 
+/// Forceable codes for a caller with settings write.
+/// `subscription_expired` is forceable only for that caller.
 fn expected_forceable(code: &str) -> bool {
     matches!(
         code,
@@ -99,6 +101,74 @@ fn expected_forceable(code: &str) -> bool {
             | "max_media_loans"
             | "item_not_loanable"
     )
+}
+
+async fn staff_token(
+    app: &TestApp,
+    admin_token: &str,
+    name: &str,
+    code_prefix: &str,
+    settings_rights: &str,
+) -> String {
+    let code = format!("{code_prefix}{}", fixtures::unique_suffix() % 1_000_000_000);
+    let (status, body) = app
+        .post_json(
+            "/api/v1/account-types",
+            &json!({
+                "code": code,
+                "name": name,
+                "loansRights": "w",
+                "settingsRights": settings_rights
+            }),
+            Some(admin_token),
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "create account type {name}: {body}"
+    );
+    assert_eq!(body["name"], name);
+    assert_eq!(body["settingsRights"], settings_rights);
+    assert_ne!(body["code"], "admin");
+
+    let login = format!("staff_{}", fixtures::unique_suffix());
+    let public_type_id = fixtures::public_type_id_by_name(app, admin_token, "adult").await;
+    let (status, body) = app
+        .post_json(
+            "/api/v1/users",
+            &json!({
+                "login": login,
+                "password": "readerpass1234",
+                "firstname": "Desk",
+                "lastname": "Staff",
+                "email": format!("{login}@test.local"),
+                "accountType": code,
+                "publicType": public_type_id.to_string(),
+                "sex": "f",
+                "birthdate": "1990-06-01",
+                "addrCity": "Paris"
+            }),
+            Some(admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "create staff {name}: {body}");
+    let user_id = fixtures::json_id(&body["id"]);
+    app.state
+        .services
+        .users
+        .set_must_change_password(user_id, false)
+        .await
+        .expect("clear must_change_password");
+    let (status, body) = app
+        .post_json(
+            "/api/v1/auth/login",
+            &json!({ "username": login, "password": "readerpass1234" }),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "login {name}: {body}");
+    body["token"].as_str().expect("token").to_string()
 }
 
 fn assert_refusal(status: StatusCode, body: &Value, code: &str, message_part: &str) {
@@ -132,6 +202,11 @@ async fn expired_subscription_is_subscription_expired_and_force_still_checks_out
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (me_status, me) = app
+        .get_json_with_auth("/api/v1/auth/me", &admin_token)
+        .await;
+    assert_eq!(me_status, StatusCode::OK, "{me}");
+    let actor_id = fixtures::json_id(&me["id"]);
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "chksub").await;
     let (_, item_id, _) = create_copy(&app, &admin_token, "Expired At Checkout", true).await;
 
@@ -154,6 +229,89 @@ async fn expired_subscription_is_subscription_expired_and_force_still_checks_out
 
     let (status, created) = checkout(&app, &admin_token, reader_id, item_id, true).await;
     assert_eq!(status, StatusCode::CREATED, "force checkout: {created}");
+    assert_eq!(active_loan_count(&app, reader_id).await, 1);
+    let loan_id = fixtures::json_id(&created["id"]);
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let (status, audit) = app
+        .get_json_with_auth(
+            &format!(
+                "/api/v1/audit?eventType=loan.subscription_expired_overridden&entityId={loan_id}"
+            ),
+            &admin_token,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "audit query: {audit}");
+    let entries = audit["entries"].as_array().cloned().unwrap_or_default();
+    let row = entries
+        .iter()
+        .find(|row| fixtures::json_id(&row["entityId"]) == loan_id)
+        .expect("subscription override audit");
+    assert_eq!(fixtures::json_id(&row["userId"]), actor_id);
+    assert_eq!(row["entityType"], "loan");
+    assert_eq!(row["payload"]["code"], "subscription_expired");
+    assert_eq!(fixtures::json_id(&row["payload"]["user_id"]), reader_id);
+    assert_eq!(fixtures::json_id(&row["payload"]["item_id"]), item_id);
+    assert_eq!(fixtures::json_id(&row["payload"]["loan_id"]), loan_id);
+}
+
+#[tokio::test]
+async fn desk_agent_cannot_force_expired_subscription() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let desk = staff_token(&app, &admin_token, "Agent guichet", "desk", "n").await;
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "chkdesk").await;
+    let (_, item_id, _) = create_copy(&app, &admin_token, "Desk Expired", true).await;
+    sqlx::query("UPDATE users SET expiry_at = '2020-01-15T12:00:00Z' WHERE id = $1")
+        .bind(reader_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("expire subscription");
+
+    for force in [false, true] {
+        let (status, body) = checkout(&app, &desk, reader_id, item_id, force).await;
+        assert_eq!(
+            status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "force={force}: {body}"
+        );
+        assert_eq!(body["code"], "subscription_expired", "{body}");
+        assert_eq!(body["error"], "Business Rule Violation", "{body}");
+        assert_eq!(body["forceable"], false, "force={force}: {body}");
+    }
+    assert_eq!(active_loan_count(&app, reader_id).await, 0);
+}
+
+#[tokio::test]
+async fn subscription_expired_force_follows_settings_write_not_the_account_type_name() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let named_admin = staff_token(&app, &admin_token, "Admin", "admlike", "n").await;
+    let coordinator = staff_token(&app, &admin_token, "Floor coordinator", "lead", "w").await;
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "chkrights").await;
+    let (_, item_id, _) = create_copy(&app, &admin_token, "Rights Not Name", true).await;
+    sqlx::query("UPDATE users SET expiry_at = '2020-01-15T12:00:00Z' WHERE id = $1")
+        .bind(reader_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("expire subscription");
+
+    let (status, body) = checkout(&app, &named_admin, reader_id, item_id, true).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(body["code"], "subscription_expired", "{body}");
+    assert_eq!(body["forceable"], false, "{body}");
+    assert_eq!(active_loan_count(&app, reader_id).await, 0);
+
+    let (status, created) = checkout(&app, &coordinator, reader_id, item_id, true).await;
+    assert_eq!(
+        status,
+        StatusCode::CREATED,
+        "settings write on a custom type: {created}"
+    );
     assert_eq!(active_loan_count(&app, reader_id).await, 1);
 }
 

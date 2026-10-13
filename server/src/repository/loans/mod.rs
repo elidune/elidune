@@ -55,6 +55,7 @@ pub trait LoansRepository: Send + Sync {
         &self,
         loan: &CreateLoan,
         prior_refusals: Vec<crate::checkout_refusal::CheckoutRefusal>,
+        caller_rights: &crate::models::user::UserRights,
     ) -> AppResult<LoanCreateOutcome>;
     async fn loans_return(&self, loan_id: i64) -> AppResult<LoanReturnOutcome>;
     /// Closed loan whose copy is still lost.
@@ -198,8 +199,9 @@ impl LoansRepository for Repository {
         &self,
         loan: &CreateLoan,
         prior_refusals: Vec<crate::checkout_refusal::CheckoutRefusal>,
+        caller_rights: &crate::models::user::UserRights,
     ) -> crate::error::AppResult<LoanCreateOutcome> {
-        Repository::loans_create_with_prior(self, loan, prior_refusals).await
+        Repository::loans_create_with_prior(self, loan, prior_refusals, caller_rights).await
     }
     async fn loans_return(&self, loan_id: i64) -> crate::error::AppResult<LoanReturnOutcome> {
         Repository::loans_return(self, loan_id).await

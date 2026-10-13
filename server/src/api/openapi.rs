@@ -958,8 +958,8 @@ mod tests {
             );
         }
         assert!(
-            description.contains("forceable"),
-            "POST /loans 422 must document forceable: {description}"
+            description.contains("forceable") && description.contains("settings_rights"),
+            "POST /loans 422 must document caller-specific forceable: {description}"
         );
         let schema = value["paths"]["/loans"]["post"]["responses"]["422"]["content"]
             ["application/json"]["schema"]["$ref"]

@@ -1,7 +1,7 @@
 //! Checkout (`POST /loans`) refusals.
 //!
-//! [`checkout_refusal_forceable`] is the only rule for whether staff `force`
-//! may skip a gate and for the `forceable` field on the 422 body. Gates are
+//! [`checkout_refusal_forceable`] is the only rule for whether this caller's
+//! `force` may skip a gate and for the `forceable` field on the 422 body. Gates are
 //! recorded in order; the first non-forceable refusal wins over any forceable
 //! one recorded earlier.
 
@@ -9,30 +9,38 @@ use serde::Serialize;
 
 use crate::{
     error::{error_code, AppError, ItemToPickDetails},
-    models::circulation::CirculationStatus,
+    models::{
+        circulation::CirculationStatus,
+        user::{Rights, UserRights},
+    },
 };
 
-/// Whether staff `force` may skip this checkout refusal.
+/// Whether this caller may skip this checkout refusal.
 ///
-/// True only for `subscription_expired`, `fines_over_threshold`, `max_loans`,
-/// `max_media_loans`, and `item_not_loanable` (not borrowable, or damaged).
-/// Every other checkout code is false, including `business_rule_violation`.
+/// `fines_over_threshold`, `max_loans`, `max_media_loans`, and `item_not_loanable`
+/// (not borrowable, or damaged) are forceable for any caller who can send `force`.
+/// `subscription_expired` is forceable only when `caller_rights.settings_rights` is
+/// write — the admin bar used by [`crate::models::user::UserClaims::require_write_settings`],
+/// not the account-type name. Every other checkout code is false, including
+/// `business_rule_violation`.
 #[must_use]
-pub fn checkout_refusal_forceable(code: &str) -> bool {
-    matches!(
-        code,
-        error_code::SUBSCRIPTION_EXPIRED
-            | error_code::FINES_OVER_THRESHOLD
-            | error_code::MAX_LOANS
-            | error_code::MAX_MEDIA_LOANS
-            | error_code::ITEM_NOT_LOANABLE
-    )
+pub fn checkout_refusal_forceable(code: &str, caller_rights: &UserRights) -> bool {
+    match code {
+        error_code::SUBSCRIPTION_EXPIRED => {
+            caller_rights.settings_rights.rank() >= Rights::Write.rank()
+        }
+        error_code::FINES_OVER_THRESHOLD
+        | error_code::MAX_LOANS
+        | error_code::MAX_MEDIA_LOANS
+        | error_code::ITEM_NOT_LOANABLE => true,
+        _ => false,
+    }
 }
 
-/// `force` skips the gate only when [`checkout_refusal_forceable`] is true.
+/// `force` skips the gate only when [`checkout_refusal_forceable`] is true for this caller.
 #[must_use]
-pub fn force_skips_checkout_refusal(force: bool, code: &str) -> bool {
-    force && checkout_refusal_forceable(code)
+pub fn force_skips_checkout_refusal(force: bool, code: &str, caller_rights: &UserRights) -> bool {
+    force && checkout_refusal_forceable(code, caller_rights)
 }
 
 /// Patron named on a `to_pick` copy.
@@ -51,27 +59,30 @@ pub struct CheckoutRefusal {
     pub message: String,
     pub item_status: Option<CirculationStatus>,
     pub to_pick: Option<ToPickPatron>,
+    /// Caller rights used by [`checkout_refusal_forceable`] for this refusal.
+    pub caller_rights: UserRights,
 }
 
 impl CheckoutRefusal {
     #[must_use]
-    pub fn new(code: &'static str, message: impl Into<String>) -> Self {
+    pub fn new(code: &'static str, message: impl Into<String>, caller_rights: &UserRights) -> Self {
         Self {
             code,
             message: message.into(),
             item_status: None,
             to_pick: None,
+            caller_rights: caller_rights.clone(),
         }
     }
 
     #[must_use]
-    pub fn business(message: impl Into<String>) -> Self {
-        Self::new(error_code::BUSINESS_RULE, message)
+    pub fn business(message: impl Into<String>, caller_rights: &UserRights) -> Self {
+        Self::new(error_code::BUSINESS_RULE, message, caller_rights)
     }
 
     /// Lost, claimed returned, to search, or missing. Not forceable.
     #[must_use]
-    pub fn status_action(status: CirculationStatus) -> Self {
+    pub fn status_action(status: CirculationStatus, caller_rights: &UserRights) -> Self {
         Self {
             code: error_code::ITEM_STATUS_ACTION_REQUIRED,
             message: format!(
@@ -80,22 +91,24 @@ impl CheckoutRefusal {
             ),
             item_status: Some(status),
             to_pick: None,
+            caller_rights: caller_rights.clone(),
         }
     }
 
     #[must_use]
-    pub fn to_pick(patron: ToPickPatron) -> Self {
+    pub fn to_pick(patron: ToPickPatron, caller_rights: &UserRights) -> Self {
         Self {
             code: error_code::ITEM_TO_PICK_FOR_OTHER,
             message: "This copy is on the pick list for another patron".to_string(),
             item_status: None,
             to_pick: Some(patron),
+            caller_rights: caller_rights.clone(),
         }
     }
 
     #[must_use]
     pub fn forceable(&self) -> bool {
-        checkout_refusal_forceable(self.code)
+        checkout_refusal_forceable(self.code, &self.caller_rights)
     }
 
     #[must_use]
@@ -132,7 +145,8 @@ pub struct CheckoutRefusalBody {
     pub error: String,
     /// Desk-facing explanation.
     pub message: String,
-    /// Server-computed. True only when staff `force` may skip this refusal.
+    /// Server-computed for this caller. `subscription_expired` is true only when
+    /// the caller has settings write.
     pub forceable: bool,
     /// Circulation status for `item_status_action_required`
     /// (`lost`, `claimedReturned`, `toSearch`, `missing`).
@@ -151,7 +165,7 @@ pub fn select_checkout_refusal(refusals: Vec<CheckoutRefusal>) -> Option<Checkou
     }
     let index = refusals
         .iter()
-        .position(|refusal| !checkout_refusal_forceable(refusal.code))
+        .position(|refusal| !refusal.forceable())
         .unwrap_or(0);
     refusals.into_iter().nth(index)
 }
@@ -163,7 +177,7 @@ pub fn push_checkout_refusal(
     force: bool,
     refusal: CheckoutRefusal,
 ) -> Result<(), AppError> {
-    if force_skips_checkout_refusal(force, refusal.code) {
+    if force_skips_checkout_refusal(force, refusal.code, &refusal.caller_rights) {
         return Ok(());
     }
     let stop = !refusal.forceable();
@@ -191,18 +205,53 @@ fn refusal_error(refusals: Vec<CheckoutRefusal>) -> AppError {
 mod tests {
     use super::*;
 
+    fn rights(settings_write: bool) -> UserRights {
+        UserRights {
+            settings_rights: if settings_write {
+                Rights::Write
+            } else {
+                Rights::None
+            },
+            ..UserRights::default()
+        }
+    }
+
+    fn refusal(code: &'static str, message: &str, settings_write: bool) -> CheckoutRefusal {
+        CheckoutRefusal::new(code, message, &rights(settings_write))
+    }
+
     #[test]
-    fn forceable_set_is_exactly_the_five_skippable_codes() {
-        for code in [
+    fn forceable_set_depends_on_settings_write_only_for_subscription_expired() {
+        let admin = rights(true);
+        let desk = rights(false);
+        assert!(checkout_refusal_forceable(
             error_code::SUBSCRIPTION_EXPIRED,
+            &admin
+        ));
+        assert!(!checkout_refusal_forceable(
+            error_code::SUBSCRIPTION_EXPIRED,
+            &desk
+        ));
+        assert!(force_skips_checkout_refusal(
+            true,
+            error_code::SUBSCRIPTION_EXPIRED,
+            &admin
+        ));
+        assert!(!force_skips_checkout_refusal(
+            true,
+            error_code::SUBSCRIPTION_EXPIRED,
+            &desk
+        ));
+        for code in [
             error_code::FINES_OVER_THRESHOLD,
             error_code::MAX_LOANS,
             error_code::MAX_MEDIA_LOANS,
             error_code::ITEM_NOT_LOANABLE,
         ] {
-            assert!(checkout_refusal_forceable(code), "{code}");
-            assert!(force_skips_checkout_refusal(true, code), "{code}");
-            assert!(!force_skips_checkout_refusal(false, code), "{code}");
+            assert!(checkout_refusal_forceable(code, &admin), "{code}");
+            assert!(checkout_refusal_forceable(code, &desk), "{code}");
+            assert!(force_skips_checkout_refusal(true, code, &desk), "{code}");
+            assert!(!force_skips_checkout_refusal(false, code, &admin), "{code}");
         }
         for code in [
             error_code::ITEM_HELD_FOR_OTHER,
@@ -211,16 +260,17 @@ mod tests {
             error_code::ITEM_TO_PICK_FOR_OTHER,
             error_code::BUSINESS_RULE,
         ] {
-            assert!(!checkout_refusal_forceable(code), "{code}");
-            assert!(!force_skips_checkout_refusal(true, code), "{code}");
+            assert!(!checkout_refusal_forceable(code, &admin), "{code}");
+            assert!(!checkout_refusal_forceable(code, &desk), "{code}");
+            assert!(!force_skips_checkout_refusal(true, code, &admin), "{code}");
         }
     }
 
     #[test]
     fn non_forceable_refusal_wins_over_an_earlier_forceable_one() {
         let selected = select_checkout_refusal(vec![
-            CheckoutRefusal::new(error_code::SUBSCRIPTION_EXPIRED, "expired"),
-            CheckoutRefusal::new(error_code::ITEM_HELD_FOR_OTHER, "held"),
+            refusal(error_code::SUBSCRIPTION_EXPIRED, "expired", true),
+            refusal(error_code::ITEM_HELD_FOR_OTHER, "held", true),
         ])
         .expect("refusal");
         assert_eq!(selected.code, error_code::ITEM_HELD_FOR_OTHER);
@@ -228,10 +278,22 @@ mod tests {
     }
 
     #[test]
+    fn subscription_expired_without_settings_write_is_itself_non_forceable() {
+        let selected = select_checkout_refusal(vec![refusal(
+            error_code::SUBSCRIPTION_EXPIRED,
+            "expired",
+            false,
+        )])
+        .expect("refusal");
+        assert_eq!(selected.code, error_code::SUBSCRIPTION_EXPIRED);
+        assert!(!selected.forceable());
+    }
+
+    #[test]
     fn first_forceable_wins_when_every_refusal_is_forceable() {
         let selected = select_checkout_refusal(vec![
-            CheckoutRefusal::new(error_code::SUBSCRIPTION_EXPIRED, "expired"),
-            CheckoutRefusal::new(error_code::MAX_LOANS, "quota"),
+            refusal(error_code::SUBSCRIPTION_EXPIRED, "expired", true),
+            refusal(error_code::MAX_LOANS, "quota", true),
         ])
         .expect("refusal");
         assert_eq!(selected.code, error_code::SUBSCRIPTION_EXPIRED);
@@ -239,7 +301,8 @@ mod tests {
 
     #[test]
     fn status_action_body_carries_the_api_status() {
-        let body = CheckoutRefusal::status_action(CirculationStatus::ToSearch).to_body();
+        let body =
+            CheckoutRefusal::status_action(CirculationStatus::ToSearch, &rights(false)).to_body();
         assert_eq!(body.code, error_code::ITEM_STATUS_ACTION_REQUIRED);
         assert!(!body.forceable);
         assert_eq!(body.item_status, Some(CirculationStatus::ToSearch));

@@ -128,6 +128,8 @@ pub mod event {
     pub const LOAN_RETURNED: &str = "loan.returned";
     pub const LOAN_RENEWED: &str = "loan.renewed";
     pub const LOAN_FINE_THRESHOLD_OVERRIDDEN: &str = "loan.fine_threshold_overridden";
+    /// Admin (`settings_rights` write) checked out despite `subscription_expired`.
+    pub const LOAN_SUBSCRIPTION_EXPIRED_OVERRIDDEN: &str = "loan.subscription_expired_overridden";
 
     // Sources
     pub const SOURCE_CREATED: &str = "source.created";
@@ -541,6 +543,10 @@ mod tests {
         assert_eq!(
             event::LOAN_FINE_THRESHOLD_OVERRIDDEN,
             "loan.fine_threshold_overridden"
+        );
+        assert_eq!(
+            event::LOAN_SUBSCRIPTION_EXPIRED_OVERRIDDEN,
+            "loan.subscription_expired_overridden"
         );
         assert_eq!(event::FINE_ACCRUED, "fine.accrued");
         assert_eq!(
