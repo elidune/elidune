@@ -35,8 +35,21 @@ pub mod error_code {
     pub const BUSINESS_RULE: &str = "business_rule_violation";
     /// Checkout and renewal refused because `users.card_lost` is set. `force` does not override.
     pub const CARD_LOST: &str = "card_lost";
-    /// Renewal refused because `users.expiry_at` is before now. Staff `force` overrides it.
+    /// Checkout and renewal refused because `users.expiry_at` is before now. Staff `force` overrides it.
     pub const SUBSCRIPTION_EXPIRED: &str = "subscription_expired";
+    /// Checkout and renewal refused because unpaid fines are strictly above the effective threshold.
+    /// Staff `force` overrides it.
+    pub const FINES_OVER_THRESHOLD: &str = "fines_over_threshold";
+    /// Checkout refused: active loans are at or above the total cap. Staff `force` overrides it.
+    pub const MAX_LOANS: &str = "max_loans";
+    /// Checkout refused: active loans of this document type are at or above that cap. Staff `force` overrides it.
+    pub const MAX_MEDIA_LOANS: &str = "max_media_loans";
+    /// Checkout refused: the copy is not borrowable, or its circulation status blocks lending.
+    /// Staff `force` overrides it. A withdrawn copy stays `business_rule_violation`.
+    pub const ITEM_NOT_LOANABLE: &str = "item_not_loanable";
+    /// Checkout refused: this copy is `ready` or pinned `pending` for another patron.
+    /// Staff `force` overrides it. `to_pick` is [`ITEM_TO_PICK_FOR_OTHER`]. Withdrawal of a held copy stays [`ITEM_ON_HOLD`].
+    pub const ITEM_HELD_FOR_OTHER: &str = "item_held_for_other";
     /// Create, update, or card replacement tried to assign a retired library card number.
     pub const CARD_NUMBER_RETIRED: &str = "card_number_retired";
     /// Client `message` for [`CARD_LOST`].

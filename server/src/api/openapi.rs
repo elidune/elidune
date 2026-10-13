@@ -933,6 +933,36 @@ mod tests {
     }
 
     #[test]
+    fn checkout_documents_refusal_codes() {
+        let doc = ApiDoc::openapi();
+        let value = serde_json::to_value(&doc).expect("openapi json");
+        let description = value["paths"]["/loans"]["post"]["responses"]["422"]["description"]
+            .as_str()
+            .unwrap_or("");
+        for code in [
+            "subscription_expired",
+            "fines_over_threshold",
+            "max_loans",
+            "max_media_loans",
+            "item_not_loanable",
+            "item_held_for_other",
+        ] {
+            assert!(
+                description.contains(code),
+                "POST /loans 422 must list {code}: {description}"
+            );
+        }
+        let schema = value["paths"]["/loans"]["post"]["responses"]["422"]["content"]
+            ["application/json"]["schema"]["$ref"]
+            .as_str()
+            .unwrap_or("");
+        assert!(
+            schema.contains("ErrorResponse"),
+            "POST /loans 422 body must be ErrorResponse: {schema}"
+        );
+    }
+
+    #[test]
     fn renewal_documents_subscription_expired() {
         let doc = ApiDoc::openapi();
         let value = serde_json::to_value(&doc).expect("openapi json");

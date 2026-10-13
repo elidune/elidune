@@ -135,7 +135,7 @@ impl Repository {
                     "Item is not borrowable"
                 }
             };
-            return Err(AppError::BusinessRule(msg.to_string()));
+            return Err(AppError::coded(422, error_code::ITEM_NOT_LOANABLE, msg));
         }
 
         let user_public_type: Option<i64> =
@@ -181,22 +181,31 @@ impl Repository {
         let media_limit_reached = current_loans_media >= nb_max_media as i64;
 
         if (total_limit_reached || media_limit_reached) && !loan.force {
-            let msg = match (total_limit_reached, media_limit_reached) {
-                (true, true) => format!(
-                    "Maximum loans reached: total ({}/{}), this media type ({}/{})",
-                    current_loans_total, nb_max_total, current_loans_media, nb_max_media
+            let (code, msg) = match (total_limit_reached, media_limit_reached) {
+                (true, true) => (
+                    error_code::MAX_LOANS,
+                    format!(
+                        "Maximum loans reached: total ({}/{}), this media type ({}/{})",
+                        current_loans_total, nb_max_total, current_loans_media, nb_max_media
+                    ),
                 ),
-                (true, false) => format!(
-                    "Maximum total loans reached ({}/{})",
-                    current_loans_total, nb_max_total
+                (true, false) => (
+                    error_code::MAX_LOANS,
+                    format!(
+                        "Maximum total loans reached ({}/{})",
+                        current_loans_total, nb_max_total
+                    ),
                 ),
-                (false, true) => format!(
-                    "Maximum loans for this document type reached ({}/{})",
-                    current_loans_media, nb_max_media
+                (false, true) => (
+                    error_code::MAX_MEDIA_LOANS,
+                    format!(
+                        "Maximum loans for this document type reached ({}/{})",
+                        current_loans_media, nb_max_media
+                    ),
                 ),
                 (false, false) => unreachable!(),
             };
-            return Err(AppError::BusinessRule(msg));
+            return Err(AppError::coded(422, code, msg));
         }
 
         // Only a hold assigned to this copy (`ready`, `to_pick`, or a pinned `pending`)
@@ -217,8 +226,10 @@ impl Repository {
                             initials,
                         });
                     }
-                    return Err(AppError::BusinessRule(
-                        "This copy has an active hold for another patron — only the queued patron may borrow it, or use force=true to override".to_string(),
+                    return Err(AppError::coded(
+                        422,
+                        error_code::ITEM_HELD_FOR_OTHER,
+                        "This copy has an active hold for another patron — only the queued patron may borrow it, or use force=true to override",
                     ));
                 }
             }

@@ -17,7 +17,7 @@ use crate::{
         user::UserStatus,
         Loan,
     },
-    renewal::{renewal_eligibility, RenewalContext, RenewalUser},
+    renewal::{renewal_eligibility, subscription_expired_message, RenewalContext, RenewalUser},
     repository::LoansServiceRepository,
     services::{
         audit::{self, AuditLogMeta, AuditService},
@@ -143,7 +143,11 @@ impl LoansService {
             return Ok(());
         }
         if !force {
-            return Err(AppError::BusinessRule(check.desk_block_message()));
+            return Err(AppError::coded(
+                422,
+                crate::error::error_code::FINES_OVER_THRESHOLD,
+                check.desk_block_message(),
+            ));
         }
         self.audit.log(
             audit::event::LOAN_FINE_THRESHOLD_OVERRIDDEN,
@@ -166,8 +170,8 @@ impl LoansService {
     /// Enforces user-level rules before delegating to the repository:
     /// - blocked users cannot borrow unless `force` is set
     /// - a lost or stolen library card is always rejected (`422` `card_lost`), including `force` and any role
-    /// - expired subscriptions are rejected unless `force` is set
-    /// - unpaid fines strictly above the effective threshold are rejected unless `force` is set
+    /// - expired subscriptions are `422` `subscription_expired` unless `force` is set
+    /// - unpaid fines strictly above the effective threshold are `422` `fines_over_threshold` unless `force` is set
     ///   (a null threshold does not block on amount)
     ///
     /// The repository enforces the hold queue on the copy: only the patron whose turn it is
@@ -209,10 +213,11 @@ impl LoansService {
                     &self.repository.library_timezone_name().await?,
                 )
                 .unwrap_or_else(|_| crate::services::calendar::default_zone());
-                return Err(AppError::BusinessRule(format!(
-                    "User subscription expired on {} — use force=true to override",
-                    crate::services::calendar::format_patron_iso_date(zone, expiry_at)
-                )));
+                return Err(AppError::coded(
+                    422,
+                    crate::error::error_code::SUBSCRIPTION_EXPIRED,
+                    subscription_expired_message(Some(expiry_at), zone),
+                ));
             }
         }
 
@@ -1588,10 +1593,18 @@ mod tests {
         let expired = Utc::now() - chrono::Duration::days(1);
         let user = make_user(5, None, Some(expired));
         let svc = make_service(Some(user), 0);
-        assert!(matches!(
-            svc.create_loan(make_loan(5, false), None, None).await,
-            Err(AppError::BusinessRule(_))
-        ));
+        match svc.create_loan(make_loan(5, false), None, None).await {
+            Err(AppError::Coded {
+                status,
+                code,
+                message,
+            }) => {
+                assert_eq!(status, 422);
+                assert_eq!(code, "subscription_expired");
+                assert!(message.contains("force=true"), "{message}");
+            }
+            other => panic!("expected subscription_expired, got {other:?}"),
+        }
     }
 
     #[tokio::test]
@@ -1678,12 +1691,18 @@ mod tests {
             .await
             .expect_err("over-threshold checkout must fail");
         match err {
-            AppError::BusinessRule(msg) => {
-                assert!(msg.contains("15"), "{msg}");
-                assert!(msg.contains("10"), "{msg}");
-                assert!(msg.contains("force=true"), "{msg}");
+            AppError::Coded {
+                status,
+                code,
+                message,
+            } => {
+                assert_eq!(status, 422);
+                assert_eq!(code, "fines_over_threshold");
+                assert!(message.contains("15"), "{message}");
+                assert!(message.contains("10"), "{message}");
+                assert!(message.contains("force=true"), "{message}");
             }
-            other => panic!("expected BusinessRule, got {other:?}"),
+            other => panic!("expected fines_over_threshold, got {other:?}"),
         }
     }
 

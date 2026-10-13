@@ -341,11 +341,12 @@ async fn concurrent_checkout_respects_hold_queue() {
     assert!(!b_ok, "patron B must not steal the held copy: {r_b:?}");
 
     match r_b.err().unwrap() {
-        AppError::BusinessRule(msg) => {
-            assert!(
-                msg.contains("active hold"),
-                "unexpected business rule: {msg}"
-            );
+        AppError::Coded {
+            status: 422,
+            code,
+            message,
+        } if code == error_code::ITEM_HELD_FOR_OTHER => {
+            assert!(message.contains("active hold"), "{message}");
         }
         AppError::Coded { status, code, .. } => {
             assert_eq!(status, 409);

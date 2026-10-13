@@ -204,6 +204,7 @@ jobs:
           --test hold_patron_identity
           --test public_catalog_copies
           --test renewal_subscription
+          --test checkout_refusal_codes
           --test catalog_view_rights
           --test own_user_record
           --test account_types_custom
@@ -304,6 +305,7 @@ jobs:
           --test hold_patron_identity
           --test public_catalog_copies
           --test renewal_subscription
+          --test checkout_refusal_codes
           --test catalog_view_rights
           --test own_user_record
           --test account_types_custom

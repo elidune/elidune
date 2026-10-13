@@ -219,7 +219,9 @@ pub struct BatchCreateLoanItemResult {
     pub error: Option<String>,
     /// Machine-readable failure code, the same string as `ErrorResponse.code`
     /// (`item_on_loan_to_other_borrower`, `item_already_on_loan_to_borrower`,
-    /// `not_found`, `business_rule_violation`, …). Omitted when the checkout succeeded.
+    /// `not_found`, `subscription_expired`, `fines_over_threshold`, `max_loans`,
+    /// `max_media_loans`, `item_not_loanable`, `item_held_for_other`,
+    /// `business_rule_violation`, …). Omitted when the checkout succeeded.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code: Option<String>,
 }
@@ -232,7 +234,7 @@ pub struct BatchCreateLoanItemResult {
     security(("bearer_auth" = [])),
     request_body = BatchCreateLoansRequest,
     responses(
-        (status = 200, description = "Batch loan results (partial success possible). A failed item keeps `error` and adds machine-readable `code` (same values as `ErrorResponse.code`). A lost card is `card_lost` on that item even when `force` is true.", body = BatchCreateLoansResponse),
+        (status = 200, description = "Batch loan results (partial success possible). A failed item keeps `error` and adds machine-readable `code` (same values as `POST /loans` `ErrorResponse.code`, including `subscription_expired`, `fines_over_threshold`, `max_loans`, `max_media_loans`, `item_not_loanable`, and `item_held_for_other`). A lost card is `card_lost` on that item even when `force` is true.", body = BatchCreateLoansResponse),
         (status = 400, description = "Invalid input", body = crate::error::ErrorResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse)
     )
