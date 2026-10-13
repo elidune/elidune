@@ -8,7 +8,7 @@ use super::super::Repository;
 use crate::models::item::ItemShort;
 use crate::{
     error::{error_code, AppError, AppResult},
-    models::item::Item,
+    models::item::{note_stored_value, note_write_value, Item},
 };
 
 use super::ItemShortRow;
@@ -84,7 +84,7 @@ fn item_sql(where_and_order: &str) -> String {
     format!(
         r#"
             SELECT i.id, i.biblio_id, i.source_id, i.barcode, i.call_number, i.volume_designation,
-                   i.place, i.borrowable, i.circulation_status, i.notes, i.price,
+                   i.place, i.borrowable, i.circulation_status, i.public_note, i.internal_note, i.price,
                    i.weeding_status, i.weeding_reason,
                    i.created_at, i.updated_at, i.archived_at,
                    so.name as source_name,
@@ -243,11 +243,14 @@ impl Repository {
         };
         new_item.source_id = source_id;
 
+        let public_note = note_stored_value(item.public_note.clone());
+        let internal_note = note_stored_value(item.internal_note.clone());
         let id = sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO items (
-                biblio_id, barcode, call_number, volume_designation, place, borrowable, notes, price, source_id, created_at, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+                biblio_id, barcode, call_number, volume_designation, place, borrowable,
+                public_note, internal_note, price, source_id, created_at, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, NULLIF(btrim($7), ''), NULLIF(btrim($8), ''), $9, $10, $11, $11)
             RETURNING id
             "#,
         )
@@ -257,7 +260,8 @@ impl Repository {
         .bind(&item.volume_designation)
         .bind(item.place)
         .bind(item.borrowable)
-        .bind(&item.notes)
+        .bind(&public_note)
+        .bind(&internal_note)
         .bind(&item.price)
         .bind(source_id)
         .bind(now)
@@ -265,6 +269,8 @@ impl Repository {
         .await?;
 
         new_item.id = Some(id);
+        new_item.public_note = public_note;
+        new_item.internal_note = internal_note;
         Ok(new_item)
     }
 
@@ -273,6 +279,10 @@ impl Repository {
     pub async fn upsert_item<'a>(&self, item: &'a mut Item) -> AppResult<&'a mut Item> {
         let now = Utc::now();
         item.updated_at = Some(now);
+        let public_note = note_stored_value(item.public_note.clone());
+        let internal_note = note_stored_value(item.internal_note.clone());
+        item.public_note = public_note.clone();
+        item.internal_note = internal_note.clone();
         if let Some(id) = item.id {
             sqlx::query(
                 r#"
@@ -283,12 +293,13 @@ impl Repository {
                     volume_designation = $4,
                     place = $5,
                     borrowable = $6,
-                    notes = $7,
-                    price = $8,
-                    source_id = $9,
-                    updated_at = $10,
-                    archived_at = $11
-                WHERE id = $12
+                    public_note = NULLIF(btrim($7), ''),
+                    internal_note = NULLIF(btrim($8), ''),
+                    price = $9,
+                    source_id = $10,
+                    updated_at = $11,
+                    archived_at = $12
+                WHERE id = $13
                 "#,
             )
             .bind(item.biblio_id)
@@ -297,7 +308,8 @@ impl Repository {
             .bind(&item.volume_designation)
             .bind(item.place)
             .bind(item.borrowable)
-            .bind(&item.notes)
+            .bind(&public_note)
+            .bind(&internal_note)
             .bind(&item.price)
             .bind(item.source_id)
             .bind(item.updated_at)
@@ -325,12 +337,13 @@ impl Repository {
                         volume_designation = $4,
                         place = $5,
                         borrowable = $6,
-                        notes = $7,
-                        price = $8,
-                        source_id = $9,
-                        updated_at = $10,
-                        archived_at = $11
-                    WHERE id = $12
+                        public_note = NULLIF(btrim($7), ''),
+                        internal_note = NULLIF(btrim($8), ''),
+                        price = $9,
+                        source_id = $10,
+                        updated_at = $11,
+                        archived_at = $12
+                    WHERE id = $13
                     "#,
                 )
                 .bind(item.biblio_id)
@@ -339,7 +352,8 @@ impl Repository {
                 .bind(&item.volume_designation)
                 .bind(item.place)
                 .bind(item.borrowable)
-                .bind(&item.notes)
+                .bind(&public_note)
+                .bind(&internal_note)
                 .bind(&item.price)
                 .bind(item.source_id)
                 .bind(item.updated_at)
@@ -352,9 +366,14 @@ impl Repository {
                     r#"
                     INSERT INTO items (
                         biblio_id, barcode, call_number, volume_designation,
-                        place, borrowable, notes, price, source_id, created_at, updated_at, archived_at
+                        place, borrowable, public_note, internal_note, price, source_id,
+                        created_at, updated_at, archived_at
                     )
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, $11)
+                    VALUES (
+                        $1, $2, $3, $4, $5, $6,
+                        NULLIF(btrim($7), ''), NULLIF(btrim($8), ''),
+                        $9, $10, $11, $11, $12
+                    )
                     RETURNING id
                     "#,
                 )
@@ -364,7 +383,8 @@ impl Repository {
                 .bind(&item.volume_designation)
                 .bind(item.place)
                 .bind(item.borrowable)
-                .bind(&item.notes)
+                .bind(&public_note)
+                .bind(&internal_note)
                 .bind(&item.price)
                 .bind(item.source_id)
                 .bind(item.updated_at)
@@ -384,6 +404,10 @@ impl Repository {
     pub async fn items_update<'a>(&self, item: &'a mut Item) -> AppResult<&'a mut Item> {
         let now = Utc::now();
         item.updated_at = Some(now);
+        let public_note = note_write_value(item.public_note.clone());
+        let internal_note = note_write_value(item.internal_note.clone());
+        item.public_note = public_note.clone().filter(|text| !text.is_empty());
+        item.internal_note = internal_note.clone().filter(|text| !text.is_empty());
         sqlx::query(
             r#"
             UPDATE items SET
@@ -392,12 +416,19 @@ impl Repository {
                 volume_designation = COALESCE($3, volume_designation),
                 place = COALESCE($4, place),
                 borrowable = COALESCE($5, borrowable),
-                notes = COALESCE($6, notes),
-                price = COALESCE($7, price),
-                source_id = COALESCE($8, source_id),
-                updated_at = $9,
-                archived_at = $10
-            WHERE id = $11
+                public_note = CASE
+                    WHEN $6::text IS NULL THEN public_note
+                    ELSE NULLIF(btrim($6), '')
+                END,
+                internal_note = CASE
+                    WHEN $7::text IS NULL THEN internal_note
+                    ELSE NULLIF(btrim($7), '')
+                END,
+                price = COALESCE($8, price),
+                source_id = COALESCE($9, source_id),
+                updated_at = $10,
+                archived_at = $11
+            WHERE id = $12
             "#,
         )
         .bind(&item.barcode)
@@ -405,7 +436,8 @@ impl Repository {
         .bind(&item.volume_designation)
         .bind(item.place)
         .bind(item.borrowable)
-        .bind(&item.notes)
+        .bind(&public_note)
+        .bind(&internal_note)
         .bind(&item.price)
         .bind(item.source_id)
         .bind(item.updated_at)
@@ -413,6 +445,14 @@ impl Repository {
         .bind(item.id.unwrap_or(0))
         .execute(&self.pool)
         .await?;
+
+        let stored: (Option<String>, Option<String>) =
+            sqlx::query_as("SELECT public_note, internal_note FROM items WHERE id = $1")
+                .bind(item.id.unwrap_or(0))
+                .fetch_one(&self.pool)
+                .await?;
+        item.public_note = stored.0;
+        item.internal_note = stored.1;
 
         Ok(item)
     }
@@ -534,15 +574,19 @@ impl Repository {
             None
         };
 
+        let public_note = note_stored_value(item.public_note.clone());
+        let internal_note = note_stored_value(item.internal_note.clone());
         sqlx::query(
             r#"
             UPDATE items SET
                 biblio_id = $1, barcode = $2, call_number = $3, volume_designation = $4,
                 place = $5, borrowable = $6,
-                notes = $7, price = $8, source_id = $9,
+                public_note = NULLIF(btrim($7), ''),
+                internal_note = NULLIF(btrim($8), ''),
+                price = $9, source_id = $10,
                 archived_at = NULL,
-                updated_at = $10
-            WHERE id = $11
+                updated_at = $11
+            WHERE id = $12
             "#,
         )
         .bind(biblio_id)
@@ -551,7 +595,8 @@ impl Repository {
         .bind(&item.volume_designation)
         .bind(item.place)
         .bind(item.borrowable)
-        .bind(&item.notes)
+        .bind(&public_note)
+        .bind(&internal_note)
         .bind(&item.price)
         .bind(source_id)
         .bind(now)

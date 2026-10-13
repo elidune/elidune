@@ -333,7 +333,17 @@ pub struct Item {
     #[serde(default)]
     #[sqlx(default)]
     pub weeding_reason: Option<String>,
-    pub notes: Option<String>,
+    /// Copy note shown to patrons and the OPAC. Blank stores SQL NULL.
+    ///
+    /// On `PUT /items/{id}`, null keeps the stored value and `""` clears it.
+    /// Create and biblio replace treat null and blank as empty.
+    #[validate(length(max = 4000, message = "Public note must be at most 4000 characters"))]
+    pub public_note: Option<String>,
+    /// Staff-only copy note. Former `items.notes` values live here.
+    ///
+    /// Same null and blank rules as [`Self::public_note`]. Patrons and the OPAC never receive it.
+    #[validate(length(max = 4000, message = "Internal note must be at most 4000 characters"))]
+    pub internal_note: Option<String>,
     pub price: Option<String>,
     /// Write-only: treat a missing price as an explicit deferral when enabling circulation.
     #[sqlx(default)]
@@ -453,10 +463,56 @@ impl Item {
         let price_ok = price_deferred || nonempty(price).is_some();
         barcode_ok && site_ok && price_ok
     }
+
+    /// Check both copy notes. Blank values are empty, not over the limit.
+    pub fn validate_copy_notes(&self) -> Result<(), String> {
+        validate_copy_note("Public note", self.public_note.as_deref())?;
+        validate_copy_note("Internal note", self.internal_note.as_deref())?;
+        Ok(())
+    }
 }
 
 fn nonempty(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|s| !s.is_empty())
+}
+
+/// Maximum length of [`Item::public_note`] and [`Item::internal_note`].
+pub const COPY_NOTE_MAX_CHARS: usize = 4000;
+
+/// `None` means the caller omitted the note (a partial update keeps the stored value).
+/// Blank or whitespace becomes `Some("")`, which writers store as SQL NULL.
+#[must_use]
+pub fn note_write_value(value: Option<String>) -> Option<String> {
+    match value {
+        None => None,
+        Some(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                Some(String::new())
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+    }
+}
+
+/// Value stored and echoed after a full write. Blank clears to `None`.
+#[must_use]
+pub fn note_stored_value(value: Option<String>) -> Option<String> {
+    note_write_value(value).filter(|text| !text.is_empty())
+}
+
+/// Reject a copy note that is longer than [`COPY_NOTE_MAX_CHARS`] after trimming.
+pub fn validate_copy_note(label: &str, value: Option<&str>) -> Result<(), String> {
+    let Some(text) = value.map(str::trim).filter(|text| !text.is_empty()) else {
+        return Ok(());
+    };
+    if text.chars().count() > COPY_NOTE_MAX_CHARS {
+        return Err(format!(
+            "{label} must be at most {COPY_NOTE_MAX_CHARS} characters"
+        ));
+    }
+    Ok(())
 }
 
 /// Short item (physical copy) representation for lists
@@ -539,7 +595,10 @@ impl From<Item> for ItemShort {
 
 #[cfg(test)]
 mod tests {
-    use super::{included_in_public_catalog, Item, ItemAvailability, WeedingStatus};
+    use super::{
+        included_in_public_catalog, note_stored_value, note_write_value, Item, ItemAvailability,
+        WeedingStatus,
+    };
 
     #[test]
     fn weeding_candidate_circulates_withdrawn_blocks() {
@@ -681,5 +740,63 @@ mod tests {
             WeedingStatus::Withdrawn,
             Some(0)
         ));
+    }
+
+    #[test]
+    fn copy_note_write_trims_and_blank_clears() {
+        assert_eq!(note_write_value(None), None);
+        assert_eq!(note_write_value(Some("  ".into())), Some(String::new()));
+        assert_eq!(
+            note_write_value(Some("  CD missing  ".into())),
+            Some("CD missing".into())
+        );
+        assert_eq!(note_stored_value(Some("  ".into())), None);
+        assert_eq!(
+            note_stored_value(Some(" 2-disc box set ".into())),
+            Some("2-disc box set".into())
+        );
+        assert!(Item {
+            public_note: Some("x".repeat(4001)),
+            internal_note: None,
+            ..sample_item()
+        }
+        .validate_copy_notes()
+        .is_err());
+        assert!(sample_item().validate_copy_notes().is_ok());
+    }
+
+    fn sample_item() -> Item {
+        Item {
+            id: None,
+            biblio_id: None,
+            source_id: None,
+            barcode: None,
+            call_number: None,
+            volume_designation: None,
+            place: None,
+            borrowable: true,
+            circulation_status: None,
+            weeding_status: WeedingStatus::OnShelf,
+            weeding_reason: None,
+            public_note: None,
+            internal_note: None,
+            price: None,
+            price_deferred: false,
+            created_at: None,
+            updated_at: None,
+            archived_at: None,
+            source_name: None,
+            borrowed: false,
+            loan_id: None,
+            availability: ItemAvailability::Available,
+            can_hold_item: true,
+            hold_user_id: None,
+            hold_user_barcode: None,
+            hold_user_firstname: None,
+            hold_user_lastname: None,
+            due_date: None,
+            expected_return_date: None,
+            on_hold: false,
+        }
     }
 }

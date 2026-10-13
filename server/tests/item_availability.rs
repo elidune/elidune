@@ -515,6 +515,7 @@ const PUBLIC_FORBIDDEN_KEYS: &[&str] = &[
     "holdFor",
     "login",
     "notes",
+    "internalNote",
     "weedingStatus",
     "weedingReason",
 ];
@@ -567,7 +568,7 @@ async fn seed_tosearch_copy(app: &TestApp, label: &str) -> HiddenCopy {
         .execute(app.state.services.repository.pool())
         .await
         .expect("biblio notes");
-    sqlx::query("UPDATE items SET notes = 'staff copy note' WHERE id = $1")
+    sqlx::query("UPDATE items SET internal_note = 'staff copy note' WHERE id = $1")
         .bind(item_id)
         .execute(app.state.services.repository.pool())
         .await

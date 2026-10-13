@@ -272,7 +272,8 @@ impl AcquisitionsService {
                     circulation_status: None,
                     weeding_status,
                     weeding_reason: None,
-                    notes: Some(format!(
+                    public_note: None,
+                    internal_note: Some(format!(
                         "Received from purchase order {}",
                         detail.order.order_number
                     )),

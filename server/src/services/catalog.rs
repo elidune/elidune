@@ -124,6 +124,7 @@ impl CatalogService {
         mut items: Vec<Item>,
     ) -> AppResult<Vec<Item>> {
         for item in &mut items {
+            item.validate_copy_notes().map_err(AppError::Validation)?;
             if let Some(ref barcode) = item.barcode {
                 self.ensure_barcode_unique(barcode, item.id).await?;
             }
@@ -433,6 +434,7 @@ impl CatalogService {
     /// Barcode uniqueness is enforced through the shared policy.
     #[tracing::instrument(skip(self), err)]
     pub async fn create_item(&self, biblio_id: i64, item: Item) -> AppResult<Item> {
+        item.validate_copy_notes().map_err(AppError::Validation)?;
         self.repository.biblios_get_by_id(biblio_id).await?;
 
         if let Some(ref barcode) = item.barcode {
@@ -463,7 +465,7 @@ impl CatalogService {
         if item.circulation_status.is_some() {
             return Err(AppError::circulation_status_read_only());
         }
-
+        item.validate_copy_notes().map_err(AppError::Validation)?;
         if let Some(body_id) = item.id {
             if body_id != item_id {
                 return Err(AppError::Validation(

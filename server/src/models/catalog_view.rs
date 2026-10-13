@@ -135,7 +135,7 @@ impl From<Author> for AuthorPublic {
 
 /// Full physical copy returned to staff.
 ///
-/// Includes weeding, copy notes, circulation status, the active loan id, `dueDate`,
+/// Includes weeding, `publicNote`, `internalNote`, circulation status, the active loan id, `dueDate`,
 /// and `onHold`. `holdFor` is the patron this copy is held for, projected from
 /// the caller's rights. `borrower` is filled only by `GET /biblios/{id}` for
 /// callers with loans read or write.
@@ -161,7 +161,10 @@ pub struct ItemStaffView {
     pub circulation_status: Option<i16>,
     pub weeding_status: WeedingStatus,
     pub weeding_reason: Option<String>,
-    pub notes: Option<String>,
+    /// Copy note shown to patrons and the OPAC.
+    pub public_note: Option<String>,
+    /// Staff-only copy note. Former `items.notes` values live here.
+    pub internal_note: Option<String>,
     pub price: Option<String>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub price_deferred: bool,
@@ -211,7 +214,8 @@ impl From<Item> for ItemStaffView {
             circulation_status: item.circulation_status,
             weeding_status: item.weeding_status,
             weeding_reason: item.weeding_reason,
-            notes: item.notes,
+            public_note: item.public_note,
+            internal_note: item.internal_note,
             price: item.price,
             price_deferred: item.price_deferred,
             created_at: item.created_at,
@@ -232,8 +236,9 @@ impl From<Item> for ItemStaffView {
 
 /// Full physical copy returned to readers and the OPAC.
 ///
-/// No hold patron, notes, weeding, circulation status, loan id, borrower, due date,
-/// or other staff field. [`Self::on_hold`] is safe for patrons and the OPAC.
+/// Includes [`Self::public_note`] only. No internal note, hold patron, weeding,
+/// circulation status, loan id, borrower, due date, or other staff field.
+/// [`Self::on_hold`] is safe for patrons and the OPAC.
 /// [`Self::expected_return_date`] is the library-local calendar date. It is present
 /// only when [`Self::availability`] is `onLoan` and that date is today or later
 /// in the library timezone.
@@ -258,6 +263,8 @@ pub struct ItemPublicView {
     pub volume_designation: Option<String>,
     pub place: Option<i16>,
     pub borrowable: bool,
+    /// Copy note safe for patrons and the OPAC. Null when the copy has none.
+    pub public_note: Option<String>,
     pub price: Option<String>,
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
@@ -299,6 +306,7 @@ impl From<Item> for ItemPublicView {
             volume_designation: item.volume_designation,
             place: item.place,
             borrowable: item.borrowable,
+            public_note: item.public_note,
             price: item.price,
             created_at: item.created_at,
             updated_at: item.updated_at,
@@ -1367,7 +1375,8 @@ mod tests {
             circulation_status: None,
             weeding_status: WeedingStatus::OnShelf,
             weeding_reason: None,
-            notes: Some("staff only note".into()),
+            public_note: None,
+            internal_note: Some("staff only note".into()),
             price: None,
             price_deferred: false,
             created_at: None,
@@ -1513,5 +1522,49 @@ mod tests {
         assert_eq!(staff["barcode"], "CARD", "{staff}");
         assert!(staff.get("cardNumber").is_none(), "{staff}");
         assert!(staff.get("email").is_none(), "{staff}");
+    }
+
+    #[test]
+    fn public_copy_keeps_public_note_and_drops_internal_note() {
+        let item = Item {
+            id: Some(9),
+            biblio_id: Some(3),
+            source_id: None,
+            barcode: Some("COPY".into()),
+            call_number: None,
+            volume_designation: None,
+            place: None,
+            borrowable: true,
+            circulation_status: None,
+            weeding_status: WeedingStatus::OnShelf,
+            weeding_reason: None,
+            public_note: Some("CD missing".into()),
+            internal_note: Some("spine cracked".into()),
+            price: None,
+            price_deferred: false,
+            created_at: None,
+            updated_at: None,
+            archived_at: None,
+            source_name: None,
+            borrowed: false,
+            loan_id: None,
+            availability: ItemAvailability::Available,
+            can_hold_item: true,
+            hold_user_id: None,
+            hold_user_barcode: None,
+            hold_user_firstname: None,
+            hold_user_lastname: None,
+            due_date: None,
+            expected_return_date: None,
+            on_hold: false,
+        };
+        let public_body = serde_json::to_value(ItemPublicView::from(item.clone())).unwrap();
+        assert_eq!(public_body["publicNote"], "CD missing");
+        assert!(public_body.get("internalNote").is_none());
+        assert!(public_body.get("notes").is_none());
+        let staff_body = serde_json::to_value(ItemStaffView::from(item)).unwrap();
+        assert_eq!(staff_body["publicNote"], "CD missing");
+        assert_eq!(staff_body["internalNote"], "spine cracked");
+        assert!(staff_body.get("notes").is_none());
     }
 }
