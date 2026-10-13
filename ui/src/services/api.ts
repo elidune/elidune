@@ -168,7 +168,7 @@ import type {
   ReviewPurchaseSuggestion,
 } from '@/types';
 import { normalizePaginatedResponse } from '@/utils/serverJson';
-import { normalizeFinePolicy } from '@/utils/finePolicy';
+import { normalizeFinePolicy, type GlobalUnpaidThresholdBody } from '@/utils/finePolicy';
 import { normalizeHoldQuota, normalizeHoldsPolicy } from '@/utils/holdsPolicy';
 import { normalizePickList } from '@/utils/pickList';
 
@@ -1256,16 +1256,8 @@ class ApiService {
     return normalizeFinePolicy(response.data);
   }
 
-  async updateFinePolicy(policy: CirculationFinePolicy): Promise<CirculationFinePolicy> {
-    const response = await this.client.put<unknown>(
-      '/fines/policy',
-      policy.unpaidThresholdMode === 'amount'
-        ? {
-            unpaidThresholdMode: 'amount',
-            unpaidThresholdCents: policy.unpaidThresholdCents,
-          }
-        : { unpaidThresholdMode: 'none' },
-    );
+  async updateFinePolicy(body: GlobalUnpaidThresholdBody): Promise<CirculationFinePolicy> {
+    const response = await this.client.put<unknown>('/fines/policy', body);
     return normalizeFinePolicy(response.data);
   }
 

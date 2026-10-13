@@ -1,4 +1,8 @@
-import type { CirculationFinePolicy } from '@/types';
+import type {
+  AudienceUnpaidThresholdMode,
+  CirculationFinePolicy,
+  GlobalUnpaidThresholdMode,
+} from '@/types';
 
 /** Normalize a money amount from the API (string or number) for display/input. */
 export function moneyAmountToInput(value: string | number | null | undefined): string {
@@ -52,6 +56,80 @@ export function normalizeFinePolicy(data: unknown): CirculationFinePolicy {
     return { unpaidThresholdMode: 'amount', unpaidThresholdCents: cents };
   }
   return { unpaidThresholdMode: 'none' };
+}
+
+export type GlobalUnpaidThresholdBody =
+  | { unpaidThresholdMode: 'none' }
+  | { unpaidThresholdMode: 'amount'; unpaidThresholdCents: number };
+
+export type AudienceUnpaidThresholdBody =
+  | { unpaidThresholdMode: 'inherit' | 'none' }
+  | { unpaidThresholdMode: 'amount'; unpaidThresholdCents: number };
+
+export type AudienceThresholdWrite =
+  | { ok: true; body?: AudienceUnpaidThresholdBody }
+  | { ok: false };
+
+/**
+ * Body for PUT /fines/policy.
+ * Mode `amount` without a valid euro amount is refused locally (the API returns 422).
+ * Mode `none` never sends cents or the legacy `unpaidFineThreshold` field.
+ */
+export function globalUnpaidThresholdBody(
+  mode: GlobalUnpaidThresholdMode,
+  euros: string,
+): { ok: true; body: GlobalUnpaidThresholdBody } | { ok: false } {
+  if (mode !== 'amount') return { ok: true, body: { unpaidThresholdMode: 'none' } };
+  const parsed = eurosInputToCents(euros);
+  if (!parsed.ok) return { ok: false };
+  return {
+    ok: true,
+    body: { unpaidThresholdMode: 'amount', unpaidThresholdCents: parsed.cents },
+  };
+}
+
+function audienceAmountBody(
+  mode: AudienceUnpaidThresholdMode,
+  euros: string,
+): AudienceThresholdWrite {
+  if (mode !== 'amount') return { ok: true, body: { unpaidThresholdMode: mode } };
+  const parsed = eurosInputToCents(euros);
+  if (!parsed.ok) return { ok: false };
+  return {
+    ok: true,
+    body: { unpaidThresholdMode: 'amount', unpaidThresholdCents: parsed.cents },
+  };
+}
+
+/** Create always sends a mode. `amount` includes integer cents; other modes omit cents. */
+export function audienceUnpaidThresholdForCreate(
+  mode: AudienceUnpaidThresholdMode,
+  euros: string,
+): AudienceThresholdWrite {
+  return audienceAmountBody(mode, euros);
+}
+
+/**
+ * PUT omits the mode when it is unchanged (the API leaves mode and cents alone).
+ * Changing only the amount still sends `unpaidThresholdMode: "amount"` with the new cents.
+ * Cents are never sent as null, and never sent for `inherit` or `none`.
+ */
+export function audienceUnpaidThresholdForUpdate(
+  previous: { mode: AudienceUnpaidThresholdMode; cents?: number | null },
+  mode: AudienceUnpaidThresholdMode,
+  euros: string,
+): AudienceThresholdWrite {
+  if (mode !== 'amount') {
+    if (previous.mode === mode) return { ok: true };
+    return { ok: true, body: { unpaidThresholdMode: mode } };
+  }
+  const parsed = eurosInputToCents(euros);
+  if (!parsed.ok) return { ok: false };
+  if (previous.mode === 'amount' && previous.cents === parsed.cents) return { ok: true };
+  return {
+    ok: true,
+    body: { unpaidThresholdMode: 'amount', unpaidThresholdCents: parsed.cents },
+  };
 }
 
 /** Display string for the global amount, only when that mode is `amount`. */

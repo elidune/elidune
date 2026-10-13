@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Save } from 'lucide-react';
-import { Card, CardHeader, Button, Input } from '@/components/common';
+import { Card, CardHeader, Button } from '@/components/common';
 import { useToast } from '@/contexts/ToastContext';
 import { useFinePolicyQuery, useUpdateFinePolicyMutation } from '@/hooks/settings/useFinePolicyQuery';
 import { getApiErrorMessage } from '@/utils/apiError';
-import { centsToInput, eurosInputToCents } from '@/utils/finePolicy';
+import { centsToInput, globalUnpaidThresholdBody } from '@/utils/finePolicy';
 import type { CirculationFinePolicy, GlobalUnpaidThresholdMode } from '@/types';
+import { UnpaidThresholdFields } from '@/components/settings/UnpaidThresholdFields';
 
 export default function FinePolicySettings() {
   const { t } = useTranslation();
@@ -30,29 +31,14 @@ export default function FinePolicySettings() {
 
   const handleSave = async () => {
     if (!data) return;
-    if (mode === 'none') {
-      setFieldError(null);
-      try {
-        const next = await updatePolicy.mutateAsync({ unpaidThresholdMode: 'none' });
-        setMode(next.unpaidThresholdMode);
-        setDraft(centsToInput(next.unpaidThresholdCents));
-        showToast({ variant: 'success', message: t('settings.finePolicy.saveSuccess') });
-      } catch (err: unknown) {
-        showToast({ variant: 'error', message: getApiErrorMessage(err, t) });
-      }
-      return;
-    }
-    const parsed = eurosInputToCents(draft);
-    if (!parsed.ok) {
+    const built = globalUnpaidThresholdBody(mode, draft);
+    if (!built.ok) {
       setFieldError(t('settings.finePolicy.invalidAmount'));
       return;
     }
     setFieldError(null);
     try {
-      const next = await updatePolicy.mutateAsync({
-        unpaidThresholdMode: 'amount',
-        unpaidThresholdCents: parsed.cents,
-      });
+      const next = await updatePolicy.mutateAsync(built.body);
       setMode(next.unpaidThresholdMode);
       setDraft(centsToInput(next.unpaidThresholdCents));
       showToast({ variant: 'success', message: t('settings.finePolicy.saveSuccess') });
@@ -99,39 +85,22 @@ export default function FinePolicySettings() {
           </div>
         )}
         {!isLoading && !isError && (
-          <div className="max-w-xs space-y-3">
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="font-medium text-gray-700 dark:text-gray-200">
-                {t('settings.finePolicy.mode')}
-              </span>
-              <select
-                value={mode}
-                onChange={(e) => {
-                  setMode(e.target.value === 'amount' ? 'amount' : 'none');
-                  setFieldError(null);
-                }}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
-              >
-                <option value="none">{t('settings.finePolicy.modeNone')}</option>
-                <option value="amount">{t('settings.finePolicy.modeAmount')}</option>
-              </select>
-            </label>
-            {mode === 'amount' && (
-              <Input
-                label={t('settings.finePolicy.unpaidFineThreshold')}
-                type="number"
-                inputMode="decimal"
-                min="0"
-                step="0.01"
-                value={draft}
-                error={fieldError ?? undefined}
-                hint={t('settings.finePolicy.thresholdHint')}
-                onChange={(e) => {
-                  setDraft(e.target.value);
-                  if (fieldError) setFieldError(null);
-                }}
-              />
-            )}
+          <div className="max-w-md">
+            <UnpaidThresholdFields
+              scope="global"
+              name="global-unpaid-threshold"
+              mode={mode}
+              amount={draft}
+              error={fieldError}
+              onModeChange={(next) => {
+                setMode(next);
+                setFieldError(null);
+              }}
+              onAmountChange={(value) => {
+                setDraft(value);
+                if (fieldError) setFieldError(null);
+              }}
+            />
           </div>
         )}
       </div>

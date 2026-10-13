@@ -11,7 +11,13 @@ import api from '@/services/api';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
 import { deferFromEffect } from '@/utils/deferFromEffect';
 import { formControlClass, formLabelClass, formChoiceLabelClass, formChoiceControlClass } from '@/utils/formControl';
-import { centsToInput, eurosInputToCents, globalThresholdLabel } from '@/utils/finePolicy';
+import {
+  audienceUnpaidThresholdForCreate,
+  audienceUnpaidThresholdForUpdate,
+  centsToInput,
+  globalThresholdLabel,
+} from '@/utils/finePolicy';
+import { UnpaidThresholdFields } from '@/components/settings/UnpaidThresholdFields';
 import { holdCapToInput, parseHoldCapInput } from '@/utils/holdsPolicy';
 import { isAdmin } from '@/types';
 import { useFinePolicyQuery } from '@/hooks/settings/useFinePolicyQuery';
@@ -794,16 +800,6 @@ function PublicTypesEditor() {
   );
 }
 
-function audienceThresholdPayload(
-  mode: AudienceUnpaidThresholdMode,
-  amount: string,
-): { ok: true; mode: AudienceUnpaidThresholdMode; cents?: number } | { ok: false } {
-  if (mode !== 'amount') return { ok: true, mode };
-  const parsed = eurosInputToCents(amount);
-  if (!parsed.ok) return { ok: false };
-  return { ok: true, mode, cents: parsed.cents };
-}
-
 function emptyToNullInt(raw: string): number | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
@@ -984,61 +980,36 @@ function PublicTypeEditForm({
             className={formControlClass()}
           />
         </div>
-        <div className="flex flex-col gap-1 sm:col-span-2">
-          <div className="flex items-center justify-between gap-2">
-            <label className={formLabelClass({ marginBottom: false })}>
-              {t('settings.publicTypes.unpaidThresholdMode')}
-            </label>
-            <UseGlobalValueButton
-              show={form.unpaidThresholdMode !== 'inherit'}
-              onClear={() => {
-                setThresholdError(null);
-                setForm((f) => ({ ...f, unpaidThresholdMode: 'inherit', unpaidThresholdAmount: '' }));
-              }}
-            />
-          </div>
-          <select
-            value={form.unpaidThresholdMode}
-            onChange={(e) => {
-              setThresholdError(null);
-              setForm((f) => ({
-                ...f,
-                unpaidThresholdMode: e.target.value as AudienceUnpaidThresholdMode,
-              }));
-            }}
-            className={formControlClass()}
-          >
-            <option value="inherit">{t('settings.publicTypes.unpaidThresholdModeInherit')}</option>
-            <option value="none">{t('settings.publicTypes.unpaidThresholdModeNone')}</option>
-            <option value="amount">{t('settings.publicTypes.unpaidThresholdModeAmount')}</option>
-          </select>
-          {form.unpaidThresholdMode === 'amount' && (
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            inputMode="decimal"
-            placeholder={
-              globalThreshold
-                ? t('settings.publicTypes.unpaidFineThresholdInherit', { amount: globalThreshold })
-                : t('settings.publicTypes.unpaidFineThresholdInheritEmpty')
+        <div className="sm:col-span-2 lg:col-span-4">
+          <UnpaidThresholdFields
+            scope="audience"
+            name={`public-type-unpaid-${pt.id}`}
+            mode={form.unpaidThresholdMode}
+            amount={form.unpaidThresholdAmount}
+            inheritedAmount={globalThreshold}
+            error={thresholdError}
+            legendEnd={
+              <UseGlobalValueButton
+                show={form.unpaidThresholdMode !== 'inherit'}
+                onClear={() => {
+                  setThresholdError(null);
+                  setForm((f) => ({
+                    ...f,
+                    unpaidThresholdMode: 'inherit',
+                    unpaidThresholdAmount: '',
+                  }));
+                }}
+              />
             }
-            value={form.unpaidThresholdAmount}
-            onChange={(e) => {
+            onModeChange={(mode) => {
               setThresholdError(null);
-              setForm((f) => ({ ...f, unpaidThresholdAmount: e.target.value }));
+              setForm((f) => ({ ...f, unpaidThresholdMode: mode }));
             }}
-            className={formControlClass({ error: !!thresholdError })}
+            onAmountChange={(value) => {
+              setThresholdError(null);
+              setForm((f) => ({ ...f, unpaidThresholdAmount: value }));
+            }}
           />
-          )}
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            {t('settings.publicTypes.unpaidFineThresholdHelp')}
-          </p>
-          {thresholdError && (
-            <p className="text-xs text-red-600 dark:text-red-400" role="alert">
-              {thresholdError}
-            </p>
-          )}
         </div>
         <div className="flex flex-col gap-1 sm:col-span-2">
           <div className="flex items-center justify-between gap-2">
@@ -1088,7 +1059,11 @@ function PublicTypeEditForm({
           variant="primary"
           leftIcon={<Save className="h-4 w-4" />}
           onClick={() => {
-            const threshold = audienceThresholdPayload(
+            const threshold = audienceUnpaidThresholdForUpdate(
+              {
+                mode: pt.unpaidThresholdMode ?? 'inherit',
+                cents: pt.unpaidThresholdCents,
+              },
               form.unpaidThresholdMode,
               form.unpaidThresholdAmount,
             );
@@ -1110,8 +1085,7 @@ function PublicTypeEditForm({
               subscriptionPrice: emptyToNullPriceCents(String(form.subscriptionPrice)),
               maxLoans: emptyToNullInt(String(form.maxLoans)),
               loanDurationDays: emptyToNullInt(String(form.loanDurationDays)),
-              unpaidThresholdMode: threshold.mode,
-              unpaidThresholdCents: threshold.cents,
+              ...threshold.body,
               maxActiveHolds: parsedCap.value,
             };
             onSave(payload);
@@ -1619,8 +1593,11 @@ function PublicTypeCreateModal({ onSave, onCancel }: { onSave: (data: CreatePubl
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.name.trim() || !form.label.trim()) return;
-    const threshold = audienceThresholdPayload(form.unpaidThresholdMode, form.unpaidThresholdAmount);
-    if (!threshold.ok) {
+    const threshold = audienceUnpaidThresholdForCreate(
+      form.unpaidThresholdMode,
+      form.unpaidThresholdAmount,
+    );
+    if (!threshold.ok || !threshold.body) {
       setThresholdError(t('settings.finePolicy.invalidAmount'));
       return;
     }
@@ -1638,8 +1615,7 @@ function PublicTypeCreateModal({ onSave, onCancel }: { onSave: (data: CreatePubl
       subscriptionPrice: emptyToNullPriceCents(form.subscriptionPrice),
       maxLoans: emptyToNullInt(form.maxLoans),
       loanDurationDays: emptyToNullInt(form.loanDurationDays),
-      unpaidThresholdMode: threshold.mode,
-      unpaidThresholdCents: threshold.cents,
+      ...threshold.body,
       maxActiveHolds: parsedCap.value,
     };
     onSave(payload);
@@ -1662,53 +1638,22 @@ function PublicTypeCreateModal({ onSave, onCancel }: { onSave: (data: CreatePubl
             <Input label={t('settings.publicTypes.maxLoans')} type="number" value={form.maxLoans} onChange={(e) => setForm((f) => ({ ...f, maxLoans: e.target.value }))} />
             <Input label={t('settings.publicTypes.loanDurationDays')} type="number" value={form.loanDurationDays} onChange={(e) => setForm((f) => ({ ...f, loanDurationDays: e.target.value }))} />
           </div>
-          <div className="space-y-2">
-            <label className="flex flex-col gap-1 text-sm">
-              <span className="font-medium text-gray-700 dark:text-gray-200">
-                {t('settings.publicTypes.unpaidThresholdMode')}
-              </span>
-              <select
-                value={form.unpaidThresholdMode}
-                onChange={(e) => {
-                  setThresholdError(null);
-                  setForm((f) => ({
-                    ...f,
-                    unpaidThresholdMode: e.target.value as AudienceUnpaidThresholdMode,
-                  }));
-                }}
-                className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-900"
-              >
-                <option value="inherit">{t('settings.publicTypes.unpaidThresholdModeInherit')}</option>
-                <option value="none">{t('settings.publicTypes.unpaidThresholdModeNone')}</option>
-                <option value="amount">{t('settings.publicTypes.unpaidThresholdModeAmount')}</option>
-              </select>
-            </label>
-            {form.unpaidThresholdMode === 'amount' && (
-              <Input
-                label={t('settings.publicTypes.unpaidFineThreshold')}
-                type="number"
-                inputMode="decimal"
-                step="0.01"
-                min="0"
-                value={form.unpaidThresholdAmount}
-                error={thresholdError ?? undefined}
-                hint={t('settings.publicTypes.unpaidFineThresholdHelp')}
-                onChange={(e) => {
-                  setThresholdError(null);
-                  setForm((f) => ({ ...f, unpaidThresholdAmount: e.target.value }));
-                }}
-              />
-            )}
-            {form.unpaidThresholdMode === 'inherit' && (
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                {globalThresholdLabel(finePolicy)
-                  ? t('settings.publicTypes.unpaidFineThresholdInherit', {
-                      amount: globalThresholdLabel(finePolicy),
-                    })
-                  : t('settings.publicTypes.unpaidFineThresholdInheritEmpty')}
-              </p>
-            )}
-          </div>
+          <UnpaidThresholdFields
+            scope="audience"
+            name="public-type-create-unpaid"
+            mode={form.unpaidThresholdMode}
+            amount={form.unpaidThresholdAmount}
+            inheritedAmount={globalThresholdLabel(finePolicy)}
+            error={thresholdError}
+            onModeChange={(mode) => {
+              setThresholdError(null);
+              setForm((f) => ({ ...f, unpaidThresholdMode: mode }));
+            }}
+            onAmountChange={(value) => {
+              setThresholdError(null);
+              setForm((f) => ({ ...f, unpaidThresholdAmount: value }));
+            }}
+          />
           <div>
             <Input
               label={t('settings.publicTypes.maxActiveHolds')}
