@@ -1,9 +1,11 @@
 import { useTranslation } from 'react-i18next';
 import ConfirmDialog from '@/components/common/ConfirmDialog';
+import { toPickPatronPhrase } from '@/utils/holdPatron';
 
 export interface ToPickForceLoanDialogProps {
   isOpen: boolean;
-  patronName: string | null;
+  cardNumber?: string | null;
+  initials?: string | null;
   onCancel: () => void;
   onForce: () => void;
   isLoading?: boolean;
@@ -12,13 +14,14 @@ export interface ToPickForceLoanDialogProps {
 /** Desk warning when the scanned copy is `to_pick` for someone else. */
 export default function ToPickForceLoanDialog({
   isOpen,
-  patronName,
+  cardNumber,
+  initials,
   onCancel,
   onForce,
   isLoading = false,
 }: ToPickForceLoanDialogProps) {
   const { t } = useTranslation();
-  const patron = patronName?.trim() || t('loans.pickPatronUnknown');
+  const patron = toPickPatronPhrase({ cardNumber, initials }, t);
 
   return (
     <ConfirmDialog

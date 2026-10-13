@@ -1,4 +1,5 @@
 import type { HoldPickListRow } from '@/types';
+import { minimizedHoldFor } from '@/utils/holdPatron';
 
 function text(value: unknown): string | null {
   if (value == null) return null;
@@ -6,21 +7,23 @@ function text(value: unknown): string | null {
   return s || null;
 }
 
-function personName(row: Record<string, unknown>): string | null {
-  const direct = text(row.userName) ?? text(row.patronName);
-  if (direct) return direct;
-  const joined = [text(row.patronFirstname), text(row.patronLastname)].filter(Boolean).join(' ').trim();
-  return joined || null;
+function record(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
 }
 
-/** Map one pick-list JSON object onto the desk row. */
+/**
+ * Map one pick-list JSON object onto the desk row.
+ * `holdFor` is stored minimized. A name on the payload is discarded.
+ */
 export function normalizePickListRow(raw: unknown): HoldPickListRow | null {
-  if (!raw || typeof raw !== 'object') return null;
-  const row = raw as Record<string, unknown>;
+  const row = record(raw);
+  if (!row) return null;
   const holdId = text(row.holdId) ?? text(row.id);
   const itemId = text(row.itemId);
-  const userId = text(row.userId);
-  if (!holdId || !itemId || !userId) return null;
+  const nested = record(row.holdFor);
+  const holdFor = minimizedHoldFor(nested, text(row.userId));
+  if (!holdId || !itemId || !holdFor) return null;
 
   const pickDueAt = text(row.pickDueAt);
   let overdue = row.overdue === true;
@@ -35,12 +38,13 @@ export function normalizePickListRow(raw: unknown): HoldPickListRow | null {
     barcode: text(row.barcode),
     callNumber: text(row.callNumber),
     title: text(row.title),
-    userId,
-    userName: personName(row) ?? userId,
+    userId: holdFor.id,
+    holdFor,
     pickupSiteId: text(row.pickupSiteId),
     pickupSiteName: text(row.pickupSiteName),
     pickStartedAt: text(row.pickStartedAt),
     pickDueAt,
+    pickupDeadline: text(row.pickupDeadline),
     overdue,
   };
 }

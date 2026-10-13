@@ -18,7 +18,8 @@ export function isCheckoutDeclined(error: unknown): boolean {
 export interface ItemToPickForOther {
   holdId: string | null;
   userId: string | null;
-  userName: string | null;
+  cardNumber: string | null;
+  initials: string | null;
 }
 
 function text(value: unknown): string | null {
@@ -27,11 +28,7 @@ function text(value: unknown): string | null {
   return s || null;
 }
 
-function readName(source: Record<string, unknown>): string | null {
-  return text(source.userName) ?? text(source.patronName);
-}
-
-/** `item_to_pick_for_other` body, or null for every other error. */
+/** `item_to_pick_for_other` body, or null for every other error. Names are ignored. */
 export function readItemToPickForOther(error: unknown): ItemToPickForOther | null {
   if (!axios.isAxiosError(error)) return null;
   const data = error.response?.data;
@@ -43,9 +40,10 @@ export function readItemToPickForOther(error: unknown): ItemToPickForOther | nul
       ? (body.details as Record<string, unknown>)
       : {};
   return {
-    holdId: text(body.holdId) ?? text(nested.holdId),
-    userId: text(body.userId) ?? text(nested.userId),
-    userName: readName(body) ?? readName(nested),
+    holdId: text(nested.holdId) ?? text(body.holdId),
+    userId: text(nested.userId) ?? text(body.userId),
+    cardNumber: text(nested.cardNumber) ?? text(body.cardNumber),
+    initials: text(nested.initials) ?? text(body.initials),
   };
 }
 

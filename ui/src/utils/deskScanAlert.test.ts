@@ -56,12 +56,29 @@ describe('desk scan alert', () => {
       null,
     );
     assert.deepEqual(
-      deskScanAlert({ availability: 'onHold', holdUserId: '9', holdUserName: 'Grace Hopper' }, {}),
+      deskScanAlert(
+        {
+          availability: 'onHold',
+          holdFor: { id: '9', firstname: 'Grace', lastname: 'Hopper', login: 'gh' },
+        },
+        {},
+      ),
       { kind: 'onHold', patronName: 'Grace Hopper' },
+    );
+    assert.deepEqual(
+      deskScanAlert(
+        { availability: 'onHold', holdFor: { id: '9', cardNumber: 'C-9', initials: 'GH' } },
+        {},
+      ),
+      {
+        kind: 'onHold',
+        patronName: null,
+        otherBorrower: { userId: '9', cardNumber: 'C-9', initials: 'GH' },
+      },
     );
     assert.equal(
       deskScanAlert(
-        { availability: 'onHold', holdUserId: '1', holdUserName: 'Grace Hopper' },
+        { availability: 'onHold', holdFor: { id: '1', firstname: 'Grace', lastname: 'Hopper' } },
         { patronId: '1' },
       ),
       null,
@@ -157,13 +174,33 @@ describe('desk scan alert', () => {
       checkoutScanNoticeFromRefusal({ code: 'business_rule_violation', message: holdMessage }),
       { kind: 'onHold', patronName: null },
     );
-    assert.deepEqual(
-      checkoutScanNoticeFromRefusal({
-        code: 'item_to_pick_for_other',
-        message: 'This copy is on the pick list for another patron — use force=true to override',
-        patronName: 'Grace Hopper',
-      }),
-      { kind: 'onHold', patronName: 'Grace Hopper' },
+    const toPick = checkoutScanNoticeFromRefusal({
+      code: 'item_to_pick_for_other',
+      message: 'This copy is on the pick list for another patron — use force=true to override',
+      patronName: 'Grace Hopper',
+      cardNumber: 'C-9',
+      initials: 'GH',
+    });
+    assert.deepEqual(toPick, {
+      kind: 'onHold',
+      patronName: null,
+      otherBorrower: { userId: null, cardNumber: 'C-9', initials: 'GH' },
+    });
+    assert.equal(JSON.stringify(toPick).includes('Grace'), false);
+    assert.equal(
+      deskScanAlertMessage(toPick!, translate('fr')),
+      'Cet exemplaire est réservé pour le lecteur carte n° C-9.',
+    );
+    assert.equal(
+      deskScanAlertMessage(
+        {
+          kind: 'onHold',
+          patronName: null,
+          otherBorrower: { userId: '9', cardNumber: null, initials: 'GH' },
+        },
+        translate('en'),
+      ),
+      'This copy is on hold for the reader GH.',
     );
     assert.deepEqual(
       checkoutScanNoticeFromRefusal({

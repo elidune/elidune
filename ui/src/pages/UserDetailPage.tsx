@@ -84,9 +84,11 @@ export default function UserDetailPage() {
   const [forceBorrowDialog, setForceBorrowDialog] = useState<{ message: string; specimenCode: string } | null>(
     null
   );
-  const [toPickForce, setToPickForce] = useState<{ patronName: string | null; specimenCode: string } | null>(
-    null,
-  );
+  const [toPickForce, setToPickForce] = useState<{
+    cardNumber: string | null;
+    initials: string | null;
+    specimenCode: string;
+  } | null>(null);
   const [toPickForceLoading, setToPickForceLoading] = useState(false);
   const [borrowForceError, setBorrowForceError] = useState<string | null>(null);
   const [isEditLoading, setIsEditLoading] = useState(false);
@@ -1289,16 +1291,17 @@ export default function UserDetailPage() {
               specimenCode,
             });
           }}
-          onToPickForOther={(patronName, specimenCode) => {
+          onToPickForOther={(identity, specimenCode) => {
             setShowBorrowModal(false);
-            setToPickForce({ patronName, specimenCode });
+            setToPickForce({ ...identity, specimenCode });
           }}
         />
       </Modal>
 
       <ToPickForceLoanDialog
         isOpen={toPickForce !== null}
-        patronName={toPickForce?.patronName ?? null}
+        cardNumber={toPickForce?.cardNumber ?? null}
+        initials={toPickForce?.initials ?? null}
         isLoading={toPickForceLoading}
         onCancel={() => {
           if (!toPickForceLoading) setToPickForce(null);
@@ -1377,7 +1380,10 @@ interface BorrowFormProps {
   onLoadingChange: (loading: boolean) => void;
   onSuccess: () => void;
   onBusinessRuleViolation?: (message: string, specimenCode: string) => void;
-  onToPickForOther?: (patronName: string | null, specimenCode: string) => void;
+  onToPickForOther?: (
+    identity: { cardNumber: string | null; initials: string | null },
+    specimenCode: string,
+  ) => void;
 }
 
 function BorrowForm({
@@ -1416,7 +1422,10 @@ function BorrowForm({
       }
       const toPick = readItemToPickForOther(err);
       if (toPick && !force) {
-        onToPickForOther?.(toPick.userName, specimenCode.trim());
+        onToPickForOther?.(
+          { cardNumber: toPick.cardNumber, initials: toPick.initials },
+          specimenCode.trim(),
+        );
         return;
       }
       if (errorCode === 'business_rule_violation' && !force) {

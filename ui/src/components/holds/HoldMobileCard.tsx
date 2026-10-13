@@ -2,21 +2,21 @@ import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Ban } from 'lucide-react';
 import { Button } from '@/components/common';
-import PatronLink from '@/components/users/PatronLink';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
 import HoldExpiresCell from '@/components/holds/HoldExpiresCell';
+import HoldPatronLabel from '@/components/holds/HoldPatronLabel';
 import HoldPickupCell from '@/components/holds/HoldPickupCell';
 import type { HoldListItem, ItemTransit, Source } from '@/types';
-import { patronId } from '@/utils/patronLink';
-import { formatUserShortName } from '@/utils/userDisplay';
 
 interface HoldMobileCardProps {
   hold: HoldListItem;
   statusBadge: (status: HoldListItem['status']) => ReactNode;
   onCancel: () => void;
   cancelPending: boolean;
-  /** When false, omit patron name (self-service list). Default true. */
+  /** When false, omit the reader (self-service list). Default true. */
   showUser?: boolean;
+  /** Link to the reader record. Pass only when the caller can read users. */
+  linked?: boolean;
   /** Highlight pickup expiry for ready holds (patron UX). */
   emphasizePickup?: boolean;
   pickupSources?: Source[];
@@ -30,26 +30,24 @@ export default function HoldMobileCard({
   onCancel,
   cancelPending,
   showUser = true,
+  linked = false,
   emphasizePickup = false,
   pickupSources,
   transit,
   extraActions,
 }: HoldMobileCardProps) {
   const { t, i18n } = useTranslation();
-  const userLabel = formatUserShortName(hold.user) || patronId(hold.userId, hold.user?.id) || '—';
   const showCancel = hold.status === 'pending' || hold.status === 'ready';
 
   return (
     <div className="p-4 border-b border-gray-100 dark:border-gray-800 last:border-b-0 space-y-2">
       <div className="flex items-start justify-between gap-2">
         {showUser ? (
-          <PatronLink
+          <HoldPatronLabel
+            user={hold.user}
+            linked={linked}
             className="text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:underline min-w-0"
-            userId={hold.userId}
-            fallbackId={hold.user?.id}
-          >
-            {userLabel}
-          </PatronLink>
+          />
         ) : (
           <div className="text-sm min-w-0 flex-1">
             <HoldDocumentCell hold={hold} />

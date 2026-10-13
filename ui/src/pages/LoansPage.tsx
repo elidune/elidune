@@ -847,7 +847,8 @@ export default function LoansPage() {
       const blocked = checkoutScanNoticeFromRefusal({
         code: getApiErrorCode(error),
         message: rawMessage,
-        patronName: toPick?.userName,
+        cardNumber: toPick?.cardNumber,
+        initials: toPick?.initials,
       });
       if (blocked) {
         setCheckoutScanAlert({ ...blocked, barcode });
@@ -2128,8 +2129,7 @@ async function readDeskCopy(barcode: string): Promise<DeskCopySnapshot | null> {
       loanUserInitials,
       loanUserFirstname,
       loanUserLastname,
-      holdUserId: copy.holdUserId ?? null,
-      holdUserName: copy.holdUserName ?? null,
+      holdFor: copy.holdFor ?? null,
     };
   } catch {
     return null;

@@ -530,7 +530,7 @@ export type ItemAvailability =
 /**
  * Availability on `ItemPublicView` / `ItemShortPublic` (`ItemPublicAvailability`).
  * Staff `toSearch` and `unavailable` both serialize as `unavailable`. No reason
- * and no `holdUserId` / `holdUserName`.
+ * and no `holdFor`.
  */
 export type ItemPublicAvailability = Exclude<ItemAvailability, 'toSearch'>;
 
@@ -663,10 +663,12 @@ export interface ItemShortStaff {
   borrowed: boolean;
   availability: ItemAvailability;
   canHoldItem: boolean;
-  /** Present only when `availability` is `onHold`. */
-  holdUserId?: string | null;
-  /** Present only when `availability` is `onHold`. */
-  holdUserName?: string | null;
+  /**
+   * Patron this copy is held for. Present on an `onHold` copy when the caller
+   * has users or loans read. Full {@link UserShortStaff} with users read;
+   * `{ id, cardNumber, initials }` with loans read only. Omitted otherwise.
+   */
+  holdFor?: HoldFor | null;
 }
 
 /** @deprecated Use {@link ItemShortStaff}. */
@@ -764,10 +766,8 @@ export interface Item {
   availability: ItemAvailability;
   /** True only for `available` and `onLoan`, and never when the copy is withdrawn. */
   canHoldItem: boolean;
-  /** Staff only, and only when `availability` is `onHold`. */
-  holdUserId?: string | null;
-  /** Staff only, and only when `availability` is `onHold`. */
-  holdUserName?: string | null;
+  /** Staff only, and only when this copy is on hold. See {@link HoldFor}. */
+  holdFor?: HoldFor | null;
 }
 
 /**
@@ -807,8 +807,12 @@ export interface ItemStaffView {
    * An unassigned `pending` title hold leaves this false.
    */
   onHold: boolean;
-  holdUserId?: string | null;
-  holdUserName?: string | null;
+  /**
+   * Set when this copy is on hold and the caller has users or loans read.
+   * Users read: {@link UserShortStaff}. Loans read only: {@link LoanBorrowerMinimized}.
+   * Readers, the OPAC, and staff with neither right omit it.
+   */
+  holdFor?: HoldFor | null;
   /**
    * `GET /biblios/{id}` only. Minimized `{ id, cardNumber, initials }` without
    * users read; `UserShortStaff` with users read.
@@ -1130,6 +1134,12 @@ export interface LoanBorrowerMinimized {
   cardNumber: string | null;
   initials: string;
 }
+
+/**
+ * Patron a copy is held for, or the reader on a staff hold row.
+ * Users read: {@link UserShortStaff}. Loans read only: {@link LoanBorrowerMinimized}.
+ */
+export type HoldFor = UserShortStaff | LoanBorrowerMinimized;
 
 /** Loan list row without users read (`LoanDetailsOwn`). Embedded copies are {@link BiblioShortPublic}. */
 export interface LoanDetailsPublic {
@@ -2229,7 +2239,11 @@ export interface HoldDetailsStaff {
   itemId: string | null;
   pickupSiteId: string | null;
   biblio: BiblioShortStaff;
-  user: UserShortStaff | null;
+  /**
+   * Users read: {@link UserShortStaff}. Every other caller allowed to see the
+   * row: {@link LoanBorrowerMinimized} (card number or initials, never the name).
+   */
+  user: HoldFor | null;
   createdAt: string;
   notifiedAt: string | null;
   expiresAt: string | null;
@@ -2277,8 +2291,8 @@ export interface CreateHold {
 
 /**
  * One shelf row from `GET /holds/pick-list`.
- * Normalized from the frozen contract (`holdId`, `userName`, `pickDueAt`, `overdue`)
- * and from the current #104 payload (`id`, `patronFirstname` / `patronLastname`).
+ * `holdFor` is always `{ id, cardNumber, initials }`. The name is never stored:
+ * these labels sit on an open shelf and are printed.
  */
 export interface HoldPickListRow {
   holdId: string;
@@ -2287,11 +2301,13 @@ export interface HoldPickListRow {
   callNumber: string | null;
   title: string | null;
   userId: string;
-  userName: string;
+  holdFor: LoanBorrowerMinimized;
   pickupSiteId: string | null;
   pickupSiteName: string | null;
   pickStartedAt: string | null;
   pickDueAt: string | null;
+  /** `holds.expires_at`. Null while the hold is still `to_pick`. */
+  pickupDeadline: string | null;
   overdue: boolean;
 }
 
