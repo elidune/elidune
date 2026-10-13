@@ -458,12 +458,10 @@ impl CatalogService {
     ) -> AppResult<(i64, &'a mut Item)> {
         // Status changes are audited actions. Reject the whole request so a
         // call number or notes edit cannot ride along with a silent ignore.
+        // The HTTP handler rejects any JSON value for this key before `Item`
+        // is built; this still blocks a typed value on the service path.
         if item.circulation_status.is_some() {
-            return Err(AppError::coded(
-                422,
-                crate::error::error_code::CIRCULATION_STATUS_READ_ONLY,
-                crate::error::error_code::CIRCULATION_STATUS_READ_ONLY_MESSAGE,
-            ));
+            return Err(AppError::circulation_status_read_only());
         }
 
         if let Some(body_id) = item.id {

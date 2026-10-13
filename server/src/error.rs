@@ -212,6 +212,16 @@ impl AppError {
         }
     }
 
+    /// `PUT /items/{id}` included a `circulationStatus` key.
+    #[must_use]
+    pub fn circulation_status_read_only() -> Self {
+        Self::coded(
+            422,
+            error_code::CIRCULATION_STATUS_READ_ONLY,
+            error_code::CIRCULATION_STATUS_READ_ONLY_MESSAGE,
+        )
+    }
+
     #[must_use]
     pub fn account_type_in_use() -> Self {
         Self::coded(

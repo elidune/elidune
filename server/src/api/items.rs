@@ -1,15 +1,17 @@
 //! Physical item (copy) endpoints
 
 use axum::{
-    extract::{Path, Query, State},
+    async_trait,
+    extract::{FromRequest, Path, Query, Request, State},
     http::StatusCode,
     Json,
 };
 use serde::Deserialize;
+use validator::Validate;
 
 use crate::{
     api::biblios::BiblioReadResponse,
-    error::AppResult,
+    error::{AppError, AppResult},
     models::catalog_view::{sees_internal_catalog, BiblioPublicView},
     models::dto::weeding::SetWeedingRequest,
     models::item::Item,
@@ -121,11 +123,79 @@ pub async fn get_biblio_by_barcode(
     Ok(Json(body))
 }
 
+/// `PUT /items/{id}` body after the `circulationStatus` presence check.
+enum ParsedItemUpdate {
+    /// The key was present. The handler still checks write permission first.
+    CirculationStatusPresent(serde_json::Value),
+    Ready(Box<Item>),
+}
+
+/// Accepts `circulationStatus` as any JSON value so a present key is visible
+/// before [`Item`] deserialization. `Option<Value>` would treat JSON null as
+/// absent; this deserializer runs only when the key is present, including null.
+#[derive(Debug, Deserialize)]
+struct ItemUpdateProbe {
+    #[serde(
+        default,
+        rename = "circulationStatus",
+        deserialize_with = "deserialize_present_json_value"
+    )]
+    circulation_status: Option<serde_json::Value>,
+}
+
+fn deserialize_present_json_value<'de, D>(
+    deserializer: D,
+) -> Result<Option<serde_json::Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(Some(value))
+}
+
+fn circulation_status_key_present(value: &serde_json::Value) -> bool {
+    serde_json::from_value::<ItemUpdateProbe>(value.clone())
+        .ok()
+        .and_then(|probe| probe.circulation_status)
+        .is_some()
+}
+
+fn parse_item_update(bytes: &[u8]) -> AppResult<ParsedItemUpdate> {
+    let value: serde_json::Value = serde_json::from_slice(bytes)
+        .map_err(|e| AppError::Validation(format!("Invalid JSON body: {e}")))?;
+    if circulation_status_key_present(&value) {
+        return Ok(ParsedItemUpdate::CirculationStatusPresent(value));
+    }
+    let item: Item = serde_json::from_value(value)
+        .map_err(|e| AppError::Validation(format!("Invalid JSON body: {e}")))?;
+    item.validate()
+        .map_err(|e| AppError::Validation(e.to_string()))?;
+    Ok(ParsedItemUpdate::Ready(Box::new(item)))
+}
+
+pub(crate) struct ItemUpdateBody(ParsedItemUpdate);
+
+#[async_trait]
+impl<S> FromRequest<S> for ItemUpdateBody
+where
+    S: Send + Sync,
+{
+    type Rejection = AppError;
+
+    async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
+        let bytes = axum::body::Bytes::from_request(req, state)
+            .await
+            .map_err(|e| AppError::BadRequest(e.to_string()))?;
+        parse_item_update(&bytes).map(Self)
+    }
+}
+
 /// Update a physical item. The path id is authoritative.
 ///
-/// `circulationStatus` is read-only. A request that includes it returns 422
-/// `circulation_status_read_only` and does not apply any other field. Use the
-/// dedicated actions (lost, missing, to-search).
+/// `circulationStatus` is read-only. A request that includes the key, with any
+/// JSON value, returns 422 `circulation_status_read_only` and does not apply
+/// any other field. The key is detected before the body is read as [`Item`].
+/// Use the dedicated actions (lost, missing, to-search).
 #[utoipa::path(
     put,
     path = "/items/{id}",
@@ -140,17 +210,33 @@ pub async fn get_biblio_by_barcode(
         (status = 400, description = "Validation error", body = crate::error::ErrorResponse),
         (status = 404, description = "Biblio or item not found", body = crate::error::ErrorResponse),
         (status = 409, description = "An item with this barcode already exists"),
-        (status = 422, description = "`circulationStatus` is read-only (`circulation_status_read_only`). Use the dedicated actions (lost, missing, to-search). No other field in the request is applied.", body = crate::error::ErrorResponse)
+        (status = 422, description = "`circulationStatus` is read-only (`circulation_status_read_only`) for any JSON value. Use the dedicated actions (lost, missing, to-search). No other field in the request is applied.", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn update_item(
+pub(crate) async fn update_item(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     ClientIp(ip): ClientIp,
     Path(item_id): Path<i64>,
-    ValidatedJson(mut item): ValidatedJson<Item>,
+    ItemUpdateBody(parsed): ItemUpdateBody,
 ) -> AppResult<Json<Item>> {
     claims.require_write_items()?;
+    let mut item = match parsed {
+        ParsedItemUpdate::CirculationStatusPresent(body) => {
+            let err = AppError::circulation_status_read_only();
+            state.services.audit.log(
+                audit::event::ITEM_UPDATED,
+                Some(claims.user_id),
+                Some("item"),
+                Some(item_id),
+                ip,
+                Some(body),
+                audit::AuditLogMeta::from_app_error(&err),
+            );
+            return Err(err);
+        }
+        ParsedItemUpdate::Ready(item) => *item,
+    };
     match state.services.catalog.update_item(item_id, &mut item).await {
         Ok((biblio_id, _)) => {
             state.services.audit.log(
@@ -307,6 +393,56 @@ pub async fn set_item_weeding(
                 audit::AuditLogMeta::from_app_error(&e),
             );
             Err(e)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{circulation_status_key_present, parse_item_update, ParsedItemUpdate};
+    use serde_json::json;
+
+    #[test]
+    fn circulation_status_key_is_present_for_any_json_value() {
+        for value in [
+            json!(1),
+            json!("lost"),
+            json!(null),
+            json!({"status": "lost"}),
+            json!(true),
+            json!(["lost"]),
+        ] {
+            let body = json!({
+                "callNumber": "SHELF-B",
+                "circulationStatus": value,
+            });
+            assert!(circulation_status_key_present(&body), "present for {value}");
+            let parsed =
+                parse_item_update(&serde_json::to_vec(&body).expect("json")).expect("parse");
+            assert!(
+                matches!(parsed, ParsedItemUpdate::CirculationStatusPresent(_)),
+                "rejected before item decode for {value}"
+            );
+        }
+    }
+
+    #[test]
+    fn omitted_circulation_status_still_parses_as_item() {
+        let body = json!({
+            "callNumber": "SHELF-B",
+            "notes": "changed"
+        });
+        assert!(!circulation_status_key_present(&body));
+        let parsed = parse_item_update(&serde_json::to_vec(&body).expect("json")).expect("parse");
+        match parsed {
+            ParsedItemUpdate::Ready(item) => {
+                assert!(item.circulation_status.is_none());
+                assert_eq!(item.call_number.as_deref(), Some("SHELF-B"));
+                assert_eq!(item.notes.as_deref(), Some("changed"));
+            }
+            ParsedItemUpdate::CirculationStatusPresent(_) => {
+                panic!("omitted key must not be treated as present");
+            }
         }
     }
 }
