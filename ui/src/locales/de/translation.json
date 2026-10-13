@@ -1254,6 +1254,8 @@
     "returnNoticeNotOnLoan": "Dieses Exemplar ist keinem Leser ausgeliehen.",
     "returnNoticePutBack": "Stellen Sie es zurück ins Regal.",
     "returnNoticeBlocked": "Dieses Exemplar wurde keinem Leser zurückgegeben. Status: {{status}}.",
+    "returnNoticeLost": "Exemplar als verloren gemeldet: verwenden Sie « Wiedergefunden », um es wieder in Umlauf zu geben.",
+    "returnNoticeFound": "Wiedergefunden",
     "returnNoticeUnknownStatus": "Unbekannt ({{status}})",
     "lostFound": {
       "title": "Als verloren gemeldetes Dokument, wiedergefunden",

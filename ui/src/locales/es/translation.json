@@ -1254,6 +1254,8 @@
     "returnNoticeNotOnLoan": "Este ejemplar no está en préstamo a un lector.",
     "returnNoticePutBack": "Vuelva a colocarlo en la estantería.",
     "returnNoticeBlocked": "Este ejemplar no se ha devuelto a un lector. Estado: {{status}}.",
+    "returnNoticeLost": "Ejemplar declarado perdido: utilice « Encontrado » para volver a ponerlo en circulación.",
+    "returnNoticeFound": "Encontrado",
     "returnNoticeUnknownStatus": "Desconocido ({{status}})",
     "lostFound": {
       "title": "Documento declarado perdido, recuperado",

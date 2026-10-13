@@ -1254,6 +1254,8 @@
     "returnNoticeNotOnLoan": "This copy is not on loan to a reader.",
     "returnNoticePutBack": "Put it back on the shelf.",
     "returnNoticeBlocked": "This copy was not returned to a reader. Status: {{status}}.",
+    "returnNoticeLost": "Copy declared lost: use “Found” to put it back into circulation.",
+    "returnNoticeFound": "Found",
     "returnNoticeUnknownStatus": "Unknown ({{status}})",
     "lostFound": {
       "title": "Document declared lost, found",

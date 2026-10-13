@@ -100,12 +100,21 @@ export function returnDeskNotice(body: ItemCheckIn | null | undefined): ReturnDe
   return null;
 }
 
+/**
+ * The blocked scan named this copy lost.
+ * One equality on the status the server returned, not a list of desk statuses.
+ */
+export function returnNoticeOffersLostFound(notice: ReturnDeskNotice): boolean {
+  return notice.level === 'warning' && notice.circulationStatus === 'lost';
+}
+
 export function returnNoticeMessage(
   notice: ReturnDeskNotice,
   t: Translate,
   options?: { putBack?: boolean },
 ): string {
   if (notice.level === 'warning') {
+    if (returnNoticeOffersLostFound(notice)) return t('loans.returnNoticeLost');
     const status = returnCopyStatusLabel(notice.circulationStatus, notice.weedingStatus, t);
     return t('loans.returnNoticeBlocked', { status });
   }

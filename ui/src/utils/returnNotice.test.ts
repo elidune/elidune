@@ -10,6 +10,7 @@ import {
   returnCopyStatusLabel,
   returnDeskNotice,
   returnNoticeMessage,
+  returnNoticeOffersLostFound,
   returnScanFeedback,
 } from './returnNotice.ts';
 
@@ -137,17 +138,30 @@ describe('return desk notice', () => {
       }),
     );
     assert.ok(lost);
+    assert.equal(returnNoticeOffersLostFound(lost), true);
     const lostFr = returnNoticeMessage(lost, tFr);
     const lostEn = returnNoticeMessage(lost, tEn);
-    assert.equal(lostFr, "Cet exemplaire n'a pas été rendu à un lecteur. Statut : Perdu.");
-    assert.equal(lostEn, 'This copy was not returned to a reader. Status: Lost.');
+    assert.equal(
+      lostFr,
+      'Exemplaire déclaré perdu : utilisez « Retrouvé » pour le remettre en circulation.',
+    );
+    assert.equal(lostEn, 'Copy declared lost: use “Found” to put it back into circulation.');
+    assert.equal(lostFr, fr.loans.returnNoticeLost);
+    assert.equal(lostEn, en.loans.returnNoticeLost);
+    assert.equal(lostFr.includes(fr.loans.returnNoticeFound), true);
+    assert.equal(lostEn.includes(en.loans.returnNoticeFound), true);
     assert.equal(lostFr.includes(fr.loans.returnSuccess), false);
     assert.equal(lostEn.includes(en.loans.returnSuccess), false);
-    assert.match(lostFr, /exemplaire/);
-    assert.match(lostFr, /lecteur/);
+    assert.equal(lostFr.includes(fr.loans.returnNoticeBlocked.split('{{')[0] ?? ''), false);
+
+    const deI18n = await i18nFor('de');
+    const esI18n = await i18nFor('es');
+    assert.equal(returnNoticeMessage(lost, deI18n.getFixedT('de')), de.loans.returnNoticeLost);
+    assert.equal(returnNoticeMessage(lost, esI18n.getFixedT('es')), es.loans.returnNoticeLost);
+    assert.equal(de.loans.returnNoticeLost.includes(de.loans.returnNoticeFound), true);
+    assert.equal(es.loans.returnNoticeLost.includes(es.loans.returnNoticeFound), true);
 
     const cases = [
-      ['lost', 'onShelf', 'Perdu', 'Lost'],
       ['damaged', 'onShelf', 'Abîmé', 'Damaged'],
       ['toSearch', 'onShelf', 'À rechercher', 'To search'],
       ['missing', 'onShelf', 'manquant', 'missing'],
@@ -169,6 +183,31 @@ describe('return desk notice', () => {
 
     const lostAndWithdrawn = returnCopyStatusLabel('lost', 'withdrawn', tEn);
     assert.equal(lostAndWithdrawn, 'Lost');
+    const notTheServerToken = {
+      level: 'warning' as const,
+      code: 'item_not_available_status' as const,
+      circulationStatus: 'Lost',
+      weedingStatus: 'onShelf',
+    };
+    assert.equal(returnNoticeOffersLostFound(notTheServerToken), false);
+    assert.match(returnNoticeMessage(notTheServerToken, tEn), /Status: Unknown \(Lost\)\./);
+    const shelfLost = returnDeskNotice(
+      body({
+        notice: { level: 'informational', code: 'item_not_on_loan' },
+        circulationStatus: 'lost',
+      }),
+    );
+    assert.ok(shelfLost);
+    assert.equal(returnNoticeOffersLostFound(shelfLost), false);
+    const damaged = returnDeskNotice(
+      body({
+        status: 'unchanged',
+        notice: { level: 'warning', code: 'item_not_available_status' },
+        circulationStatus: 'damaged',
+      }),
+    );
+    assert.ok(damaged);
+    assert.equal(returnNoticeOffersLostFound(damaged), false);
     const knownElsewhere = returnCopyStatusLabel('claimedReturned', 'onShelf', tEn);
     assert.equal(knownElsewhere, 'Claimed returned');
     const unknown = returnCopyStatusLabel('notAStatus', 'onShelf', tFr);
