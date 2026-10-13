@@ -847,11 +847,15 @@ export interface ItemPublicView {
   archivedAt: string | null;
   sourceName: string | null;
   borrowed: boolean;
-  /** Active loan due instant. Null when the copy is not on loan. */
+  /**
+   * Active loan due instant. Null when the copy is not on loan.
+   * The public and OPAC copy lists do not display this field.
+   */
   dueDate: string | null;
   /**
    * Library-local calendar date (`YYYY-MM-DD`, no time) of the open loan.
-   * Present only when `availability` is `onLoan`. Omitted otherwise. No borrower.
+   * Present only when `availability` is `onLoan` and the loan is not overdue.
+   * Omitted otherwise, including when overdue. No borrower.
    */
   expectedReturnDate?: string;
   availability: ItemPublicAvailability;

@@ -19,6 +19,7 @@ import {
   formatLocalCalendarDate,
   itemBorrowerIdentity,
   publicExpectedReturnLine,
+  publicOnLoanLabel,
 } from '../../utils/copyLoanStatus.ts';
 
 const LEAK = {
@@ -98,8 +99,13 @@ describe('item copy loan status', () => {
     const due = formatCopyDueDate(LEAK.dueDate, 'fr');
     assert.ok(due);
     assert.equal(html.includes('data-copy-status="public"'), true);
-    assert.equal(html.includes('Emprunté'), true);
-    assert.equal(html.includes(`retour prévu le ${due}`), true);
+    assert.equal(html.includes('En prêt'), true);
+    assert.equal(html.includes('Emprunté'), false);
+    assert.equal(html.includes('retour prévu'), false);
+    assert.equal(html.includes(due), false);
+    assert.equal(html.includes(LEAK.dueDate), false);
+    assert.equal(html.includes('retard'), false);
+    assert.equal(html.includes('overdue'), false);
     assert.equal(html.includes('L-10042'), false);
     assert.equal(html.includes('JD'), false);
     assert.equal(html.includes('user-7'), false);
@@ -207,13 +213,28 @@ describe('item copy loan status', () => {
     );
     assert.equal(opac.includes('On loan, due back October 20, 2026'), true);
     assert.equal(publicExpectedReturnLine(en.t, { availability: 'onLoan' }, 'en'), null);
-    assert.equal(
-      render(
-        en,
-        createElement(PublicCopyReturnLine, { availability: 'onLoan' }),
-      ),
-      '',
+    assert.equal(publicOnLoanLabel(en.t, { availability: 'onLoan', dueDate: LEAK.dueDate }, 'en'), 'On loan');
+    assert.equal(publicOnLoanLabel(fr.t, { availability: 'onLoan', dueDate: LEAK.dueDate }, 'fr'), 'En prêt');
+    const overdue = render(
+      en,
+      createElement(PublicCopyReturnLine, {
+        availability: 'onLoan',
+        expectedReturnDate: undefined,
+      }),
     );
+    assert.equal(overdue.includes('On loan'), true);
+    assert.equal(overdue.includes('due back'), false);
+    assert.equal(overdue.includes('October'), false);
+    const overdueFr = render(
+      fr,
+      createElement(CopyLoanStatus, {
+        audience: 'public',
+        copy: { availability: 'onLoan', dueDate: '2020-01-01T00:00:00Z', borrowed: true },
+      }),
+    );
+    assert.equal(overdueFr.includes('En prêt'), true);
+    assert.equal(overdueFr.includes('retour prévu'), false);
+    assert.equal(overdueFr.includes('2020'), false);
     assert.equal(
       publicExpectedReturnLine(
         en.t,

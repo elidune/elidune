@@ -1111,7 +1111,7 @@ function SpecimenCard({
         copy={{
           borrowed: specimen.borrowed,
           availability: specimen.availability,
-          dueDate: specimen.dueDate,
+          dueDate: audience === 'staff' ? specimen.dueDate : undefined,
           onHold: specimen.onHold,
           borrower: staffCopy?.borrower,
           expectedReturnDate:

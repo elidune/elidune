@@ -6,8 +6,9 @@ export interface CopyCirculationFields {
   availability?: string | null;
   dueDate?: string | null;
   /**
-   * Library-local `YYYY-MM-DD` on a public copy when `availability` is `onLoan`.
-   * Absent otherwise. Staff views ignore it.
+   * Library-local `YYYY-MM-DD` on a public copy when `availability` is `onLoan`
+   * and the loan is not overdue. Absent otherwise, including when overdue.
+   * Staff views ignore it. The public UI does not derive overdue from `dueDate`.
    */
   expectedReturnDate?: string | null;
   /** Copy is assigned to a hold, or in transit for one. */
@@ -83,7 +84,7 @@ export function formatLocalCalendarDate(
   });
 }
 
-/** Public/OPAC sentence. Null when the date key is absent or the copy is not on loan. */
+/** Dated sentence. Null when the copy is not on loan or the server omitted the date. */
 export function publicExpectedReturnLine(
   t: TFunction,
   copy: Pick<CopyCirculationFields, 'availability' | 'expectedReturnDate'>,
@@ -93,4 +94,18 @@ export function publicExpectedReturnLine(
   const date = formatLocalCalendarDate(copy.expectedReturnDate, locale);
   if (!date) return null;
   return t('opac.expectedReturn', { date });
+}
+
+/**
+ * Public/OPAC on-loan label. The server omits `expectedReturnDate` when the loan
+ * is overdue; this does not read `dueDate` or decide overdue itself.
+ * With a date: "On loan, due back …". Without one: "On loan".
+ */
+export function publicOnLoanLabel(
+  t: TFunction,
+  copy: Pick<CopyCirculationFields, 'availability' | 'expectedReturnDate' | 'dueDate'>,
+  locale: string,
+): string | null {
+  if (copy.availability !== 'onLoan') return null;
+  return publicExpectedReturnLine(t, copy, locale) ?? t('availability.onLoan');
 }

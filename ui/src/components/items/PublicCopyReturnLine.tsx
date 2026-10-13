@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { publicExpectedReturnLine } from '@/utils/copyLoanStatus';
+import { publicOnLoanLabel } from '@/utils/copyLoanStatus';
 
 interface PublicCopyReturnLineProps {
   availability?: string | null;
@@ -8,8 +8,8 @@ interface PublicCopyReturnLineProps {
 }
 
 /**
- * Expected return on an OPAC or reader copy row.
- * Renders nothing when the date key is absent. Never includes a borrower.
+ * On-loan line for an OPAC or reader copy row.
+ * A missing date stays "On loan" with no timestamp. Never includes a borrower or `dueDate`.
  */
 export default function PublicCopyReturnLine({
   availability,
@@ -17,7 +17,7 @@ export default function PublicCopyReturnLine({
   className = 'text-xs text-gray-600 dark:text-gray-300',
 }: PublicCopyReturnLineProps) {
   const { t, i18n } = useTranslation();
-  const text = publicExpectedReturnLine(t, { availability, expectedReturnDate }, i18n.language);
+  const text = publicOnLoanLabel(t, { availability, expectedReturnDate }, i18n.language);
   if (!text) return null;
   return <p className={className}>{text}</p>;
 }
