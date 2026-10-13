@@ -1,15 +1,21 @@
 //! Inter-site item transit for hold fulfillment.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::{
     error::AppResult,
     hold_email,
     models::{
-        hold::Hold,
-        transit::{CreateTransit, ItemTransit, TransitStatus, TransitWithHold},
+        catalog_view::partial_user_short,
+        hold::{Hold, HoldStatus},
+        transit::{
+            transit_patron, CreateTransit, ItemTransit, TransitPatron, TransitStatus,
+            TransitWithHold,
+        },
+        user::UserClaims,
     },
-    repository::Repository,
+    repository::{transits::TransitCopyContext, Repository},
     services::{
         audit::{self, AuditLogMeta, AuditService},
         email::EmailService,
@@ -40,27 +46,49 @@ impl TransitsService {
         }
     }
 
-    #[tracing::instrument(skip(self), err)]
-    pub async fn get_by_id(&self, id: i64) -> AppResult<TransitWithHold> {
+    #[tracing::instrument(skip(self, claims), err)]
+    pub async fn get_by_id(&self, id: i64, claims: &UserClaims) -> AppResult<TransitWithHold> {
         let transit = self.repository.transits_get_by_id(id).await?;
         let hold = self.load_hold(transit.hold_id).await?;
-        Ok(TransitWithHold { transit, hold })
+        self.present(claims, TransitWithHold { transit, hold })
+            .await
     }
 
-    #[tracing::instrument(skip(self), err)]
-    pub async fn active_for_hold(&self, hold_id: i64) -> AppResult<Option<ItemTransit>> {
+    #[tracing::instrument(skip(self, claims), err)]
+    pub async fn active_for_hold(
+        &self,
+        hold_id: i64,
+        claims: &UserClaims,
+    ) -> AppResult<Option<ItemTransit>> {
         self.repository.holds_get_by_id(hold_id).await?;
-        self.repository.transits_get_active_for_hold(hold_id).await
+        self.present_opt(
+            claims,
+            self.repository
+                .transits_get_active_for_hold(hold_id)
+                .await?,
+        )
+        .await
     }
 
-    #[tracing::instrument(skip(self), err)]
-    pub async fn active_for_item(&self, item_id: i64) -> AppResult<Option<ItemTransit>> {
-        self.repository.transits_get_active_for_item(item_id).await
+    #[tracing::instrument(skip(self, claims), err)]
+    pub async fn active_for_item(
+        &self,
+        item_id: i64,
+        claims: &UserClaims,
+    ) -> AppResult<Option<ItemTransit>> {
+        self.present_opt(
+            claims,
+            self.repository
+                .transits_get_active_for_item(item_id)
+                .await?,
+        )
+        .await
     }
 
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self, claims), err)]
     pub async fn list(
         &self,
+        claims: &UserClaims,
         status: Option<TransitStatus>,
         item_id: Option<i64>,
         hold_id: Option<i64>,
@@ -68,14 +96,18 @@ impl TransitsService {
         page: i64,
         per_page: i64,
     ) -> AppResult<(Vec<ItemTransit>, i64)> {
-        self.repository
+        let (mut items, total) = self
+            .repository
             .transits_list(status, item_id, hold_id, to_source_id, page, per_page)
-            .await
+            .await?;
+        self.attach_display(claims, &mut items).await?;
+        Ok((items, total))
     }
 
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self, claims), err)]
     pub async fn request(
         &self,
+        claims: &UserClaims,
         hold_id: i64,
         data: CreateTransit,
         actor_id: i64,
@@ -112,15 +144,20 @@ impl TransitsService {
         };
         self.events
             .transit_event(sse_event, transit.id, transit.item_id, transit.hold_id);
-        Ok(TransitWithHold {
-            transit,
-            hold: Some(hold),
-        })
+        self.present(
+            claims,
+            TransitWithHold {
+                transit,
+                hold: Some(hold),
+            },
+        )
+        .await
     }
 
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self, claims), err)]
     pub async fn ship(
         &self,
+        claims: &UserClaims,
         transit_id: i64,
         actor_id: i64,
         notes: Option<String>,
@@ -150,12 +187,13 @@ impl TransitsService {
             transit.item_id,
             transit.hold_id,
         );
-        Ok(transit)
+        self.present_one(claims, transit).await
     }
 
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self, claims), err)]
     pub async fn receive(
         &self,
+        claims: &UserClaims,
         transit_id: i64,
         actor_id: i64,
         notes: Option<String>,
@@ -209,12 +247,14 @@ impl TransitsService {
             }
         }
 
-        Ok(TransitWithHold { transit, hold })
+        self.present(claims, TransitWithHold { transit, hold })
+            .await
     }
 
-    #[tracing::instrument(skip(self), err)]
+    #[tracing::instrument(skip(self, claims), err)]
     pub async fn cancel(
         &self,
+        claims: &UserClaims,
         transit_id: i64,
         actor_id: i64,
         reverse: Option<bool>,
@@ -255,7 +295,65 @@ impl TransitsService {
             );
         }
         let hold = self.load_hold(transit.hold_id).await?;
-        Ok(TransitWithHold { transit, hold })
+        self.present(claims, TransitWithHold { transit, hold })
+            .await
+    }
+
+    async fn present(
+        &self,
+        claims: &UserClaims,
+        mut body: TransitWithHold,
+    ) -> AppResult<TransitWithHold> {
+        self.attach_display(claims, std::slice::from_mut(&mut body.transit))
+            .await?;
+        Ok(body)
+    }
+
+    async fn present_one(
+        &self,
+        claims: &UserClaims,
+        mut transit: ItemTransit,
+    ) -> AppResult<ItemTransit> {
+        self.attach_display(claims, std::slice::from_mut(&mut transit))
+            .await?;
+        Ok(transit)
+    }
+
+    async fn present_opt(
+        &self,
+        claims: &UserClaims,
+        transit: Option<ItemTransit>,
+    ) -> AppResult<Option<ItemTransit>> {
+        let Some(transit) = transit else {
+            return Ok(None);
+        };
+        Ok(Some(self.present_one(claims, transit).await?))
+    }
+
+    /// Fill barcode, title, site, and patron on rows about to be serialized.
+    async fn attach_display(
+        &self,
+        claims: &UserClaims,
+        transits: &mut [ItemTransit],
+    ) -> AppResult<()> {
+        if transits.is_empty() {
+            return Ok(());
+        }
+        let ids: Vec<i64> = transits.iter().map(|transit| transit.id).collect();
+        let rows = self.repository.transits_copy_context(&ids).await?;
+        let by_id: HashMap<i64, TransitCopyContext> =
+            rows.into_iter().map(|row| (row.transit_id, row)).collect();
+        for transit in transits {
+            let Some(row) = by_id.get(&transit.id) else {
+                continue;
+            };
+            transit.barcode.clone_from(&row.barcode);
+            transit.title.clone_from(&row.title);
+            transit.source_id = row.source_id;
+            transit.source_name.clone_from(&row.source_name);
+            transit.patron = patron_for_context(claims, row);
+        }
+        Ok(())
     }
 
     async fn load_hold(&self, hold_id: Option<i64>) -> AppResult<Option<Hold>> {
@@ -310,4 +408,30 @@ impl TransitsService {
             );
         }
     }
+}
+
+/// Pending, set aside (`to_pick`), or ready holds expose a patron.
+/// Cancelled, expired, and fulfilled holds do not.
+fn hold_exposes_patron(status: &str) -> bool {
+    match status {
+        "pending" => HoldStatus::Pending.is_active(),
+        "to_pick" => HoldStatus::ToPick.is_active(),
+        "ready" => HoldStatus::Ready.is_active(),
+        _ => false,
+    }
+}
+
+fn patron_for_context(claims: &UserClaims, row: &TransitCopyContext) -> Option<TransitPatron> {
+    if !row.hold_status.as_deref().is_some_and(hold_exposes_patron) {
+        return None;
+    }
+    let patron_id = row.patron_id?;
+    let mut patron = partial_user_short(
+        patron_id,
+        row.patron_barcode.clone(),
+        row.patron_firstname.clone(),
+        row.patron_lastname.clone(),
+    );
+    patron.login = row.patron_login.clone();
+    transit_patron(&claims.rights, patron)
 }

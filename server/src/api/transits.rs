@@ -39,7 +39,7 @@ pub fn router() -> axum::Router<crate::AppState> {
     security(("bearer_auth" = [])),
     params(ListTransitsQuery),
     responses(
-        (status = 200, description = "Transit list", body = PaginatedResponse<ItemTransit>),
+        (status = 200, description = "Transit list. Each row includes `barcode`, `title`, `sourceId`, `sourceName`, and `patron` (`{ cardNumber, initials }` or null). `patron` is set only while the linked hold is pending, set aside, or ready, and only when the caller has holds read or write. A return to the home site, a cancelled or expired hold, and a caller without holds rights yield `patron: null`. Users read does not add the name.", body = PaginatedResponse<ItemTransit>),
         (status = 401, description = "Not authenticated"),
         (status = 403, description = "Staff access required")
     )
@@ -49,13 +49,13 @@ pub async fn list_transits(
     StaffUser(claims): StaffUser,
     Query(query): Query<ListTransitsQuery>,
 ) -> AppResult<Json<PaginatedResponse<ItemTransit>>> {
-    claims.require_read_holds_staff()?;
     let page = query.page.unwrap_or(1).max(1);
     let per_page = query.per_page.unwrap_or(50).clamp(1, 200);
     let (items, total) = state
         .services
         .transits
         .list(
+            &claims,
             query.status,
             query.item_id,
             query.hold_id,
@@ -83,8 +83,7 @@ pub async fn get_transit(
     StaffUser(claims): StaffUser,
     Path(id): Path<i64>,
 ) -> AppResult<Json<TransitWithHold>> {
-    claims.require_read_holds_staff()?;
-    Ok(Json(state.services.transits.get_by_id(id).await?))
+    Ok(Json(state.services.transits.get_by_id(id, &claims).await?))
 }
 
 #[utoipa::path(
@@ -103,8 +102,9 @@ pub async fn get_hold_transit(
     StaffUser(claims): StaffUser,
     Path(id): Path<i64>,
 ) -> AppResult<Json<Option<ItemTransit>>> {
-    claims.require_read_holds_staff()?;
-    Ok(Json(state.services.transits.active_for_hold(id).await?))
+    Ok(Json(
+        state.services.transits.active_for_hold(id, &claims).await?,
+    ))
 }
 
 #[utoipa::path(
@@ -122,8 +122,9 @@ pub async fn get_item_transit(
     StaffUser(claims): StaffUser,
     Path(id): Path<i64>,
 ) -> AppResult<Json<Option<ItemTransit>>> {
-    claims.require_read_holds_staff()?;
-    Ok(Json(state.services.transits.active_for_item(id).await?))
+    Ok(Json(
+        state.services.transits.active_for_item(id, &claims).await?,
+    ))
 }
 
 #[utoipa::path(
@@ -151,7 +152,7 @@ pub async fn create_hold_transit(
     match state
         .services
         .transits
-        .request(id, data, claims.user_id, ip.clone())
+        .request(&claims, id, data, claims.user_id, ip.clone())
         .await
     {
         Ok(body) => Ok((StatusCode::CREATED, Json(body))),
@@ -193,7 +194,7 @@ pub async fn ship_transit(
     match state
         .services
         .transits
-        .ship(id, claims.user_id, req.notes, ip.clone())
+        .ship(&claims, id, claims.user_id, req.notes, ip.clone())
         .await
     {
         Ok(transit) => Ok(Json(transit)),
@@ -235,7 +236,7 @@ pub async fn receive_transit(
     match state
         .services
         .transits
-        .receive(id, claims.user_id, req.notes, ip.clone())
+        .receive(&claims, id, claims.user_id, req.notes, ip.clone())
         .await
     {
         Ok(body) => Ok(Json(body)),
@@ -276,7 +277,14 @@ pub async fn cancel_transit(
     match state
         .services
         .transits
-        .cancel(id, claims.user_id, req.reverse, req.notes, ip.clone())
+        .cancel(
+            &claims,
+            id,
+            claims.user_id,
+            req.reverse,
+            req.notes,
+            ip.clone(),
+        )
         .await
     {
         Ok(body) => Ok(Json(body)),

@@ -6,7 +6,9 @@ use serde_with::{serde_as, DisplayFromStr};
 use sqlx::FromRow;
 use utoipa::ToSchema;
 
+use crate::models::catalog_view::{borrower_initials, hold_for_identity, LoanBorrowerResponse};
 use crate::models::hold::Hold;
+use crate::models::user::{UserRights, UserShort};
 
 /// Transit lifecycle (stored as lowercase strings in DB).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -79,7 +81,59 @@ impl sqlx::Encode<'_, sqlx::Postgres> for TransitStatus {
     }
 }
 
-/// Item movement row (`item_transits`).
+/// Patron on a transit row: library card and initials only.
+///
+/// Never the name, login, or the staff profile, including when the caller has
+/// users read. Null when the transit has no hold, the hold is cancelled or
+/// expired (or otherwise closed), or the caller has no holds read/write.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct TransitPatron {
+    /// `users.barcode`. Null when the patron has no card on file.
+    pub card_number: Option<String>,
+    /// Uppercase first letter of `firstname` plus first letter of `lastname`.
+    pub initials: String,
+}
+
+impl TransitPatron {
+    /// Reduce [`hold_for_identity`] to the transit shape.
+    ///
+    /// Holds read without users read is already `{ id, cardNumber, initials }`.
+    /// Holds read with users read is the staff profile; only the card and
+    /// initials are kept.
+    fn from_identity(identity: LoanBorrowerResponse) -> Self {
+        match identity {
+            LoanBorrowerResponse::Minimized(minimized) => Self {
+                card_number: minimized.card_number,
+                initials: minimized.initials,
+            },
+            LoanBorrowerResponse::Full(staff) => Self {
+                card_number: staff.barcode.filter(|value| !value.trim().is_empty()),
+                initials: borrower_initials(staff.firstname.as_deref(), staff.lastname.as_deref()),
+            },
+        }
+    }
+}
+
+/// Card and initials for a transit, or `None` when [`hold_for_identity`] hides the patron.
+///
+/// The hold-status gate (active, set aside, or ready) is applied by the caller.
+/// This function does not invent a second rights rule.
+#[must_use]
+pub fn transit_patron(rights: &UserRights, patron: UserShort) -> Option<TransitPatron> {
+    hold_for_identity(rights, patron).map(TransitPatron::from_identity)
+}
+
+/// Item movement row (`item_transits`) plus the copy and patron for the queue.
+///
+/// `barcode`, `title`, `sourceId`, `sourceName`, and `patron` are filled when a
+/// transit is returned. They are not columns of `item_transits`.
+///
+/// `sourceId` is the copy's current site (`items.source_id`), next to `sourceName`.
+/// `patron` is `{ cardNumber, initials }` while the linked hold is pending, set
+/// aside (`to_pick`), or ready for pickup, and the caller may see that patron.
+/// It is null for a return to the home site, a cancelled or expired hold, and a
+/// caller without holds read or write.
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -90,6 +144,28 @@ pub struct ItemTransit {
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub item_id: i64,
+    /// Item barcode. Null when the copy has none.
+    #[serde(default)]
+    #[sqlx(skip)]
+    pub barcode: Option<String>,
+    /// Bibliographic title.
+    #[serde(default)]
+    #[sqlx(skip)]
+    pub title: Option<String>,
+    /// Current site of the copy (`items.source_id`), beside [`Self::source_name`].
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    #[serde(default)]
+    #[sqlx(skip)]
+    pub source_id: Option<i64>,
+    /// Current site name (`sources.name` for [`Self::source_id`]).
+    #[serde(default)]
+    #[sqlx(skip)]
+    pub source_name: Option<String>,
+    /// `{ cardNumber, initials }`, or null. See [`TransitPatron`].
+    #[serde(default)]
+    #[sqlx(skip)]
+    pub patron: Option<TransitPatron>,
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub hold_id: Option<i64>,

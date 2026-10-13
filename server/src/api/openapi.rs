@@ -442,6 +442,7 @@ use crate::api::{
             crate::models::dto::holds::HoldPickListItem,
             holds::HoldQuotaQuery,
             crate::models::transit::ItemTransit,
+            crate::models::transit::TransitPatron,
             crate::models::transit::TransitStatus,
             crate::models::transit::CreateTransit,
             crate::models::transit::TransitActionRequest,
