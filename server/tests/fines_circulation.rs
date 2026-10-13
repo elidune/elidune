@@ -10,7 +10,7 @@ use serde_json::json;
 use sqlx::Row;
 
 fn untouched_default_statement() -> String {
-    let migration = include_str!("../migrations/049_unpaid_threshold_nullable.sql");
+    let migration = include_str!("../migrations/051_unpaid_threshold_nullable.sql");
     let start = migration
         .find("-- BEGIN UNTOUCHED DEFAULT THRESHOLD")
         .expect("start marker");
