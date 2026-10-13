@@ -997,6 +997,14 @@ pub struct LoanDetailsStaff {
     pub renewal_date: Option<DateTime<Utc>>,
     pub nb_renews: i16,
     pub returned_at: Option<DateTime<Utc>>,
+    /// Set on closed loans (`returned` or `lost`). Omitted on open loans.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closure_reason: Option<crate::models::loan::LoanClosureReason>,
+    /// When a loan closed as lost had its copy found. Omitted on open loans.
+    /// JSON null until the copy is found.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<chrono::DateTime<chrono::Utc>>)]
+    pub found_at: Option<Option<DateTime<Utc>>>,
     pub biblio: BiblioShortStaff,
     pub user: Option<UserShortStaff>,
     pub item_identification: Option<String>,
@@ -1013,6 +1021,8 @@ impl From<LoanDetails> for LoanDetailsStaff {
             renewal_date: loan.renewal_date,
             nb_renews: loan.nb_renews,
             returned_at: loan.returned_at,
+            closure_reason: loan.closure_reason,
+            found_at: loan.found_at,
             biblio: BiblioShortStaff::from(loan.biblio),
             user: loan.user.map(UserShortStaff::from),
             item_identification: loan.item_identification,
@@ -1037,6 +1047,14 @@ pub struct LoanDetailsPublic {
     pub renewal_date: Option<DateTime<Utc>>,
     pub nb_renews: i16,
     pub returned_at: Option<DateTime<Utc>>,
+    /// Set on closed loans (`returned` or `lost`). Omitted on open loans.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closure_reason: Option<crate::models::loan::LoanClosureReason>,
+    /// When a loan closed as lost had its copy found. Omitted on open loans.
+    /// JSON null until the copy is found.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<chrono::DateTime<chrono::Utc>>)]
+    pub found_at: Option<Option<DateTime<Utc>>>,
     pub biblio: BiblioShortPublic,
     pub user: Option<UserShortPublic>,
     pub item_identification: Option<String>,
@@ -1053,6 +1071,8 @@ impl From<LoanDetails> for LoanDetailsPublic {
             renewal_date: loan.renewal_date,
             nb_renews: loan.nb_renews,
             returned_at: loan.returned_at,
+            closure_reason: loan.closure_reason,
+            found_at: loan.found_at,
             biblio: BiblioShortPublic::from(loan.biblio),
             user: loan.user.map(UserShortPublic::from),
             item_identification: loan.item_identification,
@@ -1079,6 +1099,14 @@ pub struct LoanDetailsOwn {
     pub renewal_date: Option<DateTime<Utc>>,
     pub nb_renews: i16,
     pub returned_at: Option<DateTime<Utc>>,
+    /// Set on closed loans (`returned` or `lost`). Omitted on open loans.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closure_reason: Option<crate::models::loan::LoanClosureReason>,
+    /// When a loan closed as lost had its copy found. Omitted on open loans.
+    /// JSON null until the copy is found.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<chrono::DateTime<chrono::Utc>>)]
+    pub found_at: Option<Option<DateTime<Utc>>>,
     pub biblio: BiblioShortPublic,
     pub user: Option<LoanBorrowerMinimized>,
     pub item_identification: Option<String>,
@@ -1095,6 +1123,8 @@ impl From<LoanDetails> for LoanDetailsOwn {
             renewal_date: loan.renewal_date,
             nb_renews: loan.nb_renews,
             returned_at: loan.returned_at,
+            closure_reason: loan.closure_reason,
+            found_at: loan.found_at,
             biblio: BiblioShortPublic::from(loan.biblio),
             user: loan.user.map(LoanBorrowerMinimized::from),
             item_identification: loan.item_identification,

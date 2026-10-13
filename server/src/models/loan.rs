@@ -30,6 +30,35 @@ pub struct Loan {
     pub reminder_count: Option<i32>,
 }
 
+/// Why a loan was closed. Finding a lost copy does not change this.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LoanClosureReason {
+    /// Physical return, damaged return, or claims-returned resolved as found.
+    Returned,
+    /// Declared lost, or claims-returned resolved as not found.
+    Lost,
+}
+
+impl LoanClosureReason {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Returned => "returned",
+            Self::Lost => "lost",
+        }
+    }
+
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "returned" => Some(Self::Returned),
+            "lost" => Some(Self::Lost),
+            _ => None,
+        }
+    }
+}
+
 /// Loan with full details for display
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -47,6 +76,14 @@ pub struct LoanDetails {
     pub renewal_date: Option<DateTime<Utc>>,
     pub nb_renews: i16,
     pub returned_at: Option<DateTime<Utc>>,
+    /// Set on closed loans. Omitted on open loans.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closure_reason: Option<LoanClosureReason>,
+    /// When a loan closed as [`LoanClosureReason::Lost`] had its copy found.
+    /// `None` omits the field (open loans). `Some(None)` is JSON null.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<chrono::DateTime<chrono::Utc>>)]
+    pub found_at: Option<Option<DateTime<Utc>>>,
     pub biblio: BiblioShort,
     pub user: Option<UserShort>,
     pub item_identification: Option<String>,
@@ -235,5 +272,31 @@ mod renew_at_tests {
             LoanSettingsRenewAt::from("unexpected"),
             LoanSettingsRenewAt::AtDueDate
         );
+    }
+}
+
+#[cfg(test)]
+mod closure_reason_tests {
+    use super::LoanClosureReason;
+
+    #[test]
+    fn closure_reason_serializes_as_returned_or_lost() {
+        assert_eq!(
+            serde_json::to_value(LoanClosureReason::Returned).unwrap(),
+            serde_json::json!("returned")
+        );
+        assert_eq!(
+            serde_json::to_value(LoanClosureReason::Lost).unwrap(),
+            serde_json::json!("lost")
+        );
+        assert_eq!(
+            LoanClosureReason::parse("returned"),
+            Some(LoanClosureReason::Returned)
+        );
+        assert_eq!(
+            LoanClosureReason::parse("lost"),
+            Some(LoanClosureReason::Lost)
+        );
+        assert_eq!(LoanClosureReason::parse("claimed"), None);
     }
 }

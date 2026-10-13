@@ -197,6 +197,7 @@ jobs:
           --test fine_audit_tx
           --test loan_open_conflict
           --test loan_borrower_identity
+          --test loan_closure_reason
           --test patron_card_scan
           --test biblio_item_notice
           --test card_replacement
@@ -290,6 +291,7 @@ jobs:
           --test fine_audit_tx
           --test loan_open_conflict
           --test loan_borrower_identity
+          --test loan_closure_reason
           --test patron_card_scan
           --test biblio_item_notice
           --test card_replacement

@@ -7,11 +7,12 @@ use sqlx::FromRow;
 
 use super::Repository;
 use crate::{
-    error::AppResult,
+    error::{AppError, AppResult},
     models::{
         biblio::MediaType,
         circulation::CirculationStatus,
         item::WeedingStatus,
+        loan::LoanClosureReason,
         my_account::{MyHoldStatus, MyHoldView, MyLoanView},
     },
     renewal::{renewal_eligibility, RenewalContext, RenewalLoan, RenewalUser},
@@ -31,6 +32,19 @@ struct OwnerLoanRow {
     circulation_status: Option<i16>,
     hold_waiting: bool,
     is_overdue: bool,
+}
+
+#[derive(Debug, FromRow)]
+struct OwnerArchivedLoanRow {
+    id: i64,
+    barcode: Option<String>,
+    title: Option<String>,
+    media_type: String,
+    start_date: DateTime<Utc>,
+    due_date: Option<DateTime<Utc>>,
+    renewal_count: i16,
+    closure_reason: String,
+    found_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, FromRow)]
@@ -160,6 +174,76 @@ impl Repository {
                 renewal_refusal_code: refusal,
                 renewal_opens_at: refusal.and_then(|code| code.opens_at_iso(&renewal_loan, &ctx)),
                 is_overdue: row.is_overdue,
+                closure_reason: None,
+                found_at: None,
+            });
+        }
+        Ok((items, total))
+    }
+
+    /// Closed loans for this patron. `user_id` is the caller; the statement filters on it.
+    pub async fn loans_list_archived_for_owner(
+        &self,
+        user_id: i64,
+        page: i64,
+        per_page: i64,
+    ) -> AppResult<(Vec<MyLoanView>, i64)> {
+        let offset = (page - 1) * per_page;
+        let total: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM loans_archives la WHERE la.user_id = $1",
+        )
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await?;
+
+        let rows = sqlx::query_as::<_, OwnerArchivedLoanRow>(
+            r#"
+            SELECT la.id,
+                   it.barcode,
+                   b.title,
+                   b.media_type,
+                   la.date AS start_date,
+                   la.expiry_at AS due_date,
+                   COALESCE(la.nb_renews, 0)::int2 AS renewal_count,
+                   la.closure_reason,
+                   la.found_at
+            FROM loans_archives la
+            JOIN items it ON la.item_id = it.id
+            JOIN biblios b ON it.biblio_id = b.id
+            WHERE la.user_id = $1
+            ORDER BY la.returned_at DESC NULLS LAST, la.id DESC
+            LIMIT $2 OFFSET $3
+            "#,
+        )
+        .bind(user_id)
+        .bind(per_page)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut items = Vec::with_capacity(rows.len());
+        for row in rows {
+            let closure_reason =
+                LoanClosureReason::parse(&row.closure_reason).ok_or_else(|| {
+                    AppError::Internal(format!(
+                        "unknown loan closure reason {}",
+                        row.closure_reason
+                    ))
+                })?;
+            items.push(MyLoanView {
+                id: row.id,
+                barcode: row.barcode,
+                title: row.title,
+                media_type: MediaType::from(row.media_type.as_str()),
+                start_date: row.start_date,
+                due_date: row.due_date.unwrap_or(row.start_date),
+                renewal_count: row.renewal_count,
+                can_renew: false,
+                renewal_refusal_code: None,
+                renewal_opens_at: None,
+                is_overdue: false,
+                closure_reason: Some(closure_reason),
+                found_at: Some(row.found_at),
             });
         }
         Ok((items, total))

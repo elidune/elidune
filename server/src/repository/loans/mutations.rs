@@ -12,7 +12,7 @@ use crate::{
         circulation::CirculationStatus,
         item::{ItemShort, WeedingStatus},
         loan::{
-            CreateLoan, Loan, LoanCreateOutcome, LoanDetails, LoanReturnOutcome,
+            CreateLoan, Loan, LoanClosureReason, LoanCreateOutcome, LoanDetails, LoanReturnOutcome,
             LoanSettingsRenewAt,
         },
         user::{UserShort, UserShortRow},
@@ -289,6 +289,7 @@ impl Repository {
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         loan: &Loan,
         returned_at: DateTime<Utc>,
+        closure_reason: LoanClosureReason,
     ) -> AppResult<()> {
         let user_row = sqlx::query(
             "SELECT addr_city, account_type, public_type, birthdate FROM users WHERE id = $1",
@@ -310,9 +311,10 @@ impl Repository {
             INSERT INTO loans_archives (
                 user_id, item_id, date, nb_renews, expiry_at,
                 returned_at, notes, borrower_public_type,
-                addr_city, account_type, age_band, loan_year
+                addr_city, account_type, age_band, loan_year,
+                closure_reason
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             "#,
         )
         .bind(loan.user_id)
@@ -335,6 +337,7 @@ impl Repository {
         .bind(account_type)
         .bind(age_band)
         .bind(loan_year)
+        .bind(closure_reason.as_str())
         .execute(&mut **tx)
         .await?;
 
@@ -343,6 +346,43 @@ impl Repository {
             .execute(&mut **tx)
             .await?;
 
+        Ok(())
+    }
+
+    /// Record that a copy closed as lost was accepted back.
+    ///
+    /// The loan stays `lost`. `found_at` is set on the latest unmatched loss
+    /// archive for this copy. If that archive was not labeled `lost` (older
+    /// data), it is corrected: the copy is lost now, and a lost copy cannot
+    /// have been checked out again.
+    pub(crate) async fn loans_mark_lost_copy_found_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        item_id: i64,
+        found_at: DateTime<Utc>,
+    ) -> AppResult<()> {
+        sqlx::query(
+            r#"
+            UPDATE loans_archives
+            SET closure_reason = 'lost',
+                found_at = $2
+            WHERE id = (
+                SELECT id
+                FROM loans_archives
+                WHERE item_id = $1
+                  AND found_at IS NULL
+                ORDER BY
+                    CASE WHEN closure_reason = 'lost' THEN 0 ELSE 1 END,
+                    returned_at DESC NULLS LAST,
+                    id DESC
+                LIMIT 1
+            )
+            "#,
+        )
+        .bind(item_id)
+        .bind(found_at)
+        .execute(&mut **tx)
+        .await?;
         Ok(())
     }
 
@@ -358,7 +398,7 @@ impl Repository {
 
         let mut tx = self.pool.begin().await?;
 
-        self.loans_archive_and_delete_tx(&mut tx, &loan, now)
+        self.loans_archive_and_delete_tx(&mut tx, &loan, now, LoanClosureReason::Returned)
             .await?;
 
         let status_before: Option<i16> =
@@ -485,6 +525,8 @@ impl Repository {
             renewal_date: loan.renew_at,
             nb_renews: loan.nb_renews.unwrap_or(0),
             returned_at: Some(now),
+            closure_reason: Some(LoanClosureReason::Returned),
+            found_at: Some(None),
             biblio: BiblioShort {
                 id: biblio_row.get("biblio_id"),
                 media_type: biblio_row.get("media_type"),
