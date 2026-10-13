@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type { ItemCheckIn } from '@/types';
+import { borrowerCardNumber, borrowerDisplayName } from '@/utils/readerIdentifier';
 
 export const ITEM_TO_PICK_FOR_OTHER = 'item_to_pick_for_other';
 
@@ -67,6 +68,17 @@ function embeddedUserName(hold: Record<string, unknown> | null): string | null {
   return joined || null;
 }
 
+/** Name when the profile is full. Card, then initials, when it is minimized. */
+function patronFromHoldFor(value: unknown): string | null {
+  const source = holdRecord(value);
+  if (!source) return null;
+  const name = borrowerDisplayName(source);
+  if (name) return name;
+  const card = borrowerCardNumber(source);
+  if (card) return card;
+  return text(source.initials);
+}
+
 /**
  * Pick completion on the existing return path.
  * `ready` puts the copy on the hold shelf. Transit sends it to the pickup site.
@@ -83,7 +95,8 @@ export function interpretPickCheckIn(body: ItemCheckIn | null | undefined): Pick
   if (!ready && !transit) return null;
   return {
     kind: transit ? 'transit' : 'ready',
-    patronName: text(body.userName) ?? text(body.patronName) ?? embeddedUserName(hold),
+    patronName:
+      text(body.userName) ?? text(body.patronName) ?? embeddedUserName(hold) ?? patronFromHoldFor(body.holdFor),
     siteName: text(body.destinationSiteName) ?? text(body.pickupSiteName) ?? text(hold?.pickupSiteName),
     userId: text(body.userId) ?? text(hold?.userId),
     siteId:

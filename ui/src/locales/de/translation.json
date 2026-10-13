@@ -1251,6 +1251,9 @@
     "scanSpecimenBarcode": "Exemplar-Barcode scannen",
     "returnSuccess": "Rückgabe erfolgreich",
     "returnProcessed": "Die Ausleihe wurde zurückgegeben",
+    "returnNoticeNotOnLoan": "Dieses Exemplar ist keinem Leser ausgeliehen.",
+    "returnNoticePutBack": "Stellen Sie es zurück ins Regal.",
+    "returnNoticeBlocked": "Dieses Exemplar wurde keinem Leser zurückgegeben. Status: {{status}}.",
     "lostFound": {
       "title": "Als verloren gemeldetes Dokument, wiedergefunden",
       "checkCondition": "Dieses Exemplar wurde als verloren gemeldet. Prüfen Sie den Zustand, bevor Sie wählen.",

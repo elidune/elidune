@@ -2476,6 +2476,29 @@ export interface LostReturnFields {
   paidAmount?: number;
 }
 
+/** Non-blocking note on a barcode check-in. Not an error body. */
+export type DeskNoticeCode = 'item_not_on_loan' | 'item_not_available_status';
+
+/** `informational` is neutral. `warning` means the copy was not changed. */
+export type DeskNoticeLevel = 'informational' | 'warning';
+
+export interface DeskNotice {
+  code: DeskNoticeCode;
+  level: DeskNoticeLevel;
+}
+
+/**
+ * camelCase JSON from `CirculationStatus` on a blocked return scan.
+ * `available` is sent with `weedingStatus` `withdrawn`.
+ */
+export type ReturnScanCirculationStatus =
+  | 'available'
+  | 'lost'
+  | 'damaged'
+  | 'claimedReturned'
+  | 'toSearch'
+  | 'missing';
+
 /** Desk check-in of a barcode (`POST /loans/items/{barcode}/return`). */
 export interface ItemCheckIn extends LostReturnFields {
   status: string;
@@ -2489,6 +2512,17 @@ export interface ItemCheckIn extends LostReturnFields {
   pickupSiteId?: string | null;
   destinationSiteId?: string | null;
   transitStarted?: boolean;
+  /**
+   * Available copy that was not on loan (`item_not_on_loan`, `informational`),
+   * or a blocked status (`item_not_available_status`, `warning`).
+   */
+  notice?: DeskNotice | null;
+  /** Patron a not-on-loan hold was set aside for. Same privacy rule as catalog `holdFor`. */
+  holdFor?: HoldFor | null;
+  /** Current circulation exception when the notice is `item_not_available_status`. */
+  circulationStatus?: ReturnScanCirculationStatus | null;
+  /** Current weeding status when the notice is `item_not_available_status`. */
+  weedingStatus?: ItemWeedingStatus | null;
 }
 
 /** Staff decision after the lost-copy alert (`POST /loans/items/{itemId}/lost-found`). */
@@ -2856,6 +2890,9 @@ export interface BatchReturnResult extends LostReturnFields {
   success: boolean;
   loan?: Loan | null;
   error?: string | null;
+  notice?: DeskNotice | null;
+  circulationStatus?: ReturnScanCirculationStatus | null;
+  weedingStatus?: ItemWeedingStatus | null;
 }
 
 export interface BatchReturnResponse {
