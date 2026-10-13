@@ -665,7 +665,7 @@ export interface WithdrawalListParams {
 
 /**
  * Copy embedded in a staff list (`ItemShortStaff`).
- * No loan id or copy notes — those exist only on {@link ItemStaffView}.
+ * No loan id. `publicNote` and `internalNote` exist only on {@link ItemStaffView}.
  */
 export interface ItemShortStaff {
   id: string;
@@ -695,7 +695,7 @@ export type ItemShort = ItemShortStaff;
 
 /**
  * Copy embedded in a reader or OPAC list (`ItemShortPublic`).
- * No weeding, circulation status, loan id, notes, or hold patron.
+ * No weeding, circulation status, loan id, `publicNote`, `internalNote`, or hold patron.
  */
 export interface ItemShortPublic {
   id: string;
@@ -763,7 +763,16 @@ export interface Item {
    * Present on {@link ItemStaffView} only. List copies and public views omit it.
    */
   circulationStatus?: number | string | null;
-  notes?: string | null;
+  /**
+   * Patron-facing copy note. Staff and public detail payloads include it.
+   * List and search rows omit it.
+   */
+  publicNote?: string | null;
+  /**
+   * Staff-only copy note. Present on staff detail payloads.
+   * Patrons, the OPAC, and list rows omit it.
+   */
+  internalNote?: string | null;
   price?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
@@ -791,7 +800,7 @@ export interface Item {
 
 /**
  * Staff notice copy (`ItemStaffView`).
- * Includes weeding, copy notes, circulation status, the active loan id, `dueDate`,
+ * Includes weeding, `publicNote`, `internalNote`, circulation status, the active loan id, `dueDate`,
  * `onHold`, and the hold patron when `availability` is `onHold`.
  * `borrower` is present only on `GET /biblios/{id}` when the caller has loans
  * read or write and the copy is on loan. `priceDeferred` is sent only when true.
@@ -808,7 +817,10 @@ export interface ItemStaffView {
   circulationStatus: number | null;
   weedingStatus: ItemWeedingStatus;
   weedingReason: string | null;
-  notes: string | null;
+  /** Copy note shown to patrons and the OPAC. Null when empty. */
+  publicNote: string | null;
+  /** Staff-only copy note. Former `notes` values live here. */
+  internalNote: string | null;
   price: string | null;
   priceDeferred?: boolean;
   createdAt: string | null;
@@ -841,7 +853,7 @@ export interface ItemStaffView {
 
 /**
  * Reader/OPAC notice copy (`ItemPublicView`).
- * No notes, weeding, circulation status, loan id, borrower, hold patron, or `dueDate`.
+ * Includes `publicNote` only. No `internalNote`, weeding, circulation status, loan id, borrower, hold patron, or `dueDate`.
  * `onHold` and `expectedReturnDate` (date only, on loan, omitted when overdue) are included.
  * `availability` is never `toSearch`.
  */
@@ -854,6 +866,8 @@ export interface ItemPublicView {
   volumeDesignation: string | null;
   place: number | null;
   borrowable: boolean;
+  /** Copy note safe for patrons and the OPAC. Null when the copy has none. */
+  publicNote: string | null;
   price: string | null;
   createdAt: string | null;
   updatedAt: string | null;
@@ -1022,7 +1036,10 @@ export interface CreateItem {
   volumeDesignation?: string | null;
   place?: number | null;
   borrowable?: boolean | null;
-  notes?: string | null;
+  /** Optional. Blank is stored as null. Max 4000 characters. */
+  publicNote?: string | null;
+  /** Optional staff note. Blank is stored as null. Max 4000 characters. */
+  internalNote?: string | null;
   price?: string | null;
   /** Write-only: treat a missing price as an explicit deferral when enabling circulation. */
   priceDeferred?: boolean | null;
@@ -1037,7 +1054,13 @@ export interface UpdateItem {
   volumeDesignation?: string | null;
   place?: number | null;
   borrowable?: boolean | null;
-  notes?: string | null;
+  /**
+   * Omit or `null` to keep the stored note. `""` clears it.
+   * Longer than 4000 characters is HTTP 400 `validation_error`.
+   */
+  publicNote?: string | null;
+  /** Same omit, null, and blank rules as `publicNote`. Staff only. */
+  internalNote?: string | null;
   price?: string | null;
   /** Write-only: treat a missing price as an explicit deferral when enabling circulation. */
   priceDeferred?: boolean | null;

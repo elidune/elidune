@@ -28,6 +28,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useLibrary } from '@/contexts/LibraryContext';
 import { Card, Input, Button, LibraryInfoSection } from '@/components/common';
 import NoticeHoldsWaiting from '@/components/holds/NoticeHoldsWaiting';
+import { CopyNotes } from '@/components/items/CopyNotes';
 import ItemAvailabilityBadge from '@/components/items/ItemAvailabilityBadge';
 import PublicCopyReturnLine from '@/components/items/PublicCopyReturnLine';
 import { copyAvailabilityLabel, summaryAvailability } from '@/utils/itemAvailability';
@@ -398,6 +399,7 @@ function BiblioDetailPane({
                           availability={item.availability}
                           expectedReturnDate={item.expectedReturnDate}
                         />
+                        <CopyNotes audience="public" publicNote={item.publicNote} compact />
                       </div>
                     );
                   })}
