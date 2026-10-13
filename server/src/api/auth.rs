@@ -603,7 +603,7 @@ pub async fn verify_recovery(
     tag = "auth",
     request_body = RequestPasswordResetRequest,
     responses(
-        (status = 200, description = "Generic acceptance. The same response is returned whether or not an account exists, mail was sent, or the reset quota is exhausted.", body = RequestPasswordResetResponse),
+        (status = 200, description = "Generic acceptance. The same response is returned whether or not an account exists, a reset email was queued, or the reset quota is exhausted. Delivery is asynchronous; an SMTP outage does not change this response.", body = RequestPasswordResetResponse),
         (status = 400, description = "Malformed input", body = ErrorResponse)
     )
 )]
@@ -664,28 +664,33 @@ pub async fn request_password_reset(
         .send_password_reset(&email, &token, lang, Some(&reset_url))
         .await
     {
-        Ok(()) => {
+        Ok(outbox_id) => {
             state.services.audit.log(
                 audit::event::EMAIL_PASSWORD_RESET_SENT,
                 Some(user_id),
                 Some("user"),
                 Some(user_id),
                 ip,
-                Some(serde_json::json!({ "to": email.as_str() })),
+                Some(serde_json::json!({
+                    "to": email.as_str(),
+                    "outboxId": outbox_id,
+                    "delivery": "queued",
+                })),
                 audit::AuditLogMeta::success(),
             );
         }
         Err(e) => {
+            // Same 200 as an unknown account. A 500 here would confirm the account exists.
+            tracing::warn!(error = %e, "password reset email was not queued");
             state.services.audit.log(
                 audit::event::EMAIL_PASSWORD_RESET_SENT,
                 Some(user_id),
                 Some("user"),
                 Some(user_id),
-                ip.clone(),
-                Some(serde_json::json!({ "to": email.as_str() })),
-                audit::AuditLogMeta::from_app_error(&e),
+                ip,
+                Some(serde_json::json!({ "to": email.as_str(), "delivery": "queued" })),
+                audit::AuditLogMeta::failure_background("email_enqueue_failed", e.to_string()),
             );
-            return Err(e);
         }
     }
 
