@@ -2,17 +2,10 @@ import { useTranslation } from 'react-i18next';
 import { ConfirmDialog } from '@/components/common';
 import StartTransitDialog from '@/components/holds/StartTransitDialog';
 import type { useTransitActions } from '@/hooks/holds/useTransitActions';
-import type { Source } from '@/types';
 
 type TransitActions = ReturnType<typeof useTransitActions>;
 
-export default function TransitActionModals({
-  actions,
-  sources,
-}: {
-  actions: TransitActions;
-  sources: readonly Source[];
-}) {
+export default function TransitActionModals({ actions }: { actions: TransitActions }) {
   const { t } = useTranslation();
   const { pending, isLoading, error, close, confirmStart, confirmShip, confirmReceive, confirmCancel } =
     actions;
@@ -21,7 +14,6 @@ export default function TransitActionModals({
     <>
       <StartTransitDialog
         hold={pending?.kind === 'start' ? pending.hold : null}
-        sources={sources}
         isOpen={pending?.kind === 'start'}
         isLoading={isLoading}
         error={error}

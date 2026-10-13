@@ -4,51 +4,9 @@ import { createElement, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createInstance, type i18n as I18nInstance } from 'i18next';
 import { I18nextProvider } from 'react-i18next';
-import { MemoryRouter } from 'react-router-dom';
 import fr from '../../locales/fr/translation.json' with { type: 'json' };
 import en from '../../locales/en/translation.json' with { type: 'json' };
-import type { HoldDetailsStaff } from '@/types';
-import { transitListReader } from '@/utils/transitDisplay';
 import { TransitBarcodeCell, TransitReaderCell, TransitTitleCell } from './TransitQueueCells.tsx';
-
-const NAMED: HoldDetailsStaff['user'] = {
-  id: 'u1',
-  firstname: 'Helene',
-  lastname: 'Holder',
-  login: 'helene',
-  barcode: 'CARD-3',
-};
-
-function hold(patch: Partial<HoldDetailsStaff> = {}): HoldDetailsStaff {
-  return {
-    id: 'h1',
-    userId: 'u1',
-    biblioId: 'b1',
-    itemId: 'i1',
-    pickupSiteId: 'site-main',
-    biblio: {
-      id: 'b1',
-      mediaType: 'printedText',
-      isbn: null,
-      title: 'Privacy',
-      date: null,
-      status: 0,
-      isValid: true,
-      archivedAt: null,
-      weedingStatus: 'onShelf',
-      author: null,
-      items: [],
-    },
-    user: NAMED,
-    createdAt: '2026-10-01T00:00:00Z',
-    notifiedAt: null,
-    expiresAt: null,
-    status: 'pending',
-    position: 1,
-    notes: null,
-    ...patch,
-  };
-}
 
 async function i18nFor(lng: 'fr' | 'en'): Promise<I18nInstance> {
   const i18n = createInstance();
@@ -64,41 +22,47 @@ async function i18nFor(lng: 'fr' | 'en'): Promise<I18nInstance> {
 }
 
 function render(i18n: I18nInstance, node: ReactElement): string {
-  return renderToStaticMarkup(
-    createElement(I18nextProvider, { i18n }, createElement(MemoryRouter, null, node)) as ReactElement,
-  );
+  return renderToStaticMarkup(createElement(I18nextProvider, { i18n }, node) as ReactElement);
 }
 
 describe('transit queue cells', () => {
-  it('renders the card and a reader link, never the name', async () => {
+  it('renders the card and never a name or a reader link', async () => {
     const html = render(
       await i18nFor('fr'),
-      createElement(TransitReaderCell, { reader: transitListReader(hold()), linked: true }),
+      createElement(TransitReaderCell, { patron: { cardNumber: 'CARD-3', initials: 'HH' } }),
     );
     assert.match(html, /carte n°/);
     assert.match(html, /CARD-3/);
-    assert.match(html, /href="\/users\/u1"/);
     assert.equal(html.includes('Helene'), false);
     assert.equal(html.includes('Holder'), false);
+    assert.equal(html.includes('<a'), false);
     assert.equal(html.includes('spécimen'), false);
   });
 
   it('renders initials when the reader has no card', async () => {
     const html = render(
       await i18nFor('en'),
-      createElement(TransitReaderCell, {
-        reader: transitListReader(
-          hold({ user: { id: 'u1', firstname: 'Helene', lastname: 'Holder', barcode: '  ' } }),
-        ),
-        linked: false,
-      }),
+      createElement(TransitReaderCell, { patron: { cardNumber: null, initials: 'HH' } }),
     );
     assert.match(html, /HH/);
-    assert.equal(html.includes('Helene'), false);
-    assert.equal(html.includes('<a'), false);
+    assert.equal(html.includes('card number'), false);
   });
 
-  it('renders the barcode and title fields, with a dash when they are absent', async () => {
+  it('renders an em dash when patron is null or a name slipped into initials', async () => {
+    const i18n = await i18nFor('fr');
+    const empty = render(i18n, createElement(TransitReaderCell, { patron: null }));
+    assert.match(empty, /—/);
+    assert.equal(empty.includes('Helene'), false);
+
+    const named = render(
+      i18n,
+      createElement(TransitReaderCell, { patron: { cardNumber: '  ', initials: 'Helene Holder' } }),
+    );
+    assert.match(named, /—/);
+    assert.equal(named.includes('Helene'), false);
+  });
+
+  it('renders the barcode and title from the transit, with a dash when they are absent', async () => {
     const i18n = await i18nFor('en');
     const filled = render(
       i18n,
@@ -106,12 +70,12 @@ describe('transit queue cells', () => {
         'div',
         null,
         createElement(TransitBarcodeCell, { barcode: 'EX-1' }),
-        createElement(TransitTitleCell, { title: 'Privacy', biblioId: 'b1' }),
+        createElement(TransitTitleCell, { title: 'Privacy' }),
       ),
     );
     assert.match(filled, /EX-1/);
     assert.match(filled, /Privacy/);
-    assert.match(filled, /href="\/biblios\/b1"/);
+    assert.equal(filled.includes('/biblios/'), false);
 
     const empty = render(
       i18n,
@@ -119,10 +83,9 @@ describe('transit queue cells', () => {
         'div',
         null,
         createElement(TransitBarcodeCell, { barcode: null }),
-        createElement(TransitTitleCell, { title: null, biblioId: 'b1' }),
+        createElement(TransitTitleCell, { title: null }),
       ),
     );
     assert.match(empty, /—/);
-    assert.equal(empty.includes('/biblios/'), false);
   });
 });

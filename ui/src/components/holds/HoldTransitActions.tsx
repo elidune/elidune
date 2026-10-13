@@ -1,7 +1,9 @@
 import { useTranslation } from 'react-i18next';
+import { useQuery } from '@tanstack/react-query';
 import { Package, PackageCheck, Truck } from 'lucide-react';
 import { Button } from '@/components/common';
-import type { HoldListItem, ItemTransit, Source } from '@/types';
+import api from '@/services/api';
+import type { HoldListItem, ItemTransit } from '@/types';
 import type { useTransitActions } from '@/hooks/holds/useTransitActions';
 import {
   canReceiveTransit,
@@ -13,18 +15,28 @@ export default function HoldTransitActions({
   hold,
   transit,
   actions,
-  sources,
 }: {
   hold: HoldListItem;
   transit?: ItemTransit | null;
   actions: ReturnType<typeof useTransitActions>;
-  sources: readonly Source[];
 }) {
   const { t } = useTranslation();
   const { busyKey, isLoading, open } = actions;
   const startBusy = busyKey === `start:${hold.id}`;
   const shipBusy = transit ? busyKey === `ship:${transit.id}` : false;
   const receiveBusy = transit ? busyKey === `receive:${transit.id}` : false;
+  const awaitingTransfer = Boolean(transit && (canShipTransit(transit) || canReceiveTransit(transit)));
+  const resolveCopySite =
+    hold.status === 'pending' && !!hold.pickupSiteId && !!hold.itemId && !awaitingTransfer;
+  const siteQuery = useQuery({
+    queryKey: ['biblio', hold.biblioId],
+    queryFn: () => api.getBiblio(hold.biblioId),
+    enabled: resolveCopySite && !!hold.biblioId && !transit?.sourceId,
+    staleTime: 60 * 1000,
+  });
+  const copySourceId =
+    transit?.sourceId ??
+    siteQuery.data?.items.find((item) => item.id === hold.itemId)?.sourceId;
 
   if (transit && canShipTransit(transit)) {
     return (
@@ -56,7 +68,9 @@ export default function HoldTransitActions({
     );
   }
 
-  if (canStartHoldTransit(hold, transit, sources)) {
+  if (resolveCopySite && siteQuery.isLoading) return null;
+
+  if (canStartHoldTransit(hold, transit, copySourceId)) {
     return (
       <Button
         size="sm"

@@ -3,13 +3,12 @@ import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { Button, Input, Modal } from '@/components/common';
 import api from '@/services/api';
-import type { CreateTransit, HoldListItem, Source } from '@/types';
+import type { CreateTransit, HoldListItem } from '@/types';
 import { formChoiceLabelClass, formControlClass, formLabelClass } from '@/utils/formControl';
-import { allocatedCopySourceId, copyAlreadyAtPickupSite } from '@/utils/transitDisplay';
+import { copyAlreadyAtPickupSite } from '@/utils/transitDisplay';
 
 export default function StartTransitDialog({
   hold,
-  sources,
   isOpen,
   isLoading,
   error,
@@ -17,7 +16,6 @@ export default function StartTransitDialog({
   onConfirm,
 }: {
   hold: HoldListItem | null;
-  sources: readonly Source[];
   isOpen: boolean;
   isLoading: boolean;
   error?: string | null;
@@ -43,22 +41,18 @@ export default function StartTransitDialog({
   const copiesQuery = useQuery({
     queryKey: ['biblio', biblioId],
     queryFn: () => api.getBiblio(biblioId!),
-    enabled: isOpen && !!biblioId && !hold?.itemId,
+    enabled: isOpen && !!biblioId,
     staleTime: 60 * 1000,
   });
 
   const copies = copiesQuery.data?.items ?? [];
   const pinned = hold?.itemId ?? '';
   const selectedCopy = pinned || itemId;
-  const fetchedCopy = copies.find((c) => c.id === selectedCopy);
-  const selectedSourceId = fetchedCopy
-    ? fetchedCopy.sourceId
-    : hold && selectedCopy === pinned
-      ? allocatedCopySourceId(hold, sources)
-      : null;
-  const sameSite = hold ? copyAlreadyAtPickupSite(hold, selectedSourceId) : false;
+  const selectedSourceId = copies.find((c) => c.id === selectedCopy)?.sourceId ?? null;
+  const sameSite = hold ? copyAlreadyAtPickupSite(hold.pickupSiteId, selectedSourceId) : false;
+  const sitePending = !!selectedCopy && (copiesQuery.isLoading || copiesQuery.isFetching);
   const needsCopy = !pinned;
-  const canSubmit = !!hold && !!selectedCopy && !sameSite && !isLoading;
+  const canSubmit = !!hold && !!selectedCopy && !sameSite && !sitePending && !isLoading;
 
   return (
     <Modal

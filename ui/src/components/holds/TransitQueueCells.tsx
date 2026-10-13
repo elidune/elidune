@@ -1,8 +1,6 @@
-import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import type { LoanBorrowerMinimized } from '@/types';
+import type { TransitPatron } from '@/types';
 import { shelfPatronLabel } from '@/utils/holdPatron';
-import { patronId } from '@/utils/patronLink';
 
 const EMPTY = '—';
 
@@ -10,48 +8,20 @@ export function TransitBarcodeCell({ barcode }: { barcode: string | null }) {
   return <span className="font-mono text-sm">{barcode?.trim() || EMPTY}</span>;
 }
 
-export function TransitTitleCell({
-  title,
-  biblioId,
-}: {
-  title: string | null;
-  biblioId?: string | null;
-}) {
-  const text = title?.trim() || EMPTY;
-  if (!biblioId || !title?.trim()) {
-    return <span className="font-medium text-gray-900 dark:text-white">{text}</span>;
-  }
-  return (
-    <Link
-      to={`/biblios/${biblioId}`}
-      className="font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
-    >
-      {text}
-    </Link>
-  );
+export function TransitTitleCell({ title }: { title: string | null }) {
+  return <span className="font-medium text-gray-900 dark:text-white">{title?.trim() || EMPTY}</span>;
 }
 
 /**
- * Transit-list reader. Card number, otherwise initials. The name is never shown.
+ * Transit-list reader. Card number, otherwise initials.
+ * A null patron is an em dash. A name is never shown.
  */
-export function TransitReaderCell({
-  reader,
-  linked = false,
-}: {
-  reader: LoanBorrowerMinimized | null;
-  linked?: boolean;
-}) {
+export function TransitReaderCell({ patron }: { patron: TransitPatron | null }) {
   const { t } = useTranslation();
-  const label = shelfPatronLabel(reader, t);
-  const id = linked ? patronId(reader?.id) : null;
-  if (!id) return <span data-transit-reader="">{label}</span>;
-  return (
-    <Link
-      to={`/users/${id}`}
-      data-transit-reader=""
-      className="text-indigo-600 dark:text-indigo-400 hover:underline"
-    >
-      {label}
-    </Link>
-  );
+  const card = patron?.cardNumber?.trim() || null;
+  const initials = patron?.initials?.trim().replace(/\./g, '') ?? '';
+  const safeInitials = initials && !/\s/u.test(initials) ? initials : '';
+  if (!card && !safeInitials) return <span data-transit-reader="">{EMPTY}</span>;
+  const label = shelfPatronLabel({ cardNumber: card, initials: safeInitials }, t);
+  return <span data-transit-reader="">{label}</span>;
 }

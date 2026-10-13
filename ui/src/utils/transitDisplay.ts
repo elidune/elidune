@@ -1,5 +1,4 @@
-import type { HoldListItem, ItemTransit, LoanBorrowerMinimized, Source, TransitStatus } from '@/types';
-import { minimizedHoldFor } from '@/utils/holdPatron';
+import type { HoldListItem, ItemTransit, Source, TransitPatron, TransitStatus } from '@/types';
 
 export function isActiveTransitStatus(status: TransitStatus): boolean {
   return status === 'requested' || status === 'inTransit';
@@ -36,12 +35,13 @@ export function indexTransitsByHoldId(transits: ItemTransit[]): Map<string, Item
 export function canStartHoldTransit(
   hold: HoldListItem,
   active?: ItemTransit | null,
-  sources: readonly Source[] = [],
+  copySourceId?: string | null,
 ): boolean {
   if (hold.status !== 'pending') return false;
   if (!hold.pickupSiteId) return false;
   if (active && isActiveTransitStatus(active.status)) return false;
-  if (copyAlreadyAtPickupSite(hold, allocatedCopySourceId(hold, sources))) return false;
+  const sourceId = clean(copySourceId) ?? clean(active?.sourceId);
+  if (copyAlreadyAtPickupSite(hold.pickupSiteId, sourceId)) return false;
   return true;
 }
 
@@ -57,55 +57,43 @@ export function canCancelTransit(transit: ItemTransit): boolean {
   return isActiveTransitStatus(transit.status);
 }
 
-/** Hide “start transit” when the allocated copy is already at the pickup site. */
+/** True when the copy's `sourceId` is the hold pickup site. Missing ids do not match. */
 export function copyAlreadyAtPickupSite(
-  hold: HoldListItem,
+  pickupSiteId?: string | null,
   copySourceId?: string | null,
 ): boolean {
-  if (!hold.pickupSiteId || !copySourceId) return false;
-  return hold.pickupSiteId === copySourceId;
+  const pickup = clean(pickupSiteId);
+  const source = clean(copySourceId);
+  if (!pickup || !source) return false;
+  return pickup === source;
+}
+
+/** Barcode on the transit. No item-id fallback. Missing on older servers. */
+export function transitListBarcode(transit: ItemTransit): string | null {
+  return clean(transit.barcode);
+}
+
+/** Bibliographic title on the transit. */
+export function transitListTitle(transit: ItemTransit): string | null {
+  return clean(transit.title);
 }
 
 /**
- * Site of the allocated copy.
- * The hold list sends `sourceName` on the embedded copy, not `sourceId`.
- * A unique site name from `GET /sources` is the id. Ambiguous or missing names stay unknown.
+ * Reader cell for a transit. Card number and initials only.
+ * Null patron, a blank patron, or initials that contain a space become an empty cell.
  */
-export function allocatedCopySourceId(
-  hold: HoldListItem,
-  sources: readonly Source[],
-): string | null {
-  const name = allocatedCopy(hold)?.sourceName?.trim();
-  if (!name) return null;
-  const matches = sources.filter((source) => source.name?.trim() === name);
-  return matches.length === 1 ? matches[0].id : null;
+export function transitListPatron(transit: ItemTransit): TransitPatron | null {
+  const patron = transit.patron;
+  if (!patron) return null;
+  const cardNumber = clean(patron.cardNumber);
+  const initials = clean(patron.initials)?.replace(/\./g, '') ?? '';
+  if (!cardNumber && !initials) return null;
+  if (/\s/u.test(initials)) return cardNumber ? { cardNumber, initials: '' } : null;
+  return { cardNumber, initials };
 }
 
-/** Barcode of the allocated copy (`biblio.items[].barcode`). No item-id fallback. */
-export function transitListBarcode(hold: HoldListItem | null | undefined): string | null {
-  const barcode = allocatedCopy(hold)?.barcode?.trim();
-  return barcode || null;
-}
-
-/** Bibliographic title (`biblio.title`). */
-export function transitListTitle(hold: HoldListItem | null | undefined): string | null {
-  const title = hold?.biblio?.title?.trim();
-  return title || null;
-}
-
-/**
- * Reader for a transit row: card number and initials only.
- * A staff hold may include the name; it is dropped here.
- */
-export function transitListReader(
-  hold: HoldListItem | null | undefined,
-): LoanBorrowerMinimized | null {
-  if (!hold?.user || typeof hold.user !== 'object') return null;
-  return minimizedHoldFor(hold.user as unknown as Record<string, unknown>, hold.userId);
-}
-
-function allocatedCopy(hold: HoldListItem | null | undefined) {
-  if (!hold?.itemId) return undefined;
-  const items = hold.biblio?.items ?? [];
-  return items.find((item) => item.id === hold.itemId) ?? items[0];
+function clean(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed || null;
 }
