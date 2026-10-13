@@ -817,6 +817,30 @@ impl UsersService {
             .await
     }
 
+    /// User id for a login or email, without issuing a reset token.
+    ///
+    /// `Ok(None)` when no account matches. Blank input is a validation error.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn find_user_id_by_login_or_email(&self, identifier: &str) -> AppResult<Option<i64>> {
+        Ok(self
+            .user_by_login_or_email(identifier)
+            .await?
+            .map(|user| user.id))
+    }
+
+    async fn user_by_login_or_email(&self, identifier: &str) -> AppResult<Option<User>> {
+        let id = identifier.trim();
+        if id.is_empty() {
+            return Err(AppError::Validation(
+                "identifier must not be empty".to_string(),
+            ));
+        }
+        if let Some(user) = self.repository.users_get_by_login(id).await? {
+            return Ok(Some(user));
+        }
+        self.repository.users_get_by_email(id).await
+    }
+
     /// Request password reset by login or email.
     /// Returns destination email, reset token, and user language for email template.
     #[tracing::instrument(skip(self), err)]
@@ -824,22 +848,12 @@ impl UsersService {
         &self,
         identifier: &str,
     ) -> AppResult<(String, String, Option<crate::models::Language>, i64)> {
-        let id = identifier.trim();
-        if id.is_empty() {
-            return Err(AppError::Validation(
-                "identifier must not be empty".to_string(),
-            ));
-        }
-
-        let user = if let Some(u) = self.repository.users_get_by_login(id).await? {
-            u
-        } else if let Some(u) = self.repository.users_get_by_email(id).await? {
-            u
-        } else {
-            return Err(AppError::NotFound(
-                "No account found for this login or email".to_string(),
-            ));
-        };
+        let user = self
+            .user_by_login_or_email(identifier)
+            .await?
+            .ok_or_else(|| {
+                AppError::NotFound("No account found for this login or email".to_string())
+            })?;
 
         let email = user.email.as_deref().ok_or_else(|| {
             AppError::Validation("No email configured for this account".to_string())

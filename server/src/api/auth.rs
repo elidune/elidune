@@ -352,6 +352,9 @@ pub async fn login(
 
 /// Clear the temporary per-identifier sign-in block and reset-request quota.
 ///
+/// When the login or email belongs to an account, the shared per-account
+/// reset window is cleared too.
+///
 /// Librarian or admin, with `users_rights` write. The value is normalized
 /// the same way as login attempts (trim + lowercase).
 #[utoipa::path(
@@ -383,6 +386,14 @@ pub async fn clear_auth_rate_limit(
     }
     attempts.clear(&identifier);
     resets.clear(&identifier);
+    if let Some(user_id) = state
+        .services
+        .users
+        .find_user_id_by_login_or_email(&login)
+        .await?
+    {
+        resets.clear_user(user_id);
+    }
     state.services.audit.log(
         audit::event::AUTH_RATE_LIMIT_CLEARED,
         Some(claims.user_id),
@@ -614,10 +625,24 @@ pub async fn request_password_reset(
     ValidatedJson(request): ValidatedJson<RequestPasswordResetRequest>,
 ) -> AppResult<Json<RequestPasswordResetResponse>> {
     // Sign-in failures are not counted here. `request.reset_url` is ignored.
-    if resets.retry_after(&request.identifier).is_some() {
+    // Resolve before counting so login and email for one account share a window.
+    // Unknown identifiers stay on their own key. Both paths return the same body.
+    let resolved_user_id = state
+        .services
+        .users
+        .find_user_id_by_login_or_email(&request.identifier)
+        .await?;
+    let over_quota = match resolved_user_id {
+        Some(user_id) => resets.retry_after_user(user_id).is_some(),
+        None => resets.retry_after(&request.identifier).is_some(),
+    };
+    if over_quota {
         return Ok(password_reset_accepted());
     }
-    resets.record(&request.identifier);
+    match resolved_user_id {
+        Some(user_id) => resets.record_user(user_id),
+        None => resets.record(&request.identifier),
+    }
 
     let public_base = crate::password_reset_link::configured_public_base(&state.config.server);
     let link = match crate::password_reset_link::plan_password_reset_link(
