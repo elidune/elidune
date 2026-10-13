@@ -1470,8 +1470,7 @@ function BorrowForm({
       const axiosData = axiosErr?.response?.data;
       const errorCode = axiosData?.code ?? '';
       const rawMessage = typeof axiosData?.message === 'string' ? axiosData.message : '';
-      const displayMsg = getApiErrorMessage(err, t) || t('loans.errorCreatingLoan');
-      const confirmMsg = rawMessage || displayMsg;
+      const displayMsg = getApiErrorMessage(err, t, { allowRawMessage: false }) || t('loans.errorCreatingLoan');
       if (isWeedingServerMessage(rawMessage)) {
         setError(displayMsg);
         showToast({ variant: 'error', message: displayMsg });
@@ -1491,7 +1490,7 @@ function BorrowForm({
         return;
       }
       if (circulationMayForce('loan', errorCode) && !force) {
-        onBusinessRuleViolation?.(confirmMsg, specimenCode.trim());
+        onBusinessRuleViolation?.(displayMsg, specimenCode.trim());
         return;
       }
       setError(displayMsg);
