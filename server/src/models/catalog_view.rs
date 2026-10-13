@@ -1,8 +1,9 @@
 //! Staff and public JSON shapes for catalog copies and the user summaries embedded with them.
 //!
-//! Handlers pick one type with [`crate::models::user::UserClaims::is_librarian`] (the same
-//! check used for weeding visibility). The public structs do not contain staff fields, so a
-//! reader response cannot include them as blank options.
+//! Handlers pick one type with [`sees_internal_catalog`] (rights, not account type). The same
+//! check decides whether lost, missing, weeding-in-progress, and withdrawn copies stay in the
+//! payload. The public structs do not contain staff fields, so a reader response cannot include
+//! them as blank options.
 //!
 //! A patron's own loans and holds are [`crate::models::my_account::MyLoanView`] and
 //! [`crate::models::my_account::MyHoldView`] from `GET /me/loans` and `GET /me/holds`.
@@ -24,6 +25,28 @@ use super::item::{Item, ItemAvailability, ItemShort, WeedingStatus};
 use super::loan::LoanDetails;
 use super::user::{AccountTypeSlug, Rights, UserClaims, UserShort, UserStatus};
 use super::Language;
+
+/// Staff catalog JSON (internal copy data) versus the public projection.
+///
+/// `items_rights` read is the catalog read right patrons share with staff. It does not
+/// select the staff view. Internal data is selected when the caller has any of:
+/// catalog write (`items_rights` write), weeding read, loans read, holds read
+/// (not own), users read, or copy-deletion write (`items_archive_rights` write).
+/// Account type is ignored.
+///
+/// `holdFor` on a staff copy still follows users read (full identity) or loans read
+/// without users read (id, card number, initials). Patrons and the OPAC stay on the
+/// public view, which omits lost, missing, weeding-in-progress, and withdrawn copies.
+#[must_use]
+pub fn sees_internal_catalog(claims: &UserClaims) -> bool {
+    let rights = &claims.rights;
+    rights.items_rights.rank() >= Rights::Write.rank()
+        || rights.weeding_rights.rank() >= Rights::Read.rank()
+        || rights.loans_rights.rank() >= Rights::Read.rank()
+        || rights.holds_rights.rank() >= Rights::Read.rank()
+        || rights.users_rights.rank() >= Rights::Read.rank()
+        || rights.items_archive_rights.rank() >= Rights::Write.rank()
+}
 
 /// Availability returned to readers and the OPAC.
 ///
@@ -1106,6 +1129,7 @@ impl From<LoanDetails> for LoanDetailsOwn {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::user::UserRights;
 
     #[test]
     fn public_availability_collapses_temporary_states_and_hides_staff_fields() {
@@ -1167,5 +1191,94 @@ mod tests {
         assert!(body.get("borrower").is_none());
         assert!(body.get("notes").is_none());
         assert!(body.get("login").is_none());
+    }
+
+    fn claims(account_type: AccountTypeSlug, rights: UserRights) -> UserClaims {
+        UserClaims {
+            sub: "1".into(),
+            user_id: 1,
+            account_type,
+            rights,
+            exp: 0,
+            iat: 0,
+            token_version: 1,
+            scope: None,
+        }
+    }
+
+    #[test]
+    fn internal_catalog_view_follows_rights_not_account_type() {
+        let patron = UserRights {
+            items_rights: Rights::Read,
+            users_rights: Rights::Own,
+            loans_rights: Rights::Own,
+            holds_rights: Rights::Own,
+            items_archive_rights: Rights::Read,
+            settings_rights: Rights::Read,
+            events_rights: Rights::Read,
+            ..UserRights::default()
+        };
+        assert!(!sees_internal_catalog(&claims(
+            AccountTypeSlug::Librarian,
+            patron.clone()
+        )));
+        assert!(!sees_internal_catalog(&claims(
+            AccountTypeSlug::Reader,
+            patron
+        )));
+
+        let cataloger = UserRights {
+            items_rights: Rights::Write,
+            users_rights: Rights::Own,
+            loans_rights: Rights::None,
+            holds_rights: Rights::Own,
+            ..UserRights::default()
+        };
+        assert!(sees_internal_catalog(&claims(
+            AccountTypeSlug::Reader,
+            cataloger
+        )));
+
+        let loans_desk = UserRights {
+            items_rights: Rights::Read,
+            loans_rights: Rights::Read,
+            users_rights: Rights::Own,
+            holds_rights: Rights::Own,
+            ..UserRights::default()
+        };
+        assert!(sees_internal_catalog(&claims(
+            AccountTypeSlug::Group,
+            loans_desk
+        )));
+
+        let users_desk = UserRights {
+            items_rights: Rights::Read,
+            users_rights: Rights::Read,
+            ..UserRights::default()
+        };
+        assert!(sees_internal_catalog(&claims(
+            AccountTypeSlug::Reader,
+            users_desk
+        )));
+
+        let holds_desk = UserRights {
+            items_rights: Rights::Read,
+            holds_rights: Rights::Read,
+            ..UserRights::default()
+        };
+        assert!(sees_internal_catalog(&claims(
+            AccountTypeSlug::Reader,
+            holds_desk
+        )));
+
+        let weeder = UserRights {
+            items_rights: Rights::Read,
+            weeding_rights: Rights::Read,
+            ..UserRights::default()
+        };
+        assert!(sees_internal_catalog(&claims(
+            AccountTypeSlug::Reader,
+            weeder
+        )));
     }
 }
