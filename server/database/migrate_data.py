@@ -17,8 +17,9 @@ item_transits + holds.pickup_site_id FK to sources (031),
 acquisitions vendors/funds/orders/receipts + account_types.acquisitions_rights (032),
 user_guardians (033), purchase_suggestions + nullable purchase_orders.vendor_id (034),
 loans_settings.renew_window_days and renew_at default at_due_date (040),
-fines.item_id and fines.refunded_amount for a lost copy found at the desk (046).
-Legacy source DBs have no acquisitions or suggestion tables; those are created by SQL migrations only.)
+fines.item_id and fines.refunded_amount for a lost copy found at the desk (046),
+users.card_lost (048), retired_card_numbers (050).
+Legacy source DBs have no acquisitions, suggestion, or retired card-number tables; those are created by SQL migrations only.)
 
 Usage:
     python migrate_data.py --source-db <old_db_url> --target-db <new_db_url>

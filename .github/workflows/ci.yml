@@ -199,6 +199,7 @@ jobs:
           --test loan_borrower_identity
           --test patron_card_scan
           --test biblio_item_notice
+          --test card_replacement
           -- --nocapture
 
   coverage:
@@ -288,6 +289,7 @@ jobs:
           --test loan_borrower_identity
           --test patron_card_scan
           --test biblio_item_notice
+          --test card_replacement
           --lcov
           --output-path lcov.info
           --fail-under-lines 20

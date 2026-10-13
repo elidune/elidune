@@ -1040,6 +1040,19 @@ impl UserClaims {
         }
     }
 
+    /// Report a library card lost. Users write or loans write. The route only sets `card_lost`.
+    pub fn require_report_card_lost(&self) -> Result<(), AppError> {
+        if self.rights.users_rights.rank() >= Rights::Write.rank()
+            || self.rights.loans_rights.rank() >= Rights::Write.rank()
+        {
+            Ok(())
+        } else {
+            Err(AppError::Authorization(
+                "Insufficient rights to report a lost library card".to_string(),
+            ))
+        }
+    }
+
     pub fn require_read_catalog(&self) -> Result<(), AppError> {
         if self.rights.items_rights.rank() >= Rights::Read.rank() {
             Ok(())
