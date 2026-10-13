@@ -87,7 +87,13 @@ import { isItemStaffView, isUserRecordLoan } from '@/utils/catalogView';
 import { circulationMayForce } from '@/utils/circulationForce';
 import { deskNameSearchVisible, deskPatronIdentity, patronFromCardScan, presentCardScanError } from '@/utils/deskPatron';
 import { readerIdentifierText, type BorrowerRef } from '@/utils/readerIdentifier';
-import { checkoutRecap, deskBorrower, readPatronLoans } from '@/utils/loanListAccess';
+import {
+  checkoutRecap,
+  currentUserLoansQuery,
+  deskBorrower,
+  emptyLoanPage,
+  readPatronLoans,
+} from '@/utils/loanListAccess';
 
 type TabType = 'borrow' | 'return' | 'overdue' | 'claims';
 type LostFoundSummary = {
@@ -504,10 +510,7 @@ export default function LoansPage() {
     async (options: { notify: boolean }) => {
       if (!selectedUser) return { ok: false as const, denied: false };
       const result = await readPatronLoans(() =>
-        api.getUserLoans(selectedUser.id, {
-          page: loansPage,
-          perPage: BORROW_LOANS_PAGE_SIZE,
-        }),
+        api.getUserLoans(selectedUser.id, currentUserLoansQuery(loansPage, BORROW_LOANS_PAGE_SIZE)),
       );
       if (result.ok) {
         setLoans(
@@ -522,11 +525,12 @@ export default function LoansPage() {
         return result;
       }
       if (result.denied) {
-        // The list still requires users read on the server. Until that changes, a 403 is an empty list.
-        setLoans([]);
-        setLoansTotal(0);
+        // 403 (including authorization_failed) stays an empty list: no permission sentence.
+        const page = emptyLoanPage<LoanListItem>();
+        setLoans(page.items);
+        setLoansTotal(page.total);
         setLoansLoadError(null);
-        return { ok: true as const, page: { items: [] as LoanListItem[], total: 0 } };
+        return { ok: true as const, page };
       }
       const msg = getApiErrorMessage(result.error, t) || t('loans.loansLoadError');
       setLoansLoadError(msg);

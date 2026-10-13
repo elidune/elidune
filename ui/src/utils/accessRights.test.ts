@@ -186,6 +186,7 @@ describe('reader and copy vocabulary', () => {
     const blob = french.join('\n');
     assert.equal(/usager/i.test(blob), false);
     assert.equal(/spécimen/i.test(blob), false);
+    assert.equal(/l[’']lecteur/i.test(blob), false);
     assert.equal(/\bspecimen\b/i.test(blob), false);
     assert.equal(fr.nav.users, 'Lecteurs');
     assert.equal(fr.nav.sectionPatron, 'Lecteur');

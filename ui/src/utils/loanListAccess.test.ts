@@ -10,9 +10,13 @@ import es from '../locales/es/translation.json' with { type: 'json' };
 import fr from '../locales/fr/translation.json' with { type: 'json' };
 import LoansAccessNotice from '@/components/loans/LoansAccessNotice';
 import {
+  archivedUserLoansQuery,
   checkoutRecap,
+  currentUserLoansQuery,
   deskBorrower,
+  emptyLoanPage,
   isLoansForbidden,
+  loanHistoryVisible,
   loansQueryRetry,
   readPatronLoans,
   userRecordQueryRetry,
@@ -29,6 +33,7 @@ function httpError(status: number, code?: string) {
 describe('patron loan list access', () => {
   it('treats a permission 403 as forbidden and a dead session as not', () => {
     assert.equal(isLoansForbidden(httpError(403, 'forbidden')), true);
+    assert.equal(isLoansForbidden(httpError(403, 'authorization_failed')), true);
     assert.equal(isLoansForbidden(httpError(403)), true);
     assert.equal(isLoansForbidden(httpError(403, 'authentication_failed')), false);
     assert.equal(isLoansForbidden(httpError(500)), false);
@@ -78,6 +83,61 @@ describe('patron loan list access', () => {
       true,
     );
     assert.equal(revealed != null && 'firstname' in revealed && revealed.firstname, 'Marie');
+  });
+
+  it('requests current loans only, and hides history without users read', () => {
+    const current = currentUserLoansQuery(2, 20);
+    assert.deepEqual(current, { page: 2, perPage: 20 });
+    assert.equal('archived' in current, false);
+
+    assert.equal(archivedUserLoansQuery(1, 20, false), null);
+    assert.deepEqual(archivedUserLoansQuery(1, 20, true), {
+      archived: true,
+      page: 1,
+      perPage: 20,
+    });
+    assert.equal(loanHistoryVisible(false, true), false);
+    assert.equal(loanHistoryVisible(true, false), false);
+    assert.equal(loanHistoryVisible(true, true), true);
+    assert.deepEqual(emptyLoanPage(), {
+      items: [],
+      total: 0,
+      page: 1,
+      perPage: 0,
+      pageCount: 0,
+    });
+  });
+
+  it('keeps card and initials on a current-loan row from the minimized envelope', () => {
+    const row = {
+      id: 'loan-1',
+      itemId: 'item-9',
+      startDate: '2026-04-01T00:00:00Z',
+      expiryAt: '2026-05-01T00:00:00Z',
+      renewalDate: null,
+      nbRenews: 1,
+      returnedAt: null,
+      biblio: { title: 'Principia' },
+      itemIdentification: 'EX-9',
+      isOverdue: false,
+      user: deskBorrower(
+        {
+          id: '7',
+          cardNumber: 'L-10042',
+          initials: 'MC',
+          firstname: 'Marie',
+          lastname: 'Curie',
+          email: 'marie@library.test',
+          phone: '0600000000',
+        },
+        false,
+      ),
+    };
+    assert.equal(row.biblio.title, 'Principia');
+    assert.equal(row.itemIdentification, 'EX-9');
+    assert.deepEqual(row.user, { id: '7', cardNumber: 'L-10042', initials: 'MC' });
+    assert.equal(JSON.stringify(row).includes('Marie'), false);
+    assert.equal(JSON.stringify(row).includes('marie@library.test'), false);
   });
 
   it('builds the checkout recap from the created loan when the list is missing', () => {

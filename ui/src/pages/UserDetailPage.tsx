@@ -56,7 +56,16 @@ import PatronFinesPanel from '@/components/users/PatronFinesPanel';
 import { useUserFinesQuery } from '@/hooks/users/useUserFinesQuery';
 import { mayLoadPatronFines } from '@/utils/patronFines';
 import { isUserRecordLoan } from '@/utils/catalogView';
-import { isLoansForbidden, loansQueryRetry, userRecordQueryRetry } from '@/utils/loanListAccess';
+import {
+  archivedUserLoansQuery,
+  currentUserLoansQuery,
+  emptyLoanPage,
+  isLoansForbidden,
+  loanHistoryVisible,
+  loansQueryRetry,
+  readPatronLoans,
+  userRecordQueryRetry,
+} from '@/utils/loanListAccess';
 import UserRecordLoanIdentity from '@/components/users/UserRecordLoanIdentity';
 import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
 import { localizedPublicTypeById } from '@/utils/publicTypeDisplay';
@@ -78,6 +87,10 @@ export default function UserDetailPage() {
   const { user: currentUser } = useAuth();
   const canReadBorrowers = canReadUsers(currentUser, api.getToken());
   const canListReaderLoans = canReadBorrowers && canReadLoans(currentUser, api.getToken());
+  const canSeeLoanHistory = loanHistoryVisible(
+    canReadBorrowers,
+    canReadLoans(currentUser, api.getToken()),
+  );
   const { t, i18n } = useTranslation();
   const { showToast } = useToast();
   const holdsLoadMoreRef = useRef<HTMLDivElement>(null);
@@ -190,8 +203,14 @@ export default function UserDetailPage() {
     refetch: refetchActiveLoans,
   } = useInfiniteQuery({
     queryKey: ['user-active-loans', id],
-    queryFn: ({ pageParam }) =>
-      api.getUserLoans(id!, { page: pageParam, perPage: USER_LOANS_PAGE_SIZE }),
+    queryFn: async ({ pageParam }) => {
+      const result = await readPatronLoans(() =>
+        api.getUserLoans(id!, currentUserLoansQuery(pageParam, USER_LOANS_PAGE_SIZE)),
+      );
+      if (result.ok) return result.page;
+      if (result.denied) return emptyLoanPage<LoanListItem>();
+      throw result.error;
+    },
     initialPageParam: 1,
     getNextPageParam: (lastPage, allPages) => {
       const totalLoaded = allPages.reduce((sum, p) => sum + p.items.length, 0);
@@ -220,18 +239,20 @@ export default function UserDetailPage() {
     refetch: refetchPastLoans,
   } = useInfiniteQuery({
     queryKey: ['user-past-loans', id],
-    queryFn: ({ pageParam }) =>
-      api.getUserLoans(id!, {
-        archived: true,
-        page: pageParam,
-        perPage: USER_LOANS_PAGE_SIZE,
-      }),
+    queryFn: async ({ pageParam }) => {
+      const query = archivedUserLoansQuery(pageParam, USER_LOANS_PAGE_SIZE, canReadBorrowers);
+      if (!query) return emptyLoanPage<LoanListItem>();
+      const result = await readPatronLoans(() => api.getUserLoans(id!, query));
+      if (result.ok) return result.page;
+      if (result.denied) return emptyLoanPage<LoanListItem>();
+      throw result.error;
+    },
     initialPageParam: 1,
     getNextPageParam: (lastPage, allPages) => {
       const totalLoaded = allPages.reduce((sum, p) => sum + p.items.length, 0);
       return totalLoaded < lastPage.total ? lastPage.page + 1 : undefined;
     },
-    enabled: !!id && canListReaderLoans && detailTab === 'pastLoans',
+    enabled: !!id && canSeeLoanHistory && detailTab === 'pastLoans',
     retry: loansQueryRetry,
   });
   const pastLoans = (pastLoansPages?.pages.flatMap((p) => p.items) ?? []).filter(isUserRecordLoan);
@@ -975,7 +996,8 @@ export default function UserDetailPage() {
                       { id: 'stats' as UserDetailTab, label: t('users.loanStatistics') },
                     ].filter((tab) => {
                       if (tab.id === 'fines') return finesVisible;
-                      if (tab.id === 'activeLoans' || tab.id === 'pastLoans') return canListReaderLoans;
+                      if (tab.id === 'pastLoans') return canSeeLoanHistory;
+                      if (tab.id === 'activeLoans') return canListReaderLoans;
                       return true;
                     })
                   ).map((tab) => (

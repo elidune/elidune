@@ -893,13 +893,12 @@ class ApiService {
     userId: string,
     options?: { archived?: boolean; page?: number; perPage?: number }
   ): Promise<PaginatedResponse<LoanListItem>> {
-    const response = await this.client.get(`/users/${userId}/loans`, {
-      params: {
-        archived: options?.archived,
-        page: options?.page,
-        perPage: options?.perPage,
-      },
-    });
+    const params: { archived?: true; page?: number; perPage?: number } = {};
+    if (options?.page != null) params.page = options.page;
+    if (options?.perPage != null) params.perPage = options.perPage;
+    // Only the history call sets this. A loans-only desk must not send it.
+    if (options?.archived === true) params.archived = true;
+    const response = await this.client.get(`/users/${userId}/loans`, { params });
     return normalizePaginatedResponse<LoanListItem>(response.data);
   }
 

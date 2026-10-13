@@ -26,6 +26,42 @@ export async function readPatronLoans<T>(load: () => Promise<T>): Promise<Patron
   }
 }
 
+/** Current loans. `archived` is omitted: that flag is history and 403s without users read. */
+export function currentUserLoansQuery(page: number, perPage: number): {
+  page: number;
+  perPage: number;
+} {
+  return { page, perPage };
+}
+
+/**
+ * Closed loans (`archived=true`). Null without users read, so the request is not sent.
+ * The server answers that call with `authorization_failed`.
+ */
+export function archivedUserLoansQuery(
+  page: number,
+  perPage: number,
+  canReadUsersRight: boolean,
+): { archived: true; page: number; perPage: number } | null {
+  if (!canReadUsersRight) return null;
+  return { archived: true, page, perPage };
+}
+
+/** Past-loans tab. Loans read alone does not open history. */
+export function loanHistoryVisible(canReadUsersRight: boolean, canReadLoansRight: boolean): boolean {
+  return canReadUsersRight && canReadLoansRight;
+}
+
+export function emptyLoanPage<T>(): {
+  items: T[];
+  total: number;
+  page: number;
+  perPage: number;
+  pageCount: number;
+} {
+  return { items: [], total: 0, page: 1, perPage: 0, pageCount: 0 };
+}
+
 /**
  * Borrower shown on a current-loan row.
  * Users read keeps the payload. Otherwise only `id`, `cardNumber`, and `initials`.
@@ -40,6 +76,7 @@ export function deskBorrower(
     firstname?: string | null;
     lastname?: string | null;
     email?: string | null;
+    phone?: string | null;
   } | null | undefined,
   revealIdentity: boolean,
 ): { id: string; cardNumber: string | null; initials: string } | typeof user {
