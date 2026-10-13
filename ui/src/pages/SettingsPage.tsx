@@ -19,7 +19,7 @@ import {
 } from '@/utils/finePolicy';
 import { UnpaidThresholdFields } from '@/components/settings/UnpaidThresholdFields';
 import { holdCapToInput, parseHoldCapInput } from '@/utils/holdsPolicy';
-import { isAdmin } from '@/types';
+import { canWriteSettings } from '@/types';
 import { localizedPublicTypeLabel } from '@/utils/publicTypeDisplay';
 import { useFinePolicyQuery } from '@/hooks/settings/useFinePolicyQuery';
 import { useHoldsPolicyQuery } from '@/hooks/settings/useHoldsPolicyQuery';
@@ -1730,7 +1730,7 @@ export default function SettingsPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const isAdminUser = isAdmin(user?.accountType);
+  const canEditAllSettings = canWriteSettings(user, api.getToken());
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('library');
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -1738,7 +1738,7 @@ export default function SettingsPage() {
   const [isSaving, setIsSaving] = useState(false);
 
   const selectTab = (id: SettingsTab) => {
-    if (!isAdminUser && id !== 'library') return;
+    if (!canEditAllSettings && id !== 'library') return;
     setActiveTab(id);
     setSearchParams(
       (prev) => {
@@ -1755,8 +1755,8 @@ export default function SettingsPage() {
     tabParam === 'maintenance'
       ? 'server'
       : tabParam && SETTINGS_TAB_IDS.includes(tabParam as SettingsTab)
-        ? (!isAdminUser && tabParam !== 'library' ? 'library' : (tabParam as SettingsTab))
-        : !isAdminUser || !tabParam
+        ? (!canEditAllSettings && tabParam !== 'library' ? 'library' : (tabParam as SettingsTab))
+        : !canEditAllSettings || !tabParam
           ? 'library'
           : null;
   if (nextSettingsTab && nextSettingsTab !== activeTab) {
@@ -1778,12 +1778,12 @@ export default function SettingsPage() {
     );
   }, [searchParams, setSearchParams]);
 
-  if (!isAdminUser && isLoading) {
+  if (!canEditAllSettings && isLoading) {
     setIsLoading(false);
   }
 
   useEffect(() => {
-    if (!isAdminUser) {
+    if (!canEditAllSettings) {
       return;
     }
     const fetchSettings = async () => {
@@ -1814,7 +1814,7 @@ export default function SettingsPage() {
     };
 
     return deferFromEffect(() => { void fetchSettings(); });
-  }, [isAdminUser]);
+  }, [canEditAllSettings]);
 
   const handleSave = async () => {
     if (!settings) return;
@@ -1910,7 +1910,7 @@ export default function SettingsPage() {
     );
   }
 
-  if (isAdminUser && !settings) {
+  if (canEditAllSettings && !settings) {
     return (
       <div className="text-center py-12">
         <p className="text-gray-500 dark:text-gray-400">{t('common.error')}</p>
@@ -1930,7 +1930,7 @@ export default function SettingsPage() {
     { id: 'audit', label: t('settings.audit.title'), icon: <ScrollText className="h-5 w-5" /> },
   ];
 
-  const tabs = isAdminUser ? allTabs : allTabs.filter((tab) => tab.id === 'library');
+  const tabs = canEditAllSettings ? allTabs : allTabs.filter((tab) => tab.id === 'library');
 
   return (
     <div className="space-y-6">

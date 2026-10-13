@@ -108,14 +108,14 @@ describe('patron list count', () => {
       interpolation: { escapeValue: false },
     });
 
-    assert.equal(i18n.t('users.count', { lng: 'fr', count: 1 }), '1 usager');
-    assert.equal(i18n.t('users.count', { lng: 'fr', count: 3 }), '3 usagers');
-    assert.equal(i18n.t('users.count', { lng: 'fr', count: 121 }), '121 usagers');
-    assert.equal(i18n.t('users.count', { lng: 'en', count: 1 }), '1 user');
-    assert.equal(i18n.t('users.count', { lng: 'en', count: 3 }), '3 users');
-    assert.equal(i18n.t('users.count', { lng: 'de', count: 1 }), '1 Benutzer');
-    assert.equal(i18n.t('users.count', { lng: 'de', count: 3 }), '3 Benutzer');
-    assert.equal(i18n.t('users.count', { lng: 'es', count: 1 }), '1 usuario');
-    assert.equal(i18n.t('users.count', { lng: 'es', count: 3 }), '3 usuarios');
+    assert.equal(i18n.t('users.count', { lng: 'fr', count: 1 }), '1 lecteur');
+    assert.equal(i18n.t('users.count', { lng: 'fr', count: 3 }), '3 lecteurs');
+    assert.equal(i18n.t('users.count', { lng: 'fr', count: 121 }), '121 lecteurs');
+    assert.equal(i18n.t('users.count', { lng: 'en', count: 1 }), '1 reader');
+    assert.equal(i18n.t('users.count', { lng: 'en', count: 3 }), '3 readers');
+    assert.equal(i18n.t('users.count', { lng: 'de', count: 1 }), '1 Leser');
+    assert.equal(i18n.t('users.count', { lng: 'de', count: 3 }), '3 Leser');
+    assert.equal(i18n.t('users.count', { lng: 'es', count: 1 }), '1 lector');
+    assert.equal(i18n.t('users.count', { lng: 'es', count: 3 }), '3 lectores');
   });
 });

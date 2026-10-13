@@ -7,8 +7,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useLibrary } from '@/contexts/LibraryContext';
 import { Card, CardHeader, Badge, LibraryInfoSection, ListSkeleton, QueryErrorBanner } from '@/components/common';
 import { useLibrarySchedule } from '@/hooks/common/useLibrarySchedule';
-import { isLibrarian } from '@/types';
 import api from '@/services/api';
+import { staffAccess } from '@/utils/staffAccess';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
@@ -18,7 +18,8 @@ export default function HomePage() {
   const { user } = useAuth();
   const { libraryName, libraryInfo } = useLibrary();
   const { scheduleSlots } = useLibrarySchedule();
-  const staff = isLibrarian(user?.accountType);
+  const access = staffAccess(user, api.getToken());
+  const staff = access.homeStats;
 
   const statsQuery = useQuery({
     queryKey: ['home-stats'],
@@ -192,7 +193,7 @@ export default function HomePage() {
         <LibraryInfoSection
           info={libraryInfo}
           slots={scheduleSlots}
-          canManage={isLibrarian(user?.accountType)}
+          canManage={access.fullSettings}
         />
       </div>
     </div>

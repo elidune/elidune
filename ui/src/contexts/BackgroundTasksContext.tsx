@@ -12,7 +12,7 @@ import api from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import i18n from '@/locales';
-import { isLibrarian } from '@/types';
+import { staffAccess } from '@/utils/staffAccess';
 import type { BackgroundTask, TaskStatus } from '@/types';
 import {
   formatTaskResultSummary,
@@ -110,7 +110,7 @@ function BackgroundTasksNotifier({
 export function BackgroundTasksProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated, user } = useAuth();
   const { showToast } = useToast();
-  const enabled = isAuthenticated && isLibrarian(user?.accountType);
+  const enabled = isAuthenticated && staffAccess(user, api.getToken()).backgroundTasks;
 
   const [tasksById, setTasksById] = useState<Record<string, BackgroundTask>>({});
   const [drawerOpen, setDrawerOpen] = useState(false);

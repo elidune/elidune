@@ -348,7 +348,7 @@ export default function LoansPage() {
         kind: 'lostFound',
         title: loan?.biblio?.title?.trim() || null,
         barcode: (loan?.itemIdentification ?? barcode ?? '').trim() || null,
-        patronName: readerName(loan?.user),
+        patronName: readerName(loan?.user, canReadBorrowers),
         foundAt: new Date().toISOString(),
         action: null,
         feeText: lostFoundPanelFee(null, result, null, i18n.language, (key, values) =>
@@ -357,7 +357,7 @@ export default function LoansPage() {
       });
       return true;
     },
-    [i18n.language, t],
+    [canReadBorrowers, i18n.language, t],
   );
 
   const dismissLostFound = useCallback(() => {
@@ -797,7 +797,10 @@ export default function LoansPage() {
 
     const barcode = specimenBarcode.trim();
     const snapshot = await readDeskCopy(barcode);
-    const alert = deskScanAlert(snapshot, { patronId: selectedUser.id });
+    const alert = deskScanAlert(snapshot, {
+      patronId: selectedUser.id,
+      revealIdentity: canReadBorrowers,
+    });
     if (alert && alert.kind !== 'onHold') {
       const shown =
         alert.kind === 'onLoan'
@@ -936,11 +939,11 @@ export default function LoansPage() {
 
     const barcode = specimenBarcode.trim();
     const snapshot = await readDeskCopy(barcode);
-    const preview = deskScanAlert(snapshot, {});
+    const preview = deskScanAlert(snapshot, { revealIdentity: canReadBorrowers });
 
     try {
       const result = await api.returnLoanByBarcode(barcode);
-      setReturnScanAlert(deskScanAlertAfterReturn(result));
+      setReturnScanAlert(deskScanAlertAfterReturn(result, canReadBorrowers));
       setCheckoutScanAlert((current) =>
         checkoutAlertAfterSuccessfulReturn(current, {
           barcode,
@@ -1774,10 +1777,16 @@ export default function LoansPage() {
                         className="inline-flex items-center gap-1.5 rounded-lg bg-white/90 dark:bg-gray-900/60 border border-indigo-100 dark:border-indigo-900 px-2.5 py-1 text-xs text-gray-700 dark:text-gray-300"
                       >
                         <span className="font-medium">
-                          {d.firstname} {d.lastname}
+                          {canReadBorrowers
+                            ? [d.firstname, d.lastname].filter(Boolean).join(' ').trim() || '—'
+                            : '—'}
                         </span>
-                        <span className="text-gray-400">·</span>
-                        <span className="truncate max-w-[10rem]">{d.email}</span>
+                        {canReadBorrowers ? (
+                          <>
+                            <span className="text-gray-400">·</span>
+                            <span className="truncate max-w-[10rem]">{d.email}</span>
+                          </>
+                        ) : null}
                         <Badge variant="default" size="sm">
                           {d.loanCount}
                         </Badge>
@@ -1789,7 +1798,8 @@ export default function LoansPage() {
                   <ul className="text-red-700 dark:text-red-400 text-xs space-y-1 border-t border-red-200/50 dark:border-red-900/40 pt-2">
                     {reminderReport.errors.map((e) => (
                       <li key={`${e.userId}-${e.email}`}>
-                        {e.email}: {e.errorMessage}
+                        {canReadBorrowers ? `${e.email}: ` : null}
+                        {e.errorMessage}
                       </li>
                     ))}
                   </ul>
@@ -2135,20 +2145,21 @@ async function readDeskCopy(barcode: string): Promise<DeskCopySnapshot | null> {
     if (copy.availability === 'onLoan' && copy.loanId) {
       try {
         const borrower = await api.getLoanBorrower(copy.loanId);
+        const reveal = canReadUsers(null, api.getToken());
         const ref = otherBorrowerFromPerson({
           userId: borrower.id,
           cardNumber: borrower.cardNumber,
           barcode: borrower.barcode,
           initials: borrower.initials,
-          firstname: borrower.firstname,
-          lastname: borrower.lastname,
+          firstname: reveal ? borrower.firstname : null,
+          lastname: reveal ? borrower.lastname : null,
         });
         loanUserId = ref?.userId ?? borrower.id;
-        loanUserName = readerName(borrower);
+        loanUserName = reveal ? readerName(borrower) : null;
         loanUserCard = ref?.cardNumber ?? null;
         loanUserInitials = ref?.initials ?? null;
-        loanUserFirstname = borrower.firstname ?? null;
-        loanUserLastname = borrower.lastname ?? null;
+        loanUserFirstname = reveal ? (borrower.firstname ?? null) : null;
+        loanUserLastname = reveal ? (borrower.lastname ?? null) : null;
       } catch {
         loanUserId = null;
         loanUserName = null;
@@ -2173,7 +2184,7 @@ async function readDeskCopy(barcode: string): Promise<DeskCopySnapshot | null> {
 async function resolvePickNotice(notice: PickCheckInNotice): Promise<PickCheckInNotice> {
   let patronName = notice.patronName;
   let siteName = notice.siteName;
-  if (notice.kind === 'ready' && !patronName && notice.userId) {
+  if (notice.kind === 'ready' && !patronName && notice.userId && canReadUsers(null, api.getToken())) {
     try {
       const user = await api.getUser(notice.userId);
       const joined = [user.firstname, user.lastname].filter(Boolean).join(' ').trim();

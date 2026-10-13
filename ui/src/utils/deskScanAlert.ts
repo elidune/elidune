@@ -42,6 +42,11 @@ export interface DeskCopySnapshot {
 
 export interface DeskScanPatron {
   patronId?: string | null;
+  /**
+   * Users read right. When false, a name on the copy is dropped.
+   * Card number and server initials stay. Omitted means the payload is shown as-is.
+   */
+  revealIdentity?: boolean;
 }
 
 /** Exact checkout messages that mean the copy is with another reader or on hold. */
@@ -184,12 +189,24 @@ export function deskScanAlert(
 ): DeskScanAlert | null {
   if (!copy) return null;
   const patronId = clean(context.patronId);
+  const reveal = context.revealIdentity !== false;
   if (copy.availability === 'onLoan' && !samePatron(patronId, copy.loanUserId)) {
+    if (!reveal) {
+      return {
+        kind: 'onLoan',
+        patronName: null,
+        otherBorrower: otherBorrowerFromPerson({
+          userId: copy.loanUserId,
+          cardNumber: copy.loanUserCard,
+          initials: copy.loanUserInitials,
+        }),
+      };
+    }
     return { kind: 'onLoan', patronName: clean(copy.loanUserName) };
   }
   if (copy.availability === 'onHold' && !samePatron(patronId, copy.holdFor?.id)) {
     const holdFor = copy.holdFor;
-    if (holdFor && !isMinimizedBorrower(holdFor)) {
+    if (holdFor && !isMinimizedBorrower(holdFor) && reveal) {
       return { kind: 'onHold', patronName: readerName(holdFor) };
     }
     return {
@@ -216,8 +233,15 @@ export function readerName(
       }
     | null
     | undefined,
+  revealIdentity = true,
 ): string | null {
   if (!person) return null;
+  if (!revealIdentity) {
+    const card = typeof person.cardNumber === 'string' ? person.cardNumber.trim() : '';
+    if (card) return card;
+    const initials = typeof person.initials === 'string' ? person.initials.trim().replace(/\./g, '') : '';
+    return initials || null;
+  }
   const name = [person.firstname, person.lastname]
     .map((part) => (typeof part === 'string' ? part.trim() : ''))
     .filter(Boolean)
@@ -240,16 +264,19 @@ export interface CheckInScanBody {
 }
 
 /** Name when the payload is a full profile. Card or initials when it is minimized. */
-function holdAlertFromUser(user: BorrowerRef | null | undefined): DeskScanAlert {
-  if (user && isMinimizedBorrower(user)) {
+function holdAlertFromUser(
+  user: BorrowerRef | null | undefined,
+  revealIdentity = true,
+): DeskScanAlert {
+  if (!revealIdentity || (user && isMinimizedBorrower(user))) {
     return {
       kind: 'onHold',
       patronName: null,
       otherBorrower: otherBorrowerFromPerson({
-        userId: user.id,
-        cardNumber: user.cardNumber,
-        barcode: user.barcode,
-        initials: user.initials,
+        userId: user?.id,
+        cardNumber: user?.cardNumber,
+        barcode: user?.barcode,
+        initials: user?.initials,
       }),
     };
   }
@@ -261,9 +288,12 @@ function holdAlertFromUser(user: BorrowerRef | null | undefined): DeskScanAlert 
  * The loan in the body is the one just closed, so the pre-return “on loan” warning is stale.
  * A hold that the return readied is still worth showing.
  */
-export function deskScanAlertAfterReturn(body: CheckInScanBody | null | undefined): DeskScanAlert | null {
+export function deskScanAlertAfterReturn(
+  body: CheckInScanBody | null | undefined,
+  revealIdentity = true,
+): DeskScanAlert | null {
   if (!body?.hold) return null;
-  return holdAlertFromUser(body.hold.user);
+  return holdAlertFromUser(body.hold.user, revealIdentity);
 }
 
 /** Drop the checkout “still on loan” warning for the copy that was just returned. */
@@ -280,12 +310,27 @@ export function checkoutAlertAfterSuccessfulReturn<
 }
 
 /** Notice from a check-in body when the barcode lookup did not run. */
-export function deskScanAlertFromCheckIn(body: CheckInScanBody | null | undefined): DeskScanAlert | null {
+export function deskScanAlertFromCheckIn(
+  body: CheckInScanBody | null | undefined,
+  revealIdentity = true,
+): DeskScanAlert | null {
   if (!body) return null;
   if (body.loan) {
+    if (!revealIdentity) {
+      return {
+        kind: 'onLoan',
+        patronName: null,
+        otherBorrower: otherBorrowerFromPerson({
+          userId: body.loan.user?.id,
+          cardNumber: body.loan.user?.cardNumber,
+          barcode: body.loan.user?.barcode,
+          initials: body.loan.user?.initials,
+        }),
+      };
+    }
     return { kind: 'onLoan', patronName: readerName(body.loan.user) };
   }
-  if (body.hold) return holdAlertFromUser(body.hold.user);
+  if (body.hold) return holdAlertFromUser(body.hold.user, revealIdentity);
   return null;
 }
 

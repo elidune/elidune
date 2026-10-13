@@ -1,6 +1,6 @@
 import Badge from '@/components/common/Badge';
 import ReaderIdentifier from '@/components/users/ReaderIdentifier';
-import { borrowerAvatarInitials, type BorrowerRef } from '@/utils/readerIdentifier';
+import { borrowerAvatarInitials, borrowerShownToAgent, type BorrowerRef } from '@/utils/readerIdentifier';
 
 interface OverdueBorrowerSummaryProps {
   user: BorrowerRef | null | undefined;
@@ -10,7 +10,7 @@ interface OverdueBorrowerSummaryProps {
 
 /** Group header for `GET /loans/overdue`. Contact columns exist only on the full shape. */
 export default function OverdueBorrowerSummary({ user, count, linked }: OverdueBorrowerSummaryProps) {
-  const initials = borrowerAvatarInitials(user);
+  const initials = borrowerAvatarInitials(borrowerShownToAgent(user, linked));
   return (
     <>
       <div

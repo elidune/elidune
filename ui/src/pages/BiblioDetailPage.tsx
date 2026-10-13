@@ -25,7 +25,7 @@ import CallNumberField from '@/components/specimen/CallNumberField';
 import { buildSuggestedCallNumber, validateCallNumber } from '@/utils/callNumber';
 import { formChoiceControlClass, formControlClass, formLabelClass } from '@/utils/formControl';
 import { useAuth } from '@/contexts/AuthContext';
-import { canArchiveItems, canDeleteBiblios, canManageItems, canManageWeeding, canPatronSelfServiceHolds, canReadUsers, isLibrarian, type MediaType } from '@/types';
+import { canArchiveItems, canCreateHold, canDeleteBiblios, canManageItems, canManageWeeding, canReadUsers, seesInternalCatalog, type MediaType } from '@/types';
 import CopyLoanStatus from '@/components/items/CopyLoanStatus';
 import NoticeHoldsWaiting from '@/components/holds/NoticeHoldsWaiting';
 import PlaceHoldDialog from '@/components/holds/PlaceHoldDialog';
@@ -347,7 +347,7 @@ export default function BiblioDetailPage() {
     !!user?.id &&
     !!item.id &&
     !titleWithdrawn &&
-    (isLibrarian(user.accountType) || canPatronSelfServiceHolds(user, api.getToken()));
+    canCreateHold(user, api.getToken());
 
   return (
     <div className="space-y-6">
@@ -404,7 +404,7 @@ export default function BiblioDetailPage() {
           </div>
         </div>
 
-        {(canPlaceTitleHold || canManageItems(user?.accountType)) && (
+        {(canPlaceTitleHold || canManageItems(user, api.getToken())) && (
           <div className="flex flex-wrap gap-2">
             {canPlaceTitleHold && (
               <Button
@@ -418,7 +418,7 @@ export default function BiblioDetailPage() {
                 {t('holds.reserve')}
               </Button>
             )}
-            {canManageItems(user?.accountType) && (
+            {canManageItems(user, api.getToken()) && (
               <>
                 <Button
                   variant="secondary"
@@ -549,7 +549,7 @@ export default function BiblioDetailPage() {
               title={t('items.specimens')}
               subtitle={t('items.specimenCount', { count: item.items?.length ?? 0 })}
               action={
-                canManageItems(user?.accountType) && (
+                canManageItems(user, api.getToken()) && (
                   <div className="flex flex-wrap items-center gap-2">
                     {canWeed && selectedCopyIds.length > 0 && (
                       <Button size="sm" variant="danger" onClick={() => setBatchWithdrawOpen(true)}>
@@ -584,7 +584,7 @@ export default function BiblioDetailPage() {
                   <SpecimenCard
                     key={specimen.id}
                     specimen={specimen}
-                    canManage={canManageItems(user?.accountType)}
+                    canManage={canManageItems(user, api.getToken())}
                     canDelete={canArchive}
                     selectable={
                       canWeed &&
@@ -600,7 +600,7 @@ export default function BiblioDetailPage() {
                         prev.includes(id) ? prev.filter((value) => value !== id) : [...prev, id],
                       );
                     }}
-                    audience={isLibrarian(user?.accountType) ? 'staff' : 'public'}
+                    audience={seesInternalCatalog(user, api.getToken()) ? 'staff' : 'public'}
                     showReserveButton={canPlaceTitleHold && specimen.canHoldItem === true}
                     onReserve={() => {
                       setReserveSpecimen(specimen);

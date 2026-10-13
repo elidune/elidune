@@ -34,7 +34,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import Button from './Button';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLibrary } from '@/contexts/LibraryContext';
-import { isLibrarian, isAdmin, canPatronSelfServiceHolds, canViewAcquisitions, canViewWeeding } from '@/types';
+import { canPatronSelfServiceHolds } from '@/types';
+import { staffAccess } from '@/utils/staffAccess';
 import { useAccountTypesQuery } from '@/hooks/useAccountTypesQuery';
 import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
 import api from '@/services/api';
@@ -62,9 +63,9 @@ export default function Layout({ children }: LayoutProps) {
   const { user, logout, profileWarning, dismissProfileWarning, refreshProfile } = useAuth();
   const { data: accountTypes = [] } = useAccountTypesQuery();
   const { theme, setTheme } = useTheme();
-  const staff = isLibrarian(user?.accountType);
-  const showAcquisitions = canViewAcquisitions(user, api.getToken());
-  const showWeeding = canViewWeeding(user, api.getToken());
+  const access = staffAccess(user, api.getToken());
+  const showAcquisitions = access.acquisitions;
+  const showWeeding = access.weeding;
   const { libraryName } = useLibrary();
   const location = useLocation();
   const navigate = useNavigate();
@@ -95,29 +96,29 @@ export default function Layout({ children }: LayoutProps) {
       id: 'top',
       items: [
         { name: t('nav.home'), href: '/home', icon: Home, show: true },
-        { name: t('nav.catalog'), href: '/catalog', icon: BookOpen, show: !staff },
+        { name: t('nav.catalog'), href: '/catalog', icon: BookOpen, show: !access.internalCatalog },
       ],
     },
     {
       id: 'circulation',
       label: t('nav.sectionCirculation'),
       items: [
-        { name: t('nav.loans'), href: '/loans', icon: ArrowLeftRight, show: staff },
-        { name: t('nav.holds'), href: '/holds', icon: Bookmark, show: staff },
-        { name: t('nav.pickList'), href: '/pick-list', icon: ListChecks, show: staff },
-        { name: t('nav.transits'), href: '/transits', icon: Truck, show: staff },
-        { name: t('nav.users'), href: '/users', icon: Users, show: staff },
+        { name: t('nav.loans'), href: '/loans', icon: ArrowLeftRight, show: access.loansRead },
+        { name: t('nav.holds'), href: '/holds', icon: Bookmark, show: access.holdsStaff },
+        { name: t('nav.pickList'), href: '/pick-list', icon: ListChecks, show: access.holdsStaff },
+        { name: t('nav.transits'), href: '/transits', icon: Truck, show: access.holdsStaff },
+        { name: t('nav.users'), href: '/users', icon: Users, show: access.usersRead },
       ],
     },
     {
       id: 'cataloging',
       label: t('nav.sectionCataloging'),
       items: [
-        { name: t('nav.catalog'), href: '/biblios', icon: BookOpen, show: staff },
-        { name: t('nav.inventory'), href: '/inventory', icon: ClipboardList, show: staff },
+        { name: t('nav.catalog'), href: '/biblios', icon: BookOpen, show: access.internalCatalog },
+        { name: t('nav.inventory'), href: '/inventory', icon: ClipboardList, show: access.itemsWrite },
         { name: t('nav.weeding'), href: '/weeding', icon: Leaf, show: showWeeding },
-        { name: t('nav.z3950Search'), href: '/z3950', icon: Globe, show: staff },
-        { name: t('nav.importIso'), href: '/import-iso', icon: Upload, show: staff },
+        { name: t('nav.z3950Search'), href: '/z3950', icon: Globe, show: access.itemsWrite },
+        { name: t('nav.importIso'), href: '/import-iso', icon: Upload, show: access.itemsWrite },
       ],
     },
     {
@@ -146,14 +147,14 @@ export default function Layout({ children }: LayoutProps) {
     {
       id: 'admin',
       items: [
-        { name: t('nav.stats'), href: '/stats', icon: BarChart3, show: staff },
+        { name: t('nav.stats'), href: '/stats', icon: BarChart3, show: access.stats },
         {
           name: t('nav.library'),
           href: '/settings?tab=library',
           icon: LibraryBig,
-          show: staff && !isAdmin(user?.accountType),
+          show: access.librarySettings && !access.fullSettings,
         },
-        { name: t('nav.settings'), href: '/settings', icon: Settings, show: isAdmin(user?.accountType) },
+        { name: t('nav.settings'), href: '/settings', icon: Settings, show: access.fullSettings },
       ],
     },
   ]
@@ -258,7 +259,7 @@ export default function Layout({ children }: LayoutProps) {
             ))}
           </nav>
 
-          {isLibrarian(user?.accountType) && (
+          {access.backgroundTasks && (
             <div className="shrink-0 px-3 pb-2">
               <BackgroundTasksNavItem />
             </div>

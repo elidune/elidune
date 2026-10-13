@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { patronId } from '@/utils/patronLink';
 import {
   borrowerContact,
+  borrowerShownToAgent,
   readerIdentifierText,
   type BorrowerRef,
 } from '@/utils/readerIdentifier';
@@ -27,7 +28,8 @@ interface ReaderIdentifierProps {
 /**
  * Reader shown on the desk. A library card is « carte n° », never an item barcode.
  * Without a card, minimized payloads show server initials. The full name is shown
- * only when the payload carries it.
+ * only when `linked` is set, which callers pass only with users read rights.
+ * A full payload is reduced to the card number and server initials otherwise.
  */
 export default function ReaderIdentifier({
   user,
@@ -39,9 +41,10 @@ export default function ReaderIdentifier({
   aside,
 }: ReaderIdentifierProps) {
   const { t } = useTranslation();
-  const label = readerIdentifierText(user, (number) => t(cardLabelKey, { number }));
-  const id = linked ? patronId(user?.id) : null;
-  const contact = showContact ? borrowerContact(user) : { email: null, phone: null };
+  const visible = borrowerShownToAgent(user, linked);
+  const label = readerIdentifierText(visible, (number) => t(cardLabelKey, { number }));
+  const id = linked ? patronId(visible?.id) : null;
+  const contact = showContact ? borrowerContact(visible) : { email: null, phone: null };
   const name = id ? (
     <Link to={`/users/${id}`} className={className} onClick={onClick}>
       {label}

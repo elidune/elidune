@@ -51,7 +51,7 @@ import { useCirculationExceptionAction, type CirculationExceptionKind } from '@/
 import { RenewSubscriptionModal, UserEditorForm } from '@/components/users';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
-import { canManageUsers, canReadUsers, isLibrarian, type User as UserType, type LoanListItem, type LoanStatsResponse, type AdvancedStatsParams, type StatsInterval, type Author, type Hold } from '@/types';
+import { canManageUsers, canReadLoans, canReadUsers, type User as UserType, type LoanListItem, type LoanStatsResponse, type AdvancedStatsParams, type StatsInterval, type Author, type Hold } from '@/types';
 import PatronFinesPanel from '@/components/users/PatronFinesPanel';
 import { useUserFinesQuery } from '@/hooks/users/useUserFinesQuery';
 import { mayLoadPatronFines } from '@/utils/patronFines';
@@ -555,7 +555,7 @@ export default function UserDetailPage() {
 
   const overdueLoans = activeLoans.filter((l) => l.isOverdue);
   const signInLogin = user.login?.trim() ?? '';
-  const canUnlockSignIn = canManageUsers(currentUser?.accountType) && signInLogin !== '';
+  const canUnlockSignIn = canManageUsers(currentUser, api.getToken()) && signInLogin !== '';
 
   const renderLoanTitle = (loan: LoanListItem) => (
     <button
@@ -924,7 +924,7 @@ export default function UserDetailPage() {
           <Button variant="secondary" onClick={() => setShowBorrowModal(true)} leftIcon={<BookMarked className="h-4 w-4" />}>
             {t('loans.borrow')}
           </Button>
-          {isLibrarian(currentUser?.accountType) && <LoansMarcExportButton userId={user.id} />}
+          {canReadLoans(currentUser, api.getToken()) && <LoansMarcExportButton userId={user.id} />}
           {user.expiryAt != null && isSubscriptionExpired(user.expiryAt) && (
             <Button
               type="button"

@@ -134,7 +134,7 @@ describe('LoansAccessNotice', () => {
           denied: true,
           message: i18n.t('users.recordNotAllowed'),
           onRetry: () => undefined,
-          fallbackMessage: 'Impossible de charger cet usager',
+          fallbackMessage: 'Impossible de charger ce lecteur',
         }),
       ) as ReactElement,
     );

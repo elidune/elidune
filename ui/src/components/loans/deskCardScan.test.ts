@@ -121,7 +121,9 @@ describe('desk card scan identity', () => {
       i18n,
       createElement(DeskPatronStatus, { identity: full, linked: false, loanStatus: null }),
     );
-    assert.match(plain, /Marie Curie/);
+    assert.equal(plain.includes('Marie'), false);
+    assert.equal(plain.includes('Curie'), false);
+    assert.match(plain, /carte n° L-10042/);
     assert.equal(plain.includes('href='), false);
   });
 

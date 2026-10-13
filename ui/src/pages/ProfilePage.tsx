@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import {
   User,
@@ -30,7 +31,8 @@ import { usePublicTypesQuery } from '@/hooks/usePublicTypesQuery';
 import api from '@/services/api';
 import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
 import type { SupportedLanguage } from '@/locales';
-import { isLibrarian, type TwoFactorMethod, type User as UserProfile } from '@/types';
+import { canReadUsers, ownContactOnly, resolveUsersRights, type TwoFactorMethod, type User as UserProfile } from '@/types';
+import { ownContactPayload } from '@/utils/ownContactForm';
 import { profileChildAccountPending, profileIsChildAccount } from '@/utils/legalGuardian';
 import { OCCUPATION_OPTIONS } from '@/utils/codeLabels';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
@@ -47,6 +49,7 @@ function profileFormFromUser(user: UserProfile | null) {
     addrCity: user?.addrCity || '',
     birthdate: user?.birthdate || '',
     eventsConsent: user?.eventsConsent === true,
+    receiveReminders: false,
   };
 }
 
@@ -57,6 +60,16 @@ export default function ProfilePage() {
   const { data: publicTypes = [], isLoading: publicTypesLoading } = usePublicTypesQuery();
   const isChildAccount = profileIsChildAccount(user?.publicType, publicTypes);
   const childAccountPending = profileChildAccountPending(user?.publicType, publicTypesLoading);
+  const token = api.getToken();
+  const contactOnly = ownContactOnly(user, token);
+  const usersLevel = resolveUsersRights(user, token);
+  const canLoadOwnRecord = usersLevel === 'o' || usersLevel === 'r' || usersLevel === 'w';
+  const ownRecordQuery = useQuery({
+    queryKey: ['own-user-record', user?.id],
+    queryFn: () => api.getUser(user!.id),
+    enabled: Boolean(user?.id) && canLoadOwnRecord,
+  });
+  const cardNumber = ownRecordQuery.data?.barcode?.trim() || '';
 
   // Profile form state
   const [profileData, setProfileData] = useState(() => profileFormFromUser(user));
@@ -93,6 +106,15 @@ export default function ProfilePage() {
     setPrevProfileUser(user);
     setProfileData(profileFormFromUser(user));
   }
+  const ownRecord = ownRecordQuery.data;
+  const [prevOwnRecord, setPrevOwnRecord] = useState(ownRecord);
+  if (ownRecord && ownRecord !== prevOwnRecord) {
+    setPrevOwnRecord(ownRecord);
+    setProfileData((current) => ({
+      ...current,
+      receiveReminders: ownRecord.receiveReminders === true,
+    }));
+  }
 
   const handleProfileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -103,18 +125,28 @@ export default function ProfilePage() {
     setProfileSuccess(false);
 
     try {
-      await api.updateProfile({
-        firstname: profileData.firstname || undefined,
-        lastname: profileData.lastname || undefined,
-        email: profileData.email || undefined,
-        phone: profileData.phone || undefined,
-        login: profileData.login || undefined,
-        addrStreet: profileData.addrStreet || undefined,
-        addrZipCode: profileData.addrZipCode ? parseInt(profileData.addrZipCode, 10) : undefined,
-        addrCity: profileData.addrCity || undefined,
-        birthdate: profileData.birthdate || undefined,
-        ...(isChildAccount || childAccountPending ? {} : { eventsConsent: profileData.eventsConsent }),
-      });
+      if (contactOnly) {
+        await api.updateUser(
+          user.id,
+          ownContactPayload(profileData, {
+            includeEventsConsent: !isChildAccount && !childAccountPending,
+            includeReminders: ownRecord != null,
+          }) as Partial<UserProfile>,
+        );
+      } else {
+        await api.updateProfile({
+          firstname: profileData.firstname || undefined,
+          lastname: profileData.lastname || undefined,
+          email: profileData.email || undefined,
+          phone: profileData.phone || undefined,
+          login: profileData.login || undefined,
+          addrStreet: profileData.addrStreet || undefined,
+          addrZipCode: profileData.addrZipCode ? parseInt(profileData.addrZipCode, 10) : undefined,
+          addrCity: profileData.addrCity || undefined,
+          birthdate: profileData.birthdate || undefined,
+          ...(isChildAccount || childAccountPending ? {} : { eventsConsent: profileData.eventsConsent }),
+        });
+      }
       await refreshProfile();
       setProfileSuccess(true);
       setTimeout(() => setProfileSuccess(false), 3000);
@@ -261,12 +293,14 @@ export default function ProfilePage() {
                   value={profileData.firstname}
                   onChange={(e) => setProfileData({ ...profileData, firstname: e.target.value })}
                   leftIcon={<User className="h-4 w-4" />}
+                  readOnly={contactOnly}
                 />
                 <Input
                   label={t('profile.lastName')}
                   value={profileData.lastname}
                   onChange={(e) => setProfileData({ ...profileData, lastname: e.target.value })}
                   leftIcon={<User className="h-4 w-4" />}
+                  readOnly={contactOnly}
                 />
               </div>
 
@@ -276,7 +310,8 @@ export default function ProfilePage() {
                   value={profileData.login}
                   onChange={(e) => setProfileData({ ...profileData, login: e.target.value })}
                   leftIcon={<AtSign className="h-4 w-4" />}
-                  hint={t('profile.loginHint')}
+                  hint={contactOnly ? undefined : t('profile.loginHint')}
+                  readOnly={contactOnly}
                 />
                 <Input
                   label={t('profile.email')}
@@ -294,7 +329,7 @@ export default function ProfilePage() {
                   onChange={(next) => setProfileData({ ...profileData, eventsConsent: next })}
                   isChild={isChildAccount}
                   guardianId={user?.guardianId}
-                  showGuardianLink={isLibrarian(user?.accountType)}
+                  showGuardianLink={canReadUsers(user, token)}
                   recorded={{
                     consent: user?.eventsConsent,
                     at: user?.eventsConsentAt,
@@ -316,8 +351,37 @@ export default function ProfilePage() {
                   value={profileData.birthdate}
                   onChange={(e) => setProfileData({ ...profileData, birthdate: e.target.value })}
                   leftIcon={<Calendar className="h-4 w-4" />}
+                  readOnly={contactOnly}
                 />
               </div>
+
+              {cardNumber ? (
+                <Input
+                  label={t('profile.barcode')}
+                  value={cardNumber}
+                  readOnly
+                  leftIcon={<User className="h-4 w-4" />}
+                />
+              ) : null}
+
+              {contactOnly && ownRecord ? (
+                <label className="flex items-start gap-3 text-sm text-gray-700 dark:text-gray-300">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={profileData.receiveReminders}
+                    onChange={(e) =>
+                      setProfileData({ ...profileData, receiveReminders: e.target.checked })
+                    }
+                  />
+                  <span>
+                    <span className="font-medium">{t('profile.receiveReminders')}</span>
+                    <span className="mt-0.5 block text-gray-500 dark:text-gray-400">
+                      {t('profile.receiveRemindersHint')}
+                    </span>
+                  </span>
+                </label>
+              ) : null}
 
               <div>
                 <label className={formLabelClass()}>
