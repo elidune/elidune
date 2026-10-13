@@ -8,6 +8,7 @@ import GuardianPicker from '@/components/users/GuardianPicker';
 import api from '@/services/api';
 import type { AccountTypeDefinition, PublicType, User, UserShort } from '@/types';
 import { defaultAccountTypeCode, localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
+import { localizedPublicTypeLabel } from '@/utils/publicTypeDisplay';
 import { getApiErrorMessage, getApiErrorRawMessage } from '@/utils/apiError';
 import { SEX_OPTIONS } from '@/utils/codeLabels';
 import { searchFrenchCommunePicks } from '@/utils/frenchCommuneSearch';
@@ -552,7 +553,7 @@ export default function UserEditorForm({
               <option value="">{t('common.select')}</option>
               {publicTypes.map((pt) => (
                 <option key={pt.id} value={String(pt.id)}>
-                  {pt.label}
+                  {localizedPublicTypeLabel(t, pt)}
                 </option>
               ))}
             </select>

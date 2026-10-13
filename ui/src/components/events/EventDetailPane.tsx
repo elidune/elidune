@@ -59,7 +59,7 @@ export default function EventDetailPane({
 
   const targetLabel =
     detail != null
-      ? eventAudienceDisplayLabel(detail, publicTypes, t('events.targetPublic.all'))
+      ? eventAudienceDisplayLabel(detail, publicTypes, t('events.targetPublic.all'), t)
       : null;
 
   const detailTimes = detail ? eventTimesFromRow(detail) : { startTime: null, endTime: null };

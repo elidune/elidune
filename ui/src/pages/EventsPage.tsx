@@ -20,6 +20,7 @@ import api from '@/services/api';
 import type { Event, CreateEvent, UpdateEvent } from '@/types';
 import { usePublicTypesQuery } from '@/hooks/usePublicTypesQuery';
 import { eventAudienceDisplayLabel } from '@/utils/eventPublicType';
+import { localizedPublicTypeLabel } from '@/utils/publicTypeDisplay';
 import { CHILD_PUBLIC_TYPE_NAME } from '@/utils/legalGuardian';
 import { fileToAttachmentInput, base64ToDataUrl, isImageMime } from '@/utils/eventAttachment';
 import { formChoiceControlClass, formControlClass, formTextareaClass, formLabelClass, formChoiceLabelClass } from '@/utils/formControl';
@@ -234,7 +235,7 @@ export default function EventsPage() {
       header: t('events.targetPublicLabel'),
       render: (event: Event) => (
         <span className="text-sm text-gray-700 dark:text-gray-300">
-          {eventAudienceDisplayLabel(event, publicTypes, t('events.targetPublic.all'))}
+          {eventAudienceDisplayLabel(event, publicTypes, t('events.targetPublic.all'), t)}
         </span>
       ),
     },
@@ -579,7 +580,7 @@ function EventForm({ formId, initialValues, onLoadingChange, onSuccess }: EventF
       : undefined;
   const audienceOptions = [
     { value: ALL_AUDIENCES_VALUE, label: t('events.targetPublic.all') },
-    ...publicTypes.map((pt) => ({ value: pt.name, label: pt.label })),
+    ...publicTypes.map((pt) => ({ value: pt.name, label: localizedPublicTypeLabel(t, pt) })),
   ];
 
   return (

@@ -40,6 +40,7 @@ export default function PublicEventDetailsContent({
     event,
     publicTypes,
     t('events.targetPublic.all'),
+    t,
   );
   const description = event.description?.trim() || null;
   const notes = event.notes?.trim() || null;

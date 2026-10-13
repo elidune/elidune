@@ -20,6 +20,7 @@ import {
 import { UnpaidThresholdFields } from '@/components/settings/UnpaidThresholdFields';
 import { holdCapToInput, parseHoldCapInput } from '@/utils/holdsPolicy';
 import { isAdmin } from '@/types';
+import { localizedPublicTypeLabel } from '@/utils/publicTypeDisplay';
 import { useFinePolicyQuery } from '@/hooks/settings/useFinePolicyQuery';
 import { useHoldsPolicyQuery } from '@/hooks/settings/useHoldsPolicyQuery';
 import type {
@@ -705,7 +706,7 @@ function PublicTypesEditor() {
               >
                 <div className="flex items-center gap-3">
                   <Users className="h-4 w-4 text-gray-400" />
-                  <span className="font-medium text-gray-900 dark:text-white">{pt.label}</span>
+                  <span className="font-medium text-gray-900 dark:text-white">{localizedPublicTypeLabel(t, pt)}</span>
                   <span className="text-sm text-gray-500 dark:text-gray-400">({pt.name})</span>
                   <span className="text-xs text-gray-400">
                     {pt.ageMin != null && pt.ageMax != null
@@ -791,7 +792,7 @@ function PublicTypesEditor() {
         }}
         message={
           publicTypeToDelete
-            ? t('settings.publicTypes.deleteConfirm', { label: publicTypeToDelete.label })
+            ? t('settings.publicTypes.deleteConfirm', { label: localizedPublicTypeLabel(t, publicTypeToDelete) })
             : ''
         }
         confirmVariant="danger"

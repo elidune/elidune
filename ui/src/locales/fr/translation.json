@@ -957,11 +957,11 @@
     "hasLoansWarning": "Cet usager a encore {{count}} emprunt(s) en cours.",
     "loans": "Emprunts",
     "newUser": "Nouvel usager",
-    "count": "{{count}} usager",
+    "count_one": "{{count}} usager",
+    "count_other": "{{count}} usagers",
     "noUsers": "Aucun usager trouvé",
     "subscriptionExpired": "Abonnement expiré",
     "subscriptionValidUntil": "Jusqu'au {{date}}",
-    "count_plural": "{{count}} usagers",
     "detailNotFound": "Usager non trouvé",
     "recordNotAllowed": "Vous n'êtes pas autorisé à consulter cette fiche lecteur.",
     "legalGuardian": "Responsable légal",
@@ -2355,6 +2355,13 @@
       "general": "Grand public",
       "specialized": "Spécialisé",
       "unknown": "non spécifié"
+    },
+    "patronType": {
+      "child": "Enfant",
+      "adult": "Adulte",
+      "school": "Établissement scolaire",
+      "staff": "Personnel",
+      "senior": "Senior"
     },
     "occupation": {
       "unknown": "non spécifié",
