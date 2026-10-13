@@ -916,6 +916,33 @@
     "unlockSignInSuccess": "Anmeldung für {{login}} freigeschaltet.",
     "information": "Informationen",
     "pastLoansTab": "Frühere Ausleihen",
+    "finesTab": "Gebühren",
+    "fines": {
+      "totalUnpaid": "Offener Betrag: {{amount}}",
+      "empty": "Keine Gebühren für diesen Leser.",
+      "loadError": "Die Gebühren konnten nicht geladen werden.",
+      "columns": {
+        "reason": "Grund",
+        "amount": "Betrag",
+        "paid": "Bezahlter Betrag",
+        "refunded": "Erstatteter Betrag",
+        "status": "Status"
+      },
+      "reasons": {
+        "overdue": "Verspätung",
+        "replacement": "Verlorenes Exemplar",
+        "damage": "Beschädigtes Exemplar",
+        "unknown": "Nicht angegeben"
+      },
+      "status": {
+        "pending": "Offen",
+        "partial": "Teilweise bezahlt",
+        "paid": "Bezahlt",
+        "waived": "Erlassen",
+        "cancelled": "Storniert",
+        "refunded": "Erstattet"
+      }
+    },
     "holdsTab": "Vorbestellungen",
     "loanStatistics": "Ausleihstatistiken",
     "anonymize": "Für Statistiken anonymisieren",

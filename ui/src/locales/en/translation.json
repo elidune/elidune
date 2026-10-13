@@ -916,6 +916,33 @@
     "unlockSignInSuccess": "Sign-in unlocked for {{login}}.",
     "information": "Information",
     "pastLoansTab": "Past loans",
+    "finesTab": "Fines",
+    "fines": {
+      "totalUnpaid": "Total unpaid: {{amount}}",
+      "empty": "No fines for this reader.",
+      "loadError": "Could not load fines.",
+      "columns": {
+        "reason": "Reason",
+        "amount": "Amount",
+        "paid": "Amount paid",
+        "refunded": "Refunded amount",
+        "status": "Status"
+      },
+      "reasons": {
+        "overdue": "Overdue",
+        "replacement": "Lost copy",
+        "damage": "Damaged copy",
+        "unknown": "Not specified"
+      },
+      "status": {
+        "pending": "Unpaid",
+        "partial": "Partially paid",
+        "paid": "Paid",
+        "waived": "Waived",
+        "cancelled": "Cancelled",
+        "refunded": "Refunded"
+      }
+    },
     "holdsTab": "Holds",
     "loanStatistics": "Loan statistics",
     "anonymize": "Anonymize for stats",
