@@ -1204,6 +1204,8 @@
     "toPickSetAside": "Set aside",
     "heldSetAside": "Copy set aside for the hold: place it on the holds shelf.",
     "forceLoan": "Force loan",
+    "forceRenew": "Force renewal",
+    "forceRenewConfirm": "Force the renewal anyway?",
     "pickReady": "Ready for {{patron}}, put on hold shelf",
     "pickTransit": "Send in transit to {{site}}",
     "pickPatronUnknown": "another reader",

@@ -5,7 +5,7 @@ import de from '../locales/de/translation.json' with { type: 'json' };
 import en from '../locales/en/translation.json' with { type: 'json' };
 import es from '../locales/es/translation.json' with { type: 'json' };
 import fr from '../locales/fr/translation.json' with { type: 'json' };
-import { loanRefusalMayForce, renewalMayForce } from './circulationForce.ts';
+import { loanRefusalMayForce } from './circulationForce.ts';
 import {
   accountRenewalRefusal,
   getApiErrorMessage,
@@ -79,12 +79,7 @@ describe('account renewal refusals', () => {
     );
   });
 
-  it('lets the desk force an expired subscription and never a lost card', () => {
-    assert.equal(renewalMayForce('subscription_expired'), true);
-    assert.equal(renewalMayForce('fines_over_threshold'), true);
-    assert.equal(renewalMayForce('account_blocked'), true);
-    assert.equal(renewalMayForce('card_lost'), false);
-    assert.equal(renewalMayForce('hold_waiting'), false);
+  it('treats a loan refusal as forceable only when the server flag is true', () => {
     assert.equal(loanRefusalMayForce(false, true), false);
     assert.equal(loanRefusalMayForce(true, true), true);
     assert.equal(loanRefusalMayForce(true, false), false);

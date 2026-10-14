@@ -1204,6 +1204,8 @@
     "toPickSetAside": "Apartar",
     "heldSetAside": "Ejemplar apartado para la reserva: colóquelo en el estante de reservas.",
     "forceLoan": "Forzar préstamo",
+    "forceRenew": "Forzar la renovación",
+    "forceRenewConfirm": "¿Forzar la renovación de todos modos?",
     "pickReady": "Listo para {{patron}}, colocar en el estante de reservas",
     "pickTransit": "Enviar en tránsito a {{site}}",
     "pickPatronUnknown": "otro lector",

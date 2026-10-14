@@ -12,8 +12,9 @@ export interface ToPickForceLoanDialogProps {
   onCancel: () => void;
   /** Check the copy in on the existing to_pick path (hold shelf or transit). */
   onSetAside: () => void;
-  /** « Forcer le prêt ». Omitted when the refusal is not forceable. */
+  /** « Forcer le prêt » by default. Renewal passes « Forcer le renouvellement ». */
   onForce?: () => void;
+  forceLabel?: string;
   isLoading?: boolean;
 }
 
@@ -24,6 +25,7 @@ export default function ToPickForceLoanDialog({
   onCancel,
   onSetAside,
   onForce,
+  forceLabel,
   isLoading = false,
 }: ToPickForceLoanDialogProps) {
   const { t } = useTranslation();
@@ -43,7 +45,7 @@ export default function ToPickForceLoanDialog({
       middleFooter={
         onForce ? (
           <Button type="button" variant="secondary" onClick={onForce} disabled={isLoading}>
-            {t('loans.forceLoan')}
+            {forceLabel ?? t('loans.forceLoan')}
           </Button>
         ) : null
       }
