@@ -128,8 +128,11 @@ pub mod event {
     pub const LOAN_RETURNED: &str = "loan.returned";
     pub const LOAN_RENEWED: &str = "loan.renewed";
     pub const LOAN_FINE_THRESHOLD_OVERRIDDEN: &str = "loan.fine_threshold_overridden";
-    /// Admin (`settings_rights` write) checked out despite `subscription_expired`.
+    /// Circulation override write checked out or renewed despite `subscription_expired`.
     pub const LOAN_SUBSCRIPTION_EXPIRED_OVERRIDDEN: &str = "loan.subscription_expired_overridden";
+    /// Circulation override write checked out a copy held for another patron.
+    /// The hold is not cancelled.
+    pub const LOAN_HELD_FOR_OTHER_OVERRIDDEN: &str = "loan.held_for_other_overridden";
     /// Staff (`loans_rights` write) renewed despite `account_blocked`, `max_renewals`,
     /// or `renewal_too_early`. Expired subscriptions and fine overrides use their own events.
     pub const LOAN_RENEWAL_FORCED: &str = "loan.renewal_forced";
@@ -552,6 +555,10 @@ mod tests {
             "loan.subscription_expired_overridden"
         );
         assert_eq!(event::LOAN_RENEWAL_FORCED, "loan.renewal_forced");
+        assert_eq!(
+            event::LOAN_HELD_FOR_OTHER_OVERRIDDEN,
+            "loan.held_for_other_overridden"
+        );
         assert_eq!(event::FINE_ACCRUED, "fine.accrued");
         assert_eq!(
             event::SYSTEM_FINES_ACCRUAL_BATCH_COMPLETED,

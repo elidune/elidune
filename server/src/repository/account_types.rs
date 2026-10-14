@@ -10,7 +10,8 @@ use crate::{
 
 const ACCOUNT_TYPE_COLUMNS: &str = "code, name, items_rights, users_rights, loans_rights, \
      items_archive_rights, holds_rights, settings_rights, events_rights, \
-     acquisitions_rights, weeding_rights, weeding_cancel_rights, is_system";
+     acquisitions_rights, weeding_rights, weeding_cancel_rights, \
+     circulation_override_rights, is_system";
 
 /// Hypothetical change used to count active accounts that would still have admin rights.
 ///
@@ -116,7 +117,7 @@ impl Repository {
     ) -> AppResult<AccountTypeDefinition> {
         let sql = format!(
             "INSERT INTO account_types ({ACCOUNT_TYPE_COLUMNS}) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, FALSE) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, FALSE) \
              RETURNING {ACCOUNT_TYPE_COLUMNS}"
         );
         sqlx::query_as::<_, AccountTypeDefinition>(&sql)
@@ -132,6 +133,7 @@ impl Repository {
             .bind(&row.acquisitions_rights)
             .bind(&row.weeding_rights)
             .bind(&row.weeding_cancel_rights)
+            .bind(&row.circulation_override_rights)
             .fetch_one(&self.pool)
             .await
             .map_err(map_account_type_sql)
@@ -168,6 +170,10 @@ impl Repository {
         add_opt!(data.acquisitions_rights, "acquisitions_rights");
         add_opt!(data.weeding_rights, "weeding_rights");
         add_opt!(data.weeding_cancel_rights, "weeding_cancel_rights");
+        add_opt!(
+            data.circulation_override_rights,
+            "circulation_override_rights"
+        );
 
         if sets.is_empty() {
             return Err(AppError::Validation("No fields to update".to_string()));
@@ -201,6 +207,7 @@ impl Repository {
         bind_opt!(data.acquisitions_rights);
         bind_opt!(data.weeding_rights);
         bind_opt!(data.weeding_cancel_rights);
+        bind_opt!(data.circulation_override_rights);
 
         b = b.bind(code);
 

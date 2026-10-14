@@ -124,6 +124,8 @@ pub struct LoanCreateOutcome {
     pub site_id: Option<i64>,
     /// Active hold fulfilled when the patron checked out (not when `force` clears holds).
     pub fulfilled_hold_id: Option<i64>,
+    /// Hold left in the queue because `force` skipped `item_held_for_other`.
+    pub preserved_hold_id: Option<i64>,
 }
 
 /// How the new due date is computed when a loan is renewed (`loans_settings.renew_at`).
@@ -195,6 +197,8 @@ pub struct CreateLoan {
     /// then follows the library default site.
     #[serde_as(as = "Option<DisplayFromStr>")]
     pub site_id: Option<i64>,
+    /// Staff reason for forcing `subscription_expired` or `item_held_for_other`.
+    pub override_reason: Option<String>,
 }
 
 /// Loan settings: `nb_max` on the default row (`media_type` IS NULL) caps **all** active loans;

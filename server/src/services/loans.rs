@@ -5,7 +5,10 @@ use chrono::{DateTime, Utc};
 use std::sync::Arc;
 
 use crate::{
-    checkout_refusal::{force_skips_checkout_refusal, push_checkout_refusal, CheckoutRefusal},
+    checkout_refusal::{
+        force_skips_checkout_refusal, normalized_override_reason, push_checkout_refusal,
+        CheckoutProgress, CheckoutRefusal,
+    },
     error::{error_code, AppError, AppResult},
     marc::{marc_record_for_loan_export, MarcRecord},
     models::{
@@ -171,7 +174,7 @@ impl LoansService {
     /// - a deleted or inactive account is `422` `business_rule_violation` (`force` does not skip it)
     /// - a lost or stolen library card is always rejected (`422` `card_lost`), including `force`
     /// - expired subscriptions are `422` `subscription_expired` unless `force` skips that code
-    ///   for a caller with settings write
+    ///   for a caller with circulation override write and a non-blank `overrideReason`
     /// - unpaid fines strictly above the effective threshold are `422` `fines_over_threshold`
     ///   unless `force` skips that code for a caller with loans write (a null
     ///   threshold, including mode `none`, does not block on amount). The skip
@@ -190,13 +193,14 @@ impl LoansService {
     ) -> AppResult<LoanCreateOutcome> {
         let user = self.repository.users_get_by_id(loan.user_id).await?;
 
-        let mut refusals = Vec::new();
+        let mut progress =
+            CheckoutProgress::new(normalized_override_reason(loan.override_reason.as_deref()));
         let mut subscription_overridden = false;
         let mut fine_overridden = false;
         let status = user.status.unwrap_or(UserStatus::Active);
         if status == UserStatus::Deleted {
             push_checkout_refusal(
-                &mut refusals,
+                &mut progress,
                 loan.force,
                 CheckoutRefusal::business(
                     "Cannot create a loan for a deleted user account",
@@ -207,7 +211,7 @@ impl LoansService {
 
         if !user.can_borrow() {
             push_checkout_refusal(
-                &mut refusals,
+                &mut progress,
                 loan.force,
                 CheckoutRefusal::business(
                     "User account is not active or cannot borrow",
@@ -218,7 +222,7 @@ impl LoansService {
 
         if self.repository.users_card_lost(user.id).await? {
             push_checkout_refusal(
-                &mut refusals,
+                &mut progress,
                 loan.force,
                 CheckoutRefusal::new(
                     error_code::CARD_LOST,
@@ -230,11 +234,12 @@ impl LoansService {
 
         if let Some(expiry_at) = user.expiry_at {
             if expiry_at < Utc::now() {
-                if force_skips_checkout_refusal(
+                let skipped = force_skips_checkout_refusal(
                     loan.force,
                     error_code::SUBSCRIPTION_EXPIRED,
                     caller_rights,
-                ) {
+                );
+                if skipped && progress.override_reason.is_some() {
                     subscription_overridden = true;
                 } else {
                     let zone = crate::services::calendar::parse_timezone(
@@ -242,7 +247,7 @@ impl LoansService {
                     )
                     .unwrap_or_else(|_| crate::services::calendar::default_zone());
                     push_checkout_refusal(
-                        &mut refusals,
+                        &mut progress,
                         loan.force,
                         CheckoutRefusal::new(
                             error_code::SUBSCRIPTION_EXPIRED,
@@ -261,13 +266,13 @@ impl LoansService {
             CheckoutFineGate::Clear => {}
             CheckoutFineGate::Overridden => fine_overridden = true,
             CheckoutFineGate::Refused(fine_refusal) => {
-                push_checkout_refusal(&mut refusals, loan.force, fine_refusal)?;
+                push_checkout_refusal(&mut progress, loan.force, fine_refusal)?;
             }
         }
 
         let outcome = self
             .repository
-            .loans_create(&loan, refusals, caller_rights)
+            .loans_create(&loan, &mut progress, caller_rights)
             .await?;
         if fine_overridden {
             self.audit.log(
@@ -296,6 +301,25 @@ impl LoansService {
                     "item_id": loan.item_id,
                     "loan_id": outcome.loan_id,
                     "code": error_code::SUBSCRIPTION_EXPIRED,
+                    "overrideReason": progress.override_reason,
+                })),
+                AuditLogMeta::success(),
+            );
+        }
+        if let Some(hold_id) = outcome.preserved_hold_id {
+            self.audit.log(
+                audit::event::LOAN_HELD_FOR_OTHER_OVERRIDDEN,
+                audit_actor,
+                Some("loan"),
+                Some(outcome.loan_id),
+                client_ip.clone(),
+                Some(serde_json::json!({
+                    "reason": progress.override_reason,
+                    "overrideReason": progress.override_reason,
+                    "holdId": hold_id,
+                    "patron_id": loan.user_id,
+                    "loanId": outcome.loan_id,
+                    "code": error_code::ITEM_HELD_FOR_OTHER,
                 })),
                 AuditLogMeta::success(),
             );
@@ -779,29 +803,40 @@ impl LoansService {
     /// Renew a loan. `force` skips a gate only when
     /// [`crate::renewal::renewal_refusal_forceable`] is true for this caller.
     /// Loans write lifts account status, the unpaid-fine gate, `max_renewals`,
-    /// and `renewal_too_early`. `subscription_expired` needs settings write, the
-    /// same rule as checkout. A lost card, a withdrawn copy, a claims-returned
-    /// copy, and a waiting hold stay `422`. Each skipped gate is audited after
-    /// the write commits. The payload is `{ reason, loanId, patron_id }`.
+    /// and `renewal_too_early`. `subscription_expired` needs circulation override
+    /// write, the same rule as checkout, and a non-blank `overrideReason`.
+    /// A lost card, a withdrawn copy, a claims-returned copy, and a waiting hold
+    /// stay `422`. Each skipped gate is audited after the write commits.
+    /// The payload is `{ reason, loanId, patron_id }`, plus `overrideReason`
+    /// when the skipped gate is `subscription_expired`.
     ///
     /// [`renewal_eligibility`] runs before any write and again inside the locked update.
     pub async fn renew_loan(
         &self,
         loan_id: i64,
         force: bool,
+        override_reason: Option<String>,
         audit_actor: Option<i64>,
         client_ip: Option<String>,
         caller_rights: &UserRights,
     ) -> AppResult<(DateTime<Utc>, i16)> {
-        self.perform_renewal(loan_id, force, audit_actor, client_ip, caller_rights)
-            .await
-            .map_err(|err| crate::renewal::with_renewal_forceable(err, caller_rights))
+        self.perform_renewal(
+            loan_id,
+            force,
+            override_reason,
+            audit_actor,
+            client_ip,
+            caller_rights,
+        )
+        .await
+        .map_err(|err| crate::renewal::with_renewal_forceable(err, caller_rights))
     }
 
     async fn perform_renewal(
         &self,
         loan_id: i64,
         force: bool,
+        override_reason: Option<String>,
         audit_actor: Option<i64>,
         client_ip: Option<String>,
         caller_rights: &UserRights,
@@ -845,22 +880,33 @@ impl LoansService {
         if let Err(refusal) = renewal_eligibility(&snapshot.loan, &renewal_user, &ctx) {
             return Err(refusal.into_app_error(&snapshot.loan, &renewal_user, &ctx));
         }
+        let override_reason = normalized_override_reason(override_reason.as_deref());
+        let subscription_applies = renewal_user
+            .subscription_expiry
+            .is_some_and(|expiry| expiry < ctx.now);
+        if ctx.bypass_subscription_expired && subscription_applies && override_reason.is_none() {
+            return Err(crate::checkout_refusal::override_reason_required());
+        }
         let renewed = self
             .repository
             .loans_renew(loan_id, renewal_override)
             .await?;
         for refusal in renewed.lifted {
+            let mut payload = serde_json::json!({
+                "reason": refusal.code(),
+                "loanId": loan_id,
+                "patron_id": snapshot.user_id,
+            });
+            if refusal == RenewalRefusal::SubscriptionExpired {
+                payload["overrideReason"] = serde_json::json!(override_reason);
+            }
             self.audit.log(
                 Self::renewal_lift_event(refusal),
                 audit_actor,
                 Some("loan"),
                 Some(loan_id),
                 client_ip.clone(),
-                Some(serde_json::json!({
-                    "reason": refusal.code(),
-                    "loanId": loan_id,
-                    "patron_id": snapshot.user_id,
-                })),
+                Some(payload),
                 AuditLogMeta::success(),
             );
         }
@@ -889,6 +935,7 @@ impl LoansService {
         &self,
         item_identification: &str,
         force: bool,
+        override_reason: Option<String>,
         audit_actor: Option<i64>,
         client_ip: Option<String>,
         caller_rights: &UserRights,
@@ -898,7 +945,14 @@ impl LoansService {
             .loans_get_by_item_identification(item_identification)
             .await?;
         let (new_expiry_date, renew_count) = self
-            .renew_loan(loan.id, force, audit_actor, client_ip, caller_rights)
+            .renew_loan(
+                loan.id,
+                force,
+                override_reason,
+                audit_actor,
+                client_ip,
+                caller_rights,
+            )
             .await?;
         Ok((loan.id, new_expiry_date, renew_count))
     }
@@ -1237,15 +1291,16 @@ mod tests {
         async fn loans_create(
             &self,
             _: &CreateLoan,
-            prior_refusals: Vec<crate::checkout_refusal::CheckoutRefusal>,
+            progress: &mut crate::checkout_refusal::CheckoutProgress,
             _: &crate::models::user::UserRights,
         ) -> AppResult<LoanCreateOutcome> {
-            crate::checkout_refusal::finish_checkout_refusals(prior_refusals)?;
+            crate::checkout_refusal::finish_checkout_refusals(progress)?;
             Ok(LoanCreateOutcome {
                 loan_id: self.loan_id,
                 expiry_at: Utc::now(),
                 site_id: None,
                 fulfilled_hold_id: None,
+                preserved_hold_id: progress.preserved_hold_id,
             })
         }
         async fn loans_return(&self, _: i64) -> AppResult<LoanReturnOutcome> {
@@ -1670,7 +1725,14 @@ mod tests {
             item_identification: None,
             force,
             site_id: None,
+            override_reason: None,
         }
+    }
+
+    fn make_loan_with_reason(user_id: i64, force: bool, reason: &str) -> CreateLoan {
+        let mut loan = make_loan(user_id, force);
+        loan.override_reason = Some(reason.to_string());
+        loan
     }
 
     // ------------------------------------------------------------------
@@ -1749,9 +1811,10 @@ mod tests {
         assert_checkout_refusal(err, "business_rule_violation", false);
     }
 
-    fn settings_write_rights() -> crate::models::user::UserRights {
+    fn override_rights() -> crate::models::user::UserRights {
         crate::models::user::UserRights {
-            settings_rights: crate::models::user::Rights::Write,
+            circulation_override_rights: crate::models::user::Rights::Write,
+            settings_rights: crate::models::user::Rights::None,
             ..crate::models::user::UserRights::default()
         }
     }
@@ -1762,7 +1825,7 @@ mod tests {
         let user = make_user(5, None, Some(expired));
         let svc = make_service(Some(user), 0);
         let err = svc
-            .create_loan(make_loan(5, false), None, None, &settings_write_rights())
+            .create_loan(make_loan(5, false), None, None, &override_rights())
             .await
             .expect_err("expired");
         let message = assert_checkout_refusal(err, "subscription_expired", true);
@@ -1775,13 +1838,36 @@ mod tests {
         let user = make_user(6, None, Some(expired));
         let svc = make_service(Some(user), 102);
         assert!(svc
-            .create_loan(make_loan(6, true), None, None, &settings_write_rights())
+            .create_loan(
+                make_loan_with_reason(6, true, "membership renewal pending"),
+                None,
+                None,
+                &override_rights()
+            )
             .await
             .is_ok());
     }
 
     #[tokio::test]
-    async fn test_create_loan_expired_subscription_force_without_settings_write_rejected() {
+    async fn test_create_loan_expired_subscription_force_without_reason_rejected() {
+        let expired = Utc::now() - chrono::Duration::days(1);
+        let user = make_user(18, None, Some(expired));
+        let svc = make_service(Some(user), 0);
+        let err = svc
+            .create_loan(make_loan(18, true), None, None, &override_rights())
+            .await
+            .expect_err("reason");
+        match err {
+            AppError::Coded { status, code, .. } => {
+                assert_eq!(status, 422);
+                assert_eq!(code, "override_reason_required");
+            }
+            other => panic!("expected override_reason_required, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_create_loan_expired_subscription_force_without_override_right_rejected() {
         let expired = Utc::now() - chrono::Duration::days(1);
         let user = make_user(17, None, Some(expired));
         let svc = make_service(Some(user), 0);
@@ -1913,6 +1999,13 @@ mod tests {
         }
     }
 
+    fn settings_write_rights() -> crate::models::user::UserRights {
+        crate::models::user::UserRights {
+            settings_rights: crate::models::user::Rights::Write,
+            ..crate::models::user::UserRights::default()
+        }
+    }
+
     #[tokio::test]
     async fn test_create_loan_unpaid_over_threshold_force_without_loans_write_rejected() {
         let user = make_user(18, None, None);
@@ -2002,6 +2095,7 @@ mod tests {
                 false,
                 None,
                 None,
+                None,
                 &crate::models::user::UserRights::default()
             )
             .await
@@ -2027,6 +2121,7 @@ mod tests {
                 false,
                 None,
                 None,
+                None,
                 &crate::models::user::UserRights::default(),
             )
             .await
@@ -2047,7 +2142,7 @@ mod tests {
             loans_rights: crate::models::user::Rights::Write,
             ..crate::models::user::UserRights::default()
         };
-        match svc.renew_loan(201, false, None, None, &desk).await {
+        match svc.renew_loan(201, false, None, None, None, &desk).await {
             Err(AppError::RenewalDenied {
                 code, forceable, ..
             }) => {
@@ -2076,7 +2171,7 @@ mod tests {
             ..crate::models::user::UserRights::default()
         };
         assert!(svc
-            .renew_loan(202, true, Some(99), Some("127.0.0.1".into()), &desk)
+            .renew_loan(202, true, None, Some(99), Some("127.0.0.1".into()), &desk)
             .await
             .is_ok());
     }
@@ -2091,6 +2186,7 @@ mod tests {
             .renew_loan(
                 203,
                 false,
+                None,
                 None,
                 None,
                 &crate::models::user::UserRights::default(),
@@ -2112,7 +2208,7 @@ mod tests {
             loans_rights: crate::models::user::Rights::Write,
             ..crate::models::user::UserRights::default()
         };
-        match svc.renew_loan(203, true, Some(99), None, &desk).await {
+        match svc.renew_loan(203, true, None, Some(99), None, &desk).await {
             Err(AppError::RenewalDenied {
                 code, forceable, ..
             }) => {
@@ -2131,11 +2227,27 @@ mod tests {
         let svc = make_service_with_fines(Some(user), 204, FakeFinesRepo::default(), Some(loan));
         let settings = crate::models::user::UserRights {
             loans_rights: crate::models::user::Rights::Write,
-            settings_rights: crate::models::user::Rights::Write,
+            settings_rights: crate::models::user::Rights::None,
+            circulation_override_rights: crate::models::user::Rights::Write,
             ..crate::models::user::UserRights::default()
         };
+        let missing = svc
+            .renew_loan(204, true, None, Some(99), None, &settings)
+            .await
+            .expect_err("reason");
+        match missing {
+            AppError::Coded { code, .. } => assert_eq!(code, "override_reason_required"),
+            other => panic!("expected override_reason_required, got {other:?}"),
+        }
         assert!(svc
-            .renew_loan(204, true, Some(99), None, &settings)
+            .renew_loan(
+                204,
+                true,
+                Some("still enrolled".into()),
+                Some(99),
+                None,
+                &settings
+            )
             .await
             .is_ok());
     }

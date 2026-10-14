@@ -53,7 +53,7 @@ pub trait LoansRepository: Send + Sync {
     async fn loans_create(
         &self,
         loan: &CreateLoan,
-        prior_refusals: Vec<crate::checkout_refusal::CheckoutRefusal>,
+        progress: &mut crate::checkout_refusal::CheckoutProgress,
         caller_rights: &crate::models::user::UserRights,
     ) -> AppResult<LoanCreateOutcome>;
     async fn loans_return(&self, loan_id: i64) -> AppResult<LoanReturnOutcome>;
@@ -198,10 +198,10 @@ impl LoansRepository for Repository {
     async fn loans_create(
         &self,
         loan: &CreateLoan,
-        prior_refusals: Vec<crate::checkout_refusal::CheckoutRefusal>,
+        progress: &mut crate::checkout_refusal::CheckoutProgress,
         caller_rights: &crate::models::user::UserRights,
     ) -> crate::error::AppResult<LoanCreateOutcome> {
-        Repository::loans_create_with_prior(self, loan, prior_refusals, caller_rights).await
+        Repository::loans_create_with_prior(self, loan, progress, caller_rights).await
     }
     async fn loans_return(&self, loan_id: i64) -> crate::error::AppResult<LoanReturnOutcome> {
         Repository::loans_return(self, loan_id).await

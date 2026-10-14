@@ -78,24 +78,35 @@ async fn checkout(
     item_id: i64,
     force: bool,
 ) -> (StatusCode, Value) {
-    app.post_json(
-        "/api/v1/loans",
-        &json!({
-            "userId": user_id.to_string(),
-            "itemId": item_id.to_string(),
-            "force": force
-        }),
-        Some(admin_token),
-    )
-    .await
+    checkout_with_reason(app, admin_token, user_id, item_id, force, None).await
 }
 
-/// Forceable codes for a caller with settings write.
-/// `subscription_expired` is forceable only for that caller.
+async fn checkout_with_reason(
+    app: &TestApp,
+    token: &str,
+    user_id: i64,
+    item_id: i64,
+    force: bool,
+    override_reason: Option<&str>,
+) -> (StatusCode, Value) {
+    let mut payload = json!({
+        "userId": user_id.to_string(),
+        "itemId": item_id.to_string(),
+        "force": force
+    });
+    if let Some(reason) = override_reason {
+        payload["overrideReason"] = json!(reason);
+    }
+    app.post_json("/api/v1/loans", &payload, Some(token)).await
+}
+
+/// Forceable codes for a caller with circulation override write (the admin token).
+/// `subscription_expired` and `item_held_for_other` are forceable only for that caller.
 fn expected_forceable(code: &str) -> bool {
     matches!(
         code,
         "subscription_expired"
+            | "item_held_for_other"
             | "fines_over_threshold"
             | "max_loans"
             | "max_media_loans"
@@ -109,6 +120,7 @@ async fn staff_token(
     name: &str,
     code_prefix: &str,
     settings_rights: &str,
+    override_rights: &str,
 ) -> String {
     let code = format!("{code_prefix}{}", fixtures::unique_suffix() % 1_000_000_000);
     let (status, body) = app
@@ -118,7 +130,8 @@ async fn staff_token(
                 "code": code,
                 "name": name,
                 "loansRights": "w",
-                "settingsRights": settings_rights
+                "settingsRights": settings_rights,
+                "circulationOverrideRights": override_rights
             }),
             Some(admin_token),
         )
@@ -130,6 +143,7 @@ async fn staff_token(
     );
     assert_eq!(body["name"], name);
     assert_eq!(body["settingsRights"], settings_rights);
+    assert_eq!(body["circulationOverrideRights"], override_rights);
     assert_ne!(body["code"], "admin");
 
     let login = format!("staff_{}", fixtures::unique_suffix());
@@ -186,6 +200,26 @@ fn assert_refusal(status: StatusCode, body: &Value, code: &str, message_part: &s
     } else {
         assert!(body.get("itemStatus").is_none(), "{body}");
     }
+    if expected_forceable(code) && matches!(code, "subscription_expired" | "item_held_for_other") {
+        assert_eq!(body["reasonRequired"], true, "{body}");
+    } else {
+        assert!(body.get("reasonRequired").is_none(), "{body}");
+    }
+}
+
+fn assert_held_details_are_hold_id_only(body: &Value, hold_id: i64) {
+    let mut keys: Vec<_> = body["details"]
+        .as_object()
+        .expect("details")
+        .keys()
+        .cloned()
+        .collect();
+    keys.sort();
+    assert_eq!(keys, ["holdId"], "{body}");
+    assert_eq!(fixtures::json_id(&body["details"]["holdId"]), hold_id);
+    for key in ["userId", "cardNumber", "initials", "firstname", "lastname"] {
+        assert!(body["details"].get(key).is_none(), "{key} in {body}");
+    }
 }
 
 async fn active_loan_count(app: &TestApp, user_id: i64) -> i64 {
@@ -227,7 +261,21 @@ async fn expired_subscription_is_subscription_expired_and_force_still_checks_out
     );
     assert_eq!(active_loan_count(&app, reader_id).await, 0);
 
-    let (status, created) = checkout(&app, &admin_token, reader_id, item_id, true).await;
+    let (status, missing) = checkout(&app, &admin_token, reader_id, item_id, true).await;
+    assert_eq!(missing["code"], "override_reason_required", "{missing}");
+    assert_eq!(missing["error"], "Business Rule Violation", "{missing}");
+    assert!(missing.get("forceable").is_none(), "{missing}");
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{missing}");
+
+    let (status, created) = checkout_with_reason(
+        &app,
+        &admin_token,
+        reader_id,
+        item_id,
+        true,
+        Some("membership renewal is at the desk"),
+    )
+    .await;
     assert_eq!(status, StatusCode::CREATED, "force checkout: {created}");
     assert_eq!(active_loan_count(&app, reader_id).await, 1);
     let loan_id = fixtures::json_id(&created["id"]);
@@ -250,6 +298,10 @@ async fn expired_subscription_is_subscription_expired_and_force_still_checks_out
     assert_eq!(fixtures::json_id(&row["userId"]), actor_id);
     assert_eq!(row["entityType"], "loan");
     assert_eq!(row["payload"]["code"], "subscription_expired");
+    assert_eq!(
+        row["payload"]["overrideReason"], "membership renewal is at the desk",
+        "{row}"
+    );
     assert!(row["payload"].get("user_id").is_none(), "{row}");
     assert_eq!(fixtures::json_id(&row["payload"]["patron_id"]), reader_id);
     assert_eq!(fixtures::json_id(&row["payload"]["item_id"]), item_id);
@@ -262,7 +314,7 @@ async fn desk_agent_cannot_force_expired_subscription() {
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
-    let desk = staff_token(&app, &admin_token, "Agent guichet", "desk", "n").await;
+    let desk = staff_token(&app, &admin_token, "Agent guichet", "desk", "n", "n").await;
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "chkdesk").await;
     let (_, item_id, _) = create_copy(&app, &admin_token, "Desk Expired", true).await;
     sqlx::query("UPDATE users SET expiry_at = '2020-01-15T12:00:00Z' WHERE id = $1")
@@ -286,13 +338,13 @@ async fn desk_agent_cannot_force_expired_subscription() {
 }
 
 #[tokio::test]
-async fn subscription_expired_force_follows_settings_write_not_the_account_type_name() {
+async fn subscription_expired_force_follows_override_right_not_the_account_type_name() {
     let Some(app) = TestApp::spawn().await else {
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
-    let named_admin = staff_token(&app, &admin_token, "Admin", "admlike", "n").await;
-    let coordinator = staff_token(&app, &admin_token, "Floor coordinator", "lead", "w").await;
+    let named_admin = staff_token(&app, &admin_token, "Admin", "admlike", "w", "n").await;
+    let coordinator = staff_token(&app, &admin_token, "Floor coordinator", "lead", "n", "w").await;
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "chkrights").await;
     let (_, item_id, _) = create_copy(&app, &admin_token, "Rights Not Name", true).await;
     sqlx::query("UPDATE users SET expiry_at = '2020-01-15T12:00:00Z' WHERE id = $1")
@@ -307,11 +359,19 @@ async fn subscription_expired_force_follows_settings_write_not_the_account_type_
     assert_eq!(body["forceable"], false, "{body}");
     assert_eq!(active_loan_count(&app, reader_id).await, 0);
 
-    let (status, created) = checkout(&app, &coordinator, reader_id, item_id, true).await;
+    let (status, created) = checkout_with_reason(
+        &app,
+        &coordinator,
+        reader_id,
+        item_id,
+        true,
+        Some("coordinator override"),
+    )
+    .await;
     assert_eq!(
         status,
         StatusCode::CREATED,
-        "settings write on a custom type: {created}"
+        "circulation override on a custom type: {created}"
     );
     assert_eq!(active_loan_count(&app, reader_id).await, 1);
 }
@@ -585,13 +645,14 @@ async fn hold_for_another_patron_is_item_held_for_other() {
     let (other_id, _) = fixtures::create_reader(&app, &admin_token, "chkhold_b").await;
 
     let (biblio_id, item_id, _) = create_copy(&app, &admin_token, "Held Copy", true).await;
+    let hold_id = next_id();
     sqlx::query(
         r#"
         INSERT INTO holds (id, user_id, item_id, biblio_id, position, status)
         VALUES ($1, $2, $3, $4, 1, 'ready')
         "#,
     )
-    .bind(next_id())
+    .bind(hold_id)
     .bind(holder_id)
     .bind(item_id)
     .bind(biblio_id)
@@ -606,6 +667,7 @@ async fn hold_for_another_patron_is_item_held_for_other() {
         "item_held_for_other",
         "active hold for another patron",
     );
+    assert_held_details_are_hold_id_only(&body, hold_id);
     assert!(
         !body["message"]
             .as_str()
@@ -632,15 +694,29 @@ async fn hold_for_another_patron_is_item_held_for_other() {
     let (status, created) = checkout(&app, &admin_token, holder_id, owned_id, false).await;
     assert_eq!(status, StatusCode::CREATED, "queued patron: {created}");
 
-    let (status, forced) = checkout(&app, &admin_token, other_id, item_id, true).await;
-    assert_refusal(
-        status,
-        &forced,
-        "item_held_for_other",
-        "active hold for another patron",
-    );
-    assert_eq!(forced["forceable"], false, "{forced}");
+    let (status, blank) =
+        checkout_with_reason(&app, &admin_token, other_id, item_id, true, Some("   ")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{blank}");
+    assert_eq!(blank["code"], "override_reason_required", "{blank}");
+    assert_eq!(blank["error"], "Business Rule Violation", "{blank}");
+    assert!(blank.get("forceable").is_none(), "{blank}");
     assert_eq!(active_loan_count(&app, other_id).await, 0);
+
+    let desk = staff_token(&app, &admin_token, "Desk only", "holddesk", "n", "n").await;
+    let (status, denied) = checkout_with_reason(
+        &app,
+        &desk,
+        other_id,
+        item_id,
+        true,
+        Some("desk cannot force a hold"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{denied}");
+    assert_eq!(denied["code"], "item_held_for_other", "{denied}");
+    assert_eq!(denied["forceable"], false, "{denied}");
+    assert!(denied.get("reasonRequired").is_none(), "{denied}");
+    assert_held_details_are_hold_id_only(&denied, hold_id);
 }
 
 #[tokio::test]
@@ -671,16 +747,13 @@ async fn expired_subscription_loses_to_a_copy_held_for_another_patron() {
     .await
     .expect("ready hold");
 
-    for force in [false, true] {
-        let (status, body) = checkout(&app, &admin_token, reader_id, item_id, force).await;
-        assert_refusal(
-            status,
-            &body,
-            "item_held_for_other",
-            "active hold for another patron",
-        );
-        assert_eq!(body["forceable"], false, "{body}");
-    }
+    let (status, body) = checkout(&app, &admin_token, reader_id, item_id, false).await;
+    assert_refusal(status, &body, "subscription_expired", "2020-01-15");
+    assert_eq!(body["reasonRequired"], true, "{body}");
+
+    let (status, missing) = checkout(&app, &admin_token, reader_id, item_id, true).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{missing}");
+    assert_eq!(missing["code"], "override_reason_required", "{missing}");
     assert_eq!(active_loan_count(&app, reader_id).await, 0);
 }
 

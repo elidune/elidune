@@ -45,6 +45,10 @@ impl AccountTypesCatalogService {
             acquisitions_rights: Some(right_or_none(&mut data.acquisitions_rights, false)?),
             weeding_rights: Some(right_or_none(&mut data.weeding_rights, false)?),
             weeding_cancel_rights: Some(right_or_none(&mut data.weeding_cancel_rights, false)?),
+            circulation_override_rights: Some(right_or_none(
+                &mut data.circulation_override_rights,
+                false,
+            )?),
             is_system: false,
         };
         self.repository.account_types_create(&row).await
@@ -78,6 +82,7 @@ impl AccountTypesCatalogService {
         normalize_right_field(&mut data.acquisitions_rights)?;
         normalize_right_field(&mut data.weeding_rights)?;
         normalize_right_field(&mut data.weeding_cancel_rights)?;
+        normalize_right_field(&mut data.circulation_override_rights)?;
 
         let before = self.repository.account_types_get_by_code(code).await?;
         if let Some(ref settings) = data.settings_rights {
@@ -239,6 +244,10 @@ fn removes_any_right(before: &AccountTypeDefinition, patch: &UpdateAccountTypeDe
         || patch_removes_right(&before.acquisitions_rights, &patch.acquisitions_rights)
         || patch_removes_right(&before.weeding_rights, &patch.weeding_rights)
         || patch_removes_right(&before.weeding_cancel_rights, &patch.weeding_cancel_rights)
+        || patch_removes_right(
+            &before.circulation_override_rights,
+            &patch.circulation_override_rights,
+        )
 }
 
 #[cfg(test)]

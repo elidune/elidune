@@ -184,14 +184,15 @@ pub struct CreateLoanRequest {
     /// When true, skips gates [`crate::checkout_refusal::checkout_refusal_forceable`]
     /// allows for this caller. `fines_over_threshold` needs loans write, the same
     /// rule as renewal, and is audited after the loan commits as
-    /// `loan.fine_threshold_overridden`. `subscription_expired` needs settings write.
-    /// Pinned `pending`/`ready` holds on the copy are cancelled. A `to_pick` hold is released
-    /// back to `pending`, or reassigned to another shelf copy.
+    /// `loan.fine_threshold_overridden`. `subscription_expired` and
+    /// `item_held_for_other` need circulation override write and
+    /// [`Self::override_reason`]. A `to_pick` hold is never skipped.
+    /// Other `force` checkouts still cancel pinned `pending`/`ready` holds on the copy.
+    /// A forced loan past another patron's hold leaves that hold first in the queue.
     ///
     /// Never overrides an open loan: a copy already on loan returns 409
     /// (`item_on_loan_to_other_borrower` or `item_already_on_loan_to_borrower`)
-    /// whether or not this flag is set, including for admins. Reserved-item override
-    /// is tracked in #167.
+    /// whether or not this flag is set.
     pub force: Option<bool>,
     /// Desk site (`sources.id`) where the loan is made. Stored on `loans.site_id`.
     /// Omit it to leave the column null; due date, renewal, and fines then follow
@@ -199,6 +200,9 @@ pub struct CreateLoanRequest {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub site_id: Option<i64>,
+    /// Staff reason. Required when `force` skips `subscription_expired` or
+    /// `item_held_for_other`. Blank is treated as missing (`422` `override_reason_required`).
+    pub override_reason: Option<String>,
 }
 
 /// Optional staff override for renew.
@@ -208,10 +212,13 @@ pub struct RenewLoanQuery {
     /// When true, skips gates [`crate::renewal::renewal_refusal_forceable`] allows
     /// for this caller. Loans write lifts account status, the unpaid-fine
     /// threshold, `max_renewals`, and `renewal_too_early`. `subscription_expired`
-    /// also needs settings write. A lost card, a withdrawn copy, a
-    /// claims-returned copy, and a waiting hold stay refused. Requires loans
-    /// write. Each skipped gate is audited.
+    /// needs circulation override write and [`Self::override_reason`]. A lost
+    /// card, a withdrawn copy, a claims-returned copy, and a waiting hold stay
+    /// refused. Requires loans write. Each skipped gate is audited.
     pub force: Option<bool>,
+    /// Staff reason. Required when `force` skips `subscription_expired`.
+    /// Blank is treated as missing (`422` `override_reason_required`).
+    pub override_reason: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -680,7 +687,7 @@ pub struct GetUserLoansQuery {
         (status = 400, description = "Invalid request"),
         (status = 404, description = "User or specimen not found"),
         (status = 409, description = "Open loan on this copy (`item_on_loan_to_other_borrower` or `item_already_on_loan_to_borrower`; `force` never overrides an open loan), or Idempotency-Key conflict"),
-        (status = 422, description = "Checkout refused. Body is `CheckoutRefusalBody`: `{ code, error, message, forceable }`, plus `itemStatus` when `code` is `item_status_action_required`, and `details` when `code` is `item_to_pick_for_other`. `forceable` is computed for the caller by `checkout_refusal_forceable`. `fines_over_threshold` (unpaid balance strictly above the effective threshold, global or the patron type) is forceable only when the caller has loans write (`loans_rights` `w`, the same bar as renewal and `require_write_loans`; the account-type name is not consulted). Mode `none`, or inherit when the global mode is `none`, does not block on amount, so the override is not offered. A skipped fine gate is audited after that loan commits as `loan.fine_threshold_overridden` with payload `{ reason, loanId, patron_id }` on the loan entity (`reason` is `fines_over_threshold`). The actor is the audit row. The override covers that loan only, including each created loan of a batch, and does not clear the patron balance. `max_loans` (total loan cap, also when the total cap and the document-type cap are both reached), `max_media_loans` (document-type cap only), and `item_not_loanable` (copy is not borrowable, or circulation status is damaged) stay forceable for any caller who can send `force`. `subscription_expired` (`users.expiry_at` before now) is forceable only when the caller has settings write (`settings_rights` `w`, the same admin bar as `require_write_settings`, independent of the account-type name). Any other caller gets `forceable: false`, and `force: true` still returns 422 `subscription_expired`. An override by a caller with settings write is audited as `loan.subscription_expired_overridden` (actor, loan id, patron user id, item id, code `subscription_expired`). It is false for `item_held_for_other` (copy is ready or pinned pending for another patron), `item_status_action_required` (circulation status is lost, claimedReturned, toSearch, or missing; `itemStatus` is that value), `card_lost`, `item_to_pick_for_other`, and `business_rule_violation` (deleted account, inactive account, withdrawn copy, item in transit). Staff `force` skips only refusals with `forceable: true` for that caller. When several gates apply, a non-forceable refusal is returned before any forceable one.", body = crate::checkout_refusal::CheckoutRefusalBody)
+        (status = 422, description = "Checkout refused. Body is `CheckoutRefusalBody`: `{ code, error, message, forceable }`, plus `reasonRequired: true` when the refusal is forceable and a reason is mandatory (`subscription_expired`, `item_held_for_other`), plus `itemStatus` when `code` is `item_status_action_required`, and `details` when `code` is `item_to_pick_for_other` or `item_held_for_other`. Missing or blank `overrideReason` while forcing one of those gates is `422` `override_reason_required` with body `{ code, error, message }`. `forceable` is computed for the caller by `checkout_refusal_forceable`. `fines_over_threshold` (unpaid balance strictly above the effective threshold, global or the patron type) is forceable only when the caller has loans write (`loans_rights` `w`, the same bar as renewal and `require_write_loans`; the account-type name is not consulted). Mode `none`, or inherit when the global mode is `none`, does not block on amount, so the override is not offered. A skipped fine gate is audited after that loan commits as `loan.fine_threshold_overridden` with payload `{ reason, loanId, patron_id }` on the loan entity (`reason` is `fines_over_threshold`). The actor is the audit row. The override covers that loan only, including each created loan of a batch, and does not clear the patron balance. `max_loans` (total loan cap, also when the total cap and the document-type cap are both reached), `max_media_loans` (document-type cap only), and `item_not_loanable` (copy is not borrowable, or circulation status is damaged) stay forceable for any caller who can send `force`. `subscription_expired` (`users.expiry_at` before now) and `item_held_for_other` (copy is ready or pinned pending for another patron) are forceable only when the caller has circulation override write (`circulation_override_rights` `w`, independent of the account-type name and of `settings_rights`). `details` for `item_held_for_other` is `{ holdId }` only (`ItemHeldForOtherDetails`; `userId`, `cardNumber`, and `initials` are absent). `details` for `item_to_pick_for_other` is `{ holdId, userId, cardNumber, initials }` and never the patron name. Any other caller gets `forceable: false`. Forcing either gate requires `overrideReason`. The hold is not cancelled and stays first in the queue. An expired-subscription override is audited as `loan.subscription_expired_overridden` (actor, loan id, patron_id, item id, code `subscription_expired`, overrideReason). A held-copy override is audited as `loan.held_for_other_overridden` (actor, loan id, patron_id, holdId, reason). It is false for `item_status_action_required` (circulation status is lost, claimedReturned, toSearch, or missing; `itemStatus` is that value), `card_lost`, `item_to_pick_for_other`, and `business_rule_violation` (deleted account, inactive account, withdrawn copy, item in transit). Staff `force` skips only refusals with `forceable: true` for that caller. When several gates apply, a non-forceable refusal is returned before any forceable one.", body = crate::checkout_refusal::CheckoutRefusalBody)
     )
 )]
 pub async fn create_loan(
@@ -692,6 +699,7 @@ pub async fn create_loan(
 ) -> AppResult<(StatusCode, Json<LoanResponse>)> {
     claims.require_write_loans()?;
     let force = request.force.unwrap_or(false);
+    let override_reason = request.override_reason.clone();
     let fingerprint = serde_json::json!({
         "op": "loans.create",
         "userId": request.user_id.to_string(),
@@ -699,6 +707,7 @@ pub async fn create_loan(
         "itemIdentification": request.item_identification,
         "force": force,
         "siteId": request.site_id.map(|id| id.to_string()),
+        "overrideReason": override_reason.clone(),
     });
 
     let (status, body) = idempotency::execute(
@@ -716,6 +725,7 @@ pub async fn create_loan(
                 item_identification: request.item_identification.clone(),
                 force,
                 site_id: request.site_id,
+                override_reason: override_reason.clone(),
             };
             let caller_rights = claims.rights.clone();
             async move {
@@ -893,7 +903,7 @@ pub async fn return_loan(
         (status = 200, description = "Loan renewed", body = LoanResponse),
         (status = 404, description = "Loan not found"),
         (status = 409, description = "Idempotency-Key reused with a different payload"),
-        (status = 422, description = "Renewal refused. Body is `RenewalRefusalBody`: `{ code, error, message, forceable }`. `code` is `card_lost`, `account_blocked`, `subscription_expired`, `fines_over_threshold`, `withdrawn`, `claimed_returned`, `hold_waiting`, `max_renewals`, `renewal_too_early`, or `business_rule_violation` when the loan is already returned or the due date would not move. `forceable` is computed for the caller by `renewal_refusal_forceable`. It is true for `account_blocked`, `fines_over_threshold`, `max_renewals`, and `renewal_too_early` when the caller has loans write (`loans_rights` `w`, the same bar as `require_write_loans`). `subscription_expired` is forceable only when `checkout_refusal_forceable` is true for this caller: settings write (`settings_rights` `w`), not loans write alone. The account-type name is not consulted. `card_lost`, `withdrawn`, `claimed_returned`, `hold_waiting`, and `business_rule_violation` are never forceable. `force=true` skips a gate only when `forceable` is true for this caller and still requires loans write. A skipped `subscription_expired` writes `loan.subscription_expired_overridden`. A skipped `fines_over_threshold` writes `loan.fine_threshold_overridden`. A skipped `account_blocked`, `max_renewals`, or `renewal_too_early` writes `loan.renewal_forced`. Each audit payload is `{ reason, loanId, patron_id }` on the loan entity. The actor is the audit row.", body = crate::renewal::RenewalRefusalBody)
+        (status = 422, description = "Renewal refused. Body is `RenewalRefusalBody`: `{ code, error, message, forceable }`. `code` is `card_lost`, `account_blocked`, `subscription_expired`, `fines_over_threshold`, `withdrawn`, `claimed_returned`, `hold_waiting`, `max_renewals`, `renewal_too_early`, or `business_rule_violation` when the loan is already returned or the due date would not move. `forceable` is computed for the caller by `renewal_refusal_forceable`. It is true for `account_blocked`, `fines_over_threshold`, `max_renewals`, and `renewal_too_early` when the caller has loans write (`loans_rights` `w`, the same bar as `require_write_loans`). `subscription_expired` is forceable only when `checkout_refusal_forceable` is true for this caller: circulation override write (`circulation_override_rights` `w`), not loans write and not settings write alone. The account-type name is not consulted. `reasonRequired: true` is set when that code is forceable. Forcing it requires query `overrideReason`. A missing or blank reason is `422` `override_reason_required` with body `{ code, error, message }`. The audit payload adds `overrideReason` beside `{ reason, loanId, patron_id }`.  `card_lost`, `withdrawn`, `claimed_returned`, `hold_waiting`, and `business_rule_violation` are never forceable. `force=true` skips a gate only when `forceable` is true for this caller and still requires loans write. A skipped `subscription_expired` writes `loan.subscription_expired_overridden`. A skipped `fines_over_threshold` writes `loan.fine_threshold_overridden`. A skipped `account_blocked`, `max_renewals`, or `renewal_too_early` writes `loan.renewal_forced`. Each audit payload is `{ reason, loanId, patron_id }` on the loan entity. The actor is the audit row.", body = crate::renewal::RenewalRefusalBody)
     )
 )]
 pub async fn renew_loan(
@@ -907,6 +917,7 @@ pub async fn renew_loan(
     let loan = state.services.loans.get_loan(loan_id).await?;
     let user_id = loan.user_id;
     let force = query.force.unwrap_or(false);
+    let override_reason = query.override_reason.clone();
 
     if claims.rights.loans_rights.rank() < Rights::Write.rank() && user_id != claims.user_id {
         return Err(AppError::Authorization(
@@ -921,6 +932,7 @@ pub async fn renew_loan(
         "op": "loans.renew",
         "loanId": loan_id.to_string(),
         "force": force,
+        "overrideReason": override_reason.clone(),
     });
 
     let (_status, body) = idempotency::execute(
@@ -933,7 +945,18 @@ pub async fn renew_loan(
             let state = state.clone();
             let ip = ip.clone();
             let rights = claims.rights.clone();
-            async move { renew_loan_inner(state, claims.user_id, ip, loan_id, force, rights).await }
+            async move {
+                renew_loan_inner(
+                    state,
+                    claims.user_id,
+                    ip,
+                    loan_id,
+                    force,
+                    override_reason,
+                    rights,
+                )
+                .await
+            }
         },
     )
     .await?;
@@ -946,12 +969,20 @@ async fn renew_loan_inner(
     ip: Option<String>,
     loan_id: i64,
     force: bool,
+    override_reason: Option<String>,
     caller_rights: UserRights,
 ) -> AppResult<(StatusCode, LoanResponse)> {
     let (new_expiry_date, renew_count) = state
         .services
         .loans
-        .renew_loan(loan_id, force, Some(actor_id), ip.clone(), &caller_rights)
+        .renew_loan(
+            loan_id,
+            force,
+            override_reason,
+            Some(actor_id),
+            ip.clone(),
+            &caller_rights,
+        )
         .await?;
     let site_id = state
         .services
@@ -1138,7 +1169,7 @@ pub async fn resolve_lost_found(
         (status = 200, description = "Loan renewed", body = LoanResponse),
         (status = 404, description = "Item or active loan not found"),
         (status = 409, description = "Idempotency-Key reused with a different payload"),
-        (status = 422, description = "Renewal refused. Body is `RenewalRefusalBody`: `{ code, error, message, forceable }`. `code` is `card_lost`, `account_blocked`, `subscription_expired`, `fines_over_threshold`, `withdrawn`, `claimed_returned`, `hold_waiting`, `max_renewals`, `renewal_too_early`, or `business_rule_violation` when the loan is already returned or the due date would not move. `forceable` is computed for the caller by `renewal_refusal_forceable`. It is true for `account_blocked`, `fines_over_threshold`, `max_renewals`, and `renewal_too_early` when the caller has loans write (`loans_rights` `w`, the same bar as `require_write_loans`). `subscription_expired` is forceable only when `checkout_refusal_forceable` is true for this caller: settings write (`settings_rights` `w`), not loans write alone. The account-type name is not consulted. `card_lost`, `withdrawn`, `claimed_returned`, `hold_waiting`, and `business_rule_violation` are never forceable. `force=true` skips a gate only when `forceable` is true for this caller and still requires loans write. A skipped `subscription_expired` writes `loan.subscription_expired_overridden`. A skipped `fines_over_threshold` writes `loan.fine_threshold_overridden`. A skipped `account_blocked`, `max_renewals`, or `renewal_too_early` writes `loan.renewal_forced`. Each audit payload is `{ reason, loanId, patron_id }` on the loan entity. The actor is the audit row.", body = crate::renewal::RenewalRefusalBody)
+        (status = 422, description = "Renewal refused. Body is `RenewalRefusalBody`: `{ code, error, message, forceable }`. `code` is `card_lost`, `account_blocked`, `subscription_expired`, `fines_over_threshold`, `withdrawn`, `claimed_returned`, `hold_waiting`, `max_renewals`, `renewal_too_early`, or `business_rule_violation` when the loan is already returned or the due date would not move. `forceable` is computed for the caller by `renewal_refusal_forceable`. It is true for `account_blocked`, `fines_over_threshold`, `max_renewals`, and `renewal_too_early` when the caller has loans write (`loans_rights` `w`, the same bar as `require_write_loans`). `subscription_expired` is forceable only when `checkout_refusal_forceable` is true for this caller: circulation override write (`circulation_override_rights` `w`), not loans write and not settings write alone. The account-type name is not consulted. `reasonRequired: true` is set when that code is forceable. Forcing it requires query `overrideReason`. A missing or blank reason is `422` `override_reason_required` with body `{ code, error, message }`. The audit payload adds `overrideReason` beside `{ reason, loanId, patron_id }`.  `card_lost`, `withdrawn`, `claimed_returned`, `hold_waiting`, and `business_rule_violation` are never forceable. `force=true` skips a gate only when `forceable` is true for this caller and still requires loans write. A skipped `subscription_expired` writes `loan.subscription_expired_overridden`. A skipped `fines_over_threshold` writes `loan.fine_threshold_overridden`. A skipped `account_blocked`, `max_renewals`, or `renewal_too_early` writes `loan.renewal_forced`. Each audit payload is `{ reason, loanId, patron_id }` on the loan entity. The actor is the audit row.", body = crate::renewal::RenewalRefusalBody)
     )
 )]
 pub async fn renew_loan_by_item(
@@ -1151,10 +1182,12 @@ pub async fn renew_loan_by_item(
 ) -> AppResult<Json<LoanResponse>> {
     claims.require_write_loans()?;
     let force = query.force.unwrap_or(false);
+    let override_reason = query.override_reason.clone();
     let fingerprint = serde_json::json!({
         "op": "loans.renew_by_item",
         "itemId": item_id,
         "force": force,
+        "overrideReason": override_reason.clone(),
     });
 
     let (_status, body) = idempotency::execute(
@@ -1169,7 +1202,16 @@ pub async fn renew_loan_by_item(
             let item_id = item_id.clone();
             let rights = claims.rights.clone();
             async move {
-                renew_loan_by_item_inner(state, claims.user_id, ip, item_id, force, rights).await
+                renew_loan_by_item_inner(
+                    state,
+                    claims.user_id,
+                    ip,
+                    item_id,
+                    force,
+                    override_reason,
+                    rights,
+                )
+                .await
             }
         },
     )
@@ -1183,12 +1225,20 @@ async fn renew_loan_by_item_inner(
     ip: Option<String>,
     item_id: String,
     force: bool,
+    override_reason: Option<String>,
     caller_rights: UserRights,
 ) -> AppResult<(StatusCode, LoanResponse)> {
     let (loan_id, new_expiry_date, renew_count) = state
         .services
         .loans
-        .renew_loan_by_item(&item_id, force, Some(actor_id), ip.clone(), &caller_rights)
+        .renew_loan_by_item(
+            &item_id,
+            force,
+            override_reason,
+            Some(actor_id),
+            ip.clone(),
+            &caller_rights,
+        )
         .await?;
     let site_id = state
         .services

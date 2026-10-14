@@ -36,7 +36,8 @@ pub mod error_code {
     /// Checkout and renewal refused because `users.card_lost` is set. `force` does not override.
     pub const CARD_LOST: &str = "card_lost";
     /// Checkout and renewal refused because `users.expiry_at` is before now.
-    /// At checkout, `force` overrides it only for a caller with settings write.
+    /// `force` overrides it only for a caller with circulation override write,
+    /// and only when `overrideReason` is present.
     pub const SUBSCRIPTION_EXPIRED: &str = "subscription_expired";
     /// Checkout and renewal refused because unpaid fines are strictly above the effective threshold.
     /// Staff `force` overrides it.
@@ -50,8 +51,9 @@ pub mod error_code {
     /// [`ITEM_STATUS_ACTION_REQUIRED`]. A withdrawn copy stays `business_rule_violation`.
     pub const ITEM_NOT_LOANABLE: &str = "item_not_loanable";
     /// Checkout refused: this copy is `ready` or pinned `pending` for another patron.
-    /// Staff `force` does not override it. `to_pick` is [`ITEM_TO_PICK_FOR_OTHER`].
-    /// Withdrawal of a held copy stays [`ITEM_ON_HOLD`].
+    /// `force` overrides it only for a caller with circulation override write,
+    /// and only when `overrideReason` is present. The hold is not cancelled.
+    /// `to_pick` is [`ITEM_TO_PICK_FOR_OTHER`]. Withdrawal of a held copy stays [`ITEM_ON_HOLD`].
     pub const ITEM_HELD_FOR_OTHER: &str = "item_held_for_other";
     /// Checkout refused: circulation status is lost, claimed returned, to search, or missing.
     /// Staff `force` does not override it. The body includes `itemStatus`.
@@ -107,6 +109,11 @@ pub mod error_code {
     pub const LAST_ACTIVE_ADMIN: &str = "last_active_admin";
     /// `POST /holds/{id}/transits` when the copy's site is already the pickup site.
     pub const TRANSIT_SAME_SITE: &str = "transit_same_site";
+    /// `force` skipped a gate that requires `overrideReason`, and the reason was missing or blank.
+    pub const OVERRIDE_REASON_REQUIRED: &str = "override_reason_required";
+    /// Client `message` for [`OVERRIDE_REASON_REQUIRED`].
+    pub const OVERRIDE_REASON_REQUIRED_MESSAGE: &str =
+        "A reason is required to force this circulation action";
     /// `PUT /items/{id}` included `circulationStatus`. That column is not writable here.
     pub const CIRCULATION_STATUS_READ_ONLY: &str = "circulation_status_read_only";
     /// Client `message` for [`CIRCULATION_STATUS_READ_ONLY`].
@@ -565,11 +572,14 @@ impl IntoResponse for AppError {
                 message,
                 forceable,
             } => {
+                let reason_required =
+                    forceable && crate::checkout_refusal::checkout_override_reason_required(code);
                 let body = Json(crate::renewal::RenewalRefusalBody {
                     code: code.to_string(),
                     error: "Business Rule Violation".to_string(),
                     message,
                     forceable,
+                    reason_required: reason_required.then_some(true),
                 });
                 (StatusCode::UNPROCESSABLE_ENTITY, body).into_response()
             }
