@@ -31,8 +31,10 @@ export default defineConfig([
           allowConstantExport: true,
           allowExportNames: [
             'useAuth',
+            'AuthContext',
             'useTheme',
             'useLanguage',
+            'LanguageContext',
             'useLibrary',
             'useToast',
             'useBackgroundTasks',

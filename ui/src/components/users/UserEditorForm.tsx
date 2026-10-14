@@ -6,20 +6,27 @@ import { Input } from '@/components/common';
 import AccountTypeSelect from '@/components/users/AccountTypeSelect';
 import EventsConsentFields from '@/components/users/EventsConsentFields';
 import GuardianPicker from '@/components/users/GuardianPicker';
+import ReaderPublicTypeReadout from '@/components/users/ReaderPublicTypeReadout';
 import api from '@/services/api';
 import type { AccountTypeDefinition, PublicType, User, UserShort } from '@/types';
 import { LANGUAGE_NAMES, PUBLIC_LANGUAGE_OPTIONS } from '@/locales';
 import { defaultAccountTypeCode } from '@/utils/accountTypeDisplay';
 import { localizedPublicTypeLabel } from '@/utils/publicTypeDisplay';
 import { getApiErrorMessage, getApiErrorRawMessage } from '@/utils/apiError';
-import { appendReaderLanguage, readerLanguageSelectValue } from '@/utils/readerLanguage';
+import { readerLanguageSelectValue } from '@/utils/readerLanguage';
 import { SEX_OPTIONS } from '@/utils/codeLabels';
 import { searchFrenchCommunePicks } from '@/utils/frenchCommuneSearch';
 import { formControlClass, formLabelClass, formTextareaClass } from '@/utils/formControl';
 import { guardianValidationI18nKey, publicTypeRequiresGuardian } from '@/utils/legalGuardian';
 import {
+  guardianPublicTypeId,
+  isReaderAccount,
+  readerBirthDateFieldError,
+  readerBirthDateRequired,
+} from '@/utils/readerPublicType';
+import { buildUserWriteBody } from '@/utils/userWriteBody';
+import {
   defaultExpiryDateInputOneYearFromNow,
-  dateInputToIsoEndOfDayUtc,
   toDateInputValue,
 } from '@/utils/userSubscription';
 
@@ -125,34 +132,6 @@ function formDataFromUser(user: User): UserFormData {
   };
 }
 
-function buildPayload(formData: UserFormData): Record<string, unknown> {
-  const body: Record<string, unknown> = {
-    login: formData.login || undefined,
-    firstname: formData.firstname || undefined,
-    lastname: formData.lastname || undefined,
-    sex: formData.sex || undefined,
-    email: formData.email || undefined,
-    phone: formData.phone || undefined,
-    barcode: formData.barcode || undefined,
-    birthdate: formData.birthdate || undefined,
-    addrStreet: formData.addrStreet || undefined,
-    addrZipCode: formData.addrZipCode ? parseInt(formData.addrZipCode, 10) : undefined,
-    addrCity: formData.addrCity || undefined,
-    notes: formData.notes || undefined,
-    fee: formData.fee || undefined,
-    publicType: formData.publicType ? String(formData.publicType) : undefined,
-    accountType: formData.accountType || undefined,
-    ...(formData.expiryUnlimited
-      ? { expiryAt: null }
-      : {
-          expiryAt: dateInputToIsoEndOfDayUtc(
-            formData.expiryAt || defaultExpiryDateInputOneYearFromNow()
-          ),
-        }),
-  };
-  return appendReaderLanguage(body, formData.language);
-}
-
 function CollapsibleFormSection({
   title,
   open,
@@ -222,6 +201,10 @@ export default function UserEditorForm({
     }
   }
 
+  const [savedAudience, setSavedAudience] = useState<{
+    publicType?: string | null;
+    birthDateMissing: boolean;
+  } | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<UserRequiredField, string>>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [subscriptionOpen, setSubscriptionOpen] = useState(false);
@@ -249,7 +232,19 @@ export default function UserEditorForm({
     return { id: formData.guardianId };
   })();
 
-  const showGuardianField = publicTypeRequiresGuardian(publicTypes, formData.publicType);
+  const readerAccount = isReaderAccount(formData.accountType);
+  const birthDateIsRequired = readerBirthDateRequired(mode, formData.accountType);
+  const audienceTypeId = guardianPublicTypeId({
+    accountType: formData.accountType,
+    birthdate: formData.birthdate,
+    storedPublicTypeId: formData.publicType,
+    publicTypes,
+  });
+  const showGuardianField = publicTypeRequiresGuardian(publicTypes, audienceTypeId);
+  const shownPublicType = savedAudience?.publicType ?? user?.publicType;
+  const shownBirthDateMissing = savedAudience
+    ? savedAudience.birthDateMissing
+    : user?.birthDateMissing === true;
 
   const [cityPostalField, setCityPostalField] = useState(() =>
     mode === 'edit' && user
@@ -314,11 +309,19 @@ export default function UserEditorForm({
     if (!fd.login.trim()) err.login = requiredMsg;
     if (!fd.firstname.trim()) err.firstname = requiredMsg;
     if (!fd.lastname.trim()) err.lastname = requiredMsg;
-    if (!fd.birthdate.trim()) err.birthdate = requiredMsg;
-    if (!fd.publicType.trim()) err.publicType = requiredMsg;
+    if (readerBirthDateRequired(mode, fd.accountType) && !fd.birthdate.trim()) {
+      err.birthdate = requiredMsg;
+    }
+    if (!isReaderAccount(fd.accountType) && !fd.publicType.trim()) err.publicType = requiredMsg;
     if (!fd.sex.trim()) err.sex = requiredMsg;
     if (!fd.addrCity.trim()) err.addrCity = requiredMsg;
-    if (publicTypeRequiresGuardian(publicTypes, fd.publicType) && !fd.guardianId.trim()) {
+    const guardianTypeId = guardianPublicTypeId({
+      accountType: fd.accountType,
+      birthdate: fd.birthdate,
+      storedPublicTypeId: fd.publicType,
+      publicTypes,
+    });
+    if (publicTypeRequiresGuardian(publicTypes, guardianTypeId) && !fd.guardianId.trim()) {
       err.guardianId = t('users.guardianErrors.required');
     }
 
@@ -364,10 +367,10 @@ export default function UserEditorForm({
     setSubmitError(null);
     onLoadingChange(true);
     try {
-      const base = buildPayload(formData);
-      if (publicTypeRequiresGuardian(publicTypes, formData.publicType) && formData.guardianId) {
+      const base = buildUserWriteBody(formData);
+      if (publicTypeRequiresGuardian(publicTypes, audienceTypeId) && formData.guardianId) {
         base.guardianId = formData.guardianId;
-      } else if (!publicTypeRequiresGuardian(publicTypes, formData.publicType)) {
+      } else if (!publicTypeRequiresGuardian(publicTypes, audienceTypeId)) {
         base.eventsConsent = formData.eventsConsent;
       }
       if (mode === 'create') {
@@ -377,6 +380,10 @@ export default function UserEditorForm({
           password: formData.password || undefined,
         };
         const created = await api.createUser(createData as Partial<User> & { password?: string });
+        setSavedAudience({
+          publicType: created.publicType,
+          birthDateMissing: created.birthDateMissing === true,
+        });
         await onSuccess(created);
       } else {
         if (!user) return;
@@ -385,10 +392,19 @@ export default function UserEditorForm({
           updateData.password = formData.password;
         }
         const updated = await api.updateUser(user.id, updateData);
+        setSavedAudience({
+          publicType: updated.publicType,
+          birthDateMissing: updated.birthDateMissing === true,
+        });
         await onSuccess(updated);
       }
     } catch (error) {
       console.error(mode === 'create' ? 'Error creating user:' : 'Error updating user:', error);
+      const birthDateError = readerBirthDateFieldError(error, t);
+      if (birthDateError) {
+        setFieldErrors({ birthdate: birthDateError });
+        return;
+      }
       const raw = getApiErrorRawMessage(error);
       const guardianKey = guardianValidationI18nKey(raw);
       if (guardianKey) {
@@ -524,6 +540,7 @@ export default function UserEditorForm({
               onChange={(code) => {
                 setFormData({ ...formData, accountType: code });
                 clearFieldError('accountType');
+                if (isReaderAccount(code)) clearFieldError('publicType');
               }}
             />
             {fieldErrors.accountType && (
@@ -531,35 +548,45 @@ export default function UserEditorForm({
             )}
           </div>
          
-          <div>
-            <label htmlFor={`${formId}-public-type`} className={formLabelClass()}>
-              {t('users.publicType')}
-              {requiredMark}
-            </label>
-            <select
+          {readerAccount ? (
+            <ReaderPublicTypeReadout
               id={`${formId}-public-type`}
-              value={formData.publicType}
-              onChange={(e) => {
-                setFormData({ ...formData, publicType: e.target.value });
-                clearFieldError('publicType');
-                clearFieldError('guardianId');
-              }}
-              required
-              aria-required="true"
-              className={selectClass(!!fieldErrors.publicType)}
-            >
-              <option value="">{t('common.select')}</option>
-              {publicTypes.map((pt) => (
-                <option key={pt.id} value={String(pt.id)}>
-                  {localizedPublicTypeLabel(t, pt)}
-                </option>
-              ))}
-            </select>
-            {fieldErrors.publicType && (
-              <p className="mt-1 text-sm text-red-600 dark:text-red-400">{fieldErrors.publicType}</p>
-            )}
-          </div>
+              publicTypes={publicTypes}
+              publicType={shownPublicType}
+              birthDateMissing={shownBirthDateMissing}
+            />
+          ) : (
+            <div>
+              <label htmlFor={`${formId}-public-type`} className={formLabelClass()}>
+                {t('users.publicType')}
+                {requiredMark}
+              </label>
+              <select
+                id={`${formId}-public-type`}
+                value={formData.publicType}
+                onChange={(e) => {
+                  setFormData({ ...formData, publicType: e.target.value });
+                  clearFieldError('publicType');
+                  clearFieldError('guardianId');
+                }}
+                required
+                aria-required="true"
+                className={selectClass(!!fieldErrors.publicType)}
+              >
+                <option value="">{t('common.select')}</option>
+                {publicTypes.map((pt) => (
+                  <option key={pt.id} value={String(pt.id)}>
+                    {localizedPublicTypeLabel(t, pt)}
+                  </option>
+                ))}
+              </select>
+              {fieldErrors.publicType && (
+                <p className="mt-1 text-sm text-red-600 dark:text-red-400">{fieldErrors.publicType}</p>
+              )}
+            </div>
+          )}
           <Input
+            id={`${formId}-birthdate`}
             label={t('profile.birthdate')}
             type="date"
             value={formData.birthdate}
@@ -567,7 +594,7 @@ export default function UserEditorForm({
               setFormData({ ...formData, birthdate: e.target.value });
               clearFieldError('birthdate');
             }}
-            required
+            required={birthDateIsRequired}
             error={fieldErrors.birthdate}
           />
           <div>
