@@ -535,6 +535,7 @@ impl Repository {
             hold_user_firstname: None,
             hold_user_lastname: None,
             due_date: None,
+            expected_return_date: None,
             on_hold: false,
         };
 

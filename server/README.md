@@ -52,7 +52,7 @@ Library management system — JSON REST API written in Rust (Axum, PostgreSQL, R
 
 ### OPAC & public API
 
-- **OPAC** — Public **search** and **biblio detail** without staff auth; **availability** per copy, plus `dueDate`, `onHold`, and title `holdsCount`. No borrower identity.
+- **OPAC** — Public **search** and **biblio detail** without staff auth; **availability** per copy, plus `onHold`, `expectedReturnDate` while the library-local due date is today or later, and title `holdsCount`. No `dueDate` and no borrower identity.
 - **Library info** — Public read of library contact details; staff can update **library information**.
 
 ### Onboarding & operations

@@ -616,7 +616,8 @@ Each copy includes:
 
 | Field | Patron and OPAC (`ItemPublicView`) | Staff (`ItemStaffView`) |
 |---|---|---|
-| `dueDate` | Active loan `expiry_at`, or `null` | Same |
+| `dueDate` | Omitted (key absent, not null) | Active loan `expiry_at`, or `null` |
+| `expectedReturnDate` | `YYYY-MM-DD` in the library timezone while `availability` is `onLoan` and that local date is today or later. Omitted otherwise, including when the local due date is before today. | Omitted |
 | `onHold` | Boolean, see below | Same |
 | `loanId` | Omitted | Kept |
 | `holdFor` | Omitted | On an `onHold` copy when the caller has `users_rights` or `loans_rights` read or write. Users read returns `UserShortStaff`. Loans read without users read returns `{ id, cardNumber, initials }`. Omitted when the caller has neither right. |
@@ -635,7 +636,7 @@ Transit precedence can leave `availability: "inTransit"` with `onHold: true`. `t
 
 Staff hold rows (`GET /holds`, `GET /biblios/:id/holds`, `GET /items/:id/holds`, `GET /users/:id/holds`) use the same identity on `user`. `expiresAt` is the pickup deadline. The hold-shelf label `GET /holds/pick-list` always returns `holdFor` as `{ id, cardNumber, initials }`, including for callers with `users_rights` read, because the label is displayed on an open shelf. It also includes `pickupDeadline` (`holds.expires_at`, null while `to_pick`) and `pickDueAt`. Checkout of a `to_pick` copy for someone else is `422` `item_to_pick_for_other` with `details.cardNumber` and `details.initials`.
 
-`dueDate` and `onHold` are also on the other full-copy views (`GET /biblios/:id/items`, `GET /items/:id`, `GET /items/barcode/:barcode`, `GET /opac/biblios/:id`). `holdsCount` is on the full notice views, including `GET /items/:id` and `GET /opac/biblios/:id`. Those item routes do not add `borrower`. List hits (`ItemShort`) omit `dueDate`, `onHold`, `loanId`, and `borrower`.
+`onHold` is also on the other full-copy views (`GET /biblios/:id/items`, `GET /items/:id`, `GET /items/barcode/:barcode`, `GET /opac/biblios/:id`). `dueDate` is only on the staff type (`ItemStaffView`) for those routes. Public copies (`ItemPublicView`) omit `dueDate`. `holdsCount` is on the full notice views, including `GET /items/:id` and `GET /opac/biblios/:id`. Those item routes do not add `borrower`. List hits (`ItemShort`) omit `dueDate`, `onHold`, `loanId`, and `borrower`. `GET /me/loans` still returns `dueDate` on the patron's own loans, including overdue ones.
 
 ---
 

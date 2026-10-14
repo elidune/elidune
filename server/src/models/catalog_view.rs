@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use utoipa::ToSchema;
@@ -232,10 +232,13 @@ impl From<Item> for ItemStaffView {
 
 /// Full physical copy returned to readers and the OPAC.
 ///
-/// No hold patron, notes, weeding, circulation status, loan id, borrower, or other staff field.
-/// [`Self::due_date`] and [`Self::on_hold`] are safe for patrons and the OPAC.
+/// No hold patron, notes, weeding, circulation status, loan id, borrower, due date,
+/// or other staff field. [`Self::on_hold`] is safe for patrons and the OPAC.
+/// [`Self::expected_return_date`] is the library-local calendar date. It is present
+/// only when [`Self::availability`] is `onLoan` and that date is today or later
+/// in the library timezone.
 /// [`Self::availability`] uses [`ItemPublicAvailability`]. [`Self::can_hold_item`] matches
-/// the staff rule.
+/// the staff rule. Staff copies use [`ItemStaffView`], which keeps `dueDate`.
 #[serde_as]
 #[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -261,8 +264,14 @@ pub struct ItemPublicView {
     pub archived_at: Option<DateTime<Utc>>,
     pub source_name: Option<String>,
     pub borrowed: bool,
-    /// Active loan `expiry_at`. Null when the copy is not on loan.
-    pub due_date: Option<DateTime<Utc>>,
+    /// Library-local calendar date (`YYYY-MM-DD`) the copy is expected back.
+    ///
+    /// Present only when [`Self::availability`] is `onLoan`, the open loan has an
+    /// `expiry_at`, and that civil date in the library timezone is today or later.
+    /// Omitted from the next local day, and for every other availability. No time
+    /// and no patron.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected_return_date: Option<NaiveDate>,
     pub availability: ItemPublicAvailability,
     pub can_hold_item: bool,
     /// This copy is assigned to a hold, or in transit for one. See [`Item::on_hold`].
@@ -271,6 +280,16 @@ pub struct ItemPublicView {
 
 impl From<Item> for ItemPublicView {
     fn from(item: Item) -> Self {
+        let availability = ItemPublicAvailability::for_copy(
+            item.availability,
+            item.borrowable,
+            item.circulation_status,
+        );
+        let expected_return_date = if availability == ItemPublicAvailability::OnLoan {
+            item.expected_return_date
+        } else {
+            None
+        };
         Self {
             id: item.id,
             biblio_id: item.biblio_id,
@@ -286,12 +305,8 @@ impl From<Item> for ItemPublicView {
             archived_at: item.archived_at,
             source_name: item.source_name,
             borrowed: item.borrowed,
-            due_date: item.due_date,
-            availability: ItemPublicAvailability::for_copy(
-                item.availability,
-                item.borrowable,
-                item.circulation_status,
-            ),
+            expected_return_date,
+            availability,
             can_hold_item: item.can_hold_item,
             on_hold: item.on_hold,
         }
@@ -1186,6 +1201,7 @@ impl From<LoanDetails> for LoanDetailsOwn {
 mod tests {
     use super::*;
     use crate::models::user::UserRights;
+    use chrono::TimeZone;
 
     #[test]
     fn public_availability_collapses_temporary_states_and_hides_staff_fields() {
@@ -1336,6 +1352,98 @@ mod tests {
             AccountTypeSlug::Reader,
             weeder
         )));
+    }
+
+    fn copy_with(availability: ItemAvailability, expected_return_date: Option<NaiveDate>) -> Item {
+        Item {
+            id: Some(11),
+            biblio_id: Some(22),
+            source_id: None,
+            barcode: Some("BC".into()),
+            call_number: None,
+            volume_designation: None,
+            place: None,
+            borrowable: true,
+            circulation_status: None,
+            weeding_status: WeedingStatus::OnShelf,
+            weeding_reason: None,
+            notes: Some("staff only note".into()),
+            price: None,
+            price_deferred: false,
+            created_at: None,
+            updated_at: None,
+            archived_at: None,
+            source_name: None,
+            borrowed: availability == ItemAvailability::OnLoan,
+            loan_id: Some(99),
+            availability,
+            can_hold_item: true,
+            hold_user_id: Some(5),
+            hold_user_barcode: Some("SECRET-CARD".into()),
+            hold_user_firstname: Some("Isolde".into()),
+            hold_user_lastname: Some("Moreau".into()),
+            due_date: Some(
+                Utc.with_ymd_and_hms(2026, 1, 16, 21, 30, 0)
+                    .single()
+                    .expect("due instant"),
+            ),
+            expected_return_date,
+            on_hold: false,
+        }
+    }
+
+    #[test]
+    fn public_expected_return_date_is_date_only_and_only_on_loan() {
+        let date = NaiveDate::from_ymd_opt(2026, 1, 16).expect("date");
+        let on_loan = serde_json::to_value(ItemPublicView::from(copy_with(
+            ItemAvailability::OnLoan,
+            Some(date),
+        )))
+        .expect("json");
+        assert_eq!(on_loan["availability"], "onLoan");
+        assert_eq!(on_loan["expectedReturnDate"], "2026-01-16");
+        let rendered = on_loan["expectedReturnDate"].as_str().expect("date string");
+        assert_eq!(rendered.len(), 10);
+        assert!(!rendered.contains('T'));
+        let text = on_loan.to_string();
+        for needle in ["Isolde", "Moreau", "SECRET-CARD", "staff only note"] {
+            assert!(!text.contains(needle), "{text}");
+        }
+        assert!(on_loan.get("borrower").is_none(), "{on_loan}");
+        assert!(on_loan.get("holdFor").is_none(), "{on_loan}");
+        assert!(on_loan.get("loanId").is_none(), "{on_loan}");
+        assert!(
+            on_loan.get("dueDate").is_none(),
+            "ItemPublicView must not contain dueDate: {on_loan}"
+        );
+
+        let staff = serde_json::to_value(ItemStaffView::from(copy_with(
+            ItemAvailability::OnLoan,
+            Some(date),
+        )))
+        .expect("staff json");
+        assert!(
+            staff["dueDate"]
+                .as_str()
+                .is_some_and(|value| value.contains('T')),
+            "ItemStaffView keeps dueDate: {staff}"
+        );
+
+        let shelved = serde_json::to_value(ItemPublicView::from(copy_with(
+            ItemAvailability::Available,
+            Some(date),
+        )))
+        .expect("json");
+        assert_eq!(shelved["availability"], "available");
+        assert!(shelved.get("expectedReturnDate").is_none(), "{shelved}");
+
+        let undated = serde_json::to_value(ItemPublicView::from(copy_with(
+            ItemAvailability::OnLoan,
+            None,
+        )))
+        .expect("json");
+        assert_eq!(undated["availability"], "onLoan");
+        assert!(undated.get("expectedReturnDate").is_none(), "{undated}");
     }
 
     fn held_patron() -> UserShort {

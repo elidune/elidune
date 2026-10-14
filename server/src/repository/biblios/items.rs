@@ -131,37 +131,71 @@ fn item_short_sql(where_and_order: &str) -> String {
 }
 
 impl Repository {
+    /// Library-local calendar date of an open loan, for the public catalog only.
+    async fn fill_expected_return_dates(&self, items: &mut [Item]) -> AppResult<()> {
+        let needs_date = items.iter().any(|item| {
+            item.availability == crate::models::item::ItemAvailability::OnLoan
+                && item.due_date.is_some()
+        });
+        if !needs_date {
+            return Ok(());
+        }
+        let zone = self.library_zone().await?;
+        let now = chrono::Utc::now();
+        for item in items.iter_mut() {
+            item.expected_return_date =
+                if item.availability == crate::models::item::ItemAvailability::OnLoan {
+                    item.due_date.and_then(|due| {
+                        crate::services::calendar::public_expected_return_date(zone, due, now)
+                    })
+                } else {
+                    None
+                };
+        }
+        Ok(())
+    }
+
     /// Get items (physical copies) for a biblio (excludes archived items)
     #[tracing::instrument(skip(self), err)]
     pub async fn biblios_get_items(&self, biblio_id: i64) -> AppResult<Vec<Item>> {
-        let items = sqlx::query_as::<_, Item>(&item_sql(
+        let mut items = sqlx::query_as::<_, Item>(&item_sql(
             "WHERE i.biblio_id = $1 AND i.archived_at IS NULL ORDER BY i.barcode",
         ))
         .bind(biblio_id)
         .fetch_all(&self.pool)
         .await?;
-
+        self.fill_expected_return_dates(&mut items).await?;
         Ok(items)
     }
 
     /// Get one active item by id (same row shape as [`biblios_get_items`]).
     #[tracing::instrument(skip(self), err)]
     pub async fn items_get_active_by_id(&self, item_id: i64) -> AppResult<Item> {
-        sqlx::query_as::<_, Item>(&item_sql("WHERE i.id = $1 AND i.archived_at IS NULL"))
-            .bind(item_id)
-            .fetch_optional(&self.pool)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))
+        let mut item =
+            sqlx::query_as::<_, Item>(&item_sql("WHERE i.id = $1 AND i.archived_at IS NULL"))
+                .bind(item_id)
+                .fetch_optional(&self.pool)
+                .await?
+                .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))?;
+        self.fill_expected_return_dates(std::slice::from_mut(&mut item))
+            .await?;
+        Ok(item)
     }
 
     /// Get one active item by barcode (same row shape as [`items_get_active_by_id`]).
     #[tracing::instrument(skip(self), err)]
     pub async fn items_get_active_by_barcode(&self, barcode: &str) -> AppResult<Item> {
-        sqlx::query_as::<_, Item>(&item_sql("WHERE i.barcode = $1 AND i.archived_at IS NULL"))
-            .bind(barcode)
-            .fetch_optional(&self.pool)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("Item with barcode {barcode} not found")))
+        let mut item =
+            sqlx::query_as::<_, Item>(&item_sql("WHERE i.barcode = $1 AND i.archived_at IS NULL"))
+                .bind(barcode)
+                .fetch_optional(&self.pool)
+                .await?
+                .ok_or_else(|| {
+                    AppError::NotFound(format!("Item with barcode {barcode} not found"))
+                })?;
+        self.fill_expected_return_dates(std::slice::from_mut(&mut item))
+            .await?;
+        Ok(item)
     }
 
     /// Get ItemShort for many biblios (excludes archived). Used to attach items to BiblioShort lists.
@@ -525,11 +559,13 @@ impl Repository {
         .execute(&self.pool)
         .await?;
 
-        sqlx::query_as::<_, Item>(&item_sql("WHERE i.id = $1"))
+        let mut item = sqlx::query_as::<_, Item>(&item_sql("WHERE i.id = $1"))
             .bind(item_id)
             .fetch_one(&self.pool)
-            .await
-            .map_err(Into::into)
+            .await?;
+        self.fill_expected_return_dates(std::slice::from_mut(&mut item))
+            .await?;
+        Ok(item)
     }
     /// Find an existing item by barcode and return its short representation.
     #[tracing::instrument(skip(self), err)]
