@@ -5,7 +5,13 @@ import en from '../locales/en/translation.json' with { type: 'json' };
 import es from '../locales/es/translation.json' with { type: 'json' };
 import fr from '../locales/fr/translation.json' with { type: 'json' };
 import { shelfPatronLabel, toPickPatronPhrase } from './holdPatron.ts';
-import { normalizePickListRow } from './pickList.ts';
+import {
+  pickListRequestSiteId,
+  readPickListSiteChoice,
+  resolvePickListSiteId,
+  writePickListSiteChoice,
+  normalizePickListRow,
+} from './pickList.ts';
 import { readItemToPickForOther } from './toPickDesk.ts';
 
 const NAME = 'Helene Holder';
@@ -22,6 +28,49 @@ function translate(catalog: { holds: { readerCardNo: string }; loans: { pickPatr
     return template.replace(/\{\{(\w+)\}\}/g, (_, name: string) => String(values?.[name] ?? ''));
   };
 }
+
+function memoryStorage(initial?: Record<string, string>) {
+  const data = new Map(Object.entries(initial ?? {}));
+  return {
+    getItem(key: string) {
+      return data.has(key) ? data.get(key)! : null;
+    },
+    setItem(key: string, value: string) {
+      data.set(key, value);
+    },
+  };
+}
+
+const SITES = [
+  { id: '1', default: true, name: 'Site 1' },
+  { id: '2', default: false, name: 'Annexe' },
+];
+
+describe('pick list site filter', () => {
+  it('opens on all sites and omits siteId even when a default site exists', () => {
+    const siteId = resolvePickListSiteId(SITES, null);
+    assert.equal(siteId, '');
+    assert.equal(pickListRequestSiteId(siteId), undefined);
+    assert.equal(resolvePickListSiteId(SITES, ''), '');
+  });
+
+  it('remembers an explicit site and drops one that is no longer in the list', () => {
+    const storage = memoryStorage();
+    assert.equal(readPickListSiteChoice(storage), null);
+
+    writePickListSiteChoice(storage, '2');
+    assert.equal(resolvePickListSiteId(SITES, readPickListSiteChoice(storage)), '2');
+    assert.equal(pickListRequestSiteId('2'), '2');
+
+    writePickListSiteChoice(storage, '');
+    assert.equal(readPickListSiteChoice(storage), '');
+    assert.equal(pickListRequestSiteId(resolvePickListSiteId(SITES, '')), undefined);
+
+    writePickListSiteChoice(storage, 'gone');
+    assert.equal(resolvePickListSiteId(SITES, readPickListSiteChoice(storage)), '');
+    assert.equal(pickListRequestSiteId('   '), undefined);
+  });
+});
 
 describe('pick list shelf identity', () => {
   it('keeps card and initials and drops every name field', () => {
