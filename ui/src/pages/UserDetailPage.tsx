@@ -184,7 +184,9 @@ export default function UserDetailPage() {
   const transitActions = useTransitActions();
 
   const { data: publicTypes = [] } = usePublicTypesQuery();
-  const { data: accountTypes = [] } = useAccountTypesQuery();
+  const accountTypesQuery = useAccountTypesQuery();
+  const accountTypes = accountTypesQuery.data ?? [];
+  const accountTypesError = accountTypesQuery.isError ? t('settings.accountTypes.errorLoad') : null;
 
   // Stats state
   const [loanStats, setLoanStats] = useState<LoanStatsResponse | null>(null);
@@ -1117,6 +1119,7 @@ export default function UserDetailPage() {
                   user={user}
                   publicTypes={publicTypes}
                   accountTypes={accountTypes}
+                  accountTypesError={accountTypesError}
                   onLoadingChange={setIsEditLoading}
                   onSuccess={(updatedUser) => {
                     if (updatedUser) queryClient.setQueryData<UserType>(['user', id], updatedUser);

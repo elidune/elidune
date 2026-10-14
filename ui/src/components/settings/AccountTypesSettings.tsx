@@ -2,97 +2,69 @@ import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
-import { Save } from 'lucide-react';
-import { Card, CardHeader, Button, Input } from '@/components/common';
+import { Card, ConfirmDialog } from '@/components/common';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/services/api';
 import { ACCOUNT_TYPES_QUERY_KEY, useAccountTypesQuery } from '@/hooks/useAccountTypesQuery';
 import { getApiErrorMessage } from '@/utils/apiError';
-import { formControlClass } from '@/utils/formControl';
-import { isAdmin } from '@/types';
-import type { AccountTypeDefinition, UpdateAccountTypeRequest } from '@/types';
-
-const RIGHT_FIELDS = [
-  'itemsRights',
-  'usersRights',
-  'loansRights',
-  'itemsArchiveRights',
-  'holdsRights',
-  'settingsRights',
-  'eventsRights',
-  'acquisitionsRights',
-  'weedingRights',
-  'weedingCancelRights',
-] as const;
-
-type RightField = (typeof RIGHT_FIELDS)[number];
+import { canWriteSettings } from '@/types';
+import type { AccountTypeDefinition } from '@/types';
+import { AccountTypesEditor } from '@/components/settings/AccountTypesEditor';
+import {
+  accountTypeCodeError,
+  accountTypeNameError,
+  accountTypeUpdateChangesRights,
+  blankAccountTypeRights,
+  buildAccountTypeUpdate,
+  buildCreateAccountTypeRequest,
+} from '@/utils/accountTypeEditor';
 
 function cloneTypes(list: AccountTypeDefinition[]): AccountTypeDefinition[] {
-  return list.map((r) => ({ ...r }));
-}
-
-function normRight(v: string | null | undefined): string {
-  const s = (v ?? '').trim().toLowerCase();
-  return s === 'n' || s === 'o' || s === 'r' || s === 'w' ? s : '';
-}
-
-function buildAccountTypeUpdate(
-  orig: AccountTypeDefinition,
-  next: AccountTypeDefinition
-): UpdateAccountTypeRequest | null {
-  const body: UpdateAccountTypeRequest = {};
-  if ((next.name ?? '').trim() !== (orig.name ?? '').trim()) {
-    body.name = (next.name ?? '').trim();
-  }
-  for (const k of RIGHT_FIELDS) {
-    const o = normRight(orig[k]);
-    const n = normRight(next[k]);
-    if (o === n) continue;
-    if (k === 'holdsRights' || k === 'usersRights' || k === 'loansRights') {
-      body[k] = n === '' ? null : (n as 'n' | 'o' | 'r' | 'w');
-    } else if (n === '' || n === 'n' || n === 'r' || n === 'w') {
-      body[k] = n === '' ? null : n;
-    }
-  }
-  if (Object.keys(body).length === 0) return null;
-  return body;
+  return list.map((row) => ({ ...row }));
 }
 
 export default function AccountTypesSettings() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const canEdit = isAdmin(user?.accountType);
+  const canEdit = canWriteSettings(user, api.getToken());
 
   const { data, isLoading, isError } = useAccountTypesQuery();
-  // The shell already loads this query, so the tab often mounts with a cached
-  // array. Seed rows from that first payload; the adjust-during-render path
-  // only runs when the reference changes later (save/refetch).
   const [rows, setRows] = useState<AccountTypeDefinition[]>(() =>
     data?.length ? cloneTypes(data) : []
   );
   const [savingCode, setSavingCode] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createCode, setCreateCode] = useState('');
+  const [createName, setCreateName] = useState('');
+  const [createRights, setCreateRights] = useState(blankAccountTypeRights);
+  const [createFieldError, setCreateFieldError] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<AccountTypeDefinition | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [syncedData, setSyncedData] = useState(data);
   if (data !== syncedData) {
     setSyncedData(data);
     if (data?.length) setRows(cloneTypes(data));
   }
 
-  const showReloginHint = useCallback(() => {
-    setBanner(t('settings.accountTypes.reloginHint'));
+  const showBanner = useCallback((message: string) => {
+    setBanner(message);
     window.setTimeout(() => setBanner(null), 9000);
-  }, [t]);
+  }, []);
 
   const updateRow = (code: string, patch: Partial<AccountTypeDefinition>) => {
-    setRows((prev) => prev.map((r) => (r.code === code ? { ...r, ...patch } : r)));
+    setRows((prev) => prev.map((row) => (row.code === code ? { ...row, ...patch } : row)));
     setRowError(null);
   };
 
   const handleSaveRow = async (code: string) => {
-    const orig = data?.find((r) => r.code === code);
-    const cur = rows.find((r) => r.code === code);
+    const orig = data?.find((row) => row.code === code);
+    const cur = rows.find((row) => row.code === code);
     if (!orig || !cur) return;
     const body = buildAccountTypeUpdate(orig, cur);
     if (!body) return;
@@ -102,7 +74,9 @@ export default function AccountTypesSettings() {
     try {
       await api.updateAccountType(code, body);
       await queryClient.invalidateQueries({ queryKey: ACCOUNT_TYPES_QUERY_KEY });
-      showReloginHint();
+      if (accountTypeUpdateChangesRights(body)) {
+        showBanner(t('settings.accountTypes.reloginHint'));
+      }
     } catch (err) {
       if (axios.isAxiosError(err) && err.response?.status === 403) {
         setRowError(t('settings.accountTypes.forbidden'));
@@ -114,9 +88,68 @@ export default function AccountTypesSettings() {
     }
   };
 
-  const rightSelectClass = formControlClass({
-    className: 'min-w-[4.5rem] max-w-[6rem] px-1.5 text-xs',
-  });
+  const handleCreate = async () => {
+    const codeProblem = accountTypeCodeError(createCode);
+    const nameProblem = accountTypeNameError(createName);
+    if (codeProblem === 'required') {
+      setCreateFieldError(t('settings.accountTypes.codeInvalid'));
+      return;
+    }
+    if (codeProblem) {
+      setCreateFieldError(t('settings.accountTypes.codeInvalid'));
+      return;
+    }
+    if (nameProblem === 'tooLong') {
+      setCreateFieldError(t('settings.accountTypes.nameTooLong'));
+      return;
+    }
+    if (nameProblem) {
+      setCreateFieldError(t('settings.accountTypes.nameRequired'));
+      return;
+    }
+    const body = buildCreateAccountTypeRequest(createCode, createName, createRights);
+    if (!body) return;
+
+    setCreating(true);
+    setCreateFieldError(null);
+    setCreateError(null);
+    try {
+      await api.createAccountType(body);
+      await queryClient.invalidateQueries({ queryKey: ACCOUNT_TYPES_QUERY_KEY });
+      setCreateOpen(false);
+      setCreateCode('');
+      setCreateName('');
+      setCreateRights(blankAccountTypeRights());
+      showBanner(t('settings.accountTypes.created'));
+    } catch (err) {
+      setCreateError(
+        axios.isAxiosError(err) && err.response?.status === 403
+          ? t('settings.accountTypes.forbidden')
+          : getApiErrorMessage(err, t),
+      );
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await api.deleteAccountType(pendingDelete.code);
+      await queryClient.invalidateQueries({ queryKey: ACCOUNT_TYPES_QUERY_KEY });
+      setPendingDelete(null);
+    } catch (err) {
+      setDeleteError(
+        axios.isAxiosError(err) && err.response?.status === 403
+          ? t('settings.accountTypes.forbidden')
+          : getApiErrorMessage(err, t),
+      );
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   if (isLoading && data === undefined) {
     return (
@@ -134,133 +167,71 @@ export default function AccountTypesSettings() {
     );
   }
 
-  if (!data?.length) {
-    return (
-      <Card className="rounded-2xl border-gray-200/80 dark:border-gray-800/80 shadow-sm overflow-hidden">
-        <p className="text-center text-gray-500 dark:text-gray-400 py-8">{t('settings.accountTypes.empty')}</p>
-      </Card>
-    );
-  }
+  const deleteLabel = pendingDelete?.name?.trim() || pendingDelete?.code || '';
 
   return (
-    <Card className="rounded-2xl border-gray-200/80 dark:border-gray-800/80 shadow-sm overflow-hidden">
-      <CardHeader title={t('settings.accountTypes.title')} />
-      <p className="text-sm text-gray-600 dark:text-gray-400 px-4 -mt-2 mb-4">{t('settings.accountTypes.subtitle')}</p>
-
-      {!canEdit ? (
-        <p className="text-sm text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 mb-4 mx-4">
-          {t('settings.accountTypes.readOnlyHint')}
-        </p>
-      ) : null}
-
-      {banner ? (
-        <p className="text-sm text-indigo-800 dark:text-indigo-200 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 rounded-lg px-3 py-2 mb-4 mx-4">
-          {banner}
-        </p>
-      ) : null}
-
-      {rowError ? (
-        <p className="text-sm text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg px-3 py-2 mb-4 mx-4">
-          {rowError}
-        </p>
-      ) : null}
-
-      <div className="overflow-x-auto px-4 pb-4">
-        <table className="w-full min-w-[68rem] text-sm">
-          <thead>
-            <tr className="border-b border-gray-200 dark:border-gray-700">
-              <th className="text-left py-2 pr-2 font-medium text-gray-600 dark:text-gray-400">
-                {t('settings.accountTypes.code')}
-              </th>
-              <th className="text-left py-2 pr-2 font-medium text-gray-600 dark:text-gray-400">
-                {t('settings.accountTypes.name')}
-              </th>
-              {RIGHT_FIELDS.map((field) => (
-                <th
-                  key={field}
-                  className="text-left py-2 px-1 font-medium text-gray-600 dark:text-gray-400 whitespace-nowrap"
-                >
-                  {t(`settings.accountTypes.rights.${field}`)}
-                </th>
-              ))}
-              {canEdit ? (
-                <th className="py-2 pl-2 w-24 text-right font-medium text-gray-600 dark:text-gray-400">
-                  {t('common.actions')}
-                </th>
-              ) : null}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
-            {rows.map((row) => {
-              const orig = data.find((r) => r.code === row.code)!;
-              const dirty = buildAccountTypeUpdate(orig, row) !== null;
-              return (
-                <tr key={row.code}>
-                  <td className="py-2 pr-2 font-mono text-xs text-gray-700 dark:text-gray-300">{row.code}</td>
-                  <td className="py-2 pr-2 min-w-[8rem]">
-                    {canEdit ? (
-                      <Input
-                        value={row.name ?? ''}
-                        onChange={(e) => updateRow(row.code, { name: e.target.value })}
-                        className="text-sm py-1.5"
-                      />
-                    ) : (
-                      <span className="text-gray-900 dark:text-white">{row.name || '—'}</span>
-                    )}
-                  </td>
-                  {RIGHT_FIELDS.map((field) => (
-                    <td key={field} className="py-2 px-1">
-                      {canEdit ? (
-                        <select
-                          value={normRight(row[field])}
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            updateRow(row.code, {
-                              [field]: v === '' ? null : v,
-                            } as Pick<AccountTypeDefinition, RightField>);
-                          }}
-                          className={rightSelectClass}
-                          aria-label={t(`settings.accountTypes.rights.${field}`)}
-                        >
-                          <option value="">{t('settings.accountTypes.level.none')}</option>
-                          <option value="n">{t('settings.accountTypes.level.n')}</option>
-                          {(field === 'holdsRights' ||
-                            field === 'usersRights' ||
-                            field === 'loansRights' ||
-                            normRight(row[field]) === 'o') && (
-                            <option value="o">{t('settings.accountTypes.level.o')}</option>
-                          )}
-                          <option value="r">{t('settings.accountTypes.level.r')}</option>
-                          <option value="w">{t('settings.accountTypes.level.w')}</option>
-                        </select>
-                      ) : (
-                        <span className="text-xs text-gray-700 dark:text-gray-300 font-mono">
-                          {normRight(row[field]) || '—'}
-                        </span>
-                      )}
-                    </td>
-                  ))}
-                  {canEdit ? (
-                    <td className="py-2 pl-2 text-right">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        disabled={!dirty || savingCode !== null}
-                        isLoading={savingCode === row.code}
-                        leftIcon={<Save className="h-3.5 w-3.5" />}
-                        onClick={() => void handleSaveRow(row.code)}
-                      >
-                        {t('common.save')}
-                      </Button>
-                    </td>
-                  ) : null}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </Card>
+    <>
+      <AccountTypesEditor
+        rows={rows}
+        originals={data ?? []}
+        canEdit={canEdit}
+        savingCode={savingCode}
+        rowError={rowError}
+        banner={banner}
+        createOpen={createOpen}
+        createCode={createCode}
+        createName={createName}
+        createRights={createRights}
+        createFieldError={createFieldError}
+        createError={createError}
+        creating={creating}
+        onUpdateRow={updateRow}
+        onSaveRow={(code) => {
+          void handleSaveRow(code);
+        }}
+        onDeleteRow={(code) => {
+          const row = rows.find((item) => item.code === code) ?? null;
+          setDeleteError(null);
+          setPendingDelete(row);
+        }}
+        onOpenCreate={() => {
+          setCreateFieldError(null);
+          setCreateError(null);
+          setCreateOpen(true);
+        }}
+        onCancelCreate={() => setCreateOpen(false)}
+        onCreateCode={(value) => {
+          setCreateCode(value);
+          setCreateFieldError(null);
+        }}
+        onCreateName={(value) => {
+          setCreateName(value);
+          setCreateFieldError(null);
+        }}
+        onCreateRight={(field, value) => {
+          setCreateRights((prev) => ({ ...prev, [field]: value }));
+        }}
+        onSubmitCreate={() => {
+          void handleCreate();
+        }}
+      />
+      <ConfirmDialog
+        isOpen={pendingDelete !== null}
+        onClose={() => {
+          if (deleting) return;
+          setPendingDelete(null);
+          setDeleteError(null);
+        }}
+        onConfirm={() => {
+          void confirmDelete();
+        }}
+        title={t('common.confirm')}
+        message={t('settings.accountTypes.deleteConfirm', { name: deleteLabel })}
+        confirmLabel={t('common.delete')}
+        confirmVariant="danger"
+        isLoading={deleting}
+        error={deleteError}
+      />
+    </>
   );
 }

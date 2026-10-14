@@ -143,6 +143,7 @@ import type {
   CreateCollection,
   UpdateCollection,
   AccountTypeDefinition,
+  CreateAccountTypeRequest,
   UpdateAccountTypeRequest,
   EmailTemplateListItem,
   EmailTemplateDetail,
@@ -1662,6 +1663,15 @@ class ApiService {
       body
     );
     return response.data;
+  }
+
+  async createAccountType(body: CreateAccountTypeRequest): Promise<AccountTypeDefinition> {
+    const response = await this.client.post<AccountTypeDefinition>('/account-types', body);
+    return response.data;
+  }
+
+  async deleteAccountType(code: string): Promise<void> {
+    await this.client.delete(`/account-types/${encodeURIComponent(code)}`);
   }
 
   // ─── Sources ─────────────────────────────────────────────────────

@@ -1729,13 +1729,23 @@
       "empty": "Der Server hat keine Kontotypen zurückgegeben.",
       "code": "Code",
       "name": "Bezeichnung",
-      "readOnlyHint": "Sie können Kontotypen und Rechte einsehen. Nur Administratoren können sie bearbeiten.",
+      "readOnlyHint": "Sie können Kontotypen und Rechte einsehen. Nur Konten mit Schreibrecht für die Einstellungen können sie ändern.",
       "forbidden": "Sie dürfen Kontotypen nicht ändern.",
+      "builtIn": "Integriert",
+      "create": "Neuer Kontotyp",
+      "codePlaceholder": "ausleihkraft",
+      "codeInvalid": "1 bis 50 Zeichen: ein Buchstabe, danach Buchstaben, Ziffern oder Unterstriche.",
+      "nameRequired": "Geben Sie eine Bezeichnung ein.",
+      "nameTooLong": "Die Bezeichnung darf höchstens 100 Zeichen haben.",
+      "deleteNamed": "{{name}} löschen",
+      "deleteConfirm": "Kontotyp „{{name}}“ löschen? Weisen Sie zuerst jeden Leser, der ihn noch nutzt, einem anderen Typ zu.",
+      "created": "Kontotyp erstellt.",
       "reloginHint": "Rechteänderungen gelten für neue Sitzungen. Melden Sie sich ab und wieder an (oder warten Sie auf Token-Ablauf), um aktualisierte Rechte zu nutzen.",
       "rights": {
         "itemsRights": "Dokumente",
         "usersRights": "Benutzer",
         "loansRights": "Ausleihen",
+        "circulationOverrideRights": "Ausnahmen am Tresen erzwingen (Exemplar für einen anderen Leser reserviert, Abonnement abgelaufen)",
         "itemsArchiveRights": "Archiv",
         "holdsRights": "Vorbestellungen",
         "settingsRights": "Einstellungen",
@@ -2161,7 +2171,10 @@
       "item_has_history_use_weeding": "Dieses Exemplar hat eine Historie (Ausleihe, Vormerkung oder Gebühr) und kann nicht gelöscht werden. Sondern Sie es aus.",
       "biblio_has_items": "Dieser Titel hat noch Exemplare, auch ausgesonderte oder archivierte. Er kann nicht gelöscht werden.",
       "biblio_has_holds": "Dieser Titel hat Vormerkungen und kann nicht gelöscht werden.",
-      "transit_same_site": "Das Exemplar ist bereits am Abholstandort: legen Sie es für die Vormerkung zurück."
+      "transit_same_site": "Das Exemplar ist bereits am Abholstandort: legen Sie es für die Vormerkung zurück.",
+      "account_type_in_use": "Dieser Kontotyp ist noch mindestens einem Leser zugewiesen. Weisen Sie diese Konten zuerst einem anderen Typ zu.",
+      "account_type_system": "Integrierte Kontotypen können nicht gelöscht werden.",
+      "last_active_admin": "Diese Änderung würde kein aktives Konto mit Schreibrecht für die Einstellungen mehr übrig lassen."
     }
   },
   "inventory": {

@@ -1729,13 +1729,23 @@
       "empty": "El servidor no devolvió ningún tipo de cuenta.",
       "code": "Código",
       "name": "Etiqueta",
-      "readOnlyHint": "Puede ver los tipos de cuenta y sus permisos. Solo los administradores pueden editarlos.",
+      "readOnlyHint": "Puede ver los tipos de cuenta y sus permisos. Solo las cuentas con permiso de escritura en los ajustes pueden cambiarlos.",
       "forbidden": "No tiene permiso para actualizar los tipos de cuenta.",
+      "builtIn": "Integrado",
+      "create": "Nuevo tipo de cuenta",
+      "codePlaceholder": "agente_prestamo",
+      "codeInvalid": "De 1 a 50 caracteres: empiece por una letra y siga con letras, dígitos o guiones bajos.",
+      "nameRequired": "Indique una etiqueta.",
+      "nameTooLong": "La etiqueta no puede superar los 100 caracteres.",
+      "deleteNamed": "Eliminar {{name}}",
+      "deleteConfirm": "¿Eliminar el tipo de cuenta «{{name}}»? Reasigne antes a cada lector que todavía lo use.",
+      "created": "Tipo de cuenta creado.",
       "reloginHint": "Los cambios de permisos se aplican en nuevas sesiones. Cierre sesión y vuelva a entrar (o espere a que caduque el token) para usar los derechos actualizados.",
       "rights": {
         "itemsRights": "Documentos",
         "usersRights": "Usuarios",
         "loansRights": "Préstamos",
+        "circulationOverrideRights": "Forzar excepciones en el mostrador (ejemplar reservado para otro lector, suscripción caducada)",
         "itemsArchiveRights": "Archivo",
         "holdsRights": "Reservas",
         "settingsRights": "Ajustes",
@@ -2161,7 +2171,10 @@
       "item_has_history_use_weeding": "Este ejemplar tiene historial (préstamo, reserva o multa). No se puede eliminar: expúrguelo.",
       "biblio_has_items": "Este registro todavía tiene ejemplares, incluidos retirados o archivados. No se puede eliminar.",
       "biblio_has_holds": "Este registro tiene reservas y no se puede eliminar.",
-      "transit_same_site": "El ejemplar ya está en el punto de recogida: apártelo para la reserva."
+      "transit_same_site": "El ejemplar ya está en el punto de recogida: apártelo para la reserva.",
+      "account_type_in_use": "Este tipo de cuenta sigue asignado al menos a un lector. Reasigne esas cuentas antes de eliminarlo.",
+      "account_type_system": "Los tipos de cuenta integrados no se pueden eliminar.",
+      "last_active_admin": "Este cambio dejaría la biblioteca sin ninguna cuenta activa que pueda gestionar los ajustes."
     }
   },
   "inventory": {

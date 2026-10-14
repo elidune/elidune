@@ -34,7 +34,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import Button from './Button';
 import { useTheme } from '@/contexts/ThemeContext';
 import { useLibrary } from '@/contexts/LibraryContext';
-import { canPatronSelfServiceHolds } from '@/types';
+import { canPatronSelfServiceHolds, canWriteSettings } from '@/types';
 import { staffAccess } from '@/utils/staffAccess';
 import { useAccountTypesQuery } from '@/hooks/useAccountTypesQuery';
 import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
@@ -61,7 +61,8 @@ export default function Layout({ children }: LayoutProps) {
     return noModalDialogOpen() && root.isConnected;
   }, []);
   const { user, logout, profileWarning, dismissProfileWarning, refreshProfile } = useAuth();
-  const { data: accountTypes = [] } = useAccountTypesQuery();
+  const settingsWrite = canWriteSettings(user, api.getToken());
+  const { data: accountTypes = [] } = useAccountTypesQuery({ enabled: settingsWrite });
   const { theme, setTheme } = useTheme();
   const access = staffAccess(user, api.getToken());
   const showAcquisitions = access.acquisitions;
