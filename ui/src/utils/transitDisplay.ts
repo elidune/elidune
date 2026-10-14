@@ -96,17 +96,50 @@ export function transitListTitle(transit: ItemTransit): string | null {
 }
 
 /**
- * Reader cell for a transit. Card number and initials only.
- * Null patron, a blank patron, or initials that contain a space become an empty cell.
+ * Reader on a transit row. Card number and initials only.
+ * A null reader (cancelled or expired hold) stays null. Initials that contain
+ * a space are a name and are dropped.
  */
 export function transitListPatron(transit: ItemTransit): TransitPatron | null {
-  const patron = transit.patron;
+  const shown = transitPatronParts(transit.patron);
+  if (!shown) return null;
+  return { cardNumber: shown.cardNumber, initials: shown.initials ?? '' };
+}
+
+/**
+ * Text for the transit reader cell.
+ * Card phrase with initials beside it. Initials alone when there is no card.
+ * Null when the reader is absent, blank, or only a name.
+ */
+export function transitPatronLabel(
+  patron: TransitPatron | null | undefined,
+  cardPhrase: (number: string) => string,
+): string | null {
+  const shown = transitPatronParts(patron);
+  if (!shown) return null;
+  const { cardNumber, initials } = shown;
+  if (cardNumber && initials) return `${cardPhrase(cardNumber)} ${initials}`;
+  if (cardNumber) return cardPhrase(cardNumber);
+  return initials;
+}
+
+function transitPatronParts(patron: TransitPatron | null | undefined): {
+  cardNumber: string | null;
+  initials: string | null;
+} | null {
   if (!patron) return null;
   const cardNumber = clean(patron.cardNumber);
-  const initials = clean(patron.initials)?.replace(/\./g, '') ?? '';
+  const initials = safeInitials(patron.initials);
   if (!cardNumber && !initials) return null;
-  if (/\s/u.test(initials)) return cardNumber ? { cardNumber, initials: '' } : null;
   return { cardNumber, initials };
+}
+
+/** Server initials with dots removed. A value that contains a space is a name. */
+function safeInitials(value: string | null | undefined): string | null {
+  const text = clean(value);
+  if (!text || /\s/u.test(text)) return null;
+  const compact = text.replace(/\./g, '');
+  return compact || null;
 }
 
 function clean(value: string | null | undefined): string | null {
