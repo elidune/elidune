@@ -16,6 +16,7 @@ import type { AccountTypeDefinition, PublicType, User } from '../types/index.ts'
 import type { AuthContextType } from '../contexts/AuthContext.tsx';
 import type { LanguageContextType } from '../contexts/LanguageContext.tsx';
 import { getApiErrorMessage } from './apiError.ts';
+import { selfProfilePayload } from './profileUpdate.ts';
 import {
   completedAgeYears,
   guardianPublicTypeId,
@@ -279,12 +280,36 @@ describe('reader public type from birth date', () => {
     );
   });
 
-  it('requires a birth date on reader create and not on reader edit', () => {
+  it('requires a birth date only when creating a reader', () => {
     assert.equal(readerBirthDateRequired('create', 'reader'), true);
+    assert.equal(readerBirthDateRequired('create', 'READER'), true);
     assert.equal(readerBirthDateRequired('edit', 'reader'), false);
     assert.equal(readerBirthDateRequired('edit', 'READER'), false);
-    assert.equal(readerBirthDateRequired('edit', 'librarian'), true);
-    assert.equal(readerBirthDateRequired('create', 'librarian'), true);
+    assert.equal(readerBirthDateRequired('create', 'librarian'), false);
+    assert.equal(readerBirthDateRequired('create', 'admin'), false);
+    assert.equal(readerBirthDateRequired('edit', 'librarian'), false);
+  });
+
+  it('never sends birthdate on PUT /auth/profile', () => {
+    const body = selfProfilePayload(
+      {
+        firstname: 'Ada',
+        lastname: 'Lovelace',
+        email: 'ada@example.test',
+        phone: '',
+        login: 'ada',
+        addrStreet: '1 rue',
+        addrZipCode: '74000',
+        addrCity: 'Annecy',
+        eventsConsent: true,
+      },
+      true,
+    );
+    assert.equal('birthdate' in body, false);
+    assert.equal('birthDate' in body, false);
+    assert.equal(body.login, 'ada');
+    assert.equal(body.addrZipCode, 74000);
+    assert.equal(body.eventsConsent, true);
   });
 
   it('omits publicType for a reader and keeps it for other account types', async () => {
@@ -359,7 +384,16 @@ describe('reader public type from birth date', () => {
     });
     assert.match(html, /<select id="reader-form-public-type"/);
     assert.equal(html.includes(FR_MISSING), false);
-    assert.match(inputById(html, 'reader-form-birthdate'), /\brequired\b/);
+    assert.equal(/\brequired\b/.test(inputById(html, 'reader-form-birthdate')), false);
+  });
+
+  it('does not require a birth date when creating a staff account', async () => {
+    const html = await renderEditor(await i18nFor('en'), {
+      mode: 'create',
+      accountTypes: [account('librarian'), account('admin')],
+    });
+    assert.match(html, /<select id="reader-form-public-type"/);
+    assert.equal(/\brequired\b/.test(inputById(html, 'reader-form-birthdate')), false);
   });
 
   it('shows a read-only public type on the reader profile and none for staff', async () => {
@@ -378,7 +412,9 @@ describe('reader public type from birth date', () => {
     assert.equal(readerHtml.includes('<select id="profile-public-type"'), false);
     assert.match(readerHtml, /Enfant/);
     assert.match(readerHtml, new RegExp(FR_MISSING));
+    assert.match(readerHtml, /À corriger à l&#x27;accueil|À corriger à l'accueil/);
     const birth = inputById(readerHtml, 'profile-birthdate');
+    assert.match(birth, /\breadOnly=""|\breadonly\b/);
     assert.equal(/\brequired\b/.test(birth), false);
 
     const staffHtml = await renderProfile(await i18nFor('fr'), {
@@ -393,5 +429,7 @@ describe('reader public type from birth date', () => {
     assert.equal(staffHtml.includes('id="profile-public-type"'), false);
     assert.equal(staffHtml.includes('<select id="profile-public-type"'), false);
     assert.equal(staffHtml.includes(FR_MISSING), false);
+    assert.match(inputById(staffHtml, 'profile-birthdate'), /\breadOnly=""|\breadonly\b/);
+    assert.match(staffHtml, /À corriger à l&#x27;accueil|À corriger à l'accueil/);
   });
 });

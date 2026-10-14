@@ -19,16 +19,15 @@ export function isReaderAccount(accountType: string | null | undefined): boolean
 }
 
 /**
- * Birth date is required when creating a reader.
+ * Birth date is required only when creating a reader.
  * An existing reader may be saved without one: the stored public type is kept.
- * Other account types keep the birth date required on create and on edit.
+ * Staff and other account types may omit it. Their public type is not computed.
  */
 export function readerBirthDateRequired(
   mode: 'create' | 'edit',
   accountType: string | null | undefined,
 ): boolean {
-  if (isReaderAccount(accountType)) return mode === 'create';
-  return true;
+  return mode === 'create' && isReaderAccount(accountType);
 }
 
 /** Completed years on `on` (UTC calendar day). The anniversary counts as the new age. */

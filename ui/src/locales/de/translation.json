@@ -332,6 +332,7 @@
     "personalInfo": "Persönliche Daten",
     "loginUsername": "Benutzername",
     "loginHint": "Mindestens 3 Zeichen",
+    "birthDateDeskHint": "Bitte an der Theke korrigieren lassen",
     "occupation": "Beruf",
     "address": "Adresse",
     "profileUpdated": "Profil erfolgreich aktualisiert",

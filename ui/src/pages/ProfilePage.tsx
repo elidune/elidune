@@ -35,6 +35,7 @@ import type { SupportedLanguage } from '@/locales';
 import { canReadUsers, ownContactOnly, resolveUsersRights, type TwoFactorMethod, type User as UserProfile } from '@/types';
 import { ownContactPayload } from '@/utils/ownContactForm';
 import { profileChildAccountPending, profileIsChildAccount } from '@/utils/legalGuardian';
+import { selfProfilePayload } from '@/utils/profileUpdate';
 import { isReaderAccount, readerBirthDateFieldError } from '@/utils/readerPublicType';
 import { OCCUPATION_OPTIONS } from '@/utils/codeLabels';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
@@ -138,18 +139,9 @@ export default function ProfilePage() {
           }) as Partial<UserProfile>,
         );
       } else {
-        await api.updateProfile({
-          firstname: profileData.firstname || undefined,
-          lastname: profileData.lastname || undefined,
-          email: profileData.email || undefined,
-          phone: profileData.phone || undefined,
-          login: profileData.login || undefined,
-          addrStreet: profileData.addrStreet || undefined,
-          addrZipCode: profileData.addrZipCode ? parseInt(profileData.addrZipCode, 10) : undefined,
-          addrCity: profileData.addrCity || undefined,
-          birthdate: profileData.birthdate || undefined,
-          ...(isChildAccount || childAccountPending ? {} : { eventsConsent: profileData.eventsConsent }),
-        });
+        await api.updateProfile(
+          selfProfilePayload(profileData, !isChildAccount && !childAccountPending),
+        );
       }
       await refreshProfile();
       setProfileSuccess(true);
@@ -359,12 +351,9 @@ export default function ProfilePage() {
                   label={t('profile.birthdate')}
                   type="date"
                   value={profileData.birthdate}
-                  onChange={(e) => {
-                    setProfileData({ ...profileData, birthdate: e.target.value });
-                    setBirthDateError('');
-                  }}
+                  readOnly
+                  hint={t('profile.birthDateDeskHint')}
                   leftIcon={<Calendar className="h-4 w-4" />}
-                  readOnly={contactOnly}
                   error={birthDateError}
                 />
               </div>

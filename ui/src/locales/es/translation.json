@@ -332,6 +332,7 @@
     "personalInfo": "Información personal",
     "loginUsername": "Nombre de usuario",
     "loginHint": "Mínimo 3 caracteres",
+    "birthDateDeskHint": "Pida en el mostrador que lo corrijan",
     "occupation": "Ocupación",
     "address": "Dirección",
     "profileUpdated": "Perfil actualizado correctamente",
