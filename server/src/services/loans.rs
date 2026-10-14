@@ -195,7 +195,9 @@ impl LoansService {
     ///   for a caller with circulation override write and a non-blank `overrideReason`
     /// - unpaid fines strictly above the effective threshold are `422` `fines_over_threshold`
     ///   unless `force` skips that code for a caller with loans write (a null
-    ///   threshold, including mode `none`, does not block on amount). The skip
+    ///   threshold, including mode `none`, does not block on amount).
+    ///   `reminders.accrue_fines` false ignores every stored threshold, so the
+    ///   refusal is not offered. The skip
     ///   applies to this loan only. It is audited after the write commits as
     ///   `loan.fine_threshold_overridden` with `{ reason, loanId, patron_id }`.
     ///

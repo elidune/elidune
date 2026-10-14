@@ -99,6 +99,16 @@ impl Repository {
             .unwrap_or_else(|| crate::config::CirculationConfig::default().skip_closed_days)
     }
 
+    /// `reminders.accrue_fines`. False skips overdue fine accrual blocking only.
+    /// Stored global and public-type thresholds are left as written.
+    /// Missing dynamic config uses the file default (`true`).
+    pub(crate) fn accrue_fines_enabled(&self) -> bool {
+        self.dynamic_config
+            .as_ref()
+            .map(|dc| dc.read_reminders().accrue_fines)
+            .unwrap_or_else(|| crate::config::RemindersConfig::default().accrue_fines)
+    }
+
     /// Library default site (`sources."default"`), or none when that flag is unset.
     ///
     /// A NULL `loans.site_id` resolves to this at query time. The subquery is

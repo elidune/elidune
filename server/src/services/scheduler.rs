@@ -48,6 +48,8 @@ pub fn spawn(
         loop {
             let cfg = dc_rem.read_reminders();
 
+            // `accrue_fines` does not gate reminder email. It only skips the
+            // fine-accrual task below. Overdue notices still go out while fines are off.
             if !cfg.enabled {
                 tracing::debug!("Reminders disabled, sleeping 60s");
                 tokio::select! {

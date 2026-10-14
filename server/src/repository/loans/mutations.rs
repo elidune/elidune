@@ -874,7 +874,7 @@ impl Repository {
         let threshold = self
             .fines_get_unpaid_threshold_conn(&mut tx, public_type)
             .await?;
-        let check = UnpaidThresholdCheck { unpaid, threshold };
+        let check = UnpaidThresholdCheck::new(unpaid, threshold, self.accrue_fines_enabled());
         let fines_over_threshold = check.blocks_circulation();
         let fines_message = check.desk_block_message();
         let hold_waiting = self

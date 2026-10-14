@@ -31,19 +31,40 @@ use crate::{
 /// `#18` writes pending fines through [`FinesService::accrue`] (grace-period and
 /// zero-amount cases never create an unpaid row). Checkout/renew (#10) only read
 /// [`FinesService::total_unpaid`].
+///
+/// Construct only through [`Self::new`]. [`Self::blocks_circulation`] is the single
+/// place that decides whether unpaid fines block a loan.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnpaidThresholdCheck {
     pub unpaid: Decimal,
-    /// `None` means amount-based blocking is off.
+    /// Effective stored threshold (global, or the public type's own amount).
+    /// `None` means amount-based blocking is off. This value is not written back.
     pub threshold: Option<Decimal>,
+    /// `reminders.accrue_fines`. When false, `threshold` does not block loans.
+    accrue_fines: bool,
 }
 
 impl UnpaidThresholdCheck {
-    /// Block when a threshold is set and the unpaid remainder is strictly above it.
-    /// A zero unpaid balance never blocks (including grace-period / zero-amount cases).
-    /// `None` does not block, whatever the unpaid balance is.
+    /// `accrue_fines` false ignores `threshold` for blocking only.
+    /// Global and public-type rows stay stored. `unpaid` stays so lost and
+    /// damaged bills remain visible on the account.
+    #[must_use]
+    pub fn new(unpaid: Decimal, threshold: Option<Decimal>, accrue_fines: bool) -> Self {
+        Self {
+            unpaid,
+            threshold,
+            accrue_fines,
+        }
+    }
+
+    /// Block when fine accrual is on, a threshold is set, and the unpaid remainder
+    /// is strictly above it. A zero unpaid balance never blocks. `accrue_fines`
+    /// false ignores every stored threshold (global and public type).
     #[must_use]
     pub fn blocks_circulation(&self) -> bool {
+        if !self.accrue_fines {
+            return false;
+        }
         match self.threshold {
             Some(threshold) => self.unpaid > Decimal::ZERO && self.unpaid > threshold,
             None => false,
@@ -295,6 +316,7 @@ impl FinesService {
     /// Compare this patron's unpaid balance to the effective threshold.
     /// Type `amount` uses that value, type `none` does not block, type `inherit`
     /// uses the global mode (`none` does not block, `amount` uses the global value).
+    /// `reminders.accrue_fines` false ignores that threshold. Stored settings are unchanged.
     #[tracing::instrument(skip(self), err)]
     pub async fn check_unpaid_threshold(
         &self,
@@ -305,7 +327,11 @@ impl FinesService {
             self.repository.fines_total_unpaid(user_id),
             self.repository.fines_get_unpaid_threshold(public_type_id),
         )?;
-        Ok(UnpaidThresholdCheck { unpaid, threshold })
+        Ok(UnpaidThresholdCheck::new(
+            unpaid,
+            threshold,
+            self.repository.accrue_fines_enabled(),
+        ))
     }
 
     /// List fine rules
@@ -839,10 +865,7 @@ mod tests {
     }
 
     fn check(unpaid: &str, threshold: &str) -> UnpaidThresholdCheck {
-        UnpaidThresholdCheck {
-            unpaid: d(unpaid),
-            threshold: Some(d(threshold)),
-        }
+        UnpaidThresholdCheck::new(d(unpaid), Some(d(threshold)), true)
     }
 
     #[test]
@@ -871,10 +894,17 @@ mod tests {
 
     #[test]
     fn null_threshold_does_not_block() {
-        let open = UnpaidThresholdCheck {
-            unpaid: d("25"),
-            threshold: None,
-        };
+        let open = UnpaidThresholdCheck::new(d("25"), None, true);
+        assert!(!open.blocks_circulation());
+    }
+
+    #[test]
+    fn disabled_accrual_ignores_every_stored_threshold() {
+        let over = UnpaidThresholdCheck::new(d("10.01"), Some(d("0")), false);
+        assert!(!over.blocks_circulation());
+        assert_eq!(over.threshold, Some(d("0")));
+        assert_eq!(over.unpaid, d("10.01"));
+        let open = UnpaidThresholdCheck::new(d("25"), None, false);
         assert!(!open.blocks_circulation());
     }
 }
