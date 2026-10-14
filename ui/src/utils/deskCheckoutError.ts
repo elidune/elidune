@@ -1,8 +1,12 @@
 import axios from 'axios';
 import type { TFunction } from 'i18next';
-import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
+import { getApiErrorCode, getApiErrorMessage, getApiErrorRawMessage } from '@/utils/apiError';
 import { loanRefusalMayForce } from '@/utils/circulationForce';
-import { isCheckoutScanNoticeShown } from '@/utils/deskScanAlert';
+import {
+  checkoutScanNoticeFromRefusal,
+  isCheckoutScanNoticeShown,
+  type DeskScanAlert,
+} from '@/utils/deskScanAlert';
 import { itemStatusActionMessage, readCheckoutItemStatus } from '@/utils/itemStatusAction';
 import { isCheckoutDeclined } from '@/utils/toPickDesk';
 
@@ -21,8 +25,8 @@ export interface CheckoutDeskActions {
 /**
  * Actions under a checkout refusal.
  * `item_to_pick_for_other` is already set aside: the sentence only, even when
- * `forceable` is true. `item_held_for_other` keeps set-aside and never force.
- * A status action has neither button.
+ * `forceable` is true. `item_held_for_other` keeps set-aside, and force when
+ * `loanRefusalMayForce` is true. A status action has neither button.
  * Any remaining code offers force only when the server `forceable` is true.
  */
 export function checkoutDeskActions(
@@ -32,7 +36,9 @@ export function checkoutDeskActions(
 ): CheckoutDeskActions {
   const key = code?.trim() ?? '';
   if (key === ITEM_TO_PICK_FOR_OTHER) return { force: false, setAside: false };
-  if (key === ITEM_HELD_FOR_OTHER) return { force: false, setAside: true };
+  if (key === ITEM_HELD_FOR_OTHER) {
+    return { force: loanRefusalMayForce(forceable, canForce), setAside: true };
+  }
   if (key === ITEM_STATUS_ACTION_REQUIRED) return { force: false, setAside: false };
   return { force: loanRefusalMayForce(forceable, canForce), setAside: false };
 }
@@ -47,6 +53,45 @@ function refusalForceable(error: unknown): unknown {
 /** Same decision as `checkoutDeskActions`, read from a loan 422. */
 export function checkoutDeskActionsFromError(error: unknown, canForce = true): CheckoutDeskActions {
   return checkoutDeskActions(getApiErrorCode(error), refusalForceable(error), canForce);
+}
+
+/**
+ * What the loans desk shows for one checkout 422.
+ * `item_to_pick_for_other` is decided first and is only the sentence: no set-aside
+ * popup, no force button, and no card, initials, or name from `details`.
+ */
+export type CheckoutRefusalPresentation =
+  | { kind: 'setAside'; message: string; force: boolean }
+  | { kind: 'scan'; alert: DeskScanAlert }
+  | { kind: 'status' }
+  | { kind: 'force'; message: string }
+  | { kind: 'sentence' };
+
+export function presentCheckoutRefusal(
+  error: unknown,
+  options: { canForce: boolean; alreadyForced: boolean; t: TFunction },
+): CheckoutRefusalPresentation {
+  const code = getApiErrorCode(error);
+  if (code === ITEM_TO_PICK_FOR_OTHER) return { kind: 'sentence' };
+
+  const actions = checkoutDeskActions(code, refusalForceable(error), options.canForce);
+  if (actions.setAside) {
+    return {
+      kind: 'setAside',
+      message: options.t('errors.apiCode.item_held_for_other'),
+      force: actions.force,
+    };
+  }
+  const blocked = checkoutScanNoticeFromRefusal({
+    code,
+    message: getApiErrorRawMessage(error),
+  });
+  if (blocked) return { kind: 'scan', alert: blocked };
+  if (code === ITEM_STATUS_ACTION_REQUIRED) return { kind: 'status' };
+  if (!options.alreadyForced && actions.force) {
+    return { kind: 'force', message: forceBorrowDialogMessage(error, options.t) };
+  }
+  return { kind: 'sentence' };
 }
 
 /**

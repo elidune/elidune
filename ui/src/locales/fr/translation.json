@@ -1202,6 +1202,7 @@
     "toPickForOtherTitle": "Exemplaire en attente pour un autre lecteur",
     "toPickForOtherMessage": "Cet exemplaire est à prélever pour {{patron}}.",
     "toPickSetAside": "Mettre de côté",
+    "heldSetAside": "Exemplaire mis de côté pour la réservation : placez-le sur l'étagère des réservations.",
     "forceLoan": "Forcer le prêt",
     "pickReady": "Prêt pour {{patron}}, à placer sur l’étagère des réservations",
     "pickTransit": "À envoyer en transit vers {{site}}",

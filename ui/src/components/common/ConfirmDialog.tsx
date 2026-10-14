@@ -17,6 +17,8 @@ export interface ConfirmDialogProps {
   error?: string | null;
   /** Extra form fields below the billing / confirm copy. */
   children?: ReactNode;
+  /** Button between cancel and confirm. */
+  middleFooter?: ReactNode;
   size?: 'sm' | 'md' | 'lg';
   confirmDisabled?: boolean;
 }
@@ -34,6 +36,7 @@ export default function ConfirmDialog({
   isLoading = false,
   error = null,
   children,
+  middleFooter,
   size = 'sm',
   confirmDisabled = false,
 }: ConfirmDialogProps) {
@@ -48,10 +51,11 @@ export default function ConfirmDialog({
       size={size}
       stackOnTop={stackOnTop}
       footer={
-        <div className="flex justify-end gap-2">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose} disabled={isLoading}>
             {cancelLabel ?? t('common.cancel')}
           </Button>
+          {middleFooter}
           <Button
             type="button"
             variant={confirmVariant}

@@ -1202,6 +1202,7 @@
     "toPickForOtherTitle": "Exemplar für eine andere Person vorgemerkt",
     "toPickForOtherMessage": "Dieses Exemplar wird für {{patron}} geholt.",
     "toPickSetAside": "Zurücklegen",
+    "heldSetAside": "Exemplar für die Vormerkung zurückgelegt: legen Sie es ins Abholregal.",
     "forceLoan": "Ausleihe erzwingen",
     "pickReady": "Bereit für {{patron}}, ins Abholregal legen",
     "pickTransit": "In den Transit nach {{site}} schicken",

@@ -24,8 +24,8 @@ export function shelfPatronLabel(
 }
 
 /**
- * `item_to_pick_for_other` warning. Card phrase, otherwise initials.
- * A name is not accepted: the 422 body does not include one.
+ * Shelf label: card phrase, otherwise initials.
+ * Not used for checkout. `item_to_pick_for_other` is a sentence with no identity.
  */
 export function toPickPatronPhrase(
   input: { cardNumber?: string | null; initials?: string | null } | null | undefined,

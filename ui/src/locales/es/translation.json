@@ -1202,6 +1202,7 @@
     "toPickForOtherTitle": "Ejemplar reservado para otra persona",
     "toPickForOtherMessage": "Este ejemplar está pendiente de recoger para {{patron}}.",
     "toPickSetAside": "Apartar",
+    "heldSetAside": "Ejemplar apartado para la reserva: colóquelo en el estante de reservas.",
     "forceLoan": "Forzar préstamo",
     "pickReady": "Listo para {{patron}}, colocar en el estante de reservas",
     "pickTransit": "Enviar en tránsito a {{site}}",

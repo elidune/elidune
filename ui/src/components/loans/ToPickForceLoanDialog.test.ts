@@ -34,7 +34,7 @@ async function i18nFor(lng: Lang): Promise<I18nInstance> {
 
 function renderDialog(
   i18n: I18nInstance,
-  props: { cardNumber?: string | null; initials?: string | null },
+  props: { onForce?: () => void; message?: string },
 ): string {
   return renderToStaticMarkup(
     createElement(
@@ -42,10 +42,10 @@ function renderDialog(
       { i18n },
       createElement(ToPickForceLoanDialog, {
         isOpen: true,
-        cardNumber: props.cardNumber ?? null,
-        initials: props.initials ?? null,
         onCancel: () => undefined,
         onSetAside: () => undefined,
+        onForce: props.onForce,
+        message: props.message,
       }),
     ) as ReactElement,
   );
@@ -67,21 +67,21 @@ function refusal(details: Record<string, unknown>) {
 }
 
 describe('to-pick set-aside dialog', () => {
-  it('shows the wrapping title, the card or initials, set aside, and cancel — never force', async () => {
+  it('shows set aside and cancel for a held copy, and never another reader', async () => {
     for (const lang of ['fr', 'en', 'de', 'es'] as const) {
       const title = catalogs[lang].loans.toPickForOtherTitle;
       const setAside = catalogs[lang].loans.toPickSetAside;
       const cancel = catalogs[lang].common.cancel;
-      const message = catalogs[lang].loans.toPickForOtherMessage;
+      const heldSentence = catalogs[lang].errors.apiCode.item_held_for_other;
       assert.equal(title.includes('{{'), false, lang);
       assert.equal(setAside.toLowerCase().includes('force'), false, lang);
-      assert.equal(message.toLowerCase().includes('force'), false, lang);
-      assert.equal(message.toLowerCase().includes('forc'), false, lang);
-      const html = renderDialog(await i18nFor(lang), { cardNumber: CARD, initials: 'HH' });
+      const html = renderDialog(await i18nFor(lang), { message: heldSentence });
       assert.equal(html.includes(title), true, lang);
       assert.equal(html.includes(setAside), true, lang);
       assert.equal(html.includes(cancel), true, lang);
-      assert.equal(html.includes(CARD), true, lang);
+      assert.equal(html.includes(heldSentence), true, lang);
+      assert.equal(html.includes(CARD), false, lang);
+      assert.equal(html.includes('HH'), false, lang);
       assert.equal(html.toLowerCase().includes('force'), false, lang);
       assert.equal(html.toLowerCase().includes('forc'), false, lang);
       assert.match(html, /<h2[^>]*class="[^"]*break-words[^"]*"/);
@@ -90,9 +90,23 @@ describe('to-pick set-aside dialog', () => {
     assert.equal(catalogs.fr.loans.toPickForOtherTitle, 'Exemplaire en attente pour un autre lecteur');
     assert.equal(catalogs.fr.loans.toPickSetAside, 'Mettre de côté');
     assert.equal(catalogs.fr.common.cancel, 'Annuler');
+    const held = renderDialog(await i18nFor('fr'), {
+      message: catalogs.fr.errors.apiCode.item_held_for_other,
+      onForce: () => undefined,
+    });
+    assert.match(held, /Mettre de côté/);
+    assert.match(held, /Annuler/);
+    assert.match(held, /Forcer le prêt/);
+    assert.equal(held.includes(NAME), false);
+    assert.equal(held.includes('Helene'), false);
+    const noForce = renderDialog(await i18nFor('fr'), {
+      message: catalogs.fr.errors.apiCode.item_held_for_other,
+    });
+    assert.match(noForce, /Mettre de côté/);
+    assert.equal(noForce.includes('Forcer'), false);
   });
 
-  it('shows initials when the 422 has no card, and never a name', async () => {
+  it('reads initials from the 422 and does not render them in the popup', async () => {
     const parsed = readItemToPickForOther(
       refusal({
         holdId: '11',
@@ -106,11 +120,9 @@ describe('to-pick set-aside dialog', () => {
     assert.equal(parsed?.cardNumber, null);
     assert.equal(parsed?.initials, 'HH');
     assert.equal(JSON.stringify(parsed).includes(NAME), false);
-    const html = renderDialog(await i18nFor('en'), {
-      cardNumber: parsed?.cardNumber,
-      initials: parsed?.initials,
-    });
-    assert.equal(html.includes('HH'), true);
+    const html = renderDialog(await i18nFor('en'), {});
+    assert.equal(html.includes('HH'), false);
+    assert.equal(html.includes(CARD), false);
     assert.equal(html.includes('Helene'), false);
     assert.equal(html.includes('Holder'), false);
     assert.equal(html.includes('Set aside'), true);

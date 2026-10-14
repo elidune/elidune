@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { bindDeskToast } from '@/utils/deskToast';
 import { withoutPersistentErrorToasts } from '@/utils/toastPersistence';
 
 export type ToastVariant = 'info' | 'success' | 'error';
@@ -77,6 +78,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     },
     [dismissToast]
   );
+
+  useEffect(() => {
+    bindDeskToast(showToast);
+    return () => bindDeskToast(null);
+  }, [showToast]);
 
   const value = useMemo(
     (): ToastContextValue => ({ toasts, showToast, dismissToast, dismissPersistentErrors }),

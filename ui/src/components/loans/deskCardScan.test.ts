@@ -336,7 +336,38 @@ describe('card_lost cannot be forced', () => {
     assert.match(held, /Un autre lecteur a la priorité sur cet exemplaire/);
     assert.match(held, /Mettre de côté/);
     assert.match(held, /Annuler/);
-    assert.equal(held.includes('Forcer'), false);
+    assert.match(held, /Forcer le prêt/);
+    const heldLocked = render(
+      i18n,
+      createElement(BatchCreateItemRow, {
+        item: {
+          barcode: 'I-6b',
+          success: false,
+          code: 'item_held_for_other',
+          error: 'held',
+          forceable: false,
+        },
+        canForce: true,
+        onForce: () => undefined,
+      }),
+    );
+    assert.match(heldLocked, /Mettre de côté/);
+    assert.equal(heldLocked.includes('Forcer'), false);
+    const heldDenied = render(
+      i18n,
+      createElement(BatchCreateItemRow, {
+        item: {
+          barcode: 'I-6c',
+          success: false,
+          code: 'item_held_for_other',
+          error: 'held',
+          forceable: true,
+        },
+        canForce: false,
+        onForce: () => undefined,
+      }),
+    );
+    assert.equal(heldDenied.includes('Forcer'), false);
     const alreadySetAside = render(
       i18n,
       createElement(BatchCreateItemRow, {

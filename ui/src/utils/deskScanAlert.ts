@@ -349,8 +349,19 @@ export function deskScanAlertFromCheckoutMessage(message: string | null | undefi
 const ITEM_TO_PICK_FOR_OTHER = 'item_to_pick_for_other';
 
 /**
+ * True when the barcode scan replaces `POST /loans`.
+ * `onHold` covers both a copy already set aside (`to_pick`) and one only held
+ * (`ready` or pinned `pending`). Neither opens the set-aside popup here: the
+ * 422 does. `item_to_pick_for_other` stays a sentence, with no other reader.
+ */
+export function checkoutScanStopsLoan(alert: DeskScanAlert | null | undefined): boolean {
+  return Boolean(alert && alert.kind !== 'onHold');
+}
+
+/**
  * Specific checkout notice for a refusal, or null when the desk should show the generic error.
  * A non-null result replaces the business-rule banner and the error toast.
+ * `item_held_for_other` and `item_to_pick_for_other` return null before any identity is copied.
  */
 export function checkoutScanNoticeFromRefusal(input: {
   code?: string | null;
@@ -360,9 +371,9 @@ export function checkoutScanNoticeFromRefusal(input: {
   initials?: string | null;
 }): DeskScanAlert | null {
   const code = input.code?.trim() ?? '';
-  // Set-aside (« Mettre de côté » / « Annuler ») handles a copy still to pick.
+  // « Mettre de côté » is only for `item_held_for_other`, and that popup has no identity.
   if (code === 'item_held_for_other') return null;
-  // Already set aside. The api sentence is shown, with no other reader.
+  // Already set aside. The api sentence is shown, with no popup and no other reader.
   if (code === ITEM_TO_PICK_FOR_OTHER) return null;
   const fromMessage = deskScanAlertFromCheckoutMessage(input.message);
   if (!fromMessage) return null;
