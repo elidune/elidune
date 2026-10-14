@@ -1796,8 +1796,8 @@ impl Repository {
         if ready.is_some() {
             return Ok(ready);
         }
-        // Only a hold already assigned to this copy reserves it. An unassigned
-        // title hold waits for the next return and does not block shelf copies.
+        // Only a hold already assigned to this copy reserves it here. Checkout
+        // counts pending unassigned title holds separately.
         let next: Option<i64> = sqlx::query_scalar(
             r#"
             SELECT h.user_id FROM holds h
@@ -2191,8 +2191,10 @@ impl Repository {
     }
 
     /// Lending gate. The hold assigned to this copy, if any (`pending` pin, `to_pick`,
-    /// or `ready`), with the patron's card number and initials. An unassigned title
-    /// hold does not block checkout of a shelf copy.
+    /// or `ready`), with the patron's card number and initials.
+    ///
+    /// Pending unassigned title holds are not an assignment of this copy. Checkout
+    /// counts those separately in [`Self::holds_pending_title_hold_blocks_checkout_tx`].
     ///
     /// The tuple is `(hold_id, user_id, status, card_number, initials)`.
     pub async fn holds_assigned_hold_blocks_lending_tx(
@@ -2232,6 +2234,309 @@ impl Repository {
             )
         }))
     }
+
+    /// Pending unassigned title holds for other readers, locked, when loaning
+    /// `item_id` would leave fewer shelf copies than those holds.
+    ///
+    /// Available copies are on the shelf and loanable: not archived, not
+    /// withdrawn, `borrowable`, circulation available, not on loan, not already
+    /// assigned (`pending` / `to_pick` / `ready`), and not in transit. Site is
+    /// not a filter. This copy is included in the count. One other hold and two
+    /// shelf copies still allows the loan. Two other holds and two shelf copies
+    /// refuse the first loan.
+    ///
+    /// `SELECT … FOR UPDATE` covers every pending unassigned hold on the title
+    /// so two checkouts cannot both pass the count.
+    ///
+    /// The tuple is `(hold_id, user_id, card_number, initials)` for the oldest
+    /// pending unassigned hold in the title queue (`position`, then
+    /// `created_at`, then `id`). That is the only hold set-aside will assign.
+    /// A later hold is never named here.
+    pub async fn holds_pending_title_hold_blocks_checkout_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        biblio_id: i64,
+        item_id: i64,
+        borrower_user_id: i64,
+    ) -> AppResult<Option<(i64, i64, Option<String>, String)>> {
+        let rows: Vec<PendingTitleHoldRow> = sqlx::query_as(
+            r#"
+            SELECT h.id AS hold_id, h.user_id,
+                   NULLIF(btrim(u.barcode), '') AS card_number,
+                   u.firstname,
+                   u.lastname
+            FROM holds h
+            LEFT JOIN users u ON u.id = h.user_id
+            WHERE h.biblio_id = $1
+              AND h.status = 'pending'
+              AND h.item_id IS NULL
+            ORDER BY h.position ASC, h.created_at ASC, h.id ASC
+            FOR UPDATE OF h
+            "#,
+        )
+        .bind(biblio_id)
+        .fetch_all(&mut **tx)
+        .await?;
+        if rows.is_empty() {
+            return Ok(None);
+        }
+
+        let available_sql = format!(
+            "SELECT EXISTS(SELECT 1 FROM items i WHERE i.id = $1 AND {AVAILABLE_COPY_PREDICATE})"
+        );
+        let this_available: bool = sqlx::query_scalar(&available_sql)
+            .bind(item_id)
+            .fetch_one(&mut **tx)
+            .await?;
+        if !this_available {
+            return Ok(None);
+        }
+
+        let others: Vec<&PendingTitleHoldRow> = rows
+            .iter()
+            .filter(|row| row.user_id != borrower_user_id)
+            .collect();
+        if others.is_empty() {
+            return Ok(None);
+        }
+
+        let count_sql = format!(
+            "SELECT COUNT(*)::bigint FROM items i WHERE i.biblio_id = $1 AND {AVAILABLE_COPY_PREDICATE}"
+        );
+        let available: i64 = sqlx::query_scalar(&count_sql)
+            .bind(biblio_id)
+            .fetch_one(&mut **tx)
+            .await?;
+        if (others.len() as i64) < available {
+            return Ok(None);
+        }
+
+        let first = &rows[0];
+        Ok(Some((
+            first.hold_id,
+            first.user_id,
+            first.card_number.clone(),
+            crate::models::catalog_view::borrower_initials(
+                first.firstname.as_deref(),
+                first.lastname.as_deref(),
+            ),
+        )))
+    }
+
+    /// Assign the oldest pending unassigned title hold to the scanned copy.
+    ///
+    /// `hold_id` must be that queue head (`position`, then `created_at`, then
+    /// `id`). Any other hold is refused and left unassigned. The copy becomes
+    /// `ready` when it is already at the pickup site (pickup unset, or equal
+    /// to the copy's site). A different pickup site starts a `requested`
+    /// transit and the hold stays `pending` until that transit is received.
+    pub async fn holds_set_aside_unassigned_title_hold(
+        &self,
+        barcode: &str,
+        hold_id: i64,
+        item_id: i64,
+    ) -> AppResult<crate::models::dto::holds::ShelfCheckIn> {
+        let mut tx = self.pool.begin().await?;
+        let item: Option<SetAsideItemRow> = sqlx::query_as(
+            r#"
+            SELECT i.id, i.biblio_id, i.barcode, b.title, i.source_id
+            FROM items i
+            JOIN biblios b ON b.id = i.biblio_id
+            WHERE i.barcode = $1 AND i.archived_at IS NULL
+            FOR UPDATE OF i
+            "#,
+        )
+        .bind(barcode)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(SetAsideItemRow {
+            id: locked_item_id,
+            biblio_id,
+            barcode: item_barcode,
+            title,
+            source_id: item_source_id,
+        }) = item
+        else {
+            return Err(AppError::NotFound(format!(
+                "No active loan found for item {barcode}"
+            )));
+        };
+        if locked_item_id != item_id {
+            return Err(AppError::Validation(
+                "itemId does not match the scanned copy".into(),
+            ));
+        }
+
+        let queue: Vec<Hold> = sqlx::query_as(
+            r#"
+            SELECT h.*
+            FROM holds h
+            WHERE h.biblio_id = $1
+              AND h.status = 'pending'
+              AND h.item_id IS NULL
+            ORDER BY h.position ASC, h.created_at ASC, h.id ASC
+            FOR UPDATE OF h
+            "#,
+        )
+        .bind(biblio_id)
+        .fetch_all(&mut *tx)
+        .await?;
+        let Some(hold) = queue.first().cloned() else {
+            return Err(AppError::BusinessRule(
+                "Hold is not a pending unassigned title hold".into(),
+            ));
+        };
+        if hold.id != hold_id {
+            let exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM holds WHERE id = $1)")
+                    .bind(hold_id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            if !exists {
+                return Err(AppError::NotFound(format!("Hold {hold_id} not found")));
+            }
+            return Err(AppError::BusinessRule(
+                "Only the oldest pending hold in the title queue can be set aside".into(),
+            ));
+        }
+
+        let available_sql = format!(
+            "SELECT EXISTS(SELECT 1 FROM items i WHERE i.id = $1 AND {AVAILABLE_COPY_PREDICATE})"
+        );
+        let available: bool = sqlx::query_scalar(&available_sql)
+            .bind(locked_item_id)
+            .fetch_one(&mut *tx)
+            .await?;
+        if !available {
+            return Err(AppError::BusinessRule(
+                "This copy cannot be set aside for a title hold".into(),
+            ));
+        }
+
+        let needs_transit = self
+            .transits_maybe_request_for_notify_tx(&mut tx, &hold, locked_item_id, item_source_id)
+            .await?;
+
+        let (updated, newly_ready, destination_site_id, destination_site_name) = if needs_transit {
+            let result = sqlx::query(
+                r#"
+                UPDATE holds
+                SET item_id = $1,
+                    pickup_site_id = COALESCE(pickup_site_id, $3)
+                WHERE id = $2 AND status = 'pending' AND item_id IS NULL
+                "#,
+            )
+            .bind(locked_item_id)
+            .bind(hold.id)
+            .bind(hold.pickup_site_id)
+            .execute(&mut *tx)
+            .await?;
+            if result.rows_affected() == 0 {
+                return Err(AppError::BusinessRule(
+                    "Hold is not a pending unassigned title hold".into(),
+                ));
+            }
+            let updated = sqlx::query_as::<_, Hold>("SELECT * FROM holds WHERE id = $1")
+                .bind(hold.id)
+                .fetch_one(&mut *tx)
+                .await?;
+            let (destination_site_id, destination_site_name) =
+                destination_site(&mut tx, updated.pickup_site_id).await?;
+            (updated, false, destination_site_id, destination_site_name)
+        } else {
+            let expires_at =
+                Utc::now() + chrono::Duration::days(self.hold_ready_expiry_days() as i64);
+            savepoint(&mut tx).await?;
+            let updated = match sqlx::query_as::<_, Hold>(
+                r#"
+                UPDATE holds
+                SET item_id = $1,
+                    status = 'ready',
+                    notified_at = NOW(),
+                    expires_at = $3,
+                    pick_started_at = NULL
+                WHERE id = $2 AND status = 'pending' AND item_id IS NULL
+                RETURNING *
+                "#,
+            )
+            .bind(locked_item_id)
+            .bind(hold.id)
+            .bind(expires_at)
+            .fetch_optional(&mut *tx)
+            .await
+            {
+                Ok(row) => {
+                    release_savepoint(&mut tx).await?;
+                    row
+                }
+                Err(e) if is_exclusive_assignment_violation(&e) => {
+                    rollback_savepoint(&mut tx).await?;
+                    return Err(AppError::Conflict(
+                        "This copy is already assigned to another hold".into(),
+                    ));
+                }
+                Err(e) => return Err(e.into()),
+            };
+            let Some(updated) = updated else {
+                return Err(AppError::BusinessRule(
+                    "Hold is not a pending unassigned title hold".into(),
+                ));
+            };
+            (updated, true, None, None)
+        };
+
+        tx.commit().await?;
+        Ok(crate::models::dto::holds::ShelfCheckIn {
+            item_id: locked_item_id,
+            hold: Some(updated),
+            title,
+            barcode: item_barcode,
+            transit_started: destination_site_id.is_some(),
+            destination_site_id,
+            destination_site_name,
+            newly_ready,
+        })
+    }
+}
+
+/// On shelf and loanable. Excludes in transit, already assigned, and not loanable.
+/// No site filter.
+const AVAILABLE_COPY_PREDICATE: &str = r#"
+    i.archived_at IS NULL
+    AND i.weeding_status <> 'withdrawn'
+    AND i.borrowable = TRUE
+    AND COALESCE(i.circulation_status, 0) = 0
+    AND NOT EXISTS (
+        SELECT 1 FROM loans l
+        WHERE l.item_id = i.id AND l.returned_at IS NULL
+    )
+    AND NOT EXISTS (
+        SELECT 1 FROM holds ah
+        WHERE ah.item_id = i.id
+          AND ah.status IN ('pending','to_pick','ready')
+    )
+    AND NOT EXISTS (
+        SELECT 1 FROM item_transits t
+        WHERE t.item_id = i.id AND t.status IN ('requested', 'in_transit')
+    )
+"#;
+
+#[derive(sqlx::FromRow)]
+struct SetAsideItemRow {
+    id: i64,
+    biblio_id: i64,
+    barcode: Option<String>,
+    title: Option<String>,
+    source_id: Option<i64>,
+}
+
+#[derive(sqlx::FromRow)]
+struct PendingTitleHoldRow {
+    hold_id: i64,
+    user_id: i64,
+    card_number: Option<String>,
+    firstname: Option<String>,
+    lastname: Option<String>,
 }
 
 #[derive(sqlx::FromRow)]

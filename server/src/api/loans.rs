@@ -1,8 +1,8 @@
 //! Loan management endpoints
 
 use axum::{
-    body::Body,
-    extract::{Path, Query, State},
+    body::{Body, Bytes},
+    extract::{FromRequest, Path, Query, State},
     http::{
         header::{CONTENT_DISPOSITION, CONTENT_TYPE},
         StatusCode,
@@ -687,7 +687,7 @@ pub struct GetUserLoansQuery {
         (status = 400, description = "Invalid request"),
         (status = 404, description = "User or specimen not found"),
         (status = 409, description = "Open loan on this copy (`item_on_loan_to_other_borrower` or `item_already_on_loan_to_borrower`; `force` never overrides an open loan), or Idempotency-Key conflict"),
-        (status = 422, description = "Checkout refused. Body is `CheckoutRefusalBody`: `{ code, error, message, forceable }`, plus `reasonRequired: true` when the refusal is forceable and a reason is mandatory (`subscription_expired`, `item_held_for_other`), plus `itemStatus` when `code` is `item_status_action_required`, and `details` when `code` is `item_to_pick_for_other` or `item_held_for_other`. Missing or blank `overrideReason` while forcing one of those gates is `422` `override_reason_required` with body `{ code, error, message }`. `forceable` is computed for the caller by `checkout_refusal_forceable`. `fines_over_threshold` (unpaid balance strictly above the effective threshold, global or the patron type) is forceable only when the caller has loans write (`loans_rights` `w`, the same bar as renewal and `require_write_loans`; the account-type name is not consulted). Mode `none`, or inherit when the global mode is `none`, does not block on amount, so the override is not offered. A skipped fine gate is audited after that loan commits as `loan.fine_threshold_overridden` with payload `{ reason, loanId, patron_id }` on the loan entity (`reason` is `fines_over_threshold`). The actor is the audit row. The override covers that loan only, including each created loan of a batch, and does not clear the patron balance. `max_loans` (total loan cap, also when the total cap and the document-type cap are both reached), `max_media_loans` (document-type cap only), and `item_not_loanable` (copy is not borrowable, or circulation status is damaged) stay forceable for any caller who can send `force`. `subscription_expired` (`users.expiry_at` before now) and `item_held_for_other` (copy is ready or pinned pending for another patron) are forceable only when the caller has circulation override write (`circulation_override_rights` `w`, independent of the account-type name and of `settings_rights`). `details` for `item_held_for_other` is `{ holdId }` only (`ItemHeldForOtherDetails`; `userId`, `cardNumber`, and `initials` are absent). `details` for `item_to_pick_for_other` is `{ holdId, userId, cardNumber, initials }` and never the patron name. Any other caller gets `forceable: false`. Forcing either gate requires `overrideReason`. The hold is not cancelled and stays first in the queue. An expired-subscription override is audited as `loan.subscription_expired_overridden` (actor, loan id, patron_id, item id, code `subscription_expired`, overrideReason). A held-copy override is audited as `loan.held_for_other_overridden` (actor, loan id, patron_id, holdId, reason). It is false for `item_status_action_required` (circulation status is lost, claimedReturned, toSearch, or missing; `itemStatus` is that value), `card_lost`, `item_to_pick_for_other`, and `business_rule_violation` (deleted account, inactive account, withdrawn copy, item in transit). Staff `force` skips only refusals with `forceable: true` for that caller. When several gates apply, a non-forceable refusal is returned before any forceable one.", body = crate::checkout_refusal::CheckoutRefusalBody)
+        (status = 422, description = "Checkout refused. Body is `CheckoutRefusalBody`: `{ code, error, message, forceable }`, plus `reasonRequired: true` when the refusal is forceable and a reason is mandatory (`subscription_expired`, `item_held_for_other`), plus `itemStatus` when `code` is `item_status_action_required`, and `details` when `code` is `item_to_pick_for_other` or `item_held_for_other`. Missing or blank `overrideReason` while forcing one of those gates is `422` `override_reason_required` with body `{ code, error, message }`. `forceable` is computed for the caller by `checkout_refusal_forceable`. `fines_over_threshold` (unpaid balance strictly above the effective threshold, global or the patron type) is forceable only when the caller has loans write (`loans_rights` `w`, the same bar as renewal and `require_write_loans`; the account-type name is not consulted). Mode `none`, or inherit when the global mode is `none`, does not block on amount, so the override is not offered. A skipped fine gate is audited after that loan commits as `loan.fine_threshold_overridden` with payload `{ reason, loanId, patron_id }` on the loan entity (`reason` is `fines_over_threshold`). The actor is the audit row. The override covers that loan only, including each created loan of a batch, and does not clear the patron balance. `max_loans` (total loan cap, also when the total cap and the document-type cap are both reached), `max_media_loans` (document-type cap only), and `item_not_loanable` (copy is not borrowable, or circulation status is damaged) stay forceable for any caller who can send `force`. `subscription_expired` (`users.expiry_at` before now) and `item_held_for_other` (copy is ready or pinned pending for another patron, or pending unassigned title holds for other readers are at least as many as the title's available copies — on shelf and loanable, not in transit, not already assigned; this copy is included) are forceable only when the caller has circulation override write (`circulation_override_rights` `w`, independent of the account-type name and of `settings_rights`). `details` for `item_held_for_other` is `{ holdId }` only (`ItemHeldForOtherDetails`; `userId`, `cardNumber`, and `initials` are absent). `details` for `item_to_pick_for_other` is `{ holdId, userId, cardNumber, initials }` and never the patron name. Any other caller gets `forceable: false`. Forcing either gate requires `overrideReason`. The hold is not cancelled and stays first in the queue. An expired-subscription override is audited as `loan.subscription_expired_overridden` (actor, loan id, patron_id, item id, code `subscription_expired`, overrideReason). A held-copy override is audited as `loan.held_for_other_overridden` (actor, loan id, patron_id, holdId, reason). It is false for `item_status_action_required` (circulation status is lost, claimedReturned, toSearch, or missing; `itemStatus` is that value), `card_lost`, `item_to_pick_for_other`, and `business_rule_violation` (deleted account, inactive account, withdrawn copy, item in transit). Staff `force` skips only refusals with `forceable: true` for that caller. When several gates apply, a non-forceable refusal is returned before any forceable one. `POST /loans/batch-create` does not accept `overrideReason`, so `item_held_for_other` stays refused there.", body = crate::checkout_refusal::CheckoutRefusalBody)
     )
 )]
 pub async fn create_loan(
@@ -1015,17 +1015,72 @@ async fn renew_loan_inner(
     ))
 }
 
+/// Optional body for `POST /loans/items/{barcode}/return`.
+///
+/// Assigns the oldest pending unassigned title hold to the scanned copy when
+/// `holdId` is that queue head (`ready` on site, or a transit that stays
+/// pending until received). A newer hold is refused. Omit the body for a
+/// normal check-in.
+#[serde_as]
+#[derive(Debug, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ShelfSetAsideRequest {
+    /// Oldest pending unassigned title hold (`holds.id`), in queue order.
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub hold_id: i64,
+    /// Copy to assign. Must be the item identified by the barcode.
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub item_id: i64,
+}
+
+/// Empty body keeps the existing check-in. A JSON body must be `ShelfSetAsideRequest`.
+pub struct OptionalShelfSetAside(pub Option<ShelfSetAsideRequest>);
+
+#[axum::async_trait]
+impl<S> FromRequest<S> for OptionalShelfSetAside
+where
+    S: Send + Sync,
+{
+    type Rejection = AppError;
+
+    async fn from_request(
+        req: axum::http::Request<Body>,
+        state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        let bytes = Bytes::from_request(req, state)
+            .await
+            .map_err(|_| AppError::Validation("Invalid request body".into()))?;
+        if bytes.iter().all(u8::is_ascii_whitespace) {
+            return Ok(Self(None));
+        }
+        let parsed = serde_json::from_slice::<ShelfSetAsideRequest>(&bytes)
+            .map_err(|err| AppError::Validation(format!("Invalid set-aside body: {err}")))?;
+        Ok(Self(Some(parsed)))
+    }
+}
+
 /// Check in a barcode. Returns an active loan, completes a `to_pick` hold,
 /// accepts an available copy that is not on loan, or warns when the copy is
 /// lost, damaged, missing, or withdrawn.
+///
+/// A JSON body `{ holdId, itemId }` assigns the oldest pending unassigned title
+/// hold to this copy when `holdId` is that queue head (`ready` on site, or a
+/// transit that stays pending until received). A newer hold is refused.
 #[utoipa::path(
     post,
     path = "/loans/items/{barcode}/return",
     tag = "loans",
     security(("bearer_auth" = [])),
     params(("barcode" = String, Path, description = "Item barcode or call number")),
+    request_body(
+        content = ShelfSetAsideRequest,
+        description = "Optional. `{ holdId, itemId }` assigns the oldest pending unassigned title hold (queue order) to the barcode's copy when `holdId` is that hold. Same site becomes `ready`. A different pickup site starts a requested transit and the hold stays `pending` until it is received. Any other `holdId` is refused. Omit the body for a normal check-in.",
+        content_type = "application/json"
+    ),
     responses(
-        (status = 200, description = "Loan closed, a to_pick hold checked in, an available copy that is not on loan, or a blocked status. An available copy that is not on loan includes `notice` (`code` `item_not_on_loan`, `level` `informational`). A pending hold on that copy is set aside (`status` `ready`) or sent in transit. `holdFor` on that notice follows the catalog privacy rule: staff profile with users read, otherwise `{ id, cardNumber, initials }`. A copy that is lost, damaged, missing (`circulationStatus` `toSearch`), or withdrawn (`weedingStatus` `withdrawn`) includes `notice` (`code` `item_not_available_status`, `level` `warning`), `status` `unchanged`, and the current `circulationStatus` and `weedingStatus`. That scan does not change the status, assign a hold, or start transit.", body = ReturnResponse),
+        (status = 200, description = "Loan closed, a to_pick hold checked in, an available copy that is not on loan, or a blocked status. An available copy that is not on loan includes `notice` (`code` `item_not_on_loan`, `level` `informational`). A pending hold on that copy is set aside (`status` `ready`) or sent in transit. `holdFor` on that notice follows the catalog privacy rule: staff profile with users read, otherwise `{ id, cardNumber, initials }`. A copy that is lost, damaged, missing (`circulationStatus` `toSearch`), or withdrawn (`weedingStatus` `withdrawn`) includes `notice` (`code` `item_not_available_status`, `level` `warning`), `status` `unchanged`, and the current `circulationStatus` and `weedingStatus`. That scan does not change the status, assign a hold, or start transit. Optional body `{ holdId, itemId }` assigns the oldest pending unassigned title hold when `holdId` is that queue head (same loans write right; item locked, then the title's pending holds in queue order). Same site becomes `ready`. A different pickup site starts a requested transit and the hold stays `pending` (not `ready` or `to_pick`) until the transit is received. Any other `holdId` is refused and assigns nothing.", body = ReturnResponse),
         (status = 404, description = "Unknown barcode (`not_found`)", body = crate::error::ErrorResponse),
         (status = 409, description = "Already returned")
     )
@@ -1035,12 +1090,17 @@ pub async fn return_loan_by_item(
     AuthenticatedUser(claims): AuthenticatedUser,
     ClientIp(ip): ClientIp,
     Path(barcode): Path<String>,
+    OptionalShelfSetAside(set_aside): OptionalShelfSetAside,
 ) -> AppResult<Json<ReturnResponse>> {
     claims.require_write_loans()?;
+    let set_aside = set_aside.map(|body| crate::services::loans::TitleHoldSetAside {
+        hold_id: body.hold_id,
+        item_id: body.item_id,
+    });
     match state
         .services
         .loans
-        .return_loan_by_item(&barcode, Some(claims.user_id), ip.clone())
+        .return_loan_by_item(&barcode, Some(claims.user_id), ip.clone(), set_aside)
         .await
     {
         Ok(check_in) => {

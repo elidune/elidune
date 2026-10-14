@@ -69,7 +69,7 @@ impl Repository {
         let item_row = if let Some(id) = loan.item_id {
             sqlx::query(
                 r#"
-                SELECT it.id, it.borrowable, it.circulation_status, it.weeding_status,
+                SELECT it.id, it.biblio_id, it.borrowable, it.circulation_status, it.weeding_status,
                        b.media_type
                 FROM items it
                 JOIN biblios b ON it.biblio_id = b.id
@@ -83,7 +83,7 @@ impl Repository {
         } else {
             sqlx::query(
                 r#"
-                SELECT it.id, it.borrowable, it.circulation_status, it.weeding_status,
+                SELECT it.id, it.biblio_id, it.borrowable, it.circulation_status, it.weeding_status,
                        b.media_type
                 FROM items it
                 JOIN biblios b ON it.biblio_id = b.id
@@ -98,6 +98,7 @@ impl Repository {
 
         let item_row = item_row.ok_or_else(|| AppError::NotFound("Item not found".to_string()))?;
         let item_id: i64 = item_row.get("id");
+        let biblio_id: i64 = item_row.get("biblio_id");
         let borrowable: bool = item_row.get("borrowable");
         let circulation_status = crate::models::circulation::CirculationStatus::from_db(
             item_row.get("circulation_status"),
@@ -267,9 +268,15 @@ impl Repository {
         }
 
         // Only a hold assigned to this copy (`ready`, `to_pick`, or a pinned `pending`)
-        // reserves it. An unassigned title hold does not. `ready` and pinned `pending`
-        // are forceable with circulation override write and a reason; the hold stays
-        // first in the queue. `to_pick` is never forceable.
+        // reserves that copy. `ready` and pinned `pending` are forceable with
+        // circulation override write and a reason; the hold stays first in the queue.
+        // `to_pick` is never forceable.
+        //
+        // A pending unassigned title hold is separate: loaning this copy is refused
+        // when other readers' unassigned holds are at least as many as the title's
+        // available copies (this copy included). The hold named in the refusal is
+        // the oldest pending unassigned hold in queue order. Those rows are locked
+        // in the same transaction as the loan insert.
         if let Some((hold_id, user_id, status, card_number, initials)) = self
             .holds_assigned_hold_blocks_lending_tx(&mut tx, item_id)
             .await?
@@ -294,6 +301,28 @@ impl Repository {
                 };
                 push_checkout_refusal(progress, loan.force, refusal)?;
             }
+        }
+
+        if let Some((hold_id, user_id, card_number, initials)) = self
+            .holds_pending_title_hold_blocks_checkout_tx(&mut tx, biblio_id, item_id, loan.user_id)
+            .await?
+        {
+            push_checkout_refusal(
+                progress,
+                loan.force,
+                CheckoutRefusal {
+                    code: error_code::ITEM_HELD_FOR_OTHER,
+                    message: "Another reader has a pending hold on this title and not enough shelf copies remain".to_string(),
+                    item_status: None,
+                    to_pick: Some(ToPickPatron {
+                        hold_id,
+                        user_id,
+                        card_number,
+                        initials,
+                    }),
+                    caller_rights: caller_rights.clone(),
+                },
+            )?;
         }
 
         finish_checkout_refusals(progress)?;
