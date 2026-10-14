@@ -1,5 +1,6 @@
 import axios, { AxiosError, AxiosInstance } from 'axios';
 import { IDEMPOTENCY_HEADER, newIdempotencyKey } from '@/utils/idempotency';
+import { holdWritePayload } from '@/utils/holdNotes';
 import { biblioWritePayload, itemWritePayload } from '@/utils/itemNotes';
 import { myLoansRequestParams } from '@/utils/loanClosure';
 import type {
@@ -1080,14 +1081,10 @@ class ApiService {
   // ─── Holds ──────────────────────────────────────────────────────
 
   async createHold(data: CreateHold): Promise<Hold> {
-    const response = await this.client.post<Hold>('/holds', {
-      userId: data.userId,
-      itemId: data.itemId,
-      biblioId: data.biblioId,
-      pickupSiteId: data.pickupSiteId,
-      notes: data.notes,
-      force: data.force,
-    });
+    const response = await this.client.post<Hold>(
+      '/holds',
+      holdWritePayload(data, { canWriteInternal: data.internalNote !== undefined }),
+    );
     return response.data;
   }
 

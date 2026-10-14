@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Ban, Bookmark, Plus, Search, AlertCircle, Truck } from 'lucide-react';
-import { Card, CardHeader, Button, Table, Input, Pagination, Modal, ConfirmDialog, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, BarcodeScanField, Typeahead } from '@/components/common';
+import { Card, CardHeader, Button, Table, Pagination, Modal, ConfirmDialog, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, BarcodeScanField, Typeahead } from '@/components/common';
 import HoldMobileCard from '@/components/holds/HoldMobileCard';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
 import HoldExpiresCell from '@/components/holds/HoldExpiresCell';
@@ -16,8 +16,9 @@ import { usePickupSiteDraft } from '@/hooks/holds/usePickupSiteDraft';
 import { useTransitActions } from '@/hooks/holds/useTransitActions';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
+import { holdWriteErrorMessage } from '@/utils/holdNotes';
 import type { BiblioShort, BiblioStaffView, Hold, HoldListItem, UserShort } from '@/types';
-import { canReadUsers } from '@/types';
+import { canReadUsers, canWriteHolds } from '@/types';
 import { isBiblioStaffView, isItemStaffView } from '@/utils/catalogView';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import PatronOptionLabel from '@/components/users/PatronOptionLabel';
@@ -34,6 +35,7 @@ import {
 } from '@/utils/holdDisplay';
 import HoldScopeBadge from '@/components/holds/HoldScopeBadge';
 import HoldStatusBadge from '@/components/holds/HoldStatusBadge';
+import { HoldNoteFields, HoldNotes } from '@/components/holds/HoldNotes';
 import { indexTransitsByHoldId } from '@/utils/transitDisplay';
 import { isItemWithdrawn, isTitleWithdrawn } from '@/utils/weeding';
 
@@ -45,6 +47,7 @@ export default function HoldsPage() {
   const { t, i18n } = useTranslation();
   const { user: authUser } = useAuth();
   const canOpenReader = canReadUsers(authUser, api.getToken());
+  const canEditInternalNote = canWriteHolds(authUser, api.getToken());
   const { showToast } = useToast();
   const queryClient = useQueryClient();
 
@@ -61,7 +64,8 @@ export default function HoldsPage() {
   const [selectedBiblio, setSelectedBiblio] = useState<BiblioStaffView | null>(null);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [holdScope, setHoldScope] = useState<HoldPlacementScope>('title');
-  const [createNotes, setCreateNotes] = useState('');
+  const [createPatronNote, setCreatePatronNote] = useState('');
+  const [createInternalNote, setCreateInternalNote] = useState('');
   const { sources, pickupSiteId, setPickupSiteId, missing: pickupMissing } = usePickupSiteDraft(showCreateModal);
   const transitActions = useTransitActions();
   const activeTransitsQuery = useActiveTransitsQuery();
@@ -151,7 +155,8 @@ export default function HoldsPage() {
     setSelectedBiblio(null);
     setSelectedItemId(null);
     setHoldScope('title');
-    setCreateNotes('');
+    setCreatePatronNote('');
+    setCreateInternalNote('');
     setCreateUserDraft('');
     setCreateUserResults([]);
     setSelectedUserForCreate(null);
@@ -275,7 +280,9 @@ export default function HoldsPage() {
           biblioId: selectedBiblioId,
           scope: holdScope,
           itemId: selectedItemId,
-          notes: createNotes,
+          patronNote: createPatronNote,
+          internalNote: createInternalNote,
+          canWriteInternal: canEditInternalNote,
           pickupSiteId,
         }),
       );
@@ -710,11 +717,14 @@ export default function HoldsPage() {
                 {(biblioQueueQuery.data?.length ?? 0) > 0 && (
                   <ol className="list-decimal list-inside space-y-1 text-sm border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2">
                     {biblioQueueQuery.data!.map((h) => (
-                      <li key={h.id} className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium">
-                          <HoldPatronLabel user={h.user} linked={canOpenReader} />
-                        </span>
-                        <HoldScopeBadge hold={h} />
+                      <li key={h.id} className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium">
+                            <HoldPatronLabel user={h.user} linked={canOpenReader} />
+                          </span>
+                          <HoldScopeBadge hold={h} />
+                        </div>
+                        <HoldNotes audience="staff" patronNote={h.patronNote} internalNote={h.internalNote} />
                       </li>
                     ))}
                   </ol>
@@ -756,15 +766,17 @@ export default function HoldsPage() {
             disabled={createMutation.isPending}
           />
 
-          <Input
-            label={t('holds.notesOptional')}
-            value={createNotes}
-            onChange={(e) => setCreateNotes(e.target.value)}
+          <HoldNoteFields
+            patronNote={createPatronNote}
+            internalNote={createInternalNote}
+            onPatronNoteChange={setCreatePatronNote}
+            onInternalNoteChange={setCreateInternalNote}
+            canEditInternal={canEditInternalNote}
           />
 
           {createMutation.isError && (
             <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-              {getApiErrorMessage(createMutation.error, t) || t('holds.createError')}
+              {holdWriteErrorMessage(createMutation.error, t)}
             </p>
           )}
         </div>

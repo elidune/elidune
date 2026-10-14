@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Modal, Button, Input, Typeahead } from '@/components/common';
+import { Modal, Button, Typeahead } from '@/components/common';
 import HoldScopeBadge from '@/components/holds/HoldScopeBadge';
+import { HoldNoteFields, HoldNotes } from '@/components/holds/HoldNotes';
 import { useToast } from '@/contexts/ToastContext';
 import api from '@/services/api';
-import { getApiErrorMessage } from '@/utils/apiError';
+import { holdWriteErrorMessage } from '@/utils/holdNotes';
 import { canReadUsers, canWriteHolds } from '@/types';
 import { isItemStaffView } from '@/utils/catalogView';
 import { isItemWithdrawn } from '@/utils/weeding';
@@ -62,7 +63,8 @@ export default function PlaceHoldDialog({
     if (open) setScope(defaultScope);
   }
   const [targetMode, setTargetMode] = useState<TargetMode>('self');
-  const [notes, setNotes] = useState('');
+  const [patronNote, setPatronNote] = useState('');
+  const [internalNote, setInternalNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -89,7 +91,8 @@ export default function PlaceHoldDialog({
   });
 
   useResetWhenInactive(open, () => {
-    setNotes('');
+    setPatronNote('');
+    setInternalNote('');
     setError(null);
     setTargetMode('self');
     setSelectedUser(null);
@@ -167,7 +170,9 @@ export default function PlaceHoldDialog({
           biblioId,
           scope: pinning ? 'copy' : 'title',
           itemId: pinning ? specimen?.id : undefined,
-          notes,
+          patronNote,
+          internalNote,
+          canWriteInternal: staff,
           pickupSiteId,
         }),
       );
@@ -180,7 +185,7 @@ export default function PlaceHoldDialog({
       onSuccess?.();
       onClose();
     } catch (e: unknown) {
-      setError(getApiErrorMessage(e, t) || t('holds.createError'));
+      setError(holdWriteErrorMessage(e, t));
     } finally {
       setSubmitting(false);
     }
@@ -293,11 +298,14 @@ export default function PlaceHoldDialog({
             </p>
             <ol className="list-decimal list-inside space-y-1 text-sm text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2">
               {queue.map((h) => (
-                <li key={h.id} className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium">
-                    <HoldPatronLabel user={h.user} linked={canOpenReader} />
-                  </span>
-                  <HoldScopeBadge hold={h} />
+                <li key={h.id} className="space-y-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium">
+                      <HoldPatronLabel user={h.user} linked={canOpenReader} />
+                    </span>
+                    <HoldScopeBadge hold={h} />
+                  </div>
+                  <HoldNotes audience="staff" patronNote={h.patronNote} internalNote={h.internalNote} />
                 </li>
               ))}
             </ol>
@@ -366,15 +374,16 @@ export default function PlaceHoldDialog({
           disabled={submitting}
         />
 
-        <Input
-          label={t('holds.notesOptional')}
-          hint={staff ? t('holds.notesVisibleToReader') : undefined}
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
+        <HoldNoteFields
+          patronNote={patronNote}
+          internalNote={internalNote}
+          onPatronNoteChange={setPatronNote}
+          onInternalNoteChange={setInternalNote}
+          canEditInternal={staff}
         />
 
         {error && (
-          <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-3 py-2 text-red-700 dark:text-red-400">
+          <div role="alert" className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-3 py-2 text-red-700 dark:text-red-400">
             {error}
           </div>
         )}
