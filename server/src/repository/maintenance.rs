@@ -498,8 +498,10 @@ impl MaintenanceRepository for Repository {
 
         let today = Utc::now().date_naive();
 
-        // Readers only. Ongoing loans and holds are not rewritten; later circulation
-        // reads the updated `users.public_type`.
+        // Readers only: built-in account type code `reader`, the same predicate as
+        // `AccountTypeSlug::derives_public_type_from_birthdate`. Rights are not used.
+        // Ongoing loans and holds are not rewritten; later circulation reads the
+        // updated `users.public_type`.
         let user_rows: Vec<(i64, NaiveDate, Option<i64>)> = sqlx::query_as(
             r#"SELECT id, birthdate, public_type FROM users
                WHERE birthdate IS NOT NULL AND account_type = 'reader'"#,

@@ -840,9 +840,24 @@ impl UsersService {
 
     /// Update user's own profile (name, password)
     #[tracing::instrument(skip(self), err)]
-    pub async fn update_profile(&self, user_id: i64, profile: UpdateProfile) -> AppResult<User> {
+    pub async fn update_profile(
+        &self,
+        user_id: i64,
+        mut profile: UpdateProfile,
+        submitted_birthdate: &crate::models::own_contact::SubmittedBirthdate,
+    ) -> AppResult<User> {
         // Get current user
         let user = self.repository.users_get_by_id(user_id).await?;
+        if crate::models::own_contact::self_service_birthdate_differs(
+            submitted_birthdate,
+            user.birthdate,
+        ) {
+            return Err(AppError::Authorization(
+                "Birth date cannot be changed on your own record".into(),
+            ));
+        }
+        // A repeated date is a no-op. Self-service never writes `birthdate`.
+        profile.birthdate = None;
 
         // Check if login already exists for another user (login is required and unique)
         if let Some(ref login) = profile.login {
@@ -870,7 +885,7 @@ impl UsersService {
         }
 
         let requested_consent = profile.events_consent;
-        let birthdate = profile.birthdate.or(user.birthdate);
+        let birthdate = user.birthdate;
         let resolved_public_type = self
             .reader_public_type_for_modification(&user, birthdate)
             .await?;
@@ -907,8 +922,17 @@ impl UsersService {
         &self,
         user_id: i64,
         patch: crate::models::own_contact::OwnContactPatch,
+        submitted_birthdate: &crate::models::own_contact::SubmittedBirthdate,
     ) -> AppResult<User> {
         let existing = self.repository.users_get_by_id(user_id).await?;
+        if crate::models::own_contact::self_service_birthdate_differs(
+            submitted_birthdate,
+            existing.birthdate,
+        ) {
+            return Err(AppError::Authorization(
+                "Birth date cannot be changed on your own record".into(),
+            ));
+        }
         let resolved_public_type = self
             .reader_public_type_for_modification(&existing, existing.birthdate)
             .await?;

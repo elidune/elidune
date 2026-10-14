@@ -516,3 +516,208 @@ async fn maintenance_recomputes_readers_only() {
         .expect("staff type");
     assert_eq!(staff_type, Some(adult), "staff are left unchanged");
 }
+
+#[tokio::test]
+async fn put_reader_with_no_matching_band_is_422_and_writes_nothing() {
+    let _guard = test_guard().await;
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let token = fixtures::ensure_first_setup(&app).await;
+    let stored = birthdate_aged(40);
+    let (status, created) = create_reader(&app, &token, &stored, None).await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let user_id = fixtures::json_id(&created["id"]);
+    let public_type = fixtures::json_id(&created["publicType"]);
+
+    let (status, rejected) = app
+        .put_json(
+            &format!("/api/v1/users/{user_id}"),
+            &json!({
+                "birthdate": birthdate_aged(13),
+                "phone": "0999999999"
+            }),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{rejected}");
+    assert_eq!(rejected["code"], "no_public_type_for_age", "{rejected}");
+
+    let (status, current) = app
+        .get_json_with_auth(&format!("/api/v1/users/{user_id}"), &token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{current}");
+    assert_eq!(current["birthdate"], stored, "{current}");
+    assert_eq!(
+        fixtures::json_id(&current["publicType"]),
+        public_type,
+        "{current}"
+    );
+    assert!(
+        current["phone"].is_null(),
+        "rejected update wrote {current}"
+    );
+}
+
+#[tokio::test]
+async fn staff_and_admin_are_created_without_birth_date() {
+    let _guard = test_guard().await;
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let token = fixtures::ensure_first_setup(&app).await;
+    let adult = type_id(&app, &token, "adult").await;
+
+    for account_type in ["librarian", "admin"] {
+        let login = format!("rpt{account_type}_{}", fixtures::unique_suffix());
+        let (status, body) = app
+            .post_json(
+                "/api/v1/users",
+                &json!({
+                    "login": login,
+                    "password": "readerpass1234",
+                    "firstname": "No",
+                    "lastname": "Birth",
+                    "email": format!("{login}@test.local"),
+                    "accountType": account_type,
+                    "publicType": adult.to_string(),
+                    "sex": "m",
+                    "addrCity": "Lyon"
+                }),
+                Some(&token),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{account_type}: {body}");
+        assert!(body["birthdate"].is_null(), "{body}");
+        assert_eq!(body["birthDateMissing"], false, "{body}");
+        assert_eq!(
+            fixtures::json_id(&body["publicType"]),
+            adult,
+            "public type is not computed: {body}"
+        );
+        assert_eq!(body["accountType"], account_type, "{body}");
+    }
+}
+
+#[tokio::test]
+async fn self_service_accepts_the_stored_birth_date_and_rejects_a_different_one() {
+    let _guard = test_guard().await;
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_id, reader_token) = fixtures::create_reader(&app, &admin_token, "rptself").await;
+    let (status, before) = app
+        .get_json_with_auth(&format!("/api/v1/users/{reader_id}"), &reader_token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{before}");
+    let stored = before["birthdate"].as_str().unwrap().to_string();
+
+    let (status, saved) = app
+        .put_json(
+            "/api/v1/auth/profile",
+            &json!({
+                "birthdate": stored,
+                "phone": "0611111111"
+            }),
+            Some(&reader_token),
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "same birth date on profile: {saved}"
+    );
+    assert_eq!(saved["birthdate"], stored, "{saved}");
+    assert_eq!(saved["phone"], "0611111111", "{saved}");
+
+    let (status, rejected) = app
+        .put_json(
+            "/api/v1/auth/profile",
+            &json!({
+                "birthdate": "1980-01-02",
+                "phone": "0622222222"
+            }),
+            Some(&reader_token),
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "different birth date: {rejected}"
+    );
+    assert_eq!(rejected["code"], "authorization_failed", "{rejected}");
+
+    let (status, current) = app
+        .get_json_with_auth(&format!("/api/v1/users/{reader_id}"), &reader_token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{current}");
+    assert_eq!(current["birthdate"], stored, "{current}");
+    assert_eq!(
+        current["phone"], "0611111111",
+        "profile 403 wrote {current}"
+    );
+
+    let (status, own_saved) = app
+        .put_json(
+            &format!("/api/v1/users/{reader_id}"),
+            &json!({
+                "birthdate": stored,
+                "email": "same.birth@library.test"
+            }),
+            Some(&reader_token),
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "same birth date on own record: {own_saved}"
+    );
+    assert_eq!(own_saved["birthdate"], stored, "{own_saved}");
+    assert_eq!(own_saved["email"], "same.birth@library.test", "{own_saved}");
+
+    let (status, own_rejected) = app
+        .put_json(
+            &format!("/api/v1/users/{reader_id}"),
+            &json!({
+                "birthdate": "1981-03-04",
+                "email": "changed.birth@library.test"
+            }),
+            Some(&reader_token),
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "own record birth date: {own_rejected}"
+    );
+
+    let (status, current) = app
+        .get_json_with_auth(&format!("/api/v1/users/{reader_id}"), &admin_token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{current}");
+    assert_eq!(current["birthdate"], stored, "{current}");
+    assert_eq!(current["email"], "same.birth@library.test", "{current}");
+    assert_eq!(current["phone"], "0611111111", "{current}");
+
+    let senior = type_id(&app, &admin_token, "senior").await;
+    let next = birthdate_aged(70);
+    let (status, staff_saved) = app
+        .put_json(
+            &format!("/api/v1/users/{reader_id}"),
+            &json!({ "birthdate": next }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "users write may change birth date: {staff_saved}"
+    );
+    assert_eq!(staff_saved["birthdate"], next, "{staff_saved}");
+    assert_eq!(
+        fixtures::json_id(&staff_saved["publicType"]),
+        senior,
+        "{staff_saved}"
+    );
+}
