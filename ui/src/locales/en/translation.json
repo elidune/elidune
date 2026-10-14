@@ -2139,7 +2139,7 @@
       "item_not_on_loan": "This copy is not on loan",
       "item_on_loan_to_other_borrower": "This copy is still on loan to another reader. Process the return first.",
       "item_already_on_loan_to_borrower": "This copy is already on loan to this reader. You can renew it.",
-      "item_to_pick_for_other": "This copy is on hold for another reader.",
+      "item_to_pick_for_other": "Copy reserved and set aside for another reader: put it back on the holds shelf.",
       "item_on_loan": "This copy is on loan and cannot be withdrawn.",
       "item_in_transit": "This copy is in transit and cannot be withdrawn.",
       "item_on_hold": "This copy is held for pickup and cannot be withdrawn.",

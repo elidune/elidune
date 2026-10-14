@@ -337,6 +337,26 @@ describe('card_lost cannot be forced', () => {
     assert.match(held, /Mettre de côté/);
     assert.match(held, /Annuler/);
     assert.equal(held.includes('Forcer'), false);
+    const alreadySetAside = render(
+      i18n,
+      createElement(BatchCreateItemRow, {
+        item: {
+          barcode: 'I-7',
+          success: false,
+          code: 'item_to_pick_for_other',
+          error: 'This copy is on the pick list for another patron — use force=true to override',
+          forceable: true,
+        },
+        canForce: true,
+        onForce: () => undefined,
+        onSetAside: () => undefined,
+      }),
+    );
+    assert.match(alreadySetAside, /Exemplaire réservé et mis de côté pour un autre lecteur/);
+    assert.match(alreadySetAside, /étagère des réservations/);
+    assert.equal(alreadySetAside.includes('Mettre de côté'), false);
+    assert.equal(alreadySetAside.includes('Forcer'), false);
+    assert.equal(alreadySetAside.includes('force'), false);
   });
 
   it('explains each item status and never offers force', async () => {

@@ -23,9 +23,8 @@ import { useAccountTypesQuery } from '@/hooks/useAccountTypesQuery';
 import { Card, Button, Badge, Modal, Input, Table, ConfirmDialog, MessageModal, ScrollableListRegion, BarcodeScanField } from '@/components/common';
 import api from '@/services/api';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
-import { deskCheckoutMessage } from '@/utils/deskCheckoutError';
+import { checkoutDeskActionsFromError, deskCheckoutMessage } from '@/utils/deskCheckoutError';
 import { renewalMayForce } from '@/utils/circulationForce';
-import { checkoutMayForce } from '@/utils/loanConflict';
 import { closureReasonText } from '@/utils/loanClosure';
 import { renewedUntilMessage } from '@/utils/localeDate';
 import { isWeedingServerMessage } from '@/utils/weeding';
@@ -33,7 +32,7 @@ import { isSubscriptionExpired } from '@/utils/userSubscription';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
 import { isClaimedReturnedLoan } from '@/utils/circulationStatus';
-import { interpretPickCheckIn, readItemToPickForOther } from '@/utils/toPickDesk';
+import { interpretPickCheckIn } from '@/utils/toPickDesk';
 import { newIdempotencyKey } from '@/utils/idempotency';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
 import HoldStatusBadge from '@/components/holds/HoldStatusBadge';
@@ -1523,15 +1522,8 @@ function BorrowForm({
         showToast({ variant: 'error', message: displayMsg });
         return;
       }
-      const toPick = readItemToPickForOther(err);
-      if (toPick && !force) {
-        onToPickForOther?.(
-          { cardNumber: toPick.cardNumber, initials: toPick.initials },
-          specimenCode.trim(),
-        );
-        return;
-      }
-      if (errorCode === 'item_held_for_other' && !force) {
+      const actions = checkoutDeskActionsFromError(err, canForce);
+      if (actions.setAside && !force) {
         onToPickForOther?.(
           { cardNumber: null, initials: null, message: displayMsg },
           specimenCode.trim(),
@@ -1543,7 +1535,7 @@ function BorrowForm({
         showToast({ variant: 'error', message: displayMsg });
         return;
       }
-      if (!force && checkoutMayForce(err, canForce)) {
+      if (!force && actions.force) {
         onBusinessRuleViolation?.(displayMsg, specimenCode.trim());
         return;
       }

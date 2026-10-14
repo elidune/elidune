@@ -345,7 +345,7 @@ export function deskScanAlertFromCheckoutMessage(message: string | null | undefi
   return null;
 }
 
-/** API code for a copy on the pick list of another reader. */
+/** API code for a copy already set aside for another reader. */
 const ITEM_TO_PICK_FOR_OTHER = 'item_to_pick_for_other';
 
 /**
@@ -359,18 +359,11 @@ export function checkoutScanNoticeFromRefusal(input: {
   cardNumber?: string | null;
   initials?: string | null;
 }): DeskScanAlert | null {
-  // The set-aside dialog (« Mettre de côté » / « Annuler ») handles this code.
-  if (input.code?.trim() === 'item_held_for_other') return null;
-  if (input.code?.trim() === ITEM_TO_PICK_FOR_OTHER) {
-    return {
-      kind: 'onHold',
-      patronName: null,
-      otherBorrower: otherBorrowerFromPerson({
-        cardNumber: input.cardNumber,
-        initials: input.initials,
-      }),
-    };
-  }
+  const code = input.code?.trim() ?? '';
+  // Set-aside (« Mettre de côté » / « Annuler ») handles a copy still to pick.
+  if (code === 'item_held_for_other') return null;
+  // Already set aside. The api sentence is shown, with no other reader.
+  if (code === ITEM_TO_PICK_FOR_OTHER) return null;
   const fromMessage = deskScanAlertFromCheckoutMessage(input.message);
   if (!fromMessage) return null;
   const name = clean(input.patronName);

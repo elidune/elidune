@@ -1,10 +1,53 @@
+import axios from 'axios';
 import type { TFunction } from 'i18next';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
+import { loanRefusalMayForce } from '@/utils/circulationForce';
 import { isCheckoutScanNoticeShown } from '@/utils/deskScanAlert';
 import { itemStatusActionMessage, readCheckoutItemStatus } from '@/utils/itemStatusAction';
 import { isCheckoutDeclined } from '@/utils/toPickDesk';
 
 const ITEM_STATUS_ACTION_REQUIRED = 'item_status_action_required';
+const ITEM_HELD_FOR_OTHER = 'item_held_for_other';
+/** Already on the holds shelf for another reader. */
+const ITEM_TO_PICK_FOR_OTHER = 'item_to_pick_for_other';
+
+export interface CheckoutDeskActions {
+  /** « Forcer le prêt ». */
+  force: boolean;
+  /** « Mettre de côté ». */
+  setAside: boolean;
+}
+
+/**
+ * Actions under a checkout refusal.
+ * `item_to_pick_for_other` is already set aside: the sentence only, even when
+ * `forceable` is true. `item_held_for_other` keeps set-aside and never force.
+ * A status action has neither button.
+ * Any remaining code offers force only when the server `forceable` is true.
+ */
+export function checkoutDeskActions(
+  code: string | null | undefined,
+  forceable: unknown,
+  canForce = true,
+): CheckoutDeskActions {
+  const key = code?.trim() ?? '';
+  if (key === ITEM_TO_PICK_FOR_OTHER) return { force: false, setAside: false };
+  if (key === ITEM_HELD_FOR_OTHER) return { force: false, setAside: true };
+  if (key === ITEM_STATUS_ACTION_REQUIRED) return { force: false, setAside: false };
+  return { force: loanRefusalMayForce(forceable, canForce), setAside: false };
+}
+
+function refusalForceable(error: unknown): unknown {
+  if (!axios.isAxiosError(error)) return undefined;
+  const data = error.response?.data;
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return undefined;
+  return (data as { forceable?: unknown }).forceable;
+}
+
+/** Same decision as `checkoutDeskActions`, read from a loan 422. */
+export function checkoutDeskActionsFromError(error: unknown, canForce = true): CheckoutDeskActions {
+  return checkoutDeskActions(getApiErrorCode(error), refusalForceable(error), canForce);
+}
 
 /**
  * Desk checkout copy.
