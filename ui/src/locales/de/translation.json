@@ -192,9 +192,10 @@
       "childGuardianHint": "An den gesetzlichen Vertreter gesendet",
       "allChildGuardianNote": "Einladungen für Kinder werden an ihre gesetzlichen Vertreter gesendet."
     },
-    "targetPublicHint": "Wählen Sie „Alle Zielgruppen“ oder eine oder mehrere Zielgruppen.",
+    "targetPublicHint": "Aktivieren Sie „Alle Zielgruppen“ oder wählen Sie eine oder mehrere Zielgruppen. Alle Zielgruppen leert die Liste und deaktiviert sie.",
     "targetPublicPlaceholder": "Zielgruppen auswählen",
     "targetPublicRequired": "Wählen Sie mindestens eine Zielgruppe oder Alle Zielgruppen.",
+    "targetPublicCombined": "„Alle Zielgruppen“ kann nicht mit bestimmten Zielgruppen kombiniert werden.",
     "attendeesCount": "Anzahl der Teilnehmer",
     "schoolName": "Schule",
     "className": "Klasse",
