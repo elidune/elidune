@@ -54,11 +54,3 @@ export function heldSetAsideServerMessage(error: unknown, t: TFunction): string 
   if (raw) return raw;
   return getApiErrorMessage(error, t) || t('loans.errorReturningLoan');
 }
-
-/**
- * `item_held_for_other` opens the set-aside dialog with a message and no other reader.
- * `item_to_pick_for_other` does not, and keeps the existing check-in screen.
- */
-export function isInPlaceHeldSetAside(message: string | null | undefined): boolean {
-  return Boolean(message?.trim());
-}

@@ -23,7 +23,7 @@ import { useAccountTypesQuery } from '@/hooks/useAccountTypesQuery';
 import { Card, Button, Badge, Modal, Input, Table, ConfirmDialog, MessageModal, ScrollableListRegion, BarcodeScanField } from '@/components/common';
 import api from '@/services/api';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
-import { checkoutDeskActionsFromError, deskCheckoutMessage } from '@/utils/deskCheckoutError';
+import { deskCheckoutMessage, presentCheckoutRefusal } from '@/utils/deskCheckoutError';
 import { renewalMayForce } from '@/utils/circulationForce';
 import { closureReasonText } from '@/utils/loanClosure';
 import { renewedUntilMessage } from '@/utils/localeDate';
@@ -32,12 +32,10 @@ import { isSubscriptionExpired } from '@/utils/userSubscription';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
 import { isClaimedReturnedLoan } from '@/utils/circulationStatus';
-import { interpretPickCheckIn } from '@/utils/toPickDesk';
 import {
   commitDismissHeldSetAside,
   commitHeldSetAside,
   heldSetAsideServerMessage,
-  isInPlaceHeldSetAside,
 } from '@/utils/heldSetAside';
 import { newIdempotencyKey } from '@/utils/idempotency';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
@@ -115,11 +113,9 @@ export default function UserDetailPage() {
     null
   );
   const [toPickForce, setToPickForce] = useState<{
-    cardNumber: string | null;
-    initials: string | null;
     specimenCode: string;
-    message?: string | null;
-    force?: boolean;
+    message: string;
+    force: boolean;
   } | null>(null);
   const [toPickForceLoading, setToPickForceLoading] = useState(false);
   const borrowFormRef = useRef<BorrowFormHandle>(null);
@@ -1402,7 +1398,6 @@ export default function UserDetailPage() {
             });
           }}
           onToPickForOther={(identity, specimenCode) => {
-            if (!isInPlaceHeldSetAside(identity.message)) setShowBorrowModal(false);
             setToPickForce({ ...identity, specimenCode });
           }}
         />
@@ -1410,8 +1405,6 @@ export default function UserDetailPage() {
 
       <ToPickForceLoanDialog
         isOpen={toPickForce !== null}
-        cardNumber={toPickForce?.cardNumber ?? null}
-        initials={toPickForce?.initials ?? null}
         message={toPickForce?.message}
         isLoading={toPickForceLoading}
         onForce={
@@ -1443,51 +1436,25 @@ export default function UserDetailPage() {
         }
         onCancel={() => {
           if (toPickForceLoading) return;
-          if (isInPlaceHeldSetAside(toPickForce?.message)) {
-            commitDismissHeldSetAside({
-              closeDialog: () => setToPickForce(null),
-              clearBarcode: () => cueBorrowBarcode(true),
-              refocusBarcode: () => cueBorrowBarcode(false),
-            });
-            return;
-          }
-          setToPickForce(null);
+          commitDismissHeldSetAside({
+            closeDialog: () => setToPickForce(null),
+            clearBarcode: () => cueBorrowBarcode(true),
+            refocusBarcode: () => cueBorrowBarcode(false),
+          });
         }}
         onSetAside={() => {
           const ctx = toPickForce;
           if (!ctx || toPickForceLoading) return;
-          if (isInPlaceHeldSetAside(ctx.message)) {
-            setToPickForceLoading(true);
-            void commitHeldSetAside(ctx.specimenCode, {
-              returnByBarcode: (code) => api.returnLoanByBarcode(code),
-              successMessage: t('loans.heldSetAside'),
-              errorMessage: (error) => heldSetAsideServerMessage(error, t),
-              showToast: (toast) => showToast(toast),
-              closeDialog: () => setToPickForce(null),
-              clearBarcode: () => cueBorrowBarcode(true),
-              refocusBarcode: () => cueBorrowBarcode(false),
-            }).finally(() => setToPickForceLoading(false));
-            return;
-          }
           setToPickForceLoading(true);
-          void (async () => {
-            try {
-              const result = await api.returnLoanByBarcode(ctx.specimenCode);
-              const pick = interpretPickCheckIn(result);
-              setToPickForce(null);
-              const message = pick
-                ? pick.kind === 'ready'
-                  ? t('loans.pickReady', { patron: pick.patronName?.trim() || t('loans.pickPatronUnknown') })
-                  : t('loans.pickTransit', { site: pick.siteName?.trim() || t('loans.pickSiteUnknown') })
-                : t('loans.returnSuccess');
-              showToast({ variant: 'success', message });
-            } catch (e) {
-              setBorrowForceError(getApiErrorMessage(e, t) || t('loans.errorReturningLoan'));
-              setToPickForce(null);
-            } finally {
-              setToPickForceLoading(false);
-            }
-          })();
+          void commitHeldSetAside(ctx.specimenCode, {
+            returnByBarcode: (code) => api.returnLoanByBarcode(code),
+            successMessage: t('loans.heldSetAside'),
+            errorMessage: (error) => heldSetAsideServerMessage(error, t),
+            showToast: (toast) => showToast(toast),
+            closeDialog: () => setToPickForce(null),
+            clearBarcode: () => cueBorrowBarcode(true),
+            refocusBarcode: () => cueBorrowBarcode(false),
+          }).finally(() => setToPickForceLoading(false));
         }}
       />
 
@@ -1549,7 +1516,7 @@ interface BorrowFormProps {
   canForce: boolean;
   onBusinessRuleViolation?: (message: string, specimenCode: string) => void;
   onToPickForOther?: (
-    identity: { cardNumber: string | null; initials: string | null; message?: string | null; force?: boolean },
+    identity: { message: string; force: boolean },
     specimenCode: string,
   ) => void;
 }
@@ -1598,20 +1565,17 @@ const BorrowForm = forwardRef<BorrowFormHandle, BorrowFormProps>(function Borrow
         showToast({ variant: 'error', message: displayMsg });
         return;
       }
-      const actions = checkoutDeskActionsFromError(err, canForce);
-      if (actions.setAside && !force) {
-        onToPickForOther?.(
-          { cardNumber: null, initials: null, message: displayMsg, force: actions.force },
-          specimenCode.trim(),
-        );
+      const view = presentCheckoutRefusal(err, { canForce, alreadyForced: force, t });
+      if (view.kind === 'setAside') {
+        onToPickForOther?.({ message: view.message, force: view.force }, specimenCode.trim());
         return;
       }
-      if (errorCode === 'card_lost' || errorCode === 'item_status_action_required') {
+      if (errorCode === 'card_lost' || view.kind === 'status') {
         setError(displayMsg);
         showToast({ variant: 'error', message: displayMsg });
         return;
       }
-      if (!force && actions.force) {
+      if (view.kind === 'force') {
         onBusinessRuleViolation?.(displayMsg, specimenCode.trim());
         return;
       }

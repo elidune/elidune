@@ -43,7 +43,7 @@ import {
 import {
   CheckoutScanNoticeShown,
   checkoutAlertAfterSuccessfulReturn,
-  checkoutScanNoticeFromRefusal,
+  checkoutScanStopsLoan,
   deskScanAlert,
   deskScanAlertAfterReturn,
   isCheckoutScanNoticeShown,
@@ -58,7 +58,7 @@ import { patronId } from '@/utils/patronLink';
 import { isWeedingServerMessage } from '@/utils/weeding';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
 import { isClaimedReturnedLoan } from '@/utils/circulationStatus';
-import { checkoutDeskActionsFromError, deskBorrowErrorText, forceBorrowDialogMessage } from '@/utils/deskCheckoutError';
+import { deskBorrowErrorText, presentCheckoutRefusal } from '@/utils/deskCheckoutError';
 import {
   CheckoutDeclined,
   interpretPickCheckIn,
@@ -68,7 +68,6 @@ import {
   commitDismissHeldSetAside,
   commitHeldSetAside,
   heldSetAsideServerMessage,
-  isInPlaceHeldSetAside,
 } from '@/utils/heldSetAside';
 import {
   returnNoticeMessage,
@@ -205,8 +204,6 @@ export default function LoansPage() {
   const [returnBarcodeInput, setReturnBarcodeInput] = useState('');
   const returnBarcodeInputRef = useRef<HTMLInputElement>(null);
   const [returnResult, setReturnResult] = useState<ReturnView | null>(null);
-  const returnResultRef = useRef<ReturnView | null>(null);
-  returnResultRef.current = returnResult;
   const [isProcessingReturn, setIsProcessingReturn] = useState(false);
   const [returnError, setReturnError] = useState('');
   const [lostFound, setLostFound] = useState<(LostReturnFields & { itemId: string | null }) | null>(null);
@@ -239,11 +236,9 @@ export default function LoansPage() {
   const [forceBorrowDialog, setForceBorrowDialog] = useState<{ message: string } | null>(null);
   const forceBorrowResolveRef = useRef<((v: boolean) => void) | null>(null);
   const [toPickAside, setToPickAside] = useState<{
-    cardNumber: string | null;
-    initials: string | null;
     barcode: string;
-    message?: string | null;
-    force?: boolean;
+    message: string;
+    force: boolean;
   } | null>(null);
   const [toPickAsideLoading, setToPickAsideLoading] = useState(false);
   const [checkoutScanAlert, setCheckoutScanAlert] = useState<CheckoutScanAlert | null>(null);
@@ -434,15 +429,14 @@ export default function LoansPage() {
         } catch {
           itemId = null;
         }
-        const current = returnResultRef.current;
-        if (current?.kind !== 'deskNotice' || current.barcode !== trimmed) return;
+        if (returnResult?.kind !== 'deskNotice' || returnResult.barcode !== trimmed) return;
         showLostFound({ itemId, wasLost: true }, { title: null, barcode: trimmed, patronName: null });
       } finally {
         lostFoundLookupRef.current = false;
         setLostFoundLookup(false);
       }
     },
-    [showLostFound],
+    [returnResult, showLostFound],
   );
 
   const dismissLostFound = useCallback(() => {
@@ -884,7 +878,7 @@ export default function LoansPage() {
       patronId: selectedUser.id,
       revealIdentity: canReadBorrowers,
     });
-    if (alert && alert.kind !== 'onHold') {
+    if (alert && checkoutScanStopsLoan(alert)) {
       const shown =
         alert.kind === 'onLoan'
           ? {
@@ -941,35 +935,26 @@ export default function LoansPage() {
       if (isWeedingServerMessage(rawMessage)) {
         throw error;
       }
-      const refusalCode = getApiErrorCode(error);
-      const actions = checkoutDeskActionsFromError(error, canForceLoan);
-      if (actions.setAside) {
-        setToPickAside({
-          cardNumber: null,
-          initials: null,
-          barcode,
-          message: t('errors.apiCode.item_held_for_other'),
-          force: actions.force,
-        });
+      const view = presentCheckoutRefusal(error, {
+        canForce: canForceLoan,
+        alreadyForced: force,
+        t,
+      });
+      if (view.kind === 'setAside') {
+        setToPickAside({ barcode, message: view.message, force: view.force });
         throw new CheckoutDeclined();
       }
-      const blocked = checkoutScanNoticeFromRefusal({
-        code: refusalCode,
-        message: rawMessage,
-      });
-      if (blocked) {
-        setCheckoutScanAlert({ ...blocked, barcode });
+      if (view.kind === 'scan') {
+        setCheckoutScanAlert({ ...view.alert, barcode });
         throw new CheckoutScanNoticeShown();
       }
-      if (refusalCode === 'item_status_action_required') {
+      if (view.kind === 'status') {
         throw error;
       }
-      if (!force && actions.force) {
+      if (view.kind === 'force') {
         setBarcodeInput('');
         const ok = await new Promise<boolean>((resolve) => {
-          setForceBorrowDialog({
-            message: forceBorrowDialogMessage(error, t),
-          });
+          setForceBorrowDialog({ message: view.message });
           forceBorrowResolveRef.current = resolve;
         });
         if (ok) return handleBorrow(specimenBarcode, true);
@@ -2207,8 +2192,6 @@ export default function LoansPage() {
 
       <ToPickForceLoanDialog
         isOpen={toPickAside !== null}
-        cardNumber={toPickAside?.cardNumber ?? null}
-        initials={toPickAside?.initials ?? null}
         message={toPickAside?.message}
         isLoading={toPickAsideLoading}
         onForce={
@@ -2233,78 +2216,25 @@ export default function LoansPage() {
         }
         onCancel={() => {
           if (toPickAsideLoading) return;
-          if (isInPlaceHeldSetAside(toPickAside?.message)) {
-            commitDismissHeldSetAside({
-              closeDialog: () => setToPickAside(null),
-              clearBarcode: () => setBarcodeInput(''),
-              refocusBarcode: () => focusScanInput(),
-            });
-            return;
-          }
-          setToPickAside(null);
-          focusScanInput();
+          commitDismissHeldSetAside({
+            closeDialog: () => setToPickAside(null),
+            clearBarcode: () => setBarcodeInput(''),
+            refocusBarcode: () => focusScanInput(),
+          });
         }}
         onSetAside={() => {
           const barcode = toPickAside?.barcode;
           if (!barcode || toPickAsideLoading) return;
-          if (isInPlaceHeldSetAside(toPickAside?.message)) {
-            setToPickAsideLoading(true);
-            void commitHeldSetAside(barcode, {
-              returnByBarcode: (code) => api.returnLoanByBarcode(code),
-              successMessage: t('loans.heldSetAside'),
-              errorMessage: (error) => heldSetAsideServerMessage(error, t),
-              showToast: (toast) => showToast(toast),
-              closeDialog: () => setToPickAside(null),
-              clearBarcode: () => setBarcodeInput(''),
-              refocusBarcode: () => focusScanInput(),
-            }).finally(() => setToPickAsideLoading(false));
-            return;
-          }
           setToPickAsideLoading(true);
-          void (async () => {
-            try {
-              const result = await api.returnLoanByBarcode(barcode);
-              const pick = interpretPickCheckIn(result);
-              const feedback = returnScanFeedback(result, { pick: Boolean(pick), hasLoan: Boolean(result.loan) });
-              setToPickAside(null);
-              setReturnBarcodeInput('');
-              setReturnError('');
-              setReturnScanAlert(null);
-              if (feedback.toast === 'none' && feedback.notice) {
-                setReturnResult({ kind: 'deskNotice', notice: feedback.notice, putBack: false, barcode });
-                setActiveTab('return');
-                return;
-              }
-              if (pick) {
-                setReturnResult({ kind: 'pick', notice: pick, deskNotice: feedback.notice });
-                const message =
-                  pick.kind === 'ready'
-                    ? t('loans.pickReady', { patron: pick.patronName?.trim() || t('loans.pickPatronUnknown') })
-                    : t('loans.pickTransit', { site: pick.siteName?.trim() || t('loans.pickSiteUnknown') });
-                showToast({ variant: 'success', message });
-              } else if (feedback.toast === 'info' && feedback.notice) {
-                setReturnResult({ kind: 'deskNotice', notice: feedback.notice, putBack: true, barcode });
-                showToast({
-                  variant: 'info',
-                  message: returnNoticeMessage(feedback.notice, (key, values) => String(t(key, values)), {
-                    putBack: true,
-                  }),
-                });
-              } else {
-                setReturnResult(null);
-                showToast({ variant: 'success', message: t('loans.returnSuccess') });
-              }
-              setActiveTab('return');
-            } catch (error: unknown) {
-              showToast({
-                variant: 'error',
-                message: getApiErrorMessage(error, t) || t('loans.errorReturningLoan'),
-              });
-            } finally {
-              setToPickAsideLoading(false);
-              focusScanInput();
-            }
-          })();
+          void commitHeldSetAside(barcode, {
+            returnByBarcode: (code) => api.returnLoanByBarcode(code),
+            successMessage: t('loans.heldSetAside'),
+            errorMessage: (error) => heldSetAsideServerMessage(error, t),
+            showToast: (toast) => showToast(toast),
+            closeDialog: () => setToPickAside(null),
+            clearBarcode: () => setBarcodeInput(''),
+            refocusBarcode: () => focusScanInput(),
+          }).finally(() => setToPickAsideLoading(false));
         }}
       />
 
