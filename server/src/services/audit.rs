@@ -130,7 +130,8 @@ pub mod event {
     pub const LOAN_FINE_THRESHOLD_OVERRIDDEN: &str = "loan.fine_threshold_overridden";
     /// Admin (`settings_rights` write) checked out despite `subscription_expired`.
     pub const LOAN_SUBSCRIPTION_EXPIRED_OVERRIDDEN: &str = "loan.subscription_expired_overridden";
-    /// Staff (`loans_rights` write) renewed despite `max_renewals` or `renewal_too_early`.
+    /// Staff (`loans_rights` write) renewed despite `account_blocked`, `max_renewals`,
+    /// or `renewal_too_early`. Expired subscriptions and fine overrides use their own events.
     pub const LOAN_RENEWAL_FORCED: &str = "loan.renewal_forced";
 
     // Sources

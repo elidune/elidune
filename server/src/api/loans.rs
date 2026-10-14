@@ -191,12 +191,12 @@ pub struct CreateLoanRequest {
 #[derive(Debug, Default, Deserialize, ToSchema, IntoParams)]
 #[serde(rename_all = "camelCase")]
 pub struct RenewLoanQuery {
-    /// When true, skips gates [`crate::renewal::renewal_refusal_forceable`] marks
-    /// for a caller with loans write: account status, an expired subscription,
-    /// the unpaid-fine threshold, `max_renewals`, and `renewal_too_early`.
-    /// A lost card, a withdrawn copy, a claims-returned copy, and a waiting hold
-    /// stay refused. Requires loans write. Limit overrides are audited as
-    /// `loan.renewal_forced`.
+    /// When true, skips gates [`crate::renewal::renewal_refusal_forceable`] allows
+    /// for this caller. Loans write lifts account status, the unpaid-fine
+    /// threshold, `max_renewals`, and `renewal_too_early`. `subscription_expired`
+    /// also needs settings write. A lost card, a withdrawn copy, a
+    /// claims-returned copy, and a waiting hold stay refused. Requires loans
+    /// write. Each skipped gate is audited.
     pub force: Option<bool>,
 }
 
@@ -868,7 +868,7 @@ pub async fn return_loan(
         (status = 200, description = "Loan renewed", body = LoanResponse),
         (status = 404, description = "Loan not found"),
         (status = 409, description = "Idempotency-Key reused with a different payload"),
-        (status = 422, description = "Renewal refused. Body is `RenewalRefusalBody`: `{ code, error, message, forceable }`. `code` is `card_lost`, `account_blocked`, `subscription_expired`, `fines_over_threshold`, `withdrawn`, `claimed_returned`, `hold_waiting`, `max_renewals`, `renewal_too_early`, or `business_rule_violation` when the loan is already returned or the due date would not move. `forceable` is computed for the caller by `renewal_refusal_forceable`. It is true for `account_blocked`, `subscription_expired`, `fines_over_threshold`, `max_renewals`, and `renewal_too_early` only when the caller has loans write (`loans_rights` `w`, the same bar as `require_write_loans`, independent of the account-type name). Any other caller gets `forceable: false`. `card_lost`, `withdrawn`, `claimed_returned`, `hold_waiting`, and `business_rule_violation` are never forceable. `force=true` skips a gate only when `forceable` is true for this caller. Skipping `max_renewals` or `renewal_too_early` writes audit event `loan.renewal_forced` (staff actor, payload `reason` and `loanId`, loan entity).", body = crate::renewal::RenewalRefusalBody)
+        (status = 422, description = "Renewal refused. Body is `RenewalRefusalBody`: `{ code, error, message, forceable }`. `code` is `card_lost`, `account_blocked`, `subscription_expired`, `fines_over_threshold`, `withdrawn`, `claimed_returned`, `hold_waiting`, `max_renewals`, `renewal_too_early`, or `business_rule_violation` when the loan is already returned or the due date would not move. `forceable` is computed for the caller by `renewal_refusal_forceable`. It is true for `account_blocked`, `fines_over_threshold`, `max_renewals`, and `renewal_too_early` when the caller has loans write (`loans_rights` `w`, the same bar as `require_write_loans`). `subscription_expired` is forceable only when `checkout_refusal_forceable` is true for this caller: settings write (`settings_rights` `w`), not loans write alone. The account-type name is not consulted. `card_lost`, `withdrawn`, `claimed_returned`, `hold_waiting`, and `business_rule_violation` are never forceable. `force=true` skips a gate only when `forceable` is true for this caller and still requires loans write. A skipped `subscription_expired` writes `loan.subscription_expired_overridden`. A skipped `fines_over_threshold` writes `loan.fine_threshold_overridden`. A skipped `account_blocked`, `max_renewals`, or `renewal_too_early` writes `loan.renewal_forced`. Each audit payload is `{ reason, loanId, patron_id }` on the loan entity. The actor is the audit row.", body = crate::renewal::RenewalRefusalBody)
     )
 )]
 pub async fn renew_loan(
@@ -1106,7 +1106,7 @@ pub async fn resolve_lost_found(
         (status = 200, description = "Loan renewed", body = LoanResponse),
         (status = 404, description = "Item or active loan not found"),
         (status = 409, description = "Idempotency-Key reused with a different payload"),
-        (status = 422, description = "Renewal refused. Body is `RenewalRefusalBody`: `{ code, error, message, forceable }`. `code` is `card_lost`, `account_blocked`, `subscription_expired`, `fines_over_threshold`, `withdrawn`, `claimed_returned`, `hold_waiting`, `max_renewals`, `renewal_too_early`, or `business_rule_violation` when the loan is already returned or the due date would not move. `forceable` is computed for the caller by `renewal_refusal_forceable`. It is true for `account_blocked`, `subscription_expired`, `fines_over_threshold`, `max_renewals`, and `renewal_too_early` only when the caller has loans write (`loans_rights` `w`, the same bar as `require_write_loans`, independent of the account-type name). Any other caller gets `forceable: false`. `card_lost`, `withdrawn`, `claimed_returned`, `hold_waiting`, and `business_rule_violation` are never forceable. `force=true` skips a gate only when `forceable` is true for this caller. Skipping `max_renewals` or `renewal_too_early` writes audit event `loan.renewal_forced` (staff actor, payload `reason` and `loanId`, loan entity).", body = crate::renewal::RenewalRefusalBody)
+        (status = 422, description = "Renewal refused. Body is `RenewalRefusalBody`: `{ code, error, message, forceable }`. `code` is `card_lost`, `account_blocked`, `subscription_expired`, `fines_over_threshold`, `withdrawn`, `claimed_returned`, `hold_waiting`, `max_renewals`, `renewal_too_early`, or `business_rule_violation` when the loan is already returned or the due date would not move. `forceable` is computed for the caller by `renewal_refusal_forceable`. It is true for `account_blocked`, `fines_over_threshold`, `max_renewals`, and `renewal_too_early` when the caller has loans write (`loans_rights` `w`, the same bar as `require_write_loans`). `subscription_expired` is forceable only when `checkout_refusal_forceable` is true for this caller: settings write (`settings_rights` `w`), not loans write alone. The account-type name is not consulted. `card_lost`, `withdrawn`, `claimed_returned`, `hold_waiting`, and `business_rule_violation` are never forceable. `force=true` skips a gate only when `forceable` is true for this caller and still requires loans write. A skipped `subscription_expired` writes `loan.subscription_expired_overridden`. A skipped `fines_over_threshold` writes `loan.fine_threshold_overridden`. A skipped `account_blocked`, `max_renewals`, or `renewal_too_early` writes `loan.renewal_forced`. Each audit payload is `{ reason, loanId, patron_id }` on the loan entity. The actor is the audit row.", body = crate::renewal::RenewalRefusalBody)
     )
 )]
 pub async fn renew_loan_by_item(

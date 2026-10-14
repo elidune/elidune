@@ -1,9 +1,10 @@
 //! One renewal decision for `POST /loans/{id}/renew` and `GET /me/loans`.
 //!
 //! Account facts in [`RenewalContext`] are computed once per request. Loan facts
-//! are per copy. Staff `force` sets [`RenewalContext::bypass_account_gates`] and
-//! [`RenewalContext::bypass_renewal_limits`]. [`renewal_refusal_forceable`] decides
-//! the `forceable` flag from `loans_rights`, never from an account-type name.
+//! are per copy. Staff `force` sets the bypass flags that
+//! [`renewal_refusal_forceable`] allows for this caller. The account-type name
+//! is not consulted. `subscription_expired` uses the same settings-write rule as
+//! checkout ([`crate::checkout_refusal::checkout_refusal_forceable`]).
 
 use chrono::{DateTime, Duration, Utc};
 use serde::Serialize;
@@ -45,17 +46,20 @@ pub struct RenewalUser {
     pub card_lost: bool,
     /// `users.expiry_at`. `None` is a membership with no end date.
     /// Strictly before [`RenewalContext::now`] is `subscription_expired`.
-    /// Staff `force` skips it.
+    /// Skipped only when this caller may force that code (settings write).
     pub subscription_expiry: Option<DateTime<Utc>>,
 }
 
 /// Precomputed account-level facts and the settings for this loan's medium.
 #[derive(Debug, Clone)]
 pub struct RenewalContext {
-    /// Staff `force`: skip `account_blocked`, `subscription_expired`, and
-    /// `fines_over_threshold`. Does not skip `card_lost`.
+    /// Staff `force` with loans write: skip `account_blocked` and
+    /// `fines_over_threshold`. Does not skip `card_lost` or `subscription_expired`.
     pub bypass_account_gates: bool,
-    /// Staff `force`: skip `max_renewals` and `renewal_too_early`.
+    /// Staff `force` with settings write: skip `subscription_expired`.
+    /// Same bar as checkout. Loans write alone does not set this.
+    pub bypass_subscription_expired: bool,
+    /// Staff `force` with loans write: skip `max_renewals` and `renewal_too_early`.
     /// Does not skip `withdrawn`, `claimed_returned`, or `hold_waiting`.
     pub bypass_renewal_limits: bool,
     pub fines_over_threshold: bool,
@@ -74,7 +78,7 @@ pub enum RenewalRefusal {
     /// `users.card_lost`. Not skipped by staff `force`.
     CardLost,
     AccountBlocked,
-    /// `users.expiry_at` is before now. Skipped by staff `force`.
+    /// `users.expiry_at` is before now. Skipped only with settings write.
     SubscriptionExpired,
     FinesOverThreshold,
     Withdrawn,
@@ -188,7 +192,7 @@ pub fn renewal_eligibility(
     if !ctx.bypass_account_gates && !user.can_borrow {
         return Err(RenewalRefusal::AccountBlocked);
     }
-    if !ctx.bypass_account_gates
+    if !ctx.bypass_subscription_expired
         && user
             .subscription_expiry
             .is_some_and(|expiry| expiry < ctx.now)
@@ -232,7 +236,8 @@ pub fn renewal_limits_hit(loan: &RenewalLoan, ctx: &RenewalContext) -> Vec<Renew
 
 /// Whether this caller may skip this renewal refusal.
 ///
-/// `account_blocked`, `subscription_expired`, `fines_over_threshold`,
+/// `subscription_expired` uses [`crate::checkout_refusal::checkout_refusal_forceable`]:
+/// settings write, not loans write. `account_blocked`, `fines_over_threshold`,
 /// `max_renewals`, and `renewal_too_early` are forceable when
 /// `caller_rights.loans_rights` is write — the same bar as
 /// [`crate::models::user::UserClaims::require_write_loans`]. The account-type
@@ -241,25 +246,84 @@ pub fn renewal_limits_hit(loan: &RenewalLoan, ctx: &RenewalContext) -> Vec<Renew
 /// `business_rule_violation`.
 #[must_use]
 pub fn renewal_refusal_forceable(code: &str, caller_rights: &UserRights) -> bool {
+    if code == crate::error::error_code::SUBSCRIPTION_EXPIRED {
+        return crate::checkout_refusal::checkout_refusal_forceable(code, caller_rights);
+    }
     if caller_rights.loans_rights.rank() < Rights::Write.rank() {
         return false;
     }
     matches!(
         code,
         "account_blocked"
-            | crate::error::error_code::SUBSCRIPTION_EXPIRED
             | crate::error::error_code::FINES_OVER_THRESHOLD
             | "max_renewals"
             | crate::error::error_code::RENEWAL_TOO_EARLY
     )
 }
 
-/// Locked renew outcome. `lifted` is empty unless staff `force` skipped a limit.
+/// Gates `force` may skip on this call. Built from [`renewal_refusal_forceable`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RenewalOverride {
+    /// Skip `account_blocked` and `fines_over_threshold`.
+    pub account_gates: bool,
+    /// Skip `subscription_expired`.
+    pub subscription_expired: bool,
+    /// Skip `max_renewals` and `renewal_too_early`.
+    pub renewal_limits: bool,
+}
+
+impl RenewalOverride {
+    /// `force` is false for every gate this caller may not skip.
+    #[must_use]
+    pub fn from_force(force: bool, caller_rights: &UserRights) -> Self {
+        if !force {
+            return Self::default();
+        }
+        Self {
+            account_gates: renewal_refusal_forceable("account_blocked", caller_rights),
+            subscription_expired: renewal_refusal_forceable(
+                crate::error::error_code::SUBSCRIPTION_EXPIRED,
+                caller_rights,
+            ),
+            renewal_limits: renewal_refusal_forceable("max_renewals", caller_rights),
+        }
+    }
+}
+
+/// Refusals this renewal skipped. Empty when no bypass flag is set.
+/// Does not include `card_lost`, copy blocks, or a waiting hold.
+#[must_use]
+pub fn lifted_renewal_refusals(
+    loan: &RenewalLoan,
+    user: &RenewalUser,
+    ctx: &RenewalContext,
+) -> Vec<RenewalRefusal> {
+    let mut lifted = Vec::new();
+    if ctx.bypass_account_gates && !user.can_borrow {
+        lifted.push(RenewalRefusal::AccountBlocked);
+    }
+    if ctx.bypass_subscription_expired
+        && user
+            .subscription_expiry
+            .is_some_and(|expiry| expiry < ctx.now)
+    {
+        lifted.push(RenewalRefusal::SubscriptionExpired);
+    }
+    if ctx.bypass_account_gates && ctx.fines_over_threshold {
+        lifted.push(RenewalRefusal::FinesOverThreshold);
+    }
+    if ctx.bypass_renewal_limits {
+        lifted.extend(renewal_limits_hit(loan, ctx));
+    }
+    lifted
+}
+
+/// Locked renew outcome. `lifted` is empty unless staff `force` skipped a gate.
 #[derive(Debug, Clone)]
 pub struct LoanRenewalResult {
     pub expiry_at: DateTime<Utc>,
     pub renew_count: i16,
-    /// `max_renewals` and/or `renewal_too_early` skipped by this renewal.
+    /// Refusals this renewal skipped. See [`lifted_renewal_refusals`].
     pub lifted: Vec<RenewalRefusal>,
 }
 
@@ -349,9 +413,9 @@ mod tests {
     use chrono::{DateTime, TimeZone, Utc};
 
     use super::{
-        renewal_eligibility, renewal_limits_hit, renewal_opens_at, renewal_refusal_forceable,
-        renewal_too_early_message, with_renewal_forceable, RenewalContext, RenewalLoan,
-        RenewalRefusal, RenewalUser,
+        lifted_renewal_refusals, renewal_eligibility, renewal_limits_hit, renewal_opens_at,
+        renewal_refusal_forceable, renewal_too_early_message, with_renewal_forceable,
+        RenewalContext, RenewalLoan, RenewalRefusal, RenewalUser,
     };
 
     fn loan() -> RenewalLoan {
@@ -375,6 +439,7 @@ mod tests {
     fn ctx(now: DateTime<Utc>) -> RenewalContext {
         RenewalContext {
             bypass_account_gates: false,
+            bypass_subscription_expired: false,
             bypass_renewal_limits: false,
             fines_over_threshold: false,
             fines_message: "fines".into(),
@@ -521,6 +586,12 @@ mod tests {
         context.bypass_account_gates = true;
         assert_eq!(
             renewal_eligibility(&row, &borrower, &context).unwrap_err(),
+            RenewalRefusal::SubscriptionExpired,
+            "loans-write account bypass does not skip an expired subscription"
+        );
+        context.bypass_subscription_expired = true;
+        assert_eq!(
+            renewal_eligibility(&row, &borrower, &context).unwrap_err(),
             RenewalRefusal::HoldWaiting
         );
 
@@ -557,6 +628,34 @@ mod tests {
             renewal_limits_hit(&row, &context),
             vec![RenewalRefusal::MaxRenewals, RenewalRefusal::RenewalTooEarly]
         );
+        assert_eq!(
+            lifted_renewal_refusals(&row, &borrower, &context),
+            vec![RenewalRefusal::MaxRenewals, RenewalRefusal::RenewalTooEarly]
+        );
+        let expired = RenewalUser {
+            subscription_expiry: Some(Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap()),
+            ..borrower
+        };
+        let blocked = RenewalUser {
+            can_borrow: false,
+            ..expired
+        };
+        context.fines_over_threshold = true;
+        context.bypass_account_gates = true;
+        assert_eq!(
+            lifted_renewal_refusals(&row, &blocked, &context),
+            vec![
+                RenewalRefusal::AccountBlocked,
+                RenewalRefusal::FinesOverThreshold,
+                RenewalRefusal::MaxRenewals,
+                RenewalRefusal::RenewalTooEarly,
+            ]
+        );
+        context.bypass_subscription_expired = true;
+        assert_eq!(
+            lifted_renewal_refusals(&row, &blocked, &context)[1],
+            RenewalRefusal::SubscriptionExpired
+        );
         row.hold_waiting = true;
         assert_eq!(
             renewal_eligibility(&row, &borrower, &context).unwrap_err(),
@@ -578,22 +677,45 @@ mod tests {
 
     #[test]
     fn forceable_follows_loans_write_and_ignores_every_other_code() {
+        use crate::checkout_refusal::checkout_refusal_forceable;
         use crate::models::user::UserRights;
 
         let desk = UserRights {
             loans_rights: crate::models::user::Rights::Write,
             ..UserRights::default()
         };
+        let settings = UserRights {
+            settings_rights: crate::models::user::Rights::Write,
+            ..UserRights::default()
+        };
         let patron = UserRights::default();
         for code in [
             "account_blocked",
-            "subscription_expired",
             "fines_over_threshold",
             "max_renewals",
             "renewal_too_early",
         ] {
             assert!(renewal_refusal_forceable(code, &desk), "{code}");
             assert!(!renewal_refusal_forceable(code, &patron), "{code}");
+            assert!(!renewal_refusal_forceable(code, &settings), "{code}");
+        }
+        let both = UserRights {
+            loans_rights: crate::models::user::Rights::Write,
+            settings_rights: crate::models::user::Rights::Write,
+            ..UserRights::default()
+        };
+        assert!(
+            !renewal_refusal_forceable("subscription_expired", &desk),
+            "loans write alone cannot force an expired subscription"
+        );
+        assert!(renewal_refusal_forceable("subscription_expired", &settings));
+        assert!(renewal_refusal_forceable("subscription_expired", &both));
+        assert!(!renewal_refusal_forceable("subscription_expired", &patron));
+        for rights in [&desk, &settings, &both, &patron] {
+            assert_eq!(
+                renewal_refusal_forceable("subscription_expired", rights),
+                checkout_refusal_forceable("subscription_expired", rights)
+            );
         }
         for code in [
             "card_lost",

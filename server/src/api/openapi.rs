@@ -1025,6 +1025,10 @@ mod tests {
                 "{path} 422 must document caller-specific forceable: {description}"
             );
             assert!(
+                description.contains("settings_rights"),
+                "{path} 422 must document settings write for subscription_expired: {description}"
+            );
+            assert!(
                 description.contains("max_renewals") && description.contains("renewal_too_early"),
                 "{path} 422 must document the limit codes force can lift: {description}"
             );

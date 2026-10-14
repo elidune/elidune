@@ -21,8 +21,8 @@ use crate::{
         user::{UserRights, UserShort, UserShortRow},
     },
     renewal::{
-        renewal_eligibility, renewal_limits_hit, LoanRenewalResult, LoanRenewalSnapshot,
-        RenewalContext, RenewalLoan, RenewalUser,
+        renewal_eligibility, LoanRenewalResult, LoanRenewalSnapshot, RenewalContext, RenewalLoan,
+        RenewalUser,
     },
     services::fines::UnpaidThresholdCheck,
 };
@@ -746,13 +746,17 @@ impl Repository {
     /// Serializes on the item row then the loan row (`FOR UPDATE`, same lock order
     /// as [`Self::loans_create`]) so concurrent renews cannot both pass the max-renewals
     /// check. Refusals come from [`renewal_eligibility`] while the loan row is locked.
-    /// `force` skips `account_blocked`, `subscription_expired`, `fines_over_threshold`,
-    /// `max_renewals`, and `renewal_too_early`. A lost card, a withdrawn copy, a
-    /// claims-returned copy, and a waiting hold are still refused.
+    /// `renewal_override` skips the gates it names: account status and unpaid fines,
+    /// an expired subscription, and the renewal limits. A lost card, a withdrawn
+    /// copy, a claims-returned copy, and a waiting hold are still refused.
     /// A returned loan is refused before that function.
     /// The due-date calendar slide stays after eligibility succeeds.
-    /// `lifted` on the result lists the limit codes this `force` actually skipped.
-    pub async fn loans_renew(&self, loan_id: i64, force: bool) -> AppResult<LoanRenewalResult> {
+    /// `lifted` lists the refusals this override actually skipped.
+    pub async fn loans_renew(
+        &self,
+        loan_id: i64,
+        renewal_override: crate::renewal::RenewalOverride,
+    ) -> AppResult<LoanRenewalResult> {
         let now = Utc::now();
         let mut tx = self.pool.begin().await?;
 
@@ -814,16 +818,13 @@ impl Repository {
         let card_lost: bool = account.get("card_lost");
         let subscription_expiry: Option<DateTime<Utc>> = account.get("expiry_at");
 
-        let (fines_over_threshold, fines_message) = if force {
-            (false, String::new())
-        } else {
-            let unpaid = self.fines_total_unpaid_conn(&mut tx, loan.user_id).await?;
-            let threshold = self
-                .fines_get_unpaid_threshold_conn(&mut tx, public_type)
-                .await?;
-            let check = UnpaidThresholdCheck { unpaid, threshold };
-            (check.blocks_circulation(), check.desk_block_message())
-        };
+        let unpaid = self.fines_total_unpaid_conn(&mut tx, loan.user_id).await?;
+        let threshold = self
+            .fines_get_unpaid_threshold_conn(&mut tx, public_type)
+            .await?;
+        let check = UnpaidThresholdCheck { unpaid, threshold };
+        let fines_over_threshold = check.blocks_circulation();
+        let fines_message = check.desk_block_message();
         let hold_waiting = self
             .holds_waiting_hold_blocks_renewal_tx(&mut tx, loan.item_id, loan.user_id)
             .await?;
@@ -841,8 +842,9 @@ impl Repository {
             hold_waiting,
         };
         let ctx = RenewalContext {
-            bypass_account_gates: force,
-            bypass_renewal_limits: force,
+            bypass_account_gates: renewal_override.account_gates,
+            bypass_subscription_expired: renewal_override.subscription_expired,
+            bypass_renewal_limits: renewal_override.renewal_limits,
             fines_over_threshold,
             fines_message,
             max_renewals: max_renews,
@@ -858,11 +860,7 @@ impl Repository {
         if let Err(refusal) = renewal_eligibility(&renewal_loan, &renewal_user, &ctx) {
             return Err(refusal.into_app_error(&renewal_loan, &renewal_user, &ctx));
         }
-        let lifted = if force {
-            renewal_limits_hit(&renewal_loan, &ctx)
-        } else {
-            Vec::new()
-        };
+        let lifted = crate::renewal::lifted_renewal_refusals(&renewal_loan, &renewal_user, &ctx);
         let current_renews = renewal_loan.renewal_count;
         let current_expiry = renewal_loan.due_at;
 

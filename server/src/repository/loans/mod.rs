@@ -94,13 +94,12 @@ pub trait LoansRepository: Send + Sync {
         &self,
         loan_id: i64,
     ) -> AppResult<crate::renewal::LoanRenewalSnapshot>;
-    /// `force` skips account, subscription-expiry, and unpaid-fine refusals, and also
-    /// `max_renewals` and `renewal_too_early`. A lost card, a withdrawn copy, a
-    /// claims-returned copy, and a waiting hold stay refused.
+    /// Skips the gates named on `renewal_override`. A lost card, a withdrawn copy,
+    /// a claims-returned copy, and a waiting hold stay refused.
     async fn loans_renew(
         &self,
         loan_id: i64,
-        force: bool,
+        renewal_override: crate::renewal::RenewalOverride,
     ) -> AppResult<crate::renewal::LoanRenewalResult>;
     async fn loans_get_settings(&self) -> AppResult<Vec<LoanSettings>>;
     async fn loans_count_active(&self) -> AppResult<i64>;
@@ -255,9 +254,9 @@ impl LoansRepository for Repository {
     async fn loans_renew(
         &self,
         loan_id: i64,
-        force: bool,
+        renewal_override: crate::renewal::RenewalOverride,
     ) -> crate::error::AppResult<crate::renewal::LoanRenewalResult> {
-        Repository::loans_renew(self, loan_id, force).await
+        Repository::loans_renew(self, loan_id, renewal_override).await
     }
     async fn loans_get_settings(
         &self,

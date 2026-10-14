@@ -1,7 +1,8 @@
 //! Renewal refuses an expired patron subscription (`users.expiry_at` before now).
 //!
-//! Staff `force` skips `subscription_expired`, the same way it skips
-//! `account_blocked` and `fines_over_threshold`. A lost card stays non-forceable.
+//! `force` skips `subscription_expired` only for a caller with settings write,
+//! the same rule as checkout. Loans write lifts `account_blocked` and
+//! `fines_over_threshold`. A lost card stays non-forceable.
 
 mod common;
 

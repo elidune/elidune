@@ -1,10 +1,11 @@
 //! Desk force renewal (#134).
 //!
-//! The server puts `forceable` on every renewal 422. It is true only when the
-//! caller has loans write and the code is liftable. The account-type name is
-//! not consulted. `force` lifts `max_renewals` and `renewal_too_early` and
-//! writes `loan.renewal_forced` (staff, reason, loan). A waiting hold, a
-//! withdrawn copy, and a claims-returned copy stay refused.
+//! The server puts `forceable` on every renewal 422. Loans write lifts
+//! `account_blocked`, `fines_over_threshold`, `max_renewals`, and
+//! `renewal_too_early`. `subscription_expired` uses the checkout rule: settings
+//! write. The account-type name is not consulted. Each skipped gate is audited
+//! with `{ reason, loanId, patron_id }`. A waiting hold, a withdrawn copy, and
+//! a claims-returned copy stay refused.
 
 mod common;
 
@@ -51,10 +52,11 @@ async fn checkout(app: &TestApp, admin_token: &str, user_id: i64, item_id: i64) 
 }
 
 /// Custom account type. The code is never `admin`, `librarian`, or `reader`.
-async fn user_with_loans_rights(
+async fn user_with_rights(
     app: &TestApp,
     admin_token: &str,
     loans_rights: &str,
+    settings_rights: &str,
 ) -> (i64, String, String) {
     let code = format!("circ{}", fixtures::unique_suffix() % 1_000_000_000);
     assert!(!matches!(code.as_str(), "admin" | "librarian" | "reader"));
@@ -65,7 +67,7 @@ async fn user_with_loans_rights(
                 "code": code,
                 "name": format!("Circulation {code}"),
                 "loansRights": loans_rights,
-                "settingsRights": "n"
+                "settingsRights": settings_rights
             }),
             Some(admin_token),
         )
@@ -138,8 +140,9 @@ async fn renewal_count(app: &TestApp, loan_id: i64) -> i16 {
         .expect("renewal count")
 }
 
-async fn forced_audits(
+async fn override_audits(
     app: &TestApp,
+    event_type: &str,
     loan_id: i64,
     expected: usize,
 ) -> Vec<(Option<i64>, String, Value)> {
@@ -149,10 +152,11 @@ async fn forced_audits(
             r#"
             SELECT user_id, entity_type, payload
             FROM audit_log
-            WHERE event_type = 'loan.renewal_forced' AND entity_id = $1
+            WHERE event_type = $1 AND entity_id = $2
             ORDER BY id
             "#,
         )
+        .bind(event_type)
         .bind(loan_id)
         .fetch_all(pool)
         .await
@@ -162,13 +166,14 @@ async fn forced_audits(
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    panic!("loan.renewal_forced audit missing for loan {loan_id}");
+    panic!("{event_type} audit missing for loan {loan_id}");
 }
 
-fn assert_forced_audit(
+fn assert_override_audit(
     rows: &[(Option<i64>, String, Value)],
     staff_id: i64,
     loan_id: i64,
+    patron_id: i64,
     reasons: &[&str],
 ) {
     assert_eq!(rows.len(), reasons.len(), "{rows:?}");
@@ -177,8 +182,18 @@ fn assert_forced_audit(
         .map(|row| {
             assert_eq!(row.0, Some(staff_id), "{row:?}");
             assert_eq!(row.1, "loan");
-            assert_eq!(row.2["loanId"], loan_id.to_string(), "{row:?}");
-            assert_eq!(row.2["staffId"], staff_id.to_string(), "{row:?}");
+            let mut keys: Vec<_> = row
+                .2
+                .as_object()
+                .expect("payload")
+                .keys()
+                .cloned()
+                .collect();
+            keys.sort();
+            assert_eq!(keys, ["loanId", "patron_id", "reason"], "{row:?}");
+            assert!(row.2.get("staffId").is_none(), "{row:?}");
+            assert_eq!(row.2["loanId"], json!(loan_id), "{row:?}");
+            assert_eq!(row.2["patron_id"], json!(patron_id), "{row:?}");
             row.2["reason"].as_str().unwrap_or("")
         })
         .collect();
@@ -195,8 +210,7 @@ async fn loans_write_forces_max_renewals_and_renewal_too_early_with_audit() {
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "forcepatron").await;
-    let (staff_id, desk_token, account_type) =
-        user_with_loans_rights(&app, &admin_token, "w").await;
+    let (staff_id, desk_token, account_type) = user_with_rights(&app, &admin_token, "w", "n").await;
     let (status, me) = app.get_json_with_auth("/api/v1/auth/me", &desk_token).await;
     assert_eq!(status, StatusCode::OK, "{me}");
     assert_eq!(me["accountType"], account_type, "{me}");
@@ -232,8 +246,8 @@ async fn loans_write_forces_max_renewals_and_renewal_too_early_with_audit() {
     assert_eq!(status, StatusCode::OK, "{forced}");
     assert_eq!(fixtures::json_id(&forced["id"]), capped, "{forced}");
     assert_eq!(renewal_count(&app, capped).await, 3);
-    let audits = forced_audits(&app, capped, 1).await;
-    assert_forced_audit(&audits, staff_id, capped, &["max_renewals"]);
+    let audits = override_audits(&app, "loan.renewal_forced", capped, 1).await;
+    assert_override_audit(&audits, staff_id, capped, reader_id, &["max_renewals"]);
 
     let (_, early_item, barcode) = create_copy(&app, &admin_token, "Force Early").await;
     let early = checkout(&app, &admin_token, reader_id, early_item).await;
@@ -258,8 +272,8 @@ async fn loans_write_forces_max_renewals_and_renewal_too_early_with_audit() {
     assert_eq!(status, StatusCode::OK, "{forced}");
     assert_eq!(fixtures::json_id(&forced["id"]), early, "{forced}");
     assert_eq!(renewal_count(&app, early).await, 1);
-    let audits = forced_audits(&app, early, 1).await;
-    assert_forced_audit(&audits, staff_id, early, &["renewal_too_early"]);
+    let audits = override_audits(&app, "loan.renewal_forced", early, 1).await;
+    assert_override_audit(&audits, staff_id, early, reader_id, &["renewal_too_early"]);
 
     let (_, both_item, _) = create_copy(&app, &admin_token, "Force Both").await;
     let both = checkout(&app, &admin_token, reader_id, both_item).await;
@@ -275,11 +289,12 @@ async fn loans_write_forces_max_renewals_and_renewal_too_early_with_audit() {
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{forced}");
-    let audits = forced_audits(&app, both, 2).await;
-    assert_forced_audit(
+    let audits = override_audits(&app, "loan.renewal_forced", both, 2).await;
+    assert_override_audit(
         &audits,
         staff_id,
         both,
+        reader_id,
         &["max_renewals", "renewal_too_early"],
     );
 }
@@ -292,7 +307,7 @@ async fn force_does_not_lift_hold_withdrawn_or_claimed_returned() {
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "blockpatron").await;
     let (waiter_id, _) = fixtures::create_reader(&app, &admin_token, "blockwait").await;
-    let (_, desk_token, _) = user_with_loans_rights(&app, &admin_token, "w").await;
+    let (_, desk_token, _) = user_with_rights(&app, &admin_token, "w", "n").await;
 
     let (biblio_id, held_item, _) = create_copy(&app, &admin_token, "Force Hold").await;
     let held = checkout(&app, &admin_token, reader_id, held_item).await;
@@ -370,7 +385,7 @@ async fn caller_without_loans_write_is_not_offered_force() {
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
-    let (user_id, token, account_type) = user_with_loans_rights(&app, &admin_token, "n").await;
+    let (user_id, token, account_type) = user_with_rights(&app, &admin_token, "n", "n").await;
     assert_ne!(account_type, "admin");
     let (_, item_id, _) = create_copy(&app, &admin_token, "No Loans Write").await;
     let loan_id = checkout(&app, &admin_token, user_id, item_id).await;
@@ -390,4 +405,156 @@ async fn caller_without_loans_write_is_not_offered_force() {
     assert_eq!(denied["code"], "authorization_failed", "{denied}");
     assert!(denied.get("forceable").is_none(), "{denied}");
     assert_eq!(renewal_count(&app, loan_id).await, 0);
+}
+
+#[tokio::test]
+async fn subscription_expired_requires_settings_write_like_checkout() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "subforce").await;
+    let (_, item_id, _) = create_copy(&app, &admin_token, "Expired Renew").await;
+    let loan_id = checkout(&app, &admin_token, reader_id, item_id).await;
+    fixtures::pull_loan_into_renewal_window(&app, loan_id).await;
+    sqlx::query("UPDATE users SET expiry_at = '2020-01-15T12:00:00Z' WHERE id = $1")
+        .bind(reader_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("expire subscription");
+
+    let (_, desk_token, desk_type) = user_with_rights(&app, &admin_token, "w", "n").await;
+    assert_ne!(desk_type, "admin");
+    for force in [false, true] {
+        let path = if force {
+            format!("/api/v1/loans/{loan_id}/renew?force=true")
+        } else {
+            format!("/api/v1/loans/{loan_id}/renew")
+        };
+        let (status, body) = app.post_empty(&path, Some(&desk_token)).await;
+        assert_refusal(status, &body, "subscription_expired", false);
+    }
+    assert_eq!(renewal_count(&app, loan_id).await, 0);
+
+    let (staff_id, lead_token, lead_type) = user_with_rights(&app, &admin_token, "w", "w").await;
+    assert_ne!(lead_type, "admin");
+    let (status, offered) = app
+        .post_empty(&format!("/api/v1/loans/{loan_id}/renew"), Some(&lead_token))
+        .await;
+    assert_refusal(status, &offered, "subscription_expired", true);
+    let (status, forced) = app
+        .post_empty(
+            &format!("/api/v1/loans/{loan_id}/renew?force=true"),
+            Some(&lead_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{forced}");
+    assert_eq!(renewal_count(&app, loan_id).await, 1);
+    let audits = override_audits(&app, "loan.subscription_expired_overridden", loan_id, 1).await;
+    assert_override_audit(
+        &audits,
+        staff_id,
+        loan_id,
+        reader_id,
+        &["subscription_expired"],
+    );
+}
+
+#[tokio::test]
+async fn force_audits_account_blocked() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "blkforce").await;
+    let (staff_id, desk_token, _) = user_with_rights(&app, &admin_token, "w", "n").await;
+    let (_, item_id, _) = create_copy(&app, &admin_token, "Blocked Renew").await;
+    let loan_id = checkout(&app, &admin_token, reader_id, item_id).await;
+    fixtures::pull_loan_into_renewal_window(&app, loan_id).await;
+    sqlx::query("UPDATE users SET status = 'blocked' WHERE id = $1")
+        .bind(reader_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("block account");
+
+    let (status, refused) = app
+        .post_empty(&format!("/api/v1/loans/{loan_id}/renew"), Some(&desk_token))
+        .await;
+    assert_refusal(status, &refused, "account_blocked", true);
+    let (status, forced) = app
+        .post_empty(
+            &format!("/api/v1/loans/{loan_id}/renew?force=true"),
+            Some(&desk_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{forced}");
+    let audits = override_audits(&app, "loan.renewal_forced", loan_id, 1).await;
+    assert_override_audit(&audits, staff_id, loan_id, reader_id, &["account_blocked"]);
+}
+
+#[tokio::test]
+async fn force_audits_fines_over_threshold() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let name = format!("fineforce{}", fixtures::unique_suffix() % 1_000_000_000);
+    let cents = elidune_server::models::fine::money_to_cents("0.50".parse().expect("threshold"))
+        .expect("cents");
+    let (status, body) = app
+        .post_json(
+            "/api/v1/public-types",
+            &json!({
+                "name": name,
+                "label": name,
+                "unpaidThresholdMode": "amount",
+                "unpaidThresholdCents": cents
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "public type: {body}");
+    let public_type_id = fixtures::json_id(&body["id"]);
+    let (reader_id, _) = fixtures::create_reader_with_public_type(
+        &app,
+        &admin_token,
+        "fineforce",
+        Some(public_type_id),
+    )
+    .await;
+    let (staff_id, desk_token, _) = user_with_rights(&app, &admin_token, "w", "n").await;
+    let (_, item_id, _) = create_copy(&app, &admin_token, "Fined Renew").await;
+    let loan_id = checkout(&app, &admin_token, reader_id, item_id).await;
+    fixtures::pull_loan_into_renewal_window(&app, loan_id).await;
+    app.state
+        .services
+        .repository
+        .fines_create(
+            loan_id,
+            reader_id,
+            rust_decimal::Decimal::new(100, 2),
+            Some("over threshold"),
+        )
+        .await
+        .expect("create fine");
+
+    let (status, refused) = app
+        .post_empty(&format!("/api/v1/loans/{loan_id}/renew"), Some(&desk_token))
+        .await;
+    assert_refusal(status, &refused, "fines_over_threshold", true);
+    let (status, forced) = app
+        .post_empty(
+            &format!("/api/v1/loans/{loan_id}/renew?force=true"),
+            Some(&desk_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{forced}");
+    let audits = override_audits(&app, "loan.fine_threshold_overridden", loan_id, 1).await;
+    assert_override_audit(
+        &audits,
+        staff_id,
+        loan_id,
+        reader_id,
+        &["fines_over_threshold"],
+    );
 }
