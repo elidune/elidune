@@ -1,8 +1,10 @@
 //! Hold notes are split into `patronNote` and `internalNote` (#137).
 //!
-//! Former `holds.notes` values live in `patron_note`. Staff views with internal
-//! catalog rights return both fields. Patron views return `patronNote` only.
+//! Former `holds.notes` values live in `internal_note` because staff could write
+//! that column. Staff queues return both fields. `GET /me/holds` returns
+//! `patronNote` only. `GET /holds` (search and public list) returns neither.
 //! `internalNote` requires `holds_rights` write, not an account type name.
+//! There is no `GET /holds/{id}`.
 
 mod common;
 
@@ -34,6 +36,30 @@ fn assert_staff_hold(body: &Value, patron_note: &str, internal_note: &str) {
     assert_eq!(body["patronNote"], patron_note, "{body}");
     assert_eq!(body["internalNote"], internal_note, "{body}");
     assert!(body.get("notes").is_none(), "{body}");
+}
+
+fn assert_no_hold_notes(body: &Value, secret: &str) {
+    assert!(body.get("patronNote").is_none(), "{body}");
+    assert!(body.get("internalNote").is_none(), "{body}");
+    assert!(body.get("notes").is_none(), "{body}");
+    assert!(!body.to_string().contains(secret), "{body}");
+}
+
+fn assert_closed_notes_cleared(body: &Value, secret: &str) {
+    assert!(body["patronNote"].is_null(), "{body}");
+    if let Some(internal) = body.get("internalNote") {
+        assert!(internal.is_null(), "{body}");
+    }
+    assert!(body.get("notes").is_none(), "{body}");
+    assert!(!body.to_string().contains(secret), "{body}");
+}
+
+async fn stored_notes(app: &TestApp, hold_id: i64) -> (Option<String>, Option<String>) {
+    sqlx::query_as("SELECT patron_note, internal_note FROM holds WHERE id = $1")
+        .bind(hold_id)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .expect("stored hold notes")
 }
 
 async fn staff_list_row(app: &TestApp, token: &str, hold_id: i64) -> Value {
@@ -177,14 +203,12 @@ async fn staff_sees_both_notes_and_patrons_see_patron_note_only() {
         .await;
     assert_eq!(status, StatusCode::OK, "{reader_list}");
     let row = find_hold(reader_list["items"].as_array().expect("items"), hold_id);
-    assert_patron_hold(row, &patron_note, &internal_note);
-    assert!(
-        !reader_list.to_string().contains(&internal_note),
-        "{reader_list}"
-    );
+    assert_no_hold_notes(row, &internal_note);
+    assert_no_hold_notes(row, &patron_note);
 
     let row = staff_list_row(&app, &admin_token, hold_id).await;
-    assert_staff_hold(&row, &patron_note, &internal_note);
+    assert_no_hold_notes(&row, &internal_note);
+    assert_no_hold_notes(&row, &patron_note);
 
     for path in [
         format!("/api/v1/items/{item_id}/holds"),
@@ -235,13 +259,16 @@ async fn staff_sees_both_notes_and_patrons_see_patron_note_only() {
         .delete_with_auth(&format!("/api/v1/holds/{own_id}"), &reader_token)
         .await;
     assert_eq!(status, StatusCode::OK, "{cancelled}");
-    assert_patron_hold(&cancelled, &own_note, &internal_note);
+    assert_closed_notes_cleared(&cancelled, &own_note);
+    assert_eq!(stored_notes(&app, own_id).await, (None, None));
 
     let (status, staff_cancel) = app
         .delete_with_auth(&format!("/api/v1/holds/{hold_id}"), &admin_token)
         .await;
     assert_eq!(status, StatusCode::OK, "{staff_cancel}");
-    assert_staff_hold(&staff_cancel, &patron_note, &internal_note);
+    assert_closed_notes_cleared(&staff_cancel, &patron_note);
+    assert_closed_notes_cleared(&staff_cancel, &internal_note);
+    assert_eq!(stored_notes(&app, hold_id).await, (None, None));
 }
 
 #[tokio::test]
@@ -471,12 +498,14 @@ async fn note_visibility_follows_holds_rights_not_account_type() {
         .get_json_with_auth("/api/v1/holds?perPage=50", &admin_own)
         .await;
     assert_eq!(status, StatusCode::OK, "{listed}");
-    assert_patron_hold(
+    assert_no_hold_notes(
         find_hold(listed["items"].as_array().expect("items"), own_id),
-        &own_note,
         &internal_note,
     );
-    assert!(!listed.to_string().contains(&internal_note), "{listed}");
+    assert_no_hold_notes(
+        find_hold(listed["items"].as_array().expect("items"), own_id),
+        &own_note,
+    );
 
     let (status, staff) = app
         .get_json_with_auth(
@@ -489,4 +518,399 @@ async fn note_visibility_follows_holds_rights_not_account_type() {
     assert_eq!(row["patronNote"], own_note, "{row}");
     assert!(row["internalNote"].is_null(), "{row}");
     let _ = biblio_id;
+}
+
+#[tokio::test]
+async fn patron_writes_patron_note_only_on_their_own_hold() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (owner_id, owner_token) = fixtures::create_reader(&app, &admin_token, "holdown").await;
+    let (other_id, _) = fixtures::create_reader(&app, &admin_token, "holdother").await;
+    let suffix = fixtures::unique_suffix();
+    let own_note = format!("mine {suffix}");
+    let (own_biblio, _) = create_copy(&app, &admin_token, &format!("Own hold {suffix}")).await;
+    let (other_biblio, _) = create_copy(&app, &admin_token, &format!("Other hold {suffix}")).await;
+
+    let (status, created) = app
+        .post_json(
+            "/api/v1/holds",
+            &json!({
+                "userId": owner_id.to_string(),
+                "biblioId": own_biblio.to_string(),
+                "patronNote": own_note
+            }),
+            Some(&owner_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let hold_id = fixtures::json_id(&created["id"]);
+    assert_patron_hold(&created, &own_note, "unused");
+    assert_eq!(stored_notes(&app, hold_id).await, (Some(own_note), None));
+
+    let (status, denied) = app
+        .post_json(
+            "/api/v1/holds",
+            &json!({
+                "userId": other_id.to_string(),
+                "biblioId": other_biblio.to_string(),
+                "patronNote": format!("not theirs {suffix}")
+            }),
+            Some(&owner_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{denied}");
+    assert_error_shape(&denied);
+    assert_eq!(denied["code"], "authorization_failed", "{denied}");
+    assert_eq!(denied["error"], "Forbidden", "{denied}");
+    assert_eq!(hold_count(&app, other_biblio).await, 0);
+}
+
+#[tokio::test]
+async fn staff_with_holds_write_can_set_patron_note() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let secret = app.state.config.users.jwt_secret.clone();
+    let (reader_id, reader_token) = fixtures::create_reader(&app, &admin_token, "holdstaff").await;
+    let staff = retarget_holds(&reader_token, &secret, Rights::Write);
+    let suffix = fixtures::unique_suffix();
+    let patron_note = format!("desk wrote the patron note {suffix}");
+    let (biblio_id, _) = create_copy(&app, &admin_token, &format!("Staff note {suffix}")).await;
+
+    let (status, created) = app
+        .post_json(
+            "/api/v1/holds",
+            &json!({
+                "userId": reader_id.to_string(),
+                "biblioId": biblio_id.to_string(),
+                "patronNote": patron_note
+            }),
+            Some(&staff),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+    let hold_id = fixtures::json_id(&created["id"]);
+    assert_eq!(created["patronNote"], patron_note, "{created}");
+    assert!(created["internalNote"].is_null(), "{created}");
+    assert_eq!(
+        stored_notes(&app, hold_id).await,
+        (Some(patron_note.clone()), None)
+    );
+    let claims = UserClaims::from_token(&staff, &secret).expect("staff write");
+    assert_eq!(claims.account_type, AccountTypeSlug::Reader);
+    assert_eq!(claims.rights.holds_rights, Rights::Write);
+
+    let (status, queue) = app
+        .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}/holds"), &staff)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{queue}");
+    assert_eq!(
+        find_hold(queue.as_array().expect("queue"), hold_id)["patronNote"],
+        patron_note
+    );
+}
+
+#[tokio::test]
+async fn legacy_notes_move_to_internal_note_and_rerun_is_safe() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let sql = include_str!("../migrations/055_hold_patron_internal_notes.sql");
+    assert!(
+        sql.contains("SET internal_note = notes"),
+        "legacy notes must move to internal_note"
+    );
+    assert!(
+        !sql.contains("SET patron_note = notes"),
+        "legacy notes must not move to patron_note"
+    );
+
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "holdmig").await;
+    let suffix = fixtures::unique_suffix();
+    let mut ids = Vec::new();
+    for title in ["Legacy", "Kept", "Blank"] {
+        let (biblio_id, _) = create_copy(&app, &admin_token, &format!("{title} {suffix}")).await;
+        let (status, created) = app
+            .post_json(
+                "/api/v1/holds",
+                &json!({
+                    "userId": reader_id.to_string(),
+                    "biblioId": biblio_id.to_string()
+                }),
+                Some(&admin_token),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{created}");
+        ids.push(fixtures::json_id(&created["id"]));
+    }
+    let (legacy_id, kept_id, blank_id) = (ids[0], ids[1], ids[2]);
+
+    let pool = app.state.services.repository.pool();
+    let mut tx = pool.begin().await.expect("begin");
+    sqlx::query("ALTER TABLE holds ADD COLUMN notes TEXT")
+        .execute(&mut *tx)
+        .await
+        .expect("restore legacy notes column");
+    sqlx::query(
+        "UPDATE holds SET notes = $2, patron_note = NULL, internal_note = NULL WHERE id = $1",
+    )
+    .bind(legacy_id)
+    .bind(format!("desk legacy {suffix}"))
+    .execute(&mut *tx)
+    .await
+    .expect("seed legacy");
+    sqlx::query("UPDATE holds SET notes = $2, patron_note = $3, internal_note = $4 WHERE id = $1")
+        .bind(kept_id)
+        .bind(format!("do not replace {suffix}"))
+        .bind(format!("already visible {suffix}"))
+        .bind(format!("already internal {suffix}"))
+        .execute(&mut *tx)
+        .await
+        .expect("seed kept");
+    sqlx::query(
+        "UPDATE holds SET notes = '   ', patron_note = $2, internal_note = NULL WHERE id = $1",
+    )
+    .bind(blank_id)
+    .bind(format!("blank stays {suffix}"))
+    .execute(&mut *tx)
+    .await
+    .expect("seed blank");
+
+    sqlx::raw_sql(sql)
+        .execute(&mut *tx)
+        .await
+        .expect("re-run migration with legacy column");
+
+    let legacy: (Option<String>, Option<String>) =
+        sqlx::query_as("SELECT patron_note, internal_note FROM holds WHERE id = $1")
+            .bind(legacy_id)
+            .fetch_one(&mut *tx)
+            .await
+            .expect("legacy row");
+    assert_eq!(legacy.0, None);
+    assert_eq!(
+        legacy.1.as_deref(),
+        Some(format!("desk legacy {suffix}").as_str())
+    );
+
+    let kept: (Option<String>, Option<String>) =
+        sqlx::query_as("SELECT patron_note, internal_note FROM holds WHERE id = $1")
+            .bind(kept_id)
+            .fetch_one(&mut *tx)
+            .await
+            .expect("kept row");
+    assert_eq!(
+        kept.0.as_deref(),
+        Some(format!("already visible {suffix}").as_str())
+    );
+    assert_eq!(
+        kept.1.as_deref(),
+        Some(format!("already internal {suffix}").as_str())
+    );
+
+    let blank: (Option<String>, Option<String>) =
+        sqlx::query_as("SELECT patron_note, internal_note FROM holds WHERE id = $1")
+            .bind(blank_id)
+            .fetch_one(&mut *tx)
+            .await
+            .expect("blank row");
+    assert_eq!(
+        blank.0.as_deref(),
+        Some(format!("blank stays {suffix}").as_str())
+    );
+    assert_eq!(blank.1, None);
+
+    let notes_column: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)::bigint
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'holds' AND column_name = 'notes'
+        "#,
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .expect("notes column");
+    assert_eq!(notes_column, 0);
+
+    sqlx::raw_sql(sql)
+        .execute(&mut *tx)
+        .await
+        .expect("second re-run");
+    let legacy_again: (Option<String>, Option<String>) =
+        sqlx::query_as("SELECT patron_note, internal_note FROM holds WHERE id = $1")
+            .bind(legacy_id)
+            .fetch_one(&mut *tx)
+            .await
+            .expect("legacy after rerun");
+    assert_eq!(legacy_again, legacy);
+
+    tx.rollback().await.expect("rollback legacy column");
+
+    sqlx::raw_sql(sql)
+        .execute(pool)
+        .await
+        .expect("re-run on migrated schema");
+    sqlx::raw_sql(sql)
+        .execute(pool)
+        .await
+        .expect("second re-run on migrated schema");
+    assert_eq!(stored_notes(&app, legacy_id).await, (None, None));
+}
+
+#[tokio::test]
+async fn anonymization_removes_both_hold_notes() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "holderase").await;
+    let suffix = fixtures::unique_suffix();
+    let patron_note = format!("erase patron {suffix}");
+    let internal_note = format!("erase internal {suffix}");
+    let (biblio_id, _) = create_copy(&app, &admin_token, &format!("Erase {suffix}")).await;
+
+    let (status, created) = app
+        .post_json(
+            "/api/v1/holds",
+            &json!({
+                "userId": reader_id.to_string(),
+                "biblioId": biblio_id.to_string(),
+                "patronNote": patron_note,
+                "internalNote": internal_note
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{created}");
+
+    let (status, body) = app
+        .delete_with_auth(&format!("/api/v1/users/{reader_id}"), &admin_token)
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
+
+    let remaining: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)::bigint FROM holds
+        WHERE user_id = $1
+           OR patron_note = $2 OR internal_note = $2
+           OR patron_note = $3 OR internal_note = $3
+        "#,
+    )
+    .bind(reader_id)
+    .bind(&patron_note)
+    .bind(&internal_note)
+    .fetch_one(app.state.services.repository.pool())
+    .await
+    .expect("count leftover notes");
+    assert_eq!(remaining, 0);
+}
+
+#[tokio::test]
+async fn closed_holds_clear_both_notes() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "holdclose").await;
+    let suffix = fixtures::unique_suffix();
+    let patron_note = format!("close patron {suffix}");
+    let internal_note = format!("close internal {suffix}");
+
+    async fn place(
+        app: &TestApp,
+        token: &str,
+        reader_id: i64,
+        title: &str,
+        patron_note: &str,
+        internal_note: &str,
+    ) -> i64 {
+        let (biblio_id, _) = create_copy(app, token, title).await;
+        let (status, created) = app
+            .post_json(
+                "/api/v1/holds",
+                &json!({
+                    "userId": reader_id.to_string(),
+                    "biblioId": biblio_id.to_string(),
+                    "patronNote": patron_note,
+                    "internalNote": internal_note
+                }),
+                Some(token),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{created}");
+        fixtures::json_id(&created["id"])
+    }
+
+    let cancel_id = place(
+        &app,
+        &admin_token,
+        reader_id,
+        &format!("Cancel {suffix}"),
+        &patron_note,
+        &internal_note,
+    )
+    .await;
+    let fulfill_id = place(
+        &app,
+        &admin_token,
+        reader_id,
+        &format!("Fulfill {suffix}"),
+        &patron_note,
+        &internal_note,
+    )
+    .await;
+    let expire_id = place(
+        &app,
+        &admin_token,
+        reader_id,
+        &format!("Expire {suffix}"),
+        &patron_note,
+        &internal_note,
+    )
+    .await;
+
+    let (status, cancelled) = app
+        .delete_with_auth(&format!("/api/v1/holds/{cancel_id}"), &admin_token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{cancelled}");
+    assert_closed_notes_cleared(&cancelled, &patron_note);
+    assert_eq!(stored_notes(&app, cancel_id).await, (None, None));
+    let status_text: String = sqlx::query_scalar("SELECT status FROM holds WHERE id = $1")
+        .bind(cancel_id)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .expect("cancel status");
+    assert_eq!(status_text, "cancelled");
+
+    let fulfilled = app
+        .state
+        .services
+        .repository
+        .holds_fulfill(fulfill_id)
+        .await
+        .expect("fulfill");
+    assert!(fulfilled.patron_note.is_none());
+    assert!(fulfilled.internal_note.is_none());
+    assert_eq!(stored_notes(&app, fulfill_id).await, (None, None));
+
+    sqlx::query(
+        "UPDATE holds SET status = 'ready', expires_at = NOW() - INTERVAL '1 day' WHERE id = $1",
+    )
+    .bind(expire_id)
+    .execute(app.state.services.repository.pool())
+    .await
+    .expect("mark overdue");
+    let expired = app
+        .state
+        .services
+        .repository
+        .holds_expire_overdue()
+        .await
+        .expect("expire");
+    assert!(expired.contains(&expire_id), "{expired:?}");
+    assert_eq!(stored_notes(&app, expire_id).await, (None, None));
 }

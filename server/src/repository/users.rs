@@ -1133,6 +1133,7 @@ impl Repository {
         }
 
         // Soft-delete does not remove the `users` row, so ON DELETE CASCADE on `holds` does not run.
+        // Deleting the hold rows removes `patron_note` and `internal_note` with them.
         let mut tx = self.pool.begin().await?;
 
         if let Some(ref email) = user.email {

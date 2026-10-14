@@ -15,7 +15,7 @@ use crate::{
     models::{
         catalog_view::{
             partial_user_short, sees_internal_catalog, HoldDetailsPublic, HoldDetailsStaff,
-            LoanBorrowerMinimized,
+            HoldListStaff, LoanBorrowerMinimized,
         },
         dto::holds::{HoldPickListItem, HoldQuota, HoldsPolicy},
         hold::{
@@ -200,7 +200,7 @@ pub async fn list_my_holds(
 #[derive(Serialize, ToSchema)]
 #[serde(untagged)]
 pub enum HoldListResponse {
-    Staff(PaginatedResponse<HoldDetailsStaff>),
+    Staff(PaginatedResponse<HoldListStaff>),
     Public(PaginatedResponse<HoldDetailsPublic>),
 }
 
@@ -212,7 +212,7 @@ pub enum HoldListResponse {
     security(("bearer_auth" = [])),
     params(ListHoldsQuery),
     responses(
-        (status = 200, description = "Holds. Callers with internal catalog rights receive `HoldDetailsStaff` (`patronNote` and `internalNote`). `user` is `UserShortStaff` when `users_rights` is read or write, otherwise `{ id, cardNumber, initials }`. `expiresAt` is the pickup deadline. Catalog read alone receives `HoldDetailsPublic` (`patronNote` only; `internalNote` is absent). The retired `notes` field is absent.", body = HoldListResponse),
+        (status = 200, description = "Hold search. Neither `patronNote` nor `internalNote` is returned (`HoldListStaff` for internal catalog rights, `HoldDetailsPublic` otherwise). `user` is `UserShortStaff` when `users_rights` is read or write, otherwise `{ id, cardNumber, initials }`. `expiresAt` is the pickup deadline. Staff queues (`/items/{id}/holds`, `/biblios/{id}/holds`, `/users/{id}/holds`) keep both notes. `GET /me/holds` keeps `patronNote` only. The retired `notes` field is absent. There is no `GET /holds/{id}`.", body = HoldListResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse)
     )
 )]
@@ -244,7 +244,7 @@ pub async fn list_holds(
         HoldListResponse::Staff(PaginatedResponse::new(
             items
                 .into_iter()
-                .map(|hold| HoldDetailsStaff::for_caller(hold, &claims))
+                .map(|hold| HoldListStaff::for_caller(hold, &claims))
                 .collect(),
             total,
             page,
@@ -638,7 +638,7 @@ pub async fn list_holds_for_user(
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Hold ID")),
     responses(
-        (status = 200, description = "Hold cancelled. Internal catalog rights receive `Hold` (both notes). Other callers receive `HoldPublic` (`patronNote` only).", body = HoldWriteResponse),
+        (status = 200, description = "Hold cancelled. Both notes are cleared on the retained row. Internal catalog rights receive `Hold`. Other callers receive `HoldPublic`. `notes` is absent.", body = HoldWriteResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 403, description = "Cannot cancel another user's hold", body = crate::error::ErrorResponse),
         (status = 404, description = "Hold not found", body = crate::error::ErrorResponse)

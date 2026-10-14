@@ -947,7 +947,9 @@ pub fn borrower_initials(firstname: Option<&str>, lastname: Option<&str>) -> Str
     initials
 }
 
-/// Hold list row for staff. Embedded copies are [`BiblioShortStaff`].
+/// Staff hold queue row (`GET /items/{id}/holds`, `GET /biblios/{id}/holds`,
+/// `GET /users/{id}/holds`). Both notes are included for callers with holds rights.
+/// `GET /holds` uses [`HoldListStaff`] and omits them.
 #[serde_as]
 #[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -978,8 +980,64 @@ pub struct HoldDetailsStaff {
     pub position: i32,
     /// Note visible to the patron and to staff.
     pub patron_note: Option<String>,
-    /// Staff-only remark. Absent from [`HoldDetailsPublic`] and `GET /me/holds`.
+    /// Staff-only remark. Absent from [`HoldListStaff`], [`HoldDetailsPublic`], and `GET /me/holds`.
     pub internal_note: Option<String>,
+}
+
+/// `GET /holds` row for callers with internal catalog rights.
+///
+/// Same shape as [`HoldDetailsStaff`] except both notes are omitted. Staff queues
+/// keep the notes. `GET /me/holds` keeps `patronNote` on [`crate::models::my_account::MyHoldView`].
+#[serde_as]
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct HoldListStaff {
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub id: i64,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub user_id: i64,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub biblio_id: i64,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub item_id: Option<i64>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub pickup_site_id: Option<i64>,
+    pub biblio: BiblioShortStaff,
+    /// `users_rights` read or write: [`UserShortStaff`]. Otherwise `{ id, cardNumber, initials }`.
+    pub user: Option<LoanBorrowerResponse>,
+    pub created_at: DateTime<Utc>,
+    pub notified_at: Option<DateTime<Utc>>,
+    /// Pickup deadline. Set when the hold is `ready`.
+    pub expires_at: Option<DateTime<Utc>>,
+    pub status: HoldStatus,
+    pub position: i32,
+}
+
+impl HoldListStaff {
+    /// Search/list row. Drops both notes from the staff queue shape.
+    #[must_use]
+    pub fn for_caller(hold: HoldDetails, claims: &UserClaims) -> Self {
+        let staff = HoldDetailsStaff::for_caller(hold, claims);
+        Self {
+            id: staff.id,
+            user_id: staff.user_id,
+            biblio_id: staff.biblio_id,
+            item_id: staff.item_id,
+            pickup_site_id: staff.pickup_site_id,
+            biblio: staff.biblio,
+            user: staff.user,
+            created_at: staff.created_at,
+            notified_at: staff.notified_at,
+            expires_at: staff.expires_at,
+            status: staff.status,
+            position: staff.position,
+        }
+    }
 }
 
 impl HoldDetailsStaff {
@@ -1007,7 +1065,8 @@ impl HoldDetailsStaff {
     }
 }
 
-/// Hold list row for a reader. Embedded copies are [`BiblioShortPublic`].
+/// Public hold list row (`GET /holds` without internal catalog rights).
+/// Neither note is included. Embedded copies are [`BiblioShortPublic`].
 #[serde_as]
 #[derive(Debug, Clone, Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -1034,8 +1093,6 @@ pub struct HoldDetailsPublic {
     pub expires_at: Option<DateTime<Utc>>,
     pub status: HoldStatus,
     pub position: i32,
-    /// Note visible to the patron and to staff. The staff-only note is omitted.
-    pub patron_note: Option<String>,
 }
 
 impl From<HoldDetails> for HoldDetailsPublic {
@@ -1053,7 +1110,6 @@ impl From<HoldDetails> for HoldDetailsPublic {
             expires_at: hold.expires_at,
             status: hold.status,
             position: hold.position,
-            patron_note: hold.patron_note,
         }
     }
 }

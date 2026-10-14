@@ -326,6 +326,7 @@ use crate::api::{
             crate::models::catalog_view::UserShortStaff,
             crate::models::catalog_view::UserShortPublic,
             crate::models::catalog_view::HoldDetailsStaff,
+            crate::models::catalog_view::HoldListStaff,
             crate::models::catalog_view::HoldDetailsPublic,
             crate::models::catalog_view::LoanDetailsStaff,
             crate::models::catalog_view::LoanDetailsPublic,

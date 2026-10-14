@@ -159,7 +159,7 @@ pub struct HoldDetails {
     pub position: i32,
     /// Note visible to the patron and to staff.
     pub patron_note: Option<String>,
-    /// Staff-only remark. Omitted from [`crate::models::catalog_view::HoldDetailsPublic`].
+    /// Staff-only remark. Omitted from `GET /holds`, public lists, and `GET /me/holds`.
     pub internal_note: Option<String>,
 }
 
