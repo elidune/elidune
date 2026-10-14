@@ -15,7 +15,7 @@ use crate::{
         ReportCardLostResponse, ReportCardLostStaffBody,
     },
     models::dto::patron_card::{CardLookupResponse, DeskCardLookup, StaffCardLookup},
-    models::own_contact::parse_own_contact,
+    models::own_contact::{parse_own_contact, submitted_birthdate, without_birthdate_key},
     models::user::{
         EventsConsentSource, Rights, UpdateAccountType, UpdateProfile, User, UserClaims,
         UserPayload, UserQuery,
@@ -194,10 +194,10 @@ fn require_read_user(claims: &UserClaims, id: i64) -> Result<(), AppError> {
     security(("bearer_auth" = [])),
     request_body = UserPayload,
     responses(
-        (status = 201, description = "User created. `language` omitted or null is stored as no preference.", body = User),
+        (status = 201, description = "User created. `language` omitted or null is stored as no preference. A reader is the built-in account type code `reader` (`AccountTypeSlug::derives_public_type_from_birthdate`), the same code the daily cleanup selects. Rights are not used. For a reader, `publicType` in the body is ignored and the response `publicType` is computed from `birthdate` (read-only). `birthDateMissing` is false. Staff and other account types may omit `birthdate`; `publicType` is stored as sent and is not computed.", body = User),
         (status = 400, description = "Invalid input, including missing guardianId for child patrons", body = crate::error::ErrorResponse),
         (status = 409, description = "Login already exists, card number already assigned, or a retired card number (`card_number_retired`)", body = crate::error::ErrorResponse),
-        (status = 422, description = "`language` is not `english`, `french`, `german`, or `spanish`", body = crate::error::ErrorResponse)
+        (status = 422, description = "`language` is not `english`, `french`, `german`, or `spanish`. A reader without `birthdate` is `birth_date_required`. A reader whose age matches no band is `no_public_type_for_age`.", body = crate::error::ErrorResponse)
     )
 )]
 pub async fn create_user(
@@ -252,11 +252,12 @@ pub async fn create_user(
     ),
     request_body = UserPayload,
     responses(
-        (status = 200, description = "User updated. `users_rights` write may change the staff payload. `users_rights` own may change only the caller's contact details and preferences: `addrStreet`, `addrZipCode`, `addrCity`, `email`, `phone`, `language`, `eventsConsent`, `receiveReminders`. Any other key (account type, rights, card number, status, fines, name, login) returns 403 and writes nothing.", body = User),
+        (status = 200, description = "User updated. `users_rights` write may change the staff payload, including `birthdate`. For a reader, `publicType` in the body is ignored and recomputed from the resulting `birthdate` on every update. A reader who still has no birth date keeps the stored public type and the response sets `birthDateMissing` to true. `users_rights` own may change only the caller's contact details and preferences: `addrStreet`, `addrZipCode`, `addrCity`, `email`, `phone`, `language`, `eventsConsent`, `receiveReminders`. A `birthdate` equal to the stored value is ignored. A different `birthdate` returns 403 and writes nothing. Any other key (account type, rights, card number, status, fines, name, login) returns 403 and writes nothing. That own-record update also recomputes a reader's public type from the stored birth date.", body = User),
         (status = 400, description = "Invalid input, including clearing guardianId while the patron remains a child", body = crate::error::ErrorResponse),
-        (status = 403, description = "Own rights on another id, a forbidden own-record field, or no users write", body = crate::error::ErrorResponse),
+        (status = 403, description = "Own rights on another id, a forbidden own-record field, a birth date that differs from the stored value, or no users write. Nothing is written.", body = crate::error::ErrorResponse),
         (status = 404, description = "User not found", body = crate::error::ErrorResponse),
-        (status = 409, description = "Login already exists, card number already assigned, or a retired card number (`card_number_retired`)", body = crate::error::ErrorResponse)
+        (status = 409, description = "Login already exists, card number already assigned, or a retired card number (`card_number_retired`)", body = crate::error::ErrorResponse),
+        (status = 422, description = "A reader whose age matches no band is `no_public_type_for_age`. The stored row is not changed.", body = crate::error::ErrorResponse)
     )
 )]
 pub async fn update_user(
@@ -272,9 +273,15 @@ pub async fn update_user(
                 "Insufficient rights to update this user".to_string(),
             ));
         }
-        let patch = parse_own_contact(&body)?;
+        let submitted = submitted_birthdate(&body)?;
+        let patch = parse_own_contact(&without_birthdate_key(body.clone()))?;
         let audit_payload = body.clone();
-        return match state.services.users.update_own_contact(id, patch).await {
+        return match state
+            .services
+            .users
+            .update_own_contact(id, patch, &submitted)
+            .await
+        {
             Ok(updated) => {
                 state.services.audit.log(
                     audit::event::USER_UPDATED,
@@ -582,20 +589,28 @@ pub struct DeleteUserParams {
     security(("bearer_auth" = [])),
     request_body = UpdateProfile,
     responses(
-        (status = 200, description = "Profile updated", body = User),
+        (status = 200, description = "Profile updated. A reader's `publicType` is recomputed from the stored birth date. `birthDateMissing` is true when that reader still has no birth date; the stored public type is kept. A `birthdate` equal to the stored value is a no-op so the rest of the profile can be saved.", body = User),
         (status = 400, description = "Invalid input"),
-        (status = 401, description = "Not authenticated or wrong current password")
+        (status = 401, description = "Not authenticated or wrong current password"),
+        (status = 403, description = "The submitted `birthdate` differs from the stored value. Nothing is written. Staff with `users_rights` write change the date via `PUT /users/{id}`.", body = crate::error::ErrorResponse),
+        (status = 422, description = "A reader whose age matches no band is `no_public_type_for_age`.", body = crate::error::ErrorResponse)
     )
 )]
 pub async fn update_my_profile(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
-    ValidatedJson(profile): ValidatedJson<UpdateProfile>,
+    Json(body): Json<serde_json::Value>,
 ) -> AppResult<Json<User>> {
+    let submitted = submitted_birthdate(&body)?;
+    let profile: UpdateProfile = serde_json::from_value(without_birthdate_key(body))
+        .map_err(|e| AppError::Validation(format!("Invalid JSON body: {e}")))?;
+    profile
+        .validate()
+        .map_err(|e| AppError::Validation(e.to_string()))?;
     let updated = state
         .services
         .users
-        .update_profile(claims.user_id, profile)
+        .update_profile(claims.user_id, profile, &submitted)
         .await?;
     Ok(Json(updated))
 }

@@ -125,6 +125,17 @@ pub mod error_code {
     /// Client `message` for [`CIRCULATION_STATUS_READ_ONLY`].
     pub const CIRCULATION_STATUS_READ_ONLY_MESSAGE: &str =
         "circulationStatus is read-only. Use the dedicated actions (lost, missing, to-search).";
+    /// `POST /users` for a reader omitted `birthdate`. The server needs it to set `publicType`.
+    pub const BIRTH_DATE_REQUIRED: &str = "birth_date_required";
+    /// Client `message` for [`BIRTH_DATE_REQUIRED`].
+    pub const BIRTH_DATE_REQUIRED_MESSAGE: &str =
+        "Birth date is required to determine the reader's public type";
+    /// No age band covers the reader's completed years. The body asks an admin to complete the bands.
+    pub const NO_PUBLIC_TYPE_FOR_AGE: &str = "no_public_type_for_age";
+    /// Create or update of a public type whose age band intersects another band.
+    pub const PUBLIC_TYPE_AGE_OVERLAP: &str = "public_type_age_overlap";
+    /// `ageMin` is greater than `ageMax`.
+    pub const PUBLIC_TYPE_AGE_RANGE_INVALID: &str = "public_type_age_range_invalid";
 }
 
 /// Main application error type

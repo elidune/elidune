@@ -62,6 +62,12 @@ async fn create_school_without_guardian_succeeds() {
         StatusCode::CREATED,
         "enrol school without guardian: {body}"
     );
+    let adult_type = fixtures::public_type_id_by_name(&app, &admin_token, "adult").await;
+    assert_eq!(
+        fixtures::json_id(&body["publicType"]),
+        adult_type,
+        "a reader public type is computed from the birth date; school is ignored: {body}"
+    );
     assert!(
         body["guardianId"].is_null(),
         "school must not require a guardian: {body}"
@@ -278,7 +284,7 @@ async fn update_can_clear_guardian_when_leaving_child() {
         .put_json(
             &format!("/api/v1/users/{child_id}"),
             &json!({
-                "publicType": adult_type.to_string(),
+                "birthdate": "1990-01-01",
                 "guardianId": null
             }),
             Some(&admin_token),
@@ -428,7 +434,10 @@ async fn create_school_without_guardian(app: &TestApp, admin_token: &str) -> i64
         )
         .await;
     assert_eq!(status, StatusCode::CREATED, "create school: {body}");
-    fixtures::json_id(&body["id"])
+    let user_id = fixtures::json_id(&body["id"]);
+    // School is not an age band. Tests that need that audience assign it after create.
+    fixtures::assign_public_type(app, user_id, school_type).await;
+    user_id
 }
 
 async fn create_reader_with_email(

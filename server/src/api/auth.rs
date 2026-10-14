@@ -143,7 +143,10 @@ pub struct UserInfo {
     /// Account type name
     pub account_type: String,
     /// Public type name (`child`, `adult`, …). Null when the patron has none.
+    /// For a reader this is computed from `birthdate` and is read-only.
     pub public_type: Option<String>,
+    /// `true` when this is a reader and `birthdate` is null. The stored public type is kept.
+    pub birth_date_missing: bool,
     /// Linked legal guardian. Null when the patron has none.
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
@@ -175,6 +178,7 @@ impl UserInfo {
             birthdate: user.birthdate,
             account_type: user.account_type.to_string(),
             public_type: public_type_name,
+            birth_date_missing: user.birth_date_missing,
             guardian_id: user.guardian_id,
             language: user.language.unwrap_or(Language::French),
             events_consent: user.events_consent,
@@ -413,7 +417,7 @@ pub async fn clear_auth_rate_limit(
     tag = "auth",
     security(("bearer_auth" = [])),
     responses(
-        (status = 200, description = "Current user profile", body = UserInfo),
+        (status = 200, description = "Current user profile. `publicType` is the public-type name. For a reader it is computed from `birthdate`. `birthDateMissing` is true when a reader has no birth date.", body = UserInfo),
         (status = 401, description = "Not authenticated", body = ErrorResponse)
     )
 )]

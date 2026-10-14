@@ -39,7 +39,14 @@ Key transformations:
     - users: account_type_id -> account_type (slug), fee_id -> fee (slug),
              crea_date/modif_date/issue_date/archived_date (int) -> timestamptz,
              passwords -> argon2 hash,
-             public_type int (97/106/117) -> FK to public_types table,
+             public_type int (97/106/117) -> FK to public_types table.
+             Readers (account_type reader) with a birth date get public_type from the
+             same age rule as POST /users (server/src/public_type_age.rs): completed
+             years, inclusive bounds, narrowest band then lowest id. A reader row
+             with no birth date keeps the file's public type (birthDateMissing on read).
+             A reader whose age matches no band is listed in the import error report
+             and skipped; the rest of the file still imports. Other account types
+             keep the file's public type.
              sex_id -> sex (preserved as SMALLINT)
              removed: subscription_type_id, occupation, profession
              added: status (VARCHAR camelCase: active/blocked/deleted), language, must_change_password, 2FA fields
@@ -282,6 +289,89 @@ def borrower_age_band(birthdate, on_dt):
     if years < 65:
         return '50-64'
     return '65+'
+
+
+def age_years_on_date(birth, on):
+    """Completed years on `on`. Mirrors `age_years_on_date` in server/src/public_type_age.rs."""
+    if isinstance(birth, datetime):
+        birth = birth.date()
+    if isinstance(on, datetime):
+        on = on.date()
+    years = on.year - birth.year
+    if (on.month, on.day) < (birth.month, birth.day):
+        years -= 1
+    return years
+
+
+def _age_band(row):
+    """True when at least one bound is set. Null/null categories are not age bands."""
+    return row['age_min'] is not None or row['age_max'] is not None
+
+
+def _age_matches(age, age_min, age_max):
+    if age_min is not None and age < int(age_min):
+        return False
+    if age_max is not None and age > int(age_max):
+        return False
+    return True
+
+
+def resolve_reader_public_type_id(bands, age):
+    """Public type id for `age`, or None when no age band matches.
+
+    Same rule as `resolve_public_type_for_age`: ignore rows with no bounds,
+    then the narrowest matching span, then the lowest id.
+    """
+    matches = []
+    for band in bands:
+        if not _age_band(band):
+            continue
+        if _age_matches(age, band['age_min'], band['age_max']):
+            matches.append(band)
+    if not matches:
+        return None
+
+    def rank(band):
+        if band['age_min'] is not None and band['age_max'] is not None:
+            width = int(band['age_max']) - int(band['age_min'])
+        else:
+            width = 2 ** 30
+        return (width, band['id'])
+
+    return min(matches, key=rank)['id']
+
+
+def reader_public_type_for_import(account_type, birthdate, file_public_type_id, bands, on):
+    """Decide the public type stored for one imported user row.
+
+    Returns `(public_type_id, error)` where `error` is None when the row should
+    be imported. A reader with no birth date keeps `file_public_type_id`.
+    A reader with a birth date uses the age rule. No matching band is an error
+    and the caller skips that row. Non-readers keep the file value.
+    """
+    if account_type != 'reader' or birthdate is None:
+        return file_public_type_id, None
+    age = age_years_on_date(birthdate, on)
+    if age < 0:
+        return None, {
+            'code': 'no_public_type_for_age',
+            'age': age,
+            'message': (
+                f'No public type matches age {age}. '
+                'An administrator must complete the age bands.'
+            ),
+        }
+    resolved = resolve_reader_public_type_id(bands, age)
+    if resolved is None:
+        return None, {
+            'code': 'no_public_type_for_age',
+            'age': age,
+            'message': (
+                f'No public type matches age {age}. '
+                'An administrator must complete the age bands.'
+            ),
+        }
+    return resolved, None
 
 
 def hash_password(plain, hasher):
@@ -552,9 +642,16 @@ def migrate_users(src, dst, hash_passwords=True):
     src_cur = src.cursor()
     dst_cur = dst.cursor()
 
-    # Load public_types id mapping from target DB (name -> id)
-    dst_cur.execute("SELECT id, name FROM public_types")
-    pt_name_to_id = {name: pid for pid, name in dst_cur.fetchall()}
+    # Load public_types id mapping from target DB (name -> id) and age bands.
+    dst_cur.execute("SELECT id, name, age_min, age_max FROM public_types ORDER BY id")
+    pt_rows = dst_cur.fetchall()
+    pt_name_to_id = {name: pid for pid, name, _age_min, _age_max in pt_rows}
+    age_bands = [
+        {'id': pid, 'name': name, 'age_min': age_min, 'age_max': age_max}
+        for pid, name, age_min, age_max in pt_rows
+    ]
+    import_errors = []
+    imported_on = datetime.now(timezone.utc).date()
 
     src_cur.execute("""
         SELECT id, login, password, firstname, lastname, email,
@@ -618,15 +715,23 @@ def migrate_users(src, dst, hash_passwords=True):
         sex = "m" if sex_id_raw == 77 else "f" if sex_id_raw == 70 else None
         birthdate_db = normalize_birthdate(birthdate)
 
-        # Map legacy integer public_type to FK id in target
+        # Map legacy integer public_type to FK id in target (the file's value).
         pt_id = None
         if public_type_raw is not None:
             pt_name = PUBLIC_TYPE_INT_TO_NAME.get(int(public_type_raw))
             if pt_name:
                 pt_id = pt_name_to_id.get(pt_name)
 
-            # print request
-          
+        pt_id, import_error = reader_public_type_for_import(
+            account_type, birthdate_db, pt_id, age_bands, imported_on,
+        )
+        if import_error is not None:
+            import_errors.append({
+                'id': uid,
+                'login': login,
+                **import_error,
+            })
+            continue
 
         dst_cur.execute("""
             INSERT INTO users (
@@ -691,7 +796,16 @@ def migrate_users(src, dst, hash_passwords=True):
     parts = [f"{migrated} users migrated"]
     if hash_passwords:
         parts.append(f"{hashed_count} passwords hashed")
+    if import_errors:
+        parts.append(f"{len(import_errors)} rows skipped")
     print(f"  {', '.join(parts)}")
+    if import_errors:
+        print("  Import error report (these rows were not imported):")
+        for err in import_errors:
+            print(
+                f"    id={err['id']} login={err['login']} "
+                f"{err['code']}: {err['message']}"
+            )
 
 
 def migrate_simple_table(src, dst, table, columns, conflict_col="id"):

@@ -165,6 +165,9 @@ pub async fn create_reader_with_public_type(
     );
 
     let user_id = json_id(&body["id"]);
+    // The API ignores `publicType` for readers and derives it from the birth date.
+    // Circulation tests still need a chosen audience, so the harness writes it after create.
+    assign_public_type(app, user_id, public_type_id).await;
     app.state
         .services
         .users
@@ -187,4 +190,14 @@ pub async fn create_reader_with_public_type(
 
     let token = login_body["token"].as_str().unwrap().to_string();
     (user_id, token)
+}
+
+/// Point a patron at `public_type_id` after the API has derived a type from the birth date.
+pub async fn assign_public_type(app: &super::TestApp, user_id: i64, public_type_id: i64) {
+    sqlx::query("UPDATE users SET public_type = $1 WHERE id = $2")
+        .bind(public_type_id)
+        .bind(user_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("assign public type for test setup");
 }

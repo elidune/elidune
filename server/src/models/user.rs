@@ -82,6 +82,17 @@ impl AccountTypeSlug {
             AccountTypeSlug::Custom(code) => code.as_str(),
         }
     }
+
+    /// This account type is a reader, so `public_type` is derived from the birth date.
+    ///
+    /// The criterion is the built-in account-type code `reader`, the same row the daily
+    /// cleanup selects with `account_type = 'reader'`. Custom codes are not readers.
+    /// Rights are not consulted: `users_rights` decides who may edit a record, not who
+    /// receives an age-derived public type.
+    #[must_use]
+    pub fn derives_public_type_from_birthdate(&self) -> bool {
+        matches!(self, Self::Reader)
+    }
 }
 
 impl std::fmt::Display for AccountTypeSlug {
@@ -364,6 +375,9 @@ pub struct UserRow {
 
 impl From<UserRow> for User {
     fn from(row: UserRow) -> Self {
+        let birth_date_missing = AccountTypeSlug::from(row.account_type.as_str())
+            .derives_public_type_from_birthdate()
+            && row.birthdate.is_none();
         User {
             id: row.id,
             group_id: row.group_id,
@@ -408,6 +422,7 @@ impl From<UserRow> for User {
                 .events_consent_source
                 .as_deref()
                 .and_then(EventsConsentSource::parse),
+            birth_date_missing,
         }
     }
 }
@@ -491,9 +506,14 @@ pub struct User {
     pub expiry_at: Option<DateTime<Utc>>,
     pub account_type: AccountTypeSlug,
     pub fee: Option<FeeSlug>,
+    /// Stored public type id. For a reader this is computed from `birthdate` and is read-only on input.
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub public_type: Option<i64>,
+    /// `true` when this is a reader and `birthdate` is null. The stored public type is kept
+    /// until a birth date is saved. The UI uses this to ask for the missing birth date.
+    #[serde(default)]
+    pub birth_date_missing: bool,
     pub notes: Option<String>,
     pub status: Option<UserStatus>,
     pub archived_at: Option<DateTime<Utc>>,
@@ -710,8 +730,12 @@ impl<'de> Deserialize<'de> for GuardianIdPatch {
     }
 }
 
-/// User create/update body. On create and on admin update (`PUT /users/:id`), the following
-/// fields are required: `login`, `firstname`, `lastname`, `sex`, `birthdate`, `publicType`, `addrCity`.
+/// User create/update body. On create, the following fields are required:
+/// `login`, `firstname`, `lastname`, `sex`, `addrCity`.
+/// `birthdate` is required only for a reader (`AccountTypeSlug::derives_public_type_from_birthdate`).
+/// Staff and other account types may omit it; their `publicType` is stored as sent.
+/// `publicType` is required for every account type except `reader`.
+/// For a reader it is ignored: the server computes it from `birthdate`.
 #[serde_as]
 #[derive(Debug, Clone, Default, Serialize, Deserialize, Validate, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -733,6 +757,9 @@ pub struct UserPayload {
     pub birthdate: Option<NaiveDate>,
     pub account_type: Option<AccountTypeSlug>,
     pub fee: Option<FeeSlug>,
+    /// Ignored when `accountType` is `reader`. The server sets the public type from `birthdate`
+    /// and the age bands. A client value is discarded and is not an error.
+    /// Required on create for every other account type. On update, omit it to leave a non-reader unchanged.
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub public_type: Option<i64>,
@@ -824,11 +851,13 @@ impl UserPayload {
             return Err(AppError::Validation("sex is required".into()));
         }
 
-        if self.birthdate.is_none() {
-            return Err(AppError::Validation("birthdate is required".into()));
-        }
-
-        if self.public_type.is_none() {
+        let reader = self
+            .account_type
+            .as_ref()
+            .is_some_and(AccountTypeSlug::derives_public_type_from_birthdate);
+        // Readers are rejected earlier with 422 `birth_date_required`. Other account
+        // types keep the previous create rules: birth date optional, public type required.
+        if self.public_type.is_none() && !reader {
             return Err(AppError::Validation("publicType is required".into()));
         }
 
@@ -867,7 +896,11 @@ pub struct UpdateProfile {
     pub addr_city: Option<String>,
     /// Phone number
     pub phone: Option<String>,
-    /// Birth date (ISO `YYYY-MM-DD`)
+    /// Birth date (ISO `YYYY-MM-DD`).
+    ///
+    /// Self-service (`PUT /auth/profile`) may repeat the stored value. A different
+    /// value is rejected before this struct is applied. Staff change the date with
+    /// `PUT /users/{id}` and `users_rights` write.
     pub birthdate: Option<NaiveDate>,
     /// Current password (required to change password)
     #[schema(value_type = Option<String>)]

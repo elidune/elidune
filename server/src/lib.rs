@@ -26,6 +26,7 @@ pub mod password_reset_link;
 pub mod marc;
 pub mod models;
 pub mod patron_eligibility;
+pub mod public_type_age;
 pub mod rate_limit;
 pub mod renewal;
 pub mod repository;

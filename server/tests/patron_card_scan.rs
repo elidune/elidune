@@ -104,6 +104,7 @@ async fn create_patron(
         .await;
     assert_eq!(status, StatusCode::CREATED, "create patron: {body}");
     let user_id = fixtures::json_id(&body["id"]);
+    fixtures::assign_public_type(app, user_id, public_type_id).await;
     app.state
         .services
         .users
