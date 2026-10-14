@@ -2137,7 +2137,7 @@
       "item_not_on_loan": "Dieses Exemplar ist nicht ausgeliehen",
       "item_on_loan_to_other_borrower": "Dieses Exemplar ist noch an einen anderen Leser ausgeliehen. Erfassen Sie zuerst die Rückgabe.",
       "item_already_on_loan_to_borrower": "Dieses Exemplar ist bereits an diesen Leser ausgeliehen. Sie können es verlängern.",
-      "item_to_pick_for_other": "Dieses Exemplar ist für einen anderen Leser vorgemerkt.",
+      "item_to_pick_for_other": "Exemplar für einen anderen Leser reserviert und zurückgelegt: legen Sie es zurück ins Abholregal.",
       "item_on_loan": "Dieses Exemplar ist entliehen und kann nicht ausgesondert werden.",
       "item_in_transit": "Dieses Exemplar ist unterwegs und kann nicht ausgesondert werden.",
       "item_on_hold": "Dieses Exemplar liegt zur Abholung bereit und kann nicht ausgesondert werden.",

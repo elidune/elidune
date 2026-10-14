@@ -8,6 +8,8 @@ import fr from '../locales/fr/translation.json' with { type: 'json' };
 import { CheckoutScanNoticeShown } from './deskScanAlert.ts';
 import { loanRefusalMayForce } from './circulationForce.ts';
 import {
+  checkoutDeskActions,
+  checkoutDeskActionsFromError,
   deskBorrowErrorText,
   deskCheckoutMessage,
   forceBorrowDialogMessage,
@@ -75,15 +77,64 @@ describe('desk checkout error mapping', () => {
     }
   });
 
-  it('maps item_to_pick_for_other with lecteur and exemplaire in French', async () => {
-    const t = await tFor('fr');
-    const message = deskCheckoutMessage(
-      axiosError(422, 'item_to_pick_for_other', 'This copy is on the pick list for another patron — use force=true to override'),
-      t,
+  it('maps item_to_pick_for_other as already set aside, with no identity and no actions', async () => {
+    const identity = {
+      forceable: true,
+      userName: 'Grace Hopper',
+      cardNumber: 'CARD-9',
+      initials: 'GH',
+      firstname: 'Grace',
+      lastname: 'Hopper',
+      details: {
+        cardNumber: 'CARD-9',
+        initials: 'GH',
+        firstname: 'Grace',
+        lastname: 'Hopper',
+      },
+    };
+    const error = axiosError(
+      422,
+      'item_to_pick_for_other',
+      'This copy is on the pick list for another patron — use force=true to override',
+      identity,
     );
-    assert.equal(message, 'Cet exemplaire est réservé pour un autre lecteur.');
-    assert.equal(message.includes('usager'), false);
-    assert.equal(message.includes('force'), false);
+    const frMessage = deskCheckoutMessage(error, await tFor('fr'));
+    const enMessage = deskCheckoutMessage(error, await tFor('en'));
+    assert.equal(
+      frMessage,
+      "Exemplaire réservé et mis de côté pour un autre lecteur : replacez-le sur l'étagère des réservations.",
+    );
+    assert.equal(
+      enMessage,
+      'Copy reserved and set aside for another reader: put it back on the holds shelf.',
+    );
+    for (const message of [frMessage, enMessage]) {
+      assert.equal(message.includes('Grace'), false);
+      assert.equal(message.includes('Hopper'), false);
+      assert.equal(message.includes('CARD-9'), false);
+      assert.equal(message.includes('GH'), false);
+      assert.equal(message.toLowerCase().includes('force'), false);
+      assert.equal(message.toLowerCase().includes('usager'), false);
+      assert.equal(message.toLowerCase().includes('patron'), false);
+    }
+    assert.equal(frMessage.includes('lecteur'), true);
+    assert.equal(frMessage.includes('exemplaire') || frMessage.includes('Exemplaire'), true);
+    assert.deepEqual(checkoutDeskActionsFromError(error, true), { force: false, setAside: false });
+    assert.deepEqual(checkoutDeskActions('item_to_pick_for_other', true, true), { force: false, setAside: false });
+    assert.equal(checkoutMayForce(error, true), true);
+
+    const held = axiosError(422, 'item_held_for_other', 'held', { forceable: true, userName: 'Grace Hopper' });
+    assert.equal(
+      deskCheckoutMessage(held, await tFor('fr')),
+      'Un autre lecteur a la priorité sur cet exemplaire.',
+    );
+    assert.deepEqual(checkoutDeskActionsFromError(held, true), { force: false, setAside: true });
+
+    const quota = axiosError(422, 'max_loans', 'quota', { forceable: true });
+    assert.deepEqual(checkoutDeskActionsFromError(quota, true), { force: true, setAside: false });
+    assert.deepEqual(checkoutDeskActionsFromError(quota, false), { force: false, setAside: false });
+    assert.deepEqual(checkoutDeskActions('max_loans', undefined, true), { force: false, setAside: false });
+    assert.deepEqual(checkoutDeskActions('item_status_action_required', true, true), { force: false, setAside: false });
   });
 
   it('falls back to the generic error when the code has no translation', async () => {

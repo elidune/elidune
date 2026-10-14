@@ -52,17 +52,16 @@ import {
   type DeskCopySnapshot,
   type DeskScanAlert,
 } from '@/utils/deskScanAlert';
-import { checkoutForceFlag, checkoutMayForce, checkoutNoticeForConflict } from '@/utils/loanConflict';
+import { checkoutForceFlag, checkoutNoticeForConflict } from '@/utils/loanConflict';
 import { renewedUntilMessage } from '@/utils/localeDate';
 import { patronId } from '@/utils/patronLink';
 import { isWeedingServerMessage } from '@/utils/weeding';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
 import { isClaimedReturnedLoan } from '@/utils/circulationStatus';
-import { deskBorrowErrorText, forceBorrowDialogMessage } from '@/utils/deskCheckoutError';
+import { checkoutDeskActionsFromError, deskBorrowErrorText, forceBorrowDialogMessage } from '@/utils/deskCheckoutError';
 import {
   CheckoutDeclined,
   interpretPickCheckIn,
-  readItemToPickForOther,
   type PickCheckInNotice,
 } from '@/utils/toPickDesk';
 import {
@@ -935,16 +934,9 @@ export default function LoansPage() {
       if (isWeedingServerMessage(rawMessage)) {
         throw error;
       }
-      const toPick = readItemToPickForOther(error);
-      if (toPick) {
-        setToPickAside({
-          cardNumber: toPick.cardNumber,
-          initials: toPick.initials,
-          barcode,
-        });
-        throw new CheckoutDeclined();
-      }
-      if (getApiErrorCode(error) === 'item_held_for_other') {
+      const refusalCode = getApiErrorCode(error);
+      const actions = checkoutDeskActionsFromError(error, canForceLoan);
+      if (actions.setAside) {
         setToPickAside({
           cardNumber: null,
           initials: null,
@@ -954,17 +946,17 @@ export default function LoansPage() {
         throw new CheckoutDeclined();
       }
       const blocked = checkoutScanNoticeFromRefusal({
-        code: getApiErrorCode(error),
+        code: refusalCode,
         message: rawMessage,
       });
       if (blocked) {
         setCheckoutScanAlert({ ...blocked, barcode });
         throw new CheckoutScanNoticeShown();
       }
-      if (getApiErrorCode(error) === 'item_status_action_required') {
+      if (refusalCode === 'item_status_action_required') {
         throw error;
       }
-      if (!force && checkoutMayForce(error, canForceLoan)) {
+      if (!force && actions.force) {
         setBarcodeInput('');
         const ok = await new Promise<boolean>((resolve) => {
           setForceBorrowDialog({

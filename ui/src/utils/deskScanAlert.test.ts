@@ -185,16 +185,15 @@ describe('desk scan alert', () => {
       cardNumber: 'C-9',
       initials: 'GH',
     });
-    assert.deepEqual(toPick, {
-      kind: 'onHold',
-      patronName: null,
-      otherBorrower: { userId: null, cardNumber: 'C-9', initials: 'GH' },
-    });
-    assert.equal(JSON.stringify(toPick).includes('Grace'), false);
+    assert.equal(toPick, null);
     assert.equal(
-      deskScanAlertMessage(toPick!, translate('fr')),
-      'Cet exemplaire est réservé pour le lecteur carte n° C-9.',
+      lookup(catalogs.fr, 'errors.apiCode.item_to_pick_for_other'),
+      "Exemplaire réservé et mis de côté pour un autre lecteur : replacez-le sur l'étagère des réservations.",
     );
+    const alreadySetAside = lookup(catalogs.fr, 'errors.apiCode.item_to_pick_for_other') ?? '';
+    assert.equal(alreadySetAside.includes('Grace'), false);
+    assert.equal(alreadySetAside.includes('C-9'), false);
+    assert.equal(alreadySetAside.includes('GH'), false);
     assert.equal(
       deskScanAlertMessage(
         {

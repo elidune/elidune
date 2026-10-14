@@ -2137,7 +2137,7 @@
       "item_not_on_loan": "Este ejemplar no está en préstamo",
       "item_on_loan_to_other_borrower": "Este ejemplar sigue en préstamo a otro lector. Registre primero la devolución.",
       "item_already_on_loan_to_borrower": "Este ejemplar ya está en préstamo a este lector. Puede renovarlo.",
-      "item_to_pick_for_other": "Este ejemplar está reservado para otro lector.",
+      "item_to_pick_for_other": "Ejemplar reservado y apartado para otro lector: vuelva a colocarlo en el estante de reservas.",
       "item_on_loan": "Este ejemplar está prestado y no se puede expurgar.",
       "item_in_transit": "Este ejemplar está en tránsito y no se puede expurgar.",
       "item_on_hold": "Este ejemplar está reservado para recoger y no se puede expurgar.",

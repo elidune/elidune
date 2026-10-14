@@ -2137,7 +2137,7 @@
       "item_not_on_loan": "Cet exemplaire n'est pas en prêt",
       "item_on_loan_to_other_borrower": "Cet exemplaire est encore en prêt à un autre lecteur. Faites d'abord le retour.",
       "item_already_on_loan_to_borrower": "Cet exemplaire est déjà en prêt à ce lecteur. Vous pouvez le renouveler.",
-      "item_to_pick_for_other": "Cet exemplaire est réservé pour un autre lecteur.",
+      "item_to_pick_for_other": "Exemplaire réservé et mis de côté pour un autre lecteur : replacez-le sur l'étagère des réservations.",
       "item_on_loan": "Cet exemplaire est en prêt : il ne peut pas être désherbé.",
       "item_in_transit": "Cet exemplaire est en transit : il ne peut pas être désherbé.",
       "item_on_hold": "Une réservation est à chercher ou prête : l’exemplaire ne peut pas être désherbé.",
