@@ -1,7 +1,6 @@
 //! Item circulation-exception persistence (lost / damaged / claimed-returned).
 
 use chrono::Utc;
-use rust_decimal::Decimal;
 use sqlx::Row;
 
 use super::Repository;
@@ -10,7 +9,7 @@ use crate::{
     models::{
         circulation::{CirculationAction, CirculationStatus, DamageDisposition},
         dto::circulation::{ClaimsReturnedQueueItem, LostFoundDisposition},
-        fine::{Fine, FineChargeType},
+        fine::{Cents, Fine, FineChargeType},
         hold::Hold,
         loan::{Loan, LoanClosureReason},
     },
@@ -22,7 +21,7 @@ pub struct CirculationApplyParams<'a> {
     pub loan_id: i64,
     pub action: CirculationAction,
     pub disposition: Option<DamageDisposition>,
-    pub bill_amount: Option<Decimal>,
+    pub bill_amount: Option<Cents>,
     pub charge_type: Option<FineChargeType>,
     pub notes: Option<&'a str>,
 }
@@ -133,7 +132,7 @@ impl Repository {
 
         let charge =
             if let (Some(amount), Some(charge_type)) = (params.bill_amount, params.charge_type) {
-                if amount <= Decimal::ZERO {
+                if amount.0 <= 0 {
                     return Err(AppError::Validation(
                         "Charge amount must be positive".to_string(),
                     ));
@@ -254,14 +253,14 @@ impl Repository {
     }
 
     /// Item price used as a replacement bill when staff omit an explicit amount.
-    pub async fn circulation_item_price(&self, item_id: i64) -> AppResult<Option<Decimal>> {
-        let price: Option<String> =
+    pub async fn circulation_item_price(&self, item_id: i64) -> AppResult<Option<Cents>> {
+        let price: Option<Cents> =
             sqlx::query_scalar("SELECT price FROM items WHERE id = $1 AND archived_at IS NULL")
                 .bind(item_id)
                 .fetch_optional(&self.pool)
                 .await?
                 .flatten();
-        Ok(parse_item_price(price.as_deref()))
+        Ok(price.filter(|amount| amount.0 > 0))
     }
 
     /// Accept a lost copy back, or record that staff left it lost.
@@ -405,23 +404,5 @@ fn merge_notes(existing: Option<String>, extra: Option<&str>) -> Option<String> 
         (Some(cur), Some(add)) if !cur.contains(add) => Some(format!("{cur}\n{add}")),
         (None, Some(add)) => Some(add.to_string()),
         (cur, _) => cur,
-    }
-}
-
-pub(crate) fn parse_item_price(price: Option<&str>) -> Option<Decimal> {
-    crate::models::item::parse_stored_item_price(price).filter(|amount| *amount > Decimal::ZERO)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::parse_item_price;
-    use rust_decimal::Decimal;
-
-    #[test]
-    fn parse_item_price_accepts_plain_decimals() {
-        assert_eq!(parse_item_price(Some("12.50")), Some(Decimal::new(1250, 2)));
-        assert_eq!(parse_item_price(Some("0")), None);
-        assert_eq!(parse_item_price(Some("")), None);
-        assert_eq!(parse_item_price(None), None);
     }
 }

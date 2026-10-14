@@ -15,7 +15,7 @@ use crate::{
             AccrueBatchReport, AccrueFinesRequest, AccrueLoanResult, AccrueOutcome,
             CirculationFinePolicy, UpdateCirculationFinePolicy,
         },
-        fine::{Fine, FineRule, PayFineRequest, WaiveFineRequest},
+        fine::{euro_string, Cents, Fine, FineRule, PayFineRequest, WaiveFineRequest},
     },
     services::audit,
 };
@@ -27,7 +27,11 @@ use super::{AuthenticatedUser, ClientIp, StaffUser};
 #[serde(rename_all = "camelCase")]
 pub struct UpsertFineRuleRequest {
     pub media_type: Option<String>,
+    /// Daily rate as a decimal-euro string (`"0.20"`). Stored as integer cents.
+    #[schema(value_type = String, example = "0.20")]
     pub daily_rate: Decimal,
+    /// Cap as a decimal-euro string. Null means no cap. Stored as integer cents.
+    #[schema(value_type = Option<String>, example = "15.00")]
     pub max_amount: Option<Decimal>,
     #[serde(default)]
     pub grace_days: i32,
@@ -37,7 +41,10 @@ pub struct UpsertFineRuleRequest {
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct UnpaidFinesSummary {
-    pub total_unpaid: Decimal,
+    /// Unpaid remainder as a decimal-euro string (`"12.50"`). Stored as integer cents.
+    #[schema(value_type = String, example = "12.50")]
+    #[serde(with = "euro_string")]
+    pub total_unpaid: Cents,
     pub fines: Vec<Fine>,
 }
 
@@ -411,7 +418,7 @@ fn audit_single_accrue(
             "loanId": result.loan_id.to_string(),
             "userId": result.user_id.to_string(),
             "outcome": result.outcome,
-            "amount": result.breakdown.as_ref().map(|b| b.amount),
+            "amount": result.breakdown.as_ref().map(|b| b.amount.to_euro_string()),
             "overdueDays": result.breakdown.as_ref().map(|b| b.overdue_days),
             "billableDays": result.breakdown.as_ref().map(|b| b.billable_days),
         })),

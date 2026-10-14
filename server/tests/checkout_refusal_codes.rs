@@ -613,7 +613,7 @@ async fn fines_over_threshold_matches_renewal_and_force_still_checks_out() {
     sqlx::query(
         r#"
         INSERT INTO fines (id, loan_id, user_id, amount, paid_amount, status, charge_type)
-        VALUES ($1, $2, $3, 15.00, 0, 'pending', 'overdue')
+        VALUES ($1, $2, $3, 1500, 0, 'pending', 'overdue')
         "#,
     )
     .bind(next_id())

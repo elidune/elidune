@@ -599,7 +599,7 @@ async fn force_audits_fines_over_threshold() {
         .fines_create(
             loan_id,
             reader_id,
-            rust_decimal::Decimal::new(100, 2),
+            elidune_server::models::fine::Cents(100),
             Some("over threshold"),
         )
         .await

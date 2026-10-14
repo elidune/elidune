@@ -418,7 +418,7 @@ pub async fn list_withdrawals(
     security(("bearer_auth" = [])),
     params(WithdrawalQuery),
     responses(
-        (status = 200, description = "One UTF-8 CSV file with a BOM, semicolon separators, and French headers: Code-barres, Titre, Auteur, Cote, Site, Date d'acquisition, Prix d'achat, Motif, Précision, Destination, Date de retrait, Retiré par, Éliminé le, Éliminé par. Dates are DD/MM/YYYY in the library timezone. Prix d'achat reads items.price as decimal euros (12.50 prints 12,50, 0 prints 0,00). Blank, unparseable, and negative prices are empty. Formula-like cells are prefixed with a quote. A null legacy destination is localized.", content_type = "text/csv"),
+        (status = 200, description = "One UTF-8 CSV file with a BOM, semicolon separators, and French headers: Code-barres, Titre, Auteur, Cote, Site, Date d'acquisition, Prix d'achat, Motif, Précision, Destination, Date de retrait, Retiré par, Éliminé le, Éliminé par. Dates are DD/MM/YYYY in the library timezone. Prix d'achat reads items.price (integer cents) as euro text (1250 prints 12,50, 0 prints 0,00). A null price is an empty cell. Formula-like cells are prefixed with a quote. A null legacy destination is localized.", content_type = "text/csv"),
         (status = 400, description = "from and to are required", body = crate::error::ErrorResponse)
     )
 )]

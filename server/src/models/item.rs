@@ -5,7 +5,6 @@
 //! Weeding (`weeding_status`) is orthogonal to `archived_at` and circulation exceptions.
 
 use chrono::{DateTime, NaiveDate, Utc};
-use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use sqlx::FromRow;
@@ -28,19 +27,6 @@ where
 /// Returned as 400 `validation_error` when an item write still sends `notes`.
 pub const LEGACY_ITEM_NOTES_MESSAGE: &str =
     "notes is no longer accepted on item writes. Use publicNote and internalNote.";
-
-/// `items.price` as a decimal euro amount (`"12.50"`, `"15"`, `"0"`).
-///
-/// Blank and unparseable text are `None`. Zero and negative amounts are kept.
-/// Replacement billing drops non-positive amounts after this parse.
-#[must_use]
-pub fn parse_stored_item_price(price: Option<&str>) -> Option<Decimal> {
-    let raw = price?.trim();
-    if raw.is_empty() {
-        return None;
-    }
-    Decimal::from_str_exact(raw).or_else(|_| raw.parse()).ok()
-}
 
 /// Item weeding lifecycle. Stored as snake_case strings; serialized as camelCase.
 ///
@@ -370,7 +356,11 @@ pub struct Item {
     )]
     #[sqlx(default)]
     pub legacy_notes_present: bool,
-    pub price: Option<String>,
+    /// Purchase price as a decimal-euro string (`"12.50"`). Stored as integer cents.
+    /// Null means unknown. `"0.00"` is a free copy.
+    #[schema(value_type = Option<String>, example = "12.50")]
+    #[serde(default, with = "crate::models::fine::euro_string::opt")]
+    pub price: Option<crate::models::fine::Cents>,
     /// Write-only: treat a missing price as an explicit deferral when enabling circulation.
     #[sqlx(default)]
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -481,12 +471,12 @@ impl Item {
         barcode: Option<&str>,
         source_id: Option<i64>,
         source_name: Option<&str>,
-        price: Option<&str>,
+        price: Option<crate::models::fine::Cents>,
         price_deferred: bool,
     ) -> bool {
         let barcode_ok = nonempty(barcode).is_some();
         let site_ok = source_id.is_some() || nonempty(source_name).is_some();
-        let price_ok = price_deferred || nonempty(price).is_some();
+        let price_ok = price_deferred || price.is_some();
         barcode_ok && site_ok && price_ok
     }
 
@@ -654,7 +644,7 @@ mod tests {
             Some("B1"),
             None,
             None,
-            Some("10.00"),
+            Some(crate::models::fine::Cents(1000)),
             false
         ));
         assert!(!Item::ready_to_circulate(
@@ -668,14 +658,14 @@ mod tests {
             None,
             Some(1),
             None,
-            Some("10.00"),
+            Some(crate::models::fine::Cents(1000)),
             false
         ));
         assert!(Item::ready_to_circulate(
             Some("B1"),
             Some(1),
             None,
-            Some("10.00"),
+            Some(crate::models::fine::Cents(1000)),
             false
         ));
         assert!(Item::ready_to_circulate(
@@ -689,7 +679,7 @@ mod tests {
             Some("  "),
             Some(1),
             None,
-            Some("10.00"),
+            Some(crate::models::fine::Cents(1000)),
             false
         ));
     }

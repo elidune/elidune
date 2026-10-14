@@ -465,7 +465,7 @@ async fn replacement_charge_coexists_with_open_overdue_fine() {
         .fines_create(
             loan_id,
             reader_id,
-            rust_decimal::Decimal::new(250, 2),
+            elidune_server::models::fine::Cents(250),
             Some("overdue"),
         )
         .await

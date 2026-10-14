@@ -7,7 +7,6 @@ mod common;
 use axum::http::StatusCode;
 use common::fixtures;
 use common::TestApp;
-use rust_decimal::Decimal;
 use serde_json::{json, Value};
 
 async fn create_site(app: &TestApp, admin_token: &str, name: &str) -> (i64, String) {
@@ -288,7 +287,7 @@ async fn renewal_list_and_renew_share_every_refusal_code() {
         .fines_create(
             fined_loan_id,
             fined_id,
-            Decimal::new(100, 2),
+            elidune_server::models::fine::Cents(100),
             Some("over threshold"),
         )
         .await
@@ -305,7 +304,12 @@ async fn renewal_list_and_renew_share_every_refusal_code() {
     app.state
         .services
         .repository
-        .fines_create(under_loan_id, under_id, Decimal::new(100, 2), Some("under"))
+        .fines_create(
+            under_loan_id,
+            under_id,
+            elidune_server::models::fine::Cents(100),
+            Some("under"),
+        )
         .await
         .expect("create small fine");
     assert_same_refusal(&app, &under_token, under_loan_id, "renewal_too_early").await;

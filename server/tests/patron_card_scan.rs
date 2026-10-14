@@ -581,7 +581,7 @@ async fn lost_card_renewal_refused_with_admin_force_return_and_payment_accepted(
     let fine_id = next_id();
     sqlx::query(
         "INSERT INTO fines (id, loan_id, user_id, amount, paid_amount, status, charge_type)
-         VALUES ($1, $2, $3, 5.00, 0, 'pending', 'overdue')",
+         VALUES ($1, $2, $3, 500, 0, 'pending', 'overdue')",
     )
     .bind(fine_id)
     .bind(loan_id)
@@ -627,7 +627,7 @@ async fn card_scan_unpaid_fines_follow_the_configured_threshold() {
     sqlx::query(
         r#"
         INSERT INTO fines (id, loan_id, user_id, amount, paid_amount, status, charge_type)
-        VALUES ($1, $2, $3, 9.00, 0, 'pending', 'overdue')
+        VALUES ($1, $2, $3, 900, 0, 'pending', 'overdue')
         "#,
     )
     .bind(fine_id)
@@ -643,7 +643,7 @@ async fn card_scan_unpaid_fines_follow_the_configured_threshold() {
     assert_eq!(body["loanStatus"]["blocked"], false, "{body}");
     assert_eq!(reasons(&body), Vec::<&str>::new(), "{body}");
 
-    sqlx::query("UPDATE fines SET amount = 10.00 WHERE id = $1")
+    sqlx::query("UPDATE fines SET amount = 1000 WHERE id = $1")
         .bind(fine_id)
         .execute(app.state.services.repository.pool())
         .await
@@ -657,7 +657,7 @@ async fn card_scan_unpaid_fines_follow_the_configured_threshold() {
     );
     assert!(!reasons(&body).contains(&"unpaid_fines"), "{body}");
 
-    sqlx::query("UPDATE fines SET amount = 10.01 WHERE id = $1")
+    sqlx::query("UPDATE fines SET amount = 1001 WHERE id = $1")
         .bind(fine_id)
         .execute(app.state.services.repository.pool())
         .await
