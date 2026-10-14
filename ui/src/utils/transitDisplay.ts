@@ -96,9 +96,11 @@ export function transitListTitle(transit: ItemTransit): string | null {
 }
 
 /**
- * Reader on a transit row. Card number and initials only.
- * A null reader (cancelled or expired hold) stays null. Initials that contain
- * a space are a name and are dropped.
+ * Reader on a `GET /transits` row. Card number and `patron.initials` only.
+ * A null reader stays null: that route omits `patron` when the transit has no
+ * linked hold, the linked hold is not pending, set aside, or ready, or the
+ * caller cannot see hold patrons. `initials` is the server string (`JD`).
+ * This does not use the shelf label, which prints only the card when one exists.
  */
 export function transitListPatron(transit: ItemTransit): TransitPatron | null {
   const shown = transitPatronParts(transit.patron);
@@ -109,7 +111,7 @@ export function transitListPatron(transit: ItemTransit): TransitPatron | null {
 /**
  * Text for the transit reader cell.
  * Card phrase with initials beside it. Initials alone when there is no card.
- * Null when the reader is absent, blank, or only a name.
+ * Null when the reader is absent or blank. Name fields are not read.
  */
 export function transitPatronLabel(
   patron: TransitPatron | null | undefined,
@@ -129,17 +131,23 @@ function transitPatronParts(patron: TransitPatron | null | undefined): {
 } | null {
   if (!patron) return null;
   const cardNumber = clean(patron.cardNumber);
-  const initials = safeInitials(patron.initials);
+  const initials = serverInitials(patron.initials);
   if (!cardNumber && !initials) return null;
   return { cardNumber, initials };
 }
 
-/** Server initials with dots removed. A value that contains a space is a name. */
-function safeInitials(value: string | null | undefined): string | null {
+/**
+ * `patron.initials` unchanged (`JD`, `J. D.`, `H.H.`, `ÉZ`).
+ * A token of more than two letters is a name and is omitted.
+ */
+function serverInitials(value: string | null | undefined): string | null {
   const text = clean(value);
-  if (!text || /\s/u.test(text)) return null;
-  const compact = text.replace(/\./g, '');
-  return compact || null;
+  if (!text || hasNameToken(text)) return null;
+  return text;
+}
+
+function hasNameToken(text: string): boolean {
+  return text.split(/\s+/u).some((token) => [...token.replace(/\./g, '')].length > 2);
 }
 
 function clean(value: string | null | undefined): string | null {

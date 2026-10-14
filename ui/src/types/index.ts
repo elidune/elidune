@@ -2638,8 +2638,9 @@ export type TransitStatus = 'requested' | 'inTransit' | 'received' | 'cancelled'
 
 /**
  * Reader on a transit. Card number and initials only — never a name.
- * Null when there is no hold, the hold is cancelled or expired, or the caller
- * cannot see hold patrons. Omitted by servers that do not send it yet.
+ * `initials` is shown as returned (`JD` from the server, or a dotted form such as `J. D.`).
+ * Null when the transit has no linked hold, the linked hold is not pending, set aside,
+ * or ready, or the caller cannot see hold patrons. Omitted by servers that do not send it yet.
  */
 export interface TransitPatron {
   cardNumber?: string | null;
