@@ -34,6 +34,21 @@ const ENGLISH_HOLD: &str = "Your library hold is ready for pickup";
 const GERMAN_HOLD: &str = "Ihre Reservierung liegt zur Abholung bereit";
 const SPANISH_HOLD: &str = "Su reserva está disponible";
 
+#[test]
+fn german_and_spanish_hold_ready_templates_include_pickup_site() {
+    for language in ["german", "spanish"] {
+        let path = format!(
+            "{}/data/email_templates/hold_ready.{language}.json",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let raw = std::fs::read_to_string(&path).unwrap_or_else(|_| panic!("read {path}"));
+        assert!(
+            raw.contains("{{pickup_site}}"),
+            "{language} hold_ready template must name the pickup site"
+        );
+    }
+}
+
 fn test_config() -> AppConfig {
     let mut config = AppConfig::for_test();
     config.server.public_base_url = Some("https://library.example.org".into());
