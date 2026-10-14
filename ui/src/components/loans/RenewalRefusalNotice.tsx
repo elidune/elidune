@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle } from 'lucide-react';
-import ConfirmDialog from '@/components/common/ConfirmDialog';
+import ForceCirculationDialog from '@/components/loans/ForceCirculationDialog';
 import ToPickForceLoanDialog from '@/components/loans/ToPickForceLoanDialog';
 import type { RenewalDeskView } from '@/utils/renewalDesk';
 
@@ -9,7 +9,7 @@ export interface RenewalRefusalNoticeProps {
   view: RenewalDeskView | null;
   /** `alert` is the inline sentence. `dialog` is the force / set-aside popup. */
   part?: 'all' | 'alert' | 'dialog';
-  onForce: () => void;
+  onForce: (overrideReason?: string) => void;
   onDismiss: () => void;
   onSetAside: () => void;
   busy?: boolean;
@@ -54,14 +54,15 @@ export default function RenewalRefusalNotice({
         </div>
       )}
       {showDialog && view.kind === 'force' && (
-        <ConfirmDialog
+        <ForceCirculationDialog
           isOpen
-          onClose={onDismiss}
-          onConfirm={onForce}
           message={view.message}
           confirmLabel={t('loans.forceRenew')}
+          reasonRequired={view.reasonRequired}
+          error={view.error}
           isLoading={busy}
-          stackOnTop
+          onCancel={onDismiss}
+          onConfirm={onForce}
         />
       )}
       {showDialog && view.kind === 'setAside' && (
@@ -73,6 +74,8 @@ export default function RenewalRefusalNotice({
           onForce={view.force ? onForce : undefined}
           forceLabel={t('loans.forceRenew')}
           isLoading={busy}
+          reasonRequired={view.reasonRequired}
+          error={view.error}
         />
       )}
     </>

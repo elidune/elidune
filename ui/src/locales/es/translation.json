@@ -1208,6 +1208,7 @@
     "forceLoan": "Forzar préstamo",
     "forceRenew": "Forzar la renovación",
     "forceRenewConfirm": "¿Forzar la renovación de todos modos?",
+    "forceOverrideReason": "Motivo del forzado",
     "pickReady": "Listo para {{patron}}, colocar en el estante de reservas",
     "pickTransit": "Enviar en tránsito a {{site}}",
     "pickPatronUnknown": "otro lector",

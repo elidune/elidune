@@ -1208,6 +1208,7 @@
     "forceLoan": "Force loan",
     "forceRenew": "Force renewal",
     "forceRenewConfirm": "Force the renewal anyway?",
+    "forceOverrideReason": "Reason for forcing",
     "pickReady": "Ready for {{patron}}, put on hold shelf",
     "pickTransit": "Send in transit to {{site}}",
     "pickPatronUnknown": "another reader",

@@ -23,6 +23,8 @@ import { Card, Button, Badge, Modal, Input, Table, ConfirmDialog, MessageModal, 
 import api from '@/services/api';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
 import { deskCheckoutMessage, presentCheckoutRefusal } from '@/utils/deskCheckoutError';
+import { overrideReasonRefusalMessage, trimmedOverrideReason } from '@/utils/circulationForce';
+import ForceCirculationDialog from '@/components/loans/ForceCirculationDialog';
 import RenewalRefusalNotice from '@/components/loans/RenewalRefusalNotice';
 import { presentRenewalRefusal, type RenewalDeskView } from '@/utils/renewalDesk';
 import { closureReasonText } from '@/utils/loanClosure';
@@ -108,13 +110,19 @@ export default function UserDetailPage() {
   const [deleteUserLoading, setDeleteUserLoading] = useState(false);
   const [deleteUserActiveLoansError, setDeleteUserActiveLoansError] = useState(false);
   const [showBorrowModal, setShowBorrowModal] = useState(false);
-  const [forceBorrowDialog, setForceBorrowDialog] = useState<{ message: string; specimenCode: string } | null>(
-    null
-  );
+  const [forceBorrowDialog, setForceBorrowDialog] = useState<{
+    message: string;
+    specimenCode: string;
+    reasonRequired: boolean;
+    error: string | null;
+  } | null>(null);
+  const [forceBorrowLoading, setForceBorrowLoading] = useState(false);
   const [toPickForce, setToPickForce] = useState<{
     specimenCode: string;
     message: string;
     force: boolean;
+    reasonRequired: boolean;
+    error: string | null;
   } | null>(null);
   const [toPickForceLoading, setToPickForceLoading] = useState(false);
   const borrowFormRef = useRef<BorrowFormHandle>(null);
@@ -127,7 +135,7 @@ export default function UserDetailPage() {
   const [loanDetails, setLoanDetails] = useState<LoanListItem | null>(null);
   const [renewError, setRenewError] = useState('');
   const [renewalPrompt, setRenewalPrompt] = useState<RenewalDeskView | null>(null);
-  const renewalRetryRef = useRef<(() => void) | null>(null);
+  const renewalRetryRef = useRef<((overrideReason?: string) => void) | null>(null);
   const renewalBarcodeRef = useRef<string | null>(null);
   const [renewalAsideLoading, setRenewalAsideLoading] = useState(false);
   const [loanAction, setLoanAction] = useState<{ loanId: string; op: 'return' | 'renew' | CirculationExceptionKind } | null>(null);
@@ -503,30 +511,43 @@ export default function UserDetailPage() {
     }
   };
 
-  const handleRenewLoan = async (loanId: string, force = false) => {
+  const handleRenewLoan = async (loanId: string, force = false, overrideReason?: string) => {
     if (loanActionInFlightRef.current) return;
     loanActionInFlightRef.current = true;
     setLoanAction({ loanId, op: 'renew' });
     setRenewError('');
-    setRenewalPrompt(null);
+    if (!force) setRenewalPrompt(null);
     renewalRetryRef.current = null;
     const barcode = activeLoans.find((loan) => loan.id === loanId)?.itemIdentification ?? null;
     try {
-      const renewed = await api.renewLoan(loanId, newIdempotencyKey(), { force: force || undefined });
+      const renewed = await api.renewLoan(loanId, newIdempotencyKey(), { force: force || undefined, overrideReason });
+      setRenewalPrompt(null);
       await refreshLoans();
       showToast({
         variant: 'success',
         message: renewedUntilMessage(renewed.expiryAt, t, i18n.language),
       });
     } catch (error) {
+      const held = overrideReasonRefusalMessage(error);
+      if (force && held !== null) {
+        setRenewalPrompt((current) =>
+          current && current.kind !== 'sentence' ? { ...current, error: held } : current,
+        );
+        renewalBarcodeRef.current = barcode;
+        renewalRetryRef.current = (reason) => {
+          void handleRenewLoan(loanId, true, reason);
+        };
+        return;
+      }
       const next = presentRenewalRefusal(error, { alreadyForced: force, t });
       if (next.kind === 'sentence') {
+        setRenewalPrompt(null);
         setRenewError(next.message);
         showToast({ variant: 'error', message: next.message });
       } else {
         renewalBarcodeRef.current = barcode;
-        renewalRetryRef.current = () => {
-          void handleRenewLoan(loanId, true);
+        renewalRetryRef.current = (reason) => {
+          void handleRenewLoan(loanId, true, reason);
         };
         setRenewalPrompt(next);
       }
@@ -1385,15 +1406,17 @@ export default function UserDetailPage() {
             showToast({ variant: 'success', message: t('loans.checkoutSuccessShort') });
           }}
           canForce={canForceLoan}
-          onBusinessRuleViolation={(msg, specimenCode) => {
+          onBusinessRuleViolation={(msg, specimenCode, reasonRequired) => {
             setShowBorrowModal(false);
             setForceBorrowDialog({
               message: `${msg}\n\n${t('loans.forceBorrowConfirm')}`,
               specimenCode,
+              reasonRequired,
+              error: null,
             });
           }}
           onToPickForOther={(identity, specimenCode) => {
-            setToPickForce({ ...identity, specimenCode });
+            setToPickForce({ ...identity, specimenCode, error: null });
           }}
         />
       </Modal>
@@ -1401,29 +1424,42 @@ export default function UserDetailPage() {
       <ToPickForceLoanDialog
         isOpen={toPickForce !== null}
         message={toPickForce?.message}
+        reasonRequired={toPickForce?.reasonRequired === true}
+        error={toPickForce?.error}
         isLoading={toPickForceLoading}
         onForce={
           toPickForce?.force
-            ? () => {
+            ? (overrideReason) => {
                 const ctx = toPickForce;
                 if (toPickForceLoading) return;
-                setToPickForce(null);
+                const reason = trimmedOverrideReason(overrideReason);
+                setToPickForceLoading(true);
                 void (async () => {
                   try {
                     await api.createLoan({
                       userId: user.id,
                       itemIdentification: ctx.specimenCode,
                       force: true,
+                      ...(reason ? { overrideReason: reason } : {}),
                     }, newIdempotencyKey());
+                    setToPickForce(null);
                     await refreshLoans();
                     showToast({ variant: 'success', message: t('loans.checkoutSuccessShort') });
                     cueBorrowBarcode(true);
                   } catch (error: unknown) {
+                    const held = overrideReasonRefusalMessage(error);
+                    if (held !== null) {
+                      setToPickForce((current) => (current ? { ...current, error: held } : current));
+                      return;
+                    }
+                    setToPickForce(null);
                     showToast({
                       variant: 'error',
                       message: heldSetAsideServerMessage(error, t),
                     });
                     cueBorrowBarcode(false);
+                  } finally {
+                    setToPickForceLoading(false);
                   }
                 })();
               }
@@ -1453,41 +1489,54 @@ export default function UserDetailPage() {
         }}
       />
 
-      <ConfirmDialog
+      <ForceCirculationDialog
         isOpen={forceBorrowDialog !== null}
-        onClose={() => setForceBorrowDialog(null)}
-        onConfirm={() => {
-          const ctx = forceBorrowDialog;
+        message={forceBorrowDialog?.message ?? ''}
+        confirmLabel={t('loans.forceLoan')}
+        reasonRequired={forceBorrowDialog?.reasonRequired === true}
+        error={forceBorrowDialog?.error}
+        isLoading={forceBorrowLoading}
+        onCancel={() => {
+          if (forceBorrowLoading) return;
           setForceBorrowDialog(null);
-          if (!ctx) return;
+        }}
+        onConfirm={(overrideReason) => {
+          const ctx = forceBorrowDialog;
+          if (!ctx || forceBorrowLoading) return;
+          const reason = trimmedOverrideReason(overrideReason);
+          setForceBorrowLoading(true);
           void (async () => {
             try {
               await api.createLoan({
                 userId: user.id,
                 itemIdentification: ctx.specimenCode,
                 force: true,
+                ...(reason ? { overrideReason: reason } : {}),
               }, newIdempotencyKey());
+              setForceBorrowDialog(null);
               await refreshLoans();
               showToast({ variant: 'success', message: t('loans.checkoutSuccessShort') });
             } catch (e) {
+              const held = overrideReasonRefusalMessage(e);
+              if (held !== null) {
+                setForceBorrowDialog((current) => (current ? { ...current, error: held } : current));
+                return;
+              }
+              setForceBorrowDialog(null);
               setBorrowForceError(getApiErrorMessage(e, t) || t('loans.errorCreatingLoan'));
+            } finally {
+              setForceBorrowLoading(false);
             }
           })();
         }}
-        message={forceBorrowDialog?.message ?? ''}
-        confirmLabel={t('loans.forceLoan')}
-        stackOnTop
       />
 
       <RenewalRefusalNotice
         part="dialog"
         view={renewalPrompt}
-        busy={renewalAsideLoading}
-        onForce={() => {
-          const run = renewalRetryRef.current;
-          renewalRetryRef.current = null;
-          setRenewalPrompt(null);
-          run?.();
+        busy={renewalAsideLoading || loanAction?.op === 'renew'}
+        onForce={(reason) => {
+          renewalRetryRef.current?.(reason);
         }}
         onDismiss={() => {
           if (renewalAsideLoading) return;
@@ -1544,9 +1593,9 @@ interface BorrowFormProps {
   onLoadingChange: (loading: boolean) => void;
   onSuccess: () => void;
   canForce: boolean;
-  onBusinessRuleViolation?: (message: string, specimenCode: string) => void;
+  onBusinessRuleViolation?: (message: string, specimenCode: string, reasonRequired: boolean) => void;
   onToPickForOther?: (
-    identity: { message: string; force: boolean },
+    identity: { message: string; force: boolean; reasonRequired: boolean },
     specimenCode: string,
   ) => void;
 }
@@ -1597,7 +1646,10 @@ const BorrowForm = forwardRef<BorrowFormHandle, BorrowFormProps>(function Borrow
       }
       const view = presentCheckoutRefusal(err, { canForce, alreadyForced: force, t });
       if (view.kind === 'setAside') {
-        onToPickForOther?.({ message: view.message, force: view.force }, specimenCode.trim());
+        onToPickForOther?.(
+          { message: view.message, force: view.force, reasonRequired: view.reasonRequired },
+          specimenCode.trim(),
+        );
         return;
       }
       if (errorCode === 'card_lost' || view.kind === 'status') {
@@ -1606,7 +1658,7 @@ const BorrowForm = forwardRef<BorrowFormHandle, BorrowFormProps>(function Borrow
         return;
       }
       if (view.kind === 'force') {
-        onBusinessRuleViolation?.(displayMsg, specimenCode.trim());
+        onBusinessRuleViolation?.(displayMsg, specimenCode.trim(), view.reasonRequired);
         return;
       }
       setError(displayMsg);

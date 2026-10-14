@@ -2999,6 +2999,11 @@ export interface BatchCreateResult {
   error?: string | null;
   /** Server-computed. Missing means the row is not forceable. */
   forceable?: boolean | null;
+  /**
+   * Server `reasonRequired`. Batch checkout cannot send `overrideReason`,
+   * so a true flag offers no force button and no reason field.
+   */
+  reasonRequired?: boolean | null;
   /** Present on `item_status_action_required` (`lost`, `claimedReturned`, `toSearch`, `missing`). */
   itemStatus?: string | null;
 }

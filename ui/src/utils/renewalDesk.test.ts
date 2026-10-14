@@ -280,7 +280,7 @@ describe('staff renewal refusal', () => {
       assert.equal(source.includes('renewalMayForce'), false);
     }
     assert.equal(loans.includes('handleOverdueRenew'), true);
-    assert.match(loans, /renewLoan\(loanId, newIdempotencyKey\(\), \{ force: force \|\| undefined \}\)/);
-    assert.match(reader, /renewLoan\(loanId, newIdempotencyKey\(\), \{ force: force \|\| undefined \}\)/);
+    assert.match(loans, /renewLoan\(loanId, newIdempotencyKey\(\), \{ force: force \|\| undefined, overrideReason \}\)/);
+    assert.match(reader, /renewLoan\(loanId, newIdempotencyKey\(\), \{ force: force \|\| undefined, overrideReason \}\)/);
   });
 });
