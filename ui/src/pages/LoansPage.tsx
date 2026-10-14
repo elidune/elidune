@@ -23,6 +23,7 @@ import CirculationExceptionDialog from '@/components/loans/CirculationExceptionD
 import ClaimsReturnedQueue from '@/components/loans/ClaimsReturnedQueue';
 import LoanExceptionActions from '@/components/loans/LoanExceptionActions';
 import DeskScanNotice from '@/components/loans/DeskScanNotice';
+import ReturnDeskNotice from '@/components/loans/ReturnDeskNotice';
 import ToPickForceLoanDialog from '@/components/loans/ToPickForceLoanDialog';
 import LostFoundAlertDialog from '@/components/loans/LostFoundAlertDialog';
 import Pagination from '@/components/common/Pagination';
@@ -64,6 +65,12 @@ import {
   readItemToPickForOther,
   type PickCheckInNotice,
 } from '@/utils/toPickDesk';
+import {
+  returnNoticeMessage,
+  returnNoticeOffersLostFound,
+  returnScanFeedback,
+  type ReturnDeskNotice as ReturnDeskNoticeModel,
+} from '@/utils/returnNotice';
 import { sourceLabel } from '@/utils/transitDisplay';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
@@ -107,9 +114,10 @@ type LostFoundSummary = {
 
 type ReturnView =
   | { kind: 'loan'; loan: Loan }
-  | { kind: 'pick'; notice: PickCheckInNotice }
+  | { kind: 'pick'; notice: PickCheckInNotice; deskNotice?: ReturnDeskNoticeModel | null }
   | { kind: 'item'; title: string | null; barcode: string | null; availability: string | null }
-  | ({ kind: 'lostFound' } & LostFoundSummary);
+  | ({ kind: 'lostFound' } & LostFoundSummary)
+  | { kind: 'deskNotice'; notice: ReturnDeskNoticeModel; putBack: boolean; barcode: string | null };
 
 type CheckoutScanAlert = DeskScanAlert & { barcode: string; loanId?: string | null };
 type DeskLoanOp = 'return' | 'renew' | CirculationExceptionKind;
@@ -191,12 +199,16 @@ export default function LoansPage() {
   const [returnBarcodeInput, setReturnBarcodeInput] = useState('');
   const returnBarcodeInputRef = useRef<HTMLInputElement>(null);
   const [returnResult, setReturnResult] = useState<ReturnView | null>(null);
+  const returnResultRef = useRef<ReturnView | null>(null);
+  returnResultRef.current = returnResult;
   const [isProcessingReturn, setIsProcessingReturn] = useState(false);
   const [returnError, setReturnError] = useState('');
   const [lostFound, setLostFound] = useState<(LostReturnFields & { itemId: string | null }) | null>(null);
   const [lostFoundError, setLostFoundError] = useState<string | null>(null);
   const [lostFoundPending, setLostFoundPending] = useState<LostFoundDisposition | null>(null);
+  const [lostFoundLookup, setLostFoundLookup] = useState(false);
   const lostFoundOpenRef = useRef(false);
+  const lostFoundLookupRef = useRef(false);
   const lostFoundFlightRef = useRef(false);
   useEffect(() => {
     lostFoundOpenRef.current = lostFound !== null;
@@ -333,6 +345,36 @@ export default function LoansPage() {
     };
   }, [activeTab, isProcessingReturn, returnResult, lostFound]);
 
+  const showLostFound = useCallback(
+    (
+      fields: LostReturnFields & { itemId: string | null },
+      summary: { title: string | null; barcode: string | null; patronName: string | null },
+    ) => {
+      setLostFoundPending(null);
+      setLostFoundError(fields.itemId ? null : t('loans.lostFound.errorNotFound'));
+      setLostFound({
+        itemId: fields.itemId,
+        wasLost: true,
+        fineId: fields.fineId,
+        fineStatus: fields.fineStatus,
+        fineAmount: fields.fineAmount,
+        paidAmount: fields.paidAmount,
+      });
+      setReturnResult({
+        kind: 'lostFound',
+        title: summary.title,
+        barcode: summary.barcode,
+        patronName: summary.patronName,
+        foundAt: new Date().toISOString(),
+        action: null,
+        feeText: lostFoundPanelFee(null, fields, null, i18n.language, (key, values) =>
+          String(t(key, values)),
+        ),
+      });
+    },
+    [i18n.language, t],
+  );
+
   const openLostFound = useCallback(
     async (
       result: ItemCheckIn,
@@ -349,31 +391,50 @@ export default function LoansPage() {
           itemId = null;
         }
       }
-      setLostFoundPending(null);
-      setLostFoundError(itemId ? null : t('loans.lostFound.errorNotFound'));
-      setLostFound({
-        itemId,
-        wasLost: true,
-        fineId: result.fineId,
-        fineStatus: result.fineStatus,
-        fineAmount: result.fineAmount,
-        paidAmount: result.paidAmount,
-      });
       const loan = result.loan ?? null;
-      setReturnResult({
-        kind: 'lostFound',
-        title: loan?.biblio?.title?.trim() || null,
-        barcode: (loan?.itemIdentification ?? barcode ?? '').trim() || null,
-        patronName: readerName(loan?.user, canReadBorrowers),
-        foundAt: new Date().toISOString(),
-        action: null,
-        feeText: lostFoundPanelFee(null, result, null, i18n.language, (key, values) =>
-          String(t(key, values)),
-        ),
-      });
+      showLostFound(
+        {
+          itemId,
+          wasLost: true,
+          fineId: result.fineId,
+          fineStatus: result.fineStatus,
+          fineAmount: result.fineAmount,
+          paidAmount: result.paidAmount,
+        },
+        {
+          title: loan?.biblio?.title?.trim() || null,
+          barcode: (loan?.itemIdentification ?? barcode ?? '').trim() || null,
+          patronName: readerName(loan?.user, canReadBorrowers),
+        },
+      );
       return true;
     },
-    [canReadBorrowers, i18n.language, t],
+    [canReadBorrowers, showLostFound],
+  );
+
+  const openLostFoundByBarcode = useCallback(
+    async (barcode: string) => {
+      const trimmed = barcode.trim();
+      if (!trimmed || lostFoundLookupRef.current || lostFoundFlightRef.current) return;
+      lostFoundLookupRef.current = true;
+      setLostFoundLookup(true);
+      try {
+        let itemId: string | null = null;
+        try {
+          const notice = await api.getItemByBarcode(trimmed);
+          itemId = itemIdFromCopies(notice.items, trimmed);
+        } catch {
+          itemId = null;
+        }
+        const current = returnResultRef.current;
+        if (current?.kind !== 'deskNotice' || current.barcode !== trimmed) return;
+        showLostFound({ itemId, wasLost: true }, { title: null, barcode: trimmed, patronName: null });
+      } finally {
+        lostFoundLookupRef.current = false;
+        setLostFoundLookup(false);
+      }
+    },
+    [showLostFound],
   );
 
   const dismissLostFound = useCallback(() => {
@@ -956,6 +1017,14 @@ export default function LoansPage() {
 
     try {
       const result = await api.returnLoanByBarcode(barcode);
+      const pick = interpretPickCheckIn(result);
+      const feedback = returnScanFeedback(result, { pick: Boolean(pick), hasLoan: Boolean(result.loan) });
+      if (feedback.toast === 'none' && feedback.notice) {
+        setReturnScanAlert(null);
+        setReturnResult({ kind: 'deskNotice', notice: feedback.notice, putBack: false, barcode });
+        setReturnBarcodeInput('');
+        return;
+      }
       setReturnScanAlert(deskScanAlertAfterReturn(result, canReadBorrowers));
       setCheckoutScanAlert((current) =>
         checkoutAlertAfterSuccessfulReturn(current, {
@@ -967,10 +1036,9 @@ export default function LoansPage() {
         setReturnBarcodeInput('');
         return;
       }
-      const pick = interpretPickCheckIn(result);
       if (pick) {
         const notice = await resolvePickNotice(pick);
-        setReturnResult({ kind: 'pick', notice });
+        setReturnResult({ kind: 'pick', notice, deskNotice: feedback.notice });
         const message =
           notice.kind === 'ready'
             ? t('loans.pickReady', { patron: notice.patronName?.trim() || t('loans.pickPatronUnknown') })
@@ -979,6 +1047,12 @@ export default function LoansPage() {
       } else if (result.loan) {
         setReturnResult({ kind: 'loan', loan: result.loan });
         showToast({ variant: 'success', message: t('loans.returnSuccess') });
+      } else if (feedback.toast === 'info' && feedback.notice) {
+        setReturnResult({ kind: 'deskNotice', notice: feedback.notice, putBack: true, barcode });
+        showToast({
+          variant: 'info',
+          message: returnNoticeMessage(feedback.notice, (key, values) => String(t(key, values)), { putBack: true }),
+        });
       } else {
         setReturnResult(null);
         showToast({ variant: 'success', message: t('loans.returnSuccess') });
@@ -1647,6 +1721,27 @@ export default function LoansPage() {
                     />
                   </form>
                   {returnScanAlert ? <DeskScanNotice alert={returnScanAlert} place="return" /> : null}
+                  {returnResult?.kind === 'deskNotice' ? (
+                    <div className="mt-3">
+                      <ReturnDeskNotice
+                        notice={returnResult.notice}
+                        putBack={returnResult.putBack}
+                        finding={lostFoundLookup}
+                        onFound={
+                          returnResult.barcode && returnNoticeOffersLostFound(returnResult.notice)
+                            ? () => {
+                                void openLostFoundByBarcode(returnResult.barcode ?? '');
+                              }
+                            : undefined
+                        }
+                      />
+                    </div>
+                  ) : null}
+                  {returnResult?.kind === 'pick' && returnResult.deskNotice ? (
+                    <div className="mt-3">
+                      <ReturnDeskNotice notice={returnResult.deskNotice} />
+                    </div>
+                  ) : null}
                   {returnError && (
                     <div
                       role="alert"
@@ -1706,6 +1801,23 @@ export default function LoansPage() {
                   canReadBorrowers={canReadBorrowers}
                 />
               )}
+              {returnResult?.kind === 'deskNotice' && (
+                <ReturnDeskNotice
+                  notice={returnResult.notice}
+                  putBack={returnResult.putBack}
+                  finding={lostFoundLookup}
+                  onFound={
+                    returnResult.barcode && returnNoticeOffersLostFound(returnResult.notice)
+                      ? () => {
+                          void openLostFoundByBarcode(returnResult.barcode ?? '');
+                        }
+                      : undefined
+                  }
+                />
+              )}
+              {returnResult?.kind === 'pick' && returnResult.deskNotice ? (
+                <ReturnDeskNotice notice={returnResult.deskNotice} />
+              ) : null}
               {returnResult?.kind === 'pick' && (
                 <PickCheckInBanner notice={returnResult.notice} t={t} />
               )}
@@ -2097,17 +2209,31 @@ export default function LoansPage() {
             try {
               const result = await api.returnLoanByBarcode(barcode);
               const pick = interpretPickCheckIn(result);
+              const feedback = returnScanFeedback(result, { pick: Boolean(pick), hasLoan: Boolean(result.loan) });
               setToPickAside(null);
               setReturnBarcodeInput('');
               setReturnError('');
               setReturnScanAlert(null);
+              if (feedback.toast === 'none' && feedback.notice) {
+                setReturnResult({ kind: 'deskNotice', notice: feedback.notice, putBack: false, barcode });
+                setActiveTab('return');
+                return;
+              }
               if (pick) {
-                setReturnResult({ kind: 'pick', notice: pick });
+                setReturnResult({ kind: 'pick', notice: pick, deskNotice: feedback.notice });
                 const message =
                   pick.kind === 'ready'
                     ? t('loans.pickReady', { patron: pick.patronName?.trim() || t('loans.pickPatronUnknown') })
                     : t('loans.pickTransit', { site: pick.siteName?.trim() || t('loans.pickSiteUnknown') });
                 showToast({ variant: 'success', message });
+              } else if (feedback.toast === 'info' && feedback.notice) {
+                setReturnResult({ kind: 'deskNotice', notice: feedback.notice, putBack: true, barcode });
+                showToast({
+                  variant: 'info',
+                  message: returnNoticeMessage(feedback.notice, (key, values) => String(t(key, values)), {
+                    putBack: true,
+                  }),
+                });
               } else {
                 setReturnResult(null);
                 showToast({ variant: 'success', message: t('loans.returnSuccess') });
