@@ -196,6 +196,10 @@ pub struct BatchCreateLoansRequest {
     /// (reserved-item override is tracked in #167).
     #[serde(default)]
     pub force: bool,
+    /// Desk site (`sources.id`) stored on every loan in the batch.
+    /// Omit it to leave `loans.site_id` null.
+    #[serde(default)]
+    pub site_id: Option<String>,
 }
 
 /// Batch create response
@@ -251,6 +255,12 @@ pub async fn batch_create_loans(
         .user_id
         .parse()
         .map_err(|_| crate::error::AppError::Validation("Invalid userId format".to_string()))?;
+    let site_id = match req.site_id.as_deref() {
+        None | Some("") => None,
+        Some(raw) => Some(raw.parse::<i64>().map_err(|_| {
+            crate::error::AppError::Validation("Invalid siteId format".to_string())
+        })?),
+    };
 
     if req.barcodes.is_empty() {
         return Err(crate::error::AppError::Validation(
@@ -268,6 +278,7 @@ pub async fn batch_create_loans(
             item_id: None,
             item_identification: Some(barcode.clone()),
             force: req.force,
+            site_id,
         };
         match state
             .services

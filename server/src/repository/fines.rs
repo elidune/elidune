@@ -578,7 +578,7 @@ impl Repository {
                 l.returned_at,
                 b.media_type,
                 u.status AS user_status,
-                it.source_id AS site_id
+                COALESCE(l.site_id, it.source_id) AS site_id
             FROM loans l
             JOIN items it ON l.item_id = it.id
             JOIN biblios b ON it.biblio_id = b.id
@@ -609,7 +609,7 @@ impl Repository {
                 l.returned_at,
                 b.media_type,
                 u.status AS user_status,
-                it.source_id AS site_id
+                COALESCE(l.site_id, it.source_id) AS site_id
             FROM loans l
             JOIN items it ON l.item_id = it.id
             JOIN biblios b ON it.biblio_id = b.id

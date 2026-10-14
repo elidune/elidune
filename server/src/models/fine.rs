@@ -453,6 +453,7 @@ pub struct FineAccrualLoan {
     pub returned_at: Option<DateTime<Utc>>,
     pub media_type: Option<String>,
     pub user_status: UserStatus,
-    /// Loan site (`items.source_id`). Network-wide closures still apply when this is null.
+    /// Loan site: `loans.site_id`, or `items.source_id` when the loan has none.
+    /// Network-wide closures still apply when this is null.
     pub site_id: Option<i64>,
 }

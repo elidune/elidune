@@ -1186,6 +1186,7 @@ mod tests {
             Ok(LoanCreateOutcome {
                 loan_id: self.loan_id,
                 expiry_at: Utc::now(),
+                site_id: None,
                 fulfilled_hold_id: None,
             })
         }
@@ -1588,6 +1589,7 @@ mod tests {
             returned_at: None,
             last_reminder_sent_at: None,
             reminder_count: None,
+            site_id: None,
         }
     }
 
@@ -1601,6 +1603,7 @@ mod tests {
             item_id: Some(42),
             item_identification: None,
             force,
+            site_id: None,
         }
     }
 

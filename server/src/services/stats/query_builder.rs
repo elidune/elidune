@@ -205,7 +205,7 @@ fn build_union_from_clause(entity: &str, union_with: &[String]) -> Result<String
         })?;
         let lit = name.replace('\'', "''");
         parts.push(format!(
-            r#"SELECT '{}'::text AS __union_source, id, user_id, item_id, date, expiry_at, returned_at, nb_renews FROM {}"#,
+            r#"SELECT '{}'::text AS __union_source, id, user_id, item_id, date, expiry_at, returned_at, nb_renews, site_id FROM {}"#,
             lit, def.table
         ));
     }
@@ -425,6 +425,11 @@ mod tests {
         assert!(built.data_sql.contains(r#"AS "loans""#));
         assert!(built.data_sql.contains("loans_archives"));
         assert!(built.data_sql.contains("__union_source"));
+        assert!(
+            built.data_sql.contains("site_id"),
+            "union projection must expose loans.site_id: {}",
+            built.data_sql
+        );
     }
 
     #[test]

@@ -1423,25 +1423,26 @@ impl Repository {
         };
 
         // --- Merge loan counts into breakdown structures ---
-        // All loans (active + archived) grouped by (source_id, media_type, public_type)
-        // via items for both tables.
+        // All loans (active + archived) grouped by loan site, media type, and
+        // public type. `loans.site_id` is the desk. Historical rows leave it
+        // null and fall back to the item home site (`items.source_id`).
 
         let loan_rows = sqlx::query(
             r#"
                 SELECT
-                    COALESCE(sp.source_id, 0) as source_id,
+                    COALESCE(all_loans.site_id, sp.source_id, 0) as source_id,
                     COALESCE(i.media_type, 'unknown') as media_type,
                     COALESCE(i.audience_type, 'unknown') as public_type,
                     COUNT(*) as loans
                 FROM (
-                    SELECT item_id, date FROM loans
+                    SELECT item_id, date, site_id FROM loans
                     UNION ALL
-                    SELECT item_id, date FROM loans_archives
+                    SELECT item_id, date, site_id FROM loans_archives
                 ) all_loans
                 JOIN items sp ON all_loans.item_id = sp.id
                 JOIN biblios i ON sp.biblio_id = i.id
                 WHERE all_loans.date >= $1 AND all_loans.date <= $2
-                GROUP BY sp.source_id, i.media_type, i.audience_type
+                GROUP BY COALESCE(all_loans.site_id, sp.source_id, 0), i.media_type, i.audience_type
                 "#,
         )
         .bind(start)
@@ -1507,6 +1508,43 @@ impl Repository {
                     }
                 }
             }
+
+            // A loan can be made at a site that owns no copies. Item rows never
+            // list that site, so append it from the loan map.
+            let present: std::collections::HashSet<i64> =
+                sources.iter().map(|source| source.source_id).collect();
+            let missing: Vec<i64> = loan_map
+                .keys()
+                .copied()
+                .filter(|id| *id != 0 && !present.contains(id))
+                .collect();
+            if !missing.is_empty() {
+                let name_rows = sqlx::query(
+                    "SELECT id, COALESCE(name, 'unknown') AS name FROM sources WHERE id = ANY($1)",
+                )
+                .bind(&missing)
+                .fetch_all(pool)
+                .await?;
+                for row in name_rows {
+                    let sid: i64 = row.get("id");
+                    let source_name: String = row.get("name");
+                    let Some(media_map) = loan_map.get(&sid) else {
+                        continue;
+                    };
+                    let (by_media_type, by_public_type) =
+                        loan_only_site_breakdown(media_map, by_media_type, by_public_type);
+                    sources.push(crate::models::dto::stats::CatalogSourceStats {
+                        source_id: sid,
+                        source_name,
+                        active_items: 0,
+                        entered_items: 0,
+                        archived_items: 0,
+                        loans: media_map.values().flat_map(|pm| pm.values()).sum(),
+                        by_media_type,
+                        by_public_type,
+                    });
+                }
+            }
         }
 
         // Merge into top-level by_media_type (sum across all sources)
@@ -1548,4 +1586,75 @@ impl Repository {
             by_public_type: by_public_type_data,
         })
     }
+}
+
+/// Breakdown for a site that has loans and no item rows. Item counts stay zero.
+fn loan_only_site_breakdown(
+    media_map: &HashMap<String, HashMap<String, i64>>,
+    by_media_type: bool,
+    by_public_type: bool,
+) -> (
+    Option<Vec<crate::models::dto::stats::CatalogBreakdownStats>>,
+    Option<Vec<crate::models::dto::stats::CatalogBreakdownStats>>,
+) {
+    use crate::models::dto::stats::CatalogBreakdownStats;
+
+    if by_media_type {
+        let mut medias: Vec<CatalogBreakdownStats> = media_map
+            .iter()
+            .map(|(label, publics)| {
+                let nested = if by_public_type {
+                    let mut rows: Vec<CatalogBreakdownStats> = publics
+                        .iter()
+                        .map(|(public_label, loans)| CatalogBreakdownStats {
+                            label: public_label.clone(),
+                            active_items: 0,
+                            entered_items: 0,
+                            archived_items: 0,
+                            loans: *loans,
+                            by_public_type: None,
+                        })
+                        .collect();
+                    rows.sort_by(|a, b| b.loans.cmp(&a.loans));
+                    Some(rows)
+                } else {
+                    None
+                };
+                CatalogBreakdownStats {
+                    label: label.clone(),
+                    active_items: 0,
+                    entered_items: 0,
+                    archived_items: 0,
+                    loans: publics.values().sum(),
+                    by_public_type: nested,
+                }
+            })
+            .collect();
+        medias.sort_by(|a, b| b.loans.cmp(&a.loans));
+        return (Some(medias), None);
+    }
+
+    if by_public_type {
+        let mut totals: HashMap<String, i64> = HashMap::new();
+        for publics in media_map.values() {
+            for (label, loans) in publics {
+                *totals.entry(label.clone()).or_insert(0) += loans;
+            }
+        }
+        let mut rows: Vec<CatalogBreakdownStats> = totals
+            .into_iter()
+            .map(|(label, loans)| CatalogBreakdownStats {
+                label,
+                active_items: 0,
+                entered_items: 0,
+                archived_items: 0,
+                loans,
+                by_public_type: None,
+            })
+            .collect();
+        rows.sort_by(|a, b| b.loans.cmp(&a.loans));
+        return (None, Some(rows));
+    }
+
+    (None, None)
 }

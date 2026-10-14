@@ -89,6 +89,10 @@ pub struct LoanDetailsView {
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub item_id: i64,
+    /// Desk site at checkout. Null when the loan has no recorded site.
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub site_id: Option<i64>,
     pub start_date: DateTime<Utc>,
     pub expiry_at: DateTime<Utc>,
     pub renewal_date: Option<DateTime<Utc>>,
@@ -113,6 +117,7 @@ impl LoanDetailsView {
         Self {
             id: loan.id,
             item_id: loan.item_id,
+            site_id: loan.site_id,
             start_date: loan.start_date,
             expiry_at: loan.expiry_at,
             renewal_date: loan.renewal_date,
@@ -185,6 +190,12 @@ pub struct CreateLoanRequest {
     /// whether or not this flag is set, including for admins. Reserved-item override
     /// is tracked in #167.
     pub force: Option<bool>,
+    /// Desk site (`sources.id`) where the loan is made. Stored on `loans.site_id`.
+    /// Omit it to leave the column null; due date, renewal, and fines then follow
+    /// the item home site (`items.source_id`). An unknown id is 404 `not_found`.
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub site_id: Option<i64>,
 }
 
 /// Optional staff override for renew.
@@ -202,6 +213,7 @@ struct LoanCreatedAudit {
     item_id: Option<i64>,
     item_identification: Option<String>,
     force: bool,
+    site_id: Option<i64>,
     expiry_at: DateTime<Utc>,
 }
 
@@ -235,6 +247,10 @@ pub struct LoanResponse {
     #[schema(value_type = String)]
     pub id: i64,
     pub expiry_at: DateTime<Utc>,
+    /// Desk site stored on the loan. Null when the request omitted `siteId`.
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub site_id: Option<i64>,
     pub message: String,
 }
 
@@ -675,6 +691,7 @@ pub async fn create_loan(
         "itemId": request.item_id.map(|id| id.to_string()),
         "itemIdentification": request.item_identification,
         "force": force,
+        "siteId": request.site_id.map(|id| id.to_string()),
     });
 
     let (status, body) = idempotency::execute(
@@ -691,6 +708,7 @@ pub async fn create_loan(
                 item_id: request.item_id,
                 item_identification: request.item_identification.clone(),
                 force,
+                site_id: request.site_id,
             };
             let caller_rights = claims.rights.clone();
             async move {
@@ -713,6 +731,7 @@ async fn create_loan_inner(
     let item_id = loan.item_id;
     let item_identification = loan.item_identification.clone();
     let force = loan.force;
+    let site_id = loan.site_id;
 
     let outcome = match state
         .services
@@ -733,6 +752,7 @@ async fn create_loan_inner(
                     item_id,
                     item_identification,
                     force,
+                    site_id,
                     expiry_at: Utc::now(),
                 }),
                 audit::AuditLogMeta::from_app_error(&e),
@@ -754,6 +774,7 @@ async fn create_loan_inner(
             item_id,
             item_identification,
             force,
+            site_id,
             expiry_at,
         }),
         audit::AuditLogMeta::success(),
@@ -764,6 +785,7 @@ async fn create_loan_inner(
         LoanResponse {
             id: loan_id,
             expiry_at,
+            site_id: outcome.site_id,
             message: "Item borrowed successfully".to_string(),
         },
     ))
@@ -922,6 +944,12 @@ async fn renew_loan_inner(
         .loans
         .renew_loan(loan_id, force, Some(actor_id), ip.clone())
         .await?;
+    let site_id = state
+        .services
+        .repository
+        .loans_get_by_id(loan_id)
+        .await?
+        .site_id;
 
     state.services.audit.log(
         audit::event::LOAN_RENEWED,
@@ -941,6 +969,7 @@ async fn renew_loan_inner(
         LoanResponse {
             id: loan_id,
             expiry_at: new_expiry_date,
+            site_id,
             message: format!("Loan renewed ({} renewals)", renew_count),
         },
     ))
@@ -1148,6 +1177,12 @@ async fn renew_loan_by_item_inner(
         .loans
         .renew_loan_by_item(&item_id, force, Some(actor_id), ip.clone())
         .await?;
+    let site_id = state
+        .services
+        .repository
+        .loans_get_by_id(loan_id)
+        .await?
+        .site_id;
 
     state.services.audit.log(
         audit::event::LOAN_RENEWED,
@@ -1168,6 +1203,7 @@ async fn renew_loan_by_item_inner(
         LoanResponse {
             id: loan_id,
             expiry_at: new_expiry_date,
+            site_id,
             message: format!("Loan renewed ({} renewals)", renew_count),
         },
     ))

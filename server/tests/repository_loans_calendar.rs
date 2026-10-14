@@ -20,11 +20,16 @@ use tokio::sync::Mutex;
 static CALENDAR_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 fn create_loan(user_id: i64, item_id: i64) -> CreateLoan {
+    create_loan_at(user_id, item_id, None)
+}
+
+fn create_loan_at(user_id: i64, item_id: i64, site_id: Option<i64>) -> CreateLoan {
     CreateLoan {
         user_id,
         item_id: Some(item_id),
         item_identification: None,
         force: false,
+        site_id,
     }
 }
 
@@ -959,6 +964,186 @@ async fn return_after_closure_is_not_fined_for_closed_days() {
         open_days - closed_days,
         21,
         "site closure must drop exactly those 21 days (open {open_days}, site {closed_days})"
+    );
+
+    delete_closures(&app, &ids).await;
+}
+
+/// Item home site A, checkout recorded at site B: due date, renewal, and the
+/// stored column follow B. A loan with no recorded site still follows A.
+#[tokio::test]
+async fn loan_recorded_at_another_site_follows_that_sites_closures() {
+    let _guard = CALENDAR_LOCK.lock().await;
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "caldesk").await;
+    let site_a = create_site(&app, &admin_token, "HomeA").await;
+    let site_b = create_site(&app, &admin_token, "DeskB").await;
+    let repo = app.state.services.repository.as_ref();
+
+    let probe = seed_item_at(&app, &admin_token, "CALPROBE", Some(site_b)).await;
+    let open_checkout = repo
+        .loans_create(&create_loan(reader_id, probe))
+        .await
+        .expect("probe checkout");
+    let open_due = local_date(paris(), open_checkout.expiry_at);
+    let closure_id = closure_on(&app, open_due, Some(site_b), "desk closed").await;
+
+    let away = seed_item_at(&app, &admin_token, "CALAWAY", Some(site_a)).await;
+    let at_desk = repo
+        .loans_create(&create_loan_at(reader_id, away, Some(site_b)))
+        .await
+        .expect("checkout at desk B");
+    let desk_due = local_date(paris(), at_desk.expiry_at);
+    assert_ne!(
+        desk_due, open_due,
+        "site B closure on {open_due} must move a loan made at B"
+    );
+    assert!(desk_due > open_due, "{desk_due} should follow {open_due}");
+    let stored_desk: Option<i64> = sqlx::query_scalar("SELECT site_id FROM loans WHERE id = $1")
+        .bind(at_desk.loan_id)
+        .fetch_one(repo.pool())
+        .await
+        .expect("read loan site");
+    assert_eq!(stored_desk, Some(site_b));
+
+    let home_item = seed_item_at(&app, &admin_token, "CALHOME", Some(site_a)).await;
+    let at_home = repo
+        .loans_create(&create_loan(reader_id, home_item))
+        .await
+        .expect("checkout with no recorded site");
+    assert_eq!(
+        local_date(paris(), at_home.expiry_at),
+        open_due,
+        "a null loan site follows the item home site, which is open"
+    );
+    let stored_home: Option<i64> = sqlx::query_scalar("SELECT site_id FROM loans WHERE id = $1")
+        .bind(at_home.loan_id)
+        .fetch_one(repo.pool())
+        .await
+        .expect("read null loan site");
+    assert_eq!(stored_home, None);
+
+    sqlx::query("UPDATE loans SET expiry_at = NOW() WHERE id = $1 OR id = $2")
+        .bind(at_desk.loan_id)
+        .bind(at_home.loan_id)
+        .execute(repo.pool())
+        .await
+        .expect("anchor both renewals on today");
+    let (renewed_home, _) = repo
+        .loans_renew(at_home.loan_id, false)
+        .await
+        .expect("renew home-site loan");
+    let (renewed_desk, _) = repo
+        .loans_renew(at_desk.loan_id, false)
+        .await
+        .expect("renew desk-site loan");
+    let home_renewed = local_date(paris(), renewed_home);
+    let desk_renewed = local_date(paris(), renewed_desk);
+    assert_eq!(home_renewed, open_due, "home renewal stays on the open day");
+    assert!(
+        desk_renewed > home_renewed,
+        "renewal at site B must slide past {home_renewed}, got {desk_renewed}"
+    );
+
+    delete_closures(&app, &[closure_id]).await;
+}
+
+/// Overdue days follow the recorded loan site, not the copy's home site.
+#[tokio::test]
+async fn fine_uses_recorded_loan_site_not_item_home() {
+    let _guard = CALENDAR_LOCK.lock().await;
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_desk, _) = fixtures::create_reader(&app, &admin_token, "finedesk").await;
+    let (reader_home, _) = fixtures::create_reader(&app, &admin_token, "finehome").await;
+    let home = create_site(&app, &admin_token, "FineHome").await;
+    let desk = create_site(&app, &admin_token, "FineDesk").await;
+    let desk_item = seed_item_at(&app, &admin_token, "FINEDESK", Some(home)).await;
+    let home_item = seed_item_at(&app, &admin_token, "FINEHOME", Some(home)).await;
+    let repo = app.state.services.repository.as_ref();
+
+    let at_desk = repo
+        .loans_create(&create_loan_at(reader_desk, desk_item, Some(desk)))
+        .await
+        .expect("checkout at desk");
+    let at_home = repo
+        .loans_create(&create_loan(reader_home, home_item))
+        .await
+        .expect("checkout at item home");
+
+    let today = local_date(paris(), Utc::now());
+    let due = today - Duration::days(30);
+    let noon = chrono::NaiveTime::from_hms_opt(12, 0, 0).expect("noon");
+    let expiry = calendar::local_to_utc(paris(), due, noon).expect("due noon");
+    sqlx::query("UPDATE loans SET expiry_at = $2 WHERE id = $1 OR id = $3")
+        .bind(at_desk.loan_id)
+        .bind(expiry)
+        .bind(at_home.loan_id)
+        .execute(repo.pool())
+        .await
+        .expect("backdate both loans");
+
+    let opening = repo
+        .schedules_opening_calendar(due, today)
+        .await
+        .expect("calendar");
+    let mut to_close = Vec::new();
+    let mut cursor = due;
+    while let Some(next) = cursor.succ_opt() {
+        if next > today {
+            break;
+        }
+        if opening.is_open_on(Some(desk), next) && opening.is_open_on(Some(home), next) {
+            to_close.push(next);
+            if to_close.len() == 21 {
+                break;
+            }
+        }
+        cursor = next;
+    }
+    assert!(
+        to_close.len() >= 21,
+        "need 21 open days to close, found {}",
+        to_close.len()
+    );
+    let mut ids = Vec::new();
+    for date in &to_close {
+        ids.push(closure_on(&app, *date, Some(desk), "desk fine closure").await);
+    }
+
+    let desk_result = app
+        .state
+        .services
+        .fines
+        .accrue_loan(at_desk.loan_id)
+        .await
+        .expect("accrue desk loan");
+    let home_result = app
+        .state
+        .services
+        .fines
+        .accrue_loan(at_home.loan_id)
+        .await
+        .expect("accrue home loan");
+    let desk_days = desk_result
+        .breakdown
+        .as_ref()
+        .expect("desk breakdown")
+        .overdue_days;
+    let home_days = home_result
+        .breakdown
+        .as_ref()
+        .expect("home breakdown")
+        .overdue_days;
+    assert_eq!(
+        home_days - desk_days,
+        21,
+        "closures of the loan site drop those days (home {home_days}, desk {desk_days})"
     );
 
     delete_closures(&app, &ids).await;

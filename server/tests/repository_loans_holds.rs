@@ -33,6 +33,7 @@ fn create_loan(user_id: i64, item_id: i64, force: bool) -> CreateLoan {
         item_id: Some(item_id),
         item_identification: None,
         force,
+        site_id: None,
     }
 }
 

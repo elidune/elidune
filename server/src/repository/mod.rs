@@ -101,7 +101,8 @@ impl Repository {
 
     /// `anchor + duration_days`, then the next open day of `site_id` when
     /// [`Self::skip_closed_days`] is on. The civil date is the library timezone,
-    /// not the container zone. `site_id` is the loan site (`items.source_id`).
+    /// not the container zone. `site_id` is [`crate::services::calendar::loan_calendar_site`]:
+    /// `loans.site_id`, or `items.source_id` when the loan has no recorded site.
     ///
     /// `conn` is the caller's connection. Checkout and renew pass the transaction
     /// that holds `FOR UPDATE` so calendar reads do not take a second pool connection.

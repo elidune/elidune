@@ -28,6 +28,9 @@ pub struct Loan {
     pub returned_at: Option<DateTime<Utc>>,
     pub last_reminder_sent_at: Option<DateTime<Utc>>,
     pub reminder_count: Option<i32>,
+    /// Desk site at checkout (`sources.id`). Null on loans that predate the column.
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    pub site_id: Option<i64>,
 }
 
 /// Why a loan was closed. Finding a lost copy does not change this.
@@ -71,6 +74,10 @@ pub struct LoanDetails {
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub item_id: i64,
+    /// Desk site at checkout. Null when the loan has no recorded site.
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub site_id: Option<i64>,
     pub start_date: DateTime<Utc>,
     pub expiry_at: DateTime<Utc>,
     pub renewal_date: Option<DateTime<Utc>>,
@@ -113,6 +120,8 @@ pub struct HoldReadyEmailOutcome {
 pub struct LoanCreateOutcome {
     pub loan_id: i64,
     pub expiry_at: DateTime<Utc>,
+    /// Desk site stored on the loan. Null when checkout did not send one.
+    pub site_id: Option<i64>,
     /// Active hold fulfilled when the patron checked out (not when `force` clears holds).
     pub fulfilled_hold_id: Option<i64>,
 }
@@ -182,6 +191,10 @@ pub struct CreateLoan {
     pub item_id: Option<i64>,
     pub item_identification: Option<String>,
     pub force: bool,
+    /// Desk site (`sources.id`). Null leaves `loans.site_id` null; the calendar
+    /// then follows the item home site.
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    pub site_id: Option<i64>,
 }
 
 /// Loan settings: `nb_max` on the default row (`media_type` IS NULL) caps **all** active loans;

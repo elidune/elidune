@@ -102,10 +102,25 @@ pub fn format_clock(time: NaiveTime) -> String {
     time.format("%H:%M").to_string()
 }
 
+/// Site whose closures govern a loan.
+///
+/// Checkout stores the desk on `loans.site_id`. Renewal and fines pass that
+/// value. Historical loans leave it null and follow the item home site
+/// (`items.source_id`). Network-wide closures still apply when both are null.
+#[must_use]
+pub fn loan_calendar_site(
+    loan_site_id: Option<i64>,
+    item_home_site_id: Option<i64>,
+) -> Option<i64> {
+    loan_site_id.or(item_home_site_id)
+}
+
 /// Whether `date` is an open day for `site_id`.
 ///
 /// Network-wide closures and closures of `site_id` both close the day.
 /// `site_id == None` still honours network-wide closures and the weekly schedule.
+/// Callers pass [`loan_calendar_site`]: the recorded loan site, or the item home
+/// site when the loan has none.
 #[must_use]
 pub fn is_open(calendar: &OpeningCalendar, site_id: Option<i64>, date: NaiveDate) -> bool {
     calendar.is_open_on(site_id, date)
@@ -274,6 +289,13 @@ mod tests {
         }
         assert!(parse_timezone("  ").is_err());
         assert_eq!(parse_timezone(" Europe/Paris ").unwrap(), paris());
+    }
+
+    #[test]
+    fn loan_calendar_site_prefers_the_recorded_loan_site() {
+        assert_eq!(loan_calendar_site(Some(2), Some(1)), Some(2));
+        assert_eq!(loan_calendar_site(None, Some(1)), Some(1));
+        assert_eq!(loan_calendar_site(None, None), None);
     }
 
     #[test]
