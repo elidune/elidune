@@ -769,6 +769,25 @@ pub struct UserPayload {
     /// and is not stored on the child. Sending the field for a child does not fail the request.
     #[serde(default)]
     pub events_consent: Option<bool>,
+    /// Preferred notice language, stored on create.
+    ///
+    /// Wire values match user read and update: `english`, `french`, `german`, `spanish`.
+    /// Omit the field or send `null` to store no preference, so notices use the library
+    /// language and then French. Any other value is rejected with HTTP 422.
+    /// Update leaves the stored language unchanged.
+    #[serde(default)]
+    #[schema(value_type = Option<UserNoticeLanguage>)]
+    pub language: Option<String>,
+}
+
+/// Patron notice language on the user wire (`english`, `french`, `german`, `spanish`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum UserNoticeLanguage {
+    English,
+    French,
+    German,
+    Spanish,
 }
 
 impl UserPayload {

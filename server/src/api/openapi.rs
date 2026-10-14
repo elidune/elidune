@@ -378,6 +378,7 @@ use crate::api::{
             crate::models::user::UserShort,
             crate::models::user::UserQuery,
             crate::models::user::UserPayload,
+            crate::models::user::UserNoticeLanguage,
             crate::models::dto::card::CardLostReason,
             crate::models::dto::card::ReportCardLostRequest,
             crate::models::dto::card::ReportCardLostResponse,
@@ -842,6 +843,67 @@ mod tests {
         assert!(
             value["components"]["schemas"]["ReturnResponse"]["properties"]["weedingStatus"]
                 .is_object()
+        );
+    }
+
+    #[test]
+    fn create_user_documents_optional_notice_language() {
+        let doc = ApiDoc::openapi();
+        let value = serde_json::to_value(&doc).expect("openapi json");
+        let post = &value["paths"]["/users"]["post"];
+        assert!(
+            post["responses"].get("422").is_some(),
+            "POST /users must document 422: {}",
+            post["responses"]
+        );
+        let schemas = value["components"]["schemas"].as_object().expect("schemas");
+        let prop = &schemas["UserPayload"]["properties"]["language"];
+        assert!(
+            prop.is_object(),
+            "UserPayload.language missing from OpenAPI: {prop}"
+        );
+        let nullable = prop.get("nullable").and_then(|flag| flag.as_bool()) == Some(true)
+            || prop["anyOf"].as_array().is_some_and(|items| {
+                items
+                    .iter()
+                    .any(|item| item.get("type").and_then(|kind| kind.as_str()) == Some("null"))
+            });
+        assert!(nullable, "create language must be nullable: {prop}");
+        let reference = prop["allOf"][0]["$ref"]
+            .as_str()
+            .or_else(|| prop["$ref"].as_str())
+            .or_else(|| {
+                prop["anyOf"]
+                    .as_array()
+                    .and_then(|items| items.iter().find_map(|item| item["$ref"].as_str()))
+            });
+        let enum_schema = match reference {
+            Some(reference) => {
+                let name = reference.rsplit('/').next().expect("schema name");
+                schemas
+                    .get(name)
+                    .unwrap_or_else(|| panic!("missing schema {name} for language property {prop}"))
+            }
+            None => prop,
+        };
+        let codes = enum_schema["enum"]
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str().map(str::to_string))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        assert_eq!(
+            codes,
+            vec![
+                "english".to_string(),
+                "french".to_string(),
+                "german".to_string(),
+                "spanish".to_string()
+            ],
+            "{enum_schema}"
         );
     }
 

@@ -416,6 +416,9 @@ impl UsersService {
     /// `consent_source` is chosen by the caller from the route (`desk` for staff
     /// create, `registration` for a future self-registration handler). It is
     /// stored only when `events_consent` is present and the patron is not a child.
+    ///
+    /// `language` omitted or null is stored as NULL. A value outside
+    /// `english`, `french`, `german`, and `spanish` is HTTP 422.
     #[tracing::instrument(skip(self), err)]
     pub async fn create_user(
         &self,
@@ -423,6 +426,7 @@ impl UsersService {
         consent_source: EventsConsentSource,
     ) -> AppResult<User> {
         user.validate_required_patron_fields()?;
+        validate_create_language(user.language.as_deref())?;
 
         let login = user
             .login
@@ -996,6 +1000,23 @@ impl UsersService {
             })
             .collect()
     }
+}
+
+fn validate_create_language(language: Option<&str>) -> AppResult<()> {
+    let Some(language) = language else {
+        return Ok(());
+    };
+    if crate::email_templates::SUPPORTED_LANGUAGES.contains(&language) {
+        return Ok(());
+    }
+    Err(AppError::coded(
+        422,
+        error_code::VALIDATION,
+        format!(
+            "Unsupported language '{language}'. Allowed: {}",
+            crate::email_templates::SUPPORTED_LANGUAGES.join(", ")
+        ),
+    ))
 }
 
 fn normalize_barcode(raw: &str) -> AppResult<String> {

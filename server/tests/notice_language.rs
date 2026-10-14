@@ -239,6 +239,127 @@ async fn password_reset_follows_reader_then_library_then_french() {
 }
 
 #[tokio::test]
+async fn create_without_language_stores_null_and_email_uses_library_language() {
+    let _lock = TEST_LOCK.lock().await;
+    let Some((app, admin_token, _restore)) = spawn().await else {
+        return;
+    };
+
+    let column_default: Option<String> = sqlx::query_scalar(
+        r#"
+        SELECT column_default
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'users'
+          AND column_name = 'language'
+        "#,
+    )
+    .fetch_one(app.state.services.repository.pool())
+    .await
+    .expect("users.language default");
+    assert!(
+        column_default.is_none(),
+        "users.language must have no default, got {column_default:?}"
+    );
+
+    set_library_language(&app, &admin_token, Some("de")).await;
+    let (status, body, login) = post_reader(&app, &admin_token, "nolang", None).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert!(body["language"].is_null(), "{body}");
+
+    let user_id = fixtures::json_id(&body["id"]);
+    let stored: Option<String> = sqlx::query_scalar("SELECT language FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .expect("stored language");
+    assert!(
+        stored.is_none(),
+        "omitted language must be NULL, got {stored:?}"
+    );
+
+    request_reset(&app, &login).await;
+    let email = body["email"].as_str().expect("email");
+    let (subject, mail) = latest_mail(&app, email).await;
+    assert_notice(
+        &subject,
+        &mail,
+        &[GERMAN_RESET],
+        &[ENGLISH_RESET, FRENCH_RESET],
+    );
+}
+
+#[tokio::test]
+async fn create_with_german_stores_german() {
+    let _lock = TEST_LOCK.lock().await;
+    let Some((app, admin_token, _restore)) = spawn().await else {
+        return;
+    };
+
+    let (status, body, _) = post_reader(&app, &admin_token, "delang", Some("german")).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    assert_eq!(body["language"], "german", "{body}");
+
+    let user_id = fixtures::json_id(&body["id"]);
+    let stored: Option<String> = sqlx::query_scalar("SELECT language FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .expect("stored language");
+    assert_eq!(stored.as_deref(), Some("german"));
+}
+
+#[tokio::test]
+async fn create_with_invalid_language_is_422() {
+    let _lock = TEST_LOCK.lock().await;
+    let Some((app, admin_token, _restore)) = spawn().await else {
+        return;
+    };
+
+    let (status, body, login) = post_reader(&app, &admin_token, "badlang", Some("italian")).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(body["code"].is_string(), "{body}");
+    assert!(body["error"].is_string(), "{body}");
+    assert!(body["message"].is_string(), "{body}");
+
+    let stored: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE login = $1")
+        .bind(&login)
+        .fetch_optional(app.state.services.repository.pool())
+        .await
+        .expect("lookup rejected create");
+    assert!(stored.is_none(), "invalid language must not insert a user");
+}
+
+async fn post_reader(
+    app: &TestApp,
+    admin_token: &str,
+    prefix: &str,
+    language: Option<&str>,
+) -> (StatusCode, serde_json::Value, String) {
+    let public_type = fixtures::public_type_id_by_name(app, admin_token, "adult").await;
+    let login = format!("{prefix}_{}", fixtures::unique_suffix());
+    let mut payload = json!({
+        "login": login,
+        "password": "readerpass1234",
+        "firstname": "Reader",
+        "lastname": "Notice",
+        "email": format!("{login}@test.local"),
+        "accountType": "reader",
+        "publicType": public_type.to_string(),
+        "sex": "f",
+        "birthdate": "1990-06-01",
+        "addrCity": "Paris"
+    });
+    if let Some(language) = language {
+        payload["language"] = json!(language);
+    }
+    let (status, body) = app
+        .post_json("/api/v1/users", &payload, Some(admin_token))
+        .await;
+    (status, body, login)
+}
+
+#[tokio::test]
 async fn overdue_reminder_follows_reader_then_library_then_french() {
     let _lock = TEST_LOCK.lock().await;
     let Some((app, admin_token, _restore)) = spawn().await else {

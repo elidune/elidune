@@ -871,10 +871,12 @@ impl Repository {
                 birthdate, account_type,
                 fee, public_type, notes, group_id, barcode,
                 sex, staff_type, hours_per_week, staff_start_date, staff_end_date,
-                status, created_at, update_at, expiry_at, must_change_password
+                status, created_at, update_at, expiry_at, must_change_password,
+                language
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-                $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26
+                $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26,
+                $27
             ) RETURNING id
             "#,
         )
@@ -908,6 +910,7 @@ impl Repository {
         .bind(now)
         .bind(user.expiry_at)
         .bind(true)
+        .bind(&user.language)
         .fetch_one(&mut *tx)
         .await
         .map_err(map_user_unique_violation)?;
