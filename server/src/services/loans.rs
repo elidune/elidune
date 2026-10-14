@@ -1273,6 +1273,7 @@ mod tests {
             staff_start_date: None,
             staff_end_date: None,
             public_type: None,
+            birth_date_missing: true,
             notes: None,
             two_factor_enabled: None,
             two_factor_method: None,

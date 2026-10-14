@@ -4,7 +4,7 @@ use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 };
-use chrono::Utc;
+use chrono::{NaiveDate, Utc};
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 
 use std::collections::HashSet;
@@ -23,6 +23,7 @@ use crate::{
             SCOPE_CHANGE_PASSWORD,
         },
     },
+    public_type_age::{age_years_on_date, resolve_public_type_for_age, PublicTypeAgeBand},
     repository::Repository,
 };
 
@@ -413,6 +414,11 @@ impl UsersService {
 
     /// Create a new user.
     ///
+    /// This is the only reader-create entry point (`POST /users`, and any future
+    /// self-registration handler). There is no separate CSV or batch user import
+    /// in the HTTP API. Legacy file import is `database/migrate_data.py`, which
+    /// uses the same age rule and records per-row errors instead of aborting.
+    ///
     /// `consent_source` is chosen by the caller from the route (`desk` for staff
     /// create, `registration` for a future self-registration handler). It is
     /// stored only when `events_consent` is present and the patron is not a child.
@@ -425,6 +431,10 @@ impl UsersService {
         mut user: UserPayload,
         consent_source: EventsConsentSource,
     ) -> AppResult<User> {
+        let account_type = user.account_type.clone().unwrap_or(AccountTypeSlug::Guest);
+        if account_type.derives_public_type_from_birthdate() && user.birthdate.is_none() {
+            return Err(birth_date_required());
+        }
         user.validate_required_patron_fields()?;
         validate_create_language(user.language.as_deref())?;
 
@@ -461,6 +471,9 @@ impl UsersService {
         };
 
         user.login = Some(login);
+
+        self.assign_reader_public_type(&account_type, user.birthdate, &mut user.public_type)
+            .await?;
 
         self.ensure_guardian_on_create(&user).await?;
 
@@ -579,6 +592,98 @@ impl UsersService {
         Ok(())
     }
 
+    /// Replace a client-sent public type for a reader. Non-readers are unchanged.
+    ///
+    /// A reader with no birth date keeps the stored type (`public_type` is cleared so the
+    /// update does not write the client value). A reader with a birth date gets the band
+    /// for their completed years. No matching band is `422 no_public_type_for_age`.
+    async fn assign_reader_public_type(
+        &self,
+        account_type: &AccountTypeSlug,
+        birthdate: Option<NaiveDate>,
+        public_type: &mut Option<i64>,
+    ) -> AppResult<()> {
+        if !account_type.derives_public_type_from_birthdate() {
+            return Ok(());
+        }
+        *public_type = self.public_type_for_birthdate(birthdate).await?;
+        Ok(())
+    }
+
+    /// `None` when the reader has no birth date (caller keeps the stored type).
+    /// `Some` is the computed id. No matching band is an error.
+    async fn public_type_for_birthdate(
+        &self,
+        birthdate: Option<NaiveDate>,
+    ) -> AppResult<Option<i64>> {
+        let Some(birthdate) = birthdate else {
+            return Ok(None);
+        };
+        let today = Utc::now().date_naive();
+        let age = age_years_on_date(birthdate, today);
+        if age < 0 {
+            return Err(no_public_type_for_age(age));
+        }
+        let bands = self.public_type_age_bands().await?;
+        resolve_public_type_for_age(&bands, age)
+            .map(Some)
+            .ok_or_else(|| no_public_type_for_age(age))
+    }
+
+    /// Recompute on a reader modification. A type change into `child` still needs a guardian.
+    async fn reader_public_type_for_modification(
+        &self,
+        existing: &User,
+        birthdate: Option<NaiveDate>,
+    ) -> AppResult<Option<i64>> {
+        if !existing.account_type.derives_public_type_from_birthdate() {
+            return Ok(None);
+        }
+        let resolved = self.public_type_for_birthdate(birthdate).await?;
+        if let Some(id) = resolved {
+            if Some(id) != existing.public_type
+                && self.public_type_requires_guardian(Some(id)).await?
+                && existing.guardian_id.is_none()
+            {
+                return Err(AppError::Validation(
+                    "guardianId is required for child patrons".into(),
+                ));
+            }
+        }
+        Ok(resolved)
+    }
+
+    async fn persist_resolved_public_type(
+        &self,
+        user_id: i64,
+        current: Option<i64>,
+        resolved: Option<i64>,
+    ) -> AppResult<()> {
+        let Some(resolved) = resolved else {
+            return Ok(());
+        };
+        if current == Some(resolved) {
+            return Ok(());
+        }
+        self.repository
+            .users_set_public_type(user_id, resolved)
+            .await
+    }
+
+    async fn public_type_age_bands(&self) -> AppResult<Vec<PublicTypeAgeBand>> {
+        let types = self.repository.public_types_list().await?;
+        Ok(types
+            .iter()
+            .map(|public_type| PublicTypeAgeBand {
+                id: public_type.id,
+                name: public_type.name.clone(),
+                label: public_type.label.clone(),
+                age_min: public_type.age_min,
+                age_max: public_type.age_max,
+            })
+            .collect())
+    }
+
     /// Update an existing user.
     ///
     /// `consent_source` is `desk` for staff `PUT /users/{id}`.
@@ -608,6 +713,14 @@ impl UsersService {
                 .await?;
             user.barcode = Some(barcode);
         }
+
+        let account_type = user
+            .account_type
+            .clone()
+            .unwrap_or_else(|| existing.account_type.clone());
+        let birthdate = user.birthdate.or(existing.birthdate);
+        self.assign_reader_public_type(&account_type, birthdate, &mut user.public_type)
+            .await?;
 
         self.ensure_guardian_on_update(id, &existing, &user).await?;
 
@@ -757,7 +870,10 @@ impl UsersService {
         }
 
         let requested_consent = profile.events_consent;
-        let public_type = user.public_type;
+        let birthdate = profile.birthdate.or(user.birthdate);
+        let resolved_public_type = self
+            .reader_public_type_for_modification(&user, birthdate)
+            .await?;
 
         // Hash new password if provided
         let password = if let Some(ref new_password) = profile.new_password {
@@ -771,9 +887,11 @@ impl UsersService {
         self.repository
             .users_update_profile(user_id, &profile, password)
             .await?;
+        self.persist_resolved_public_type(user_id, user.public_type, resolved_public_type)
+            .await?;
         self.record_events_consent(
             user_id,
-            public_type,
+            resolved_public_type.or(user.public_type),
             requested_consent,
             EventsConsentSource::Profile,
         )
@@ -791,12 +909,17 @@ impl UsersService {
         patch: crate::models::own_contact::OwnContactPatch,
     ) -> AppResult<User> {
         let existing = self.repository.users_get_by_id(user_id).await?;
+        let resolved_public_type = self
+            .reader_public_type_for_modification(&existing, existing.birthdate)
+            .await?;
         self.repository
             .users_update_own_contact(user_id, &patch)
             .await?;
+        self.persist_resolved_public_type(user_id, existing.public_type, resolved_public_type)
+            .await?;
         self.record_events_consent(
             user_id,
-            existing.public_type,
+            resolved_public_type.or(existing.public_type),
             patch.events_consent,
             EventsConsentSource::Profile,
         )
@@ -811,14 +934,29 @@ impl UsersService {
         user_id: i64,
         account_type: &AccountTypeSlug,
     ) -> AppResult<User> {
-        // Check if user exists
-        self.repository.users_get_by_id(user_id).await?;
-
-        // Account type is already validated by the enum type
+        let existing = self.repository.users_get_by_id(user_id).await?;
+        let resolved_public_type = if account_type.derives_public_type_from_birthdate() {
+            let resolved = self.public_type_for_birthdate(existing.birthdate).await?;
+            if let Some(id) = resolved {
+                if self.public_type_requires_guardian(Some(id)).await?
+                    && existing.guardian_id.is_none()
+                {
+                    return Err(AppError::Validation(
+                        "guardianId is required for child patrons".into(),
+                    ));
+                }
+            }
+            resolved
+        } else {
+            None
+        };
 
         self.repository
             .users_update_account_type(user_id, account_type)
-            .await
+            .await?;
+        self.persist_resolved_public_type(user_id, existing.public_type, resolved_public_type)
+            .await?;
+        self.repository.users_get_by_id(user_id).await
     }
 
     /// User id for a login or email, without issuing a reset token.
@@ -1000,6 +1138,22 @@ impl UsersService {
             })
             .collect()
     }
+}
+
+fn birth_date_required() -> AppError {
+    AppError::coded(
+        422,
+        error_code::BIRTH_DATE_REQUIRED,
+        error_code::BIRTH_DATE_REQUIRED_MESSAGE,
+    )
+}
+
+fn no_public_type_for_age(age: i32) -> AppError {
+    AppError::coded(
+        422,
+        error_code::NO_PUBLIC_TYPE_FOR_AGE,
+        format!("No public type matches age {age}. An administrator must complete the age bands."),
+    )
 }
 
 fn validate_create_language(language: Option<&str>) -> AppResult<()> {

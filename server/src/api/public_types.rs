@@ -70,7 +70,7 @@ pub async fn get_public_type(
         (status = 201, description = "Public type created. Omitted unpaidThresholdMode defaults to inherit. amount requires unpaidThresholdCents.", body = PublicType),
         (status = 400, description = "Negative unpaidThresholdCents"),
         (status = 403, description = "Insufficient permissions"),
-        (status = 422, description = "unpaidThresholdMode amount without unpaidThresholdCents, or JSON null")
+        (status = 422, description = "unpaidThresholdMode amount without unpaidThresholdCents, or JSON null. Overlapping age bands are `public_type_age_overlap` and name both bands. `ageMin` greater than `ageMax` is `public_type_age_range_invalid`. Bands with no age bounds are not age bands and do not overlap.")
     )
 )]
 pub async fn create_public_type(
@@ -120,7 +120,7 @@ pub async fn create_public_type(
         (status = 200, description = "Public type updated. Omitted unpaidThresholdMode leaves the stored mode and cents unchanged. amount requires unpaidThresholdCents.", body = PublicType),
         (status = 400, description = "Negative unpaidThresholdCents"),
         (status = 404, description = "Not found"),
-        (status = 422, description = "unpaidThresholdMode amount without unpaidThresholdCents, or JSON null")
+        (status = 422, description = "unpaidThresholdMode amount without unpaidThresholdCents, or JSON null. The resulting age band must not overlap another band (`public_type_age_overlap`, both bands named). `ageMin` greater than `ageMax` is `public_type_age_range_invalid`. Existing overlaps are not checked at startup or on read; only this save is validated.")
     )
 )]
 pub async fn update_public_type(

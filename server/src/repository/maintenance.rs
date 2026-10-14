@@ -6,7 +6,9 @@
 use std::collections::BTreeMap;
 
 use async_trait::async_trait;
-use chrono::{Datelike, NaiveDate, Utc};
+use chrono::{NaiveDate, Utc};
+
+use crate::public_type_age::{age_years_on_date, resolve_public_type_for_age, PublicTypeAgeBand};
 use unicode_normalization::UnicodeNormalization;
 
 use super::Repository;
@@ -44,9 +46,10 @@ pub trait MaintenanceRepository: Send + Sync {
     async fn maintenance_cleanup_dangling_biblio_collections(&self)
         -> AppResult<MaintenanceDetail>;
 
-    /// Normalize `addr_city` and set `public_type` from `birthdate`
-    /// using each `public_types` row's `age_min` / `age_max` (when not null).
-    /// Does not hard-delete anonymized stubs (erasure keeps `users.id`).
+    /// Normalize `addr_city` and recompute reader `public_type` from `birthdate`
+    /// with [`crate::public_type_age`]. Staff and other non-reader accounts are left unchanged.
+    /// A reader with no matching band keeps the stored type (the HTTP API returns 422 instead).
+    /// Does not rewrite loans or holds. Does not hard-delete anonymized stubs.
     async fn maintenance_cleanup_users(&self) -> AppResult<MaintenanceDetail>;
 }
 
@@ -476,15 +479,18 @@ impl MaintenanceRepository for Repository {
             cities_sanitized += 1;
         }
 
-        let age_rules: Vec<(i64, Option<i16>, Option<i16>)> =
-            sqlx::query_as(r#"SELECT id, age_min, age_max FROM public_types ORDER BY id"#)
-                .fetch_all(&mut *tx)
-                .await?;
+        let age_rules: Vec<(i64, String, String, Option<i16>, Option<i16>)> = sqlx::query_as(
+            r#"SELECT id, name, label, age_min, age_max FROM public_types ORDER BY id"#,
+        )
+        .fetch_all(&mut *tx)
+        .await?;
 
-        let rules: Vec<PublicTypeAgeRule> = age_rules
+        let rules: Vec<PublicTypeAgeBand> = age_rules
             .into_iter()
-            .map(|(id, age_min, age_max)| PublicTypeAgeRule {
+            .map(|(id, name, label, age_min, age_max)| PublicTypeAgeBand {
                 id,
+                name,
+                label,
                 age_min,
                 age_max,
             })
@@ -492,8 +498,11 @@ impl MaintenanceRepository for Repository {
 
         let today = Utc::now().date_naive();
 
+        // Readers only. Ongoing loans and holds are not rewritten; later circulation
+        // reads the updated `users.public_type`.
         let user_rows: Vec<(i64, NaiveDate, Option<i64>)> = sqlx::query_as(
-            r#"SELECT id, birthdate, public_type FROM users WHERE birthdate IS NOT NULL"#,
+            r#"SELECT id, birthdate, public_type FROM users
+               WHERE birthdate IS NOT NULL AND account_type = 'reader'"#,
         )
         .fetch_all(&mut *tx)
         .await?;
@@ -504,6 +513,7 @@ impl MaintenanceRepository for Repository {
             if age < 0 {
                 continue;
             }
+            // No matching band: leave the stored type. Do not assign a default.
             let Some(resolved) = resolve_public_type_for_age(&rules, age) else {
                 continue;
             };
@@ -525,53 +535,6 @@ impl MaintenanceRepository for Repository {
         detail.insert("public_types_updated", public_types_updated);
         Ok(detail)
     }
-}
-
-#[derive(Debug, Clone)]
-struct PublicTypeAgeRule {
-    id: i64,
-    age_min: Option<i16>,
-    age_max: Option<i16>,
-}
-
-/// Inclusive age check: `age_min` / `age_max` apply only when set.
-fn age_matches_public_type_bounds(age: i32, age_min: Option<i16>, age_max: Option<i16>) -> bool {
-    if let Some(m) = age_min {
-        if age < i32::from(m) {
-            return false;
-        }
-    }
-    if let Some(m) = age_max {
-        if age > i32::from(m) {
-            return false;
-        }
-    }
-    true
-}
-
-/// Smallest inclusive span wins (most specific band); open-ended / unbounded rules sort last.
-fn public_type_age_rule_rank(r: &PublicTypeAgeRule) -> (i32, i64) {
-    let width = match (r.age_min, r.age_max) {
-        (Some(min), Some(max)) => i32::from(max - min),
-        _ => i32::MAX / 2,
-    };
-    (width, r.id)
-}
-
-fn resolve_public_type_for_age(rules: &[PublicTypeAgeRule], age: i32) -> Option<i64> {
-    rules
-        .iter()
-        .filter(|r| age_matches_public_type_bounds(age, r.age_min, r.age_max))
-        .min_by_key(|r| public_type_age_rule_rank(r))
-        .map(|r| r.id)
-}
-
-fn age_years_on_date(birth: NaiveDate, on: NaiveDate) -> i32 {
-    let mut years = on.year() - birth.year();
-    if on.month() < birth.month() || (on.month() == birth.month() && on.day() < birth.day()) {
-        years -= 1;
-    }
-    years
 }
 
 /// Normalizes free-text city values so reports and deduplication see a consistent shape:
@@ -653,59 +616,5 @@ mod city_sanitize_tests {
     #[test]
     fn empty_becomes_none() {
         assert_eq!(sanitize_user_city("   "), None);
-    }
-}
-
-#[cfg(test)]
-mod public_type_age_tests {
-    use chrono::NaiveDate;
-
-    use super::{
-        age_matches_public_type_bounds, age_years_on_date, resolve_public_type_for_age,
-        PublicTypeAgeRule,
-    };
-
-    fn rules_sample() -> Vec<PublicTypeAgeRule> {
-        vec![
-            PublicTypeAgeRule {
-                id: 1,
-                age_min: Some(0),
-                age_max: Some(12),
-            },
-            PublicTypeAgeRule {
-                id: 2,
-                age_min: Some(0),
-                age_max: Some(17),
-            },
-            PublicTypeAgeRule {
-                id: 3,
-                age_min: Some(18),
-                age_max: None,
-            },
-        ]
-    }
-
-    #[test]
-    fn picks_narrowest_matching_band() {
-        let rules = rules_sample();
-        assert_eq!(resolve_public_type_for_age(&rules, 10), Some(1));
-        assert_eq!(resolve_public_type_for_age(&rules, 15), Some(2));
-        assert_eq!(resolve_public_type_for_age(&rules, 30), Some(3));
-    }
-
-    #[test]
-    fn bounds_respect_min_max() {
-        assert!(age_matches_public_type_bounds(18, Some(18), Some(64)));
-        assert!(!age_matches_public_type_bounds(17, Some(18), Some(64)));
-        assert!(!age_matches_public_type_bounds(65, Some(18), Some(64)));
-    }
-
-    #[test]
-    fn birthday_before_reference_yields_expected_age() {
-        let birth = NaiveDate::from_ymd_opt(2010, 6, 15).unwrap();
-        let on = NaiveDate::from_ymd_opt(2025, 6, 14).unwrap();
-        assert_eq!(age_years_on_date(birth, on), 14);
-        let on2 = NaiveDate::from_ymd_opt(2025, 6, 15).unwrap();
-        assert_eq!(age_years_on_date(birth, on2), 15);
     }
 }

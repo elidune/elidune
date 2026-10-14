@@ -1571,6 +1571,17 @@ impl Repository {
         Ok(())
     }
 
+    /// Store the public type computed from a reader's birth date.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn users_set_public_type(&self, id: i64, public_type: i64) -> AppResult<()> {
+        sqlx::query("UPDATE users SET public_type = $1, update_at = NOW() WHERE id = $2")
+            .bind(public_type)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Update user's account type (admin only)
     #[tracing::instrument(skip(self), err)]
     pub async fn users_update_account_type(

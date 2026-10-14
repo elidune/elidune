@@ -725,7 +725,9 @@ async fn create_patron(
     }
     let (status, body) = app.post_json("/api/v1/users", &payload, Some(token)).await;
     assert_eq!(status, StatusCode::CREATED, "create patron: {body}");
-    (fixtures::json_id(&body["id"]), email)
+    let user_id = fixtures::json_id(&body["id"]);
+    fixtures::assign_public_type(app, user_id, public_type).await;
+    (user_id, email)
 }
 
 async fn create_child(
