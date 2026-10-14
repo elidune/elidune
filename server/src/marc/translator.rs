@@ -504,7 +504,8 @@ impl From<&MarcItem> for Item {
             circulation_status: None,
             weeding_status,
             weeding_reason: None,
-            notes,
+            public_note: None,
+            internal_note: notes,
             price: None,
             price_deferred: false,
             created_at: None,
@@ -522,6 +523,7 @@ impl From<&MarcItem> for Item {
             due_date: None,
             expected_return_date: None,
             on_hold: false,
+            legacy_notes_present: false,
         }
     }
 }
@@ -760,7 +762,7 @@ pub fn biblio_items_to_marc_items(
             acquisition_date: None,
             item_type: None,
             record_control_number: None,
-            document_type: s.notes.clone(),
+            document_type: s.internal_note.clone(),
             circulation_status: None,
         })
         .collect()

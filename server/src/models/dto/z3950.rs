@@ -49,6 +49,7 @@ pub struct ImportItem {
     pub call_number: Option<String>,
     pub status: Option<String>,
     pub place: Option<i16>,
+    /// Staff import text. Stored on the copy as `internalNote`, not `publicNote`.
     pub notes: Option<String>,
     pub price: Option<String>,
     #[serde_as(as = "Option<DisplayFromStr>")]

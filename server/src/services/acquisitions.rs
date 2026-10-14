@@ -272,7 +272,8 @@ impl AcquisitionsService {
                     circulation_status: None,
                     weeding_status,
                     weeding_reason: None,
-                    notes: Some(format!(
+                    public_note: None,
+                    internal_note: Some(format!(
                         "Received from purchase order {}",
                         detail.order.order_number
                     )),
@@ -293,6 +294,7 @@ impl AcquisitionsService {
                     due_date: None,
                     expected_return_date: None,
                     on_hold: false,
+                    legacy_notes_present: false,
                 };
 
                 let created_item = self.catalog.create_item(biblio_id, item).await?;

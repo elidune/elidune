@@ -93,7 +93,8 @@ impl From<ImportItem> for Item {
             circulation_status: None,
             weeding_status,
             weeding_reason: None,
-            notes: s.notes,
+            public_note: None,
+            internal_note: s.notes,
             price: s.price,
             price_deferred: false,
             created_at: None,
@@ -111,6 +112,7 @@ impl From<ImportItem> for Item {
             due_date: None,
             expected_return_date: None,
             on_hold: false,
+            legacy_notes_present: false,
         }
     }
 }

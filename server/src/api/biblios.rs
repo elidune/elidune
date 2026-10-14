@@ -151,7 +151,7 @@ impl<T: for<'a> ToSchema<'a>> PaginatedResponse<T> {
         ("perPage" = Option<i64>, Query, description = "Items per page (default: 20)")
     ),
     responses(
-        (status = 200, description = "List of bibliographic records. Callers with internal catalog rights receive `BiblioShortStaff` (full availability, `circulationStatus`, weeding, hold patron, real copy total). Catalog read alone receives `BiblioShortPublic`: lost, declared missing, weeding-in-progress, and withdrawn copies are omitted. Remaining copies use `available`, `onLoan`, `onSiteOnly`, or `unavailable`. No borrower, `holdFor`, login, notes, or weeding fields.", body = BiblioSearchResponse),
+        (status = 200, description = "List of bibliographic records. Callers with internal catalog rights receive `BiblioShortStaff` (full availability, `circulationStatus`, weeding, hold patron, real copy total). Catalog read alone receives `BiblioShortPublic`: lost, declared missing, weeding-in-progress, and withdrawn copies are omitted. Remaining copies use `available`, `onLoan`, `onSiteOnly`, or `unavailable`. List rows omit copy notes. No borrower, `holdFor`, login, `publicNote`, `internalNote`, bibliographic notes, or weeding fields.", body = BiblioSearchResponse),
         (status = 401, description = "Not authenticated")
     )
 )]
@@ -198,7 +198,7 @@ pub async fn list_biblios(
         ("full_record" = Option<bool>, Query, description = "If true, include full MARC record data")
     ),
     responses(
-        (status = 200, description = "Bibliographic record details. Callers with internal catalog rights receive `BiblioStaffView` (every copy, with `circulationStatus`). Catalog read alone receives `BiblioPublicView`: lost, declared missing, weeding-in-progress, and withdrawn copies are omitted. Remaining copies use public availability (`available`, `onLoan`, `onSiteOnly`, `unavailable`). The record includes `holdsCount` (pending holds still waiting for a copy; `to_pick`, `ready`, and in-transit holds are excluded). Staff copies include `dueDate` (active loan `expiry_at`, or null). Public copies omit `dueDate` entirely (the key is absent, not null). Every remaining copy includes `onHold` (true only when this copy is `to_pick` or `ready`, or in transit for a hold). A public copy with `availability` `onLoan` includes `expectedReturnDate` (`YYYY-MM-DD` in the library timezone, no time) while that local date is today or later. The field is omitted when the local due date is before today, for every other availability, and on the staff view. The comparison uses `library_info.timezone`, not UTC. An unassigned `pending` title hold does not set `onHold`. `holdFor` is set on a staff `onHold` copy when the caller has `users_rights` or `loans_rights` read or write. `users_rights` returns `UserShortStaff`. `loans_rights` without users read returns `{ id, cardNumber, initials }`. Patrons, the OPAC, and callers with neither right omit `holdFor`. Callers with `loans_rights` read or write also receive `borrower` on a copy that is on loan: `{ id, cardNumber, initials }` unless `users_rights` is read or write, which returns `UserShortStaff`.", body = BiblioReadResponse),
+        (status = 200, description = "Bibliographic record details. Callers with internal catalog rights receive `BiblioStaffView` (every copy, with `circulationStatus`, `publicNote`, and `internalNote`). Catalog read alone receives `BiblioPublicView`: lost, declared missing, weeding-in-progress, and withdrawn copies are omitted. Remaining copies use public availability (`available`, `onLoan`, `onSiteOnly`, `unavailable`) and include `publicNote` only. The record includes `holdsCount` (pending holds still waiting for a copy; `to_pick`, `ready`, and in-transit holds are excluded). Staff copies include `dueDate` (active loan `expiry_at`, or null). Public copies omit `dueDate` entirely (the key is absent, not null) and omit `internalNote`. Every remaining copy includes `onHold` (true only when this copy is `to_pick` or `ready`, or in transit for a hold). A public copy with `availability` `onLoan` includes `expectedReturnDate` (`YYYY-MM-DD` in the library timezone, no time) while that local date is today or later. The field is omitted when the local due date is before today, for every other availability, and on the staff view. The comparison uses `library_info.timezone`, not UTC. An unassigned `pending` title hold does not set `onHold`. `holdFor` is set on a staff `onHold` copy when the caller has `users_rights` or `loans_rights` read or write. `users_rights` returns `UserShortStaff`. `loans_rights` without users read returns `{ id, cardNumber, initials }`. Patrons, the OPAC, and callers with neither right omit `holdFor`. Callers with `loans_rights` read or write also receive `borrower` on a copy that is on loan: `{ id, cardNumber, initials }` unless `users_rights` is read or write, which returns `UserShortStaff`.", body = BiblioReadResponse),
         (status = 404, description = "Biblio not found")
     )
 )]
@@ -314,8 +314,8 @@ pub struct ImportMarcBatchQuery {
     ),
     request_body = Biblio,
     responses(
-        (status = 201, description = "Biblio created or merged", body = CreateBiblioResponse),
-        (status = 400, description = "Invalid input"),
+        (status = 201, description = "Biblio created or merged. Nested copies use `publicNote` and `internalNote` (at most 4000 Unicode characters each).", body = CreateBiblioResponse),
+        (status = 400, description = "Validation error. Body is `{ code, error, message }` with `code` `validation_error`. A nested item that includes `notes` is rejected and nothing is written.", body = crate::error::ErrorResponse),
         (status = 409, description = "Duplicate ISBN requires confirmation", body = crate::models::import_report::DuplicateConfirmationRequired)
     )
 )]
@@ -683,7 +683,7 @@ pub struct DeleteBiblioParams {
         ("id" = i64, Path, description = "Biblio ID")
     ),
     responses(
-        (status = 200, description = "List of physical items. Callers with internal catalog rights receive every copy as `ItemStaffView`, including `circulationStatus`. Catalog read alone receives `ItemPublicView` with lost, declared missing, weeding-in-progress, and withdrawn copies omitted. Staff copies include `dueDate` (active loan `expiry_at`, or null). Public copies omit `dueDate` (the key is absent, not null). Remaining copies include `onHold` and public availability. A public copy with `availability` `onLoan` includes `expectedReturnDate` (`YYYY-MM-DD` in the library timezone, no time) while that local date is today or later. The field is omitted when the local due date is before today, for every other availability, and on the staff view. The comparison uses `library_info.timezone`, not UTC. Users or loans read receive `holdFor` on an `onHold` copy (same rule as `GET /biblios/{id}`). The public view omits `holdFor`. This list does not include `borrower`.", body = ItemListResponse),
+        (status = 200, description = "List of physical items. Callers with internal catalog rights receive every copy as `ItemStaffView`, including `circulationStatus`, `publicNote`, and `internalNote`. Catalog read alone receives `ItemPublicView` with lost, declared missing, weeding-in-progress, and withdrawn copies omitted, and `publicNote` only. Staff copies include `dueDate` (active loan `expiry_at`, or null). Public copies omit `dueDate` (the key is absent, not null) and omit `internalNote`. Remaining copies include `onHold` and public availability. A public copy with `availability` `onLoan` includes `expectedReturnDate` (`YYYY-MM-DD` in the library timezone, no time) while that local date is today or later. The field is omitted when the local due date is before today, for every other availability, and on the staff view. The comparison uses `library_info.timezone`, not UTC. Users or loans read receive `holdFor` on an `onHold` copy (same rule as `GET /biblios/{id}`). The public view omits `holdFor`. This list does not include `borrower`.", body = ItemListResponse),
         (status = 404, description = "Biblio not found")
     )
 )]
@@ -732,8 +732,9 @@ pub async fn list_items(
     ),
     request_body = Item,
     responses(
-        (status = 201, description = "Physical item created", body = Item),
-        (status = 404, description = "Biblio not found"),
+        (status = 201, description = "Physical item created. Body is `Item` with `publicNote` and `internalNote` (at most 4000 Unicode characters each).", body = Item),
+        (status = 400, description = "Validation error. Body is `{ code, error, message }` with `code` `validation_error`. `notes` is rejected and nothing is written.", body = crate::error::ErrorResponse),
+        (status = 404, description = "Biblio not found", body = crate::error::ErrorResponse),
         (status = 409, description = "An item with this barcode already exists", body = crate::models::import_report::DuplicateItemBarcodeRequired)
     )
 )]

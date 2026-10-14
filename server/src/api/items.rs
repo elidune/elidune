@@ -43,7 +43,7 @@ pub fn router() -> axum::Router<crate::AppState> {
         ("id" = i64, Path, description = "Physical copy (item) ID")
     ),
     responses(
-        (status = 200, description = "Biblio with a single item entry. Callers with internal catalog rights receive `BiblioStaffView` including `circulationStatus`. Catalog read alone receives `BiblioPublicView` with public availability. Lost, declared missing, weeding-in-progress, and withdrawn copies are not returned. The record includes `holdsCount`. Staff copies keep `dueDate` (active loan `expiry_at`, or null). Public copies omit `dueDate` (the key is absent, not null). Both include `onHold` (same rules as `GET /biblios/{id}`). A public copy with `availability` `onLoan` includes `expectedReturnDate` (`YYYY-MM-DD` in the library timezone, no time) while that local date is today or later. The field is omitted when the local due date is before today, for every other availability, and on the staff view. The comparison uses `library_info.timezone`, not UTC. Users or loans read receive `holdFor` on an `onHold` copy. The public view omits `holdFor`. This route does not include `borrower`.", body = BiblioReadResponse),
+        (status = 200, description = "Biblio with a single item entry. Callers with internal catalog rights receive `BiblioStaffView` including `circulationStatus`, `publicNote`, and `internalNote`. Catalog read alone receives `BiblioPublicView` with public availability and `publicNote` only. Lost, declared missing, weeding-in-progress, and withdrawn copies are not returned. The record includes `holdsCount`. Staff copies keep `dueDate` (active loan `expiry_at`, or null). Public copies omit `dueDate` (the key is absent, not null) and omit `internalNote`. Both include `onHold` (same rules as `GET /biblios/{id}`). A public copy with `availability` `onLoan` includes `expectedReturnDate` (`YYYY-MM-DD` in the library timezone, no time) while that local date is today or later. The field is omitted when the local due date is before today, for every other availability, and on the staff view. The comparison uses `library_info.timezone`, not UTC. Users or loans read receive `holdFor` on an `onHold` copy. The public view omits `holdFor`. This route does not include `borrower`.", body = BiblioReadResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 404, description = "Item not found, archived, or hidden from this caller", body = crate::error::ErrorResponse),
         (status = 410, description = "Bibliographic record is archived", body = crate::error::ErrorResponse)
@@ -91,7 +91,7 @@ fn copy_hidden_from_public(biblio: &crate::models::biblio::Biblio) -> bool {
         ("barcode" = String, Path, description = "Physical copy barcode (exact match)")
     ),
     responses(
-        (status = 200, description = "Biblio with a single item entry. Callers with internal catalog rights receive `BiblioStaffView` including `circulationStatus`. Catalog read alone receives `BiblioPublicView` with public availability. Lost, declared missing, weeding-in-progress, and withdrawn copies are not returned. The record includes `holdsCount`. Staff copies keep `dueDate` (active loan `expiry_at`, or null). Public copies omit `dueDate` (the key is absent, not null). Both include `onHold` (same rules as `GET /biblios/{id}`). A public copy with `availability` `onLoan` includes `expectedReturnDate` (`YYYY-MM-DD` in the library timezone, no time) while that local date is today or later. The field is omitted when the local due date is before today, for every other availability, and on the staff view. The comparison uses `library_info.timezone`, not UTC. Users or loans read receive `holdFor` on an `onHold` copy. The public view omits `holdFor`. This route does not include `borrower`.", body = BiblioReadResponse),
+        (status = 200, description = "Biblio with a single item entry. Callers with internal catalog rights receive `BiblioStaffView` including `circulationStatus`, `publicNote`, and `internalNote`. Catalog read alone receives `BiblioPublicView` with public availability and `publicNote` only. Lost, declared missing, weeding-in-progress, and withdrawn copies are not returned. The record includes `holdsCount`. Staff copies keep `dueDate` (active loan `expiry_at`, or null). Public copies omit `dueDate` (the key is absent, not null) and omit `internalNote`. Both include `onHold` (same rules as `GET /biblios/{id}`). A public copy with `availability` `onLoan` includes `expectedReturnDate` (`YYYY-MM-DD` in the library timezone, no time) while that local date is today or later. The field is omitted when the local due date is before today, for every other availability, and on the staff view. The comparison uses `library_info.timezone`, not UTC. Users or loans read receive `holdFor` on an `onHold` copy. The public view omits `holdFor`. This route does not include `borrower`.", body = BiblioReadResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 404, description = "No active item with this barcode, or it is hidden from this caller", body = crate::error::ErrorResponse),
         (status = 410, description = "Bibliographic record is archived", body = crate::error::ErrorResponse)
@@ -196,6 +196,10 @@ where
 /// JSON value, returns 422 `circulation_status_read_only` and does not apply
 /// any other field. The key is detected before the body is read as [`Item`].
 /// Use the dedicated actions (lost, missing, to-search).
+///
+/// The retired `notes` key is rejected with 400 `validation_error` and writes
+/// nothing, including when the value is null. Use `publicNote` and
+/// `internalNote` (at most 4000 Unicode characters each).
 #[utoipa::path(
     put,
     path = "/items/{id}",
@@ -206,10 +210,10 @@ where
     ),
     request_body = Item,
     responses(
-        (status = 200, description = "Physical item updated", body = Item),
-        (status = 400, description = "Validation error", body = crate::error::ErrorResponse),
+        (status = 200, description = "Physical item updated. Response `publicNote` and `internalNote` are the stored values. Null on either note keeps the stored value; a blank string clears it. Each note is at most 4000 Unicode characters.", body = Item),
+        (status = 400, description = "Validation error. Body is `{ code, error, message }` with `code` `validation_error`. Includes a retired `notes` key (nothing is written) and a `publicNote` or `internalNote` longer than 4000 Unicode characters.", body = crate::error::ErrorResponse),
         (status = 404, description = "Biblio or item not found", body = crate::error::ErrorResponse),
-        (status = 409, description = "An item with this barcode already exists"),
+        (status = 409, description = "An item with this barcode already exists", body = crate::error::ErrorResponse),
         (status = 422, description = "`circulationStatus` is read-only (`circulation_status_read_only`) for any JSON value. Use the dedicated actions (lost, missing, to-search). No other field in the request is applied.", body = crate::error::ErrorResponse)
     )
 )]
@@ -430,7 +434,7 @@ mod tests {
     fn omitted_circulation_status_still_parses_as_item() {
         let body = json!({
             "callNumber": "SHELF-B",
-            "notes": "changed"
+            "internalNote": "changed"
         });
         assert!(!circulation_status_key_present(&body));
         let parsed = parse_item_update(&serde_json::to_vec(&body).expect("json")).expect("parse");
@@ -438,7 +442,7 @@ mod tests {
             ParsedItemUpdate::Ready(item) => {
                 assert!(item.circulation_status.is_none());
                 assert_eq!(item.call_number.as_deref(), Some("SHELF-B"));
-                assert_eq!(item.notes.as_deref(), Some("changed"));
+                assert_eq!(item.internal_note.as_deref(), Some("changed"));
             }
             ParsedItemUpdate::CirculationStatusPresent(_) => {
                 panic!("omitted key must not be treated as present");

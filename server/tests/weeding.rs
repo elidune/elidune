@@ -559,7 +559,7 @@ async fn readers_and_opac_do_not_see_weeding_reason() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "mark candidate: {body}");
-    sqlx::query("UPDATE items SET notes = 'staff copy note' WHERE id = $1")
+    sqlx::query("UPDATE items SET internal_note = 'staff copy note' WHERE id = $1")
         .bind(item_id)
         .execute(app.state.services.repository.pool())
         .await
@@ -571,7 +571,8 @@ async fn readers_and_opac_do_not_see_weeding_reason() {
     assert_eq!(status, StatusCode::OK, "staff biblio: {staff}");
     assert_eq!(staff["items"][0]["weedingReason"], "internal discard note");
     assert_eq!(staff["items"][0]["weedingStatus"], "candidate");
-    assert_eq!(staff["items"][0]["notes"], "staff copy note");
+    assert_eq!(staff["items"][0]["internalNote"], "staff copy note");
+    assert!(staff["items"][0].get("notes").is_none(), "{staff}");
     assert!(staff.get("weedingStatus").is_some());
 
     let (status, reader) = app

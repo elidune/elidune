@@ -18,6 +18,19 @@ use crate::{
     services::search::{MeilisearchService, SearchFilters},
 };
 
+/// Reject retired `notes` and over-long copy notes before any item write.
+fn check_item_notes(items: &[Item]) -> AppResult<()> {
+    if items.iter().any(|item| item.legacy_notes_present) {
+        return Err(AppError::Validation(
+            crate::models::item::LEGACY_ITEM_NOTES_MESSAGE.to_string(),
+        ));
+    }
+    for item in items {
+        item.validate_copy_notes().map_err(AppError::Validation)?;
+    }
+    Ok(())
+}
+
 #[derive(Clone)]
 pub struct CatalogService {
     pub(crate) repository: Arc<dyn BibliosRepository>,
@@ -123,6 +136,7 @@ impl CatalogService {
         biblio_id: i64,
         mut items: Vec<Item>,
     ) -> AppResult<Vec<Item>> {
+        check_item_notes(&items)?;
         for item in &mut items {
             if let Some(ref barcode) = item.barcode {
                 self.ensure_barcode_unique(barcode, item.id).await?;
@@ -279,6 +293,7 @@ impl CatalogService {
         allow_duplicate_isbn: bool,
         replace_existing: Option<i64>,
     ) -> AppResult<(Biblio, ImportReport)> {
+        check_item_notes(&biblio.items)?;
         if !allow_duplicate_isbn {
             if let Some(ref isbn) = biblio.isbn {
                 if let Some(existing_id) = self
@@ -366,6 +381,7 @@ impl CatalogService {
         mut biblio: Biblio,
         allow_duplicate_isbn: bool,
     ) -> AppResult<Biblio> {
+        check_item_notes(&biblio.items)?;
         self.repository.biblios_get_by_id(id).await?;
 
         if !allow_duplicate_isbn {
@@ -433,6 +449,8 @@ impl CatalogService {
     /// Barcode uniqueness is enforced through the shared policy.
     #[tracing::instrument(skip(self), err)]
     pub async fn create_item(&self, biblio_id: i64, item: Item) -> AppResult<Item> {
+        check_item_notes(std::slice::from_ref(&item))?;
+        item.validate_copy_notes().map_err(AppError::Validation)?;
         self.repository.biblios_get_by_id(biblio_id).await?;
 
         if let Some(ref barcode) = item.barcode {
@@ -456,14 +474,15 @@ impl CatalogService {
         item_id: i64,
         item: &'a mut Item,
     ) -> AppResult<(i64, &'a mut Item)> {
+        check_item_notes(std::slice::from_ref(item))?;
         // Status changes are audited actions. Reject the whole request so a
-        // call number or notes edit cannot ride along with a silent ignore.
+        // call number or note edit cannot ride along with a silent ignore.
         // The HTTP handler rejects any JSON value for this key before `Item`
         // is built; this still blocks a typed value on the service path.
         if item.circulation_status.is_some() {
             return Err(AppError::circulation_status_read_only());
         }
-
+        item.validate_copy_notes().map_err(AppError::Validation)?;
         if let Some(body_id) = item.id {
             if body_id != item_id {
                 return Err(AppError::Validation(

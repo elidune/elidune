@@ -981,7 +981,10 @@ def migrate_specimens(src, dst, skipped_biblio_ids=None):
 
     Target columns (items table):
         id, biblio_id, source_id, barcode, call_number, place,
-        borrowable (bool), circulation_status, notes, price,
+        borrowable (bool), circulation_status, price,
+        Legacy specimen notes go to internal_note when migration 054 has run
+        (public_note stays NULL). A schema that still has items.notes (001 only)
+        receives them in notes; 054 then moves that column to internal_note.
         weeding_status defaults to on_shelf (orthogonal to archived_at / circulation_status).
         Migration 045 backfills any later withdrawn copies into item_withdrawals;
         this import itself only inserts on_shelf rows, so it does not write withdrawals.
@@ -1010,6 +1013,16 @@ def migrate_specimens(src, dst, skipped_biblio_ids=None):
 
     BATCH = 1000
     offset = 0
+
+    dst_cur.execute("""
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'items'
+          AND column_name IN ('notes', 'internal_note')
+    """)
+    item_note_columns = {row[0] for row in dst_cur.fetchall()}
+    split_notes = "internal_note" in item_note_columns
 
     while offset < total:
         src_cur.execute(f"""
@@ -1074,18 +1087,32 @@ def migrate_specimens(src, dst, skipped_biblio_ids=None):
                 
 
 
-            dst_cur.execute("""
-                INSERT INTO items (
-                    id, biblio_id, source_id, barcode, call_number, place,
-                    borrowable, circulation_status, notes, price,
-                    updated_at, archived_at, created_at
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                ON CONFLICT (id) DO NOTHING
-            """, (
-                sid, biblio_id, source_id, barcode, cote, place,
-                borrowable, codestat, notes, price,
-                updated_dt, archived_dt, created_dt,
-            ))
+            if split_notes:
+                dst_cur.execute("""
+                    INSERT INTO items (
+                        id, biblio_id, source_id, barcode, call_number, place,
+                        borrowable, circulation_status, public_note, internal_note, price,
+                        updated_at, archived_at, created_at
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (id) DO NOTHING
+                """, (
+                    sid, biblio_id, source_id, barcode, cote, place,
+                    borrowable, codestat, None, notes, price,
+                    updated_dt, archived_dt, created_dt,
+                ))
+            else:
+                dst_cur.execute("""
+                    INSERT INTO items (
+                        id, biblio_id, source_id, barcode, call_number, place,
+                        borrowable, circulation_status, notes, price,
+                        updated_at, archived_at, created_at
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (id) DO NOTHING
+                """, (
+                    sid, biblio_id, source_id, barcode, cote, place,
+                    borrowable, codestat, notes, price,
+                    updated_dt, archived_dt, created_dt,
+                ))
             migrated_specimen_ids.add(sid)
 
         dst.commit()

@@ -369,7 +369,8 @@ impl Repository {
             it.place AS item_place,
             it.borrowable AS item_borrowable,
             it.circulation_status AS item_circulation_status,
-            it.notes AS item_notes,
+            it.public_note AS item_public_note,
+            it.internal_note AS item_internal_note,
             it.price AS item_price,
             it.created_at AS item_created_at,
             it.updated_at AS item_updated_at,
@@ -519,7 +520,8 @@ impl Repository {
             circulation_status,
             weeding_status,
             weeding_reason: row.try_get("item_weeding_reason").ok().flatten(),
-            notes: row.try_get("item_notes").ok().flatten(),
+            public_note: row.try_get("item_public_note").ok().flatten(),
+            internal_note: row.try_get("item_internal_note").ok().flatten(),
             price: row.try_get("item_price").ok().flatten(),
             price_deferred: false,
             created_at: row.try_get("item_created_at").ok().flatten(),
@@ -537,6 +539,7 @@ impl Repository {
             due_date: None,
             expected_return_date: None,
             on_hold: false,
+            legacy_notes_present: false,
         };
 
         let series_ids: Vec<i64> = series.iter().filter_map(|s| s.id).collect();

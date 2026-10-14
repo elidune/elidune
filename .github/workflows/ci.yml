@@ -213,6 +213,7 @@ jobs:
           --test patron_current_loans_rights
           --test transit_display
           --test expected_return_date
+          --test item_notes
           -- --nocapture
 
   coverage:
@@ -316,6 +317,7 @@ jobs:
           --test patron_current_loans_rights
           --test transit_display
           --test expected_return_date
+          --test item_notes
           --lcov
           --output-path lcov.info
           --fail-under-lines 20

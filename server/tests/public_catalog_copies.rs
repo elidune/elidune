@@ -96,6 +96,7 @@ fn assert_public_shape(copy: &Value) {
         "weedingStatus",
         "weedingReason",
         "notes",
+        "internalNote",
         "login",
     ] {
         assert!(copy.get(key).is_none(), "{key} leaked: {copy}");

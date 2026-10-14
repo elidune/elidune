@@ -58,7 +58,7 @@ impl Repository {
 
         let item_row = sqlx::query(
             r#"
-            SELECT id, circulation_status, borrowable, price, notes
+            SELECT id, circulation_status, borrowable, price, internal_note
             FROM items
             WHERE id = $1 AND archived_at IS NULL
             FOR UPDATE
@@ -78,14 +78,14 @@ impl Repository {
         let notify_holds = params.action.notify_holds();
         let borrowable = next.borrowable_after();
 
-        let item_notes = merge_notes(item_row.get("notes"), params.notes);
+        let item_notes = merge_notes(item_row.get("internal_note"), params.notes);
 
         sqlx::query(
             r#"
             UPDATE items SET
                 circulation_status = $2,
                 borrowable = $3,
-                notes = $4,
+                internal_note = $4,
                 updated_at = $5
             WHERE id = $1
             "#,
@@ -191,7 +191,7 @@ impl Repository {
                 l.user_id,
                 l.date AS loan_start,
                 l.expiry_at,
-                COALESCE(l.notes, it.notes) AS notes,
+                COALESCE(l.notes, it.internal_note) AS notes,
                 it.barcode,
                 it.updated_at AS item_updated_at,
                 b.title

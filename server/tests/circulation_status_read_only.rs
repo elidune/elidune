@@ -25,7 +25,7 @@ async fn create_copy(app: &TestApp, admin_token: &str) -> i64 {
                 "items": [{
                     "barcode": format!("RO-{suffix}"),
                     "callNumber": "SHELF-A",
-                    "notes": "original",
+                    "internalNote": "original",
                     "borrowable": true
                 }]
             }),
@@ -46,7 +46,7 @@ async fn mark_to_search(app: &TestApp, item_id: i64) {
 
 async fn snapshot(app: &TestApp, item_id: i64) -> ItemSnapshot {
     sqlx::query_as(
-        "SELECT call_number, notes, circulation_status, borrowable FROM items WHERE id = $1",
+        "SELECT call_number, internal_note, circulation_status, borrowable FROM items WHERE id = $1",
     )
     .bind(item_id)
     .fetch_one(app.state.services.repository.pool())
@@ -95,7 +95,7 @@ async fn put_with_circulation_status_is_422_and_writes_nothing() {
                 &format!("/api/v1/items/{item_id}"),
                 &json!({
                     "callNumber": "SHELF-B",
-                    "notes": "changed",
+                    "internalNote": "changed",
                     "borrowable": true,
                     "circulationStatus": circulation_status,
                 }),
@@ -127,7 +127,7 @@ async fn put_without_circulation_status_still_updates_other_fields() {
             &format!("/api/v1/items/{item_id}"),
             &json!({
                 "callNumber": "SHELF-B",
-                "notes": "changed"
+                "internalNote": "changed"
             }),
             Some(&admin_token),
         )
