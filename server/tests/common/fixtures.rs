@@ -2,6 +2,8 @@
 
 #![allow(dead_code)]
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use chrono::NaiveDate;
 use serde_json::json;
 
@@ -114,6 +116,20 @@ pub fn unique_suffix() -> u128 {
         .duration_since(std::time::UNIX_EPOCH)
         .expect("clock")
         .as_nanos()
+}
+
+/// Fragment for an account-type `code` (letters, digits, underscore; 50 chars max with a short prefix).
+///
+/// `unique_suffix() % 1_000_000_000` repeats every second and drops the counter, so
+/// parallel creates hit `409 Account type code already exists`.
+pub fn unique_token() -> String {
+    static N: AtomicU64 = AtomicU64::new(0);
+    let n = N.fetch_add(1, Ordering::Relaxed);
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_millis();
+    format!("p{}t{millis}n{n}", std::process::id())
 }
 
 /// Move `expiry_at` inside the default 7-day renewal window so a renew is allowed.
