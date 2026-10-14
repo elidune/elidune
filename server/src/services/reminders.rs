@@ -279,6 +279,7 @@ impl RemindersService {
         let mut details = Vec::new();
         let mut errors = Vec::new();
         let mut queued_loan_ids: Vec<i64> = Vec::new();
+        let library_lang = self.email.library_notice_language().await;
         let zone = match self.repository.library_timezone_name().await {
             Ok(name) => crate::services::calendar::parse_timezone(&name)
                 .unwrap_or_else(|_| crate::services::calendar::default_zone()),
@@ -300,13 +301,14 @@ impl RemindersService {
 
             let firstname = first.firstname.as_deref().unwrap_or("");
             let lastname = first.lastname.as_deref().unwrap_or("");
-            let lang = first.user_language.as_deref().map(Language::from);
+            let patron_lang = first.user_language.as_deref().map(Language::from);
             let template_id = tier.template_id(&reminders_cfg).to_string();
-            let loans_list = loan_list_plain(loans, zone, lang);
-            let loans_table_html = loan_table_html(loans, zone, lang);
 
             if !dry_run {
-                let template_result = self.email.load_template(&template_id, lang).await;
+                let template_result = self
+                    .email
+                    .load_notice_template(&template_id, patron_lang, library_lang)
+                    .await;
 
                 match template_result {
                     Err(e) => {
@@ -317,7 +319,9 @@ impl RemindersService {
                         });
                         continue;
                     }
-                    Ok(template) => {
+                    Ok((language, template)) => {
+                        let loans_list = loan_list_plain(loans, zone, Some(language));
+                        let loans_table_html = loan_table_html(loans, zone, Some(language));
                         let vars: Vec<(&str, &str)> = vec![
                             ("firstname", firstname),
                             ("lastname", lastname),

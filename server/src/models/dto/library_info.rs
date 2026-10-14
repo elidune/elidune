@@ -31,6 +31,17 @@ impl LibraryUiLanguage {
     }
 }
 
+impl From<LibraryUiLanguage> for crate::models::Language {
+    fn from(value: LibraryUiLanguage) -> Self {
+        match value {
+            LibraryUiLanguage::Fr => Self::French,
+            LibraryUiLanguage::En => Self::English,
+            LibraryUiLanguage::De => Self::German,
+            LibraryUiLanguage::Es => Self::Spanish,
+        }
+    }
+}
+
 impl TryFrom<&str> for LibraryUiLanguage {
     type Error = InvalidLibraryUiLanguage;
 
@@ -97,6 +108,15 @@ pub struct UpdateLibraryInfoRequest {
 #[cfg(test)]
 mod tests {
     use super::{LibraryInfo, LibraryUiLanguage, UpdateLibraryInfoRequest};
+    use crate::models::Language;
+
+    #[test]
+    fn library_ui_language_maps_onto_the_notice_language() {
+        assert_eq!(Language::from(LibraryUiLanguage::Fr), Language::French);
+        assert_eq!(Language::from(LibraryUiLanguage::En), Language::English);
+        assert_eq!(Language::from(LibraryUiLanguage::De), Language::German);
+        assert_eq!(Language::from(LibraryUiLanguage::Es), Language::Spanish);
+    }
 
     #[test]
     fn language_json_is_the_code_or_null() {
