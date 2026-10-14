@@ -7,9 +7,11 @@ import EventsConsentFields from '@/components/users/EventsConsentFields';
 import GuardianPicker from '@/components/users/GuardianPicker';
 import api from '@/services/api';
 import type { AccountTypeDefinition, PublicType, User, UserShort } from '@/types';
+import { LANGUAGE_NAMES, PUBLIC_LANGUAGE_OPTIONS } from '@/locales';
 import { defaultAccountTypeCode, localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
 import { localizedPublicTypeLabel } from '@/utils/publicTypeDisplay';
 import { getApiErrorMessage, getApiErrorRawMessage } from '@/utils/apiError';
+import { appendReaderLanguage, readerLanguageSelectValue } from '@/utils/readerLanguage';
 import { SEX_OPTIONS } from '@/utils/codeLabels';
 import { searchFrenchCommunePicks } from '@/utils/frenchCommuneSearch';
 import { formControlClass, formLabelClass, formTextareaClass } from '@/utils/formControl';
@@ -45,6 +47,8 @@ export type UserFormData = {
   guardianId: string;
   /** Sent as `eventsConsent`. Defaults to false (No) until the desk chooses Yes. */
   eventsConsent: boolean;
+  /** UI code (`fr`/`en`/`de`/`es`) or empty for the library language. */
+  language: string;
 };
 
 type UserRequiredField =
@@ -88,6 +92,7 @@ function emptyFormData(accountTypes: AccountTypeDefinition[]): UserFormData {
     expiryAt: defaultExpiryDateInputOneYearFromNow(),
     guardianId: '',
     eventsConsent: false,
+    language: '',
   };
 }
 
@@ -115,11 +120,12 @@ function formDataFromUser(user: User): UserFormData {
       : defaultExpiryDateInputOneYearFromNow(),
     guardianId: user.guardianId ? String(user.guardianId) : '',
     eventsConsent: user.eventsConsent === true,
+    language: readerLanguageSelectValue(user.language),
   };
 }
 
 function buildPayload(formData: UserFormData): Record<string, unknown> {
-  return {
+  const body: Record<string, unknown> = {
     login: formData.login || undefined,
     firstname: formData.firstname || undefined,
     lastname: formData.lastname || undefined,
@@ -143,6 +149,7 @@ function buildPayload(formData: UserFormData): Record<string, unknown> {
           ),
         }),
   };
+  return appendReaderLanguage(body, formData.language);
 }
 
 function CollapsibleFormSection({
@@ -630,6 +637,24 @@ export default function UserEditorForm({
             onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
             leftIcon={<Phone className="h-4 w-4" />}
           />
+          <div>
+            <label htmlFor={`${formId}-language`} className={formLabelClass()}>
+              {t('users.language')}
+            </label>
+            <select
+              id={`${formId}-language`}
+              value={formData.language}
+              onChange={(e) => setFormData({ ...formData, language: e.target.value })}
+              className={selectClass(false)}
+            >
+              <option value="">{t('users.libraryLanguage')}</option>
+              {PUBLIC_LANGUAGE_OPTIONS.map((code) => (
+                <option key={code} value={code}>
+                  {LANGUAGE_NAMES[code]}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 items-start">

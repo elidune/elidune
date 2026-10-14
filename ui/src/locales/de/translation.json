@@ -913,6 +913,8 @@
     "subscriptionExpiry": "Abonnementende",
     "fee": "Gebühr",
     "contact": "Kontakt",
+    "language": "Sprache",
+    "libraryLanguage": "Sprache der Bibliothek",
     "notes": "Notizen",
     "createdAt": "Erstellt am",
     "lateLoans": "überfällig",

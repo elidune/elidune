@@ -913,6 +913,8 @@
     "subscriptionExpiry": "Fin d'abonnement",
     "fee": "Tarif",
     "contact": "Contact",
+    "language": "Langue",
+    "libraryLanguage": "Langue de la bibliothèque",
     "notes": "Notes",
     "cityPostalLookup": "Ville ou code postal (recherche)",
     "cityPostalLookupPlaceholder": "Ex. Annecy ou Annecy (74000)",
