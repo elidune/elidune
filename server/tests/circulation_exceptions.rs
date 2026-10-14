@@ -73,19 +73,28 @@ async fn item_copy(app: &TestApp, admin_token: &str, item_id: i64) -> serde_json
     body["items"][0].clone()
 }
 
+/// Audit rows are inserted on a spawned task after the HTTP response.
+/// Poll briefly so a just-written event is visible before the assertion.
 async fn audit_has(app: &TestApp, admin_token: &str, event_type: &str) -> bool {
-    let (status, body) = app
-        .get_json_with_auth(
-            &format!("/api/v1/audit?eventType={event_type}&perPage=50"),
-            admin_token,
-        )
-        .await;
-    assert_eq!(status, StatusCode::OK, "audit: {body}");
-    body["entries"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .any(|e| e["eventType"] == event_type)
+    for _ in 0..20 {
+        let (status, body) = app
+            .get_json_with_auth(
+                &format!("/api/v1/audit?eventType={event_type}&perPage=50"),
+                admin_token,
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK, "audit: {body}");
+        let found = body["entries"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|e| e["eventType"] == event_type);
+        if found {
+            return true;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    false
 }
 
 #[tokio::test]
