@@ -250,7 +250,7 @@ pub struct CatalogSourceStats {
     /// Number of items archived in the period
     pub archived_items: i64,
     /// Loans in the period counted at the loan site (`loans.site_id`, or the
-    /// item home site when that column is null).
+    /// library default site when that column is null).
     pub loans: i64,
     /// Breakdown by media type (only when by_source=true AND by_media_type=true)
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -192,7 +192,7 @@ pub struct CreateLoanRequest {
     pub force: Option<bool>,
     /// Desk site (`sources.id`) where the loan is made. Stored on `loans.site_id`.
     /// Omit it to leave the column null; due date, renewal, and fines then follow
-    /// the item home site (`items.source_id`). An unknown id is 404 `not_found`.
+    /// the library default site (`sources."default"`). An unknown id is 404 `not_found`.
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub site_id: Option<i64>,

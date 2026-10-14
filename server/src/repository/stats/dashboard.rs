@@ -1424,13 +1424,17 @@ impl Repository {
 
         // --- Merge loan counts into breakdown structures ---
         // All loans (active + archived) grouped by loan site, media type, and
-        // public type. `loans.site_id` is the desk. Historical rows leave it
-        // null and fall back to the item home site (`items.source_id`).
+        // public type. `loans.site_id` is the desk. A null site resolves to the
+        // library default site at query time (`sources."default"`).
 
-        let loan_rows = sqlx::query(
+        let loan_site = format!(
+            "COALESCE(all_loans.site_id, {}, 0)",
+            crate::services::calendar::LIBRARY_DEFAULT_SITE_ID_SQL
+        );
+        let loan_rows = sqlx::query(&format!(
             r#"
                 SELECT
-                    COALESCE(all_loans.site_id, sp.source_id, 0) as source_id,
+                    {loan_site} as source_id,
                     COALESCE(i.media_type, 'unknown') as media_type,
                     COALESCE(i.audience_type, 'unknown') as public_type,
                     COUNT(*) as loans
@@ -1442,9 +1446,9 @@ impl Repository {
                 JOIN items sp ON all_loans.item_id = sp.id
                 JOIN biblios i ON sp.biblio_id = i.id
                 WHERE all_loans.date >= $1 AND all_loans.date <= $2
-                GROUP BY COALESCE(all_loans.site_id, sp.source_id, 0), i.media_type, i.audience_type
+                GROUP BY {loan_site}, i.media_type, i.audience_type
                 "#,
-        )
+        ))
         .bind(start)
         .bind(end)
         .fetch_all(pool)

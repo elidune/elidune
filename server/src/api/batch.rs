@@ -197,7 +197,8 @@ pub struct BatchCreateLoansRequest {
     #[serde(default)]
     pub force: bool,
     /// Desk site (`sources.id`) stored on every loan in the batch.
-    /// Omit it to leave `loans.site_id` null.
+    /// Omit it to leave `loans.site_id` null; calendar and statistics then use
+    /// the library default site.
     #[serde(default)]
     pub site_id: Option<String>,
 }

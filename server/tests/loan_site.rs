@@ -44,6 +44,17 @@ async fn seed_item(app: &TestApp, token: &str, site_id: i64) -> (i64, String) {
     )
 }
 
+async fn library_default_site(app: &TestApp) -> i64 {
+    let sql = format!(
+        "SELECT id FROM sources WHERE id = {}",
+        elidune_server::services::calendar::LIBRARY_DEFAULT_SITE_ID_SQL
+    );
+    sqlx::query_scalar(&sql)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .expect("library default site")
+}
+
 fn loans_at(body: &Value, site_id: i64) -> i64 {
     body["bySource"]
         .as_array()
@@ -169,8 +180,16 @@ async fn omitted_site_stays_null_and_unknown_site_is_not_found() {
     };
     let token = fixtures::ensure_first_setup(&app).await;
     let (reader_id, _) = fixtures::create_reader(&app, &token, "loannull").await;
+    let default_site = library_default_site(&app).await;
     let home = create_site(&app, &token, "NullHome").await;
+    assert_ne!(default_site, home);
     let (item_id, _) = seed_item(&app, &token, home).await;
+
+    let (status, before) = app
+        .get_json_with_auth("/api/v1/stats/catalog?bySource=true", &token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{before}");
+    let home_before = loans_at(&before, home);
 
     let (status, missing) = app
         .post_json(
@@ -212,4 +231,95 @@ async fn omitted_site_stays_null_and_unknown_site_is_not_found() {
         .await
         .expect("null site");
     assert_eq!(stored, None);
+
+    let (status, stats) = app
+        .post_json(
+            "/api/v1/stats/query",
+            &json!({
+                "entity": "loans",
+                "select": [{ "field": "loans.effective_site_id", "alias": "siteId" }],
+                "aggregations": [{ "fn": "count", "field": "loans.id", "alias": "n" }],
+                "groupBy": [{ "field": "loans.effective_site_id" }],
+                "filters": [{ "field": "loans.id", "op": "eq", "value": loan_id }]
+            }),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "stats query: {stats}");
+    assert!(stats["sqlError"].is_null(), "{stats}");
+    let counted = stats["rows"]
+        .as_array()
+        .and_then(|rows| rows.first())
+        .expect("one stats row");
+    assert_eq!(
+        fixtures::json_id(&counted["siteId"]),
+        default_site,
+        "{counted}"
+    );
+    assert_eq!(counted["n"].as_i64(), Some(1), "{counted}");
+
+    let (status, after) = app
+        .get_json_with_auth("/api/v1/stats/catalog?bySource=true", &token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{after}");
+    assert_eq!(loans_at(&after, home), home_before, "{after}");
+}
+
+#[tokio::test]
+async fn deleting_a_site_referenced_by_an_archive_is_refused() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let token = fixtures::ensure_first_setup(&app).await;
+    let (reader_id, _) = fixtures::create_reader(&app, &token, "loanrestrict").await;
+    let home = create_site(&app, &token, "RestrictHome").await;
+    let desk = create_site(&app, &token, "RestrictDesk").await;
+    let (item_id, _) = seed_item(&app, &token, home).await;
+
+    let (status, loan) = app
+        .post_json(
+            "/api/v1/loans",
+            &json!({
+                "userId": reader_id.to_string(),
+                "itemId": item_id.to_string(),
+                "siteId": desk.to_string()
+            }),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "checkout: {loan}");
+    let loan_id = fixtures::json_id(&loan["id"]);
+
+    let (status, returned) = app
+        .post_empty(&format!("/api/v1/loans/{loan_id}/return"), Some(&token))
+        .await;
+    assert_eq!(status, StatusCode::OK, "return: {returned}");
+
+    let pool = app.state.services.repository.pool();
+    let archived: Option<i64> = sqlx::query_scalar(
+        "SELECT site_id FROM loans_archives WHERE item_id = $1 ORDER BY returned_at DESC LIMIT 1",
+    )
+    .bind(item_id)
+    .fetch_one(pool)
+    .await
+    .expect("archived site");
+    assert_eq!(archived, Some(desk));
+
+    let error = sqlx::query("DELETE FROM sources WHERE id = $1")
+        .bind(desk)
+        .execute(pool)
+        .await
+        .expect_err("archive site_id is ON DELETE RESTRICT");
+    let db = error.as_database_error().expect("postgres error");
+    assert_eq!(db.code().as_deref(), Some("23503"), "{db}");
+    assert!(db.message().contains("loans_archives"), "{}", db.message());
+
+    let still: Option<i64> = sqlx::query_scalar(
+        "SELECT site_id FROM loans_archives WHERE item_id = $1 ORDER BY returned_at DESC LIMIT 1",
+    )
+    .bind(item_id)
+    .fetch_one(pool)
+    .await
+    .expect("archive row remains");
+    assert_eq!(still, Some(desk));
 }

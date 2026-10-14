@@ -192,7 +192,7 @@ pub struct CreateLoan {
     pub item_identification: Option<String>,
     pub force: bool,
     /// Desk site (`sources.id`). Null leaves `loans.site_id` null; the calendar
-    /// then follows the item home site.
+    /// then follows the library default site.
     #[serde_as(as = "Option<DisplayFromStr>")]
     pub site_id: Option<i64>,
 }

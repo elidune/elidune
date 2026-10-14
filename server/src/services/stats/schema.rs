@@ -172,9 +172,9 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
                 (
                     "effective_site_id",
                     c(
-                        "COALESCE({alias}.site_id, (SELECT it.source_id FROM items it WHERE it.id = {alias}.item_id))",
+                        crate::services::calendar::EFFECTIVE_LOAN_SITE_SQL,
                         "bigint",
-                        "Loan site, or the item home site when the loan has no recorded site",
+                        "Loan site, or the library default site when the loan has no recorded site",
                     ),
                 ),
                 (
@@ -499,9 +499,9 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
                 (
                     "effective_site_id",
                     c(
-                        "COALESCE({alias}.site_id, (SELECT it.source_id FROM items it WHERE it.id = {alias}.item_id))",
+                        crate::services::calendar::EFFECTIVE_LOAN_SITE_SQL,
                         "bigint",
-                        "Loan site, or the item home site when the loan has no recorded site",
+                        "Loan site, or the library default site when the loan has no recorded site",
                     ),
                 ),
                 ("addr_city", f("addr_city", "text", "Borrower city")),
@@ -537,10 +537,7 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
                     ),
                 ),
                 ("items", r("items", "item_id", "id", "Item copy")),
-                (
-                    "sources",
-                    r("sources", "site_id", "id", "Loan site"),
-                ),
+                ("sources", r("sources", "site_id", "id", "Loan site")),
             ]),
         },
     );

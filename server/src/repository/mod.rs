@@ -99,10 +99,27 @@ impl Repository {
             .unwrap_or_else(|| crate::config::CirculationConfig::default().skip_closed_days)
     }
 
+    /// Library default site (`sources."default"`), or none when that flag is unset.
+    ///
+    /// A NULL `loans.site_id` resolves to this at query time. The subquery is
+    /// [`crate::services::calendar::LIBRARY_DEFAULT_SITE_ID_SQL`].
+    pub(crate) async fn library_default_site_id_conn(
+        &self,
+        conn: &mut sqlx::PgConnection,
+    ) -> crate::error::AppResult<Option<i64>> {
+        let id: Option<i64> = sqlx::query_scalar(&format!(
+            "SELECT id FROM sources WHERE id = {}",
+            crate::services::calendar::LIBRARY_DEFAULT_SITE_ID_SQL
+        ))
+        .fetch_optional(&mut *conn)
+        .await?;
+        Ok(id)
+    }
+
     /// `anchor + duration_days`, then the next open day of `site_id` when
     /// [`Self::skip_closed_days`] is on. The civil date is the library timezone,
     /// not the container zone. `site_id` is [`crate::services::calendar::loan_calendar_site`]:
-    /// `loans.site_id`, or `items.source_id` when the loan has no recorded site.
+    /// `loans.site_id`, or the library default site when the loan has none.
     ///
     /// `conn` is the caller's connection. Checkout and renew pass the transaction
     /// that holds `FOR UPDATE` so calendar reads do not take a second pool connection.
