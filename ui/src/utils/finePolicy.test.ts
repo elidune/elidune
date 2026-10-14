@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import type { FineRule } from '@/types';
 import de from '../locales/de/translation.json' with { type: 'json' };
 import en from '../locales/en/translation.json' with { type: 'json' };
 import es from '../locales/es/translation.json' with { type: 'json' };
 import fr from '../locales/fr/translation.json' with { type: 'json' };
+import { withAccrueFines } from './reminderPolicy.ts';
 import {
   audienceUnpaidThresholdForCreate,
   audienceUnpaidThresholdForUpdate,
+  fineSettingsDraft,
+  fineSettingsSavePlan,
   globalUnpaidThresholdBody,
   normalizeFinePolicy,
 } from './finePolicy.ts';
@@ -108,11 +112,122 @@ describe('unpaid threshold payloads', () => {
   });
 });
 
+describe('fine settings save plan', () => {
+  const rules: FineRule[] = [
+    { id: 1, mediaType: null, dailyRate: '0.20', maxAmount: '15.00', graceDays: 3 },
+    { id: 2, mediaType: 'videoDvd', dailyRate: '1.00', graceDays: 1 },
+  ];
+
+  it('turns late fines and the blocking threshold off without touching the daily rate', () => {
+    const plan = fineSettingsSavePlan({
+      enabled: false,
+      canControlAccrual: true,
+      dailyRate: '0.20',
+      blockMode: 'amount',
+      threshold: '10.00',
+      rules,
+    });
+    assert.equal(plan.ok, true);
+    if (!plan.ok) return;
+    assert.deepEqual(plan.policy, { unpaidThresholdMode: 'none' });
+    assert.equal(plan.accrueFines, false);
+    assert.equal(plan.rule, null);
+    assert.equal(wire(plan.policy).includes('unpaidThresholdCents'), false);
+  });
+
+  it('keeps the stored grace and cap when the daily rate changes', () => {
+    const plan = fineSettingsSavePlan({
+      enabled: true,
+      canControlAccrual: true,
+      dailyRate: '0,50',
+      blockMode: 'amount',
+      threshold: '10',
+      rules,
+    });
+    assert.equal(plan.ok, true);
+    if (!plan.ok) return;
+    assert.deepEqual(plan.policy, { unpaidThresholdMode: 'amount', unpaidThresholdCents: 1000 });
+    assert.equal(plan.accrueFines, true);
+    assert.deepEqual(plan.rule, {
+      mediaType: null,
+      dailyRate: '0.50',
+      maxAmount: '15.00',
+      graceDays: 3,
+    });
+  });
+
+  it('does not write admin accrual when this session cannot', () => {
+    const plan = fineSettingsSavePlan({
+      enabled: true,
+      canControlAccrual: false,
+      dailyRate: '0.20',
+      blockMode: 'none',
+      threshold: '',
+      rules,
+    });
+    assert.equal(plan.ok, true);
+    if (!plan.ok) return;
+    assert.equal(plan.accrueFines, null);
+    assert.deepEqual(plan.policy, { unpaidThresholdMode: 'none' });
+    assert.equal(plan.rule?.dailyRate, '0.20');
+  });
+
+  it('rejects an enabled policy with an empty rate or threshold', () => {
+    assert.deepEqual(
+      fineSettingsSavePlan({
+        enabled: true,
+        canControlAccrual: true,
+        dailyRate: '',
+        blockMode: 'none',
+        threshold: '',
+        rules,
+      }),
+      { ok: false, field: 'dailyRate' },
+    );
+    assert.deepEqual(
+      fineSettingsSavePlan({
+        enabled: true,
+        canControlAccrual: true,
+        dailyRate: '0.20',
+        blockMode: 'amount',
+        threshold: '',
+        rules,
+      }),
+      { ok: false, field: 'threshold' },
+    );
+  });
+
+  it('reads the default rule and the accrual flag into the draft', () => {
+    const draft = fineSettingsDraft(
+      { unpaidThresholdMode: 'amount', unpaidThresholdCents: 500 },
+      false,
+      rules,
+    );
+    assert.equal(draft.enabled, false);
+    assert.equal(draft.dailyRate, '0.20');
+    assert.equal(draft.blockMode, 'amount');
+    assert.equal(draft.threshold, '5.00');
+    assert.equal(draft.graceDays, 3);
+    assert.equal(draft.maxAmount, '15.00');
+    assert.equal(draft.hasMediaRules, true);
+  });
+
+  it('refuses to patch accrual onto an incomplete reminders payload', () => {
+    assert.equal(withAccrueFines({}, false), null);
+    const payload = withAccrueFines({ send_time: '09:00', accrueFines: true, overridable: true }, false);
+    assert.deepEqual(payload, { send_time: '09:00', accrue_fines: false });
+  });
+});
+
 describe('unpaid threshold copy', () => {
   it('keeps the mode labels in every locale', () => {
+    const fineKeys = Object.keys(fr.settings.finePolicy).sort();
     for (const messages of Object.values(LOCALES)) {
       const fine = messages.settings.finePolicy;
       const audience = messages.settings.publicTypes;
+      assert.deepEqual(Object.keys(fine).sort(), fineKeys);
+      assert.equal(typeof fine.enabled, 'string');
+      assert.equal(typeof fine.dailyRate, 'string');
       assert.equal(typeof fine.modeNone, 'string');
       assert.equal(typeof fine.modeAmount, 'string');
       assert.equal(typeof fine.invalidAmount, 'string');
@@ -121,13 +236,16 @@ describe('unpaid threshold copy', () => {
       assert.equal(typeof audience.unpaidThresholdModeAmount, 'string');
       assert.equal(typeof audience.unpaidFineThresholdInherit, 'string');
       assert.equal(typeof audience.unpaidFineThresholdInheritEmpty, 'string');
+      assert.equal(typeof audience.unpaidFineThresholdInheritFinesOff, 'string');
     }
   });
 
-  it('uses lecteur and exemplaire in French', () => {
-    const text = `${fr.settings.finePolicy.help} ${fr.settings.publicTypes.unpaidFineThresholdHelp}`;
+  it('uses lecteur and exemplaire in French and keeps lost copies out of the toggle', () => {
+    const text = `${fr.settings.finePolicy.help} ${fr.settings.publicTypes.unpaidFineThresholdHelp} ${fr.settings.publicTypes.unpaidFineThresholdInheritFinesOff}`;
     assert.match(text, /lecteur/);
     assert.match(text, /exemplaire/);
+    assert.match(fr.settings.finePolicy.help, /perdu/);
+    assert.match(fr.settings.finePolicy.help, /retard/);
     assert.doesNotMatch(text, /usager|spécimen|specimen|abonné/i);
   });
 });

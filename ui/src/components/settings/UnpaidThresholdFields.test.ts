@@ -85,10 +85,27 @@ describe('UnpaidThresholdFields', () => {
     });
     const inherit = html.match(/<input[^>]*value="inherit"[^>]*>/)?.[0] ?? '';
     assert.match(inherit, /checked/);
-    assert.match(html, /12\.50/);
+    assert.match(html, /12,50/);
+    assert.match(html, /€/);
     assert.match(html, /aria-describedby="[^"]+"/);
     assert.equal(html.includes('type="number"'), false);
     assert.equal(html.includes('value="9.00"'), false);
+  });
+
+  it('says inheriting does not block when late fines are off, and keeps an own threshold', async () => {
+    const html = renderFields(await i18nFor('fr'), {
+      scope: 'audience',
+      name: 'audience-fines-off',
+      mode: 'inherit',
+      amount: '',
+      inheritedAmount: '12.50',
+      globalFinesEnabled: false,
+      onModeChange: () => undefined,
+      onAmountChange: () => undefined,
+    });
+    assert.match(html, new RegExp(fr.settings.publicTypes.unpaidFineThresholdInheritFinesOff));
+    assert.equal(html.includes('12,50'), false);
+    assert.equal((html.match(/type="radio"/g) ?? []).length, 3);
   });
 
   it('says when the global setting does not block, in each locale', async () => {

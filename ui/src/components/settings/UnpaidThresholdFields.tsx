@@ -3,6 +3,7 @@ import { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import Input from '@/components/common/Input';
 import { formChoiceControlClass, formChoiceLabelClass, formLabelClass } from '@/utils/formControl';
+import { formatEuroAmount } from '@/utils/patronFines';
 import type { AudienceUnpaidThresholdMode, GlobalUnpaidThresholdMode } from '@/types';
 
 type ScopeProps =
@@ -16,8 +17,10 @@ type ScopeProps =
       scope: 'audience';
       mode: AudienceUnpaidThresholdMode;
       onModeChange: (mode: AudienceUnpaidThresholdMode) => void;
-      /** Euro display of the global amount. Null when the global mode does not block. */
+      /** Euro decimal of the global amount (`12.50`). Null when the global mode does not block. */
       inheritedAmount?: string | null;
+      /** False when scheduled late fines are off. Own thresholds still apply. */
+      globalFinesEnabled?: boolean;
     };
 
 export type UnpaidThresholdFieldsProps = ScopeProps & {
@@ -46,8 +49,9 @@ function modeLabel(
 }
 
 export function UnpaidThresholdFields(props: UnpaidThresholdFieldsProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const hintId = useId();
+  const finesOff = props.scope === 'audience' && props.globalFinesEnabled === false;
   const helpId = useId();
   const modes = props.scope === 'global' ? GLOBAL_MODES : AUDIENCE_MODES;
   const title =
@@ -94,11 +98,13 @@ export function UnpaidThresholdFields(props: UnpaidThresholdFieldsProps) {
         </div>
         {props.scope === 'audience' && props.mode === 'inherit' && (
           <p id={hintId} className="text-xs text-gray-500 dark:text-gray-400">
-            {props.inheritedAmount
-              ? t('settings.publicTypes.unpaidFineThresholdInherit', {
-                  amount: props.inheritedAmount,
-                })
-              : t('settings.publicTypes.unpaidFineThresholdInheritEmpty')}
+            {finesOff
+              ? t('settings.publicTypes.unpaidFineThresholdInheritFinesOff')
+              : props.inheritedAmount
+                ? t('settings.publicTypes.unpaidFineThresholdInherit', {
+                    amount: formatEuroAmount(props.inheritedAmount, i18n.language),
+                  })
+                : t('settings.publicTypes.unpaidFineThresholdInheritEmpty')}
           </p>
         )}
         {props.mode === 'amount' && (

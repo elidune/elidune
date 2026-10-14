@@ -23,6 +23,7 @@ import { canWriteSettings } from '@/types';
 import { localizedPublicTypeLabel } from '@/utils/publicTypeDisplay';
 import { useFinePolicyQuery } from '@/hooks/settings/useFinePolicyQuery';
 import { useHoldsPolicyQuery } from '@/hooks/settings/useHoldsPolicyQuery';
+import { useRemindersConfigQuery } from '@/hooks/settings/useRemindersConfigQuery';
 import type {
   Settings,
   LoanSettings,
@@ -533,6 +534,8 @@ function SourceEditor() {
 function PublicTypesEditor() {
   const { t } = useTranslation();
   const { data: finePolicy } = useFinePolicyQuery();
+  const { data: remindersConfig } = useRemindersConfigQuery();
+  const globalFinesEnabled = remindersConfig ? remindersConfig.config.accrueFines : true;
   const { data: holdsPolicy } = useHoldsPolicyQuery();
   const [publicTypes, setPublicTypes] = useState<PublicType[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -758,6 +761,7 @@ function PublicTypesEditor() {
                     <PublicTypeEditForm
                       pt={pt}
                       globalThreshold={globalThresholdLabel(finePolicy)}
+                      globalFinesEnabled={globalFinesEnabled}
                       globalMaxActiveHolds={holdsPolicy?.maxActiveHolds}
                       onSave={(data) => handleUpdate(pt.id, data)}
                     />
@@ -850,11 +854,13 @@ function PublicTypeEditForm({
   pt,
   onSave,
   globalThreshold,
+  globalFinesEnabled = true,
   globalMaxActiveHolds,
 }: {
   pt: PublicType;
   onSave: (data: UpdatePublicType) => void;
   globalThreshold?: string | null;
+  globalFinesEnabled?: boolean;
   globalMaxActiveHolds?: number;
 }) {
   const { t } = useTranslation();
@@ -988,6 +994,7 @@ function PublicTypeEditForm({
             mode={form.unpaidThresholdMode}
             amount={form.unpaidThresholdAmount}
             inheritedAmount={globalThreshold}
+            globalFinesEnabled={globalFinesEnabled}
             error={thresholdError}
             legendEnd={
               <UseGlobalValueButton
@@ -1574,6 +1581,8 @@ function LoanOverridesForm({
 function PublicTypeCreateModal({ onSave, onCancel }: { onSave: (data: CreatePublicType) => void; onCancel: () => void }) {
   const { t } = useTranslation();
   const { data: finePolicy } = useFinePolicyQuery();
+  const { data: remindersConfig } = useRemindersConfigQuery();
+  const globalFinesEnabled = remindersConfig ? remindersConfig.config.accrueFines : true;
   const { data: holdsPolicy } = useHoldsPolicyQuery();
   const [thresholdError, setThresholdError] = useState<string | null>(null);
   const [capError, setCapError] = useState<string | null>(null);
@@ -1645,6 +1654,7 @@ function PublicTypeCreateModal({ onSave, onCancel }: { onSave: (data: CreatePubl
             mode={form.unpaidThresholdMode}
             amount={form.unpaidThresholdAmount}
             inheritedAmount={globalThresholdLabel(finePolicy)}
+            globalFinesEnabled={globalFinesEnabled}
             error={thresholdError}
             onModeChange={(mode) => {
               setThresholdError(null);
