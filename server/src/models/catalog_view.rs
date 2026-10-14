@@ -1398,6 +1398,7 @@ mod tests {
             ),
             expected_return_date,
             on_hold: false,
+            legacy_notes_present: false,
         }
     }
 
