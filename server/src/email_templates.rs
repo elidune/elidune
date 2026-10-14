@@ -148,6 +148,18 @@ fn raw_to_email_template(raw: &RawTemplate) -> EmailTemplate {
     }
 }
 
+/// Load one on-disk template language, with no fallback chain.
+pub fn load_template_file(
+    templates_dir: &Path,
+    template_id: &str,
+    language: &str,
+) -> AppResult<Option<EmailTemplate>> {
+    match load_from_file(templates_dir, template_id, language)? {
+        Some(raw) => Ok(Some(raw_to_email_template(&raw))),
+        None => Ok(None),
+    }
+}
+
 /// Substitute {{var}} placeholders in subject and body.
 /// Returns (subject, body_plain, body_html). HTML is generated from plain if not in template.
 pub fn substitute(template: &EmailTemplate, vars: &[(&str, &str)]) -> (String, String, String) {

@@ -204,6 +204,32 @@ fn next_id() -> i64 {
 }
 
 impl Repository {
+    /// Names for the hold-ready notice.
+    ///
+    /// The first value is `holds.pickup_site_id`. The second is the copy's current
+    /// site (`items.source_id`). The notice shows only the pickup site.
+    pub async fn holds_notice_sites(
+        &self,
+        hold_id: i64,
+    ) -> AppResult<(Option<String>, Option<String>)> {
+        let row: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+            r#"
+            SELECT
+                NULLIF(btrim(pickup.name), '') AS pickup_site,
+                NULLIF(btrim(home.name), '') AS item_home_site
+            FROM holds h
+            LEFT JOIN sources pickup ON pickup.id = h.pickup_site_id
+            LEFT JOIN items i ON i.id = h.item_id
+            LEFT JOIN sources home ON home.id = i.source_id
+            WHERE h.id = $1
+            "#,
+        )
+        .bind(hold_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.unwrap_or((None, None)))
+    }
+
     /// Batch-load `(biblio_id, ItemShort)` per hold `item_id` for list enrichment.
     async fn holds_item_biblio_map(
         &self,

@@ -1,6 +1,6 @@
 {
   "name": "Réservation disponible",
   "subject": "Votre réservation est disponible",
-  "body_plain": "Bonjour {{firstname}} {{lastname}},\n\nLe document que vous avez réservé vous attend :\n\n{{title}}\n{{barcode_line}}\n\nÀ retirer jusqu'au {{expires_at}} inclus.\n\nCordialement,\nL'équipe de la bibliothèque",
-  "body_html": "<html><body style=\"font-family: Arial, sans-serif; color: #333;\">\n<p>Bonjour <strong>{{firstname}} {{lastname}}</strong>,</p>\n<p>Le document que vous avez réservé vous attend :</p>\n<p><strong>{{title}}</strong><br>{{barcode_line_html}}</p>\n<p>À retirer jusqu'au <strong>{{expires_at}}</strong> inclus.</p>\n<p>Cordialement,<br><em>L'équipe de la bibliothèque</em></p>\n</body></html>"
+  "body_plain": "Bonjour {{firstname}} {{lastname}},\n\nLe document que vous avez réservé vous attend à {{pickup_site}}, à retirer jusqu'au {{expires_at}} inclus.\n\n{{title}}\n{{barcode_line}}\n\nCordialement,\nL'équipe de la bibliothèque",
+  "body_html": "<html><body style=\"font-family: Arial, sans-serif; color: #333;\">\n<p>Bonjour <strong>{{firstname}} {{lastname}}</strong>,</p>\n<p>Le document que vous avez réservé vous attend à <strong>{{pickup_site}}</strong>, à retirer jusqu'au <strong>{{expires_at}}</strong> inclus.</p>\n<p><strong>{{title}}</strong><br>{{barcode_line_html}}</p>\n<p>Cordialement,<br><em>L'équipe de la bibliothèque</em></p>\n</body></html>"
 }

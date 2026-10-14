@@ -1,0 +1,6 @@
+{
+  "name": "Reservierung zur Abholung bereit",
+  "subject": "Ihre Reservierung liegt zur Abholung bereit",
+  "body_plain": "Guten Tag {{firstname}} {{lastname}},\n\nDas Dokument, das Sie reserviert haben, wartet in {{pickup_site}} auf Sie. Bitte holen Sie es bis zum {{expires_at}} einschließlich ab.\n\n{{title}}\n{{barcode_line}}\n\nMit freundlichen Grüßen\nDas Bibliotheksteam",
+  "body_html": "<html><body style=\"font-family: Arial, sans-serif; color: #333;\">\n<p>Guten Tag <strong>{{firstname}} {{lastname}}</strong>,</p>\n<p>Das Dokument, das Sie reserviert haben, wartet in <strong>{{pickup_site}}</strong> auf Sie. Bitte holen Sie es bis zum <strong>{{expires_at}}</strong> einschließlich ab.</p>\n<p><strong>{{title}}</strong><br>{{barcode_line_html}}</p>\n<p>Mit freundlichen Grüßen<br><em>Das Bibliotheksteam</em></p>\n</body></html>"
+}

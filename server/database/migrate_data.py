@@ -218,6 +218,7 @@ TABLES_DROP_ORDER = [
     'schedule_slots', 'schedule_closures', 'schedule_periods',
     'equipment', 'event_audiences', 'events',
     # Seeded at server startup from data/email_templates/*.json (includes localized `name` column).
+    # Migration 056 rewrites unmodified hold_ready english/french bodies in SQL only.
     'email_templates',
     'email_outbox_event_announcements',
     'email_outbox_reminder_loans',
