@@ -1,8 +1,9 @@
 //! Audit log service for recording all mutations, auth events, and system events.
 //!
 //! Most events use a fire-and-forget insert so logging never blocks the caller.
-//! Fine money movements use [`AuditService::log_in_tx`] so the audit row commits
-//! with the charge update. Sensitive fields are stripped from payloads before insertion.
+//! Fine money movements and claims-returned resolution use [`AuditService::log_in_tx`]
+//! so the audit row commits with the mutation. Sensitive fields are stripped from
+//! payloads before insertion.
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};

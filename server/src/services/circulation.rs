@@ -210,9 +210,9 @@ impl CirculationService {
         };
         reject_disallowed_bill(action, req.bill)?;
 
-        let applied = self
+        let mut pending = self
             .repository
-            .circulation_apply(CirculationApplyParams {
+            .circulation_apply_pending(CirculationApplyParams {
                 loan_id,
                 action,
                 disposition: None,
@@ -221,6 +221,35 @@ impl CirculationService {
                 notes: req.notes.as_deref(),
             })
             .await?;
+
+        let response = to_response(outcome, &pending.apply);
+        // Same transaction as the status change, committed before the response,
+        // so a reader cannot observe the resolution without this audit row.
+        self.audit
+            .log_in_tx(
+                &mut pending.tx,
+                audit::event::ITEM_CLAIMS_RETURNED_RESOLVED,
+                actor,
+                Some("item"),
+                Some(response.item_id),
+                client_ip,
+                Some(exception_audit_payload(
+                    &response,
+                    serde_json::json!({
+                        "resolveOutcome": req.outcome,
+                        "inventoryChecked": true,
+                        "loanClosed": response.loan_closed,
+                        "itemStatus": response.item_status,
+                        "billed": response.charge.is_some(),
+                        "chargeId": response.charge.as_ref().map(|c| c.id.to_string()),
+                    }),
+                )),
+                AuditLogMeta::success(),
+            )
+            .await?;
+
+        let applied = pending.apply;
+        pending.tx.commit().await?;
 
         if let Some(ref hold) = applied.readied_hold {
             if let Some(item_id) = hold.item_id {
@@ -232,21 +261,6 @@ impl CirculationService {
                 .loan_returned(applied.loan_id, applied.user_id, applied.item_id);
         }
 
-        let response = to_response(outcome, &applied);
-        self.audit_exception(
-            audit::event::ITEM_CLAIMS_RETURNED_RESOLVED,
-            actor,
-            client_ip,
-            &response,
-            serde_json::json!({
-                "resolveOutcome": req.outcome,
-                "inventoryChecked": true,
-                "loanClosed": response.loan_closed,
-                "itemStatus": response.item_status,
-                "billed": response.charge.is_some(),
-                "chargeId": response.charge.as_ref().map(|c| c.id.to_string()),
-            }),
-        );
         Ok(response)
     }
 
@@ -508,26 +522,7 @@ impl CirculationService {
         response: &CirculationExceptionResponse,
         extra: serde_json::Value,
     ) {
-        let mut payload = extra;
-        if let Some(obj) = payload.as_object_mut() {
-            obj.insert(
-                "loanId".into(),
-                serde_json::json!(response.loan_id.to_string()),
-            );
-            obj.insert(
-                "itemId".into(),
-                serde_json::json!(response.item_id.to_string()),
-            );
-            obj.insert(
-                "userId".into(),
-                serde_json::json!(response.user_id.to_string()),
-            );
-            obj.insert(
-                "itemStatus".into(),
-                serde_json::to_value(response.item_status).unwrap_or(serde_json::Value::Null),
-            );
-            obj.insert("borrowable".into(), serde_json::json!(response.borrowable));
-        }
+        let payload = exception_audit_payload(response, extra);
         self.audit.log(
             event,
             actor,
@@ -556,6 +551,32 @@ impl CirculationService {
             );
         }
     }
+}
+
+fn exception_audit_payload(
+    response: &CirculationExceptionResponse,
+    mut extra: serde_json::Value,
+) -> serde_json::Value {
+    if let Some(obj) = extra.as_object_mut() {
+        obj.insert(
+            "loanId".into(),
+            serde_json::json!(response.loan_id.to_string()),
+        );
+        obj.insert(
+            "itemId".into(),
+            serde_json::json!(response.item_id.to_string()),
+        );
+        obj.insert(
+            "userId".into(),
+            serde_json::json!(response.user_id.to_string()),
+        );
+        obj.insert(
+            "itemStatus".into(),
+            serde_json::to_value(response.item_status).unwrap_or(serde_json::Value::Null),
+        );
+        obj.insert("borrowable".into(), serde_json::json!(response.borrowable));
+    }
+    extra
 }
 
 fn cents(amount: rust_decimal::Decimal) -> AppResult<i64> {

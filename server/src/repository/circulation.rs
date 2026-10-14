@@ -39,12 +39,35 @@ pub struct CirculationApplyResult {
     pub readied_hold: Option<Hold>,
 }
 
+/// Uncommitted circulation exception.
+///
+/// Insert audit rows on [`Self::tx`], then commit. Dropping this value rolls
+/// the apply back.
+pub struct CirculationApplyPending {
+    pub tx: sqlx::Transaction<'static, sqlx::Postgres>,
+    pub apply: CirculationApplyResult,
+}
+
 impl Repository {
     /// Apply an item-status transition and optional loan close + charge in one transaction.
     pub async fn circulation_apply(
         &self,
         params: CirculationApplyParams<'_>,
     ) -> AppResult<CirculationApplyResult> {
+        let pending = self.circulation_apply_pending(params).await?;
+        pending.tx.commit().await?;
+        Ok(pending.apply)
+    }
+
+    /// Same work as [`Self::circulation_apply`], with the transaction left open.
+    ///
+    /// Callers that must record an audit row atomically with the status change
+    /// insert it before commit. Dropping [`CirculationApplyPending`] rolls the
+    /// apply back.
+    pub async fn circulation_apply_pending(
+        &self,
+        params: CirculationApplyParams<'_>,
+    ) -> AppResult<CirculationApplyPending> {
         let now = Utc::now();
         let mut tx = self.pool.begin().await?;
 
@@ -148,17 +171,18 @@ impl Repository {
             }
         }
 
-        tx.commit().await?;
-
-        Ok(CirculationApplyResult {
-            loan_id: loan.id,
-            item_id: loan.item_id,
-            user_id: loan.user_id,
-            item_status: next,
-            borrowable,
-            loan_closed: close_loan,
-            charge,
-            readied_hold,
+        Ok(CirculationApplyPending {
+            tx,
+            apply: CirculationApplyResult {
+                loan_id: loan.id,
+                item_id: loan.item_id,
+                user_id: loan.user_id,
+                item_status: next,
+                borrowable,
+                loan_closed: close_loan,
+                charge,
+                readied_hold,
+            },
         })
     }
 
