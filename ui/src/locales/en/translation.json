@@ -913,6 +913,8 @@
     "subscriptionExpiry": "Subscription end date",
     "fee": "Fee",
     "contact": "Contact",
+    "language": "Language",
+    "libraryLanguage": "Library language",
     "notes": "Notes",
     "createdAt": "Account created",
     "lateLoans": "late",
