@@ -192,9 +192,10 @@
       "childGuardianHint": "Envoyé au tuteur légal",
       "allChildGuardianNote": "Les invitations des enfants sont envoyées à leurs tuteurs légaux."
     },
-    "targetPublicHint": "Choisissez « Tous les publics », ou un ou plusieurs publics.",
+    "targetPublicHint": "Activez « Tous les publics », ou choisissez un ou plusieurs publics. « Tous les publics » vide et désactive la liste.",
     "targetPublicPlaceholder": "Sélectionner des publics",
     "targetPublicRequired": "Sélectionnez au moins un public, ou Tous les publics.",
+    "targetPublicCombined": "« Tous les publics » ne peut pas être combiné avec des publics précis.",
     "attendeesCount": "Nombre de participants",
     "schoolName": "École",
     "className": "Classe",

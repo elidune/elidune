@@ -15,11 +15,17 @@ import {
   CheckCircle,
   AlertCircle,
 } from 'lucide-react';
-import { Card, Button, Table, Pagination, Modal, Input, MultiSelect, ConfirmDialog, ScrollableListRegion } from '@/components/common';
+import { Card, Button, Table, Pagination, Modal, Input, ConfirmDialog, ScrollableListRegion } from '@/components/common';
+import EventAudienceFields from '@/components/events/EventAudienceFields';
 import api from '@/services/api';
 import type { Event, CreateEvent, UpdateEvent } from '@/types';
 import { usePublicTypesQuery } from '@/hooks/usePublicTypesQuery';
-import { eventAudienceDisplayLabel } from '@/utils/eventPublicType';
+import {
+  eventAudienceDisplayLabel,
+  eventAudienceErrorKey,
+  eventSaveErrorMessage,
+  resolveEventAudiences,
+} from '@/utils/eventPublicType';
 import { localizedPublicTypeLabel } from '@/utils/publicTypeDisplay';
 import { CHILD_PUBLIC_TYPE_NAME } from '@/utils/legalGuardian';
 import { fileToAttachmentInput, base64ToDataUrl, isImageMime } from '@/utils/eventAttachment';
@@ -29,8 +35,6 @@ import AnnouncementSendDialog from '@/components/events/AnnouncementSendDialog';
 import EventAttachmentLead from '@/components/events/EventAttachmentLead';
 
 const EVENTS_PER_PAGE = 20;
-/** Sentinel option value for the mutually exclusive "All audiences" choice. Not a public-type name. */
-const ALL_AUDIENCES_VALUE = '__all_audiences__';
 
 // eventType: 0=animation, 1=school_visit, 2=exhibition, 3=conference, 4=workshop, 5=show, 6=other
 const EVENT_TYPES = [
@@ -479,6 +483,7 @@ function EventForm({ formId, initialValues, onLoadingChange, onSuccess }: EventF
     notes: initialValues?.notes ?? '',
   });
   const [audienceError, setAudienceError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
   const [removeAttachment, setRemoveAttachment] = useState(false);
@@ -514,11 +519,17 @@ function EventForm({ formId, initialValues, onLoadingChange, onSuccess }: EventF
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.allAudiences && formData.publicTypes.length === 0) {
-      setAudienceError(t('events.targetPublicRequired'));
+    const audience = resolveEventAudiences({
+      allAudiences: formData.allAudiences,
+      publicTypes: formData.publicTypes,
+    });
+    if (!audience.ok) {
+      setSaveError(null);
+      setAudienceError(t(eventAudienceErrorKey(audience.reason)));
       return;
     }
     setAudienceError(null);
+    setSaveError(null);
     onLoadingChange(true);
     try {
       const common = {
@@ -533,8 +544,8 @@ function EventForm({ formId, initialValues, onLoadingChange, onSuccess }: EventF
         className: formData.className || null,
         attendeesCount: formData.attendeesCount !== '' ? Number(formData.attendeesCount) : null,
         studentsCount: formData.studentsCount !== '' ? Number(formData.studentsCount) : null,
-        allAudiences: formData.allAudiences,
-        publicTypes: formData.allAudiences ? [] : formData.publicTypes,
+        allAudiences: audience.payload.allAudiences,
+        publicTypes: audience.payload.publicTypes,
         notes: formData.notes || null,
       };
 
@@ -556,8 +567,8 @@ function EventForm({ formId, initialValues, onLoadingChange, onSuccess }: EventF
           className: common.className,
           attendeesCount: common.attendeesCount,
           studentsCount: common.studentsCount,
-          allAudiences: common.allAudiences,
-          publicTypes: common.publicTypes,
+          allAudiences: audience.payload.allAudiences,
+          publicTypes: audience.payload.publicTypes,
           notes: common.notes,
         };
         if (attachmentFile) c.attachment = await fileToAttachmentInput(attachmentFile);
@@ -565,7 +576,7 @@ function EventForm({ formId, initialValues, onLoadingChange, onSuccess }: EventF
       }
       onSuccess();
     } catch (error) {
-      console.error('Error saving event:', error);
+      setSaveError(eventSaveErrorMessage(error, t));
     } finally {
       onLoadingChange(false);
     }
@@ -578,13 +589,18 @@ function EventForm({ formId, initialValues, onLoadingChange, onSuccess }: EventF
     : childSelected
       ? t('events.targetPublic.childGuardianHint')
       : undefined;
-  const audienceOptions = [
-    { value: ALL_AUDIENCES_VALUE, label: t('events.targetPublic.all') },
-    ...publicTypes.map((pt) => ({ value: pt.name, label: localizedPublicTypeLabel(t, pt) })),
-  ];
+  const audienceOptions = publicTypes.map((pt) => ({
+    value: pt.name,
+    label: localizedPublicTypeLabel(t, pt),
+  }));
 
   return (
     <form id={formId} onSubmit={handleSubmit} className="space-y-4">
+      {saveError && (
+        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+          {saveError}
+        </p>
+      )}
       {/* Basic info */}
       <h4 className="text-sm font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
         {t('events.basicInfo')}
@@ -653,24 +669,19 @@ function EventForm({ formId, initialValues, onLoadingChange, onSuccess }: EventF
         {t('events.audienceInfo')}
       </h4>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <MultiSelect
+        <EventAudienceFields
           id={`${formId}-audience`}
-          label={t('events.targetPublicLabel')}
-          placeholder={t('events.targetPublicPlaceholder')}
-          hint={t('events.targetPublicHint')}
+          selection={{ allAudiences: formData.allAudiences, publicTypes: formData.publicTypes }}
+          options={audienceOptions}
           note={guardianNote}
           error={audienceError ?? undefined}
-          required
-          options={audienceOptions}
-          exclusiveValue={ALL_AUDIENCES_VALUE}
-          value={formData.allAudiences ? [ALL_AUDIENCES_VALUE] : formData.publicTypes}
-          onChange={(next) => {
-            const all = next.includes(ALL_AUDIENCES_VALUE);
+          onSelectionChange={(next) => {
             setAudienceError(null);
+            setSaveError(null);
             setFormData((current) => ({
               ...current,
-              allAudiences: all,
-              publicTypes: all ? [] : next.filter((name) => name !== ALL_AUDIENCES_VALUE),
+              allAudiences: next.allAudiences,
+              publicTypes: [...next.publicTypes],
             }));
           }}
         />

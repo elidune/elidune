@@ -192,9 +192,10 @@
       "childGuardianHint": "Enviado al tutor legal",
       "allChildGuardianNote": "Las invitaciones de los niños se envían a sus tutores legales."
     },
-    "targetPublicHint": "Elija «Todas las audiencias», o una o varias audiencias.",
+    "targetPublicHint": "Active «Todas las audiencias» o elija una o varias audiencias. Al activarla, la lista se vacía y se desactiva.",
     "targetPublicPlaceholder": "Seleccionar audiencias",
     "targetPublicRequired": "Seleccione al menos una audiencia, o Todas las audiencias.",
+    "targetPublicCombined": "«Todas las audiencias» no puede combinarse con audiencias concretas.",
     "attendeesCount": "Número de asistentes",
     "schoolName": "Escuela",
     "className": "Clase",
