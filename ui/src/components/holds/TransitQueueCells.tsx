@@ -13,7 +13,8 @@ export function TransitTitleCell({ title }: { title: string | null }) {
 }
 
 /**
- * Transit-list reader. Card number with `patron.initials` beside it, as returned.
+ * `/transits` reader column, desktop and mobile.
+ * Card phrase plus `patron.initials` from the list item (`JD` stays `JD`).
  * A null reader renders nothing. A name is never shown.
  */
 export function TransitReaderCell({ patron }: { patron: TransitPatron | null }) {

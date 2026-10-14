@@ -96,10 +96,11 @@ export function transitListTitle(transit: ItemTransit): string | null {
 }
 
 /**
- * Reader on a transit row. Card number and `patron.initials` only.
- * A null reader stays null: the list route omits `patron` when the transit has
- * no linked hold, the linked hold is not pending, set aside, or ready, or the
- * caller cannot see hold patrons. The initials string is shown as returned.
+ * Reader on a `GET /transits` row. Card number and `patron.initials` only.
+ * A null reader stays null: that route omits `patron` when the transit has no
+ * linked hold, the linked hold is not pending, set aside, or ready, or the
+ * caller cannot see hold patrons. `initials` is the server string (`JD`).
+ * This does not use the shelf label, which prints only the card when one exists.
  */
 export function transitListPatron(transit: ItemTransit): TransitPatron | null {
   const shown = transitPatronParts(transit.patron);
@@ -136,7 +137,7 @@ function transitPatronParts(patron: TransitPatron | null | undefined): {
 }
 
 /**
- * `patron.initials` unchanged, including dots and spaces (`JD`, `J. D.`, `H.H.`).
+ * `patron.initials` unchanged (`JD`, `J. D.`, `H.H.`, `ÉZ`).
  * A token of more than two letters is a name and is omitted.
  */
 function serverInitials(value: string | null | undefined): string | null {

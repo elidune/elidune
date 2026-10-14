@@ -6,6 +6,9 @@ import { createInstance, type i18n as I18nInstance } from 'i18next';
 import { I18nextProvider } from 'react-i18next';
 import fr from '../../locales/fr/translation.json' with { type: 'json' };
 import en from '../../locales/en/translation.json' with { type: 'json' };
+import type { ItemTransit } from '@/types';
+import { normalizePaginatedResponse } from '@/utils/serverJson';
+import { transitListPatron } from '@/utils/transitDisplay';
 import { TransitBarcodeCell, TransitReaderCell, TransitTitleCell } from './TransitQueueCells.tsx';
 
 async function i18nFor(lng: 'fr' | 'en'): Promise<I18nInstance> {
@@ -55,6 +58,59 @@ describe('transit queue cells', () => {
       createElement(TransitReaderCell, { patron: { cardNumber: 'CARD-42', initials: 'JD' } }),
     );
     assert.match(html, /carte n° CARD-42 JD/);
+  });
+
+  it('renders GET /transits items the way the transits page paints the reader column', async () => {
+    // Default `/transits` filter loads two list responses and concatenates `items`.
+    // `listTransits` returns `normalizePaginatedResponse` with each item unchanged.
+    const listBody = (row: unknown) =>
+      JSON.parse(`{
+        "items": [${JSON.stringify(row)}],
+        "total": 1,
+        "page": 1,
+        "perPage": 200,
+        "pageCount": 1
+      }`) as { items: unknown[] };
+    const jdRow = {
+      id: '9001',
+      itemId: '8001',
+      holdId: '7001',
+      barcode: 'EX-1',
+      title: 'Privacy',
+      sourceId: '10',
+      sourceName: 'Annex',
+      patron: { cardNumber: 'CARD-42', initials: 'JD' },
+      fromSourceId: '11',
+      toSourceId: '10',
+      status: 'inTransit',
+      notes: null,
+      createdAt: '2026-10-14T08:00:00Z',
+      shippedAt: '2026-10-14T09:00:00Z',
+      receivedAt: null,
+      cancelledAt: null,
+      shippedBy: '1',
+      receivedBy: null,
+      cancelledBy: null,
+      reversedFromId: null,
+    };
+    const requested = normalizePaginatedResponse<ItemTransit>(
+      listBody({ ...jdRow, id: '9000', status: 'requested', patron: { cardNumber: 'CARD-7', initials: 'JD' } }),
+    );
+    const inTransit = normalizePaginatedResponse<ItemTransit>(listBody(jdRow));
+    const rows = [...requested.items, ...inTransit.items];
+    const i18n = await i18nFor('fr');
+    for (const row of rows) {
+      const patron = transitListPatron(row);
+      const desktop = render(i18n, createElement(TransitReaderCell, { patron }));
+      const text = desktop.replace(/<[^>]+>/g, '');
+      assert.equal(text, `carte n° ${row.patron?.cardNumber} JD`);
+      assert.equal(text.endsWith('JD'), true);
+      assert.equal(text.includes(' '), true);
+      const mobile = patron
+        ? render(i18n, createElement(TransitReaderCell, { patron }))
+        : '';
+      assert.equal(mobile.replace(/<[^>]+>/g, ''), text);
+    }
   });
 
   it('renders initials when the reader has no card', async () => {

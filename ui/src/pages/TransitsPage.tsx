@@ -124,6 +124,7 @@ export default function TransitsPage() {
     {
       key: 'reader',
       header: t('transits.columnReader'),
+      // `GET /transits` item `patron` (`listTransits` → `normalizePaginatedResponse`). No hold join.
       render: (r: ItemTransit) => <TransitReaderCell patron={transitListPatron(r)} />,
     },
     {
