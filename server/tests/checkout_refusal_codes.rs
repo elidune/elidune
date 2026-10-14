@@ -207,6 +207,21 @@ fn assert_refusal(status: StatusCode, body: &Value, code: &str, message_part: &s
     }
 }
 
+fn assert_held_details_are_hold_id_only(body: &Value, hold_id: i64) {
+    let mut keys: Vec<_> = body["details"]
+        .as_object()
+        .expect("details")
+        .keys()
+        .cloned()
+        .collect();
+    keys.sort();
+    assert_eq!(keys, ["holdId"], "{body}");
+    assert_eq!(fixtures::json_id(&body["details"]["holdId"]), hold_id);
+    for key in ["userId", "cardNumber", "initials", "firstname", "lastname"] {
+        assert!(body["details"].get(key).is_none(), "{key} in {body}");
+    }
+}
+
 async fn active_loan_count(app: &TestApp, user_id: i64) -> i64 {
     sqlx::query_scalar("SELECT COUNT(*) FROM loans WHERE user_id = $1 AND returned_at IS NULL")
         .bind(user_id)
@@ -630,13 +645,14 @@ async fn hold_for_another_patron_is_item_held_for_other() {
     let (other_id, _) = fixtures::create_reader(&app, &admin_token, "chkhold_b").await;
 
     let (biblio_id, item_id, _) = create_copy(&app, &admin_token, "Held Copy", true).await;
+    let hold_id = next_id();
     sqlx::query(
         r#"
         INSERT INTO holds (id, user_id, item_id, biblio_id, position, status)
         VALUES ($1, $2, $3, $4, 1, 'ready')
         "#,
     )
-    .bind(next_id())
+    .bind(hold_id)
     .bind(holder_id)
     .bind(item_id)
     .bind(biblio_id)
@@ -651,6 +667,7 @@ async fn hold_for_another_patron_is_item_held_for_other() {
         "item_held_for_other",
         "active hold for another patron",
     );
+    assert_held_details_are_hold_id_only(&body, hold_id);
     assert!(
         !body["message"]
             .as_str()
@@ -699,6 +716,7 @@ async fn hold_for_another_patron_is_item_held_for_other() {
     assert_eq!(denied["code"], "item_held_for_other", "{denied}");
     assert_eq!(denied["forceable"], false, "{denied}");
     assert!(denied.get("reasonRequired").is_none(), "{denied}");
+    assert_held_details_are_hold_id_only(&denied, hold_id);
 }
 
 #[tokio::test]

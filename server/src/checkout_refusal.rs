@@ -179,11 +179,19 @@ impl CheckoutRefusal {
             reason_required: (self.forceable() && checkout_override_reason_required(self.code))
                 .then_some(true),
             item_status: self.item_status,
-            details: self.to_pick.as_ref().map(|patron| ItemToPickDetails {
-                hold_id: patron.hold_id.to_string(),
-                user_id: patron.user_id.to_string(),
-                card_number: patron.card_number.clone(),
-                initials: patron.initials.clone(),
+            details: self.to_pick.as_ref().map(|patron| {
+                if self.code == error_code::ITEM_HELD_FOR_OTHER {
+                    CheckoutRefusalDetails::Held(ItemHeldForOtherDetails {
+                        hold_id: patron.hold_id.to_string(),
+                    })
+                } else {
+                    CheckoutRefusalDetails::ToPick(ItemToPickDetails {
+                        hold_id: patron.hold_id.to_string(),
+                        user_id: patron.user_id.to_string(),
+                        card_number: patron.card_number.clone(),
+                        initials: patron.initials.clone(),
+                    })
+                }
             }),
         }
     }
@@ -218,10 +226,27 @@ pub struct CheckoutRefusalBody {
     /// (`lost`, `claimedReturned`, `toSearch`, `missing`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub item_status: Option<CirculationStatus>,
-    /// Patron on the hold. Present for `item_to_pick_for_other` and
-    /// `item_held_for_other`: `holdId`, `userId`, `cardNumber`, and `initials`.
+    /// Hold reference. `item_held_for_other` is `{ holdId }` only.
+    /// `item_to_pick_for_other` is `{ holdId, userId, cardNumber, initials }`
+    /// and never the patron name.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub details: Option<ItemToPickDetails>,
+    pub details: Option<CheckoutRefusalDetails>,
+}
+
+/// Hold that blocks checkout for another patron. The waiting patron's identity
+/// is not included.
+#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ItemHeldForOtherDetails {
+    pub hold_id: String,
+}
+
+/// `details` on a checkout refusal. The variant follows the refusal code.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[serde(untagged)]
+pub enum CheckoutRefusalDetails {
+    Held(ItemHeldForOtherDetails),
+    ToPick(ItemToPickDetails),
 }
 
 /// First non-forceable refusal, otherwise the first refusal.
@@ -413,6 +438,36 @@ mod tests {
         assert!(!body.forceable);
         assert_eq!(body.code, error_code::ITEM_TO_PICK_FOR_OTHER);
         assert_eq!(body.reason_required, None);
+        let json = serde_json::to_value(&body).expect("json");
+        assert_eq!(json["details"]["holdId"], "9");
+        assert_eq!(json["details"]["userId"], "4");
+        assert_eq!(json["details"]["cardNumber"], "C4");
+        assert_eq!(json["details"]["initials"], "AB");
+    }
+
+    #[test]
+    fn item_held_for_other_details_are_hold_id_only() {
+        let body = CheckoutRefusal {
+            code: error_code::ITEM_HELD_FOR_OTHER,
+            message: "held".into(),
+            item_status: None,
+            to_pick: Some(ToPickPatron {
+                hold_id: 12,
+                user_id: 4,
+                card_number: Some("C4".into()),
+                initials: "AB".into(),
+            }),
+            caller_rights: rights(true),
+        }
+        .to_body();
+        let json = serde_json::to_value(&body).expect("json");
+        let details = json["details"].as_object().expect("details");
+        let keys: Vec<_> = details.keys().cloned().collect();
+        assert_eq!(keys, ["holdId"]);
+        assert_eq!(json["details"]["holdId"], "12");
+        for key in ["userId", "cardNumber", "initials", "firstname", "lastname"] {
+            assert!(json["details"].get(key).is_none(), "{key} in {json}");
+        }
     }
 
     #[test]

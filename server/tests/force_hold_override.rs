@@ -171,13 +171,11 @@ async fn forced_loan_keeps_the_hold_first_and_audits_the_reason() {
         keys.sort();
         keys
     };
-    assert_eq!(
-        detail_keys,
-        ["cardNumber", "holdId", "initials", "userId"],
-        "{refused}"
-    );
-    assert_eq!(fixtures::json_id(&refused["details"]["userId"]), holder_id);
+    assert_eq!(detail_keys, ["holdId"], "{refused}");
     assert_eq!(fixtures::json_id(&refused["details"]["holdId"]), hold_id);
+    assert!(refused["details"].get("userId").is_none(), "{refused}");
+    assert!(refused["details"].get("cardNumber").is_none(), "{refused}");
+    assert!(refused["details"].get("initials").is_none(), "{refused}");
     assert!(refused["details"].get("firstname").is_none(), "{refused}");
     assert!(refused["details"].get("lastname").is_none(), "{refused}");
     assert!(!refused.to_string().contains("Reader"), "{refused}");

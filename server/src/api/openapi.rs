@@ -658,6 +658,9 @@ use crate::api::{
             // Errors
             crate::error::ErrorResponse,
             crate::checkout_refusal::CheckoutRefusalBody,
+            crate::checkout_refusal::CheckoutRefusalDetails,
+            crate::checkout_refusal::ItemHeldForOtherDetails,
+            crate::error::ItemToPickDetails,
             crate::renewal::RenewalRefusalBody,
         )
     ),
@@ -1009,6 +1012,41 @@ mod tests {
             description.contains("overrideReason"),
             "POST /loans 422 must document overrideReason: {description}"
         );
+        assert!(
+            description.contains("`item_held_for_other` is `{ holdId }` only")
+                && description.contains("userId")
+                && description.contains("cardNumber")
+                && description.contains("initials")
+                && description.contains("are absent"),
+            "POST /loans 422 must document hold-id-only details: {description}"
+        );
+        let held = &value["components"]["schemas"]["ItemHeldForOtherDetails"];
+        let mut held_keys: Vec<_> = held["properties"]
+            .as_object()
+            .expect("ItemHeldForOtherDetails properties")
+            .keys()
+            .cloned()
+            .collect();
+        held_keys.sort();
+        assert_eq!(
+            held_keys,
+            ["holdId"],
+            "ItemHeldForOtherDetails must be holdId only: {held}"
+        );
+        let held_text = held.to_string();
+        for forbidden in ["userId", "cardNumber", "initials", "firstname", "lastname"] {
+            assert!(
+                !held_text.contains(forbidden),
+                "{forbidden} must be absent from ItemHeldForOtherDetails: {held}"
+            );
+        }
+        let to_pick = &value["components"]["schemas"]["ItemToPickDetails"]["properties"];
+        for key in ["holdId", "userId", "cardNumber", "initials"] {
+            assert!(
+                to_pick[key].is_object(),
+                "{key} must stay on ItemToPickDetails: {to_pick}"
+            );
+        }
         let batch = value["paths"]["/loans/batch-create"]["post"]["responses"]["200"]
             ["description"]
             .as_str()
