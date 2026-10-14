@@ -173,7 +173,11 @@ import type {
   ReviewPurchaseSuggestion,
 } from '@/types';
 import { normalizePaginatedResponse } from '@/utils/serverJson';
-import { normalizeFinePolicy, type GlobalUnpaidThresholdBody } from '@/utils/finePolicy';
+import {
+  normalizeFinePolicy,
+  type GlobalUnpaidThresholdBody,
+  type UpsertFineRuleBody,
+} from '@/utils/finePolicy';
 import { normalizeHoldQuota, normalizeHoldsPolicy } from '@/utils/holdsPolicy';
 import { normalizePickList } from '@/utils/pickList';
 
@@ -1259,8 +1263,8 @@ class ApiService {
     return response.data;
   }
 
-  async updateFineRules(rules: FineRule[]): Promise<FineRule[]> {
-    const response = await this.client.put<FineRule[]>('/fines/rules', rules);
+  async upsertFineRule(body: UpsertFineRuleBody): Promise<FineRule> {
+    const response = await this.client.put<FineRule>('/fines/rules', body);
     return response.data;
   }
 

@@ -1,4 +1,5 @@
 import type { LostFineAction, LostFineDeskStatus, LostFoundDisposition, LostReturnFields } from '@/types';
+import { formatEuroAmount } from '@/utils/patronFines';
 
 /** Dispositions accepted by `POST /loans/items/{itemId}/lost-found`. */
 export const LOST_FOUND_DISPOSITIONS = ['circulate', 'damaged', 'leave'] as const satisfies readonly LostFoundDisposition[];
@@ -53,10 +54,10 @@ export function itemIdFromCopies(
   return list.find((copy) => copy.id)?.id ?? null;
 }
 
-/** Format a cent amount as euros for the active UI locale. */
+/** Format a cent amount as euros. Display goes through `formatEuroAmount`. */
 export function formatCentsAsEuros(cents: number, locale: string): string {
   const amount = Number.isFinite(cents) ? cents / 100 : 0;
-  return new Intl.NumberFormat(locale, { style: 'currency', currency: 'EUR' }).format(amount);
+  return formatEuroAmount(amount, locale);
 }
 
 function cents(value: number | null | undefined): number {
