@@ -10,6 +10,7 @@ import {
   commitDismissHeldSetAside,
   commitHeldSetAside,
   heldSetAsideServerMessage,
+  heldSetAsideSuccessMessage,
 } from '@/utils/heldSetAside';
 
 interface BatchCreateItemRowProps {
@@ -64,11 +65,17 @@ export default function BatchCreateItemRow({
               let clear = false;
               let refocus = false;
               void commitHeldSetAside(item.barcode, {
-                returnByBarcode: async (barcode) => {
-                  const { default: client } = await import('@/services/api');
-                  return client.returnLoanByBarcode(barcode);
+                holdId: item.holdId ?? null,
+                itemId: item.itemId ?? null,
+                resolveItemId: async (barcode) => {
+                  const { copyIdForBarcode } = await import('@/utils/copyId');
+                  return copyIdForBarcode(barcode);
                 },
-                successMessage: t('loans.heldSetAside'),
+                returnSetAside: async (barcode, { holdId, itemId }) => {
+                  const { default: client } = await import('@/services/api');
+                  return client.returnLoanByBarcode(barcode, { holdId, itemId });
+                },
+                successMessage: (result) => heldSetAsideSuccessMessage(result, t),
                 errorMessage: (error) => heldSetAsideServerMessage(error, t),
                 showToast: (next) => showDeskToast(next),
                 closeDialog: () => setAsideDismissed(true),

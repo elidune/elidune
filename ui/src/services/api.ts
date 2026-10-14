@@ -103,6 +103,7 @@ import type {
   HoldQuota,
   HoldPickListRow,
   ItemCheckIn,
+  ShelfSetAsideRequest,
   LostFoundResolution,
   ResolveLostFoundRequest,
   ItemTransit,
@@ -992,8 +993,16 @@ class ApiService {
     return { force: true, overrideReason: reason };
   }
 
-  async returnLoanByBarcode(itemBarcode: string): Promise<ItemCheckIn> {
-    const response = await this.client.post<ItemCheckIn>(`/loans/items/${itemBarcode}/return`);
+  async returnLoanByBarcode(
+    itemBarcode: string,
+    setAside?: ShelfSetAsideRequest,
+  ): Promise<ItemCheckIn> {
+    const response = setAside
+      ? await this.client.post<ItemCheckIn>(`/loans/items/${itemBarcode}/return`, {
+          holdId: setAside.holdId,
+          itemId: setAside.itemId,
+        })
+      : await this.client.post<ItemCheckIn>(`/loans/items/${itemBarcode}/return`);
     return response.data;
   }
 

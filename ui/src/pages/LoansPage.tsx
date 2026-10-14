@@ -67,10 +67,13 @@ import {
   type PickCheckInNotice,
 } from '@/utils/toPickDesk';
 import { overrideReasonRefusalMessage, trimmedOverrideReason } from '@/utils/circulationForce';
+import { copyIdForBarcode } from '@/utils/copyId';
 import {
   commitDismissHeldSetAside,
   commitHeldSetAside,
+  heldForOtherHoldId,
   heldSetAsideServerMessage,
+  heldSetAsideSuccessMessage,
 } from '@/utils/heldSetAside';
 import {
   returnNoticeMessage,
@@ -200,7 +203,11 @@ export default function LoansPage() {
   const [cardScanError, setCardScanError] = useState<string | null>(null);
   const [renewalPrompt, setRenewalPrompt] = useState<RenewalDeskView | null>(null);
   const renewalRetryRef = useRef<((overrideReason?: string) => void) | null>(null);
-  const renewalBarcodeRef = useRef<string | null>(null);
+  const renewalSetAsideRef = useRef<{
+    barcode: string;
+    holdId: string | null;
+    itemId: string | null;
+  } | null>(null);
   const [renewalAsideLoading, setRenewalAsideLoading] = useState(false);
   const patronLookupInFlightRef = useRef(false);
   const borrowLoanActionInFlightRef = useRef(false);
@@ -247,6 +254,8 @@ export default function LoansPage() {
   const [forceBorrowLoading, setForceBorrowLoading] = useState(false);
   const [toPickAside, setToPickAside] = useState<{
     barcode: string;
+    holdId: string | null;
+    itemId: string | null;
     message: string;
     force: boolean;
     reasonRequired: boolean;
@@ -296,7 +305,7 @@ export default function LoansPage() {
     setCardScanError(null);
     setRenewalPrompt(null);
     renewalRetryRef.current = null;
-    renewalBarcodeRef.current = null;
+    renewalSetAsideRef.current = null;
     setLoans([]);
     setLoansTotal(0);
     setLoansPage(1);
@@ -569,6 +578,19 @@ export default function LoansPage() {
     [loadOverdue, openLostFound, overdueData, returnBarcodeInput, showToast, t],
   );
 
+  const rememberRenewalSetAside = (
+    barcode: string | null,
+    error: unknown,
+    itemId?: string | null,
+  ) => {
+    const previous = renewalSetAsideRef.current;
+    renewalSetAsideRef.current = {
+      barcode: barcode ?? previous?.barcode ?? '',
+      holdId: heldForOtherHoldId(error) ?? previous?.holdId ?? null,
+      itemId: itemId ?? previous?.itemId ?? null,
+    };
+  };
+
   const handleOverdueRenew = async (loanId: string, force = false, overrideReason?: string) => {
     if (overdueLoanActionInFlightRef.current) return;
     overdueLoanActionInFlightRef.current = true;
@@ -591,7 +613,7 @@ export default function LoansPage() {
         setRenewalPrompt((current) =>
           current && current.kind !== 'sentence' ? { ...current, error: held } : current,
         );
-        renewalBarcodeRef.current = barcode;
+        rememberRenewalSetAside(barcode, e);
         renewalRetryRef.current = (reason) => {
           void handleOverdueRenew(loanId, true, reason);
         };
@@ -603,7 +625,7 @@ export default function LoansPage() {
         setOverdueError(next.message);
         showToast({ variant: 'error', message: next.message });
       } else {
-        renewalBarcodeRef.current = barcode;
+        rememberRenewalSetAside(barcode, e);
         renewalRetryRef.current = (reason) => {
           void handleOverdueRenew(loanId, true, reason);
         };
@@ -980,6 +1002,8 @@ export default function LoansPage() {
       if (view.kind === 'setAside') {
         setToPickAside({
           barcode,
+          holdId: heldForOtherHoldId(error),
+          itemId: snapshot?.itemId?.trim() || null,
           message: view.message,
           force: view.force,
           reasonRequired: view.reasonRequired,
@@ -1226,6 +1250,7 @@ export default function LoansPage() {
     force = false,
     barcode: string | null = null,
     overrideReason?: string,
+    itemId: string | null = null,
   ): Promise<boolean> => {
     if (borrowLoanActionInFlightRef.current) return false;
     borrowLoanActionInFlightRef.current = true;
@@ -1250,9 +1275,9 @@ export default function LoansPage() {
         setRenewalPrompt((current) =>
           current && current.kind !== 'sentence' ? { ...current, error: held } : current,
         );
-        renewalBarcodeRef.current = barcode;
+        rememberRenewalSetAside(barcode, error, itemId);
         renewalRetryRef.current = (reason) => {
-          void completeRenew(busyId, request, true, barcode, reason);
+          void completeRenew(busyId, request, true, barcode, reason, itemId);
         };
         return false;
       }
@@ -1262,9 +1287,9 @@ export default function LoansPage() {
         setRenewError(next.message);
         showToast({ variant: 'error', message: next.message });
       } else {
-        renewalBarcodeRef.current = barcode;
+        rememberRenewalSetAside(barcode, error, itemId);
         renewalRetryRef.current = (reason) => {
-          void completeRenew(busyId, request, true, barcode, reason);
+          void completeRenew(busyId, request, true, barcode, reason, itemId);
         };
         setRenewalPrompt(next);
       }
@@ -1276,12 +1301,14 @@ export default function LoansPage() {
   };
 
   const handleRenewLoan = (loanId: string) => {
-    const barcode = loans.find((loan) => loan.id === loanId)?.itemIdentification ?? null;
+    const loan = loans.find((row) => row.id === loanId);
     return completeRenew(
       loanId,
       (force, overrideReason) => api.renewLoan(loanId, newIdempotencyKey(), { force: force || undefined, overrideReason }),
       false,
-      barcode,
+      loan?.itemIdentification ?? null,
+      undefined,
+      loan?.itemId ?? null,
     );
   };
 
@@ -1526,7 +1553,7 @@ export default function LoansPage() {
                         setCardScanError(null);
                         setRenewalPrompt(null);
                         renewalRetryRef.current = null;
-                        renewalBarcodeRef.current = null;
+                        renewalSetAsideRef.current = null;
                         setLoans([]);
                         setLoansTotal(0);
                         setLoansPage(1);
@@ -2322,12 +2349,15 @@ export default function LoansPage() {
           });
         }}
         onSetAside={() => {
-          const barcode = toPickAside?.barcode;
-          if (!barcode || toPickAsideLoading) return;
+          const current = toPickAside;
+          if (!current || toPickAsideLoading) return;
           setToPickAsideLoading(true);
-          void commitHeldSetAside(barcode, {
-            returnByBarcode: (code) => api.returnLoanByBarcode(code),
-            successMessage: t('loans.heldSetAside'),
+          void commitHeldSetAside(current.barcode, {
+            holdId: current.holdId,
+            itemId: current.itemId,
+            resolveItemId: copyIdForBarcode,
+            returnSetAside: (code, { holdId, itemId }) => api.returnLoanByBarcode(code, { holdId, itemId }),
+            successMessage: (result) => heldSetAsideSuccessMessage(result, t),
             errorMessage: (error) => heldSetAsideServerMessage(error, t),
             showToast: (toast) => showToast(toast),
             closeDialog: () => setToPickAside(null),
@@ -2351,12 +2381,15 @@ export default function LoansPage() {
           focusScanInput();
         }}
         onSetAside={() => {
-          const barcode = renewalBarcodeRef.current;
-          if (!barcode || renewalAsideLoading) return;
+          const target = renewalSetAsideRef.current;
+          if (!target || !target.barcode || renewalAsideLoading) return;
           setRenewalAsideLoading(true);
-          void commitHeldSetAside(barcode, {
-            returnByBarcode: (code) => api.returnLoanByBarcode(code),
-            successMessage: t('loans.heldSetAside'),
+          void commitHeldSetAside(target.barcode, {
+            holdId: target.holdId,
+            itemId: target.itemId,
+            resolveItemId: copyIdForBarcode,
+            returnSetAside: (code, { holdId, itemId }) => api.returnLoanByBarcode(code, { holdId, itemId }),
+            successMessage: (result) => heldSetAsideSuccessMessage(result, t),
             errorMessage: (error) => heldSetAsideServerMessage(error, t),
             showToast: (toast) => showToast(toast),
             closeDialog: () => {
@@ -2423,6 +2456,7 @@ async function readDeskCopy(barcode: string): Promise<DeskCopySnapshot | null> {
       }
     }
     return {
+      itemId: copy.id,
       availability: copy.availability,
       loanId: copy.loanId ?? null,
       loanUserId,
