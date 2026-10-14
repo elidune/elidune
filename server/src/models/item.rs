@@ -361,7 +361,10 @@ pub struct Item {
     #[schema(value_type = Option<String>, example = "12.50")]
     #[serde(default, with = "crate::models::fine::euro_string::opt")]
     pub price: Option<crate::models::fine::Cents>,
-    /// Write-only: treat a missing price as an explicit deferral when enabling circulation.
+    /// Missing price kept on purpose, including a legacy price the cents migration rejected.
+    ///
+    /// Responses include `priceDeferred` only when this is true, so a rejected price
+    /// stays visible to staff and the copy can remain in circulation.
     #[sqlx(default)]
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub price_deferred: bool,

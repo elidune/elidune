@@ -373,6 +373,7 @@ impl Repository {
             it.public_note AS item_public_note,
             it.internal_note AS item_internal_note,
             it.price AS item_price,
+            it.price_deferred AS item_price_deferred,
             it.created_at AS item_created_at,
             it.updated_at AS item_updated_at,
             it.archived_at AS item_archived_at,
@@ -524,7 +525,9 @@ impl Repository {
             public_note: row.try_get("item_public_note").ok().flatten(),
             internal_note: row.try_get("item_internal_note").ok().flatten(),
             price: row.try_get("item_price").ok().flatten(),
-            price_deferred: false,
+            price_deferred: row
+                .try_get("item_price_deferred")
+                .map_err(|e| AppError::Internal(format!("marc export item_price_deferred: {e}")))?,
             created_at: row.try_get("item_created_at").ok().flatten(),
             updated_at: row.try_get("item_updated_at").ok().flatten(),
             archived_at: row.try_get("item_archived_at").ok().flatten(),

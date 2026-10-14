@@ -168,6 +168,7 @@ pub struct ItemStaffView {
     /// Decimal-euro string (`"12.50"`). Stored as integer cents. Null when unknown.
     #[schema(value_type = Option<String>, example = "12.50")]
     pub price: Option<String>,
+    /// True when a missing price is an explicit deferral, including a legacy price the cents migration rejected.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub price_deferred: bool,
     pub created_at: Option<DateTime<Utc>>,

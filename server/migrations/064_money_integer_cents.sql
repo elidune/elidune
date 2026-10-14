@@ -6,7 +6,8 @@
 -- items.price: TEXT decimal euros -> BIGINT cents.
 --   Blank and NULL stay NULL (unknown, not a reject).
 --   Accept surrounding spaces, '.' or ',' as the decimal mark, and a trailing
---   € or EUR. '12,50', '12,50 €', '12.5', and '15' convert.
+--   € or EUR, with or without a space. '12,50', '12,50 €', '12,50€', '12 €',
+--   '12.5', and '15' convert.
 --   More than two non-zero fractional digits, negatives, and other text are
 --   rejected with no rounding: the raw text is kept in money_migration_rejects
 --   and the price becomes NULL. A rejected item price sets price_deferred so

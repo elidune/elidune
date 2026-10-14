@@ -705,6 +705,8 @@ mod tests {
         let accepted = [
             ("12,50", 1250),
             ("12,50 €", 1250),
+            ("12,50€", 1250),
+            ("12 €", 1200),
             ("12.50 €", 1250),
             ("12.50EUR", 1250),
             ("12.50 EUR", 1250),
@@ -737,6 +739,13 @@ mod tests {
         assert_eq!(parsed("-0.01"), Err(EuroParseError::Negative));
         assert_eq!(parsed("12.501"), Err(EuroParseError::TooManyDecimals));
         assert_eq!(parsed("12,501"), Err(EuroParseError::TooManyDecimals));
+    }
+
+    #[test]
+    fn cents_newtype_stores_i64() {
+        let Cents(raw) = Cents(1250);
+        assert_eq!(raw, 1250_i64);
+        assert_eq!(std::mem::size_of::<Cents>(), std::mem::size_of::<i64>());
     }
 
     #[test]

@@ -85,6 +85,7 @@ fn item_sql(where_and_order: &str) -> String {
         r#"
             SELECT i.id, i.biblio_id, i.source_id, i.barcode, i.call_number, i.volume_designation,
                    i.place, i.borrowable, i.circulation_status, i.public_note, i.internal_note, i.price,
+                   i.price_deferred,
                    i.weeding_status, i.weeding_reason,
                    i.created_at, i.updated_at, i.archived_at,
                    so.name as source_name,
