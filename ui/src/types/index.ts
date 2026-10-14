@@ -2410,7 +2410,9 @@ export type MyHoldStatus = HoldStatus | 'inTransit';
 
 /**
  * `GET /me/holds` — the caller's own holds (`MyHoldView`).
- * Does not embed a catalog biblio or copy. No hold notes.
+ * Does not embed a catalog biblio or copy.
+ * `patronNote` is the reader's remark. `internalNote` is absent.
+ * Null or absent after the hold is closed or the account is anonymized.
  * `pickupDeadline` is set only when `status` is `ready`.
  * `inTransit` is set when an active transit is linked to the hold.
  */
@@ -2424,13 +2426,15 @@ export interface MyHold {
   pickupSiteName: string | null;
   position: number;
   createdAt: string;
+  patronNote?: string | null;
 }
 
 /**
- * Hold list row for staff (`HoldDetailsStaff`).
+ * `GET /holds` staff search row (`HoldListStaff`).
+ * Both notes are omitted. Staff queues use {@link HoldDetailsStaff}.
  * `biblio.items` is empty for an unassigned title-level hold; otherwise one {@link ItemShortStaff}.
  */
-export interface HoldDetailsStaff {
+export interface HoldListStaff {
   id: string;
   userId: string;
   biblioId: string;
@@ -2448,12 +2452,21 @@ export interface HoldDetailsStaff {
   expiresAt: string | null;
   status: HoldStatus;
   position: number;
-  notes: string | null;
 }
 
 /**
- * Hold list row for a reader (`HoldDetailsPublic`).
- * Embedded copies are {@link BiblioShortPublic} (no weeding, no hold patron, no login).
+ * Staff queue row (`GET /items/:id/holds`, `GET /biblios/:id/holds`, `GET /users/:id/holds`).
+ * Both notes are present for holds read or write. Null when unset, and cleared
+ * when the hold is closed or the reader is anonymized. Absent on search rows.
+ */
+export interface HoldDetailsStaff extends HoldListStaff {
+  patronNote?: string | null;
+  internalNote?: string | null;
+}
+
+/**
+ * Public `GET /holds` row (`HoldDetailsPublic`).
+ * Neither note is included. Embedded copies are {@link BiblioShortPublic}.
  */
 export interface HoldDetailsPublic {
   id: string;
@@ -2468,15 +2481,20 @@ export interface HoldDetailsPublic {
   expiresAt: string | null;
   status: HoldStatus;
   position: number;
-  notes: string | null;
 }
 
-/** `GET /holds` — staff queue or the reader's own holds. */
-export type HoldListItem = HoldDetailsStaff | HoldDetailsPublic;
+/** `GET /holds` — staff search (`HoldListStaff`) or a public list (`HoldDetailsPublic`). */
+export type HoldListItem = HoldListStaff | HoldDetailsPublic;
 
-/** Staff hold row. Same JSON as {@link HoldDetailsStaff}. */
+/** Staff queue row. Same JSON as {@link HoldDetailsStaff}. */
 export type Hold = HoldDetailsStaff;
 
+/**
+ * `POST /holds`. Do not send `notes` (400 `validation_error`).
+ * Omit a note that did not change. `""` clears it.
+ * `patronNote` is for the reader on their own hold, and for holds write.
+ * `internalNote` requires holds write; any other caller gets 403 `authorization_failed`.
+ */
 export interface CreateHold {
   userId: string;
   /** Pinned copy. Omit for a title-level hold. */
@@ -2484,7 +2502,8 @@ export interface CreateHold {
   /** Always sent. Required when `itemId` is omitted. */
   biblioId?: string;
   pickupSiteId?: string | null;
-  notes?: string | null;
+  patronNote?: string;
+  internalNote?: string;
   force?: boolean;
 }
 

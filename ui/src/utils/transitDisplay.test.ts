@@ -46,7 +46,6 @@ function hold(pickupSiteId: string | null = 'site-main'): HoldDetailsStaff {
     expiresAt: null,
     status: 'pending',
     position: 1,
-    notes: null,
   };
 }
 

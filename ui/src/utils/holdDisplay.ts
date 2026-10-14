@@ -1,4 +1,5 @@
 import type { CreateHold, HoldListItem } from '@/types';
+import { holdNotePayload, type HoldNoteStored } from '@/utils/holdNotes';
 
 /** Staff `/holds` status chips. List is already active-only from the API. */
 export type StaffHoldStatusFilter = 'all' | 'ready' | 'pending' | 'toPick' | 'expiringSoon';
@@ -30,23 +31,39 @@ export function holdScopeKind(h: HoldListItem): HoldScopeKind {
 
 export type HoldPlacementScope = 'title' | 'copy';
 
-/** Always send `biblioId`; set `itemId` only when pinning a copy. */
+/**
+ * Always send `biblioId`; set `itemId` only when pinning a copy.
+ * Note fields follow {@link holdNotePayload}: unchanged notes are omitted, `""` clears,
+ * and `internalNote` is sent only with holds write. The retired `notes` key is never sent.
+ */
 export function buildCreateHold(input: {
   userId: string;
   biblioId: string;
   scope: HoldPlacementScope;
   itemId?: string | null;
-  notes?: string | null;
+  patronNote?: string | null;
+  internalNote?: string | null;
   pickupSiteId?: string | null;
+  /** Holds write. Readers placing their own hold must pass false. */
+  canWriteInternal?: boolean;
+  /** Stored notes when replacing them. Create passes none. */
+  stored?: HoldNoteStored;
 }): CreateHold {
-  const notes = input.notes?.trim() || undefined;
   const pickupSiteId = input.pickupSiteId?.trim() || undefined;
+  const notes = holdNotePayload(
+    input.stored ?? {},
+    {
+      patronNote: input.patronNote ?? '',
+      internalNote: input.internalNote ?? '',
+    },
+    { canWriteInternal: input.canWriteInternal === true },
+  );
   return {
     userId: input.userId,
     biblioId: input.biblioId,
     itemId: input.scope === 'copy' && input.itemId ? input.itemId : undefined,
-    notes,
     pickupSiteId,
+    ...notes,
   };
 }
 

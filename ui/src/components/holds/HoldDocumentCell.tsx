@@ -2,6 +2,8 @@ import { Link } from 'react-router-dom';
 import type { HoldListItem } from '@/types';
 import { holdPrimaryDocumentLabel, holdSecondaryDocumentLabel } from '@/utils/holdDisplay';
 import HoldScopeBadge from '@/components/holds/HoldScopeBadge';
+import { HoldNotes } from '@/components/holds/HoldNotes';
+import { readOptionalHoldNote } from '@/utils/holdNotes';
 
 export default function HoldDocumentCell({ hold }: { hold: HoldListItem }) {
   const sub = holdSecondaryDocumentLabel(hold);
@@ -26,16 +28,33 @@ export default function HoldDocumentCell({ hold }: { hold: HoldListItem }) {
     </>
   );
 
+  const notes = (
+    <HoldNotes
+      audience="staff"
+      compact
+      patronNote={readOptionalHoldNote(hold, 'patronNote')}
+      internalNote={readOptionalHoldNote(hold, 'internalNote')}
+    />
+  );
+
   if (biblioId) {
     return (
-      <Link
-        to={`/biblios/${biblioId}`}
-        className="group block rounded-md -m-1 p-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900"
-      >
-        {lines}
-      </Link>
+      <div>
+        <Link
+          to={`/biblios/${biblioId}`}
+          className="group block rounded-md -m-1 p-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-900"
+        >
+          {lines}
+        </Link>
+        {notes}
+      </div>
     );
   }
 
-  return <div>{lines}</div>;
+  return (
+    <div>
+      {lines}
+      {notes}
+    </div>
+  );
 }

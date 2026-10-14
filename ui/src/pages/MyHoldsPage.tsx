@@ -15,6 +15,7 @@ import {
   ListSkeleton,
 } from '@/components/common';
 import HoldStatusBadge from '@/components/holds/HoldStatusBadge';
+import { HoldNotes } from '@/components/holds/HoldNotes';
 import { useAuth } from '@/contexts/AuthContext';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
@@ -95,12 +96,15 @@ export default function MyHoldsPage() {
       key: 'item',
       header: t('holds.columnDocument'),
       render: (r: MyHold) => (
-        <Link
-          to={`/biblios/${r.biblioId}`}
-          className="font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
-        >
-          {r.title || t('items.notSpecified')}
-        </Link>
+        <div>
+          <Link
+            to={`/biblios/${r.biblioId}`}
+            className="font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
+          >
+            {r.title || t('items.notSpecified')}
+          </Link>
+          <HoldNotes audience="reader" patronNote={r.patronNote} />
+        </div>
       ),
     },
     {
@@ -268,6 +272,7 @@ export default function MyHoldsPage() {
                           </Link>
                           {statusBadge(t, r.status)}
                         </div>
+                        <HoldNotes audience="reader" patronNote={r.patronNote} />
                         {r.status === 'ready' && (
                           <p className="text-sm text-gray-600 dark:text-gray-300">
                             {r.pickupSiteName || t('holds.transitNone')}
