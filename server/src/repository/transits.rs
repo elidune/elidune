@@ -547,6 +547,23 @@ impl Repository {
                         Err(e) => return Err(e.into()),
                     }
                 }
+                Some(h) if !h.status.is_active() => {
+                    if h.item_id == Some(current.item_id) {
+                        sqlx::query(
+                            "UPDATE holds SET item_id = NULL WHERE id = $1 AND item_id = $2",
+                        )
+                        .bind(h.id)
+                        .bind(current.item_id)
+                        .execute(&mut *tx)
+                        .await?;
+                    }
+                    self.transits_allocate_arrived_copy_tx(&mut tx, current.item_id)
+                        .await?
+                }
+                None => {
+                    self.transits_allocate_arrived_copy_tx(&mut tx, current.item_id)
+                        .await?
+                }
                 other => other,
             }
         } else {
@@ -555,6 +572,34 @@ impl Repository {
 
         tx.commit().await?;
         Ok((transit, hold))
+    }
+
+    /// Copy arrived and its linked hold is gone. Offer it to the next pending
+    /// hold, or leave it on the shelf at the arrival site.
+    async fn transits_allocate_arrived_copy_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        item_id: i64,
+    ) -> AppResult<Option<Hold>> {
+        let ready = self
+            .holds_notify_next_tx(tx, item_id, self.hold_ready_expiry_days())
+            .await?;
+        if ready.is_some() {
+            return Ok(ready);
+        }
+        let linked = sqlx::query_as::<_, Hold>(
+            r#"
+            SELECT * FROM holds
+            WHERE item_id = $1 AND status IN ('pending', 'ready')
+            ORDER BY CASE status WHEN 'ready' THEN 0 ELSE 1 END,
+                     position ASC, created_at ASC
+            LIMIT 1
+            "#,
+        )
+        .bind(item_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+        Ok(linked)
     }
 
     #[tracing::instrument(skip(self), err)]
@@ -672,25 +717,6 @@ impl Repository {
         )
         .await?;
         Ok(true)
-    }
-
-    pub(crate) async fn transits_insert_for_hold_cancel_tx(
-        &self,
-        tx: &mut sqlx::Transaction<'_, Postgres>,
-        transit: &ItemTransit,
-    ) -> AppResult<ItemTransit> {
-        self.transits_insert_tx(
-            tx,
-            transit.item_id,
-            None,
-            transit.to_source_id,
-            transit.from_source_id,
-            TransitStatus::Requested,
-            Some("Reverse transit after hold cancel"),
-            None,
-            Some(transit.id),
-        )
-        .await
     }
 
     #[allow(clippy::too_many_arguments)]

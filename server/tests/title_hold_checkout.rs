@@ -549,11 +549,12 @@ async fn oldest_queue_hold_is_named_and_set_aside_on_the_same_site() {
     assert_held_body(&refused, oldest, true);
 
     let (status, mismatch) = set_aside(&app, &admin_token, &barcode, oldest, items[0] + 1).await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "{mismatch}");
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{mismatch}");
+    assert_eq!(mismatch["code"], "set_aside_item_mismatch", "{mismatch}");
 
     let (status, skipped) = set_aside(&app, &admin_token, &barcode, newer, items[0]).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{skipped}");
-    assert_eq!(skipped["code"], "business_rule_violation", "{skipped}");
+    assert_eq!(skipped["code"], "set_aside_not_oldest", "{skipped}");
     let (newer_status, newer_position, newer_item) = hold_row(&app, newer).await;
     assert_eq!(newer_status, "pending");
     assert_eq!(newer_position, 2);
@@ -566,6 +567,9 @@ async fn oldest_queue_hold_is_named_and_set_aside_on_the_same_site() {
     let (status, body) = set_aside(&app, &admin_token, &barcode, oldest, items[0]).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["status"], "ready", "{body}");
+    assert_eq!(body["holdStatus"], "ready", "{body}");
+    assert!(body["transitId"].is_null(), "{body}");
+    assert_eq!(fixtures::json_id(&body["pickupSiteId"]), home, "{body}");
     assert_eq!(fixtures::json_id(&body["hold"]["id"]), oldest, "{body}");
     assert_eq!(body["hold"]["status"], "ready", "{body}");
     assert_eq!(
@@ -602,6 +606,9 @@ async fn oldest_queue_hold_is_named_and_set_aside_on_the_same_site() {
         set_aside(&app, &admin_token, &null_pickup, null_hold, null_items[0]).await;
     assert_eq!(status, StatusCode::OK, "{ready}");
     assert_eq!(ready["status"], "ready", "{ready}");
+    assert_eq!(ready["holdStatus"], "ready", "{ready}");
+    assert!(ready["transitId"].is_null(), "{ready}");
+    assert!(ready["pickupSiteId"].is_null(), "{ready}");
     assert_eq!(ready["hold"]["status"], "ready", "{ready}");
     let null_transits: i64 =
         sqlx::query_scalar("SELECT COUNT(*)::bigint FROM item_transits WHERE item_id = $1")
@@ -636,6 +643,7 @@ async fn set_aside_cross_site_becomes_ready_only_after_arrival() {
 
     let (status, skipped) = set_aside(&app, &admin_token, &barcode, newer, items[0]).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{skipped}");
+    assert_eq!(skipped["code"], "set_aside_not_oldest", "{skipped}");
     let (newer_status, _, newer_item) = hold_row(&app, newer).await;
     assert_eq!(newer_status, "pending");
     assert_eq!(newer_item, None);
@@ -643,6 +651,8 @@ async fn set_aside_cross_site_becomes_ready_only_after_arrival() {
     let (status, moved) = set_aside(&app, &admin_token, &barcode, oldest, items[0]).await;
     assert_eq!(status, StatusCode::OK, "{moved}");
     assert_eq!(moved["status"], "in_transit", "{moved}");
+    assert_eq!(moved["holdStatus"], "pending", "{moved}");
+    assert_eq!(fixtures::json_id(&moved["pickupSiteId"]), away, "{moved}");
     assert_eq!(moved["hold"]["status"], "pending", "{moved}");
     assert_ne!(moved["hold"]["status"], "ready", "{moved}");
     assert_ne!(moved["hold"]["status"], "to_pick", "{moved}");
@@ -668,6 +678,28 @@ async fn set_aside_cross_site_becomes_ready_only_after_arrival() {
     .expect("transit");
     assert_eq!(transit_status, "requested");
     assert_eq!(to_source, away);
+    assert_eq!(
+        fixtures::json_id(&moved["transitId"]),
+        transit_id,
+        "{moved}"
+    );
+
+    let (status, again) = set_aside(&app, &admin_token, &barcode, oldest, items[0]).await;
+    assert_eq!(status, StatusCode::OK, "{again}");
+    assert_eq!(again["holdStatus"], "pending", "{again}");
+    assert_eq!(
+        fixtures::json_id(&again["transitId"]),
+        transit_id,
+        "{again}"
+    );
+    assert_eq!(fixtures::json_id(&again["pickupSiteId"]), away, "{again}");
+    let transit_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*)::bigint FROM item_transits WHERE item_id = $1")
+            .bind(items[0])
+            .fetch_one(app.state.services.repository.pool())
+            .await
+            .expect("one transit");
+    assert_eq!(transit_count, 1);
 
     let (status, shipped) = app
         .post_json(
@@ -698,4 +730,283 @@ async fn set_aside_cross_site_becomes_ready_only_after_arrival() {
     let (still_newer, _, still_unassigned) = hold_row(&app, newer).await;
     assert_eq!(still_newer, "pending");
     assert_eq!(still_unassigned, None);
+}
+
+#[tokio::test]
+async fn transit_set_aside_links_the_copy_and_frees_the_other_shelf_copy() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (holder_id, _) = fixtures::create_reader(&app, &admin_token, "ttllka").await;
+    let (borrower_id, _) = fixtures::create_reader(&app, &admin_token, "ttllkb").await;
+    let (other_holder, _) = fixtures::create_reader(&app, &admin_token, "ttllkc").await;
+    let home = create_site(&app, &admin_token, "link-home").await;
+    let away = create_site(&app, &admin_token, "link-away").await;
+    let moving = format!("LINK-A-{}", fixtures::unique_suffix());
+    let shelf = format!("LINK-B-{}", fixtures::unique_suffix());
+    let (biblio_id, items) = create_copies(
+        &app,
+        &admin_token,
+        "Linked Transit Copy",
+        &[&moving, &shelf],
+    )
+    .await;
+    sqlx::query("UPDATE items SET source_id = $2 WHERE id = ANY($1)")
+        .bind(&items)
+        .bind(home)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("home site");
+    let hold_id = pending_hold(&app, holder_id, biblio_id, 1, Some(away)).await;
+
+    let (status, moved) = set_aside(&app, &admin_token, &moving, hold_id, items[0]).await;
+    assert_eq!(status, StatusCode::OK, "{moved}");
+    assert_eq!(moved["holdStatus"], "pending", "{moved}");
+    let (linked, _, linked_item) = hold_row(&app, hold_id).await;
+    assert_eq!(linked, "pending");
+    assert_eq!(linked_item, Some(items[0]));
+
+    let (status, second_copy) = set_aside(&app, &admin_token, &shelf, hold_id, items[1]).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{second_copy}");
+    assert_eq!(second_copy["code"], "set_aside_not_oldest", "{second_copy}");
+    let (_, _, still_first) = hold_row(&app, hold_id).await;
+    assert_eq!(still_first, Some(items[0]));
+
+    let (status, riding) = checkout(&app, &admin_token, borrower_id, items[0], false, None).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{riding}");
+    assert_eq!(riding["code"], "business_rule_violation", "{riding}");
+
+    let (status, loan) = checkout(&app, &admin_token, borrower_id, items[1], false, None).await;
+    assert_eq!(status, StatusCode::CREATED, "{loan}");
+
+    let other = pending_hold(&app, other_holder, biblio_id, 2, Some(home)).await;
+    let (status, blocked) = set_aside(&app, &admin_token, &moving, other, items[0]).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{blocked}");
+    let (other_status, _, other_item) = hold_row(&app, other).await;
+    assert_eq!(other_status, "pending");
+    assert_eq!(other_item, None);
+    let (_, _, still_linked) = hold_row(&app, hold_id).await;
+    assert_eq!(still_linked, Some(items[0]));
+}
+
+#[tokio::test]
+async fn set_aside_wrong_title_is_refused() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (holder_id, _) = fixtures::create_reader(&app, &admin_token, "ttlwr").await;
+    let held_barcode = format!("TITLE-A-{}", fixtures::unique_suffix());
+    let other_barcode = format!("TITLE-B-{}", fixtures::unique_suffix());
+    let (held_biblio, _) = create_copies(&app, &admin_token, "Held Title", &[&held_barcode]).await;
+    let (_, other_items) =
+        create_copies(&app, &admin_token, "Other Title", &[&other_barcode]).await;
+    let hold_id = pending_hold(&app, holder_id, held_biblio, 1, None).await;
+
+    let (status, body) =
+        set_aside(&app, &admin_token, &other_barcode, hold_id, other_items[0]).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert_eq!(body["code"], "set_aside_wrong_title", "{body}");
+    let (hold_status, _, item_id) = hold_row(&app, hold_id).await;
+    assert_eq!(hold_status, "pending");
+    assert_eq!(item_id, None);
+}
+
+#[tokio::test]
+async fn cancelled_hold_during_transit_is_reassigned_on_receive() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (first_id, _) = fixtures::create_reader(&app, &admin_token, "ttlca").await;
+    let (next_id, _) = fixtures::create_reader(&app, &admin_token, "ttlcb").await;
+    let (only_id, _) = fixtures::create_reader(&app, &admin_token, "ttlcc").await;
+    let home = create_site(&app, &admin_token, "cancel-home").await;
+    let away = create_site(&app, &admin_token, "cancel-away").await;
+
+    let moving = format!("CAN-A-{}", fixtures::unique_suffix());
+    let (biblio_id, items) =
+        create_copies(&app, &admin_token, "Cancel During Transit", &[&moving]).await;
+    sqlx::query("UPDATE items SET source_id = $2 WHERE id = $1")
+        .bind(items[0])
+        .bind(home)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("home");
+    let oldest = pending_hold(&app, first_id, biblio_id, 1, Some(away)).await;
+    let next = pending_hold(&app, next_id, biblio_id, 2, Some(away)).await;
+    let (status, moved) = set_aside(&app, &admin_token, &moving, oldest, items[0]).await;
+    assert_eq!(status, StatusCode::OK, "{moved}");
+    let transit_id = fixtures::json_id(&moved["transitId"]);
+
+    let (status, cancelled) = app
+        .delete_with_auth(&format!("/api/v1/holds/{oldest}"), &admin_token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{cancelled}");
+    assert_eq!(cancelled["status"], "cancelled");
+    assert!(cancelled["itemId"].is_null(), "{cancelled}");
+    let (next_status, _, next_item) = hold_row(&app, next).await;
+    assert_eq!(next_status, "pending");
+    assert_eq!(next_item, None, "the next hold waits until receive");
+
+    let (status, shipped) = app
+        .post_json(
+            &format!("/api/v1/transits/{transit_id}/ship"),
+            &json!({}),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{shipped}");
+    let (status, received) = app
+        .post_json(
+            &format!("/api/v1/transits/{transit_id}/receive"),
+            &json!({}),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{received}");
+    assert_eq!(received["hold"]["status"], "ready", "{received}");
+    assert_eq!(
+        fixtures::json_id(&received["hold"]["id"]),
+        next,
+        "{received}"
+    );
+    let (next_status, _, next_item) = hold_row(&app, next).await;
+    assert_eq!(next_status, "ready");
+    assert_eq!(next_item, Some(items[0]));
+    let source_id: i64 = sqlx::query_scalar("SELECT source_id FROM items WHERE id = $1")
+        .bind(items[0])
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .expect("source");
+    assert_eq!(source_id, away);
+
+    let shelf_barcode = format!("CAN-B-{}", fixtures::unique_suffix());
+    let (shelf_biblio, shelf_items) =
+        create_copies(&app, &admin_token, "Cancel To Shelf", &[&shelf_barcode]).await;
+    sqlx::query("UPDATE items SET source_id = $2 WHERE id = $1")
+        .bind(shelf_items[0])
+        .bind(home)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("shelf home");
+    let lone = pending_hold(&app, only_id, shelf_biblio, 1, Some(away)).await;
+    let (status, shelf_move) =
+        set_aside(&app, &admin_token, &shelf_barcode, lone, shelf_items[0]).await;
+    assert_eq!(status, StatusCode::OK, "{shelf_move}");
+    let shelf_transit = fixtures::json_id(&shelf_move["transitId"]);
+    let (status, _) = app
+        .delete_with_auth(&format!("/api/v1/holds/{lone}"), &admin_token)
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = app
+        .post_json(
+            &format!("/api/v1/transits/{shelf_transit}/ship"),
+            &json!({}),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, received) = app
+        .post_json(
+            &format!("/api/v1/transits/{shelf_transit}/receive"),
+            &json!({}),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{received}");
+    assert!(received["hold"].is_null(), "back to the shelf: {received}");
+    let assigned: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::bigint FROM holds WHERE item_id = $1 AND status IN ('pending','to_pick','ready')",
+    )
+    .bind(shelf_items[0])
+    .fetch_one(app.state.services.repository.pool())
+    .await
+    .expect("shelf assignment");
+    assert_eq!(assigned, 0);
+    let shelf_source: i64 = sqlx::query_scalar("SELECT source_id FROM items WHERE id = $1")
+        .bind(shelf_items[0])
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .expect("shelf source");
+    assert_eq!(shelf_source, away);
+}
+
+#[tokio::test]
+async fn expired_hold_during_transit_unlinks_until_receive() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (holder_id, _) = fixtures::create_reader(&app, &admin_token, "ttlexa").await;
+    let (next_id, _) = fixtures::create_reader(&app, &admin_token, "ttlexb").await;
+    let home = create_site(&app, &admin_token, "exp-home").await;
+    let away = create_site(&app, &admin_token, "exp-away").await;
+    let barcode = format!("EXP-{}", fixtures::unique_suffix());
+    let (biblio_id, items) =
+        create_copies(&app, &admin_token, "Expire During Transit", &[&barcode]).await;
+    sqlx::query("UPDATE items SET source_id = $2 WHERE id = $1")
+        .bind(items[0])
+        .bind(home)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("home");
+    let oldest = pending_hold(&app, holder_id, biblio_id, 1, Some(away)).await;
+    let next = pending_hold(&app, next_id, biblio_id, 2, Some(away)).await;
+    let (status, moved) = set_aside(&app, &admin_token, &barcode, oldest, items[0]).await;
+    assert_eq!(status, StatusCode::OK, "{moved}");
+    let transit_id = fixtures::json_id(&moved["transitId"]);
+    sqlx::query(
+        "UPDATE holds SET status = 'ready', expires_at = NOW() - interval '1 day' WHERE id = $1",
+    )
+    .bind(oldest)
+    .execute(app.state.services.repository.pool())
+    .await
+    .expect("mark ready overdue");
+
+    let expired = app
+        .state
+        .services
+        .repository
+        .holds_expire_overdue()
+        .await
+        .expect("expire");
+    assert!(expired.contains(&oldest), "{expired:?}");
+    let (status, _, item_id) = hold_row(&app, oldest).await;
+    assert_eq!(status, "expired");
+    assert_eq!(item_id, None);
+    let transit_status: String =
+        sqlx::query_scalar("SELECT status FROM item_transits WHERE id = $1")
+            .bind(transit_id)
+            .fetch_one(app.state.services.repository.pool())
+            .await
+            .expect("transit still open");
+    assert_eq!(transit_status, "requested");
+    let (next_status, _, next_item) = hold_row(&app, next).await;
+    assert_eq!(next_status, "pending");
+    assert_eq!(next_item, None);
+
+    let (status, _) = app
+        .post_json(
+            &format!("/api/v1/transits/{transit_id}/ship"),
+            &json!({}),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, received) = app
+        .post_json(
+            &format!("/api/v1/transits/{transit_id}/receive"),
+            &json!({}),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{received}");
+    assert_eq!(
+        fixtures::json_id(&received["hold"]["id"]),
+        next,
+        "{received}"
+    );
+    assert_eq!(received["hold"]["status"], "ready", "{received}");
 }

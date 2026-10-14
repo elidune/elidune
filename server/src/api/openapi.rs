@@ -843,6 +843,25 @@ mod tests {
             value["components"]["schemas"]["ReturnResponse"]["properties"]["weedingStatus"]
                 .is_object()
         );
+        for field in ["holdStatus", "transitId", "pickupSiteId"] {
+            assert!(
+                value["components"]["schemas"]["ReturnResponse"]["properties"][field].is_object(),
+                "ReturnResponse.{field} must be documented"
+            );
+        }
+        assert!(
+            ok.contains("holdStatus") && ok.contains("transitId") && ok.contains("pickupSiteId"),
+            "200 must document the set-aside outcome: {ok}"
+        );
+        let refused = post["responses"]["422"]["description"]
+            .as_str()
+            .unwrap_or("");
+        assert!(
+            refused.contains("set_aside_item_mismatch")
+                && refused.contains("set_aside_wrong_title")
+                && refused.contains("set_aside_not_oldest"),
+            "422 must document set-aside guards: {refused}"
+        );
     }
 
     #[test]

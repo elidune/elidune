@@ -54,6 +54,16 @@ pub struct ItemCheckIn {
     pub circulation_status: Option<crate::models::circulation::CirculationStatus>,
     /// Set with the blocked-status warning. Current weeding status.
     pub weeding_status: Option<crate::models::item::WeedingStatus>,
+    /// Present when this scan set a title hold aside, or repeated that assignment.
+    pub set_aside: Option<SetAsideOutcome>,
+}
+
+/// Outcome of a title-hold set-aside on the barcode return.
+#[derive(Debug, Clone, Copy)]
+pub struct SetAsideOutcome {
+    pub hold_status: crate::models::hold::HoldStatus,
+    pub transit_id: Option<i64>,
+    pub pickup_site_id: Option<i64>,
 }
 
 /// `POST /loans/items/{barcode}/return` body that assigns the oldest pending
@@ -446,6 +456,7 @@ impl LoansService {
                     ),
                     circulation_status: Some(copy.circulation_status),
                     weeding_status: Some(copy.weeding_status),
+                    set_aside: None,
                 });
             }
         }
@@ -471,6 +482,7 @@ impl LoansService {
                     notice: None,
                     circulation_status: None,
                     weeding_status: None,
+                    set_aside: None,
                 })
             }
             Err(AppError::NotFound(_)) => {
@@ -495,6 +507,7 @@ impl LoansService {
                         notice: None,
                         circulation_status: None,
                         weeding_status: None,
+                        set_aside: None,
                     });
                 }
                 if let Some(target) = set_aside {
@@ -536,6 +549,7 @@ impl LoansService {
                         notice: None,
                         circulation_status: None,
                         weeding_status: None,
+                        set_aside: None,
                     });
                 }
                 if let Some(done) = self
@@ -591,6 +605,15 @@ impl LoansService {
             })),
             AuditLogMeta::success(),
         );
+        let set_aside = done.report_set_aside.then(|| SetAsideOutcome {
+            hold_status: done
+                .hold
+                .as_ref()
+                .map(|hold| hold.status)
+                .unwrap_or(crate::models::hold::HoldStatus::Pending),
+            transit_id: done.transit_id,
+            pickup_site_id: done.pickup_site_id,
+        });
         ItemCheckIn {
             loan: None,
             hold: done.hold,
@@ -601,6 +624,7 @@ impl LoansService {
             notice: Some(crate::models::dto::circulation::DeskNotice::item_not_on_loan()),
             circulation_status: None,
             weeding_status: None,
+            set_aside,
         }
     }
 

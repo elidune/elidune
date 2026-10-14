@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::Repository;
 use crate::{
-    error::{AppError, AppResult},
+    error::{error_code, AppError, AppResult},
     models::{
         biblio::BiblioShort,
         hold::{CreateHold, Hold, HoldDetails, HoldStatus, DEFAULT_MAX_ACTIVE_HOLDS},
@@ -1636,6 +1636,9 @@ impl Repository {
             destination_site_id,
             destination_site_name,
             newly_ready,
+            transit_id: None,
+            pickup_site_id: None,
+            report_set_aside: false,
         }))
     }
 
@@ -1655,9 +1658,11 @@ impl Repository {
         .ok_or_else(|| AppError::NotFound(format!("Pending hold {id} not found")))
     }
 
-    /// Cancel a hold. A `ready` (or in-transit `pending`) hold promotes the next
-    /// patron on that copy. A `to_pick` hold frees the shelf copy for the next
-    /// unassigned title hold, still as `to_pick` (no notification).
+    /// Cancel a hold. A hold with an open transit only drops `item_id`. The
+    /// transit stays open; `POST /transits/{id}/receive` decides the copy.
+    /// A `ready` hold with no transit promotes the next patron. A `to_pick`
+    /// hold frees the shelf copy for the next unassigned title hold, still as
+    /// `to_pick` (no notification).
     #[tracing::instrument(skip(self), err)]
     pub async fn holds_cancel(&self, id: i64) -> AppResult<Hold> {
         let mut tx = self.pool.begin().await?;
@@ -1668,42 +1673,43 @@ impl Repository {
             .await?
             .ok_or_else(|| AppError::NotFound(format!("Hold {id} not found")))?;
 
+        let active_transit: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 FROM item_transits
+                WHERE hold_id = $1 AND status IN ('requested', 'in_transit')
+            )
+            "#,
+        )
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        if active_transit {
+            let cancelled = sqlx::query_as::<_, Hold>(
+                r#"
+                UPDATE holds
+                SET status = 'cancelled',
+                    item_id = NULL,
+                    patron_note = NULL,
+                    internal_note = NULL
+                WHERE id = $1
+                RETURNING *
+                "#,
+            )
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            return Ok(cancelled);
+        }
+
         let cancelled = sqlx::query_as::<_, Hold>(
             "UPDATE holds SET status = 'cancelled', patron_note = NULL, internal_note = NULL WHERE id = $1 RETURNING *",
         )
         .bind(id)
         .fetch_one(&mut *tx)
         .await?;
-
-        let active_transit = sqlx::query_as::<_, crate::models::transit::ItemTransit>(
-            r#"
-            SELECT * FROM item_transits
-            WHERE hold_id = $1 AND status IN ('requested', 'in_transit')
-            FOR UPDATE
-            "#,
-        )
-        .bind(id)
-        .fetch_optional(&mut *tx)
-        .await?;
-
-        let mut reversed = false;
-        if let Some(transit) = active_transit {
-            sqlx::query(
-                r#"
-                UPDATE item_transits
-                SET status = 'cancelled', cancelled_at = NOW()
-                WHERE id = $1 AND status IN ('requested', 'in_transit')
-                "#,
-            )
-            .bind(transit.id)
-            .execute(&mut *tx)
-            .await?;
-            if transit.status == crate::models::transit::TransitStatus::InTransit {
-                self.transits_insert_for_hold_cancel_tx(&mut tx, &transit)
-                    .await?;
-                reversed = true;
-            }
-        }
 
         if current.status == HoldStatus::ToPick {
             // The copy is still on the shelf. Offer it to the next unassigned
@@ -1712,7 +1718,7 @@ impl Repository {
                 self.holds_offer_shelf_copy_to_next_pending_tx(&mut tx, item_id)
                     .await?;
             }
-        } else if !reversed && matches!(current.status, HoldStatus::Ready | HoldStatus::Pending) {
+        } else if matches!(current.status, HoldStatus::Ready | HoldStatus::Pending) {
             if let Some(item_id) = current.item_id {
                 self.holds_notify_next_tx(&mut tx, item_id, self.hold_ready_expiry_days())
                     .await?;
@@ -1739,6 +1745,24 @@ impl Repository {
         let expiry_days = self.hold_ready_expiry_days();
         let mut notified_items = HashSet::new();
         for hold in &expired {
+            let in_transit: bool = sqlx::query_scalar(
+                r#"
+                SELECT EXISTS(
+                    SELECT 1 FROM item_transits
+                    WHERE hold_id = $1 AND status IN ('requested', 'in_transit')
+                )
+                "#,
+            )
+            .bind(hold.id)
+            .fetch_one(&mut *tx)
+            .await?;
+            if in_transit {
+                sqlx::query("UPDATE holds SET item_id = NULL WHERE id = $1")
+                    .bind(hold.id)
+                    .execute(&mut *tx)
+                    .await?;
+                continue;
+            }
             let Some(item_id) = hold.item_id else {
                 continue;
             };
@@ -2246,7 +2270,9 @@ impl Repository {
     /// refuse the first loan.
     ///
     /// `SELECT … FOR UPDATE` covers every pending unassigned hold on the title
-    /// so two checkouts cannot both pass the count.
+    /// so two checkouts cannot both pass the count. A hold already linked to a
+    /// copy (`item_id` set), including one waiting on transit, is not in this
+    /// count.
     ///
     /// The tuple is `(hold_id, user_id, card_number, initials)` for the oldest
     /// pending unassigned hold in the title queue (`position`, then
@@ -2362,8 +2388,10 @@ impl Repository {
             )));
         };
         if locked_item_id != item_id {
-            return Err(AppError::Validation(
-                "itemId does not match the scanned copy".into(),
+            return Err(AppError::coded(
+                422,
+                error_code::SET_ASIDE_ITEM_MISMATCH,
+                "itemId does not match the scanned copy",
             ));
         }
 
@@ -2381,24 +2409,70 @@ impl Repository {
         .bind(biblio_id)
         .fetch_all(&mut *tx)
         .await?;
-        let Some(hold) = queue.first().cloned() else {
-            return Err(AppError::BusinessRule(
-                "Hold is not a pending unassigned title hold".into(),
+        let hold = if let Some(head) = queue.iter().find(|row| row.id == hold_id).cloned() {
+            if queue.first().map(|row| row.id) != Some(hold_id) {
+                return Err(AppError::coded(
+                    422,
+                    error_code::SET_ASIDE_NOT_OLDEST,
+                    "Only the oldest pending hold in the title queue can be set aside",
+                ));
+            }
+            head
+        } else {
+            let row = sqlx::query_as::<_, Hold>("SELECT * FROM holds WHERE id = $1 FOR UPDATE")
+                .bind(hold_id)
+                .fetch_optional(&mut *tx)
+                .await?;
+            let Some(row) = row else {
+                return Err(AppError::NotFound(format!("Hold {hold_id} not found")));
+            };
+            if row.biblio_id != biblio_id {
+                return Err(AppError::coded(
+                    422,
+                    error_code::SET_ASIDE_WRONG_TITLE,
+                    "This copy does not belong to the held title",
+                ));
+            }
+            if row.item_id == Some(locked_item_id) {
+                let transit_id: Option<i64> = sqlx::query_scalar(
+                    r#"
+                    SELECT id FROM item_transits
+                    WHERE item_id = $1 AND hold_id = $2
+                      AND status IN ('requested', 'in_transit')
+                    ORDER BY id ASC
+                    LIMIT 1
+                    "#,
+                )
+                .bind(locked_item_id)
+                .bind(row.id)
+                .fetch_optional(&mut *tx)
+                .await?;
+                if let Some(transit_id) = transit_id {
+                    let pickup_site_id = row.pickup_site_id;
+                    let (destination_site_id, destination_site_name) =
+                        destination_site(&mut tx, pickup_site_id).await?;
+                    tx.commit().await?;
+                    return Ok(crate::models::dto::holds::ShelfCheckIn {
+                        item_id: locked_item_id,
+                        hold: Some(row),
+                        title,
+                        barcode: item_barcode,
+                        transit_started: true,
+                        destination_site_id,
+                        destination_site_name,
+                        newly_ready: false,
+                        transit_id: Some(transit_id),
+                        pickup_site_id,
+                        report_set_aside: true,
+                    });
+                }
+            }
+            return Err(AppError::coded(
+                422,
+                error_code::SET_ASIDE_NOT_OLDEST,
+                "Only the oldest pending hold in the title queue can be set aside",
             ));
         };
-        if hold.id != hold_id {
-            let exists: bool =
-                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM holds WHERE id = $1)")
-                    .bind(hold_id)
-                    .fetch_one(&mut *tx)
-                    .await?;
-            if !exists {
-                return Err(AppError::NotFound(format!("Hold {hold_id} not found")));
-            }
-            return Err(AppError::BusinessRule(
-                "Only the oldest pending hold in the title queue can be set aside".into(),
-            ));
-        }
 
         let available_sql = format!(
             "SELECT EXISTS(SELECT 1 FROM items i WHERE i.id = $1 AND {AVAILABLE_COPY_PREDICATE})"
@@ -2485,6 +2559,26 @@ impl Repository {
             (updated, true, None, None)
         };
 
+        let transit_id = if needs_transit {
+            let id: Option<i64> = sqlx::query_scalar(
+                r#"
+                SELECT id FROM item_transits
+                WHERE item_id = $1 AND hold_id = $2
+                  AND status IN ('requested', 'in_transit')
+                ORDER BY id ASC
+                LIMIT 1
+                "#,
+            )
+            .bind(locked_item_id)
+            .bind(updated.id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            id
+        } else {
+            None
+        };
+        let pickup_site_id = updated.pickup_site_id;
+
         tx.commit().await?;
         Ok(crate::models::dto::holds::ShelfCheckIn {
             item_id: locked_item_id,
@@ -2495,6 +2589,9 @@ impl Repository {
             destination_site_id,
             destination_site_name,
             newly_ready,
+            transit_id,
+            pickup_site_id,
+            report_set_aside: true,
         })
     }
 }

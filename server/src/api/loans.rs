@@ -331,6 +331,20 @@ pub struct ReturnResponse {
     /// Current weeding status. Set with `notice.code` `item_not_available_status`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub weeding_status: Option<crate::models::item::WeedingStatus>,
+    /// Set-aside only. `ready` when the copy is already at the pickup site,
+    /// `pending` while it is in transit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hold_status: Option<crate::models::hold::HoldStatus>,
+    /// Set-aside only. Absent on every other return. Null when the copy became
+    /// `ready` on site. A string id when a transit was started or reused.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>, nullable = true)]
+    pub transit_id: Option<Option<String>>,
+    /// Set-aside only. Absent on every other return. Null when the hold has no
+    /// pickup site. Otherwise the pickup site id as a string.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>, nullable = true)]
+    pub pickup_site_id: Option<Option<String>>,
 }
 
 /// `holdFor` for a not-on-loan check-in. Loans-only staff get id, card, and initials.
@@ -883,6 +897,9 @@ pub async fn return_loan(
         hold_for: None,
         circulation_status: None,
         weeding_status: None,
+        hold_status: None,
+        transit_id: None,
+        pickup_site_id: None,
     };
     apply_lost(&mut response, returned.lost);
     Ok(Json(response))
@@ -1076,13 +1093,14 @@ where
     params(("barcode" = String, Path, description = "Item barcode or call number")),
     request_body(
         content = ShelfSetAsideRequest,
-        description = "Optional. `{ holdId, itemId }` assigns the oldest pending unassigned title hold (queue order) to the barcode's copy when `holdId` is that hold. Same site becomes `ready`. A different pickup site starts a requested transit and the hold stays `pending` until it is received. Any other `holdId` is refused. Omit the body for a normal check-in.",
+        description = "Optional. `{ holdId, itemId }` assigns the oldest pending unassigned title hold (queue order) to the barcode's copy when `holdId` is that hold. Same site becomes `ready`. A different pickup site starts a requested transit, sets `hold.item_id` immediately, and leaves the hold `pending` until the transit is received. A second identical call reuses that transit. Any other `holdId` is refused (`set_aside_not_oldest`). Omit the body for a normal check-in.",
         content_type = "application/json"
     ),
     responses(
-        (status = 200, description = "Loan closed, a to_pick hold checked in, an available copy that is not on loan, or a blocked status. An available copy that is not on loan includes `notice` (`code` `item_not_on_loan`, `level` `informational`). A pending hold on that copy is set aside (`status` `ready`) or sent in transit. `holdFor` on that notice follows the catalog privacy rule: staff profile with users read, otherwise `{ id, cardNumber, initials }`. A copy that is lost, damaged, missing (`circulationStatus` `toSearch`), or withdrawn (`weedingStatus` `withdrawn`) includes `notice` (`code` `item_not_available_status`, `level` `warning`), `status` `unchanged`, and the current `circulationStatus` and `weedingStatus`. That scan does not change the status, assign a hold, or start transit. Optional body `{ holdId, itemId }` assigns the oldest pending unassigned title hold when `holdId` is that queue head (same loans write right; item locked, then the title's pending holds in queue order). Same site becomes `ready`. A different pickup site starts a requested transit and the hold stays `pending` (not `ready` or `to_pick`) until the transit is received. Any other `holdId` is refused and assigns nothing.", body = ReturnResponse),
+        (status = 200, description = "Loan closed, a to_pick hold checked in, an available copy that is not on loan, or a blocked status. An available copy that is not on loan includes `notice` (`code` `item_not_on_loan`, `level` `informational`). A pending hold on that copy is set aside (`status` `ready`) or sent in transit. `holdFor` on that notice follows the catalog privacy rule: staff profile with users read, otherwise `{ id, cardNumber, initials }`. A copy that is lost, damaged, missing (`circulationStatus` `toSearch`), or withdrawn (`weedingStatus` `withdrawn`) includes `notice` (`code` `item_not_available_status`, `level` `warning`), `status` `unchanged`, and the current `circulationStatus` and `weedingStatus`. That scan does not change the status, assign a hold, or start transit. Optional body `{ holdId, itemId }` assigns the oldest pending unassigned title hold when `holdId` is that queue head (same loans write right; item locked, then the title's pending holds in queue order). Same site becomes `ready`. A different pickup site starts a requested transit, links `hold.item_id` immediately, and the hold stays `pending` (not `ready` or `to_pick`) until the transit is received. That set-aside response adds `holdStatus` (`ready` or `pending`), `transitId` (string, or null when there is no transit), and `pickupSiteId` (string, or null when the hold has no pickup site). A repeat of the same body while that transit is still open returns the same `transitId` and does not open another transit. Any other `holdId` is refused and assigns nothing.", body = ReturnResponse),
         (status = 404, description = "Unknown barcode (`not_found`)", body = crate::error::ErrorResponse),
-        (status = 409, description = "Already returned")
+        (status = 409, description = "Already returned"),
+        (status = 422, description = "Set-aside refused. Body is `{ code, error, message }`. `set_aside_item_mismatch`: `itemId` is not the barcode's copy. `set_aside_wrong_title`: the copy is not an item of the held title. `set_aside_not_oldest`: `holdId` is not the oldest pending unassigned hold in queue order.", body = crate::error::ErrorResponse)
     )
 )]
 pub async fn return_loan_by_item(
@@ -1154,6 +1172,18 @@ pub async fn return_loan_by_item(
                 hold_for,
                 circulation_status: check_in.circulation_status,
                 weeding_status: check_in.weeding_status,
+                hold_status: check_in
+                    .set_aside
+                    .as_ref()
+                    .map(|outcome| outcome.hold_status),
+                transit_id: check_in
+                    .set_aside
+                    .as_ref()
+                    .map(|outcome| outcome.transit_id.map(|id| id.to_string())),
+                pickup_site_id: check_in
+                    .set_aside
+                    .as_ref()
+                    .map(|outcome| outcome.pickup_site_id.map(|id| id.to_string())),
             };
             apply_lost(&mut response, check_in.lost);
             Ok(Json(response))
