@@ -24,6 +24,7 @@ import ClaimsReturnedQueue from '@/components/loans/ClaimsReturnedQueue';
 import LoanExceptionActions from '@/components/loans/LoanExceptionActions';
 import DeskScanNotice from '@/components/loans/DeskScanNotice';
 import ReturnDeskNotice from '@/components/loans/ReturnDeskNotice';
+import ForceCirculationDialog from '@/components/loans/ForceCirculationDialog';
 import ToPickForceLoanDialog from '@/components/loans/ToPickForceLoanDialog';
 import LostFoundAlertDialog from '@/components/loans/LostFoundAlertDialog';
 import Pagination from '@/components/common/Pagination';
@@ -62,8 +63,10 @@ import { deskBorrowErrorText, presentCheckoutRefusal } from '@/utils/deskCheckou
 import {
   CheckoutDeclined,
   interpretPickCheckIn,
+  isCheckoutDeclined,
   type PickCheckInNotice,
 } from '@/utils/toPickDesk';
+import { overrideReasonRefusalMessage, trimmedOverrideReason } from '@/utils/circulationForce';
 import {
   commitDismissHeldSetAside,
   commitHeldSetAside,
@@ -196,7 +199,7 @@ export default function LoansPage() {
   const [patronIdentity, setPatronIdentity] = useState<BorrowerRef | null>(null);
   const [cardScanError, setCardScanError] = useState<string | null>(null);
   const [renewalPrompt, setRenewalPrompt] = useState<RenewalDeskView | null>(null);
-  const renewalRetryRef = useRef<(() => void) | null>(null);
+  const renewalRetryRef = useRef<((overrideReason?: string) => void) | null>(null);
   const renewalBarcodeRef = useRef<string | null>(null);
   const [renewalAsideLoading, setRenewalAsideLoading] = useState(false);
   const patronLookupInFlightRef = useRef(false);
@@ -235,12 +238,19 @@ export default function LoansPage() {
   const [reminderReport, setReminderReport] = useState<ReminderReport | null>(null);
   const [reminderSending, setReminderSending] = useState(false);
   const [sendRemindersConfirmOpen, setSendRemindersConfirmOpen] = useState(false);
-  const [forceBorrowDialog, setForceBorrowDialog] = useState<{ message: string } | null>(null);
-  const forceBorrowResolveRef = useRef<((v: boolean) => void) | null>(null);
+  const [forceBorrowDialog, setForceBorrowDialog] = useState<{
+    message: string;
+    barcode: string;
+    reasonRequired: boolean;
+    error: string | null;
+  } | null>(null);
+  const [forceBorrowLoading, setForceBorrowLoading] = useState(false);
   const [toPickAside, setToPickAside] = useState<{
     barcode: string;
     message: string;
     force: boolean;
+    reasonRequired: boolean;
+    error: string | null;
   } | null>(null);
   const [toPickAsideLoading, setToPickAsideLoading] = useState(false);
   const [checkoutScanAlert, setCheckoutScanAlert] = useState<CheckoutScanAlert | null>(null);
@@ -559,15 +569,16 @@ export default function LoansPage() {
     [loadOverdue, openLostFound, overdueData, returnBarcodeInput, showToast, t],
   );
 
-  const handleOverdueRenew = async (loanId: string, force = false) => {
+  const handleOverdueRenew = async (loanId: string, force = false, overrideReason?: string) => {
     if (overdueLoanActionInFlightRef.current) return;
     overdueLoanActionInFlightRef.current = true;
     setOverdueLoanAction({ loanId, op: 'renew' });
     setOverdueError(null);
-    setRenewalPrompt(null);
+    if (!force) setRenewalPrompt(null);
     renewalRetryRef.current = null;
     try {
-      const renewed = await api.renewLoan(loanId, newIdempotencyKey(), { force: force || undefined });
+      const renewed = await api.renewLoan(loanId, newIdempotencyKey(), { force: force || undefined, overrideReason });
+      setRenewalPrompt(null);
       await loadOverdue();
       showToast({
         variant: 'success',
@@ -575,14 +586,26 @@ export default function LoansPage() {
       });
     } catch (e: unknown) {
       const barcode = overdueData?.loans.find((loan) => loan.loanId === loanId)?.itemBarcode ?? null;
+      const held = overrideReasonRefusalMessage(e);
+      if (force && held !== null) {
+        setRenewalPrompt((current) =>
+          current && current.kind !== 'sentence' ? { ...current, error: held } : current,
+        );
+        renewalBarcodeRef.current = barcode;
+        renewalRetryRef.current = (reason) => {
+          void handleOverdueRenew(loanId, true, reason);
+        };
+        return;
+      }
       const next = presentRenewalRefusal(e, { alreadyForced: force, t });
       if (next.kind === 'sentence') {
+        setRenewalPrompt(null);
         setOverdueError(next.message);
         showToast({ variant: 'error', message: next.message });
       } else {
         renewalBarcodeRef.current = barcode;
-        renewalRetryRef.current = () => {
-          void handleOverdueRenew(loanId, true);
+        renewalRetryRef.current = (reason) => {
+          void handleOverdueRenew(loanId, true, reason);
         };
         setRenewalPrompt(next);
       }
@@ -878,7 +901,7 @@ export default function LoansPage() {
     }
   };
 
-  const handleBorrow = async (specimenBarcode: string, force = false) => {
+  const handleBorrow = async (specimenBarcode: string, force = false, overrideReason?: string) => {
     if (!selectedUser || !specimenBarcode.trim()) {
       throw new Error(t('loans.noUserSelected'));
     }
@@ -911,10 +934,13 @@ export default function LoansPage() {
     setCheckoutScanAlert(null);
 
     try {
+      const forceFlag = checkoutForceFlag(snapshot?.availability, force);
+      const reason = forceFlag ? trimmedOverrideReason(overrideReason) : undefined;
       const created = await api.createLoan({
         userId: selectedUser.id,
         itemIdentification: barcode,
-        force: checkoutForceFlag(snapshot?.availability, force),
+        force: forceFlag,
+        ...(reason ? { overrideReason: reason } : {}),
       }, newIdempotencyKey());
       const loaded = await applyPatronLoans({ notify: false });
       const matched = loaded.ok
@@ -952,7 +978,13 @@ export default function LoansPage() {
         t,
       });
       if (view.kind === 'setAside') {
-        setToPickAside({ barcode, message: view.message, force: view.force });
+        setToPickAside({
+          barcode,
+          message: view.message,
+          force: view.force,
+          reasonRequired: view.reasonRequired,
+          error: null,
+        });
         throw new CheckoutDeclined();
       }
       if (view.kind === 'scan') {
@@ -964,11 +996,12 @@ export default function LoansPage() {
       }
       if (view.kind === 'force') {
         setBarcodeInput('');
-        const ok = await new Promise<boolean>((resolve) => {
-          setForceBorrowDialog({ message: view.message });
-          forceBorrowResolveRef.current = resolve;
+        setForceBorrowDialog({
+          message: view.message,
+          barcode,
+          reasonRequired: view.reasonRequired,
+          error: null,
         });
-        if (ok) return handleBorrow(specimenBarcode, true);
         throw new CheckoutDeclined();
       }
       throw error;
@@ -1189,18 +1222,20 @@ export default function LoansPage() {
 
   const completeRenew = async (
     busyId: string,
-    request: (force: boolean) => Promise<{ expiryAt: string }>,
+    request: (force: boolean, overrideReason?: string) => Promise<{ expiryAt: string }>,
     force = false,
     barcode: string | null = null,
+    overrideReason?: string,
   ): Promise<boolean> => {
     if (borrowLoanActionInFlightRef.current) return false;
     borrowLoanActionInFlightRef.current = true;
     setBorrowLoanAction({ loanId: busyId, op: 'renew' });
     setRenewError('');
-    setRenewalPrompt(null);
+    if (!force) setRenewalPrompt(null);
     renewalRetryRef.current = null;
     try {
-      const renewed = await request(force);
+      const renewed = await request(force, overrideReason);
+      setRenewalPrompt(null);
       if (selectedUser) {
         await applyPatronLoans({ notify: false });
       }
@@ -1210,14 +1245,26 @@ export default function LoansPage() {
       });
       return true;
     } catch (error: unknown) {
+      const held = overrideReasonRefusalMessage(error);
+      if (force && held !== null) {
+        setRenewalPrompt((current) =>
+          current && current.kind !== 'sentence' ? { ...current, error: held } : current,
+        );
+        renewalBarcodeRef.current = barcode;
+        renewalRetryRef.current = (reason) => {
+          void completeRenew(busyId, request, true, barcode, reason);
+        };
+        return false;
+      }
       const next = presentRenewalRefusal(error, { alreadyForced: force, t });
       if (next.kind === 'sentence') {
+        setRenewalPrompt(null);
         setRenewError(next.message);
         showToast({ variant: 'error', message: next.message });
       } else {
         renewalBarcodeRef.current = barcode;
-        renewalRetryRef.current = () => {
-          void completeRenew(busyId, request, true, barcode);
+        renewalRetryRef.current = (reason) => {
+          void completeRenew(busyId, request, true, barcode, reason);
         };
         setRenewalPrompt(next);
       }
@@ -1232,7 +1279,7 @@ export default function LoansPage() {
     const barcode = loans.find((loan) => loan.id === loanId)?.itemIdentification ?? null;
     return completeRenew(
       loanId,
-      (force) => api.renewLoan(loanId, newIdempotencyKey(), { force: force || undefined }),
+      (force, overrideReason) => api.renewLoan(loanId, newIdempotencyKey(), { force: force || undefined, overrideReason }),
       false,
       barcode,
     );
@@ -1243,13 +1290,15 @@ export default function LoansPage() {
     const ok = alert.loanId
       ? await completeRenew(
           alert.loanId,
-          (force) => api.renewLoan(alert.loanId as string, newIdempotencyKey(), { force: force || undefined }),
+          (force, overrideReason) =>
+            api.renewLoan(alert.loanId as string, newIdempotencyKey(), { force: force || undefined, overrideReason }),
           false,
           alert.barcode,
         )
       : await completeRenew(
           alert.barcode,
-          (force) => api.renewLoanByBarcode(alert.barcode, newIdempotencyKey(), { force: force || undefined }),
+          (force, overrideReason) =>
+            api.renewLoanByBarcode(alert.barcode, newIdempotencyKey(), { force: force || undefined, overrideReason }),
           false,
           alert.barcode,
         );
@@ -2190,44 +2239,75 @@ export default function LoansPage() {
         confirmVariant="primary"
       />
 
-      <ConfirmDialog
+      <ForceCirculationDialog
         isOpen={forceBorrowDialog !== null}
-        onClose={() => {
-          setForceBorrowDialog(null);
-          forceBorrowResolveRef.current?.(false);
-          forceBorrowResolveRef.current = null;
-          focusScanInput();
-        }}
-        onConfirm={() => {
-          setForceBorrowDialog(null);
-          forceBorrowResolveRef.current?.(true);
-          forceBorrowResolveRef.current = null;
-          focusScanInput();
-        }}
         message={forceBorrowDialog?.message ?? ''}
         confirmLabel={t('loans.forceLoan')}
-        stackOnTop
+        reasonRequired={forceBorrowDialog?.reasonRequired === true}
+        error={forceBorrowDialog?.error}
+        isLoading={forceBorrowLoading}
+        onCancel={() => {
+          if (forceBorrowLoading) return;
+          setForceBorrowDialog(null);
+          focusScanInput();
+        }}
+        onConfirm={(reason) => {
+          const ctx = forceBorrowDialog;
+          if (!ctx || forceBorrowLoading) return;
+          setForceBorrowLoading(true);
+          void (async () => {
+            try {
+              await handleBorrow(ctx.barcode, true, reason);
+              setForceBorrowDialog(null);
+              setBarcodeInput('');
+              focusScanInput();
+            } catch (error: unknown) {
+              const held = overrideReasonRefusalMessage(error);
+              if (held !== null) {
+                setForceBorrowDialog((current) => (current ? { ...current, error: held } : current));
+                return;
+              }
+              setForceBorrowDialog(null);
+              const msg = deskBorrowErrorText(error, t);
+              if (msg) showToast({ variant: 'error', message: msg });
+              focusScanInput();
+            } finally {
+              setForceBorrowLoading(false);
+            }
+          })();
+        }}
       />
 
       <ToPickForceLoanDialog
         isOpen={toPickAside !== null}
         message={toPickAside?.message}
+        reasonRequired={toPickAside?.reasonRequired === true}
+        error={toPickAside?.error}
         isLoading={toPickAsideLoading}
         onForce={
           toPickAside?.force
-            ? () => {
+            ? (reason) => {
                 const barcode = toPickAside.barcode;
                 if (!barcode || toPickAsideLoading) return;
-                setToPickAside(null);
+                setToPickAsideLoading(true);
                 void (async () => {
                   try {
-                    await handleBorrow(barcode, true);
+                    await handleBorrow(barcode, true, reason);
+                    setToPickAside(null);
                     setBarcodeInput('');
                     focusScanInput();
                   } catch (error: unknown) {
+                    const held = overrideReasonRefusalMessage(error);
+                    if (held !== null) {
+                      setToPickAside((current) => (current ? { ...current, error: held } : current));
+                      return;
+                    }
+                    if (!isCheckoutDeclined(error)) setToPickAside(null);
                     const msg = deskBorrowErrorText(error, t);
                     if (msg) showToast({ variant: 'error', message: msg });
-                    focusScanInput();
+                    if (!isCheckoutDeclined(error)) focusScanInput();
+                  } finally {
+                    setToPickAsideLoading(false);
                   }
                 })();
               }
@@ -2260,12 +2340,9 @@ export default function LoansPage() {
       <RenewalRefusalNotice
         part="dialog"
         view={renewalPrompt}
-        busy={renewalAsideLoading}
-        onForce={() => {
-          const run = renewalRetryRef.current;
-          renewalRetryRef.current = null;
-          setRenewalPrompt(null);
-          run?.();
+        busy={renewalAsideLoading || borrowLoanAction?.op === 'renew' || overdueLoanAction?.op === 'renew'}
+        onForce={(reason) => {
+          renewalRetryRef.current?.(reason);
         }}
         onDismiss={() => {
           if (renewalAsideLoading) return;

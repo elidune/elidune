@@ -1206,6 +1206,7 @@
     "forceLoan": "Ausleihe erzwingen",
     "forceRenew": "Verlängerung erzwingen",
     "forceRenewConfirm": "Verlängerung trotzdem erzwingen?",
+    "forceOverrideReason": "Grund für das Erzwingen",
     "pickReady": "Bereit für {{patron}}, ins Abholregal legen",
     "pickTransit": "In den Transit nach {{site}} schicken",
     "pickPatronUnknown": "einen anderen Leser",

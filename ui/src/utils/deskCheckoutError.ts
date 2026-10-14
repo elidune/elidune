@@ -1,7 +1,7 @@
 import axios from 'axios';
 import type { TFunction } from 'i18next';
 import { getApiErrorCode, getApiErrorMessage, getApiErrorRawMessage } from '@/utils/apiError';
-import { loanRefusalMayForce } from '@/utils/circulationForce';
+import { loanRefusalMayForce, refusalReasonRequired } from '@/utils/circulationForce';
 import {
   checkoutScanNoticeFromRefusal,
   isCheckoutScanNoticeShown,
@@ -61,10 +61,10 @@ export function checkoutDeskActionsFromError(error: unknown, canForce = true): C
  * popup, no force button, and no card, initials, or name from `details`.
  */
 export type CheckoutRefusalPresentation =
-  | { kind: 'setAside'; message: string; force: boolean }
+  | { kind: 'setAside'; message: string; force: boolean; reasonRequired: boolean }
   | { kind: 'scan'; alert: DeskScanAlert }
   | { kind: 'status' }
-  | { kind: 'force'; message: string }
+  | { kind: 'force'; message: string; reasonRequired: boolean }
   | { kind: 'sentence' };
 
 export function presentCheckoutRefusal(
@@ -75,11 +75,13 @@ export function presentCheckoutRefusal(
   if (code === ITEM_TO_PICK_FOR_OTHER) return { kind: 'sentence' };
 
   const actions = checkoutDeskActions(code, refusalForceable(error), options.canForce);
+  const reasonRequired = refusalReasonRequired(error);
   if (actions.setAside) {
     return {
       kind: 'setAside',
       message: options.t('errors.apiCode.item_held_for_other'),
       force: actions.force,
+      reasonRequired,
     };
   }
   const blocked = checkoutScanNoticeFromRefusal({
@@ -89,7 +91,11 @@ export function presentCheckoutRefusal(
   if (blocked) return { kind: 'scan', alert: blocked };
   if (code === ITEM_STATUS_ACTION_REQUIRED) return { kind: 'status' };
   if (!options.alreadyForced && actions.force) {
-    return { kind: 'force', message: forceBorrowDialogMessage(error, options.t) };
+    return {
+      kind: 'force',
+      message: forceBorrowDialogMessage(error, options.t),
+      reasonRequired,
+    };
   }
   return { kind: 'sentence' };
 }

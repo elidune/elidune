@@ -1206,6 +1206,7 @@
     "forceLoan": "Forcer le prêt",
     "forceRenew": "Forcer le renouvellement",
     "forceRenewConfirm": "Forcer le renouvellement malgré tout ?",
+    "forceOverrideReason": "Motif du forçage",
     "pickReady": "Prêt pour {{patron}}, à placer sur l’étagère des réservations",
     "pickTransit": "À envoyer en transit vers {{site}}",
     "pickPatronUnknown": "un autre lecteur",

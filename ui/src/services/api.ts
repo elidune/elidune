@@ -957,8 +957,13 @@ class ApiService {
     itemId?: string;
     itemIdentification?: string;
     force?: boolean;
+    /** Staff reason. Sent only when non-blank, next to `force`. */
+    overrideReason?: string;
   }, idempotencyKey?: string): Promise<{ id: string; expiryAt: string; message: string }> {
-    const response = await this.client.post('/loans', data, this.idempotencyConfig(idempotencyKey));
+    const { overrideReason, ...rest } = data;
+    const reason = overrideReason?.trim();
+    const body = reason ? { ...rest, overrideReason: reason } : rest;
+    const response = await this.client.post('/loans', body, this.idempotencyConfig(idempotencyKey));
     return response.data;
   }
 
@@ -970,13 +975,21 @@ class ApiService {
   async renewLoan(
     loanId: string,
     idempotencyKey?: string,
-    options?: { force?: boolean },
+    options?: { force?: boolean; overrideReason?: string },
   ): Promise<{ id: string; expiryAt: string; message: string }> {
     const response = await this.client.post(`/loans/${loanId}/renew`, undefined, {
       ...this.idempotencyConfig(idempotencyKey),
-      params: options?.force ? { force: true } : undefined,
+      params: this.renewParams(options),
     });
     return response.data;
+  }
+
+  /** `force=true`, plus `overrideReason` when the trimmed reason is non-blank. */
+  private renewParams(options?: { force?: boolean; overrideReason?: string }) {
+    if (!options?.force) return undefined;
+    const reason = options.overrideReason?.trim();
+    if (!reason) return { force: true };
+    return { force: true, overrideReason: reason };
   }
 
   async returnLoanByBarcode(itemBarcode: string): Promise<ItemCheckIn> {
@@ -996,11 +1009,11 @@ class ApiService {
   async renewLoanByBarcode(
     itemBarcode: string,
     idempotencyKey?: string,
-    options?: { force?: boolean },
+    options?: { force?: boolean; overrideReason?: string },
   ): Promise<{ id: string; expiryAt: string; message: string }> {
     const response = await this.client.post(`/loans/items/${itemBarcode}/renew`, undefined, {
       ...this.idempotencyConfig(idempotencyKey),
-      params: options?.force ? { force: true } : undefined,
+      params: this.renewParams(options),
     });
     return response.data;
   }

@@ -29,7 +29,9 @@ interface BatchCreateItemRowProps {
 /**
  * One failed `POST /loans/batch-create` row.
  * « Forcer le prêt » only when the row's `forceable` is true.
- * A held copy keeps « Mettre de côté » / « Annuler », plus « Forcer le prêt » when forceable.
+ * This route does not accept `overrideReason`, so `reasonRequired: true`
+ * offers no force button and no reason field.
+ * A held copy keeps « Mettre de côté » / « Annuler ».
  * A copy already set aside (`item_to_pick_for_other`) has neither action.
  */
 export default function BatchCreateItemRow({
@@ -43,6 +45,7 @@ export default function BatchCreateItemRow({
   const [asidePending, setAsidePending] = useState(false);
   if (item.success) return null;
   const actions = checkoutDeskActions(item.code, item.forceable, canForce);
+  const offerForce = actions.force && item.reasonRequired !== true;
   return (
     <div data-batch-item={item.barcode} className="flex flex-col items-start gap-2">
       <p className="text-sm font-medium text-red-800 dark:text-red-200">
@@ -101,7 +104,7 @@ export default function BatchCreateItemRow({
           >
             {t('common.cancel')}
           </Button>
-          {actions.force && (
+          {offerForce && (
             <CirculationForceButton
               forceable={item.forceable === true}
               canForce={canForce}
@@ -111,7 +114,7 @@ export default function BatchCreateItemRow({
           )}
         </div>
       )}
-      {actions.force && !actions.setAside && (
+      {offerForce && !actions.setAside && (
         <CirculationForceButton
           forceable={item.forceable === true}
           canForce={canForce}

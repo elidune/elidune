@@ -1,5 +1,6 @@
 import type { TFunction } from 'i18next';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
+import { refusalReasonRequired } from '@/utils/circulationForce';
 
 const ITEM_HELD_FOR_OTHER = 'item_held_for_other';
 
@@ -10,8 +11,8 @@ const ITEM_HELD_FOR_OTHER = 'item_held_for_other';
  * Reason codes and account type are not consulted.
  */
 export type RenewalDeskView =
-  | { kind: 'setAside'; message: string; force: boolean }
-  | { kind: 'force'; message: string }
+  | { kind: 'setAside'; message: string; force: boolean; reasonRequired: boolean; error?: string | null }
+  | { kind: 'force'; message: string; reasonRequired: boolean; error?: string | null }
   | { kind: 'sentence'; message: string };
 
 function responseForceable(error: unknown): unknown {
@@ -39,11 +40,13 @@ export function presentRenewalRefusal(
 ): RenewalDeskView {
   const code = getApiErrorCode(error);
   const force = !options.alreadyForced && responseForceable(error) === true;
+  const reasonRequired = refusalReasonRequired(error);
   if (code === ITEM_HELD_FOR_OTHER) {
     return {
       kind: 'setAside',
       message: options.t('errors.apiCode.item_held_for_other'),
       force,
+      reasonRequired,
     };
   }
   const message = renewalDeskMessage(error, options.t);
@@ -51,6 +54,7 @@ export function presentRenewalRefusal(
     return {
       kind: 'force',
       message: `${message}\n\n${options.t('loans.forceRenewConfirm')}`,
+      reasonRequired,
     };
   }
   return { kind: 'sentence', message };
