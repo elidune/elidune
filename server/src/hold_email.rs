@@ -1,14 +1,16 @@
 //! Email notification when a hold becomes `ready` (after a loan return).
 
+use std::path::Path;
+
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 
 use crate::{
     email::EmailService,
-    email_templates,
-    error::AppResult,
+    email_templates::{self, EmailTemplate},
+    error::{AppError, AppResult},
     models::{hold::Hold, loan::LoanDetails, Language},
-    repository::users::HoldReadyUserContact,
+    repository::{users::HoldReadyUserContact, Repository},
     services::{calendar, i18n},
 };
 
@@ -159,26 +161,118 @@ struct HoldReadyMail<'a> {
     zone: Tz,
 }
 
+/// Languages tried for `hold_ready`, in order.
+///
+/// German and Spanish have their own on-disk templates. A database row for the
+/// requested language still wins, so an edited French or English template is kept.
+/// Languages without a template fall back to French, then English.
+fn notice_template_languages(lang: Option<Language>) -> Vec<&'static str> {
+    match lang.unwrap_or(Language::French) {
+        Language::English => vec!["english", "french"],
+        Language::German => vec!["german", "french", "english"],
+        Language::Spanish => vec!["spanish", "french", "english"],
+        _ => vec!["french", "english"],
+    }
+}
+
+/// Site name written into `{{pickup_site}}`.
+///
+/// Only the hold's pickup site is used. `item_home_site` is the copy's current
+/// site (`items.source_id`) and is never a fallback.
+#[must_use]
+fn displayed_pickup_site(pickup_site: Option<&str>, _item_home_site: Option<&str>) -> String {
+    pickup_site
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| "—".to_string())
+}
+
+struct HoldReadyRender<'a> {
+    lang: Option<Language>,
+    firstname: &'a str,
+    lastname: &'a str,
+    title: &'a str,
+    barcode: Option<&'a str>,
+    expires_at: &'a str,
+    pickup_site: Option<&'a str>,
+    item_home_site: Option<&'a str>,
+}
+
+/// Render a hold-ready notice. `{{pickup_site}}` is the hold pickup site.
+fn compose_hold_ready(
+    template: &EmailTemplate,
+    input: &HoldReadyRender<'_>,
+) -> (String, String, String) {
+    let (barcode_line, barcode_line_html) = barcode_lines(input.lang, input.barcode);
+    let title = patron_title(input.lang, input.title);
+    let pickup = displayed_pickup_site(input.pickup_site, input.item_home_site);
+    let pickup_html = html_escape(&pickup);
+    let shared = [
+        ("firstname", input.firstname),
+        ("lastname", input.lastname),
+        ("title", title.as_str()),
+        ("barcode_line", barcode_line.as_str()),
+        ("barcode_line_html", barcode_line_html.as_str()),
+        ("expires_at", input.expires_at),
+    ];
+    let mut plain_vars = shared.to_vec();
+    plain_vars.push(("pickup_site", pickup.as_str()));
+    let (subject, body_plain, _) = email_templates::substitute(template, &plain_vars);
+    let mut html_vars = shared.to_vec();
+    html_vars.push(("pickup_site", pickup_html.as_str()));
+    let (_, _, body_html) = email_templates::substitute(template, &html_vars);
+    (subject, body_plain, body_html)
+}
+
+async fn load_hold_ready_template(
+    email_svc: &EmailService,
+    lang: Option<Language>,
+) -> AppResult<EmailTemplate> {
+    let repo = Repository::new(email_svc.pool().clone(), None);
+    let dir = email_svc.templates_dir();
+    let dir = Path::new(&dir);
+    let languages = notice_template_languages(lang);
+    for language in &languages {
+        if let Some(row) = repo.email_templates_get("hold_ready", language).await? {
+            return Ok(EmailTemplate {
+                subject: row.subject,
+                body_plain: row.body_plain,
+                body_html: row.body_html,
+            });
+        }
+        if let Some(template) = email_templates::load_template_file(dir, "hold_ready", language)? {
+            return Ok(template);
+        }
+    }
+    Err(AppError::Internal(format!(
+        "No template found for hold_ready (tried languages: {})",
+        languages.join(", ")
+    )))
+}
+
 async fn enqueue_hold_ready(
     email_svc: &EmailService,
     hold: &Hold,
     mail: HoldReadyMail<'_>,
 ) -> AppResult<()> {
-    let (barcode_line, barcode_line_html) = barcode_lines(mail.lang, mail.barcode);
-    let title = patron_title(mail.lang, mail.title);
-
     let expires_at = format_pickup_deadline(hold.expires_at, mail.zone);
-
-    let template = email_svc.load_template("hold_ready", mail.lang).await?;
-    let vars: Vec<(&str, &str)> = vec![
-        ("firstname", mail.firstname),
-        ("lastname", mail.lastname),
-        ("title", title.as_str()),
-        ("barcode_line", barcode_line.as_str()),
-        ("barcode_line_html", barcode_line_html.as_str()),
-        ("expires_at", expires_at.as_str()),
-    ];
-    let (subject, body_plain, body_html) = email_templates::substitute(&template, &vars);
+    let repo = Repository::new(email_svc.pool().clone(), None);
+    let template = load_hold_ready_template(email_svc, mail.lang).await?;
+    let (pickup_site, item_home_site) = repo.holds_notice_sites(hold.id).await?;
+    let (subject, body_plain, body_html) = compose_hold_ready(
+        &template,
+        &HoldReadyRender {
+            lang: mail.lang,
+            firstname: mail.firstname,
+            lastname: mail.lastname,
+            title: mail.title,
+            barcode: mail.barcode,
+            expires_at: expires_at.as_str(),
+            pickup_site: pickup_site.as_deref(),
+            item_home_site: item_home_site.as_deref(),
+        },
+    );
 
     email_svc
         .enqueue(mail.to, &subject, &body_plain, &body_html)
@@ -312,10 +406,12 @@ mod tests {
         assert_eq!(template["subject"], "Votre réservation est disponible");
         let plain = template["body_plain"].as_str().unwrap_or("");
         let html = template["body_html"].as_str().unwrap_or("");
-        assert!(plain.contains("Le document que vous avez réservé vous attend"));
-        assert!(plain.contains("À retirer jusqu'au {{expires_at}} inclus"));
-        assert!(html.contains("Le document que vous avez réservé vous attend"));
-        assert!(html.contains("jusqu'au <strong>{{expires_at}}</strong> inclus"));
+        assert!(plain.contains(
+            "Le document que vous avez réservé vous attend à {{pickup_site}}, à retirer jusqu'au {{expires_at}} inclus."
+        ));
+        assert!(html.contains(
+            "vous attend à <strong>{{pickup_site}}</strong>, à retirer jusqu'au <strong>{{expires_at}}</strong> inclus."
+        ));
         assert!(!plain.contains("disponible au retrait"));
         assert!(!html.contains("disponible au retrait"));
     }
@@ -323,19 +419,160 @@ mod tests {
     #[test]
     fn migration_rewrites_only_the_shipped_french_default() {
         let sql = include_str!("../migrations/044_hold_ready_french_wording.sql");
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/data/email_templates/hold_ready.french.json"
-        );
-        let raw = std::fs::read_to_string(path).expect("french hold_ready template");
-        let template: serde_json::Value =
-            serde_json::from_str(&raw).expect("french hold_ready json");
-        for field in ["name", "subject", "body_plain", "body_html"] {
-            let value = template[field].as_str().expect(field);
-            assert!(sql.contains(value), "{field} missing from migration");
-        }
+        assert!(sql.contains("Réservation disponible"));
+        assert!(sql.contains("Votre réservation est disponible"));
+        assert!(sql.contains("Le document que vous avez réservé vous attend :"));
+        assert!(sql.contains("À retirer jusqu'au {{expires_at}} inclus."));
         assert!(sql.contains("Votre mise en attente est prête au retrait"));
         assert!(sql.contains("AND name = 'Réservation prête au retrait'"));
         assert!(sql.contains("que vous aviez mis en attente"));
+        assert!(
+            !sql.contains("{{pickup_site}}"),
+            "pickup site wording belongs to migration 056"
+        );
+    }
+
+    fn hold_ready_file(language: &str) -> EmailTemplate {
+        let path = format!(
+            "{}/data/email_templates/hold_ready.{language}.json",
+            env!("CARGO_MANIFEST_DIR")
+        );
+        let raw = std::fs::read_to_string(&path).unwrap_or_else(|_| panic!("read {path}"));
+        let template: serde_json::Value =
+            serde_json::from_str(&raw).unwrap_or_else(|_| panic!("parse {path}"));
+        EmailTemplate {
+            subject: template["subject"]
+                .as_str()
+                .unwrap_or_else(|| panic!("{language} subject"))
+                .to_string(),
+            body_plain: template["body_plain"]
+                .as_str()
+                .unwrap_or_else(|| panic!("{language} body"))
+                .to_string(),
+            body_html: Some(
+                template["body_html"]
+                    .as_str()
+                    .unwrap_or_else(|| panic!("{language} html"))
+                    .to_string(),
+            ),
+        }
+    }
+
+    fn render_for(
+        language: &str,
+        lang: Language,
+        pickup: &str,
+        home: &str,
+    ) -> (String, String, String) {
+        compose_hold_ready(
+            &hold_ready_file(language),
+            &HoldReadyRender {
+                lang: Some(lang),
+                firstname: "Ada",
+                lastname: "Lovelace",
+                title: "Le Petit Prince",
+                barcode: Some("ABC-1"),
+                expires_at: "16/07/2026 00:30",
+                pickup_site: Some(pickup),
+                item_home_site: Some(home),
+            },
+        )
+    }
+
+    #[test]
+    fn render_shows_pickup_site_when_it_differs_from_the_item_site() {
+        let pickup = "Médiathèque Centre";
+        let home = "Annexe Nord";
+        let cases = [
+            (
+                "french",
+                Language::French,
+                "vous attend à Médiathèque Centre",
+            ),
+            (
+                "english",
+                Language::English,
+                "waiting for you at Médiathèque Centre",
+            ),
+            ("german", Language::German, "wartet in Médiathèque Centre"),
+            (
+                "spanish",
+                Language::Spanish,
+                "le espera en Médiathèque Centre",
+            ),
+        ];
+        for (file_lang, lang, snippet) in cases {
+            let (_, plain, html) = render_for(file_lang, lang, pickup, home);
+            assert!(
+                plain.contains(snippet),
+                "{file_lang} plain missing pickup wording: {plain}"
+            );
+            assert!(
+                plain.contains(pickup) && html.contains(pickup),
+                "{file_lang} dropped the pickup site"
+            );
+            assert!(
+                !plain.contains(home) && !html.contains(home),
+                "{file_lang} showed the item site: {plain}"
+            );
+            assert!(plain.contains("16/07/2026 00:30"));
+        }
+    }
+
+    #[test]
+    fn missing_pickup_site_does_not_fall_back_to_the_item_site() {
+        let template = hold_ready_file("french");
+        let (_, plain, html) = compose_hold_ready(
+            &template,
+            &HoldReadyRender {
+                lang: Some(Language::French),
+                firstname: "Ada",
+                lastname: "Lovelace",
+                title: "Le Petit Prince",
+                barcode: None,
+                expires_at: "16/07/2026 00:30",
+                pickup_site: Some("   "),
+                item_home_site: Some("Annexe Nord"),
+            },
+        );
+        assert!(plain.contains("vous attend à —, à retirer"));
+        assert!(html.contains("vous attend à <strong>—</strong>"));
+        assert!(!plain.contains("Annexe Nord"));
+        assert!(!html.contains("Annexe Nord"));
+        assert_eq!(displayed_pickup_site(None, Some("Annexe Nord")), "—");
+    }
+
+    #[test]
+    fn pickup_site_is_escaped_in_html_only() {
+        let (_, plain, html) = render_for("english", Language::English, "A & B <C>", "Home Site");
+        assert!(plain.contains("at A & B <C>"));
+        assert!(html.contains("at <strong>A &amp; B &lt;C&gt;</strong>"));
+        assert!(!html.contains("A & B"));
+        assert!(!plain.contains("Home Site"));
+    }
+
+    #[test]
+    fn migration_056_rewrites_only_unmodified_hold_ready_rows() {
+        let sql = include_str!("../migrations/056_hold_ready_pickup_site.sql");
+        for language in ["french", "english"] {
+            let template = hold_ready_file(language);
+            assert!(
+                sql.contains(template.subject.as_str()),
+                "{language} subject missing from migration"
+            );
+            assert!(
+                sql.contains(template.body_plain.as_str()),
+                "{language} plain body missing from migration"
+            );
+            let html = template.body_html.as_deref().unwrap_or("");
+            assert!(sql.contains(html), "{language} html missing from migration");
+        }
+        assert!(sql.contains("template_id = 'hold_ready'"));
+        assert!(sql.contains("AND language = 'french'"));
+        assert!(sql.contains("AND language = 'english'"));
+        assert!(sql.contains("Le document que vous avez réservé vous attend :"));
+        assert!(sql.contains("The following item you placed on hold is now available:"));
+        assert!(sql.contains("{{pickup_site}}"));
+        assert!(!sql.to_lowercase().contains("account_type"));
     }
 }

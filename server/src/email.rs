@@ -64,6 +64,10 @@ impl EmailService {
         self.dynamic_config.read_email().templates_dir.clone()
     }
 
+    pub(crate) fn pool(&self) -> &Pool<Postgres> {
+        &self.pool
+    }
+
     /// Resolve a template by id and (optional) language with cascade
     /// `lang → french → english`, looking up the DB first then the on-disk fallback.
     pub async fn load_template(

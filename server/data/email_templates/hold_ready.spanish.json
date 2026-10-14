@@ -1,0 +1,6 @@
+{
+  "name": "Reserva lista para recoger",
+  "subject": "Su reserva está disponible para recoger",
+  "body_plain": "Hola {{firstname}} {{lastname}},\n\nEl documento que ha reservado le espera en {{pickup_site}}, para recogerlo hasta el {{expires_at}} inclusive.\n\n{{title}}\n{{barcode_line}}\n\nAtentamente,\nEl equipo de la biblioteca",
+  "body_html": "<html><body style=\"font-family: Arial, sans-serif; color: #333;\">\n<p>Hola <strong>{{firstname}} {{lastname}}</strong>,</p>\n<p>El documento que ha reservado le espera en <strong>{{pickup_site}}</strong>, para recogerlo hasta el <strong>{{expires_at}}</strong> inclusive.</p>\n<p><strong>{{title}}</strong><br>{{barcode_line_html}}</p>\n<p>Atentamente,<br><em>El equipo de la biblioteca</em></p>\n</body></html>"
+}
