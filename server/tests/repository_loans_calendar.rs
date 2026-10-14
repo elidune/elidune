@@ -1053,14 +1053,16 @@ async fn loan_recorded_at_another_site_follows_that_sites_closures() {
         .execute(repo.pool())
         .await
         .expect("anchor both renewals on today");
-    let (renewed_home, _) = repo
-        .loans_renew(at_home.loan_id, false)
+    let renewed_home = repo
+        .loans_renew(at_home.loan_id, RenewalOverride::default())
         .await
-        .expect("renew home-site loan");
-    let (renewed_desk, _) = repo
-        .loans_renew(at_desk.loan_id, false)
+        .expect("renew home-site loan")
+        .expiry_at;
+    let renewed_desk = repo
+        .loans_renew(at_desk.loan_id, RenewalOverride::default())
         .await
-        .expect("renew desk-site loan");
+        .expect("renew desk-site loan")
+        .expiry_at;
     let home_renewed = local_date(paris(), renewed_home);
     let desk_renewed = local_date(paris(), renewed_desk);
     assert_eq!(
