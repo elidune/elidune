@@ -47,6 +47,11 @@ pub trait FinesRepository: Send + Sync {
         &self,
         public_type_id: Option<i64>,
     ) -> AppResult<Option<Decimal>>;
+    /// `reminders.accrue_fines`. False ignores stored unpaid thresholds for loan blocking.
+    /// Fakes keep the default `true`. The database repository reads dynamic config.
+    fn accrue_fines_enabled(&self) -> bool {
+        true
+    }
     async fn fines_get_global_unpaid_threshold(&self) -> AppResult<StoredGlobalUnpaidThreshold>;
     async fn fines_set_global_unpaid_threshold(
         &self,
@@ -111,6 +116,9 @@ impl FinesRepository for Repository {
         public_type_id: Option<i64>,
     ) -> AppResult<Option<Decimal>> {
         Repository::fines_get_unpaid_threshold(self, public_type_id).await
+    }
+    fn accrue_fines_enabled(&self) -> bool {
+        Repository::accrue_fines_enabled(self)
     }
     async fn fines_get_global_unpaid_threshold(&self) -> AppResult<StoredGlobalUnpaidThreshold> {
         Repository::fines_get_global_unpaid_threshold(self).await
