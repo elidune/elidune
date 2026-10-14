@@ -1,8 +1,11 @@
 //! Patron-facing labels inserted into notice emails.
 //!
 //! French, English, German, and Spanish each have a translation. Every other
-//! [`Language`], and a missing preference, uses French — the same fallback as
-//! the email-template cascade in [`crate::email_templates`].
+//! [`Language`], and a missing preference, uses French.
+//!
+//! Notice senders pass the language of the template they loaded (reader
+//! preference when that template exists, otherwise the library language,
+//! otherwise French) so a label is never in a different language from the body.
 
 use crate::models::Language;
 

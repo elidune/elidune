@@ -1,0 +1,6 @@
+{
+  "name": "Erinnerung: überfällige Ausleihe",
+  "subject": "Erinnerung: überfällige Medien",
+  "body_plain": "Guten Tag {{firstname}} {{lastname}},\n\nfolgende Medien sind überfällig:\n\n{{loans_list}}\n\nBitte geben Sie sie so bald wie möglich zurück.\n\nMit freundlichen Grüßen\nIhr Bibliotheksteam",
+  "body_html": "<html><body style=\"font-family: Arial, sans-serif; color: #333;\">\n<p>Guten Tag <strong>{{firstname}} {{lastname}}</strong>,</p>\n<p>folgende Medien sind <strong>überfällig</strong>:</p>\n{{loans_table_html}}\n<p>Bitte geben Sie sie so bald wie möglich zurück.</p>\n<p>Mit freundlichen Grüßen<br><em>Ihr Bibliotheksteam</em></p>\n</body></html>"
+}

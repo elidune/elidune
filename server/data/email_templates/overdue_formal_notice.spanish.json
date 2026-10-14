@@ -1,0 +1,6 @@
+{
+  "name": "Requerimiento de préstamo vencido",
+  "subject": "Requerimiento: documentos vencidos",
+  "body_plain": "Hola {{firstname}} {{lastname}},\n\nEste es un requerimiento: los siguientes documentos siguen vencidos:\n\n{{loans_list}}\n\nLe rogamos que los devuelva sin demora.\n\nAtentamente,\nEl equipo de la biblioteca",
+  "body_html": "<html><body style=\"font-family: Arial, sans-serif; color: #333;\">\n<p>Hola <strong>{{firstname}} {{lastname}}</strong>,</p>\n<p>Este es un <strong>requerimiento</strong>: los siguientes documentos siguen <strong>vencidos</strong>:</p>\n{{loans_table_html}}\n<p>Le rogamos que los devuelva sin demora.</p>\n<p>Atentamente,<br><em>El equipo de la biblioteca</em></p>\n</body></html>"
+}

@@ -17,7 +17,8 @@ use crate::{
     dynamic_config::DynamicConfig,
     email_templates::{self, EmailTemplate},
     error::{AppError, AppResult},
-    models::Language,
+    models::{dto::library_info::LibraryUiLanguage, Language},
+    repository::Repository,
 };
 
 /// One generator per process. A fresh `Generator` starts its sequence at 0, so
@@ -70,6 +71,8 @@ impl EmailService {
 
     /// Resolve a template by id and (optional) language with cascade
     /// `lang → french → english`, looking up the DB first then the on-disk fallback.
+    ///
+    /// Patron notices use [`Self::load_notice_template`] instead.
     pub async fn load_template(
         &self,
         template_id: &str,
@@ -77,6 +80,53 @@ impl EmailService {
     ) -> AppResult<EmailTemplate> {
         let dir = self.templates_dir_str();
         email_templates::load_template_async(&self.pool, Path::new(&dir), template_id, lang).await
+    }
+
+    /// Load a reminder, hold-ready, or password-reset template.
+    ///
+    /// The returned language is the one the template was found in: the reader's
+    /// preference when that template exists, otherwise the library language when
+    /// that template exists, otherwise French. Labels must use this language.
+    pub async fn load_notice_template(
+        &self,
+        template_id: &str,
+        patron: Option<Language>,
+        library: Option<Language>,
+    ) -> AppResult<(Language, EmailTemplate)> {
+        let dir = self.templates_dir_str();
+        email_templates::load_notice_template_async(
+            &self.pool,
+            Path::new(&dir),
+            template_id,
+            patron,
+            library,
+        )
+        .await
+    }
+
+    /// Library UI language as a notice language. `None` when unset or unreadable.
+    pub async fn library_notice_language(&self) -> Option<Language> {
+        let repo = Repository::new(self.pool.clone(), None);
+        match repo.library_language_code().await {
+            Ok(Some(code)) => match LibraryUiLanguage::try_from(code.as_str()) {
+                Ok(language) => Some(Language::from(language)),
+                Err(_) => {
+                    tracing::error!(
+                        language = %code,
+                        "stored library language is not fr, en, de, or es; notices ignore it"
+                    );
+                    None
+                }
+            },
+            Ok(None) => None,
+            Err(err) => {
+                tracing::warn!(
+                    error = %err,
+                    "library language unavailable; notices use the reader preference or French"
+                );
+                None
+            }
+        }
     }
 
     /// Send a 2FA code via email
@@ -118,7 +168,10 @@ impl EmailService {
         lang: Option<Language>,
         reset_url: Option<&str>,
     ) -> AppResult<i64> {
-        let template = self.load_template("password_reset", lang).await?;
+        let library = self.library_notice_language().await;
+        let (_, template) = self
+            .load_notice_template("password_reset", lang, library)
+            .await?;
         let vars: Vec<(&str, &str)> = match reset_url {
             Some(url) => vec![("token", token), ("reset_url", url)],
             None => vec![("token", token), ("reset_url", "")],

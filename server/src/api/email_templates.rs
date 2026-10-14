@@ -103,7 +103,7 @@ pub async fn list_email_templates(
     security(("bearer_auth" = [])),
     params(
         ("templateId" = String, Path, description = "Template id (e.g. password_reset)"),
-        ("language" = String, Path, description = "Language: english | french")
+        ("language" = String, Path, description = "Language: english | french | german | spanish")
     ),
     responses(
         (status = 200, description = "Email template", body = EmailTemplate),
@@ -142,7 +142,7 @@ pub async fn get_email_template(
     security(("bearer_auth" = [])),
     params(
         ("templateId" = String, Path, description = "Template id"),
-        ("language" = String, Path, description = "Language: english | french")
+        ("language" = String, Path, description = "Language: english | french | german | spanish")
     ),
     request_body = UpdateEmailTemplateRequest,
     responses(

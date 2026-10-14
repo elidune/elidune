@@ -126,6 +126,18 @@ impl Repository {
         Ok(name.unwrap_or_else(|| crate::services::calendar::DEFAULT_TIMEZONE.to_string()))
     }
 
+    /// `library_info.language` (`fr`, `en`, `de`, `es`).
+    ///
+    /// `None` when the row is missing or the column is null.
+    pub async fn library_language_code(&self) -> AppResult<Option<String>> {
+        let code = sqlx::query_scalar::<_, Option<String>>(
+            "SELECT language FROM library_info WHERE id = 1",
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(code.flatten())
+    }
+
     /// Parsed library zone. A corrupt stored name falls back to Europe/Paris.
     pub async fn library_zone(&self) -> AppResult<chrono_tz::Tz> {
         let mut conn = self.pool.acquire().await?;

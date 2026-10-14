@@ -1,14 +1,12 @@
 //! Email notification when a hold becomes `ready` (after a loan return).
 
-use std::path::Path;
-
 use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 
 use crate::{
     email::EmailService,
     email_templates::{self, EmailTemplate},
-    error::{AppError, AppResult},
+    error::AppResult,
     models::{hold::Hold, loan::LoanDetails, Language},
     repository::{users::HoldReadyUserContact, Repository},
     services::{calendar, i18n},
@@ -161,20 +159,6 @@ struct HoldReadyMail<'a> {
     zone: Tz,
 }
 
-/// Languages tried for `hold_ready`, in order.
-///
-/// German and Spanish have their own on-disk templates. A database row for the
-/// requested language still wins, so an edited French or English template is kept.
-/// Languages without a template fall back to French, then English.
-fn notice_template_languages(lang: Option<Language>) -> Vec<&'static str> {
-    match lang.unwrap_or(Language::French) {
-        Language::English => vec!["english", "french"],
-        Language::German => vec!["german", "french", "english"],
-        Language::Spanish => vec!["spanish", "french", "english"],
-        _ => vec!["french", "english"],
-    }
-}
-
 /// Site name written into `{{pickup_site}}`.
 ///
 /// Only the hold's pickup site is used. `item_home_site` is the copy's current
@@ -225,45 +209,23 @@ fn compose_hold_ready(
     (subject, body_plain, body_html)
 }
 
-async fn load_hold_ready_template(
-    email_svc: &EmailService,
-    lang: Option<Language>,
-) -> AppResult<EmailTemplate> {
-    let repo = Repository::new(email_svc.pool().clone(), None);
-    let dir = email_svc.templates_dir();
-    let dir = Path::new(&dir);
-    let languages = notice_template_languages(lang);
-    for language in &languages {
-        if let Some(row) = repo.email_templates_get("hold_ready", language).await? {
-            return Ok(EmailTemplate {
-                subject: row.subject,
-                body_plain: row.body_plain,
-                body_html: row.body_html,
-            });
-        }
-        if let Some(template) = email_templates::load_template_file(dir, "hold_ready", language)? {
-            return Ok(template);
-        }
-    }
-    Err(AppError::Internal(format!(
-        "No template found for hold_ready (tried languages: {})",
-        languages.join(", ")
-    )))
-}
-
 async fn enqueue_hold_ready(
     email_svc: &EmailService,
     hold: &Hold,
     mail: HoldReadyMail<'_>,
 ) -> AppResult<()> {
+    let library = email_svc.library_notice_language().await;
+    let (language, template) = email_svc
+        .load_notice_template("hold_ready", mail.lang, library)
+        .await?;
     let expires_at = format_pickup_deadline(hold.expires_at, mail.zone);
     let repo = Repository::new(email_svc.pool().clone(), None);
-    let template = load_hold_ready_template(email_svc, mail.lang).await?;
     let (pickup_site, item_home_site) = repo.holds_notice_sites(hold.id).await?;
+    // Labels and the pickup site follow the template that was actually loaded.
     let (subject, body_plain, body_html) = compose_hold_ready(
         &template,
         &HoldReadyRender {
-            lang: mail.lang,
+            lang: Some(language),
             firstname: mail.firstname,
             lastname: mail.lastname,
             title: mail.title,
