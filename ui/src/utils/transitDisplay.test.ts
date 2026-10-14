@@ -5,7 +5,6 @@ import en from '../locales/en/translation.json' with { type: 'json' };
 import es from '../locales/es/translation.json' with { type: 'json' };
 import fr from '../locales/fr/translation.json' with { type: 'json' };
 import type { HoldDetailsStaff, ItemTransit } from '@/types';
-import { shelfPatronLabel } from './holdPatron.ts';
 import {
   canStartHoldTransit,
   copyAlreadyAtPickupSite,
@@ -13,6 +12,7 @@ import {
   transitListBarcode,
   transitListPatron,
   transitListTitle,
+  transitPatronLabel,
 } from './transitDisplay.ts';
 
 function hold(pickupSiteId: string | null = 'site-main'): HoldDetailsStaff {
@@ -111,20 +111,35 @@ describe('transit list fields on the transit', () => {
     assert.equal(transitListPatron(row), null);
   });
 
-  it('shows the card or initials and never a name', () => {
-    const patron = transitListPatron(transit());
-    const label = shelfPatronLabel(patron, (key, values) =>
-      key === 'holds.readerCardNo' ? `carte n° ${String(values?.number ?? '')}` : key,
-    );
-    assert.match(label, /CARD-3/);
-    assert.equal(label.includes('Helene'), false);
-    assert.equal(label.includes('Holder'), false);
+  it('shows the card and initials together and never a name', () => {
+    const phrase = (number: string) => `carte n° ${number}`;
+    const label = transitPatronLabel(transitListPatron(transit()), phrase);
+    assert.equal(label, 'carte n° CARD-3 HH');
+    assert.equal(label?.includes('Helene'), false);
+    assert.equal(label?.includes('Holder'), false);
 
-    const initials = transitListPatron(transit({ patron: { cardNumber: null, initials: 'H.H' } }));
-    assert.equal(shelfPatronLabel(initials, (key) => key), 'HH');
+    const dotted = transitPatronLabel(
+      transitListPatron(transit({ patron: { cardNumber: 'CARD-3', initials: 'H.H.' } })),
+      phrase,
+    );
+    assert.equal(dotted, 'carte n° CARD-3 HH');
+
+    const initials = transitPatronLabel(
+      transitListPatron(transit({ patron: { cardNumber: null, initials: 'H.H' } })),
+      phrase,
+    );
+    assert.equal(initials, 'HH');
+
+    const cardOnly = transitPatronLabel(
+      transitListPatron(transit({ patron: { cardNumber: 'CARD-3', initials: 'Helene Holder' } })),
+      phrase,
+    );
+    assert.equal(cardOnly, 'carte n° CARD-3');
 
     const named = transitListPatron(transit({ patron: { cardNumber: null, initials: 'Helene Holder' } }));
     assert.equal(named, null);
+    assert.equal(transitPatronLabel(named, phrase), null);
+    assert.equal(transitPatronLabel(null, phrase), null);
   });
 });
 

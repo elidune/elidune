@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next';
 import type { TransitPatron } from '@/types';
-import { shelfPatronLabel } from '@/utils/holdPatron';
+import { transitPatronLabel } from '@/utils/transitDisplay';
 
 const EMPTY = '—';
 
@@ -13,15 +13,12 @@ export function TransitTitleCell({ title }: { title: string | null }) {
 }
 
 /**
- * Transit-list reader. Card number, otherwise initials.
- * A null patron is an em dash. A name is never shown.
+ * Transit-list reader. Card number with initials beside it.
+ * A null reader renders nothing. A name is never shown.
  */
 export function TransitReaderCell({ patron }: { patron: TransitPatron | null }) {
   const { t } = useTranslation();
-  const card = patron?.cardNumber?.trim() || null;
-  const initials = patron?.initials?.trim().replace(/\./g, '') ?? '';
-  const safeInitials = initials && !/\s/u.test(initials) ? initials : '';
-  if (!card && !safeInitials) return <span data-transit-reader="">{EMPTY}</span>;
-  const label = shelfPatronLabel({ cardNumber: card, initials: safeInitials }, t);
+  const label = transitPatronLabel(patron, (number) => t('holds.readerCardNo', { number }));
+  if (!label) return null;
   return <span data-transit-reader="">{label}</span>;
 }

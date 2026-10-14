@@ -231,34 +231,39 @@ export default function TransitsPage() {
                   </div>
                 ) : (
                   <div className="rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden bg-white dark:bg-gray-900 mx-2 sm:mx-4 mb-2">
-                    {rows.map((r) => (
-                      <div
-                        key={r.id}
-                        className="p-4 border-b border-gray-100 dark:border-gray-800 last:border-b-0 space-y-2"
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0 space-y-1">
-                            <TransitTitleCell title={transitListTitle(r)} />
-                            <div className="text-xs text-gray-500 dark:text-gray-400">
-                              {t('transits.columnBarcode')}: <TransitBarcodeCell barcode={transitListBarcode(r)} />
+                    {rows.map((r) => {
+                      const reader = transitListPatron(r);
+                      return (
+                        <div
+                          key={r.id}
+                          className="p-4 border-b border-gray-100 dark:border-gray-800 last:border-b-0 space-y-2"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0 space-y-1">
+                              <TransitTitleCell title={transitListTitle(r)} />
+                              <div className="text-xs text-gray-500 dark:text-gray-400">
+                                {t('transits.columnBarcode')}: <TransitBarcodeCell barcode={transitListBarcode(r)} />
+                              </div>
+                              {reader ? (
+                                <div className="text-xs text-gray-600 dark:text-gray-300">
+                                  {t('transits.columnReader')}: <TransitReaderCell patron={reader} />
+                                </div>
+                              ) : null}
                             </div>
-                            <div className="text-xs text-gray-600 dark:text-gray-300">
-                              {t('transits.columnReader')}: <TransitReaderCell patron={transitListPatron(r)} />
+                            <TransitStatusBadge status={r.status} />
+                          </div>
+                          <div className="text-xs text-gray-600 dark:text-gray-300 space-y-1">
+                            <div>
+                              {t('transits.columnFrom')}: {sourceLabel(sources, r.fromSourceId) ?? r.fromSourceId}
+                            </div>
+                            <div>
+                              {t('transits.columnTo')}: {sourceLabel(sources, r.toSourceId) ?? r.toSourceId}
                             </div>
                           </div>
-                          <TransitStatusBadge status={r.status} />
+                          <div className="flex flex-wrap gap-2">{rowActions(r)}</div>
                         </div>
-                        <div className="text-xs text-gray-600 dark:text-gray-300 space-y-1">
-                          <div>
-                            {t('transits.columnFrom')}: {sourceLabel(sources, r.fromSourceId) ?? r.fromSourceId}
-                          </div>
-                          <div>
-                            {t('transits.columnTo')}: {sourceLabel(sources, r.toSourceId) ?? r.toSourceId}
-                          </div>
-                        </div>
-                        <div className="flex flex-wrap gap-2">{rowActions(r)}</div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )
               }

@@ -26,17 +26,17 @@ function render(i18n: I18nInstance, node: ReactElement): string {
 }
 
 describe('transit queue cells', () => {
-  it('renders the card and never a name or a reader link', async () => {
+  it('renders the card with initials beside it and never a name or a reader link', async () => {
     const html = render(
       await i18nFor('fr'),
-      createElement(TransitReaderCell, { patron: { cardNumber: 'CARD-3', initials: 'HH' } }),
+      createElement(TransitReaderCell, { patron: { cardNumber: 'CARD-3', initials: 'H.H.' } }),
     );
-    assert.match(html, /carte n°/);
-    assert.match(html, /CARD-3/);
+    assert.match(html, /carte n° CARD-3 HH/);
     assert.equal(html.includes('Helene'), false);
     assert.equal(html.includes('Holder'), false);
     assert.equal(html.includes('<a'), false);
     assert.equal(html.includes('spécimen'), false);
+    assert.equal(html.includes('patron'), false);
   });
 
   it('renders initials when the reader has no card', async () => {
@@ -48,18 +48,30 @@ describe('transit queue cells', () => {
     assert.equal(html.includes('card number'), false);
   });
 
-  it('renders an em dash when patron is null or a name slipped into initials', async () => {
+  it('renders nothing when the reader is null or initials are a name', async () => {
     const i18n = await i18nFor('fr');
     const empty = render(i18n, createElement(TransitReaderCell, { patron: null }));
-    assert.match(empty, /—/);
+    assert.equal(empty.includes('data-transit-reader'), false);
+    assert.equal(empty.includes('—'), false);
     assert.equal(empty.includes('Helene'), false);
 
     const named = render(
       i18n,
       createElement(TransitReaderCell, { patron: { cardNumber: '  ', initials: 'Helene Holder' } }),
     );
-    assert.match(named, /—/);
+    assert.equal(named.includes('data-transit-reader'), false);
+    assert.equal(named.includes('—'), false);
     assert.equal(named.includes('Helene'), false);
+    assert.equal(named.includes('Holder'), false);
+
+    const cardWithoutName = render(
+      i18n,
+      createElement(TransitReaderCell, { patron: { cardNumber: 'CARD-3', initials: 'Helene Holder' } }),
+    );
+    assert.match(cardWithoutName, /carte n° CARD-3/);
+    assert.equal(cardWithoutName.includes('Helene'), false);
+    assert.equal(cardWithoutName.includes('Holder'), false);
+    assert.equal(cardWithoutName.includes('HH'), false);
   });
 
   it('renders the barcode and title from the transit, with a dash when they are absent', async () => {
