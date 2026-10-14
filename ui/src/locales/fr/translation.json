@@ -1204,6 +1204,8 @@
     "toPickSetAside": "Mettre de côté",
     "heldSetAside": "Exemplaire mis de côté pour la réservation : placez-le sur l'étagère des réservations.",
     "forceLoan": "Forcer le prêt",
+    "forceRenew": "Forcer le renouvellement",
+    "forceRenewConfirm": "Forcer le renouvellement malgré tout ?",
     "pickReady": "Prêt pour {{patron}}, à placer sur l’étagère des réservations",
     "pickTransit": "À envoyer en transit vers {{site}}",
     "pickPatronUnknown": "un autre lecteur",

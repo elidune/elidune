@@ -12,7 +12,6 @@ import {
   Check,
   Filter,
   X,
-  AlertTriangle,
   Loader2,
   AlertCircle,
   LockOpen,
@@ -24,7 +23,8 @@ import { Card, Button, Badge, Modal, Input, Table, ConfirmDialog, MessageModal, 
 import api from '@/services/api';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
 import { deskCheckoutMessage, presentCheckoutRefusal } from '@/utils/deskCheckoutError';
-import { renewalMayForce } from '@/utils/circulationForce';
+import RenewalRefusalNotice from '@/components/loans/RenewalRefusalNotice';
+import { presentRenewalRefusal, type RenewalDeskView } from '@/utils/renewalDesk';
 import { closureReasonText } from '@/utils/loanClosure';
 import { renewedUntilMessage } from '@/utils/localeDate';
 import { isWeedingServerMessage } from '@/utils/weeding';
@@ -40,7 +40,6 @@ import {
 import { newIdempotencyKey } from '@/utils/idempotency';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
 import HoldStatusBadge from '@/components/holds/HoldStatusBadge';
-import CirculationForceButton from '@/components/loans/CirculationForceButton';
 import ToPickForceLoanDialog from '@/components/loans/ToPickForceLoanDialog';
 import HoldPickupCell from '@/components/holds/HoldPickupCell';
 import HoldTransitActions from '@/components/holds/HoldTransitActions';
@@ -127,8 +126,10 @@ export default function UserDetailPage() {
   const [isBorrowLoading, setIsBorrowLoading] = useState(false);
   const [loanDetails, setLoanDetails] = useState<LoanListItem | null>(null);
   const [renewError, setRenewError] = useState('');
-  const [renewForceCode, setRenewForceCode] = useState<string | null>(null);
-  const [renewForceLoanId, setRenewForceLoanId] = useState<string | null>(null);
+  const [renewalPrompt, setRenewalPrompt] = useState<RenewalDeskView | null>(null);
+  const renewalRetryRef = useRef<(() => void) | null>(null);
+  const renewalBarcodeRef = useRef<string | null>(null);
+  const [renewalAsideLoading, setRenewalAsideLoading] = useState(false);
   const [loanAction, setLoanAction] = useState<{ loanId: string; op: 'return' | 'renew' | CirculationExceptionKind } | null>(null);
   const loanActionInFlightRef = useRef(false);
 
@@ -507,8 +508,9 @@ export default function UserDetailPage() {
     loanActionInFlightRef.current = true;
     setLoanAction({ loanId, op: 'renew' });
     setRenewError('');
-    setRenewForceCode(null);
-    setRenewForceLoanId(null);
+    setRenewalPrompt(null);
+    renewalRetryRef.current = null;
+    const barcode = activeLoans.find((loan) => loan.id === loanId)?.itemIdentification ?? null;
     try {
       const renewed = await api.renewLoan(loanId, newIdempotencyKey(), { force: force || undefined });
       await refreshLoans();
@@ -517,14 +519,17 @@ export default function UserDetailPage() {
         message: renewedUntilMessage(renewed.expiryAt, t, i18n.language),
       });
     } catch (error) {
-      const code = getApiErrorCode(error);
-      const msg = getApiErrorMessage(error, t) || t('loans.errorRenewingLoan');
-      setRenewError(msg);
-      if (!force && canForceLoan && renewalMayForce(code)) {
-        setRenewForceCode(code);
-        setRenewForceLoanId(loanId);
+      const next = presentRenewalRefusal(error, { alreadyForced: force, t });
+      if (next.kind === 'sentence') {
+        setRenewError(next.message);
+        showToast({ variant: 'error', message: next.message });
+      } else {
+        renewalBarcodeRef.current = barcode;
+        renewalRetryRef.current = () => {
+          void handleRenewLoan(loanId, true);
+        };
+        setRenewalPrompt(next);
       }
-      showToast({ variant: 'error', message: msg });
     } finally {
       loanActionInFlightRef.current = false;
       setLoanAction(null);
@@ -1050,23 +1055,13 @@ export default function UserDetailPage() {
 
           {renewError && detailTab === 'activeLoans' && (
             <div className="px-4 sm:px-6 pt-3 flex-shrink-0">
-              <div
-                role="alert"
-                className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 flex items-start gap-2"
-              >
-                <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
-                <div className="min-w-0 flex-1 space-y-2">
-                  <p className="text-sm font-medium text-red-800 dark:text-red-200">{renewError}</p>
-                  <CirculationForceButton
-                    forceable={renewalMayForce(renewForceCode)}
-                    canForce={canForceLoan}
-                    disabled={loanAction?.op === 'renew'}
-                    onForce={() => {
-                      if (renewForceLoanId) void handleRenewLoan(renewForceLoanId, true);
-                    }}
-                  />
-                </div>
-              </div>
+              <RenewalRefusalNotice
+                part="alert"
+                view={{ kind: 'sentence', message: renewError }}
+                onForce={() => undefined}
+                onDismiss={() => undefined}
+                onSetAside={() => undefined}
+              />
             </div>
           )}
 
@@ -1482,6 +1477,41 @@ export default function UserDetailPage() {
         message={forceBorrowDialog?.message ?? ''}
         confirmLabel={t('loans.forceLoan')}
         stackOnTop
+      />
+
+      <RenewalRefusalNotice
+        part="dialog"
+        view={renewalPrompt}
+        busy={renewalAsideLoading}
+        onForce={() => {
+          const run = renewalRetryRef.current;
+          renewalRetryRef.current = null;
+          setRenewalPrompt(null);
+          run?.();
+        }}
+        onDismiss={() => {
+          if (renewalAsideLoading) return;
+          renewalRetryRef.current = null;
+          setRenewalPrompt(null);
+        }}
+        onSetAside={() => {
+          const barcode = renewalBarcodeRef.current;
+          if (!barcode || renewalAsideLoading) return;
+          setRenewalAsideLoading(true);
+          void commitHeldSetAside(barcode, {
+            returnByBarcode: (code) => api.returnLoanByBarcode(code),
+            successMessage: t('loans.heldSetAside'),
+            errorMessage: (error) => heldSetAsideServerMessage(error, t),
+            showToast: (toast) => showToast(toast),
+            closeDialog: () => {
+              setRenewalPrompt(null);
+              renewalRetryRef.current = null;
+              void refreshLoans();
+            },
+            clearBarcode: () => undefined,
+            refocusBarcode: () => undefined,
+          }).finally(() => setRenewalAsideLoading(false));
+        }}
       />
 
       <MessageModal

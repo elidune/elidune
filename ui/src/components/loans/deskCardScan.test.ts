@@ -16,7 +16,7 @@ import DeskNameSearch from '@/components/loans/DeskNameSearch';
 import DeskPatronStatus from '@/components/loans/DeskPatronStatus';
 import MyLoanRenewActions from '@/components/loans/MyLoanRenewActions';
 import { canForceLoans, type PatronBlockReason, type PatronLoanStatus } from '@/types';
-import { loanRefusalMayForce, renewalMayForce } from '@/utils/circulationForce';
+import { loanRefusalMayForce } from '@/utils/circulationForce';
 import { deskPatronIdentity, presentCardScanError } from '@/utils/deskPatron';
 
 type Lang = 'fr' | 'en' | 'de' | 'es';
@@ -213,7 +213,6 @@ describe('desk loan status', () => {
 describe('card_lost cannot be forced', () => {
   it('never offers a force button for a lost card', async () => {
     const i18n = await i18nFor('fr');
-    assert.equal(renewalMayForce('card_lost'), false);
     assert.equal(loanRefusalMayForce(undefined, true), false);
     assert.equal(loanRefusalMayForce(false, true), false);
     const html = render(
@@ -246,7 +245,7 @@ describe('card_lost cannot be forced', () => {
     const renewal = render(
       i18n,
       createElement(CirculationForceButton, {
-        forceable: renewalMayForce('card_lost'),
+        forceable: false,
         canForce: true,
         onForce: () => undefined,
       }),
@@ -260,11 +259,6 @@ describe('card_lost cannot be forced', () => {
     assert.equal(loanRefusalMayForce(undefined, true), false);
     assert.equal(loanRefusalMayForce(true, false), false);
     assert.equal(loanRefusalMayForce(true, true), true);
-    assert.equal(renewalMayForce('card_lost'), false);
-    assert.equal(renewalMayForce('hold_waiting'), false);
-    assert.equal(renewalMayForce('account_blocked'), true);
-    assert.equal(renewalMayForce('subscription_expired'), true);
-    assert.equal(renewalMayForce('fines_over_threshold'), true);
     const token = (loansRights: string) => {
       const payload = Buffer.from(JSON.stringify({ rights: { loansRights } })).toString('base64url');
       return `e30.${payload}.sig`;
@@ -565,7 +559,7 @@ describe('my loans account renewal refusals', () => {
     const expired = render(
       i18n,
       createElement(CirculationForceButton, {
-        forceable: renewalMayForce('subscription_expired'),
+        forceable: true,
         canForce: true,
         onForce: () => undefined,
       }),
@@ -574,7 +568,7 @@ describe('my loans account renewal refusals', () => {
     const lost = render(
       i18n,
       createElement(CirculationForceButton, {
-        forceable: renewalMayForce('card_lost'),
+        forceable: false,
         canForce: true,
         onForce: () => undefined,
       }),

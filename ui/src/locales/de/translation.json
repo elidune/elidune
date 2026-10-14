@@ -1204,6 +1204,8 @@
     "toPickSetAside": "Zurücklegen",
     "heldSetAside": "Exemplar für die Vormerkung zurückgelegt: legen Sie es ins Abholregal.",
     "forceLoan": "Ausleihe erzwingen",
+    "forceRenew": "Verlängerung erzwingen",
+    "forceRenewConfirm": "Verlängerung trotzdem erzwingen?",
     "pickReady": "Bereit für {{patron}}, ins Abholregal legen",
     "pickTransit": "In den Transit nach {{site}} schicken",
     "pickPatronUnknown": "einen anderen Leser",
