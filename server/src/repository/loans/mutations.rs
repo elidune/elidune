@@ -7,7 +7,8 @@ use super::super::Repository;
 use super::LOAN_DETAILS_FIRST_AUTHOR_SQL;
 use crate::{
     checkout_refusal::{
-        finish_checkout_refusals, push_checkout_refusal, CheckoutRefusal, ToPickPatron,
+        finish_checkout_refusals, push_checkout_refusal, CheckoutProgress, CheckoutRefusal,
+        ToPickPatron,
     },
     error::{error_code, AppError, AppResult},
     models::{
@@ -38,17 +39,20 @@ impl Repository {
     /// Settings and due-date reads use this transaction so they do not take a
     /// second pool connection while the item lock is held.
     ///
-    /// `prior_refusals` are forceable patron gates (expired subscription, fines)
-    /// already collected by the service. A later non-forceable item gate wins.
+    /// Patron gates already collected by the service live on `progress`. A later
+    /// non-forceable item gate wins. `force` never closes an open loan.
     pub async fn loans_create(&self, loan: &CreateLoan) -> AppResult<LoanCreateOutcome> {
-        self.loans_create_with_prior(loan, Vec::new(), &UserRights::default())
+        let mut progress = CheckoutProgress::new(
+            crate::checkout_refusal::normalized_override_reason(loan.override_reason.as_deref()),
+        );
+        self.loans_create_with_prior(loan, &mut progress, &UserRights::default())
             .await
     }
 
     pub async fn loans_create_with_prior(
         &self,
         loan: &CreateLoan,
-        prior_refusals: Vec<CheckoutRefusal>,
+        progress: &mut CheckoutProgress,
         caller_rights: &UserRights,
     ) -> AppResult<LoanCreateOutcome> {
         let now = Utc::now();
@@ -100,11 +104,10 @@ impl Repository {
         );
         let weeding_status: crate::models::item::WeedingStatus = item_row.get("weeding_status");
         let media_type: Option<String> = item_row.get("media_type");
-        let mut refusals = prior_refusals;
 
         if weeding_status.blocks_circulation() {
             push_checkout_refusal(
-                &mut refusals,
+                progress,
                 loan.force,
                 CheckoutRefusal::business(
                     crate::models::item::WeedingStatus::CHECKOUT_BLOCKED,
@@ -131,7 +134,7 @@ impl Repository {
             // Requested and in-transit are `business_rule_violation`, which force does not skip.
             if transit.status.blocks_checkout(false) {
                 push_checkout_refusal(
-                    &mut refusals,
+                    progress,
                     loan.force,
                     CheckoutRefusal::business(
                         "Item is in transit to another site and cannot be checked out",
@@ -147,14 +150,14 @@ impl Repository {
             | CirculationStatus::ToSearch
             | CirculationStatus::Missing => {
                 push_checkout_refusal(
-                    &mut refusals,
+                    progress,
                     loan.force,
                     CheckoutRefusal::status_action(circulation_status, caller_rights),
                 )?;
             }
             CirculationStatus::Damaged => {
                 push_checkout_refusal(
-                    &mut refusals,
+                    progress,
                     loan.force,
                     CheckoutRefusal::new(
                         error_code::ITEM_NOT_LOANABLE,
@@ -165,7 +168,7 @@ impl Repository {
             }
             CirculationStatus::Available if !borrowable => {
                 push_checkout_refusal(
-                    &mut refusals,
+                    progress,
                     loan.force,
                     CheckoutRefusal::new(
                         error_code::ITEM_NOT_LOANABLE,
@@ -257,42 +260,43 @@ impl Repository {
                 (false, false) => unreachable!(),
             };
             push_checkout_refusal(
-                &mut refusals,
+                progress,
                 loan.force,
                 CheckoutRefusal::new(code, msg, caller_rights),
             )?;
         }
 
         // Only a hold assigned to this copy (`ready`, `to_pick`, or a pinned `pending`)
-        // reserves it. An unassigned title hold does not. Another patron's assignment
-        // is not forceable: staff set the copy aside or cancel the hold.
+        // reserves it. An unassigned title hold does not. `ready` and pinned `pending`
+        // are forceable with circulation override write and a reason; the hold stays
+        // first in the queue. `to_pick` is never forceable.
         if let Some((hold_id, user_id, status, card_number, initials)) = self
             .holds_assigned_hold_blocks_lending_tx(&mut tx, item_id)
             .await?
         {
             if user_id != loan.user_id {
-                let refusal = if status == crate::models::hold::HoldStatus::ToPick {
-                    CheckoutRefusal::to_pick(
-                        ToPickPatron {
-                            hold_id,
-                            user_id,
-                            card_number,
-                            initials,
-                        },
-                        caller_rights,
-                    )
-                } else {
-                    CheckoutRefusal::new(
-                        error_code::ITEM_HELD_FOR_OTHER,
-                        "This copy has an active hold for another patron — only the queued patron may borrow it",
-                        caller_rights,
-                    )
+                let patron = ToPickPatron {
+                    hold_id,
+                    user_id,
+                    card_number,
+                    initials,
                 };
-                push_checkout_refusal(&mut refusals, loan.force, refusal)?;
+                let refusal = if status == crate::models::hold::HoldStatus::ToPick {
+                    CheckoutRefusal::to_pick(patron, caller_rights)
+                } else {
+                    CheckoutRefusal {
+                        code: error_code::ITEM_HELD_FOR_OTHER,
+                        message: "This copy has an active hold for another patron — only the queued patron may borrow it".to_string(),
+                        item_status: None,
+                        to_pick: Some(patron),
+                        caller_rights: caller_rights.clone(),
+                    }
+                };
+                push_checkout_refusal(progress, loan.force, refusal)?;
             }
         }
 
-        finish_checkout_refusals(refusals)?;
+        finish_checkout_refusals(progress)?;
 
         // Savepoint so a unique-index conflict can be re-read on this connection.
         // PostgreSQL aborts the statement; without the savepoint the transaction
@@ -336,7 +340,10 @@ impl Repository {
             Err(e) => return Err(e.into()),
         };
 
-        let fulfilled_hold_id = if loan.force {
+        let preserved_hold_id = progress.preserved_hold_id;
+        let fulfilled_hold_id = if preserved_hold_id.is_some() {
+            None
+        } else if loan.force {
             self.holds_cancel_active_for_item_tx(&mut tx, item_id)
                 .await?;
             None
@@ -352,6 +359,7 @@ impl Repository {
             expiry_at,
             site_id: loan.site_id,
             fulfilled_hold_id,
+            preserved_hold_id,
         })
     }
 

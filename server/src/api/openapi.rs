@@ -990,7 +990,8 @@ mod tests {
             );
         }
         assert!(
-            description.contains("forceable") && description.contains("settings_rights"),
+            description.contains("forceable")
+                && description.contains("circulation_override_rights"),
             "POST /loans 422 must document caller-specific forceable: {description}"
         );
         assert!(
@@ -999,6 +1000,15 @@ mod tests {
                 && description.contains("patron_id"),
             "POST /loans 422 must document the shared fine override: {description}"
         );
+        assert!(
+            description.contains("reasonRequired")
+                && description.contains("override_reason_required"),
+            "POST /loans 422 must document the mandatory reason: {description}"
+        );
+        assert!(
+            description.contains("overrideReason"),
+            "POST /loans 422 must document overrideReason: {description}"
+        );
         let batch = value["paths"]["/loans/batch-create"]["post"]["responses"]["200"]
             ["description"]
             .as_str()
@@ -1006,8 +1016,10 @@ mod tests {
         assert!(
             batch.contains("fines_over_threshold")
                 && batch.contains("loans_rights")
-                && batch.contains("loan.fine_threshold_overridden"),
-            "batch checkout must document the shared fine override: {batch}"
+                && batch.contains("loan.fine_threshold_overridden")
+                && batch.contains("circulation_override_rights")
+                && batch.contains("overrideReason"),
+            "batch checkout must document both overrides: {batch}"
         );
         let schema = value["paths"]["/loans"]["post"]["responses"]["422"]["content"]
             ["application/json"]["schema"]["$ref"]
@@ -1019,7 +1031,11 @@ mod tests {
         );
         let properties = &value["components"]["schemas"]["CheckoutRefusalBody"]["properties"];
         assert!(properties["forceable"].is_object(), "{properties}");
+        assert!(properties["reasonRequired"].is_object(), "{properties}");
         assert!(properties["itemStatus"].is_object(), "{properties}");
+        let request = &value["components"]["schemas"]["CreateLoanRequest"]["properties"];
+        assert!(request["overrideReason"].is_object(), "{request}");
+        assert!(request["force"].is_object(), "{request}");
         assert!(properties["code"].is_object(), "{properties}");
         assert!(properties["message"].is_object(), "{properties}");
     }
@@ -1041,8 +1057,13 @@ mod tests {
                 "{path} 422 must document caller-specific forceable: {description}"
             );
             assert!(
-                description.contains("settings_rights"),
-                "{path} 422 must document settings write for subscription_expired: {description}"
+                description.contains("circulation_override_rights"),
+                "{path} 422 must document circulation override write for subscription_expired: {description}"
+            );
+            assert!(
+                description.contains("reasonRequired")
+                    && description.contains("override_reason_required"),
+                "{path} 422 must document the mandatory reason: {description}"
             );
             assert!(
                 description.contains("max_renewals") && description.contains("renewal_too_early"),
@@ -1068,6 +1089,7 @@ mod tests {
         assert!(properties["error"].is_object(), "{properties}");
         assert!(properties["message"].is_object(), "{properties}");
         assert!(properties["forceable"].is_object(), "{properties}");
+        assert!(properties["reasonRequired"].is_object(), "{properties}");
     }
 
     #[test]

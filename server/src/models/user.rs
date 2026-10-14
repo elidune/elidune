@@ -900,6 +900,11 @@ pub struct UserRights {
     /// Delete a physical copy (`DELETE /items/{id}`). Distinct from weeding.
     #[serde(default)]
     pub items_archive_rights: Rights,
+    /// Force checkout past another patron's hold, and force checkout or renewal
+    /// past `subscription_expired`. Write is required. Distinct from `settings_rights`.
+    /// The account-type name is not consulted.
+    #[serde(default)]
+    pub circulation_override_rights: Rights,
 }
 
 impl Default for UserRights {
@@ -915,6 +920,7 @@ impl Default for UserRights {
             weeding_rights: Rights::None,
             weeding_cancel_rights: Rights::None,
             items_archive_rights: Rights::None,
+            circulation_override_rights: Rights::None,
         }
     }
 }

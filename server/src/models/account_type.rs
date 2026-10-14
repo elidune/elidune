@@ -20,6 +20,8 @@ pub struct AccountTypeDefinition {
     pub acquisitions_rights: Option<String>,
     pub weeding_rights: Option<String>,
     pub weeding_cancel_rights: Option<String>,
+    /// Write may force a held copy and an expired subscription. Distinct from settings.
+    pub circulation_override_rights: Option<String>,
     /// Built-in types (`guest`, `reader`, `librarian`, `admin`, `group`) are true.
     pub is_system: bool,
 }
@@ -40,6 +42,7 @@ pub struct CreateAccountType {
     pub acquisitions_rights: Option<String>,
     pub weeding_rights: Option<String>,
     pub weeding_cancel_rights: Option<String>,
+    pub circulation_override_rights: Option<String>,
 }
 
 /// Partial update for `account_types`. Omit a field to leave it unchanged.
@@ -58,4 +61,5 @@ pub struct UpdateAccountTypeDefinition {
     pub acquisitions_rights: Option<String>,
     pub weeding_rights: Option<String>,
     pub weeding_cancel_rights: Option<String>,
+    pub circulation_override_rights: Option<String>,
 }

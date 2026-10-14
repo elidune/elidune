@@ -31,6 +31,7 @@ fn create_loan_at(user_id: i64, item_id: i64, site_id: Option<i64>) -> CreateLoa
         item_identification: None,
         force: false,
         site_id,
+        override_reason: None,
     }
 }
 

@@ -1,8 +1,9 @@
 //! Renewal refuses an expired patron subscription (`users.expiry_at` before now).
 //!
-//! `force` skips `subscription_expired` only for a caller with settings write,
-//! the same rule as checkout. Loans write lifts `account_blocked` and
-//! `fines_over_threshold`. A lost card stays non-forceable.
+//! `force` skips `subscription_expired` only for a caller with circulation
+//! override write, the same rule as checkout, and only with `overrideReason`.
+//! Loans write lifts `account_blocked` and `fines_over_threshold`. A lost card
+//! stays non-forceable.
 
 mod common;
 
@@ -43,7 +44,8 @@ async fn checkout(
             &json!({
                 "userId": user_id.to_string(),
                 "itemId": item_id.to_string(),
-                "force": force
+                "force": force,
+                "overrideReason": "membership still being renewed"
             }),
             Some(admin_token),
         )
@@ -141,7 +143,7 @@ async fn expired_subscription_refuses_patron_and_staff_renewal_unless_forced() {
 
     let (status, renewed) = app
         .post_empty(
-            &format!("/api/v1/loans/{loan_id}/renew?force=true"),
+            &format!("/api/v1/loans/{loan_id}/renew?force=true&overrideReason=still%20enrolled"),
             Some(&admin_token),
         )
         .await;
@@ -160,7 +162,9 @@ async fn expired_subscription_refuses_patron_and_staff_renewal_unless_forced() {
     .await;
     let (status, forced_copy) = app
         .post_empty(
-            &format!("/api/v1/loans/items/{other_barcode}/renew?force=true"),
+            &format!(
+                "/api/v1/loans/items/{other_barcode}/renew?force=true&overrideReason=still%20enrolled"
+            ),
             Some(&admin_token),
         )
         .await;

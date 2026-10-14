@@ -35,6 +35,7 @@ fn create_loan(user_id: i64, item_id: i64, force: bool) -> CreateLoan {
         item_identification: None,
         force,
         site_id: None,
+        override_reason: None,
     }
 }
 

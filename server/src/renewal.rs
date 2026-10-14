@@ -5,7 +5,9 @@
 //! [`renewal_refusal_forceable`] allows for this caller. The account-type name
 //! is not consulted. `subscription_expired` and `fines_over_threshold` use the
 //! same rights rules as checkout
-//! ([`crate::checkout_refusal::checkout_refusal_forceable`]).
+//! ([`crate::checkout_refusal::checkout_refusal_forceable`]): circulation override
+//! write and a non-blank `overrideReason` for an expired subscription, loans write
+//! for the unpaid-fine gate.
 
 use chrono::{DateTime, Duration, Utc};
 use serde::Serialize;
@@ -47,7 +49,8 @@ pub struct RenewalUser {
     pub card_lost: bool,
     /// `users.expiry_at`. `None` is a membership with no end date.
     /// Strictly before [`RenewalContext::now`] is `subscription_expired`.
-    /// Skipped only when this caller may force that code (settings write).
+    /// Skipped only when this caller may force that code (circulation override write)
+    /// and sent a non-blank `overrideReason`.
     pub subscription_expiry: Option<DateTime<Utc>>,
 }
 
@@ -57,8 +60,9 @@ pub struct RenewalContext {
     /// Staff `force` with loans write: skip `account_blocked` and
     /// `fines_over_threshold`. Does not skip `card_lost` or `subscription_expired`.
     pub bypass_account_gates: bool,
-    /// Staff `force` with settings write: skip `subscription_expired`.
-    /// Same bar as checkout. Loans write alone does not set this.
+    /// Staff `force` with circulation override write: skip `subscription_expired`.
+    /// Same bar as checkout. Loans write alone does not set this. A reason is
+    /// still required before the write.
     pub bypass_subscription_expired: bool,
     /// Staff `force` with loans write: skip `max_renewals` and `renewal_too_early`.
     /// Does not skip `withdrawn`, `claimed_returned`, or `hold_waiting`.
@@ -79,7 +83,7 @@ pub enum RenewalRefusal {
     /// `users.card_lost`. Not skipped by staff `force`.
     CardLost,
     AccountBlocked,
-    /// `users.expiry_at` is before now. Skipped only with settings write.
+    /// `users.expiry_at` is before now. Skipped only with circulation override write.
     SubscriptionExpired,
     FinesOverThreshold,
     Withdrawn,
@@ -238,8 +242,9 @@ pub fn renewal_limits_hit(loan: &RenewalLoan, ctx: &RenewalContext) -> Vec<Renew
 /// Whether this caller may skip this renewal refusal.
 ///
 /// `subscription_expired` and `fines_over_threshold` use
-/// [`crate::checkout_refusal::checkout_refusal_forceable`]: settings write for an
-/// expired subscription, loans write for the unpaid-fine gate. `account_blocked`,
+/// [`crate::checkout_refusal::checkout_refusal_forceable`]: circulation override
+/// write for an expired subscription, loans write for the unpaid-fine gate.
+/// `account_blocked`,
 /// `max_renewals`, and `renewal_too_early` are forceable when
 /// `caller_rights.loans_rights` is write — the same bar as
 /// [`crate::models::user::UserClaims::require_write_loans`]. The account-type
@@ -340,6 +345,10 @@ pub struct RenewalRefusalBody {
     pub message: String,
     /// Server-computed for this caller by [`renewal_refusal_forceable`].
     pub forceable: bool,
+    /// Present and true when this refusal is forceable and `force` requires
+    /// `overrideReason`. Omitted otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason_required: Option<bool>,
 }
 
 /// Attach `forceable` for this caller. Errors that are not renewal refusals pass through.
@@ -687,6 +696,12 @@ mod tests {
         };
         let settings = UserRights {
             settings_rights: crate::models::user::Rights::Write,
+            circulation_override_rights: crate::models::user::Rights::None,
+            ..UserRights::default()
+        };
+        let override_right = UserRights {
+            circulation_override_rights: crate::models::user::Rights::Write,
+            settings_rights: crate::models::user::Rights::None,
             ..UserRights::default()
         };
         let patron = UserRights::default();
@@ -702,17 +717,24 @@ mod tests {
         }
         let both = UserRights {
             loans_rights: crate::models::user::Rights::Write,
-            settings_rights: crate::models::user::Rights::Write,
+            circulation_override_rights: crate::models::user::Rights::Write,
             ..UserRights::default()
         };
         assert!(
             !renewal_refusal_forceable("subscription_expired", &desk),
             "loans write alone cannot force an expired subscription"
         );
-        assert!(renewal_refusal_forceable("subscription_expired", &settings));
+        assert!(!renewal_refusal_forceable(
+            "subscription_expired",
+            &settings
+        ));
+        assert!(renewal_refusal_forceable(
+            "subscription_expired",
+            &override_right
+        ));
         assert!(renewal_refusal_forceable("subscription_expired", &both));
         assert!(!renewal_refusal_forceable("subscription_expired", &patron));
-        for rights in [&desk, &settings, &both, &patron] {
+        for rights in [&desk, &settings, &override_right, &both, &patron] {
             assert_eq!(
                 renewal_refusal_forceable("subscription_expired", rights),
                 checkout_refusal_forceable("subscription_expired", rights)

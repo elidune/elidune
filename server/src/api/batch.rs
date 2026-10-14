@@ -192,8 +192,9 @@ pub struct BatchCreateLoansRequest {
     pub user_id: String,
     pub barcodes: Vec<String>,
     /// Same checkout override as `POST /loans`. A lost card is `results[].code`
-    /// `card_lost` even when this is true. Never overrides an open loan
-    /// (reserved-item override is tracked in #167).
+    /// `card_lost` even when this is true. Never overrides an open loan.
+    /// This route does not accept `overrideReason`, so `subscription_expired`
+    /// and `item_held_for_other` stay refused.
     #[serde(default)]
     pub force: bool,
     /// Desk site (`sources.id`) stored on every loan in the batch.
@@ -239,7 +240,7 @@ pub struct BatchCreateLoanItemResult {
     security(("bearer_auth" = [])),
     request_body = BatchCreateLoansRequest,
     responses(
-        (status = 200, description = "Batch loan results (partial success possible). A failed item keeps `error` and adds machine-readable `code` (same values as `POST /loans`, including `subscription_expired`, `fines_over_threshold`, `max_loans`, `max_media_loans`, `item_not_loanable`, `item_status_action_required`, and `item_held_for_other`). `force` skips `fines_over_threshold` only when the caller has loans write (`loans_rights` `w`, the same rule as `POST /loans` and renewal; the account-type name is not consulted). Each created loan that skipped that gate is audited after it commits as `loan.fine_threshold_overridden` with payload `{ reason, loanId, patron_id }` (`reason` is `fines_over_threshold`). A failed item is not audited, and the patron balance stays blocked. `force` skips `subscription_expired` only when the caller has settings write (`settings_rights` `w`). It does not skip a non-forceable code (`item_held_for_other`, `item_status_action_required`, `card_lost`, `item_to_pick_for_other`, `business_rule_violation`, and `subscription_expired` without settings write).", body = BatchCreateLoansResponse),
+        (status = 200, description = "Batch loan results (partial success possible). A failed item keeps `error` and adds machine-readable `code` (same values as `POST /loans`, including `subscription_expired`, `fines_over_threshold`, `max_loans`, `max_media_loans`, `item_not_loanable`, `item_status_action_required`, and `item_held_for_other`). `force` follows `checkout_refusal_forceable`. `fines_over_threshold` is skipped only when the caller has loans write (`loans_rights` `w`, the same rule as `POST /loans` and renewal; the account-type name is not consulted). Each created loan that skipped that gate is audited after it commits as `loan.fine_threshold_overridden` with payload `{ reason, loanId, patron_id }` (`reason` is `fines_over_threshold`). A failed item is not audited, and the patron balance stays blocked. `subscription_expired` and `item_held_for_other` need circulation override write (`circulation_override_rights` `w`) and stay refused here because this route does not send `overrideReason`. It does not skip a non-forceable code (`item_status_action_required`, `card_lost`, `item_to_pick_for_other`, `business_rule_violation`).", body = BatchCreateLoansResponse),
         (status = 400, description = "Invalid input", body = crate::error::ErrorResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse)
     )
@@ -280,6 +281,7 @@ pub async fn batch_create_loans(
             item_identification: Some(barcode.clone()),
             force: req.force,
             site_id,
+            override_reason: None,
         };
         match state
             .services
