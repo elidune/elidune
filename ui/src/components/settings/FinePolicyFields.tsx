@@ -45,7 +45,6 @@ export function FinePolicyFields({
 }: FinePolicyFieldsProps) {
   const { t, i18n } = useTranslation();
   const showAmounts = !showToggle || enabled;
-  const blockingStillActive = showToggle && !enabled && blockMode === 'amount';
 
   return (
     <div className="max-w-md space-y-4">
@@ -78,11 +77,6 @@ export function FinePolicyFields({
       ) : null}
       {switchDisabled && showToggle && (
         <p className="text-xs text-gray-500 dark:text-gray-400">{t('settings.finePolicy.notOverridable')}</p>
-      )}
-      {blockingStillActive && (
-        <p className="text-sm text-amber-800 dark:text-amber-300" role="status">
-          {t('settings.finePolicy.blockingStillActive')}
-        </p>
       )}
       {showAmounts && (
         <div className="space-y-4">

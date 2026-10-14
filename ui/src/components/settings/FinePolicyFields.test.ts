@@ -52,7 +52,8 @@ describe('FinePolicyFields', () => {
     assert.match(html, /lecteur/);
     assert.match(html, /exemplaire/);
     assert.match(html, /perdu/);
-    assert.match(html, new RegExp(fr.settings.finePolicy.blockingStillActive));
+    assert.match(html, /rappels/);
+    assert.match(html, /ne bloquent plus/);
     assert.equal(html.includes('type="number"'), false);
     assert.equal(html.includes('type="radio"'), false);
     assert.equal(html.includes('id="fine-daily-rate"'), false);

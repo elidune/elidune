@@ -200,19 +200,20 @@ export type FineSettingsSavePlan =
   | { ok: false; field: 'dailyRate' | 'threshold' }
   | {
       ok: true;
-      policy: GlobalUnpaidThresholdBody;
+      /** `null` leaves the stored threshold in place. Disabling fines does not erase it. */
+      policy: GlobalUnpaidThresholdBody | null;
       /**
        * `null` leaves `reminders.accrue_fines` unchanged (the caller cannot write admin config).
-       * `false` also forces the global blocking mode to `none`.
+       * While that flag is false the server ignores every blocking threshold.
        */
       accrueFines: boolean | null;
       rule: UpsertFineRuleBody | null;
     };
 
 /**
- * Disabling fines stops scheduled late fines (`accrue_fines`) and the global blocking threshold.
- * The default daily rate stays stored so turning fines back on restores it.
- * Lost and damaged copies are staff charges and are not part of this payload.
+ * Disabling fines only turns off scheduled late fines (`accrue_fines`).
+ * Global and public-type thresholds stay stored; the server ignores them until fines are on again.
+ * The default daily rate is also left in place. Lost and damaged charges are not part of this payload.
  */
 export function fineSettingsSavePlan(input: {
   enabled: boolean;
@@ -225,7 +226,7 @@ export function fineSettingsSavePlan(input: {
   if (!input.enabled) {
     return {
       ok: true,
-      policy: { unpaidThresholdMode: 'none' },
+      policy: null,
       accrueFines: input.canControlAccrual ? false : null,
       rule: null,
     };

@@ -118,7 +118,7 @@ describe('fine settings save plan', () => {
     { id: 2, mediaType: 'videoDvd', dailyRate: '1.00', graceDays: 1 },
   ];
 
-  it('turns late fines and the blocking threshold off without touching the daily rate', () => {
+  it('turns late fines off and leaves the stored threshold in place', () => {
     const plan = fineSettingsSavePlan({
       enabled: false,
       canControlAccrual: true,
@@ -129,10 +129,9 @@ describe('fine settings save plan', () => {
     });
     assert.equal(plan.ok, true);
     if (!plan.ok) return;
-    assert.deepEqual(plan.policy, { unpaidThresholdMode: 'none' });
+    assert.equal(plan.policy, null);
     assert.equal(plan.accrueFines, false);
     assert.equal(plan.rule, null);
-    assert.equal(wire(plan.policy).includes('unpaidThresholdCents'), false);
   });
 
   it('keeps the stored grace and cap when the daily rate changes', () => {
@@ -236,16 +235,25 @@ describe('unpaid threshold copy', () => {
       assert.equal(typeof audience.unpaidThresholdModeAmount, 'string');
       assert.equal(typeof audience.unpaidFineThresholdInherit, 'string');
       assert.equal(typeof audience.unpaidFineThresholdInheritEmpty, 'string');
-      assert.equal(typeof audience.unpaidFineThresholdInheritFinesOff, 'string');
+      assert.equal(typeof audience.finesDisabledNoEffect, 'string');
+      assert.equal('unpaidFineThresholdInheritFinesOff' in audience, false);
+      assert.equal('blockingStillActive' in fine, false);
     }
   });
 
-  it('uses lecteur and exemplaire in French and keeps lost copies out of the toggle', () => {
-    const text = `${fr.settings.finePolicy.help} ${fr.settings.publicTypes.unpaidFineThresholdHelp} ${fr.settings.publicTypes.unpaidFineThresholdInheritFinesOff}`;
+  it('uses lecteur and exemplaire in French and does not keep a threshold active while fines are off', () => {
+    const text = `${fr.settings.finePolicy.help} ${fr.settings.publicTypes.unpaidFineThresholdHelp} ${fr.settings.publicTypes.finesDisabledNoEffect}`;
     assert.match(text, /lecteur/);
     assert.match(text, /exemplaire/);
     assert.match(fr.settings.finePolicy.help, /perdu/);
     assert.match(fr.settings.finePolicy.help, /retard/);
+    assert.match(fr.settings.finePolicy.help, /rappels/);
+    assert.match(fr.settings.finePolicy.help, /ne bloquent plus/);
+    assert.equal(fr.settings.publicTypes.finesDisabledNoEffect, 'Sans effet : amendes désactivées');
+    assert.equal(en.settings.publicTypes.finesDisabledNoEffect, 'No effect: fines are disabled');
+    assert.equal(en.settings.finePolicy.help.includes('still sent'), true);
+    assert.equal(en.settings.finePolicy.help.includes('no longer block'), true);
     assert.doesNotMatch(text, /usager|spécimen|specimen|abonné/i);
+    assert.doesNotMatch(text, /bloque encore|still blocks|sigue bloqueando|sperrt diesen Typ weiterhin/i);
   });
 });

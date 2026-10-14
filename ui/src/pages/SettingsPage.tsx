@@ -998,7 +998,7 @@ function PublicTypeEditForm({
             error={thresholdError}
             legendEnd={
               <UseGlobalValueButton
-                show={form.unpaidThresholdMode !== 'inherit'}
+                show={globalFinesEnabled && form.unpaidThresholdMode !== 'inherit'}
                 onClear={() => {
                   setThresholdError(null);
                   setForm((f) => ({

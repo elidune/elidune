@@ -79,8 +79,7 @@ export default function FinePolicySettings() {
   const ready = policy != null && rules != null && !coreLoading && !coreError;
   const saving = updatePolicy.isPending || upsertRule.isPending || updateReminders.isPending;
   const showToggleDisabled = accrualKnown && !canControlAccrual;
-  const saveDisabled =
-    !ready || saving || (!canControlAccrual && !enabled && blockMode !== 'amount');
+  const saveDisabled = !ready || saving || (!canControlAccrual && !enabled);
 
   const handleSave = async () => {
     if (!policy || !rules) return;
@@ -109,7 +108,7 @@ export default function FinePolicySettings() {
     }
     try {
       if (plan.rule) await upsertRule.mutateAsync(plan.rule);
-      await updatePolicy.mutateAsync(plan.policy);
+      if (plan.policy) await updatePolicy.mutateAsync(plan.policy);
       if (remindersPayload) await updateReminders.mutateAsync(remindersPayload);
       showToast({ variant: 'success', message: t('settings.finePolicy.saveSuccess') });
     } catch (err: unknown) {
