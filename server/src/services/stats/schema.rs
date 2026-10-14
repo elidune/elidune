@@ -162,6 +162,22 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
                 ),
                 ("nb_renews", f("nb_renews", "integer", "Renewals")),
                 (
+                    "site_id",
+                    f(
+                        "site_id",
+                        "bigint",
+                        "Desk site where the loan was made. Null on loans recorded before the column existed",
+                    ),
+                ),
+                (
+                    "effective_site_id",
+                    c(
+                        crate::services::calendar::EFFECTIVE_LOAN_SITE_SQL,
+                        "bigint",
+                        "Loan site, or the library default site when the loan has no recorded site",
+                    ),
+                ),
+                (
                     "union_source",
                     c(
                         "{alias}.__union_source",
@@ -173,6 +189,10 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
             relations: HashMap::from([
                 ("users", r("users", "user_id", "id", "Borrower")),
                 ("items", r("items", "item_id", "id", "Item copy")),
+                (
+                    "sources",
+                    r("sources", "site_id", "id", "Loan site"),
+                ),
             ]),
         },
     );
@@ -468,6 +488,22 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
                 ("expiry_at", f("expiry_at", "timestamptz", "Due date")),
                 ("returned_at", f("returned_at", "timestamptz", "Return")),
                 ("nb_renews", f("nb_renews", "integer", "Renewals")),
+                (
+                    "site_id",
+                    f(
+                        "site_id",
+                        "bigint",
+                        "Desk site copied from the loan. Null when the loan had no recorded site",
+                    ),
+                ),
+                (
+                    "effective_site_id",
+                    c(
+                        crate::services::calendar::EFFECTIVE_LOAN_SITE_SQL,
+                        "bigint",
+                        "Loan site, or the library default site when the loan has no recorded site",
+                    ),
+                ),
                 ("addr_city", f("addr_city", "text", "Borrower city")),
                 ("account_type", f("account_type", "text", "Account type")),
                 ("age_band", f("age_band", "text", "Age band at loan")),
@@ -501,6 +537,7 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
                     ),
                 ),
                 ("items", r("items", "item_id", "id", "Item copy")),
+                ("sources", r("sources", "site_id", "id", "Loan site")),
             ]),
         },
     );

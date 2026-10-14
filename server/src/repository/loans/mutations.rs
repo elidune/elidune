@@ -66,7 +66,7 @@ impl Repository {
             sqlx::query(
                 r#"
                 SELECT it.id, it.borrowable, it.circulation_status, it.weeding_status,
-                       it.source_id, b.media_type
+                       b.media_type
                 FROM items it
                 JOIN biblios b ON it.biblio_id = b.id
                 WHERE it.id = $1
@@ -80,7 +80,7 @@ impl Repository {
             sqlx::query(
                 r#"
                 SELECT it.id, it.borrowable, it.circulation_status, it.weeding_status,
-                       it.source_id, b.media_type
+                       b.media_type
                 FROM items it
                 JOIN biblios b ON it.biblio_id = b.id
                 WHERE it.barcode = $1
@@ -188,9 +188,21 @@ impl Repository {
             .resolve_loan_settings_conn(&mut tx, user_public_type, media_type.as_deref())
             .await?;
 
-        let site_id: Option<i64> = item_row.get("source_id");
+        if let Some(site_id) = loan.site_id {
+            let exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sources WHERE id = $1)")
+                    .bind(site_id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            if !exists {
+                return Err(AppError::NotFound(format!("Site {site_id} not found")));
+            }
+        }
+        let default_site_id = self.library_default_site_id_conn(&mut tx).await?;
+        let calendar_site =
+            crate::services::calendar::loan_calendar_site(loan.site_id, default_site_id);
         let expiry_at = self
-            .loans_due_at(&mut tx, now, duration_days, site_id)
+            .loans_due_at(&mut tx, now, duration_days, calendar_site)
             .await?;
 
         let current_loans_total: i64 = sqlx::query_scalar(
@@ -290,8 +302,8 @@ impl Repository {
             .await?;
         let loan_id = match sqlx::query_scalar::<_, i64>(
             r#"
-            INSERT INTO loans (user_id, item_id, date, expiry_at, nb_renews)
-            VALUES ($1, $2, $3, $4, 0)
+            INSERT INTO loans (user_id, item_id, date, expiry_at, nb_renews, site_id)
+            VALUES ($1, $2, $3, $4, 0, $5)
             RETURNING id
             "#,
         )
@@ -299,6 +311,7 @@ impl Repository {
         .bind(item_id)
         .bind(now)
         .bind(expiry_at)
+        .bind(loan.site_id)
         .fetch_one(&mut *tx)
         .await
         {
@@ -337,6 +350,7 @@ impl Repository {
         Ok(LoanCreateOutcome {
             loan_id,
             expiry_at,
+            site_id: loan.site_id,
             fulfilled_hold_id,
         })
     }
@@ -370,9 +384,9 @@ impl Repository {
                 user_id, item_id, date, nb_renews, expiry_at,
                 returned_at, notes, borrower_public_type,
                 addr_city, account_type, age_band, loan_year,
-                closure_reason
+                closure_reason, site_id
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             "#,
         )
         .bind(loan.user_id)
@@ -396,6 +410,7 @@ impl Repository {
         .bind(age_band)
         .bind(loan_year)
         .bind(closure_reason.as_str())
+        .bind(loan.site_id)
         .execute(&mut **tx)
         .await?;
 
@@ -578,6 +593,7 @@ impl Repository {
         let details = LoanDetails {
             id: loan.id,
             item_id: loan.item_id,
+            site_id: loan.site_id,
             start_date: loan.date,
             expiry_at: loan.expiry_at.unwrap_or(now),
             renewal_date: loan.renew_at,
@@ -770,7 +786,7 @@ impl Repository {
 
         let item_row = sqlx::query(
             r#"
-            SELECT it.id, it.circulation_status, it.weeding_status, it.source_id, b.media_type
+            SELECT it.id, it.circulation_status, it.weeding_status, b.media_type
             FROM items it
             JOIN biblios b ON it.biblio_id = b.id
             WHERE it.id = $1
@@ -782,7 +798,6 @@ impl Repository {
         .await?
         .ok_or_else(|| AppError::NotFound("Item not found".to_string()))?;
         let media_type: Option<String> = item_row.get("media_type");
-        let site_id: Option<i64> = item_row.get("source_id");
         let circulation_status = CirculationStatus::from_db(item_row.get("circulation_status"));
         let weeding_status: WeedingStatus = item_row.get("weeding_status");
 
@@ -868,8 +883,11 @@ impl Repository {
             LoanSettingsRenewAt::Now => now,
             LoanSettingsRenewAt::AtDueDate => current_expiry,
         };
+        let default_site_id = self.library_default_site_id_conn(&mut tx).await?;
+        let calendar_site =
+            crate::services::calendar::loan_calendar_site(loan.site_id, default_site_id);
         let new_expiry_date = self
-            .loans_due_at(&mut tx, anchor, duration_days, site_id)
+            .loans_due_at(&mut tx, anchor, duration_days, calendar_site)
             .await?;
         if new_expiry_date <= current_expiry {
             return Err(AppError::BusinessRule(

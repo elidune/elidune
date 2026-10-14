@@ -190,7 +190,7 @@ impl Repository {
         let sql = format!(
             r#"
             SELECT l.id, l.date, l.renew_at, l.nb_renews, l.expiry_at,
-                   l.returned_at,
+                   l.returned_at, l.site_id,
                    it.barcode as item_identification,
                    it.id as item_copy_id, it.barcode as item_barcode,
                    it.call_number as item_call_number, it.borrowable as item_borrowable,
@@ -239,6 +239,7 @@ impl Repository {
             r#"
             SELECT la.id, la.date, NULL::timestamptz as renew_at, la.nb_renews,
                    la.expiry_at, la.returned_at, la.closure_reason, la.found_at,
+                   la.site_id,
                    it.barcode as item_identification,
                    it.id as item_copy_id, it.barcode as item_barcode,
                    it.call_number as item_call_number, it.borrowable as item_borrowable,
@@ -635,6 +636,7 @@ impl Repository {
                 LoanDetails {
                     id: row.get("id"),
                     item_id: row.get("item_copy_id"),
+                    site_id: row.get("site_id"),
                     start_date,
                     expiry_at: expiry_at.unwrap_or(now),
                     renewal_date: renew_at,

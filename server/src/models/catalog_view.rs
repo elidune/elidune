@@ -1125,6 +1125,10 @@ pub struct LoanDetailsStaff {
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub item_id: i64,
+    /// Desk site at checkout. Null when the loan has no recorded site.
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub site_id: Option<i64>,
     pub start_date: DateTime<Utc>,
     pub expiry_at: DateTime<Utc>,
     pub renewal_date: Option<DateTime<Utc>>,
@@ -1149,6 +1153,7 @@ impl From<LoanDetails> for LoanDetailsStaff {
         Self {
             id: loan.id,
             item_id: loan.item_id,
+            site_id: loan.site_id,
             start_date: loan.start_date,
             expiry_at: loan.expiry_at,
             renewal_date: loan.renewal_date,
@@ -1175,6 +1180,10 @@ pub struct LoanDetailsPublic {
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub item_id: i64,
+    /// Desk site at checkout. Null when the loan has no recorded site.
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub site_id: Option<i64>,
     pub start_date: DateTime<Utc>,
     pub expiry_at: DateTime<Utc>,
     pub renewal_date: Option<DateTime<Utc>>,
@@ -1199,6 +1208,7 @@ impl From<LoanDetails> for LoanDetailsPublic {
         Self {
             id: loan.id,
             item_id: loan.item_id,
+            site_id: loan.site_id,
             start_date: loan.start_date,
             expiry_at: loan.expiry_at,
             renewal_date: loan.renewal_date,
@@ -1227,6 +1237,10 @@ pub struct LoanDetailsOwn {
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub item_id: i64,
+    /// Desk site at checkout. Null when the loan has no recorded site.
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub site_id: Option<i64>,
     pub start_date: DateTime<Utc>,
     pub expiry_at: DateTime<Utc>,
     pub renewal_date: Option<DateTime<Utc>>,
@@ -1251,6 +1265,7 @@ impl From<LoanDetails> for LoanDetailsOwn {
         Self {
             id: loan.id,
             item_id: loan.item_id,
+            site_id: loan.site_id,
             start_date: loan.start_date,
             expiry_at: loan.expiry_at,
             renewal_date: loan.renewal_date,

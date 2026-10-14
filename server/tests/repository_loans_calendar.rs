@@ -21,11 +21,16 @@ use tokio::sync::Mutex;
 static CALENDAR_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 
 fn create_loan(user_id: i64, item_id: i64) -> CreateLoan {
+    create_loan_at(user_id, item_id, None)
+}
+
+fn create_loan_at(user_id: i64, item_id: i64, site_id: Option<i64>) -> CreateLoan {
     CreateLoan {
         user_id,
         item_id: Some(item_id),
         item_identification: None,
         force: false,
+        site_id,
     }
 }
 
@@ -747,7 +752,7 @@ async fn site_closure_slides_only_that_sites_loan() {
         .state
         .services
         .repository
-        .loans_create(&create_loan(reader_b, item_b))
+        .loans_create(&create_loan_at(reader_b, item_b, Some(site_b)))
         .await
         .expect("checkout site B");
     let open_due = local_date(paris(), open_checkout.expiry_at);
@@ -758,7 +763,7 @@ async fn site_closure_slides_only_that_sites_loan() {
         .state
         .services
         .repository
-        .loans_create(&create_loan(reader_a, item_a))
+        .loans_create(&create_loan_at(reader_a, item_a, Some(site_a)))
         .await
         .expect("checkout site A");
     let closed_due = local_date(paris(), closed_checkout.expiry_at);
@@ -888,11 +893,11 @@ async fn return_after_closure_is_not_fined_for_closed_days() {
     let repo = app.state.services.repository.as_ref();
 
     let closed_loan = repo
-        .loans_create(&create_loan(reader_closed, closed_item))
+        .loans_create(&create_loan_at(reader_closed, closed_item, Some(site)))
         .await
         .expect("checkout closed site");
     let open_loan = repo
-        .loans_create(&create_loan(reader_open, open_item))
+        .loans_create(&create_loan_at(reader_open, open_item, Some(other)))
         .await
         .expect("checkout other site");
 
@@ -965,6 +970,227 @@ async fn return_after_closure_is_not_fined_for_closed_days() {
         open_days - closed_days,
         21,
         "site closure must drop exactly those 21 days (open {open_days}, site {closed_days})"
+    );
+
+    delete_closures(&app, &ids).await;
+}
+
+async fn library_default_site(app: &TestApp) -> i64 {
+    let sql = format!(
+        "SELECT id FROM sources WHERE id = {}",
+        elidune_server::services::calendar::LIBRARY_DEFAULT_SITE_ID_SQL
+    );
+    sqlx::query_scalar(&sql)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .expect("library default site")
+}
+
+/// Item home site A, checkout recorded at site B: due date, renewal, and the
+/// stored column follow B. A loan with no recorded site follows the library
+/// default site, including after that site is closed.
+#[tokio::test]
+async fn loan_recorded_at_another_site_follows_that_sites_closures() {
+    let _guard = CALENDAR_LOCK.lock().await;
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "caldesk").await;
+    let site_a = create_site(&app, &admin_token, "HomeA").await;
+    let site_b = create_site(&app, &admin_token, "DeskB").await;
+    let repo = app.state.services.repository.as_ref();
+
+    let default_site = library_default_site(&app).await;
+    assert_ne!(default_site, site_a);
+    assert_ne!(default_site, site_b);
+    let probe = seed_item_at(&app, &admin_token, "CALPROBE", Some(site_b)).await;
+    let open_checkout = repo
+        .loans_create(&create_loan_at(reader_id, probe, Some(site_b)))
+        .await
+        .expect("probe checkout");
+    let open_due = local_date(paris(), open_checkout.expiry_at);
+    let closure_id = closure_on(&app, open_due, Some(site_b), "desk closed").await;
+
+    let away = seed_item_at(&app, &admin_token, "CALAWAY", Some(site_a)).await;
+    let at_desk = repo
+        .loans_create(&create_loan_at(reader_id, away, Some(site_b)))
+        .await
+        .expect("checkout at desk B");
+    let desk_due = local_date(paris(), at_desk.expiry_at);
+    assert_ne!(
+        desk_due, open_due,
+        "site B closure on {open_due} must move a loan made at B"
+    );
+    assert!(desk_due > open_due, "{desk_due} should follow {open_due}");
+    let stored_desk: Option<i64> = sqlx::query_scalar("SELECT site_id FROM loans WHERE id = $1")
+        .bind(at_desk.loan_id)
+        .fetch_one(repo.pool())
+        .await
+        .expect("read loan site");
+    assert_eq!(stored_desk, Some(site_b));
+
+    let home_item = seed_item_at(&app, &admin_token, "CALHOME", Some(site_a)).await;
+    let at_home = repo
+        .loans_create(&create_loan(reader_id, home_item))
+        .await
+        .expect("checkout with no recorded site");
+    assert_eq!(
+        local_date(paris(), at_home.expiry_at),
+        open_due,
+        "a null loan site follows the library default site, which is still open"
+    );
+    let stored_home: Option<i64> = sqlx::query_scalar("SELECT site_id FROM loans WHERE id = $1")
+        .bind(at_home.loan_id)
+        .fetch_one(repo.pool())
+        .await
+        .expect("read null loan site");
+    assert_eq!(stored_home, None);
+
+    sqlx::query("UPDATE loans SET expiry_at = NOW() WHERE id = $1 OR id = $2")
+        .bind(at_desk.loan_id)
+        .bind(at_home.loan_id)
+        .execute(repo.pool())
+        .await
+        .expect("anchor both renewals on today");
+    let (renewed_home, _) = repo
+        .loans_renew(at_home.loan_id, false)
+        .await
+        .expect("renew home-site loan");
+    let (renewed_desk, _) = repo
+        .loans_renew(at_desk.loan_id, false)
+        .await
+        .expect("renew desk-site loan");
+    let home_renewed = local_date(paris(), renewed_home);
+    let desk_renewed = local_date(paris(), renewed_desk);
+    assert_eq!(
+        home_renewed, open_due,
+        "renewal of a null loan site stays on the open default-site day"
+    );
+    assert!(
+        desk_renewed > home_renewed,
+        "renewal at site B must slide past {home_renewed}, got {desk_renewed}"
+    );
+
+    let default_closure = closure_on(&app, open_due, Some(default_site), "default closed").await;
+    let (reader_null, _) = fixtures::create_reader(&app, &admin_token, "calnull").await;
+    let null_item = seed_item_at(&app, &admin_token, "CALNULL", Some(site_a)).await;
+    let slid = repo
+        .loans_create(&create_loan(reader_null, null_item))
+        .await
+        .expect("null loan after the default site is closed");
+    let slid_due = local_date(paris(), slid.expiry_at);
+    assert!(
+        slid_due > open_due,
+        "a null loan site follows the default site closure on {open_due}, got {slid_due}"
+    );
+    let stored_slid: Option<i64> = sqlx::query_scalar("SELECT site_id FROM loans WHERE id = $1")
+        .bind(slid.loan_id)
+        .fetch_one(repo.pool())
+        .await
+        .expect("read slid loan site");
+    assert_eq!(stored_slid, None);
+
+    delete_closures(&app, &[closure_id, default_closure]).await;
+}
+
+/// Overdue days for a null `loans.site_id` follow the library default site.
+/// The copy's home site stays open, so a fallback to `items.source_id` would not drop these days.
+#[tokio::test]
+async fn fine_null_site_follows_default_site() {
+    let _guard = CALENDAR_LOCK.lock().await;
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_null, _) = fixtures::create_reader(&app, &admin_token, "finedef").await;
+    let (reader_other, _) = fixtures::create_reader(&app, &admin_token, "fineother").await;
+    let default_site = library_default_site(&app).await;
+    let home = create_site(&app, &admin_token, "FineHome").await;
+    let other = create_site(&app, &admin_token, "FineOther").await;
+    assert_ne!(default_site, home);
+    assert_ne!(default_site, other);
+    let null_item = seed_item_at(&app, &admin_token, "FINENULL", Some(home)).await;
+    let other_item = seed_item_at(&app, &admin_token, "FINEOTH", Some(home)).await;
+    let repo = app.state.services.repository.as_ref();
+
+    let at_null = repo
+        .loans_create(&create_loan(reader_null, null_item))
+        .await
+        .expect("checkout with no recorded site");
+    let at_other = repo
+        .loans_create(&create_loan_at(reader_other, other_item, Some(other)))
+        .await
+        .expect("checkout at another site");
+
+    let today = local_date(paris(), Utc::now());
+    let due = today - Duration::days(30);
+    let noon = chrono::NaiveTime::from_hms_opt(12, 0, 0).expect("noon");
+    let expiry = calendar::local_to_utc(paris(), due, noon).expect("due noon");
+    sqlx::query("UPDATE loans SET expiry_at = $2 WHERE id = $1 OR id = $3")
+        .bind(at_null.loan_id)
+        .bind(expiry)
+        .bind(at_other.loan_id)
+        .execute(repo.pool())
+        .await
+        .expect("backdate both loans");
+
+    let opening = repo
+        .schedules_opening_calendar(due, today)
+        .await
+        .expect("calendar");
+    let mut to_close = Vec::new();
+    let mut cursor = due;
+    while let Some(next) = cursor.succ_opt() {
+        if next > today {
+            break;
+        }
+        if opening.is_open_on(Some(default_site), next) && opening.is_open_on(Some(other), next) {
+            to_close.push(next);
+            if to_close.len() == 21 {
+                break;
+            }
+        }
+        cursor = next;
+    }
+    assert!(
+        to_close.len() >= 21,
+        "need 21 open days to close, found {}",
+        to_close.len()
+    );
+    let mut ids = Vec::new();
+    for date in &to_close {
+        ids.push(closure_on(&app, *date, Some(default_site), "default fine closure").await);
+    }
+
+    let null_result = app
+        .state
+        .services
+        .fines
+        .accrue_loan(at_null.loan_id)
+        .await
+        .expect("accrue null-site loan");
+    let other_result = app
+        .state
+        .services
+        .fines
+        .accrue_loan(at_other.loan_id)
+        .await
+        .expect("accrue other-site loan");
+    let null_days = null_result
+        .breakdown
+        .as_ref()
+        .expect("null breakdown")
+        .overdue_days;
+    let other_days = other_result
+        .breakdown
+        .as_ref()
+        .expect("other breakdown")
+        .overdue_days;
+    assert_eq!(
+        other_days - null_days,
+        21,
+        "default-site closures drop those days (other {other_days}, null {null_days})"
     );
 
     delete_closures(&app, &ids).await;

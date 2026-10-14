@@ -569,7 +569,8 @@ impl Repository {
     /// Loan + media type + patron status for a single accrue.
     #[tracing::instrument(skip(self), err)]
     pub async fn fines_get_accrual_loan(&self, loan_id: i64) -> AppResult<FineAccrualLoan> {
-        let row = sqlx::query(
+        let site = loan_calendar_site_sql();
+        let row = sqlx::query(&format!(
             r#"
             SELECT
                 l.id AS loan_id,
@@ -578,14 +579,14 @@ impl Repository {
                 l.returned_at,
                 b.media_type,
                 u.status AS user_status,
-                it.source_id AS site_id
+                {site} AS site_id
             FROM loans l
             JOIN items it ON l.item_id = it.id
             JOIN biblios b ON it.biblio_id = b.id
             JOIN users u ON l.user_id = u.id
             WHERE l.id = $1
             "#,
-        )
+        ))
         .bind(loan_id)
         .fetch_optional(&self.pool)
         .await?
@@ -600,7 +601,8 @@ impl Repository {
         &self,
         user_id: Option<i64>,
     ) -> AppResult<Vec<FineAccrualLoan>> {
-        let rows = sqlx::query(
+        let site = loan_calendar_site_sql();
+        let rows = sqlx::query(&format!(
             r#"
             SELECT
                 l.id AS loan_id,
@@ -609,7 +611,7 @@ impl Repository {
                 l.returned_at,
                 b.media_type,
                 u.status AS user_status,
-                it.source_id AS site_id
+                {site} AS site_id
             FROM loans l
             JOIN items it ON l.item_id = it.id
             JOIN biblios b ON it.biblio_id = b.id
@@ -620,7 +622,7 @@ impl Repository {
               AND ($1::bigint IS NULL OR l.user_id = $1)
             ORDER BY l.expiry_at ASC
             "#,
-        )
+        ))
         .bind(user_id)
         .fetch_all(&self.pool)
         .await?;
@@ -751,6 +753,13 @@ where
         paid_amount: row.get("paid_amount"),
         status: FineStatus::from(row.get::<String, _>("status")),
     }))
+}
+
+fn loan_calendar_site_sql() -> String {
+    format!(
+        "COALESCE(l.site_id, {})",
+        crate::services::calendar::LIBRARY_DEFAULT_SITE_ID_SQL
+    )
 }
 
 fn accrual_loan_from_row(row: &sqlx::postgres::PgRow) -> FineAccrualLoan {

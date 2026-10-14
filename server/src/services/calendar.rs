@@ -102,10 +102,41 @@ pub fn format_clock(time: NaiveTime) -> String {
     time.format("%H:%M").to_string()
 }
 
+macro_rules! default_site_id_sql {
+    () => {
+        r#"(SELECT id FROM sources WHERE "default" = TRUE AND (is_archive IS NULL OR is_archive = 0) LIMIT 1)"#
+    };
+}
+
+/// Scalar subquery for the library default site (`sources."default"`).
+///
+/// Same row as `Repository::sources_get_default` and the site
+/// `defaultPickupSiteId` prefers. A NULL `loans.site_id` or
+/// `loans_archives.site_id` resolves to this at query time.
+pub const LIBRARY_DEFAULT_SITE_ID_SQL: &str = default_site_id_sql!();
+
+/// Recorded loan site, or [`LIBRARY_DEFAULT_SITE_ID_SQL`] when that column is null.
+/// `{alias}` is the stats-builder table alias.
+pub const EFFECTIVE_LOAN_SITE_SQL: &str =
+    concat!("COALESCE({alias}.site_id, ", default_site_id_sql!(), ")");
+
+/// Site whose closures govern a loan.
+///
+/// Checkout stores the desk on `loans.site_id`. Renewal and fines pass that
+/// value. A null loan site follows `default_site_id` (the library default
+/// site), not the item home site. Network-wide closures still apply when
+/// both are null.
+#[must_use]
+pub fn loan_calendar_site(loan_site_id: Option<i64>, default_site_id: Option<i64>) -> Option<i64> {
+    loan_site_id.or(default_site_id)
+}
+
 /// Whether `date` is an open day for `site_id`.
 ///
 /// Network-wide closures and closures of `site_id` both close the day.
 /// `site_id == None` still honours network-wide closures and the weekly schedule.
+/// Callers pass [`loan_calendar_site`]: the recorded loan site, or the library
+/// default site when the loan has none.
 #[must_use]
 pub fn is_open(calendar: &OpeningCalendar, site_id: Option<i64>, date: NaiveDate) -> bool {
     calendar.is_open_on(site_id, date)
@@ -274,6 +305,15 @@ mod tests {
         }
         assert!(parse_timezone("  ").is_err());
         assert_eq!(parse_timezone(" Europe/Paris ").unwrap(), paris());
+    }
+
+    #[test]
+    fn loan_calendar_site_prefers_the_recorded_loan_site() {
+        assert_eq!(loan_calendar_site(Some(2), Some(1)), Some(2));
+        assert_eq!(loan_calendar_site(None, Some(1)), Some(1));
+        assert_eq!(loan_calendar_site(None, None), None);
+        assert!(!EFFECTIVE_LOAN_SITE_SQL.contains("source_id"));
+        assert!(EFFECTIVE_LOAN_SITE_SQL.contains(LIBRARY_DEFAULT_SITE_ID_SQL));
     }
 
     #[test]

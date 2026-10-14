@@ -1209,8 +1209,8 @@ def migrate_loans(src, dst, migrated_specimen_ids=None):
                     id, user_id, item_id, date, nb_renews,
                     expiry_at, returned_at, notes,
                     borrower_public_type, addr_city, account_type,
-                    age_band, loan_year
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    age_band, loan_year, site_id
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (id) DO NOTHING
             """, (
                 vals[0], user_id, item_id,
@@ -1218,6 +1218,7 @@ def migrate_loans(src, dst, migrated_specimen_ids=None):
                 pt_id, city, at_code,
                 borrower_age_band(birthdate, loan_dt),
                 loan_year_from_dt(loan_dt),
+                None,  # legacy borrows have no loan site; NULL resolves to the library default site
             ))
             archived += 1
         else:
@@ -1238,8 +1239,8 @@ def migrate_loans(src, dst, migrated_specimen_ids=None):
                         id, user_id, item_id, date, nb_renews,
                         expiry_at, returned_at, notes,
                         borrower_public_type, addr_city, account_type,
-                        age_band, loan_year
-                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        age_band, loan_year, site_id
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (id) DO NOTHING
                 """, (
                     vals[0], user_id, item_id,
@@ -1247,6 +1248,7 @@ def migrate_loans(src, dst, migrated_specimen_ids=None):
                     pt_id, city, at_code,
                     borrower_age_band(birthdate, loan_dt),
                     loan_year_from_dt(loan_dt),
+                    None,  # legacy borrows have no loan site; NULL resolves to the library default site
                 ))
                 archived += 1
                 continue
@@ -1254,10 +1256,10 @@ def migrate_loans(src, dst, migrated_specimen_ids=None):
             dst_cur.execute("""
                 INSERT INTO loans (
                     id, user_id, item_id, date, renew_at,
-                    nb_renews, expiry_at, notes, returned_at
-                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    nb_renews, expiry_at, notes, returned_at, site_id
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (id) DO NOTHING
-            """, (vals[0], vals[1], item_id, vals[4], vals[5], vals[6], vals[7], vals[8], vals[9]))
+            """, (vals[0], vals[1], item_id, vals[4], vals[5], vals[6], vals[7], vals[8], vals[9], None))
             active += 1
 
     dst.commit()
@@ -1325,13 +1327,14 @@ def migrate_loans_archives(src, dst, migrated_specimen_ids=None):
             INSERT INTO loans_archives (
                 id, item_id, date, nb_renews, expiry_at,
                 returned_at, notes, borrower_public_type,
-                addr_city, account_type, loan_year
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                addr_city, account_type, loan_year, site_id
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             ON CONFLICT (id) DO NOTHING
         """, (
             vals[0], item_id, date_val, vals[4], issue_dt,
             returned_dt, vals[7], pt_id, vals[9], at_code,
             loan_year_from_dt(date_val),
+            None,  # legacy borrows have no loan site; NULL resolves to the library default site
         ))
         migrated += 1
 
