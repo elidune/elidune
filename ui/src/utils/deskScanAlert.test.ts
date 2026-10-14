@@ -170,6 +170,10 @@ describe('desk scan alert', () => {
   it('keeps the generic business-rule error only when no specific notice applies', () => {
     const holdMessage =
       'This copy has an active hold for another patron — only the queued patron may borrow it, or use force=true to override';
+    assert.equal(
+      checkoutScanNoticeFromRefusal({ code: 'item_held_for_other', message: holdMessage }),
+      null,
+    );
     assert.deepEqual(
       checkoutScanNoticeFromRefusal({ code: 'business_rule_violation', message: holdMessage }),
       { kind: 'onHold', patronName: null },

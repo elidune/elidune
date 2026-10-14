@@ -1214,7 +1214,7 @@
       "fines_over_threshold": "Offene Gebühren liegen über dem zulässigen Betrag.",
       "withdrawn": "Dieses Exemplar ist ausgesondert und kann nicht verlängert werden.",
       "claimed_returned": "Diese Ausleihe liegt in der Rückgabe-Reklamation.",
-      "hold_waiting": "Eine andere Person wartet auf diesen Titel.",
+      "hold_waiting": "Verlängerung abgelehnt: ein anderer Leser wartet auf dieses Exemplar.",
       "max_renewals": "Keine Verlängerung mehr möglich.",
       "renewal_too_early": "Verlängerung möglich ab {{date}}"
     },
@@ -2052,6 +2052,13 @@
   "errors": {
     "notFound": "Ressource nicht gefunden",
     "generic": "Ein Fehler ist aufgetreten",
+    "itemStatusAction": {
+      "lost": "Dieses Exemplar ist verloren. Verwenden Sie „Wiedergefunden“, bevor Sie es ausleihen.",
+      "claimedReturned": "Dieses Exemplar ist als zurückgegeben angegeben. Schließen Sie zuerst die Nachforschung ab.",
+      "toSearch": "Dieses Exemplar ist zu suchen. Markieren Sie es als wiedergefunden, bevor Sie es ausleihen.",
+      "missing": "Dieses Exemplar wird vermisst. Markieren Sie es als wiedergefunden, bevor Sie es ausleihen.",
+      "generic": "Klären Sie zuerst den Status dieses Exemplars, bevor Sie es ausleihen."
+    },
     "tooManyRequests": "Zu viele Versuche. Bitte warten Sie, bevor Sie es erneut versuchen.",
     "tooManyRequestsWaitSeconds_one": "Zu viele Versuche. Bitte warten Sie {{duration}}, bevor Sie es erneut versuchen.",
     "tooManyRequestsWaitSeconds_other": "Zu viele Versuche. Bitte warten Sie {{duration}}, bevor Sie es erneut versuchen.",
@@ -2101,6 +2108,13 @@
       "conflict": "Konflikt: Dieser Datensatz existiert bereits.",
       "business_rule_violation": "Aktion durch Geschäftsregel abgelehnt (abgelaufenes Abo, Kontingent erreicht usw.).",
       "card_lost": "Karte als verloren gemeldet: Identität prüfen und Karte ersetzen",
+      "subscription_expired": "Das Abonnement dieses Lesers ist abgelaufen.",
+      "fines_over_threshold": "Die offenen Gebühren dieses Lesers liegen über dem zulässigen Betrag.",
+      "max_loans": "Dieser Leser hat die maximale Anzahl an Ausleihen erreicht.",
+      "max_media_loans": "Dieser Leser hat die maximale Anzahl an Ausleihen für diesen Medientyp erreicht.",
+      "item_not_loanable": "Dieses Exemplar kann nicht ausgeliehen werden.",
+      "item_held_for_other": "Ein anderer Leser hat Vorrang auf dieses Exemplar.",
+      "item_status_action_required": "Klären Sie zuerst den Status dieses Exemplars, bevor Sie es ausleihen.",
       "duplicate_isbn_needs_confirmation": "Ein Titel mit dieser ISBN existiert bereits.",
       "duplicate_barcode_needs_confirmation": "Ein Exemplar mit diesem Barcode existiert bereits.",
       "z3950_error": "Fehler bei der Z39.50-Suche.",

@@ -15,8 +15,8 @@ import CirculationForceButton from '@/components/loans/CirculationForceButton';
 import DeskNameSearch from '@/components/loans/DeskNameSearch';
 import DeskPatronStatus from '@/components/loans/DeskPatronStatus';
 import MyLoanRenewActions from '@/components/loans/MyLoanRenewActions';
-import type { PatronBlockReason, PatronLoanStatus } from '@/types';
-import { circulationMayForce, type CirculationForceSurface } from '@/utils/circulationForce';
+import { canForceLoans, type PatronBlockReason, type PatronLoanStatus } from '@/types';
+import { loanRefusalMayForce, renewalMayForce } from '@/utils/circulationForce';
 import { deskPatronIdentity, presentCardScanError } from '@/utils/deskPatron';
 
 type Lang = 'fr' | 'en' | 'de' | 'es';
@@ -211,23 +211,21 @@ describe('desk loan status', () => {
 });
 
 describe('card_lost cannot be forced', () => {
-  const surfaces: CirculationForceSurface[] = ['loan', 'batch', 'renewal'];
-
   it('never offers a force button for a lost card', async () => {
     const i18n = await i18nFor('fr');
-    for (const surface of surfaces) {
-      assert.equal(circulationMayForce(surface, 'card_lost'), false);
-      const html = render(
-        i18n,
-        createElement(CirculationForceButton, {
-          surface,
-          code: 'card_lost',
-          onForce: () => undefined,
-        }),
-      );
-      assert.equal(html.includes('Forcer'), false, surface);
-      assert.equal(html.includes('<button'), false, surface);
-    }
+    assert.equal(renewalMayForce('card_lost'), false);
+    assert.equal(loanRefusalMayForce(undefined, true), false);
+    assert.equal(loanRefusalMayForce(false, true), false);
+    const html = render(
+      i18n,
+      createElement(CirculationForceButton, {
+        forceable: false,
+        canForce: true,
+        onForce: () => undefined,
+      }),
+    );
+    assert.equal(html.includes('Forcer'), false);
+    assert.equal(html.includes('<button'), false);
     const batch = render(
       i18n,
       createElement(BatchCreateItemRow, {
@@ -237,6 +235,7 @@ describe('card_lost cannot be forced', () => {
           code: 'card_lost',
           error: 'Library card is reported lost or stolen',
         },
+        canForce: true,
         onForce: () => undefined,
       }),
     );
@@ -247,32 +246,128 @@ describe('card_lost cannot be forced', () => {
     const renewal = render(
       i18n,
       createElement(CirculationForceButton, {
-        surface: 'renewal',
-        code: 'card_lost',
+        forceable: renewalMayForce('card_lost'),
+        canForce: true,
         onForce: () => undefined,
       }),
     );
     assert.equal(renewal.includes('Forcer'), false);
   });
 
-  it('still offers force for a business rule on a single loan and a batch item', async () => {
+  it('offers force only when the refusal says forceable and the user can force', async () => {
     const i18n = await i18nFor('fr');
-    assert.equal(circulationMayForce('loan', 'business_rule_violation'), true);
-    assert.equal(circulationMayForce('batch', 'business_rule_violation'), true);
-    assert.equal(circulationMayForce('renewal', 'card_lost'), false);
-    assert.equal(circulationMayForce('renewal', 'account_blocked'), true);
-    assert.equal(circulationMayForce('renewal', 'subscription_expired'), true);
-    assert.equal(circulationMayForce('renewal', 'fines_over_threshold'), true);
-    assert.equal(circulationMayForce('loan', 'subscription_expired'), false);
-    assert.equal(circulationMayForce('batch', 'subscription_expired'), false);
-    const batch = render(
+    assert.equal(loanRefusalMayForce(false, true), false);
+    assert.equal(loanRefusalMayForce(undefined, true), false);
+    assert.equal(loanRefusalMayForce(true, false), false);
+    assert.equal(loanRefusalMayForce(true, true), true);
+    assert.equal(renewalMayForce('card_lost'), false);
+    assert.equal(renewalMayForce('hold_waiting'), false);
+    assert.equal(renewalMayForce('account_blocked'), true);
+    assert.equal(renewalMayForce('subscription_expired'), true);
+    assert.equal(renewalMayForce('fines_over_threshold'), true);
+    const token = (loansRights: string) => {
+      const payload = Buffer.from(JSON.stringify({ rights: { loansRights } })).toString('base64url');
+      return `e30.${payload}.sig`;
+    };
+    assert.equal(canForceLoans(null, token('w')), true);
+    assert.equal(canForceLoans(null, token('write')), true);
+    assert.equal(canForceLoans(null, token('r')), false);
+    assert.equal(canForceLoans({ rights: { loansRights: 'write' } }, null), true);
+    assert.equal(canForceLoans(null, null), false);
+    const forced = render(
       i18n,
       createElement(BatchCreateItemRow, {
-        item: { barcode: 'I-2', success: false, code: 'business_rule_violation', error: 'quota' },
+        item: { barcode: 'I-2', success: false, code: 'max_loans', error: 'quota', forceable: true },
+        canForce: true,
         onForce: () => undefined,
       }),
     );
-    assert.match(batch, /Forcer/);
+    assert.match(forced, /Ce lecteur a atteint le nombre maximum de prêts/);
+    assert.match(forced, /Forcer le prêt/);
+    const generic = render(
+      i18n,
+      createElement(BatchCreateItemRow, {
+        item: { barcode: 'I-3', success: false, code: 'business_rule_violation', error: 'withdrawn' },
+        canForce: true,
+        onForce: () => undefined,
+      }),
+    );
+    assert.match(generic, /règle métier/);
+    assert.equal(generic.includes('Forcer'), false);
+    const denied = render(
+      i18n,
+      createElement(BatchCreateItemRow, {
+        item: {
+          barcode: 'I-4',
+          success: false,
+          code: 'item_not_loanable',
+          error: 'not borrowable',
+          forceable: true,
+        },
+        canForce: false,
+        onForce: () => undefined,
+      }),
+    );
+    assert.match(denied, /Cet exemplaire ne peut pas être prêté/);
+    assert.equal(denied.includes('Forcer'), false);
+    const omitted = render(
+      i18n,
+      createElement(BatchCreateItemRow, {
+        item: { barcode: 'I-5', success: false, code: 'max_loans', error: 'quota' },
+        canForce: true,
+        onForce: () => undefined,
+      }),
+    );
+    assert.equal(omitted.includes('Forcer'), false);
+    const held = render(
+      i18n,
+      createElement(BatchCreateItemRow, {
+        item: {
+          barcode: 'I-6',
+          success: false,
+          code: 'item_held_for_other',
+          error: 'held',
+          forceable: true,
+        },
+        canForce: true,
+        onForce: () => undefined,
+      }),
+    );
+    assert.match(held, /Un autre lecteur a la priorité sur cet exemplaire/);
+    assert.match(held, /Mettre de côté/);
+    assert.match(held, /Annuler/);
+    assert.equal(held.includes('Forcer'), false);
+  });
+
+  it('explains each item status and never offers force', async () => {
+    const i18n = await i18nFor('fr');
+    const expected = {
+      lost: 'Utilisez « Retrouvé » avant le prêt.',
+      claimedReturned: "Clôturez d'abord l'enquête.",
+      toSearch: 'Marquez-le comme retrouvé avant le prêt.',
+      missing: 'Marquez-le comme retrouvé avant le prêt.',
+    } as const;
+    for (const itemStatus of ['lost', 'claimedReturned', 'toSearch', 'missing'] as const) {
+      const html = render(
+        i18n,
+        createElement(BatchCreateItemRow, {
+          item: {
+            barcode: `I-${itemStatus}`,
+            success: false,
+            code: 'item_status_action_required',
+            error: 'Resolve it before checkout.',
+            forceable: true,
+            itemStatus,
+          },
+          canForce: true,
+          onForce: () => undefined,
+        }),
+      );
+      assert.match(html, new RegExp(expected[itemStatus].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+      assert.match(html, /exemplaire/);
+      assert.equal(html.includes('Forcer'), false, itemStatus);
+      assert.equal(html.includes('Resolve it before checkout.'), false, itemStatus);
+    }
   });
 
   it('shows an info banner and keeps the lost-card sentence', async () => {
@@ -361,6 +456,17 @@ describe('my loans account renewal refusals', () => {
         assert.equal(html.includes('Forcer'), false, `${lang} ${code}`);
       }
     }
+    const waiting = render(
+      await i18nFor('fr'),
+      createElement(MyLoanRenewActions, {
+        canRenew: false,
+        renewalRefusalCode: 'hold_waiting',
+        renewalOpensAt: null,
+        onRenew: () => undefined,
+      }),
+    );
+    assert.match(waiting, /un autre lecteur attend cet exemplaire/i);
+    assert.equal(waiting.includes('Forcer'), false);
     assert.equal(
       fr.loans.renewalRefusal.card_lost,
       'Carte déclarée perdue : renouvellement impossible',
@@ -408,8 +514,8 @@ describe('my loans account renewal refusals', () => {
     const expired = render(
       i18n,
       createElement(CirculationForceButton, {
-        surface: 'renewal',
-        code: 'subscription_expired',
+        forceable: renewalMayForce('subscription_expired'),
+        canForce: true,
         onForce: () => undefined,
       }),
     );
@@ -417,8 +523,8 @@ describe('my loans account renewal refusals', () => {
     const lost = render(
       i18n,
       createElement(CirculationForceButton, {
-        surface: 'renewal',
-        code: 'card_lost',
+        forceable: renewalMayForce('card_lost'),
+        canForce: true,
         onForce: () => undefined,
       }),
     );

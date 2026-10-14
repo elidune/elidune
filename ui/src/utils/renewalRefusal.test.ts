@@ -5,7 +5,7 @@ import de from '../locales/de/translation.json' with { type: 'json' };
 import en from '../locales/en/translation.json' with { type: 'json' };
 import es from '../locales/es/translation.json' with { type: 'json' };
 import fr from '../locales/fr/translation.json' with { type: 'json' };
-import { circulationMayForce } from './circulationForce.ts';
+import { loanRefusalMayForce, renewalMayForce } from './circulationForce.ts';
 import {
   accountRenewalRefusal,
   getApiErrorMessage,
@@ -80,11 +80,40 @@ describe('account renewal refusals', () => {
   });
 
   it('lets the desk force an expired subscription and never a lost card', () => {
-    assert.equal(circulationMayForce('renewal', 'subscription_expired'), true);
-    assert.equal(circulationMayForce('renewal', 'fines_over_threshold'), true);
-    assert.equal(circulationMayForce('renewal', 'account_blocked'), true);
-    assert.equal(circulationMayForce('renewal', 'card_lost'), false);
-    assert.equal(circulationMayForce('loan', 'card_lost'), false);
-    assert.equal(circulationMayForce('loan', 'subscription_expired'), false);
+    assert.equal(renewalMayForce('subscription_expired'), true);
+    assert.equal(renewalMayForce('fines_over_threshold'), true);
+    assert.equal(renewalMayForce('account_blocked'), true);
+    assert.equal(renewalMayForce('card_lost'), false);
+    assert.equal(renewalMayForce('hold_waiting'), false);
+    assert.equal(loanRefusalMayForce(false, true), false);
+    assert.equal(loanRefusalMayForce(true, true), true);
+    assert.equal(loanRefusalMayForce(true, false), false);
+  });
+
+  it('says why a renewal is refused when another reader is waiting', async () => {
+    const waiting = httpError(
+      422,
+      'hold_waiting',
+      'Cannot renew: another patron is waiting in the hold queue for this copy',
+    );
+    const fr = await tFor('fr');
+    const en = await tFor('en');
+    assert.equal(
+      renewalRefusalErrorMessage(waiting, fr),
+      'Prolongation refusée : un autre lecteur attend cet exemplaire.',
+    );
+    assert.equal(
+      getApiErrorMessage(waiting, fr),
+      'Prolongation refusée : un autre lecteur attend cet exemplaire.',
+    );
+    assert.equal(
+      getApiErrorMessage(waiting, en),
+      'Renewal refused: another reader is waiting for this copy.',
+    );
+    assert.equal(getApiErrorMessage(waiting, en).includes('Cannot renew'), false);
+    assert.equal(
+      getApiErrorMessage(waiting, en).includes('expired subscription'),
+      false,
+    );
   });
 });

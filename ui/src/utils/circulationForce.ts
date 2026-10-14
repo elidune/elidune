@@ -1,28 +1,27 @@
-/** Where a staff « Forcer » action can appear. `card_lost` is never one of them. */
-export type CirculationForceSurface = 'loan' | 'batch' | 'renewal';
-
-/** Checkout and batch-create may retry these codes with `force`. `card_lost` is absent. */
-const LOAN_FORCEABLE = new Set(['business_rule_violation']);
-
 /**
- * Renewal `force` skips a blocked account, an expired subscription, and unpaid fines.
- * It does not skip `card_lost`, and it does not move a due date that would stay put.
+ * Renewal 422 bodies do not include `forceable`.
+ * Staff `force` skips only these three. Checkout never consults this set:
+ * a loan refusal is forceable only when the 422 says `forceable: true`.
  */
-const RENEWAL_FORCEABLE = new Set([
+const RENEWAL_FORCE_CODES = new Set([
   'account_blocked',
   'subscription_expired',
   'fines_over_threshold',
 ]);
 
+/** Whether a renewal refusal may be retried with staff `force`. */
+export function renewalMayForce(code: string | null | undefined): boolean {
+  const key = code?.trim();
+  return Boolean(key && RENEWAL_FORCE_CODES.has(key));
+}
+
 /**
- * Whether the desk may offer a force retry.
- * `card_lost` is refused for every surface, including an administrator.
+ * Loan refusal (`POST /loans`, including a batch row).
+ * Only the server boolean counts. A missing field is not forceable.
+ * Account type and role names are not consulted: the server already
+ * computed the flag for this caller.
+ * `canForce` is the loans-write right.
  */
-export function circulationMayForce(
-  surface: CirculationForceSurface,
-  code: string | null | undefined,
-): boolean {
-  if (!code || code === 'card_lost') return false;
-  if (surface === 'renewal') return RENEWAL_FORCEABLE.has(code);
-  return LOAN_FORCEABLE.has(code);
+export function loanRefusalMayForce(forceable: unknown, canForce: boolean): boolean {
+  return canForce && forceable === true;
 }

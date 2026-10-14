@@ -5,6 +5,7 @@ import {
   readItemsRightsFromJwt,
   readOwnableRightFromJwt,
   normalizeUsersRightsLevel,
+  readLoansRightsFromJwt,
   readUsersRightsFromJwt,
   readWeedingCancelRightsFromJwt,
   readWeedingRightsFromJwt,
@@ -120,7 +121,7 @@ export interface AuthMeRights {
   itemsRights?: string | null;
   /** Borrower records (`n` / `o` / `r` / `w` or `none` / `own` / `read` / `write`). */
   usersRights?: string | null;
-  /** Circulation (`n` / `o` / `r` / `w`). `own` is the patron's own loans. */
+  /** Circulation (`n` / `o` / `r` / `w`). `own` is the patron's own loans. Write is required to send `force`. */
   loansRights?: string | null;
   /** Library settings (`n` / `r` / `w`). */
   settingsRights?: string | null;
@@ -1609,6 +1610,13 @@ export type ApiErrorCode =
   | 'bad_request'
   | 'conflict'
   | 'business_rule_violation'
+  | 'subscription_expired'
+  | 'fines_over_threshold'
+  | 'max_loans'
+  | 'max_media_loans'
+  | 'item_not_loanable'
+  | 'item_held_for_other'
+  | 'item_status_action_required'
   | 'duplicate_isbn_needs_confirmation'
   | 'duplicate_barcode_needs_confirmation'
   | 'z3950_error'
@@ -1946,6 +1954,24 @@ export function seesInternalCatalog(user: RightsUser, authToken?: string | null)
     canReadUsers(user, authToken) ||
     canArchiveItems(user, authToken)
   );
+}
+
+/**
+ * Staff may send `force` on checkout, batch loan, and renewal.
+ * The API requires `loans_rights` write. Read and own do not.
+ */
+export function canForceLoans(
+  user: Pick<User, 'loansRights' | 'rights'> | null | undefined,
+  authToken?: string | null,
+): boolean {
+  const fromJwt = authToken ? readLoansRightsFromJwt(authToken) : null;
+  const level =
+    fromJwt ??
+    normalizeUsersRightsLevel(
+      (user?.rights && typeof user.rights === 'object' ? user.rights.loansRights : null) ??
+        user?.loansRights,
+    );
+  return level === 'w';
 }
 
 /** Normalized holds level from profile only (`none` | `own` | `read` | `write`). */
@@ -2932,6 +2958,10 @@ export interface BatchCreateResult {
   code?: string | null;
   /** English server text. Shown only when `code` is missing. */
   error?: string | null;
+  /** Server-computed. Missing means the row is not forceable. */
+  forceable?: boolean | null;
+  /** Present on `item_status_action_required` (`lost`, `claimedReturned`, `toSearch`, `missing`). */
+  itemStatus?: string | null;
 }
 
 export interface BatchCreateResponse {

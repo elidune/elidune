@@ -137,13 +137,12 @@ export function normalizeUsersRightsLevel(raw: unknown): 'n' | 'o' | 'r' | 'w' |
 export function readUsersRightsFromJwt(
   accessToken: string | null | undefined,
 ): 'n' | 'o' | 'r' | 'w' | null {
-  if (!accessToken?.trim()) return null;
-  const payload = decodeAccessTokenPayload(accessToken);
-  if (!payload) return null;
-  const rights = payload.rights;
-  if (rights && typeof rights === 'object') {
-    const nested = normalizeUsersRightsLevel((rights as Record<string, unknown>).usersRights);
-    if (nested) return nested;
-  }
-  return normalizeUsersRightsLevel(payload.usersRights);
+  return readOwnableRightFromJwt(accessToken, 'usersRights');
+}
+
+/** `rights.loansRights` from the access token. Write is the circulation force right. */
+export function readLoansRightsFromJwt(
+  accessToken: string | null | undefined,
+): 'n' | 'o' | 'r' | 'w' | null {
+  return readOwnableRightFromJwt(accessToken, 'loansRights');
 }

@@ -89,10 +89,10 @@ import PatronLoansOutcome from '@/components/loans/PatronLoansOutcome';
 import { OVERDUE_FACTS_CLASS } from '@/utils/overdueDueDate';
 import ReturnBorrowerLine from '@/components/loans/ReturnBorrowerLine';
 import { useToast } from '@/contexts/ToastContext';
-import { canReadUsers, isAdmin } from '@/types';
+import { canForceLoans, canReadUsers, isAdmin } from '@/types';
 import type { User as UserType, Loan, UserShort, OverdueLoanInfo, ReminderReport, ItemCheckIn, LostFoundDisposition, LostReturnFields, PatronLoanStatus, LoanListItem } from '@/types';
 import { isItemStaffView, isUserRecordLoan } from '@/utils/catalogView';
-import { circulationMayForce } from '@/utils/circulationForce';
+import { renewalMayForce } from '@/utils/circulationForce';
 import { deskNameSearchVisible, deskPatronIdentity, patronFromCardScan, presentCardScanError } from '@/utils/deskPatron';
 import { readerIdentifierText, type BorrowerRef } from '@/utils/readerIdentifier';
 import {
@@ -159,6 +159,7 @@ export default function LoansPage() {
   const { t, i18n } = useTranslation();
   const { user: authUser } = useAuth();
   const canReadBorrowers = canReadUsers(authUser, api.getToken());
+  const canForceLoan = canForceLoans(authUser, api.getToken());
   const { showToast, dismissPersistentErrors } = useToast();
   const userIsAdmin = isAdmin(authUser?.accountType);
   const [activeTab, setActiveTab] = useState<TabType>('borrow');
@@ -236,6 +237,7 @@ export default function LoansPage() {
     cardNumber: string | null;
     initials: string | null;
     barcode: string;
+    message?: string | null;
   } | null>(null);
   const [toPickAsideLoading, setToPickAsideLoading] = useState(false);
   const [checkoutScanAlert, setCheckoutScanAlert] = useState<CheckoutScanAlert | null>(null);
@@ -942,6 +944,15 @@ export default function LoansPage() {
         });
         throw new CheckoutDeclined();
       }
+      if (getApiErrorCode(error) === 'item_held_for_other') {
+        setToPickAside({
+          cardNumber: null,
+          initials: null,
+          barcode,
+          message: t('errors.apiCode.item_held_for_other'),
+        });
+        throw new CheckoutDeclined();
+      }
       const blocked = checkoutScanNoticeFromRefusal({
         code: getApiErrorCode(error),
         message: rawMessage,
@@ -950,7 +961,10 @@ export default function LoansPage() {
         setCheckoutScanAlert({ ...blocked, barcode });
         throw new CheckoutScanNoticeShown();
       }
-      if (getApiErrorCode(error) !== 'card_lost' && checkoutMayForce(error) && !force) {
+      if (getApiErrorCode(error) === 'item_status_action_required') {
+        throw error;
+      }
+      if (!force && checkoutMayForce(error, canForceLoan)) {
         setBarcodeInput('');
         const ok = await new Promise<boolean>((resolve) => {
           setForceBorrowDialog({
@@ -1202,7 +1216,7 @@ export default function LoansPage() {
       const code = getApiErrorCode(error);
       const msg = getApiErrorMessage(error, t) || t('loans.errorRenewingLoan');
       setRenewError(msg);
-      if (!force && circulationMayForce('renewal', code)) {
+      if (!force && canForceLoan && renewalMayForce(code)) {
         setRenewForceCode(code);
         renewForceRef.current = () => {
           void completeRenew(busyId, request, true);
@@ -1547,8 +1561,8 @@ export default function LoansPage() {
                       <div className="min-w-0 flex-1 space-y-2">
                         <p className="text-sm font-medium text-red-800 dark:text-red-200">{renewError}</p>
                         <CirculationForceButton
-                          surface="renewal"
-                          code={renewForceCode}
+                          forceable={renewalMayForce(renewForceCode)}
+                          canForce={canForceLoan}
                           onForce={() => renewForceRef.current?.()}
                           disabled={borrowLoanAction?.op === 'renew'}
                         />
@@ -2195,6 +2209,7 @@ export default function LoansPage() {
         isOpen={toPickAside !== null}
         cardNumber={toPickAside?.cardNumber ?? null}
         initials={toPickAside?.initials ?? null}
+        message={toPickAside?.message}
         isLoading={toPickAsideLoading}
         onCancel={() => {
           if (toPickAsideLoading) return;

@@ -23,7 +23,9 @@ import { useAccountTypesQuery } from '@/hooks/useAccountTypesQuery';
 import { Card, Button, Badge, Modal, Input, Table, ConfirmDialog, MessageModal, ScrollableListRegion, BarcodeScanField } from '@/components/common';
 import api from '@/services/api';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
-import { circulationMayForce } from '@/utils/circulationForce';
+import { deskCheckoutMessage } from '@/utils/deskCheckoutError';
+import { renewalMayForce } from '@/utils/circulationForce';
+import { checkoutMayForce } from '@/utils/loanConflict';
 import { closureReasonText } from '@/utils/loanClosure';
 import { renewedUntilMessage } from '@/utils/localeDate';
 import { isWeedingServerMessage } from '@/utils/weeding';
@@ -52,7 +54,7 @@ import { useCirculationExceptionAction, type CirculationExceptionKind } from '@/
 import { RenewSubscriptionModal, UserEditorForm } from '@/components/users';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
-import { canManageUsers, canReadLoans, canReadUsers, type User as UserType, type LoanListItem, type LoanStatsResponse, type AdvancedStatsParams, type StatsInterval, type Author, type Hold } from '@/types';
+import { canForceLoans, canManageUsers, canReadLoans, canReadUsers, type User as UserType, type LoanListItem, type LoanStatsResponse, type AdvancedStatsParams, type StatsInterval, type Author, type Hold } from '@/types';
 import PatronFinesPanel from '@/components/users/PatronFinesPanel';
 import { useUserFinesQuery } from '@/hooks/users/useUserFinesQuery';
 import { mayLoadPatronFines } from '@/utils/patronFines';
@@ -92,6 +94,7 @@ export default function UserDetailPage() {
     canReadBorrowers,
     canReadLoans(currentUser, api.getToken()),
   );
+  const canForceLoan = canForceLoans(currentUser, api.getToken());
   const { t, i18n } = useTranslation();
   const { showToast } = useToast();
   const holdsLoadMoreRef = useRef<HTMLDivElement>(null);
@@ -110,6 +113,7 @@ export default function UserDetailPage() {
     cardNumber: string | null;
     initials: string | null;
     specimenCode: string;
+    message?: string | null;
   } | null>(null);
   const [toPickForceLoading, setToPickForceLoading] = useState(false);
   const [borrowForceError, setBorrowForceError] = useState<string | null>(null);
@@ -510,7 +514,7 @@ export default function UserDetailPage() {
       const code = getApiErrorCode(error);
       const msg = getApiErrorMessage(error, t) || t('loans.errorRenewingLoan');
       setRenewError(msg);
-      if (!force && circulationMayForce('renewal', code)) {
+      if (!force && canForceLoan && renewalMayForce(code)) {
         setRenewForceCode(code);
         setRenewForceLoanId(loanId);
       }
@@ -1048,8 +1052,8 @@ export default function UserDetailPage() {
                 <div className="min-w-0 flex-1 space-y-2">
                   <p className="text-sm font-medium text-red-800 dark:text-red-200">{renewError}</p>
                   <CirculationForceButton
-                    surface="renewal"
-                    code={renewForceCode}
+                    forceable={renewalMayForce(renewForceCode)}
+                    canForce={canForceLoan}
                     disabled={loanAction?.op === 'renew'}
                     onForce={() => {
                       if (renewForceLoanId) void handleRenewLoan(renewForceLoanId, true);
@@ -1378,6 +1382,7 @@ export default function UserDetailPage() {
             refreshLoans();
             showToast({ variant: 'success', message: t('loans.checkoutSuccessShort') });
           }}
+          canForce={canForceLoan}
           onBusinessRuleViolation={(msg, specimenCode) => {
             setShowBorrowModal(false);
             setForceBorrowDialog({
@@ -1396,6 +1401,7 @@ export default function UserDetailPage() {
         isOpen={toPickForce !== null}
         cardNumber={toPickForce?.cardNumber ?? null}
         initials={toPickForce?.initials ?? null}
+        message={toPickForce?.message}
         isLoading={toPickForceLoading}
         onCancel={() => {
           if (!toPickForceLoading) setToPickForce(null);
@@ -1475,9 +1481,10 @@ interface BorrowFormProps {
   userId: string;
   onLoadingChange: (loading: boolean) => void;
   onSuccess: () => void;
+  canForce: boolean;
   onBusinessRuleViolation?: (message: string, specimenCode: string) => void;
   onToPickForOther?: (
-    identity: { cardNumber: string | null; initials: string | null },
+    identity: { cardNumber: string | null; initials: string | null; message?: string | null },
     specimenCode: string,
   ) => void;
 }
@@ -1487,6 +1494,7 @@ function BorrowForm({
   userId,
   onLoadingChange,
   onSuccess,
+  canForce,
   onBusinessRuleViolation,
   onToPickForOther,
 }: BorrowFormProps) {
@@ -1509,7 +1517,7 @@ function BorrowForm({
       const axiosData = axiosErr?.response?.data;
       const errorCode = axiosData?.code ?? '';
       const rawMessage = typeof axiosData?.message === 'string' ? axiosData.message : '';
-      const displayMsg = getApiErrorMessage(err, t, { allowRawMessage: false }) || t('loans.errorCreatingLoan');
+      const displayMsg = deskCheckoutMessage(err, t);
       if (isWeedingServerMessage(rawMessage)) {
         setError(displayMsg);
         showToast({ variant: 'error', message: displayMsg });
@@ -1523,12 +1531,19 @@ function BorrowForm({
         );
         return;
       }
-      if (errorCode === 'card_lost') {
+      if (errorCode === 'item_held_for_other' && !force) {
+        onToPickForOther?.(
+          { cardNumber: null, initials: null, message: displayMsg },
+          specimenCode.trim(),
+        );
+        return;
+      }
+      if (errorCode === 'card_lost' || errorCode === 'item_status_action_required') {
         setError(displayMsg);
         showToast({ variant: 'error', message: displayMsg });
         return;
       }
-      if (circulationMayForce('loan', errorCode) && !force) {
+      if (!force && checkoutMayForce(err, canForce)) {
         onBusinessRuleViolation?.(displayMsg, specimenCode.trim());
         return;
       }
