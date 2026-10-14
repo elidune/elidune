@@ -33,6 +33,7 @@ import BatchDeleteSpecimensDialog from '@/components/specimen/BatchDeleteSpecime
 import WeedingStatusControl from '@/components/items/WeedingStatusControl';
 import WithdrawalDialog from '@/components/items/WithdrawalDialog';
 import api from '@/services/api';
+import { CopyNoteFields, CopyNotes } from '@/components/items/CopyNotes';
 import ItemAvailabilityBadge, { ItemHoldPatronLine } from '@/components/items/ItemAvailabilityBadge';
 import type { Author, AuthorPublic, BiblioStaffView, ItemPublicView, ItemStaffView, Source } from '@/types';
 import { isBiblioStaffView, isItemStaffView } from '@/utils/catalogView';
@@ -50,6 +51,7 @@ import {
   missingCirculationFields,
   type CirculationField,
 } from '@/utils/circulationReadiness';
+import { COPY_NOTE_MAX_CHARS, copyNoteUpdate, copyNoteWithinLimit } from '@/utils/itemNotes';
 interface BibliosListCache {
   pages?: Array<{
     items?: Array<{ id?: string | null }>;
@@ -1087,6 +1089,11 @@ function SpecimenCard({
       {specimen.volumeDesignation && (
         <p className="text-sm text-gray-500 dark:text-gray-400">{t('items.volumeDesignation')}: {specimen.volumeDesignation}</p>
       )}
+      <CopyNotes
+        audience={audience}
+        publicNote={specimen.publicNote}
+        internalNote={audience === 'staff' ? staffCopy?.internalNote : undefined}
+      />
 
       <p className="text-sm text-gray-500 dark:text-gray-400">
         {t('items.source')}: {specimen.sourceName ?? '—'}
@@ -1310,7 +1317,8 @@ function EditSpecimenForm({ formId, item, specimen, onLoadingChange, onSuccess }
     callNumber: specimen.callNumber || '',
     volumeDesignation: specimen.volumeDesignation || '',
     place: specimen.place != null ? String(specimen.place) : '',
-    notes: specimen.notes || '',
+    publicNote: specimen.publicNote ?? '',
+    internalNote: specimen.internalNote ?? '',
     price: specimen.price || '',
     priceDeferred: false,
     sourceId: specimen.sourceId || '',
@@ -1350,6 +1358,10 @@ function EditSpecimenForm({ formId, item, specimen, onLoadingChange, onSuccess }
       return;
     }
     if (!validateCallNumber(formData.callNumber)) return;
+    if (!copyNoteWithinLimit(formData.publicNote) || !copyNoteWithinLimit(formData.internalNote)) {
+      setError(t('items.noteTooLong', { max: COPY_NOTE_MAX_CHARS }));
+      return;
+    }
     const specimenId = specimen.id;
     onLoadingChange(true);
     setError(null);
@@ -1366,7 +1378,10 @@ function EditSpecimenForm({ formId, item, specimen, onLoadingChange, onSuccess }
         volumeDesignation: formData.volumeDesignation || undefined,
         borrowable: ready,
         place: formData.place ? parseInt(formData.place, 10) : undefined,
-        notes: formData.notes || undefined,
+        ...copyNoteUpdate(specimen, {
+          publicNote: formData.publicNote,
+          internalNote: formData.internalNote,
+        }),
         price: formData.priceDeferred ? null : formData.price || undefined,
         priceDeferred: formData.priceDeferred || undefined,
         sourceId: formData.sourceId || undefined,
@@ -1464,10 +1479,11 @@ function EditSpecimenForm({ formId, item, specimen, onLoadingChange, onSuccess }
           <p className="text-sm text-gray-600 dark:text-gray-400">{t('items.stillIncomplete')}</p>
         </div>
       )}
-      <Input
-        label={t('items.specimenNotes')}
-        value={formData.notes}
-        onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+      <CopyNoteFields
+        publicNote={formData.publicNote}
+        internalNote={formData.internalNote}
+        onPublicNoteChange={(publicNote) => setFormData({ ...formData, publicNote })}
+        onInternalNoteChange={(internalNote) => setFormData({ ...formData, internalNote })}
       />
     </form>
   );
