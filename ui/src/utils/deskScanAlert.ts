@@ -26,6 +26,7 @@ export interface DeskScanAlert {
 }
 
 export interface DeskCopySnapshot {
+  itemId?: string | null;
   availability?: string | null;
   loanId?: string | null;
   loanUserId?: string | null;
