@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { AlertCircle, Truck } from 'lucide-react';
@@ -12,11 +12,12 @@ import {
   ListSkeleton,
   Table,
 } from '@/components/common';
-import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
-import HoldPatronLabel from '@/components/holds/HoldPatronLabel';
-import HoldPickupCell from '@/components/holds/HoldPickupCell';
-import HoldTransitActions from '@/components/holds/HoldTransitActions';
 import TransitActionModals from '@/components/holds/TransitActionModals';
+import {
+  TransitBarcodeCell,
+  TransitReaderCell,
+  TransitTitleCell,
+} from '@/components/holds/TransitQueueCells';
 import TransitStatusBadge from '@/components/holds/TransitStatusBadge';
 import { useActiveTransitsQuery } from '@/hooks/holds/useActiveTransitsQuery';
 import { useSourcesQuery } from '@/hooks/holds/useSourcesQuery';
@@ -24,26 +25,19 @@ import { useTransitActions } from '@/hooks/holds/useTransitActions';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { formChoiceLabelClass } from '@/utils/formControl';
-import { canReadUsers } from '@/types';
-import { useAuth } from '@/contexts/AuthContext';
-import { isHoldDetailsStaff } from '@/utils/catalogView';
-import { holdSecondaryDocumentLabel, STAFF_HOLDS_FETCH_CAP } from '@/utils/holdDisplay';
-import { canCancelTransit, sourceLabel } from '@/utils/transitDisplay';
-import type { Hold, ItemTransit, TransitStatus } from '@/types';
+import {
+  canCancelTransit,
+  sourceLabel,
+  transitListBarcode,
+  transitListPatron,
+  transitListTitle,
+} from '@/utils/transitDisplay';
+import type { ItemTransit, TransitStatus } from '@/types';
 
 type TransitFilter = 'active' | TransitStatus | 'all';
 
-function transitCopyLabel(transit: ItemTransit, hold?: Hold | null): string {
-  if (hold) {
-    return holdSecondaryDocumentLabel(hold) || transit.itemId;
-  }
-  return transit.itemId;
-}
-
 export default function TransitsPage() {
   const { t, i18n } = useTranslation();
-  const { user: authUser } = useAuth();
-  const canOpenReader = canReadUsers(authUser, api.getToken());
   const [filter, setFilter] = useState<TransitFilter>('active');
   const [page, setPage] = useState(1);
   const [prevFilter, setPrevFilter] = useState(filter);
@@ -69,21 +63,6 @@ export default function TransitsPage() {
     staleTime: 30 * 1000,
   });
 
-  const holdsQuery = useQuery({
-    queryKey: ['activeHolds'],
-    queryFn: () => api.getHolds({ page: 1, perPage: STAFF_HOLDS_FETCH_CAP, activeOnly: true }),
-    staleTime: 30 * 1000,
-  });
-
-  const holdById = useMemo(() => {
-    const map = new Map<string, Hold>();
-    for (const hold of holdsQuery.data?.items ?? []) {
-      if (!isHoldDetailsStaff(hold)) continue;
-      map.set(hold.id, hold);
-    }
-    return map;
-  }, [holdsQuery.data?.items]);
-
   const listError = filter === 'active' ? activeQuery.error : pagedQuery.error;
   const isLoading = filter === 'active' ? activeQuery.isLoading : pagedQuery.isLoading;
   const rows =
@@ -93,43 +72,59 @@ export default function TransitsPage() {
   const totalPages =
     filter === 'active' ? 1 : Math.max(1, pagedQuery.data?.pageCount ?? 1);
 
+  const rowActions = (r: ItemTransit) => (
+    <>
+      {r.status === 'requested' && (
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={actions.isLoading}
+          isLoading={actions.busyKey === `ship:${r.id}`}
+          onClick={() => actions.open({ kind: 'ship', transit: r })}
+        >
+          {t('holds.shipTransit')}
+        </Button>
+      )}
+      {r.status === 'inTransit' && (
+        <Button
+          size="sm"
+          variant="primary"
+          disabled={actions.isLoading}
+          isLoading={actions.busyKey === `receive:${r.id}`}
+          onClick={() => actions.open({ kind: 'receive', transit: r })}
+        >
+          {t('holds.receiveTransit')}
+        </Button>
+      )}
+      {canCancelTransit(r) && (
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={actions.isLoading}
+          isLoading={actions.busyKey === `cancel:${r.id}`}
+          onClick={() => actions.open({ kind: 'cancel', transit: r })}
+        >
+          {t('holds.cancelTransit')}
+        </Button>
+      )}
+    </>
+  );
+
   const columns = [
     {
-      key: 'copy',
-      header: t('transits.columnCopy'),
-      render: (r: ItemTransit) => {
-        const hold = r.holdId ? holdById.get(r.holdId) : undefined;
-        const label = transitCopyLabel(r, hold);
-        if (hold?.biblioId) {
-          return (
-            <div className="min-w-0">
-              <HoldDocumentCell hold={hold} />
-            </div>
-          );
-        }
-        return <span className="font-mono text-sm">{label}</span>;
-      },
+      key: 'barcode',
+      header: t('transits.columnBarcode'),
+      render: (r: ItemTransit) => <TransitBarcodeCell barcode={transitListBarcode(r)} />,
     },
     {
-      key: 'hold',
-      header: t('transits.columnHold'),
-      render: (r: ItemTransit) => {
-        const hold = r.holdId ? holdById.get(r.holdId) : undefined;
-        if (!hold) {
-          return r.holdId ? (
-            <span className="font-mono text-xs text-gray-500">{r.holdId}</span>
-          ) : (
-            <span className="text-gray-400">{t('holds.transitNone')}</span>
-          );
-        }
-        return (
-          <HoldPatronLabel
-            user={hold.user}
-            linked={canOpenReader}
-            className="text-indigo-600 dark:text-indigo-400 hover:underline"
-          />
-        );
-      },
+      key: 'title',
+      header: t('transits.columnTitle'),
+      render: (r: ItemTransit) => <TransitTitleCell title={transitListTitle(r)} />,
+    },
+    {
+      key: 'reader',
+      header: t('transits.columnReader'),
+      render: (r: ItemTransit) => <TransitReaderCell patron={transitListPatron(r)} />,
     },
     {
       key: 'from',
@@ -155,47 +150,7 @@ export default function TransitsPage() {
       key: 'actions',
       header: t('common.actions'),
       align: 'right' as const,
-      render: (r: ItemTransit) => {
-        const hold = r.holdId ? holdById.get(r.holdId) : undefined;
-        return (
-          <div className="flex flex-wrap justify-end gap-2">
-            {hold && <HoldTransitActions hold={hold} transit={r} actions={actions} />}
-            {!hold && r.status === 'requested' && (
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={actions.isLoading}
-                isLoading={actions.busyKey === `ship:${r.id}`}
-                onClick={() => actions.open({ kind: 'ship', transit: r })}
-              >
-                {t('holds.shipTransit')}
-              </Button>
-            )}
-            {!hold && r.status === 'inTransit' && (
-              <Button
-                size="sm"
-                variant="primary"
-                disabled={actions.isLoading}
-                isLoading={actions.busyKey === `receive:${r.id}`}
-                onClick={() => actions.open({ kind: 'receive', transit: r })}
-              >
-                {t('holds.receiveTransit')}
-              </Button>
-            )}
-            {canCancelTransit(r) && (
-              <Button
-                size="sm"
-                variant="secondary"
-                disabled={actions.isLoading}
-                isLoading={actions.busyKey === `cancel:${r.id}`}
-                onClick={() => actions.open({ kind: 'cancel', transit: r })}
-              >
-                {t('holds.cancelTransit')}
-              </Button>
-            )}
-          </div>
-        );
-      },
+      render: (r: ItemTransit) => <div className="flex flex-wrap justify-end gap-2">{rowActions(r)}</div>,
     },
   ];
 
@@ -276,65 +231,34 @@ export default function TransitsPage() {
                   </div>
                 ) : (
                   <div className="rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden bg-white dark:bg-gray-900 mx-2 sm:mx-4 mb-2">
-                    {rows.map((r) => {
-                      const hold = r.holdId ? holdById.get(r.holdId) : undefined;
-                      return (
-                        <div
-                          key={r.id}
-                          className="p-4 border-b border-gray-100 dark:border-gray-800 last:border-b-0 space-y-2"
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            {hold ? (
-                              <HoldDocumentCell hold={hold} />
-                            ) : (
-                              <span className="font-mono text-sm">{r.itemId}</span>
-                            )}
-                            <TransitStatusBadge status={r.status} />
-                          </div>
-                          <div className="text-xs text-gray-600 dark:text-gray-300 space-y-1">
-                            <div>
-                              {t('transits.columnFrom')}: {sourceLabel(sources, r.fromSourceId) ?? r.fromSourceId}
+                    {rows.map((r) => (
+                      <div
+                        key={r.id}
+                        className="p-4 border-b border-gray-100 dark:border-gray-800 last:border-b-0 space-y-2"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 space-y-1">
+                            <TransitTitleCell title={transitListTitle(r)} />
+                            <div className="text-xs text-gray-500 dark:text-gray-400">
+                              {t('transits.columnBarcode')}: <TransitBarcodeCell barcode={transitListBarcode(r)} />
                             </div>
-                            <div>
-                              {t('transits.columnTo')}: {sourceLabel(sources, r.toSourceId) ?? r.toSourceId}
+                            <div className="text-xs text-gray-600 dark:text-gray-300">
+                              {t('transits.columnReader')}: <TransitReaderCell patron={transitListPatron(r)} />
                             </div>
-                            {hold && (
-                              <HoldPickupCell hold={hold} sources={sources} transit={r} showTransit={false} />
-                            )}
                           </div>
-                          <div className="flex flex-wrap gap-2">
-                            {hold && <HoldTransitActions hold={hold} transit={r} actions={actions} />}
-                            {!hold && r.status === 'requested' && (
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                onClick={() => actions.open({ kind: 'ship', transit: r })}
-                              >
-                                {t('holds.shipTransit')}
-                              </Button>
-                            )}
-                            {!hold && r.status === 'inTransit' && (
-                              <Button
-                                size="sm"
-                                variant="primary"
-                                onClick={() => actions.open({ kind: 'receive', transit: r })}
-                              >
-                                {t('holds.receiveTransit')}
-                              </Button>
-                            )}
-                            {canCancelTransit(r) && (
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                onClick={() => actions.open({ kind: 'cancel', transit: r })}
-                              >
-                                {t('holds.cancelTransit')}
-                              </Button>
-                            )}
+                          <TransitStatusBadge status={r.status} />
+                        </div>
+                        <div className="text-xs text-gray-600 dark:text-gray-300 space-y-1">
+                          <div>
+                            {t('transits.columnFrom')}: {sourceLabel(sources, r.fromSourceId) ?? r.fromSourceId}
+                          </div>
+                          <div>
+                            {t('transits.columnTo')}: {sourceLabel(sources, r.toSourceId) ?? r.toSourceId}
                           </div>
                         </div>
-                      );
-                    })}
+                        <div className="flex flex-wrap gap-2">{rowActions(r)}</div>
+                      </div>
+                    ))}
                   </div>
                 )
               }

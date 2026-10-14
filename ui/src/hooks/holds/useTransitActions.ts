@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
 import { useToast } from '@/contexts/ToastContext';
-import { getApiErrorMessage } from '@/utils/apiError';
+import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
+import { interpretPickCheckIn } from '@/utils/toPickDesk';
 import type { CreateTransit, HoldListItem, ItemTransit } from '@/types';
 import { ACTIVE_TRANSITS_QUERY_KEY } from '@/hooks/holds/useActiveTransitsQuery';
 
@@ -26,6 +27,7 @@ export function useTransitActions() {
   const [pending, setPending] = useState<PendingTransitAction | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
   const invalidate = useCallback(() => {
@@ -40,6 +42,7 @@ export function useTransitActions() {
   const open = useCallback((next: PendingTransitAction) => {
     if (inFlightRef.current) return;
     setError(null);
+    setErrorCode(null);
     setPending(next);
   }, []);
 
@@ -47,6 +50,7 @@ export function useTransitActions() {
     if (inFlightRef.current) return;
     setPending(null);
     setError(null);
+    setErrorCode(null);
   }, []);
 
   const run = useCallback(
@@ -56,15 +60,19 @@ export function useTransitActions() {
       setBusyKey(busyKeyFor(pending));
       setIsLoading(true);
       setError(null);
+      setErrorCode(null);
       try {
         await fn();
         showToast({ variant: 'success', message: t(successKey) });
         setPending(null);
         invalidate();
       } catch (err: unknown) {
+        const code = getApiErrorCode(err);
         const msg = getApiErrorMessage(err, t) || t('holds.transitActionError');
+        setErrorCode(code);
         setError(msg);
         showToast({ variant: 'error', message: msg });
+        if (code === 'transit_same_site') invalidate();
       } finally {
         inFlightRef.current = false;
         setBusyKey(null);
@@ -95,6 +103,47 @@ export function useTransitActions() {
     return run(() => api.receiveTransit(id).then(() => undefined), 'holds.receiveSuccess');
   }, [pending, run]);
 
+  const confirmSetAside = useCallback(
+    (barcode: string) => {
+      if (pending?.kind !== 'start' || inFlightRef.current) return;
+      const trimmed = barcode.trim();
+      if (!trimmed) return;
+      inFlightRef.current = true;
+      setBusyKey(busyKeyFor(pending));
+      setIsLoading(true);
+      return (async () => {
+        try {
+          const result = await api.returnLoanByBarcode(trimmed);
+          const pick = interpretPickCheckIn(result);
+          const message = pick
+            ? pick.kind === 'ready'
+              ? t('loans.pickReady', {
+                  patron: pick.patronName?.trim() || t('loans.pickPatronUnknown'),
+                })
+              : t('loans.pickTransit', {
+                  site: pick.siteName?.trim() || t('loans.pickSiteUnknown'),
+                })
+            : t('loans.returnSuccess');
+          showToast({ variant: 'success', message });
+          setPending(null);
+          setError(null);
+          setErrorCode(null);
+          invalidate();
+        } catch (err: unknown) {
+          const msg = getApiErrorMessage(err, t) || t('loans.errorReturningLoan');
+          setErrorCode(getApiErrorCode(err));
+          setError(msg);
+          showToast({ variant: 'error', message: msg });
+        } finally {
+          inFlightRef.current = false;
+          setBusyKey(null);
+          setIsLoading(false);
+        }
+      })();
+    },
+    [invalidate, pending, showToast, t],
+  );
+
   const confirmCancel = useCallback(() => {
     if (pending?.kind !== 'cancel') return;
     const transit = pending.transit;
@@ -111,10 +160,12 @@ export function useTransitActions() {
     pending,
     isLoading,
     error,
+    errorCode,
     busyKey,
     open,
     close,
     confirmStart,
+    confirmSetAside,
     confirmShip,
     confirmReceive,
     confirmCancel,

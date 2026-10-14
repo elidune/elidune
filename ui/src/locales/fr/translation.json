@@ -556,6 +556,9 @@
     "filterAll": "Tous",
     "columnCopy": "Exemplaire",
     "columnHold": "Réservation / lecteur",
+    "columnBarcode": "Code-barres",
+    "columnTitle": "Titre",
+    "columnReader": "Lecteur",
     "columnFrom": "De",
     "columnTo": "Vers",
     "columnStatus": "Statut",
@@ -2143,7 +2146,8 @@
       "withdrawal_not_legacy": "Seuls les retraits repris de l’ancien désherbage peuvent être complétés.",
       "item_has_history_use_weeding": "Cet exemplaire a un historique (prêt, réservation ou amende). Il ne peut pas être supprimé : désherbez-le.",
       "biblio_has_items": "Cette notice a encore des exemplaires, y compris sortis ou archivés. Elle ne peut pas être supprimée.",
-      "biblio_has_holds": "Cette notice a des réservations. Elle ne peut pas être supprimée."
+      "biblio_has_holds": "Cette notice a des réservations. Elle ne peut pas être supprimée.",
+      "transit_same_site": "L'exemplaire est déjà sur le site de retrait : mettez-le de côté pour la réservation."
     }
   },
   "inventory": {

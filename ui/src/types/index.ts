@@ -2617,6 +2617,16 @@ export interface HoldQuota {
 /** camelCase wire values from #40 (`inTransit`, not `in_transit`). */
 export type TransitStatus = 'requested' | 'inTransit' | 'received' | 'cancelled';
 
+/**
+ * Reader on a transit. Card number and initials only — never a name.
+ * Null when there is no hold, the hold is cancelled or expired, or the caller
+ * cannot see hold patrons. Omitted by servers that do not send it yet.
+ */
+export interface TransitPatron {
+  cardNumber?: string | null;
+  initials?: string | null;
+}
+
 export interface ItemTransit {
   id: string;
   itemId: string;
@@ -2633,6 +2643,15 @@ export interface ItemTransit {
   receivedBy?: string | null;
   cancelledBy?: string | null;
   reversedFromId?: string | null;
+  /**
+   * Copy and patron fields. Optional so a server that does not send them yet
+   * still type-checks. `sourceId` is the copy's current site.
+   */
+  barcode?: string | null;
+  title?: string | null;
+  sourceId?: string | null;
+  sourceName?: string | null;
+  patron?: TransitPatron | null;
 }
 
 /** POST /holds/{id}/transits — allocate a copy toward the hold’s pickup site. */

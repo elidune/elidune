@@ -556,6 +556,9 @@
     "filterAll": "All",
     "columnCopy": "Copy",
     "columnHold": "Hold / patron",
+    "columnBarcode": "Barcode",
+    "columnTitle": "Title",
+    "columnReader": "Reader",
     "columnFrom": "From",
     "columnTo": "To",
     "columnStatus": "Status",
@@ -2143,7 +2146,8 @@
       "withdrawal_not_legacy": "Only withdrawals imported from the previous weeding note can be completed.",
       "item_has_history_use_weeding": "This copy has a history (a loan, a hold, or a fine) and cannot be deleted. Weed it instead.",
       "biblio_has_items": "This record still has copies, including withdrawn or archived ones. It cannot be deleted.",
-      "biblio_has_holds": "This record has holds and cannot be deleted."
+      "biblio_has_holds": "This record has holds and cannot be deleted.",
+      "transit_same_site": "The copy is already at the pickup site: set it aside for the hold."
     }
   },
   "inventory": {
