@@ -61,6 +61,16 @@ pub struct DeskReturn {
     pub lost: Option<crate::models::dto::circulation::LostItemOnReturn>,
 }
 
+/// Result of the unpaid-fine gate for one checkout.
+enum CheckoutFineGate {
+    /// Balance is at or under the threshold, or amount blocking is off (`none`).
+    Clear,
+    /// This loan may skip `fines_over_threshold`. Audited only after it commits.
+    Overridden,
+    /// Caller may not skip the gate, or `force` was not set.
+    Refused(CheckoutRefusal),
+}
+
 #[derive(Clone)]
 pub struct LoansService {
     repository: Arc<dyn LoansServiceRepository>,
@@ -128,41 +138,27 @@ impl LoansService {
     }
 
     /// Unpaid fines strictly above the effective threshold.
-    /// A null threshold does not block on amount.
-    /// When `force` skips the gate, the override is audited and no refusal is returned.
+    /// A null threshold (`none`, or inherit of a global `none`) does not block.
+    /// `Overridden` means this call may skip the gate. The audit is written only
+    /// after the loan commits, and only for that loan.
     async fn checkout_fine_refusal(
         &self,
         user_id: i64,
         public_type_id: Option<i64>,
         force: bool,
-        audit_actor: Option<i64>,
-        client_ip: Option<String>,
         caller_rights: &UserRights,
-    ) -> AppResult<Option<CheckoutRefusal>> {
+    ) -> AppResult<CheckoutFineGate> {
         let check = self
             .fines
             .check_unpaid_threshold(user_id, public_type_id)
             .await?;
         if !check.blocks_circulation() {
-            return Ok(None);
+            return Ok(CheckoutFineGate::Clear);
         }
         if force_skips_checkout_refusal(force, error_code::FINES_OVER_THRESHOLD, caller_rights) {
-            self.audit.log(
-                audit::event::LOAN_FINE_THRESHOLD_OVERRIDDEN,
-                audit_actor,
-                Some("user"),
-                Some(user_id),
-                client_ip,
-                Some(serde_json::json!({
-                    "unpaid": check.unpaid,
-                    "threshold": check.threshold,
-                    "operation": "checkout",
-                })),
-                AuditLogMeta::success(),
-            );
-            return Ok(None);
+            return Ok(CheckoutFineGate::Overridden);
         }
-        Ok(Some(CheckoutRefusal::new(
+        Ok(CheckoutFineGate::Refused(CheckoutRefusal::new(
             error_code::FINES_OVER_THRESHOLD,
             check.desk_block_message(),
             caller_rights,
@@ -177,7 +173,10 @@ impl LoansService {
     /// - expired subscriptions are `422` `subscription_expired` unless `force` skips that code
     ///   for a caller with settings write
     /// - unpaid fines strictly above the effective threshold are `422` `fines_over_threshold`
-    ///   unless `force` skips that code (a null threshold does not block on amount)
+    ///   unless `force` skips that code for a caller with loans write (a null
+    ///   threshold, including mode `none`, does not block on amount). The skip
+    ///   applies to this loan only. It is audited after the write commits as
+    ///   `loan.fine_threshold_overridden` with `{ reason, loanId, patron_id }`.
     ///
     /// Forceable patron refusals are passed into the repository. A later non-forceable item
     /// gate (another patron's hold, a circulation status that needs a desk action, a withdrawn
@@ -193,6 +192,7 @@ impl LoansService {
 
         let mut refusals = Vec::new();
         let mut subscription_overridden = false;
+        let mut fine_overridden = false;
         let status = user.status.unwrap_or(UserStatus::Active);
         if status == UserStatus::Deleted {
             push_checkout_refusal(
@@ -254,24 +254,36 @@ impl LoansService {
             }
         }
 
-        if let Some(fine_refusal) = self
-            .checkout_fine_refusal(
-                loan.user_id,
-                user.public_type,
-                loan.force,
-                audit_actor,
-                client_ip.clone(),
-                caller_rights,
-            )
+        match self
+            .checkout_fine_refusal(loan.user_id, user.public_type, loan.force, caller_rights)
             .await?
         {
-            push_checkout_refusal(&mut refusals, loan.force, fine_refusal)?;
+            CheckoutFineGate::Clear => {}
+            CheckoutFineGate::Overridden => fine_overridden = true,
+            CheckoutFineGate::Refused(fine_refusal) => {
+                push_checkout_refusal(&mut refusals, loan.force, fine_refusal)?;
+            }
         }
 
         let outcome = self
             .repository
             .loans_create(&loan, refusals, caller_rights)
             .await?;
+        if fine_overridden {
+            self.audit.log(
+                audit::event::LOAN_FINE_THRESHOLD_OVERRIDDEN,
+                audit_actor,
+                Some("loan"),
+                Some(outcome.loan_id),
+                client_ip.clone(),
+                Some(serde_json::json!({
+                    "reason": error_code::FINES_OVER_THRESHOLD,
+                    "loanId": outcome.loan_id,
+                    "patron_id": loan.user_id,
+                })),
+                AuditLogMeta::success(),
+            );
+        }
         if subscription_overridden {
             self.audit.log(
                 audit::event::LOAN_SUBSCRIPTION_EXPIRED_OVERRIDDEN,
@@ -1883,10 +1895,46 @@ mod tests {
             )
             .await
             .expect_err("over-threshold checkout must fail");
-        let message = assert_checkout_refusal(err, "fines_over_threshold", true);
+        let message = assert_checkout_refusal(err, "fines_over_threshold", false);
         assert!(message.contains("15"), "{message}");
         assert!(message.contains("10"), "{message}");
         assert!(message.contains("force=true"), "{message}");
+        let offered = svc
+            .create_loan(make_loan(9, false), None, None, &loans_write_rights())
+            .await
+            .expect_err("loans write still refuses without force");
+        assert_checkout_refusal(offered, "fines_over_threshold", true);
+    }
+
+    fn loans_write_rights() -> crate::models::user::UserRights {
+        crate::models::user::UserRights {
+            loans_rights: crate::models::user::Rights::Write,
+            ..crate::models::user::UserRights::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn test_create_loan_unpaid_over_threshold_force_without_loans_write_rejected() {
+        let user = make_user(18, None, None);
+        let svc = make_service_with_fines(
+            Some(user),
+            0,
+            FakeFinesRepo {
+                unpaid: decimal("15"),
+                threshold: Some(decimal("10")),
+            },
+            None,
+        );
+        let err = svc
+            .create_loan(
+                make_loan(18, true),
+                Some(99),
+                None,
+                &settings_write_rights(),
+            )
+            .await
+            .expect_err("settings write must not lift the fine gate");
+        assert_checkout_refusal(err, "fines_over_threshold", false);
     }
 
     #[tokio::test]
@@ -1906,7 +1954,7 @@ mod tests {
                 make_loan(10, true),
                 Some(99),
                 Some("127.0.0.1".into()),
-                &crate::models::user::UserRights::default()
+                &loans_write_rights()
             )
             .await
             .is_ok());

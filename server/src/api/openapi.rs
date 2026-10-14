@@ -993,6 +993,22 @@ mod tests {
             description.contains("forceable") && description.contains("settings_rights"),
             "POST /loans 422 must document caller-specific forceable: {description}"
         );
+        assert!(
+            description.contains("loans_rights")
+                && description.contains("loan.fine_threshold_overridden")
+                && description.contains("patron_id"),
+            "POST /loans 422 must document the shared fine override: {description}"
+        );
+        let batch = value["paths"]["/loans/batch-create"]["post"]["responses"]["200"]
+            ["description"]
+            .as_str()
+            .unwrap_or("");
+        assert!(
+            batch.contains("fines_over_threshold")
+                && batch.contains("loans_rights")
+                && batch.contains("loan.fine_threshold_overridden"),
+            "batch checkout must document the shared fine override: {batch}"
+        );
         let schema = value["paths"]["/loans"]["post"]["responses"]["422"]["content"]
             ["application/json"]["schema"]["$ref"]
             .as_str()
