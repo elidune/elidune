@@ -175,50 +175,9 @@ jobs:
         run: cargo check --lib
 
       - name: Run DB integration tests
+        # Runs every file in server/tests/ (no per-file list to maintain; new test files are picked up automatically). Unit tests run in test-fast.
         run: >-
-          cargo test
-          --test lms_flows
-          --test repository_loans_holds
-          --test repository_loans_calendar
-          --test fines_circulation
-          --test idempotency_loans
-          --test security_rbac
-          --test email_outbox
-          --test graduated_reminders
-          --test patron_guardians
-          --test event_audiences
-          --test events_consent
-          --test auth_rate_limit
-          --test password_reset
-          --test weeding
-          --test withdrawals
-          --test holds_max_active
-          --test holds_title_level
-          --test holds_to_pick
-          --test item_availability
-          --test my_account
-          --test lost_item_found
-          --test fine_audit_tx
-          --test loan_open_conflict
-          --test loan_borrower_identity
-          --test loan_closure_reason
-          --test patron_card_scan
-          --test biblio_item_notice
-          --test card_replacement
-          --test hold_patron_identity
-          --test public_catalog_copies
-          --test renewal_subscription
-          --test checkout_refusal_codes
-          --test catalog_view_rights
-          --test own_user_record
-          --test account_types_custom
-          --test circulation_status_read_only
-          --test return_not_on_loan
-          --test patron_current_loans_rights
-          --test transit_display
-          --test expected_return_date
-          --test item_notes
-          --test hold_notes
+          cargo test --test '*'
           -- --nocapture
 
   coverage:
@@ -291,48 +250,7 @@ jobs:
         run: >-
           cargo llvm-cov
           --lib
-          --test lms_flows
-          --test repository_loans_holds
-          --test repository_loans_calendar
-          --test fines_circulation
-          --test idempotency_loans
-          --test security_rbac
-          --test email_outbox
-          --test graduated_reminders
-          --test patron_guardians
-          --test event_audiences
-          --test events_consent
-          --test auth_rate_limit
-          --test password_reset
-          --test weeding
-          --test withdrawals
-          --test holds_max_active
-          --test holds_title_level
-          --test holds_to_pick
-          --test item_availability
-          --test my_account
-          --test lost_item_found
-          --test fine_audit_tx
-          --test loan_open_conflict
-          --test loan_borrower_identity
-          --test loan_closure_reason
-          --test patron_card_scan
-          --test biblio_item_notice
-          --test card_replacement
-          --test hold_patron_identity
-          --test public_catalog_copies
-          --test renewal_subscription
-          --test checkout_refusal_codes
-          --test catalog_view_rights
-          --test own_user_record
-          --test account_types_custom
-          --test circulation_status_read_only
-          --test return_not_on_loan
-          --test patron_current_loans_rights
-          --test transit_display
-          --test expected_return_date
-          --test item_notes
-          --test hold_notes
+          --tests
           --lcov
           --output-path lcov.info
           --fail-under-lines 20
