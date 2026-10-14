@@ -194,9 +194,10 @@ fn require_read_user(claims: &UserClaims, id: i64) -> Result<(), AppError> {
     security(("bearer_auth" = [])),
     request_body = UserPayload,
     responses(
-        (status = 201, description = "User created", body = User),
+        (status = 201, description = "User created. `language` omitted or null is stored as no preference.", body = User),
         (status = 400, description = "Invalid input, including missing guardianId for child patrons", body = crate::error::ErrorResponse),
-        (status = 409, description = "Login already exists, card number already assigned, or a retired card number (`card_number_retired`)", body = crate::error::ErrorResponse)
+        (status = 409, description = "Login already exists, card number already assigned, or a retired card number (`card_number_retired`)", body = crate::error::ErrorResponse),
+        (status = 422, description = "`language` is not `english`, `french`, `german`, or `spanish`", body = crate::error::ErrorResponse)
     )
 )]
 pub async fn create_user(
