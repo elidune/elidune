@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect, useRef, useMemo } from 'react';
+import { lazy, Suspense, useState, useEffect, useRef, useMemo, forwardRef, useImperativeHandle } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -33,6 +33,12 @@ import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
 import { isClaimedReturnedLoan } from '@/utils/circulationStatus';
 import { interpretPickCheckIn } from '@/utils/toPickDesk';
+import {
+  commitDismissHeldSetAside,
+  commitHeldSetAside,
+  heldSetAsideServerMessage,
+  isInPlaceHeldSetAside,
+} from '@/utils/heldSetAside';
 import { newIdempotencyKey } from '@/utils/idempotency';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
 import HoldStatusBadge from '@/components/holds/HoldStatusBadge';
@@ -113,8 +119,13 @@ export default function UserDetailPage() {
     initials: string | null;
     specimenCode: string;
     message?: string | null;
+    force?: boolean;
   } | null>(null);
   const [toPickForceLoading, setToPickForceLoading] = useState(false);
+  const borrowFormRef = useRef<BorrowFormHandle>(null);
+  const cueBorrowBarcode = (clear: boolean) => {
+    borrowFormRef.current?.cueBarcode(clear);
+  };
   const [borrowForceError, setBorrowForceError] = useState<string | null>(null);
   const [isEditLoading, setIsEditLoading] = useState(false);
   const [isBorrowLoading, setIsBorrowLoading] = useState(false);
@@ -1373,6 +1384,7 @@ export default function UserDetailPage() {
         }
       >
         <BorrowForm
+          ref={borrowFormRef}
           formId="borrow-user-form"
           userId={user.id}
           onLoadingChange={setIsBorrowLoading}
@@ -1390,7 +1402,7 @@ export default function UserDetailPage() {
             });
           }}
           onToPickForOther={(identity, specimenCode) => {
-            setShowBorrowModal(false);
+            if (!isInPlaceHeldSetAside(identity.message)) setShowBorrowModal(false);
             setToPickForce({ ...identity, specimenCode });
           }}
         />
@@ -1402,12 +1414,61 @@ export default function UserDetailPage() {
         initials={toPickForce?.initials ?? null}
         message={toPickForce?.message}
         isLoading={toPickForceLoading}
+        onForce={
+          toPickForce?.force
+            ? () => {
+                const ctx = toPickForce;
+                if (toPickForceLoading) return;
+                setToPickForce(null);
+                void (async () => {
+                  try {
+                    await api.createLoan({
+                      userId: user.id,
+                      itemIdentification: ctx.specimenCode,
+                      force: true,
+                    }, newIdempotencyKey());
+                    await refreshLoans();
+                    showToast({ variant: 'success', message: t('loans.checkoutSuccessShort') });
+                    cueBorrowBarcode(true);
+                  } catch (error: unknown) {
+                    showToast({
+                      variant: 'error',
+                      message: heldSetAsideServerMessage(error, t),
+                    });
+                    cueBorrowBarcode(false);
+                  }
+                })();
+              }
+            : undefined
+        }
         onCancel={() => {
-          if (!toPickForceLoading) setToPickForce(null);
+          if (toPickForceLoading) return;
+          if (isInPlaceHeldSetAside(toPickForce?.message)) {
+            commitDismissHeldSetAside({
+              closeDialog: () => setToPickForce(null),
+              clearBarcode: () => cueBorrowBarcode(true),
+              refocusBarcode: () => cueBorrowBarcode(false),
+            });
+            return;
+          }
+          setToPickForce(null);
         }}
         onSetAside={() => {
           const ctx = toPickForce;
           if (!ctx || toPickForceLoading) return;
+          if (isInPlaceHeldSetAside(ctx.message)) {
+            setToPickForceLoading(true);
+            void commitHeldSetAside(ctx.specimenCode, {
+              returnByBarcode: (code) => api.returnLoanByBarcode(code),
+              successMessage: t('loans.heldSetAside'),
+              errorMessage: (error) => heldSetAsideServerMessage(error, t),
+              showToast: (toast) => showToast(toast),
+              closeDialog: () => setToPickForce(null),
+              clearBarcode: () => cueBorrowBarcode(true),
+              refocusBarcode: () => cueBorrowBarcode(false),
+            }).finally(() => setToPickForceLoading(false));
+            return;
+          }
           setToPickForceLoading(true);
           void (async () => {
             try {
@@ -1475,6 +1536,11 @@ export default function UserDetailPage() {
   );
 }
 
+interface BorrowFormHandle {
+  /** Clear the barcode when `clear` is true, then focus it. */
+  cueBarcode: (clear: boolean) => void;
+}
+
 interface BorrowFormProps {
   formId: string;
   userId: string;
@@ -1483,12 +1549,12 @@ interface BorrowFormProps {
   canForce: boolean;
   onBusinessRuleViolation?: (message: string, specimenCode: string) => void;
   onToPickForOther?: (
-    identity: { cardNumber: string | null; initials: string | null; message?: string | null },
+    identity: { cardNumber: string | null; initials: string | null; message?: string | null; force?: boolean },
     specimenCode: string,
   ) => void;
 }
 
-function BorrowForm({
+const BorrowForm = forwardRef<BorrowFormHandle, BorrowFormProps>(function BorrowForm({
   formId,
   userId,
   onLoadingChange,
@@ -1496,11 +1562,21 @@ function BorrowForm({
   canForce,
   onBusinessRuleViolation,
   onToPickForOther,
-}: BorrowFormProps) {
+}, ref) {
   const { t } = useTranslation();
   const { showToast } = useToast();
+  const scanRef = useRef<HTMLInputElement>(null);
   const [specimenCode, setSpecimenCode] = useState('');
   const [error, setError] = useState('');
+
+  useImperativeHandle(ref, () => ({
+    cueBarcode(clear: boolean) {
+      if (clear) setSpecimenCode('');
+      const focus = () => scanRef.current?.focus();
+      requestAnimationFrame(focus);
+      setTimeout(focus, 0);
+    },
+  }), []);
 
   const doCreateLoan = async (force = false) => {
     try {
@@ -1525,7 +1601,7 @@ function BorrowForm({
       const actions = checkoutDeskActionsFromError(err, canForce);
       if (actions.setAside && !force) {
         onToPickForOther?.(
-          { cardNumber: null, initials: null, message: displayMsg },
+          { cardNumber: null, initials: null, message: displayMsg, force: actions.force },
           specimenCode.trim(),
         );
         return;
@@ -1559,6 +1635,7 @@ function BorrowForm({
   return (
     <form id={formId} onSubmit={handleSubmit} className="space-y-4">
       <BarcodeScanField
+        ref={scanRef}
         label={t('loans.specimenBarcode')}
         value={specimenCode}
         onChange={(e) => {
@@ -1579,6 +1656,6 @@ function BorrowForm({
       )}
     </form>
   );
-}
+});
 
 

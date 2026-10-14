@@ -5,30 +5,42 @@ import CirculationForceButton from '@/components/loans/CirculationForceButton';
 import type { BatchCreateResult } from '@/types';
 import { batchCreateItemMessage } from '@/utils/batchCreate';
 import { checkoutDeskActions } from '@/utils/deskCheckoutError';
+import { showDeskToast } from '@/utils/deskToast';
+import {
+  commitDismissHeldSetAside,
+  commitHeldSetAside,
+  heldSetAsideServerMessage,
+} from '@/utils/heldSetAside';
 
 interface BatchCreateItemRowProps {
   item: BatchCreateResult;
   /** Loans write. `forceable: true` without it shows the message only. */
   canForce: boolean;
   onForce: (barcode: string) => void;
-  /** Check the copy in for another reader's hold. */
+  /**
+   * Unused. Set-aside runs in place on this row (`POST /loans/items/{barcode}/return`)
+   * and does not leave checkout. Kept so callers can still pass it.
+   */
   onSetAside?: (barcode: string) => void;
+  /** Clear (`true`) or only refocus (`false`) the checkout barcode. */
+  onBarcodeCue?: (clear: boolean) => void;
 }
 
 /**
  * One failed `POST /loans/batch-create` row.
  * « Forcer le prêt » only when the row's `forceable` is true.
- * A held copy keeps « Mettre de côté » / « Annuler ».
+ * A held copy keeps « Mettre de côté » / « Annuler », plus « Forcer le prêt » when forceable.
  * A copy already set aside (`item_to_pick_for_other`) has neither action.
  */
 export default function BatchCreateItemRow({
   item,
   canForce,
   onForce,
-  onSetAside,
+  onBarcodeCue,
 }: BatchCreateItemRowProps) {
   const { t } = useTranslation();
   const [asideDismissed, setAsideDismissed] = useState(false);
+  const [asidePending, setAsidePending] = useState(false);
   if (item.success) return null;
   const actions = checkoutDeskActions(item.code, item.forceable, canForce);
   return (
@@ -38,15 +50,68 @@ export default function BatchCreateItemRow({
       </p>
       {actions.setAside && !asideDismissed && (
         <div className="flex flex-wrap gap-2">
-          <Button type="button" size="sm" variant="primary" onClick={() => onSetAside?.(item.barcode)}>
+          <Button
+            type="button"
+            size="sm"
+            variant="primary"
+            isLoading={asidePending}
+            onClick={() => {
+              if (asidePending) return;
+              setAsidePending(true);
+              let clear = false;
+              let refocus = false;
+              void commitHeldSetAside(item.barcode, {
+                returnByBarcode: async (barcode) => {
+                  const { default: client } = await import('@/services/api');
+                  return client.returnLoanByBarcode(barcode);
+                },
+                successMessage: t('loans.heldSetAside'),
+                errorMessage: (error) => heldSetAsideServerMessage(error, t),
+                showToast: (next) => showDeskToast(next),
+                closeDialog: () => setAsideDismissed(true),
+                clearBarcode: () => {
+                  clear = true;
+                },
+                refocusBarcode: () => {
+                  refocus = true;
+                },
+              }).finally(() => {
+                setAsidePending(false);
+                if (clear || refocus) onBarcodeCue?.(clear);
+              });
+            }}
+          >
             {t('loans.toPickSetAside')}
           </Button>
-          <Button type="button" size="sm" variant="secondary" onClick={() => setAsideDismissed(true)}>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              let refocus = false;
+              commitDismissHeldSetAside({
+                closeDialog: () => setAsideDismissed(true),
+                clearBarcode: () => undefined,
+                refocusBarcode: () => {
+                  refocus = true;
+                },
+              });
+              if (refocus) onBarcodeCue?.(false);
+            }}
+          >
             {t('common.cancel')}
           </Button>
+          {actions.force && (
+            <CirculationForceButton
+              forceable={item.forceable === true}
+              canForce={canForce}
+              onForce={() => onForce(item.barcode)}
+              disabled={asidePending}
+            />
+          )}
         </div>
       )}
-      {actions.force && (
+      {actions.force && !actions.setAside && (
         <CirculationForceButton
           forceable={item.forceable === true}
           canForce={canForce}

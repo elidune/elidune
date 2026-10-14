@@ -34,7 +34,7 @@ async function i18nFor(lng: Lang): Promise<I18nInstance> {
 
 function renderDialog(
   i18n: I18nInstance,
-  props: { cardNumber?: string | null; initials?: string | null },
+  props: { cardNumber?: string | null; initials?: string | null; onForce?: () => void; message?: string },
 ): string {
   return renderToStaticMarkup(
     createElement(
@@ -46,6 +46,8 @@ function renderDialog(
         initials: props.initials ?? null,
         onCancel: () => undefined,
         onSetAside: () => undefined,
+        onForce: props.onForce,
+        message: props.message,
       }),
     ) as ReactElement,
   );
@@ -90,6 +92,20 @@ describe('to-pick set-aside dialog', () => {
     assert.equal(catalogs.fr.loans.toPickForOtherTitle, 'Exemplaire en attente pour un autre lecteur');
     assert.equal(catalogs.fr.loans.toPickSetAside, 'Mettre de côté');
     assert.equal(catalogs.fr.common.cancel, 'Annuler');
+    const held = renderDialog(await i18nFor('fr'), {
+      message: catalogs.fr.errors.apiCode.item_held_for_other,
+      onForce: () => undefined,
+    });
+    assert.match(held, /Mettre de côté/);
+    assert.match(held, /Annuler/);
+    assert.match(held, /Forcer le prêt/);
+    assert.equal(held.includes(NAME), false);
+    assert.equal(held.includes('Helene'), false);
+    const noForce = renderDialog(await i18nFor('fr'), {
+      message: catalogs.fr.errors.apiCode.item_held_for_other,
+    });
+    assert.match(noForce, /Mettre de côté/);
+    assert.equal(noForce.includes('Forcer'), false);
   });
 
   it('shows initials when the 422 has no card, and never a name', async () => {

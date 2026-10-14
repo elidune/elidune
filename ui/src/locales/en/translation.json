@@ -1201,6 +1201,7 @@
     "toPickForOtherTitle": "Copy waiting for another patron",
     "toPickForOtherMessage": "This copy is being picked for {{patron}}.",
     "toPickSetAside": "Set aside",
+    "heldSetAside": "Copy set aside for the hold: place it on the holds shelf.",
     "forceLoan": "Force loan",
     "pickReady": "Ready for {{patron}}, put on hold shelf",
     "pickTransit": "Send in transit to {{site}}",

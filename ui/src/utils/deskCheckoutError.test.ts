@@ -128,7 +128,12 @@ describe('desk checkout error mapping', () => {
       deskCheckoutMessage(held, await tFor('fr')),
       'Un autre lecteur a la priorité sur cet exemplaire.',
     );
-    assert.deepEqual(checkoutDeskActionsFromError(held, true), { force: false, setAside: true });
+    assert.equal(deskCheckoutMessage(held, await tFor('fr')).includes('Grace'), false);
+    assert.deepEqual(checkoutDeskActionsFromError(held, true), { force: true, setAside: true });
+    assert.deepEqual(checkoutDeskActions('item_held_for_other', true, true), { force: true, setAside: true });
+    assert.deepEqual(checkoutDeskActions('item_held_for_other', true, false), { force: false, setAside: true });
+    assert.deepEqual(checkoutDeskActions('item_held_for_other', false, true), { force: false, setAside: true });
+    assert.deepEqual(checkoutDeskActions('item_held_for_other', undefined, true), { force: false, setAside: true });
 
     const quota = axiosError(422, 'max_loans', 'quota', { forceable: true });
     assert.deepEqual(checkoutDeskActionsFromError(quota, true), { force: true, setAside: false });

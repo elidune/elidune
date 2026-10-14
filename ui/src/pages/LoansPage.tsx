@@ -65,6 +65,12 @@ import {
   type PickCheckInNotice,
 } from '@/utils/toPickDesk';
 import {
+  commitDismissHeldSetAside,
+  commitHeldSetAside,
+  heldSetAsideServerMessage,
+  isInPlaceHeldSetAside,
+} from '@/utils/heldSetAside';
+import {
   returnNoticeMessage,
   returnNoticeOffersLostFound,
   returnScanFeedback,
@@ -237,6 +243,7 @@ export default function LoansPage() {
     initials: string | null;
     barcode: string;
     message?: string | null;
+    force?: boolean;
   } | null>(null);
   const [toPickAsideLoading, setToPickAsideLoading] = useState(false);
   const [checkoutScanAlert, setCheckoutScanAlert] = useState<CheckoutScanAlert | null>(null);
@@ -942,6 +949,7 @@ export default function LoansPage() {
           initials: null,
           barcode,
           message: t('errors.apiCode.item_held_for_other'),
+          force: actions.force,
         });
         throw new CheckoutDeclined();
       }
@@ -2203,14 +2211,55 @@ export default function LoansPage() {
         initials={toPickAside?.initials ?? null}
         message={toPickAside?.message}
         isLoading={toPickAsideLoading}
+        onForce={
+          toPickAside?.force
+            ? () => {
+                const barcode = toPickAside.barcode;
+                if (!barcode || toPickAsideLoading) return;
+                setToPickAside(null);
+                void (async () => {
+                  try {
+                    await handleBorrow(barcode, true);
+                    setBarcodeInput('');
+                    focusScanInput();
+                  } catch (error: unknown) {
+                    const msg = deskBorrowErrorText(error, t);
+                    if (msg) showToast({ variant: 'error', message: msg });
+                    focusScanInput();
+                  }
+                })();
+              }
+            : undefined
+        }
         onCancel={() => {
           if (toPickAsideLoading) return;
+          if (isInPlaceHeldSetAside(toPickAside?.message)) {
+            commitDismissHeldSetAside({
+              closeDialog: () => setToPickAside(null),
+              clearBarcode: () => setBarcodeInput(''),
+              refocusBarcode: () => focusScanInput(),
+            });
+            return;
+          }
           setToPickAside(null);
           focusScanInput();
         }}
         onSetAside={() => {
           const barcode = toPickAside?.barcode;
           if (!barcode || toPickAsideLoading) return;
+          if (isInPlaceHeldSetAside(toPickAside?.message)) {
+            setToPickAsideLoading(true);
+            void commitHeldSetAside(barcode, {
+              returnByBarcode: (code) => api.returnLoanByBarcode(code),
+              successMessage: t('loans.heldSetAside'),
+              errorMessage: (error) => heldSetAsideServerMessage(error, t),
+              showToast: (toast) => showToast(toast),
+              closeDialog: () => setToPickAside(null),
+              clearBarcode: () => setBarcodeInput(''),
+              refocusBarcode: () => focusScanInput(),
+            }).finally(() => setToPickAsideLoading(false));
+            return;
+          }
           setToPickAsideLoading(true);
           void (async () => {
             try {

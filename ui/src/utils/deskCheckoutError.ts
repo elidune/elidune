@@ -21,8 +21,8 @@ export interface CheckoutDeskActions {
 /**
  * Actions under a checkout refusal.
  * `item_to_pick_for_other` is already set aside: the sentence only, even when
- * `forceable` is true. `item_held_for_other` keeps set-aside and never force.
- * A status action has neither button.
+ * `forceable` is true. `item_held_for_other` keeps set-aside, and force when
+ * `loanRefusalMayForce` is true. A status action has neither button.
  * Any remaining code offers force only when the server `forceable` is true.
  */
 export function checkoutDeskActions(
@@ -32,7 +32,9 @@ export function checkoutDeskActions(
 ): CheckoutDeskActions {
   const key = code?.trim() ?? '';
   if (key === ITEM_TO_PICK_FOR_OTHER) return { force: false, setAside: false };
-  if (key === ITEM_HELD_FOR_OTHER) return { force: false, setAside: true };
+  if (key === ITEM_HELD_FOR_OTHER) {
+    return { force: loanRefusalMayForce(forceable, canForce), setAside: true };
+  }
   if (key === ITEM_STATUS_ACTION_REQUIRED) return { force: false, setAside: false };
   return { force: loanRefusalMayForce(forceable, canForce), setAside: false };
 }

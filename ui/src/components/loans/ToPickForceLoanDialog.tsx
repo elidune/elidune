@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next';
+import Button from '@/components/common/Button';
 import ConfirmDialog from '@/components/common/ConfirmDialog';
 import { toPickPatronPhrase } from '@/utils/holdPatron';
 
@@ -11,6 +12,8 @@ export interface ToPickForceLoanDialogProps {
   onCancel: () => void;
   /** Check the copy in on the existing to_pick path (hold shelf or transit). */
   onSetAside: () => void;
+  /** « Forcer le prêt ». Omitted when the refusal is not forceable. */
+  onForce?: () => void;
   isLoading?: boolean;
 }
 
@@ -22,6 +25,7 @@ export default function ToPickForceLoanDialog({
   message,
   onCancel,
   onSetAside,
+  onForce,
   isLoading = false,
 }: ToPickForceLoanDialogProps) {
   const { t } = useTranslation();
@@ -39,6 +43,13 @@ export default function ToPickForceLoanDialog({
       confirmVariant="primary"
       isLoading={isLoading}
       stackOnTop
+      middleFooter={
+        onForce ? (
+          <Button type="button" variant="secondary" onClick={onForce} disabled={isLoading}>
+            {t('loans.forceLoan')}
+          </Button>
+        ) : null
+      }
     />
   );
 }
