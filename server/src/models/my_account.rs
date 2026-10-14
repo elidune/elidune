@@ -84,4 +84,6 @@ pub struct MyHoldView {
     pub pickup_site_name: Option<String>,
     pub position: i32,
     pub created_at: DateTime<Utc>,
+    /// Note the patron and staff share. The staff-only note is never on this view.
+    pub patron_note: Option<String>,
 }

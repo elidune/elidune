@@ -214,6 +214,7 @@ jobs:
           --test transit_display
           --test expected_return_date
           --test item_notes
+          --test hold_notes
           -- --nocapture
 
   coverage:
@@ -318,6 +319,7 @@ jobs:
           --test transit_display
           --test expected_return_date
           --test item_notes
+          --test hold_notes
           --lcov
           --output-path lcov.info
           --fail-under-lines 20

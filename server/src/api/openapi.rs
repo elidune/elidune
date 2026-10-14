@@ -433,10 +433,12 @@ use crate::api::{
             crate::models::fine::AudienceUnpaidThresholdMode,
             // Holds
             crate::models::hold::Hold,
+            crate::models::hold::HoldPublic,
             crate::models::hold::HoldDetails,
             crate::models::dto::holds::HoldsPolicy,
             crate::models::dto::holds::HoldQuota,
             holds::CreateHoldRequest,
+            holds::HoldWriteResponse,
             holds::ListHoldsQuery,
             holds::PickListQuery,
             crate::models::dto::holds::HoldPickListItem,

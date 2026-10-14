@@ -976,7 +976,10 @@ pub struct HoldDetailsStaff {
     pub expires_at: Option<DateTime<Utc>>,
     pub status: HoldStatus,
     pub position: i32,
-    pub notes: Option<String>,
+    /// Note visible to the patron and to staff.
+    pub patron_note: Option<String>,
+    /// Staff-only remark. Absent from [`HoldDetailsPublic`] and `GET /me/holds`.
+    pub internal_note: Option<String>,
 }
 
 impl HoldDetailsStaff {
@@ -998,7 +1001,8 @@ impl HoldDetailsStaff {
             expires_at: hold.expires_at,
             status: hold.status,
             position: hold.position,
-            notes: hold.notes,
+            patron_note: hold.patron_note,
+            internal_note: hold.internal_note,
         }
     }
 }
@@ -1030,7 +1034,8 @@ pub struct HoldDetailsPublic {
     pub expires_at: Option<DateTime<Utc>>,
     pub status: HoldStatus,
     pub position: i32,
-    pub notes: Option<String>,
+    /// Note visible to the patron and to staff. The staff-only note is omitted.
+    pub patron_note: Option<String>,
 }
 
 impl From<HoldDetails> for HoldDetailsPublic {
@@ -1048,7 +1053,7 @@ impl From<HoldDetails> for HoldDetailsPublic {
             expires_at: hold.expires_at,
             status: hold.status,
             position: hold.position,
-            notes: hold.notes,
+            patron_note: hold.patron_note,
         }
     }
 }
