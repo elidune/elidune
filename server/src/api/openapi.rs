@@ -658,6 +658,7 @@ use crate::api::{
             // Errors
             crate::error::ErrorResponse,
             crate::checkout_refusal::CheckoutRefusalBody,
+            crate::renewal::RenewalRefusalBody,
         )
     ),
     tags(
@@ -1019,6 +1020,22 @@ mod tests {
                 description.contains("subscription_expired"),
                 "{path}: {description}"
             );
+            assert!(
+                description.contains("forceable") && description.contains("loans_rights"),
+                "{path} 422 must document caller-specific forceable: {description}"
+            );
+            assert!(
+                description.contains("max_renewals") && description.contains("renewal_too_early"),
+                "{path} 422 must document the limit codes force can lift: {description}"
+            );
+            let body_schema = value["paths"][path]["post"]["responses"]["422"]["content"]
+                ["application/json"]["schema"]["$ref"]
+                .as_str()
+                .unwrap_or("");
+            assert!(
+                body_schema.contains("RenewalRefusalBody"),
+                "{path} 422 body must be RenewalRefusalBody: {body_schema}"
+            );
         }
         let schema = &value["components"]["schemas"]["RenewalRefusal"];
         let rendered = schema.to_string();
@@ -1026,6 +1043,11 @@ mod tests {
             rendered.contains("subscription_expired"),
             "RenewalRefusal must list subscription_expired: {schema}"
         );
+        let properties = &value["components"]["schemas"]["RenewalRefusalBody"]["properties"];
+        assert!(properties["code"].is_object(), "{properties}");
+        assert!(properties["error"].is_object(), "{properties}");
+        assert!(properties["message"].is_object(), "{properties}");
+        assert!(properties["forceable"].is_object(), "{properties}");
     }
 
     #[test]

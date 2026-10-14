@@ -6,7 +6,6 @@ mod reminders;
 mod settings;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 
 use super::Repository;
 use crate::{
@@ -95,12 +94,14 @@ pub trait LoansRepository: Send + Sync {
         &self,
         loan_id: i64,
     ) -> AppResult<crate::renewal::LoanRenewalSnapshot>;
-    /// `bypass_account_gates` is staff `force`: skip account, subscription-expiry, and unpaid-fine refusals.
+    /// `force` skips account, subscription-expiry, and unpaid-fine refusals, and also
+    /// `max_renewals` and `renewal_too_early`. A lost card, a withdrawn copy, a
+    /// claims-returned copy, and a waiting hold stay refused.
     async fn loans_renew(
         &self,
         loan_id: i64,
-        bypass_account_gates: bool,
-    ) -> AppResult<(DateTime<Utc>, i16)>;
+        force: bool,
+    ) -> AppResult<crate::renewal::LoanRenewalResult>;
     async fn loans_get_settings(&self) -> AppResult<Vec<LoanSettings>>;
     async fn loans_count_active(&self) -> AppResult<i64>;
     async fn loans_count_overdue(&self) -> AppResult<i64>;
@@ -254,9 +255,9 @@ impl LoansRepository for Repository {
     async fn loans_renew(
         &self,
         loan_id: i64,
-        bypass_account_gates: bool,
-    ) -> crate::error::AppResult<(chrono::DateTime<chrono::Utc>, i16)> {
-        Repository::loans_renew(self, loan_id, bypass_account_gates).await
+        force: bool,
+    ) -> crate::error::AppResult<crate::renewal::LoanRenewalResult> {
+        Repository::loans_renew(self, loan_id, force).await
     }
     async fn loans_get_settings(
         &self,

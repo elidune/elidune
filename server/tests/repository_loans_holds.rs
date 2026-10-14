@@ -952,10 +952,12 @@ async fn renew_inside_the_window_extends_the_current_due_date() {
         .await
         .expect("set due date inside the window");
 
-    let (new_expiry, renews) = repo
+    let renewed = repo
         .loans_renew(checkout.loan_id, false)
         .await
         .expect("renew inside the window");
+    let new_expiry = renewed.expiry_at;
+    let renews = renewed.renew_count;
     assert_eq!(renews, 1);
     let gained = new_expiry - due;
     assert!(
@@ -986,10 +988,12 @@ async fn overdue_renewal_still_extends_from_the_due_date() {
         .await
         .expect("mark loan overdue");
 
-    let (new_expiry, renews) = repo
+    let renewed = repo
         .loans_renew(checkout.loan_id, false)
         .await
         .expect("overdue renew stays allowed");
+    let new_expiry = renewed.expiry_at;
+    let renews = renewed.renew_count;
     assert_eq!(renews, 1);
     let gained = new_expiry - due;
     assert!(
@@ -1077,10 +1081,11 @@ async fn renewal_allowed_when_title_has_no_hold() {
         .expect("checkout");
     fixtures::pull_loan_into_renewal_window(&app, checkout.loan_id).await;
 
-    let (_expiry, renews) = repo
+    let renews = repo
         .loans_renew(checkout.loan_id, false)
         .await
-        .expect("renewal with no hold");
+        .expect("renewal with no hold")
+        .renew_count;
     assert_eq!(renews, 1);
 }
 
@@ -1115,10 +1120,11 @@ async fn renewal_allowed_when_title_hold_is_to_pick_on_another_copy() {
     assert_eq!(hold.item_id, Some(items[1]));
     fixtures::pull_loan_into_renewal_window(&app, checkout.loan_id).await;
 
-    let (_expiry, renews) = repo
+    let renews = repo
         .loans_renew(checkout.loan_id, false)
         .await
-        .expect("to_pick on another copy must not block renewal");
+        .expect("to_pick on another copy must not block renewal")
+        .renew_count;
     assert_eq!(renews, 1);
 }
 
