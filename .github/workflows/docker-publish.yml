@@ -19,6 +19,11 @@ on:
       - '.dockerignore'
       - '.github/workflows/docker-publish.yml'
 
+# Batched merges push dev several times in a row; only the last :dev matters.
+concurrency:
+  group: docker-publish-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref == 'refs/heads/dev' }}
+
 env:
   REGISTRY: ghcr.io
 
@@ -70,3 +75,5 @@ jobs:
           file: ${{ matrix.dockerfile }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha,scope=${{ matrix.dockerfile }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.dockerfile }}

@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main, dev]
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
@@ -17,6 +21,7 @@ jobs:
     outputs:
       server: ${{ steps.filter.outputs.server }}
       ui: ${{ steps.filter.outputs.ui }}
+      docker: ${{ steps.filter.outputs.docker }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
@@ -29,6 +34,12 @@ jobs:
             ui:
               - 'ui/**'
               - '.github/workflows/ci.yml'
+            docker:
+              - 'docker/**'
+              - '.dockerignore'
+              - 'server/Cargo.toml'
+              - 'ui/package.json'
+              - 'ui/pnpm-lock.yaml'
 
   # -------------------------------------------------------------------------
   # Server: formatting, clippy, OpenAPI (no DB required)
@@ -50,15 +61,12 @@ jobs:
           toolchain: 1.90
           components: rustfmt, clippy
 
-      - name: Cache Cargo registry
-        uses: actions/cache@v4
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            server/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('server/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-cargo-
+          workspaces: server
+          shared-key: ${{ github.job }}
+          save-if: ${{ github.ref == 'refs/heads/dev' }}
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -72,7 +80,7 @@ jobs:
   test-fast:
     name: Server Unit Tests (lib)
     runs-on: ubuntu-latest
-    needs: [changes, lint-server]
+    needs: changes
     if: needs.changes.outputs.server == 'true' || github.event_name == 'pull_request'
     defaults:
       run:
@@ -85,15 +93,12 @@ jobs:
         with:
           toolchain: 1.90
 
-      - name: Cache Cargo registry
-        uses: actions/cache@v4
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            server/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('server/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-cargo-
+          workspaces: server
+          shared-key: ${{ github.job }}
+          save-if: ${{ github.ref == 'refs/heads/dev' }}
 
       - name: Run library unit tests
         run: cargo test --lib -- --nocapture
@@ -101,7 +106,7 @@ jobs:
   test-db:
     name: Server Integration Tests (DB)
     runs-on: ubuntu-latest
-    needs: [changes, lint-server, test-fast]
+    needs: changes
     if: needs.changes.outputs.server == 'true' || github.event_name == 'pull_request'
     defaults:
       run:
@@ -147,17 +152,16 @@ jobs:
       - name: Install sqlx-cli
         # Pin to the sqlx 0.7 line used by the server crate. Latest sqlx-cli (0.9)
         # requires rustc 1.94+, which is newer than the CI toolchain (1.90).
-        run: cargo install sqlx-cli --version 0.7.4 --no-default-features --features rustls,postgres
-
-      - name: Cache Cargo registry
-        uses: actions/cache@v4
+        uses: taiki-e/install-action@v2
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            server/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('server/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-cargo-
+          tool: sqlx-cli@0.7.4
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server
+          shared-key: ${{ github.job }}
+          save-if: ${{ github.ref == 'refs/heads/dev' }}
 
       - name: Run database migrations
         run: sqlx migrate run
@@ -171,57 +175,17 @@ jobs:
         run: cargo check --lib
 
       - name: Run DB integration tests
+        # Runs every file in server/tests/ (no per-file list to maintain; new test files are picked up automatically). Unit tests run in test-fast.
         run: >-
-          cargo test
-          --test lms_flows
-          --test repository_loans_holds
-          --test repository_loans_calendar
-          --test fines_circulation
-          --test idempotency_loans
-          --test security_rbac
-          --test email_outbox
-          --test graduated_reminders
-          --test patron_guardians
-          --test event_audiences
-          --test events_consent
-          --test auth_rate_limit
-          --test password_reset
-          --test weeding
-          --test withdrawals
-          --test holds_max_active
-          --test holds_title_level
-          --test holds_to_pick
-          --test item_availability
-          --test my_account
-          --test lost_item_found
-          --test fine_audit_tx
-          --test loan_open_conflict
-          --test loan_borrower_identity
-          --test loan_closure_reason
-          --test patron_card_scan
-          --test biblio_item_notice
-          --test card_replacement
-          --test hold_patron_identity
-          --test public_catalog_copies
-          --test renewal_subscription
-          --test checkout_refusal_codes
-          --test catalog_view_rights
-          --test own_user_record
-          --test account_types_custom
-          --test circulation_status_read_only
-          --test return_not_on_loan
-          --test patron_current_loans_rights
-          --test transit_display
-          --test expected_return_date
-          --test item_notes
-          --test hold_notes
+          cargo test --test '*'
           -- --nocapture
 
   coverage:
     name: Server Coverage
     runs-on: ubuntu-latest
+    # Coverage reruns every test under instrumentation (~11 min); keep it off PRs.
     needs: [changes, test-db]
-    if: needs.changes.outputs.server == 'true' || github.event_name == 'pull_request'
+    if: github.event_name == 'push' && needs.changes.outputs.server == 'true'
     defaults:
       run:
         working-directory: server
@@ -266,10 +230,18 @@ jobs:
       - name: Install llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server
+          shared-key: ${{ github.job }}
+
       - name: Install sqlx-cli
         # Pin to the sqlx 0.7 line used by the server crate. Latest sqlx-cli (0.9)
         # requires rustc 1.94+, which is newer than the CI toolchain (1.90).
-        run: cargo install sqlx-cli --version 0.7.4 --no-default-features --features rustls,postgres
+        uses: taiki-e/install-action@v2
+        with:
+          tool: sqlx-cli@0.7.4
 
       - name: Run database migrations
         run: sqlx migrate run
@@ -278,48 +250,7 @@ jobs:
         run: >-
           cargo llvm-cov
           --lib
-          --test lms_flows
-          --test repository_loans_holds
-          --test repository_loans_calendar
-          --test fines_circulation
-          --test idempotency_loans
-          --test security_rbac
-          --test email_outbox
-          --test graduated_reminders
-          --test patron_guardians
-          --test event_audiences
-          --test events_consent
-          --test auth_rate_limit
-          --test password_reset
-          --test weeding
-          --test withdrawals
-          --test holds_max_active
-          --test holds_title_level
-          --test holds_to_pick
-          --test item_availability
-          --test my_account
-          --test lost_item_found
-          --test fine_audit_tx
-          --test loan_open_conflict
-          --test loan_borrower_identity
-          --test loan_closure_reason
-          --test patron_card_scan
-          --test biblio_item_notice
-          --test card_replacement
-          --test hold_patron_identity
-          --test public_catalog_copies
-          --test renewal_subscription
-          --test checkout_refusal_codes
-          --test catalog_view_rights
-          --test own_user_record
-          --test account_types_custom
-          --test circulation_status_read_only
-          --test return_not_on_loan
-          --test patron_current_loans_rights
-          --test transit_display
-          --test expected_return_date
-          --test item_notes
-          --test hold_notes
+          --tests
           --lcov
           --output-path lcov.info
           --fail-under-lines 20
@@ -398,10 +329,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test
 
-  # Image builds on pull requests only. Publishing stays in docker-publish.yml.
+  # Image builds on pull requests only when image inputs change (Dockerfiles,
+  # dependency manifests). Every push to dev still builds and publishes in
+  # docker-publish.yml, so a broken image surfaces on the next :dev at the latest.
   docker-build:
     name: Docker build (${{ matrix.name }})
-    if: github.event_name == 'pull_request'
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.docker == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
