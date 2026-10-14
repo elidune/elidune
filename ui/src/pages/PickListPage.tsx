@@ -15,12 +15,25 @@ import { useSourcesQuery } from '@/hooks/holds/useSourcesQuery';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
-import { defaultPickupSiteId } from '@/utils/transitDisplay';
+import {
+  PICK_LIST_ALL_SITES,
+  pickListRequestSiteId,
+  readPickListSiteChoice,
+  resolvePickListSiteId,
+  writePickListSiteChoice,
+} from '@/utils/pickList';
 import HoldShelfSlip, { HoldShelfPatron } from '@/components/holds/HoldShelfSlip';
 import type { HoldPickListRow } from '@/types';
 import { useToast } from '@/contexts/ToastContext';
 
-const ALL_SITES = '';
+function browserStorage(): Pick<Storage, 'getItem' | 'setItem'> | null {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    return localStorage;
+  } catch {
+    return null;
+  }
+}
 
 export default function PickListPage() {
   const { t, i18n } = useTranslation();
@@ -28,19 +41,20 @@ export default function PickListPage() {
   const queryClient = useQueryClient();
   const sourcesQuery = useSourcesQuery();
   const sources = sourcesQuery.data ?? [];
-  const [siteOverride, setSiteOverride] = useState<string | null>(null);
+  const [siteChoice, setSiteChoice] = useState<string | null>(() =>
+    readPickListSiteChoice(browserStorage()),
+  );
   const [pending, setPending] = useState<HoldPickListRow | null>(null);
   const siteId =
-    siteOverride ??
-    (sourcesQuery.isFetched
-      ? sources.length > 0
-        ? defaultPickupSiteId(sources)
-        : ALL_SITES
-      : null);
+    siteChoice == null || siteChoice.trim() === ''
+      ? PICK_LIST_ALL_SITES
+      : sourcesQuery.isFetched
+        ? resolvePickListSiteId(sources, siteChoice)
+        : null;
 
   const pickQuery = useQuery({
     queryKey: ['pickList', siteId],
-    queryFn: () => api.getHoldPickList(siteId || undefined),
+    queryFn: () => api.getHoldPickList(pickListRequestSiteId(siteId ?? '')),
     enabled: siteId !== null,
   });
 
@@ -174,9 +188,13 @@ export default function PickListPage() {
               className={formControlClass({ className: 'w-full' })}
               value={siteId ?? ''}
               disabled={sourcesQuery.isLoading || siteId === null}
-              onChange={(event) => setSiteOverride(event.target.value)}
+              onChange={(event) => {
+                const next = event.target.value;
+                setSiteChoice(next);
+                writePickListSiteChoice(browserStorage(), next);
+              }}
             >
-              <option value={ALL_SITES}>{t('pickList.allSites')}</option>
+              <option value={PICK_LIST_ALL_SITES}>{t('pickList.allSites')}</option>
               {sources.map((site) => (
                 <option key={site.id} value={site.id}>
                   {site.name?.trim() || site.id}

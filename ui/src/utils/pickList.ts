@@ -71,3 +71,52 @@ export function normalizePickList(raw: unknown): HoldPickListRow[] {
   }
   return sortPickListByCallNumber(rows);
 }
+
+/** Empty value: `GET /holds/pick-list` with no `siteId` (every site). */
+export const PICK_LIST_ALL_SITES = '';
+
+const PICK_LIST_SITE_STORAGE_KEY = 'elidune.pickList.siteId';
+
+type SiteStorage = Pick<Storage, 'getItem' | 'setItem'>;
+
+/** Last explicit site, including "" for all sites. Null when the agent has not chosen. */
+export function readPickListSiteChoice(storage: SiteStorage | null): string | null {
+  if (!storage) return null;
+  try {
+    return storage.getItem(PICK_LIST_SITE_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** Remember the select value. "" is all sites and must be stored, not removed. */
+export function writePickListSiteChoice(storage: SiteStorage | null, siteId: string): void {
+  if (!storage) return;
+  try {
+    storage.setItem(PICK_LIST_SITE_STORAGE_KEY, siteId);
+  } catch {
+    // Private mode or a full quota must not block the desk.
+  }
+}
+
+/**
+ * Site filter for the pick list.
+ * No stored choice means every site. A remembered id is kept only while that
+ * site is still in the list. The library default site is not applied: the
+ * server drops copies whose source is null when `siteId` is set.
+ */
+export function resolvePickListSiteId(
+  sources: ReadonlyArray<{ id: string }>,
+  stored: string | null,
+): string {
+  if (stored == null || stored.trim() === '') return PICK_LIST_ALL_SITES;
+  const id = stored.trim();
+  if (sources.some((site) => site.id === id)) return id;
+  return PICK_LIST_ALL_SITES;
+}
+
+/** `undefined` omits `siteId` on `GET /holds/pick-list`. */
+export function pickListRequestSiteId(siteId: string): string | undefined {
+  const trimmed = siteId.trim();
+  return trimmed || undefined;
+}
