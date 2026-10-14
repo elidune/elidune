@@ -733,7 +733,7 @@ Staff hold rows (`GET /holds`, `GET /biblios/:id/holds`, `GET /items/:id/holds`,
 
 ## Holds (`/api/v1/holds`)
 
-List endpoints (`GET /holds`, `GET /items/:id/holds`, `GET /biblios/:id/holds`, `GET /users/:id/holds`) return **`HoldDetails`**. Create/cancel responses use plain **`Hold`** (ids only, no embedded item/user).
+List endpoints return a staff or public hold row. `GET /items/:id/holds`, `GET /biblios/:id/holds`, and `GET /users/:id/holds` are staff (`HoldDetailsStaff`: `patronNote` and `internalNote`). `GET /holds` is `HoldDetailsStaff` for internal catalog rights and `HoldDetailsPublic` (`patronNote` only) otherwise. Create and cancel return `Hold` or `HoldPublic` (ids only, no embedded item/user). `GET /me/holds` returns `MyHoldView` with `patronNote` and without `internalNote`.
 
 See [README-holds.md](README-holds.md): one hold type, queue at biblio/notice, copy allocated later.
 
@@ -750,11 +750,14 @@ See [README-holds.md](README-holds.md): one hold type, queue at biblio/notice, c
   "expiresAt": null,
   "status": "pending",
   "position": 1,
-  "notes": null
+  "patronNote": null,
+  "internalNote": null
 }
 ```
 
-`itemId` is `null` for an unassigned title-level hold. `status` values: `pending` | `ready` | `fulfilled` | `cancelled` | `expired`
+`itemId` is `null` for an unassigned title-level hold. `status` values: `pending` | `to_pick` | `ready` | `fulfilled` | `cancelled` | `expired`
+
+Staff responses (`holds_rights` read or any other internal-catalog right) include `patronNote` and `internalNote`. Patron responses (`HoldPublic`, including `POST /holds` and `DELETE /holds/{id}` without those rights) include `patronNote` only — `internalNote` is absent, not null. The retired `notes` field is not accepted on create and is never returned.
 
 ### `HoldDetails`
 ```json
@@ -769,22 +772,26 @@ See [README-holds.md](README-holds.md): one hold type, queue at biblio/notice, c
   "expiresAt": null,
   "status": "pending",
   "position": 1,
-  "notes": null
+  "patronNote": null
 }
 ```
+
+Staff rows (`HoldDetailsStaff`) also include `internalNote`. Public rows (`HoldDetailsPublic`) do not. `GET /me/holds` uses `MyHoldView`, which includes `patronNote` and never `internalNote`.
 
 `biblio.items` is empty while the hold is title-level and unassigned; after a copy is trapped it has exactly **one** `ItemShort`.
 
 ### `CreateHold`
 ```json
-{ "userId": "927364819265437697", "itemId": "818273645564928001", "notes": null }
+{ "userId": "927364819265437697", "itemId": "818273645564928001", "patronNote": null, "internalNote": null }
 ```
 
 Title-level (any copy of the bibliographic record):
 
 ```json
-{ "userId": "927364819265437697", "biblioId": "718273645564928000", "notes": null }
+{ "userId": "927364819265437697", "biblioId": "718273645564928000", "patronNote": "please keep the CD", "internalNote": null }
 ```
+
+`internalNote` requires `holds_rights` write. Each note is at most 4000 Unicode characters. Sending `notes` returns 400 `validation_error` and writes nothing.
 
 Exactly one of `itemId` / `biblioId` is required. `pickupSiteId` is optional (transit hook, `#15`).
 
@@ -1637,14 +1644,16 @@ interface UnpaidFinesSummary { totalUnpaid: string; fines: Fine[]; }
 interface Hold {
   id: ID; userId: ID; itemId: ID;
   createdAt: string; notifiedAt: string | null; expiresAt: string | null;
-  status: HoldStatus; position: number; notes: string | null;
+  status: HoldStatus; position: number;
+  patronNote: string | null; internalNote?: string | null;
 }
 interface HoldDetails {
   id: ID;
   biblio: BiblioShort;
   user: UserShort | null;
   createdAt: string; notifiedAt: string | null; expiresAt: string | null;
-  status: HoldStatus; position: number; notes: string | null;
+  status: HoldStatus; position: number;
+  patronNote: string | null; internalNote?: string | null;
 }
 
 // ── Batch ─────────────────────────────────────────────────────

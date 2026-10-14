@@ -15,10 +15,14 @@ use crate::{
     models::{
         catalog_view::{
             partial_user_short, sees_internal_catalog, HoldDetailsPublic, HoldDetailsStaff,
-            LoanBorrowerMinimized,
+            HoldListStaff, LoanBorrowerMinimized,
         },
         dto::holds::{HoldPickListItem, HoldQuota, HoldsPolicy},
-        hold::{CreateHold, Hold},
+        hold::{
+            deserialize_legacy_hold_notes, normalize_hold_note, validate_hold_note, CreateHold,
+            Hold, HoldPublic, MaybeHoldNote, INTERNAL_HOLD_NOTE_FORBIDDEN,
+            LEGACY_HOLD_NOTES_MESSAGE,
+        },
         my_account::MyHoldView,
         user::Rights,
     },
@@ -172,7 +176,7 @@ pub struct ListHoldsQuery {
     security(("bearer_auth" = [])),
     params(ListHoldsQuery),
     responses(
-        (status = 200, description = "The caller's holds (`MyHoldView`)", body = PaginatedResponse<MyHoldView>),
+        (status = 200, description = "The caller's holds (`MyHoldView`). Includes `patronNote`. `internalNote` and `notes` are absent.", body = PaginatedResponse<MyHoldView>),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse)
     )
 )]
@@ -196,7 +200,7 @@ pub async fn list_my_holds(
 #[derive(Serialize, ToSchema)]
 #[serde(untagged)]
 pub enum HoldListResponse {
-    Staff(PaginatedResponse<HoldDetailsStaff>),
+    Staff(PaginatedResponse<HoldListStaff>),
     Public(PaginatedResponse<HoldDetailsPublic>),
 }
 
@@ -208,7 +212,7 @@ pub enum HoldListResponse {
     security(("bearer_auth" = [])),
     params(ListHoldsQuery),
     responses(
-        (status = 200, description = "Holds. Callers with internal catalog rights receive `HoldDetailsStaff`. `user` is `UserShortStaff` when `users_rights` is read or write, otherwise `{ id, cardNumber, initials }`. `expiresAt` is the pickup deadline. Catalog read alone receives `HoldDetailsPublic` for the rows they may list.", body = HoldListResponse),
+        (status = 200, description = "Hold search. Neither `patronNote` nor `internalNote` is returned (`HoldListStaff` for internal catalog rights, `HoldDetailsPublic` otherwise). `user` is `UserShortStaff` when `users_rights` is read or write, otherwise `{ id, cardNumber, initials }`. `expiresAt` is the pickup deadline. Staff queues (`/items/{id}/holds`, `/biblios/{id}/holds`, `/users/{id}/holds`) keep both notes. `GET /me/holds` keeps `patronNote` only. The retired `notes` field is absent. There is no `GET /holds/{id}`.", body = HoldListResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse)
     )
 )]
@@ -240,7 +244,7 @@ pub async fn list_holds(
         HoldListResponse::Staff(PaginatedResponse::new(
             items
                 .into_iter()
-                .map(|hold| HoldDetailsStaff::for_caller(hold, &claims))
+                .map(|hold| HoldListStaff::for_caller(hold, &claims))
                 .collect(),
             total,
             page,
@@ -257,8 +261,10 @@ pub async fn list_holds(
     Ok(Json(body))
 }
 
+/// OpenAPI body for `POST /holds`. `notes` is not part of the schema; sending it is rejected.
+#[allow(dead_code)]
 #[serde_as]
-#[derive(Deserialize, ToSchema)]
+#[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CreateHoldRequest {
     #[serde_as(as = "DisplayFromStr")]
@@ -276,9 +282,58 @@ pub struct CreateHoldRequest {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub pickup_site_id: Option<i64>,
-    pub notes: Option<String>,
+    /// Note visible to the patron and to staff. At most 4000 Unicode characters.
+    /// Blank stores null.
+    pub patron_note: Option<String>,
+    /// Staff-only remark. At most 4000 Unicode characters. Requires `holds_rights` write.
+    /// A present key, including null, is rejected for every other caller.
+    pub internal_note: Option<String>,
     /// Staff-only: place the hold even when the patron is at/over the active-hold cap.
     pub force: Option<bool>,
+}
+
+/// Runtime body. Tracks a present `internalNote` (including null) and a retired `notes` key.
+#[serde_as]
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateHoldBody {
+    #[serde_as(as = "DisplayFromStr")]
+    user_id: i64,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    item_id: Option<i64>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    biblio_id: Option<i64>,
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    pickup_site_id: Option<i64>,
+    patron_note: Option<String>,
+    #[serde(default)]
+    internal_note: MaybeHoldNote,
+    #[serde(
+        default,
+        rename = "notes",
+        deserialize_with = "deserialize_legacy_hold_notes"
+    )]
+    legacy_notes_present: bool,
+    force: Option<bool>,
+}
+
+/// `POST /holds` and `DELETE /holds/{id}`.
+///
+/// Internal catalog rights receive [`Hold`] (both notes). Everyone else receives
+/// [`HoldPublic`] (`patronNote` only).
+#[derive(Serialize, ToSchema)]
+#[serde(untagged)]
+pub enum HoldWriteResponse {
+    Staff(Hold),
+    Public(HoldPublic),
+}
+
+fn project_written_hold(claims: &crate::models::user::UserClaims, hold: Hold) -> HoldWriteResponse {
+    if sees_internal_catalog(claims) {
+        HoldWriteResponse::Staff(hold)
+    } else {
+        HoldWriteResponse::Public(HoldPublic::from(hold))
+    }
 }
 
 #[utoipa::path(
@@ -288,20 +343,21 @@ pub struct CreateHoldRequest {
     security(("bearer_auth" = [])),
     request_body = CreateHoldRequest,
     responses(
-        (status = 201, description = "Hold created", body = Hold),
-        (status = 400, description = "Invalid request", body = crate::error::ErrorResponse),
+        (status = 201, description = "Hold created. Internal catalog rights receive `Hold` (`patronNote` and `internalNote`). Other callers receive `HoldPublic` (`patronNote` only). `notes` is not returned.", body = HoldWriteResponse),
+        (status = 400, description = "Invalid request, including a body that still sends `notes`, or a note over 4000 characters", body = crate::error::ErrorResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
-        (status = 403, description = "Insufficient rights or force requires staff", body = crate::error::ErrorResponse),
+        (status = 403, description = "Insufficient rights, force without holds write, or internalNote without holds write", body = crate::error::ErrorResponse),
         (status = 409, description = "User already has a hold for this item or title", body = crate::error::ErrorResponse),
         (status = 422, description = "Business rule: max active holds reached (staff may retry with force=true)")
     )
 )]
+#[allow(private_interfaces)]
 pub async fn create_hold(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     ClientIp(ip): ClientIp,
-    Json(req): Json<CreateHoldRequest>,
-) -> AppResult<(StatusCode, Json<Hold>)> {
+    Json(req): Json<CreateHoldBody>,
+) -> AppResult<(StatusCode, Json<HoldWriteResponse>)> {
     claims.require_create_hold()?;
     if claims.rights.holds_rights.rank() < Rights::Write.rank() && req.user_id != claims.user_id {
         return Err(AppError::Authorization(
@@ -319,12 +375,22 @@ pub async fn create_hold(
             "itemId or biblioId is required".into(),
         ));
     }
+    if req.legacy_notes_present {
+        return Err(AppError::Validation(LEGACY_HOLD_NOTES_MESSAGE.into()));
+    }
+    if req.internal_note.present && claims.rights.holds_rights.rank() < Rights::Write.rank() {
+        return Err(AppError::Authorization(INTERNAL_HOLD_NOTE_FORBIDDEN.into()));
+    }
+    validate_hold_note("Patron note", req.patron_note.as_deref()).map_err(AppError::Validation)?;
+    validate_hold_note("Internal note", req.internal_note.value.as_deref())
+        .map_err(AppError::Validation)?;
     let data = CreateHold {
         user_id: req.user_id,
         item_id: req.item_id,
         biblio_id: req.biblio_id,
         pickup_site_id: req.pickup_site_id,
-        notes: req.notes,
+        patron_note: normalize_hold_note(req.patron_note.clone()),
+        internal_note: normalize_hold_note(req.internal_note.value.clone()),
         force,
     };
     match state
@@ -348,7 +414,10 @@ pub async fn create_hold(
                 })),
                 audit::AuditLogMeta::success(),
             );
-            Ok((StatusCode::CREATED, Json(hold)))
+            Ok((
+                StatusCode::CREATED,
+                Json(project_written_hold(&claims, hold)),
+            ))
         }
         Err(e) => {
             state.services.audit.log(
@@ -490,7 +559,7 @@ pub async fn get_hold_quota(
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Item ID")),
     responses(
-        (status = 200, description = "Hold queue for this item (`HoldDetailsStaff`). `user` is `UserShortStaff` with users read, otherwise `{ id, cardNumber, initials }`. `expiresAt` is the pickup deadline.", body = Vec<HoldDetailsStaff>),
+        (status = 200, description = "Hold queue for this item (`HoldDetailsStaff`, including `patronNote` and `internalNote`). `user` is `UserShortStaff` with users read, otherwise `{ id, cardNumber, initials }`. `expiresAt` is the pickup deadline. `notes` is absent.", body = Vec<HoldDetailsStaff>),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 404, description = "Item not found", body = crate::error::ErrorResponse)
     )
@@ -516,7 +585,7 @@ pub async fn list_holds_for_item(
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Biblio ID")),
     responses(
-        (status = 200, description = "Hold queue for this bibliographic record (notice-level FIFO, `HoldDetailsStaff`). `user` is `UserShortStaff` with users read, otherwise `{ id, cardNumber, initials }`. `expiresAt` is the pickup deadline.", body = Vec<HoldDetailsStaff>),
+        (status = 200, description = "Hold queue for this bibliographic record (notice-level FIFO, `HoldDetailsStaff`, including `patronNote` and `internalNote`). `user` is `UserShortStaff` with users read, otherwise `{ id, cardNumber, initials }`. `expiresAt` is the pickup deadline. `notes` is absent.", body = Vec<HoldDetailsStaff>),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 404, description = "Biblio not found", body = crate::error::ErrorResponse)
     )
@@ -542,7 +611,7 @@ pub async fn list_holds_for_biblio(
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "User ID")),
     responses(
-        (status = 200, description = "User's holds (`HoldDetailsStaff`). Caller already has users read, so `user` is `UserShortStaff`. `expiresAt` is the pickup deadline.", body = Vec<HoldDetailsStaff>),
+        (status = 200, description = "User's holds (`HoldDetailsStaff`, including `patronNote` and `internalNote`). Caller already has users read, so `user` is `UserShortStaff`. `expiresAt` is the pickup deadline. `notes` is absent.", body = Vec<HoldDetailsStaff>),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 404, description = "User not found", body = crate::error::ErrorResponse)
     )
@@ -569,7 +638,7 @@ pub async fn list_holds_for_user(
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Hold ID")),
     responses(
-        (status = 200, description = "Hold cancelled", body = Hold),
+        (status = 200, description = "Hold cancelled. Both notes are cleared on the retained row. Internal catalog rights receive `Hold`. Other callers receive `HoldPublic`. `notes` is absent.", body = HoldWriteResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 403, description = "Cannot cancel another user's hold", body = crate::error::ErrorResponse),
         (status = 404, description = "Hold not found", body = crate::error::ErrorResponse)
@@ -580,7 +649,7 @@ pub async fn cancel_hold(
     AuthenticatedUser(claims): AuthenticatedUser,
     ClientIp(ip): ClientIp,
     Path(id): Path<i64>,
-) -> AppResult<Json<Hold>> {
+) -> AppResult<Json<HoldWriteResponse>> {
     claims.require_cancel_hold()?;
     let can_manage_others = claims.rights.holds_rights.rank() >= Rights::Write.rank();
     match state
@@ -599,7 +668,7 @@ pub async fn cancel_hold(
                 None::<()>,
                 audit::AuditLogMeta::success(),
             );
-            Ok(Json(hold))
+            Ok(Json(project_written_hold(&claims, hold)))
         }
         Err(e) => {
             state.services.audit.log(

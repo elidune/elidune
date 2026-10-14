@@ -364,7 +364,8 @@ impl Repository {
                 expires_at: h.expires_at,
                 status: h.status,
                 position: h.position,
-                notes: h.notes,
+                patron_note: h.patron_note,
+                internal_note: h.internal_note,
             });
         }
         Ok(out)
@@ -760,12 +761,14 @@ impl Repository {
 
         let row = match sqlx::query_as::<_, Hold>(
             r#"
-            INSERT INTO holds (id, user_id, item_id, biblio_id, pickup_site_id, position, notes)
+            INSERT INTO holds (
+                id, user_id, item_id, biblio_id, pickup_site_id, position, patron_note, internal_note
+            )
             VALUES (
                 $1, $2, $3, $4, $5,
                 COALESCE((SELECT MAX(position) FROM holds
                           WHERE biblio_id = $4 AND status IN ('pending','to_pick','ready')), 0) + 1,
-                $6
+                $6, $7
             )
             RETURNING *
             "#,
@@ -775,7 +778,8 @@ impl Repository {
         .bind(item_id)
         .bind(biblio_id)
         .bind(data.pickup_site_id)
-        .bind(&data.notes)
+        .bind(&data.patron_note)
+        .bind(&data.internal_note)
         .fetch_one(&mut *tx)
         .await
         {
@@ -933,14 +937,15 @@ impl Repository {
         sqlx::query_as::<_, Hold>(
             r#"
             INSERT INTO holds (
-                id, user_id, item_id, biblio_id, pickup_site_id, position, notes, status, pick_started_at
+                id, user_id, item_id, biblio_id, pickup_site_id, position,
+                patron_note, internal_note, status, pick_started_at
             )
             VALUES (
                 $1, $2, $3, $4, $5,
                 COALESCE((SELECT MAX(position) FROM holds
                           WHERE biblio_id = $4 AND status IN ('pending','to_pick','ready')), 0) + 1,
-                $6, $7,
-                CASE WHEN $7 = 'to_pick' THEN NOW() ELSE NULL END
+                $6, $7, $8,
+                CASE WHEN $8 = 'to_pick' THEN NOW() ELSE NULL END
             )
             RETURNING *
             "#,
@@ -950,7 +955,8 @@ impl Repository {
         .bind(shelf_item_id)
         .bind(biblio_id)
         .bind(data.pickup_site_id)
-        .bind(&data.notes)
+        .bind(&data.patron_note)
+        .bind(&data.internal_note)
         .bind(status)
         .fetch_one(&mut **tx)
         .await
@@ -1637,7 +1643,7 @@ impl Repository {
             .ok_or_else(|| AppError::NotFound(format!("Hold {id} not found")))?;
 
         let cancelled = sqlx::query_as::<_, Hold>(
-            "UPDATE holds SET status = 'cancelled' WHERE id = $1 RETURNING *",
+            "UPDATE holds SET status = 'cancelled', patron_note = NULL, internal_note = NULL WHERE id = $1 RETURNING *",
         )
         .bind(id)
         .fetch_one(&mut *tx)
@@ -1697,7 +1703,7 @@ impl Repository {
         let mut tx = self.pool.begin().await?;
 
         let expired: Vec<Hold> = sqlx::query_as(
-            "UPDATE holds SET status = 'expired'
+            "UPDATE holds SET status = 'expired', patron_note = NULL, internal_note = NULL
              WHERE status = 'ready' AND expires_at < NOW()
              RETURNING *",
         )
@@ -1745,7 +1751,9 @@ impl Repository {
 
     #[tracing::instrument(skip(self), err)]
     pub async fn holds_fulfill(&self, id: i64) -> AppResult<Hold> {
-        sqlx::query_as::<_, Hold>("UPDATE holds SET status = 'fulfilled' WHERE id = $1 RETURNING *")
+        sqlx::query_as::<_, Hold>(
+            "UPDATE holds SET status = 'fulfilled', patron_note = NULL, internal_note = NULL WHERE id = $1 RETURNING *",
+        )
             .bind(id)
             .fetch_optional(&self.pool)
             .await?
@@ -1849,7 +1857,8 @@ impl Repository {
     ) -> AppResult<Option<i64>> {
         let hold_id: Option<i64> = sqlx::query_scalar(
             r#"
-            UPDATE holds SET status = 'fulfilled', item_id = COALESCE(item_id, $2)
+            UPDATE holds SET status = 'fulfilled', item_id = COALESCE(item_id, $2),
+                patron_note = NULL, internal_note = NULL
             WHERE id = (
                 SELECT h.id FROM holds h
                 JOIN items i ON i.id = $2
@@ -1881,7 +1890,7 @@ impl Repository {
             .await?;
         // `to_pick` rows were detached above. Cancel only holds still pinned here
         // (`ready`, or a copy-level `pending`).
-        let r = sqlx::query("UPDATE holds SET status = 'cancelled' WHERE item_id = $1 AND status IN ('pending','ready')")
+        let r = sqlx::query("UPDATE holds SET status = 'cancelled', patron_note = NULL, internal_note = NULL WHERE item_id = $1 AND status IN ('pending','ready')")
             .bind(item_id)
             .execute(&mut **tx)
             .await?;

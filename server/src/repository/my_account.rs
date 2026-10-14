@@ -58,6 +58,7 @@ struct OwnerHoldRow {
     pickup_site_name: Option<String>,
     position: i32,
     created_at: DateTime<Utc>,
+    patron_note: Option<String>,
     in_transit: bool,
 }
 
@@ -276,6 +277,7 @@ impl Repository {
                        so.name AS pickup_site_name,
                        h.position,
                        h.created_at,
+                       h.patron_note,
                        EXISTS (
                            SELECT 1 FROM item_transits t
                            WHERE t.hold_id = h.id
@@ -313,6 +315,7 @@ impl Repository {
                        so.name AS pickup_site_name,
                        h.position,
                        h.created_at,
+                       h.patron_note,
                        EXISTS (
                            SELECT 1 FROM item_transits t
                            WHERE t.hold_id = h.id
@@ -367,6 +370,7 @@ fn owner_hold_view(row: OwnerHoldRow) -> MyHoldView {
         pickup_site_name: row.pickup_site_name,
         position: row.position,
         created_at: row.created_at,
+        patron_note: row.patron_note,
     }
 }
 
@@ -390,6 +394,7 @@ mod tests {
             pickup_site_name: Some("Desk".into()),
             position: 1,
             created_at: deadline,
+            patron_note: None,
             in_transit: false,
         });
         assert_eq!(ready.status, MyHoldStatus::Ready);
@@ -406,6 +411,7 @@ mod tests {
             pickup_site_name: Some("Desk".into()),
             position: 2,
             created_at: deadline,
+            patron_note: Some("visible".into()),
             in_transit: true,
         });
         assert_eq!(moving.status, MyHoldStatus::InTransit);

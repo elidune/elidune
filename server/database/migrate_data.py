@@ -24,6 +24,8 @@ an untouched global 0 (no successful fine.policy_updated audit) becomes none,
 any other stored global value stays amount; public-type NULL becomes inherit
 and a stored value, including 0, becomes amount.
 account_types.is_system marks built-in codes and users.account_type is ON DELETE RESTRICT (053).
+holds.notes moves to patron_note; internal_note is staff-only (055).
+This script does not import legacy holds, so 055 only affects the target schema.
 Legacy source DBs have no acquisitions, suggestion, or retired card-number tables; those are created by SQL migrations only.)
 
 Usage:
