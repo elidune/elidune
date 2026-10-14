@@ -3,8 +3,9 @@
 //! Account facts in [`RenewalContext`] are computed once per request. Loan facts
 //! are per copy. Staff `force` sets the bypass flags that
 //! [`renewal_refusal_forceable`] allows for this caller. The account-type name
-//! is not consulted. `subscription_expired` uses the same settings-write rule as
-//! checkout ([`crate::checkout_refusal::checkout_refusal_forceable`]).
+//! is not consulted. `subscription_expired` and `fines_over_threshold` use the
+//! same rights rules as checkout
+//! ([`crate::checkout_refusal::checkout_refusal_forceable`]).
 
 use chrono::{DateTime, Duration, Utc};
 use serde::Serialize;
@@ -236,8 +237,9 @@ pub fn renewal_limits_hit(loan: &RenewalLoan, ctx: &RenewalContext) -> Vec<Renew
 
 /// Whether this caller may skip this renewal refusal.
 ///
-/// `subscription_expired` uses [`crate::checkout_refusal::checkout_refusal_forceable`]:
-/// settings write, not loans write. `account_blocked`, `fines_over_threshold`,
+/// `subscription_expired` and `fines_over_threshold` use
+/// [`crate::checkout_refusal::checkout_refusal_forceable`]: settings write for an
+/// expired subscription, loans write for the unpaid-fine gate. `account_blocked`,
 /// `max_renewals`, and `renewal_too_early` are forceable when
 /// `caller_rights.loans_rights` is write — the same bar as
 /// [`crate::models::user::UserClaims::require_write_loans`]. The account-type
@@ -246,7 +248,9 @@ pub fn renewal_limits_hit(loan: &RenewalLoan, ctx: &RenewalContext) -> Vec<Renew
 /// `business_rule_violation`.
 #[must_use]
 pub fn renewal_refusal_forceable(code: &str, caller_rights: &UserRights) -> bool {
-    if code == crate::error::error_code::SUBSCRIPTION_EXPIRED {
+    if code == crate::error::error_code::SUBSCRIPTION_EXPIRED
+        || code == crate::error::error_code::FINES_OVER_THRESHOLD
+    {
         return crate::checkout_refusal::checkout_refusal_forceable(code, caller_rights);
     }
     if caller_rights.loans_rights.rank() < Rights::Write.rank() {
@@ -254,10 +258,7 @@ pub fn renewal_refusal_forceable(code: &str, caller_rights: &UserRights) -> bool
     }
     matches!(
         code,
-        "account_blocked"
-            | crate::error::error_code::FINES_OVER_THRESHOLD
-            | "max_renewals"
-            | crate::error::error_code::RENEWAL_TOO_EARLY
+        "account_blocked" | "max_renewals" | crate::error::error_code::RENEWAL_TOO_EARLY
     )
 }
 
@@ -715,6 +716,10 @@ mod tests {
             assert_eq!(
                 renewal_refusal_forceable("subscription_expired", rights),
                 checkout_refusal_forceable("subscription_expired", rights)
+            );
+            assert_eq!(
+                renewal_refusal_forceable("fines_over_threshold", rights),
+                checkout_refusal_forceable("fines_over_threshold", rights)
             );
         }
         for code in [

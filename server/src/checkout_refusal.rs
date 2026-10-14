@@ -17,11 +17,15 @@ use crate::{
 
 /// Whether this caller may skip this checkout refusal.
 ///
-/// `fines_over_threshold`, `max_loans`, `max_media_loans`, and `item_not_loanable`
-/// (not borrowable, or damaged) are forceable for any caller who can send `force`.
+/// `fines_over_threshold` is forceable only when `caller_rights.loans_rights` is
+/// write — the same bar as [`crate::models::user::UserClaims::require_write_loans`]
+/// and as renewal ([`crate::renewal::renewal_refusal_forceable`]). Mode `none`
+/// never produces this code, so the override is not offered then.
 /// `subscription_expired` is forceable only when `caller_rights.settings_rights` is
-/// write — the admin bar used by [`crate::models::user::UserClaims::require_write_settings`],
-/// not the account-type name. Every other checkout code is false, including
+/// write — the admin bar used by [`crate::models::user::UserClaims::require_write_settings`].
+/// `max_loans`, `max_media_loans`, and `item_not_loanable` (not borrowable, or
+/// damaged) are forceable for any caller who can send `force`. The account-type
+/// name is not consulted. Every other checkout code is false, including
 /// `business_rule_violation`.
 #[must_use]
 pub fn checkout_refusal_forceable(code: &str, caller_rights: &UserRights) -> bool {
@@ -29,10 +33,10 @@ pub fn checkout_refusal_forceable(code: &str, caller_rights: &UserRights) -> boo
         error_code::SUBSCRIPTION_EXPIRED => {
             caller_rights.settings_rights.rank() >= Rights::Write.rank()
         }
-        error_code::FINES_OVER_THRESHOLD
-        | error_code::MAX_LOANS
-        | error_code::MAX_MEDIA_LOANS
-        | error_code::ITEM_NOT_LOANABLE => true,
+        error_code::FINES_OVER_THRESHOLD => {
+            caller_rights.loans_rights.rank() >= Rights::Write.rank()
+        }
+        error_code::MAX_LOANS | error_code::MAX_MEDIA_LOANS | error_code::ITEM_NOT_LOANABLE => true,
         _ => false,
     }
 }
@@ -145,8 +149,9 @@ pub struct CheckoutRefusalBody {
     pub error: String,
     /// Desk-facing explanation.
     pub message: String,
-    /// Server-computed for this caller. `subscription_expired` is true only when
-    /// the caller has settings write.
+    /// Server-computed for this caller. `fines_over_threshold` is true only when
+    /// the caller has loans write. `subscription_expired` is true only when the
+    /// caller has settings write.
     pub forceable: bool,
     /// Circulation status for `item_status_action_required`
     /// (`lost`, `claimedReturned`, `toSearch`, `missing`).
@@ -221,12 +226,16 @@ mod tests {
     }
 
     #[test]
-    fn forceable_set_depends_on_settings_write_only_for_subscription_expired() {
-        let admin = rights(true);
+    fn forceable_set_depends_on_the_right_for_that_gate() {
+        let settings = rights(true);
         let desk = rights(false);
+        let loans = UserRights {
+            loans_rights: Rights::Write,
+            ..UserRights::default()
+        };
         assert!(checkout_refusal_forceable(
             error_code::SUBSCRIPTION_EXPIRED,
-            &admin
+            &settings
         ));
         assert!(!checkout_refusal_forceable(
             error_code::SUBSCRIPTION_EXPIRED,
@@ -235,23 +244,52 @@ mod tests {
         assert!(force_skips_checkout_refusal(
             true,
             error_code::SUBSCRIPTION_EXPIRED,
-            &admin
+            &settings
         ));
         assert!(!force_skips_checkout_refusal(
             true,
             error_code::SUBSCRIPTION_EXPIRED,
             &desk
         ));
-        for code in [
+        assert!(checkout_refusal_forceable(
             error_code::FINES_OVER_THRESHOLD,
+            &loans
+        ));
+        assert!(!checkout_refusal_forceable(
+            error_code::FINES_OVER_THRESHOLD,
+            &desk
+        ));
+        assert!(!checkout_refusal_forceable(
+            error_code::FINES_OVER_THRESHOLD,
+            &settings
+        ));
+        assert!(force_skips_checkout_refusal(
+            true,
+            error_code::FINES_OVER_THRESHOLD,
+            &loans
+        ));
+        assert!(!force_skips_checkout_refusal(
+            true,
+            error_code::FINES_OVER_THRESHOLD,
+            &settings
+        ));
+        assert!(!force_skips_checkout_refusal(
+            false,
+            error_code::FINES_OVER_THRESHOLD,
+            &loans
+        ));
+        for code in [
             error_code::MAX_LOANS,
             error_code::MAX_MEDIA_LOANS,
             error_code::ITEM_NOT_LOANABLE,
         ] {
-            assert!(checkout_refusal_forceable(code, &admin), "{code}");
+            assert!(checkout_refusal_forceable(code, &settings), "{code}");
             assert!(checkout_refusal_forceable(code, &desk), "{code}");
             assert!(force_skips_checkout_refusal(true, code, &desk), "{code}");
-            assert!(!force_skips_checkout_refusal(false, code, &admin), "{code}");
+            assert!(
+                !force_skips_checkout_refusal(false, code, &settings),
+                "{code}"
+            );
         }
         for code in [
             error_code::ITEM_HELD_FOR_OTHER,
@@ -260,9 +298,12 @@ mod tests {
             error_code::ITEM_TO_PICK_FOR_OTHER,
             error_code::BUSINESS_RULE,
         ] {
-            assert!(!checkout_refusal_forceable(code, &admin), "{code}");
+            assert!(!checkout_refusal_forceable(code, &settings), "{code}");
             assert!(!checkout_refusal_forceable(code, &desk), "{code}");
-            assert!(!force_skips_checkout_refusal(true, code, &admin), "{code}");
+            assert!(
+                !force_skips_checkout_refusal(true, code, &settings),
+                "{code}"
+            );
         }
     }
 

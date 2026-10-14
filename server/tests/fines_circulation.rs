@@ -180,6 +180,29 @@ async fn checkout(
     .await
 }
 
+async fn fine_override_payload(app: &TestApp, loan_id: i64) -> serde_json::Value {
+    let pool = app.state.services.repository.pool();
+    for _ in 0..40 {
+        let row: Option<(String, serde_json::Value)> = sqlx::query_as(
+            r#"
+            SELECT entity_type, payload
+            FROM audit_log
+            WHERE event_type = 'loan.fine_threshold_overridden' AND entity_id = $1
+            "#,
+        )
+        .bind(loan_id)
+        .fetch_optional(pool)
+        .await
+        .expect("audit query");
+        if let Some((entity_type, payload)) = row {
+            assert_eq!(entity_type, "loan");
+            return payload;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    panic!("loan.fine_threshold_overridden missing for loan {loan_id}");
+}
+
 #[tokio::test]
 async fn unpaid_under_threshold_allows_checkout() {
     let Some(app) = TestApp::spawn().await else {
@@ -245,22 +268,14 @@ async fn unpaid_over_threshold_blocks_checkout_and_force_is_audited() {
 
     let (status, body) = checkout(&app, &admin_token, reader_id, blocked_item, true).await;
     assert_eq!(status, StatusCode::CREATED, "force checkout: {body}");
+    let forced_loan_id = fixtures::json_id(&body["id"]);
 
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-    let (status, audit) = app
-        .get_json_with_auth(
-            &format!("/api/v1/audit?eventType=loan.fine_threshold_overridden&entityId={reader_id}"),
-            &admin_token,
-        )
-        .await;
-    assert_eq!(status, StatusCode::OK, "audit query: {audit}");
-    let entries = audit["entries"].as_array().cloned().unwrap_or_default();
-    assert!(
-        entries
-            .iter()
-            .any(|row| row["payload"]["operation"] == "checkout"),
-        "expected override audit, got {audit}"
-    );
+    let payload = fine_override_payload(&app, forced_loan_id).await;
+    assert_eq!(payload["reason"], "fines_over_threshold", "{payload}");
+    assert_eq!(payload["loanId"], json!(forced_loan_id), "{payload}");
+    assert_eq!(payload["patron_id"], json!(reader_id), "{payload}");
+    assert!(payload.get("operation").is_none(), "{payload}");
+    assert!(payload.get("unpaid").is_none(), "{payload}");
 }
 
 #[tokio::test]
