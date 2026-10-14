@@ -882,7 +882,18 @@ async fn to_search_barcode_return_does_not_assign_hold_and_force_checkout_stays_
     .execute(app.state.services.repository.pool())
     .await
     .expect("restore shelf copy");
-    let (status, loan) = checkout(&app, &admin_token, borrower, item_id, false).await;
+    let (status, loan) = app
+        .post_json(
+            "/api/v1/loans",
+            &json!({
+                "userId": borrower.to_string(),
+                "itemId": item_id.to_string(),
+                "force": true,
+                "overrideReason": "the only shelf copy is back for this loan"
+            }),
+            Some(&admin_token),
+        )
+        .await;
     assert_eq!(status, StatusCode::CREATED, "shelf loan: {loan}");
     mark_to_search(&app, item_id).await;
     let during = hold_row(&app, hold_id).await;

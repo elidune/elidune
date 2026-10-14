@@ -386,9 +386,13 @@ async fn patron_is_null_for_a_return_without_a_hold() {
     let shipped = ship_cross_site(&app, &admin_token, "trnhome").await;
 
     let (status, cancelled) = app
-        .delete_with_auth(&format!("/api/v1/holds/{}", shipped.hold_id), &admin_token)
+        .post_json(
+            &format!("/api/v1/transits/{}/cancel", shipped.transit_id),
+            &json!({ "reverse": true }),
+            Some(&admin_token),
+        )
         .await;
-    assert_eq!(status, StatusCode::OK, "cancel hold: {cancelled}");
+    assert_eq!(status, StatusCode::OK, "cancel transit: {cancelled}");
 
     let (status, list) = app
         .get_json_with_auth(
@@ -422,7 +426,7 @@ async fn patron_is_null_when_the_linked_hold_is_cancelled() {
 
     let row = transit_row(&app, &admin_token, shipped.transit_id).await;
     assert_eq!(fixtures::json_id(&row["holdId"]), shipped.hold_id, "{row}");
-    assert_eq!(row["status"], "cancelled", "{row}");
+    assert_eq!(row["status"], "inTransit", "{row}");
     assert_copy_fields(&row, &shipped.barcode, &shipped.title, shipped.origin);
     assert!(row["patron"].is_null(), "cancelled hold: {row}");
     assert_no_identity(&row, &shipped.login);

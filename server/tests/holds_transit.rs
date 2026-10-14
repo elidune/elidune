@@ -228,12 +228,17 @@ async fn cancel_while_in_transit_frees_hold_and_reverses() {
         .await;
     assert_eq!(status, StatusCode::OK, "cancel hold: {cancelled}");
     assert_eq!(cancelled["status"], "cancelled");
+    assert!(
+        cancelled["itemId"].is_null(),
+        "unlink the copy: {cancelled}"
+    );
 
     let (status, original) = app
         .get_json_with_auth(&format!("/api/v1/transits/{transit_id}"), &admin_token)
         .await;
     assert_eq!(status, StatusCode::OK, "original transit: {original}");
-    assert_eq!(original["transit"]["status"], "cancelled");
+    assert_eq!(original["transit"]["status"], "inTransit");
+    assert_eq!(fixtures::json_id(&original["transit"]["holdId"]), hold_id);
 
     let (status, list) = app
         .get_json_with_auth(
@@ -242,22 +247,21 @@ async fn cancel_while_in_transit_frees_hold_and_reverses() {
         )
         .await;
     assert_eq!(status, StatusCode::OK, "list transits: {list}");
-    let reverse = list["items"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|t| t["status"] == "requested" && t["reversedFromId"].is_string())
-        .expect("reverse transit");
-    assert_eq!(fixtures::json_id(&reverse["fromSourceId"]), pickup);
-    assert_eq!(fixtures::json_id(&reverse["toSourceId"]), origin);
-    assert!(reverse["holdId"].is_null());
+    assert!(
+        list["items"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .all(|t| t["reversedFromId"].is_null()),
+        "cancel does not reverse the transit: {list}"
+    );
 
     let (other_id, _) = fixtures::create_reader(&app, &admin_token, "trnfree").await;
     let (status, body) = checkout(&app, &admin_token, other_id, item_id).await;
     assert_eq!(
         status,
         StatusCode::UNPROCESSABLE_ENTITY,
-        "reverse requested still blocks: {body}"
+        "in-transit copy still blocks: {body}"
     );
 }
 

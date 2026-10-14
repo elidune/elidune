@@ -87,6 +87,12 @@ pub mod error_code {
     pub const BIBLIO_HAS_HOLDS: &str = "biblio_has_holds";
     pub const ITEM_ON_LOAN: &str = "item_on_loan";
     pub const ITEM_IN_TRANSIT: &str = "item_in_transit";
+    /// `POST /loans/items/{barcode}/return` set-aside: `itemId` is not the barcode's copy.
+    pub const SET_ASIDE_ITEM_MISMATCH: &str = "set_aside_item_mismatch";
+    /// Set-aside: the copy is not an item of the held title.
+    pub const SET_ASIDE_WRONG_TITLE: &str = "set_aside_wrong_title";
+    /// Set-aside: `holdId` is not the oldest pending unassigned hold on the title.
+    pub const SET_ASIDE_NOT_OLDEST: &str = "set_aside_not_oldest";
     pub const ITEM_ON_HOLD: &str = "item_on_hold";
     pub const WITHDRAWAL_REASON_DETAIL_REQUIRED: &str = "withdrawal_reason_detail_required";
     pub const WITHDRAWAL_DESTINATION_REQUIRED: &str = "withdrawal_destination_required";

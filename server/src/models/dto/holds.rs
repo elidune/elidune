@@ -130,6 +130,12 @@ pub struct ShelfCheckIn {
     pub destination_site_id: Option<i64>,
     pub destination_site_name: Option<String>,
     pub newly_ready: bool,
+    /// Set-aside only. Open transit for this assignment, if one was started or reused.
+    pub transit_id: Option<i64>,
+    /// Set-aside only. Pickup site on the hold (`None` when the hold has none).
+    pub pickup_site_id: Option<i64>,
+    /// When true, the barcode return response includes `holdStatus`, `transitId`, and `pickupSiteId`.
+    pub report_set_aside: bool,
 }
 
 /// A `to_search` copy was scanned and returned to the shelf.
