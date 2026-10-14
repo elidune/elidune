@@ -31,12 +31,30 @@ describe('transit queue cells', () => {
       await i18nFor('fr'),
       createElement(TransitReaderCell, { patron: { cardNumber: 'CARD-3', initials: 'H.H.' } }),
     );
-    assert.match(html, /carte n° CARD-3 HH/);
+    assert.match(html, /carte n° CARD-3 H\.H\./);
     assert.equal(html.includes('Helene'), false);
     assert.equal(html.includes('Holder'), false);
     assert.equal(html.includes('<a'), false);
     assert.equal(html.includes('spécimen'), false);
     assert.equal(html.includes('patron'), false);
+  });
+
+  it('renders spaced initials beside the card and never a name', async () => {
+    const html = render(
+      await i18nFor('fr'),
+      createElement(TransitReaderCell, { patron: { cardNumber: 'CARD-42', initials: 'J. D.' } }),
+    );
+    assert.match(html, /carte n° CARD-42 J\. D\./);
+    assert.equal(html.includes('Jean'), false);
+    assert.equal(html.includes('Dupont'), false);
+  });
+
+  it('renders server initials exactly, including a value with no dots', async () => {
+    const html = render(
+      await i18nFor('fr'),
+      createElement(TransitReaderCell, { patron: { cardNumber: 'CARD-42', initials: 'JD' } }),
+    );
+    assert.match(html, /carte n° CARD-42 JD/);
   });
 
   it('renders initials when the reader has no card', async () => {

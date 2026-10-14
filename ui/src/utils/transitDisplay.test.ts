@@ -121,13 +121,19 @@ describe('transit list fields on the transit', () => {
       transitListPatron(transit({ patron: { cardNumber: 'CARD-3', initials: 'H.H.' } })),
       phrase,
     );
-    assert.equal(dotted, 'carte n° CARD-3 HH');
+    assert.equal(dotted, 'carte n° CARD-3 H.H.');
+
+    const spaced = transitPatronLabel(
+      transitListPatron(transit({ patron: { cardNumber: 'CARD-3', initials: 'J. D.' } })),
+      phrase,
+    );
+    assert.equal(spaced, 'carte n° CARD-3 J. D.');
 
     const initials = transitPatronLabel(
       transitListPatron(transit({ patron: { cardNumber: null, initials: 'H.H' } })),
       phrase,
     );
-    assert.equal(initials, 'HH');
+    assert.equal(initials, 'H.H');
 
     const cardOnly = transitPatronLabel(
       transitListPatron(transit({ patron: { cardNumber: 'CARD-3', initials: 'Helene Holder' } })),
@@ -139,6 +145,104 @@ describe('transit list fields on the transit', () => {
     assert.equal(named, null);
     assert.equal(transitPatronLabel(named, phrase), null);
     assert.equal(transitPatronLabel(null, phrase), null);
+  });
+
+  it('reads a transit-list payload the way the list route serializes it', () => {
+    const phrase = (number: string) => `carte n° ${number}`;
+    const serverInitials = JSON.parse(`{
+      "id": "9001",
+      "itemId": "8001",
+      "holdId": "7001",
+      "barcode": "EX-1",
+      "title": "Privacy",
+      "sourceId": "10",
+      "sourceName": "Annex",
+      "patron": { "cardNumber": "CARD-42", "initials": "JD" },
+      "fromSourceId": "11",
+      "toSourceId": "10",
+      "status": "inTransit",
+      "notes": null,
+      "createdAt": "2026-10-14T08:00:00Z",
+      "shippedAt": "2026-10-14T09:00:00Z",
+      "receivedAt": null,
+      "cancelledAt": null,
+      "shippedBy": "1",
+      "receivedBy": null,
+      "cancelledBy": null,
+      "reversedFromId": null
+    }`) as ItemTransit;
+    assert.equal(transitListBarcode(serverInitials), 'EX-1');
+    assert.equal(transitListTitle(serverInitials), 'Privacy');
+    assert.equal(transitPatronLabel(transitListPatron(serverInitials), phrase), 'carte n° CARD-42 JD');
+
+    const spacedInitials = JSON.parse(`{
+      "id": "9002",
+      "itemId": "8001",
+      "holdId": "7001",
+      "barcode": "EX-2",
+      "title": "Privacy",
+      "sourceId": "10",
+      "sourceName": "Annex",
+      "patron": {
+        "cardNumber": "CARD-42",
+        "initials": "J. D.",
+        "firstname": "Jean",
+        "lastname": "Dupont"
+      },
+      "fromSourceId": "11",
+      "toSourceId": "10",
+      "status": "requested",
+      "createdAt": "2026-10-14T08:00:00Z"
+    }`) as ItemTransit;
+    const spacedLabel = transitPatronLabel(transitListPatron(spacedInitials), phrase);
+    assert.equal(spacedLabel, 'carte n° CARD-42 J. D.');
+    assert.equal(spacedLabel?.includes('Jean'), false);
+    assert.equal(spacedLabel?.includes('Dupont'), false);
+
+    const accented = transitPatronLabel(
+      transitListPatron(transit({ patron: { cardNumber: 'CARD-42', initials: 'ÉZ' } })),
+      phrase,
+    );
+    assert.equal(accented, 'carte n° CARD-42 ÉZ');
+
+    const blankInitials = transitPatronLabel(
+      transitListPatron(transit({ patron: { cardNumber: 'CARD-42', initials: '' } })),
+      phrase,
+    );
+    assert.equal(blankInitials, 'carte n° CARD-42');
+
+    const closedHold = JSON.parse(`{
+      "id": "9003",
+      "itemId": "8002",
+      "holdId": "7002",
+      "barcode": "RC-B5TE-101229",
+      "title": "Return copy",
+      "sourceId": "10",
+      "sourceName": "Annex",
+      "patron": null,
+      "fromSourceId": "11",
+      "toSourceId": "10",
+      "status": "inTransit",
+      "createdAt": "2026-10-14T08:00:00Z"
+    }`) as ItemTransit;
+    assert.equal(transitListBarcode(closedHold), 'RC-B5TE-101229');
+    assert.equal(transitListPatron(closedHold), null);
+    assert.equal(transitPatronLabel(transitListPatron(closedHold), phrase), null);
+
+    const returnHome = JSON.parse(`{
+      "id": "9004",
+      "itemId": "8002",
+      "holdId": null,
+      "barcode": "RC-B5TE-101229",
+      "title": "Return copy",
+      "patron": null,
+      "fromSourceId": "10",
+      "toSourceId": "11",
+      "status": "requested",
+      "createdAt": "2026-10-14T08:00:00Z",
+      "reversedFromId": "9003"
+    }`) as ItemTransit;
+    assert.equal(transitListPatron(returnHome), null);
   });
 });
 
