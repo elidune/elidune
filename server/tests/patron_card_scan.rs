@@ -532,7 +532,7 @@ async fn lost_card_renewal_refused_with_admin_force_return_and_payment_accepted(
             Some(&admin_token),
         )
         .await;
-    assert_card_lost_body(status, &forced, None);
+    assert_card_lost_body(status, &forced, Some(false));
 
     let (status, by_barcode) = app
         .post_empty(
@@ -540,7 +540,7 @@ async fn lost_card_renewal_refused_with_admin_force_return_and_payment_accepted(
             Some(&admin_token),
         )
         .await;
-    assert_card_lost_body(status, &by_barcode, None);
+    assert_card_lost_body(status, &by_barcode, Some(false));
 
     let login: Option<String> = sqlx::query_scalar("SELECT login FROM users WHERE id = $1")
         .bind(reader_id)
@@ -576,7 +576,7 @@ async fn lost_card_renewal_refused_with_admin_force_return_and_payment_accepted(
             Some(patron_token),
         )
         .await;
-    assert_card_lost_body(status, &patron_renew, None);
+    assert_card_lost_body(status, &patron_renew, Some(false));
 
     let fine_id = next_id();
     sqlx::query(

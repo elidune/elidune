@@ -8,6 +8,7 @@ use common::TestApp;
 use elidune_server::error::{error_code, AppError};
 use elidune_server::models::hold::{CreateHold, HoldStatus};
 use elidune_server::models::loan::CreateLoan;
+use elidune_server::renewal::RenewalOverride;
 use elidune_server::repository::Repository;
 use serde_json::json;
 
@@ -768,8 +769,8 @@ async fn concurrent_renew_same_loan_cannot_exceed_max_renewals() {
     .expect("seed one used renewal");
 
     let (r1, r2) = tokio::join!(
-        repo.loans_renew(checkout.loan_id, false),
-        repo.loans_renew(checkout.loan_id, false),
+        repo.loans_renew(checkout.loan_id, RenewalOverride::default()),
+        repo.loans_renew(checkout.loan_id, RenewalOverride::default()),
     );
 
     let oks = [&r1, &r2].iter().filter(|r| r.is_ok()).count();
@@ -820,7 +821,7 @@ async fn renew_blocked_when_hold_queue_has_waiting_patron() {
         .expect("pending hold for reader B");
 
     let err = repo
-        .loans_renew(checkout.loan_id, false)
+        .loans_renew(checkout.loan_id, RenewalOverride::default())
         .await
         .expect_err("renew must fail while another patron is queued");
     assert_hold_queue_blocks_renew(err);
@@ -864,7 +865,7 @@ async fn renew_blocked_when_ready_hold_exists_for_copy() {
         .expect("mark hold ready");
 
     let err = repo
-        .loans_renew(checkout.loan_id, false)
+        .loans_renew(checkout.loan_id, RenewalOverride::default())
         .await
         .expect_err("renew must fail while a ready hold exists");
     assert_hold_queue_blocks_renew(err);
@@ -892,7 +893,7 @@ async fn renew_before_the_window_is_refused_without_counting() {
     let before = repo.loans_get_by_id(checkout.loan_id).await.expect("loan");
 
     let err = repo
-        .loans_renew(checkout.loan_id, false)
+        .loans_renew(checkout.loan_id, RenewalOverride::default())
         .await
         .expect_err("same-day renew is outside the 7-day window");
     match err {
@@ -952,10 +953,12 @@ async fn renew_inside_the_window_extends_the_current_due_date() {
         .await
         .expect("set due date inside the window");
 
-    let (new_expiry, renews) = repo
-        .loans_renew(checkout.loan_id, false)
+    let renewed = repo
+        .loans_renew(checkout.loan_id, RenewalOverride::default())
         .await
         .expect("renew inside the window");
+    let new_expiry = renewed.expiry_at;
+    let renews = renewed.renew_count;
     assert_eq!(renews, 1);
     let gained = new_expiry - due;
     assert!(
@@ -986,10 +989,12 @@ async fn overdue_renewal_still_extends_from_the_due_date() {
         .await
         .expect("mark loan overdue");
 
-    let (new_expiry, renews) = repo
-        .loans_renew(checkout.loan_id, false)
+    let renewed = repo
+        .loans_renew(checkout.loan_id, RenewalOverride::default())
         .await
         .expect("overdue renew stays allowed");
+    let new_expiry = renewed.expiry_at;
+    let renews = renewed.renew_count;
     assert_eq!(renews, 1);
     let gained = new_expiry - due;
     assert!(
@@ -1053,7 +1058,7 @@ async fn renewal_refused_when_title_hold_is_unassigned() {
     assert!(hold.item_id.is_none(), "no shelf copy left to assign");
 
     let err = repo
-        .loans_renew(checkout.loan_id, false)
+        .loans_renew(checkout.loan_id, RenewalOverride::default())
         .await
         .expect_err("unassigned title hold must refuse renewal");
     assert_hold_queue_blocks_renew(err);
@@ -1077,10 +1082,11 @@ async fn renewal_allowed_when_title_has_no_hold() {
         .expect("checkout");
     fixtures::pull_loan_into_renewal_window(&app, checkout.loan_id).await;
 
-    let (_expiry, renews) = repo
-        .loans_renew(checkout.loan_id, false)
+    let renews = repo
+        .loans_renew(checkout.loan_id, RenewalOverride::default())
         .await
-        .expect("renewal with no hold");
+        .expect("renewal with no hold")
+        .renew_count;
     assert_eq!(renews, 1);
 }
 
@@ -1115,10 +1121,11 @@ async fn renewal_allowed_when_title_hold_is_to_pick_on_another_copy() {
     assert_eq!(hold.item_id, Some(items[1]));
     fixtures::pull_loan_into_renewal_window(&app, checkout.loan_id).await;
 
-    let (_expiry, renews) = repo
-        .loans_renew(checkout.loan_id, false)
+    let renews = repo
+        .loans_renew(checkout.loan_id, RenewalOverride::default())
         .await
-        .expect("to_pick on another copy must not block renewal");
+        .expect("to_pick on another copy must not block renewal")
+        .renew_count;
     assert_eq!(renews, 1);
 }
 

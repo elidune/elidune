@@ -155,6 +155,8 @@ impl Repository {
             };
             let ctx = RenewalContext {
                 bypass_account_gates: false,
+                bypass_subscription_expired: false,
+                bypass_renewal_limits: false,
                 fines_over_threshold,
                 fines_message: String::new(),
                 max_renewals: max_renews,

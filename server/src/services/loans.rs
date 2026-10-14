@@ -18,7 +18,10 @@ use crate::{
         user::{UserRights, UserStatus},
         Loan,
     },
-    renewal::{renewal_eligibility, subscription_expired_message, RenewalContext, RenewalUser},
+    renewal::{
+        renewal_eligibility, subscription_expired_message, RenewalContext, RenewalOverride,
+        RenewalRefusal, RenewalUser,
+    },
     repository::LoansServiceRepository,
     services::{
         audit::{self, AuditLogMeta, AuditService},
@@ -761,9 +764,13 @@ impl LoansService {
             .await
     }
 
-    /// Renew a loan. `force` bypasses account status, an expired subscription, and
-    /// unpaid-fine gates (fines are audited). A lost or stolen card is always
-    /// `422` `card_lost`, including `force`.
+    /// Renew a loan. `force` skips a gate only when
+    /// [`crate::renewal::renewal_refusal_forceable`] is true for this caller.
+    /// Loans write lifts account status, the unpaid-fine gate, `max_renewals`,
+    /// and `renewal_too_early`. `subscription_expired` needs settings write, the
+    /// same rule as checkout. A lost card, a withdrawn copy, a claims-returned
+    /// copy, and a waiting hold stay `422`. Each skipped gate is audited after
+    /// the write commits. The payload is `{ reason, loanId, patron_id }`.
     ///
     /// [`renewal_eligibility`] runs before any write and again inside the locked update.
     pub async fn renew_loan(
@@ -772,6 +779,20 @@ impl LoansService {
         force: bool,
         audit_actor: Option<i64>,
         client_ip: Option<String>,
+        caller_rights: &UserRights,
+    ) -> AppResult<(DateTime<Utc>, i16)> {
+        self.perform_renewal(loan_id, force, audit_actor, client_ip, caller_rights)
+            .await
+            .map_err(|err| crate::renewal::with_renewal_forceable(err, caller_rights))
+    }
+
+    async fn perform_renewal(
+        &self,
+        loan_id: i64,
+        force: bool,
+        audit_actor: Option<i64>,
+        client_ip: Option<String>,
+        caller_rights: &UserRights,
     ) -> AppResult<(DateTime<Utc>, i16)> {
         let snapshot = self.repository.loans_renewal_snapshot(loan_id).await?;
         if snapshot.returned {
@@ -792,23 +813,11 @@ impl LoansService {
             .fines
             .check_unpaid_threshold(user.id, user.public_type)
             .await?;
-        if force && check.blocks_circulation() {
-            self.audit.log(
-                audit::event::LOAN_FINE_THRESHOLD_OVERRIDDEN,
-                audit_actor,
-                Some("user"),
-                Some(user.id),
-                client_ip,
-                Some(serde_json::json!({
-                    "unpaid": check.unpaid,
-                    "threshold": check.threshold,
-                    "operation": "renew",
-                })),
-                AuditLogMeta::success(),
-            );
-        }
+        let renewal_override = RenewalOverride::from_force(force, caller_rights);
         let ctx = RenewalContext {
-            bypass_account_gates: force,
+            bypass_account_gates: renewal_override.account_gates,
+            bypass_subscription_expired: renewal_override.subscription_expired,
+            bypass_renewal_limits: renewal_override.renewal_limits,
             fines_over_threshold: check.blocks_circulation(),
             fines_message: check.desk_block_message(),
             max_renewals: snapshot.max_renewals,
@@ -824,7 +833,43 @@ impl LoansService {
         if let Err(refusal) = renewal_eligibility(&snapshot.loan, &renewal_user, &ctx) {
             return Err(refusal.into_app_error(&snapshot.loan, &renewal_user, &ctx));
         }
-        self.repository.loans_renew(loan_id, force).await
+        let renewed = self
+            .repository
+            .loans_renew(loan_id, renewal_override)
+            .await?;
+        for refusal in renewed.lifted {
+            self.audit.log(
+                Self::renewal_lift_event(refusal),
+                audit_actor,
+                Some("loan"),
+                Some(loan_id),
+                client_ip.clone(),
+                Some(serde_json::json!({
+                    "reason": refusal.code(),
+                    "loanId": loan_id,
+                    "patron_id": snapshot.user_id,
+                })),
+                AuditLogMeta::success(),
+            );
+        }
+        Ok((renewed.expiry_at, renewed.renew_count))
+    }
+
+    /// Audit event for a renewal gate this call skipped.
+    fn renewal_lift_event(refusal: RenewalRefusal) -> &'static str {
+        match refusal {
+            RenewalRefusal::SubscriptionExpired => {
+                audit::event::LOAN_SUBSCRIPTION_EXPIRED_OVERRIDDEN
+            }
+            RenewalRefusal::FinesOverThreshold => audit::event::LOAN_FINE_THRESHOLD_OVERRIDDEN,
+            RenewalRefusal::AccountBlocked
+            | RenewalRefusal::MaxRenewals
+            | RenewalRefusal::RenewalTooEarly
+            | RenewalRefusal::CardLost
+            | RenewalRefusal::Withdrawn
+            | RenewalRefusal::ClaimedReturned
+            | RenewalRefusal::HoldWaiting => audit::event::LOAN_RENEWAL_FORCED,
+        }
     }
 
     /// Renew a loan by item identification (barcode or call number)
@@ -834,13 +879,14 @@ impl LoansService {
         force: bool,
         audit_actor: Option<i64>,
         client_ip: Option<String>,
+        caller_rights: &UserRights,
     ) -> AppResult<(i64, DateTime<Utc>, i16)> {
         let loan = self
             .repository
             .loans_get_by_item_identification(item_identification)
             .await?;
         let (new_expiry_date, renew_count) = self
-            .renew_loan(loan.id, force, audit_actor, client_ip)
+            .renew_loan(loan.id, force, audit_actor, client_ip, caller_rights)
             .await?;
         Ok((loan.id, new_expiry_date, renew_count))
     }
@@ -1256,8 +1302,16 @@ mod tests {
                 renew_window_days: 7,
             })
         }
-        async fn loans_renew(&self, _: i64, _: bool) -> AppResult<(chrono::DateTime<Utc>, i16)> {
-            Ok((Utc::now() + chrono::Duration::days(21), 1))
+        async fn loans_renew(
+            &self,
+            _: i64,
+            _: crate::renewal::RenewalOverride,
+        ) -> AppResult<crate::renewal::LoanRenewalResult> {
+            Ok(crate::renewal::LoanRenewalResult {
+                expiry_at: Utc::now() + chrono::Duration::days(21),
+                renew_count: 1,
+                lifted: Vec::new(),
+            })
         }
         async fn loans_get_settings(&self) -> AppResult<Vec<crate::models::loan::LoanSettings>> {
             Ok(vec![])
@@ -1891,7 +1945,16 @@ mod tests {
             },
             Some(loan),
         );
-        assert!(svc.renew_loan(200, false, None, None).await.is_ok());
+        assert!(svc
+            .renew_loan(
+                200,
+                false,
+                None,
+                None,
+                &crate::models::user::UserRights::default()
+            )
+            .await
+            .is_ok());
     }
 
     #[tokio::test]
@@ -1907,13 +1970,40 @@ mod tests {
             },
             Some(loan),
         );
-        match svc.renew_loan(201, false, None, None).await {
-            Err(AppError::RenewalRefused { code, message }) => {
+        match svc
+            .renew_loan(
+                201,
+                false,
+                None,
+                None,
+                &crate::models::user::UserRights::default(),
+            )
+            .await
+        {
+            Err(AppError::RenewalDenied {
+                code,
+                message,
+                forceable,
+            }) => {
                 assert_eq!(code, "fines_over_threshold");
+                assert!(!forceable);
                 assert!(message.contains("20"), "{message}");
                 assert!(message.contains("force=true"), "{message}");
             }
             other => panic!("expected fines_over_threshold, got {other:?}"),
+        }
+        let desk = crate::models::user::UserRights {
+            loans_rights: crate::models::user::Rights::Write,
+            ..crate::models::user::UserRights::default()
+        };
+        match svc.renew_loan(201, false, None, None, &desk).await {
+            Err(AppError::RenewalDenied {
+                code, forceable, ..
+            }) => {
+                assert_eq!(code, "fines_over_threshold");
+                assert!(forceable);
+            }
+            other => panic!("expected forceable fines_over_threshold, got {other:?}"),
         }
     }
 
@@ -1930,8 +2020,12 @@ mod tests {
             },
             Some(loan),
         );
+        let desk = crate::models::user::UserRights {
+            loans_rights: crate::models::user::Rights::Write,
+            ..crate::models::user::UserRights::default()
+        };
         assert!(svc
-            .renew_loan(202, true, Some(99), Some("127.0.0.1".into()))
+            .renew_loan(202, true, Some(99), Some("127.0.0.1".into()), &desk)
             .await
             .is_ok());
     }
@@ -1942,12 +2036,39 @@ mod tests {
         let user = make_user(15, None, Some(expired));
         let loan = make_active_loan(203, 15);
         let svc = make_service_with_fines(Some(user), 203, FakeFinesRepo::default(), Some(loan));
-        match svc.renew_loan(203, false, None, None).await {
-            Err(AppError::RenewalRefused { code, message }) => {
+        match svc
+            .renew_loan(
+                203,
+                false,
+                None,
+                None,
+                &crate::models::user::UserRights::default(),
+            )
+            .await
+        {
+            Err(AppError::RenewalDenied {
+                code,
+                message,
+                forceable,
+            }) => {
                 assert_eq!(code, "subscription_expired");
+                assert!(!forceable);
                 assert!(message.contains("force=true"), "{message}");
             }
             other => panic!("expected subscription_expired, got {other:?}"),
+        }
+        let desk = crate::models::user::UserRights {
+            loans_rights: crate::models::user::Rights::Write,
+            ..crate::models::user::UserRights::default()
+        };
+        match svc.renew_loan(203, true, Some(99), None, &desk).await {
+            Err(AppError::RenewalDenied {
+                code, forceable, ..
+            }) => {
+                assert_eq!(code, "subscription_expired");
+                assert!(!forceable);
+            }
+            other => panic!("loans write must not force subscription_expired, got {other:?}"),
         }
     }
 
@@ -1957,6 +2078,14 @@ mod tests {
         let user = make_user(16, None, Some(expired));
         let loan = make_active_loan(204, 16);
         let svc = make_service_with_fines(Some(user), 204, FakeFinesRepo::default(), Some(loan));
-        assert!(svc.renew_loan(204, true, Some(99), None).await.is_ok());
+        let settings = crate::models::user::UserRights {
+            loans_rights: crate::models::user::Rights::Write,
+            settings_rights: crate::models::user::Rights::Write,
+            ..crate::models::user::UserRights::default()
+        };
+        assert!(svc
+            .renew_loan(204, true, Some(99), None, &settings)
+            .await
+            .is_ok());
     }
 }

@@ -12,6 +12,7 @@ use elidune_server::models::loan::CreateLoan;
 use elidune_server::models::schedule::{
     CreateScheduleClosure, CreateSchedulePeriod, CreateScheduleSlot,
 };
+use elidune_server::renewal::RenewalOverride;
 use elidune_server::services::calendar::{self, local_date, slide_due_date};
 use serde_json::json;
 use tokio::sync::Mutex;
@@ -235,10 +236,12 @@ async fn renew_skips_holiday() {
         .expect("create closure")
         .id;
 
-    let (new_expiry, renews) = repo
-        .loans_renew(checkout.loan_id, false)
+    let renewed = repo
+        .loans_renew(checkout.loan_id, RenewalOverride::default())
         .await
         .expect("renew");
+    let new_expiry = renewed.expiry_at;
+    let renews = renewed.renew_count;
 
     assert_eq!(renews, 1);
     assert_ne!(
@@ -709,10 +712,12 @@ async fn three_week_network_closure_slides_checkout_and_renewal() {
         .execute(repo.pool())
         .await
         .expect("anchor renewal on today");
-    let (renewed, renews) = repo
-        .loans_renew(outcome.loan_id, false)
+    let renewed_loan = repo
+        .loans_renew(outcome.loan_id, RenewalOverride::default())
         .await
         .expect("renew across the closure");
+    let renewed = renewed_loan.expiry_at;
+    let renews = renewed_loan.renew_count;
     assert_eq!(renews, 1);
     let renewed_local = local_date(paris(), renewed);
     let renew_raw = local_date(paris(), Utc::now() + Duration::days(21));
@@ -853,10 +858,11 @@ async fn sunday_due_date_slides_to_monday() {
         .await
         .expect("anchor on Sunday");
 
-    let (renewed, _) = repo
-        .loans_renew(checkout.loan_id, false)
+    let renewed = repo
+        .loans_renew(checkout.loan_id, RenewalOverride::default())
         .await
-        .expect("renew");
+        .expect("renew")
+        .expiry_at;
     assert_eq!(
         local_date(paris(), renewed),
         target + Duration::days(1),

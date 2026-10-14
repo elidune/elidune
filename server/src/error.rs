@@ -172,6 +172,15 @@ pub enum AppError {
     #[error("{message}")]
     RenewalRefused { code: &'static str, message: String },
 
+    /// Renewal refused on the HTTP boundary (HTTP 422).
+    /// `forceable` comes from [`crate::renewal::renewal_refusal_forceable`].
+    #[error("{message}")]
+    RenewalDenied {
+        code: &'static str,
+        message: String,
+        forceable: bool,
+    },
+
     /// Confirmation payload is boxed: `BiblioShort` is far larger than the
     /// `result_large_err` limit and would otherwise inflate every `AppResult`.
     #[error("Duplicate ISBN requires confirmation")]
@@ -439,6 +448,12 @@ impl AppError {
                 label: "Business Rule Violation",
                 message: message.clone(),
             },
+            AppError::RenewalDenied { code, message, .. } => HttpErrorFields {
+                status: StatusCode::UNPROCESSABLE_ENTITY,
+                code,
+                label: "Business Rule Violation",
+                message: message.clone(),
+            },
             AppError::DuplicateNeedsConfirmation { .. }
             | AppError::DuplicateBarcodeNeedsConfirmation { .. } => HttpErrorFields {
                 status: StatusCode::CONFLICT,
@@ -543,6 +558,19 @@ impl IntoResponse for AppError {
             }
             AppError::CheckoutRefused(refusal) => {
                 let body = Json(refusal.to_body());
+                (StatusCode::UNPROCESSABLE_ENTITY, body).into_response()
+            }
+            AppError::RenewalDenied {
+                code,
+                message,
+                forceable,
+            } => {
+                let body = Json(crate::renewal::RenewalRefusalBody {
+                    code: code.to_string(),
+                    error: "Business Rule Violation".to_string(),
+                    message,
+                    forceable,
+                });
                 (StatusCode::UNPROCESSABLE_ENTITY, body).into_response()
             }
             other => {
