@@ -39,6 +39,8 @@ pub struct UnpaidThresholdCheck {
     pub unpaid: Cents,
     /// `None` means amount-based blocking is off.
     pub threshold: Option<Cents>,
+    /// When false, stored thresholds do not block checkout or renew.
+    accrue_fines: bool,
 }
 
 impl UnpaidThresholdCheck {
@@ -46,7 +48,7 @@ impl UnpaidThresholdCheck {
     /// Global and public-type rows stay stored. `unpaid` stays so lost and
     /// damaged bills remain visible on the account.
     #[must_use]
-    pub fn new(unpaid: Decimal, threshold: Option<Decimal>, accrue_fines: bool) -> Self {
+    pub fn new(unpaid: Cents, threshold: Option<Cents>, accrue_fines: bool) -> Self {
         Self {
             unpaid,
             threshold,
@@ -684,6 +686,9 @@ mod tests {
         }
         async fn fines_get_unpaid_threshold(&self, _: Option<i64>) -> AppResult<Option<Cents>> {
             Ok(None)
+        }
+        fn accrue_fines_enabled(&self) -> bool {
+            true
         }
         async fn fines_get_global_unpaid_threshold(
             &self,

@@ -20,11 +20,12 @@
 -- public_types.subscription_price is already integer cents. It is widened
 --   INTEGER -> BIGINT only and is never multiplied by 100.
 --
+-- paid_amount <= amount is added as fines_paid_amount_lte_amount.
 -- paid_amount + refunded_amount <= amount is NOT added. A collected charge
 --   that is later refunded keeps paid_amount and sets refunded_amount to the
 --   same collected sum, so the sum is larger than amount whenever something
---   was paid. The existing refunded_amount <= paid_amount check stays.
---   Rows that already violate the unpaid predicate are logged and left as-is.
+--   was paid. Those rows are not migration rejects. The existing
+--   refunded_amount <= paid_amount check stays.
 
 CREATE TABLE IF NOT EXISTS money_migration_rejects (
     id          BIGSERIAL PRIMARY KEY,
@@ -275,32 +276,12 @@ COMMENT ON COLUMN circulation_settings.unpaid_fine_threshold IS
     'Global unpaid-fine block in integer euro cents. Used only when unpaid_threshold_mode is amount.';
 
 -- Existing >= 0 checks on fines, fine_rules, and both threshold columns are
--- revalidated by the type change above. The refund sum check is intentionally
--- omitted: see the header comment.
-DO $refund_sum$
-DECLARE
-    offenders bigint;
-BEGIN
-    SELECT count(*) INTO offenders
-    FROM fines
-    WHERE paid_amount + refunded_amount > amount;
-
-    IF offenders > 0 THEN
-        INSERT INTO money_migration_rejects (table_name, row_id, column_name, raw_value)
-        SELECT
-            'fines',
-            id,
-            'paid_amount+refunded_amount',
-            paid_amount::text || '+' || refunded_amount::text || '>' || amount::text
-        FROM fines
-        WHERE paid_amount + refunded_amount > amount;
-    END IF;
-
-    RAISE NOTICE
-        'skipped fines paid_amount + refunded_amount <= amount (% offending row(s) logged, amounts unchanged). A refund keeps paid_amount and sets refunded_amount, so the sum exceeds amount after money is given back. refunded_amount <= paid_amount stays.',
-        offenders;
-END
-$refund_sum$;
+-- revalidated by the type change above. A refund keeps paid_amount, so
+-- paid_amount + refunded_amount <= amount is not added and is not a reject.
+ALTER TABLE fines DROP CONSTRAINT IF EXISTS fines_paid_amount_lte_amount;
+ALTER TABLE fines
+    ADD CONSTRAINT fines_paid_amount_lte_amount
+    CHECK (paid_amount <= amount);
 
 DO $notice$
 DECLARE

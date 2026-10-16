@@ -46,6 +46,7 @@ pub trait FinesRepository: Send + Sync {
         &self,
         public_type_id: Option<i64>,
     ) -> AppResult<Option<Cents>>;
+    fn accrue_fines_enabled(&self) -> bool;
     async fn fines_get_global_unpaid_threshold(&self) -> AppResult<StoredGlobalUnpaidThreshold>;
     async fn fines_set_global_unpaid_threshold(
         &self,

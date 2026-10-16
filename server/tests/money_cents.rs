@@ -301,7 +301,7 @@ async fn migration_converts_euros_and_records_rejects() {
     .fetch_all(&mut conn)
     .await
     .expect("rejects");
-    assert_eq!(rejects.len(), 8, "{rejects:?}");
+    assert_eq!(rejects.len(), 7, "{rejects:?}");
     assert_eq!(
         rejects
             .iter()
@@ -309,6 +309,19 @@ async fn migration_converts_euros_and_records_rejects() {
             .count(),
         5
     );
+    assert!(
+        !rejects.iter().any(|(table, column, _)| {
+            table == "fines" && column == "paid_amount+refunded_amount"
+        }),
+        "a refund keeps paid_amount and is not a reject: {rejects:?}"
+    );
+    let refund_rejects: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM money_migration_rejects WHERE table_name = 'fines' AND row_id = 2",
+    )
+    .fetch_one(&mut conn)
+    .await
+    .expect("refund rejects");
+    assert_eq!(refund_rejects, 0);
     assert!(rejects.iter().all(|(_, _, raw)| {
         !matches!(
             raw.as_deref(),
@@ -362,6 +375,31 @@ async fn migration_converts_euros_and_records_rejects() {
     .await
     .expect("foreign keys");
     assert_eq!(foreign_keys, 0);
+
+    let paid_cap: String = sqlx::query_scalar(
+        "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'fines_paid_amount_lte_amount'",
+    )
+    .fetch_one(&mut conn)
+    .await
+    .expect("paid cap");
+    assert!(
+        paid_cap.contains("paid_amount") && paid_cap.contains("amount"),
+        "{paid_cap}"
+    );
+    let mut tx = conn.begin().await.expect("begin paid cap");
+    let overpaid = sqlx::query(
+        "INSERT INTO fines (id, amount, paid_amount, refunded_amount) VALUES (99, 100, 101, 0)",
+    )
+    .execute(&mut *tx)
+    .await
+    .expect_err("paid above amount");
+    assert!(
+        overpaid
+            .to_string()
+            .contains("fines_paid_amount_lte_amount"),
+        "{overpaid}"
+    );
+    tx.rollback().await.expect("rollback paid cap");
 
     sqlx::query("DROP SCHEMA money_cents_fixture CASCADE")
         .execute(&mut conn)
@@ -577,16 +615,17 @@ async fn money_checks_reject_negative_cents() {
         "fine_rules_max_amount_check",
         "circulation_settings_unpaid_fine_threshold_check",
         "public_types_unpaid_fine_threshold_check",
+        "fines_paid_amount_lte_amount",
     ] {
         let def = defs
             .iter()
             .find(|(constraint, _)| constraint == name)
             .unwrap_or_else(|| panic!("missing {name}: {defs:?}"));
-        assert!(
-            def.1.contains(">= 0") || def.1.contains(">= (0)"),
-            "{name}: {}",
-            def.1
-        );
+        let nonnegative = def.1.contains(">= 0") || def.1.contains(">= (0)");
+        let paid_cap = name == "fines_paid_amount_lte_amount"
+            && def.1.contains("paid_amount")
+            && (def.1.contains("<= amount") || def.1.contains("<= (amount)"));
+        assert!(nonnegative || paid_cap, "{name}: {}", def.1);
     }
 
     let fine_id = (fixtures::unique_suffix() % i64::MAX as u128) as i64;
@@ -646,6 +685,14 @@ async fn money_checks_reject_negative_cents() {
             "INSERT INTO fines (id, loan_id, amount, refunded_amount) VALUES ({fine_id}, 1, 0, -1)"
         ),
         "fines_refunded_amount_check",
+    )
+    .await;
+    expect_check(
+        pool,
+        &format!(
+            "INSERT INTO fines (id, loan_id, amount, paid_amount) VALUES ({fine_id}, {fine_id}, 100, 101)"
+        ),
+        "fines_paid_amount_lte_amount",
     )
     .await;
 }
@@ -713,10 +760,110 @@ async fn lost_bill_without_price_asks_for_an_amount_unless_a_replacement_rule_ex
     assert_eq!(status, StatusCode::OK, "{billed}");
     assert_eq!(billed["charge"]["amount"], "2.50", "{billed}");
 
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "zeroprice").await;
+    let (loan_id, _) = checkout_with_price(&app, &admin_token, reader_id, "0.00").await;
+    let (status, billed) = app
+        .post_json(
+            &format!("/api/v1/loans/{loan_id}/lost"),
+            &json!({ "bill": true }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{billed}");
+    assert_eq!(billed["charge"]["amount"], "2.50", "{billed}");
+
+    let (status, rule) = app
+        .put_json(
+            "/api/v1/fines/rules",
+            &json!({
+                "mediaType": "replacement",
+                "dailyRate": "0.00",
+                "graceDays": 0
+            }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{rule}");
+    assert_eq!(rule["dailyRate"], "0.00", "{rule}");
+
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "zerorule").await;
+    let (loan_id, _) = checkout_without_price(&app, &admin_token, reader_id).await;
+    let (status, body) = app
+        .post_json(
+            &format!("/api/v1/loans/{loan_id}/lost"),
+            &json!({ "bill": true }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
+    assert!(
+        body["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("no default replacement rule"),
+        "{body}"
+    );
+
+    let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "zeroexplicit").await;
+    let (loan_id, _) = checkout_with_price(&app, &admin_token, reader_id, "4.00").await;
+    let (status, body) = app
+        .post_json(
+            &format!("/api/v1/loans/{loan_id}/lost"),
+            &json!({ "bill": true, "amount": "0.00" }),
+            Some(&admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(
+        body["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("must be positive"),
+        "{body}"
+    );
+
     sqlx::query("DELETE FROM fine_rules WHERE lower(media_type) = 'replacement'")
         .execute(app.state.services.repository.pool())
         .await
         .expect("remove replacement rule");
+}
+
+async fn checkout_with_price(
+    app: &TestApp,
+    admin_token: &str,
+    reader_id: i64,
+    price: &str,
+) -> (i64, i64) {
+    let (status, body) = app
+        .post_json(
+            "/api/v1/biblios",
+            &json!({
+                "title": format!("Priced {}", fixtures::unique_suffix()),
+                "mediaType": "printedText",
+                "lang": "french",
+                "items": [{
+                    "barcode": format!("PR-{}", fixtures::unique_suffix()),
+                    "borrowable": true,
+                    "price": price
+                }]
+            }),
+            Some(admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let item_id = fixtures::json_id(&body["biblio"]["items"][0]["id"]);
+    let (status, loan) = app
+        .post_json(
+            "/api/v1/loans",
+            &json!({
+                "userId": reader_id.to_string(),
+                "itemId": item_id.to_string()
+            }),
+            Some(admin_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{loan}");
+    (fixtures::json_id(&loan["id"]), item_id)
 }
 
 async fn checkout_without_price(app: &TestApp, admin_token: &str, reader_id: i64) -> (i64, i64) {

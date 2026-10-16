@@ -1683,6 +1683,9 @@ mod tests {
         ) -> AppResult<Option<crate::models::fine::Cents>> {
             Ok(self.threshold)
         }
+        fn accrue_fines_enabled(&self) -> bool {
+            true
+        }
         async fn fines_get_global_unpaid_threshold(
             &self,
         ) -> AppResult<crate::models::fine::StoredGlobalUnpaidThreshold> {
