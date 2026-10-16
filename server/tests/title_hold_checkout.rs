@@ -132,7 +132,7 @@ async fn hold_row(app: &TestApp, hold_id: i64) -> (String, i32, Option<i64>) {
 }
 
 async fn staff_without_override(app: &TestApp, admin_token: &str) -> String {
-    let code = format!("desk{}", fixtures::unique_suffix() % 1_000_000_000);
+    let code = format!("desk{}", fixtures::unique_token());
     let (status, body) = app
         .post_json(
             "/api/v1/account-types",

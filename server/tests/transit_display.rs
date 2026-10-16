@@ -56,7 +56,7 @@ async fn login_as(app: &TestApp, admin_token: &str, account_type: &str) -> Strin
 }
 
 async fn create_agentguichet(app: &TestApp, admin_token: &str) -> String {
-    let code = format!("agentguichet{}", fixtures::unique_suffix() % 1_000_000_000);
+    let code = format!("agentguichet{}", fixtures::unique_token());
     let (status, body) = app
         .post_json(
             "/api/v1/account-types",

@@ -60,7 +60,7 @@ async fn user_with_rights(
     settings_rights: &str,
     override_rights: &str,
 ) -> (i64, String, String) {
-    let code = format!("circ{}", fixtures::unique_suffix() % 1_000_000_000);
+    let code = format!("circ{}", fixtures::unique_token());
     assert!(!matches!(code.as_str(), "admin" | "librarian" | "reader"));
     let (status, body) = app
         .post_json(
@@ -565,7 +565,7 @@ async fn force_audits_fines_over_threshold() {
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
-    let name = format!("fineforce{}", fixtures::unique_suffix() % 1_000_000_000);
+    let name = format!("fineforce{}", fixtures::unique_token());
     let cents = elidune_server::models::fine::money_to_cents("0.50".parse().expect("threshold"))
         .expect("cents");
     let (status, body) = app
