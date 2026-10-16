@@ -156,7 +156,7 @@ async fn insert_fine(app: &TestApp, loan_id: i64, reader_id: i64) {
     sqlx::query(
         r#"
         INSERT INTO fines (id, loan_id, user_id, amount, paid_amount, status, charge_type)
-        VALUES ($1, $2, $3, 5.00, 0, 'pending', 'overdue')
+        VALUES ($1, $2, $3, 500, 0, 'pending', 'overdue')
         "#,
     )
     .bind(next_id())

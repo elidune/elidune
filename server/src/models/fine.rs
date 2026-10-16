@@ -148,8 +148,14 @@ pub struct Fine {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub user_id: Option<i64>,
-    pub amount: Decimal,
-    pub paid_amount: Decimal,
+    /// Charge total as a decimal-euro string (`"12.50"`). Stored as integer cents.
+    #[schema(value_type = String, example = "12.50")]
+    #[serde(with = "euro_string")]
+    pub amount: Cents,
+    /// Amount collected as a decimal-euro string (`"12.50"`). Stored as integer cents.
+    #[schema(value_type = String, example = "0.00")]
+    #[serde(with = "euro_string")]
+    pub paid_amount: Cents,
     pub created_at: DateTime<Utc>,
     pub paid_at: Option<DateTime<Utc>>,
     pub status: FineStatus,
@@ -164,35 +170,155 @@ pub struct Fine {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub item_id: Option<i64>,
-    /// Amount given back when a collected charge is reversed.
-    #[serde(default, skip_serializing_if = "is_zero_decimal")]
+    /// Amount given back as a decimal-euro string. Omitted when zero. Stored as integer cents.
+    #[serde(default, skip_serializing_if = "is_zero_cents", with = "euro_string")]
+    #[schema(value_type = String, example = "0.00")]
     #[sqlx(default)]
-    pub refunded_amount: Decimal,
+    pub refunded_amount: Cents,
 }
 
-fn is_zero_decimal(amount: &Decimal) -> bool {
-    amount.is_zero()
+fn is_zero_cents(amount: &Cents) -> bool {
+    amount.0 == 0
 }
 
-/// Currency amount as integer cents. `NUMERIC(12,2)` values convert exactly.
-pub fn money_to_cents(amount: Decimal) -> Result<i64, &'static str> {
-    let cents = (amount * Decimal::from(100u32)).round_dp(0);
-    cents
-        .to_i64()
-        .ok_or("fine amount is outside the cents range")
-}
+/// Integer euro cents. Stored in `BIGINT` columns. JSON is an integer unless a
+/// field opts into [`euro_string`] for a decimal-euro string.
+///
+/// `0` is a real amount. Absence is `Option::None`, not zero.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct Cents(pub i64);
 
-/// Integer cents as a `NUMERIC(12,2)` currency amount.
-#[must_use]
-pub fn cents_to_money(cents: i64) -> Decimal {
-    Decimal::from(cents) / Decimal::from(100)
-}
+/// Former name of the integer-cents JSON/database adapter. Same type as [`Cents`].
+pub type MoneyCents = Cents;
 
-/// `NUMERIC(12,2)` column read and written as integer cents.
+/// Why a euro amount could not be stored as cents. Nothing is rounded.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct MoneyCents(pub i64);
+pub enum EuroParseError {
+    Negative,
+    TooManyDecimals,
+    Unparseable,
+}
 
-impl serde::Serialize for MoneyCents {
+impl std::fmt::Display for EuroParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Negative => "amount cannot be negative",
+            Self::TooManyDecimals => "amount has more than 2 decimal places",
+            Self::Unparseable => "amount is not a euro value",
+        })
+    }
+}
+
+impl std::error::Error for EuroParseError {}
+
+impl Cents {
+    pub const ZERO: Self = Self(0);
+
+    #[must_use]
+    pub fn get(self) -> i64 {
+        self.0
+    }
+
+    /// `"12.50"` / `"12,50"` / `"0.00"`. Two digits, dot separator.
+    #[must_use]
+    pub fn to_euro_string(self) -> String {
+        let sign = if self.0 < 0 { "-" } else { "" };
+        let abs = self.0.unsigned_abs();
+        format!("{sign}{}.{:02}", abs / 100, abs % 100)
+    }
+
+    /// Disposal CSV: `"12,50"`.
+    #[must_use]
+    pub fn to_csv_euro(self) -> String {
+        self.to_euro_string().replace('.', ",")
+    }
+
+    pub fn checked_mul_i64(self, factor: i64) -> Option<Self> {
+        self.0.checked_mul(factor).map(Self)
+    }
+
+    pub fn saturating_sub(self, rhs: Self) -> Self {
+        Self(self.0.saturating_sub(rhs.0))
+    }
+
+    /// Parse a major-unit euro string. Blank is `Ok(None)`.
+    ///
+    /// Accepts surrounding spaces, `.` or `,` as the decimal mark, and a trailing
+    /// `€` or `EUR`. More than two non-zero fractional digits and negatives are
+    /// rejected. Trailing zeros do not count (`"12.500"` is 1250 cents).
+    pub fn parse_euro_text(raw: &str) -> Result<Option<Self>, EuroParseError> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Ok(None);
+        }
+        let without_currency = strip_trailing_currency(trimmed);
+        let mut s = without_currency.trim();
+        if s.is_empty() {
+            return Err(EuroParseError::Unparseable);
+        }
+        if s.starts_with('-') {
+            return Err(EuroParseError::Negative);
+        }
+        if let Some(rest) = s.strip_prefix('+') {
+            s = rest.trim();
+        }
+        let (whole, frac) = split_plain_amount(s)?;
+        let frac = frac.trim_end_matches('0');
+        if frac.len() > 2 {
+            return Err(EuroParseError::TooManyDecimals);
+        }
+        let padded = format!("{frac:0<2}");
+        let combined = format!("{whole}{padded}");
+        let value = combined
+            .parse::<i64>()
+            .map_err(|_| EuroParseError::Unparseable)?;
+        Ok(Some(Self(value)))
+    }
+
+    /// Exact scale-2 (or less) `Decimal`. Rejects negatives and extra fractional digits.
+    pub fn try_from_decimal(amount: Decimal) -> Result<Self, EuroParseError> {
+        if amount.is_sign_negative() {
+            return Err(EuroParseError::Negative);
+        }
+        if amount.normalize().scale() > 2 {
+            return Err(EuroParseError::TooManyDecimals);
+        }
+        let scaled = amount * Decimal::from(100);
+        if scaled.fract() != Decimal::ZERO {
+            return Err(EuroParseError::TooManyDecimals);
+        }
+        let value = scaled.trunc().to_i64().ok_or(EuroParseError::Unparseable)?;
+        Ok(Self(value))
+    }
+}
+
+impl std::fmt::Display for Cents {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.to_euro_string())
+    }
+}
+
+impl<'s> utoipa::ToSchema<'s> for Cents {
+    fn schema() -> (
+        &'s str,
+        utoipa::openapi::RefOr<utoipa::openapi::schema::Schema>,
+    ) {
+        (
+            "Cents",
+            utoipa::openapi::ObjectBuilder::new()
+                .schema_type(utoipa::openapi::SchemaType::Integer)
+                .format(Some(utoipa::openapi::SchemaFormat::KnownFormat(
+                    utoipa::openapi::KnownFormat::Int64,
+                )))
+                .description(Some(
+                    "Integer euro cents. 1500 is 15.00 EUR. Fields documented as decimal euros use a string instead.",
+                ))
+                .into(),
+        )
+    }
+}
+
+impl serde::Serialize for Cents {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -201,7 +327,7 @@ impl serde::Serialize for MoneyCents {
     }
 }
 
-impl<'de> serde::Deserialize<'de> for MoneyCents {
+impl<'de> serde::Deserialize<'de> for Cents {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -210,29 +336,128 @@ impl<'de> serde::Deserialize<'de> for MoneyCents {
     }
 }
 
-impl sqlx::Type<sqlx::Postgres> for MoneyCents {
+impl sqlx::Type<sqlx::Postgres> for Cents {
     fn type_info() -> sqlx::postgres::PgTypeInfo {
-        <Decimal as sqlx::Type<sqlx::Postgres>>::type_info()
+        <i64 as sqlx::Type<sqlx::Postgres>>::type_info()
     }
 
     fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
-        <Decimal as sqlx::Type<sqlx::Postgres>>::compatible(ty)
+        <i64 as sqlx::Type<sqlx::Postgres>>::compatible(ty)
     }
 }
 
-impl<'r> sqlx::Decode<'r, sqlx::Postgres> for MoneyCents {
+impl<'r> sqlx::Decode<'r, sqlx::Postgres> for Cents {
     fn decode(
         value: sqlx::postgres::PgValueRef<'r>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let amount = <Decimal as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
-        money_to_cents(amount).map(Self).map_err(Into::into)
+        let n = <i64 as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
+        Ok(Self(n))
     }
 }
 
-impl sqlx::Encode<'_, sqlx::Postgres> for MoneyCents {
+impl sqlx::Encode<'_, sqlx::Postgres> for Cents {
     fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
-        <Decimal as sqlx::Encode<sqlx::Postgres>>::encode(cents_to_money(self.0), buf)
+        <i64 as sqlx::Encode<sqlx::Postgres>>::encode(self.0, buf)
     }
+}
+
+/// Decimal-euro JSON (`"12.50"`) for a [`Cents`] field.
+pub mod euro_string {
+    use super::{Cents, EuroParseError};
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(cents: &Cents, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&cents.to_euro_string())
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Cents, D::Error> {
+        let raw = String::deserialize(deserializer)?;
+        match Cents::parse_euro_text(&raw).map_err(serde::de::Error::custom)? {
+            Some(cents) => Ok(cents),
+            None => Err(serde::de::Error::custom(EuroParseError::Unparseable)),
+        }
+    }
+
+    pub mod opt {
+        use super::super::Cents;
+        use serde::{Deserialize, Deserializer, Serializer};
+
+        pub fn serialize<S: Serializer>(
+            value: &Option<Cents>,
+            serializer: S,
+        ) -> Result<S::Ok, S::Error> {
+            match value {
+                Some(cents) => serializer.serialize_str(&cents.to_euro_string()),
+                None => serializer.serialize_none(),
+            }
+        }
+
+        pub fn deserialize<'de, D: Deserializer<'de>>(
+            deserializer: D,
+        ) -> Result<Option<Cents>, D::Error> {
+            let raw = Option::<String>::deserialize(deserializer)?;
+            match raw {
+                None => Ok(None),
+                Some(text) => Cents::parse_euro_text(&text).map_err(serde::de::Error::custom),
+            }
+        }
+    }
+}
+
+fn strip_trailing_currency(raw: &str) -> &str {
+    let end = raw.trim_end();
+    if let Some(rest) = end.strip_suffix('€') {
+        return rest.trim_end();
+    }
+    if end.len() >= 3 && end[end.len() - 3..].eq_ignore_ascii_case("eur") {
+        let rest = &end[..end.len() - 3];
+        if rest
+            .chars()
+            .next_back()
+            .is_some_and(|ch| ch.is_ascii_alphabetic())
+        {
+            return raw.trim();
+        }
+        return rest.trim_end();
+    }
+    raw.trim()
+}
+
+fn split_plain_amount(s: &str) -> Result<(&str, &str), EuroParseError> {
+    if s.is_empty() || !s.as_bytes()[0].is_ascii_digit() {
+        return Err(EuroParseError::Unparseable);
+    }
+    let mut separator = None;
+    for (index, byte) in s.bytes().enumerate() {
+        match byte {
+            b'0'..=b'9' => {}
+            b'.' | b',' if separator.is_none() => separator = Some(index),
+            _ => return Err(EuroParseError::Unparseable),
+        }
+    }
+    match separator {
+        None => Ok((s, "")),
+        Some(index) => {
+            let frac = &s[index + 1..];
+            if frac.is_empty() {
+                return Err(EuroParseError::Unparseable);
+            }
+            Ok((&s[..index], frac))
+        }
+    }
+}
+
+/// Exact non-negative cent conversion. Does not round extra fractional digits.
+pub fn money_to_cents(amount: Decimal) -> Result<i64, &'static str> {
+    Cents::try_from_decimal(amount)
+        .map(Cents::get)
+        .map_err(|_| "amount is not an exact non-negative cent value")
+}
+
+/// Integer cents as a major-unit decimal (two places).
+#[must_use]
+pub fn cents_to_money(cents: i64) -> Decimal {
+    Decimal::from(cents) / Decimal::from(100)
 }
 
 macro_rules! impl_pg_text_enum {
@@ -363,15 +588,16 @@ impl ThresholdInputError {
 pub struct StoredGlobalUnpaidThreshold {
     #[sqlx(rename = "unpaid_threshold_mode")]
     pub mode: GlobalUnpaidThresholdMode,
+    /// Stored threshold in integer euro cents.
     #[sqlx(rename = "unpaid_fine_threshold")]
-    pub amount: Decimal,
+    pub amount: Cents,
 }
 
 /// Amount stored for global mode `amount`. `None` means mode `none` (keep the numeric column).
 pub fn resolve_global_amount(
     mode: GlobalUnpaidThresholdMode,
     cents: Option<i64>,
-) -> Result<Option<Decimal>, ThresholdInputError> {
+) -> Result<Option<Cents>, ThresholdInputError> {
     match mode {
         GlobalUnpaidThresholdMode::None => Ok(None),
         GlobalUnpaidThresholdMode::Amount => cents_amount(cents),
@@ -381,7 +607,7 @@ pub fn resolve_global_amount(
 pub fn resolve_audience_threshold_create(
     mode: Option<AudienceUnpaidThresholdMode>,
     cents: Option<i64>,
-) -> Result<(AudienceUnpaidThresholdMode, Option<Decimal>), ThresholdInputError> {
+) -> Result<(AudienceUnpaidThresholdMode, Option<Cents>), ThresholdInputError> {
     resolve_audience_mode(mode.unwrap_or(AudienceUnpaidThresholdMode::Inherit), cents)
 }
 
@@ -391,9 +617,9 @@ pub fn resolve_audience_threshold_update(
     existing_cents: Option<i64>,
     mode: Option<AudienceUnpaidThresholdMode>,
     cents: Option<i64>,
-) -> Result<(AudienceUnpaidThresholdMode, Option<Decimal>), ThresholdInputError> {
+) -> Result<(AudienceUnpaidThresholdMode, Option<Cents>), ThresholdInputError> {
     let Some(mode) = mode else {
-        return Ok((existing_mode, existing_cents.map(cents_to_money)));
+        return Ok((existing_mode, existing_cents.map(Cents)));
     };
     resolve_audience_mode(mode, cents)
 }
@@ -401,7 +627,7 @@ pub fn resolve_audience_threshold_update(
 fn resolve_audience_mode(
     mode: AudienceUnpaidThresholdMode,
     cents: Option<i64>,
-) -> Result<(AudienceUnpaidThresholdMode, Option<Decimal>), ThresholdInputError> {
+) -> Result<(AudienceUnpaidThresholdMode, Option<Cents>), ThresholdInputError> {
     match mode {
         AudienceUnpaidThresholdMode::Amount => Ok((mode, cents_amount(cents)?)),
         AudienceUnpaidThresholdMode::Inherit | AudienceUnpaidThresholdMode::None => {
@@ -410,12 +636,12 @@ fn resolve_audience_mode(
     }
 }
 
-fn cents_amount(cents: Option<i64>) -> Result<Option<Decimal>, ThresholdInputError> {
+fn cents_amount(cents: Option<i64>) -> Result<Option<Cents>, ThresholdInputError> {
     let cents = cents.ok_or(ThresholdInputError::CentsRequired)?;
     if cents < 0 {
         return Err(ThresholdInputError::Negative);
     }
-    Ok(Some(cents_to_money(cents)))
+    Ok(Some(Cents(cents)))
 }
 
 /// Fine rule per media type
@@ -424,8 +650,14 @@ fn cents_amount(cents: Option<i64>) -> Result<Option<Decimal>, ThresholdInputErr
 pub struct FineRule {
     pub id: i32,
     pub media_type: Option<String>,
-    pub daily_rate: rust_decimal::Decimal,
-    pub max_amount: Option<rust_decimal::Decimal>,
+    /// Overdue daily rate as a decimal-euro string (`"0.20"`). Stored as integer cents.
+    #[schema(value_type = String, example = "0.20")]
+    #[serde(with = "euro_string")]
+    pub daily_rate: Cents,
+    /// Overdue cap as a decimal-euro string. Null means no cap. Stored as integer cents.
+    #[schema(value_type = Option<String>, example = "15.00")]
+    #[serde(with = "euro_string::opt")]
+    pub max_amount: Option<Cents>,
     pub grace_days: i32,
     pub notes: Option<String>,
 }
@@ -434,6 +666,8 @@ pub struct FineRule {
 #[serde_as]
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct PayFineRequest {
+    /// Payment as a decimal-euro string (`"12.50"`).
+    #[schema(value_type = String, example = "12.50")]
     pub amount: rust_decimal::Decimal,
     pub notes: Option<String>,
 }
@@ -456,4 +690,79 @@ pub struct FineAccrualLoan {
     /// Loan site: `loans.site_id`, or the library default site when the loan has none.
     /// Network-wide closures still apply when this is null.
     pub site_id: Option<i64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Cents, EuroParseError};
+
+    fn parsed(raw: &str) -> Result<Option<i64>, EuroParseError> {
+        Cents::parse_euro_text(raw).map(|value| value.map(Cents::get))
+    }
+
+    #[test]
+    fn euro_text_accepts_the_migration_formats() {
+        let accepted = [
+            ("12,50", 1250),
+            ("12,50 €", 1250),
+            ("12,50€", 1250),
+            ("12 €", 1200),
+            ("12.50 €", 1250),
+            ("12.50EUR", 1250),
+            ("12.50 EUR", 1250),
+            ("12.5", 1250),
+            ("15", 1500),
+            ("12.50", 1250),
+            ("0", 0),
+            ("0.00", 0),
+            ("0,00", 0),
+            ("  12.50  ", 1250),
+            ("12.500", 1250),
+            ("12.510", 1251),
+            ("1.230", 123),
+            ("+12.50", 1250),
+        ];
+        for (raw, cents) in accepted {
+            assert_eq!(parsed(raw), Ok(Some(cents)), "{raw}");
+        }
+        assert_eq!(parsed(""), Ok(None));
+        assert_eq!(parsed("   "), Ok(None));
+    }
+
+    #[test]
+    fn euro_text_rejects_without_rounding() {
+        assert_eq!(parsed("abc"), Err(EuroParseError::Unparseable));
+        assert_eq!(parsed("12."), Err(EuroParseError::Unparseable));
+        assert_eq!(parsed("€12.50"), Err(EuroParseError::Unparseable));
+        assert_eq!(parsed("12.50.1"), Err(EuroParseError::Unparseable));
+        assert_eq!(parsed("-1"), Err(EuroParseError::Negative));
+        assert_eq!(parsed("-0.01"), Err(EuroParseError::Negative));
+        assert_eq!(parsed("12.501"), Err(EuroParseError::TooManyDecimals));
+        assert_eq!(parsed("12,501"), Err(EuroParseError::TooManyDecimals));
+    }
+
+    #[test]
+    fn cents_newtype_stores_i64() {
+        let Cents(raw) = Cents(1250);
+        assert_eq!(raw, 1250_i64);
+        assert_eq!(std::mem::size_of::<Cents>(), std::mem::size_of::<i64>());
+    }
+
+    #[test]
+    fn formats_and_decimal_round_trip() {
+        assert_eq!(Cents(1250).to_euro_string(), "12.50");
+        assert_eq!(Cents(0).to_euro_string(), "0.00");
+        assert_eq!(Cents(1500).to_csv_euro(), "15,00");
+        assert_eq!(Cents::ZERO.to_csv_euro(), "0,00");
+        let amount = rust_decimal::Decimal::new(1250, 2);
+        assert_eq!(Cents::try_from_decimal(amount).unwrap(), Cents(1250));
+        assert_eq!(
+            Cents::try_from_decimal(rust_decimal::Decimal::new(12501, 3)),
+            Err(EuroParseError::TooManyDecimals)
+        );
+        assert_eq!(
+            Cents::try_from_decimal(rust_decimal::Decimal::new(-1, 2)),
+            Err(EuroParseError::Negative)
+        );
+    }
 }

@@ -102,6 +102,14 @@ http-body-util = "0.1"
 tower = { version = "0.4", features = ["util"] }
 hyper = "1"
 
+# crates.io yanked every `zip` 1.x release (only 9.0.3 remains). `utoipa-swagger-ui` 7,
+# the last line compatible with `utoipa` 4, build-depends on `zip` ^1 to unpack the
+# Swagger UI archive. No published `utoipa-swagger-ui` depends on `zip` 9, and 8+
+# require `utoipa` 5/6 while still depending on yanked `zip` 2/3/8. Pin the last
+# 1.x release (v1.3.1) from upstream git so resolution matches the pre-yank build.
+[patch.crates-io]
+zip = { git = "https://github.com/zip-rs/zip2", rev = "6c60c67d92c31dc610bed5cc4626e9c20efdc61b" }
+
 [profile.release]
 lto = true
 codegen-units = 1

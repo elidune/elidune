@@ -6,7 +6,6 @@ use axum::http::StatusCode;
 use chrono::Datelike;
 use common::fixtures;
 use common::TestApp;
-use rust_decimal::Decimal;
 use serde_json::json;
 use sqlx::Row;
 
@@ -355,7 +354,12 @@ async fn force_delete_with_loans_and_fines_snapshots_then_cuts_identity() {
     app.state
         .services
         .repository
-        .fines_create(loan_id, reader_id, Decimal::new(350, 2), Some("overdue"))
+        .fines_create(
+            loan_id,
+            reader_id,
+            elidune_server::models::fine::Cents(350),
+            Some("overdue"),
+        )
         .await
         .expect("create fine");
 
@@ -400,12 +404,12 @@ async fn force_delete_with_loans_and_fines_snapshots_then_cuts_identity() {
         .expect("fine after erasure");
     assert!(fine_user.is_none());
 
-    let amount: Decimal = sqlx::query_scalar("SELECT amount FROM fines WHERE loan_id = $1")
+    let amount: i64 = sqlx::query_scalar("SELECT amount FROM fines WHERE loan_id = $1")
         .bind(loan_id)
         .fetch_one(app.state.services.repository.pool())
         .await
         .expect("fine amount kept");
-    assert_eq!(amount, Decimal::new(350, 2));
+    assert_eq!(amount, 350);
 
     let audit = latest_user_deleted_audit(&app, &admin_token, reader_id).await;
     assert_audit_has_no_erased_pii(&audit);

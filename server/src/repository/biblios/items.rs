@@ -85,6 +85,7 @@ fn item_sql(where_and_order: &str) -> String {
         r#"
             SELECT i.id, i.biblio_id, i.source_id, i.barcode, i.call_number, i.volume_designation,
                    i.place, i.borrowable, i.circulation_status, i.public_note, i.internal_note, i.price,
+                   i.price_deferred,
                    i.weeding_status, i.weeding_reason,
                    i.created_at, i.updated_at, i.archived_at,
                    so.name as source_name,
@@ -262,7 +263,7 @@ impl Repository {
         .bind(item.borrowable)
         .bind(&public_note)
         .bind(&internal_note)
-        .bind(&item.price)
+        .bind(item.price)
         .bind(source_id)
         .bind(now)
         .fetch_one(&self.pool)
@@ -310,7 +311,7 @@ impl Repository {
             .bind(item.borrowable)
             .bind(&public_note)
             .bind(&internal_note)
-            .bind(&item.price)
+            .bind(item.price)
             .bind(item.source_id)
             .bind(item.updated_at)
             .bind(item.archived_at)
@@ -354,7 +355,7 @@ impl Repository {
                 .bind(item.borrowable)
                 .bind(&public_note)
                 .bind(&internal_note)
-                .bind(&item.price)
+                .bind(item.price)
                 .bind(item.source_id)
                 .bind(item.updated_at)
                 .bind(item.archived_at)
@@ -385,7 +386,7 @@ impl Repository {
                 .bind(item.borrowable)
                 .bind(&public_note)
                 .bind(&internal_note)
-                .bind(&item.price)
+                .bind(item.price)
                 .bind(item.source_id)
                 .bind(item.updated_at)
                 .bind(item.archived_at)
@@ -438,7 +439,7 @@ impl Repository {
         .bind(item.borrowable)
         .bind(&public_note)
         .bind(&internal_note)
-        .bind(&item.price)
+        .bind(item.price)
         .bind(item.source_id)
         .bind(item.updated_at)
         .bind(item.archived_at)
@@ -597,7 +598,7 @@ impl Repository {
         .bind(item.borrowable)
         .bind(&public_note)
         .bind(&internal_note)
-        .bind(&item.price)
+        .bind(item.price)
         .bind(source_id)
         .bind(now)
         .bind(item_id)

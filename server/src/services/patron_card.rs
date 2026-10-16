@@ -4,7 +4,7 @@ use chrono::Utc;
 
 use crate::{
     error::{AppError, AppResult},
-    models::{dto::patron_card::PatronLoanStatus, fine::money_to_cents, user::User},
+    models::{dto::patron_card::PatronLoanStatus, user::User},
     patron_eligibility::{patron_block_reasons, patron_checkout_blocked, PatronGateInput},
     repository::Repository,
     services::{calendar, fines::FinesService},
@@ -41,8 +41,7 @@ pub async fn lookup_patron_by_card(
     let fines_check = fines
         .check_unpaid_threshold(user_id, user.public_type)
         .await?;
-    let unpaid_fines_cents = money_to_cents(fines_check.unpaid)
-        .map_err(|message| AppError::Internal(message.to_string()))?;
+    let unpaid_fines_cents = fines_check.unpaid.get();
 
     let zone = match repo.library_timezone_name().await {
         Ok(name) => calendar::parse_timezone(&name).unwrap_or_else(|_| calendar::default_zone()),

@@ -1,7 +1,6 @@
 //! Fine domain methods on Repository
 
 use async_trait::async_trait;
-use rust_decimal::Decimal;
 use snowflaked::Generator;
 use sqlx::Row;
 
@@ -14,7 +13,7 @@ use crate::{
             fines::AccrueOutcome,
         },
         fine::{
-            money_to_cents, Fine, FineAccrualLoan, FineChargeType, FineRule, FineStatus,
+            Cents, Fine, FineAccrualLoan, FineChargeType, FineRule, FineStatus,
             GlobalUnpaidThresholdMode, StoredGlobalUnpaidThreshold,
         },
         user::UserStatus,
@@ -29,41 +28,37 @@ pub trait FinesRepository: Send + Sync {
         &self,
         loan_id: i64,
         user_id: i64,
-        amount: Decimal,
+        amount: Cents,
         notes: Option<&str>,
     ) -> AppResult<Fine>;
-    async fn fines_pay(&self, id: i64, payment: Decimal, notes: Option<&str>) -> AppResult<Fine>;
+    async fn fines_pay(&self, id: i64, payment: Cents, notes: Option<&str>) -> AppResult<Fine>;
     async fn fines_waive(&self, id: i64, notes: Option<&str>) -> AppResult<Fine>;
     async fn fines_list_rules(&self) -> AppResult<Vec<FineRule>>;
     async fn fines_upsert_rule(
         &self,
         media_type: Option<&str>,
-        daily_rate: Decimal,
-        max_amount: Option<Decimal>,
+        daily_rate: Cents,
+        max_amount: Option<Cents>,
         grace_days: i32,
     ) -> AppResult<FineRule>;
-    async fn fines_total_unpaid(&self, user_id: i64) -> AppResult<Decimal>;
+    async fn fines_total_unpaid(&self, user_id: i64) -> AppResult<Cents>;
     async fn fines_get_unpaid_threshold(
         &self,
         public_type_id: Option<i64>,
-    ) -> AppResult<Option<Decimal>>;
-    /// `reminders.accrue_fines`. False ignores stored unpaid thresholds for loan blocking.
-    /// Fakes keep the default `true`. The database repository reads dynamic config.
-    fn accrue_fines_enabled(&self) -> bool {
-        true
-    }
+    ) -> AppResult<Option<Cents>>;
+    fn accrue_fines_enabled(&self) -> bool;
     async fn fines_get_global_unpaid_threshold(&self) -> AppResult<StoredGlobalUnpaidThreshold>;
     async fn fines_set_global_unpaid_threshold(
         &self,
         mode: GlobalUnpaidThresholdMode,
-        amount: Option<Decimal>,
+        amount: Option<Cents>,
     ) -> AppResult<StoredGlobalUnpaidThreshold>;
     async fn fines_get_open_for_loan(&self, loan_id: i64) -> AppResult<Option<Fine>>;
     async fn fines_upsert_open(
         &self,
         loan_id: i64,
         user_id: i64,
-        amount: Decimal,
+        amount: Cents,
         notes: Option<&str>,
     ) -> AppResult<(Fine, AccrueOutcome)>;
     async fn fines_get_accrual_loan(&self, loan_id: i64) -> AppResult<FineAccrualLoan>;
@@ -85,12 +80,12 @@ impl FinesRepository for Repository {
         &self,
         loan_id: i64,
         user_id: i64,
-        amount: Decimal,
+        amount: Cents,
         notes: Option<&str>,
     ) -> AppResult<Fine> {
         Repository::fines_create(self, loan_id, user_id, amount, notes).await
     }
-    async fn fines_pay(&self, id: i64, payment: Decimal, notes: Option<&str>) -> AppResult<Fine> {
+    async fn fines_pay(&self, id: i64, payment: Cents, notes: Option<&str>) -> AppResult<Fine> {
         Repository::fines_pay(self, id, payment, notes).await
     }
     async fn fines_waive(&self, id: i64, notes: Option<&str>) -> AppResult<Fine> {
@@ -102,19 +97,19 @@ impl FinesRepository for Repository {
     async fn fines_upsert_rule(
         &self,
         media_type: Option<&str>,
-        daily_rate: Decimal,
-        max_amount: Option<Decimal>,
+        daily_rate: Cents,
+        max_amount: Option<Cents>,
         grace_days: i32,
     ) -> AppResult<FineRule> {
         Repository::fines_upsert_rule(self, media_type, daily_rate, max_amount, grace_days).await
     }
-    async fn fines_total_unpaid(&self, user_id: i64) -> AppResult<Decimal> {
+    async fn fines_total_unpaid(&self, user_id: i64) -> AppResult<Cents> {
         Repository::fines_total_unpaid(self, user_id).await
     }
     async fn fines_get_unpaid_threshold(
         &self,
         public_type_id: Option<i64>,
-    ) -> AppResult<Option<Decimal>> {
+    ) -> AppResult<Option<Cents>> {
         Repository::fines_get_unpaid_threshold(self, public_type_id).await
     }
     fn accrue_fines_enabled(&self) -> bool {
@@ -126,7 +121,7 @@ impl FinesRepository for Repository {
     async fn fines_set_global_unpaid_threshold(
         &self,
         mode: GlobalUnpaidThresholdMode,
-        amount: Option<Decimal>,
+        amount: Option<Cents>,
     ) -> AppResult<StoredGlobalUnpaidThreshold> {
         Repository::fines_set_global_unpaid_threshold(self, mode, amount).await
     }
@@ -137,7 +132,7 @@ impl FinesRepository for Repository {
         &self,
         loan_id: i64,
         user_id: i64,
-        amount: Decimal,
+        amount: Cents,
         notes: Option<&str>,
     ) -> AppResult<(Fine, AccrueOutcome)> {
         Repository::fines_upsert_open(self, loan_id, user_id, amount, notes).await
@@ -192,7 +187,7 @@ impl Repository {
         &self,
         loan_id: i64,
         user_id: i64,
-        amount: Decimal,
+        amount: Cents,
         notes: Option<&str>,
     ) -> AppResult<Fine> {
         let id = next_id();
@@ -220,7 +215,7 @@ impl Repository {
         &self,
         loan_id: i64,
         user_id: i64,
-        amount: Decimal,
+        amount: Cents,
         charge_type: FineChargeType,
         notes: Option<&str>,
     ) -> AppResult<Fine> {
@@ -251,7 +246,7 @@ impl Repository {
         loan_id: i64,
         user_id: i64,
         item_id: i64,
-        amount: Decimal,
+        amount: Cents,
         charge_type: FineChargeType,
         notes: Option<&str>,
     ) -> AppResult<Fine> {
@@ -277,23 +272,19 @@ impl Repository {
 
     /// Apply a payment to a fine
     #[tracing::instrument(skip(self), err)]
-    pub async fn fines_pay(
-        &self,
-        id: i64,
-        payment: Decimal,
-        notes: Option<&str>,
-    ) -> AppResult<Fine> {
-        apply_fine_payment(&self.pool, id, payment, notes).await
+    pub async fn fines_pay(&self, id: i64, payment: Cents, notes: Option<&str>) -> AppResult<Fine> {
+        let mut conn = self.pool.acquire().await?;
+        apply_fine_payment(&mut conn, id, payment, notes).await
     }
 
     /// Apply a payment inside an open transaction.
     pub async fn fines_pay_tx(
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         id: i64,
-        payment: Decimal,
+        payment: Cents,
         notes: Option<&str>,
     ) -> AppResult<Fine> {
-        apply_fine_payment(&mut **tx, id, payment, notes).await
+        apply_fine_payment(tx, id, payment, notes).await
     }
 
     /// Waive a fine (write off)
@@ -327,8 +318,8 @@ impl Repository {
     pub async fn fines_upsert_rule(
         &self,
         media_type: Option<&str>,
-        daily_rate: Decimal,
-        max_amount: Option<Decimal>,
+        daily_rate: Cents,
+        max_amount: Option<Cents>,
         grace_days: i32,
     ) -> AppResult<FineRule> {
         let updated = if media_type.is_none() {
@@ -387,7 +378,7 @@ impl Repository {
     /// Only `pending` / `partial` rows with a positive remainder count. Paid, waived,
     /// and zero-amount fines are excluded (grace-period cases never become unpaid).
     #[tracing::instrument(skip(self), err)]
-    pub async fn fines_total_unpaid(&self, user_id: i64) -> AppResult<Decimal> {
+    pub async fn fines_total_unpaid(&self, user_id: i64) -> AppResult<Cents> {
         let mut conn = self.pool.acquire().await?;
         self.fines_total_unpaid_conn(&mut conn, user_id).await
     }
@@ -396,9 +387,9 @@ impl Repository {
         &self,
         conn: &mut sqlx::PgConnection,
         user_id: i64,
-    ) -> AppResult<Decimal> {
-        let total: Option<Decimal> = sqlx::query_scalar(
-            "SELECT SUM(amount - paid_amount) FROM fines
+    ) -> AppResult<Cents> {
+        let total: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(SUM(amount - paid_amount), 0)::bigint FROM fines
              WHERE user_id = $1
                AND status IN ('pending','partial')
                AND amount > paid_amount",
@@ -406,7 +397,7 @@ impl Repository {
         .bind(user_id)
         .fetch_one(&mut *conn)
         .await?;
-        Ok(total.unwrap_or(Decimal::ZERO))
+        Ok(Cents(total))
     }
 
     /// Effective unpaid-fine amount. `None` means no amount-based block.
@@ -418,7 +409,7 @@ impl Repository {
     pub async fn fines_get_unpaid_threshold(
         &self,
         public_type_id: Option<i64>,
-    ) -> AppResult<Option<Decimal>> {
+    ) -> AppResult<Option<Cents>> {
         let mut conn = self.pool.acquire().await?;
         self.fines_get_unpaid_threshold_conn(&mut conn, public_type_id)
             .await
@@ -428,8 +419,8 @@ impl Repository {
         &self,
         conn: &mut sqlx::PgConnection,
         public_type_id: Option<i64>,
-    ) -> AppResult<Option<Decimal>> {
-        let threshold: Option<Decimal> = sqlx::query_scalar(
+    ) -> AppResult<Option<Cents>> {
+        let threshold: Option<i64> = sqlx::query_scalar(
             r#"
             SELECT CASE
                 WHEN pt.unpaid_threshold_mode = 'amount' THEN pt.unpaid_fine_threshold
@@ -445,7 +436,7 @@ impl Repository {
         .bind(public_type_id)
         .fetch_one(&mut *conn)
         .await?;
-        Ok(threshold)
+        Ok(threshold.map(Cents))
     }
 
     #[tracing::instrument(skip(self), err)]
@@ -463,7 +454,7 @@ impl Repository {
         .await?;
         Ok(stored.unwrap_or(StoredGlobalUnpaidThreshold {
             mode: GlobalUnpaidThresholdMode::None,
-            amount: Decimal::ZERO,
+            amount: Cents::ZERO,
         }))
     }
 
@@ -472,7 +463,7 @@ impl Repository {
     pub async fn fines_set_global_unpaid_threshold(
         &self,
         mode: GlobalUnpaidThresholdMode,
-        amount: Option<Decimal>,
+        amount: Option<Cents>,
     ) -> AppResult<StoredGlobalUnpaidThreshold> {
         let stored = sqlx::query_as::<_, StoredGlobalUnpaidThreshold>(
             r#"
@@ -509,7 +500,7 @@ impl Repository {
         &self,
         loan_id: i64,
         user_id: i64,
-        amount: Decimal,
+        amount: Cents,
         notes: Option<&str>,
     ) -> AppResult<(Fine, AccrueOutcome)> {
         if let Some(existing) = self.fines_get_open_for_loan(loan_id).await? {
@@ -548,7 +539,7 @@ impl Repository {
     async fn fines_update_open_amount(
         &self,
         id: i64,
-        amount: Decimal,
+        amount: Cents,
         notes: Option<&str>,
     ) -> AppResult<Fine> {
         sqlx::query_as::<_, Fine>(
@@ -708,13 +699,38 @@ impl Repository {
         .await?;
         Ok(Some(settled))
     }
+
+    /// Staff-defined replacement bill: a fine rule whose media type is `replacement`.
+    /// Prefer a positive cap, otherwise a positive daily rate. No row is seeded.
+    pub async fn fines_default_replacement_amount(&self) -> AppResult<Option<Cents>> {
+        let row: Option<(i64, Option<i64>)> = sqlx::query_as(
+            r#"
+            SELECT daily_rate, max_amount
+            FROM fine_rules
+            WHERE lower(media_type) = 'replacement'
+            ORDER BY id
+            LIMIT 1
+            "#,
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.and_then(|(daily, max)| {
+            if max.is_some_and(|value| value > 0) {
+                max.map(Cents)
+            } else if daily > 0 {
+                Some(Cents(daily))
+            } else {
+                None
+            }
+        }))
+    }
 }
 
 struct ReplacementRow {
     id: i64,
     user_id: i64,
-    amount: Decimal,
-    paid_amount: Decimal,
+    amount: Cents,
+    paid_amount: Cents,
     status: FineStatus,
 }
 
@@ -792,17 +808,21 @@ pub struct LostFineSettlement {
     pub fine_id: i64,
     pub user_id: i64,
     pub action: LostFineAction,
-    pub refunded_amount: Decimal,
-    pub cancelled_amount: Decimal,
+    pub refunded_amount: Cents,
+    pub cancelled_amount: Cents,
 }
 
 /// Refund only what was collected. Cancel the uncollected remainder.
 /// A zero paid amount never produces a refund.
 #[must_use]
-pub fn settle_replacement_charge(amount: Decimal, paid_amount: Decimal) -> LostFineSettlement {
-    let refunded = paid_amount.max(Decimal::ZERO);
-    let cancelled = (amount - paid_amount).max(Decimal::ZERO);
-    let action = match (refunded > Decimal::ZERO, cancelled > Decimal::ZERO) {
+pub fn settle_replacement_charge(amount: Cents, paid_amount: Cents) -> LostFineSettlement {
+    let refunded = if paid_amount.0 > 0 {
+        paid_amount
+    } else {
+        Cents::ZERO
+    };
+    let cancelled = amount.saturating_sub(paid_amount);
+    let action = match (refunded.0 > 0, cancelled.0 > 0) {
         (false, _) => LostFineAction::Cancelled,
         (true, false) => LostFineAction::Refunded,
         (true, true) => LostFineAction::Partial,
@@ -818,7 +838,7 @@ pub fn settle_replacement_charge(amount: Decimal, paid_amount: Decimal) -> LostF
 
 impl LostFineSettlement {
     fn status(&self) -> FineStatus {
-        if self.refunded_amount > Decimal::ZERO {
+        if self.refunded_amount.0 > 0 {
             FineStatus::Refunded
         } else {
             FineStatus::Cancelled
@@ -826,7 +846,7 @@ impl LostFineSettlement {
     }
 }
 
-fn lost_notice(fine: Option<(i64, Decimal, Decimal, FineStatus)>) -> AppResult<LostItemOnReturn> {
+fn lost_notice(fine: Option<(i64, Cents, Cents, FineStatus)>) -> AppResult<LostItemOnReturn> {
     let Some((id, amount, paid, status)) = fine else {
         return Ok(LostItemOnReturn {
             was_lost: true,
@@ -855,25 +875,29 @@ fn lost_notice(fine: Option<(i64, Decimal, Decimal, FineStatus)>) -> AppResult<L
         was_lost: true,
         fine_id: Some(id),
         fine_status: Some(desk),
-        fine_amount: Some(cents(amount)?),
-        paid_amount: Some(cents(paid)?),
+        fine_amount: Some(amount.get()),
+        paid_amount: Some(paid.get()),
     })
 }
 
-fn cents(amount: Decimal) -> AppResult<i64> {
-    money_to_cents(amount).map_err(|msg| AppError::Internal(msg.to_string()))
-}
-
-async fn apply_fine_payment<'e, E>(
-    executor: E,
+async fn apply_fine_payment(
+    conn: &mut sqlx::PgConnection,
     id: i64,
-    payment: Decimal,
+    payment: Cents,
     notes: Option<&str>,
-) -> AppResult<Fine>
-where
-    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
-{
-    sqlx::query_as::<_, Fine>(
+) -> AppResult<Fine> {
+    // A check-constraint failure aborts an open transaction. The savepoint lets
+    // the follow-up read of the remaining balance still run.
+    let in_tx: bool = sqlx::query_scalar("SELECT pg_current_xact_id_if_assigned() IS NOT NULL")
+        .fetch_one(&mut *conn)
+        .await?;
+    if in_tx {
+        sqlx::query("SAVEPOINT fine_payment")
+            .execute(&mut *conn)
+            .await?;
+    }
+
+    let updated = sqlx::query_as::<_, Fine>(
         r#"
         UPDATE fines SET
             paid_amount = paid_amount + $2,
@@ -884,15 +908,74 @@ where
                 ELSE 'partial'
             END
         WHERE id = $1
+          AND paid_amount + $2 <= amount
         RETURNING *
         "#,
     )
     .bind(id)
     .bind(payment)
     .bind(notes)
-    .fetch_optional(executor)
-    .await?
-    .ok_or_else(|| AppError::NotFound(format!("Fine {id} not found")))
+    .fetch_optional(&mut *conn)
+    .await;
+
+    match updated {
+        Ok(Some(fine)) => {
+            release_fine_payment_savepoint(conn, in_tx).await?;
+            Ok(fine)
+        }
+        Ok(None) => {
+            release_fine_payment_savepoint(conn, in_tx).await?;
+            unpaid_or_missing(conn, id).await
+        }
+        Err(err) if is_fines_paid_amount_cap(&err) => {
+            if in_tx {
+                sqlx::query("ROLLBACK TO SAVEPOINT fine_payment")
+                    .execute(&mut *conn)
+                    .await?;
+            }
+            release_fine_payment_savepoint(conn, in_tx).await?;
+            unpaid_or_missing(conn, id).await
+        }
+        Err(err) => Err(err.into()),
+    }
+}
+
+/// `NotFound` when the fine is gone, otherwise 422 with `amount - paid_amount`.
+async fn unpaid_or_missing(conn: &mut sqlx::PgConnection, id: i64) -> AppResult<Fine> {
+    let row = sqlx::query("SELECT amount, paid_amount FROM fines WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&mut *conn)
+        .await?;
+    let Some(row) = row else {
+        return Err(AppError::NotFound(format!("Fine {id} not found")));
+    };
+    let amount: Cents = row.get("amount");
+    let paid_amount: Cents = row.get("paid_amount");
+    Err(AppError::payment_exceeds_balance(
+        amount.saturating_sub(paid_amount).get(),
+    ))
+}
+
+async fn release_fine_payment_savepoint(
+    conn: &mut sqlx::PgConnection,
+    in_tx: bool,
+) -> AppResult<()> {
+    if in_tx {
+        sqlx::query("RELEASE SAVEPOINT fine_payment")
+            .execute(&mut *conn)
+            .await?;
+    }
+    Ok(())
+}
+
+fn is_fines_paid_amount_cap(err: &sqlx::Error) -> bool {
+    match err {
+        sqlx::Error::Database(db) => {
+            db.code().as_deref() == Some("23514")
+                && db.constraint() == Some("fines_paid_amount_lte_amount")
+        }
+        _ => false,
+    }
 }
 
 async fn waive_fine<'e, E>(executor: E, id: i64, notes: Option<&str>) -> AppResult<Fine>

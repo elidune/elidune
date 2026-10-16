@@ -582,6 +582,10 @@ async fn receipt_creates_non_borrowable_item_until_barcode_site_and_price_are_se
     let item_id = fixtures::json_id(&received["lines"][0]["itemIds"][0]);
 
     let item = item_copy(&app, &admin_token, item_id).await;
+    assert_eq!(
+        item["price"], "8.00",
+        "receipt copies the line unit price: {item}"
+    );
     assert_eq!(item["borrowable"], false, "receipt default: {item}");
     assert!(item["barcode"].is_null() || item["barcode"] == "", "{item}");
 
@@ -748,6 +752,7 @@ async fn receipt_with_barcode_site_and_price_or_deferral_is_borrowable() {
 
     let priced = item_copy(&app, &admin_token, priced_id).await;
     let deferred = item_copy(&app, &admin_token, deferred_id).await;
+    assert_eq!(priced["price"], "4.50", "{priced}");
     assert_eq!(priced["borrowable"], true, "{priced}");
     assert_eq!(deferred["borrowable"], true, "{deferred}");
 }

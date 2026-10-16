@@ -5,7 +5,6 @@ mod common;
 use axum::http::StatusCode;
 use common::fixtures;
 use common::TestApp;
-use rust_decimal::Decimal;
 use serde_json::json;
 use sqlx::Row;
 
@@ -256,7 +255,12 @@ async fn unpaid_over_threshold_blocks_checkout_and_force_is_audited() {
     app.state
         .services
         .repository
-        .fines_create(loan_id, reader_id, Decimal::new(1500, 2), Some("overdue"))
+        .fines_create(
+            loan_id,
+            reader_id,
+            elidune_server::models::fine::Cents(1500),
+            Some("overdue"),
+        )
         .await
         .expect("create unpaid fine");
 
@@ -305,7 +309,12 @@ async fn unpaid_over_threshold_blocks_renew_unless_forced() {
     app.state
         .services
         .repository
-        .fines_create(loan_id, reader_id, Decimal::new(250, 2), Some("late"))
+        .fines_create(
+            loan_id,
+            reader_id,
+            elidune_server::models::fine::Cents(250),
+            Some("late"),
+        )
         .await
         .expect("create unpaid fine");
 
@@ -551,7 +560,12 @@ async fn no_unpaid_threshold_means_no_block() {
     app.state
         .services
         .repository
-        .fines_create(loan_id, reader_id, Decimal::new(2500, 2), Some("open"))
+        .fines_create(
+            loan_id,
+            reader_id,
+            elidune_server::models::fine::Cents(2500),
+            Some("open"),
+        )
         .await
         .expect("create unpaid fine");
 
@@ -655,7 +669,7 @@ async fn patron_with_unpaid(
         .fines_create(
             fixtures::json_id(&loan["id"]),
             reader_id,
-            Decimal::new(unpaid_cents, 2),
+            elidune_server::models::fine::Cents(unpaid_cents),
             Some("open"),
         )
         .await

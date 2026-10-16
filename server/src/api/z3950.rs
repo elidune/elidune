@@ -95,7 +95,11 @@ impl From<ImportItem> for Item {
             weeding_reason: None,
             public_note: None,
             internal_note: s.notes,
-            price: s.price,
+            price: s.price.as_deref().and_then(|raw| {
+                crate::models::fine::Cents::parse_euro_text(raw)
+                    .ok()
+                    .flatten()
+            }),
             price_deferred: false,
             created_at: None,
             updated_at: None,

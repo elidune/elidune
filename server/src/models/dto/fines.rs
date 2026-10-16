@@ -1,11 +1,10 @@
 //! Fine policy and accrual DTOs (shared by API and services).
 
-use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
 use utoipa::ToSchema;
 
-use crate::models::fine::{Fine, GlobalUnpaidThresholdMode};
+use crate::models::fine::{euro_string, Cents, Fine, GlobalUnpaidThresholdMode};
 use crate::models::serde_util::reject_null;
 
 /// Global unpaid-fine gate for checkout, renew, and the card-scan `unpaid_fines` reason.
@@ -57,9 +56,18 @@ pub struct AccrualBreakdown {
     pub overdue_days: i64,
     pub grace_days: i32,
     pub billable_days: i64,
-    pub daily_rate: Decimal,
-    pub max_amount: Option<Decimal>,
-    pub amount: Decimal,
+    /// Daily rate as a decimal-euro string (`"0.20"`). Stored as integer cents.
+    #[schema(value_type = String, example = "0.20")]
+    #[serde(with = "euro_string")]
+    pub daily_rate: Cents,
+    /// Cap as a decimal-euro string. Null means no cap. Stored as integer cents.
+    #[schema(value_type = Option<String>, example = "15.00")]
+    #[serde(with = "euro_string::opt")]
+    pub max_amount: Option<Cents>,
+    /// Accrued charge as a decimal-euro string. Stored as integer cents.
+    #[schema(value_type = String, example = "3.50")]
+    #[serde(with = "euro_string")]
+    pub amount: Cents,
     pub capped: bool,
     pub media_type: Option<String>,
 }

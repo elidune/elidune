@@ -1089,6 +1089,41 @@ def migrate_items(src, dst):
     return skipped_biblio_ids
 
 
+def parse_legacy_item_price(raw):
+    """Major-unit euro text to integer cents.
+
+    Blank is ``(None, False)``. A rejected value is ``(None, True)`` and is not
+    rounded. Accepts surrounding spaces, ``.`` or ``,``, and a trailing euro sign.
+    """
+    if raw is None:
+        return None, False
+    text = str(raw).strip()
+    if text == "":
+        return None, False
+    text = re.sub(r"\s*(?:€|EUR)\s*$", "", text, flags=re.IGNORECASE).strip()
+    if text == "" or text.startswith("-"):
+        return None, True
+    if text.startswith("+"):
+        text = text[1:].strip()
+    if not re.fullmatch(r"[0-9]+([.,][0-9]+)?", text):
+        return None, True
+    if "." in text and "," in text:
+        return None, True
+    if "." in text:
+        whole, frac = text.split(".", 1)
+    elif "," in text:
+        whole, frac = text.split(",", 1)
+    else:
+        whole, frac = text, ""
+    frac = frac.rstrip("0")
+    if len(frac) > 2:
+        return None, True
+    try:
+        return int(whole + frac.ljust(2, "0")), False
+    except ValueError:
+        return None, True
+
+
 def migrate_specimens(src, dst, skipped_biblio_ids=None):
     """Migrate specimens (physical copies) into the new `items` table.
 
@@ -1104,6 +1139,11 @@ def migrate_specimens(src, dst, skipped_biblio_ids=None):
         (public_note stays NULL). A schema that still has items.notes (001 only)
         receives them in notes; 054 then moves that column to internal_note.
         weeding_status defaults to on_shelf (orthogonal to archived_at / circulation_status).
+        When items.price is bigint, legacy euro text is stored as integer cents
+        (blank stays NULL; unparseable, negative, and extra fractional digits
+        become NULL and price_deferred when that column exists). A text price
+        column keeps the raw value so a later cents migration can convert it.
+        subscription_price is already cents and is not copied from legacy.
         Migration 045 backfills any later withdrawn copies into item_withdrawals;
         this import itself only inserts on_shelf rows, so it does not write withdrawals.
         updated_at (timestamptz), archived_at (timestamptz), created_at (timestamptz)
@@ -1141,6 +1181,24 @@ def migrate_specimens(src, dst, skipped_biblio_ids=None):
     """)
     item_note_columns = {row[0] for row in dst_cur.fetchall()}
     split_notes = "internal_note" in item_note_columns
+
+    dst_cur.execute("""
+        SELECT data_type
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'items'
+          AND column_name = 'price'
+    """)
+    price_type = dst_cur.fetchone()
+    price_is_bigint = price_type is not None and price_type[0] == "bigint"
+    dst_cur.execute("""
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'items'
+          AND column_name = 'price_deferred'
+    """)
+    has_price_deferred = dst_cur.fetchone() is not None
 
     while offset < total:
         src_cur.execute(f"""
@@ -1205,32 +1263,36 @@ def migrate_specimens(src, dst, skipped_biblio_ids=None):
                 
 
 
-            if split_notes:
-                dst_cur.execute("""
-                    INSERT INTO items (
-                        id, biblio_id, source_id, barcode, call_number, place,
-                        borrowable, circulation_status, public_note, internal_note, price,
-                        updated_at, archived_at, created_at
-                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                    ON CONFLICT (id) DO NOTHING
-                """, (
-                    sid, biblio_id, source_id, barcode, cote, place,
-                    borrowable, codestat, None, notes, price,
-                    updated_dt, archived_dt, created_dt,
-                ))
+            if price_is_bigint:
+                stored_price, price_deferred = parse_legacy_item_price(price)
             else:
-                dst_cur.execute("""
+                stored_price, price_deferred = price, False
+
+            if split_notes:
+                note_columns = "public_note, internal_note"
+                note_values = (None, notes)
+            else:
+                note_columns = "notes"
+                note_values = (notes,)
+            deferred_column = ", price_deferred" if has_price_deferred else ""
+            deferred_placeholder = ", %s" if has_price_deferred else ""
+            placeholders = ",".join(["%s"] * (9 + len(note_values))) + deferred_placeholder + ",%s,%s,%s"
+            dst_cur.execute(
+                f"""
                     INSERT INTO items (
                         id, biblio_id, source_id, barcode, call_number, place,
-                        borrowable, circulation_status, notes, price,
+                        borrowable, circulation_status, {note_columns}, price{deferred_column},
                         updated_at, archived_at, created_at
-                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ) VALUES ({placeholders})
                     ON CONFLICT (id) DO NOTHING
-                """, (
+                """,
+                (
                     sid, biblio_id, source_id, barcode, cote, place,
-                    borrowable, codestat, notes, price,
+                    borrowable, codestat, *note_values, stored_price,
+                    *(([price_deferred] if has_price_deferred else [])),
                     updated_dt, archived_dt, created_dt,
-                ))
+                ),
+            )
             migrated_specimen_ids.add(sid)
 
         dst.commit()

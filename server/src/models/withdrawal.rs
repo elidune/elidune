@@ -461,8 +461,8 @@ pub struct WithdrawalCsvSource {
     pub authors: Option<String>,
     pub site_name: Option<String>,
     pub acquired_at: Option<DateTime<Utc>>,
-    /// `items.price` text in decimal euros (`"12.50"`). No column default: unknown is NULL.
-    pub purchase_price: Option<String>,
+    /// `items.price` in integer cents. Null when unknown.
+    pub purchase_price: Option<crate::models::fine::Cents>,
 }
 
 /// Field separator for the single French-Excel disposal file. There is no query parameter.
@@ -475,8 +475,8 @@ const CSV_HEADERS: &str = "Code-barres;Titre;Auteur;Cote;Site;Date d'acquisition
 ///
 /// One file: a leading BOM, `;` separators, plain French headers, and dates as
 /// `DD/MM/YYYY` in `zone`. `language` localizes cell labels only. A NULL legacy
-/// destination is a localized phrase. Purchase price is the stored euro decimal
-/// (`"12.50"` → `12,50`, `"0"` → `0,00`). Cells that Excel would treat as
+/// destination is a localized phrase. Purchase price is stored cents
+/// (1250 → `12,50`, 0 → `0,00`, null → empty). Cells that Excel would treat as
 /// formulas are prefixed with `'` before quoting.
 #[must_use]
 pub fn withdrawals_csv(
@@ -502,7 +502,7 @@ pub fn withdrawals_csv(
             row.acquired_at
                 .map(|at| format_csv_date(at, zone))
                 .unwrap_or_default(),
-            format_purchase_price(row.purchase_price.as_deref()),
+            format_purchase_price(row.purchase_price),
             row.reason.label(language).to_string(),
             row.reason_detail.clone().unwrap_or_default(),
             destination,
@@ -519,20 +519,9 @@ pub fn withdrawals_csv(
     csv
 }
 
-/// Stored euro text as `12,50`. Blank, unparseable, and negative values are empty.
-///
-/// Uses the same decimal parse as replacement billing. Zero stays `0,00` because
-/// `items.price` has no default and a stored `0` is a free copy.
-fn format_purchase_price(raw: Option<&str>) -> String {
-    use rust_decimal::Decimal;
-
-    let Some(amount) = crate::models::item::parse_stored_item_price(raw) else {
-        return String::new();
-    };
-    if amount < Decimal::ZERO {
-        return String::new();
-    }
-    format!("{:.2}", amount.round_dp(2)).replace('.', ",")
+/// Stored cents as `12,50`. Null is an empty cell. Zero stays `0,00`.
+fn format_purchase_price(raw: Option<crate::models::fine::Cents>) -> String {
+    raw.map(|amount| amount.to_csv_euro()).unwrap_or_default()
 }
 
 /// `DD/MM/YYYY` in the library zone.
@@ -659,7 +648,7 @@ mod tests {
         row.site_name = Some("\tcmd".into());
         row.agent_name = Some("\rcmd".into());
         row.disposed_by_name = Some("A;B".into());
-        row.purchase_price = Some("12.50".into());
+        row.purchase_price = Some(crate::models::fine::Cents(1250));
         // 15 March 23:30 UTC is 16 March in Europe/Paris (CET, UTC+1).
         row.acquired_at = Some(
             chrono::Utc
@@ -684,22 +673,19 @@ mod tests {
     }
 
     #[test]
-    fn purchase_price_prints_euros_with_a_comma_or_stays_empty() {
+    fn purchase_price_prints_cents_with_a_comma_or_stays_empty() {
+        use crate::models::fine::Cents;
+
         let cases = [
-            (Some("12.50"), "12,50"),
-            (Some(" 12.50 "), "12,50"),
-            (Some("15"), "15,00"),
-            (Some("0"), "0,00"),
-            (Some("0.00"), "0,00"),
-            (Some(""), ""),
-            (Some("12,50"), ""),
-            (Some("-1.50"), ""),
+            (Some(Cents(1250)), "12,50"),
+            (Some(Cents(1500)), "15,00"),
+            (Some(Cents(0)), "0,00"),
             (None, ""),
         ];
         for (raw, expected) in cases {
             let mut row = sample(Some(WithdrawalDestination::Donation), false);
             row.reason_detail = None;
-            row.purchase_price = raw.map(str::to_string);
+            row.purchase_price = raw;
             let csv = withdrawals_csv(&[row], Language::French, paris());
             let line = csv.trim_start_matches('\u{feff}').lines().nth(1).unwrap();
             let price = line.split(';').nth(6).unwrap();

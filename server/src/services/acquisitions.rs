@@ -16,6 +16,7 @@ use crate::{
             UpdateVendor, Vendor, VendorQuery,
         },
         biblio::{Biblio, Isbn, MediaType},
+        fine::Cents,
         item::Item,
     },
     repository::AcquisitionsRepository,
@@ -229,7 +230,7 @@ impl AcquisitionsService {
                         barcode: None,
                         source_id: None,
                         source_name: None,
-                        price: unit_price.map(|p| p.normalize().to_string()),
+                        price: None,
                         price_deferred: false,
                         call_number: None,
                     })
@@ -239,16 +240,12 @@ impl AcquisitionsService {
             let mut item_ids = Vec::with_capacity(specs.len());
             for spec in specs.iter() {
                 let barcode = spec.barcode.clone().filter(|s| !s.trim().is_empty());
-                let price = spec
-                    .price
-                    .clone()
-                    .filter(|s| !s.trim().is_empty())
-                    .or_else(|| unit_price.map(|p| p.normalize().to_string()));
+                let price = copy_price(spec, unit_price)?;
                 let borrowable = Item::ready_to_circulate(
                     barcode.as_deref(),
                     spec.source_id,
                     spec.source_name.as_deref(),
-                    price.as_deref(),
+                    price,
                     spec.price_deferred,
                 );
 
@@ -468,5 +465,23 @@ fn stub_biblio(title: String, isbn: Option<Isbn>) -> Biblio {
         edition: None,
         items: Vec::new(),
         marc_record: None,
+    }
+}
+
+/// Item price at the receipt boundary: an explicit copy price, otherwise the line's major-unit price.
+fn copy_price(spec: &ReceiveItemSpec, unit_price: Option<Decimal>) -> AppResult<Option<Cents>> {
+    if let Some(raw) = spec
+        .price
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        return Cents::parse_euro_text(raw).map_err(|err| AppError::Validation(err.to_string()));
+    }
+    match unit_price {
+        Some(price) => Cents::try_from_decimal(price)
+            .map(Some)
+            .map_err(|err| AppError::Validation(err.to_string())),
+        None => Ok(None),
     }
 }
