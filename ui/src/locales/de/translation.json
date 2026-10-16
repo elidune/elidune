@@ -332,6 +332,7 @@
     "personalInfo": "Persönliche Daten",
     "loginUsername": "Benutzername",
     "loginHint": "Mindestens 3 Zeichen",
+    "birthDateDeskHint": "Bitte an der Theke korrigieren lassen",
     "occupation": "Beruf",
     "address": "Adresse",
     "profileUpdated": "Profil erfolgreich aktualisiert",
@@ -906,6 +907,8 @@
     "identifier": "Kennung",
     "additionalInfo": "Zusätzliche Informationen",
     "publicType": "Öffentlicher Typ",
+    "publicTypeFromBirthDate": "Der Zielgruppentyp wird aus dem Geburtsdatum bestimmt.",
+    "birthDateMissing": "Geburtsdatum zu ergänzen",
     "sex": "Geschlecht",
     "subscription": "Abonnement",
     "subscriptionUnlimited": "Unbegrenztes Abonnement (ohne Enddatum)",
@@ -2185,7 +2188,9 @@
       "transit_same_site": "Das Exemplar ist bereits am Abholstandort: legen Sie es für die Vormerkung zurück.",
       "account_type_in_use": "Dieser Kontotyp ist noch mindestens einem Leser zugewiesen. Weisen Sie diese Konten zuerst einem anderen Typ zu.",
       "account_type_system": "Integrierte Kontotypen können nicht gelöscht werden.",
-      "last_active_admin": "Diese Änderung würde kein aktives Konto mit Schreibrecht für die Einstellungen mehr übrig lassen."
+      "last_active_admin": "Diese Änderung würde kein aktives Konto mit Schreibrecht für die Einstellungen mehr übrig lassen.",
+      "birth_date_required": "Das Geburtsdatum ist erforderlich, um den Zielgruppentyp des Lesers zu bestimmen.",
+      "no_public_type_for_age": "Kein Zielgruppentyp entspricht diesem Alter. Eine Verwaltung muss die Altersbereiche unter Einstellungen > Zielgruppen vervollständigen."
     }
   },
   "inventory": {

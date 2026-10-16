@@ -332,6 +332,7 @@
     "personalInfo": "Personal Information",
     "loginUsername": "Username",
     "loginHint": "Minimum 3 characters",
+    "birthDateDeskHint": "Ask the front desk to correct it",
     "occupation": "Occupation",
     "address": "Address",
     "profileUpdated": "Profile updated successfully",
@@ -906,6 +907,8 @@
     "identifier": "Identifier",
     "additionalInfo": "Additional information",
     "publicType": "Public type",
+    "publicTypeFromBirthDate": "The public type is set from the birth date.",
+    "birthDateMissing": "Birth date to be completed",
     "sex": "Sex",
     "subscription": "Subscription",
     "subscriptionUnlimited": "Unlimited subscription (no end date)",
@@ -2185,7 +2188,9 @@
       "transit_same_site": "The copy is already at the pickup site: set it aside for the hold.",
       "account_type_in_use": "This account type is still assigned to at least one reader. Reassign those accounts before deleting it.",
       "account_type_system": "Built-in account types cannot be deleted.",
-      "last_active_admin": "This change would leave no active account that can manage settings."
+      "last_active_admin": "This change would leave no active account that can manage settings.",
+      "birth_date_required": "Birth date is required to determine the reader's public type.",
+      "no_public_type_for_age": "No public type matches this age. An administrator must complete the age ranges in Settings > Public Types."
     }
   },
   "inventory": {

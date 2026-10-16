@@ -25,6 +25,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { Card, CardHeader, Button, Input, Modal } from '@/components/common';
 import PatronSuggestionsSection from '@/components/suggestions/PatronSuggestionsSection';
 import EventsConsentFields from '@/components/users/EventsConsentFields';
+import ReaderPublicTypeReadout from '@/components/users/ReaderPublicTypeReadout';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { usePublicTypesQuery } from '@/hooks/usePublicTypesQuery';
@@ -34,6 +35,8 @@ import type { SupportedLanguage } from '@/locales';
 import { canReadUsers, ownContactOnly, resolveUsersRights, type TwoFactorMethod, type User as UserProfile } from '@/types';
 import { ownContactPayload } from '@/utils/ownContactForm';
 import { profileChildAccountPending, profileIsChildAccount } from '@/utils/legalGuardian';
+import { selfProfilePayload } from '@/utils/profileUpdate';
+import { isReaderAccount, readerBirthDateFieldError } from '@/utils/readerPublicType';
 import { OCCUPATION_OPTIONS } from '@/utils/codeLabels';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 
@@ -76,6 +79,7 @@ export default function ProfilePage() {
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState(false);
   const [profileError, setProfileError] = useState('');
+  const [birthDateError, setBirthDateError] = useState('');
 
   // Password form state
   const [passwordData, setPasswordData] = useState({
@@ -122,6 +126,7 @@ export default function ProfilePage() {
 
     setIsUpdatingProfile(true);
     setProfileError('');
+    setBirthDateError('');
     setProfileSuccess(false);
 
     try {
@@ -134,25 +139,21 @@ export default function ProfilePage() {
           }) as Partial<UserProfile>,
         );
       } else {
-        await api.updateProfile({
-          firstname: profileData.firstname || undefined,
-          lastname: profileData.lastname || undefined,
-          email: profileData.email || undefined,
-          phone: profileData.phone || undefined,
-          login: profileData.login || undefined,
-          addrStreet: profileData.addrStreet || undefined,
-          addrZipCode: profileData.addrZipCode ? parseInt(profileData.addrZipCode, 10) : undefined,
-          addrCity: profileData.addrCity || undefined,
-          birthdate: profileData.birthdate || undefined,
-          ...(isChildAccount || childAccountPending ? {} : { eventsConsent: profileData.eventsConsent }),
-        });
+        await api.updateProfile(
+          selfProfilePayload(profileData, !isChildAccount && !childAccountPending),
+        );
       }
       await refreshProfile();
       setProfileSuccess(true);
       setTimeout(() => setProfileSuccess(false), 3000);
     } catch (error) {
       console.error('Error updating profile:', error);
-      setProfileError(t('profile.updateError'));
+      const birthField = readerBirthDateFieldError(error, t);
+      if (birthField) {
+        setBirthDateError(birthField);
+      } else {
+        setProfileError(t('profile.updateError'));
+      }
     } finally {
       setIsUpdatingProfile(false);
     }
@@ -346,14 +347,25 @@ export default function ProfilePage() {
                   leftIcon={<Phone className="h-4 w-4" />}
                 />
                 <Input
+                  id="profile-birthdate"
                   label={t('profile.birthdate')}
                   type="date"
                   value={profileData.birthdate}
-                  onChange={(e) => setProfileData({ ...profileData, birthdate: e.target.value })}
+                  readOnly
+                  hint={t('profile.birthDateDeskHint')}
                   leftIcon={<Calendar className="h-4 w-4" />}
-                  readOnly={contactOnly}
+                  error={birthDateError}
                 />
               </div>
+
+              {isReaderAccount(user?.accountType) ? (
+                <ReaderPublicTypeReadout
+                  id="profile-public-type"
+                  publicTypes={publicTypes}
+                  publicType={user?.publicType}
+                  birthDateMissing={user?.birthDateMissing === true}
+                />
+              ) : null}
 
               {cardNumber ? (
                 <Input
