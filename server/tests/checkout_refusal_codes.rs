@@ -280,21 +280,29 @@ async fn expired_subscription_is_subscription_expired_and_force_still_checks_out
     assert_eq!(active_loan_count(&app, reader_id).await, 1);
     let loan_id = fixtures::json_id(&created["id"]);
 
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-    let (status, audit) = app
-        .get_json_with_auth(
-            &format!(
-                "/api/v1/audit?eventType=loan.subscription_expired_overridden&entityId={loan_id}"
-            ),
-            &admin_token,
-        )
-        .await;
-    assert_eq!(status, StatusCode::OK, "audit query: {audit}");
-    let entries = audit["entries"].as_array().cloned().unwrap_or_default();
-    let row = entries
-        .iter()
-        .find(|row| fixtures::json_id(&row["entityId"]) == loan_id)
-        .expect("subscription override audit");
+    let mut row = None;
+    for _ in 0..40 {
+        let (status, audit) = app
+            .get_json_with_auth(
+                &format!(
+                    "/api/v1/audit?eventType=loan.subscription_expired_overridden&entityId={loan_id}"
+                ),
+                &admin_token,
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK, "audit query: {audit}");
+        let entries = audit["entries"].as_array().cloned().unwrap_or_default();
+        if let Some(found) = entries
+            .iter()
+            .find(|row| fixtures::json_id(&row["entityId"]) == loan_id)
+            .cloned()
+        {
+            row = Some(found);
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    let row = row.expect("subscription override audit");
     assert_eq!(fixtures::json_id(&row["userId"]), actor_id);
     assert_eq!(row["entityType"], "loan");
     assert_eq!(row["payload"]["code"], "subscription_expired");
@@ -613,7 +621,7 @@ async fn fines_over_threshold_matches_renewal_and_force_still_checks_out() {
     sqlx::query(
         r#"
         INSERT INTO fines (id, loan_id, user_id, amount, paid_amount, status, charge_type)
-        VALUES ($1, $2, $3, 15.00, 0, 'pending', 'overdue')
+        VALUES ($1, $2, $3, 1500, 0, 'pending', 'overdue')
         "#,
     )
     .bind(next_id())

@@ -658,6 +658,7 @@ use crate::api::{
 
             // Errors
             crate::error::ErrorResponse,
+            crate::error::PaymentExceedsBalanceBody,
             crate::checkout_refusal::CheckoutRefusalBody,
             crate::checkout_refusal::CheckoutRefusalDetails,
             crate::checkout_refusal::ItemHeldForOtherDetails,
@@ -1258,6 +1259,30 @@ mod tests {
             me.contains("closureReason") && me.contains("foundAt") && me.contains("archived=true"),
             "{me}"
         );
+    }
+
+    #[test]
+    fn pay_fine_documents_payment_exceeds_balance() {
+        let doc = ApiDoc::openapi();
+        let value = serde_json::to_value(&doc).expect("openapi json");
+        let pay = &value["paths"]["/fines/{id}/pay"]["post"]["responses"]["422"];
+        let pay_description = pay["description"].as_str().unwrap_or("");
+        assert!(
+            pay_description.contains("payment_exceeds_balance")
+                && pay_description.contains("remainingCents"),
+            "{pay}"
+        );
+        let pay_schema = pay["content"]["application/json"]["schema"]["$ref"]
+            .as_str()
+            .unwrap_or("");
+        assert!(
+            pay_schema.contains("PaymentExceedsBalanceBody"),
+            "POST /fines/{{id}}/pay 422 body must be PaymentExceedsBalanceBody: {pay_schema}"
+        );
+        let pay_props = &value["components"]["schemas"]["PaymentExceedsBalanceBody"]["properties"];
+        for key in ["code", "error", "message", "remainingCents"] {
+            assert!(pay_props[key].is_object(), "{key} missing: {pay_props}");
+        }
     }
 
     #[test]

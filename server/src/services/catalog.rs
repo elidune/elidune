@@ -739,8 +739,7 @@ fn apply_circulation_readiness(item: &mut Item, existing: &Item) -> AppResult<()
     let source_id = item.source_id.or(existing.source_id);
     let source_name = nonempty_text(item.source_name.as_deref())
         .or_else(|| nonempty_text(existing.source_name.as_deref()));
-    let price =
-        nonempty_text(item.price.as_deref()).or_else(|| nonempty_text(existing.price.as_deref()));
+    let price = item.price.or(existing.price);
     let ready =
         Item::ready_to_circulate(barcode, source_id, source_name, price, item.price_deferred);
 

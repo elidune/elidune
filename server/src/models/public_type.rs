@@ -5,7 +5,7 @@ use serde_with::serde_as;
 use sqlx::FromRow;
 use utoipa::ToSchema;
 
-use super::fine::{AudienceUnpaidThresholdMode, MoneyCents};
+use super::fine::{AudienceUnpaidThresholdMode, Cents, MoneyCents};
 use super::loan::LoanSettingsRenewAt;
 use super::serde_util::reject_null;
 
@@ -22,8 +22,10 @@ pub struct PublicType {
     pub subscription_duration_days: Option<i32>,
     pub age_min: Option<i16>,
     pub age_max: Option<i16>,
-    /// Subscription price in cents (e.g. 1500 = 15.00€)
-    pub subscription_price: Option<i32>,
+    /// Subscription price in integer cents (1500 = 15.00 EUR). Stored as BIGINT.
+    /// Widened from INTEGER; never multiplied by 100.
+    #[schema(value_type = Option<i64>)]
+    pub subscription_price: Option<Cents>,
     /// `inherit` uses the global circulation mode. `none` never blocks on amount.
     /// `amount` blocks when the unpaid balance is strictly above `unpaidThresholdCents`.
     pub unpaid_threshold_mode: AudienceUnpaidThresholdMode,
@@ -85,7 +87,9 @@ pub struct CreatePublicType {
     pub subscription_duration_days: Option<i32>,
     pub age_min: Option<i16>,
     pub age_max: Option<i16>,
-    pub subscription_price: Option<i32>,
+    /// Integer cents (1500 = 15.00 EUR).
+    #[schema(value_type = Option<i64>)]
+    pub subscription_price: Option<Cents>,
     /// Omitted on create defaults to `inherit`. `amount` requires `unpaidThresholdCents`.
     /// JSON `null` is rejected.
     #[serde(default, deserialize_with = "reject_null")]
@@ -135,7 +139,9 @@ pub struct UpdatePublicType {
     #[serde(default, with = "serde_with::rust::double_option")]
     pub age_max: Option<Option<i16>>,
     #[serde(default, with = "serde_with::rust::double_option")]
-    pub subscription_price: Option<Option<i32>>,
+    /// Integer cents. `null` clears the price.
+    #[schema(value_type = Option<i64>)]
+    pub subscription_price: Option<Option<Cents>>,
     /// Omit to leave the stored mode and cents unchanged. `amount` requires cents.
     #[serde(default, deserialize_with = "reject_null")]
     pub unpaid_threshold_mode: Option<AudienceUnpaidThresholdMode>,

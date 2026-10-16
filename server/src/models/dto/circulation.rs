@@ -17,7 +17,8 @@ pub struct MarkLostRequest {
     /// When true, create a replacement charge (item price or `amount`).
     #[serde(default)]
     pub bill: bool,
-    /// Explicit replacement amount. Used when `bill` is true and set.
+    /// Explicit replacement amount as a decimal-euro string (`"12.50"`).
+    #[schema(value_type = Option<String>, example = "12.50")]
     pub amount: Option<Decimal>,
     /// When `bill` is true and `amount` is omitted, use `items.price` (default true).
     #[serde(default = "default_true")]
@@ -37,6 +38,8 @@ pub struct MarkDamagedRequest {
     /// When true (or when `amount` is set), create a damage charge.
     #[serde(default)]
     pub bill: bool,
+    /// Damage fee as a decimal-euro string (`"12.50"`).
+    #[schema(value_type = Option<String>, example = "12.50")]
     pub amount: Option<Decimal>,
     pub notes: Option<String>,
 }
@@ -146,11 +149,13 @@ pub struct LostItemOnReturn {
     pub fine_id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fine_status: Option<LostFineDeskStatus>,
-    /// Replacement charge in cents.
+    /// Replacement charge in integer cents. Omitted when there is no open replacement.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<i64>)]
     pub fine_amount: Option<i64>,
-    /// Amount already collected, in cents.
+    /// Amount already collected, in integer cents.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<i64>)]
     pub paid_amount: Option<i64>,
 }
 
@@ -185,9 +190,11 @@ pub struct LostFoundResolution {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub fine_id: Option<i64>,
-    /// Cents refunded. Zero when nothing had been collected, and always zero for `damaged`.
+    /// Integer cents refunded. Always present. Zero when nothing was collected, and always zero for `damaged`.
+    #[schema(value_type = i64)]
     pub refunded_amount: i64,
-    /// Cents of the charge that were cancelled (the uncollected remainder). Always zero for `damaged`.
+    /// Integer cents cancelled (the uncollected remainder). Always present. Always zero for `damaged`.
+    #[schema(value_type = i64)]
     pub cancelled_amount: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hold: Option<crate::models::hold::Hold>,

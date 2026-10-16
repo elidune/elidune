@@ -405,6 +405,8 @@ pub struct ReceiveItemSpec {
     #[validate(length(max = 200))]
     pub source_name: Option<String>,
     #[validate(length(max = 100))]
+    /// Copy price as a decimal-euro string (`"12.50"` or `"12,50"`). Stored as integer cents.
+    #[schema(value_type = Option<String>, example = "12.50")]
     pub price: Option<String>,
     /// Staff explicitly defers recording a price (report later).
     #[serde(default)]

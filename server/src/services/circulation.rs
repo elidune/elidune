@@ -19,7 +19,7 @@ use crate::{
             MarkDamagedRequest, MarkLostRequest, ResolveClaimsReturnedRequest,
             ResolveLostFoundRequest,
         },
-        fine::{money_to_cents, FineChargeType},
+        fine::{Cents, FineChargeType},
     },
     repository::{circulation::CirculationApplyParams, fines::LostFineSettlement, Repository},
     services::{
@@ -62,8 +62,13 @@ impl CirculationService {
         let loan = self.repository.loans_get_by_id(loan_id).await?;
         let amount = if req.bill {
             Some(
-                self.resolve_replacement_amount(loan.item_id, req.amount, req.use_item_price)
-                    .await?,
+                self.resolve_bill_amount(
+                    loan.item_id,
+                    req.amount,
+                    req.use_item_price,
+                    "Replacement amount",
+                )
+                .await?,
             )
         } else {
             None
@@ -90,7 +95,7 @@ impl CirculationService {
                 "billed": response.charge.is_some(),
                 "chargeId": response.charge.as_ref().map(|c| c.id.to_string()),
                 "chargeType": response.charge.as_ref().map(|c| c.charge_type),
-                "amount": response.charge.as_ref().map(|c| c.amount),
+                "amount": response.charge.as_ref().map(|c| c.amount.to_euro_string()),
             }),
         );
         Ok(response)
@@ -103,17 +108,13 @@ impl CirculationService {
         actor: Option<i64>,
         client_ip: Option<String>,
     ) -> AppResult<CirculationExceptionResponse> {
+        let loan = self.repository.loans_get_by_id(loan_id).await?;
         let should_bill = req.bill || req.amount.is_some();
         let amount = if should_bill {
-            let amount = req.amount.ok_or_else(|| {
-                AppError::Validation("Damage fee amount is required when billing".to_string())
-            })?;
-            if amount <= Decimal::ZERO {
-                return Err(AppError::Validation(
-                    "Damage fee amount must be positive".to_string(),
-                ));
-            }
-            Some(amount)
+            Some(
+                self.resolve_bill_amount(loan.item_id, req.amount, true, "Damage fee amount")
+                    .await?,
+            )
         } else {
             None
         };
@@ -140,7 +141,7 @@ impl CirculationService {
                 "billed": response.charge.is_some(),
                 "chargeId": response.charge.as_ref().map(|c| c.id.to_string()),
                 "chargeType": response.charge.as_ref().map(|c| c.charge_type),
-                "amount": response.charge.as_ref().map(|c| c.amount),
+                "amount": response.charge.as_ref().map(|c| c.amount.to_euro_string()),
             }),
         );
         Ok(response)
@@ -328,8 +329,8 @@ impl CirculationService {
                     Some(ref settlement) => (
                         settlement.action,
                         Some(settlement.fine_id),
-                        cents(settlement.refunded_amount)?,
-                        cents(settlement.cancelled_amount)?,
+                        settlement.refunded_amount.get(),
+                        settlement.cancelled_amount.get(),
                     ),
                     None => (LostFineAction::None, None, 0, 0),
                 }
@@ -383,27 +384,34 @@ impl CirculationService {
             .await
     }
 
-    async fn resolve_replacement_amount(
+    async fn resolve_bill_amount(
         &self,
         item_id: i64,
         explicit: Option<Decimal>,
         use_item_price: bool,
-    ) -> AppResult<Decimal> {
+        explicit_label: &str,
+    ) -> AppResult<Cents> {
         if let Some(amount) = explicit {
-            if amount <= Decimal::ZERO {
-                return Err(AppError::Validation(
-                    "Replacement amount must be positive".to_string(),
-                ));
+            let cents = Cents::try_from_decimal(amount)
+                .map_err(|err| AppError::Validation(err.to_string()))?;
+            if cents.0 == 0 {
+                return Err(AppError::Validation(format!(
+                    "{explicit_label} must be positive"
+                )));
             }
-            return Ok(amount);
+            return Ok(cents);
         }
         if use_item_price {
             if let Some(price) = self.repository.circulation_item_price(item_id).await? {
                 return Ok(price);
             }
         }
-        Err(AppError::Validation(
-            "Replacement bill requires an amount or a positive item price".to_string(),
+        if let Some(rule) = self.repository.fines_default_replacement_amount().await? {
+            return Ok(rule);
+        }
+        Err(AppError::BusinessRule(
+            "Enter the amount to bill: this copy has no price and there is no default replacement rule"
+                .to_string(),
         ))
     }
 
@@ -471,9 +479,9 @@ impl CirculationService {
         disposition: LostFoundDisposition,
         settlement: &LostFineSettlement,
     ) -> AppResult<()> {
-        let refunded_amount = cents(settlement.refunded_amount)?;
-        let cancelled_amount = cents(settlement.cancelled_amount)?;
-        if settlement.refunded_amount > Decimal::ZERO {
+        let refunded_amount = settlement.refunded_amount.get();
+        let cancelled_amount = settlement.cancelled_amount.get();
+        if settlement.refunded_amount.0 > 0 {
             self.audit
                 .log_in_tx(
                     tx,
@@ -492,7 +500,7 @@ impl CirculationService {
                 )
                 .await?;
         }
-        if settlement.cancelled_amount > Decimal::ZERO || settlement.refunded_amount.is_zero() {
+        if settlement.cancelled_amount.0 > 0 || settlement.refunded_amount.0 == 0 {
             self.audit
                 .log_in_tx(
                     tx,
@@ -544,7 +552,7 @@ impl CirculationService {
                     "itemId": response.item_id.to_string(),
                     "userId": response.user_id.to_string(),
                     "chargeType": charge.charge_type,
-                    "amount": charge.amount,
+                    "amount": charge.amount.to_euro_string(),
                     "trigger": event,
                 })),
                 AuditLogMeta::success(),
@@ -577,10 +585,6 @@ fn exception_audit_payload(
         obj.insert("borrowable".into(), serde_json::json!(response.borrowable));
     }
     extra
-}
-
-fn cents(amount: rust_decimal::Decimal) -> AppResult<i64> {
-    money_to_cents(amount).map_err(|msg| AppError::Internal(msg.to_string()))
 }
 
 fn reject_disallowed_bill(action: CirculationAction, bill: bool) -> AppResult<()> {
@@ -616,23 +620,23 @@ mod tests {
     #[test]
     fn settlement_refunds_only_money_already_collected() {
         use crate::models::dto::circulation::LostFineAction;
+        use crate::models::fine::Cents;
         use crate::repository::fines::settle_replacement_charge;
-        use rust_decimal::Decimal;
 
-        let unpaid = settle_replacement_charge(Decimal::new(1500, 2), Decimal::ZERO);
+        let unpaid = settle_replacement_charge(Cents(1500), Cents::ZERO);
         assert_eq!(unpaid.action, LostFineAction::Cancelled);
-        assert!(unpaid.refunded_amount.is_zero());
-        assert_eq!(unpaid.cancelled_amount, Decimal::new(1500, 2));
+        assert_eq!(unpaid.refunded_amount.0, 0);
+        assert_eq!(unpaid.cancelled_amount, Cents(1500));
 
-        let paid = settle_replacement_charge(Decimal::new(1500, 2), Decimal::new(1500, 2));
+        let paid = settle_replacement_charge(Cents(1500), Cents(1500));
         assert_eq!(paid.action, LostFineAction::Refunded);
-        assert_eq!(paid.refunded_amount, Decimal::new(1500, 2));
-        assert!(paid.cancelled_amount.is_zero());
+        assert_eq!(paid.refunded_amount, Cents(1500));
+        assert_eq!(paid.cancelled_amount.0, 0);
 
-        let partial = settle_replacement_charge(Decimal::new(1500, 2), Decimal::new(400, 2));
+        let partial = settle_replacement_charge(Cents(1500), Cents(400));
         assert_eq!(partial.action, LostFineAction::Partial);
-        assert_eq!(partial.refunded_amount, Decimal::new(400, 2));
-        assert_eq!(partial.cancelled_amount, Decimal::new(1100, 2));
+        assert_eq!(partial.refunded_amount, Cents(400));
+        assert_eq!(partial.cancelled_amount, Cents(1100));
     }
 
     #[test]

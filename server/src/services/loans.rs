@@ -1228,14 +1228,14 @@ mod tests {
     }
 
     struct FakeFinesRepo {
-        unpaid: rust_decimal::Decimal,
-        threshold: Option<rust_decimal::Decimal>,
+        unpaid: crate::models::fine::Cents,
+        threshold: Option<crate::models::fine::Cents>,
     }
 
     impl Default for FakeFinesRepo {
         fn default() -> Self {
             Self {
-                unpaid: rust_decimal::Decimal::ZERO,
+                unpaid: crate::models::fine::Cents::ZERO,
                 threshold: None,
             }
         }
@@ -1642,7 +1642,7 @@ mod tests {
             &self,
             _: i64,
             _: i64,
-            _: rust_decimal::Decimal,
+            _: crate::models::fine::Cents,
             _: Option<&str>,
         ) -> AppResult<crate::models::fine::Fine> {
             unimplemented!()
@@ -1650,7 +1650,7 @@ mod tests {
         async fn fines_pay(
             &self,
             _: i64,
-            _: rust_decimal::Decimal,
+            _: crate::models::fine::Cents,
             _: Option<&str>,
         ) -> AppResult<crate::models::fine::Fine> {
             unimplemented!()
@@ -1668,37 +1668,40 @@ mod tests {
         async fn fines_upsert_rule(
             &self,
             _: Option<&str>,
-            _: rust_decimal::Decimal,
-            _: Option<rust_decimal::Decimal>,
+            _: crate::models::fine::Cents,
+            _: Option<crate::models::fine::Cents>,
             _: i32,
         ) -> AppResult<crate::models::fine::FineRule> {
             unimplemented!()
         }
-        async fn fines_total_unpaid(&self, _: i64) -> AppResult<rust_decimal::Decimal> {
+        async fn fines_total_unpaid(&self, _: i64) -> AppResult<crate::models::fine::Cents> {
             Ok(self.unpaid)
         }
         async fn fines_get_unpaid_threshold(
             &self,
             _: Option<i64>,
-        ) -> AppResult<Option<rust_decimal::Decimal>> {
+        ) -> AppResult<Option<crate::models::fine::Cents>> {
             Ok(self.threshold)
+        }
+        fn accrue_fines_enabled(&self) -> bool {
+            true
         }
         async fn fines_get_global_unpaid_threshold(
             &self,
         ) -> AppResult<crate::models::fine::StoredGlobalUnpaidThreshold> {
             Ok(crate::models::fine::StoredGlobalUnpaidThreshold {
                 mode: crate::models::fine::GlobalUnpaidThresholdMode::None,
-                amount: self.threshold.unwrap_or(rust_decimal::Decimal::ZERO),
+                amount: self.threshold.unwrap_or(crate::models::fine::Cents::ZERO),
             })
         }
         async fn fines_set_global_unpaid_threshold(
             &self,
             mode: crate::models::fine::GlobalUnpaidThresholdMode,
-            amount: Option<rust_decimal::Decimal>,
+            amount: Option<crate::models::fine::Cents>,
         ) -> AppResult<crate::models::fine::StoredGlobalUnpaidThreshold> {
             Ok(crate::models::fine::StoredGlobalUnpaidThreshold {
                 mode,
-                amount: amount.unwrap_or(rust_decimal::Decimal::ZERO),
+                amount: amount.unwrap_or(crate::models::fine::Cents::ZERO),
             })
         }
         async fn fines_get_open_for_loan(
@@ -1711,7 +1714,7 @@ mod tests {
             &self,
             _: i64,
             _: i64,
-            _: rust_decimal::Decimal,
+            _: crate::models::fine::Cents,
             _: Option<&str>,
         ) -> AppResult<(
             crate::models::fine::Fine,
@@ -1782,8 +1785,10 @@ mod tests {
         }
     }
 
-    fn decimal(s: &str) -> rust_decimal::Decimal {
-        s.parse().expect("decimal")
+    fn decimal(s: &str) -> crate::models::fine::Cents {
+        crate::models::fine::Cents::parse_euro_text(s)
+            .expect("euro")
+            .expect("present")
     }
 
     fn make_loan(user_id: i64, force: bool) -> CreateLoan {

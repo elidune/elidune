@@ -14,7 +14,7 @@ use crate::{
             CirculationFinePolicy, UpdateCirculationFinePolicy,
         },
         fine::{
-            money_to_cents, resolve_global_amount, Fine, FineAccrualLoan, FineRule,
+            resolve_global_amount, Cents, Fine, FineAccrualLoan, FineRule,
             GlobalUnpaidThresholdMode, StoredGlobalUnpaidThreshold,
         },
         user::UserStatus,
@@ -36,11 +36,10 @@ use crate::{
 /// place that decides whether unpaid fines block a loan.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnpaidThresholdCheck {
-    pub unpaid: Decimal,
-    /// Effective stored threshold (global, or the public type's own amount).
-    /// `None` means amount-based blocking is off. This value is not written back.
-    pub threshold: Option<Decimal>,
-    /// `reminders.accrue_fines`. When false, `threshold` does not block loans.
+    pub unpaid: Cents,
+    /// `None` means amount-based blocking is off.
+    pub threshold: Option<Cents>,
+    /// When false, stored thresholds do not block checkout or renew.
     accrue_fines: bool,
 }
 
@@ -49,7 +48,7 @@ impl UnpaidThresholdCheck {
     /// Global and public-type rows stay stored. `unpaid` stays so lost and
     /// damaged bills remain visible on the account.
     #[must_use]
-    pub fn new(unpaid: Decimal, threshold: Option<Decimal>, accrue_fines: bool) -> Self {
+    pub fn new(unpaid: Cents, threshold: Option<Cents>, accrue_fines: bool) -> Self {
         Self {
             unpaid,
             threshold,
@@ -66,7 +65,7 @@ impl UnpaidThresholdCheck {
             return false;
         }
         match self.threshold {
-            Some(threshold) => self.unpaid > Decimal::ZERO && self.unpaid > threshold,
+            Some(threshold) => self.unpaid.0 > 0 && self.unpaid > threshold,
             None => false,
         }
     }
@@ -211,6 +210,8 @@ impl FinesService {
 
     /// Apply a payment to a fine and write `fine.paid` in the same transaction.
     /// A full payment and a partial payment use the same event.
+    ///
+    /// The update itself rejects a payment above `amount - paid_amount`.
     #[tracing::instrument(skip(self, notes, client_ip), err)]
     pub async fn pay(
         &self,
@@ -220,14 +221,16 @@ impl FinesService {
         actor_id: i64,
         client_ip: Option<String>,
     ) -> AppResult<Fine> {
-        if amount <= Decimal::ZERO {
+        let payment =
+            Cents::try_from_decimal(amount).map_err(|err| AppError::Validation(err.to_string()))?;
+        if payment.0 <= 0 {
             return Err(AppError::Validation(
                 "Payment amount must be positive".to_string(),
             ));
         }
         let money = self.money()?;
         let mut tx = money.db.pool().begin().await?;
-        let fine = Repository::fines_pay_tx(&mut tx, id, amount, notes).await?;
+        let fine = Repository::fines_pay_tx(&mut tx, id, payment, notes).await?;
         money
             .audit
             .log_in_tx(
@@ -284,7 +287,7 @@ impl FinesService {
 
     /// Get total unpaid fines for a user
     #[tracing::instrument(skip(self), err)]
-    pub async fn total_unpaid(&self, user_id: i64) -> AppResult<Decimal> {
+    pub async fn total_unpaid(&self, user_id: i64) -> AppResult<Cents> {
         self.repository.fines_total_unpaid(user_id).await
     }
 
@@ -349,11 +352,15 @@ impl FinesService {
         max_amount: Option<Decimal>,
         grace_days: i32,
     ) -> AppResult<FineRule> {
-        if daily_rate < Decimal::ZERO {
-            return Err(AppError::Validation(
-                "Daily rate cannot be negative".to_string(),
-            ));
-        }
+        let daily_rate = Cents::try_from_decimal(daily_rate)
+            .map_err(|err| AppError::Validation(err.to_string()))?;
+        let max_amount = match max_amount {
+            Some(amount) => Some(
+                Cents::try_from_decimal(amount)
+                    .map_err(|err| AppError::Validation(err.to_string()))?,
+            ),
+            None => None,
+        };
         self.repository
             .fines_upsert_rule(media_type, daily_rate, max_amount, grace_days)
             .await
@@ -431,7 +438,7 @@ impl FinesService {
             .ok_or_else(|| AppError::Internal("No fine rule configured".to_string()))?;
         let breakdown = compute_accrual(rule, overdue_days, media_type);
 
-        if breakdown.amount <= Decimal::ZERO {
+        if breakdown.amount.0 <= 0 {
             return Ok(AccrueLoanResult {
                 outcome: AccrueOutcome::SkippedGrace,
                 fine: None,
@@ -460,10 +467,7 @@ impl FinesService {
 fn policy_from_stored(stored: StoredGlobalUnpaidThreshold) -> AppResult<CirculationFinePolicy> {
     let cents = match stored.mode {
         GlobalUnpaidThresholdMode::None => None,
-        GlobalUnpaidThresholdMode::Amount => Some(
-            money_to_cents(stored.amount)
-                .map_err(|message| AppError::Internal(message.to_string()))?,
-        ),
+        GlobalUnpaidThresholdMode::Amount => Some(stored.amount.get()),
     };
     Ok(CirculationFinePolicy {
         unpaid_threshold_mode: stored.mode,
@@ -496,7 +500,10 @@ pub fn compute_accrual(
     media_type: Option<&str>,
 ) -> AccrualBreakdown {
     let billable_days = (overdue_days - i64::from(rule.grace_days)).max(0);
-    let raw = rule.daily_rate * Decimal::from(billable_days);
+    let raw = rule
+        .daily_rate
+        .checked_mul_i64(billable_days)
+        .unwrap_or(Cents(i64::MAX));
     let (amount, capped) = match rule.max_amount {
         Some(max) if raw > max => (max, true),
         _ => (raw, false),
@@ -520,14 +527,14 @@ mod tests {
     use async_trait::async_trait;
     use std::sync::Mutex;
 
-    fn dec(units: i64, scale: u32) -> Decimal {
-        Decimal::new(units, scale)
+    fn dec(units: i64, scale: u32) -> Cents {
+        Cents::try_from_decimal(Decimal::new(units, scale)).expect("exact cents")
     }
 
     fn rule(
         media_type: Option<&str>,
-        daily_rate: Decimal,
-        max: Option<Decimal>,
+        daily_rate: Cents,
+        max: Option<Cents>,
         grace: i32,
     ) -> FineRule {
         FineRule {
@@ -545,7 +552,7 @@ mod tests {
         let r = rule(None, dec(50, 2), Some(dec(10, 0)), 3);
         let b = compute_accrual(&r, 3, None);
         assert_eq!(b.billable_days, 0);
-        assert_eq!(b.amount, Decimal::ZERO);
+        assert_eq!(b.amount, Cents::ZERO);
         assert!(!b.capped);
     }
 
@@ -603,20 +610,20 @@ mod tests {
         }
     }
 
-    fn sample_fine(id: i64, loan_id: i64, user_id: i64, amount: Decimal) -> Fine {
+    fn sample_fine(id: i64, loan_id: i64, user_id: i64, amount: Cents) -> Fine {
         Fine {
             id,
             loan_id,
             user_id: Some(user_id),
             amount,
-            paid_amount: Decimal::ZERO,
+            paid_amount: Cents::ZERO,
             created_at: Utc::now(),
             paid_at: None,
             status: FineStatus::Pending,
             notes: None,
             charge_type: crate::models::fine::FineChargeType::Overdue,
             item_id: None,
-            refunded_amount: rust_decimal::Decimal::ZERO,
+            refunded_amount: Cents::ZERO,
         }
     }
 
@@ -642,7 +649,7 @@ mod tests {
             &self,
             loan_id: i64,
             user_id: i64,
-            amount: Decimal,
+            amount: Cents,
             notes: Option<&str>,
         ) -> AppResult<Fine> {
             let mut g = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -653,7 +660,7 @@ mod tests {
             g.fines.push(fine.clone());
             Ok(fine)
         }
-        async fn fines_pay(&self, _: i64, _: Decimal, _: Option<&str>) -> AppResult<Fine> {
+        async fn fines_pay(&self, _: i64, _: Cents, _: Option<&str>) -> AppResult<Fine> {
             unimplemented!()
         }
         async fn fines_waive(&self, _: i64, _: Option<&str>) -> AppResult<Fine> {
@@ -670,34 +677,37 @@ mod tests {
         async fn fines_upsert_rule(
             &self,
             _: Option<&str>,
-            _: Decimal,
-            _: Option<Decimal>,
+            _: Cents,
+            _: Option<Cents>,
             _: i32,
         ) -> AppResult<FineRule> {
             unimplemented!()
         }
-        async fn fines_total_unpaid(&self, _: i64) -> AppResult<Decimal> {
-            Ok(Decimal::ZERO)
+        async fn fines_total_unpaid(&self, _: i64) -> AppResult<Cents> {
+            Ok(Cents::ZERO)
         }
-        async fn fines_get_unpaid_threshold(&self, _: Option<i64>) -> AppResult<Option<Decimal>> {
+        async fn fines_get_unpaid_threshold(&self, _: Option<i64>) -> AppResult<Option<Cents>> {
             Ok(None)
+        }
+        fn accrue_fines_enabled(&self) -> bool {
+            true
         }
         async fn fines_get_global_unpaid_threshold(
             &self,
         ) -> AppResult<crate::models::fine::StoredGlobalUnpaidThreshold> {
             Ok(crate::models::fine::StoredGlobalUnpaidThreshold {
                 mode: crate::models::fine::GlobalUnpaidThresholdMode::None,
-                amount: Decimal::ZERO,
+                amount: Cents::ZERO,
             })
         }
         async fn fines_set_global_unpaid_threshold(
             &self,
             mode: crate::models::fine::GlobalUnpaidThresholdMode,
-            amount: Option<Decimal>,
+            amount: Option<Cents>,
         ) -> AppResult<crate::models::fine::StoredGlobalUnpaidThreshold> {
             Ok(crate::models::fine::StoredGlobalUnpaidThreshold {
                 mode,
-                amount: amount.unwrap_or(Decimal::ZERO),
+                amount: amount.unwrap_or(Cents::ZERO),
             })
         }
         async fn fines_get_open_for_loan(&self, loan_id: i64) -> AppResult<Option<Fine>> {
@@ -711,7 +721,7 @@ mod tests {
             &self,
             loan_id: i64,
             user_id: i64,
-            amount: Decimal,
+            amount: Cents,
             notes: Option<&str>,
         ) -> AppResult<(Fine, AccrueOutcome)> {
             let mut g = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -860,8 +870,8 @@ mod tests {
         assert_eq!(svc.list_for_user(70).await.expect("list").len(), 1);
     }
 
-    fn d(s: &str) -> Decimal {
-        s.parse().expect("decimal")
+    fn d(s: &str) -> Cents {
+        Cents::parse_euro_text(s).expect("parse").expect("present")
     }
 
     fn check(unpaid: &str, threshold: &str) -> UnpaidThresholdCheck {

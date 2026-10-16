@@ -798,7 +798,7 @@ async fn delete_refuses_history_and_a_biblio_keeps_withdrawn_copies() {
     sqlx::query(
         r#"
         INSERT INTO fines (id, loan_id, user_id, amount, status, charge_type)
-        VALUES ($1, $2, $3, 1.50, 'pending', 'overdue')
+        VALUES ($1, $2, $3, 150, 'pending', 'overdue')
         "#,
     )
     .bind(snowflake())
@@ -1051,7 +1051,7 @@ async fn dispose_batch_is_atomic_and_blocks_cancel() {
     let to_dispose = item_ids[3];
     for item_id in &item_ids {
         sqlx::query(
-            "UPDATE items SET call_number = $2, price = CASE WHEN id = $3 THEN '0' ELSE price END WHERE id = $1",
+            "UPDATE items SET call_number = $2, price = CASE WHEN id = $3 THEN 0 ELSE price END WHERE id = $1",
         )
         .bind(item_id)
         .bind(&shelf)
@@ -1293,15 +1293,13 @@ async fn csv_neutralizes_formulas_and_uses_french_excel_layout() {
     let acquired_at = chrono::DateTime::parse_from_rfc3339("2026-03-15T23:30:00Z")
         .expect("acquired")
         .with_timezone(&chrono::Utc);
-    sqlx::query(
-        "UPDATE items SET call_number = $2, price = '12.50', created_at = $3 WHERE id = $1",
-    )
-    .bind(item_id)
-    .bind(&shelf)
-    .bind(acquired_at)
-    .execute(app.state.services.repository.pool())
-    .await
-    .expect("shelfmark");
+    sqlx::query("UPDATE items SET call_number = $2, price = 1250, created_at = $3 WHERE id = $1")
+        .bind(item_id)
+        .bind(&shelf)
+        .bind(acquired_at)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("shelfmark");
     for (lastname, firstname, position) in [("Zola", "Emile", 2_i16), ("Hugo", "Victor", 1)] {
         let author_id: i64 = sqlx::query_scalar(
             "INSERT INTO authors (lastname, firstname) VALUES ($1, $2) RETURNING id",

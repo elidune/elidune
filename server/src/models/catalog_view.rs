@@ -165,7 +165,10 @@ pub struct ItemStaffView {
     pub public_note: Option<String>,
     /// Staff-only copy note. Former `items.notes` values live here.
     pub internal_note: Option<String>,
+    /// Decimal-euro string (`"12.50"`). Stored as integer cents. Null when unknown.
+    #[schema(value_type = Option<String>, example = "12.50")]
     pub price: Option<String>,
+    /// True when a missing price is an explicit deferral, including a legacy price the cents migration rejected.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub price_deferred: bool,
     pub created_at: Option<DateTime<Utc>>,
@@ -216,7 +219,7 @@ impl From<Item> for ItemStaffView {
             weeding_reason: item.weeding_reason,
             public_note: item.public_note,
             internal_note: item.internal_note,
-            price: item.price,
+            price: item.price.map(|cents| cents.to_euro_string()),
             price_deferred: item.price_deferred,
             created_at: item.created_at,
             updated_at: item.updated_at,
@@ -265,6 +268,8 @@ pub struct ItemPublicView {
     pub borrowable: bool,
     /// Copy note safe for patrons and the OPAC. Null when the copy has none.
     pub public_note: Option<String>,
+    /// Decimal-euro string (`"12.50"`). Stored as integer cents. Null when unknown.
+    #[schema(value_type = Option<String>, example = "12.50")]
     pub price: Option<String>,
     pub created_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
@@ -307,7 +312,7 @@ impl From<Item> for ItemPublicView {
             place: item.place,
             borrowable: item.borrowable,
             public_note: item.public_note,
-            price: item.price,
+            price: item.price.map(|cents| cents.to_euro_string()),
             created_at: item.created_at,
             updated_at: item.updated_at,
             archived_at: item.archived_at,
