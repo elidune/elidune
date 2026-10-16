@@ -108,7 +108,7 @@ pub async fn batch_return(
         match state
             .services
             .loans
-            .return_loan_by_item(barcode, Some(claims.user_id), ip.clone())
+            .return_loan_by_item(barcode, Some(claims.user_id), ip.clone(), None)
             .await
         {
             Ok(check_in) => {

@@ -175,6 +175,11 @@ export interface User {
    * (`child`, `adult`, …) or null. `GET /users` sends the public-type id.
    */
   publicType?: string | null;
+  /**
+   * True when this reader has no birth date. The stored public type is kept.
+   * Absent or false for every other account, and for a reader who has a birth date.
+   */
+  birthDateMissing?: boolean;
   status?: number;
   // Date fields
   createdAt?: string;
@@ -1616,6 +1621,9 @@ export type ApiErrorCode =
   | 'max_media_loans'
   | 'item_not_loanable'
   | 'item_held_for_other'
+  | 'set_aside_item_mismatch'
+  | 'set_aside_wrong_title'
+  | 'set_aside_not_oldest'
   | 'item_status_action_required'
   | 'duplicate_isbn_needs_confirmation'
   | 'duplicate_barcode_needs_confirmation'
@@ -1793,6 +1801,16 @@ export interface AccountTypeDefinition {
   weedingRights?: string | null;
   /** Cancel a withdrawal (`n`/`r`/`w`). */
   weedingCancelRights?: string | null;
+  /**
+   * Desk override (`n`/`r`/`w`). Write may force a loan past a copy held for
+   * another reader and past an expired subscription. Distinct from settings.
+   */
+  circulationOverrideRights?: string | null;
+  /**
+   * Built-in types (`guest`, `reader`, `librarian`, `admin`, `group`) are true.
+   * Custom types are false. Absent when the server has not sent the field.
+   */
+  isSystem?: boolean;
 }
 
 export type AccountTypeRightLevel = 'n' | 'r' | 'w';
@@ -1813,6 +1831,24 @@ export interface UpdateAccountTypeRequest {
   acquisitionsRights?: AccountTypeRightLevel | null;
   weedingRights?: AccountTypeRightLevel | null;
   weedingCancelRights?: AccountTypeRightLevel | null;
+  circulationOverrideRights?: AccountTypeRightLevel | null;
+}
+
+/** POST /account-types — custom type. Omitted rights are stored as `n`. */
+export interface CreateAccountTypeRequest {
+  code: string;
+  name: string;
+  itemsRights?: AccountTypeRightLevel | null;
+  usersRights?: AccountTypeHoldsRightLevel | null;
+  loansRights?: AccountTypeHoldsRightLevel | null;
+  itemsArchiveRights?: AccountTypeRightLevel | null;
+  holdsRights?: AccountTypeHoldsRightLevel | null;
+  settingsRights?: AccountTypeRightLevel | null;
+  eventsRights?: AccountTypeRightLevel | null;
+  acquisitionsRights?: AccountTypeRightLevel | null;
+  weedingRights?: AccountTypeRightLevel | null;
+  weedingCancelRights?: AccountTypeRightLevel | null;
+  circulationOverrideRights?: AccountTypeRightLevel | null;
 }
 
 // Account types for permissions
@@ -2591,6 +2627,22 @@ export interface ItemCheckIn extends LostReturnFields {
   circulationStatus?: ReturnScanCirculationStatus | null;
   /** Current weeding status when the notice is `item_not_available_status`. */
   weedingStatus?: ItemWeedingStatus | null;
+  /**
+   * Set-aside only. `ready` when the copy is already at the pickup site,
+   * `pending` while it is in transit.
+   */
+  holdStatus?: 'ready' | 'pending' | null;
+  /**
+   * Set-aside only. Null when the copy became ready on site.
+   * A string when a transit was started or reused.
+   */
+  transitId?: string | null;
+}
+
+/** Body for `POST /loans/items/{barcode}/return` when setting a title hold aside. */
+export interface ShelfSetAsideRequest {
+  holdId: string;
+  itemId: string;
 }
 
 /** Staff decision after the lost-copy alert (`POST /loans/items/{itemId}/lost-found`). */
@@ -3006,6 +3058,10 @@ export interface BatchCreateResult {
   reasonRequired?: boolean | null;
   /** Present on `item_status_action_required` (`lost`, `claimedReturned`, `toSearch`, `missing`). */
   itemStatus?: string | null;
+  /** Oldest pending hold id, when this row includes it. */
+  holdId?: string | null;
+  /** Scanned copy id, when this row includes it. */
+  itemId?: string | null;
 }
 
 export interface BatchCreateResponse {

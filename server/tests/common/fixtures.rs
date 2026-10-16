@@ -2,6 +2,8 @@
 
 #![allow(dead_code)]
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use chrono::NaiveDate;
 use serde_json::json;
 
@@ -116,6 +118,20 @@ pub fn unique_suffix() -> u128 {
         .as_nanos()
 }
 
+/// Fragment for an account-type `code` (letters, digits, underscore; 50 chars max with a short prefix).
+///
+/// `unique_suffix() % 1_000_000_000` repeats every second and drops the counter, so
+/// parallel creates hit `409 Account type code already exists`.
+pub fn unique_token() -> String {
+    static N: AtomicU64 = AtomicU64::new(0);
+    let n = N.fetch_add(1, Ordering::Relaxed);
+    let millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("clock")
+        .as_millis();
+    format!("p{}t{millis}n{n}", std::process::id())
+}
+
 /// Move `expiry_at` inside the default 7-day renewal window so a renew is allowed.
 pub async fn pull_loan_into_renewal_window(app: &super::TestApp, loan_id: i64) {
     sqlx::query("UPDATE loans SET expiry_at = NOW() + interval '1 day' WHERE id = $1")
@@ -165,6 +181,9 @@ pub async fn create_reader_with_public_type(
     );
 
     let user_id = json_id(&body["id"]);
+    // The API ignores `publicType` for readers and derives it from the birth date.
+    // Circulation tests still need a chosen audience, so the harness writes it after create.
+    assign_public_type(app, user_id, public_type_id).await;
     app.state
         .services
         .users
@@ -187,4 +206,14 @@ pub async fn create_reader_with_public_type(
 
     let token = login_body["token"].as_str().unwrap().to_string();
     (user_id, token)
+}
+
+/// Point a patron at `public_type_id` after the API has derived a type from the birth date.
+pub async fn assign_public_type(app: &super::TestApp, user_id: i64, public_type_id: i64) {
+    sqlx::query("UPDATE users SET public_type = $1 WHERE id = $2")
+        .bind(public_type_id)
+        .bind(user_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("assign public type for test setup");
 }

@@ -3,7 +3,11 @@
 //! `PUT /users/{id}` with `users_rights = own` accepts only these fields. Any other
 //! key, including account type, rights, card number, status, and fines, is rejected
 //! and nothing is written.
+//!
+//! `birthdate` is not one of those fields. A self-service body may repeat the stored
+//! date (the key is ignored). A different date is `403` and nothing is written.
 
+use chrono::NaiveDate;
 use serde_json::Value;
 use validator::ValidateEmail;
 
@@ -34,6 +38,60 @@ pub struct OwnContactPatch {
     pub events_consent: Option<bool>,
     /// `receiveReminders`. Absent leaves the stored choice unchanged.
     pub receive_reminders: Option<bool>,
+}
+
+/// Birth date key on a self-service body (`PUT /auth/profile` or own `PUT /users/{id}`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SubmittedBirthdate {
+    /// Key omitted. The stored date is left unchanged.
+    Absent,
+    /// Key present. `None` is JSON null.
+    Present(Option<NaiveDate>),
+}
+
+/// Read `birthdate` without removing it.
+///
+/// An unparseable value is `400`. Comparison with the stored date is separate so a
+/// matching value can be ignored and a different value can be refused before any write.
+pub fn submitted_birthdate(body: &Value) -> AppResult<SubmittedBirthdate> {
+    let Some(object) = body.as_object() else {
+        return Err(AppError::Validation(
+            "JSON body must be an object".to_string(),
+        ));
+    };
+    let Some(value) = object.get("birthdate") else {
+        return Ok(SubmittedBirthdate::Absent);
+    };
+    if value.is_null() {
+        return Ok(SubmittedBirthdate::Present(None));
+    }
+    let date = serde_json::from_value(value.clone()).map_err(|_| {
+        AppError::Validation("birthdate must be an ISO date (YYYY-MM-DD) or null".to_string())
+    })?;
+    Ok(SubmittedBirthdate::Present(Some(date)))
+}
+
+/// `true` when a present birth date is not the stored value.
+///
+/// An omitted key is not a change. JSON null differs from a stored date, and a stored
+/// null differs from a date. Equal values, including null and null, are not a change.
+#[must_use]
+pub fn self_service_birthdate_differs(
+    submitted: &SubmittedBirthdate,
+    stored: Option<NaiveDate>,
+) -> bool {
+    match submitted {
+        SubmittedBirthdate::Absent => false,
+        SubmittedBirthdate::Present(value) => *value != stored,
+    }
+}
+
+/// Drop `birthdate` so a repeated stored date is not applied as a write.
+pub fn without_birthdate_key(mut body: Value) -> Value {
+    if let Some(object) = body.as_object_mut() {
+        object.remove("birthdate");
+    }
+    body
 }
 
 const ALLOWED: &[&str] = &[
@@ -170,6 +228,32 @@ mod tests {
         assert_eq!(patch.language, ContactField::Set(Language::English));
         assert_eq!(patch.events_consent, Some(true));
         assert_eq!(patch.receive_reminders, Some(false));
+    }
+
+    #[test]
+    fn birthdate_key_matches_only_the_stored_value() {
+        let stored = NaiveDate::from_ymd_opt(1990, 6, 1).unwrap();
+        assert!(!self_service_birthdate_differs(
+            &submitted_birthdate(&json!({"phone": "1"})).unwrap(),
+            Some(stored)
+        ));
+        assert!(!self_service_birthdate_differs(
+            &submitted_birthdate(&json!({"birthdate": "1990-06-01"})).unwrap(),
+            Some(stored)
+        ));
+        assert!(self_service_birthdate_differs(
+            &submitted_birthdate(&json!({"birthdate": "1991-06-01"})).unwrap(),
+            Some(stored)
+        ));
+        assert!(self_service_birthdate_differs(
+            &submitted_birthdate(&json!({"birthdate": null})).unwrap(),
+            Some(stored)
+        ));
+        assert!(!self_service_birthdate_differs(
+            &submitted_birthdate(&json!({"birthdate": null})).unwrap(),
+            None
+        ));
+        assert!(submitted_birthdate(&json!({"birthdate": "tomorrow"})).is_err());
     }
 
     #[test]

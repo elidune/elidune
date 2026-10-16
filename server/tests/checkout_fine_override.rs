@@ -68,7 +68,7 @@ async fn user_with_rights(
     loans_rights: &str,
     settings_rights: &str,
 ) -> (i64, String, String) {
-    let code = format!("desk{}", fixtures::unique_suffix() % 1_000_000_000);
+    let code = format!("desk{}", fixtures::unique_token());
     assert!(!matches!(code.as_str(), "admin" | "librarian" | "reader"));
     let (status, body) = app
         .post_json(

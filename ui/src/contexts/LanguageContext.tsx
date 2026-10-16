@@ -20,7 +20,7 @@ import { useAuth } from './AuthContext';
 import { useLibrary } from './LibraryContext';
 import api from '@/services/api';
 
-interface LanguageContextType {
+export interface LanguageContextType {
   language: SupportedLanguage;
   setLanguage: (lang: SupportedLanguage) => Promise<void>;
   availableLanguages: typeof SUPPORTED_LANGUAGES;
@@ -28,7 +28,7 @@ interface LanguageContextType {
   languageFlags: typeof LANGUAGE_FLAGS;
 }
 
-const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
+export const LanguageContext = createContext<LanguageContextType | undefined>(undefined);
 
 function storageOrNull(): Storage | null {
   try {

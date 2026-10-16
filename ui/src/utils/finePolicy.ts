@@ -1,6 +1,7 @@
 import type {
   AudienceUnpaidThresholdMode,
   CirculationFinePolicy,
+  FineRule,
   GlobalUnpaidThresholdMode,
 } from '@/types';
 
@@ -132,11 +133,118 @@ export function audienceUnpaidThresholdForUpdate(
   };
 }
 
-/** Display string for the global amount, only when that mode is `amount`. */
+/** Display string for the global amount, only when that mode is `amount`. Euro decimal, not a currency symbol. */
 export function globalThresholdLabel(policy: CirculationFinePolicy | undefined): string | null {
   if (!policy || policy.unpaidThresholdMode !== 'amount' || policy.unpaidThresholdCents == null) {
     return null;
   }
   const label = centsToInput(policy.unpaidThresholdCents);
   return label === '' ? null : label;
+}
+
+export function isDefaultFineRule(rule: { mediaType?: string | null }): boolean {
+  return rule.mediaType == null || rule.mediaType === '';
+}
+
+/** PUT `/fines/rules` for the default (no media type) overdue rule. */
+export type UpsertFineRuleBody = {
+  mediaType: null;
+  dailyRate: string;
+  maxAmount: string | null;
+  graceDays: number;
+};
+
+export type FineSettingsDraft = {
+  /** `reminders.accrue_fines`. Late-fine accrual, not lost/damage billing. */
+  enabled: boolean;
+  dailyRate: string;
+  blockMode: GlobalUnpaidThresholdMode;
+  threshold: string;
+  graceDays: number | null;
+  /** Euro decimal of the stored cap, when the default rule has one. */
+  maxAmount: string | null;
+  hasMediaRules: boolean;
+};
+
+function graceDaysOf(rule: FineRule | undefined): number {
+  const days = rule?.graceDays;
+  return typeof days === 'number' && Number.isInteger(days) && days >= 0 ? days : 0;
+}
+
+function preservedMaxAmount(rule: FineRule | undefined): string | null {
+  if (rule?.maxAmount == null || rule.maxAmount === '') return null;
+  const parsed = parseMoneyAmountInput(String(rule.maxAmount), false);
+  if (!parsed.ok || parsed.value == null) return null;
+  return parsed.value;
+}
+
+/** Draft for Settings → Loans. `accrueFines` is the on/off flag; the rate comes from the default rule. */
+export function fineSettingsDraft(
+  policy: CirculationFinePolicy,
+  accrueFines: boolean,
+  rules: FineRule[],
+): FineSettingsDraft {
+  const rule = rules.find(isDefaultFineRule);
+  return {
+    enabled: accrueFines,
+    dailyRate: moneyAmountToInput(rule?.dailyRate),
+    blockMode: policy.unpaidThresholdMode,
+    threshold: centsToInput(policy.unpaidThresholdCents),
+    graceDays: rule ? graceDaysOf(rule) : null,
+    maxAmount: preservedMaxAmount(rule),
+    hasMediaRules: rules.some((row) => !isDefaultFineRule(row)),
+  };
+}
+
+export type FineSettingsSavePlan =
+  | { ok: false; field: 'dailyRate' | 'threshold' }
+  | {
+      ok: true;
+      /** `null` leaves the stored threshold in place. Disabling fines does not erase it. */
+      policy: GlobalUnpaidThresholdBody | null;
+      /**
+       * `null` leaves `reminders.accrue_fines` unchanged (the caller cannot write admin config).
+       * While that flag is false the server ignores every blocking threshold.
+       */
+      accrueFines: boolean | null;
+      rule: UpsertFineRuleBody | null;
+    };
+
+/**
+ * Disabling fines only turns off scheduled late fines (`accrue_fines`).
+ * Global and public-type thresholds stay stored; the server ignores them until fines are on again.
+ * The default daily rate is also left in place. Lost and damaged charges are not part of this payload.
+ */
+export function fineSettingsSavePlan(input: {
+  enabled: boolean;
+  canControlAccrual: boolean;
+  dailyRate: string;
+  blockMode: GlobalUnpaidThresholdMode;
+  threshold: string;
+  rules: FineRule[];
+}): FineSettingsSavePlan {
+  if (!input.enabled) {
+    return {
+      ok: true,
+      policy: null,
+      accrueFines: input.canControlAccrual ? false : null,
+      rule: null,
+    };
+  }
+  const rate = parseMoneyAmountInput(input.dailyRate, false);
+  if (!rate.ok || rate.value == null) return { ok: false, field: 'dailyRate' };
+  const policy = globalUnpaidThresholdBody(input.blockMode, input.threshold);
+  if (!policy.ok) return { ok: false, field: 'threshold' };
+  const rule = input.rules.find(isDefaultFineRule);
+  return {
+    ok: true,
+    policy: policy.body,
+    accrueFines: input.canControlAccrual ? true : null,
+    rule: {
+      mediaType: null,
+      dailyRate: rate.value,
+      maxAmount: preservedMaxAmount(rule),
+      graceDays: graceDaysOf(rule),
+    },
+  };
 }

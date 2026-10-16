@@ -4,9 +4,10 @@ import type { AccountTypeDefinition } from '@/types';
 
 export const ACCOUNT_TYPES_QUERY_KEY = ['account-types'] as const;
 
-export function useAccountTypesQuery() {
+export function useAccountTypesQuery(options?: { enabled?: boolean }) {
   return useQuery<AccountTypeDefinition[]>({
     queryKey: ACCOUNT_TYPES_QUERY_KEY,
     queryFn: () => api.getAccountTypes(),
+    enabled: options?.enabled ?? true,
   });
 }

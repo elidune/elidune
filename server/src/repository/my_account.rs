@@ -122,7 +122,9 @@ impl Repository {
         let owner = self.users_get_by_id(user_id).await?;
         let unpaid = self.fines_total_unpaid(user_id).await?;
         let threshold = self.fines_get_unpaid_threshold(owner.public_type).await?;
-        let fines_over_threshold = UnpaidThresholdCheck { unpaid, threshold }.blocks_circulation();
+        let fines_over_threshold =
+            UnpaidThresholdCheck::new(unpaid, threshold, self.accrue_fines_enabled())
+                .blocks_circulation();
         let renewal_user = RenewalUser {
             can_borrow: owner.can_borrow(),
             card_lost: self.users_card_lost(user_id).await?,

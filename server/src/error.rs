@@ -87,6 +87,12 @@ pub mod error_code {
     pub const BIBLIO_HAS_HOLDS: &str = "biblio_has_holds";
     pub const ITEM_ON_LOAN: &str = "item_on_loan";
     pub const ITEM_IN_TRANSIT: &str = "item_in_transit";
+    /// `POST /loans/items/{barcode}/return` set-aside: `itemId` is not the barcode's copy.
+    pub const SET_ASIDE_ITEM_MISMATCH: &str = "set_aside_item_mismatch";
+    /// Set-aside: the copy is not an item of the held title.
+    pub const SET_ASIDE_WRONG_TITLE: &str = "set_aside_wrong_title";
+    /// Set-aside: `holdId` is not the oldest pending unassigned hold on the title.
+    pub const SET_ASIDE_NOT_OLDEST: &str = "set_aside_not_oldest";
     pub const ITEM_ON_HOLD: &str = "item_on_hold";
     pub const WITHDRAWAL_REASON_DETAIL_REQUIRED: &str = "withdrawal_reason_detail_required";
     pub const WITHDRAWAL_DESTINATION_REQUIRED: &str = "withdrawal_destination_required";
@@ -119,6 +125,17 @@ pub mod error_code {
     /// Client `message` for [`CIRCULATION_STATUS_READ_ONLY`].
     pub const CIRCULATION_STATUS_READ_ONLY_MESSAGE: &str =
         "circulationStatus is read-only. Use the dedicated actions (lost, missing, to-search).";
+    /// `POST /users` for a reader omitted `birthdate`. The server needs it to set `publicType`.
+    pub const BIRTH_DATE_REQUIRED: &str = "birth_date_required";
+    /// Client `message` for [`BIRTH_DATE_REQUIRED`].
+    pub const BIRTH_DATE_REQUIRED_MESSAGE: &str =
+        "Birth date is required to determine the reader's public type";
+    /// No age band covers the reader's completed years. The body asks an admin to complete the bands.
+    pub const NO_PUBLIC_TYPE_FOR_AGE: &str = "no_public_type_for_age";
+    /// Create or update of a public type whose age band intersects another band.
+    pub const PUBLIC_TYPE_AGE_OVERLAP: &str = "public_type_age_overlap";
+    /// `ageMin` is greater than `ageMax`.
+    pub const PUBLIC_TYPE_AGE_RANGE_INVALID: &str = "public_type_age_range_invalid";
 }
 
 /// Main application error type

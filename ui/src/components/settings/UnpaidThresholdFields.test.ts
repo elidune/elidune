@@ -85,10 +85,45 @@ describe('UnpaidThresholdFields', () => {
     });
     const inherit = html.match(/<input[^>]*value="inherit"[^>]*>/)?.[0] ?? '';
     assert.match(inherit, /checked/);
-    assert.match(html, /12\.50/);
+    assert.match(html, /12,50/);
+    assert.match(html, /€/);
     assert.match(html, /aria-describedby="[^"]+"/);
     assert.equal(html.includes('type="number"'), false);
     assert.equal(html.includes('value="9.00"'), false);
+  });
+
+  it('keeps a public type threshold visible and greyed out when fines are off', async () => {
+    const html = renderFields(await i18nFor('fr'), {
+      scope: 'audience',
+      name: 'audience-fines-off',
+      mode: 'amount',
+      amount: '4.50',
+      inheritedAmount: '12.50',
+      globalFinesEnabled: false,
+      onModeChange: () => undefined,
+      onAmountChange: () => undefined,
+    });
+    assert.match(html, /Sans effet : amendes désactivées/);
+    assert.match(html, /opacity-60/);
+    assert.match(html, /value="4\.50"/);
+    assert.match(html, /disabled/);
+    assert.equal((html.match(/type="radio"/g) ?? []).length, 3);
+    assert.equal(html.includes('bloque encore'), false);
+    assert.equal(html.includes('still blocks'), false);
+  });
+
+  it('uses the English inactive hint', async () => {
+    const html = renderFields(await i18nFor('en'), {
+      scope: 'audience',
+      name: 'audience-fines-off-en',
+      mode: 'amount',
+      amount: '4.50',
+      globalFinesEnabled: false,
+      onModeChange: () => undefined,
+      onAmountChange: () => undefined,
+    });
+    assert.match(html, /No effect: fines are disabled/);
+    assert.match(html, /value="4\.50"/);
   });
 
   it('says when the global setting does not block, in each locale', async () => {

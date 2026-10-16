@@ -11,7 +11,7 @@ use serde_json::{json, Value};
 use sqlx::Row;
 
 fn type_code(prefix: &str) -> String {
-    format!("{prefix}{}", fixtures::unique_suffix() % 1_000_000_000)
+    format!("{prefix}{}", fixtures::unique_token())
 }
 
 async fn admin(app: &TestApp) -> (String, i64) {

@@ -545,6 +545,7 @@ async fn no_unpaid_threshold_means_no_block() {
         .await;
     assert_eq!(status, StatusCode::CREATED, "patron: {patron}");
     let reader_id = fixtures::json_id(&patron["id"]);
+    fixtures::assign_public_type(&app, reader_id, public_type_id).await;
     app.state
         .services
         .users
@@ -652,6 +653,7 @@ async fn patron_with_unpaid(
         .await;
     assert_eq!(status, StatusCode::CREATED, "patron: {patron}");
     let reader_id = fixtures::json_id(&patron["id"]);
+    fixtures::assign_public_type(app, reader_id, public_type_id).await;
     app.state
         .services
         .users

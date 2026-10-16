@@ -111,6 +111,9 @@ impl FinesRepository for Repository {
     ) -> AppResult<Option<Cents>> {
         Repository::fines_get_unpaid_threshold(self, public_type_id).await
     }
+    fn accrue_fines_enabled(&self) -> bool {
+        Repository::accrue_fines_enabled(self)
+    }
     async fn fines_get_global_unpaid_threshold(&self) -> AppResult<StoredGlobalUnpaidThreshold> {
         Repository::fines_get_global_unpaid_threshold(self).await
     }

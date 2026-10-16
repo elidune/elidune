@@ -181,6 +181,8 @@ pub async fn post_first_setup(
             .as_ref()
             .map(|e| e.trim().to_string())
             .filter(|s| !s.is_empty()),
+        // Bootstrap account is `admin`, not a reader, so public type stays the
+        // value supplied here. Reader age bands are not applied.
         account_type: Some(AccountTypeSlug::Admin),
         sex: Some(admin.sex),
         birthdate: Some(admin.birthdate),

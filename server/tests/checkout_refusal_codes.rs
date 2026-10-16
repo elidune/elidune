@@ -122,7 +122,7 @@ async fn staff_token(
     settings_rights: &str,
     override_rights: &str,
 ) -> String {
-    let code = format!("{code_prefix}{}", fixtures::unique_suffix() % 1_000_000_000);
+    let code = format!("{code_prefix}{}", fixtures::unique_token());
     let (status, body) = app
         .post_json(
             "/api/v1/account-types",

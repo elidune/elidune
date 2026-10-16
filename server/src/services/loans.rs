@@ -54,6 +54,24 @@ pub struct ItemCheckIn {
     pub circulation_status: Option<crate::models::circulation::CirculationStatus>,
     /// Set with the blocked-status warning. Current weeding status.
     pub weeding_status: Option<crate::models::item::WeedingStatus>,
+    /// Present when this scan set a title hold aside, or repeated that assignment.
+    pub set_aside: Option<SetAsideOutcome>,
+}
+
+/// Outcome of a title-hold set-aside on the barcode return.
+#[derive(Debug, Clone, Copy)]
+pub struct SetAsideOutcome {
+    pub hold_status: crate::models::hold::HoldStatus,
+    pub transit_id: Option<i64>,
+    pub pickup_site_id: Option<i64>,
+}
+
+/// `POST /loans/items/{barcode}/return` body that assigns the oldest pending
+/// unassigned title hold to the scanned copy. `hold_id` must be that hold.
+#[derive(Debug, Clone, Copy)]
+pub struct TitleHoldSetAside {
+    pub hold_id: i64,
+    pub item_id: i64,
 }
 
 /// Result of `POST /loans/{id}/return`. `loan` is absent when the loan was already
@@ -177,7 +195,9 @@ impl LoansService {
     ///   for a caller with circulation override write and a non-blank `overrideReason`
     /// - unpaid fines strictly above the effective threshold are `422` `fines_over_threshold`
     ///   unless `force` skips that code for a caller with loans write (a null
-    ///   threshold, including mode `none`, does not block on amount). The skip
+    ///   threshold, including mode `none`, does not block on amount).
+    ///   `reminders.accrue_fines` false ignores every stored threshold, so the
+    ///   refusal is not offered. The skip
     ///   applies to this loan only. It is audited after the write commits as
     ///   `loan.fine_threshold_overridden` with `{ reason, loanId, patron_id }`.
     ///
@@ -395,12 +415,16 @@ impl LoansService {
     /// `to_pick` becomes `ready` (same site, patron notified) or starts transit.
     /// An available copy that is not on loan succeeds with an informational notice
     /// and, when a pending hold can take it, sets that hold aside.
+    /// `set_aside` assigns the oldest pending unassigned title hold when `holdId`
+    /// is that queue head. A newer hold is refused. Same site becomes `ready`;
+    /// a different pickup site starts transit and stays pending until arrival.
     /// A lost, damaged, missing, to-search, or withdrawn copy is left unchanged.
     pub async fn return_loan_by_item(
         &self,
         item_identification: &str,
         audit_actor: Option<i64>,
         client_ip: Option<String>,
+        set_aside: Option<TitleHoldSetAside>,
     ) -> AppResult<ItemCheckIn> {
         if let Some(copy) = self
             .repository
@@ -434,6 +458,7 @@ impl LoansService {
                     ),
                     circulation_status: Some(copy.circulation_status),
                     weeding_status: Some(copy.weeding_status),
+                    set_aside: None,
                 });
             }
         }
@@ -459,6 +484,7 @@ impl LoansService {
                     notice: None,
                     circulation_status: None,
                     weeding_status: None,
+                    set_aside: None,
                 })
             }
             Err(AppError::NotFound(_)) => {
@@ -483,7 +509,21 @@ impl LoansService {
                         notice: None,
                         circulation_status: None,
                         weeding_status: None,
+                        set_aside: None,
                     });
+                }
+                if let Some(target) = set_aside {
+                    let done = self
+                        .repository
+                        .loans_set_aside_unassigned_title_hold(
+                            item_identification,
+                            target.hold_id,
+                            target.item_id,
+                        )
+                        .await?;
+                    return Ok(self
+                        .not_on_loan_check_in(done, item_identification, audit_actor, client_ip)
+                        .await);
                 }
                 if let Some(done) = self
                     .repository
@@ -511,6 +551,7 @@ impl LoansService {
                         notice: None,
                         circulation_status: None,
                         weeding_status: None,
+                        set_aside: None,
                     });
                 }
                 if let Some(done) = self
@@ -518,56 +559,74 @@ impl LoansService {
                     .loans_check_in_shelf_copy(item_identification)
                     .await?
                 {
-                    if done.newly_ready {
-                        if let Some(hold) = done.hold.as_ref() {
-                            if !done.transit_started
-                                && hold.status == crate::models::hold::HoldStatus::Ready
-                            {
-                                self.notify_picked_hold_ready(
-                                    hold,
-                                    done.title.as_deref().unwrap_or("(unknown title)"),
-                                    done.barcode.as_deref(),
-                                    audit_actor,
-                                    client_ip.clone(),
-                                    "item_not_on_loan",
-                                )
-                                .await;
-                            }
-                        }
-                    }
-                    self.audit.log(
-                        audit::event::ITEM_NOT_ON_LOAN,
-                        audit_actor,
-                        Some("item"),
-                        Some(done.item_id),
-                        client_ip,
-                        Some(serde_json::json!({
-                            "barcode": item_identification,
-                            "notice": crate::error::error_code::ITEM_NOT_ON_LOAN,
-                            "hold_id": done.hold.as_ref().map(|hold| hold.id),
-                            "transit_started": done.transit_started,
-                        })),
-                        AuditLogMeta::success(),
-                    );
-                    return Ok(ItemCheckIn {
-                        loan: None,
-                        hold: done.hold,
-                        transit_started: done.transit_started,
-                        destination_site_id: done.destination_site_id,
-                        destination_site_name: done.destination_site_name,
-                        lost: None,
-                        notice: Some(
-                            crate::models::dto::circulation::DeskNotice::item_not_on_loan(),
-                        ),
-                        circulation_status: None,
-                        weeding_status: None,
-                    });
+                    return Ok(self
+                        .not_on_loan_check_in(done, item_identification, audit_actor, client_ip)
+                        .await);
                 }
                 Err(AppError::NotFound(format!(
                     "No active loan found for item {item_identification}"
                 )))
             }
             Err(e) => Err(e),
+        }
+    }
+
+    async fn not_on_loan_check_in(
+        &self,
+        done: crate::models::dto::holds::ShelfCheckIn,
+        item_identification: &str,
+        audit_actor: Option<i64>,
+        client_ip: Option<String>,
+    ) -> ItemCheckIn {
+        if done.newly_ready {
+            if let Some(hold) = done.hold.as_ref() {
+                if !done.transit_started && hold.status == crate::models::hold::HoldStatus::Ready {
+                    self.notify_picked_hold_ready(
+                        hold,
+                        done.title.as_deref().unwrap_or("(unknown title)"),
+                        done.barcode.as_deref(),
+                        audit_actor,
+                        client_ip.clone(),
+                        "item_not_on_loan",
+                    )
+                    .await;
+                }
+            }
+        }
+        self.audit.log(
+            audit::event::ITEM_NOT_ON_LOAN,
+            audit_actor,
+            Some("item"),
+            Some(done.item_id),
+            client_ip,
+            Some(serde_json::json!({
+                "barcode": item_identification,
+                "notice": crate::error::error_code::ITEM_NOT_ON_LOAN,
+                "hold_id": done.hold.as_ref().map(|hold| hold.id),
+                "transit_started": done.transit_started,
+            })),
+            AuditLogMeta::success(),
+        );
+        let set_aside = done.report_set_aside.then(|| SetAsideOutcome {
+            hold_status: done
+                .hold
+                .as_ref()
+                .map(|hold| hold.status)
+                .unwrap_or(crate::models::hold::HoldStatus::Pending),
+            transit_id: done.transit_id,
+            pickup_site_id: done.pickup_site_id,
+        });
+        ItemCheckIn {
+            loan: None,
+            hold: done.hold,
+            transit_started: done.transit_started,
+            destination_site_id: done.destination_site_id,
+            destination_site_name: done.destination_site_name,
+            lost: None,
+            notice: Some(crate::models::dto::circulation::DeskNotice::item_not_on_loan()),
+            circulation_status: None,
+            weeding_status: None,
+            set_aside,
         }
     }
 
@@ -1216,6 +1275,7 @@ mod tests {
             staff_start_date: None,
             staff_end_date: None,
             public_type: None,
+            birth_date_missing: true,
             notes: None,
             two_factor_enabled: None,
             two_factor_method: None,
@@ -1344,6 +1404,14 @@ mod tests {
             _: &str,
         ) -> AppResult<Option<crate::models::dto::holds::ShelfCheckIn>> {
             Ok(None)
+        }
+        async fn loans_set_aside_unassigned_title_hold(
+            &self,
+            _: &str,
+            _: i64,
+            _: i64,
+        ) -> AppResult<crate::models::dto::holds::ShelfCheckIn> {
+            unimplemented!("set aside is not used by these service tests")
         }
         async fn loans_renewal_snapshot(
             &self,

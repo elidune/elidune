@@ -34,10 +34,13 @@ import { isSubscriptionExpired } from '@/utils/userSubscription';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
 import { isClaimedReturnedLoan } from '@/utils/circulationStatus';
+import { copyIdForBarcode } from '@/utils/copyId';
 import {
   commitDismissHeldSetAside,
   commitHeldSetAside,
+  heldForOtherHoldId,
   heldSetAsideServerMessage,
+  heldSetAsideSuccessMessage,
 } from '@/utils/heldSetAside';
 import { newIdempotencyKey } from '@/utils/idempotency';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
@@ -119,6 +122,7 @@ export default function UserDetailPage() {
   const [forceBorrowLoading, setForceBorrowLoading] = useState(false);
   const [toPickForce, setToPickForce] = useState<{
     specimenCode: string;
+    holdId: string | null;
     message: string;
     force: boolean;
     reasonRequired: boolean;
@@ -136,7 +140,11 @@ export default function UserDetailPage() {
   const [renewError, setRenewError] = useState('');
   const [renewalPrompt, setRenewalPrompt] = useState<RenewalDeskView | null>(null);
   const renewalRetryRef = useRef<((overrideReason?: string) => void) | null>(null);
-  const renewalBarcodeRef = useRef<string | null>(null);
+  const renewalSetAsideRef = useRef<{
+    barcode: string;
+    holdId: string | null;
+    itemId: string | null;
+  } | null>(null);
   const [renewalAsideLoading, setRenewalAsideLoading] = useState(false);
   const [loanAction, setLoanAction] = useState<{ loanId: string; op: 'return' | 'renew' | CirculationExceptionKind } | null>(null);
   const loanActionInFlightRef = useRef(false);
@@ -176,7 +184,9 @@ export default function UserDetailPage() {
   const transitActions = useTransitActions();
 
   const { data: publicTypes = [] } = usePublicTypesQuery();
-  const { data: accountTypes = [] } = useAccountTypesQuery();
+  const accountTypesQuery = useAccountTypesQuery();
+  const accountTypes = accountTypesQuery.data ?? [];
+  const accountTypesError = accountTypesQuery.isError ? t('settings.accountTypes.errorLoad') : null;
 
   // Stats state
   const [loanStats, setLoanStats] = useState<LoanStatsResponse | null>(null);
@@ -518,7 +528,17 @@ export default function UserDetailPage() {
     setRenewError('');
     if (!force) setRenewalPrompt(null);
     renewalRetryRef.current = null;
-    const barcode = activeLoans.find((loan) => loan.id === loanId)?.itemIdentification ?? null;
+    const loan = activeLoans.find((row) => row.id === loanId);
+    const barcode = loan?.itemIdentification ?? null;
+    const itemId = loan?.itemId ?? null;
+    const rememberRenewalSetAside = (error: unknown) => {
+      const previous = renewalSetAsideRef.current;
+      renewalSetAsideRef.current = {
+        barcode: barcode ?? previous?.barcode ?? '',
+        holdId: heldForOtherHoldId(error) ?? previous?.holdId ?? null,
+        itemId: itemId ?? previous?.itemId ?? null,
+      };
+    };
     try {
       const renewed = await api.renewLoan(loanId, newIdempotencyKey(), { force: force || undefined, overrideReason });
       setRenewalPrompt(null);
@@ -533,7 +553,7 @@ export default function UserDetailPage() {
         setRenewalPrompt((current) =>
           current && current.kind !== 'sentence' ? { ...current, error: held } : current,
         );
-        renewalBarcodeRef.current = barcode;
+        rememberRenewalSetAside(error);
         renewalRetryRef.current = (reason) => {
           void handleRenewLoan(loanId, true, reason);
         };
@@ -545,7 +565,7 @@ export default function UserDetailPage() {
         setRenewError(next.message);
         showToast({ variant: 'error', message: next.message });
       } else {
-        renewalBarcodeRef.current = barcode;
+        rememberRenewalSetAside(error);
         renewalRetryRef.current = (reason) => {
           void handleRenewLoan(loanId, true, reason);
         };
@@ -969,12 +989,17 @@ export default function UserDetailPage() {
             <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
               {user.firstname} {user.lastname}
             </h1>
-            <div className="flex items-center gap-2 mt-1">
+            <div className="flex flex-wrap items-center gap-2 mt-1">
               <Badge>{localizedAccountTypeLabel(t, user.accountType, accountTypes)}</Badge>
               {(() => {
                 const publicLabel = localizedPublicTypeById(t, publicTypes, user.publicType);
                 return publicLabel ? <Badge variant="info">{publicLabel}</Badge> : null;
               })()}
+              {user.birthDateMissing ? (
+                <span className="text-sm text-amber-800 dark:text-amber-200">
+                  {t('users.birthDateMissing')}
+                </span>
+              ) : null}
               {overdueLoans.length > 0 && (
                 <Badge variant="danger">{t('loans.overdueCount', { count: overdueLoans.length })}</Badge>
               )}
@@ -1099,6 +1124,7 @@ export default function UserDetailPage() {
                   user={user}
                   publicTypes={publicTypes}
                   accountTypes={accountTypes}
+                  accountTypesError={accountTypesError}
                   onLoadingChange={setIsEditLoading}
                   onSuccess={(updatedUser) => {
                     if (updatedUser) queryClient.setQueryData<UserType>(['user', id], updatedUser);
@@ -1478,8 +1504,11 @@ export default function UserDetailPage() {
           if (!ctx || toPickForceLoading) return;
           setToPickForceLoading(true);
           void commitHeldSetAside(ctx.specimenCode, {
-            returnByBarcode: (code) => api.returnLoanByBarcode(code),
-            successMessage: t('loans.heldSetAside'),
+            holdId: ctx.holdId,
+            itemId: null,
+            resolveItemId: copyIdForBarcode,
+            returnSetAside: (code, { holdId, itemId }) => api.returnLoanByBarcode(code, { holdId, itemId }),
+            successMessage: (result) => heldSetAsideSuccessMessage(result, t),
             errorMessage: (error) => heldSetAsideServerMessage(error, t),
             showToast: (toast) => showToast(toast),
             closeDialog: () => setToPickForce(null),
@@ -1544,12 +1573,15 @@ export default function UserDetailPage() {
           setRenewalPrompt(null);
         }}
         onSetAside={() => {
-          const barcode = renewalBarcodeRef.current;
-          if (!barcode || renewalAsideLoading) return;
+          const target = renewalSetAsideRef.current;
+          if (!target || !target.barcode || renewalAsideLoading) return;
           setRenewalAsideLoading(true);
-          void commitHeldSetAside(barcode, {
-            returnByBarcode: (code) => api.returnLoanByBarcode(code),
-            successMessage: t('loans.heldSetAside'),
+          void commitHeldSetAside(target.barcode, {
+            holdId: target.holdId,
+            itemId: target.itemId,
+            resolveItemId: copyIdForBarcode,
+            returnSetAside: (code, { holdId, itemId }) => api.returnLoanByBarcode(code, { holdId, itemId }),
+            successMessage: (result) => heldSetAsideSuccessMessage(result, t),
             errorMessage: (error) => heldSetAsideServerMessage(error, t),
             showToast: (toast) => showToast(toast),
             closeDialog: () => {
@@ -1595,7 +1627,7 @@ interface BorrowFormProps {
   canForce: boolean;
   onBusinessRuleViolation?: (message: string, specimenCode: string, reasonRequired: boolean) => void;
   onToPickForOther?: (
-    identity: { message: string; force: boolean; reasonRequired: boolean },
+    identity: { message: string; force: boolean; reasonRequired: boolean; holdId: string | null },
     specimenCode: string,
   ) => void;
 }
@@ -1647,7 +1679,12 @@ const BorrowForm = forwardRef<BorrowFormHandle, BorrowFormProps>(function Borrow
       const view = presentCheckoutRefusal(err, { canForce, alreadyForced: force, t });
       if (view.kind === 'setAside') {
         onToPickForOther?.(
-          { message: view.message, force: view.force, reasonRequired: view.reasonRequired },
+          {
+            message: view.message,
+            force: view.force,
+            reasonRequired: view.reasonRequired,
+            holdId: heldForOtherHoldId(err),
+          },
           specimenCode.trim(),
         );
         return;

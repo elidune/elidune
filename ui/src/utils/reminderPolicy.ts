@@ -256,6 +256,21 @@ export function parseReminderTiersDraft(draft: ReminderTiersDraft): ReminderTier
   };
 }
 
+/**
+ * Set `accrue_fines` on a full reminders payload.
+ * Returns null when `existing` is not a complete section (a partial body would reset the other keys).
+ */
+export function withAccrueFines(
+  existing: Record<string, unknown>,
+  accrueFines: boolean,
+): Record<string, unknown> | null {
+  if (!('send_time' in existing) && !('frequency_days' in existing)) return null;
+  const payload: Record<string, unknown> = { ...existing, accrue_fines: accrueFines };
+  delete payload.overridable;
+  delete payload.accrueFines;
+  return payload;
+}
+
 /** Merge tier fields into an existing admin-config payload without dropping scheduler keys. */
 export function mergeReminderTiersIntoPayload(
   existing: Record<string, unknown>,

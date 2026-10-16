@@ -34,7 +34,7 @@ async function i18nFor(lng: Lang): Promise<I18nInstance> {
 
 function renderDialog(
   i18n: I18nInstance,
-  props: { onForce?: () => void; message?: string },
+  props: { onForce?: () => void; message?: string; isLoading?: boolean },
 ): string {
   return renderToStaticMarkup(
     createElement(
@@ -46,6 +46,7 @@ function renderDialog(
         onSetAside: () => undefined,
         onForce: props.onForce,
         message: props.message,
+        isLoading: props.isLoading,
       }),
     ) as ReactElement,
   );
@@ -127,6 +128,10 @@ describe('to-pick set-aside dialog', () => {
     assert.equal(html.includes('Holder'), false);
     assert.equal(html.includes('Set aside'), true);
     assert.equal(html.includes('Force loan'), false);
+    const pending = renderDialog(await i18nFor('fr'), { isLoading: true, onForce: () => undefined });
+    assert.match(pending, /<button[^>]*disabled[^>]*>[\s\S]*?Mettre de côté/);
+    assert.match(pending, /<button[^>]*disabled[^>]*>[\s\S]*?Annuler/);
+    assert.match(pending, /<button[^>]*disabled[^>]*>[\s\S]*?Forcer le prêt/);
   });
 
   it('reads details.cardNumber and initials and ignores a name on the 422', () => {

@@ -89,6 +89,13 @@ pub trait LoansRepository: Send + Sync {
         &self,
         identification: &str,
     ) -> AppResult<Option<crate::models::dto::holds::ShelfCheckIn>>;
+    /// Assign the oldest pending unassigned title hold when `hold_id` is that hold.
+    async fn loans_set_aside_unassigned_title_hold(
+        &self,
+        barcode: &str,
+        hold_id: i64,
+        item_id: i64,
+    ) -> AppResult<crate::models::dto::holds::ShelfCheckIn>;
     /// Loan facts for [`crate::renewal::renewal_eligibility`] before the locked write.
     async fn loans_renewal_snapshot(
         &self,
@@ -244,6 +251,14 @@ impl LoansRepository for Repository {
         identification: &str,
     ) -> crate::error::AppResult<Option<crate::models::dto::holds::ShelfCheckIn>> {
         Repository::holds_check_in_shelf_copy(self, identification).await
+    }
+    async fn loans_set_aside_unassigned_title_hold(
+        &self,
+        barcode: &str,
+        hold_id: i64,
+        item_id: i64,
+    ) -> crate::error::AppResult<crate::models::dto::holds::ShelfCheckIn> {
+        Repository::holds_set_aside_unassigned_title_hold(self, barcode, hold_id, item_id).await
     }
     async fn loans_renewal_snapshot(
         &self,

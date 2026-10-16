@@ -33,7 +33,9 @@ export default function UsersPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: publicTypes = [] } = usePublicTypesQuery();
-  const { data: accountTypes = [] } = useAccountTypesQuery();
+  const accountTypesQuery = useAccountTypesQuery();
+  const accountTypes = accountTypesQuery.data ?? [];
+  const accountTypesError = accountTypesQuery.isError ? t('settings.accountTypes.errorLoad') : null;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searchDraft, setSearchDraft] = useState('');
@@ -443,6 +445,7 @@ export default function UsersPage() {
           formId="create-user-form"
           publicTypes={publicTypes}
           accountTypes={accountTypes}
+          accountTypesError={accountTypesError}
           onLoadingChange={setIsCreateLoading}
           onSuccess={() => {
             setShowCreateModal(false);

@@ -103,6 +103,7 @@ import type {
   HoldQuota,
   HoldPickListRow,
   ItemCheckIn,
+  ShelfSetAsideRequest,
   LostFoundResolution,
   ResolveLostFoundRequest,
   ItemTransit,
@@ -142,6 +143,7 @@ import type {
   CreateCollection,
   UpdateCollection,
   AccountTypeDefinition,
+  CreateAccountTypeRequest,
   UpdateAccountTypeRequest,
   EmailTemplateListItem,
   EmailTemplateDetail,
@@ -171,7 +173,11 @@ import type {
   ReviewPurchaseSuggestion,
 } from '@/types';
 import { normalizePaginatedResponse } from '@/utils/serverJson';
-import { normalizeFinePolicy, type GlobalUnpaidThresholdBody } from '@/utils/finePolicy';
+import {
+  normalizeFinePolicy,
+  type GlobalUnpaidThresholdBody,
+  type UpsertFineRuleBody,
+} from '@/utils/finePolicy';
 import { normalizeHoldQuota, normalizeHoldsPolicy } from '@/utils/holdsPolicy';
 import { normalizePickList } from '@/utils/pickList';
 
@@ -992,8 +998,16 @@ class ApiService {
     return { force: true, overrideReason: reason };
   }
 
-  async returnLoanByBarcode(itemBarcode: string): Promise<ItemCheckIn> {
-    const response = await this.client.post<ItemCheckIn>(`/loans/items/${itemBarcode}/return`);
+  async returnLoanByBarcode(
+    itemBarcode: string,
+    setAside?: ShelfSetAsideRequest,
+  ): Promise<ItemCheckIn> {
+    const response = setAside
+      ? await this.client.post<ItemCheckIn>(`/loans/items/${itemBarcode}/return`, {
+          holdId: setAside.holdId,
+          itemId: setAside.itemId,
+        })
+      : await this.client.post<ItemCheckIn>(`/loans/items/${itemBarcode}/return`);
     return response.data;
   }
 
@@ -1249,8 +1263,8 @@ class ApiService {
     return response.data;
   }
 
-  async updateFineRules(rules: FineRule[]): Promise<FineRule[]> {
-    const response = await this.client.put<FineRule[]>('/fines/rules', rules);
+  async upsertFineRule(body: UpsertFineRuleBody): Promise<FineRule> {
+    const response = await this.client.put<FineRule>('/fines/rules', body);
     return response.data;
   }
 
@@ -1653,6 +1667,15 @@ class ApiService {
       body
     );
     return response.data;
+  }
+
+  async createAccountType(body: CreateAccountTypeRequest): Promise<AccountTypeDefinition> {
+    const response = await this.client.post<AccountTypeDefinition>('/account-types', body);
+    return response.data;
+  }
+
+  async deleteAccountType(code: string): Promise<void> {
+    await this.client.delete(`/account-types/${encodeURIComponent(code)}`);
   }
 
   // ─── Sources ─────────────────────────────────────────────────────
