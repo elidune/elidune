@@ -87,7 +87,8 @@ pub async fn list_user_fines(
         (status = 200, description = "Fine updated with payment", body = Fine),
         (status = 400, description = "Invalid amount", body = crate::error::ErrorResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
-        (status = 404, description = "Fine not found", body = crate::error::ErrorResponse)
+        (status = 404, description = "Fine not found", body = crate::error::ErrorResponse),
+        (status = 422, description = "Payment is greater than the unpaid balance (`amount - paid_amount`). `code` is `payment_exceeds_balance`. `remainingCents` is that balance in euro cents.", body = crate::error::PaymentExceedsBalanceBody)
     )
 )]
 pub async fn pay_fine(

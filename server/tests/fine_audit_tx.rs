@@ -130,6 +130,73 @@ async fn resolve(app: &TestApp, token: &str, item_id: i64) -> (StatusCode, serde
 }
 
 #[tokio::test]
+async fn payment_cannot_exceed_remaining_balance() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let token = admin(&app).await;
+    let (reader_id, _item_id, fine_id) = lost_fine(&app, &token, "fablance").await;
+
+    let (status, over) = app
+        .post_json(
+            &format!("/api/v1/fines/{fine_id}/pay"),
+            &json!({ "amount": "15.01" }),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "overpay: {over}");
+    assert_eq!(over["code"], "payment_exceeds_balance");
+    assert_eq!(over["error"], "Business Rule Violation");
+    assert!(over["message"].as_str().is_some_and(|m| !m.is_empty()));
+    assert_eq!(over["remainingCents"], 1500);
+    assert_eq!(fine_status(&app, &token, reader_id).await, "pending");
+
+    let (status, partial) = app
+        .post_json(
+            &format!("/api/v1/fines/{fine_id}/pay"),
+            &json!({ "amount": "4.00" }),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "partial: {partial}");
+    assert_eq!(partial["status"], "partial");
+    assert_eq!(partial["amount"], "15.00");
+    assert_eq!(partial["paidAmount"], "4.00");
+
+    let (status, still_over) = app
+        .post_json(
+            &format!("/api/v1/fines/{fine_id}/pay"),
+            &json!({ "amount": "11.01" }),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "over remaining: {still_over}"
+    );
+    assert_eq!(still_over["code"], "payment_exceeds_balance");
+    assert_eq!(still_over["error"], "Business Rule Violation");
+    assert!(still_over["message"]
+        .as_str()
+        .is_some_and(|m| !m.is_empty()));
+    assert_eq!(still_over["remainingCents"], 1100);
+    assert_eq!(fine_status(&app, &token, reader_id).await, "partial");
+
+    let (status, exact) = app
+        .post_json(
+            &format!("/api/v1/fines/{fine_id}/pay"),
+            &json!({ "amount": "11.00" }),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "exact: {exact}");
+    assert_eq!(exact["status"], "paid");
+    assert_eq!(exact["amount"], "15.00");
+    assert_eq!(exact["paidAmount"], "15.00");
+}
+
+#[tokio::test]
 async fn full_payment_audit_exists_when_pay_returns() {
     let Some(app) = TestApp::spawn().await else {
         return;

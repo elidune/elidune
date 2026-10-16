@@ -136,6 +136,8 @@ pub mod error_code {
     pub const PUBLIC_TYPE_AGE_OVERLAP: &str = "public_type_age_overlap";
     /// `ageMin` is greater than `ageMax`.
     pub const PUBLIC_TYPE_AGE_RANGE_INVALID: &str = "public_type_age_range_invalid";
+    /// `POST /fines/{id}/pay` is greater than `amount - paid_amount`.
+    pub const PAYMENT_EXCEEDS_BALANCE: &str = "payment_exceeds_balance";
 }
 
 /// Main application error type
@@ -249,6 +251,13 @@ pub enum AppError {
         status: u16,
         failures: Box<Vec<crate::models::withdrawal::WithdrawalDisposeFailure>>,
     },
+
+    /// Payment is greater than the fine's unpaid balance (HTTP 422, `payment_exceeds_balance`).
+    #[error("{message}")]
+    PaymentExceedsBalance {
+        remaining_cents: i64,
+        message: String,
+    },
 }
 
 impl AppError {
@@ -297,6 +306,30 @@ impl AppError {
             "This change would leave no active account with admin rights",
         )
     }
+
+    /// `remaining_cents` is `amount - paid_amount` in euro cents.
+    #[must_use]
+    pub fn payment_exceeds_balance(remaining_cents: i64) -> Self {
+        Self::PaymentExceedsBalance {
+            remaining_cents,
+            message: format!("Payment exceeds the remaining balance of {remaining_cents} cents"),
+        }
+    }
+
+    /// Postgres rejected `paid_amount <= amount` (`fines_paid_amount_lte_amount`).
+    #[must_use]
+    pub fn is_fines_paid_amount_cap(&self) -> bool {
+        let Self::Database(err) = self else {
+            return false;
+        };
+        match err.as_ref() {
+            sqlx::Error::Database(db) => {
+                db.code().as_deref() == Some("23514")
+                    && db.constraint() == Some("fines_paid_amount_lte_amount")
+            }
+            _ => false,
+        }
+    }
 }
 
 impl From<sqlx::Error> for AppError {
@@ -314,6 +347,21 @@ pub struct ErrorResponse {
     pub error: String,
     /// Detailed error message
     pub message: String,
+}
+
+/// `422` from `POST /fines/{id}/pay` when the payment is above the unpaid balance.
+/// Same fields as [`ErrorResponse`] plus `remainingCents`.
+#[derive(Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct PaymentExceedsBalanceBody {
+    /// Always `"payment_exceeds_balance"`.
+    pub code: String,
+    /// Human-readable category (`"Business Rule Violation"`).
+    pub error: String,
+    /// Why the payment was refused.
+    pub message: String,
+    /// Unpaid balance in euro cents (`amount - paid_amount`).
+    pub remaining_cents: i64,
 }
 
 /// `429` body. Same fields as [`ErrorResponse`] plus `retryAfter` seconds.
@@ -527,6 +575,12 @@ impl AppError {
                 },
                 message: "No withdrawal was marked disposed".to_string(),
             },
+            AppError::PaymentExceedsBalance { message, .. } => HttpErrorFields {
+                status: StatusCode::UNPROCESSABLE_ENTITY,
+                code: ec::PAYMENT_EXCEEDS_BALANCE,
+                label: "Business Rule Violation",
+                message: message.clone(),
+            },
         }
     }
 }
@@ -582,6 +636,18 @@ impl IntoResponse for AppError {
             }
             AppError::CheckoutRefused(refusal) => {
                 let body = Json(refusal.to_body());
+                (StatusCode::UNPROCESSABLE_ENTITY, body).into_response()
+            }
+            AppError::PaymentExceedsBalance {
+                remaining_cents,
+                message,
+            } => {
+                let body = Json(PaymentExceedsBalanceBody {
+                    code: ec::PAYMENT_EXCEEDS_BALANCE.to_string(),
+                    error: "Business Rule Violation".to_string(),
+                    message,
+                    remaining_cents,
+                });
                 (StatusCode::UNPROCESSABLE_ENTITY, body).into_response()
             }
             AppError::RenewalDenied {
@@ -686,5 +752,14 @@ mod tests {
         assert_eq!(status, 409);
         assert_eq!(code, error_code::ITEM_ALREADY_ON_LOAN_TO_BORROWER);
         assert!(message.to_lowercase().contains("renew"));
+    }
+
+    #[test]
+    fn payment_exceeds_balance_is_422_with_remaining_cents() {
+        let err = AppError::payment_exceeds_balance(1100);
+        let (status, code, message) = err.audit_http_fields();
+        assert_eq!(status, 422);
+        assert_eq!(code, error_code::PAYMENT_EXCEEDS_BALANCE);
+        assert!(message.contains("1100"));
     }
 }

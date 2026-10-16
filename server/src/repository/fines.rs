@@ -286,6 +286,19 @@ impl Repository {
         apply_fine_payment(&mut **tx, id, payment, notes).await
     }
 
+    /// Lock the fine and return `(amount, paid_amount)` so a payment can be
+    /// checked against the unpaid balance before the update.
+    pub async fn fines_lock_balance_tx(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        id: i64,
+    ) -> AppResult<Option<(Cents, Cents)>> {
+        let row = sqlx::query("SELECT amount, paid_amount FROM fines WHERE id = $1 FOR UPDATE")
+            .bind(id)
+            .fetch_optional(&mut **tx)
+            .await?;
+        Ok(row.map(|row| (row.get("amount"), row.get("paid_amount"))))
+    }
+
     /// Waive a fine (write off)
     #[tracing::instrument(skip(self), err)]
     pub async fn fines_waive(&self, id: i64, notes: Option<&str>) -> AppResult<Fine> {
