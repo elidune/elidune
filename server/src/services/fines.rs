@@ -211,9 +211,7 @@ impl FinesService {
     /// Apply a payment to a fine and write `fine.paid` in the same transaction.
     /// A full payment and a partial payment use the same event.
     ///
-    /// The payment must be at most `amount - paid_amount`. The row is locked in
-    /// this transaction before that check so a concurrent payment cannot slip
-    /// in. A `fines_paid_amount_lte_amount` violation is the same 422.
+    /// The update itself rejects a payment above `amount - paid_amount`.
     #[tracing::instrument(skip(self, notes, client_ip), err)]
     pub async fn pay(
         &self,
@@ -232,22 +230,7 @@ impl FinesService {
         }
         let money = self.money()?;
         let mut tx = money.db.pool().begin().await?;
-        let Some((fine_amount, paid_amount)) =
-            Repository::fines_lock_balance_tx(&mut tx, id).await?
-        else {
-            return Err(AppError::NotFound(format!("Fine {id} not found")));
-        };
-        let remaining = fine_amount.saturating_sub(paid_amount);
-        if payment > remaining {
-            return Err(AppError::payment_exceeds_balance(remaining.get()));
-        }
-        let fine = match Repository::fines_pay_tx(&mut tx, id, payment, notes).await {
-            Ok(fine) => fine,
-            Err(err) if err.is_fines_paid_amount_cap() => {
-                return Err(AppError::payment_exceeds_balance(remaining.get()));
-            }
-            Err(err) => return Err(err),
-        };
+        let fine = Repository::fines_pay_tx(&mut tx, id, payment, notes).await?;
         money
             .audit
             .log_in_tx(

@@ -315,21 +315,6 @@ impl AppError {
             message: format!("Payment exceeds the remaining balance of {remaining_cents} cents"),
         }
     }
-
-    /// Postgres rejected `paid_amount <= amount` (`fines_paid_amount_lte_amount`).
-    #[must_use]
-    pub fn is_fines_paid_amount_cap(&self) -> bool {
-        let Self::Database(err) = self else {
-            return false;
-        };
-        match err.as_ref() {
-            sqlx::Error::Database(db) => {
-                db.code().as_deref() == Some("23514")
-                    && db.constraint() == Some("fines_paid_amount_lte_amount")
-            }
-            _ => false,
-        }
-    }
 }
 
 impl From<sqlx::Error> for AppError {

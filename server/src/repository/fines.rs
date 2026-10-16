@@ -273,7 +273,8 @@ impl Repository {
     /// Apply a payment to a fine
     #[tracing::instrument(skip(self), err)]
     pub async fn fines_pay(&self, id: i64, payment: Cents, notes: Option<&str>) -> AppResult<Fine> {
-        apply_fine_payment(&self.pool, id, payment, notes).await
+        let mut conn = self.pool.acquire().await?;
+        apply_fine_payment(&mut conn, id, payment, notes).await
     }
 
     /// Apply a payment inside an open transaction.
@@ -283,20 +284,7 @@ impl Repository {
         payment: Cents,
         notes: Option<&str>,
     ) -> AppResult<Fine> {
-        apply_fine_payment(&mut **tx, id, payment, notes).await
-    }
-
-    /// Lock the fine and return `(amount, paid_amount)` so a payment can be
-    /// checked against the unpaid balance before the update.
-    pub async fn fines_lock_balance_tx(
-        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        id: i64,
-    ) -> AppResult<Option<(Cents, Cents)>> {
-        let row = sqlx::query("SELECT amount, paid_amount FROM fines WHERE id = $1 FOR UPDATE")
-            .bind(id)
-            .fetch_optional(&mut **tx)
-            .await?;
-        Ok(row.map(|row| (row.get("amount"), row.get("paid_amount"))))
+        apply_fine_payment(tx, id, payment, notes).await
     }
 
     /// Waive a fine (write off)
@@ -892,16 +880,24 @@ fn lost_notice(fine: Option<(i64, Cents, Cents, FineStatus)>) -> AppResult<LostI
     })
 }
 
-async fn apply_fine_payment<'e, E>(
-    executor: E,
+async fn apply_fine_payment(
+    conn: &mut sqlx::PgConnection,
     id: i64,
     payment: Cents,
     notes: Option<&str>,
-) -> AppResult<Fine>
-where
-    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
-{
-    sqlx::query_as::<_, Fine>(
+) -> AppResult<Fine> {
+    // A check-constraint failure aborts an open transaction. The savepoint lets
+    // the follow-up read of the remaining balance still run.
+    let in_tx: bool = sqlx::query_scalar("SELECT pg_current_xact_id_if_assigned() IS NOT NULL")
+        .fetch_one(&mut *conn)
+        .await?;
+    if in_tx {
+        sqlx::query("SAVEPOINT fine_payment")
+            .execute(&mut *conn)
+            .await?;
+    }
+
+    let updated = sqlx::query_as::<_, Fine>(
         r#"
         UPDATE fines SET
             paid_amount = paid_amount + $2,
@@ -912,15 +908,74 @@ where
                 ELSE 'partial'
             END
         WHERE id = $1
+          AND paid_amount + $2 <= amount
         RETURNING *
         "#,
     )
     .bind(id)
     .bind(payment)
     .bind(notes)
-    .fetch_optional(executor)
-    .await?
-    .ok_or_else(|| AppError::NotFound(format!("Fine {id} not found")))
+    .fetch_optional(&mut *conn)
+    .await;
+
+    match updated {
+        Ok(Some(fine)) => {
+            release_fine_payment_savepoint(conn, in_tx).await?;
+            Ok(fine)
+        }
+        Ok(None) => {
+            release_fine_payment_savepoint(conn, in_tx).await?;
+            unpaid_or_missing(conn, id).await
+        }
+        Err(err) if is_fines_paid_amount_cap(&err) => {
+            if in_tx {
+                sqlx::query("ROLLBACK TO SAVEPOINT fine_payment")
+                    .execute(&mut *conn)
+                    .await?;
+            }
+            release_fine_payment_savepoint(conn, in_tx).await?;
+            unpaid_or_missing(conn, id).await
+        }
+        Err(err) => Err(err.into()),
+    }
+}
+
+/// `NotFound` when the fine is gone, otherwise 422 with `amount - paid_amount`.
+async fn unpaid_or_missing(conn: &mut sqlx::PgConnection, id: i64) -> AppResult<Fine> {
+    let row = sqlx::query("SELECT amount, paid_amount FROM fines WHERE id = $1")
+        .bind(id)
+        .fetch_optional(&mut *conn)
+        .await?;
+    let Some(row) = row else {
+        return Err(AppError::NotFound(format!("Fine {id} not found")));
+    };
+    let amount: Cents = row.get("amount");
+    let paid_amount: Cents = row.get("paid_amount");
+    Err(AppError::payment_exceeds_balance(
+        amount.saturating_sub(paid_amount).get(),
+    ))
+}
+
+async fn release_fine_payment_savepoint(
+    conn: &mut sqlx::PgConnection,
+    in_tx: bool,
+) -> AppResult<()> {
+    if in_tx {
+        sqlx::query("RELEASE SAVEPOINT fine_payment")
+            .execute(&mut *conn)
+            .await?;
+    }
+    Ok(())
+}
+
+fn is_fines_paid_amount_cap(err: &sqlx::Error) -> bool {
+    match err {
+        sqlx::Error::Database(db) => {
+            db.code().as_deref() == Some("23514")
+                && db.constraint() == Some("fines_paid_amount_lte_amount")
+        }
+        _ => false,
+    }
 }
 
 async fn waive_fine<'e, E>(executor: E, id: i64, notes: Option<&str>) -> AppResult<Fine>
