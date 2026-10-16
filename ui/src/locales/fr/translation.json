@@ -96,7 +96,9 @@
     "vendors": "Fournisseurs",
     "funds": "Budgets",
     "suggestions": "Suggestions d’achat",
-    "weeding": "Désherbage"
+    "weeding": "Désherbage",
+    "showMore": "Afficher {{count}} de plus",
+    "showLess": "Afficher moins"
   },
   "theme": {
     "light": "Clair",
@@ -328,7 +330,16 @@
       "emailDescription": "Code envoyé par email"
     },
     "title": "Mon profil",
-    "subtitle": "Gérez vos informations personnelles et votre mot de passe",
+    "subtitle": "Gérez votre compte, vos préférences et votre sécurité",
+    "tabs": {
+      "ariaLabel": "Sections du profil",
+      "personal": "Informations personnelles",
+      "preferences": "Langue et thème",
+      "security": "Authentification",
+      "suggestions": "Suggestions d'achat"
+    },
+    "theme": "Thème",
+    "themeHint": "Clair, sombre ou selon les réglages de l'appareil",
     "personalInfo": "Informations personnelles",
     "loginUsername": "Identifiant",
     "loginHint": "Minimum 3 caractères",

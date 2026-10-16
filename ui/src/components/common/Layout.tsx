@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { rateLimitWaitMessage } from '@/utils/apiError';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   BookOpen,
@@ -12,9 +12,6 @@ import {
   X,
   Home,
   BookMarked,
-  Sun,
-  Moon,
-  Monitor,
   Globe,
   Upload,
   ArrowLeftRight,
@@ -32,7 +29,6 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import Button from './Button';
-import { useTheme } from '@/contexts/ThemeContext';
 import { useLibrary } from '@/contexts/LibraryContext';
 import { canPatronSelfServiceHolds, canWriteSettings } from '@/types';
 import { staffAccess } from '@/utils/staffAccess';
@@ -44,6 +40,7 @@ import {
   BackgroundTasksDrawer,
   BackgroundTasksNavItem,
 } from './BackgroundTasksPanel';
+import SidebarNavSections, { type SidebarNavSection } from './SidebarNavSections';
 import { noModalDialogOpen, useFocusTrap } from '@/hooks/common/useFocusTrap';
 
 interface LayoutProps {
@@ -63,12 +60,10 @@ export default function Layout({ children }: LayoutProps) {
   const { user, logout, profileWarning, dismissProfileWarning, refreshProfile } = useAuth();
   const settingsWrite = canWriteSettings(user, api.getToken());
   const { data: accountTypes = [] } = useAccountTypesQuery({ enabled: settingsWrite });
-  const { theme, setTheme } = useTheme();
   const access = staffAccess(user, api.getToken());
   const showAcquisitions = access.acquisitions;
   const showWeeding = access.weeding;
   const { libraryName } = useLibrary();
-  const location = useLocation();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -89,10 +84,9 @@ export default function Layout({ children }: LayoutProps) {
     navigate('/');
   };
 
-  type NavItem = { name: string; href: string; icon: typeof Home; show: boolean };
-  type NavSection = { id: string; label?: string; items: NavItem[] };
-
-  const navSections: NavSection[] = [
+  const navSections: (SidebarNavSection & {
+    items: (SidebarNavSection['items'][number] & { show: boolean })[];
+  })[] = [
     {
       id: 'top',
       items: [
@@ -162,12 +156,6 @@ export default function Layout({ children }: LayoutProps) {
     .map((section) => ({ ...section, items: section.items.filter((item) => item.show) }))
     .filter((section) => section.items.length > 0);
 
-  const themeOptions = [
-    { value: 'light' as const, icon: Sun, label: t('theme.light') },
-    { value: 'dark' as const, icon: Moon, label: t('theme.dark') },
-    { value: 'system' as const, icon: Monitor, label: t('theme.system') },
-  ];
-
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       <a
@@ -222,42 +210,10 @@ export default function Layout({ children }: LayoutProps) {
 
           {/* Navigation */}
           <nav aria-label={t('nav.main')} className="flex-1 px-3 py-4 space-y-4 overflow-y-auto">
-            {navSections.map((section) => (
-              <div key={section.id} className="space-y-1">
-                {section.label && (
-                  <p className="px-3 pt-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
-                    {section.label}
-                  </p>
-                )}
-                {section.items.map((item) => {
-                  const isActive =
-                    item.href === '/home'
-                      ? location.pathname === '/home'
-                      : item.href === '/catalog'
-                        ? location.pathname === '/catalog' ||
-                          location.pathname.startsWith('/biblios/')
-                      : item.href.includes('?')
-                        ? `${location.pathname}${location.search}` === item.href
-                        : location.pathname === item.href ||
-                          location.pathname.startsWith(`${item.href}/`);
-                  return (
-                    <Link
-                      key={item.href}
-                      to={item.href}
-                      onClick={() => setSidebarOpen(false)}
-                      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                        isActive
-                          ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                          : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
-                      }`}
-                    >
-                      <item.icon className="h-5 w-5" />
-                      {item.name}
-                    </Link>
-                  );
-                })}
-              </div>
-            ))}
+            <SidebarNavSections
+              sections={navSections}
+              onNavigate={() => setSidebarOpen(false)}
+            />
           </nav>
 
           {access.backgroundTasks && (
@@ -265,28 +221,6 @@ export default function Layout({ children }: LayoutProps) {
               <BackgroundTasksNavItem />
             </div>
           )}
-
-          {/* Theme */}
-          <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-800 space-y-2">
-            <div className="flex items-center justify-center gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg">
-              {themeOptions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => setTheme(option.value)}
-                  aria-label={option.label}
-                  className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                    theme === option.value
-                      ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
-                      : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-                  }`}
-                >
-                  <option.icon className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">{option.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
 
           {/* User info */}
           <div className="p-4 border-t border-gray-200 dark:border-gray-800">

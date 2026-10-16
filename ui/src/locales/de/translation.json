@@ -96,7 +96,9 @@
     "vendors": "Lieferanten",
     "funds": "Etats",
     "suggestions": "Anschaffungsvorschläge",
-    "weeding": "Aussonderung"
+    "weeding": "Aussonderung",
+    "showMore": "{{count}} weitere anzeigen",
+    "showLess": "Weniger anzeigen"
   },
   "theme": {
     "light": "Hell",
@@ -328,7 +330,16 @@
       "emailDescription": "Code per E-Mail gesendet"
     },
     "title": "Mein Profil",
-    "subtitle": "Verwalten Sie Ihre persönlichen Daten und Ihr Passwort",
+    "subtitle": "Konto, Einstellungen und Sicherheit verwalten",
+    "tabs": {
+      "ariaLabel": "Profilbereiche",
+      "personal": "Persönliche Daten",
+      "preferences": "Sprache & Design",
+      "security": "Anmeldung & Sicherheit",
+      "suggestions": "Anschaffungsvorschläge"
+    },
+    "theme": "Design",
+    "themeHint": "Hell, dunkel oder an die Geräteeinstellungen anpassen",
     "personalInfo": "Persönliche Daten",
     "loginUsername": "Benutzername",
     "loginHint": "Mindestens 3 Zeichen",

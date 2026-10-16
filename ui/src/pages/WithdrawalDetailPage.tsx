@@ -16,7 +16,7 @@ export default function WithdrawalDetailPage() {
   });
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-6 space-y-4">
+    <div className="space-y-4 min-w-0">
       <p className="text-sm">
         <Link className="text-amber-700 hover:underline dark:text-amber-400" to="/weeding">
           {t('weeding.backToList')}

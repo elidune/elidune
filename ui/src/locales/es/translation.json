@@ -96,7 +96,9 @@
     "vendors": "Proveedores",
     "funds": "Fondos",
     "suggestions": "Sugerencias de compra",
-    "weeding": "Expurgo"
+    "weeding": "Expurgo",
+    "showMore": "Mostrar {{count}} más",
+    "showLess": "Mostrar menos"
   },
   "theme": {
     "light": "Claro",
@@ -328,7 +330,16 @@
       "emailDescription": "Código enviado por correo"
     },
     "title": "Mi perfil",
-    "subtitle": "Gestione su información personal y contraseña",
+    "subtitle": "Gestione su cuenta, preferencias y seguridad",
+    "tabs": {
+      "ariaLabel": "Secciones del perfil",
+      "personal": "Información personal",
+      "preferences": "Idioma y tema",
+      "security": "Inicio de sesión y seguridad",
+      "suggestions": "Sugerencias de compra"
+    },
+    "theme": "Tema",
+    "themeHint": "Claro, oscuro o según el dispositivo",
     "personalInfo": "Información personal",
     "loginUsername": "Nombre de usuario",
     "loginHint": "Mínimo 3 caracteres",

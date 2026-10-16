@@ -8,10 +8,12 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   leftIcon?: ReactNode;
   /** Renders inside the field on the right (e.g. password visibility toggle). */
   rightIcon?: ReactNode;
+  /** Outer field wrapper (use with `formLayout.FORM_FIELD_WIDTH` to limit width). */
+  wrapperClassName?: string;
 }
 
 const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ label, error, hint, leftIcon, rightIcon, className = '', required, ...props }, ref) => {
+  ({ label, error, hint, leftIcon, rightIcon, wrapperClassName, className = '', required, ...props }, ref) => {
     const generatedId = useId();
     const inputId = props.id ?? generatedId;
     const hintId = hint ? `${inputId}-hint` : undefined;
@@ -19,7 +21,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
     const describedBy = [errorId, hintId].filter(Boolean).join(' ') || undefined;
 
     return (
-      <div className="w-full">
+      <div className={wrapperClassName ?? 'w-full min-w-0'}>
         {label && (
           <label htmlFor={inputId} className={formLabelClass()}>
             {label}

@@ -25,13 +25,17 @@ interface CardHeaderProps {
   title: string;
   subtitle?: string;
   action?: React.ReactNode;
+  /** When set, exposed on the title for `aria-labelledby` on related fieldsets. */
+  headingId?: string;
 }
 
-export function CardHeader({ title, subtitle, action }: CardHeaderProps) {
+export function CardHeader({ title, subtitle, action, headingId }: CardHeaderProps) {
   return (
     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
       <div>
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white">{title}</h3>
+        <h3 id={headingId} className="text-lg font-semibold text-gray-900 dark:text-white">
+          {title}
+        </h3>
         {subtitle && (
           <p className="text-sm text-gray-500 dark:text-gray-400">{subtitle}</p>
         )}

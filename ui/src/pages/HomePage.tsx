@@ -119,7 +119,7 @@ export default function HomePage() {
           subtitle={t('acquisitions.suggestions.homeHelp')}
           action={
             <Link
-              to="/profile#suggestions"
+              to="/profile?tab=suggestions"
               className="text-sm text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1"
             >
               {t('common.view')} <ArrowRight className="h-4 w-4" />

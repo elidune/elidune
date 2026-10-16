@@ -16,6 +16,11 @@ import { appendReaderLanguage, readerLanguageSelectValue } from '@/utils/readerL
 import { SEX_OPTIONS } from '@/utils/codeLabels';
 import { searchFrenchCommunePicks } from '@/utils/frenchCommuneSearch';
 import { formControlClass, formLabelClass, formTextareaClass } from '@/utils/formControl';
+import {
+  FORM_FIELD_AUTO_GRID,
+  FORM_FIELD_AUTO_GRID_WIDE,
+  FORM_FIELD_WIDTH,
+} from '@/utils/formLayout';
 import { guardianValidationI18nKey, publicTypeRequiresGuardian } from '@/utils/legalGuardian';
 import {
   defaultExpiryDateInputOneYearFromNow,
@@ -441,7 +446,7 @@ export default function UserEditorForm({
 
       <section className={sectionClass}>
         <h4 className={sectionTitleClass}>{t('users.identity')}</h4>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <div className={`${FORM_FIELD_AUTO_GRID} gap-2.5`}>
           <Input
             label={t('profile.firstName')}
             value={formData.firstname}
@@ -462,8 +467,6 @@ export default function UserEditorForm({
             required
             error={fieldErrors.lastname}
           />
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
           <Input
             label={t('users.identifier')}
             value={formData.login}
@@ -485,6 +488,7 @@ export default function UserEditorForm({
             value={formData.password}
             onChange={(e) => setFormData({ ...formData, password: e.target.value })}
             placeholder={mode === 'edit' ? t('profile.leaveBlankPassword') : undefined}
+            wrapperClassName={FORM_FIELD_WIDTH.password}
           />
         </div>
       </section>
@@ -509,7 +513,7 @@ export default function UserEditorForm({
 
       <section className={sectionClass}>
         <h4 className={sectionTitleClass}>{t('users.additionalInfo')}</h4>
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2.5">
+        <div className={`${FORM_FIELD_AUTO_GRID} gap-2.5`}>
           <div>
             <label htmlFor={`${formId}-account-type`} className={formLabelClass()}>
               {t('profile.accountType')}
@@ -569,8 +573,9 @@ export default function UserEditorForm({
             }}
             required
             error={fieldErrors.birthdate}
+            wrapperClassName={FORM_FIELD_WIDTH.short}
           />
-          <div>
+          <div className={FORM_FIELD_WIDTH.medium}>
             <label htmlFor={`${formId}-sex`} className={formLabelClass()}>
               {t('users.sex')}
               {requiredMark}
@@ -614,13 +619,14 @@ export default function UserEditorForm({
 
       <section className={sectionClass}>
         <h4 className={sectionTitleClass}>{t('users.contact')}</h4>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <div className={`${FORM_FIELD_AUTO_GRID} gap-2.5`}>
           <Input
             label={t('profile.email')}
             type="email"
             value={formData.email}
             onChange={(e) => setFormData({ ...formData, email: e.target.value })}
             leftIcon={<Mail className="h-4 w-4" />}
+            wrapperClassName={FORM_FIELD_WIDTH.email}
           />
           <Input
             label={t('profile.phone')}
@@ -628,7 +634,7 @@ export default function UserEditorForm({
             onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
             leftIcon={<Phone className="h-4 w-4" />}
           />
-          <div>
+          <div className={FORM_FIELD_WIDTH.medium}>
             <label htmlFor={`${formId}-language`} className={formLabelClass()}>
               {t('users.language')}
             </label>
@@ -648,17 +654,16 @@ export default function UserEditorForm({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 items-start">
-          <div className="min-w-0">
-            <Input
-              label={t('profile.street')}
-              value={formData.addrStreet}
-              onChange={(e) => setFormData({ ...formData, addrStreet: e.target.value })}
-              leftIcon={<MapPin className="h-4 w-4" />}
-            />
-          </div>
+        <div className={`${FORM_FIELD_AUTO_GRID_WIDE} gap-2.5`}>
+          <Input
+            label={t('profile.street')}
+            value={formData.addrStreet}
+            onChange={(e) => setFormData({ ...formData, addrStreet: e.target.value })}
+            leftIcon={<MapPin className="h-4 w-4" />}
+            wrapperClassName={`${FORM_FIELD_WIDTH.street} col-span-full`}
+          />
 
-          <div ref={communeWrapRef} className="relative min-w-0">
+          <div ref={communeWrapRef} className={`relative min-w-0 ${FORM_FIELD_WIDTH.long}`}>
             <label htmlFor={`${formId}-commune-lookup`} className={formLabelClass()}>
               {t('users.cityPostalLookup')}
               {requiredMark}
@@ -769,19 +774,21 @@ export default function UserEditorForm({
           </button>
           <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('users.expiryUnlimited')}</span>
         </div>
-        <div className={`grid grid-cols-1 gap-2.5 sm:grid-cols-2 ${formData.expiryUnlimited ? 'opacity-55' : ''}`}>
+        <div className={`${FORM_FIELD_AUTO_GRID} gap-2.5 ${formData.expiryUnlimited ? 'opacity-55' : ''}`}>
           <Input
             label={t('users.subscriptionExpiry')}
             type="date"
             value={formData.expiryAt}
             onChange={(e) => setFormData({ ...formData, expiryAt: e.target.value })}
             disabled={formData.expiryUnlimited}
+            wrapperClassName={FORM_FIELD_WIDTH.short}
           />
           <Input
             label={t('users.fee')}
             value={formData.fee}
             onChange={(e) => setFormData({ ...formData, fee: e.target.value })}
             disabled={formData.expiryUnlimited}
+            wrapperClassName={FORM_FIELD_WIDTH.medium}
           />
         </div>
       </CollapsibleFormSection>
@@ -791,7 +798,7 @@ export default function UserEditorForm({
           value={formData.notes}
           onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
           rows={3}
-          className={formTextareaClass({ className: 'resize-none' })}
+          className={formTextareaClass({ className: 'max-w-2xl resize-none' })}
           aria-label={t('users.notes')}
         />
       </CollapsibleFormSection>

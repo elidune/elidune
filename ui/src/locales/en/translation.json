@@ -96,7 +96,9 @@
     "vendors": "Vendors",
     "funds": "Funds",
     "suggestions": "Purchase suggestions",
-    "weeding": "Weeding"
+    "weeding": "Weeding",
+    "showMore": "Show {{count}} more",
+    "showLess": "Show less"
   },
   "theme": {
     "light": "Light",
@@ -328,7 +330,16 @@
       "emailDescription": "Code sent via email"
     },
     "title": "My Profile",
-    "subtitle": "Manage your personal information and password",
+    "subtitle": "Manage your account, preferences, and security",
+    "tabs": {
+      "ariaLabel": "Profile sections",
+      "personal": "Personal information",
+      "preferences": "Language & theme",
+      "security": "Sign-in & security",
+      "suggestions": "Purchase suggestions"
+    },
+    "theme": "Theme",
+    "themeHint": "Light, dark, or match your device settings",
     "personalInfo": "Personal Information",
     "loginUsername": "Username",
     "loginHint": "Minimum 3 characters",

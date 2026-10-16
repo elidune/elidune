@@ -11,6 +11,7 @@ import {
   ConfirmDialog,
   Pagination,
 } from '@/components/common';
+import { APP_PAGE_CLASS } from '@/utils/appPageLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSourcesQuery } from '@/hooks/holds/useSourcesQuery';
 import api from '@/services/api';
@@ -161,7 +162,7 @@ export default function WeedingPage() {
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className={APP_PAGE_CLASS}>
       <div className="flex items-start gap-3">
         <div className="h-11 w-11 rounded-xl bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center shrink-0">
           <Leaf className="h-6 w-6 text-amber-700 dark:text-amber-300" aria-hidden />

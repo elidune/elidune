@@ -5,6 +5,7 @@ import { Shield, ArrowLeft, Mail, Phone, MapPin, Building2 } from 'lucide-react'
 import { Card } from '@/components/common';
 import api from '@/services/api';
 import type { LibraryInfo } from '@/types';
+import { APP_PAGE_CLASS } from '@/utils/appPageLayout';
 import { formatCountryName } from '@/utils/countryTimezone';
 
 function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
@@ -47,7 +48,7 @@ export default function PrivacyPage() {
     : null;
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className={APP_PAGE_CLASS}>
       {/* Header */}
       <div>
         <Link

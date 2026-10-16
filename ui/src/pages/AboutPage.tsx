@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Info, ArrowLeft, Code2, Bug, Shield, User, ExternalLink, Package } from 'lucide-react';
 import { Card } from '@/components/common';
 import api from '@/services/api';
+import { APP_PAGE_CLASS } from '@/utils/appPageLayout';
 import { deferFromEffect } from '@/utils/deferFromEffect';
 import { version as uiVersion, author as devAuthor, email as devEmail, license as uiLicense, bugs as bugsUrl } from '../../package.json';
 
@@ -133,7 +134,7 @@ export default function AboutPage() {
 
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className={APP_PAGE_CLASS}>
       {/* Header */}
       <div>
         <button
