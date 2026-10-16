@@ -989,12 +989,17 @@ export default function UserDetailPage() {
             <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">
               {user.firstname} {user.lastname}
             </h1>
-            <div className="flex items-center gap-2 mt-1">
+            <div className="flex flex-wrap items-center gap-2 mt-1">
               <Badge>{localizedAccountTypeLabel(t, user.accountType, accountTypes)}</Badge>
               {(() => {
                 const publicLabel = localizedPublicTypeById(t, publicTypes, user.publicType);
                 return publicLabel ? <Badge variant="info">{publicLabel}</Badge> : null;
               })()}
+              {user.birthDateMissing ? (
+                <span className="text-sm text-amber-800 dark:text-amber-200">
+                  {t('users.birthDateMissing')}
+                </span>
+              ) : null}
               {overdueLoans.length > 0 && (
                 <Badge variant="danger">{t('loans.overdueCount', { count: overdueLoans.length })}</Badge>
               )}

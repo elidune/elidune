@@ -343,6 +343,7 @@
     "personalInfo": "Información personal",
     "loginUsername": "Nombre de usuario",
     "loginHint": "Mínimo 3 caracteres",
+    "birthDateDeskHint": "Pida en el mostrador que lo corrijan",
     "occupation": "Ocupación",
     "address": "Dirección",
     "profileUpdated": "Perfil actualizado correctamente",
@@ -917,6 +918,8 @@
     "identifier": "Identificador",
     "additionalInfo": "Información adicional",
     "publicType": "Tipo público",
+    "publicTypeFromBirthDate": "El tipo de público se determina a partir de la fecha de nacimiento.",
+    "birthDateMissing": "Fecha de nacimiento por completar",
     "sex": "Sexo",
     "subscription": "Suscripción",
     "subscriptionUnlimited": "Suscripción ilimitada (sin fecha de fin)",
@@ -2196,7 +2199,9 @@
       "transit_same_site": "El ejemplar ya está en el punto de recogida: apártelo para la reserva.",
       "account_type_in_use": "Este tipo de cuenta sigue asignado al menos a un lector. Reasigne esas cuentas antes de eliminarlo.",
       "account_type_system": "Los tipos de cuenta integrados no se pueden eliminar.",
-      "last_active_admin": "Este cambio dejaría la biblioteca sin ninguna cuenta activa que pueda gestionar los ajustes."
+      "last_active_admin": "Este cambio dejaría la biblioteca sin ninguna cuenta activa que pueda gestionar los ajustes.",
+      "birth_date_required": "La fecha de nacimiento es obligatoria para determinar el tipo de público del lector.",
+      "no_public_type_for_age": "Ningún tipo de público corresponde a esta edad. Un administrador debe completar los rangos de edad en Configuración > Tipos de público."
     }
   },
   "inventory": {

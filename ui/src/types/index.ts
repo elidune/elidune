@@ -175,6 +175,11 @@ export interface User {
    * (`child`, `adult`, …) or null. `GET /users` sends the public-type id.
    */
   publicType?: string | null;
+  /**
+   * True when this reader has no birth date. The stored public type is kept.
+   * Absent or false for every other account, and for a reader who has a birth date.
+   */
+  birthDateMissing?: boolean;
   status?: number;
   // Date fields
   createdAt?: string;
