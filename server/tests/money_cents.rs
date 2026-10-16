@@ -407,6 +407,142 @@ async fn migration_converts_euros_and_records_rejects() {
         .expect("cleanup");
 }
 
+fn minimal_money_schema(fines_seed: &str) -> String {
+    format!(
+        r#"
+        CREATE TABLE items (id BIGINT PRIMARY KEY, price TEXT);
+        CREATE TABLE fines (
+            id BIGINT PRIMARY KEY,
+            amount NUMERIC NOT NULL,
+            paid_amount NUMERIC NOT NULL,
+            refunded_amount NUMERIC NOT NULL
+        );
+        CREATE TABLE fine_rules (
+            id INTEGER PRIMARY KEY,
+            daily_rate NUMERIC NOT NULL,
+            max_amount NUMERIC
+        );
+        CREATE TABLE circulation_settings (
+            id BIGINT PRIMARY KEY,
+            unpaid_fine_threshold NUMERIC NOT NULL
+        );
+        CREATE TABLE public_types (
+            id BIGINT PRIMARY KEY,
+            subscription_price INTEGER,
+            unpaid_fine_threshold NUMERIC
+        );
+        INSERT INTO fine_rules (id, daily_rate) VALUES (1, 0.20);
+        INSERT INTO circulation_settings (id, unpaid_fine_threshold) VALUES (1, 0);
+        {fines_seed}
+        "#
+    )
+}
+
+#[tokio::test]
+async fn migration_aborts_when_paid_amount_exceeds_amount() {
+    let Some(mut conn) = scratch_connection("money_cents_paid_cap").await else {
+        return;
+    };
+    exec_statements(
+        &mut conn,
+        &minimal_money_schema(
+            "INSERT INTO fines (id, amount, paid_amount, refunded_amount) VALUES (7, 10.00, 15.00, 0), (41, 1.00, 2.00, 0), (3, 4.00, 4.00, 4.00)",
+        ),
+    )
+    .await
+    .expect("seed paid cap fixture");
+
+    let mut tx = conn.begin().await.expect("begin migration");
+    let error = {
+        let mut failed = None;
+        for statement in split_sql(&money_migration_sql()) {
+            if let Err(err) = sqlx::query(&statement).execute(&mut *tx).await {
+                failed = Some(err);
+                break;
+            }
+        }
+        failed.expect("paid above amount must abort")
+    };
+    let message = error.to_string();
+    assert!(
+        message.contains("2 fine(s) have paid_amount > amount"),
+        "{message}"
+    );
+    assert!(message.contains("ids 7, 41"), "{message}");
+    assert!(
+        message.contains("see money_migration_rejects; fix these fines manually, then rerun"),
+        "{message}"
+    );
+    assert!(!message.contains("id 3"), "{message}");
+    tx.rollback().await.expect("rollback aborted migration");
+
+    let unchanged: bool =
+        sqlx::query_scalar("SELECT amount = 10.00 AND paid_amount = 15.00 FROM fines WHERE id = 7")
+            .fetch_one(&mut conn)
+            .await
+            .expect("violating fine still stored");
+    assert!(unchanged, "amounts must not be rewritten");
+    let rejects_left: bool =
+        sqlx::query_scalar("SELECT to_regclass('money_migration_rejects') IS NOT NULL")
+            .fetch_one(&mut conn)
+            .await
+            .expect("rejects relation");
+    assert!(
+        !rejects_left,
+        "the rejects insert rolls back with the migration"
+    );
+
+    sqlx::query("DROP SCHEMA money_cents_paid_cap CASCADE")
+        .execute(&mut conn)
+        .await
+        .expect("cleanup");
+}
+
+#[tokio::test]
+async fn migration_adds_paid_cap_when_every_fine_is_within_amount() {
+    let Some(mut conn) = scratch_connection("money_cents_paid_ok").await else {
+        return;
+    };
+    exec_statements(
+        &mut conn,
+        &minimal_money_schema(
+            "INSERT INTO fines (id, amount, paid_amount, refunded_amount) VALUES (1, 12.50, 0, 0), (2, 15.00, 15.00, 15.00)",
+        ),
+    )
+    .await
+    .expect("seed clean fines");
+
+    exec_statements(&mut conn, &money_migration_sql())
+        .await
+        .expect("clean fines migrate");
+
+    let fines: Vec<(i64, i64, i64)> =
+        sqlx::query_as("SELECT id, amount, paid_amount FROM fines ORDER BY id")
+            .fetch_all(&mut conn)
+            .await
+            .expect("fines");
+    assert_eq!(fines, vec![(1, 1250, 0), (2, 1500, 1500)]);
+    let paid_rejects: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM money_migration_rejects WHERE table_name = 'fines' AND column_name = 'paid_amount'",
+    )
+    .fetch_one(&mut conn)
+    .await
+    .expect("paid rejects");
+    assert_eq!(paid_rejects, 0);
+    let paid_cap: String = sqlx::query_scalar(
+        "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'fines_paid_amount_lte_amount'",
+    )
+    .fetch_one(&mut conn)
+    .await
+    .expect("paid cap");
+    assert!(paid_cap.contains("paid_amount <= amount"), "{paid_cap}");
+
+    sqlx::query("DROP SCHEMA money_cents_paid_ok CASCADE")
+        .execute(&mut conn)
+        .await
+        .expect("cleanup");
+}
+
 #[tokio::test]
 async fn migration_aborts_when_a_required_amount_is_not_exact_cents() {
     let Some(mut conn) = scratch_connection("money_cents_abort").await else {

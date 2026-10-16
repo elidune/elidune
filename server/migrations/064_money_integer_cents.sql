@@ -21,11 +21,14 @@
 --   INTEGER -> BIGINT only and is never multiplied by 100.
 --
 -- paid_amount <= amount is added as fines_paid_amount_lte_amount.
+--   After the cents conversion, any row with paid_amount > amount aborts the
+--   migration. The exception lists those fine ids (the rejects insert rolls
+--   back with it). Amounts are not rewritten. Fix the fines, then rerun.
 -- paid_amount + refunded_amount <= amount is NOT added. A collected charge
 --   that is later refunded keeps paid_amount and sets refunded_amount to the
 --   same collected sum, so the sum is larger than amount whenever something
---   was paid. Those rows are not migration rejects. The existing
---   refunded_amount <= paid_amount check stays.
+--   was paid. paid_amount = amount is not a violation. Those rows are not
+--   migration rejects. The existing refunded_amount <= paid_amount check stays.
 
 CREATE TABLE IF NOT EXISTS money_migration_rejects (
     id          BIGSERIAL PRIMARY KEY,
@@ -278,6 +281,49 @@ COMMENT ON COLUMN circulation_settings.unpaid_fine_threshold IS
 -- Existing >= 0 checks on fines, fine_rules, and both threshold columns are
 -- revalidated by the type change above. A refund keeps paid_amount, so
 -- paid_amount + refunded_amount <= amount is not added and is not a reject.
+-- paid_amount > amount is not corrected. The insert below is visible only if
+-- this statement committed; the migration transaction rolls it back with the
+-- exception, so the message carries the fine ids.
+DO $paid_cap$
+DECLARE
+    offenders bigint;
+    listed text;
+BEGIN
+    SELECT count(*) INTO offenders
+    FROM fines
+    WHERE paid_amount > amount;
+
+    IF offenders > 0 THEN
+        INSERT INTO money_migration_rejects (table_name, row_id, column_name, raw_value)
+        SELECT
+            'fines',
+            id,
+            'paid_amount',
+            format('paid_amount=%s amount=%s', paid_amount, amount)
+        FROM fines
+        WHERE paid_amount > amount;
+
+        SELECT string_agg(id::text, ', ' ORDER BY id) INTO listed
+        FROM (
+            SELECT id
+            FROM fines
+            WHERE paid_amount > amount
+            ORDER BY id
+            LIMIT 50
+        ) AS sample;
+
+        IF offenders > 50 THEN
+            listed := listed || format(' (first 50 of %s)', offenders);
+        END IF;
+
+        RAISE EXCEPTION
+            'money migration aborted: % fine(s) have paid_amount > amount (ids %). see money_migration_rejects; fix these fines manually, then rerun',
+            offenders,
+            listed;
+    END IF;
+END
+$paid_cap$;
+
 ALTER TABLE fines DROP CONSTRAINT IF EXISTS fines_paid_amount_lte_amount;
 ALTER TABLE fines
     ADD CONSTRAINT fines_paid_amount_lte_amount
