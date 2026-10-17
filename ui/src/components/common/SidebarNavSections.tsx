@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentType } from 'react';
+import { useState, type ComponentType } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { ChevronDown } from 'lucide-react';
@@ -67,6 +67,26 @@ function defaultExpandedSectionId(
   return sectionWithActiveItem(sections, location)?.id ?? sections[0]?.id ?? null;
 }
 
+/** Accordion target after compact mode, route, or section list changes. */
+function nextExpandedSectionId(
+  compactNav: boolean,
+  sections: SidebarNavSection[],
+  location: ReturnType<typeof useLocation>,
+  current: string | null,
+): string | null {
+  if (!compactNav) return null;
+  const activeSection = sectionWithActiveItem(sections, location);
+  if (activeSection) return activeSection.id;
+  if (current && sections.some((section) => section.id === current)) return current;
+  return sections[0]?.id ?? null;
+}
+
+function sectionsSyncKey(sections: SidebarNavSection[]): string {
+  return sections
+    .map((section) => `${section.id}:${section.items.map((item) => item.href).join(',')}`)
+    .join('|');
+}
+
 function sectionAccordionTitle(section: SidebarNavSection, t: (key: string) => string): string {
   return section.label ?? section.collapseLabel ?? t('nav.sectionUntitled');
 }
@@ -82,23 +102,22 @@ export default function SidebarNavSections({
   const [expandedSectionId, setExpandedSectionId] = useState<string | null>(() =>
     compactNav ? defaultExpandedSectionId(sections, location) : null,
   );
-
-  useEffect(() => {
-    if (!compactNav) {
-      setExpandedSectionId(null);
-      return;
-    }
-    const activeSection = sectionWithActiveItem(sections, location);
-    if (activeSection) {
-      setExpandedSectionId(activeSection.id);
-      return;
-    }
-    setExpandedSectionId((current) =>
-      current && sections.some((section) => section.id === current)
-        ? current
-        : (sections[0]?.id ?? null),
-    );
-  }, [compactNav, location.pathname, location.search, sections]);
+  const locationKey = `${location.pathname}${location.search}`;
+  const sectionKey = sectionsSyncKey(sections);
+  const [accordionSync, setAccordionSync] = useState({
+    compactNav,
+    locationKey,
+    sectionKey,
+  });
+  if (
+    accordionSync.compactNav !== compactNav ||
+    accordionSync.locationKey !== locationKey ||
+    accordionSync.sectionKey !== sectionKey
+  ) {
+    setAccordionSync({ compactNav, locationKey, sectionKey });
+    const next = nextExpandedSectionId(compactNav, sections, location, expandedSectionId);
+    if (next !== expandedSectionId) setExpandedSectionId(next);
+  }
 
   const toggleSection = (sectionId: string) => {
     setExpandedSectionId((prev) => (prev === sectionId ? null : sectionId));
