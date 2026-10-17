@@ -181,15 +181,16 @@ export default function LoansPage() {
   const canForceLoan = canForceLoans(authUser, api.getToken());
   const { showToast, dismissPersistentErrors } = useToast();
   const userIsAdmin = isAdmin(authUser?.accountType);
-  const [activeTab, setActiveTab] = useState<TabType>(() => {
-    const tab = searchParams.get('tab');
-    return isLoanTab(tab) ? tab : 'borrow';
-  });
-
-  useEffect(() => {
-    const tab = searchParams.get('tab');
-    if (isLoanTab(tab)) setActiveTab(tab);
-  }, [searchParams]);
+  const tabFromUrl = searchParams.get('tab');
+  const [activeTab, setActiveTab] = useState<TabType>(() =>
+    isLoanTab(tabFromUrl) ? tabFromUrl : 'borrow',
+  );
+  const loansSearch = searchParams.toString();
+  const [loansSearchSync, setLoansSearchSync] = useState(loansSearch);
+  if (loansSearch !== loansSearchSync) {
+    setLoansSearchSync(loansSearch);
+    if (isLoanTab(tabFromUrl)) setActiveTab(tabFromUrl);
+  }
   
   // Borrow section state
   const [selectedUser, setSelectedUser] = useState<UserType | null>(null);

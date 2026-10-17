@@ -403,15 +403,25 @@ export default function ProfilePage() {
                 wrapperClassName={FORM_FIELD_WIDTH.long}
               />
               <Input
+                id="profile-birthdate"
                 label={t('profile.birthdate')}
                 type="date"
                 value={profileData.birthdate}
-                onChange={(e) => setProfileData({ ...profileData, birthdate: e.target.value })}
+                readOnly
+                hint={t('profile.birthDateDeskHint')}
+                error={birthDateError}
                 leftIcon={<Calendar className="h-4 w-4" />}
-                readOnly={contactOnly}
                 autoComplete="bday"
                 wrapperClassName={FORM_FIELD_WIDTH.short}
               />
+              {isReaderAccount(user?.accountType) ? (
+                <ReaderPublicTypeReadout
+                  id="profile-public-type"
+                  publicTypes={publicTypes}
+                  publicType={user?.publicType}
+                  birthDateMissing={user?.birthDateMissing === true}
+                />
+              ) : null}
               {cardNumber ? (
                 <Input
                   label={t('profile.barcode')}
