@@ -1036,7 +1036,7 @@ export default function UserDetailPage() {
             </Button>
           )}
           <Button variant="danger" onClick={() => setShowDeleteModal(true)} leftIcon={<Trash2 className="h-4 w-4" />}>
-            {t('users.anonymize')}
+            {t('common.delete')}
           </Button>
         </div>
       </div>
@@ -1377,7 +1377,7 @@ export default function UserDetailPage() {
                 .filter(Boolean)
                 .join('\n\n')
         }
-        confirmLabel={deleteUserActiveLoansError ? t('users.forceDelete') : t('users.anonymize')}
+        confirmLabel={deleteUserActiveLoansError ? t('users.forceDelete') : t('common.delete')}
         confirmVariant="danger"
         isLoading={deleteUserLoading}
       />

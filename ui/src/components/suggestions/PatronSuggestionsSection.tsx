@@ -1,15 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Lightbulb } from 'lucide-react';
-import { Button, Card, CardHeader, Input, ListSkeleton, QueryErrorBanner } from '@/components/common';
+import { Button, Card, Input, ListSkeleton, QueryErrorBanner } from '@/components/common';
 import SuggestionStatusBadge from '@/components/acquisitions/SuggestionStatusBadge';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import { PURCHASE_SUGGESTIONS_KEY } from '@/hooks/acquisitions/queryKeys';
 import { useSuggestionsQuery } from '@/hooks/acquisitions/useSuggestionsQuery';
 import api from '@/services/api';
-import type { PurchaseSuggestion } from '@/types';
+import { canViewAcquisitions, type PurchaseSuggestion } from '@/types';
 import { formLabelClass, formTextareaClass } from '@/utils/formControl';
 import { getApiErrorMessage } from '@/utils/apiError';
 
@@ -27,13 +27,10 @@ export default function PatronSuggestionsSection() {
   const [formError, setFormError] = useState<string | null>(null);
 
   const query = useSuggestionsQuery({ page: 1, perPage: PER_PAGE });
-  const mine = (query.data?.suggestions ?? []).filter((row) => row.proposedBy === user?.id);
-
-  useEffect(() => {
-    if (window.location.hash === '#suggestions') {
-      document.getElementById('suggestions')?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, []);
+  const suggestions = query.data?.suggestions ?? [];
+  const mine = canViewAcquisitions(user, api.getToken())
+    ? suggestions.filter((row) => String(row.proposedBy) === String(user?.id))
+    : suggestions;
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -68,14 +65,8 @@ export default function PatronSuggestionsSection() {
   };
 
   return (
-    <div id="suggestions">
     <Card>
-      <CardHeader
-        title={t('acquisitions.suggestions.patronTitle')}
-        subtitle={t('acquisitions.suggestions.patronSubtitle')}
-      />
-
-      <form onSubmit={handleSubmit} className="mt-4 space-y-3">
+      <form onSubmit={handleSubmit} className="space-y-3">
         <Input
           label={t('acquisitions.suggestions.formTitle')}
           value={title}
@@ -152,6 +143,5 @@ export default function PatronSuggestionsSection() {
         )}
       </div>
     </Card>
-    </div>
   );
 }

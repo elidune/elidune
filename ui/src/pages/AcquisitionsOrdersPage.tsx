@@ -15,7 +15,6 @@ import {
   SearchInput,
   Table,
 } from '@/components/common';
-import AcquisitionsSubnav from '@/components/acquisitions/AcquisitionsSubnav';
 import OrderStatusBadge from '@/components/acquisitions/OrderStatusBadge';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
@@ -35,7 +34,7 @@ import { getApiErrorMessage } from '@/utils/apiError';
 
 const PER_PAGE = 20;
 
-export default function AcquisitionsOrdersPage() {
+export function AcquisitionsOrdersPanel() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -100,7 +99,7 @@ export default function AcquisitionsOrdersPage() {
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('acquisitions.orders.title')}</h1>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t('acquisitions.orders.title')}</h2>
           <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">{t('acquisitions.orders.subtitle')}</p>
         </div>
         {canWrite ? (
@@ -109,7 +108,6 @@ export default function AcquisitionsOrdersPage() {
           </Button>
         ) : null}
       </div>
-      <AcquisitionsSubnav />
 
       <Card className="overflow-hidden">
         <div className="grid gap-3 p-4 md:grid-cols-4">

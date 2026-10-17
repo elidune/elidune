@@ -24,8 +24,7 @@ import {
   ListChecks,
   Truck,
   ShoppingCart,
-  Store,
-  Wallet,
+  Lightbulb,
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import Button from './Button';
@@ -89,10 +88,8 @@ export default function Layout({ children }: LayoutProps) {
   })[] = [
     {
       id: 'top',
-      items: [
-        { name: t('nav.home'), href: '/home', icon: Home, show: true },
-        { name: t('nav.catalog'), href: '/catalog', icon: BookOpen, show: !access.internalCatalog },
-      ],
+      collapseLabel: t('nav.sectionGeneral'),
+      items: [{ name: t('nav.catalog'), href: '/catalog', icon: BookOpen, show: !access.internalCatalog }],
     },
     {
       id: 'circulation',
@@ -111,18 +108,15 @@ export default function Layout({ children }: LayoutProps) {
       items: [
         { name: t('nav.catalog'), href: '/biblios', icon: BookOpen, show: access.internalCatalog },
         { name: t('nav.inventory'), href: '/inventory', icon: ClipboardList, show: access.itemsWrite },
+        {
+          name: t('nav.sectionAcquisitions'),
+          href: '/acquisitions',
+          icon: ShoppingCart,
+          show: showAcquisitions,
+        },
         { name: t('nav.weeding'), href: '/weeding', icon: Leaf, show: showWeeding },
         { name: t('nav.z3950Search'), href: '/z3950', icon: Globe, show: access.itemsWrite },
         { name: t('nav.importIso'), href: '/import-iso', icon: Upload, show: access.itemsWrite },
-      ],
-    },
-    {
-      id: 'acquisitions',
-      label: t('nav.sectionAcquisitions'),
-      items: [
-        { name: t('nav.orders'), href: '/acquisitions/orders', icon: ShoppingCart, show: showAcquisitions },
-        { name: t('nav.vendors'), href: '/acquisitions/vendors', icon: Store, show: showAcquisitions },
-        { name: t('nav.funds'), href: '/acquisitions/funds', icon: Wallet, show: showAcquisitions },
       ],
     },
     {
@@ -137,10 +131,17 @@ export default function Layout({ children }: LayoutProps) {
           show: canPatronSelfServiceHolds(user, api.getToken()),
         },
         { name: t('nav.events'), href: '/events', icon: CalendarDays, show: true },
+        {
+          name: t('nav.suggestions'),
+          href: '/my-suggestions',
+          icon: Lightbulb,
+          show: true,
+        },
       ],
     },
     {
       id: 'admin',
+      collapseLabel: t('nav.sectionAdmin'),
       items: [
         { name: t('nav.stats'), href: '/stats', icon: BarChart3, show: access.stats },
         {
@@ -211,6 +212,9 @@ export default function Layout({ children }: LayoutProps) {
           {/* Navigation */}
           <nav aria-label={t('nav.main')} className="flex-1 px-3 py-4 space-y-4 overflow-y-auto">
             <SidebarNavSections
+              pinnedItems={[
+                { name: t('nav.home'), href: '/home', icon: Home },
+              ]}
               sections={navSections}
               onNavigate={() => setSidebarOpen(false)}
             />

@@ -86,7 +86,7 @@
     "privacy": "Privacy",
     "tasks": "Tasks",
     "sectionCirculation": "Circulation",
-    "sectionCataloging": "Cataloging",
+    "sectionCataloging": "Collection management",
     "sectionPatron": "Reader",
     "language": "Language",
     "main": "Main navigation",
@@ -98,7 +98,10 @@
     "suggestions": "Purchase suggestions",
     "weeding": "Weeding",
     "showMore": "Show {{count}} more",
-    "showLess": "Show less"
+    "showLess": "Show less",
+    "sectionGeneral": "General",
+    "sectionAdmin": "Administration",
+    "sectionUntitled": "Menu"
   },
   "theme": {
     "light": "Light",
@@ -114,9 +117,12 @@
     "noContact": "No contact",
     "noSchedule": "No schedule",
     "welcome": "welcome",
+    "greetingNamed": "Welcome, {{name}}",
+    "greetingAnonymous": "Welcome",
     "upcomingEvents": "Upcoming events",
     "upcomingEventsSubtitle": "Library programme and flyers",
-    "statsLoadError": "Could not load library statistics."
+    "statsLoadError": "Could not load library statistics.",
+    "openSection": "Open {{section}}"
   },
   "library": {
     "general": {
@@ -972,10 +978,9 @@
     },
     "holdsTab": "Holds",
     "loanStatistics": "Loan statistics",
-    "anonymize": "Anonymize for stats",
-    "forceDelete": "Anonymize anyway",
-    "activeLoansForceDelete": "This patron still has active loans. Anonymizing anyway cannot be undone. Identity will be removed; aggregated statistics are kept. Confirm?",
-    "deleteConfirm": "Anonymize {{name}} for statistics? Identity (name, contact details, card number) will be removed. Aggregated loan statistics are kept. This cannot be undone.",
+    "forceDelete": "Delete anyway",
+    "activeLoansForceDelete": "This patron still has active loans. Delete anyway? The account will be anonymized: identity (name, contact details, card number) will be erased, but aggregated loan statistics are kept. This cannot be undone.",
+    "deleteConfirm": "Delete reader {{name}}? This cannot be undone. The account will be anonymized: identity (name, contact details, card number) will be erased, but aggregated loan statistics are kept.",
     "hasLoansWarning": "This user still has {{count}} active loan(s).",
     "loans": "Loans",
     "newUser": "New reader",
@@ -2543,6 +2548,7 @@
     "es": "Spanish"
   },
   "acquisitions": {
+    "pageSubtitle": "Orders, vendors, funds, and purchase suggestions.",
     "sectionNav": "Acquisitions sections",
     "updatedAt": "Updated",
     "vendors": {

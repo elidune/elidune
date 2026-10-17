@@ -13,7 +13,6 @@ import {
   ResponsiveRecordList,
   Table,
 } from '@/components/common';
-import AcquisitionsSubnav from '@/components/acquisitions/AcquisitionsSubnav';
 import SuggestionStatusBadge from '@/components/acquisitions/SuggestionStatusBadge';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
@@ -29,7 +28,7 @@ const PER_PAGE = 20;
 
 type ReviewAction = 'accept' | 'refuse';
 
-export default function AcquisitionsSuggestionsPage() {
+export function AcquisitionsSuggestionsPanel() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -94,16 +93,14 @@ export default function AcquisitionsSuggestionsPage() {
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
           {t('acquisitions.suggestions.title')}
-        </h1>
+        </h2>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           {t('acquisitions.suggestions.subtitle')}
         </p>
+        <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">{t('acquisitions.suggestions.staffHelp')}</p>
       </div>
-      <AcquisitionsSubnav />
-
-      <p className="text-sm text-gray-600 dark:text-gray-400">{t('acquisitions.suggestions.staffHelp')}</p>
 
       <Card className="overflow-hidden">
         <div className="grid gap-3 p-4 md:grid-cols-4">

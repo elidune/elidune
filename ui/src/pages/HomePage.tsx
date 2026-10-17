@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
@@ -42,25 +42,41 @@ export default function HomePage() {
   const myLoansSorted = useMemo(() => sortLoansByStartDateAsc(myLoans), [myLoans]);
   const overdueLoans = myLoans.filter((loan) => loan.isOverdue);
 
+  const greetingName =
+    [user?.firstname, user?.lastname].filter(Boolean).join(' ').trim() || user?.username?.trim() || '';
+
   return (
     <div className="flex flex-col gap-6 min-h-full">
       {/* Welcome section */}
-      <div className="relative overflow-hidden rounded-2xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 p-7 sm:p-10">
+      <div className="relative overflow-hidden rounded-2xl border border-gray-200/80 dark:border-gray-800 bg-gradient-to-br from-white via-amber-50/40 to-white dark:from-gray-900 dark:via-amber-950/25 dark:to-gray-900 p-7 sm:p-10 shadow-sm">
         <img
           src="/elidune_logo.png"
           alt=""
           aria-hidden="true"
           className="absolute -right-6 -top-4 h-56 w-56 sm:h-64 sm:w-64 object-contain opacity-[0.07] dark:opacity-[0.05] select-none pointer-events-none"
         />
-        <div className="relative">
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white mb-1">
-            {libraryName
-              ? `${libraryName}, ${t('home.welcome')} ${[user?.firstname, user?.lastname].filter(Boolean).join(' ')}`
-              : `${t('nav.home')}, ${user?.firstname || user?.username}`}
+        <div className="relative min-w-0 max-w-3xl pr-4 sm:pr-28">
+          <h1 className="space-y-1 sm:space-y-2">
+            {libraryName ? (
+              <span className="block text-2xl sm:text-3xl lg:text-[2rem] font-bold leading-tight tracking-tight text-gray-900 dark:text-white">
+                {libraryName}
+              </span>
+            ) : null}
+            <span
+              className={`block font-semibold leading-snug text-gray-700 dark:text-gray-300 ${
+                libraryName ? 'text-lg sm:text-xl' : 'text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white'
+              }`}
+            >
+              {greetingName ? (
+                <>
+                  <span className="capitalize">{t('home.welcome')}</span>{' '}
+                  <span className="text-amber-800 dark:text-amber-300">{greetingName}</span>
+                </>
+              ) : (
+                t('home.greetingAnonymous')
+              )}
+            </span>
           </h1>
-          <p className="text-gray-500 dark:text-gray-400">
-            {t('auth.loginSubtitle')}
-          </p>
         </div>
       </div>
 
@@ -91,59 +107,67 @@ export default function HomePage() {
             label={t('stats.documents')}
             value={stats.biblios?.total ?? 0}
             color="gray"
+            to={access.internalCatalog ? '/biblios' : undefined}
+            ariaLabel={t('home.openSection', { section: t('nav.catalog') })}
           />
           <StatCard
             icon={Users}
             label={t('stats.activeUsers')}
             value={stats.users?.active ?? 0}
             color="emerald"
+            to={access.usersRead ? '/users' : undefined}
+            ariaLabel={t('home.openSection', { section: t('nav.users') })}
           />
           <StatCard
             icon={BookMarked}
             label={t('stats.activeLoans')}
             value={stats.loans?.active ?? 0}
             color="amber"
+            to={access.loansRead ? '/loans' : undefined}
+            ariaLabel={t('home.openSection', { section: t('nav.loans') })}
           />
           <StatCard
             icon={TrendingUp}
             label={t('stats.overdue')}
             value={stats.loans?.overdue ?? 0}
             color="red"
+            to={access.loansRead ? '/loans?tab=overdue' : undefined}
+            ariaLabel={t('home.openSection', { section: t('stats.overdue') })}
           />
         </div>
       )}
 
-      <Card>
+      <HomeLinkCard
+        to="/my-suggestions"
+        ariaLabel={t('home.openSection', { section: t('acquisitions.suggestions.patronTitle') })}
+      >
         <CardHeader
           title={t('acquisitions.suggestions.patronTitle')}
           subtitle={t('acquisitions.suggestions.homeHelp')}
           action={
-            <Link
-              to="/profile?tab=suggestions"
-              className="text-sm text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1"
-            >
+            <span className="text-sm text-amber-600 dark:text-amber-400 flex items-center gap-1" aria-hidden>
               {t('common.view')} <ArrowRight className="h-4 w-4" />
-            </Link>
+            </span>
           }
         />
         <div className="flex items-start gap-3 text-sm text-gray-600 dark:text-gray-400">
           <Lightbulb className="h-5 w-5 shrink-0 text-amber-600" />
           <p>{t('acquisitions.suggestions.patronSubtitle')}</p>
         </div>
-      </Card>
+      </HomeLinkCard>
 
       {/* My loans */}
-      <Card>
+      <HomeLinkCard
+        to="/my-loans"
+        ariaLabel={t('home.openSection', { section: t('loans.myLoans') })}
+      >
         <CardHeader
           title={t('loans.myLoans')}
           subtitle={t('loans.count', { count: myLoans.length })}
           action={
-            <Link
-              to="/my-loans"
-              className="text-sm text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1"
-            >
+            <span className="text-sm text-amber-600 dark:text-amber-400 flex items-center gap-1" aria-hidden>
               {t('common.view')} <ArrowRight className="h-4 w-4" />
-            </Link>
+            </span>
           }
         />
 
@@ -186,7 +210,7 @@ export default function HomePage() {
             ))}
           </div>
         )}
-      </Card>
+      </HomeLinkCard>
 
       {/* Library info — fills remaining space */}
       <div className="flex-1 flex flex-col">
@@ -205,9 +229,11 @@ interface StatCardProps {
   label: string;
   value: number;
   color: 'gray' | 'emerald' | 'amber' | 'red';
+  to?: string;
+  ariaLabel?: string;
 }
 
-function StatCard({ icon: Icon, label, value, color }: StatCardProps) {
+function StatCard({ icon: Icon, label, value, color, to, ariaLabel }: StatCardProps) {
   const colors = {
     gray: 'bg-gray-100 text-gray-700 dark:bg-gray-800/50 dark:text-gray-300',
     emerald: 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400',
@@ -215,20 +241,46 @@ function StatCard({ icon: Icon, label, value, color }: StatCardProps) {
     red: 'bg-red-50 text-red-600 dark:bg-red-900/30 dark:text-red-400',
   };
 
-  return (
-    <Card>
-      <div className="flex items-center gap-4">
-        <div className={`flex-shrink-0 h-12 w-12 rounded-xl flex items-center justify-center ${colors[color]}`}>
-          <Icon className="h-6 w-6" />
-        </div>
-        <div>
-          <p className="text-2xl font-bold text-gray-900 dark:text-white">
-            {value.toLocaleString()}
-          </p>
-          <p className="text-sm text-gray-500 dark:text-gray-400">{label}</p>
-        </div>
+  const body = (
+    <div className="flex items-center gap-4">
+      <div className={`flex-shrink-0 h-12 w-12 rounded-xl flex items-center justify-center ${colors[color]}`}>
+        <Icon className="h-6 w-6" />
       </div>
-    </Card>
+      <div>
+        <p className="text-2xl font-bold text-gray-900 dark:text-white">{value.toLocaleString()}</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400">{label}</p>
+      </div>
+    </div>
+  );
+
+  if (!to) {
+    return <Card>{body}</Card>;
+  }
+
+  return (
+    <HomeLinkCard to={to} ariaLabel={ariaLabel ?? label}>
+      {body}
+    </HomeLinkCard>
+  );
+}
+
+type HomeLinkCardProps = {
+  to: string;
+  ariaLabel: string;
+  children: ReactNode;
+};
+
+function HomeLinkCard({ to, ariaLabel, children }: HomeLinkCardProps) {
+  return (
+    <Link
+      to={to}
+      aria-label={ariaLabel}
+      className="group block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-950"
+    >
+      <Card className="h-full cursor-pointer transition-shadow group-hover:border-amber-200 group-hover:shadow-md dark:group-hover:border-amber-800/60">
+        {children}
+      </Card>
+    </Link>
   );
 }
 

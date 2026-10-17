@@ -1,13 +1,9 @@
-import { useState, type ComponentType } from 'react';
+import { useEffect, useState, type ComponentType } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ChevronDown, ChevronUp } from 'lucide-react';
+import { ChevronDown } from 'lucide-react';
 import { useMatchMedia } from '@/hooks/common/useMatchMedia';
-import {
-  SIDEBAR_NAV_COMPACT_MEDIA,
-  isSidebarNavItemActive,
-  navSectionCollapsedVisibleCount,
-} from '@/utils/sidebarNav';
+import { SIDEBAR_NAV_COMPACT_MEDIA, isSidebarNavItemActive } from '@/utils/sidebarNav';
 
 export type SidebarNavItem = {
   name: string;
@@ -18,88 +14,164 @@ export type SidebarNavItem = {
 export type SidebarNavSection = {
   id: string;
   label?: string;
+  /** Accordion title on compact nav when there is no visible section `label`. */
+  collapseLabel?: string;
   items: SidebarNavItem[];
 };
 
 type SidebarNavSectionsProps = {
+  /** Always visible (e.g. Home), outside accordion sections. */
+  pinnedItems?: SidebarNavItem[];
   sections: SidebarNavSection[];
   onNavigate?: () => void;
 };
 
-export default function SidebarNavSections({ sections, onNavigate }: SidebarNavSectionsProps) {
+function NavItemLink({
+  item,
+  isActive,
+  onNavigate,
+}: {
+  item: SidebarNavItem;
+  isActive: boolean;
+  onNavigate?: () => void;
+}) {
+  return (
+    <Link
+      to={item.href}
+      onClick={onNavigate}
+      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+        isActive
+          ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+          : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
+      }`}
+    >
+      <item.icon className="h-5 w-5 shrink-0" aria-hidden="true" />
+      {item.name}
+    </Link>
+  );
+}
+
+function sectionWithActiveItem(
+  sections: SidebarNavSection[],
+  location: ReturnType<typeof useLocation>,
+): SidebarNavSection | undefined {
+  return sections.find((section) =>
+    section.items.some((item) => isSidebarNavItemActive(item.href, location)),
+  );
+}
+
+function defaultExpandedSectionId(
+  sections: SidebarNavSection[],
+  location: ReturnType<typeof useLocation>,
+): string | null {
+  return sectionWithActiveItem(sections, location)?.id ?? sections[0]?.id ?? null;
+}
+
+function sectionAccordionTitle(section: SidebarNavSection, t: (key: string) => string): string {
+  return section.label ?? section.collapseLabel ?? t('nav.sectionUntitled');
+}
+
+export default function SidebarNavSections({
+  pinnedItems = [],
+  sections,
+  onNavigate,
+}: SidebarNavSectionsProps) {
   const { t } = useTranslation();
   const location = useLocation();
   const compactNav = useMatchMedia(SIDEBAR_NAV_COMPACT_MEDIA);
-  const [expandedSectionIds, setExpandedSectionIds] = useState<Set<string>>(() => new Set());
+  const [expandedSectionId, setExpandedSectionId] = useState<string | null>(() =>
+    compactNav ? defaultExpandedSectionId(sections, location) : null,
+  );
+
+  useEffect(() => {
+    if (!compactNav) {
+      setExpandedSectionId(null);
+      return;
+    }
+    const activeSection = sectionWithActiveItem(sections, location);
+    if (activeSection) {
+      setExpandedSectionId(activeSection.id);
+      return;
+    }
+    setExpandedSectionId((current) =>
+      current && sections.some((section) => section.id === current)
+        ? current
+        : (sections[0]?.id ?? null),
+    );
+  }, [compactNav, location.pathname, location.search, sections]);
 
   const toggleSection = (sectionId: string) => {
-    setExpandedSectionIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(sectionId)) next.delete(sectionId);
-      else next.add(sectionId);
-      return next;
-    });
+    setExpandedSectionId((prev) => (prev === sectionId ? null : sectionId));
   };
 
   return (
     <>
+      {pinnedItems.length > 0 && (
+        <div className="space-y-1 pb-1">
+          {pinnedItems.map((item) => (
+            <NavItemLink
+              key={item.href}
+              item={item}
+              isActive={isSidebarNavItemActive(item.href, location)}
+              onNavigate={onNavigate}
+            />
+          ))}
+        </div>
+      )}
       {sections.map((section) => {
-        const expanded = !compactNav || expandedSectionIds.has(section.id);
-        const collapsedVisible = navSectionCollapsedVisibleCount(section.items.length);
-        const visibleItems = expanded
-          ? section.items
-          : section.items.filter(
-              (item, index) =>
-                index < collapsedVisible || isSidebarNavItemActive(item.href, location),
-            );
-        const hiddenCount = expanded ? 0 : section.items.length - visibleItems.length;
+        const sectionExpanded = !compactNav || expandedSectionId === section.id;
+        const accordionTitle = sectionAccordionTitle(section, t);
+        const showStaticLabel = !compactNav && section.label;
+        const showAccordionHeader = compactNav;
 
         return (
           <div key={section.id} className="space-y-1">
-            {section.label && (
+            {showAccordionHeader && (
+              <button
+                type="button"
+                id={`nav-section-trigger-${section.id}`}
+                aria-expanded={sectionExpanded}
+                aria-controls={`nav-section-panel-${section.id}`}
+                onClick={() => toggleSection(section.id)}
+                aria-label={
+                  sectionExpanded
+                    ? `${t('common.collapseSection')}: ${accordionTitle}`
+                    : `${t('common.expandSection')}: ${accordionTitle}`
+                }
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left transition-colors hover:bg-gray-100 dark:hover:bg-gray-800"
+              >
+                <ChevronDown
+                  className={`h-4 w-4 shrink-0 text-gray-500 transition-transform duration-200 dark:text-gray-400 ${
+                    sectionExpanded ? 'rotate-0' : '-rotate-90'
+                  }`}
+                  aria-hidden="true"
+                />
+                <span className="flex-1 text-[11px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                  {accordionTitle}
+                </span>
+              </button>
+            )}
+            {showStaticLabel && (
               <p className="px-3 pt-1 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">
                 {section.label}
               </p>
             )}
-            {visibleItems.map((item) => {
-              const isActive = isSidebarNavItemActive(item.href, location);
-              return (
-                <Link
-                  key={item.href}
-                  to={item.href}
-                  onClick={onNavigate}
-                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                    isActive
-                      ? 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                      : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'
-                  }`}
-                >
-                  <item.icon className="h-5 w-5" />
-                  {item.name}
-                </Link>
-              );
-            })}
-            {compactNav && hiddenCount > 0 && (
-              <button
-                type="button"
-                onClick={() => toggleSection(section.id)}
-                aria-expanded={false}
-                className="flex w-full items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
+            {sectionExpanded && (
+              <div
+                id={`nav-section-panel-${section.id}`}
+                role={compactNav ? 'region' : undefined}
+                aria-labelledby={compactNav ? `nav-section-trigger-${section.id}` : undefined}
+                className={`space-y-1 ${compactNav ? 'pb-1 pl-1' : ''}`}
               >
-                <ChevronDown className="h-4 w-4 shrink-0" aria-hidden="true" />
-                {t('nav.showMore', { count: hiddenCount })}
-              </button>
-            )}
-            {compactNav && expanded && section.items.length > collapsedVisible && (
-              <button
-                type="button"
-                onClick={() => toggleSection(section.id)}
-                aria-expanded={true}
-                className="flex w-full items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
-              >
-                <ChevronUp className="h-4 w-4 shrink-0" aria-hidden="true" />
-                {t('nav.showLess')}
-              </button>
+                {section.items.map((item) => (
+                  <NavItemLink
+                    key={item.href}
+                    item={item}
+                    isActive={isSidebarNavItemActive(item.href, location)}
+                    onNavigate={onNavigate}
+                  />
+                ))}
+              </div>
             )}
           </div>
         );

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import {
@@ -113,6 +114,13 @@ import {
 } from '@/utils/loanListAccess';
 
 type TabType = 'borrow' | 'return' | 'overdue' | 'claims';
+
+const LOAN_TAB_IDS: TabType[] = ['borrow', 'return', 'overdue', 'claims'];
+
+function isLoanTab(value: string | null): value is TabType {
+  return value != null && LOAN_TAB_IDS.includes(value as TabType);
+}
+
 type LostFoundSummary = {
   title: string | null;
   barcode: string | null;
@@ -167,12 +175,21 @@ function daysPastDue(expiryAt: string | null): number {
 
 export default function LoansPage() {
   const { t, i18n } = useTranslation();
+  const [searchParams] = useSearchParams();
   const { user: authUser } = useAuth();
   const canReadBorrowers = canReadUsers(authUser, api.getToken());
   const canForceLoan = canForceLoans(authUser, api.getToken());
   const { showToast, dismissPersistentErrors } = useToast();
   const userIsAdmin = isAdmin(authUser?.accountType);
-  const [activeTab, setActiveTab] = useState<TabType>('borrow');
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    const tab = searchParams.get('tab');
+    return isLoanTab(tab) ? tab : 'borrow';
+  });
+
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (isLoanTab(tab)) setActiveTab(tab);
+  }, [searchParams]);
   
   // Borrow section state
   const [selectedUser, setSelectedUser] = useState<UserType | null>(null);

@@ -86,7 +86,7 @@
     "about": "À propos",
     "privacy": "Confidentialité",
     "sectionCirculation": "Circulation",
-    "sectionCataloging": "Catalogage",
+    "sectionCataloging": "Gestion des fonds",
     "sectionPatron": "Lecteur",
     "language": "Langue",
     "main": "Navigation principale",
@@ -98,7 +98,10 @@
     "suggestions": "Suggestions d’achat",
     "weeding": "Désherbage",
     "showMore": "Afficher {{count}} de plus",
-    "showLess": "Afficher moins"
+    "showLess": "Afficher moins",
+    "sectionGeneral": "Général",
+    "sectionAdmin": "Administration",
+    "sectionUntitled": "Menu"
   },
   "theme": {
     "light": "Clair",
@@ -114,9 +117,12 @@
     "noContact": "Aucun contact renseigné",
     "noSchedule": "Aucun horaire disponible",
     "welcome": "bienvenue",
+    "greetingNamed": "Bienvenue, {{name}}",
+    "greetingAnonymous": "Bienvenue",
     "upcomingEvents": "Prochains événements",
     "upcomingEventsSubtitle": "Affiche et flyer de la bibliothèque",
-    "statsLoadError": "Impossible de charger les statistiques."
+    "statsLoadError": "Impossible de charger les statistiques.",
+    "openSection": "Ouvrir {{section}}"
   },
   "library": {
     "general": {
@@ -977,10 +983,9 @@
     },
     "holdsTab": "Réservations",
     "loanStatistics": "Statistiques d'emprunts",
-    "anonymize": "Anonymiser pour les stats",
-    "forceDelete": "Anonymiser quand même",
-    "activeLoansForceDelete": "Ce lecteur a encore des emprunts en cours. Anonymiser quand même est irréversible. L’identité sera supprimée ; les statistiques agrégées sont conservées. Confirmer ?",
-    "deleteConfirm": "Anonymiser {{name}} pour les statistiques ? L’identité (nom, coordonnées, n° de carte) sera supprimée. Les statistiques d’emprunts agrégées sont conservées. Cette action est irréversible.",
+    "forceDelete": "Supprimer quand même",
+    "activeLoansForceDelete": "Ce lecteur a encore des emprunts en cours. Supprimer quand même ? Le compte sera anonymisé : l’identité (nom, coordonnées, n° de carte) sera effacée, mais les statistiques d’emprunts agrégées sont conservées. Cette action est irréversible.",
+    "deleteConfirm": "Supprimer le lecteur {{name}} ? Cette action est irréversible. Le compte sera anonymisé : l’identité (nom, coordonnées, n° de carte) sera effacée, mais les statistiques d’emprunts agrégées sont conservées.",
     "hasLoansWarning": "Ce lecteur a encore {{count}} emprunt(s) en cours.",
     "loans": "Emprunts",
     "newUser": "Nouveau lecteur",
@@ -2543,6 +2548,7 @@
     "es": "Espagnol"
   },
   "acquisitions": {
+    "pageSubtitle": "Commandes, fournisseurs, budgets et suggestions d’achat.",
     "sectionNav": "Sections acquisitions",
     "updatedAt": "Mise à jour",
     "vendors": {

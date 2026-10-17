@@ -258,8 +258,8 @@ export default function UsersPage() {
             <button
               type="button"
               className={LIST_ROW_ICON_BTN_DANGER}
-              title={t('users.anonymize')}
-              aria-label={t('users.anonymize')}
+              title={t('common.delete')}
+              aria-label={t('common.delete')}
               onClick={() => openDeleteModal(user)}
             >
               <Trash2 className="h-4 w-4" aria-hidden />
@@ -372,7 +372,7 @@ export default function UsersPage() {
                           onDelete={() => openDeleteModal(user)}
                           onRenew={() => openRenewModal(user)}
                           editLabel={t('common.edit')}
-                          deleteLabel={t('users.anonymize')}
+                          deleteLabel={t('common.delete')}
                           renewLabel={t('users.renewSubscription')}
                           actionsAriaLabel={t('common.actions')}
                         />
@@ -412,7 +412,7 @@ export default function UsersPage() {
                 name: `${deleteModalUser?.firstname ?? ''} ${deleteModalUser?.lastname ?? ''}`.trim() || '—',
               })
         }
-        confirmLabel={deleteUserForce ? t('users.forceDelete') : t('users.anonymize')}
+        confirmLabel={deleteUserForce ? t('users.forceDelete') : t('common.delete')}
         confirmVariant="danger"
         isLoading={deleteUserLoading}
         error={deleteUserError}

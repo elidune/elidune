@@ -1,7 +1,7 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { useLocation, useSearchParams } from 'react-router-dom';
+import { Navigate, useLocation, useSearchParams } from 'react-router-dom';
 import {
   User,
   Mail,
@@ -22,12 +22,10 @@ import {
   Copy,
   Check,
   Palette,
-  ShoppingBag,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Card, CardHeader, Button, Input, Modal } from '@/components/common';
 import ThemeSwitcher from '@/components/common/ThemeSwitcher';
-import PatronSuggestionsSection from '@/components/suggestions/PatronSuggestionsSection';
 import EventsConsentFields from '@/components/users/EventsConsentFields';
 import ReaderPublicTypeReadout from '@/components/users/ReaderPublicTypeReadout';
 import { useAuth } from '@/contexts/AuthContext';
@@ -50,7 +48,7 @@ import {
   FORM_FIELD_WIDTH,
 } from '@/utils/formLayout';
 
-const PROFILE_TAB_IDS = ['personal', 'preferences', 'security', 'suggestions'] as const;
+const PROFILE_TAB_IDS = ['personal', 'preferences', 'security'] as const;
 type ProfileTab = (typeof PROFILE_TAB_IDS)[number];
 
 function isProfileTab(value: string | null): value is ProfileTab {
@@ -138,19 +136,6 @@ export default function ProfilePage() {
     );
   };
 
-  useEffect(() => {
-    if (location.hash !== '#suggestions') return;
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev);
-        next.set('tab', 'suggestions');
-        return next;
-      },
-      { replace: true },
-    );
-    window.history.replaceState(null, '', `${location.pathname}?tab=suggestions`);
-  }, [location.hash, location.pathname, setSearchParams]);
-
   const profileTabs: { id: ProfileTab; label: string; icon: ReactNode }[] = [
     { id: 'personal', label: t('profile.tabs.personal'), icon: <User className="h-5 w-5" aria-hidden /> },
     {
@@ -159,11 +144,6 @@ export default function ProfilePage() {
       icon: <Palette className="h-5 w-5" aria-hidden />,
     },
     { id: 'security', label: t('profile.tabs.security'), icon: <Shield className="h-5 w-5" aria-hidden /> },
-    {
-      id: 'suggestions',
-      label: t('profile.tabs.suggestions'),
-      icon: <ShoppingBag className="h-5 w-5" aria-hidden />,
-    },
   ];
 
   const [prevProfileUser, setPrevProfileUser] = useState(user);
@@ -312,6 +292,10 @@ export default function ProfilePage() {
     setTwoFAError('');
     setCopiedRecoveryCodes(false);
   };
+
+  if (tabParam === 'suggestions' || location.hash === '#suggestions') {
+    return <Navigate to="/my-suggestions" replace />;
+  }
 
   return (
     <div className={APP_PAGE_CLASS}>
@@ -755,16 +739,6 @@ export default function ProfilePage() {
         </div>
       </Card>
       </div>
-      )}
-
-      {activeTab === 'suggestions' && (
-        <div
-          role="tabpanel"
-          id="profile-panel-suggestions"
-          aria-labelledby="profile-tab-suggestions"
-        >
-          <PatronSuggestionsSection />
-        </div>
       )}
 
       <Modal

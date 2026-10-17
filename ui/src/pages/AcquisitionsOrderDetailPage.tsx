@@ -13,7 +13,6 @@ import {
   QueryErrorBanner,
   Table,
 } from '@/components/common';
-import AcquisitionsSubnav from '@/components/acquisitions/AcquisitionsSubnav';
 import OrderAuditPanel from '@/components/acquisitions/OrderAuditPanel';
 import OrderLineEditor from '@/components/acquisitions/OrderLineEditor';
 import OrderStatusBadge from '@/components/acquisitions/OrderStatusBadge';
@@ -207,7 +206,6 @@ export default function AcquisitionsOrderDetailPage() {
   if (query.isLoading && query.data === undefined) {
     return (
       <div className="flex flex-col gap-4">
-        <AcquisitionsSubnav />
         <ListSkeleton rows={6} />
       </div>
     );
@@ -216,7 +214,6 @@ export default function AcquisitionsOrderDetailPage() {
   if (query.isError || !order) {
     return (
       <div className="flex flex-col gap-4">
-        <AcquisitionsSubnav />
         <QueryErrorBanner
           message={getApiErrorMessage(query.error, t) || t('acquisitions.orders.errorLoad')}
           onRetry={() => void query.refetch()}
@@ -233,10 +230,9 @@ export default function AcquisitionsOrderDetailPage() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
-        <Button type="button" variant="secondary" size="sm" leftIcon={<ChevronLeft className="h-4 w-4" />} onClick={() => navigate('/acquisitions/orders')}>
+        <Button type="button" variant="secondary" size="sm" leftIcon={<ChevronLeft className="h-4 w-4" />} onClick={() => navigate('/acquisitions?tab=orders')}>
           {t('common.back')}
         </Button>
-        <AcquisitionsSubnav />
       </div>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

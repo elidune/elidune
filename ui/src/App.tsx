@@ -29,6 +29,7 @@ import {
   UsersPage,
   MyLoansPage,
   MyHoldsPage,
+  MyPurchaseSuggestionsPage,
   LoansPage,
   HoldsPage,
   PickListPage,
@@ -41,11 +42,8 @@ import {
   PublicEventsPage,
   AboutPage,
   PrivacyPage,
-  AcquisitionsVendorsPage,
-  AcquisitionsFundsPage,
-  AcquisitionsOrdersPage,
+  AcquisitionsPage,
   AcquisitionsOrderDetailPage,
-  AcquisitionsSuggestionsPage,
 } from '@/pages';
 import type { User } from '@/types';
 import api from '@/services/api';
@@ -277,6 +275,15 @@ function AppRoutes() {
       />
 
       <Route
+        path="/my-suggestions"
+        element={
+          <ProtectedRoute>
+            <MyPurchaseSuggestionsPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/loans"
         element={
           <ProtectedRoute>
@@ -401,50 +408,6 @@ function AppRoutes() {
       />
 
       <Route
-        path="/acquisitions"
-        element={
-          <ProtectedRoute>
-            <RightsRoute allow={(user, token) => accessOf(user, token).acquisitions}>
-              <Navigate to="/acquisitions/orders" replace />
-            </RightsRoute>
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/acquisitions/vendors"
-        element={
-          <ProtectedRoute>
-            <RightsRoute allow={(user, token) => accessOf(user, token).acquisitions}>
-              <AcquisitionsVendorsPage />
-            </RightsRoute>
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/acquisitions/funds"
-        element={
-          <ProtectedRoute>
-            <RightsRoute allow={(user, token) => accessOf(user, token).acquisitions}>
-              <AcquisitionsFundsPage />
-            </RightsRoute>
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
-        path="/acquisitions/orders"
-        element={
-          <ProtectedRoute>
-            <RightsRoute allow={(user, token) => accessOf(user, token).acquisitions}>
-              <AcquisitionsOrdersPage />
-            </RightsRoute>
-          </ProtectedRoute>
-        }
-      />
-
-      <Route
         path="/acquisitions/orders/:id"
         element={
           <ProtectedRoute>
@@ -456,11 +419,55 @@ function AppRoutes() {
       />
 
       <Route
+        path="/acquisitions/orders"
+        element={
+          <ProtectedRoute>
+            <RightsRoute allow={(user, token) => accessOf(user, token).acquisitions}>
+              <Navigate to="/acquisitions?tab=orders" replace />
+            </RightsRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/acquisitions/vendors"
+        element={
+          <ProtectedRoute>
+            <RightsRoute allow={(user, token) => accessOf(user, token).acquisitions}>
+              <Navigate to="/acquisitions?tab=vendors" replace />
+            </RightsRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/acquisitions/funds"
+        element={
+          <ProtectedRoute>
+            <RightsRoute allow={(user, token) => accessOf(user, token).acquisitions}>
+              <Navigate to="/acquisitions?tab=funds" replace />
+            </RightsRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/acquisitions/suggestions"
         element={
           <ProtectedRoute>
             <RightsRoute allow={(user, token) => accessOf(user, token).acquisitions}>
-              <AcquisitionsSuggestionsPage />
+              <Navigate to="/acquisitions?tab=suggestions" replace />
+            </RightsRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/acquisitions"
+        element={
+          <ProtectedRoute>
+            <RightsRoute allow={(user, token) => accessOf(user, token).acquisitions}>
+              <AcquisitionsPage />
             </RightsRoute>
           </ProtectedRoute>
         }

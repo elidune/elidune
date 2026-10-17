@@ -86,7 +86,7 @@
     "privacy": "Privacidad",
     "tasks": "Tareas",
     "sectionCirculation": "Circulación",
-    "sectionCataloging": "Catalogación",
+    "sectionCataloging": "Gestión del fondo",
     "sectionPatron": "Lector",
     "language": "Idioma",
     "main": "Navegación principal",
@@ -98,7 +98,10 @@
     "suggestions": "Sugerencias de compra",
     "weeding": "Expurgo",
     "showMore": "Mostrar {{count}} más",
-    "showLess": "Mostrar menos"
+    "showLess": "Mostrar menos",
+    "sectionGeneral": "General",
+    "sectionAdmin": "Administración",
+    "sectionUntitled": "Menú"
   },
   "theme": {
     "light": "Claro",
@@ -114,9 +117,12 @@
     "noContact": "Sin contacto",
     "noSchedule": "Sin horario",
     "welcome": "bienvenido",
+    "greetingNamed": "Bienvenido, {{name}}",
+    "greetingAnonymous": "Bienvenido",
     "upcomingEvents": "Próximos eventos",
     "upcomingEventsSubtitle": "Programa y folletos de la biblioteca",
-    "statsLoadError": "No se pudieron cargar las estadísticas."
+    "statsLoadError": "No se pudieron cargar las estadísticas.",
+    "openSection": "Abrir {{section}}"
   },
   "library": {
     "general": {
@@ -972,10 +978,9 @@
     },
     "holdsTab": "Reservas",
     "loanStatistics": "Estadísticas de préstamos",
-    "anonymize": "Anonimizar para estadísticas",
-    "forceDelete": "Anonimizar de todos modos",
-    "activeLoansForceDelete": "Este usuario aún tiene préstamos activos. Anonimizar de todos modos es irreversible. Se eliminará la identidad; se conservan las estadísticas agregadas. ¿Confirmar?",
-    "deleteConfirm": "¿Anonimizar a {{name}} para estadísticas? Se eliminará la identidad (nombre, datos de contacto, n.º de carné). Se conservan las estadísticas de préstamos agregadas. Esta acción no se puede deshacer.",
+    "forceDelete": "Eliminar de todos modos",
+    "activeLoansForceDelete": "Este usuario aún tiene préstamos activos. ¿Eliminar de todos modos? La cuenta se anonimizará: se borrará la identidad (nombre, datos de contacto, n.º de carné), pero se conservan las estadísticas de préstamos agregadas. Esta acción es irreversible.",
+    "deleteConfirm": "¿Eliminar al lector {{name}}? Esta acción es irreversible. La cuenta se anonimizará: se borrará la identidad (nombre, datos de contacto, n.º de carné), pero se conservan las estadísticas de préstamos agregadas.",
     "hasLoansWarning": "Este usuario todavía tiene {{count}} préstamo(s) activo(s).",
     "loans": "Préstamos",
     "newUser": "Nuevo usuario",
@@ -2543,6 +2548,7 @@
     "es": "Español"
   },
   "acquisitions": {
+    "pageSubtitle": "Pedidos, proveedores, presupuestos y sugerencias de compra.",
     "sectionNav": "Secciones de adquisiciones",
     "updatedAt": "Actualizado",
     "vendors": {
