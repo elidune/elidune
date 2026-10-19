@@ -8,6 +8,7 @@ pub mod catalog;
 pub mod circulation;
 pub mod country_code;
 pub mod country_zones;
+pub mod deposits;
 pub mod email_outbox;
 pub mod equipment;
 pub mod event_bus;
@@ -66,6 +67,7 @@ pub struct Services {
     pub acquisitions: acquisitions::AcquisitionsService,
     pub catalog: catalog::CatalogService,
     pub circulation: circulation::CirculationService,
+    pub deposits: deposits::DepositsService,
     pub email: email::EmailService,
     pub equipment: equipment::EquipmentService,
     pub events: events::EventsService,
@@ -143,7 +145,9 @@ impl Services {
             catalog::CatalogService::new(biblios_repo, entities_repo, audit_service.clone())
         };
 
-        let marc_service = marc::MarcService::new(catalog.clone(), redis_service.clone());
+        let deposits = deposits::DepositsService::new(repository.clone(), catalog.clone());
+        let marc_service =
+            marc::MarcService::new(catalog.clone(), redis_service.clone(), deposits.clone());
 
         let z3950_service = z3950::Z3950Service::new(
             repository.clone(),
@@ -179,6 +183,7 @@ impl Services {
                 catalog.clone(),
             ),
             catalog: catalog.clone(),
+            deposits: deposits.clone(),
             circulation: circulation::CirculationService::new(
                 repo.clone(),
                 audit_service.clone(),

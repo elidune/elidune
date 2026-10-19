@@ -285,10 +285,11 @@ pub struct UploadUnimarcQuery {}
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ImportMarcBatchQuery {
-    /// Source ID
-    #[serde_as(as = "DisplayFromStr")]
-    #[schema(value_type = String)]
-    pub source_id: i64,
+    /// Site for the imported copies. Optional when `deposit_batch_id` is set.
+    #[serde(default)]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub source_id: Option<i64>,
     /// Batch identifier returned by upload_unimarc
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
@@ -300,6 +301,11 @@ pub struct ImportMarcBatchQuery {
     pub allow_duplicate_isbn: bool,
     /// Set to the existing biblio ID to confirm replacement of a duplicate
     pub confirm_replace_existing_id: Option<i64>,
+    /// Active incoming deposit batch. Also accepted as `deposit_batch_id`.
+    #[serde(default, alias = "deposit_batch_id")]
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub deposit_batch_id: Option<i64>,
 }
 
 /// Create a new bibliographic record (with ISBN deduplication)
@@ -445,14 +451,17 @@ pub async fn load_marc(
     security(("bearer_auth" = [])),
     params(
         ("batch_id" = String, Query, description = "MARC batch identifier returned by load-marc"),
-        ("source_id" = String, Query, description = "Source ID to attach to imported biblios"),
+        ("source_id" = Option<String>, Query, description = "Site to attach to imported copies. Required unless deposit_batch_id is set. In deposit mode it must equal the batch site."),
         ("record_id" = Option<usize>, Query, description = "Optional single record index; if omitted, all records in the batch are imported"),
-        ("allow_duplicate_isbn" = Option<bool>, Query, description = "Allow creating a biblio even when another has the same ISBN (default: false)"),
-        ("confirm_replace_existing_id" = Option<i64>, Query, description = "Confirm replacement of an existing biblio by its ID")
+        ("allow_duplicate_isbn" = Option<bool>, Query, description = "Allow creating a biblio even when another has the same ISBN (default: false). Refused with a deposit batch."),
+        ("confirm_replace_existing_id" = Option<i64>, Query, description = "Confirm replacement of an existing biblio by its ID. Refused with a deposit batch."),
+        ("deposit_batch_id" = Option<String>, Query, description = "Active deposit batch. Copies attach to the existing record with the same ISBN, or create the record when there is no match. The lender barcode is kept.")
     ),
     responses(
         (status = 202, description = "Import task accepted", body = TaskAcceptedResponse),
-        (status = 401, description = "Not authenticated")
+        (status = 400, description = "source_id missing outside deposit mode", body = crate::error::ErrorResponse),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
+        (status = 422, description = "Deposit batch is not active, the site does not match, or duplicate-ISBN options were sent with the batch", body = crate::error::ErrorResponse)
     )
 )]
 pub async fn import_marc_batch(
@@ -463,9 +472,22 @@ pub async fn import_marc_batch(
 ) -> AppResult<(StatusCode, Json<TaskAcceptedResponse>)> {
     claims.require_write_items()?;
 
+    let prepared = state
+        .services
+        .deposits
+        .prepare_marc_import(
+            params.deposit_batch_id,
+            params.source_id,
+            params.allow_duplicate_isbn,
+            params.confirm_replace_existing_id,
+        )
+        .await?;
+
     let marc = state.services.marc.clone();
     let audit = state.services.audit.clone();
     let p = params.clone();
+    let source_id = prepared.source_id;
+    let deposit_batch_id = prepared.deposit_batch_id;
 
     let task_id = state
         .services
@@ -477,10 +499,11 @@ pub async fn import_marc_batch(
                 match marc
                     .import_from_batch(
                         p.batch_id,
-                        p.source_id,
+                        source_id,
                         p.record_id,
                         p.allow_duplicate_isbn,
                         p.confirm_replace_existing_id,
+                        deposit_batch_id,
                         Some(handle.clone()),
                     )
                     .await

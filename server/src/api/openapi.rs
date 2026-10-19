@@ -6,7 +6,7 @@ use utoipa::{Modify, OpenApi};
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::api::{
-    account_types, acquisitions, admin_config, audit, auth, batch, biblios, collections,
+    account_types, acquisitions, admin_config, audit, auth, batch, biblios, collections, deposits,
     email_templates, equipment, events, fines, first_setup, health, holds, inventory, items,
     library_info, loans, maintenance, metrics, opac, public_types, schedules, series, sources,
     stats, suggestions, tasks, transits, users, visitor_counts, withdrawals, z3950,
@@ -203,6 +203,16 @@ use crate::api::{
         sources::update_source,
         sources::archive_source,
         sources::merge_sources,
+        // Lenders and incoming deposit batches
+        deposits::list_lenders,
+        deposits::create_lender,
+        deposits::update_lender,
+        deposits::archive_lender,
+        deposits::list_deposit_batches,
+        deposits::get_deposit_batch,
+        deposits::create_deposit_batch,
+        deposits::update_deposit_batch,
+        deposits::list_deposit_batch_items,
         // Equipment
         equipment::list_equipment,
         equipment::get_equipment,
@@ -561,6 +571,24 @@ use crate::api::{
             crate::models::source::UpdateSource,
             crate::models::source::MergeSources,
             sources::SourcesQuery,
+            // Incoming deposits
+            crate::models::deposit::Lender,
+            crate::models::deposit::CreateLender,
+            crate::models::deposit::UpdateLender,
+            crate::models::deposit::DepositBatch,
+            crate::models::deposit::DepositBatchDetail,
+            crate::models::deposit::DepositBatchCounts,
+            crate::models::deposit::CreateDepositBatch,
+            crate::models::deposit::UpdateDepositBatch,
+            crate::models::deposit::DepositBatchListQuery,
+            crate::models::deposit::DepositBatchItemsQuery,
+            crate::models::deposit::DepositBatchItem,
+            crate::models::deposit::DepositBatchStatus,
+            crate::models::deposit::DepositCopyState,
+            crate::models::deposit::ItemDeposit,
+            crate::services::marc::MarcBatchImportReport,
+            crate::services::marc::MarcBatchImportError,
+            crate::services::marc::MarcBatchAttached,
             // Equipment
             crate::models::equipment::Equipment,
             crate::models::equipment::CreateEquipment,
@@ -682,6 +710,7 @@ use crate::api::{
         (name = "visitor_counts", description = "Visitor counting"),
         (name = "schedules", description = "Library schedules (hours, closures)"),
         (name = "sources", description = "Acquisition source management"),
+        (name = "deposits", description = "Lenders and incoming deposit batches (copies lent to this library). Own stock has a null deposit block."),
         (name = "equipment", description = "Library equipment management"),
         (name = "events", description = "Cultural events and school visits"),
         (name = "acquisitions", description = "Vendors, yearly funds, purchase orders, and receipt (creates catalog items only at receipt)"),

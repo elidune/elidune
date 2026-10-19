@@ -12,6 +12,7 @@ pub mod audit_log;
 pub mod biblios;
 pub mod catalog_entities;
 pub mod circulation;
+pub mod deposits;
 pub mod email_outbox;
 pub mod email_templates;
 pub mod equipment;

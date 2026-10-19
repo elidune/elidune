@@ -249,8 +249,10 @@ impl Repository {
             weeding_status: crate::models::item::WeedingStatus,
             source_name: Option<String>,
             borrowed: bool,
+            #[sqlx(default, json)]
+            deposit: Option<crate::models::deposit::ItemDeposit>,
         }
-        let rows: Vec<HoldItemShortRow> = sqlx::query_as(
+        let sql = format!(
             r#"
             SELECT it.id, it.biblio_id, it.barcode, it.call_number, it.borrowable,
                    it.circulation_status,
@@ -259,15 +261,20 @@ impl Repository {
                    EXISTS(
                        SELECT 1 FROM loans l
                        WHERE l.item_id = it.id AND l.returned_at IS NULL
-                   ) AS borrowed
+                   ) AS borrowed,
+                   {json} AS deposit
             FROM items it
             LEFT JOIN sources so ON it.source_id = so.id
+            {join}
             WHERE it.id = ANY($1)
             "#,
-        )
-        .bind(item_ids)
-        .fetch_all(&self.pool)
-        .await?;
+            json = crate::models::deposit::ITEM_DEPOSIT_JSON,
+            join = crate::models::deposit::item_deposit_join("it"),
+        );
+        let rows: Vec<HoldItemShortRow> = sqlx::query_as(&sql)
+            .bind(item_ids)
+            .fetch_all(&self.pool)
+            .await?;
         let mut m = HashMap::with_capacity(rows.len());
         for r in rows {
             let id = r.id;
@@ -292,6 +299,7 @@ impl Repository {
                 hold_user_barcode: None,
                 hold_user_firstname: None,
                 hold_user_lastname: None,
+                deposit: r.deposit,
             };
             m.insert(id, (r.biblio_id, item));
         }

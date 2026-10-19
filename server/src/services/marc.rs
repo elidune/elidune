@@ -11,12 +11,15 @@ use utoipa::ToSchema;
 use z3950_rs::marc_rs::parse_records;
 
 use crate::{
-    error::{AppError, AppResult},
+    error::{error_code, AppError, AppResult},
     marc::{MarcImportPreview, MarcRecord},
     models::biblio::Biblio,
 };
 
-use super::{catalog::CatalogService, redis::RedisService, task_manager::TaskHandle};
+use super::{
+    catalog::CatalogService, deposits::DepositsService, redis::RedisService,
+    task_manager::TaskHandle,
+};
 
 /// Internal value stored in Redis for a MARC record.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,7 +32,7 @@ pub struct CachedMarcRecord {
 
 /// Error information for a single record during batch import.
 #[serde_as]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct MarcBatchImportError {
     pub key: String,
@@ -39,6 +42,25 @@ pub struct MarcBatchImportError {
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub existing_id: Option<i64>,
+    /// Stable code. `barcode_already_exists` skips that copy and leaves the rest of the batch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    /// Copy that already uses this barcode. Set with [`Self::code`] `barcode_already_exists`.
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub existing_item_id: Option<i64>,
+}
+
+/// A deposit-mode record attached to an existing bibliographic record.
+#[serde_as]
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MarcBatchAttached {
+    pub key: String,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub biblio_id: i64,
 }
 
 /// Report returned after importing one or more records from a batch.
@@ -50,8 +72,14 @@ pub struct MarcBatchImportReport {
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub batch_id: i64,
-    /// Number of successfully imported records.
+    /// Successfully imported records. Union of [`Self::created`] and [`Self::attached`].
     pub imported: Vec<String>,
+    /// Records whose bibliographic notice was created. Empty outside deposit mode.
+    #[serde(default)]
+    pub created: Vec<String>,
+    /// Records whose copies were attached to an existing ISBN. Empty outside deposit mode.
+    #[serde(default)]
+    pub attached: Vec<MarcBatchAttached>,
     /// Detailed list of records that failed to import.
     pub failed: Vec<MarcBatchImportError>,
 }
@@ -75,6 +103,7 @@ pub struct MarcBatchInfo {
 #[derive(Clone)]
 pub struct MarcService {
     catalog: CatalogService,
+    deposits: DepositsService,
     redis: RedisService,
 }
 
@@ -89,8 +118,12 @@ pub struct EnqueueResult {
 }
 
 impl MarcService {
-    pub fn new(catalog: CatalogService, redis: RedisService) -> Self {
-        Self { catalog, redis }
+    pub fn new(catalog: CatalogService, redis: RedisService, deposits: DepositsService) -> Self {
+        Self {
+            catalog,
+            deposits,
+            redis,
+        }
     }
 
     const BATCH_TTL_SECS: usize = 60 * 60 * 24;
@@ -303,6 +336,51 @@ impl MarcService {
         Ok(EnqueueResult { batch_id, previews })
     }
 
+    /// Cache already-parsed records under a new batch id.
+    ///
+    /// Same Redis layout as the UNIMARC upload. Records are not split: each
+    /// value is one bibliographic record and may carry several copies.
+    pub async fn cache_parsed_records(&self, records: Vec<MarcRecord>) -> AppResult<i64> {
+        let batch_id: i64 = snowflaked::Generator::new(1).generate::<i64>();
+        let mut conn = self.redis.get_connection().await?;
+        for (index, record) in records.into_iter().enumerate() {
+            let json_str = serde_json::to_string(&record).map_err(|e| {
+                AppError::Internal(format!("Failed to serialize MARC record: {}", e))
+            })?;
+            let record_key = Self::redis_key(batch_id, index);
+            redis::cmd("SETEX")
+                .arg(&record_key)
+                .arg(Self::BATCH_TTL_SECS)
+                .arg(&json_str)
+                .query_async::<_, ()>(&mut conn)
+                .await
+                .map_err(|e| {
+                    AppError::Internal(format!("Failed to store MARC record in Redis: {}", e))
+                })?;
+            let index_key = Self::batch_index_key(batch_id);
+            redis::cmd("SADD")
+                .arg(&index_key)
+                .arg(&record_key)
+                .query_async::<_, ()>(&mut conn)
+                .await
+                .map_err(|e| {
+                    AppError::Internal(format!("Failed to index MARC record in Redis: {}", e))
+                })?;
+            redis::cmd("EXPIRE")
+                .arg(&index_key)
+                .arg(Self::BATCH_TTL_SECS)
+                .query_async::<_, ()>(&mut conn)
+                .await
+                .map_err(|e| {
+                    AppError::Internal(format!(
+                        "Failed to set MARC batch index TTL in Redis: {}",
+                        e
+                    ))
+                })?;
+        }
+        Ok(batch_id)
+    }
+
     /// Import MARC records from a cached batch into the catalog.
     ///
     /// - If `record_id` is `None`, imports all records for the `batch_id`.
@@ -311,9 +389,14 @@ impl MarcService {
     /// On error for a given record, the error is captured in the report and
     /// processing continues with the next record.
     ///
+    /// When `deposit_batch_id` is set, copies are attached to the active record
+    /// with the same ISBN, or the record is created when there is no match.
+    /// A barcode that already exists skips that copy only.
+    ///
     /// When `task_handle` is provided, per-record progress is reported via
     /// [`TaskHandle::set_progress`].
     #[tracing::instrument(skip(self, task_handle), err)]
+    #[allow(clippy::too_many_arguments)]
     pub async fn import_from_batch(
         &self,
         batch_id: i64,
@@ -321,11 +404,16 @@ impl MarcService {
         record_id: Option<usize>,
         allow_duplicate_isbn: bool,
         confirm_replace_existing_id: Option<i64>,
+        deposit_batch_id: Option<i64>,
         task_handle: Option<TaskHandle>,
     ) -> AppResult<MarcBatchImportReport> {
+        let deposit_batch = match deposit_batch_id {
+            Some(id) => Some(self.deposits.require_active_batch(id).await?),
+            None => None,
+        };
         let mut conn = self.redis.get_connection().await?;
 
-        let keys: Vec<String> = if let Some(rid) = record_id {
+        let mut keys: Vec<String> = if let Some(rid) = record_id {
             vec![Self::redis_key(batch_id, rid)]
         } else {
             conn.smembers(Self::batch_index_key(batch_id))
@@ -334,8 +422,18 @@ impl MarcService {
                     AppError::Internal(format!("Failed to list MARC batch keys in Redis: {}", e))
                 })?
         };
+        if deposit_batch.is_some() {
+            keys.sort_by_key(|key| {
+                key.rsplit(':')
+                    .next()
+                    .and_then(|value| value.parse::<usize>().ok())
+                    .unwrap_or(0)
+            });
+        }
 
         let mut imported = Vec::new();
+        let mut created = Vec::new();
+        let mut attached = Vec::new();
         let mut failed = Vec::new();
         let total = keys.len();
 
@@ -351,6 +449,8 @@ impl MarcService {
                     key: Self::item_key_from_record_key(&key),
                     error: "Record not found in Redis".to_string(),
                     existing_id: None,
+                    code: None,
+                    existing_item_id: None,
                 });
                 continue;
             };
@@ -362,43 +462,89 @@ impl MarcService {
                         key: Self::item_key_from_record_key(&key),
                         error: format!("JSON decode error: {}", e),
                         existing_id: None,
+                        code: None,
+                        existing_item_id: None,
                     });
                     continue;
                 }
             };
 
             let mut biblio: Biblio = record.into();
-            for item in &mut biblio.items {
-                item.source_id = Some(source_id);
-            }
+            let record_key = Self::item_key_from_record_key(&key);
+            if let Some(batch) = deposit_batch.as_ref() {
+                match self.deposits.import_marc_record(biblio, batch).await {
+                    Ok(outcome) => {
+                        if let Some(biblio_id) = outcome.biblio_id {
+                            if outcome.created {
+                                created.push(record_key.clone());
+                            } else {
+                                attached.push(MarcBatchAttached {
+                                    key: record_key.clone(),
+                                    biblio_id,
+                                });
+                            }
+                            imported.push(record_key.clone());
+                        }
+                        for failure in outcome.failures {
+                            failed.push(MarcBatchImportError {
+                                key: record_key.clone(),
+                                error: format!(
+                                    "An item with barcode {} already exists.",
+                                    failure.barcode
+                                ),
+                                existing_id: None,
+                                code: Some(error_code::BARCODE_ALREADY_EXISTS.to_string()),
+                                existing_item_id: Some(failure.existing_item_id),
+                            });
+                        }
+                    }
+                    Err(error) => {
+                        failed.push(MarcBatchImportError {
+                            key: record_key,
+                            error: format!("Failed to import deposit copy: {error}"),
+                            existing_id: None,
+                            code: None,
+                            existing_item_id: None,
+                        });
+                    }
+                }
+            } else {
+                for item in &mut biblio.items {
+                    item.source_id = Some(source_id);
+                }
 
-            match self
-                .catalog
-                .create_biblio(biblio, allow_duplicate_isbn, confirm_replace_existing_id)
-                .await
-            {
-                Ok((_biblio, _report)) => {
-                    imported.push(Self::item_key_from_record_key(&key));
-                }
-                Err(AppError::DuplicateNeedsConfirmation {
-                    existing_id,
-                    message,
-                    ..
-                }) => {
-                    failed.push(MarcBatchImportError {
-                        key: Self::item_key_from_record_key(&key),
-                        error: message,
-                        existing_id: Some(existing_id),
-                    });
-                    continue;
-                }
-                Err(e) => {
-                    failed.push(MarcBatchImportError {
-                        key: Self::item_key_from_record_key(&key),
-                        error: format!("Failed to create item: {}", e),
-                        existing_id: None,
-                    });
-                    continue;
+                match self
+                    .catalog
+                    .create_biblio(biblio, allow_duplicate_isbn, confirm_replace_existing_id)
+                    .await
+                {
+                    Ok((_biblio, _report)) => {
+                        imported.push(record_key);
+                    }
+                    Err(AppError::DuplicateNeedsConfirmation {
+                        existing_id,
+                        message,
+                        ..
+                    }) => {
+                        failed.push(MarcBatchImportError {
+                            key: record_key,
+                            error: message,
+                            existing_id: Some(existing_id),
+                            code: None,
+                            existing_item_id: None,
+                        });
+                        continue;
+                    }
+                    Err(e) => {
+                        failed.push(MarcBatchImportError {
+                            key: record_key,
+                            error: format!("Failed to create item: {}", e),
+                            existing_id: None,
+                            code: None,
+                            existing_item_id: None,
+                        });
+                        continue;
+                    }
                 }
             }
             if let Some(ref handle) = task_handle {
@@ -418,6 +564,8 @@ impl MarcService {
         Ok(MarcBatchImportReport {
             batch_id,
             imported,
+            created,
+            attached,
             failed,
         })
     }

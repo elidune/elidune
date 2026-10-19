@@ -26,7 +26,11 @@ and a stored value, including 0, becomes amount.
 account_types.is_system marks built-in codes and users.account_type is ON DELETE RESTRICT (053).
 holds.notes moves to patron_note; internal_note is staff-only (055).
 This script does not import legacy holds, so 055 only affects the target schema.
-Legacy source DBs have no acquisitions, suggestion, or retired card-number tables; those are created by SQL migrations only.)
+Legacy source DBs have no acquisitions, suggestion, or retired card-number tables; those are created by SQL migrations only.
+Migration 065 adds lenders and deposit_batches, plus nullable items.deposit_batch_id
+and items.deposit_returned_at. This script inserts items without those columns,
+so every migrated copy stays own stock (deposit_batch_id NULL). Existing rows
+are not reclassified as incoming deposits.)
 
 Usage:
     python migrate_data.py --source-db <old_db_url> --target-db <new_db_url>

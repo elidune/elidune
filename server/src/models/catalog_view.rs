@@ -201,6 +201,8 @@ pub struct ItemStaffView {
     /// staff who can read users but cannot read loans.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub borrower: Option<LoanBorrowerResponse>,
+    /// Incoming deposit. `null` when the copy is own stock.
+    pub deposit: Option<super::deposit::ItemDeposit>,
 }
 
 impl From<Item> for ItemStaffView {
@@ -233,6 +235,7 @@ impl From<Item> for ItemStaffView {
             on_hold: item.on_hold,
             hold_for: None,
             borrower: None,
+            deposit: item.deposit,
         }
     }
 }
@@ -288,6 +291,8 @@ pub struct ItemPublicView {
     pub can_hold_item: bool,
     /// This copy is assigned to a hold, or in transit for one. See [`Item::on_hold`].
     pub on_hold: bool,
+    /// Incoming deposit. `null` when the copy is own stock.
+    pub deposit: Option<super::deposit::ItemDeposit>,
 }
 
 impl From<Item> for ItemPublicView {
@@ -322,6 +327,7 @@ impl From<Item> for ItemPublicView {
             availability,
             can_hold_item: item.can_hold_item,
             on_hold: item.on_hold,
+            deposit: item.deposit,
         }
     }
 }
@@ -348,6 +354,8 @@ pub struct ItemShortStaff {
     /// Same rule as [`ItemStaffView::hold_for`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hold_for: Option<LoanBorrowerResponse>,
+    /// Incoming deposit. `null` when the copy is own stock.
+    pub deposit: Option<super::deposit::ItemDeposit>,
 }
 
 impl From<ItemShort> for ItemShortStaff {
@@ -364,6 +372,7 @@ impl From<ItemShort> for ItemShortStaff {
             availability: item.availability,
             can_hold_item: item.can_hold_item,
             hold_for: None,
+            deposit: item.deposit,
         }
     }
 }
@@ -383,6 +392,8 @@ pub struct ItemShortPublic {
     pub borrowed: bool,
     pub availability: ItemPublicAvailability,
     pub can_hold_item: bool,
+    /// Incoming deposit. `null` when the copy is own stock.
+    pub deposit: Option<super::deposit::ItemDeposit>,
 }
 
 impl From<ItemShort> for ItemShortPublic {
@@ -400,6 +411,7 @@ impl From<ItemShort> for ItemShortPublic {
                 item.circulation_status,
             ),
             can_hold_item: item.can_hold_item,
+            deposit: item.deposit,
         }
     }
 }
@@ -1338,6 +1350,7 @@ mod tests {
             hold_user_barcode: Some("CARD".into()),
             hold_user_firstname: Some("Ada".into()),
             hold_user_lastname: Some("Lovelace".into()),
+            deposit: None,
         };
         let body = serde_json::to_value(ItemShortPublic::from(item)).unwrap();
         assert_eq!(body["availability"], "unavailable");
@@ -1479,6 +1492,8 @@ mod tests {
             ),
             expected_return_date,
             on_hold: false,
+            deposit_batch_id: None,
+            deposit: None,
             legacy_notes_present: false,
         }
     }
@@ -1639,6 +1654,8 @@ mod tests {
             due_date: None,
             expected_return_date: None,
             on_hold: false,
+            deposit_batch_id: None,
+            deposit: None,
             legacy_notes_present: false,
         };
         let public_body = serde_json::to_value(ItemPublicView::from(item.clone())).unwrap();

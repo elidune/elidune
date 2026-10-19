@@ -494,6 +494,8 @@ pub(crate) struct ItemShortRow {
     hold_user_barcode: Option<String>,
     hold_user_firstname: Option<String>,
     hold_user_lastname: Option<String>,
+    #[sqlx(default, json)]
+    deposit: Option<crate::models::deposit::ItemDeposit>,
 }
 
 impl From<ItemShortRow> for ItemShort {
@@ -513,6 +515,7 @@ impl From<ItemShortRow> for ItemShort {
             hold_user_barcode: r.hold_user_barcode,
             hold_user_firstname: r.hold_user_firstname,
             hold_user_lastname: r.hold_user_lastname,
+            deposit: r.deposit,
         }
     }
 }

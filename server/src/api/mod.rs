@@ -10,6 +10,7 @@ pub mod biblios;
 mod catalog_hold;
 pub mod collections;
 pub mod covers;
+pub mod deposits;
 pub mod email_templates;
 pub mod equipment;
 pub mod events;
