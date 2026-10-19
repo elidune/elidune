@@ -32,7 +32,11 @@ and items.deposit_returned_at. This script inserts items without those columns,
 so every migrated copy stays own stock (deposit_batch_id NULL). Existing rows
 are not reclassified as incoming deposits.
 Migration 066 adds nullable lenders.replacement_rate_cents (CHECK > 0) and
-lenders.loss_flagged_at. No rows are rewritten; both columns stay NULL.)
+lenders.loss_flagged_at. No rows are rewritten; both columns stay NULL.
+Migration 067 adds nullable items.deposit_loss_notified_at and drops
+lenders.loss_flagged_at. No backfill: the lender flag was not used in
+production. This script still inserts items without the new column, so
+migrated copies stay unnotified (NULL).)
 
 Usage:
     python migrate_data.py --source-db <old_db_url> --target-db <new_db_url>

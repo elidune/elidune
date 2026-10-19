@@ -240,6 +240,18 @@ Loan checkout, return, renew, exceptions, and batch loan operations require **`l
 | `GET /stats/users` | JWT + `require_read_loans()` | Aggregates only. No named borrower list. |
 | `GET /stats/catalog` | JWT + `require_read_items()` | |
 
+## Incoming deposits
+
+`/lenders` and `/deposit-batches` use `items_rights`: read for GET, write for create, update, archive, return, scan-out, and close.
+
+`deposit_item_lost` is written for both lost and damaged deposit copies. `kind` is `"lost"` or `"damaged"`.
+
+| Endpoint | Required auth |
+|---|---|
+| `GET /deposit-losses` | JWT + `require_read_items()`. `notified` defaults to false. |
+| `POST /items/:id/deposit-loss-notified` | JWT + `require_write_items()`. Optional body `{ notifiedOn }`. Writes audit `deposit_loss_notified` with `lenderId` and `itemId` in the same transaction. A second call is **409** `deposit_loss_already_notified` and does not write another audit row. A copy that is not a deposit copy declared lost or damaged is **422** `deposit_loss_not_declared`. Unknown item is **404** `not_found`. |
+| `POST /deposit-batches/:id/scan-out` | JWT + `require_write_items()`. A copy that still has an open loan is **422** `deposit_item_on_loan` with `{ code, error, message, itemId, barcode }`. `itemId` is a string. `barcode` is null when the copy has none. Check the copy in at the desk first (`returnToLender`). |
+
 ## Settings domains
 
 | Endpoint group | Read | Write |

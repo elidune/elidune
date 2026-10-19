@@ -274,6 +274,11 @@ pub mod event {
     pub const DEPOSIT_BATCH_RECLASSIFIED: &str = "deposit_batch_reclassified";
     /// Loss or damage of a deposit copy. Payload includes `lenderId` so the lender can be notified.
     pub const DEPOSIT_ITEM_LOST: &str = "deposit_item_lost";
+    /// Staff recorded that the lender was told about one lost or damaged deposit copy.
+    ///
+    /// Payload includes `lenderId` and `itemId`. A second notice for the same copy
+    /// is refused (`deposit_loss_already_notified`) and does not write this event again.
+    pub const DEPOSIT_LOSS_NOTIFIED: &str = "deposit_loss_notified";
 
     // Series
     pub const SERIES_CREATED: &str = "series.created";

@@ -5,7 +5,7 @@ use sqlx::Row;
 
 use super::super::Repository;
 use super::LOAN_DETAILS_FIRST_AUTHOR_SQL;
-use crate::models::deposit::{item_deposit_from_value, item_deposit_join, ITEM_DEPOSIT_JSON};
+use crate::models::deposit::{item_deposit_from_value, item_deposit_join, item_deposit_json};
 use crate::{
     checkout_refusal::{
         finish_checkout_refusals, push_checkout_refusal, CheckoutProgress, CheckoutRefusal,
@@ -615,7 +615,7 @@ impl Repository {
             WHERE it.id = $1
             "#,
             author = LOAN_DETAILS_FIRST_AUTHOR_SQL,
-            deposit_json = ITEM_DEPOSIT_JSON,
+            deposit_json = item_deposit_json("it"),
             deposit_join = item_deposit_join("it"),
         ))
         .bind(loan.item_id)

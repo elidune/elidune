@@ -1506,6 +1506,47 @@ Otherwise `user` is exactly `{ id, cardNumber, initials }`. `email`, `phone`, `f
 
 ---
 
+## Incoming deposits
+
+`deposit_item_lost` is the audit event for a deposit copy that is declared lost **or** damaged. Payload `kind` is `"lost"` or `"damaged"` (`kind: "damaged"` for a damaged copy). It also includes `lenderId`, `itemId`, `loanId`, and `amountCents`.
+
+`deposit_loss_notified` is written by `POST /items/{id}/deposit-loss-notified` in the same transaction as `items.deposit_loss_notified_at`. Payload is `{ lenderId, itemId }`, both strings. A second call does not write another row.
+
+`GET /deposit-losses?lenderId=&notified=false|true` lists those copies. `notified` defaults to false (`depositLossNotifiedAt` null).
+
+```json
+{
+  "itemId": "818273645564928001",
+  "barcode": "DEP-1",
+  "title": "Title",
+  "lenderId": "818273645564928002",
+  "lenderName": "Partner library",
+  "batchId": "818273645564928003",
+  "reference": "RET-1",
+  "kind": "damaged",
+  "amountCents": 1500,
+  "fineId": "818273645564928004",
+  "declaredAt": "2026-10-19T12:00:00Z",
+  "depositLossNotifiedAt": null
+}
+```
+
+`kind` is `lost` or `damaged`. `amountCents` is the frozen fine amount. Ids are strings.
+
+`POST /items/{id}/deposit-loss-notified` accepts an empty body or `{ "notifiedOn": "2026-10-19" }` (start of that day in the library timezone) or an RFC 3339 timestamp. The response is one row of the list above.
+
+| Situation | HTTP | `code` |
+|-----------|------|--------|
+| Scan-out of a copy that still has an open loan | 422 | `deposit_item_on_loan` |
+| Notice for a copy that is not a deposit copy declared lost or damaged | 422 | `deposit_loss_not_declared` |
+| Notice when `depositLossNotifiedAt` is already set | 409 | `deposit_loss_already_notified` |
+
+`deposit_item_on_loan` body is `{ code, error, message, itemId, barcode }`. `itemId` is a string. `barcode` is null when the copy has none. Same id convention as `deposit_batch_has_active_loans`.
+
+`PATCH /lenders/{id}`: omit `replacementRateCents` to leave the stored rate unchanged. JSON `null` clears it. `0` and negatives are **400** `validation_error`.
+
+---
+
 ## Error Responses
 
 All error responses share the same envelope:
