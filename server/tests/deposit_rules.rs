@@ -584,7 +584,7 @@ async fn close_archives_without_delete_and_reports_missing_and_loans() {
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{report}");
-    assert_eq!(report["onLoan"].as_array().unwrap().len(), 0, "{report}");
+    assert!(report.get("onLoan").is_none(), "{report}");
     let returned_barcodes = copy_barcodes(&report["returned"]);
     let missing_barcodes = copy_barcodes(&report["missing"]);
     assert!(returned_barcodes.contains(&items[0].1.as_str()), "{report}");
@@ -635,7 +635,7 @@ async fn close_archives_without_delete_and_reports_missing_and_loans() {
         .await;
     assert_eq!(status, StatusCode::OK, "{again_report}");
     assert_eq!(again_report, report);
-    assert_eq!(again_report["onLoan"].as_array().unwrap().len(), 0);
+    assert!(again_report.get("onLoan").is_none(), "{again_report}");
 
     let (status, closed) = app
         .post_empty(

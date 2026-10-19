@@ -358,17 +358,14 @@ pub struct DepositCloseCopy {
     pub title: Option<String>,
 }
 
-/// `POST /deposit-batches/{id}/close`.
+/// `POST /deposit-batches/{id}/close`. `{ returned, missing }`.
 ///
-/// Close is refused while any copy is on loan, so `onLoan` is an empty array.
-/// The field stays for compatibility.
+/// Close is refused while any copy is on loan, so those copies are not in this report.
 #[derive(Debug, Clone, Serialize, ToSchema, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct DepositCloseReport {
     pub returned: Vec<DepositCloseCopy>,
     pub missing: Vec<DepositCloseCopy>,
-    /// Always empty. Close is refused while a copy is still on loan.
-    pub on_loan: Vec<DepositCloseCopy>,
 }
 
 /// One copy still on loan. Listed on `422 deposit_batch_has_active_loans`.

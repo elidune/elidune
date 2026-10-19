@@ -626,9 +626,9 @@ impl Repository {
                 title: row.title,
             };
             match row.bucket.as_str() {
-                "onLoan" => report.on_loan.push(copy),
                 "returned" => report.returned.push(copy),
-                _ => report.missing.push(copy),
+                "missing" => report.missing.push(copy),
+                _ => {}
             }
         }
         Ok(report)
