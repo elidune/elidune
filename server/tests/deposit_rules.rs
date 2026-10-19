@@ -14,6 +14,38 @@ fn assert_error(body: &Value, code: &str) {
     assert!(body["message"].is_string(), "{body}");
 }
 
+fn assert_stock_identity(stats: &Value) {
+    let deposits = stats["items"]["deposits"].as_array().expect("deposits");
+    let own_stock = stats["items"]["ownStock"].as_i64().expect("ownStock");
+    let total = stats["items"]["total"].as_i64().expect("total");
+    let deposit_total: i64 = deposits
+        .iter()
+        .map(|row| row["count"].as_i64().unwrap())
+        .sum();
+    assert_eq!(own_stock + deposit_total, total, "{stats}");
+}
+
+async fn patch_json(app: &TestApp, uri: &str, body: &Value, token: &str) -> (StatusCode, Value) {
+    use axum::body::Body;
+    use http_body_util::BodyExt;
+
+    let response = app
+        .request(
+            axum::http::Request::builder()
+                .method("PATCH")
+                .uri(uri)
+                .header("Authorization", format!("Bearer {token}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await;
+    let status = response.status();
+    let bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let json = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+    (status, json)
+}
+
 async fn site(app: &TestApp, token: &str) -> i64 {
     let (status, body) = app
         .post_json(
@@ -349,7 +381,7 @@ async fn close_archives_without_delete_and_reports_missing_and_loans() {
     let site_id = site(&app, &token).await;
     let lender_id = lender(&app, &token, None).await;
     let batch_id = batch(&app, &token, lender_id, site_id).await;
-    let (_biblio, items) = copies(&app, &token, 3, None).await;
+    let (_biblio, items) = copies(&app, &token, 4, None).await;
     for (item_id, _) in &items {
         attach(&app, batch_id, site_id, *item_id).await;
     }
@@ -358,7 +390,9 @@ async fn close_archives_without_delete_and_reports_missing_and_loans() {
     let (status, loan) = checkout(&app, &token, reader_id, items[2].0, false).await;
     assert_eq!(status, StatusCode::CREATED, "{loan}");
     assert_eq!(loan["dueDateCappedByDeposit"], false, "{loan}");
-    let loan_id = fixtures::json_id(&loan["id"]);
+    let (status, still_out) = checkout(&app, &token, reader_id, items[3].0, false).await;
+    assert_eq!(status, StatusCode::CREATED, "{still_out}");
+    let lost_later_id = fixtures::json_id(&still_out["id"]);
 
     let (status, early) = app
         .post_json(
@@ -437,8 +471,15 @@ async fn close_archives_without_delete_and_reports_missing_and_loans() {
     assert_eq!(status, StatusCode::OK, "{report}");
     assert_eq!(report["returned"].as_array().unwrap().len(), 1);
     assert_eq!(report["missing"].as_array().unwrap().len(), 1);
-    assert_eq!(report["onLoan"].as_array().unwrap().len(), 1);
-    assert_eq!(report["onLoan"][0]["barcode"], items[2].1);
+    assert_eq!(report["onLoan"].as_array().unwrap().len(), 2);
+    let on_loan_barcodes: Vec<&str> = report["onLoan"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|row| row["barcode"].as_str())
+        .collect();
+    assert!(on_loan_barcodes.contains(&items[2].1.as_str()), "{report}");
+    assert!(on_loan_barcodes.contains(&items[3].1.as_str()), "{report}");
     let after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM items WHERE deposit_batch_id = $1")
         .bind(batch_id)
         .fetch_one(app.state.services.repository.pool())
@@ -461,6 +502,13 @@ async fn close_archives_without_delete_and_reports_missing_and_loans() {
             .await
             .unwrap();
     assert!(loan_archived.is_none());
+    let still_out_archived: Option<chrono::DateTime<chrono::Utc>> =
+        sqlx::query_scalar("SELECT archived_at FROM items WHERE id = $1")
+            .bind(items[3].0)
+            .fetch_one(app.state.services.repository.pool())
+            .await
+            .unwrap();
+    assert!(still_out_archived.is_none());
 
     let (status, missing) = app
         .get_json_with_auth(
@@ -491,16 +539,116 @@ async fn close_archives_without_delete_and_reports_missing_and_loans() {
     assert_error(&closed, "deposit_batch_not_active");
 
     let (status, returned) = app
-        .post_empty(&format!("/api/v1/loans/{loan_id}/return"), Some(&token))
+        .post_empty(
+            &format!("/api/v1/loans/items/{}/return", items[2].1),
+            Some(&token),
+        )
         .await;
     assert_eq!(status, StatusCode::OK, "{returned}");
-    let archived_after: Option<chrono::DateTime<chrono::Utc>> =
-        sqlx::query_scalar("SELECT archived_at FROM items WHERE id = $1")
-            .bind(items[2].0)
-            .fetch_one(app.state.services.repository.pool())
-            .await
-            .unwrap();
+    assert_eq!(returned["status"], "returned", "{returned}");
+    assert_eq!(returned["returnToLender"], true, "{returned}");
+    let (archived_after, marked_returned): (
+        Option<chrono::DateTime<chrono::Utc>>,
+        Option<chrono::DateTime<chrono::Utc>>,
+    ) = sqlx::query_as("SELECT archived_at, deposit_returned_at FROM items WHERE id = $1")
+        .bind(items[2].0)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .unwrap();
     assert!(archived_after.is_some());
+    assert!(marked_returned.is_some());
+
+    let (status, missing_after_return) = app
+        .get_json_with_auth(
+            &format!("/api/v1/deposit-batches/{batch_id}/items?state=missing"),
+            &token,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{missing_after_return}");
+    assert_eq!(missing_after_return.as_array().unwrap().len(), 1);
+    assert_eq!(missing_after_return[0]["barcode"], items[1].1);
+
+    let (status, after_check_in) = app
+        .post_empty(
+            &format!("/api/v1/deposit-batches/{batch_id}/close"),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{after_check_in}");
+    let returned_barcodes: Vec<&str> = after_check_in["returned"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|row| row["barcode"].as_str())
+        .collect();
+    assert!(
+        returned_barcodes.contains(&items[2].1.as_str()),
+        "{after_check_in}"
+    );
+    let missing_barcodes: Vec<&str> = after_check_in["missing"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|row| row["barcode"].as_str())
+        .collect();
+    assert!(
+        !missing_barcodes.contains(&items[2].1.as_str()),
+        "{after_check_in}"
+    );
+    assert_eq!(after_check_in["onLoan"].as_array().unwrap().len(), 1);
+    assert_eq!(after_check_in["onLoan"][0]["barcode"], items[3].1);
+
+    let (status, declared_lost) = app
+        .post_json(
+            &format!("/api/v1/loans/{lost_later_id}/lost"),
+            &json!({"bill": true, "amount": "12.00"}),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{declared_lost}");
+    let (lost_archived, lost_returned_at): (
+        Option<chrono::DateTime<chrono::Utc>>,
+        Option<chrono::DateTime<chrono::Utc>>,
+    ) = sqlx::query_as("SELECT archived_at, deposit_returned_at FROM items WHERE id = $1")
+        .bind(items[3].0)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .unwrap();
+    assert!(lost_archived.is_some());
+    assert!(lost_returned_at.is_none());
+
+    let (status, missing_lost) = app
+        .get_json_with_auth(
+            &format!("/api/v1/deposit-batches/{batch_id}/items?state=missing"),
+            &token,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{missing_lost}");
+    let missing_lost_barcodes: Vec<&str> = missing_lost
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|row| row["barcode"].as_str())
+        .collect();
+    assert!(missing_lost_barcodes.contains(&items[1].1.as_str()));
+    assert!(missing_lost_barcodes.contains(&items[3].1.as_str()));
+    assert!(!missing_lost_barcodes.contains(&items[2].1.as_str()));
+
+    let (_own_biblio, own) = copies(&app, &token, 1, Some("10.00")).await;
+    sqlx::query("UPDATE items SET source_id = $1 WHERE id = $2")
+        .bind(site_id)
+        .bind(own[0].0)
+        .execute(app.state.services.repository.pool())
+        .await
+        .unwrap();
+    let (status, own_loan) = checkout(&app, &token, reader_id, own[0].0, false).await;
+    assert_eq!(status, StatusCode::CREATED, "{own_loan}");
+    let own_loan_id = fixtures::json_id(&own_loan["id"]);
+    let (status, own_returned) = app
+        .post_empty(&format!("/api/v1/loans/{own_loan_id}/return"), Some(&token))
+        .await;
+    assert_eq!(status, StatusCode::OK, "{own_returned}");
+    assert_eq!(own_returned["returnToLender"], false, "{own_returned}");
 }
 
 #[tokio::test]
@@ -606,13 +754,7 @@ async fn inventory_weeding_and_stats_exclude_deposit_copies() {
         .find(|row| row["lenderId"].as_str() == Some(lender_key.as_str()))
         .expect("lender row");
     assert_eq!(row["count"], 1);
-    let own_stock = stats["items"]["ownStock"].as_i64().unwrap();
-    let total = stats["items"]["total"].as_i64().unwrap();
-    let deposit_total: i64 = deposits
-        .iter()
-        .map(|row| row["count"].as_i64().unwrap())
-        .sum();
-    assert_eq!(own_stock + deposit_total, total);
+    assert_stock_identity(&stats);
 
     let audience = format!("d{}", fixtures::unique_suffix() % 1_000_000_000);
     let (image_biblio_status, image_body) = app
@@ -693,9 +835,10 @@ async fn loss_bills_the_lender_rate_or_requires_an_amount() {
     let unrated_batch = batch(&app, &token, unrated, site_id).await;
     let (reader_id, _) = fixtures::create_reader(&app, &token, "deploss").await;
 
-    let (_biblio, rated_items) = copies(&app, &token, 2, Some("20.00")).await;
-    attach(&app, rated_batch, site_id, rated_items[0].0).await;
-    attach(&app, rated_batch, site_id, rated_items[1].0).await;
+    let (_biblio, rated_items) = copies(&app, &token, 3, Some("20.00")).await;
+    for (item_id, _) in &rated_items {
+        attach(&app, rated_batch, site_id, *item_id).await;
+    }
     shift_return(&app, rated_batch, 40).await;
     let (status, loan) = checkout(&app, &token, reader_id, rated_items[0].0, false).await;
     assert_eq!(status, StatusCode::CREATED, "{loan}");
@@ -741,15 +884,50 @@ async fn loss_bills_the_lender_rate_or_requires_an_amount() {
     assert!(saw_audit, "deposit_item_lost audit");
 
     let (_biblio, plain) = copies(&app, &token, 2, Some("20.00")).await;
-    attach(&app, unrated_batch, site_id, plain[0].0).await;
-    attach(&app, unrated_batch, site_id, plain[1].0).await;
+    let (_free_biblio, free) = copies(&app, &token, 1, Some("20.00")).await;
+    let (_unknown_biblio, unknown) = copies(&app, &token, 1, None).await;
+    sqlx::query("UPDATE items SET price = 0 WHERE id = $1")
+        .bind(free[0].0)
+        .execute(app.state.services.repository.pool())
+        .await
+        .unwrap();
+    for item_id in [plain[0].0, plain[1].0, free[0].0, unknown[0].0] {
+        attach(&app, unrated_batch, site_id, item_id).await;
+    }
     shift_return(&app, unrated_batch, 40).await;
-    let (status, loan) = checkout(&app, &token, reader_id, plain[0].0, false).await;
-    assert_eq!(status, StatusCode::CREATED, "{loan}");
-    let missing_loan = fixtures::json_id(&loan["id"]);
+
+    let (status, slip_loan) = checkout(&app, &token, reader_id, plain[0].0, false).await;
+    assert_eq!(status, StatusCode::CREATED, "{slip_loan}");
+    let slip_id = fixtures::json_id(&slip_loan["id"]);
+    let (status, from_slip) = app
+        .post_json(
+            &format!("/api/v1/loans/{slip_id}/lost"),
+            &json!({"bill": false}),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{from_slip}");
+    assert_eq!(from_slip["charge"]["amount"], "20.00", "{from_slip}");
+
+    let (status, slip_override) = checkout(&app, &token, reader_id, plain[1].0, false).await;
+    assert_eq!(status, StatusCode::CREATED, "{slip_override}");
+    let slip_override_id = fixtures::json_id(&slip_override["id"]);
+    let (status, price_wins) = app
+        .post_json(
+            &format!("/api/v1/loans/{slip_override_id}/lost"),
+            &json!({"bill": true, "amount": "8.50"}),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{price_wins}");
+    assert_eq!(price_wins["charge"]["amount"], "20.00", "{price_wins}");
+
+    let (status, free_loan) = checkout(&app, &token, reader_id, free[0].0, false).await;
+    assert_eq!(status, StatusCode::CREATED, "{free_loan}");
+    let free_id = fixtures::json_id(&free_loan["id"]);
     let (status, missing) = app
         .post_json(
-            &format!("/api/v1/loans/{missing_loan}/lost"),
+            &format!("/api/v1/loans/{free_id}/lost"),
             &json!({"bill": true}),
             Some(&token),
         )
@@ -758,7 +936,7 @@ async fn loss_bills_the_lender_rate_or_requires_an_amount() {
     assert_error(&missing, "deposit_replacement_amount_required");
     let (status, zero_amount) = app
         .post_json(
-            &format!("/api/v1/loans/{missing_loan}/lost"),
+            &format!("/api/v1/loans/{free_id}/lost"),
             &json!({"bill": true, "amount": "0"}),
             Some(&token),
         )
@@ -767,13 +945,30 @@ async fn loss_bills_the_lender_rate_or_requires_an_amount() {
     assert_error(&zero_amount, "deposit_replacement_amount_required");
     let (status, billed) = app
         .post_json(
-            &format!("/api/v1/loans/{missing_loan}/lost"),
+            &format!("/api/v1/loans/{free_id}/lost"),
             &json!({"bill": false, "amount": "8.50"}),
             Some(&token),
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{billed}");
     assert_eq!(billed["charge"]["amount"], "8.50");
+
+    let (status, unknown_loan) = checkout(&app, &token, reader_id, unknown[0].0, false).await;
+    assert_eq!(status, StatusCode::CREATED, "{unknown_loan}");
+    let unknown_id = fixtures::json_id(&unknown_loan["id"]);
+    let (status, unknown_missing) = app
+        .post_json(
+            &format!("/api/v1/loans/{unknown_id}/lost"),
+            &json!({"bill": true, "amount": "0"}),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(
+        status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{unknown_missing}"
+    );
+    assert_error(&unknown_missing, "deposit_replacement_amount_required");
 
     let (status, damage_loan) = checkout(&app, &token, reader_id, rated_items[1].0, false).await;
     assert_eq!(status, StatusCode::CREATED, "{damage_loan}");
@@ -788,4 +983,92 @@ async fn loss_bills_the_lender_rate_or_requires_an_amount() {
     assert_eq!(status, StatusCode::OK, "{damaged}");
     assert_eq!(damaged["charge"]["amount"], "15.00");
     assert_eq!(damaged["charge"]["chargeType"], "damage");
+
+    let (status, rate_change) = patch_json(
+        &app,
+        &format!("/api/v1/lenders/{rated}"),
+        &json!({"replacementRateCents": 4200}),
+        &token,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{rate_change}");
+    assert_eq!(rate_change["replacementRateCents"], 4200, "{rate_change}");
+    let frozen_lost: i64 = sqlx::query_scalar(
+        "SELECT amount FROM fines WHERE loan_id = $1 AND charge_type = 'replacement'",
+    )
+    .bind(loan_id)
+    .fetch_one(app.state.services.repository.pool())
+    .await
+    .unwrap();
+    let frozen_damage: i64 = sqlx::query_scalar(
+        "SELECT amount FROM fines WHERE loan_id = $1 AND charge_type = 'damage'",
+    )
+    .bind(damage_id)
+    .fetch_one(app.state.services.repository.pool())
+    .await
+    .unwrap();
+    assert_eq!(frozen_lost, 1500);
+    assert_eq!(frozen_damage, 1500);
+
+    let (status, later_loan) = checkout(&app, &token, reader_id, rated_items[2].0, false).await;
+    assert_eq!(status, StatusCode::CREATED, "{later_loan}");
+    let later_id = fixtures::json_id(&later_loan["id"]);
+    let (status, later_lost) = app
+        .post_json(
+            &format!("/api/v1/loans/{later_id}/lost"),
+            &json!({"bill": false, "amount": "0"}),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{later_lost}");
+    assert_eq!(later_lost["charge"]["amount"], "42.00", "{later_lost}");
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT amount FROM fines WHERE loan_id = $1 AND charge_type = 'replacement'"
+        )
+        .bind(loan_id)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .unwrap(),
+        1500
+    );
+}
+
+#[tokio::test]
+async fn stats_own_stock_plus_deposit_counts_equal_total() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let token = fixtures::ensure_first_setup(&app).await;
+    let site_id = site(&app, &token).await;
+    let lender_id = lender(&app, &token, None).await;
+    let batch_id = batch(&app, &token, lender_id, site_id).await;
+    let (_owned_biblio, owned) = copies(&app, &token, 1, None).await;
+    let (_deposit_biblio, deposit) = copies(&app, &token, 1, None).await;
+    sqlx::query("UPDATE items SET source_id = $1 WHERE id = $2")
+        .bind(site_id)
+        .bind(owned[0].0)
+        .execute(app.state.services.repository.pool())
+        .await
+        .unwrap();
+    attach(&app, batch_id, site_id, deposit[0].0).await;
+
+    for uri in ["/api/v1/stats", "/api/v1/stats?year=2026"] {
+        let (status, stats) = app.get_json_with_auth(uri, &token).await;
+        assert_eq!(status, StatusCode::OK, "{uri} {stats}");
+        assert_stock_identity(&stats);
+    }
+
+    let (status, year) = app
+        .get_json_with_auth("/api/v1/stats?year=2026", &token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{year}");
+    let lender_key = lender_id.to_string();
+    let row = year["items"]["deposits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["lenderId"].as_str() == Some(lender_key.as_str()))
+        .expect("lender row");
+    assert_eq!(row["count"], 1, "{year}");
 }

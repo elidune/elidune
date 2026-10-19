@@ -328,14 +328,15 @@ impl Repository {
         Ok(())
     }
 
-    /// Lender replacement rate for a deposit copy. `None` when the copy is own stock.
+    /// Lender replacement rate and the copy price for a deposit item.
+    /// `None` when the copy is own stock.
     pub async fn item_deposit_replacement(
         &self,
         item_id: i64,
     ) -> AppResult<Option<DepositReplacement>> {
         let row = sqlx::query_as::<_, DepositReplacement>(
             r#"
-            SELECT db.lender_id, l.replacement_rate_cents
+            SELECT db.lender_id, l.replacement_rate_cents, i.price AS item_price_cents
             FROM items i
             JOIN deposit_batches db ON db.id = i.deposit_batch_id
             JOIN lenders l ON l.id = db.lender_id
@@ -666,11 +667,13 @@ pub(crate) struct DepositDueDecision {
     pub is_deposit: bool,
 }
 
-/// Lender rate used when a deposit copy is lost or damaged.
+/// Lender rate and copy price used when a deposit copy is lost or damaged.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct DepositReplacement {
     pub lender_id: i64,
     pub replacement_rate_cents: Option<Cents>,
+    /// `items.price` in cents. Zero and null are not a billable slip price.
+    pub item_price_cents: Option<Cents>,
 }
 
 #[derive(Debug, sqlx::FromRow)]

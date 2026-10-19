@@ -106,6 +106,8 @@ pub struct LoanReturnOutcome {
     pub hold_ready_email: Option<HoldReadyEmailOutcome>,
     /// Set when the copy was lost. The return does not change that status.
     pub lost: Option<crate::models::dto::circulation::LostItemOnReturn>,
+    /// True when this return checked in a deposit copy whose batch is already closed.
+    pub return_to_lender: bool,
 }
 
 /// Hold-ready notification email attempt after a loan return.

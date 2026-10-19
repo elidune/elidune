@@ -548,12 +548,15 @@ impl Repository {
         .execute(&mut *tx)
         .await?;
 
-        // A closed deposit stays with the lender. Archive the copy before the
-        // hold queue so it cannot be assigned or sent into transit.
-        sqlx::query(
+        // A closed deposit goes back to the lender. Archive it and mark it
+        // returned before the hold queue so it cannot be assigned, sent into
+        // transit, or classified as missing when close is run again.
+        let returned_to_lender = sqlx::query(
             r#"
             UPDATE items i
-            SET archived_at = COALESCE(i.archived_at, $2), updated_at = $2
+            SET archived_at = COALESCE(i.archived_at, $2),
+                deposit_returned_at = COALESCE(i.deposit_returned_at, $2),
+                updated_at = $2
             FROM deposit_batches b
             WHERE i.id = $1
               AND i.deposit_batch_id = b.id
@@ -564,6 +567,7 @@ impl Repository {
         .bind(now)
         .execute(&mut *tx)
         .await?;
+        let return_to_lender = returned_to_lender.rows_affected() > 0;
 
         // A copy that is still lost must not satisfy a hold or start a transit.
         let readied_hold = if was_lost {
@@ -693,6 +697,7 @@ impl Repository {
             readied_hold,
             hold_ready_email: None,
             lost,
+            return_to_lender,
         })
     }
 

@@ -626,9 +626,11 @@ impl CirculationService {
     }
 }
 
-/// Lender rate wins, including when staff also send an amount or `0`.
-/// Without a rate, a missing or zero amount is refused. Never falls through
-/// to the copy price or the default replacement rule.
+/// Lender `replacementRateCents` wins, including when staff also send an amount or `0`.
+/// Otherwise a positive copy price (the lender's deposit slip) wins over the staff amount.
+/// A null or zero price does not count. A missing or non-positive staff amount is then
+/// `deposit_replacement_amount_required`. The library default replacement
+/// rule is never used. The returned cents are written once onto the fine row.
 fn resolve_deposit_bill(
     deposit: &crate::repository::deposits::DepositReplacement,
     explicit: Option<Decimal>,
@@ -636,6 +638,11 @@ fn resolve_deposit_bill(
     if let Some(rate) = deposit.replacement_rate_cents {
         if rate.0 > 0 {
             return Ok(rate);
+        }
+    }
+    if let Some(price) = deposit.item_price_cents {
+        if price.0 > 0 {
+            return Ok(price);
         }
     }
     let cents = explicit
@@ -738,6 +745,62 @@ mod tests {
         assert_eq!(
             serde_json::to_value(action).expect("fine action json"),
             serde_json::json!("unchanged")
+        );
+    }
+
+    #[test]
+    fn deposit_bill_uses_rate_then_positive_price_then_staff_amount() {
+        use super::resolve_deposit_bill;
+        use crate::models::fine::Cents;
+        use crate::repository::deposits::DepositReplacement;
+        use rust_decimal::Decimal;
+
+        let rated = DepositReplacement {
+            lender_id: 1,
+            replacement_rate_cents: Some(Cents(1500)),
+            item_price_cents: Some(Cents(2000)),
+        };
+        assert_eq!(
+            resolve_deposit_bill(&rated, Some(Decimal::new(850, 2))).unwrap(),
+            Cents(1500)
+        );
+        assert_eq!(
+            resolve_deposit_bill(&rated, Some(Decimal::ZERO)).unwrap(),
+            Cents(1500)
+        );
+
+        let priced = DepositReplacement {
+            lender_id: 1,
+            replacement_rate_cents: None,
+            item_price_cents: Some(Cents(2000)),
+        };
+        assert_eq!(
+            resolve_deposit_bill(&priced, Some(Decimal::new(850, 2))).unwrap(),
+            Cents(2000)
+        );
+        assert_eq!(resolve_deposit_bill(&priced, None).unwrap(), Cents(2000));
+
+        let free = DepositReplacement {
+            lender_id: 1,
+            replacement_rate_cents: None,
+            item_price_cents: Some(Cents(0)),
+        };
+        assert!(resolve_deposit_bill(&free, None).is_err());
+        assert!(resolve_deposit_bill(&free, Some(Decimal::ZERO)).is_err());
+        assert_eq!(
+            resolve_deposit_bill(&free, Some(Decimal::new(850, 2))).unwrap(),
+            Cents(850)
+        );
+
+        let unknown = DepositReplacement {
+            lender_id: 1,
+            replacement_rate_cents: None,
+            item_price_cents: None,
+        };
+        assert!(resolve_deposit_bill(&unknown, None).is_err());
+        assert_eq!(
+            resolve_deposit_bill(&unknown, Some(Decimal::new(850, 2))).unwrap(),
+            Cents(850)
         );
     }
 
