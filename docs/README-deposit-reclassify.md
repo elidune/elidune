@@ -18,9 +18,9 @@ Dry run is the default and writes nothing. **Run that dry run against a copy of 
 elidune-server reclassify-deposits \
   --config config/default.toml \
   --lender 12 \
-  --batch-reference "CITYLIB-2024-SPRING" \
-  --received-on 2024-03-01 \
-  --return-due-on 2024-09-01 \
+  --batch-reference "CITYLIB-2027-SPRING" \
+  --received-on 2027-03-01 \
+  --return-due-on 2027-09-01 \
   --notes "Historical MARC import" \
   --site 3 \
   --from-source 41
@@ -28,9 +28,9 @@ elidune-server reclassify-deposits \
 elidune-server reclassify-deposits \
   --config config/default.toml \
   --lender 12 \
-  --batch-reference "CITYLIB-2024-SPRING" \
-  --received-on 2024-03-01 \
-  --return-due-on 2024-09-01 \
+  --batch-reference "CITYLIB-2027-SPRING" \
+  --received-on 2027-03-01 \
+  --return-due-on 2027-09-01 \
   --notes "Historical MARC import" \
   --site 3 \
   --from-source 41 \
@@ -39,7 +39,9 @@ elidune-server reclassify-deposits \
 
 `--from-source` selects every copy at that source whose `archived_at` is null. `--barcodes path` selects an explicit list instead (one barcode per line, or a CSV with a `barcode` column). Pass exactly one of those two options.
 
-`--return-due-on` is required only when no batch with that reference exists for the lender. `--received-on` maps to `arrived_on` and defaults to today (UTC) when the batch is created. When the reference already exists and the batch is `active`, it is reused and those fields are left unchanged. A batch in any other status is refused and nothing is written.
+`--return-due-on` is required only when no batch with that reference exists for the lender. `--received-on` maps to `arrived_on` and defaults to today (UTC) when the batch is created. When the reference already exists and the batch is `active`, it is reused and those fields are left unchanged. A batch in any other status is refused and nothing is written. When that existing batch's site is not `--site`, the command exits non-zero with `deposit_site_mismatch` and writes nothing.
+
+Use a return date after today. If `--return-due-on` (or the reused batch's `return_due_on`) is today or earlier, the report still runs, and a `return_due_on_past` warning at the top explains that the copies will immediately be refused for loans (`deposit_return_due`) and holds.
 
 `--format json` prints the same report as camelCase JSON. Ids in that JSON are decimal strings.
 

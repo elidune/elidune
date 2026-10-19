@@ -19,8 +19,8 @@ fn command(
     ReclassifyCommand {
         lender_id,
         batch_reference: reference.to_string(),
-        return_due_on: Some(chrono::NaiveDate::from_ymd_opt(2026, 9, 1).unwrap()),
-        received_on: Some(chrono::NaiveDate::from_ymd_opt(2026, 3, 1).unwrap()),
+        return_due_on: Some(chrono::NaiveDate::from_ymd_opt(2027, 9, 1).unwrap()),
+        received_on: Some(chrono::NaiveDate::from_ymd_opt(2027, 3, 1).unwrap()),
         notes: Some("historical import".into()),
         site_id,
         selection,
@@ -321,9 +321,9 @@ async fn dry_run_writes_nothing_apply_is_idempotent_and_reports_duplicates() {
         .unwrap();
     assert_eq!(
         arrived,
-        chrono::NaiveDate::from_ymd_opt(2026, 3, 1).unwrap()
+        chrono::NaiveDate::from_ymd_opt(2027, 3, 1).unwrap()
     );
-    assert_eq!(due_on, chrono::NaiveDate::from_ymd_opt(2026, 9, 1).unwrap());
+    assert_eq!(due_on, chrono::NaiveDate::from_ymd_opt(2027, 9, 1).unwrap());
     assert_eq!(notes.as_deref(), Some("historical import"));
     assert_eq!(status, "active");
     assert_eq!(batch_site, site_id);
@@ -1015,4 +1015,140 @@ async fn existing_batch_site_mismatch_writes_nothing() {
     .await
     .unwrap();
     assert_eq!(audits, 0);
+}
+
+fn warning_codes(report: &elidune_server::deposit_reclassify::Report) -> Vec<&str> {
+    report
+        .warnings
+        .iter()
+        .map(|warning| warning.code.as_str())
+        .collect()
+}
+
+#[tokio::test]
+async fn past_or_today_return_due_warns_and_still_applies() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let pool = app.state.services.repository.pool();
+    let token = fixtures::unique_token();
+    let site_id = source(pool, &format!("site-{token}")).await;
+    let old_source = source(pool, &format!("old-{token}")).await;
+    let lender_id = lender(pool, &format!("Lender {token}")).await;
+    let biblio_id = biblio(pool, "Due", None).await;
+    let today = Utc::now().date_naive();
+    let past = chrono::NaiveDate::from_ymd_opt(2020, 6, 1).unwrap();
+    let past_arrived = chrono::NaiveDate::from_ymd_opt(2020, 1, 1).unwrap();
+    let future = chrono::NaiveDate::from_ymd_opt(2027, 9, 1).unwrap();
+
+    let today_barcode = format!("TODAY-{token}");
+    let today_item = item(pool, biblio_id, old_source, &today_barcode).await;
+    let mut today_cmd = command(
+        lender_id,
+        &format!("TODAY-{token}"),
+        site_id,
+        Selection::Barcodes(vec![today_barcode]),
+        true,
+    );
+    today_cmd.received_on = Some(today);
+    today_cmd.return_due_on = Some(today);
+    let today_report = execute(pool, &today_cmd)
+        .await
+        .expect("today still applies");
+    assert_eq!(warning_codes(&today_report), vec!["return_due_on_past"]);
+    assert!(today_report.warnings[0]
+        .message
+        .contains("deposit_return_due"));
+    assert!(today_report.warnings[0].message.contains("holds"));
+    assert!(today_report.warnings[0]
+        .message
+        .contains(&today.to_string()));
+    assert_eq!(today_report.summary.to_reclassify, 1);
+    assert_eq!(item_place(pool, today_item).await.1, Some(site_id));
+    let text = elidune_server::deposit_reclassify::render_report(
+        &today_report,
+        elidune_server::deposit_reclassify::ReportFormat::Text,
+    );
+    assert!(text.starts_with("WARNING\tcode=return_due_on_past\t"));
+    let json = elidune_server::deposit_reclassify::render_report(
+        &today_report,
+        elidune_server::deposit_reclassify::ReportFormat::Json,
+    );
+    assert!(json.contains("\"warnings\""));
+    assert!(json.contains("\"code\": \"return_due_on_past\""));
+
+    let past_barcode = format!("PAST-{token}");
+    let past_item = item(pool, biblio_id, old_source, &past_barcode).await;
+    let mut past_cmd = command(
+        lender_id,
+        &format!("PAST-{token}"),
+        site_id,
+        Selection::Barcodes(vec![past_barcode]),
+        false,
+    );
+    past_cmd.received_on = Some(past_arrived);
+    past_cmd.return_due_on = Some(past);
+    let past_report = execute(pool, &past_cmd).await.expect("past dry run");
+    assert_eq!(warning_codes(&past_report), vec!["return_due_on_past"]);
+    assert!(past_report.warnings[0].message.contains("2020-06-01"));
+    assert_eq!(item_place(pool, past_item).await.1, Some(old_source));
+    let batches: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM deposit_batches WHERE lender_id = $1 AND reference = $2",
+    )
+    .bind(lender_id)
+    .bind(format!("PAST-{token}"))
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(batches, 0);
+
+    let reuse_barcode = format!("REUSE-DUE-{token}");
+    let reuse_item = item(pool, biblio_id, old_source, &reuse_barcode).await;
+    let reuse_ref = format!("REUSE-DUE-{token}");
+    sqlx::query(
+        "INSERT INTO deposit_batches
+            (lender_id, reference, site_id, arrived_on, return_due_on, notes)
+         VALUES ($1, $2, $3, '2024-01-15', '2024-08-01', 'kept')",
+    )
+    .bind(lender_id)
+    .bind(&reuse_ref)
+    .bind(site_id)
+    .execute(pool)
+    .await
+    .unwrap();
+    let mut reuse = command(
+        lender_id,
+        &reuse_ref,
+        site_id,
+        Selection::Barcodes(vec![reuse_barcode]),
+        true,
+    );
+    reuse.return_due_on = Some(future);
+    reuse.received_on = Some(chrono::NaiveDate::from_ymd_opt(2027, 3, 1).unwrap());
+    let reuse_report = execute(pool, &reuse).await.expect("reuse stored past date");
+    assert_eq!(warning_codes(&reuse_report), vec!["return_due_on_past"]);
+    assert!(reuse_report.warnings[0].message.contains("2024-08-01"));
+    assert!(!reuse_report.warnings[0].message.contains("2027-09-01"));
+    assert_eq!(
+        reuse_report.return_due_on,
+        chrono::NaiveDate::from_ymd_opt(2024, 8, 1).unwrap()
+    );
+    assert_eq!(item_place(pool, reuse_item).await.1, Some(site_id));
+
+    let future_barcode = format!("FUTURE-{token}");
+    let future_item = item(pool, biblio_id, old_source, &future_barcode).await;
+    let future_report = execute(
+        pool,
+        &command(
+            lender_id,
+            &format!("FUTURE-{token}"),
+            site_id,
+            Selection::Barcodes(vec![future_barcode]),
+            true,
+        ),
+    )
+    .await
+    .expect("future date");
+    assert!(future_report.warnings.is_empty());
+    assert_eq!(item_place(pool, future_item).await.1, Some(site_id));
 }

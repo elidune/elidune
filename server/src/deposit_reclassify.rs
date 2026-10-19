@@ -268,6 +268,17 @@ pub struct Summary {
     pub already_reclassified: u64,
 }
 
+/// A condition that does not refuse the run. `count` is set when the warning
+/// is about a number of copies.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportWarning {
+    pub code: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub count: Option<i64>,
+}
+
 #[serde_as]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -285,6 +296,7 @@ pub struct Report {
     pub arrived_on: NaiveDate,
     pub return_due_on: NaiveDate,
     pub notes: Option<String>,
+    pub warnings: Vec<ReportWarning>,
     pub items: Vec<ReportLine>,
     pub possible_duplicate_records: Vec<PossibleDuplicateRecord>,
     pub summary: Summary,
@@ -858,6 +870,7 @@ async fn execute_in_tx(
         arrived_on: batch.arrived_on,
         return_due_on: batch.return_due_on,
         notes: batch.notes,
+        warnings: report_warnings(batch.return_due_on),
         summary: summarize(&planned),
         items: planned.into_iter().map(|item| item.line).collect(),
         possible_duplicate_records: duplicates,
@@ -974,6 +987,25 @@ async fn resolve_batch(
         return_due_on: planned.return_due_on,
         notes: planned.notes,
     })
+}
+
+const RETURN_DUE_ON_PAST: &str = "return_due_on_past";
+
+/// The date that will apply is the new batch's `--return-due-on`, or the stored
+/// date when an existing batch is reused. Today is the UTC date, matching
+/// `cap_loan_due_date`: a due date of today already blocks checkout.
+fn report_warnings(return_due_on: NaiveDate) -> Vec<ReportWarning> {
+    let mut warnings = Vec::new();
+    if return_due_on <= Utc::now().date_naive() {
+        warnings.push(ReportWarning {
+            code: RETURN_DUE_ON_PAST.to_string(),
+            message: format!(
+                "return due date {return_due_on} is today or in the past; copies will immediately be refused for loans (deposit_return_due) and holds"
+            ),
+            count: None,
+        });
+    }
+    warnings
 }
 
 fn plan_new_batch(command: &ReclassifyCommand) -> Result<NewBatch, ReclassifyFailure> {
@@ -1317,6 +1349,16 @@ pub fn render_report(report: &Report, format: ReportFormat) -> String {
 
 fn render_text(report: &Report) -> String {
     let mut out = String::new();
+    for warning in &report.warnings {
+        let count = match warning.count {
+            Some(count) => format!("\tcount={count}"),
+            None => String::new(),
+        };
+        push_line(
+            &mut out,
+            format!("WARNING\tcode={}\t{}{count}", warning.code, warning.message),
+        );
+    }
     let mode = if report.applied { "apply" } else { "dry-run" };
     push_line(&mut out, format!("mode={mode}"));
     push_line(&mut out, format!("lender_id={}", report.lender_id));
@@ -1571,6 +1613,7 @@ mod tests {
             arrived_on: NaiveDate::from_ymd_opt(2026, 3, 1).unwrap(),
             return_due_on: NaiveDate::from_ymd_opt(2026, 9, 1).unwrap(),
             notes: None,
+            warnings: Vec::new(),
             items: vec![super::ReportLine {
                 barcode: Some("NOPE".into()),
                 item_id: None,
@@ -1605,5 +1648,39 @@ mod tests {
         assert!(json.contains("\"lenderId\": \"12\""));
         assert!(json.contains("\"barcode_unknown\""));
         assert!(json.contains("\"possible_duplicate_record\""));
+        assert!(json.contains("\"warnings\": []"));
+    }
+
+    #[test]
+    fn return_due_warning_leads_the_text_report() {
+        let report = super::Report {
+            dry_run: true,
+            applied: false,
+            lender_id: 12,
+            batch_reference: "REF".into(),
+            batch_id: None,
+            batch_action: super::BatchAction::Create,
+            site_id: 4,
+            arrived_on: NaiveDate::from_ymd_opt(2020, 1, 1).unwrap(),
+            return_due_on: NaiveDate::from_ymd_opt(2020, 6, 1).unwrap(),
+            notes: None,
+            warnings: vec![super::ReportWarning {
+                code: "return_due_on_past".into(),
+                message:
+                    "copies will immediately be refused for loans (deposit_return_due) and holds"
+                        .into(),
+                count: None,
+            }],
+            items: Vec::new(),
+            possible_duplicate_records: Vec::new(),
+            summary: super::Summary::default(),
+        };
+        let text = render_report(&report, ReportFormat::Text);
+        assert!(text.starts_with("WARNING\tcode=return_due_on_past\t"));
+        assert!(text.contains("deposit_return_due"));
+        assert!(text.find("WARNING").unwrap() < text.find("mode=").unwrap());
+        let json = render_report(&report, ReportFormat::Json);
+        assert!(json.contains("\"code\": \"return_due_on_past\""));
+        assert!(json.contains("\"warnings\""));
     }
 }
