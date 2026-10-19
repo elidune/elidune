@@ -12,6 +12,7 @@ use crate::{
 };
 
 use super::ItemShortRow;
+use crate::models::deposit::{item_deposit_join, ITEM_DEPOSIT_JSON};
 use crate::models::item::WeedingStatus;
 
 /// One round-trip of laterals for loan, transit, and the exclusive hold on a copy.
@@ -81,6 +82,7 @@ const ITEM_AVAILABILITY_COLUMNS: &str = r#"
 "#;
 
 fn item_sql(where_and_order: &str) -> String {
+    let deposit_join = item_deposit_join("i");
     format!(
         r#"
             SELECT i.id, i.biblio_id, i.source_id, i.barcode, i.call_number, i.volume_designation,
@@ -105,16 +107,19 @@ fn item_sql(where_and_order: &str) -> String {
                              AND t.status IN ('requested', 'in_transit')
                        )
                    ) AS on_hold,
-                   {ITEM_AVAILABILITY_COLUMNS}
+                   {ITEM_AVAILABILITY_COLUMNS},
+                   {ITEM_DEPOSIT_JSON} AS deposit
             FROM items i
             LEFT JOIN sources so ON i.source_id = so.id
             {ITEM_STATE_JOINS}
+            {deposit_join}
             {where_and_order}
         "#
     )
 }
 
 fn item_short_sql(where_and_order: &str) -> String {
+    let deposit_join = item_deposit_join("i");
     format!(
         r#"
             SELECT i.biblio_id, i.id, i.barcode, i.call_number, i.borrowable,
@@ -122,10 +127,12 @@ fn item_short_sql(where_and_order: &str) -> String {
                    i.weeding_status,
                    so.name as source_name,
                    (active_loan.id IS NOT NULL) as borrowed,
-                   {ITEM_AVAILABILITY_COLUMNS}
+                   {ITEM_AVAILABILITY_COLUMNS},
+                   {ITEM_DEPOSIT_JSON} AS deposit
             FROM items i
             LEFT JOIN sources so ON i.source_id = so.id
             {ITEM_STATE_JOINS}
+            {deposit_join}
             {where_and_order}
         "#
     )
@@ -250,8 +257,8 @@ impl Repository {
             r#"
             INSERT INTO items (
                 biblio_id, barcode, call_number, volume_designation, place, borrowable,
-                public_note, internal_note, price, source_id, created_at, updated_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, NULLIF(btrim($7), ''), NULLIF(btrim($8), ''), $9, $10, $11, $11)
+                public_note, internal_note, price, source_id, deposit_batch_id, created_at, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, NULLIF(btrim($7), ''), NULLIF(btrim($8), ''), $9, $10, $11, $12, $12)
             RETURNING id
             "#,
         )
@@ -265,6 +272,7 @@ impl Repository {
         .bind(&internal_note)
         .bind(item.price)
         .bind(source_id)
+        .bind(item.deposit_batch_id)
         .bind(now)
         .fetch_one(&self.pool)
         .await?;
@@ -368,12 +376,12 @@ impl Repository {
                     INSERT INTO items (
                         biblio_id, barcode, call_number, volume_designation,
                         place, borrowable, public_note, internal_note, price, source_id,
-                        created_at, updated_at, archived_at
+                        deposit_batch_id, created_at, updated_at, archived_at
                     )
                     VALUES (
                         $1, $2, $3, $4, $5, $6,
                         NULLIF(btrim($7), ''), NULLIF(btrim($8), ''),
-                        $9, $10, $11, $11, $12
+                        $9, $10, $11, $12, $12, $13
                     )
                     RETURNING id
                     "#,
@@ -388,6 +396,7 @@ impl Repository {
                 .bind(&internal_note)
                 .bind(item.price)
                 .bind(item.source_id)
+                .bind(item.deposit_batch_id)
                 .bind(item.updated_at)
                 .bind(item.archived_at)
                 .fetch_one(&self.pool)

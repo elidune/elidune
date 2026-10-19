@@ -5,6 +5,7 @@ use sqlx::Row;
 
 use super::super::Repository;
 use super::LOAN_DETAILS_FIRST_AUTHOR_SQL;
+use crate::models::deposit::{item_deposit_from_value, item_deposit_join, ITEM_DEPOSIT_JSON};
 use crate::{
     checkout_refusal::{
         finish_checkout_refusals, push_checkout_refusal, CheckoutProgress, CheckoutRefusal,
@@ -575,13 +576,17 @@ impl Repository {
                    it.id as item_copy_id, it.barcode as item_barcode,
                    it.call_number as item_call_number, it.borrowable as item_borrowable,
                    so.name as item_source_name,
-                   {}
+                   {author},
+                   {deposit_json} AS deposit
             FROM biblios b
             JOIN items it ON it.biblio_id = b.id
             LEFT JOIN sources so ON it.source_id = so.id
+            {deposit_join}
             WHERE it.id = $1
             "#,
-            LOAN_DETAILS_FIRST_AUTHOR_SQL
+            author = LOAN_DETAILS_FIRST_AUTHOR_SQL,
+            deposit_json = ITEM_DEPOSIT_JSON,
+            deposit_join = item_deposit_join("it"),
         ))
         .bind(loan.item_id)
         .fetch_one(&self.pool)
@@ -625,6 +630,8 @@ impl Repository {
             hold_user_barcode: None,
             hold_user_firstname: None,
             hold_user_lastname: None,
+            deposit: item_deposit_from_value(biblio_row.try_get("deposit")?)
+                .map_err(|err| AppError::Internal(format!("deposit json: {err}")))?,
         };
 
         let details = LoanDetails {

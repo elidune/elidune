@@ -437,6 +437,15 @@ pub struct Item {
     #[sqlx(default)]
     #[serde(skip)]
     pub on_hold: bool,
+    /// Incoming deposit batch. Written by deposit import. Omitted from JSON;
+    /// clients read [`Self::deposit`].
+    #[sqlx(default)]
+    #[serde(skip)]
+    pub deposit_batch_id: Option<i64>,
+    /// `null` for own stock. Loaded by the item query's deposit join.
+    #[sqlx(default, json)]
+    #[serde(default)]
+    pub deposit: Option<crate::models::deposit::ItemDeposit>,
 }
 
 impl Item {
@@ -581,6 +590,10 @@ pub struct ItemShort {
     #[sqlx(default)]
     #[serde(skip)]
     pub hold_user_lastname: Option<String>,
+    /// `null` for own stock. Same join as [`Item::deposit`].
+    #[sqlx(default, json)]
+    #[serde(default)]
+    pub deposit: Option<crate::models::deposit::ItemDeposit>,
 }
 
 impl ItemShort {
@@ -608,6 +621,7 @@ impl From<Item> for ItemShort {
             hold_user_barcode: item.hold_user_barcode,
             hold_user_firstname: item.hold_user_firstname,
             hold_user_lastname: item.hold_user_lastname,
+            deposit: item.deposit,
         }
     }
 }
@@ -859,6 +873,8 @@ mod tests {
             due_date: None,
             expected_return_date: None,
             on_hold: false,
+            deposit_batch_id: None,
+            deposit: None,
             legacy_notes_present: false,
         }
     }

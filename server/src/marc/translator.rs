@@ -523,6 +523,8 @@ impl From<&MarcItem> for Item {
             due_date: None,
             expected_return_date: None,
             on_hold: false,
+            deposit_batch_id: None,
+            deposit: None,
             legacy_notes_present: false,
         }
     }
@@ -787,6 +789,40 @@ pub fn marc_record_for_loan_export(
         Some(loan_expiry),
         returned_at,
     );
+    record
+}
+
+/// Minimal UNIMARC-shaped record for deposit import tests.
+///
+/// ISBN and title round-trip through [`Biblio`]. Each barcode becomes one local copy.
+pub fn marc_record_with_copies(isbn: &str, title: &str, barcodes: &[&str]) -> MarcRecord {
+    let mut record = MarcRecord::default();
+    let isbn = isbn.trim();
+    if !isbn.is_empty() {
+        record.identification.isbn.push(MarcIsbn {
+            value: isbn.to_string(),
+            qualifying: None,
+        });
+    }
+    let title = title.trim();
+    if !title.is_empty() {
+        record.description.title = Some(Title {
+            main: title.to_string(),
+            subtitle: None,
+            parallel: Vec::new(),
+            responsibility: None,
+            medium: None,
+            number_of_part: None,
+            name_of_part: None,
+        });
+    }
+    record.local.items = barcodes
+        .iter()
+        .map(|barcode| MarcItem {
+            barcode: Some((*barcode).to_string()),
+            ..Default::default()
+        })
+        .collect();
     record
 }
 

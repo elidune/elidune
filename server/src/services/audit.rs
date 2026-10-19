@@ -259,6 +259,13 @@ pub mod event {
     pub const COLLECTION_UPDATED: &str = "collection.updated";
     pub const COLLECTION_DELETED: &str = "collection.deleted";
 
+    // Incoming deposits (copies lent to us)
+    pub const LENDER_CREATED: &str = "lender.created";
+    pub const LENDER_UPDATED: &str = "lender.updated";
+    pub const LENDER_ARCHIVED: &str = "lender.archived";
+    pub const DEPOSIT_BATCH_CREATED: &str = "deposit_batch.created";
+    pub const DEPOSIT_BATCH_UPDATED: &str = "deposit_batch.updated";
+
     // Series
     pub const SERIES_CREATED: &str = "series.created";
     pub const SERIES_UPDATED: &str = "series.updated";

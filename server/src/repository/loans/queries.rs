@@ -7,6 +7,7 @@ use sqlx::{FromRow, Row};
 
 use super::super::Repository;
 use super::LOAN_DETAILS_FIRST_AUTHOR_SQL;
+use crate::models::deposit::{item_deposit_join, ITEM_DEPOSIT_JSON};
 use crate::{
     error::{AppError, AppResult},
     marc::MarcRecord,
@@ -197,16 +198,20 @@ impl Repository {
                    so.name as item_source_name,
                    b.id as biblio_id, b.media_type, b.isbn as biblio_isbn,
                    b.title, b.publication_date,
-                   {}
+                   {author},
+                   {deposit_json} AS deposit
             FROM loans l
             JOIN items it ON l.item_id = it.id
             LEFT JOIN sources so ON it.source_id = so.id
+            {deposit_join}
             JOIN biblios b ON it.biblio_id = b.id
             WHERE l.user_id = $1 AND l.returned_at IS NULL
             ORDER BY l.expiry_at
             LIMIT $2 OFFSET $3
         "#,
-            LOAN_DETAILS_FIRST_AUTHOR_SQL
+            author = LOAN_DETAILS_FIRST_AUTHOR_SQL,
+            deposit_json = ITEM_DEPOSIT_JSON,
+            deposit_join = item_deposit_join("it"),
         );
 
         let rows = sqlx::query(&sql)
@@ -247,16 +252,20 @@ impl Repository {
 
                    b.id as biblio_id, b.media_type, b.isbn as biblio_isbn,
                    b.title, b.publication_date,
-                   {}
+                   {author},
+                   {deposit_json} AS deposit
             FROM loans_archives la
             JOIN items it ON la.item_id = it.id
             LEFT JOIN sources so ON it.source_id = so.id
+            {deposit_join}
             JOIN biblios b ON it.biblio_id = b.id
             WHERE la.user_id = $1
             ORDER BY la.returned_at DESC
             LIMIT $2 OFFSET $3
         "#,
-            LOAN_DETAILS_FIRST_AUTHOR_SQL
+            author = LOAN_DETAILS_FIRST_AUTHOR_SQL,
+            deposit_json = ITEM_DEPOSIT_JSON,
+            deposit_join = item_deposit_join("it"),
         );
 
         let rows = sqlx::query(&sql)
@@ -543,6 +552,8 @@ impl Repository {
             due_date: None,
             expected_return_date: None,
             on_hold: false,
+            deposit_batch_id: None,
+            deposit: None,
             legacy_notes_present: false,
         };
 
@@ -633,6 +644,10 @@ impl Repository {
                     hold_user_barcode: None,
                     hold_user_firstname: None,
                     hold_user_lastname: None,
+                    deposit: crate::models::deposit::item_deposit_from_value(
+                        row.try_get("deposit").ok().flatten(),
+                    )
+                    .unwrap_or(None),
                 };
 
                 let (closure_reason, found_at) = loan_closure_from_row(&row);

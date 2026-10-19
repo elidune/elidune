@@ -5,7 +5,9 @@
 
 pub mod translator;
 
-pub use translator::{biblio_items_to_marc_items, marc_record_for_loan_export};
+pub use translator::{
+    biblio_items_to_marc_items, marc_record_for_loan_export, marc_record_with_copies,
+};
 
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;

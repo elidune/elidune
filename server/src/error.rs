@@ -138,6 +138,16 @@ pub mod error_code {
     pub const PUBLIC_TYPE_AGE_RANGE_INVALID: &str = "public_type_age_range_invalid";
     /// `POST /fines/{id}/pay` is greater than `amount - paid_amount`.
     pub const PAYMENT_EXCEEDS_BALANCE: &str = "payment_exceeds_balance";
+    /// `DELETE /lenders/{id}` while a batch is still `active` or `returning`.
+    pub const LENDER_HAS_ACTIVE_BATCHES: &str = "lender_has_active_batches";
+    /// MARC import `source_id` is not the deposit batch's site.
+    pub const DEPOSIT_SITE_MISMATCH: &str = "deposit_site_mismatch";
+    /// Deposit import or batch update requires status `active`.
+    pub const DEPOSIT_BATCH_NOT_ACTIVE: &str = "deposit_batch_not_active";
+    /// `allow_duplicate_isbn` or `confirm_replace_existing_id` was sent with a deposit batch.
+    pub const DEPOSIT_IMPORT_OPTIONS_CONFLICT: &str = "deposit_import_options_conflict";
+    /// One imported copy kept the lender barcode, and that barcode is already used.
+    pub const BARCODE_ALREADY_EXISTS: &str = "barcode_already_exists";
 }
 
 /// Main application error type

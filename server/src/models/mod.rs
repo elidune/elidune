@@ -8,6 +8,7 @@ pub mod biblio;
 pub mod biblio_author;
 pub mod catalog_view;
 pub mod circulation;
+pub mod deposit;
 pub mod dto;
 pub mod enums;
 pub mod equipment;
