@@ -878,7 +878,7 @@ impl LoansService {
         audit_actor: Option<i64>,
         client_ip: Option<String>,
         caller_rights: &UserRights,
-    ) -> AppResult<(DateTime<Utc>, i16)> {
+    ) -> AppResult<(DateTime<Utc>, i16, bool)> {
         self.perform_renewal(
             loan_id,
             force,
@@ -899,7 +899,7 @@ impl LoansService {
         audit_actor: Option<i64>,
         client_ip: Option<String>,
         caller_rights: &UserRights,
-    ) -> AppResult<(DateTime<Utc>, i16)> {
+    ) -> AppResult<(DateTime<Utc>, i16, bool)> {
         let snapshot = self.repository.loans_renewal_snapshot(loan_id).await?;
         if snapshot.returned {
             return Err(AppError::BusinessRule(
@@ -969,7 +969,11 @@ impl LoansService {
                 AuditLogMeta::success(),
             );
         }
-        Ok((renewed.expiry_at, renewed.renew_count))
+        Ok((
+            renewed.expiry_at,
+            renewed.renew_count,
+            renewed.due_date_capped_by_deposit,
+        ))
     }
 
     /// Audit event for a renewal gate this call skipped.
@@ -998,12 +1002,12 @@ impl LoansService {
         audit_actor: Option<i64>,
         client_ip: Option<String>,
         caller_rights: &UserRights,
-    ) -> AppResult<(i64, DateTime<Utc>, i16)> {
+    ) -> AppResult<(i64, DateTime<Utc>, i16, bool)> {
         let loan = self
             .repository
             .loans_get_by_item_identification(item_identification)
             .await?;
-        let (new_expiry_date, renew_count) = self
+        let (new_expiry_date, renew_count, due_date_capped_by_deposit) = self
             .renew_loan(
                 loan.id,
                 force,
@@ -1013,7 +1017,12 @@ impl LoansService {
                 caller_rights,
             )
             .await?;
-        Ok((loan.id, new_expiry_date, renew_count))
+        Ok((
+            loan.id,
+            new_expiry_date,
+            renew_count,
+            due_date_capped_by_deposit,
+        ))
     }
 
     /// Count active loans
@@ -1361,6 +1370,7 @@ mod tests {
                 site_id: None,
                 fulfilled_hold_id: None,
                 preserved_hold_id: progress.preserved_hold_id,
+                due_date_capped_by_deposit: false,
             })
         }
         async fn loans_return(&self, _: i64) -> AppResult<LoanReturnOutcome> {
@@ -1447,6 +1457,7 @@ mod tests {
                 expiry_at: Utc::now() + chrono::Duration::days(21),
                 renew_count: 1,
                 lifted: Vec::new(),
+                due_date_capped_by_deposit: false,
             })
         }
         async fn loans_get_settings(&self) -> AppResult<Vec<crate::models::loan::LoanSettings>> {

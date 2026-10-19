@@ -7,8 +7,8 @@ use crate::{
     error::AppResult,
     models::biblio::MediaType,
     models::dto::stats::{
-        Interval, ItemStats, LoanStats, LoanStatsResponse, StatEntry, StatsResponse,
-        TimeSeriesEntry, UserStats,
+        DepositLenderCount, Interval, ItemStats, LoanStats, LoanStatsResponse, StatEntry,
+        StatsResponse, TimeSeriesEntry, UserStats,
     },
     repository::Repository,
 };
@@ -141,6 +141,53 @@ impl Repository {
                 }
             }
             query.fetch_one(pool).await?
+        };
+
+        let own_stock: i64 = {
+            let q = format!(
+                "SELECT COUNT(*) FROM items s JOIN biblios i ON s.biblio_id = i.id WHERE {} AND s.deposit_batch_id IS NULL",
+                spec_where
+            );
+            let mut query = sqlx::query_scalar::<_, i64>(&q);
+            if let Some(ref f) = filter {
+                if let Some(ref d) = f.reference_date {
+                    query = query.bind(d);
+                }
+                if let Some(ref pt) = f.public_type {
+                    query = query.bind(pt.as_str());
+                }
+                if let Some(ref mt) = f.media_type {
+                    query = query.bind(mt.as_str());
+                }
+            }
+            query.fetch_one(pool).await?
+        };
+
+        let deposits: Vec<DepositLenderCount> = {
+            let q = format!(
+                r#"SELECT l.id AS lender_id, l.name AS lender_name, COUNT(*)::bigint AS count
+                   FROM items s
+                   JOIN biblios i ON s.biblio_id = i.id
+                   JOIN deposit_batches db ON db.id = s.deposit_batch_id
+                   JOIN lenders l ON l.id = db.lender_id
+                   WHERE {}
+                   GROUP BY l.id, l.name
+                   ORDER BY l.name, l.id"#,
+                spec_where
+            );
+            let mut query = sqlx::query_as::<_, DepositLenderCount>(&q);
+            if let Some(ref f) = filter {
+                if let Some(ref d) = f.reference_date {
+                    query = query.bind(d);
+                }
+                if let Some(ref pt) = f.public_type {
+                    query = query.bind(pt.as_str());
+                }
+                if let Some(ref mt) = f.media_type {
+                    query = query.bind(mt.as_str());
+                }
+            }
+            query.fetch_all(pool).await?
         };
 
         let items_by_media_type = {
@@ -297,7 +344,7 @@ impl Repository {
 
                     // Acquisitions total
                     let acq_q = format!(
-                    "SELECT COUNT(*) FROM items s JOIN biblios i ON s.biblio_id = i.id WHERE s.created_at >= $1 AND s.created_at <= $2 AND s.archived_at IS NULL{}",
+                    "SELECT COUNT(*) FROM items s JOIN biblios i ON s.biblio_id = i.id WHERE s.created_at >= $1 AND s.created_at <= $2 AND s.archived_at IS NULL AND s.deposit_batch_id IS NULL{}",
                     extra_cond
                 );
                     let mut acq_builder = sqlx::query_scalar::<_, i64>(&acq_q)
@@ -313,7 +360,7 @@ impl Repository {
 
                     // Acquisitions by media type
                     let acq_mt_q = format!(
-                    "SELECT COALESCE(i.media_type, 'unknown') as label, COUNT(*) as value FROM items s JOIN biblios i ON s.biblio_id = i.id WHERE s.created_at >= $1 AND s.created_at <= $2 AND s.archived_at IS NULL{} GROUP BY i.media_type ORDER BY value DESC",
+                    "SELECT COALESCE(i.media_type, 'unknown') as label, COUNT(*) as value FROM items s JOIN biblios i ON s.biblio_id = i.id WHERE s.created_at >= $1 AND s.created_at <= $2 AND s.archived_at IS NULL AND s.deposit_batch_id IS NULL{} GROUP BY i.media_type ORDER BY value DESC",
                     extra_cond
                 );
                     let mut acq_mt_builder = sqlx::query(&acq_mt_q).bind(year_start).bind(year_end);
@@ -335,7 +382,7 @@ impl Repository {
 
                     // Withdrawals total
                     let wd_q = format!(
-                    "SELECT COUNT(*) FROM items s JOIN biblios i ON s.biblio_id = i.id WHERE s.archived_at >= $1 AND s.archived_at <= $2{}",
+                    "SELECT COUNT(*) FROM items s JOIN biblios i ON s.biblio_id = i.id WHERE s.archived_at >= $1 AND s.archived_at <= $2 AND s.deposit_batch_id IS NULL{}",
                     extra_cond
                 );
                     let mut wd_builder = sqlx::query_scalar::<_, i64>(&wd_q)
@@ -351,7 +398,7 @@ impl Repository {
 
                     // Withdrawals by media type
                     let wd_mt_q = format!(
-                    "SELECT COALESCE(i.media_type, 'unknown') as label, COUNT(*) as value FROM items s JOIN biblios i ON s.biblio_id = i.id WHERE s.archived_at >= $1 AND s.archived_at <= $2{} GROUP BY i.media_type ORDER BY value DESC",
+                    "SELECT COALESCE(i.media_type, 'unknown') as label, COUNT(*) as value FROM items s JOIN biblios i ON s.biblio_id = i.id WHERE s.archived_at >= $1 AND s.archived_at <= $2 AND s.deposit_batch_id IS NULL{} GROUP BY i.media_type ORDER BY value DESC",
                     extra_cond
                 );
                     let mut wd_mt_builder = sqlx::query(&wd_mt_q).bind(year_start).bind(year_end);
@@ -388,6 +435,8 @@ impl Repository {
                 acquisitions_by_media_type,
                 withdrawals,
                 withdrawals_by_media_type,
+                own_stock,
+                deposits,
             },
             users: UserStats {
                 total: total_users,

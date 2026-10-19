@@ -126,6 +126,8 @@ pub struct LoanCreateOutcome {
     pub fulfilled_hold_id: Option<i64>,
     /// Hold left in the queue because `force` skipped `item_held_for_other`.
     pub preserved_hold_id: Option<i64>,
+    /// True when the due date was lowered to the deposit batch `returnDueOn`.
+    pub due_date_capped_by_deposit: bool,
 }
 
 /// How the new due date is computed when a loan is renewed (`loans_settings.renew_at`).

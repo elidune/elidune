@@ -209,6 +209,11 @@ impl Repository {
         let expiry_at = self
             .loans_due_at(&mut tx, now, duration_days, calendar_site)
             .await?;
+        let due = self
+            .cap_item_due_date_conn(&mut tx, item_id, expiry_at, now, true)
+            .await?;
+        let expiry_at = due.expiry_at;
+        let due_date_capped_by_deposit = due.capped;
 
         let current_loans_total: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM loans WHERE user_id = $1 AND returned_at IS NULL",
@@ -390,6 +395,7 @@ impl Repository {
             site_id: loan.site_id,
             fulfilled_hold_id,
             preserved_hold_id,
+            due_date_capped_by_deposit,
         })
     }
 
@@ -539,6 +545,23 @@ impl Repository {
         .bind(now)
         .bind(crate::models::circulation::CirculationStatus::CLAIMED_RETURNED)
         .bind(crate::models::circulation::CirculationStatus::TO_SEARCH)
+        .execute(&mut *tx)
+        .await?;
+
+        // A closed deposit stays with the lender. Archive the copy before the
+        // hold queue so it cannot be assigned or sent into transit.
+        sqlx::query(
+            r#"
+            UPDATE items i
+            SET archived_at = COALESCE(i.archived_at, $2), updated_at = $2
+            FROM deposit_batches b
+            WHERE i.id = $1
+              AND i.deposit_batch_id = b.id
+              AND b.status = 'closed'
+            "#,
+        )
+        .bind(loan.item_id)
+        .bind(now)
         .execute(&mut *tx)
         .await?;
 
@@ -933,7 +956,18 @@ impl Repository {
         let new_expiry_date = self
             .loans_due_at(&mut tx, anchor, duration_days, calendar_site)
             .await?;
+        let due = self
+            .cap_item_due_date_conn(&mut tx, item_id, new_expiry_date, now, false)
+            .await?;
+        let new_expiry_date = due.expiry_at;
         if new_expiry_date <= current_expiry {
+            if due.is_deposit {
+                return Err(AppError::coded(
+                    422,
+                    error_code::DEPOSIT_RENEWAL_NO_EXTENSION,
+                    "Renewal would not extend the due date past the deposit return date",
+                ));
+            }
             return Err(AppError::BusinessRule(
                 "Renewal would not move the due date, so it was not counted".to_string(),
             ));
@@ -954,6 +988,7 @@ impl Repository {
             expiry_at: new_expiry_date,
             renew_count: new_renews,
             lifted,
+            due_date_capped_by_deposit: due.capped,
         })
     }
 }

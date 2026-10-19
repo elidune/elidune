@@ -265,6 +265,11 @@ pub mod event {
     pub const LENDER_ARCHIVED: &str = "lender.archived";
     pub const DEPOSIT_BATCH_CREATED: &str = "deposit_batch.created";
     pub const DEPOSIT_BATCH_UPDATED: &str = "deposit_batch.updated";
+    pub const DEPOSIT_BATCH_RETURN_STARTED: &str = "deposit_batch.return_started";
+    pub const DEPOSIT_BATCH_SCANNED_OUT: &str = "deposit_batch.scanned_out";
+    pub const DEPOSIT_BATCH_CLOSED: &str = "deposit_batch.closed";
+    /// Loss or damage of a deposit copy. Payload includes `lenderId` so the lender can be notified.
+    pub const DEPOSIT_ITEM_LOST: &str = "deposit_item_lost";
 
     // Series
     pub const SERIES_CREATED: &str = "series.created";

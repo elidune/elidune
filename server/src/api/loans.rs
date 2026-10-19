@@ -266,6 +266,8 @@ pub struct LoanResponse {
     #[schema(value_type = Option<String>)]
     pub site_id: Option<i64>,
     pub message: String,
+    /// True only when the due date was lowered to the deposit batch return date.
+    pub due_date_capped_by_deposit: bool,
 }
 
 /// Return response. `loan` is set when a loan was closed. `hold` is set when a
@@ -818,6 +820,7 @@ async fn create_loan_inner(
             expiry_at,
             site_id: outcome.site_id,
             message: "Item borrowed successfully".to_string(),
+            due_date_capped_by_deposit: outcome.due_date_capped_by_deposit,
         },
     ))
 }
@@ -989,7 +992,7 @@ async fn renew_loan_inner(
     override_reason: Option<String>,
     caller_rights: UserRights,
 ) -> AppResult<(StatusCode, LoanResponse)> {
-    let (new_expiry_date, renew_count) = state
+    let (new_expiry_date, renew_count, due_date_capped_by_deposit) = state
         .services
         .loans
         .renew_loan(
@@ -1028,6 +1031,7 @@ async fn renew_loan_inner(
             expiry_at: new_expiry_date,
             site_id,
             message: format!("Loan renewed ({} renewals)", renew_count),
+            due_date_capped_by_deposit,
         },
     ))
 }
@@ -1318,7 +1322,7 @@ async fn renew_loan_by_item_inner(
     override_reason: Option<String>,
     caller_rights: UserRights,
 ) -> AppResult<(StatusCode, LoanResponse)> {
-    let (loan_id, new_expiry_date, renew_count) = state
+    let (loan_id, new_expiry_date, renew_count, due_date_capped_by_deposit) = state
         .services
         .loans
         .renew_loan_by_item(
@@ -1358,6 +1362,7 @@ async fn renew_loan_by_item_inner(
             expiry_at: new_expiry_date,
             site_id,
             message: format!("Loan renewed ({} renewals)", renew_count),
+            due_date_capped_by_deposit,
         },
     ))
 }

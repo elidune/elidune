@@ -176,6 +176,40 @@ pub fn slide_due_date(
     local_to_utc(zone, open, local.time()).unwrap_or(candidate)
 }
 
+/// Due date after the deposit-batch cap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CappedDueDate {
+    pub expiry_at: DateTime<Utc>,
+    /// True when `expiry_at` was lowered to the batch `return_due_on`.
+    pub capped: bool,
+}
+
+/// `min(normal due date, return_due_on)` in the library zone.
+///
+/// `None` when `return_due_on` is `today` or earlier: the copy goes back to the lender.
+pub fn cap_loan_due_date(
+    expiry: DateTime<Utc>,
+    return_due_on: chrono::NaiveDate,
+    today: chrono::NaiveDate,
+    zone: Tz,
+) -> Option<CappedDueDate> {
+    if return_due_on <= today {
+        return None;
+    }
+    let local = expiry.with_timezone(&zone);
+    if local.date_naive() <= return_due_on {
+        return Some(CappedDueDate {
+            expiry_at: expiry,
+            capped: false,
+        });
+    }
+    let capped = local_to_utc(zone, return_due_on, local.time()).unwrap_or(expiry);
+    Some(CappedDueDate {
+        expiry_at: capped,
+        capped: capped < expiry,
+    })
+}
+
 /// `date` + `time` in `zone`, as UTC. During a DST gap the next valid minute is used.
 #[must_use]
 pub fn local_to_utc(zone: Tz, date: NaiveDate, time: NaiveTime) -> Option<DateTime<Utc>> {
@@ -326,5 +360,42 @@ mod tests {
         );
         let slid = slide_due_date(sunday, paris(), Some(1), &calendar);
         assert_eq!(format_patron_datetime(paris(), slid), "07/09/2026 17:30");
+    }
+
+    #[test]
+    fn deposit_cap_lowers_the_local_date_and_refuses_today() {
+        let expiry = paris()
+            .with_ymd_and_hms(2026, 10, 30, 18, 0, 0)
+            .unwrap()
+            .with_timezone(&Utc);
+        let today = NaiveDate::from_ymd_opt(2026, 10, 19).unwrap();
+        let return_due = NaiveDate::from_ymd_opt(2026, 10, 24).unwrap();
+        let capped = cap_loan_due_date(expiry, return_due, today, paris()).unwrap();
+        assert!(capped.capped);
+        assert_eq!(
+            capped.expiry_at.with_timezone(&paris()).date_naive(),
+            return_due
+        );
+        assert_eq!(
+            capped.expiry_at.with_timezone(&paris()).time(),
+            chrono::NaiveTime::from_hms_opt(18, 0, 0).unwrap()
+        );
+
+        let already_inside = paris()
+            .with_ymd_and_hms(2026, 10, 22, 18, 0, 0)
+            .unwrap()
+            .with_timezone(&Utc);
+        let unchanged = cap_loan_due_date(already_inside, return_due, today, paris()).unwrap();
+        assert!(!unchanged.capped);
+        assert_eq!(unchanged.expiry_at, already_inside);
+
+        assert!(cap_loan_due_date(expiry, today, today, paris()).is_none());
+        assert!(cap_loan_due_date(
+            expiry,
+            NaiveDate::from_ymd_opt(2026, 10, 18).unwrap(),
+            today,
+            paris()
+        )
+        .is_none());
     }
 }

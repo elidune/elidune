@@ -174,6 +174,7 @@ fn prepare_filter(query: &WithdrawalQuery, export: bool) -> AppResult<PreparedFi
     let mut parts = Vec::new();
     let mut params = Vec::new();
 
+    parts.push(crate::models::deposit::own_stock_sql("i"));
     if !query.include_cancelled.unwrap_or(false) {
         parts.push("w.cancelled_at IS NULL".to_string());
     }
@@ -342,9 +343,9 @@ impl Repository {
         agent_id: i64,
         input: &WithdrawalWrite,
     ) -> AppResult<i64> {
-        let locked: Option<(Option<i64>, String)> = sqlx::query_as(
+        let locked: Option<(Option<i64>, String, Option<i64>)> = sqlx::query_as(
             r#"
-            SELECT biblio_id, weeding_status
+            SELECT biblio_id, weeding_status, deposit_batch_id
             FROM items
             WHERE id = $1 AND archived_at IS NULL
             FOR UPDATE
@@ -353,9 +354,16 @@ impl Repository {
         .bind(item_id)
         .fetch_optional(&mut **tx)
         .await?;
-        let Some((biblio_id, weeding_status)) = locked else {
+        let Some((biblio_id, weeding_status, deposit_batch_id)) = locked else {
             return Err(AppError::NotFound(format!("Item {item_id} not found")));
         };
+        if deposit_batch_id.is_some() {
+            return Err(AppError::coded(
+                422,
+                error_code::DEPOSIT_ITEM_NOT_OWNED,
+                "A deposit copy is not part of the library's own stock",
+            ));
+        }
 
         let on_loan: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM loans WHERE item_id = $1 AND returned_at IS NULL)",

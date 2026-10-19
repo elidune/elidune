@@ -148,6 +148,19 @@ pub mod error_code {
     pub const DEPOSIT_IMPORT_OPTIONS_CONFLICT: &str = "deposit_import_options_conflict";
     /// One imported copy kept the lender barcode, and that barcode is already used.
     pub const BARCODE_ALREADY_EXISTS: &str = "barcode_already_exists";
+    /// Checkout or renewal of a deposit copy whose batch `return_due_on` is today or earlier.
+    /// Not forceable.
+    pub const DEPOSIT_RETURN_DUE: &str = "deposit_return_due";
+    /// A renewal whose deposit cap would not move the due date later. Does not consume a renewal.
+    pub const DEPOSIT_RENEWAL_NO_EXTENSION: &str = "deposit_renewal_no_extension";
+    /// A deposit copy in a returning or closed batch, or past `return_due_on`, cannot be assigned to a hold.
+    pub const DEPOSIT_BATCH_RETURNING: &str = "deposit_batch_returning";
+    /// Weeding or withdrawal of a copy that belongs to a deposit batch.
+    pub const DEPOSIT_ITEM_NOT_OWNED: &str = "deposit_item_not_owned";
+    /// Loss or damage of a deposit copy needs a positive amount when the lender has no rate.
+    pub const DEPOSIT_REPLACEMENT_AMOUNT_REQUIRED: &str = "deposit_replacement_amount_required";
+    /// Scan-out and close require batch status `returning`.
+    pub const DEPOSIT_BATCH_NOT_RETURNING: &str = "deposit_batch_not_returning";
 }
 
 /// Main application error type

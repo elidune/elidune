@@ -4,7 +4,8 @@ use crate::{
     error::AppResult,
     models::deposit::{
         CreateDepositBatch, CreateLender, DepositBatch, DepositBatchDetail, DepositBatchItem,
-        DepositBatchItemsQuery, DepositBatchListQuery, Lender, UpdateDepositBatch, UpdateLender,
+        DepositBatchItemsQuery, DepositBatchListQuery, DepositCloseReport, DepositScanOut,
+        DepositScanOutRequest, Lender, UpdateDepositBatch, UpdateLender,
     },
     services::audit,
 };
@@ -19,7 +20,7 @@ use utoipa::{IntoParams, ToSchema};
 use super::{AuthenticatedUser, ClientIp, ValidatedJson};
 
 pub fn router() -> axum::Router<crate::AppState> {
-    use axum::routing::{get, patch};
+    use axum::routing::{get, patch, post};
     axum::Router::new()
         .route("/lenders", get(list_lenders).post(create_lender))
         .route("/lenders/:id", patch(update_lender).delete(archive_lender))
@@ -32,6 +33,12 @@ pub fn router() -> axum::Router<crate::AppState> {
             get(get_deposit_batch).patch(update_deposit_batch),
         )
         .route("/deposit-batches/:id/items", get(list_deposit_batch_items))
+        .route(
+            "/deposit-batches/:id/start-return",
+            post(start_deposit_return),
+        )
+        .route("/deposit-batches/:id/scan-out", post(scan_out_deposit_copy))
+        .route("/deposit-batches/:id/close", post(close_deposit_batch))
 }
 
 /// Query parameters for listing lenders.
@@ -295,6 +302,111 @@ pub async fn update_deposit_batch(
         audit::AuditLogMeta::success(),
     );
     Ok(Json(batch))
+}
+
+#[utoipa::path(
+    post,
+    path = "/deposit-batches/{id}/start-return",
+    tag = "deposits",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Deposit batch ID")),
+    responses(
+        (status = 200, description = "Batch is `returning`. Calling this again is a no-op. Holds pinned to its copies return to the title queue.", body = DepositBatch),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
+        (status = 403, description = "Insufficient permissions", body = crate::error::ErrorResponse),
+        (status = 404, description = "Deposit batch not found", body = crate::error::ErrorResponse),
+        (status = 422, description = "Batch is closed (`deposit_batch_not_active`)", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn start_deposit_return(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(id): Path<i64>,
+) -> AppResult<Json<DepositBatch>> {
+    claims.require_write_items()?;
+    let batch = state.services.deposits.start_return(id).await?;
+    state.services.audit.log(
+        audit::event::DEPOSIT_BATCH_RETURN_STARTED,
+        Some(claims.user_id),
+        Some("deposit_batch"),
+        Some(id),
+        ip,
+        Some(&batch),
+        audit::AuditLogMeta::success(),
+    );
+    Ok(Json(batch))
+}
+
+#[utoipa::path(
+    post,
+    path = "/deposit-batches/{id}/scan-out",
+    tag = "deposits",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Deposit batch ID")),
+    request_body = DepositScanOutRequest,
+    responses(
+        (status = 200, description = "Copy marked returned to the lender. A second scan keeps the first timestamp.", body = DepositScanOut),
+        (status = 400, description = "Validation error", body = crate::error::ErrorResponse),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
+        (status = 403, description = "Insufficient permissions", body = crate::error::ErrorResponse),
+        (status = 404, description = "Batch not found, or the barcode is not a copy of this batch", body = crate::error::ErrorResponse),
+        (status = 422, description = "Batch is not `returning` (`deposit_batch_not_returning`)", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn scan_out_deposit_copy(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(id): Path<i64>,
+    ValidatedJson(body): ValidatedJson<DepositScanOutRequest>,
+) -> AppResult<Json<DepositScanOut>> {
+    claims.require_write_items()?;
+    let scanned = state.services.deposits.scan_out(id, &body.barcode).await?;
+    state.services.audit.log(
+        audit::event::DEPOSIT_BATCH_SCANNED_OUT,
+        Some(claims.user_id),
+        Some("item"),
+        Some(scanned.item_id),
+        ip,
+        Some(&scanned),
+        audit::AuditLogMeta::success(),
+    );
+    Ok(Json(scanned))
+}
+
+#[utoipa::path(
+    post,
+    path = "/deposit-batches/{id}/close",
+    tag = "deposits",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Deposit batch ID")),
+    responses(
+        (status = 200, description = "Batch closed. Scanned-out copies are `returned` and archived. Copies that are neither scanned out nor on loan are `missing` and archived. Copies still on loan are `onLoan` and are not archived. Nothing is deleted. Calling this again returns the same report.", body = DepositCloseReport),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
+        (status = 403, description = "Insufficient permissions", body = crate::error::ErrorResponse),
+        (status = 404, description = "Deposit batch not found", body = crate::error::ErrorResponse),
+        (status = 422, description = "Batch is still `active` (`deposit_batch_not_returning`)", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn close_deposit_batch(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(id): Path<i64>,
+) -> AppResult<Json<DepositCloseReport>> {
+    claims.require_write_items()?;
+    let report = state.services.deposits.close_batch(id).await?;
+    state.services.audit.log(
+        audit::event::DEPOSIT_BATCH_CLOSED,
+        Some(claims.user_id),
+        Some("deposit_batch"),
+        Some(id),
+        ip,
+        Some(&report),
+        audit::AuditLogMeta::success(),
+    );
+    Ok(Json(report))
 }
 
 #[utoipa::path(

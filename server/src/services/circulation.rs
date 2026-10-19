@@ -29,6 +29,16 @@ use crate::{
     },
 };
 
+struct DepositLossAudit<'a> {
+    deposit: Option<&'a crate::repository::deposits::DepositReplacement>,
+    amount: Option<Cents>,
+    kind: &'a str,
+    loan_id: i64,
+    item_id: i64,
+    actor: Option<i64>,
+    client_ip: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct CirculationService {
     repository: Arc<Repository>,
@@ -60,7 +70,13 @@ impl CirculationService {
         client_ip: Option<String>,
     ) -> AppResult<CirculationExceptionResponse> {
         let loan = self.repository.loans_get_by_id(loan_id).await?;
-        let amount = if req.bill {
+        let deposit = self
+            .repository
+            .item_deposit_replacement(loan.item_id)
+            .await?;
+        let amount = if let Some(ref deposit) = deposit {
+            Some(resolve_deposit_bill(deposit, req.amount)?)
+        } else if req.bill {
             Some(
                 self.resolve_bill_amount(
                     loan.item_id,
@@ -88,7 +104,7 @@ impl CirculationService {
         self.audit_exception(
             audit::event::ITEM_MARKED_LOST,
             actor,
-            client_ip,
+            client_ip.clone(),
             &response,
             serde_json::json!({
                 "loanClosed": response.loan_closed,
@@ -98,6 +114,16 @@ impl CirculationService {
                 "amount": response.charge.as_ref().map(|c| c.amount.to_euro_string()),
             }),
         );
+        self.audit_deposit_loss(DepositLossAudit {
+            deposit: deposit.as_ref(),
+            amount,
+            kind: "lost",
+            loan_id,
+            item_id: response.item_id,
+            actor,
+            client_ip,
+        })
+        .await?;
         Ok(response)
     }
 
@@ -109,8 +135,14 @@ impl CirculationService {
         client_ip: Option<String>,
     ) -> AppResult<CirculationExceptionResponse> {
         let loan = self.repository.loans_get_by_id(loan_id).await?;
+        let deposit = self
+            .repository
+            .item_deposit_replacement(loan.item_id)
+            .await?;
         let should_bill = req.bill || req.amount.is_some();
-        let amount = if should_bill {
+        let amount = if let Some(ref deposit) = deposit {
+            Some(resolve_deposit_bill(deposit, req.amount)?)
+        } else if should_bill {
             Some(
                 self.resolve_bill_amount(loan.item_id, req.amount, true, "Damage fee amount")
                     .await?,
@@ -133,7 +165,7 @@ impl CirculationService {
         self.audit_exception(
             audit::event::ITEM_MARKED_DAMAGED,
             actor,
-            client_ip,
+            client_ip.clone(),
             &response,
             serde_json::json!({
                 "disposition": req.disposition,
@@ -144,6 +176,16 @@ impl CirculationService {
                 "amount": response.charge.as_ref().map(|c| c.amount.to_euro_string()),
             }),
         );
+        self.audit_deposit_loss(DepositLossAudit {
+            deposit: deposit.as_ref(),
+            amount,
+            kind: "damaged",
+            loan_id,
+            item_id: response.item_id,
+            actor,
+            client_ip,
+        })
+        .await?;
         Ok(response)
     }
 
@@ -384,6 +426,29 @@ impl CirculationService {
             .await
     }
 
+    async fn audit_deposit_loss(&self, audit_row: DepositLossAudit<'_>) -> AppResult<()> {
+        let Some(deposit) = audit_row.deposit else {
+            return Ok(());
+        };
+        self.repository.lenders_flag_loss(deposit.lender_id).await?;
+        self.audit.log(
+            audit::event::DEPOSIT_ITEM_LOST,
+            audit_row.actor,
+            Some("item"),
+            Some(audit_row.item_id),
+            audit_row.client_ip,
+            Some(serde_json::json!({
+                "lenderId": deposit.lender_id.to_string(),
+                "itemId": audit_row.item_id.to_string(),
+                "loanId": audit_row.loan_id.to_string(),
+                "amountCents": audit_row.amount.map(|cents| cents.0).unwrap_or(0),
+                "kind": audit_row.kind,
+            })),
+            AuditLogMeta::success(),
+        );
+        Ok(())
+    }
+
     async fn resolve_bill_amount(
         &self,
         item_id: i64,
@@ -559,6 +624,32 @@ impl CirculationService {
             );
         }
     }
+}
+
+/// Lender rate wins, including when staff also send an amount or `0`.
+/// Without a rate, a missing or zero amount is refused. Never falls through
+/// to the copy price or the default replacement rule.
+fn resolve_deposit_bill(
+    deposit: &crate::repository::deposits::DepositReplacement,
+    explicit: Option<Decimal>,
+) -> AppResult<Cents> {
+    if let Some(rate) = deposit.replacement_rate_cents {
+        if rate.0 > 0 {
+            return Ok(rate);
+        }
+    }
+    let cents = explicit
+        .map(Cents::try_from_decimal)
+        .transpose()
+        .map_err(|err| AppError::Validation(err.to_string()))?
+        .filter(|cents| cents.0 > 0);
+    cents.ok_or_else(|| {
+        AppError::coded(
+            422,
+            crate::error::error_code::DEPOSIT_REPLACEMENT_AMOUNT_REQUIRED,
+            "Enter the lender replacement amount for this deposit copy",
+        )
+    })
 }
 
 fn exception_audit_payload(

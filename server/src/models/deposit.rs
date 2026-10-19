@@ -3,6 +3,7 @@
 //! A deposit batch is a set of copies lent to us. `items.deposit_batch_id`
 //! NULL means own stock. `items.source_id` stays the site where the copy sits.
 
+use crate::models::fine::Cents;
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
@@ -149,6 +150,11 @@ pub struct Lender {
     pub name: String,
     pub contact: Option<String>,
     pub notes: Option<String>,
+    /// Replacement bill in integer cents when a deposit copy is lost or damaged.
+    /// Null means staff must enter the amount. Never zero.
+    pub replacement_rate_cents: Option<Cents>,
+    /// Set when a deposit copy of this lender is lost or damaged.
+    pub loss_flagged_at: Option<DateTime<Utc>>,
     pub archived_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -163,6 +169,9 @@ pub struct CreateLender {
     pub contact: Option<String>,
     #[validate(length(max = 4000))]
     pub notes: Option<String>,
+    /// Integer cents. Omit to leave the lender without a rate. Zero is rejected.
+    #[serde(default)]
+    pub replacement_rate_cents: Option<Cents>,
 }
 
 #[derive(Debug, Clone, Deserialize, Validate, ToSchema)]
@@ -174,6 +183,9 @@ pub struct UpdateLender {
     pub contact: Option<String>,
     #[validate(length(max = 4000))]
     pub notes: Option<String>,
+    /// When set, replaces the stored rate. Omit to leave it unchanged. Zero is rejected.
+    #[serde(default)]
+    pub replacement_rate_cents: Option<Cents>,
 }
 
 /// One incoming batch of copies from a lender.
@@ -307,11 +319,75 @@ pub struct ItemDeposit {
     pub batch_status: DepositBatchStatus,
 }
 
-/// `items.deposit_batch_id IS NULL`. Own stock, and the predicate later
-/// exclusion rules share. Callers pass the items table alias.
+/// `items.deposit_batch_id IS NULL`. Own stock, and the predicate exclusion
+/// rules share. Callers pass the items table alias.
 #[must_use]
 pub fn own_stock_sql(item_alias: &str) -> String {
     format!("{item_alias}.deposit_batch_id IS NULL")
+}
+
+/// True when copy alias `i` must not be assigned to a hold.
+///
+/// The batch is `returning` or `closed`, or `return_due_on` is before today
+/// in the library timezone. Own stock (`deposit_batch_id` NULL) is holdable.
+pub const DEPOSIT_COPY_NOT_HOLDABLE_SQL: &str = r#"
+EXISTS (
+    SELECT 1 FROM deposit_batches deposit_hold_batch
+    WHERE deposit_hold_batch.id = i.deposit_batch_id
+      AND (
+          deposit_hold_batch.status IN ('returning', 'closed')
+          OR deposit_hold_batch.return_due_on < (
+              CURRENT_TIMESTAMP AT TIME ZONE COALESCE(
+                  (SELECT li.timezone FROM library_info li WHERE li.id = 1),
+                  'Europe/Paris'
+              )
+          )::date
+      )
+)
+"#;
+
+/// One copy on the batch close report. Barcode and title are for the lender.
+#[serde_as]
+#[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DepositCloseCopy {
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub item_id: i64,
+    pub barcode: Option<String>,
+    pub title: Option<String>,
+}
+
+/// `POST /deposit-batches/{id}/close`.
+///
+/// `onLoan` lists copies still out. They are not archived and are not deleted.
+#[derive(Debug, Clone, Serialize, ToSchema, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct DepositCloseReport {
+    pub returned: Vec<DepositCloseCopy>,
+    pub missing: Vec<DepositCloseCopy>,
+    pub on_loan: Vec<DepositCloseCopy>,
+}
+
+/// `POST /deposit-batches/{id}/scan-out`.
+#[derive(Debug, Clone, Deserialize, Validate, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DepositScanOutRequest {
+    #[validate(length(min = 1, max = 64))]
+    pub barcode: String,
+}
+
+/// Copy marked back to the lender. A second scan keeps the first timestamp.
+#[serde_as]
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DepositScanOut {
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub item_id: i64,
+    pub barcode: String,
+    pub deposit_returned_at: DateTime<Utc>,
+    pub already_scanned: bool,
 }
 
 /// JSON object for [`ItemDeposit`], or JSON null for own stock.
