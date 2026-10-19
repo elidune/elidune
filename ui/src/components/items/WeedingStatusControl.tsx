@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useId, useState } from 'react';
 import { ChevronDown, Flag, PackageMinus, RotateCcw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -97,12 +97,13 @@ export default function WeedingStatusControl({ item, onUpdated }: WeedingStatusC
   const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [expanded, setExpanded] = useState(() => current !== 'onShelf');
-
-  useEffect(() => {
+  const [prevStatus, setPrevStatus] = useState(current);
+  if (current !== prevStatus) {
+    setPrevStatus(current);
     if (current === 'candidate' || current === 'withdrawn') {
       setExpanded(true);
     }
-  }, [current]);
+  }
 
   const withdrawalQuery = useQuery({
     queryKey: ['item-withdrawal', item.id],
