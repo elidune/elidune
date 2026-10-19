@@ -948,3 +948,71 @@ async fn batch_reuse_creation_and_invalid_arguments_write_nothing() {
     assert_ne!(second.batch_id, Some(batch_id));
     assert_eq!(item_place(pool, fresh).await.0, second.batch_id);
 }
+
+#[tokio::test]
+async fn existing_batch_site_mismatch_writes_nothing() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let pool = app.state.services.repository.pool();
+    let token = fixtures::unique_token();
+    let batch_site = source(pool, &format!("batch-site-{token}")).await;
+    let other_site = source(pool, &format!("other-site-{token}")).await;
+    let old_source = source(pool, &format!("old-{token}")).await;
+    let lender_id = lender(pool, &format!("Lender {token}")).await;
+    let biblio_id = biblio(pool, "Mismatch", None).await;
+    let barcode = format!("MIS-{token}");
+    let item_id = item(pool, biblio_id, old_source, &barcode).await;
+    let reference = format!("MIS-{token}");
+    let batch_id: i64 = sqlx::query_scalar(
+        "INSERT INTO deposit_batches
+            (lender_id, reference, site_id, arrived_on, return_due_on)
+         VALUES ($1, $2, $3, '2026-01-01', '2027-06-01')
+         RETURNING id",
+    )
+    .bind(lender_id)
+    .bind(&reference)
+    .bind(batch_site)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+
+    for apply in [false, true] {
+        let err = execute(
+            pool,
+            &command(
+                lender_id,
+                &reference,
+                other_site,
+                Selection::Barcodes(vec![barcode.clone()]),
+                apply,
+            ),
+        )
+        .await
+        .expect_err("site mismatch");
+        assert!(matches!(err, ReclassifyFailure::Invalid(_)));
+        assert_eq!(err.exit_code(), 2);
+        assert_eq!(err.code(), Some("deposit_site_mismatch"));
+        assert!(err.to_string().contains("deposit_site_mismatch"));
+    }
+
+    assert_eq!(
+        item_place(pool, item_id).await,
+        (None, Some(old_source), None)
+    );
+    let stored_site: i64 = sqlx::query_scalar("SELECT site_id FROM deposit_batches WHERE id = $1")
+        .bind(batch_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(stored_site, batch_site);
+    let audits: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_log
+         WHERE event_type = 'deposit_batch_reclassified' AND entity_id = $1",
+    )
+    .bind(item_id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(audits, 0);
+}

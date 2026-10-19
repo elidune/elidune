@@ -153,18 +153,44 @@ pub struct Invocation {
 
 /// Invalid arguments (exit 2) or a database failure (exit 1).
 #[derive(Debug)]
+pub struct InvalidArgument {
+    code: Option<&'static str>,
+    message: String,
+}
+
+/// Invalid arguments (exit 2) or a database failure (exit 1).
+#[derive(Debug)]
 pub enum ReclassifyFailure {
-    Invalid(String),
+    Invalid(InvalidArgument),
     Failed(String),
 }
 
 impl ReclassifyFailure {
     fn invalid(message: impl Into<String>) -> Self {
-        Self::Invalid(message.into())
+        Self::Invalid(InvalidArgument {
+            code: None,
+            message: message.into(),
+        })
+    }
+
+    fn invalid_coded(code: &'static str, message: impl Into<String>) -> Self {
+        Self::Invalid(InvalidArgument {
+            code: Some(code),
+            message: message.into(),
+        })
     }
 
     fn failed(message: impl Into<String>) -> Self {
         Self::Failed(message.into())
+    }
+
+    /// Stable machine code when the failure has one (`deposit_site_mismatch`).
+    #[must_use]
+    pub fn code(&self) -> Option<&'static str> {
+        match self {
+            Self::Invalid(argument) => argument.code,
+            Self::Failed(_) => None,
+        }
     }
 
     /// Process exit code. Refusals of individual copies are not failures.
@@ -180,7 +206,8 @@ impl ReclassifyFailure {
 impl std::fmt::Display for ReclassifyFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Invalid(message) | Self::Failed(message) => f.write_str(message),
+            Self::Invalid(argument) => f.write_str(&argument.message),
+            Self::Failed(message) => f.write_str(message),
         }
     }
 }
@@ -345,6 +372,7 @@ struct ItemUpdate {
 struct BatchRow {
     id: i64,
     status: String,
+    site_id: i64,
     arrived_on: NaiveDate,
     return_due_on: NaiveDate,
     notes: Option<String>,
@@ -892,12 +920,12 @@ async fn resolve_batch(
     command: &ReclassifyCommand,
 ) -> Result<ResolvedBatch, ReclassifyFailure> {
     let sql = if command.apply {
-        "SELECT id, status, arrived_on, return_due_on, notes
+        "SELECT id, status, site_id, arrived_on, return_due_on, notes
          FROM deposit_batches
          WHERE lender_id = $1 AND reference = $2
          FOR UPDATE"
     } else {
-        "SELECT id, status, arrived_on, return_due_on, notes
+        "SELECT id, status, site_id, arrived_on, return_due_on, notes
          FROM deposit_batches
          WHERE lender_id = $1 AND reference = $2"
     };
@@ -908,6 +936,16 @@ async fn resolve_batch(
         .await
         .map_err(failed)?;
     if let Some(batch) = existing {
+        if batch.site_id != command.site_id {
+            let code = crate::error::error_code::DEPOSIT_SITE_MISMATCH;
+            return Err(ReclassifyFailure::invalid_coded(
+                code,
+                format!(
+                    "{code}: deposit batch {} for lender {} belongs to site {}, not --site {}",
+                    command.batch_reference, command.lender_id, batch.site_id, command.site_id
+                ),
+            ));
+        }
         if batch.status != "active" {
             return Err(ReclassifyFailure::invalid(format!(
                 "deposit batch {} for lender {} is {}; only an active batch can be reused",
