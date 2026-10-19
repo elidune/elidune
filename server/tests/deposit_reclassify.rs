@@ -1,0 +1,906 @@
+//! Reclassify historical deposit copies onto a lender batch.
+mod common;
+
+use chrono::{DateTime, TimeZone, Utc};
+use common::{fixtures, TestApp};
+use elidune_server::deposit_reclassify::{
+    execute, BatchAction, LineDisposition, LineReason, ReclassifyCommand, ReclassifyFailure,
+    Selection,
+};
+use sqlx::PgPool;
+
+fn command(
+    lender_id: i64,
+    reference: &str,
+    site_id: i64,
+    selection: Selection,
+    apply: bool,
+) -> ReclassifyCommand {
+    ReclassifyCommand {
+        lender_id,
+        batch_reference: reference.to_string(),
+        return_due_on: Some(chrono::NaiveDate::from_ymd_opt(2026, 9, 1).unwrap()),
+        received_on: Some(chrono::NaiveDate::from_ymd_opt(2026, 3, 1).unwrap()),
+        notes: Some("historical import".into()),
+        site_id,
+        selection,
+        apply,
+    }
+}
+
+async fn source(pool: &PgPool, name: &str) -> i64 {
+    sqlx::query_scalar("INSERT INTO sources (name) VALUES ($1) RETURNING id")
+        .bind(name)
+        .fetch_one(pool)
+        .await
+        .expect("source")
+}
+
+async fn lender(pool: &PgPool, name: &str) -> i64 {
+    sqlx::query_scalar("INSERT INTO lenders (name) VALUES ($1) RETURNING id")
+        .bind(name)
+        .fetch_one(pool)
+        .await
+        .expect("lender")
+}
+
+async fn biblio(pool: &PgPool, title: &str, isbn: Option<&str>) -> i64 {
+    sqlx::query_scalar(
+        "INSERT INTO biblios (title, isbn, media_type) VALUES ($1, $2, 'printedText') RETURNING id",
+    )
+    .bind(title)
+    .bind(isbn)
+    .fetch_one(pool)
+    .await
+    .expect("biblio")
+}
+
+async fn item(pool: &PgPool, biblio_id: i64, source_id: i64, barcode: &str) -> i64 {
+    sqlx::query_scalar(
+        "INSERT INTO items (biblio_id, source_id, barcode, borrowable)
+         VALUES ($1, $2, $3, TRUE) RETURNING id",
+    )
+    .bind(biblio_id)
+    .bind(source_id)
+    .bind(barcode)
+    .fetch_one(pool)
+    .await
+    .expect("item")
+}
+
+async fn reader(pool: &PgPool, login: &str) -> i64 {
+    sqlx::query_scalar(
+        "INSERT INTO users (login, account_type, password) VALUES ($1, 'reader', 'x') RETURNING id",
+    )
+    .bind(login)
+    .fetch_one(pool)
+    .await
+    .expect("reader")
+}
+
+fn next_id() -> i64 {
+    use std::sync::atomic::{AtomicI64, Ordering};
+    static N: AtomicI64 = AtomicI64::new(1);
+    Utc::now()
+        .timestamp_micros()
+        .saturating_mul(10)
+        .saturating_add(N.fetch_add(1, Ordering::Relaxed))
+}
+
+fn due() -> DateTime<Utc> {
+    Utc.with_ymd_and_hms(2026, 12, 1, 15, 0, 0).unwrap()
+}
+
+struct LoanSnap {
+    expiry_at: Option<DateTime<Utc>>,
+    returned_at: Option<DateTime<Utc>>,
+    nb_renews: i16,
+}
+
+async fn loan_snap(pool: &PgPool, loan_id: i64) -> LoanSnap {
+    let row: (Option<DateTime<Utc>>, Option<DateTime<Utc>>, i16) = sqlx::query_as(
+        "SELECT expiry_at, returned_at, nb_renews FROM loans WHERE id = $1",
+    )
+    .bind(loan_id)
+    .fetch_one(pool)
+    .await
+    .expect("loan");
+    LoanSnap {
+        expiry_at: row.0,
+        returned_at: row.1,
+        nb_renews: row.2,
+    }
+}
+
+async fn item_place(pool: &PgPool, item_id: i64) -> (Option<i64>, Option<i64>, Option<DateTime<Utc>>) {
+    sqlx::query_as(
+        "SELECT deposit_batch_id, source_id, deposit_returned_at FROM items WHERE id = $1",
+    )
+    .bind(item_id)
+    .fetch_one(pool)
+    .await
+    .expect("item place")
+}
+
+#[tokio::test]
+async fn dry_run_writes_nothing_apply_is_idempotent_and_reports_duplicates() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let pool = app.state.services.repository.pool();
+    let token = fixtures::unique_token();
+    let site_id = source(pool, &format!("site-{token}")).await;
+    let old_source = source(pool, &format!("lender-site-{token}")).await;
+    let lender_id = lender(pool, &format!("Lender {token}")).await;
+    let user_id = reader(pool, &format!("reader-{token}")).await;
+
+    let dashed = "978-0-306-40615-7";
+    let normalized = "9780306406157";
+    let biblio_a = biblio(pool, "Selected A", Some(dashed)).await;
+    let biblio_b = biblio(pool, "Selected B", Some(normalized)).await;
+    let outside = biblio(pool, "Already owned", Some("ISBN 9780306406157")).await;
+    let quiet = biblio(pool, "No match", Some("9780000000002")).await;
+
+    let open_barcode = format!("OPEN-{token}");
+    let quiet_barcode = format!("QUIET-{token}");
+    let open_item = item(pool, biblio_a, old_source, &open_barcode).await;
+    let quiet_item = item(pool, quiet, old_source, &quiet_barcode).await;
+    let selected_peer = item(pool, biblio_b, old_source, &format!("PEER-{token}")).await;
+
+    let loan_id: i64 = sqlx::query_scalar(
+        "INSERT INTO loans (user_id, item_id, expiry_at, nb_renews)
+         VALUES ($1, $2, $3, 2) RETURNING id",
+    )
+    .bind(user_id)
+    .bind(open_item)
+    .bind(due())
+    .fetch_one(pool)
+    .await
+    .expect("loan");
+    let returned_loan: i64 = sqlx::query_scalar(
+        "INSERT INTO loans (user_id, item_id, expiry_at, returned_at, nb_renews)
+         VALUES ($1, $2, $3, NOW(), 1) RETURNING id",
+    )
+    .bind(user_id)
+    .bind(quiet_item)
+    .bind(due())
+    .fetch_one(pool)
+    .await
+    .expect("returned loan");
+    let hold_id = next_id();
+    sqlx::query(
+        "INSERT INTO holds (id, user_id, biblio_id, item_id, status, position)
+         VALUES ($1, $2, $3, $4, 'pending', 1)",
+    )
+    .bind(hold_id)
+    .bind(user_id)
+    .bind(biblio_a)
+    .bind(open_item)
+    .execute(pool)
+    .await
+    .expect("hold");
+    sqlx::query(
+        "INSERT INTO holds (id, user_id, biblio_id, item_id, status, position)
+         VALUES ($1, $2, $3, $4, 'cancelled', 1)",
+    )
+    .bind(next_id())
+    .bind(user_id)
+    .bind(quiet)
+    .bind(quiet_item)
+    .execute(pool)
+    .await
+    .expect("cancelled hold");
+    let fine_id = next_id();
+    sqlx::query(
+        "INSERT INTO fines (id, loan_id, user_id, amount, status, charge_type)
+         VALUES ($1, $2, $3, 150, 'pending', 'overdue')",
+    )
+    .bind(fine_id)
+    .bind(loan_id)
+    .bind(user_id)
+    .execute(pool)
+    .await
+    .expect("fine");
+
+    sqlx::query("UPDATE items SET updated_at = '2020-01-01T00:00:00Z' WHERE id = $1")
+        .bind(open_item)
+        .execute(pool)
+        .await
+        .expect("stamp");
+
+    let reference = format!("HIST-{token}");
+    let selection = Selection::FromSource(old_source);
+    let dry = command(lender_id, &reference, site_id, selection.clone(), false);
+    let report = execute(pool, &dry).await.expect("dry run");
+    assert!(report.dry_run);
+    assert!(!report.applied);
+    assert_eq!(report.batch_action, BatchAction::Create);
+    assert!(report.batch_id.is_none());
+    assert_eq!(report.summary.to_reclassify, 3);
+    assert_eq!(report.summary.on_loan, 1);
+    assert_eq!(report.summary.with_holds, 1);
+    assert_eq!(report.summary.refused, 0);
+
+    let open_line = report
+        .items
+        .iter()
+        .find(|line| line.item_id == Some(open_item))
+        .expect("open line");
+    assert_eq!(open_line.disposition, LineDisposition::Reclassify);
+    assert!(open_line.on_loan && open_line.has_holds);
+    assert_eq!(open_line.old_source_id, Some(old_source));
+    assert_eq!(open_line.new_source_id, Some(site_id));
+    assert_eq!(open_line.biblio_id, Some(biblio_a));
+    assert_eq!(open_line.title.as_deref(), Some("Selected A"));
+    let quiet_line = report
+        .items
+        .iter()
+        .find(|line| line.item_id == Some(quiet_item))
+        .expect("quiet line");
+    assert!(!quiet_line.on_loan && !quiet_line.has_holds);
+
+    let pairs: Vec<(i64, i64)> = report
+        .possible_duplicate_records
+        .iter()
+        .map(|row| (row.record_id, row.other_record_id))
+        .collect();
+    assert!(pairs.contains(&(biblio_a, outside)), "{pairs:?}");
+    assert!(pairs.contains(&(biblio_b, outside)), "{pairs:?}");
+    assert!(!pairs.iter().any(|(left, right)| {
+        (*left == biblio_a && *right == biblio_b) || (*left == biblio_b && *right == biblio_a)
+    }));
+    assert!(report
+        .possible_duplicate_records
+        .iter()
+        .all(|row| row.isbn == normalized));
+
+    let batches: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM deposit_batches WHERE lender_id = $1 AND reference = $2",
+    )
+    .bind(lender_id)
+    .bind(&reference)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(batches, 0);
+    assert_eq!(
+        item_place(pool, open_item).await,
+        (None, Some(old_source), None)
+    );
+    let stamped: Option<DateTime<Utc>> =
+        sqlx::query_scalar("SELECT updated_at FROM items WHERE id = $1")
+            .bind(open_item)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        stamped,
+        Some(Utc.with_ymd_and_hms(2020, 1, 1, 0, 0, 0).unwrap())
+    );
+    let audits: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_log WHERE event_type = 'deposit_batch_reclassified' AND entity_id = $1",
+    )
+    .bind(open_item)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(audits, 0);
+
+    let before_loan = loan_snap(pool, loan_id).await;
+    let before_returned = loan_snap(pool, returned_loan).await;
+    let applied = execute(pool, &command(lender_id, &reference, site_id, selection.clone(), true))
+        .await
+        .expect("apply");
+    assert!(applied.applied);
+    assert_eq!(applied.batch_action, BatchAction::Create);
+    let batch_id = applied.batch_id.expect("created batch");
+    let (arrived, due_on, notes, status, batch_site): (chrono::NaiveDate, chrono::NaiveDate, Option<String>, String, i64) =
+        sqlx::query_as(
+            "SELECT arrived_on, return_due_on, notes, status, site_id FROM deposit_batches WHERE id = $1",
+        )
+        .bind(batch_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(arrived, chrono::NaiveDate::from_ymd_opt(2026, 3, 1).unwrap());
+    assert_eq!(due_on, chrono::NaiveDate::from_ymd_opt(2026, 9, 1).unwrap());
+    assert_eq!(notes.as_deref(), Some("historical import"));
+    assert_eq!(status, "active");
+    assert_eq!(batch_site, site_id);
+    assert_eq!(
+        item_place(pool, open_item).await,
+        (Some(batch_id), Some(site_id), None)
+    );
+    assert_eq!(
+        item_place(pool, selected_peer).await,
+        (Some(batch_id), Some(site_id), None)
+    );
+
+    let title_a: String = sqlx::query_scalar("SELECT title FROM biblios WHERE id = $1")
+        .bind(biblio_a)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    let title_out: String = sqlx::query_scalar("SELECT title FROM biblios WHERE id = $1")
+        .bind(outside)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(title_a, "Selected A");
+    assert_eq!(title_out, "Already owned");
+
+    let after_loan = loan_snap(pool, loan_id).await;
+    assert_eq!(after_loan.expiry_at, before_loan.expiry_at);
+    assert_eq!(after_loan.returned_at, before_loan.returned_at);
+    assert_eq!(after_loan.nb_renews, before_loan.nb_renews);
+    assert_eq!(after_loan.nb_renews, 2);
+    let after_returned = loan_snap(pool, returned_loan).await;
+    assert!(after_returned.returned_at.is_some());
+    assert_eq!(after_returned.nb_renews, before_returned.nb_renews);
+    let hold_status: String = sqlx::query_scalar("SELECT status FROM holds WHERE id = $1")
+        .bind(hold_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(hold_status, "pending");
+    let fine_amount: i64 = sqlx::query_scalar("SELECT amount FROM fines WHERE id = $1")
+        .bind(fine_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(fine_amount, 150);
+
+    let (user_id_audit, entity_type, payload): (Option<i64>, String, serde_json::Value) =
+        sqlx::query_as(
+            "SELECT user_id, entity_type, payload
+             FROM audit_log
+             WHERE event_type = 'deposit_batch_reclassified' AND entity_id = $1",
+        )
+        .bind(open_item)
+        .fetch_one(pool)
+        .await
+        .expect("audit");
+    assert!(user_id_audit.is_none());
+    assert_eq!(entity_type, "item");
+    assert_eq!(payload["actorType"], "script");
+    assert_eq!(payload["actorName"], "reclassify-deposits");
+    assert_eq!(payload["lenderId"], lender_id);
+    assert_eq!(payload["batchId"], batch_id);
+    assert_eq!(payload["oldSourceId"], old_source);
+    assert_eq!(payload["newSourceId"], site_id);
+
+    let updated_at: DateTime<Utc> = sqlx::query_scalar("SELECT updated_at FROM items WHERE id = $1")
+        .bind(open_item)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    let again = execute(
+        pool,
+        &command(lender_id, &reference, site_id, selection, true),
+    )
+    .await
+    .expect("rerun");
+    assert_eq!(again.batch_action, BatchAction::Reuse);
+    assert_eq!(again.batch_id, Some(batch_id));
+    assert_eq!(again.summary.to_reclassify, 0);
+    assert_eq!(again.summary.already_reclassified, 3);
+    assert_eq!(again.summary.refused, 0);
+    assert!(again.items.iter().all(|line| {
+        line.reason == Some(LineReason::AlreadyReclassified)
+            && line.disposition == LineDisposition::AlreadyReclassified
+    }));
+    let audit_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_log
+         WHERE event_type = 'deposit_batch_reclassified' AND entity_id = ANY($1)",
+    )
+    .bind(vec![open_item, quiet_item, selected_peer])
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(audit_count, 3);
+    let updated_again: DateTime<Utc> =
+        sqlx::query_scalar("SELECT updated_at FROM items WHERE id = $1")
+            .bind(open_item)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(updated_again, updated_at);
+    let batch_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM deposit_batches WHERE lender_id = $1 AND reference = $2",
+    )
+    .bind(lender_id)
+    .bind(&reference)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(batch_count, 1);
+}
+
+#[tokio::test]
+async fn refusals_are_reported_and_left_unchanged() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let pool = app.state.services.repository.pool();
+    let token = fixtures::unique_token();
+    let site_id = source(pool, &format!("site-{token}")).await;
+    let old_source = source(pool, &format!("old-{token}")).await;
+    let other_site = source(pool, &format!("other-{token}")).await;
+    let lender_id = lender(pool, &format!("Lender {token}")).await;
+    let user_id = reader(pool, &format!("reader-{token}")).await;
+    let biblio_id = biblio(pool, "Copy", None).await;
+
+    let reference = format!("BATCH-{token}");
+    let batch_id: i64 = sqlx::query_scalar(
+        "INSERT INTO deposit_batches (lender_id, reference, site_id, arrived_on, return_due_on)
+         VALUES ($1, $2, $3, '2026-03-01', '2026-09-01') RETURNING id",
+    )
+    .bind(lender_id)
+    .bind(&reference)
+    .bind(site_id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let other_batch: i64 = sqlx::query_scalar(
+        "INSERT INTO deposit_batches (lender_id, reference, site_id, arrived_on, return_due_on)
+         VALUES ($1, $2, $3, '2026-01-01', '2026-06-01') RETURNING id",
+    )
+    .bind(lender_id)
+    .bind(format!("OTHER-{token}"))
+    .bind(site_id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+
+    let archived = item(pool, biblio_id, old_source, &format!("ARCH-{token}")).await;
+    sqlx::query("UPDATE items SET archived_at = NOW() WHERE id = $1")
+        .bind(archived)
+        .execute(pool)
+        .await
+        .unwrap();
+    let withdrawn = item(pool, biblio_id, old_source, &format!("WD-{token}")).await;
+    sqlx::query("UPDATE items SET weeding_status = 'withdrawn' WHERE id = $1")
+        .bind(withdrawn)
+        .execute(pool)
+        .await
+        .unwrap();
+    let other = item(pool, biblio_id, old_source, &format!("OTH-{token}")).await;
+    sqlx::query("UPDATE items SET deposit_batch_id = $2 WHERE id = $1")
+        .bind(other)
+        .bind(other_batch)
+        .execute(pool)
+        .await
+        .unwrap();
+    let transit_item = item(pool, biblio_id, old_source, &format!("TR-{token}")).await;
+    let transit_id = next_id();
+    sqlx::query(
+        "INSERT INTO item_transits (id, item_id, from_source_id, to_source_id, status)
+         VALUES ($1, $2, $3, $4, 'in_transit')",
+    )
+    .bind(transit_id)
+    .bind(transit_item)
+    .bind(old_source)
+    .bind(other_site)
+    .execute(pool)
+    .await
+    .unwrap();
+    let transit_loan: i64 = sqlx::query_scalar(
+        "INSERT INTO loans (user_id, item_id, expiry_at, nb_renews) VALUES ($1, $2, $3, 4) RETURNING id",
+    )
+    .bind(user_id)
+    .bind(transit_item)
+    .bind(due())
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let received = item(pool, biblio_id, old_source, &format!("RCV-{token}")).await;
+    sqlx::query(
+        "INSERT INTO item_transits (id, item_id, from_source_id, to_source_id, status)
+         VALUES ($1, $2, $3, $4, 'received')",
+    )
+    .bind(next_id())
+    .bind(received)
+    .bind(old_source)
+    .bind(other_site)
+    .execute(pool)
+    .await
+    .unwrap();
+    let candidate = item(pool, biblio_id, old_source, &format!("CAND-{token}")).await;
+    sqlx::query("UPDATE items SET weeding_status = 'candidate' WHERE id = $1")
+        .bind(candidate)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO holds (id, user_id, biblio_id, item_id, status, position)
+         VALUES ($1, $2, $3, $4, 'ready', 1)",
+    )
+    .bind(next_id())
+    .bind(user_id)
+    .bind(biblio_id)
+    .bind(candidate)
+    .execute(pool)
+    .await
+    .unwrap();
+    let already = item(pool, biblio_id, site_id, &format!("DONE-{token}")).await;
+    sqlx::query("UPDATE items SET deposit_batch_id = $2 WHERE id = $1")
+        .bind(already)
+        .bind(batch_id)
+        .execute(pool)
+        .await
+        .unwrap();
+    let requested = item(pool, biblio_id, old_source, &format!("REQ-{token}")).await;
+    sqlx::query(
+        "INSERT INTO item_transits (id, item_id, from_source_id, to_source_id, status)
+         VALUES ($1, $2, $3, $4, 'requested')",
+    )
+    .bind(next_id())
+    .bind(requested)
+    .bind(old_source)
+    .bind(site_id)
+    .execute(pool)
+    .await
+    .unwrap();
+
+    let unknown = format!("MISS-{token}");
+    let codes = vec![
+        format!("ARCH-{token}"),
+        format!("WD-{token}"),
+        format!("OTH-{token}"),
+        format!("TR-{token}"),
+        format!("RCV-{token}"),
+        format!("CAND-{token}"),
+        format!("DONE-{token}"),
+        format!("REQ-{token}"),
+        unknown.clone(),
+    ];
+    let report = execute(
+        pool,
+        &command(
+            lender_id,
+            &reference,
+            site_id,
+            Selection::Barcodes(codes),
+            true,
+        ),
+    )
+    .await
+    .expect("apply refusals");
+    assert_eq!(report.batch_action, BatchAction::Reuse);
+    assert_eq!(report.batch_id, Some(batch_id));
+    assert_eq!(report.summary.to_reclassify, 2);
+    assert_eq!(report.summary.with_holds, 1);
+    assert_eq!(report.summary.on_loan, 0);
+    assert_eq!(report.summary.refused, 6);
+    assert_eq!(report.summary.already_reclassified, 1);
+
+    let reason = |barcode: &str| {
+        report
+            .items
+            .iter()
+            .find(|line| line.barcode.as_deref() == Some(barcode))
+            .map(|line| line.reason)
+            .expect(barcode)
+    };
+    assert_eq!(reason(&format!("ARCH-{token}")), Some(LineReason::ItemArchived));
+    assert_eq!(reason(&format!("WD-{token}")), Some(LineReason::ItemArchived));
+    assert_eq!(
+        reason(&format!("OTH-{token}")),
+        Some(LineReason::ItemInOtherBatch)
+    );
+    assert_eq!(
+        reason(&format!("TR-{token}")),
+        Some(LineReason::ItemInTransit)
+    );
+    assert_eq!(
+        reason(&format!("REQ-{token}")),
+        Some(LineReason::ItemInTransit)
+    );
+    assert_eq!(reason(&unknown), Some(LineReason::BarcodeUnknown));
+    assert_eq!(
+        reason(&format!("DONE-{token}")),
+        Some(LineReason::AlreadyReclassified)
+    );
+    assert_eq!(reason(&format!("RCV-{token}")), None);
+    assert_eq!(reason(&format!("CAND-{token}")), None);
+
+    assert_eq!(item_place(pool, archived).await.1, Some(old_source));
+    assert_eq!(item_place(pool, withdrawn).await.0, None);
+    assert_eq!(item_place(pool, other).await.0, Some(other_batch));
+    assert_eq!(item_place(pool, transit_item).await.1, Some(old_source));
+    assert_eq!(item_place(pool, requested).await.0, None);
+    assert_eq!(
+        item_place(pool, received).await,
+        (Some(batch_id), Some(site_id), None)
+    );
+    assert_eq!(
+        item_place(pool, candidate).await,
+        (Some(batch_id), Some(site_id), None)
+    );
+    let transit_status: String =
+        sqlx::query_scalar("SELECT status FROM item_transits WHERE id = $1")
+            .bind(transit_id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(transit_status, "in_transit");
+    let expiry: Option<DateTime<Utc>> =
+        sqlx::query_scalar("SELECT expiry_at FROM loans WHERE id = $1")
+            .bind(transit_loan)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(expiry, Some(due()));
+    let hold_status: String =
+        sqlx::query_scalar("SELECT status FROM holds WHERE item_id = $1")
+            .bind(candidate)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(hold_status, "ready");
+    let already_audits: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_log
+         WHERE event_type = 'deposit_batch_reclassified' AND entity_id = $1",
+    )
+    .bind(already)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(already_audits, 0);
+}
+
+#[tokio::test]
+async fn from_source_skips_archived_rows_and_refuses_withdrawn() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let pool = app.state.services.repository.pool();
+    let token = fixtures::unique_token();
+    let site_id = source(pool, &format!("site-{token}")).await;
+    let old_source = source(pool, &format!("old-{token}")).await;
+    let lender_id = lender(pool, &format!("Lender {token}")).await;
+    let biblio_id = biblio(pool, "Shelf", None).await;
+    let live = item(pool, biblio_id, old_source, &format!("LIVE-{token}")).await;
+    let archived = item(pool, biblio_id, old_source, &format!("GONE-{token}")).await;
+    sqlx::query("UPDATE items SET archived_at = NOW() WHERE id = $1")
+        .bind(archived)
+        .execute(pool)
+        .await
+        .unwrap();
+    let withdrawn = item(pool, biblio_id, old_source, &format!("WEED-{token}")).await;
+    sqlx::query("UPDATE items SET weeding_status = 'withdrawn' WHERE id = $1")
+        .bind(withdrawn)
+        .execute(pool)
+        .await
+        .unwrap();
+    let elsewhere = item(pool, biblio_id, site_id, &format!("ELSE-{token}")).await;
+
+    let report = execute(
+        pool,
+        &command(
+            lender_id,
+            &format!("SRC-{token}"),
+            site_id,
+            Selection::FromSource(old_source),
+            true,
+        ),
+    )
+    .await
+    .unwrap();
+    let ids: Vec<i64> = report.items.iter().filter_map(|line| line.item_id).collect();
+    assert!(ids.contains(&live));
+    assert!(ids.contains(&withdrawn));
+    assert!(!ids.contains(&archived));
+    assert!(!ids.contains(&elsewhere));
+    assert_eq!(
+        item_place(pool, live).await.0,
+        report.batch_id
+    );
+    assert_eq!(item_place(pool, withdrawn).await.0, None);
+    assert_eq!(item_place(pool, archived).await.1, Some(old_source));
+}
+
+#[tokio::test]
+async fn batch_reuse_creation_and_invalid_arguments_write_nothing() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let pool = app.state.services.repository.pool();
+    let token = fixtures::unique_token();
+    let site_id = source(pool, &format!("site-{token}")).await;
+    let old_source = source(pool, &format!("old-{token}")).await;
+    let lender_id = lender(pool, &format!("Lender {token}")).await;
+    let other_lender = lender(pool, &format!("Other {token}")).await;
+    let biblio_id = biblio(pool, "Reuse", None).await;
+    let barcode = format!("REUSE-{token}");
+    let item_id = item(pool, biblio_id, old_source, &barcode).await;
+    let reference = format!("REUSE-{token}");
+    let batch_id: i64 = sqlx::query_scalar(
+        "INSERT INTO deposit_batches
+            (lender_id, reference, site_id, arrived_on, return_due_on, notes)
+         VALUES ($1, $2, $3, '2024-01-15', '2024-08-01', 'kept')
+         RETURNING id",
+    )
+    .bind(lender_id)
+    .bind(&reference)
+    .bind(site_id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+
+    let mut reuse = command(
+        lender_id,
+        &reference,
+        site_id,
+        Selection::Barcodes(vec![barcode.clone()]),
+        true,
+    );
+    reuse.return_due_on = None;
+    reuse.received_on = Some(chrono::NaiveDate::from_ymd_opt(2030, 1, 1).unwrap());
+    reuse.notes = Some("ignored on reuse".into());
+    let report = execute(pool, &reuse).await.expect("reuse");
+    assert_eq!(report.batch_action, BatchAction::Reuse);
+    assert_eq!(report.batch_id, Some(batch_id));
+    assert_eq!(report.arrived_on, chrono::NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
+    assert_eq!(report.notes.as_deref(), Some("kept"));
+    assert_eq!(item_place(pool, item_id).await, (Some(batch_id), Some(site_id), None));
+    let stored_notes: String = sqlx::query_scalar("SELECT notes FROM deposit_batches WHERE id = $1")
+        .bind(batch_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(stored_notes, "kept");
+
+    sqlx::query("UPDATE items SET source_id = $2 WHERE id = $1")
+        .bind(item_id)
+        .bind(old_source)
+        .execute(pool)
+        .await
+        .unwrap();
+    let moved = execute(pool, &reuse).await.expect("move source");
+    assert_eq!(moved.summary.to_reclassify, 1);
+    assert_eq!(moved.summary.already_reclassified, 0);
+    assert_eq!(item_place(pool, item_id).await.1, Some(site_id));
+    let audits: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_log
+         WHERE event_type = 'deposit_batch_reclassified' AND entity_id = $1",
+    )
+    .bind(item_id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(audits, 2);
+
+    let returning = format!("RET-{token}");
+    let returning_id: i64 = sqlx::query_scalar(
+        "INSERT INTO deposit_batches (lender_id, reference, site_id, arrived_on, return_due_on, status)
+         VALUES ($1, $2, $3, '2026-01-01', '2026-06-01', 'returning') RETURNING id",
+    )
+    .bind(lender_id)
+    .bind(&returning)
+    .bind(site_id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let fresh = item(pool, biblio_id, old_source, &format!("FRESH-{token}")).await;
+    let err = execute(
+        pool,
+        &command(
+            lender_id,
+            &returning,
+            site_id,
+            Selection::Barcodes(vec![format!("FRESH-{token}")]),
+            true,
+        ),
+    )
+    .await
+    .expect_err("inactive batch");
+    assert!(matches!(err, ReclassifyFailure::Invalid(_)));
+    assert_eq!(err.exit_code(), 2);
+    assert!(err.to_string().contains("returning"));
+    assert_eq!(item_place(pool, fresh).await.0, None);
+    let still: String = sqlx::query_scalar("SELECT status FROM deposit_batches WHERE id = $1")
+        .bind(returning_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(still, "returning");
+
+    let archived_lender = lender(pool, &format!("Archived {token}")).await;
+    sqlx::query("UPDATE lenders SET archived_at = NOW() WHERE id = $1")
+        .bind(archived_lender)
+        .execute(pool)
+        .await
+        .unwrap();
+    let err = execute(
+        pool,
+        &command(
+            archived_lender,
+            &format!("NEW-{token}"),
+            site_id,
+            Selection::FromSource(old_source),
+            true,
+        ),
+    )
+    .await
+    .expect_err("archived lender");
+    assert!(err.to_string().contains("archived"));
+    let err = execute(
+        pool,
+        &command(
+            9_000_000_000_000,
+            &format!("NEW-{token}"),
+            site_id,
+            Selection::FromSource(old_source),
+            false,
+        ),
+    )
+    .await
+    .expect_err("unknown lender");
+    assert!(err.to_string().contains("does not exist"));
+
+    let mut missing_date = command(
+        lender_id,
+        &format!("NODATE-{token}"),
+        site_id,
+        Selection::Barcodes(vec![format!("FRESH-{token}")]),
+        true,
+    );
+    missing_date.return_due_on = None;
+    let err = execute(pool, &missing_date).await.expect_err("missing date");
+    assert!(err.to_string().contains("return-due-on"));
+    let created: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM deposit_batches WHERE lender_id = $1 AND reference = $2",
+    )
+    .bind(lender_id)
+    .bind(format!("NODATE-{token}"))
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(created, 0);
+    assert_eq!(item_place(pool, fresh).await.1, Some(old_source));
+
+    let err = execute(
+        pool,
+        &command(
+            lender_id,
+            &format!("BADSITE-{token}"),
+            9_000_000_000_001,
+            Selection::Barcodes(vec![format!("FRESH-{token}")]),
+            true,
+        ),
+    )
+    .await
+    .expect_err("unknown site");
+    assert!(err.to_string().contains("site"));
+
+    let err = execute(
+        pool,
+        &command(
+            lender_id,
+            &format!("BADSRC-{token}"),
+            site_id,
+            Selection::FromSource(9_000_000_000_002),
+            false,
+        ),
+    )
+    .await
+    .expect_err("unknown source");
+    assert!(err.to_string().contains("does not exist"));
+
+    let second = execute(
+        pool,
+        &command(
+            other_lender,
+            &reference,
+            site_id,
+            Selection::Barcodes(vec![format!("FRESH-{token}")]),
+            true,
+        ),
+    )
+    .await
+    .expect("same reference, other lender");
+    assert_eq!(second.batch_action, BatchAction::Create);
+    assert_ne!(second.batch_id, Some(batch_id));
+    assert_eq!(item_place(pool, fresh).await.0, second.batch_id);
+}

@@ -30,6 +30,15 @@ fn config_path_from_args() -> Option<String> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let args: Vec<String> = env::args().skip(1).collect();
+    if args.first().is_some_and(|arg| arg == "reclassify-deposits") {
+        if let Err(err) = elidune_server::deposit_reclassify::run(&args[1..]).await {
+            eprintln!("error: {err}");
+            std::process::exit(err.exit_code());
+        }
+        return Ok(());
+    }
+
     dotenvy::dotenv().ok();
 
     // 1. File config (static sections: server, database, JWT, …)

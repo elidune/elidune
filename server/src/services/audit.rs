@@ -268,6 +268,10 @@ pub mod event {
     pub const DEPOSIT_BATCH_RETURN_STARTED: &str = "deposit_batch.return_started";
     pub const DEPOSIT_BATCH_SCANNED_OUT: &str = "deposit_batch.scanned_out";
     pub const DEPOSIT_BATCH_CLOSED: &str = "deposit_batch.closed";
+    /// One historical copy moved onto a deposit batch by the `reclassify-deposits` script.
+    /// `user_id` is null. Payload `actorType` is `script` and includes `lenderId`, `batchId`,
+    /// `oldSourceId`, and `newSourceId`.
+    pub const DEPOSIT_BATCH_RECLASSIFIED: &str = "deposit_batch_reclassified";
     /// Loss or damage of a deposit copy. Payload includes `lenderId` so the lender can be notified.
     pub const DEPOSIT_ITEM_LOST: &str = "deposit_item_lost";
 
@@ -580,6 +584,10 @@ mod tests {
         assert_eq!(
             event::SYSTEM_PRIVACY_AUTO_ERASURE,
             "system.privacy_auto_erasure"
+        );
+        assert_eq!(
+            event::DEPOSIT_BATCH_RECLASSIFIED,
+            "deposit_batch_reclassified"
         );
     }
 }

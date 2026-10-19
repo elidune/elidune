@@ -70,6 +70,7 @@ Library management system — JSON REST API written in Rust (Axum, PostgreSQL, R
 - **Audit** — **Audit log** for sensitive actions, with **export**.
 - **Admin configuration** — Read/update **runtime settings** (sections in DB), optional **email test**, **search reindex** (Meilisearch).
 - **Maintenance & tasks** — **Maintenance** actions; **background tasks** list and status (e.g. MARC batches, long-running jobs).
+- **Reclassify deposits** — `elidune-server reclassify-deposits` moves historical MARC imports (lender stored as `items.source_id`) onto a deposit batch. Dry-run by default. See [docs/README-deposit-reclassify.md](../docs/README-deposit-reclassify.md).
 
 ### Realtime & integration
 
