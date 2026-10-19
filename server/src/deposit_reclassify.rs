@@ -444,7 +444,7 @@ pub fn parse_invocation(args: &[String]) -> Result<Invocation, ReclassifyFailure
     let mut batch_reference = None;
     let mut return_due_on = None;
     let mut received_on = None;
-    let mut notes = None;
+    let mut notes: Option<Option<String>> = None;
     let mut site_id = None;
     let mut from_source = None;
     let mut barcodes_path = None;
@@ -573,7 +573,7 @@ pub fn parse_invocation(args: &[String]) -> Result<Invocation, ReclassifyFailure
             batch_reference,
             return_due_on,
             received_on,
-            notes,
+            notes: notes.flatten(),
             site_id,
             selection,
             apply,
