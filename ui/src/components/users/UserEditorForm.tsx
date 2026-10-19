@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { AlertTriangle, ChevronDown, ChevronRight, Loader2, Mail, MapPin, Phone } from 'lucide-react';
+import { AlertTriangle, Loader2, Mail, MapPin, Phone } from 'lucide-react';
 import { Input } from '@/components/common';
 import AccountTypeSelect from '@/components/users/AccountTypeSelect';
 import EventsConsentFields from '@/components/users/EventsConsentFields';
@@ -137,38 +137,6 @@ function formDataFromUser(user: User): UserFormData {
   };
 }
 
-function CollapsibleFormSection({
-  title,
-  open,
-  onToggle,
-  children,
-}: {
-  title: string;
-  open: boolean;
-  onToggle: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <section className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 overflow-hidden">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="w-full flex items-center justify-between gap-2 px-3 py-2 text-left hover:bg-gray-100/80 dark:hover:bg-gray-800 transition-colors"
-      >
-        <span className="text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">
-          {title}
-        </span>
-        {open ? (
-          <ChevronDown className="h-4 w-4 shrink-0 text-gray-500" aria-hidden />
-        ) : (
-          <ChevronRight className="h-4 w-4 shrink-0 text-gray-500" aria-hidden />
-        )}
-      </button>
-      {open && <div className="px-3 pb-3 pt-2 space-y-2.5 border-t border-gray-200/80 dark:border-gray-700/80">{children}</div>}
-    </section>
-  );
-}
-
 export interface UserEditorFormProps {
   mode: 'create' | 'edit';
   formId: string;
@@ -212,9 +180,16 @@ export default function UserEditorForm({
   } | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<UserRequiredField, string>>>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [subscriptionOpen, setSubscriptionOpen] = useState(false);
-  const [notesOpen, setNotesOpen] = useState(false);
   const [pickedGuardian, setPickedGuardian] = useState<UserShort | null>(null);
+
+  const recordedConsent =
+    mode === 'edit' && user
+      ? {
+          consent: user.eventsConsent,
+          at: user.eventsConsentAt,
+          source: user.eventsConsentSource,
+        }
+      : null;
 
   const guardianQuery = useQuery({
     queryKey: ['user', formData.guardianId],
@@ -460,375 +435,416 @@ export default function UserEditorForm({
         {t('validation.requiredFieldsLegend')}
       </p>
 
-      <section className={sectionClass}>
-        <h4 className={sectionTitleClass}>{t('users.identity')}</h4>
-        <div className={`${FORM_FIELD_AUTO_GRID} gap-2.5`}>
-          <Input
-            label={t('profile.firstName')}
-            value={formData.firstname}
-            onChange={(e) => {
-              setFormData({ ...formData, firstname: e.target.value });
-              clearFieldError('firstname');
-            }}
-            required
-            error={fieldErrors.firstname}
-          />
-          <Input
-            label={t('profile.lastName')}
-            value={formData.lastname}
-            onChange={(e) => {
-              setFormData({ ...formData, lastname: e.target.value });
-              clearFieldError('lastname');
-            }}
-            required
-            error={fieldErrors.lastname}
-          />
-          <Input
-            label={t('users.identifier')}
-            value={formData.login}
-            onChange={(e) => {
-              setFormData({ ...formData, login: e.target.value });
-              clearFieldError('login');
-            }}
-            required
-            error={fieldErrors.login}
-          />
-          <Input
-            label={t('profile.barcode')}
-            value={formData.barcode}
-            onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
-          />
-          <Input
-            label={t('auth.password')}
-            type="password"
-            value={formData.password}
-            onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-            placeholder={mode === 'edit' ? t('profile.leaveBlankPassword') : undefined}
-            wrapperClassName={FORM_FIELD_WIDTH.password}
-          />
-        </div>
-      </section>
-
-      <EventsConsentFields
-        name={`${formId}-events-consent`}
-        value={formData.eventsConsent}
-        onChange={(next) => setFormData((prev) => ({ ...prev, eventsConsent: next }))}
-        isChild={showGuardianField}
-        guardianId={formData.guardianId}
-        showGuardianLink={mode === 'edit'}
-        recorded={
-          mode === 'edit' && user
-            ? {
-                consent: user.eventsConsent,
-                at: user.eventsConsentAt,
-                source: user.eventsConsentSource,
-              }
-            : null
-        }
-      />
-
-      <section className={sectionClass}>
-        <h4 className={sectionTitleClass}>{t('users.additionalInfo')}</h4>
-        <div className={`${FORM_FIELD_AUTO_GRID} gap-2.5`}>
-          <div>
-            <label htmlFor={`${formId}-account-type`} className={formLabelClass()}>
-              {t('profile.accountType')}
-              {requiredMark}
-            </label>
-            <AccountTypeSelect
-              id={`${formId}-account-type`}
-              value={formData.accountType}
-              accountTypes={accountTypes}
-              invalid={!!fieldErrors.accountType}
-              loadError={accountTypesError}
-              onChange={(code) => {
-                setFormData({ ...formData, accountType: code });
-                clearFieldError('accountType');
-                if (isReaderAccount(code)) clearFieldError('publicType');
-              }}
-            />
-            {fieldErrors.accountType && (
-              <p className="mt-1 text-sm text-red-600 dark:text-red-400">{fieldErrors.accountType}</p>
-            )}
-          </div>
-         
-          {readerAccount ? (
-            <ReaderPublicTypeReadout
-              id={`${formId}-public-type`}
-              publicTypes={publicTypes}
-              publicType={shownPublicType}
-              birthDateMissing={shownBirthDateMissing}
-            />
-          ) : (
-            <div>
-              <label htmlFor={`${formId}-public-type`} className={formLabelClass()}>
-                {t('users.publicType')}
-                {requiredMark}
-              </label>
-              <select
-                id={`${formId}-public-type`}
-                value={formData.publicType}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3 lg:gap-4 items-start">
+        {/* Left: high-frequency desk fields */}
+        <div className="space-y-3 min-w-0 w-full">
+          <section className={sectionClass}>
+            <h4 className={sectionTitleClass}>{t('users.patronProfile')}</h4>
+            <div className={`${FORM_FIELD_AUTO_GRID} gap-2.5`}>
+              <Input
+                label={t('profile.firstName')}
+                value={formData.firstname}
                 onChange={(e) => {
-                  setFormData({ ...formData, publicType: e.target.value });
-                  clearFieldError('publicType');
+                  setFormData({ ...formData, firstname: e.target.value });
+                  clearFieldError('firstname');
+                }}
+                required
+                error={fieldErrors.firstname}
+              />
+              <Input
+                label={t('profile.lastName')}
+                value={formData.lastname}
+                onChange={(e) => {
+                  setFormData({ ...formData, lastname: e.target.value });
+                  clearFieldError('lastname');
+                }}
+                required
+                error={fieldErrors.lastname}
+              />
+              <Input
+                id={`${formId}-birthdate`}
+                label={t('profile.birthdate')}
+                type="date"
+                value={formData.birthdate}
+                onChange={(e) => {
+                  setFormData({ ...formData, birthdate: e.target.value });
+                  clearFieldError('birthdate');
+                }}
+                required={birthDateIsRequired}
+                error={fieldErrors.birthdate}
+                wrapperClassName={FORM_FIELD_WIDTH.short}
+              />
+              <div className={FORM_FIELD_WIDTH.medium}>
+                <label htmlFor={`${formId}-sex`} className={formLabelClass()}>
+                  {t('users.sex')}
+                  {requiredMark}
+                </label>
+                <select
+                  id={`${formId}-sex`}
+                  value={formData.sex}
+                  onChange={(e) => {
+                    setFormData({ ...formData, sex: e.target.value });
+                    clearFieldError('sex');
+                  }}
+                  required
+                  aria-required="true"
+                  className={selectClass(!!fieldErrors.sex)}
+                >
+                  <option value="">{t('common.select')}</option>
+                  {SEX_M_F_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {t(o.labelKey)}
+                    </option>
+                  ))}
+                </select>
+                {fieldErrors.sex && (
+                  <p className="mt-1 text-sm text-red-600 dark:text-red-400">{fieldErrors.sex}</p>
+                )}
+              </div>
+              <Input
+                label={t('profile.barcode')}
+                value={formData.barcode}
+                onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
+              />
+              <div className={FORM_FIELD_WIDTH.medium}>
+                <label htmlFor={`${formId}-language`} className={formLabelClass()}>
+                  {t('users.language')}
+                </label>
+                <select
+                  id={`${formId}-language`}
+                  value={formData.language}
+                  onChange={(e) => setFormData({ ...formData, language: e.target.value })}
+                  className={selectClass(false)}
+                >
+                  <option value="">{t('users.libraryLanguage')}</option>
+                  {PUBLIC_LANGUAGE_OPTIONS.map((code) => (
+                    <option key={code} value={code}>
+                      {LANGUAGE_NAMES[code]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </section>
+
+          {showGuardianField ? (
+            <section className={sectionClass}>
+              <GuardianPicker
+                value={selectedGuardian}
+                onChange={(u) => {
+                  setPickedGuardian(u);
+                  setFormData((prev) => ({ ...prev, guardianId: u.id }));
                   clearFieldError('guardianId');
                 }}
-                required
-                aria-required="true"
-                className={selectClass(!!fieldErrors.publicType)}
-              >
-                <option value="">{t('common.select')}</option>
-                {publicTypes.map((pt) => (
-                  <option key={pt.id} value={String(pt.id)}>
-                    {localizedPublicTypeLabel(t, pt)}
-                  </option>
-                ))}
-              </select>
-              {fieldErrors.publicType && (
-                <p className="mt-1 text-sm text-red-600 dark:text-red-400">{fieldErrors.publicType}</p>
-              )}
-            </div>
-          )}
-          <Input
-            id={`${formId}-birthdate`}
-            label={t('profile.birthdate')}
-            type="date"
-            value={formData.birthdate}
-            onChange={(e) => {
-              setFormData({ ...formData, birthdate: e.target.value });
-              clearFieldError('birthdate');
-            }}
-            required={birthDateIsRequired}
-            error={fieldErrors.birthdate}
-            wrapperClassName={FORM_FIELD_WIDTH.short}
-          />
-          <div className={FORM_FIELD_WIDTH.medium}>
-            <label htmlFor={`${formId}-sex`} className={formLabelClass()}>
-              {t('users.sex')}
-              {requiredMark}
-            </label>
-            <select
-              id={`${formId}-sex`}
-              value={formData.sex}
-              onChange={(e) => {
-                setFormData({ ...formData, sex: e.target.value });
-                clearFieldError('sex');
-              }}
-              required
-              aria-required="true"
-              className={selectClass(!!fieldErrors.sex)}
-            >
-              <option value="">{t('common.select')}</option>
-              {SEX_M_F_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {t(o.labelKey)}
-                </option>
-              ))}
-            </select>
-            {fieldErrors.sex && <p className="mt-1 text-sm text-red-600 dark:text-red-400">{fieldErrors.sex}</p>}
-          </div>
-        </div>
-        {showGuardianField && (
-          <GuardianPicker
-            value={selectedGuardian}
-            onChange={(u) => {
-              setPickedGuardian(u);
-              setFormData((prev) => ({ ...prev, guardianId: u.id }));
-              clearFieldError('guardianId');
-            }}
-            publicTypes={publicTypes}
-            excludeUserId={user?.id}
-            error={fieldErrors.guardianId}
-            showFileLink={mode === 'edit'}
-          />
-        )}
-      </section>
-
-      <section className={sectionClass}>
-        <h4 className={sectionTitleClass}>{t('users.contact')}</h4>
-        <div className={`${FORM_FIELD_AUTO_GRID} gap-2.5`}>
-          <Input
-            label={t('profile.email')}
-            type="email"
-            value={formData.email}
-            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-            leftIcon={<Mail className="h-4 w-4" />}
-            wrapperClassName={FORM_FIELD_WIDTH.email}
-          />
-          <Input
-            label={t('profile.phone')}
-            value={formData.phone}
-            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-            leftIcon={<Phone className="h-4 w-4" />}
-          />
-          <div className={FORM_FIELD_WIDTH.medium}>
-            <label htmlFor={`${formId}-language`} className={formLabelClass()}>
-              {t('users.language')}
-            </label>
-            <select
-              id={`${formId}-language`}
-              value={formData.language}
-              onChange={(e) => setFormData({ ...formData, language: e.target.value })}
-              className={selectClass(false)}
-            >
-              <option value="">{t('users.libraryLanguage')}</option>
-              {PUBLIC_LANGUAGE_OPTIONS.map((code) => (
-                <option key={code} value={code}>
-                  {LANGUAGE_NAMES[code]}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className={`${FORM_FIELD_AUTO_GRID_WIDE} gap-2.5`}>
-          <Input
-            label={t('profile.street')}
-            value={formData.addrStreet}
-            onChange={(e) => setFormData({ ...formData, addrStreet: e.target.value })}
-            leftIcon={<MapPin className="h-4 w-4" />}
-            wrapperClassName={`${FORM_FIELD_WIDTH.street} col-span-full`}
-          />
-
-          <div ref={communeWrapRef} className={`relative min-w-0 ${FORM_FIELD_WIDTH.long}`}>
-            <label htmlFor={`${formId}-commune-lookup`} className={formLabelClass()}>
-              {t('users.cityPostalLookup')}
-              {requiredMark}
-            </label>
-            <div className="relative">
-              <input
-                id={`${formId}-commune-lookup`}
-                type="text"
-                required
-                aria-required="true"
-                value={cityPostalField}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  setCityPostalField(v);
-                  setFormData((prev) => {
-                    const committed = formatCityPostalLine(prev.addrCity, prev.addrZipCode);
-                    if (v.trim() === '') {
-                      return { ...prev, addrCity: '', addrZipCode: '' };
-                    }
-                    if (v.trim() !== committed) {
-                      return { ...prev, addrCity: '', addrZipCode: '' };
-                    }
-                    return prev;
-                  });
-                  clearFieldError('addrCity');
-                  setCommuneListOpen(true);
-                }}
-                onFocus={() => {
-                  if (isCityPostalSearchMode && cityPostalField.trim().length >= 2) setCommuneListOpen(true);
-                }}
-                placeholder={t('users.cityPostalLookupPlaceholder')}
-                autoComplete="off"
-                aria-invalid={!!fieldErrors.addrCity}
-                aria-describedby={fieldErrors.addrCity ? `${formId}-city-postal-error` : undefined}
-                className={formControlClass({
-                  error: !!fieldErrors.addrCity,
-                  className: 'w-full pr-9',
-                })}
+                publicTypes={publicTypes}
+                excludeUserId={user?.id}
+                error={fieldErrors.guardianId}
+                showFileLink={mode === 'edit'}
               />
-              {visibleCommuneLoading && (
-                <div className="absolute inset-y-0 right-2 flex items-center pointer-events-none" aria-hidden>
-                  <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
-                </div>
-              )}
+            </section>
+          ) : null}
+
+          <section className={sectionClass}>
+            <h4 className={sectionTitleClass}>{t('users.contactAndAddress')}</h4>
+            <div className={`${FORM_FIELD_AUTO_GRID} gap-2.5`}>
+              <Input
+                label={t('profile.email')}
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                leftIcon={<Mail className="h-4 w-4" />}
+                wrapperClassName={FORM_FIELD_WIDTH.email}
+              />
+              <Input
+                label={t('profile.phone')}
+                value={formData.phone}
+                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                leftIcon={<Phone className="h-4 w-4" />}
+              />
             </div>
-            {fieldErrors.addrCity && (
-              <p id={`${formId}-city-postal-error`} className="mt-1 text-sm text-red-600 dark:text-red-400">
-                {fieldErrors.addrCity}
-              </p>
-            )}
-            {showCommuneSuggestions && (
-              <ul
-                className="absolute z-[100] mt-1 max-h-44 w-full overflow-auto rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 py-1 shadow-lg"
-                role="listbox"
-              >
-                {visibleCommuneLoading && visibleCommunePicks.length === 0 ? (
-                  <li className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">{t('users.communeSearchLoading')}</li>
-                ) : visibleCommunePicks.length === 0 ? (
-                  <li className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">{t('users.communeSearchEmpty')}</li>
-                ) : (
-                  visibleCommunePicks.map((pick) => (
-                    <li key={`${pick.city}-${pick.zip}-${pick.label}`} role="option">
-                      <button
-                        type="button"
-                        className="w-full text-left px-3 py-1.5 text-sm text-gray-900 dark:text-gray-100 hover:bg-amber-50 dark:hover:bg-amber-900/30"
-                        onMouseDown={(ev) => {
-                          ev.preventDefault();
-                          applyCommunePick(pick);
-                        }}
-                      >
-                        {pick.label}
-                      </button>
-                    </li>
-                  ))
+
+            <div className={`${FORM_FIELD_AUTO_GRID_WIDE} gap-2.5`}>
+              <Input
+                label={t('profile.street')}
+                value={formData.addrStreet}
+                onChange={(e) => setFormData({ ...formData, addrStreet: e.target.value })}
+                leftIcon={<MapPin className="h-4 w-4" />}
+                wrapperClassName={`${FORM_FIELD_WIDTH.street} col-span-full`}
+              />
+
+              <div ref={communeWrapRef} className={`relative min-w-0 ${FORM_FIELD_WIDTH.long}`}>
+                <label htmlFor={`${formId}-commune-lookup`} className={formLabelClass()}>
+                  {t('users.cityPostalLookup')}
+                  {requiredMark}
+                </label>
+                <div className="relative">
+                  <input
+                    id={`${formId}-commune-lookup`}
+                    type="text"
+                    required
+                    aria-required="true"
+                    value={cityPostalField}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setCityPostalField(v);
+                      setFormData((prev) => {
+                        const committed = formatCityPostalLine(prev.addrCity, prev.addrZipCode);
+                        if (v.trim() === '') {
+                          return { ...prev, addrCity: '', addrZipCode: '' };
+                        }
+                        if (v.trim() !== committed) {
+                          return { ...prev, addrCity: '', addrZipCode: '' };
+                        }
+                        return prev;
+                      });
+                      clearFieldError('addrCity');
+                      setCommuneListOpen(true);
+                    }}
+                    onFocus={() => {
+                      if (isCityPostalSearchMode && cityPostalField.trim().length >= 2) {
+                        setCommuneListOpen(true);
+                      }
+                    }}
+                    placeholder={t('users.cityPostalLookupPlaceholder')}
+                    autoComplete="off"
+                    aria-invalid={!!fieldErrors.addrCity}
+                    aria-describedby={fieldErrors.addrCity ? `${formId}-city-postal-error` : undefined}
+                    className={formControlClass({
+                      error: !!fieldErrors.addrCity,
+                      className: 'w-full pr-9',
+                    })}
+                  />
+                  {visibleCommuneLoading && (
+                    <div
+                      className="absolute inset-y-0 right-2 flex items-center pointer-events-none"
+                      aria-hidden
+                    >
+                      <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+                    </div>
+                  )}
+                </div>
+                {fieldErrors.addrCity && (
+                  <p
+                    id={`${formId}-city-postal-error`}
+                    className="mt-1 text-sm text-red-600 dark:text-red-400"
+                  >
+                    {fieldErrors.addrCity}
+                  </p>
                 )}
-              </ul>
-            )}
-          </div>
+                {showCommuneSuggestions && (
+                  <ul
+                    className="absolute z-[100] mt-1 max-h-44 w-full overflow-auto rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-900 py-1 shadow-lg"
+                    role="listbox"
+                  >
+                    {visibleCommuneLoading && visibleCommunePicks.length === 0 ? (
+                      <li className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
+                        {t('users.communeSearchLoading')}
+                      </li>
+                    ) : visibleCommunePicks.length === 0 ? (
+                      <li className="px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
+                        {t('users.communeSearchEmpty')}
+                      </li>
+                    ) : (
+                      visibleCommunePicks.map((pick) => (
+                        <li key={`${pick.city}-${pick.zip}-${pick.label}`} role="option">
+                          <button
+                            type="button"
+                            className="w-full text-left px-3 py-1.5 text-sm text-gray-900 dark:text-gray-100 hover:bg-amber-50 dark:hover:bg-amber-900/30"
+                            onMouseDown={(ev) => {
+                              ev.preventDefault();
+                              applyCommunePick(pick);
+                            }}
+                          >
+                            {pick.label}
+                          </button>
+                        </li>
+                      ))
+                    )}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </section>
         </div>
-      </section>
 
-      <CollapsibleFormSection
-        title={t('users.subscription')}
-        open={subscriptionOpen}
-        onToggle={() => setSubscriptionOpen((v) => !v)}
-      >
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            role="switch"
-            aria-checked={formData.expiryUnlimited}
-            aria-label={t('users.subscriptionUnlimited')}
-            onClick={() =>
-              setFormData((prev) => ({
-                ...prev,
-                expiryUnlimited: !prev.expiryUnlimited,
-              }))
-            }
-            className={`relative h-7 w-12 shrink-0 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-800 ${
-              formData.expiryUnlimited ? 'bg-amber-500 dark:bg-amber-600' : 'bg-gray-300 dark:bg-gray-600'
-            }`}
-          >
-            <span
-              className={`pointer-events-none absolute top-0.5 left-0.5 block h-6 w-6 rounded-full bg-white shadow transition-transform ${
-                formData.expiryUnlimited ? 'translate-x-5' : 'translate-x-0'
-              }`}
+        {/* Right: admin / less frequent — always expanded */}
+        <div className="space-y-3 min-w-0 w-full">
+          <section className={sectionClass}>
+            <h4 className={sectionTitleClass}>{t('users.accessCredentials')}</h4>
+            <div className={`${FORM_FIELD_AUTO_GRID} gap-2.5`}>
+              <Input
+                label={t('users.identifier')}
+                value={formData.login}
+                onChange={(e) => {
+                  setFormData({ ...formData, login: e.target.value });
+                  clearFieldError('login');
+                }}
+                required
+                error={fieldErrors.login}
+              />
+              <Input
+                label={t('auth.password')}
+                type="password"
+                value={formData.password}
+                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                placeholder={mode === 'edit' ? t('profile.leaveBlankPassword') : undefined}
+                wrapperClassName={FORM_FIELD_WIDTH.password}
+              />
+            </div>
+          </section>
+
+          <section className={sectionClass}>
+            <h4 className={sectionTitleClass}>{t('users.accountAndSubscription')}</h4>
+            <div className={`${FORM_FIELD_AUTO_GRID} gap-2.5`}>
+              <div>
+                <label htmlFor={`${formId}-account-type`} className={formLabelClass()}>
+                  {t('profile.accountType')}
+                  {requiredMark}
+                </label>
+                <AccountTypeSelect
+                  id={`${formId}-account-type`}
+                  value={formData.accountType}
+                  accountTypes={accountTypes}
+                  invalid={!!fieldErrors.accountType}
+                  loadError={accountTypesError}
+                  onChange={(code) => {
+                    setFormData({ ...formData, accountType: code });
+                    clearFieldError('accountType');
+                    if (isReaderAccount(code)) clearFieldError('publicType');
+                  }}
+                />
+                {fieldErrors.accountType && (
+                  <p className="mt-1 text-sm text-red-600 dark:text-red-400">
+                    {fieldErrors.accountType}
+                  </p>
+                )}
+              </div>
+
+              {mode === 'create' ? (
+                readerAccount ? (
+                  <ReaderPublicTypeReadout
+                    id={`${formId}-public-type`}
+                    publicTypes={publicTypes}
+                    publicType={shownPublicType}
+                    birthDateMissing={shownBirthDateMissing}
+                  />
+                ) : (
+                  <div>
+                    <label htmlFor={`${formId}-public-type`} className={formLabelClass()}>
+                      {t('users.publicType')}
+                      {requiredMark}
+                    </label>
+                    <select
+                      id={`${formId}-public-type`}
+                      value={formData.publicType}
+                      onChange={(e) => {
+                        setFormData({ ...formData, publicType: e.target.value });
+                        clearFieldError('publicType');
+                        clearFieldError('guardianId');
+                      }}
+                      required
+                      aria-required="true"
+                      className={selectClass(!!fieldErrors.publicType)}
+                    >
+                      <option value="">{t('common.select')}</option>
+                      {publicTypes.map((pt) => (
+                        <option key={pt.id} value={String(pt.id)}>
+                          {localizedPublicTypeLabel(t, pt)}
+                        </option>
+                      ))}
+                    </select>
+                    {fieldErrors.publicType && (
+                      <p className="mt-1 text-sm text-red-600 dark:text-red-400">
+                        {fieldErrors.publicType}
+                      </p>
+                    )}
+                  </div>
+                )
+              ) : null}
+            </div>
+
+            <div className="pt-1 space-y-2.5 border-t border-gray-200/80 dark:border-gray-700/80">
+              <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                {t('users.subscription')}
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={formData.expiryUnlimited}
+                  aria-label={t('users.subscriptionUnlimited')}
+                  onClick={() =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      expiryUnlimited: !prev.expiryUnlimited,
+                    }))
+                  }
+                  className={`relative h-7 w-12 shrink-0 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-800 ${
+                    formData.expiryUnlimited
+                      ? 'bg-amber-500 dark:bg-amber-600'
+                      : 'bg-gray-300 dark:bg-gray-600'
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none absolute top-0.5 left-0.5 block h-6 w-6 rounded-full bg-white shadow transition-transform ${
+                      formData.expiryUnlimited ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {t('users.expiryUnlimited')}
+                </span>
+              </div>
+              <div
+                className={`${FORM_FIELD_AUTO_GRID} gap-2.5 ${formData.expiryUnlimited ? 'opacity-55' : ''}`}
+              >
+                <Input
+                  label={t('users.subscriptionExpiry')}
+                  type="date"
+                  value={formData.expiryAt}
+                  onChange={(e) => setFormData({ ...formData, expiryAt: e.target.value })}
+                  disabled={formData.expiryUnlimited}
+                  wrapperClassName={FORM_FIELD_WIDTH.short}
+                />
+                <Input
+                  label={t('users.fee')}
+                  value={formData.fee}
+                  onChange={(e) => setFormData({ ...formData, fee: e.target.value })}
+                  disabled={formData.expiryUnlimited}
+                  wrapperClassName={FORM_FIELD_WIDTH.medium}
+                />
+              </div>
+            </div>
+          </section>
+
+          <section className={sectionClass}>
+            <h4 className={sectionTitleClass}>{t('eventsConsent.legend')}</h4>
+            <EventsConsentFields
+              name={`${formId}-events-consent`}
+              value={formData.eventsConsent}
+              onChange={(next) => setFormData((prev) => ({ ...prev, eventsConsent: next }))}
+              isChild={showGuardianField}
+              guardianId={formData.guardianId}
+              showGuardianLink={mode === 'edit'}
+              recorded={recordedConsent}
+              variant="embedded"
+              hideLegend
             />
-          </button>
-          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{t('users.expiryUnlimited')}</span>
-        </div>
-        <div className={`${FORM_FIELD_AUTO_GRID} gap-2.5 ${formData.expiryUnlimited ? 'opacity-55' : ''}`}>
-          <Input
-            label={t('users.subscriptionExpiry')}
-            type="date"
-            value={formData.expiryAt}
-            onChange={(e) => setFormData({ ...formData, expiryAt: e.target.value })}
-            disabled={formData.expiryUnlimited}
-            wrapperClassName={FORM_FIELD_WIDTH.short}
-          />
-          <Input
-            label={t('users.fee')}
-            value={formData.fee}
-            onChange={(e) => setFormData({ ...formData, fee: e.target.value })}
-            disabled={formData.expiryUnlimited}
-            wrapperClassName={FORM_FIELD_WIDTH.medium}
-          />
-        </div>
-      </CollapsibleFormSection>
+          </section>
 
-      <CollapsibleFormSection title={t('users.notes')} open={notesOpen} onToggle={() => setNotesOpen((v) => !v)}>
-        <textarea
-          value={formData.notes}
-          onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-          rows={3}
-          className={formTextareaClass({ className: 'max-w-2xl resize-none' })}
-          aria-label={t('users.notes')}
-        />
-      </CollapsibleFormSection>
+          <section className={sectionClass}>
+            <h4 className={sectionTitleClass}>{t('users.notes')}</h4>
+            <textarea
+              value={formData.notes}
+              onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+              rows={3}
+              className={formTextareaClass({ className: 'w-full resize-none' })}
+              aria-label={t('users.notes')}
+            />
+          </section>
+        </div>
+      </div>
+
     </form>
   );
 }

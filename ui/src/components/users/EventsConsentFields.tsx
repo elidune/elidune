@@ -20,6 +20,13 @@ export interface EventsConsentFieldsProps {
     at?: string | null;
     source?: string | null;
   } | null;
+  /**
+   * `prominent` — amber callout (profile / legacy standalone).
+   * `embedded` — neutral body for use inside a collapsible section.
+   */
+  variant?: 'prominent' | 'embedded';
+  /** When true, omit the legend (parent accordion already titles the section). */
+  hideLegend?: boolean;
 }
 
 export default function EventsConsentFields({
@@ -30,6 +37,8 @@ export default function EventsConsentFields({
   guardianId,
   showGuardianLink = false,
   recorded = null,
+  variant = 'prominent',
+  hideLegend = false,
 }: EventsConsentFieldsProps) {
   const { t, i18n } = useTranslation();
   const hintId = `${name}-hint`;
@@ -45,13 +54,20 @@ export default function EventsConsentFields({
     : null;
   const guardianLinkId = showGuardianLink ? guardianId : null;
 
+  const shellClass =
+    variant === 'embedded'
+      ? 'space-y-1.5'
+      : 'rounded-lg border border-amber-200 bg-amber-50/80 p-3 dark:border-amber-800/60 dark:bg-amber-950/30';
+
   return (
-    <div className="rounded-lg border border-amber-200 bg-amber-50/80 p-3 dark:border-amber-800/60 dark:bg-amber-950/30">
+    <div className={shellClass}>
       {isChild ? (
         <div className="space-y-1.5">
-          <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-            {t('eventsConsent.legend')}
-          </p>
+          {!hideLegend ? (
+            <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
+              {t('eventsConsent.legend')}
+            </p>
+          ) : null}
           <p className="text-sm text-gray-700 dark:text-gray-300">{t('eventsConsent.childNotice')}</p>
           <p className="text-sm text-gray-700 dark:text-gray-300">
             {t('events.targetPublic.allChildGuardianNote')}
@@ -67,10 +83,12 @@ export default function EventsConsentFields({
         </div>
       ) : (
         <fieldset aria-describedby={status ? `${hintId} ${statusId}` : hintId}>
-          <legend className="text-sm font-medium text-gray-700 dark:text-gray-300">
-            {t('eventsConsent.legend')}
-          </legend>
-          <div className="mt-2 flex flex-wrap gap-4">
+          {!hideLegend ? (
+            <legend className="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {t('eventsConsent.legend')}
+            </legend>
+          ) : null}
+          <div className={`${hideLegend ? '' : 'mt-2 '}flex flex-wrap gap-4`}>
             <label className={formChoiceLabelClass()}>
               <input
                 type="radio"

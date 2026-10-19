@@ -1112,31 +1112,29 @@ export default function UserDetailPage() {
           )}
 
           {detailTab === 'info' && (
-            <>
-              <ScrollableListRegion
-                aria-label={t('users.information')}
-                className="flex-1 min-h-0 !max-h-none overflow-auto px-3 sm:px-4 py-3"
-              >
-                <UserEditorForm
-                  key={`${user.id}-${user.updateAt ?? ''}`}
-                  mode="edit"
-                  formId="user-detail-edit-form"
-                  user={user}
-                  publicTypes={publicTypes}
-                  accountTypes={accountTypes}
-                  accountTypesError={accountTypesError}
-                  onLoadingChange={setIsEditLoading}
-                  onSuccess={(updatedUser) => {
-                    if (updatedUser) queryClient.setQueryData<UserType>(['user', id], updatedUser);
-                  }}
-                />
-              </ScrollableListRegion>
-              <div className="flex-shrink-0 px-3 sm:px-4 py-2 border-t border-gray-200 dark:border-gray-800 flex justify-end">
+            <ScrollableListRegion
+              aria-label={t('users.information')}
+              className="flex-1 min-h-0 !max-h-none overflow-auto px-3 sm:px-4 py-3"
+            >
+              <div className="flex justify-end mb-3">
                 <Button type="submit" form="user-detail-edit-form" isLoading={isEditLoading}>
                   {t('common.save')}
                 </Button>
               </div>
-            </>
+              <UserEditorForm
+                key={`${user.id}-${user.updateAt ?? ''}`}
+                mode="edit"
+                formId="user-detail-edit-form"
+                user={user}
+                publicTypes={publicTypes}
+                accountTypes={accountTypes}
+                accountTypesError={accountTypesError}
+                onLoadingChange={setIsEditLoading}
+                onSuccess={(updatedUser) => {
+                  if (updatedUser) queryClient.setQueryData<UserType>(['user', id], updatedUser);
+                }}
+              />
+            </ScrollableListRegion>
           )}
 
           {detailTab === 'activeLoans' && (

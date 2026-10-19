@@ -280,11 +280,11 @@ describe('reader public type from birth date', () => {
     );
   });
 
-  it('requires a birth date only when creating a reader', () => {
+  it('requires a birth date for reader accounts in create and edit', () => {
     assert.equal(readerBirthDateRequired('create', 'reader'), true);
     assert.equal(readerBirthDateRequired('create', 'READER'), true);
-    assert.equal(readerBirthDateRequired('edit', 'reader'), false);
-    assert.equal(readerBirthDateRequired('edit', 'READER'), false);
+    assert.equal(readerBirthDateRequired('edit', 'reader'), true);
+    assert.equal(readerBirthDateRequired('edit', 'READER'), true);
     assert.equal(readerBirthDateRequired('create', 'librarian'), false);
     assert.equal(readerBirthDateRequired('create', 'admin'), false);
     assert.equal(readerBirthDateRequired('edit', 'librarian'), false);
@@ -350,9 +350,33 @@ describe('reader public type from birth date', () => {
     const birth = inputById(html, 'reader-form-birthdate');
     assert.match(birth, /\brequired(?:=""|="")?/);
     assert.match(birth, /type="date"/);
+    assert.match(html, /lg:grid-cols-\[minmax\(0,1fr\)_minmax\(0,1fr\)\]/);
   });
 
-  it('keeps an existing reader editable without a birth date and shows the stored type', async () => {
+  it('uses a balanced two-column layout with access always visible on edit', async () => {
+    const html = await renderEditor(await i18nFor('fr'), {
+      mode: 'edit',
+      user: {
+        id: '9',
+        username: 'ada',
+        login: 'ada',
+        accountType: 'reader',
+        publicType: '1',
+        birthdate: '2010-06-15',
+        notes: '',
+        fee: '',
+        expiryAt: '2099-06-01T00:00:00Z',
+      } as User,
+    });
+    assert.match(html, /lg:grid-cols-\[minmax\(0,1fr\)_minmax\(0,1fr\)\]/);
+    assert.match(html, /Profil/);
+    assert.match(html, /Contact et adresse/);
+    assert.match(html, /Accès \(identifiant\)/);
+    assert.match(html, /Laisser vide pour ne pas changer/);
+    assert.equal(/\brequired\b/.test(inputById(html, 'reader-form-birthdate')), true);
+  });
+
+  it('keeps an existing reader editable without a birth date and hides the public type field', async () => {
     const html = await renderEditor(await i18nFor('fr'), {
       mode: 'edit',
       user: {
@@ -364,14 +388,14 @@ describe('reader public type from birth date', () => {
         birthDateMissing: true,
       } as User,
     });
-    assert.equal(html.includes('<select id="reader-form-public-type"'), false);
-    assert.match(html, /Enfant/);
-    assert.match(html, new RegExp(FR_MISSING));
+    assert.equal(html.includes('reader-form-public-type'), false);
+    assert.equal(html.includes('Enfant'), false);
+    assert.equal(html.includes(FR_MISSING), false);
     const birth = inputById(html, 'reader-form-birthdate');
-    assert.equal(/\brequired\b/.test(birth), false);
+    assert.match(birth, /\brequired(?:=""|="")?/);
   });
 
-  it('still lets staff choose a public type for a non-reader', async () => {
+  it('hides the public type field when editing a non-reader', async () => {
     const html = await renderEditor(await i18nFor('en'), {
       mode: 'edit',
       user: {
@@ -382,7 +406,7 @@ describe('reader public type from birth date', () => {
         birthdate: '1980-01-01',
       } as User,
     });
-    assert.match(html, /<select id="reader-form-public-type"/);
+    assert.equal(html.includes('reader-form-public-type'), false);
     assert.equal(html.includes(FR_MISSING), false);
     assert.equal(/\brequired\b/.test(inputById(html, 'reader-form-birthdate')), false);
   });

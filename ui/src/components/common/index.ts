@@ -12,6 +12,7 @@ export { default as Card, CardHeader } from './Card';
 export { default as Modal } from './Modal';
 export { default as MessageModal } from './MessageModal';
 export { default as ConfirmDialog } from './ConfirmDialog';
+export { default as CollapsibleFormSection } from './CollapsibleFormSection';
 export { default as Table } from './Table';
 export { default as Badge } from './Badge';
 export { default as Pagination } from './Pagination';
