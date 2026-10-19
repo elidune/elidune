@@ -91,9 +91,14 @@ pub struct DatabaseConfig {
 pub struct UsersConfig {
     pub jwt_secret: String,
     pub jwt_expiration_hours: u64,
+    /// Public UI origin for password-reset links (no trailing slash). Environment:
+    /// `ELIDUNE_USERS__PUBLIC_BASE_URL`. When unset, password reset falls back to
+    /// `server.public_base_url` / `ELIDUNE_SERVER__PUBLIC_BASE_URL`.
+    #[serde(default)]
+    pub public_base_url: Option<String>,
     /// Optional admin override for the password-reset link. Must contain the literal
     /// `<token>` placeholder. When unset, the server uses
-    /// `{PUBLIC_BASE_URL}/reset-password?token=<token>`. Client `resetUrl` is ignored.
+    /// `{public_base_url}/reset-password?token=<token>`. Client `resetUrl` is ignored.
     #[serde(default)]
     pub password_reset_url_template: Option<String>,
 }
@@ -582,6 +587,7 @@ impl AppConfig {
             users: UsersConfig {
                 jwt_secret: "integration-test-jwt-secret-min-32-chars".into(),
                 jwt_expiration_hours: 24,
+                public_base_url: None,
                 password_reset_url_template: None,
             },
             logging: LoggingConfig::default(),

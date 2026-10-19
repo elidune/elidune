@@ -1565,6 +1565,8 @@
         "exportButton": "Download SQL dump",
         "exportRunning": "Exporting…",
         "exportError": "Database export failed",
+        "exportManualSave": "If the download did not start, save the dump manually:",
+        "exportManualLink": "Save SQL file",
         "restoreTitle": "Restore database",
         "restoreBody": "Uploads a raw .sql file (same bytes as an export), not JSON. Maximum size accepted by the server: 512 MiB.",
         "restoreWarningTitle": "Destructive operation",

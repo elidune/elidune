@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import api from '@/services/api';
@@ -13,6 +13,12 @@ import type {
   ReindexSearchResponse,
   BackgroundTask,
 } from '@/types';
+import {
+  normalizeSqlBlob,
+  pickSqlDumpSaveTarget,
+  triggerBlobDownload,
+  writeBlobToFileHandle,
+} from '@/utils/blobDownload';
 
 const MAINTENANCE_TASK_KEY = 'elidune.maintenanceTask';
 
@@ -27,18 +33,6 @@ export function formatMaintenanceFileSize(bytes: number): string {
   if (mb < 1024) return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`;
   const gb = mb / 1024;
   return `${gb.toFixed(2)} GB`;
-}
-
-export function triggerBlobDownload(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.rel = 'noopener';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
 }
 
 export function getMaintenanceReportKey(action: MaintenanceActionReport['action']): string {
@@ -91,6 +85,27 @@ export function useEliduneMaintenance() {
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
   const [databaseError, setDatabaseError] = useState<string | null>(null);
   const [restoreSuccess, setRestoreSuccess] = useState(false);
+  const [dumpManualDownload, setDumpManualDownload] = useState<{
+    url: string;
+    filename: string;
+  } | null>(null);
+
+  const clearDumpManualDownload = useCallback(() => {
+    setDumpManualDownload((prev) => {
+      if (prev?.url) {
+        URL.revokeObjectURL(prev.url);
+      }
+      return null;
+    });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (dumpManualDownload?.url) {
+        URL.revokeObjectURL(dumpManualDownload.url);
+      }
+    };
+  }, [dumpManualDownload]);
 
   const { data: z3950Servers = [] } = useQuery({
     queryKey: ['z3950-servers'],
@@ -145,10 +160,23 @@ export function useEliduneMaintenance() {
   const runDumpDownload = async () => {
     setDatabaseError(null);
     setRestoreSuccess(false);
+    clearDumpManualDownload();
+
+    const saveTarget = await pickSqlDumpSaveTarget();
+
     setDumpLoading(true);
     try {
       const { blob, filename } = await api.getMaintenanceDatabaseDump();
-      triggerBlobDownload(blob, filename);
+      const typedBlob = normalizeSqlBlob(blob);
+
+      if (saveTarget) {
+        await writeBlobToFileHandle(saveTarget, typedBlob);
+        return;
+      }
+
+      const url = URL.createObjectURL(typedBlob);
+      setDumpManualDownload({ url, filename });
+      triggerBlobDownload(typedBlob, filename);
     } catch (e: unknown) {
       setDatabaseError(getApiErrorMessage(e, t) || t('settings.maintenance.database.exportError'));
     } finally {
@@ -272,6 +300,8 @@ export function useEliduneMaintenance() {
     isTaskRunning,
     formatDetails,
     z3950Report,
+    dumpManualDownload,
+    clearDumpManualDownload,
     runDumpDownload,
     runRestore,
     runReindex,

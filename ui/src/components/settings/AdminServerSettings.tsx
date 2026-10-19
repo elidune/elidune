@@ -860,6 +860,7 @@ export default function AdminServerSettings() {
             />
             <EliduneDatabaseMaintenancePanel
               dumpLoading={maintenance.dumpLoading}
+              dumpManualDownload={maintenance.dumpManualDownload}
               restoreLoading={maintenance.restoreLoading}
               restoreFile={maintenance.restoreFile}
               setRestoreFile={maintenance.setRestoreFile}

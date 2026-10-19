@@ -55,6 +55,7 @@ services:
       # --- users / JWT ---
       ELIDUNE_USERS__JWT_SECRET: ${ELIDUNE_USERS__JWT_SECRET:-change-this-secret-in-production}
       ELIDUNE_USERS__JWT_EXPIRATION_HOURS: ${ELIDUNE_USERS__JWT_EXPIRATION_HOURS:-24}
+      ELIDUNE_USERS__PUBLIC_BASE_URL: ${ELIDUNE_USERS__PUBLIC_BASE_URL:-}
 
       # --- logging ---
       ELIDUNE_LOGGING__LEVEL: ${ELIDUNE_LOGGING__LEVEL:-info}

@@ -42,9 +42,12 @@ min_connections = 2
 [users]
 jwt_secret = "change-this-secret-in-production"
 jwt_expiration_hours = 24
+# Public UI origin for password-reset links (no trailing slash).
+# Env: ELIDUNE_USERS__PUBLIC_BASE_URL. Falls back to server.public_base_url when unset.
+# public_base_url = "https://library.example.org"
 # Optional admin override for password-reset links. Client `resetUrl` is ignored.
 # Must contain the literal `<token>` placeholder. When unset, the server uses
-# {PUBLIC_BASE_URL}/reset-password?token=<token>. If that origin is also empty,
+# {public_base_url}/reset-password?token=<token>. If no origin is configured,
 # the password-reset email is not sent.
 # password_reset_url_template = "https://library.example.org/reset-password?token=<token>"
 

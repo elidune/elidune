@@ -131,6 +131,8 @@ Docker Compose does not mount that file. Set the same values with environment va
 | `server.auth_session_burst` | `ELIDUNE_SERVER__AUTH_SESSION_BURST` | 60 |
 | `server.public_per_minute` | `ELIDUNE_SERVER__PUBLIC_PER_MINUTE` | 600 |
 | `server.public_burst` | `ELIDUNE_SERVER__PUBLIC_BURST` | 120 |
+| `server.public_base_url` | `ELIDUNE_SERVER__PUBLIC_BASE_URL` | unset (announcement / event mail links) |
+| `users.public_base_url` | `ELIDUNE_USERS__PUBLIC_BASE_URL` | unset (password-reset links; falls back to `server.public_base_url`) |
 
 `trusted_proxies` is a comma-separated CIDR list (`127.0.0.1/32,::1/128`). The strict IP quota covers login, 2FA, password reset, and first setup, and is sized for several desks behind one NAT. Login and password-reset attempts are also counted per normalized login or email (5 failures / 15 minutes). That block expires on its own. A librarian or admin with users write rights clears it with `DELETE /api/v1/auth/rate-limit/{login}`.
 

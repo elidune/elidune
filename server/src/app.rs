@@ -336,7 +336,11 @@ pub fn build_cors(config: &AppConfig) -> tower_http::cors::CorsLayer {
                 return CorsLayer::new()
                     .allow_origin(parsed)
                     .allow_methods(Any)
-                    .allow_headers(Any);
+                    .allow_headers(Any)
+                    .expose_headers([
+                        axum::http::header::CONTENT_DISPOSITION,
+                        axum::http::header::CONTENT_TYPE,
+                    ]);
             }
         }
     }
@@ -345,4 +349,8 @@ pub fn build_cors(config: &AppConfig) -> tower_http::cors::CorsLayer {
         .allow_origin(Any)
         .allow_methods(Any)
         .allow_headers(Any)
+        .expose_headers([
+            axum::http::header::CONTENT_DISPOSITION,
+            axum::http::header::CONTENT_TYPE,
+        ])
 }

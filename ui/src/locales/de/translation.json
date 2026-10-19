@@ -1565,6 +1565,8 @@
         "exportButton": "SQL-Dump herunterladen",
         "exportRunning": "Export läuft…",
         "exportError": "Datenbankexport fehlgeschlagen",
+        "exportManualSave": "Wenn der Download nicht startet, speichern Sie den Dump manuell:",
+        "exportManualLink": "SQL-Datei speichern",
         "restoreTitle": "Datenbank wiederherstellen",
         "restoreBody": "Lädt eine rohe .sql-Datei hoch (gleiche Bytes wie beim Export), ohne JSON. Maximale Servergröße: 512 MiB.",
         "restoreWarningTitle": "Zerstörerische Operation",

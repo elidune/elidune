@@ -304,6 +304,7 @@ export function EliduneCatalogMaintenancePanel({
 
 type DatabaseProps = {
   dumpLoading: boolean;
+  dumpManualDownload: { url: string; filename: string } | null;
   restoreLoading: boolean;
   restoreFile: File | null;
   setRestoreFile: (f: File | null) => void;
@@ -320,6 +321,7 @@ type DatabaseProps = {
 
 export function EliduneDatabaseMaintenancePanel({
   dumpLoading,
+  dumpManualDownload,
   restoreLoading,
   restoreFile,
   setRestoreFile,
@@ -442,6 +444,18 @@ export function EliduneDatabaseMaintenancePanel({
             >
               {dumpLoading ? t('settings.maintenance.database.exportRunning') : t('settings.maintenance.database.exportButton')}
             </Button>
+            {dumpManualDownload && !dumpLoading && (
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                {t('settings.maintenance.database.exportManualSave')}{' '}
+                <a
+                  href={dumpManualDownload.url}
+                  download={dumpManualDownload.filename}
+                  className="font-medium text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300 underline"
+                >
+                  {t('settings.maintenance.database.exportManualLink')}
+                </a>
+              </p>
+            )}
           </div>
 
           <div

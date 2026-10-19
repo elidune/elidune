@@ -1565,6 +1565,8 @@
         "exportButton": "Descargar volcado SQL",
         "exportRunning": "Exportando…",
         "exportError": "Falló la exportación de la base",
+        "exportManualSave": "Si la descarga no comienza, guarde el volcado manualmente:",
+        "exportManualLink": "Guardar archivo SQL",
         "restoreTitle": "Restaurar la base",
         "restoreBody": "Sube un archivo .sql en bruto (los mismos bytes que una exportación), sin JSON. Tamaño máximo del servidor: 512 MiB.",
         "restoreWarningTitle": "Operación destructiva",

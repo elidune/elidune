@@ -648,7 +648,10 @@ pub async fn request_password_reset(
         None => resets.record(&request.identifier),
     }
 
-    let public_base = crate::password_reset_link::configured_public_base(&state.config.server);
+    let public_base = crate::password_reset_link::password_reset_public_base(
+        &state.config.users,
+        &state.config.server,
+    );
     let link = match crate::password_reset_link::plan_password_reset_link(
         state.config.users.password_reset_url_template.as_deref(),
         public_base.as_deref(),

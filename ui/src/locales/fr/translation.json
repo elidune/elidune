@@ -1565,6 +1565,8 @@
         "exportButton": "Télécharger le dump SQL",
         "exportRunning": "Export en cours…",
         "exportError": "Échec de l’export de la base",
+        "exportManualSave": "Si le téléchargement ne démarre pas, enregistrez le dump manuellement :",
+        "exportManualLink": "Enregistrer le fichier SQL",
         "restoreTitle": "Restaurer la base",
         "restoreBody": "Envoie un fichier .sql brut (mêmes octets qu’un export), sans encapsulation JSON. Taille maximale côté serveur : 512 Mo.",
         "restoreWarningTitle": "Opération destructive",
