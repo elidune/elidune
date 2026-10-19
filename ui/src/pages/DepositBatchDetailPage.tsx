@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Library } from 'lucide-react';
@@ -17,11 +17,13 @@ import {
 import { getApiErrorMessage } from '@/utils/apiError';
 import { APP_PAGE_CLASS } from '@/utils/appPageLayout';
 import {
+  activeLoanCopyLabel,
   depositActiveLoanCopies,
   depositScanAlreadyReturned,
   formatCatalogDate,
   parseDepositCloseReport,
   returnToLenderNotice,
+  type DepositActiveLoanCopy,
   type DepositCloseLine,
   type DepositCloseReport,
 } from '@/utils/deposits';
@@ -40,7 +42,7 @@ function escapeHtml(value: string): string {
 function printCloseReport(
   reference: string,
   report: DepositCloseReport,
-  labels: { title: string; returned: string; missing: string; onLoan: string; barcode: string; document: string },
+  labels: { title: string; returned: string; missing: string; barcode: string; document: string },
 ) {
   const popup = window.open('', '_blank', 'noopener,noreferrer');
   if (!popup) return;
@@ -51,7 +53,7 @@ function printCloseReport(
     return `<h2>${escapeHtml(heading)}</h2><table><thead><tr><th>${escapeHtml(labels.barcode)}</th><th>${escapeHtml(labels.document)}</th></tr></thead><tbody>${rows}</tbody></table>`;
   };
   popup.document.write(
-    `<!DOCTYPE html><html><head><title>${escapeHtml(labels.title)}</title><style>body{font-family:sans-serif;padding:24px}table{border-collapse:collapse;width:100%;margin-bottom:24px}td,th{border:1px solid #ccc;padding:6px;text-align:left}</style></head><body><h1>${escapeHtml(reference)}</h1>${section(labels.returned, report.returned)}${section(labels.missing, report.missing)}${section(labels.onLoan, report.onLoan)}</body></html>`,
+    `<!DOCTYPE html><html><head><title>${escapeHtml(labels.title)}</title><style>body{font-family:sans-serif;padding:24px}table{border-collapse:collapse;width:100%;margin-bottom:24px}td,th{border:1px solid #ccc;padding:6px;text-align:left}</style></head><body><h1>${escapeHtml(reference)}</h1>${section(labels.returned, report.returned)}${section(labels.missing, report.missing)}</body></html>`,
   );
   popup.document.close();
   popup.focus();
@@ -60,6 +62,7 @@ function printCloseReport(
 
 export default function DepositBatchDetailPage() {
   const { id = '' } = useParams();
+  const navigate = useNavigate();
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const { showToast } = useToast();
@@ -76,7 +79,7 @@ export default function DepositBatchDetailPage() {
   const [scanNotice, setScanNotice] = useState<string | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
   const [closeReport, setCloseReport] = useState<DepositCloseReport | null>(null);
-  const [closeRefusal, setCloseRefusal] = useState<{ message: string; copies: DepositCloseLine[] } | null>(null);
+  const [closeRefusal, setCloseRefusal] = useState<{ message: string; copies: DepositActiveLoanCopy[] } | null>(null);
   const [returnToLenderMessage, setReturnToLenderMessage] = useState<string | null>(null);
   const [returnedBarcodes, setReturnedBarcodes] = useState<Set<string>>(new Set());
 
@@ -194,15 +197,7 @@ export default function DepositBatchDetailPage() {
     },
     onError: (error: unknown) => {
       const message = getApiErrorMessage(error, t);
-      const fromError = depositActiveLoanCopies(error);
-      const copies = fromError == null
-        ? []
-        : fromError.length > 0
-          ? fromError
-          : (onLoanQuery.data ?? []).map((item) => ({
-              barcode: item.barcode?.trim() || null,
-              title: item.title?.trim() || null,
-            }));
+      const copies = depositActiveLoanCopies(error) ?? [];
       setConfirmClose(false);
       setCloseReport(null);
       setCloseRefusal({ message, copies });
@@ -333,18 +328,34 @@ export default function DepositBatchDetailPage() {
               <p className="text-sm font-semibold">{closeRefusal.message}</p>
               {closeRefusal.copies.length > 0 ? (
                 <ul className="mt-2 space-y-1 text-sm">
-                  {closeRefusal.copies.map((line) => (
-                    <li key={`${line.barcode ?? ''}:${line.title ?? ''}`}>
-                      <span className="font-mono">{line.barcode || '—'}</span>
-                      {line.title ? ` · ${line.title}` : ''}
-                    </li>
-                  ))}
+                  {closeRefusal.copies.map((line) => {
+                    const known = activeLoanCopyLabel(line, onLoanQuery.data);
+                    return (
+                      <li key={line.itemId}>
+                        <span className="font-mono">{line.barcode || '—'}</span>
+                        {known.title ? ` · ${known.title}` : ''}
+                        {' · '}
+                        <ItemRecordLink
+                          itemId={line.itemId}
+                          biblioId={known.biblioId}
+                          label={t('deposits.batch.openRecord')}
+                          onOpen={(biblioId) => navigate(`/biblios/${biblioId}`)}
+                          onError={(error) => showToast({ variant: 'error', message: getApiErrorMessage(error, t) })}
+                        />
+                      </li>
+                    );
+                  })}
                 </ul>
               ) : null}
             </div>
           ) : null}
           <div className="mt-4">
-            <Button type="button" variant="danger" onClick={() => setConfirmClose(true)}>
+            <Button
+              type="button"
+              variant="danger"
+              disabled={(counts?.onLoan ?? 0) > 0}
+              onClick={() => setConfirmClose(true)}
+            >
               {t('deposits.batch.close')}
             </Button>
           </div>
@@ -364,7 +375,6 @@ export default function DepositBatchDetailPage() {
                     title: t('deposits.batch.reportTitle'),
                     returned: t('deposits.batch.returnedCopies'),
                     missing: t('deposits.batch.missingCopies'),
-                    onLoan: t('deposits.batch.stillOnLoan'),
                     barcode: t('items.barcode'),
                     document: t('loans.document'),
                   })
@@ -376,7 +386,6 @@ export default function DepositBatchDetailPage() {
           />
           <ReportTable title={t('deposits.batch.returnedCopies')} lines={closeReport.returned} />
           <ReportTable title={t('deposits.batch.missingCopies')} lines={closeReport.missing} />
-          <ReportTable title={t('deposits.batch.stillOnLoan')} lines={closeReport.onLoan} />
         </Card>
       ) : null}
 
@@ -453,16 +462,49 @@ export default function DepositBatchDetailPage() {
         onClose={() => setConfirmClose(false)}
         onConfirm={() => closeMutation.mutate()}
         title={t('deposits.batch.close')}
-        message={
-          counts && counts.onLoan > 0
-            ? t('deposits.batch.closeWithLoans', { count: counts.onLoan })
-            : t('deposits.batch.closeConfirm')
-        }
+        message={t('deposits.batch.closeConfirm')}
         confirmLabel={t('deposits.batch.close')}
         confirmVariant="danger"
         isLoading={closeMutation.isPending}
       />
     </div>
+  );
+}
+
+function ItemRecordLink({
+  itemId,
+  biblioId,
+  label,
+  onOpen,
+  onError,
+}: {
+  itemId: string;
+  biblioId: string | null;
+  label: string;
+  onOpen: (biblioId: string) => void;
+  onError: (error: unknown) => void;
+}) {
+  const [pending, setPending] = useState(false);
+  const className = 'text-indigo-800 underline hover:no-underline dark:text-indigo-200';
+  if (biblioId) {
+    return <Link to={`/biblios/${biblioId}`} className={className}>{label}</Link>;
+  }
+  return (
+    <button
+      type="button"
+      className={className}
+      disabled={pending}
+      onClick={() => {
+        setPending(true);
+        void api.getItem(itemId).then((notice) => {
+          if (notice.id) onOpen(String(notice.id));
+        }).catch((error: unknown) => {
+          onError(error);
+        }).finally(() => setPending(false));
+      }}
+    >
+      {label}
+    </button>
   );
 }
 

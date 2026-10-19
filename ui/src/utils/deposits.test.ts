@@ -15,6 +15,7 @@ import { getApiErrorMessage } from './apiError.ts';
 import {
   biblioMatchesDepositFilter,
   buildMarcBatchImportParams,
+  activeLoanCopyLabel,
   depositActiveLoanCopies,
   depositBadgeText,
   depositDueDateNotice,
@@ -234,10 +235,10 @@ describe('deposit close report', () => {
     assert.deepEqual(report, {
       returned: [{ barcode: 'A1', title: 'Title A' }],
       missing: [{ barcode: 'B2', title: 'Title B' }],
-      onLoan: [{ barcode: 'C3', title: 'Title C' }],
     });
     assert.equal(JSON.stringify(report).includes('Hidden'), false);
-    assert.equal(JSON.stringify(report).includes('Still hidden'), false);
+    assert.equal(JSON.stringify(report).includes('Title C'), false);
+    assert.equal(JSON.stringify(report).includes('onLoan'), false);
     assert.equal(depositScanAlreadyReturned({ alreadyScanned: true }, false), true);
     assert.equal(depositScanAlreadyReturned({}, true), true);
     assert.equal(depositScanAlreadyReturned({}, false), false);
@@ -246,14 +247,26 @@ describe('deposit close report', () => {
   it('reads the copies still on loan from a close refusal and ignores reader names', async () => {
     const t = await tFor('fr');
     const error = axiosError(422, 'deposit_batch_has_active_loans', 'copies still out', {
-      onLoan: [
-        { barcode: 'L1', title: 'Encore dehors', userName: 'Lecteur secret', borrower: { name: 'Nope' } },
+      copies: [
+        { itemId: '44', barcode: 'L1', title: 'Not from the error', userName: 'Lecteur secret' },
       ],
     });
     assert.deepEqual(depositActiveLoanCopies(error), [
-      { barcode: 'L1', title: 'Encore dehors' },
+      { itemId: '44', barcode: 'L1' },
     ]);
     assert.equal(JSON.stringify(depositActiveLoanCopies(error)).includes('secret'), false);
+    assert.equal(JSON.stringify(depositActiveLoanCopies(error)).includes('Not from'), false);
+    assert.deepEqual(
+      activeLoanCopyLabel(
+        { itemId: '44', barcode: 'L1' },
+        [{ itemId: '44', title: 'Encore dehors', biblioId: '9' }],
+      ),
+      { title: 'Encore dehors', biblioId: '9' },
+    );
+    assert.deepEqual(
+      activeLoanCopyLabel({ itemId: '44', barcode: null }, []),
+      { title: null, biblioId: null },
+    );
     assert.equal(depositActiveLoanCopies(axiosError(422, 'deposit_batch_not_returning')), null);
     assert.equal(
       getApiErrorMessage(error, t),

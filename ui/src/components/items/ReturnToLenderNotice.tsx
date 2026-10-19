@@ -5,7 +5,7 @@ interface ReturnToLenderNoticeProps {
 }
 
 /**
- * Check-in of a deposit copy whose batch is already closed.
+ * Check-in of a deposit copy whose batch is returning.
  * The copy goes back to the lender and is not shelved.
  */
 export default function ReturnToLenderNotice({ message }: ReturnToLenderNoticeProps) {

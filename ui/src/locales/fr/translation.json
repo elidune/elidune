@@ -192,7 +192,7 @@
       "none": "Aucun",
       "close": "Clôturer le lot",
       "closeConfirm": "Clôturer ce lot ? Les exemplaires scannés et les exemplaires manquants sont archivés. Le rapport ne contient que le code-barres et le titre.",
-      "closeWithLoans": "{{count}} exemplaire(s) encore en prêt. La clôture les laisse en prêt et les indique au rapport, sans nom de lecteur.",
+      "closeWithLoans": "{{count}} exemplaire(s) encore en prêt. Le lot reste en retour : la clôture est refusée tant qu’ils ne sont pas rentrés.",
       "closed": "Lot clôturé",
       "reportTitle": "Rapport de retour",
       "returnedCopies": "Rendus",

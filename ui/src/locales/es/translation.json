@@ -192,7 +192,7 @@
       "none": "Ninguno",
       "close": "Cerrar el lote",
       "closeConfirm": "¿Cerrar este lote? Los ejemplares escaneados y los faltantes se archivan. El informe solo incluye código de barras y título.",
-      "closeWithLoans": "{{count}} ejemplar(es) todavía en préstamo. El cierre los deja en préstamo y los indica en el informe, sin nombre de lector.",
+      "closeWithLoans": "{{count}} ejemplar(es) todavía en préstamo. El lote sigue en devolución: el cierre se rechaza hasta que vuelvan.",
       "closed": "Lote cerrado",
       "reportTitle": "Informe de devolución",
       "returnedCopies": "Devueltos",

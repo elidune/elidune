@@ -2769,7 +2769,7 @@ export interface ItemCheckIn extends LostReturnFields {
   /** Current weeding status when the notice is `item_not_available_status`. */
   weedingStatus?: ItemWeedingStatus | null;
   /**
-   * True only when this check-in returned a deposit copy whose batch is already closed.
+   * True when this check-in returned a deposit copy whose batch is `returning`.
    * Staff send that copy back to the lender. False on every other check-in.
    */
   returnToLender?: boolean;

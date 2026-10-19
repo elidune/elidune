@@ -192,7 +192,7 @@
       "none": "None",
       "close": "Close the batch",
       "closeConfirm": "Close this batch? Scanned copies and missing copies are archived. The report lists barcodes and titles only.",
-      "closeWithLoans": "{{count}} copies still on loan. Closing leaves them on loan and lists them on the report, without a reader name.",
+      "closeWithLoans": "{{count}} copies are still on loan. The batch stays in return: close is refused until they come back.",
       "closed": "Batch closed",
       "reportTitle": "Return report",
       "returnedCopies": "Returned",

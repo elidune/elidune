@@ -39,7 +39,12 @@ export interface DepositCloseLine {
 export interface DepositCloseReport {
   returned: DepositCloseLine[];
   missing: DepositCloseLine[];
-  onLoan: DepositCloseLine[];
+}
+
+/** One copy on `422 deposit_batch_has_active_loans`. The body has no title. */
+export interface DepositActiveLoanCopy {
+  itemId: string;
+  barcode: string | null;
 }
 
 export interface DueDateCarrier {
@@ -203,8 +208,6 @@ const DEPOSIT_ERROR_CODES = [
   'deposit_replacement_amount_required',
 ] as const;
 
-/** Lists a 422 close body may use for copies still on loan. Reader fields are ignored. */
-const ACTIVE_LOAN_LIST_KEYS = ['onLoan', 'on_loan', 'items', 'copies', 'activeLoans'] as const;
 
 export function depositErrorMessageKey(code: string | null | undefined): string | null {
   const key = code?.trim() ?? '';
@@ -256,39 +259,50 @@ function cleanName(value: unknown): string | null {
 
 /**
  * Close report for the lender. Only barcode and title are kept.
- * Reader identity on the payload is dropped. `onLoan` is the copies still out.
+ * Reader identity is dropped. `onLoan` is not part of the report.
  */
 export function parseDepositCloseReport(body: unknown): DepositCloseReport | null {
   const row = record(body);
   if (!row) return null;
-  if (!('returned' in row) && !('missing' in row) && !('onLoan' in row) && !('on_loan' in row)) return null;
+  if (!('returned' in row) && !('missing' in row)) return null;
   return {
     returned: closeLines(row.returned),
     missing: closeLines(row.missing),
-    onLoan: closeLines(row.onLoan ?? row.on_loan),
   };
 }
 
+function activeLoanCopy(raw: unknown): DepositActiveLoanCopy | null {
+  const row = record(raw);
+  if (!row) return null;
+  const id = row.itemId ?? row.item_id;
+  if (id == null || String(id).trim() === '') return null;
+  const barcode = typeof row.barcode === 'string' && row.barcode.trim() ? row.barcode.trim() : null;
+  return { itemId: String(id).trim(), barcode };
+}
+
 /**
- * Copies named by `422 deposit_batch_has_active_loans`.
- * Null when the error is a different code. Only barcode and title are kept.
+ * Copies on `422 deposit_batch_has_active_loans`: `{ copies: [{ itemId, barcode }] }`.
+ * Null for any other code. Title and reader fields are not read.
  */
-export function depositActiveLoanCopies(error: unknown): DepositCloseLine[] | null {
+export function depositActiveLoanCopies(error: unknown): DepositActiveLoanCopy[] | null {
   if (getApiErrorCode(error) !== 'deposit_batch_has_active_loans') return null;
-  const data = getApiErrorData(error);
-  if (!data) return [];
-  for (const key of ACTIVE_LOAN_LIST_KEYS) {
-    const lines = closeLines(data[key]);
-    if (lines.length > 0) return lines;
-  }
-  const details = record(data.details);
-  if (details) {
-    for (const key of ACTIVE_LOAN_LIST_KEYS) {
-      const lines = closeLines(details[key]);
-      if (lines.length > 0) return lines;
-    }
-  }
-  return [];
+  const copies = getApiErrorData(error)?.copies;
+  if (!Array.isArray(copies)) return [];
+  return copies.flatMap((line) => {
+    const parsed = activeLoanCopy(line);
+    return parsed ? [parsed] : [];
+  });
+}
+
+/** Title and biblio id from the batch's already-loaded on-loan rows, matched by item id. */
+export function activeLoanCopyLabel(
+  copy: DepositActiveLoanCopy,
+  loaded: { itemId: string; title?: string | null; biblioId?: string | null }[] | null | undefined,
+): { title: string | null; biblioId: string | null } {
+  const known = (loaded ?? []).find((item) => item.itemId === copy.itemId);
+  const title = known?.title?.trim() || null;
+  const biblioId = known?.biblioId?.trim() || null;
+  return { title, biblioId };
 }
 
 export type ReplacementRateParse =
@@ -387,6 +401,7 @@ function lenderNameFromLoanRecord(value: unknown): string | null {
 
 /**
  * Desk notice when a check-in or scan-out says `returnToLender`.
+ * The flag is true while the deposit batch is `returning`.
  * Null when the flag is absent or false.
  */
 export function returnToLenderNotice(

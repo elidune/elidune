@@ -192,7 +192,7 @@
       "none": "Keine",
       "close": "Los schließen",
       "closeConfirm": "Dieses Los schließen? Gescannte und fehlende Exemplare werden archiviert. Der Bericht enthält nur Strichcode und Titel.",
-      "closeWithLoans": "{{count}} Exemplar(e) noch ausgeliehen. Der Abschluss lässt sie ausgeliehen und nennt sie im Bericht, ohne Lesername.",
+      "closeWithLoans": "{{count}} Exemplar(e) noch ausgeliehen. Das Los bleibt in Rückgabe: der Abschluss wird abgelehnt, bis sie zurück sind.",
       "closed": "Los geschlossen",
       "reportTitle": "Rückgabebericht",
       "returnedCopies": "Zurückgegeben",
