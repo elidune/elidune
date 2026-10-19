@@ -145,7 +145,11 @@ impl Services {
             catalog::CatalogService::new(biblios_repo, entities_repo, audit_service.clone())
         };
 
-        let deposits = deposits::DepositsService::new(repository.clone(), catalog.clone());
+        let deposits = deposits::DepositsService::new(
+            repository.clone(),
+            catalog.clone(),
+            audit_service.clone(),
+        );
         let marc_service =
             marc::MarcService::new(catalog.clone(), redis_service.clone(), deposits.clone());
 

@@ -268,8 +268,16 @@ pub mod event {
     pub const DEPOSIT_BATCH_RETURN_STARTED: &str = "deposit_batch.return_started";
     pub const DEPOSIT_BATCH_SCANNED_OUT: &str = "deposit_batch.scanned_out";
     pub const DEPOSIT_BATCH_CLOSED: &str = "deposit_batch.closed";
-    /// Loss or damage of a deposit copy. Payload includes `lenderId` so the lender can be notified.
+    /// Loss or damage of a deposit copy.
+    ///
+    /// `kind` is `"lost"` or `"damaged"`. A damaged copy uses this same event
+    /// with `kind: "damaged"`. Payload includes `lenderId` and `itemId`.
     pub const DEPOSIT_ITEM_LOST: &str = "deposit_item_lost";
+    /// Staff recorded that the lender was told about one lost or damaged deposit copy.
+    ///
+    /// Payload includes `lenderId` and `itemId`. A second notice for the same copy
+    /// is refused (`deposit_loss_already_notified`) and does not write this event again.
+    pub const DEPOSIT_LOSS_NOTIFIED: &str = "deposit_loss_notified";
 
     // Series
     pub const SERIES_CREATED: &str = "series.created";

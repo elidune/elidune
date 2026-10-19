@@ -1,15 +1,17 @@
 //! Lenders and incoming deposit batches.
 
 use crate::{
-    error::AppResult,
+    error::{AppError, AppResult},
     models::deposit::{
         CreateDepositBatch, CreateLender, DepositBatch, DepositBatchDetail, DepositBatchItem,
-        DepositBatchItemsQuery, DepositBatchListQuery, DepositCloseReport, DepositScanOut,
-        DepositScanOutRequest, Lender, UpdateDepositBatch, UpdateLender,
+        DepositBatchItemsQuery, DepositBatchListQuery, DepositCloseReport, DepositLoss,
+        DepositLossListQuery, DepositScanOut, DepositScanOutRequest, Lender,
+        MarkDepositLossNotified, UpdateDepositBatch, UpdateLender,
     },
     services::audit,
 };
 use axum::{
+    body::Bytes,
     extract::{Path, Query, State},
     http::StatusCode,
     Json,
@@ -24,6 +26,11 @@ pub fn router() -> axum::Router<crate::AppState> {
     axum::Router::new()
         .route("/lenders", get(list_lenders).post(create_lender))
         .route("/lenders/:id", patch(update_lender).delete(archive_lender))
+        .route("/deposit-losses", get(list_deposit_losses))
+        .route(
+            "/items/:id/deposit-loss-notified",
+            post(mark_deposit_loss_notified),
+        )
         .route(
             "/deposit-batches",
             get(list_deposit_batches).post(create_deposit_batch),
@@ -407,6 +414,76 @@ pub async fn close_deposit_batch(
         audit::AuditLogMeta::success(),
     );
     Ok(Json(report))
+}
+
+#[utoipa::path(
+    get,
+    path = "/deposit-losses",
+    tag = "deposits",
+    security(("bearer_auth" = [])),
+    params(DepositLossListQuery),
+    responses(
+        (status = 200, description = "Deposit copies declared lost or damaged. `notified` defaults to false (`depositLossNotifiedAt` null). Each row is the latest replacement or damage fine. `kind` is `lost` or `damaged`. `amountCents` is that fine's frozen amount. `itemId`, `lenderId`, `batchId`, and `fineId` are strings.", body = Vec<DepositLoss>),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
+        (status = 403, description = "Insufficient permissions", body = crate::error::ErrorResponse),
+        (status = 404, description = "Lender not found", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn list_deposit_losses(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Query(query): Query<DepositLossListQuery>,
+) -> AppResult<Json<Vec<DepositLoss>>> {
+    claims.require_read_items()?;
+    Ok(Json(
+        state
+            .services
+            .deposits
+            .list_deposit_losses(query.lender_id, query.notified.unwrap_or(false))
+            .await?,
+    ))
+}
+
+#[utoipa::path(
+    post,
+    path = "/items/{id}/deposit-loss-notified",
+    tag = "deposits",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Item ID")),
+    request_body = MarkDepositLossNotified,
+    responses(
+        (status = 200, description = "Lender notice recorded. Same shape as one `GET /deposit-losses` row. `deposit_item_lost` is the declaration event for both lost and damaged copies (`kind` `lost` or `damaged`). This route writes `deposit_loss_notified` with `lenderId` and `itemId` in the same transaction as the timestamp. A second call is `409 deposit_loss_already_notified` and does not write another audit row.", body = DepositLoss),
+        (status = 400, description = "Validation error", body = crate::error::ErrorResponse),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
+        (status = 403, description = "Insufficient permissions", body = crate::error::ErrorResponse),
+        (status = 404, description = "Item not found", body = crate::error::ErrorResponse),
+        (status = 409, description = "Already notified (`deposit_loss_already_notified`). The stored timestamp is unchanged and no audit row is written.", body = crate::error::ErrorResponse),
+        (status = 422, description = "Not a deposit copy declared lost or damaged (`deposit_loss_not_declared`)", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn mark_deposit_loss_notified(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(id): Path<i64>,
+    body: Bytes,
+) -> AppResult<Json<DepositLoss>> {
+    claims.require_write_items()?;
+    let request = parse_mark_deposit_loss_notified(&body)?;
+    let loss = state
+        .services
+        .deposits
+        .mark_deposit_loss_notified(id, request.notified_on, Some(claims.user_id), ip)
+        .await?;
+    Ok(Json(loss))
+}
+
+fn parse_mark_deposit_loss_notified(bytes: &[u8]) -> AppResult<MarkDepositLossNotified> {
+    if bytes.iter().all(u8::is_ascii_whitespace) {
+        return Ok(MarkDepositLossNotified { notified_on: None });
+    }
+    serde_json::from_slice(bytes)
+        .map_err(|err| AppError::Validation(format!("Invalid JSON body: {err}")))
 }
 
 #[utoipa::path(

@@ -869,13 +869,23 @@ async fn loss_bills_the_lender_rate_or_requires_an_amount() {
     assert_eq!(status, StatusCode::OK, "{lost}");
     assert_eq!(lost["charge"]["amount"], "15.00", "{lost}");
 
-    let flagged: Option<chrono::DateTime<chrono::Utc>> =
-        sqlx::query_scalar("SELECT loss_flagged_at FROM lenders WHERE id = $1")
-            .bind(rated)
-            .fetch_one(app.state.services.repository.pool())
-            .await
-            .unwrap();
-    assert!(flagged.is_some());
+    let (status, losses) = app
+        .get_json_with_auth(
+            &format!("/api/v1/deposit-losses?lenderId={rated}"),
+            &token,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{losses}");
+    let rated_item = rated_items[0].0.to_string();
+    let loss_row = losses
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["itemId"].as_str() == Some(rated_item.as_str()))
+        .expect("unnotified loss");
+    assert_eq!(loss_row["kind"], "lost", "{loss_row}");
+    assert_eq!(loss_row["amountCents"], 1500, "{loss_row}");
+    assert!(loss_row["depositLossNotifiedAt"].is_null(), "{loss_row}");
 
     let mut saw_audit = false;
     for _ in 0..20 {
@@ -1113,6 +1123,7 @@ async fn lender_replacement_rate_can_be_cleared() {
     .await;
     assert_eq!(status, StatusCode::OK, "{kept}");
     assert_eq!(kept["replacementRateCents"], 1500, "{kept}");
+    assert!(kept.get("lossFlaggedAt").is_none(), "{kept}");
 
     let (status, cleared) = patch_json(
         &app,
@@ -1157,4 +1168,234 @@ async fn lender_replacement_rate_can_be_cleared() {
         .find(|row| row["id"].as_str() == Some(lender_key.as_str()))
         .expect("lender");
     assert_eq!(row["replacementRateCents"], 4200, "{row}");
+}
+
+#[tokio::test]
+async fn deposit_loss_notice_is_per_copy() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let token = fixtures::ensure_first_setup(&app).await;
+    let site_id = site(&app, &token).await;
+    let lender_id = lender(&app, &token, Some(1500)).await;
+    let other_lender = lender(&app, &token, None).await;
+    let batch_id = batch(&app, &token, lender_id, site_id).await;
+    let other_batch = batch(&app, &token, other_lender, site_id).await;
+    let (biblio_id, items) = copies(&app, &token, 3, None).await;
+    let (_other_biblio, other_items) = copies(&app, &token, 1, None).await;
+    let (_own_biblio, own) = copies(&app, &token, 1, Some("10.00")).await;
+    for (item_id, _) in &items {
+        attach(&app, batch_id, site_id, *item_id).await;
+    }
+    attach(&app, other_batch, site_id, other_items[0].0).await;
+    shift_return(&app, batch_id, 40).await;
+    shift_return(&app, other_batch, 40).await;
+    let (reader_id, _) = fixtures::create_reader(&app, &token, "deplossn").await;
+
+    let (status, biblio) = app
+        .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}"), &token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{biblio}");
+    let embedded = biblio["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| fixtures::json_id(&item["id"]) == items[0].0)
+        .expect("copy");
+    assert!(embedded["deposit"]["depositLossNotifiedAt"].is_null(), "{embedded}");
+
+    let (status, lost_loan) = checkout(&app, &token, reader_id, items[0].0, false).await;
+    assert_eq!(status, StatusCode::CREATED, "{lost_loan}");
+    let lost_id = fixtures::json_id(&lost_loan["id"]);
+    let (status, lost) = app
+        .post_json(
+            &format!("/api/v1/loans/{lost_id}/lost"),
+            &json!({"bill": false}),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{lost}");
+
+    let (status, damage_loan) = checkout(&app, &token, reader_id, items[1].0, false).await;
+    assert_eq!(status, StatusCode::CREATED, "{damage_loan}");
+    let damage_id = fixtures::json_id(&damage_loan["id"]);
+    let (status, damaged) = app
+        .post_json(
+            &format!("/api/v1/loans/{damage_id}/damaged"),
+            &json!({"disposition": "return", "bill": false}),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{damaged}");
+    assert_eq!(damaged["charge"]["chargeType"], "damage");
+
+    let (status, other_loan) = checkout(&app, &token, reader_id, other_items[0].0, false).await;
+    assert_eq!(status, StatusCode::CREATED, "{other_loan}");
+    let other_loan_id = fixtures::json_id(&other_loan["id"]);
+    let (status, other_lost) = app
+        .post_json(
+            &format!("/api/v1/loans/{other_loan_id}/lost"),
+            &json!({"bill": false, "amount": "4.00"}),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{other_lost}");
+
+    let (status, shelf) = app
+        .post_empty(
+            &format!("/api/v1/items/{}/deposit-loss-notified", items[2].0),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{shelf}");
+    assert_error(&shelf, "deposit_loss_not_declared");
+
+    let (status, own_notice) = app
+        .post_empty(
+            &format!("/api/v1/items/{}/deposit-loss-notified", own[0].0),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{own_notice}");
+    assert_error(&own_notice, "deposit_loss_not_declared");
+
+    let (status, missing) = app
+        .post_empty(
+            "/api/v1/items/999999999999/deposit-loss-notified",
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{missing}");
+    assert_error(&missing, "not_found");
+
+    let (status, unknown_lender) = app
+        .get_json_with_auth("/api/v1/deposit-losses?lenderId=999999999999", &token)
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{unknown_lender}");
+    assert_error(&unknown_lender, "not_found");
+
+    let list_uri = format!("/api/v1/deposit-losses?lenderId={lender_id}");
+    let (status, open) = app.get_json_with_auth(&list_uri, &token).await;
+    assert_eq!(status, StatusCode::OK, "{open}");
+    let open_rows = open.as_array().unwrap();
+    assert_eq!(open_rows.len(), 2, "{open}");
+    let lost_key = items[0].0.to_string();
+    let damage_key = items[1].0.to_string();
+    let lost_row = open_rows
+        .iter()
+        .find(|row| row["itemId"].as_str() == Some(lost_key.as_str()))
+        .expect("lost");
+    let damage_row = open_rows
+        .iter()
+        .find(|row| row["itemId"].as_str() == Some(damage_key.as_str()))
+        .expect("damaged");
+    assert_eq!(lost_row["kind"], "lost", "{lost_row}");
+    assert_eq!(lost_row["amountCents"], 1500, "{lost_row}");
+    assert_eq!(lost_row["lenderId"], lender_id.to_string(), "{lost_row}");
+    assert_eq!(lost_row["batchId"], batch_id.to_string(), "{lost_row}");
+    assert!(lost_row["reference"].is_string(), "{lost_row}");
+    assert!(lost_row["barcode"].is_string(), "{lost_row}");
+    assert!(lost_row["fineId"].is_string(), "{lost_row}");
+    assert!(lost_row["depositLossNotifiedAt"].is_null(), "{lost_row}");
+    assert_eq!(damage_row["kind"], "damaged", "{damage_row}");
+    assert_eq!(damage_row["amountCents"], 1500, "{damage_row}");
+
+    let (status, dated) = app
+        .post_json(
+            &format!("/api/v1/items/{}/deposit-loss-notified", items[0].0),
+            &json!({"notifiedOn": "2026-04-01"}),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{dated}");
+    assert_eq!(dated["itemId"], lost_key, "{dated}");
+    assert!(dated["depositLossNotifiedAt"].is_string(), "{dated}");
+    let notified_day: chrono::NaiveDate = sqlx::query_scalar(
+        r#"
+        SELECT (deposit_loss_notified_at AT TIME ZONE COALESCE(
+            (SELECT timezone FROM library_info WHERE id = 1),
+            'Europe/Paris'
+        ))::date
+        FROM items WHERE id = $1
+        "#,
+    )
+    .bind(items[0].0)
+    .fetch_one(app.state.services.repository.pool())
+    .await
+    .unwrap();
+    assert_eq!(notified_day, chrono::NaiveDate::from_ymd_opt(2026, 4, 1).unwrap());
+
+    let audits: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_log WHERE event_type = 'deposit_loss_notified' AND entity_id = $1",
+    )
+    .bind(items[0].0)
+    .fetch_one(app.state.services.repository.pool())
+    .await
+    .unwrap();
+    assert_eq!(audits, 1);
+    let (status, audit) = app
+        .get_json_with_auth(
+            "/api/v1/audit?eventType=deposit_loss_notified&perPage=20",
+            &token,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{audit}");
+    let lender_key = lender_id.to_string();
+    let saw = audit["entries"].as_array().unwrap().iter().any(|entry| {
+        entry["payload"]["lenderId"].as_str() == Some(lender_key.as_str())
+            && entry["payload"]["itemId"].as_str() == Some(lost_key.as_str())
+    });
+    assert!(saw, "{audit}");
+
+    let (status, again) = app
+        .post_json(
+            &format!("/api/v1/items/{}/deposit-loss-notified", items[0].0),
+            &json!({"notifiedOn": "2026-05-02T15:04:05Z"}),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{again}");
+    assert_error(&again, "deposit_loss_already_notified");
+    let audits_after: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM audit_log WHERE event_type = 'deposit_loss_notified' AND entity_id = $1",
+    )
+    .bind(items[0].0)
+    .fetch_one(app.state.services.repository.pool())
+    .await
+    .unwrap();
+    assert_eq!(audits_after, 1);
+
+    let (status, still_open) = app.get_json_with_auth(&list_uri, &token).await;
+    assert_eq!(status, StatusCode::OK, "{still_open}");
+    let still_rows = still_open.as_array().unwrap();
+    assert_eq!(still_rows.len(), 1, "{still_open}");
+    assert_eq!(still_rows[0]["itemId"], damage_key, "{still_open}");
+
+    let (status, notified_list) = app
+        .get_json_with_auth(&format!("{list_uri}&notified=true"), &token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{notified_list}");
+    assert_eq!(notified_list.as_array().unwrap().len(), 1, "{notified_list}");
+    assert_eq!(notified_list[0]["itemId"], lost_key, "{notified_list}");
+
+    let (status, stamped) = app
+        .post_json(
+            &format!("/api/v1/items/{}/deposit-loss-notified", items[1].0),
+            &json!({"notifiedOn": "2026-05-02T15:04:05Z"}),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{stamped}");
+    assert_eq!(stamped["depositLossNotifiedAt"], "2026-05-02T15:04:05Z", "{stamped}");
+    assert_eq!(stamped["kind"], "damaged", "{stamped}");
+
+    let (status, item) = app
+        .get_json_with_auth(&format!("/api/v1/items/{}", items[1].0), &token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{item}");
+    assert_eq!(
+        item["items"][0]["deposit"]["depositLossNotifiedAt"],
+        "2026-05-02T15:04:05Z",
+        "{item}"
+    );
 }

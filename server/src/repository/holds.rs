@@ -268,7 +268,7 @@ impl Repository {
             {join}
             WHERE it.id = ANY($1)
             "#,
-            json = crate::models::deposit::ITEM_DEPOSIT_JSON,
+            json = crate::models::deposit::item_deposit_json("it"),
             join = crate::models::deposit::item_deposit_join("it"),
         );
         let rows: Vec<HoldItemShortRow> = sqlx::query_as(&sql)

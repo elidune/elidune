@@ -7,7 +7,7 @@ use sqlx::{FromRow, Row};
 
 use super::super::Repository;
 use super::LOAN_DETAILS_FIRST_AUTHOR_SQL;
-use crate::models::deposit::{item_deposit_join, ITEM_DEPOSIT_JSON};
+use crate::models::deposit::{item_deposit_join, item_deposit_json};
 use crate::{
     error::{AppError, AppResult},
     marc::MarcRecord,
@@ -210,7 +210,7 @@ impl Repository {
             LIMIT $2 OFFSET $3
         "#,
             author = LOAN_DETAILS_FIRST_AUTHOR_SQL,
-            deposit_json = ITEM_DEPOSIT_JSON,
+            deposit_json = item_deposit_json("it"),
             deposit_join = item_deposit_join("it"),
         );
 
@@ -264,7 +264,7 @@ impl Repository {
             LIMIT $2 OFFSET $3
         "#,
             author = LOAN_DETAILS_FIRST_AUTHOR_SQL,
-            deposit_json = ITEM_DEPOSIT_JSON,
+            deposit_json = item_deposit_json("it"),
             deposit_join = item_deposit_join("it"),
         );
 

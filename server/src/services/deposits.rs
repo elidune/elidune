@@ -1,16 +1,23 @@
 //! Lenders and incoming deposit batches, including MARC import in deposit mode.
 
+use chrono::{DateTime, TimeZone, Utc};
+use chrono_tz::Tz;
+
 use crate::{
     error::{error_code, AppError, AppResult},
     models::{
         biblio::Biblio,
         deposit::{
             CreateDepositBatch, CreateLender, DepositBatch, DepositBatchDetail, DepositBatchItem,
-            DepositBatchStatus, DepositCopyState, Lender, UpdateDepositBatch, UpdateLender,
+            DepositBatchStatus, DepositCopyState, DepositLoss, Lender, NotifiedOn,
+            UpdateDepositBatch, UpdateLender,
         },
     },
     repository::Repository,
-    services::catalog::CatalogService,
+    services::{
+        audit::{self, AuditLogMeta, AuditService},
+        catalog::CatalogService,
+    },
 };
 use validator::Validate;
 
@@ -18,6 +25,7 @@ use validator::Validate;
 pub struct DepositsService {
     repository: Repository,
     catalog: CatalogService,
+    audit: AuditService,
 }
 
 /// One cached MARC record imported into a deposit batch.
@@ -45,10 +53,11 @@ pub struct PreparedMarcImport {
 }
 
 impl DepositsService {
-    pub fn new(repository: Repository, catalog: CatalogService) -> Self {
+    pub fn new(repository: Repository, catalog: CatalogService, audit: AuditService) -> Self {
         Self {
             repository,
             catalog,
+            audit,
         }
     }
 
@@ -78,6 +87,65 @@ impl DepositsService {
         }
         reject_non_positive_rate(data.replacement_rate_cents.flatten())?;
         self.repository.lenders_update(id, data).await
+    }
+
+    pub async fn list_deposit_losses(
+        &self,
+        lender_id: Option<i64>,
+        notified: bool,
+    ) -> AppResult<Vec<DepositLoss>> {
+        if let Some(lender_id) = lender_id {
+            self.repository.lenders_get(lender_id).await?;
+        }
+        self.repository
+            .deposit_losses_list(lender_id, notified)
+            .await
+    }
+
+    /// Set `items.deposit_loss_notified_at` and write `deposit_loss_notified`
+    /// in the same transaction.
+    ///
+    /// A copy that is already notified returns `deposit_loss_already_notified`
+    /// (409). The stored timestamp is left unchanged and no second audit row
+    /// is written.
+    pub async fn mark_deposit_loss_notified(
+        &self,
+        item_id: i64,
+        notified_on: Option<NotifiedOn>,
+        actor: Option<i64>,
+        client_ip: Option<String>,
+    ) -> AppResult<DepositLoss> {
+        let zone = self.repository.library_zone().await?;
+        let notified_at = resolve_notified_at(zone, notified_on, Utc::now())?;
+        let mut tx = self.repository.pool().begin().await?;
+        let lender_id = self
+            .repository
+            .deposit_loss_lock_for_notify(&mut tx, item_id)
+            .await?;
+        self.repository
+            .deposit_loss_set_notified(&mut tx, item_id, notified_at)
+            .await?;
+        self.audit
+            .log_in_tx(
+                &mut tx,
+                audit::event::DEPOSIT_LOSS_NOTIFIED,
+                actor,
+                Some("item"),
+                Some(item_id),
+                client_ip,
+                Some(serde_json::json!({
+                    "lenderId": lender_id.to_string(),
+                    "itemId": item_id.to_string(),
+                })),
+                AuditLogMeta::success(),
+            )
+            .await?;
+        let loss = self
+            .repository
+            .deposit_loss_by_item_tx(&mut tx, item_id)
+            .await?;
+        tx.commit().await?;
+        Ok(loss)
     }
 
     pub async fn archive_lender(&self, id: i64) -> AppResult<Lender> {
@@ -344,6 +412,26 @@ impl DepositsService {
             Ok(())
         } else {
             Err(AppError::NotFound(format!("Source {site_id} not found")))
+        }
+    }
+}
+
+fn resolve_notified_at(
+    zone: Tz,
+    value: Option<NotifiedOn>,
+    now: DateTime<Utc>,
+) -> AppResult<DateTime<Utc>> {
+    match value {
+        None => Ok(now),
+        Some(NotifiedOn::Timestamp(timestamp)) => Ok(timestamp),
+        Some(NotifiedOn::Date(date)) => {
+            let naive = date.and_hms_opt(0, 0, 0).ok_or_else(|| {
+                AppError::Validation("notifiedOn is not a valid date".into())
+            })?;
+            zone.from_local_datetime(&naive)
+                .earliest()
+                .map(|local| local.with_timezone(&Utc))
+                .ok_or_else(|| AppError::Validation("notifiedOn is not a valid local date".into()))
         }
     }
 }

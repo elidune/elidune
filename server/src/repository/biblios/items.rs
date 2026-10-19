@@ -12,7 +12,7 @@ use crate::{
 };
 
 use super::ItemShortRow;
-use crate::models::deposit::{item_deposit_join, ITEM_DEPOSIT_JSON};
+use crate::models::deposit::{item_deposit_join, item_deposit_json};
 use crate::models::item::WeedingStatus;
 
 /// One round-trip of laterals for loan, transit, and the exclusive hold on a copy.
@@ -83,6 +83,7 @@ const ITEM_AVAILABILITY_COLUMNS: &str = r#"
 
 fn item_sql(where_and_order: &str) -> String {
     let deposit_join = item_deposit_join("i");
+    let deposit_json = item_deposit_json("i");
     format!(
         r#"
             SELECT i.id, i.biblio_id, i.source_id, i.barcode, i.call_number, i.volume_designation,
@@ -108,7 +109,7 @@ fn item_sql(where_and_order: &str) -> String {
                        )
                    ) AS on_hold,
                    {ITEM_AVAILABILITY_COLUMNS},
-                   {ITEM_DEPOSIT_JSON} AS deposit
+                   {deposit_json} AS deposit
             FROM items i
             LEFT JOIN sources so ON i.source_id = so.id
             {ITEM_STATE_JOINS}
@@ -120,6 +121,7 @@ fn item_sql(where_and_order: &str) -> String {
 
 fn item_short_sql(where_and_order: &str) -> String {
     let deposit_join = item_deposit_join("i");
+    let deposit_json = item_deposit_json("i");
     format!(
         r#"
             SELECT i.biblio_id, i.id, i.barcode, i.call_number, i.borrowable,
@@ -128,7 +130,7 @@ fn item_short_sql(where_and_order: &str) -> String {
                    so.name as source_name,
                    (active_loan.id IS NOT NULL) as borrowed,
                    {ITEM_AVAILABILITY_COLUMNS},
-                   {ITEM_DEPOSIT_JSON} AS deposit
+                   {deposit_json} AS deposit
             FROM items i
             LEFT JOIN sources so ON i.source_id = so.id
             {ITEM_STATE_JOINS}

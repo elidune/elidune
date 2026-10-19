@@ -10,7 +10,7 @@ use crate::models::deposit::{
 use crate::models::fine::Cents;
 
 const LENDER_COLUMNS: &str =
-    "id, name, contact, notes, replacement_rate_cents, loss_flagged_at, archived_at, created_at, updated_at";
+    "id, name, contact, notes, replacement_rate_cents, archived_at, created_at, updated_at";
 
 const BATCH_COLUMNS: &str = r#"
     id, lender_id, reference, site_id, arrived_on, return_due_on, status,
@@ -320,13 +320,135 @@ impl Repository {
         Ok(rows)
     }
 
-    /// Mark the lender so staff can tell them a deposit copy was lost or damaged.
-    pub async fn lenders_flag_loss(&self, id: i64) -> AppResult<()> {
-        sqlx::query("UPDATE lenders SET loss_flagged_at = now(), updated_at = now() WHERE id = $1")
-            .bind(id)
-            .execute(&self.pool)
+    /// Deposit copies declared lost or damaged.
+    ///
+    /// `notified` false is `deposit_loss_notified_at IS NULL`. The row is the
+    /// latest replacement or damage fine on that copy. `amount_cents` is that
+    /// fine's frozen amount.
+    pub async fn deposit_losses_list(
+        &self,
+        lender_id: Option<i64>,
+        notified: bool,
+    ) -> AppResult<Vec<crate::models::deposit::DepositLoss>> {
+        let sql = format!(
+            r#"
+            SELECT {DEPOSIT_LOSS_SELECT}
+            {DEPOSIT_LOSS_FROM}
+            WHERE ($1::bigint IS NULL OR db.lender_id = $1)
+              AND (
+                  ($2::bool IS FALSE AND i.deposit_loss_notified_at IS NULL)
+                  OR ($2::bool IS TRUE AND i.deposit_loss_notified_at IS NOT NULL)
+              )
+            ORDER BY fine.created_at DESC, i.id
+            "#
+        );
+        let rows = sqlx::query_as::<_, crate::models::deposit::DepositLoss>(&sql)
+            .bind(lender_id)
+            .bind(notified)
+            .fetch_all(&self.pool)
             .await?;
+        Ok(rows)
+    }
+
+    /// Lock one item and refuse unless it is a deposit copy with a replacement
+    /// or damage fine that has not been notified yet.
+    ///
+    /// Returns the lender id. `deposit_loss_already_notified` does not write
+    /// an audit row; the caller must not continue the transaction.
+    pub async fn deposit_loss_lock_for_notify(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        item_id: i64,
+    ) -> AppResult<i64> {
+        let row = sqlx::query_as::<_, DepositLossLock>(
+            r#"
+            SELECT i.deposit_batch_id,
+                   db.lender_id,
+                   i.deposit_loss_notified_at,
+                   EXISTS (
+                       SELECT 1 FROM fines f
+                       WHERE f.item_id = i.id
+                         AND f.charge_type IN ('replacement', 'damage')
+                   ) AS declared
+            FROM items i
+            LEFT JOIN deposit_batches db ON db.id = i.deposit_batch_id
+            WHERE i.id = $1
+            FOR UPDATE OF i
+            "#,
+        )
+        .bind(item_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+        let Some(row) = row else {
+            return Err(AppError::NotFound(format!("Item {item_id} not found")));
+        };
+        if row.deposit_batch_id.is_none() || !row.declared {
+            return Err(AppError::coded(
+                422,
+                error_code::DEPOSIT_LOSS_NOT_DECLARED,
+                "This copy is not a deposit copy declared lost or damaged",
+            ));
+        }
+        if row.deposit_loss_notified_at.is_some() {
+            return Err(AppError::coded(
+                409,
+                error_code::DEPOSIT_LOSS_ALREADY_NOTIFIED,
+                "The lender was already notified about this copy",
+            ));
+        }
+        row.lender_id.ok_or_else(|| {
+            AppError::Internal(format!("Deposit copy {item_id} is missing its lender"))
+        })
+    }
+
+    pub async fn deposit_loss_set_notified(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        item_id: i64,
+        notified_at: chrono::DateTime<chrono::Utc>,
+    ) -> AppResult<()> {
+        let updated = sqlx::query(
+            r#"
+            UPDATE items
+            SET deposit_loss_notified_at = $2, updated_at = now()
+            WHERE id = $1 AND deposit_loss_notified_at IS NULL
+            "#,
+        )
+        .bind(item_id)
+        .bind(notified_at)
+        .execute(&mut **tx)
+        .await?;
+        if updated.rows_affected() == 0 {
+            return Err(AppError::coded(
+                409,
+                error_code::DEPOSIT_LOSS_ALREADY_NOTIFIED,
+                "The lender was already notified about this copy",
+            ));
+        }
         Ok(())
+    }
+
+    pub async fn deposit_loss_by_item_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        item_id: i64,
+    ) -> AppResult<crate::models::deposit::DepositLoss> {
+        let sql = format!(
+            r#"
+            SELECT {DEPOSIT_LOSS_SELECT}
+            {DEPOSIT_LOSS_FROM}
+            WHERE i.id = $1
+            "#
+        );
+        sqlx::query_as::<_, crate::models::deposit::DepositLoss>(&sql)
+            .bind(item_id)
+            .fetch_optional(&mut **tx)
+            .await?
+            .ok_or_else(|| {
+                AppError::Internal(format!(
+                    "Declared deposit loss for item {item_id} disappeared"
+                ))
+            })
     }
 
     /// Lender replacement rate and the copy price for a deposit item.
@@ -653,6 +775,36 @@ impl Repository {
     }
 }
 
+const DEPOSIT_LOSS_SELECT: &str = r#"
+    i.id AS item_id,
+    i.barcode,
+    b.title,
+    db.lender_id,
+    l.name AS lender_name,
+    db.id AS batch_id,
+    db.reference,
+    CASE fine.charge_type WHEN 'damage' THEN 'damaged' ELSE 'lost' END AS kind,
+    fine.amount AS amount_cents,
+    fine.id AS fine_id,
+    fine.created_at AS declared_at,
+    i.deposit_loss_notified_at
+"#;
+
+const DEPOSIT_LOSS_FROM: &str = r#"
+    FROM items i
+    JOIN deposit_batches db ON db.id = i.deposit_batch_id
+    JOIN lenders l ON l.id = db.lender_id
+    JOIN biblios b ON b.id = i.biblio_id
+    JOIN LATERAL (
+        SELECT f.id, f.amount, f.charge_type, f.created_at
+        FROM fines f
+        WHERE f.item_id = i.id
+          AND f.charge_type IN ('replacement', 'damage')
+        ORDER BY f.created_at DESC, f.id DESC
+        LIMIT 1
+    ) fine ON TRUE
+"#;
+
 /// Shared laterals for batch copy counts and the item list.
 const COPY_LATERALS: &str = r#"
 LEFT JOIN LATERAL (
@@ -711,6 +863,14 @@ struct DepositDueRow {
     return_due_on: chrono::NaiveDate,
     status: DepositBatchStatus,
     archived_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct DepositLossLock {
+    deposit_batch_id: Option<i64>,
+    lender_id: Option<i64>,
+    deposit_loss_notified_at: Option<chrono::DateTime<chrono::Utc>>,
+    declared: bool,
 }
 
 #[derive(Debug, sqlx::FromRow)]

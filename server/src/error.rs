@@ -165,6 +165,10 @@ pub mod error_code {
     pub const DEPOSIT_BATCH_HAS_ACTIVE_LOANS: &str = "deposit_batch_has_active_loans";
     /// Scan-out refused while this copy still has an open loan.
     pub const DEPOSIT_ITEM_ON_LOAN: &str = "deposit_item_on_loan";
+    /// `POST /items/{id}/deposit-loss-notified` on a copy that is not a deposit copy declared lost or damaged.
+    pub const DEPOSIT_LOSS_NOT_DECLARED: &str = "deposit_loss_not_declared";
+    /// That route when `items.deposit_loss_notified_at` is already set. No second audit row is written.
+    pub const DEPOSIT_LOSS_ALREADY_NOTIFIED: &str = "deposit_loss_already_notified";
 }
 
 /// Main application error type

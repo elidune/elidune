@@ -153,8 +153,6 @@ pub struct Lender {
     /// Replacement bill in integer cents when a deposit copy is lost or damaged.
     /// Null means staff must enter the amount. Never zero.
     pub replacement_rate_cents: Option<Cents>,
-    /// Set when a deposit copy of this lender is lost or damaged.
-    pub loss_flagged_at: Option<DateTime<Utc>>,
     pub archived_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -319,6 +317,10 @@ pub struct ItemDeposit {
     pub reference: String,
     pub return_due_on: NaiveDate,
     pub batch_status: DepositBatchStatus,
+    /// When staff recorded that the lender was told this copy was lost or damaged.
+    /// Null until `POST /items/{id}/deposit-loss-notified`.
+    #[serde(default)]
+    pub deposit_loss_notified_at: Option<DateTime<Utc>>,
 }
 
 /// `items.deposit_batch_id IS NULL`. Own stock, and the predicate exclusion
@@ -402,23 +404,164 @@ pub struct DepositScanOut {
     pub already_scanned: bool,
 }
 
+/// Why a deposit copy was billed back to the lender.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum DepositLossKind {
+    Lost,
+    Damaged,
+}
+
+impl DepositLossKind {
+    #[must_use]
+    pub fn as_db_str(self) -> &'static str {
+        match self {
+            Self::Lost => "lost",
+            Self::Damaged => "damaged",
+        }
+    }
+
+    #[must_use]
+    pub fn from_db_str(value: &str) -> Option<Self> {
+        match value {
+            "lost" => Some(Self::Lost),
+            "damaged" => Some(Self::Damaged),
+            _ => None,
+        }
+    }
+}
+
+impl sqlx::Type<sqlx::Postgres> for DepositLossKind {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        <String as sqlx::Type<sqlx::Postgres>>::type_info()
+    }
+
+    fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
+        <String as sqlx::Type<sqlx::Postgres>>::compatible(ty)
+    }
+}
+
+impl<'r> sqlx::Decode<'r, sqlx::Postgres> for DepositLossKind {
+    fn decode(
+        value: sqlx::postgres::PgValueRef<'r>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
+        Self::from_db_str(&s).ok_or_else(|| format!("unknown deposit loss kind: {s}").into())
+    }
+}
+
+/// One deposit copy declared lost or damaged. `GET /deposit-losses`.
+#[serde_as]
+#[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DepositLoss {
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub item_id: i64,
+    pub barcode: Option<String>,
+    pub title: Option<String>,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub lender_id: i64,
+    pub lender_name: String,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub batch_id: i64,
+    /// Batch agreement reference.
+    pub reference: String,
+    pub kind: DepositLossKind,
+    /// Frozen fine amount in integer cents.
+    pub amount_cents: Cents,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub fine_id: i64,
+    pub declared_at: DateTime<Utc>,
+    pub deposit_loss_notified_at: Option<DateTime<Utc>>,
+}
+
+/// `GET /deposit-losses`. `notified` defaults to false (only copies not yet told to the lender).
+#[serde_as]
+#[derive(Debug, Clone, Deserialize, IntoParams, ToSchema)]
+#[serde(rename_all = "camelCase")]
+#[into_params(parameter_in = Query)]
+pub struct DepositLossListQuery {
+    #[serde_as(as = "Option<DisplayFromStr>")]
+    #[schema(value_type = Option<String>)]
+    pub lender_id: Option<i64>,
+    /// `true` lists copies already notified. `false` or omitted lists the rest.
+    pub notified: Option<bool>,
+}
+
+/// Calendar date or timestamp for `POST /items/{id}/deposit-loss-notified`.
+#[derive(Debug, Clone)]
+pub enum NotifiedOn {
+    /// Start of this day in the library timezone.
+    Date(NaiveDate),
+    Timestamp(DateTime<Utc>),
+}
+
+/// Optional body. An empty body, or JSON `null` for `notifiedOn`, means now.
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct MarkDepositLossNotified {
+    /// `YYYY-MM-DD` (start of that day in the library timezone) or an RFC 3339 timestamp.
+    #[serde(default, deserialize_with = "deserialize_notified_on")]
+    #[schema(value_type = Option<String>, example = "2026-10-19")]
+    pub notified_on: Option<NotifiedOn>,
+}
+
+fn deserialize_notified_on<'de, D>(deserializer: D) -> Result<Option<NotifiedOn>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<String>::deserialize(deserializer)?;
+    let Some(raw) = value else {
+        return Ok(None);
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(serde::de::Error::custom("notifiedOn is empty"));
+    }
+    if let Ok(timestamp) = DateTime::parse_from_rfc3339(trimmed) {
+        return Ok(Some(NotifiedOn::Timestamp(timestamp.with_timezone(&Utc))));
+    }
+    if let Ok(date) = NaiveDate::parse_from_str(trimmed, "%Y-%m-%d") {
+        return Ok(Some(NotifiedOn::Date(date)));
+    }
+    Err(serde::de::Error::custom(
+        "notifiedOn must be a YYYY-MM-DD date or an RFC 3339 timestamp",
+    ))
+}
+
 /// JSON object for [`ItemDeposit`], or JSON null for own stock.
 ///
-/// The value is jsonb, never SQL NULL, so `#[sqlx(json)] Option<ItemDeposit>`
-/// decodes own stock as `None`.
-pub const ITEM_DEPOSIT_JSON: &str = r#"
-CASE WHEN deposit_batch.id IS NULL THEN 'null'::jsonb
+/// `item_alias` is the items table alias in the surrounding query. The value is
+/// jsonb, never SQL NULL, so `#[sqlx(json)] Option<ItemDeposit>` decodes own
+/// stock as `None`.
+#[must_use]
+pub fn item_deposit_json(item_alias: &str) -> String {
+    format!(
+        r#"CASE WHEN deposit_batch.id IS NULL THEN 'null'::jsonb
 ELSE jsonb_build_object(
     'batchId', deposit_batch.id::text,
     'lenderId', deposit_batch.lender_id::text,
     'lenderName', deposit_lender.name,
     'reference', deposit_batch.reference,
     'returnDueOn', to_char(deposit_batch.return_due_on, 'YYYY-MM-DD'),
-    'batchStatus', deposit_batch.status
-) END
-"#;
+    'batchStatus', deposit_batch.status,
+    'depositLossNotifiedAt', CASE
+        WHEN {alias}.deposit_loss_notified_at IS NULL THEN NULL
+        ELSE to_char(
+            {alias}.deposit_loss_notified_at AT TIME ZONE 'UTC',
+            'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+        )
+    END
+) END"#,
+        alias = item_alias
+    )
+}
 
-/// Joins that back [`ITEM_DEPOSIT_JSON`]. One join pair per item query.
+/// Joins that back [`item_deposit_json`]. One join pair per item query.
 #[must_use]
 pub fn item_deposit_join(item_alias: &str) -> String {
     format!(
