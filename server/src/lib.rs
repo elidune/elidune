@@ -14,6 +14,7 @@ pub mod bootstrap;
 pub mod checkout_refusal;
 pub mod circulation_calendar;
 pub mod config;
+pub mod deposit_reclassify;
 pub mod dynamic_config;
 pub mod email;
 pub mod email_templates;
