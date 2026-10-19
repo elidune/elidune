@@ -3,9 +3,9 @@
 use super::Repository;
 use crate::error::{error_code, AppError, AppResult};
 use crate::models::deposit::{
-    own_stock_sql, CreateDepositBatch, CreateLender, DepositBatch, DepositBatchCounts,
-    DepositBatchItem, DepositBatchStatus, DepositCloseCopy, DepositCloseReport, DepositCopyState,
-    DepositScanOut, Lender, UpdateDepositBatch, UpdateLender,
+    own_stock_sql, CreateDepositBatch, CreateLender, DepositActiveLoanCopy, DepositBatch,
+    DepositBatchCounts, DepositBatchItem, DepositBatchStatus, DepositCloseCopy, DepositCloseReport,
+    DepositCopyState, DepositScanOut, Lender, UpdateDepositBatch, UpdateLender,
 };
 use crate::models::fine::Cents;
 
@@ -522,7 +522,8 @@ impl Repository {
         })
     }
 
-    /// `returning` → `closed`. Archives every copy that is not on loan.
+    /// `returning` → `closed` once every copy is returned or declared lost.
+    /// An open loan refuses the close and leaves the batch `returning`.
     /// Does not delete items. A closed batch returns the same report again.
     pub async fn deposit_batches_close(&self, id: i64) -> AppResult<DepositCloseReport> {
         let mut tx = self.pool.begin().await?;
@@ -542,6 +543,25 @@ impl Repository {
             ));
         }
         if status == DepositBatchStatus::Returning.as_db_str() {
+            sqlx::query("SELECT id FROM items WHERE deposit_batch_id = $1 FOR UPDATE")
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+            let on_loan = sqlx::query_as::<_, DepositActiveLoanCopy>(
+                r#"
+                SELECT i.id AS item_id, i.barcode
+                FROM items i
+                JOIN loans l ON l.item_id = i.id AND l.returned_at IS NULL
+                WHERE i.deposit_batch_id = $1
+                ORDER BY i.barcode NULLS LAST, i.id
+                "#,
+            )
+            .bind(id)
+            .fetch_all(&mut *tx)
+            .await?;
+            if !on_loan.is_empty() {
+                return Err(AppError::deposit_batch_has_active_loans(on_loan));
+            }
             sqlx::query(
                 r#"
                 UPDATE items i

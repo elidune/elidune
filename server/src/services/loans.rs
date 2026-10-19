@@ -56,7 +56,7 @@ pub struct ItemCheckIn {
     pub weeding_status: Option<crate::models::item::WeedingStatus>,
     /// Present when this scan set a title hold aside, or repeated that assignment.
     pub set_aside: Option<SetAsideOutcome>,
-    /// True when this check-in returned a deposit copy whose batch is already closed.
+    /// True when this check-in returned a deposit copy whose batch is `returning`.
     pub return_to_lender: bool,
 }
 
@@ -82,7 +82,7 @@ pub struct TitleHoldSetAside {
 pub struct DeskReturn {
     pub loan: Option<LoanDetails>,
     pub lost: Option<crate::models::dto::circulation::LostItemOnReturn>,
-    /// True when this check-in returned a deposit copy whose batch is already closed.
+    /// True when this check-in returned a deposit copy whose batch is `returning`.
     pub return_to_lender: bool,
 }
 

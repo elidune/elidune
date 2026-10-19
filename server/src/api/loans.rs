@@ -294,8 +294,10 @@ pub struct LoanResponse {
 /// available, assign a hold, or start transit.
 ///
 /// `returnToLender` is true only when this check-in returned a deposit copy whose
-/// batch is already closed. Staff should send that copy back to the lender. The
-/// copy is archived and marked returned. It is false on every other check-in.
+/// batch is `returning`. Staff should send that copy back to the lender.
+/// `depositReturnedAt` is set and the first timestamp is kept, the same way as
+/// scan-out. The copy is archived when the batch is closed. The field is false
+/// on every other check-in.
 #[serde_as]
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -351,9 +353,10 @@ pub struct ReturnResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>, nullable = true)]
     pub pickup_site_id: Option<Option<String>>,
-    /// True when this check-in returned a deposit copy whose batch is already closed.
-    /// Staff should send the copy back to the lender. The copy is archived and marked returned.
-    /// False for every other check-in.
+    /// True when this check-in returned a deposit copy whose batch is `returning`.
+    /// Staff should send the copy back to the lender. `depositReturnedAt` is set
+    /// and the first timestamp is kept, the same way as scan-out. The copy is
+    /// archived when the batch is closed. False for every other check-in.
     pub return_to_lender: bool,
 }
 
@@ -841,7 +844,7 @@ async fn create_loan_inner(
     security(("bearer_auth" = [])),
     params(("id" = i32, Path, description = "Loan ID")),
     responses(
-        (status = 200, description = "Item returned. A lost copy adds wasLost, and fineId, fineStatus (unpaid|paid|partial), fineAmount, and paidAmount (cents) when a replacement charge is still open. Lost status is not changed. returnToLender is true only when this check-in returned a deposit copy whose batch is already closed; staff should send that copy back to the lender. The copy is archived and marked returned. The field is false on every other check-in.", body = ReturnResponse),
+        (status = 200, description = "Item returned. A lost copy adds wasLost, and fineId, fineStatus (unpaid|paid|partial), fineAmount, and paidAmount (cents) when a replacement charge is still open. Lost status is not changed. returnToLender is true only when this check-in returned a deposit copy whose batch is `returning`; staff should send that copy back to the lender. `depositReturnedAt` is set and the first timestamp is kept, the same way as scan-out. The copy is archived when the batch is closed. The field is false on every other check-in.", body = ReturnResponse),
         (status = 404, description = "Loan not found"),
         (status = 409, description = "Already returned")
     )
@@ -1110,7 +1113,7 @@ where
         content_type = "application/json"
     ),
     responses(
-        (status = 200, description = "Loan closed, a to_pick hold checked in, an available copy that is not on loan, or a blocked status. An available copy that is not on loan includes `notice` (`code` `item_not_on_loan`, `level` `informational`). A pending hold on that copy is set aside (`status` `ready`) or sent in transit. `holdFor` on that notice follows the catalog privacy rule: staff profile with users read, otherwise `{ id, cardNumber, initials }`. A copy that is lost, damaged, missing (`circulationStatus` `toSearch`), or withdrawn (`weedingStatus` `withdrawn`) includes `notice` (`code` `item_not_available_status`, `level` `warning`), `status` `unchanged`, and the current `circulationStatus` and `weedingStatus`. That scan does not change the status, assign a hold, or start transit. Optional body `{ holdId, itemId }` assigns the oldest pending unassigned title hold when `holdId` is that queue head (same loans write right; item locked, then the title's pending holds in queue order). Same site becomes `ready`. A different pickup site starts a requested transit, links `hold.item_id` immediately, and the hold stays `pending` (not `ready` or `to_pick`) until the transit is received. That set-aside response adds `holdStatus` (`ready` or `pending`), `transitId` (string, or null when there is no transit), and `pickupSiteId` (string, or null when the hold has no pickup site). A repeat of the same body while that transit is still open returns the same `transitId` and does not open another transit. Any other `holdId` is refused and assigns nothing. returnToLender is true only when this check-in returned a deposit copy whose batch is already closed; staff should send that copy back to the lender. The copy is archived and marked returned. The field is false on every other check-in.", body = ReturnResponse),
+        (status = 200, description = "Loan closed, a to_pick hold checked in, an available copy that is not on loan, or a blocked status. An available copy that is not on loan includes `notice` (`code` `item_not_on_loan`, `level` `informational`). A pending hold on that copy is set aside (`status` `ready`) or sent in transit. `holdFor` on that notice follows the catalog privacy rule: staff profile with users read, otherwise `{ id, cardNumber, initials }`. A copy that is lost, damaged, missing (`circulationStatus` `toSearch`), or withdrawn (`weedingStatus` `withdrawn`) includes `notice` (`code` `item_not_available_status`, `level` `warning`), `status` `unchanged`, and the current `circulationStatus` and `weedingStatus`. That scan does not change the status, assign a hold, or start transit. Optional body `{ holdId, itemId }` assigns the oldest pending unassigned title hold when `holdId` is that queue head (same loans write right; item locked, then the title's pending holds in queue order). Same site becomes `ready`. A different pickup site starts a requested transit, links `hold.item_id` immediately, and the hold stays `pending` (not `ready` or `to_pick`) until the transit is received. That set-aside response adds `holdStatus` (`ready` or `pending`), `transitId` (string, or null when there is no transit), and `pickupSiteId` (string, or null when the hold has no pickup site). A repeat of the same body while that transit is still open returns the same `transitId` and does not open another transit. Any other `holdId` is refused and assigns nothing. returnToLender is true only when this check-in returned a deposit copy whose batch is `returning`; staff should send that copy back to the lender. `depositReturnedAt` is set and the first timestamp is kept, the same way as scan-out. The copy is archived when the batch is closed. The field is false on every other check-in.", body = ReturnResponse),
         (status = 404, description = "Unknown barcode (`not_found`)", body = crate::error::ErrorResponse),
         (status = 409, description = "Already returned"),
         (status = 422, description = "Set-aside refused. Body is `{ code, error, message }`. `set_aside_item_mismatch`: `itemId` is not the barcode's copy. `set_aside_wrong_title`: the copy is not an item of the held title. `set_aside_not_oldest`: `holdId` is not the oldest pending unassigned hold in queue order.", body = crate::error::ErrorResponse)

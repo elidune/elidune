@@ -594,6 +594,7 @@ use crate::api::{
             crate::models::deposit::DepositScanOut,
             crate::models::deposit::DepositCloseReport,
             crate::models::deposit::DepositCloseCopy,
+            crate::models::deposit::DepositActiveLoanCopy,
             crate::models::dto::stats::DepositLenderCount,
             crate::services::marc::MarcBatchImportReport,
             crate::services::marc::MarcBatchImportError,
@@ -696,6 +697,7 @@ use crate::api::{
             // Errors
             crate::error::ErrorResponse,
             crate::error::PaymentExceedsBalanceBody,
+            crate::error::DepositBatchHasActiveLoansBody,
             crate::checkout_refusal::CheckoutRefusalBody,
             crate::checkout_refusal::CheckoutRefusalDetails,
             crate::checkout_refusal::ItemHeldForOtherDetails,

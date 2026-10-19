@@ -360,13 +360,26 @@ pub struct DepositCloseCopy {
 
 /// `POST /deposit-batches/{id}/close`.
 ///
-/// `onLoan` lists copies still out. They are not archived and are not deleted.
+/// Close is refused while any copy is on loan, so `onLoan` is an empty array.
+/// The field stays for compatibility.
 #[derive(Debug, Clone, Serialize, ToSchema, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct DepositCloseReport {
     pub returned: Vec<DepositCloseCopy>,
     pub missing: Vec<DepositCloseCopy>,
+    /// Always empty. Close is refused while a copy is still on loan.
     pub on_loan: Vec<DepositCloseCopy>,
+}
+
+/// One copy still on loan. Listed on `422 deposit_batch_has_active_loans`.
+#[serde_as]
+#[derive(Debug, Clone, Serialize, FromRow, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DepositActiveLoanCopy {
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub item_id: i64,
+    pub barcode: Option<String>,
 }
 
 /// `POST /deposit-batches/{id}/scan-out`.

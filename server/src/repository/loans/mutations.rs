@@ -548,26 +548,29 @@ impl Repository {
         .execute(&mut *tx)
         .await?;
 
-        // A closed deposit goes back to the lender. Archive it and mark it
-        // returned before the hold queue so it cannot be assigned, sent into
-        // transit, or classified as missing when close is run again.
-        let returned_to_lender = sqlx::query(
-            r#"
-            UPDATE items i
-            SET archived_at = COALESCE(i.archived_at, $2),
-                deposit_returned_at = COALESCE(i.deposit_returned_at, $2),
-                updated_at = $2
-            FROM deposit_batches b
-            WHERE i.id = $1
-              AND i.deposit_batch_id = b.id
-              AND b.status = 'closed'
-            "#,
-        )
-        .bind(loan.item_id)
-        .bind(now)
-        .execute(&mut *tx)
-        .await?;
-        let return_to_lender = returned_to_lender.rows_affected() > 0;
+        // A deposit copy checked in while its batch is returning goes back to
+        // the lender. Mark it returned (first timestamp kept, same as scan-out).
+        // Close archives it. A lost copy stays unmarked so close lists it as missing.
+        let return_to_lender = if was_lost {
+            false
+        } else {
+            let marked = sqlx::query(
+                r#"
+                UPDATE items i
+                SET deposit_returned_at = COALESCE(i.deposit_returned_at, $2),
+                    updated_at = $2
+                FROM deposit_batches b
+                WHERE i.id = $1
+                  AND i.deposit_batch_id = b.id
+                  AND b.status = 'returning'
+                "#,
+            )
+            .bind(loan.item_id)
+            .bind(now)
+            .execute(&mut *tx)
+            .await?;
+            marked.rows_affected() > 0
+        };
 
         // A copy that is still lost must not satisfy a hold or start a transit.
         let readied_hold = if was_lost {

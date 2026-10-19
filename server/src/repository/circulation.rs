@@ -163,25 +163,6 @@ impl Repository {
             };
             self.loans_archive_and_delete_tx(&mut tx, &loan, now, closure_reason)
                 .await?;
-            // Lost after the batch is already closed: archive without
-            // deposit_returned_at so the copy stays missing. A later close
-            // regenerates the report from current rows and will not archive again.
-            if params.action == CirculationAction::MarkLost {
-                sqlx::query(
-                    r#"
-                    UPDATE items i
-                    SET archived_at = COALESCE(i.archived_at, $2), updated_at = $2
-                    FROM deposit_batches b
-                    WHERE i.id = $1
-                      AND i.deposit_batch_id = b.id
-                      AND b.status = 'closed'
-                    "#,
-                )
-                .bind(loan.item_id)
-                .bind(now)
-                .execute(&mut *tx)
-                .await?;
-            }
             if notify_holds {
                 readied_hold = self
                     .holds_notify_next_tx(&mut tx, loan.item_id, self.hold_ready_expiry_days())

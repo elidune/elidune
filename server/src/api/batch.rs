@@ -59,7 +59,7 @@ pub struct BatchReturnItemResult {
     /// Current weeding status when `notice.code` is `item_not_available_status`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub weeding_status: Option<crate::models::item::WeedingStatus>,
-    /// True when this barcode returned a deposit copy whose batch is already closed.
+    /// True when this barcode returned a deposit copy whose batch is `returning`.
     /// Staff should send the copy back to the lender. False for every other barcode.
     pub return_to_lender: bool,
 }

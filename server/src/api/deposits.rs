@@ -382,11 +382,11 @@ pub async fn scan_out_deposit_copy(
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Deposit batch ID")),
     responses(
-        (status = 200, description = "Batch closed. Scanned-out copies are `returned` and archived. Copies that are neither scanned out nor on loan are `missing` and archived. Copies still on loan are `onLoan` and are not archived. Nothing is deleted. Calling this again returns the same report.", body = DepositCloseReport),
+        (status = 200, description = "Batch closed. Copies with `depositReturnedAt` are `returned` and archived. Copies without it (still on the shelf, or declared lost) are `missing` and archived. `onLoan` is always an empty array. Nothing is deleted. Calling this again on a closed batch returns the report again.", body = DepositCloseReport),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 403, description = "Insufficient permissions", body = crate::error::ErrorResponse),
         (status = 404, description = "Deposit batch not found", body = crate::error::ErrorResponse),
-        (status = 422, description = "Batch is still `active` (`deposit_batch_not_returning`)", body = crate::error::ErrorResponse)
+        (status = 422, description = "Batch is still `active` (`deposit_batch_not_returning`, body `{ code, error, message }`) or a copy is still on loan (`deposit_batch_has_active_loans`). The loans body is `{ code, error, message, copies: [{ itemId, barcode }] }`. `itemId` is a string. `barcode` is null when the copy has none. The batch stays `returning`.", body = crate::error::DepositBatchHasActiveLoansBody)
     )
 )]
 pub async fn close_deposit_batch(
