@@ -11,6 +11,7 @@ import {
   Pagination,
   QueryErrorBanner,
 } from '@/components/common';
+import { CopyDepositBadges } from '@/components/items/DepositBadge';
 import ItemAvailabilityBadge from '@/components/items/ItemAvailabilityBadge';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
@@ -166,6 +167,7 @@ export default function ReaderCatalogPage() {
                           </span>
                         )}
                       </div>
+                      <CopyDepositBadges copies={biblio.items} />
                     </div>
                     <ChevronRight className="h-5 w-5 shrink-0 text-gray-400" aria-hidden />
                   </button>

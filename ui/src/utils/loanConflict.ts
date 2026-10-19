@@ -1,4 +1,6 @@
+import { getApiErrorCode } from './apiError.ts';
 import { loanRefusalMayForce } from './circulationForce.ts';
+import { depositErrorBlocksForce } from './deposits.ts';
 import {
   otherBorrowerFromPayload,
   otherBorrowerFromPerson,
@@ -128,6 +130,7 @@ function renewLoanId(data: Record<string, unknown> | null, context: ConflictCont
  * `canForce` is loans write.
  */
 export function checkoutMayForce(error: unknown, canForce = true): boolean {
+  if (depositErrorBlocksForce(getApiErrorCode(error))) return false;
   return loanRefusalMayForce(responseOf(error).data?.forceable, canForce);
 }
 

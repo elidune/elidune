@@ -56,6 +56,9 @@ import {
 } from '@/utils/deskScanAlert';
 import { checkoutForceFlag, checkoutNoticeForConflict } from '@/utils/loanConflict';
 import { renewedUntilMessage } from '@/utils/localeDate';
+import { depositDueDateNotice, lenderNameFromCopies, returnToLenderNotice, withDepositDueNotice, withReturnToLenderNotice } from '@/utils/deposits';
+import ReturnToLenderNotice from '@/components/items/ReturnToLenderNotice';
+import DepositBadge from '@/components/items/DepositBadge';
 import { patronId } from '@/utils/patronLink';
 import { isWeedingServerMessage } from '@/utils/weeding';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
@@ -145,6 +148,7 @@ type CheckoutRecap = {
   barcode: string;
   dueDate: string;
   patronName: string;
+  dueDateCappedByDeposit?: boolean;
 };
 
 const BORROW_LOANS_PAGE_SIZE = 20;
@@ -234,6 +238,7 @@ export default function LoansPage() {
   const [returnBarcodeInput, setReturnBarcodeInput] = useState('');
   const returnBarcodeInputRef = useRef<HTMLInputElement>(null);
   const [returnResult, setReturnResult] = useState<ReturnView | null>(null);
+  const [returnToLenderMessage, setReturnToLenderMessage] = useState<string | null>(null);
   const [isProcessingReturn, setIsProcessingReturn] = useState(false);
   const [returnError, setReturnError] = useState('');
   const [lostFound, setLostFound] = useState<(LostReturnFields & { itemId: string | null }) | null>(null);
@@ -583,7 +588,12 @@ export default function LoansPage() {
         );
         await loadOverdue();
         if (await openLostFound(result, { barcode: known?.itemBarcode })) return;
-        showToast({ variant: 'success', message: t('loans.returnSuccess') });
+        const notice = returnToLenderNotice(result, t);
+        setReturnToLenderMessage(notice);
+        showToast({
+          variant: 'success',
+          message: withReturnToLenderNotice(t('loans.returnSuccess'), result, t),
+        });
       } catch (e: unknown) {
         const msg = getApiErrorMessage(e, t) || t('loans.errorReturningLoan');
         setOverdueError(msg);
@@ -622,7 +632,12 @@ export default function LoansPage() {
       await loadOverdue();
       showToast({
         variant: 'success',
-        message: renewedUntilMessage(renewed.expiryAt, t, i18n.language),
+        message: withDepositDueNotice(
+          renewedUntilMessage(renewed.expiryAt, t, i18n.language),
+          renewed,
+          t,
+          i18n.language,
+        ),
       });
     } catch (e: unknown) {
       const barcode = overdueData?.loans.find((loan) => loan.loanId === loanId)?.itemBarcode ?? null;
@@ -993,10 +1008,15 @@ export default function LoansPage() {
         noTitle: t('loans.noTitle'),
         listed: matched ?? null,
       });
-      setLastCheckout(recap);
+      setLastCheckout({ ...recap, dueDateCappedByDeposit: created.dueDateCappedByDeposit === true });
       showToast({
         variant: 'success',
-        message: t('loans.checkoutSuccess', { title: recap.title, patron: recap.patronName }),
+        message: withDepositDueNotice(
+          t('loans.checkoutSuccess', { title: recap.title, patron: recap.patronName }),
+          created,
+          t,
+          i18n.language,
+        ),
       });
     } catch (error: unknown) {
       const rawMessage = getApiErrorRawMessage(error) ?? '';
@@ -1075,7 +1095,13 @@ export default function LoansPage() {
       ) {
         return;
       }
-      showToast({ variant: 'success', message: t('loans.returnSuccess') });
+      const fallback = lenderNameFromCopies(known?.biblio?.items, known?.itemId);
+      const notice = returnToLenderNotice(result, t, fallback);
+      setReturnToLenderMessage(notice);
+      showToast({
+        variant: 'success',
+        message: withReturnToLenderNotice(t('loans.returnSuccess'), result, t, fallback),
+      });
     } catch (error: unknown) {
       const msg = getApiErrorMessage(error, t) || t('loans.errorReturningLoan');
       setRenewError(msg);
@@ -1095,6 +1121,7 @@ export default function LoansPage() {
     setReturnError('');
     setReturnResult(null);
     setReturnScanAlert(null);
+    setReturnToLenderMessage(null);
 
     const barcode = specimenBarcode.trim();
     const snapshot = await readDeskCopy(barcode);
@@ -1102,6 +1129,10 @@ export default function LoansPage() {
 
     try {
       const result = await api.returnLoanByBarcode(barcode);
+      const fallback = snapshot?.lenderName ?? null;
+      const lenderNotice = returnToLenderNotice(result, t, fallback);
+      setReturnToLenderMessage(lenderNotice);
+      const returnedMessage = withReturnToLenderNotice(t('loans.returnSuccess'), result, t, fallback);
       const pick = interpretPickCheckIn(result);
       const feedback = returnScanFeedback(result, { pick: Boolean(pick), hasLoan: Boolean(result.loan) });
       if (feedback.toast === 'none' && feedback.notice) {
@@ -1128,19 +1159,25 @@ export default function LoansPage() {
           notice.kind === 'ready'
             ? t('loans.pickReady', { patron: notice.patronName?.trim() || t('loans.pickPatronUnknown') })
             : t('loans.pickTransit', { site: notice.siteName?.trim() || t('loans.pickSiteUnknown') });
-        showToast({ variant: 'success', message });
+        showToast({
+          variant: 'success',
+          message: lenderNotice ? `${message} ${lenderNotice}` : message,
+        });
       } else if (result.loan) {
         setReturnResult({ kind: 'loan', loan: result.loan });
-        showToast({ variant: 'success', message: t('loans.returnSuccess') });
+        showToast({ variant: 'success', message: returnedMessage });
       } else if (feedback.toast === 'info' && feedback.notice) {
-        setReturnResult({ kind: 'deskNotice', notice: feedback.notice, putBack: true, barcode });
+        setReturnResult({ kind: 'deskNotice', notice: feedback.notice, putBack: !lenderNotice, barcode });
+        const infoMessage = returnNoticeMessage(feedback.notice, (key, values) => String(t(key, values)), {
+          putBack: !lenderNotice,
+        });
         showToast({
           variant: 'info',
-          message: returnNoticeMessage(feedback.notice, (key, values) => String(t(key, values)), { putBack: true }),
+          message: lenderNotice ? `${infoMessage} ${lenderNotice}` : infoMessage,
         });
       } else {
         setReturnResult(null);
-        showToast({ variant: 'success', message: t('loans.returnSuccess') });
+        showToast({ variant: 'success', message: returnedMessage });
       }
       setReturnBarcodeInput('');
     } catch (error: unknown) {
@@ -1165,7 +1202,7 @@ export default function LoansPage() {
       render: (loan: LoanListItem) => {
         const specs = loan.biblio?.items;
         const spec = specs?.length
-          ? (specs.find((s) => s.borrowed) ?? specs[0])
+          ? (specs.find((s) => s.id === loan.itemId) ?? specs.find((s) => s.borrowed) ?? specs[0])
           : null;
         const specimenBarcode = spec ? (spec.barcode ?? spec.id) : loan.itemIdentification;
         return (
@@ -1182,6 +1219,7 @@ export default function LoansPage() {
                   </p>
                 )}
                 <p>{t('items.barcode')}: <span className="font-mono">{specimenBarcode ?? '-'}</span></p>
+                <DepositBadge deposit={spec?.deposit} />
               </div>
             </div>
           </div>
@@ -1264,7 +1302,7 @@ export default function LoansPage() {
 
   const completeRenew = async (
     busyId: string,
-    request: (force: boolean, overrideReason?: string) => Promise<{ expiryAt: string }>,
+    request: (force: boolean, overrideReason?: string) => Promise<{ expiryAt: string; dueDateCappedByDeposit?: boolean }>,
     force = false,
     barcode: string | null = null,
     overrideReason?: string,
@@ -1284,7 +1322,12 @@ export default function LoansPage() {
       }
       showToast({
         variant: 'success',
-        message: renewedUntilMessage(renewed.expiryAt, t, i18n.language),
+        message: withDepositDueNotice(
+          renewedUntilMessage(renewed.expiryAt, t, i18n.language),
+          renewed,
+          t,
+          i18n.language,
+        ),
       });
       return true;
     } catch (error: unknown) {
@@ -1893,6 +1936,8 @@ export default function LoansPage() {
                 </div>
               </div>
 
+              {returnToLenderMessage ? <ReturnToLenderNotice message={returnToLenderMessage} /> : null}
+
               {!returnResult && (
                 <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/80 py-14 text-center dark:border-gray-700 dark:bg-gray-800/30">
                   <BookOpen className="mx-auto h-12 w-12 text-gray-300 dark:text-gray-600 mb-3" />
@@ -2256,6 +2301,7 @@ export default function LoansPage() {
         target={exceptionAction.target}
         isLoading={exceptionAction.isLoading}
         error={exceptionAction.error}
+        replacementAmountRequired={exceptionAction.replacementAmountRequired}
         onClose={exceptionAction.close}
         onConfirm={(payload) => void exceptionAction.submit(payload)}
       />
@@ -2484,6 +2530,7 @@ async function readDeskCopy(barcode: string): Promise<DeskCopySnapshot | null> {
       loanUserFirstname,
       loanUserLastname,
       holdFor: copy.holdFor ?? null,
+      lenderName: copy.deposit?.lenderName?.trim() || null,
     };
   } catch {
     return null;
@@ -2590,6 +2637,15 @@ function CheckoutRecapPanel({
             </span>
           </span>
         </div>
+        {recap.dueDateCappedByDeposit ? (
+          <p className="text-xs text-gray-700 dark:text-gray-200">
+            {depositDueDateNotice(
+              { dueDateCappedByDeposit: true, expiryAt: recap.dueDate },
+              t,
+              locale,
+            )}
+          </p>
+        ) : null}
         <div className="flex items-center gap-2 pt-1">
           <div
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-[10px] font-bold uppercase text-indigo-800 dark:bg-indigo-900/55 dark:text-indigo-200"

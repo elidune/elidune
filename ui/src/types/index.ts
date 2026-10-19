@@ -669,6 +669,112 @@ export interface WithdrawalListParams {
   itemId?: string;
 }
 
+export type DepositBatchStatus = 'active' | 'returning' | 'closed';
+
+export type DepositCopyState =
+  | 'onShelf'
+  | 'onLoan'
+  | 'onHold'
+  | 'inTransit'
+  | 'returned'
+  | 'missing';
+
+/** Embedded on item JSON. Null means own stock. */
+export interface ItemDeposit {
+  batchId: string;
+  lenderId: string;
+  lenderName: string;
+  reference: string;
+  returnDueOn: string;
+  batchStatus: DepositBatchStatus;
+}
+
+export interface Lender {
+  id: string;
+  name: string;
+  contact: string | null;
+  notes: string | null;
+  /** Integer cents. Null means no lender rate. Never zero. */
+  replacementRateCents: number | null;
+  lossFlaggedAt: string | null;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LenderWrite {
+  name?: string;
+  contact?: string | null;
+  notes?: string | null;
+  /**
+   * Integer cents. Null on create means no rate.
+   * Omit on update to keep the stored rate. Zero is rejected.
+   */
+  replacementRateCents?: number | null;
+}
+
+export interface DepositBatch {
+  id: string;
+  lenderId: string;
+  reference: string;
+  siteId: string;
+  arrivedOn: string;
+  returnDueOn: string;
+  status: DepositBatchStatus;
+  closedAt: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DepositBatchCounts {
+  total: number;
+  onShelf: number;
+  onLoan: number;
+  onHold: number;
+  inTransit: number;
+  returned: number;
+}
+
+export interface DepositBatchDetail extends DepositBatch {
+  counts: DepositBatchCounts;
+}
+
+export interface CreateDepositBatch {
+  lenderId: string;
+  reference: string;
+  siteId: string;
+  arrivedOn: string;
+  returnDueOn: string;
+  notes?: string | null;
+}
+
+/** Editable while the batch is active. `siteId` does not move copies. */
+export interface UpdateDepositBatch {
+  returnDueOn?: string;
+  siteId?: string;
+  notes?: string | null;
+}
+
+export interface DepositBatchItem {
+  itemId: string;
+  biblioId: string;
+  barcode: string | null;
+  title: string | null;
+  state: DepositCopyState;
+}
+
+/**
+ * Checkout and renewal body. `dueDateCappedByDeposit` is added by server PR 2.
+ * It is absent until that PR lands.
+ */
+export interface LoanMutationResult {
+  id: string;
+  expiryAt: string;
+  message: string;
+  dueDateCappedByDeposit?: boolean;
+}
+
 /**
  * Copy embedded in a staff list (`ItemShortStaff`).
  * No loan id. `publicNote` and `internalNote` exist only on {@link ItemStaffView}.
@@ -694,6 +800,8 @@ export interface ItemShortStaff {
    * `{ id, cardNumber, initials }` with loans read only. Omitted otherwise.
    */
   holdFor?: HoldFor | null;
+  /** Null or omitted means own stock. */
+  deposit?: ItemDeposit | null;
 }
 
 /** @deprecated Use {@link ItemShortStaff}. */
@@ -712,6 +820,8 @@ export interface ItemShortPublic {
   borrowed: boolean;
   availability: ItemPublicAvailability;
   canHoldItem: boolean;
+  /** Null or omitted means own stock. */
+  deposit?: ItemDeposit | null;
 }
 
 /** Staff search hit (`BiblioShortStaff`). */
@@ -802,6 +912,8 @@ export interface Item {
   canHoldItem: boolean;
   /** Staff only, and only when this copy is on hold. See {@link HoldFor}. */
   holdFor?: HoldFor | null;
+  /** Null or omitted means own stock. */
+  deposit?: ItemDeposit | null;
 }
 
 /**
@@ -855,6 +967,8 @@ export interface ItemStaffView {
    * users read; `UserShortStaff` with users read.
    */
   borrower?: UserShortStaff | LoanBorrowerMinimized | null;
+  /** Null means own stock. */
+  deposit?: ItemDeposit | null;
 }
 
 /**
@@ -893,6 +1007,8 @@ export interface ItemPublicView {
    * An unassigned `pending` title hold leaves this false.
    */
   onHold: boolean;
+  /** Null or omitted means own stock. */
+  deposit?: ItemDeposit | null;
 }
 
 /** `GET /biblios/{id}`, `GET /items/{id}`, and `GET /items/barcode/{barcode}`. */
@@ -1531,12 +1647,25 @@ export interface MarcBatchImportError {
   error: string;
   /** ID of the existing biblio that caused a duplicate ISBN conflict */
   existingId?: string | null;
+  /** Stable failure code. `barcode_already_exists` skips that copy. */
+  code?: string | null;
+  /** Copy that already uses this barcode. Set with `barcode_already_exists`. */
+  existingItemId?: string | null;
+}
+
+export interface MarcBatchAttached {
+  key: string;
+  biblioId: string;
 }
 
 export interface MarcBatchImportReport {
   batchId: string;
-  /** IDs of successfully imported records */
+  /** IDs of successfully imported records. Union of created and attached. */
   imported: string[];
+  /** Records whose bibliographic notice was created. Empty outside deposit mode. */
+  created?: string[];
+  /** Records whose copies were attached to an existing ISBN. */
+  attached?: MarcBatchAttached[];
   failed: MarcBatchImportError[];
 }
 
@@ -1633,7 +1762,19 @@ export type ApiErrorCode =
   | 'rate_limited'
   | 'item_to_pick_for_other'
   | 'item_on_loan_to_other_borrower'
-  | 'item_already_on_loan_to_borrower';
+  | 'item_already_on_loan_to_borrower'
+  | 'deposit_return_due'
+  | 'deposit_renewal_no_extension'
+  | 'deposit_batch_returning'
+  | 'deposit_item_not_owned'
+  | 'deposit_site_mismatch'
+  | 'deposit_batch_not_active'
+  | 'deposit_import_options_conflict'
+  | 'lender_has_active_batches'
+  | 'barcode_already_exists'
+  | 'deposit_batch_has_active_loans'
+  | 'deposit_batch_not_returning'
+  | 'deposit_replacement_amount_required';
 
 // Settings — renewal anchoring (serialized wire values: now, at_due_date)
 export type LoanSettingsRenewAt = 'now' | 'at_due_date';
@@ -2627,6 +2768,11 @@ export interface ItemCheckIn extends LostReturnFields {
   circulationStatus?: ReturnScanCirculationStatus | null;
   /** Current weeding status when the notice is `item_not_available_status`. */
   weedingStatus?: ItemWeedingStatus | null;
+  /**
+   * True when this check-in returned a deposit copy whose batch is `returning`.
+   * Staff send that copy back to the lender. False on every other check-in.
+   */
+  returnToLender?: boolean;
   /**
    * Set-aside only. `ready` when the copy is already at the pickup site,
    * `pending` while it is in transit.

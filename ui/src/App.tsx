@@ -37,6 +37,9 @@ import {
   Z3950SearchPage,
   ProfilePage,
   ImportIsoPage,
+  LendersPage,
+  DepositBatchesPage,
+  DepositBatchDetailPage,
   EventsPage,
   UnsubscribeEventsPage,
   PublicEventsPage,
@@ -402,6 +405,52 @@ function AppRoutes() {
           <ProtectedRoute>
             <RightsRoute allow={(user, token) => accessOf(user, token).itemsWrite}>
               <ImportIsoPage />
+            </RightsRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/deposits/lenders"
+        element={
+          <ProtectedRoute>
+            <RightsRoute
+              allow={(user, token) => {
+                const access = accessOf(user, token);
+                return access.internalCatalog && access.itemsRead;
+              }}
+            >
+              <LendersPage />
+            </RightsRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/deposits/:id"
+        element={
+          <ProtectedRoute>
+            <RightsRoute
+              allow={(user, token) => {
+                const access = accessOf(user, token);
+                return access.internalCatalog && access.itemsRead;
+              }}
+            >
+              <DepositBatchDetailPage />
+            </RightsRoute>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/deposits"
+        element={
+          <ProtectedRoute>
+            <RightsRoute
+              allow={(user, token) => {
+                const access = accessOf(user, token);
+                return access.internalCatalog && access.itemsRead;
+              }}
+            >
+              <DepositBatchesPage />
             </RightsRoute>
           </ProtectedRoute>
         }

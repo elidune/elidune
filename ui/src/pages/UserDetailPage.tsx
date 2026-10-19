@@ -29,6 +29,8 @@ import RenewalRefusalNotice from '@/components/loans/RenewalRefusalNotice';
 import { presentRenewalRefusal, type RenewalDeskView } from '@/utils/renewalDesk';
 import { closureReasonText } from '@/utils/loanClosure';
 import { renewedUntilMessage } from '@/utils/localeDate';
+import { lenderNameFromCopies, returnToLenderNotice, withDepositDueNotice, withReturnToLenderNotice } from '@/utils/deposits';
+import ReturnToLenderNotice from '@/components/items/ReturnToLenderNotice';
 import { isWeedingServerMessage } from '@/utils/weeding';
 import { isSubscriptionExpired } from '@/utils/userSubscription';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
@@ -138,6 +140,7 @@ export default function UserDetailPage() {
   const [isBorrowLoading, setIsBorrowLoading] = useState(false);
   const [loanDetails, setLoanDetails] = useState<LoanListItem | null>(null);
   const [renewError, setRenewError] = useState('');
+  const [returnToLenderMessage, setReturnToLenderMessage] = useState<string | null>(null);
   const [renewalPrompt, setRenewalPrompt] = useState<RenewalDeskView | null>(null);
   const renewalRetryRef = useRef<((overrideReason?: string) => void) | null>(null);
   const renewalSetAsideRef = useRef<{
@@ -508,9 +511,16 @@ export default function UserDetailPage() {
     setLoanAction({ loanId, op: 'return' });
     setRenewError('');
     try {
-      await api.returnLoan(loanId);
+      const loan = activeLoans.find((row) => row.id === loanId);
+      const result = await api.returnLoan(loanId);
       await refreshLoans();
-      showToast({ variant: 'success', message: t('loans.returnSuccess') });
+      const fallback = lenderNameFromCopies(loan?.biblio?.items, loan?.itemId);
+      const notice = returnToLenderNotice(result, t, fallback);
+      setReturnToLenderMessage(notice);
+      showToast({
+        variant: 'success',
+        message: withReturnToLenderNotice(t('loans.returnSuccess'), result, t, fallback),
+      });
     } catch (error) {
       const msg = getApiErrorMessage(error, t) || t('loans.errorReturningLoan');
       setRenewError(msg);
@@ -545,7 +555,12 @@ export default function UserDetailPage() {
       await refreshLoans();
       showToast({
         variant: 'success',
-        message: renewedUntilMessage(renewed.expiryAt, t, i18n.language),
+        message: withDepositDueNotice(
+          renewedUntilMessage(renewed.expiryAt, t, i18n.language),
+          renewed,
+          t,
+          i18n.language,
+        ),
       });
     } catch (error) {
       const held = overrideReasonRefusalMessage(error);
@@ -1099,6 +1114,12 @@ export default function UserDetailPage() {
             </div>
           </div>
 
+          {returnToLenderMessage && detailTab === 'activeLoans' ? (
+            <div className="px-4 sm:px-6 pt-3 flex-shrink-0">
+              <ReturnToLenderNotice message={returnToLenderMessage} />
+            </div>
+          ) : null}
+
           {renewError && detailTab === 'activeLoans' && (
             <div className="px-4 sm:px-6 pt-3 flex-shrink-0">
               <RenewalRefusalNotice
@@ -1424,10 +1445,13 @@ export default function UserDetailPage() {
           formId="borrow-user-form"
           userId={user.id}
           onLoadingChange={setIsBorrowLoading}
-          onSuccess={() => {
+          onSuccess={(created) => {
             setShowBorrowModal(false);
             refreshLoans();
-            showToast({ variant: 'success', message: t('loans.checkoutSuccessShort') });
+            showToast({
+              variant: 'success',
+              message: withDepositDueNotice(t('loans.checkoutSuccessShort'), created, t, i18n.language),
+            });
           }}
           canForce={canForceLoan}
           onBusinessRuleViolation={(msg, specimenCode, reasonRequired) => {
@@ -1460,7 +1484,7 @@ export default function UserDetailPage() {
                 setToPickForceLoading(true);
                 void (async () => {
                   try {
-                    await api.createLoan({
+                    const created = await api.createLoan({
                       userId: user.id,
                       itemIdentification: ctx.specimenCode,
                       force: true,
@@ -1468,7 +1492,10 @@ export default function UserDetailPage() {
                     }, newIdempotencyKey());
                     setToPickForce(null);
                     await refreshLoans();
-                    showToast({ variant: 'success', message: t('loans.checkoutSuccessShort') });
+                    showToast({
+                      variant: 'success',
+                      message: withDepositDueNotice(t('loans.checkoutSuccessShort'), created, t, i18n.language),
+                    });
                     cueBorrowBarcode(true);
                   } catch (error: unknown) {
                     const held = overrideReasonRefusalMessage(error);
@@ -1534,7 +1561,7 @@ export default function UserDetailPage() {
           setForceBorrowLoading(true);
           void (async () => {
             try {
-              await api.createLoan({
+              const created = await api.createLoan({
                 userId: user.id,
                 itemIdentification: ctx.specimenCode,
                 force: true,
@@ -1542,7 +1569,10 @@ export default function UserDetailPage() {
               }, newIdempotencyKey());
               setForceBorrowDialog(null);
               await refreshLoans();
-              showToast({ variant: 'success', message: t('loans.checkoutSuccessShort') });
+              showToast({
+                variant: 'success',
+                message: withDepositDueNotice(t('loans.checkoutSuccessShort'), created, t, i18n.language),
+              });
             } catch (e) {
               const held = overrideReasonRefusalMessage(e);
               if (held !== null) {
@@ -1604,6 +1634,7 @@ export default function UserDetailPage() {
         target={exceptionAction.target}
         isLoading={exceptionAction.isLoading}
         error={exceptionAction.error}
+        replacementAmountRequired={exceptionAction.replacementAmountRequired}
         onClose={exceptionAction.close}
         onConfirm={(payload) => void exceptionAction.submit(payload)}
       />
@@ -1621,7 +1652,7 @@ interface BorrowFormProps {
   formId: string;
   userId: string;
   onLoadingChange: (loading: boolean) => void;
-  onSuccess: () => void;
+  onSuccess: (created: { dueDateCappedByDeposit?: boolean; expiryAt?: string | null }) => void;
   canForce: boolean;
   onBusinessRuleViolation?: (message: string, specimenCode: string, reasonRequired: boolean) => void;
   onToPickForOther?: (
@@ -1656,13 +1687,13 @@ const BorrowForm = forwardRef<BorrowFormHandle, BorrowFormProps>(function Borrow
 
   const doCreateLoan = async (force = false) => {
     try {
-      await api.createLoan({
+      const created = await api.createLoan({
         userId: userId,
         itemIdentification: specimenCode,
         force: force || undefined,
       }, newIdempotencyKey());
       setError('');
-      onSuccess();
+      onSuccess(created);
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { code?: string; message?: string } } };
       const axiosData = axiosErr?.response?.data;

@@ -39,6 +39,8 @@ export interface DeskCopySnapshot {
   loanUserLastname?: string | null;
   /** Full staff profile, or `{ id, cardNumber, initials }`. */
   holdFor?: BorrowerRef | null;
+  /** Lender of a deposit copy, when the barcode lookup included `deposit`. */
+  lenderName?: string | null;
 }
 
 export interface DeskScanPatron {

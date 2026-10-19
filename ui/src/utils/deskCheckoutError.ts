@@ -8,6 +8,7 @@ import {
   type DeskScanAlert,
 } from '@/utils/deskScanAlert';
 import { itemStatusActionMessage, readCheckoutItemStatus } from '@/utils/itemStatusAction';
+import { depositErrorBlocksForce } from '@/utils/deposits';
 import { isCheckoutDeclined } from '@/utils/toPickDesk';
 
 const ITEM_STATUS_ACTION_REQUIRED = 'item_status_action_required';
@@ -35,6 +36,7 @@ export function checkoutDeskActions(
   canForce = true,
 ): CheckoutDeskActions {
   const key = code?.trim() ?? '';
+  if (depositErrorBlocksForce(key)) return { force: false, setAside: false };
   if (key === ITEM_TO_PICK_FOR_OTHER) return { force: false, setAside: false };
   if (key === ITEM_HELD_FOR_OTHER) {
     return { force: loanRefusalMayForce(forceable, canForce), setAside: true };

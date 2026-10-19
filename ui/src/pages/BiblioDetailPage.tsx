@@ -34,6 +34,7 @@ import WeedingStatusControl from '@/components/items/WeedingStatusControl';
 import WithdrawalDialog from '@/components/items/WithdrawalDialog';
 import api from '@/services/api';
 import { CopyNoteFields, CopyNotes } from '@/components/items/CopyNotes';
+import DepositBadge from '@/components/items/DepositBadge';
 import ItemAvailabilityBadge, { ItemHoldPatronLine } from '@/components/items/ItemAvailabilityBadge';
 import type { Author, AuthorPublic, BiblioStaffView, ItemPublicView, ItemStaffView, Source } from '@/types';
 import { isBiblioStaffView, isItemStaffView } from '@/utils/catalogView';
@@ -1051,9 +1052,12 @@ function SpecimenCard({
               aria-label={t('weeding.selectCopy', { barcode: specimen.barcode || specimen.id || '' })}
             />
           ) : null}
-          <p className="font-medium text-gray-900 dark:text-white truncate">
-            {specimen.barcode || t('items.noBarcode')}
-          </p>
+          <div className="min-w-0">
+            <p className="font-medium text-gray-900 dark:text-white truncate">
+              {specimen.barcode || t('items.noBarcode')}
+            </p>
+            <DepositBadge deposit={specimen.deposit} />
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <ItemAvailabilityBadge availability={specimen.availability} audience={audience} />

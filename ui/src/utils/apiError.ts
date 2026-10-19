@@ -58,6 +58,13 @@ export function getApiErrorCode(error: unknown): string | null {
   return null;
 }
 
+/** Raw JSON object from an API error, including fields beyond `code` / `message`. */
+export function getApiErrorData(error: unknown): Record<string, unknown> | null {
+  const data = asAxiosError(error)?.response?.data;
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  return data as unknown as Record<string, unknown>;
+}
+
 /** 401, or 403 whose code says the session itself is invalid (not a permission denial). */
 export function isInvalidSessionError(error: unknown): boolean {
   const status = getHttpStatus(error);

@@ -14,6 +14,7 @@ import {
   BookMarked,
   Globe,
   Upload,
+  Library,
   ArrowLeftRight,
   CalendarDays,
   LibraryBig,
@@ -117,6 +118,12 @@ export default function Layout({ children }: LayoutProps) {
         { name: t('nav.weeding'), href: '/weeding', icon: Leaf, show: showWeeding },
         { name: t('nav.z3950Search'), href: '/z3950', icon: Globe, show: access.itemsWrite },
         { name: t('nav.importIso'), href: '/import-iso', icon: Upload, show: access.itemsWrite },
+        {
+          name: t('nav.deposits'),
+          href: '/deposits',
+          icon: Library,
+          show: access.internalCatalog && access.itemsRead,
+        },
       ],
     },
     {

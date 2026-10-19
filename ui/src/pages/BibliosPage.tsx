@@ -19,7 +19,9 @@ import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
 import { mediaTypeIconBadgeBgClass, renderMediaTypeIcon } from '@/utils/mediaTypeIconUtils';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 import { deferFromEffect } from '@/utils/deferFromEffect';
-import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
+import { CopyDepositBadges } from '@/components/items/DepositBadge';
+import { filterLoadedBiblios, type DepositStockFilter } from '@/utils/deposits';
 type CatalogTab = 'catalog' | 'collections' | 'series';
 
 type SavedSearch = {
@@ -204,6 +206,16 @@ export default function BibliosPage() {
 
   const items = data?.pages.flatMap((p) => p.items) ?? [];
   const totalItems = data?.pages[0]?.total ?? 0;
+  const [depositFilter, setDepositFilter] = useState<DepositStockFilter>('all');
+  const [depositLenderId, setDepositLenderId] = useState('');
+  const lendersQuery = useQuery({
+    queryKey: ['lenders', 'catalog-filter'],
+    queryFn: () => api.listLenders(false),
+    enabled: depositFilter === 'deposits',
+  });
+  const depositFilterActive = depositFilter !== 'all' || depositLenderId !== '';
+  const visibleItems = filterLoadedBiblios(items, depositFilter, depositLenderId);
+  const listedCount = depositFilterActive ? visibleItems.length : totalItems;
 
   const canManage = canManageItems(user, api.getToken());
 
@@ -366,6 +378,7 @@ export default function BibliosPage() {
             <p className="text-sm text-gray-500 dark:text-gray-400 truncate font-mono">
               {formatIsbnDisplay(item.isbn)}
             </p>
+            <CopyDepositBadges copies={item.items} />
           </div>
         </div>
       ),
@@ -531,7 +544,7 @@ export default function BibliosPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <p className="text-gray-500 dark:text-gray-400">
-            {t('items.count', { count: totalItems })}
+            {t('items.count', { count: listedCount })}
           </p>
         </div>
         {canManageItems(user, api.getToken()) && (
@@ -660,7 +673,47 @@ export default function BibliosPage() {
                 </div>
               </div>
               )}
+              <div className="flex flex-col gap-1.5 w-[11rem] shrink-0">
+                <label htmlFor="catalog-deposits" className={formLabelClass({ marginBottom: false })}>
+                  {t('deposits.filter.label')}
+                </label>
+                <select
+                  id="catalog-deposits"
+                  value={depositFilter}
+                  onChange={(event) => {
+                    const next = event.target.value as DepositStockFilter;
+                    setDepositFilter(next);
+                    if (next !== 'deposits') setDepositLenderId('');
+                  }}
+                  className={formControlClass({ className: 'w-full' })}
+                >
+                  <option value="all">{t('deposits.filter.all')}</option>
+                  <option value="own">{t('deposits.filter.own')}</option>
+                  <option value="deposits">{t('deposits.filter.deposits')}</option>
+                </select>
+              </div>
+              {depositFilter === 'deposits' && (
+                <div className="flex flex-col gap-1.5 w-[14rem] shrink-0">
+                  <label htmlFor="catalog-deposit-lender" className={formLabelClass({ marginBottom: false })}>
+                    {t('deposits.lender')}
+                  </label>
+                  <select
+                    id="catalog-deposit-lender"
+                    value={depositLenderId}
+                    onChange={(event) => setDepositLenderId(event.target.value)}
+                    className={formControlClass({ className: 'w-full' })}
+                  >
+                    <option value="">{t('deposits.filter.anyLender')}</option>
+                    {(lendersQuery.data ?? []).map((lender) => (
+                      <option key={lender.id} value={lender.id}>{lender.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
+            {depositFilterActive && (
+              <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">{t('deposits.filter.loadedOnly')}</p>
+            )}
           </div>
         )}
       </Card>
@@ -669,10 +722,10 @@ export default function BibliosPage() {
       {/* Items list: fixed-height scroll area so header/filters stay static */}
       <Card padding="none" className="flex flex-col min-h-0">
         <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-800 text-sm text-gray-600 dark:text-gray-300 flex justify-end">
-          <span>{t('items.count', { count: totalItems })}</span>
+          <span>{t('items.count', { count: listedCount })}</span>
         </div>
         <ScrollableListRegion aria-label={t('items.title')}>
-          {isItemsLoading && !items.length ? (
+          {isItemsLoading && !visibleItems.length ? (
             <ListSkeleton rows={10} />
           ) : (
             <>
@@ -680,7 +733,7 @@ export default function BibliosPage() {
                 desktop={
                   <Table
                     columns={columns}
-                    data={items}
+                    data={visibleItems}
                     keyExtractor={(item) => item.id}
                     onRowClick={handleRowClick}
                     isLoading={false}
@@ -688,13 +741,13 @@ export default function BibliosPage() {
                   />
                 }
                 mobile={
-                  items.length === 0 ? (
+                  visibleItems.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-12 text-gray-500 dark:text-gray-400 px-4">
                       {t('items.noItems')}
                     </div>
                   ) : (
                     <div className="rounded-lg border border-gray-200 dark:border-gray-800 overflow-hidden bg-white dark:bg-gray-900 mx-2 sm:mx-4 mb-2">
-                      {items.map((item) => (
+                      {visibleItems.map((item) => (
                         <BiblioCatalogItemCard
                           key={item.id}
                           item={item}

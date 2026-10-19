@@ -1,6 +1,7 @@
 import { ChevronRight, Edit, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { BiblioShort, Author } from '@/types';
+import { CopyDepositBadges } from '@/components/items/DepositBadge';
 import { staffCopyAvailabilityLabel } from '@/utils/itemAvailability';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { LIST_ROW_ICON_BTN, LIST_ROW_ICON_BTN_DANGER } from '@/utils/listRowActionIconClass';
@@ -63,6 +64,7 @@ export default function BiblioCatalogItemCard({
             <span className="text-xs text-gray-500 dark:text-gray-400">{specimensText}</span>
             {statusBadge}
           </div>
+          <CopyDepositBadges copies={item.items} />
         </div>
         <div className="flex-shrink-0 self-center text-gray-400 dark:text-gray-500">
           <ChevronRight className="h-5 w-5" aria-hidden />
