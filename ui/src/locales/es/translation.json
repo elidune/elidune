@@ -97,11 +97,110 @@
     "funds": "Fondos",
     "suggestions": "Sugerencias de compra",
     "weeding": "Expurgo",
+    "deposits": "Depósitos",
+    "lenders": "Prestamistas",
     "showMore": "Mostrar {{count}} más",
     "showLess": "Mostrar menos",
     "sectionGeneral": "General",
     "sectionAdmin": "Administración",
     "sectionUntitled": "Menú"
+  },
+  "deposits": {
+    "badge": "Depósito · {{lender}} · devolución el {{date}}",
+    "dueDateCapped": "Vencimiento adelantado al {{date}} (devolución del depósito)",
+    "dueDateCappedUnknown": "Vencimiento adelantado a la fecha de devolución del depósito",
+    "lender": "Prestamista",
+    "site": "Sede",
+    "reference": "Referencia",
+    "arrivedOn": "Fecha de llegada",
+    "returnDueOn": "Fecha de devolución",
+    "notes": "Notas",
+    "filter": {
+      "label": "Depósitos",
+      "all": "Todos",
+      "own": "Fondo propio",
+      "deposits": "Depósitos",
+      "anyLender": "Cualquier prestamista",
+      "loadedOnly": "Este filtro solo se aplica a los ejemplares ya cargados. El listado del catálogo no admite un criterio de depósito."
+    },
+    "status": {
+      "active": "Activo",
+      "returning": "En devolución",
+      "closed": "Cerrado"
+    },
+    "counts": {
+      "total": "Total",
+      "onShelf": "En estantería",
+      "onLoan": "En préstamo",
+      "onHold": "En reserva",
+      "inTransit": "En tránsito",
+      "returned": "Devuelto"
+    },
+    "copyState": {
+      "onShelf": "En estantería",
+      "onLoan": "En préstamo",
+      "onHold": "En reserva",
+      "inTransit": "En tránsito",
+      "returned": "Devuelto",
+      "missing": "Faltante"
+    },
+    "lenders": {
+      "title": "Prestamistas",
+      "subtitle": "Bibliotecas que nos prestan un fondo.",
+      "create": "Nuevo prestamista",
+      "edit": "Editar prestamista",
+      "contact": "Contacto",
+      "includeArchived": "Mostrar prestamistas archivados",
+      "archive": "Archivar",
+      "archiveConfirm": "¿Archivar {{name}}? Los lotes cerrados siguen vinculados.",
+      "archived": "Prestamista archivado",
+      "archivedBadge": "Archivado",
+      "saved": "Prestamista guardado",
+      "empty": "Ningún prestamista",
+      "nameConflict": "Ya existe un prestamista con este nombre."
+    },
+    "batches": {
+      "title": "Lotes de depósito",
+      "subtitle": "Fondo prestado por otra biblioteca, distinto del fondo propio.",
+      "create": "Nuevo lote",
+      "edit": "Editar lote",
+      "created": "Lote creado",
+      "saved": "Lote guardado",
+      "empty": "Ningún lote",
+      "allStatuses": "Todos los estados",
+      "siteDoesNotMoveCopies": "Cambiar la sede no mueve los ejemplares."
+    },
+    "batch": {
+      "startReturn": "Iniciar la devolución",
+      "returnStarted": "Devolución iniciada",
+      "scanTitle": "Salida de ejemplares",
+      "scanHint": "Escanee cada ejemplar. Un ejemplar ya escaneado sigue escaneado.",
+      "scanOut": "Registrar salida",
+      "scanned": "{{barcode}} registrado",
+      "alreadyScanned": "{{barcode}} ya estaba escaneado",
+      "stillOnLoan": "Ejemplares aún en préstamo",
+      "stillOnHold": "Ejemplares aún en reserva",
+      "none": "Ninguno",
+      "close": "Cerrar el lote",
+      "closeConfirm": "¿Cerrar este lote? Los ejemplares escaneados y los faltantes se archivan. El informe solo incluye código de barras y título.",
+      "closed": "Lote cerrado",
+      "reportTitle": "Informe de devolución",
+      "returnedCopies": "Devueltos",
+      "missingCopies": "Faltantes",
+      "print": "Imprimir",
+      "openRecord": "Abrir el registro"
+    },
+    "import": {
+      "mode": "Modo de importación",
+      "ownStock": "Fondo propio",
+      "deposit": "Depósito",
+      "batch": "Lote activo",
+      "chooseBatch": "Elegir un lote",
+      "batchRequired": "Elija un lote de depósito activo.",
+      "batchesError": "No se pudieron cargar los lotes de depósito.",
+      "created": "Registros creados: {{count}}",
+      "attached": "vinculado al registro existente"
+    }
   },
   "theme": {
     "light": "Claro",
@@ -2216,7 +2315,16 @@
       "account_type_system": "Los tipos de cuenta integrados no se pueden eliminar.",
       "last_active_admin": "Este cambio dejaría la biblioteca sin ninguna cuenta activa que pueda gestionar los ajustes.",
       "birth_date_required": "La fecha de nacimiento es obligatoria para determinar el tipo de público del lector.",
-      "no_public_type_for_age": "Ningún tipo de público corresponde a esta edad. Un administrador debe completar los rangos de edad en Configuración > Tipos de público."
+      "no_public_type_for_age": "Ningún tipo de público corresponde a esta edad. Un administrador debe completar los rangos de edad en Configuración > Tipos de público.",
+      "deposit_return_due": "Este ejemplar debe volver a la biblioteca prestadora. El préstamo no puede pasar de la fecha de devolución del depósito.",
+      "deposit_renewal_no_extension": "La renovación no alargaría el vencimiento: ya es la fecha de devolución del depósito.",
+      "deposit_batch_returning": "Este depósito está en devolución. Las nuevas reservas de sus ejemplares se rechazan.",
+      "deposit_item_not_owned": "Este ejemplar pertenece a un depósito y no se puede expurgar ni retirar.",
+      "deposit_site_mismatch": "El sitio elegido no coincide con el sitio del lote de depósito.",
+      "deposit_batch_not_active": "Este lote de depósito no está activo.",
+      "deposit_import_options_conflict": "Las opciones de ISBN duplicado no pueden usarse al importar un depósito.",
+      "lender_has_active_batches": "Este prestamista todavía tiene un lote que no está cerrado.",
+      "barcode_already_exists": "Este código de barras ya lo usa otro ejemplar."
     }
   },
   "inventory": {

@@ -29,6 +29,7 @@ import RenewalRefusalNotice from '@/components/loans/RenewalRefusalNotice';
 import { presentRenewalRefusal, type RenewalDeskView } from '@/utils/renewalDesk';
 import { closureReasonText } from '@/utils/loanClosure';
 import { renewedUntilMessage } from '@/utils/localeDate';
+import { withDepositDueNotice } from '@/utils/deposits';
 import { isWeedingServerMessage } from '@/utils/weeding';
 import { isSubscriptionExpired } from '@/utils/userSubscription';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
@@ -545,7 +546,12 @@ export default function UserDetailPage() {
       await refreshLoans();
       showToast({
         variant: 'success',
-        message: renewedUntilMessage(renewed.expiryAt, t, i18n.language),
+        message: withDepositDueNotice(
+          renewedUntilMessage(renewed.expiryAt, t, i18n.language),
+          renewed,
+          t,
+          i18n.language,
+        ),
       });
     } catch (error) {
       const held = overrideReasonRefusalMessage(error);
@@ -1424,10 +1430,13 @@ export default function UserDetailPage() {
           formId="borrow-user-form"
           userId={user.id}
           onLoadingChange={setIsBorrowLoading}
-          onSuccess={() => {
+          onSuccess={(created) => {
             setShowBorrowModal(false);
             refreshLoans();
-            showToast({ variant: 'success', message: t('loans.checkoutSuccessShort') });
+            showToast({
+              variant: 'success',
+              message: withDepositDueNotice(t('loans.checkoutSuccessShort'), created, t, i18n.language),
+            });
           }}
           canForce={canForceLoan}
           onBusinessRuleViolation={(msg, specimenCode, reasonRequired) => {
@@ -1460,7 +1469,7 @@ export default function UserDetailPage() {
                 setToPickForceLoading(true);
                 void (async () => {
                   try {
-                    await api.createLoan({
+                    const created = await api.createLoan({
                       userId: user.id,
                       itemIdentification: ctx.specimenCode,
                       force: true,
@@ -1468,7 +1477,10 @@ export default function UserDetailPage() {
                     }, newIdempotencyKey());
                     setToPickForce(null);
                     await refreshLoans();
-                    showToast({ variant: 'success', message: t('loans.checkoutSuccessShort') });
+                    showToast({
+                      variant: 'success',
+                      message: withDepositDueNotice(t('loans.checkoutSuccessShort'), created, t, i18n.language),
+                    });
                     cueBorrowBarcode(true);
                   } catch (error: unknown) {
                     const held = overrideReasonRefusalMessage(error);
@@ -1534,7 +1546,7 @@ export default function UserDetailPage() {
           setForceBorrowLoading(true);
           void (async () => {
             try {
-              await api.createLoan({
+              const created = await api.createLoan({
                 userId: user.id,
                 itemIdentification: ctx.specimenCode,
                 force: true,
@@ -1542,7 +1554,10 @@ export default function UserDetailPage() {
               }, newIdempotencyKey());
               setForceBorrowDialog(null);
               await refreshLoans();
-              showToast({ variant: 'success', message: t('loans.checkoutSuccessShort') });
+              showToast({
+                variant: 'success',
+                message: withDepositDueNotice(t('loans.checkoutSuccessShort'), created, t, i18n.language),
+              });
             } catch (e) {
               const held = overrideReasonRefusalMessage(e);
               if (held !== null) {
@@ -1621,7 +1636,7 @@ interface BorrowFormProps {
   formId: string;
   userId: string;
   onLoadingChange: (loading: boolean) => void;
-  onSuccess: () => void;
+  onSuccess: (created: { dueDateCappedByDeposit?: boolean; expiryAt?: string | null }) => void;
   canForce: boolean;
   onBusinessRuleViolation?: (message: string, specimenCode: string, reasonRequired: boolean) => void;
   onToPickForOther?: (
@@ -1656,13 +1671,13 @@ const BorrowForm = forwardRef<BorrowFormHandle, BorrowFormProps>(function Borrow
 
   const doCreateLoan = async (force = false) => {
     try {
-      await api.createLoan({
+      const created = await api.createLoan({
         userId: userId,
         itemIdentification: specimenCode,
         force: force || undefined,
       }, newIdempotencyKey());
       setError('');
-      onSuccess();
+      onSuccess(created);
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { code?: string; message?: string } } };
       const axiosData = axiosErr?.response?.data;

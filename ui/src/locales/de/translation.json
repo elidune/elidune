@@ -97,11 +97,110 @@
     "funds": "Etats",
     "suggestions": "Anschaffungsvorschläge",
     "weeding": "Aussonderung",
+    "deposits": "Depots",
+    "lenders": "Verleiher",
     "showMore": "{{count}} weitere anzeigen",
     "showLess": "Weniger anzeigen",
     "sectionGeneral": "Allgemein",
     "sectionAdmin": "Administration",
     "sectionUntitled": "Menü"
+  },
+  "deposits": {
+    "badge": "Depot · {{lender}} · Rückgabe am {{date}}",
+    "dueDateCapped": "Fälligkeit auf {{date}} vorgezogen (Rückgabe des Depots)",
+    "dueDateCappedUnknown": "Fälligkeit auf das Rückgabedatum des Depots vorgezogen",
+    "lender": "Verleiher",
+    "site": "Standort",
+    "reference": "Referenz",
+    "arrivedOn": "Eingangsdatum",
+    "returnDueOn": "Rückgabedatum",
+    "notes": "Notizen",
+    "filter": {
+      "label": "Depots",
+      "all": "Alle",
+      "own": "Eigenbestand",
+      "deposits": "Depots",
+      "anyLender": "Alle Verleiher",
+      "loadedOnly": "Dieser Filter gilt nur für die bereits geladenen Exemplare. Die Katalogliste kennt keinen Depotfilter."
+    },
+    "status": {
+      "active": "Aktiv",
+      "returning": "In Rückgabe",
+      "closed": "Geschlossen"
+    },
+    "counts": {
+      "total": "Gesamt",
+      "onShelf": "Im Regal",
+      "onLoan": "Ausgeliehen",
+      "onHold": "Vorgemerkt",
+      "inTransit": "Im Transit",
+      "returned": "Zurückgegeben"
+    },
+    "copyState": {
+      "onShelf": "Im Regal",
+      "onLoan": "Ausgeliehen",
+      "onHold": "Vorgemerkt",
+      "inTransit": "Im Transit",
+      "returned": "Zurückgegeben",
+      "missing": "Fehlend"
+    },
+    "lenders": {
+      "title": "Verleiher",
+      "subtitle": "Bibliotheken, die uns einen Bestand leihen.",
+      "create": "Neuer Verleiher",
+      "edit": "Verleiher bearbeiten",
+      "contact": "Kontakt",
+      "includeArchived": "Archivierte Verleiher anzeigen",
+      "archive": "Archivieren",
+      "archiveConfirm": "{{name}} archivieren? Geschlossene Lose bleiben verknüpft.",
+      "archived": "Verleiher archiviert",
+      "archivedBadge": "Archiviert",
+      "saved": "Verleiher gespeichert",
+      "empty": "Keine Verleiher",
+      "nameConflict": "Ein Verleiher mit diesem Namen existiert bereits."
+    },
+    "batches": {
+      "title": "Depotlose",
+      "subtitle": "Von einer anderen Bibliothek geliehener Bestand, getrennt vom Eigenbestand.",
+      "create": "Neues Los",
+      "edit": "Los bearbeiten",
+      "created": "Los erstellt",
+      "saved": "Los gespeichert",
+      "empty": "Keine Lose",
+      "allStatuses": "Alle Status",
+      "siteDoesNotMoveCopies": "Ein Standortwechsel verschiebt die Exemplare nicht."
+    },
+    "batch": {
+      "startReturn": "Rückgabe starten",
+      "returnStarted": "Rückgabe gestartet",
+      "scanTitle": "Exemplare ausbuchen",
+      "scanHint": "Jedes Exemplar scannen. Ein bereits gescanntes Exemplar bleibt gescannt.",
+      "scanOut": "Ausbuchen",
+      "scanned": "{{barcode}} ausgebucht",
+      "alreadyScanned": "{{barcode}} war bereits gescannt",
+      "stillOnLoan": "Noch ausgeliehene Exemplare",
+      "stillOnHold": "Noch vorgemerkte Exemplare",
+      "none": "Keine",
+      "close": "Los schließen",
+      "closeConfirm": "Dieses Los schließen? Gescannte und fehlende Exemplare werden archiviert. Der Bericht enthält nur Strichcode und Titel.",
+      "closed": "Los geschlossen",
+      "reportTitle": "Rückgabebericht",
+      "returnedCopies": "Zurückgegeben",
+      "missingCopies": "Fehlend",
+      "print": "Drucken",
+      "openRecord": "Aufnahme öffnen"
+    },
+    "import": {
+      "mode": "Importmodus",
+      "ownStock": "Eigenbestand",
+      "deposit": "Depot",
+      "batch": "Aktives Los",
+      "chooseBatch": "Los wählen",
+      "batchRequired": "Wählen Sie ein aktives Depotlos.",
+      "batchesError": "Depotlose konnten nicht geladen werden.",
+      "created": "Aufnahmen erstellt: {{count}}",
+      "attached": "An die bestehende Aufnahme angehängt"
+    }
   },
   "theme": {
     "light": "Hell",
@@ -2216,7 +2315,16 @@
       "account_type_system": "Integrierte Kontotypen können nicht gelöscht werden.",
       "last_active_admin": "Diese Änderung würde kein aktives Konto mit Schreibrecht für die Einstellungen mehr übrig lassen.",
       "birth_date_required": "Das Geburtsdatum ist erforderlich, um den Zielgruppentyp des Lesers zu bestimmen.",
-      "no_public_type_for_age": "Kein Zielgruppentyp entspricht diesem Alter. Eine Verwaltung muss die Altersbereiche unter Einstellungen > Zielgruppen vervollständigen."
+      "no_public_type_for_age": "Kein Zielgruppentyp entspricht diesem Alter. Eine Verwaltung muss die Altersbereiche unter Einstellungen > Zielgruppen vervollständigen.",
+      "deposit_return_due": "Dieses Exemplar muss zur verleihenden Bibliothek zurück. Das Ausleihdatum darf nicht nach dem Rückgabedatum des Depots liegen.",
+      "deposit_renewal_no_extension": "Die Verlängerung würde das Fälligkeitsdatum nicht verschieben: es ist bereits das Rückgabedatum des Depots.",
+      "deposit_batch_returning": "Dieses Depot wird zurückgegeben. Neue Vormerkungen auf seine Exemplare werden abgelehnt.",
+      "deposit_item_not_owned": "Dieses Exemplar gehört zu einem Depot und kann nicht ausgesondert oder entnommen werden.",
+      "deposit_site_mismatch": "Der gewählte Standort entspricht nicht dem Standort des Depotloses.",
+      "deposit_batch_not_active": "Dieses Depotlos ist nicht aktiv.",
+      "deposit_import_options_conflict": "ISBN-Dublettenoptionen können bei einem Depotimport nicht verwendet werden.",
+      "lender_has_active_batches": "Dieser Verleiher hat noch ein Los, das nicht abgeschlossen ist.",
+      "barcode_already_exists": "Dieser Strichcode wird bereits von einem anderen Exemplar verwendet."
     }
   },
   "inventory": {

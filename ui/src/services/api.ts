@@ -2,6 +2,7 @@ import axios, { AxiosError, AxiosInstance } from 'axios';
 import { IDEMPOTENCY_HEADER, newIdempotencyKey } from '@/utils/idempotency';
 import { holdWritePayload } from '@/utils/holdNotes';
 import { biblioWritePayload, itemWritePayload } from '@/utils/itemNotes';
+import { buildMarcBatchImportParams } from '@/utils/deposits';
 import { myLoansRequestParams } from '@/utils/loanClosure';
 import type {
   LoginRequest,
@@ -64,6 +65,16 @@ import type {
   RecordValidationIssue,
   MarcBatchInfo,
   MarcBatchImportReport,
+  Lender,
+  LenderWrite,
+  DepositBatch,
+  DepositBatchDetail,
+  DepositBatchItem,
+  DepositBatchStatus,
+  DepositCopyState,
+  CreateDepositBatch,
+  UpdateDepositBatch,
+  LoanMutationResult,
   TaskStartResponse,
   BackgroundTask,
   PublicType,
@@ -965,7 +976,7 @@ class ApiService {
     force?: boolean;
     /** Staff reason. Sent only when non-blank, next to `force`. */
     overrideReason?: string;
-  }, idempotencyKey?: string): Promise<{ id: string; expiryAt: string; message: string }> {
+  }, idempotencyKey?: string): Promise<LoanMutationResult> {
     const { overrideReason, ...rest } = data;
     const reason = overrideReason?.trim();
     const body = reason ? { ...rest, overrideReason: reason } : rest;
@@ -982,7 +993,7 @@ class ApiService {
     loanId: string,
     idempotencyKey?: string,
     options?: { force?: boolean; overrideReason?: string },
-  ): Promise<{ id: string; expiryAt: string; message: string }> {
+  ): Promise<LoanMutationResult> {
     const response = await this.client.post(`/loans/${loanId}/renew`, undefined, {
       ...this.idempotencyConfig(idempotencyKey),
       params: this.renewParams(options),
@@ -1024,7 +1035,7 @@ class ApiService {
     itemBarcode: string,
     idempotencyKey?: string,
     options?: { force?: boolean; overrideReason?: string },
-  ): Promise<{ id: string; expiryAt: string; message: string }> {
+  ): Promise<LoanMutationResult> {
     const response = await this.client.post(`/loans/items/${itemBarcode}/renew`, undefined, {
       ...this.idempotencyConfig(idempotencyKey),
       params: this.renewParams(options),
@@ -1716,6 +1727,93 @@ class ApiService {
     return response.data;
   }
 
+  // ─── Lenders and deposit batches ─────────────────────────────────
+
+  async listLenders(includeArchived = false): Promise<Lender[]> {
+    const response = await this.client.get<Lender[]>('/lenders', {
+      params: includeArchived ? { includeArchived: true } : undefined,
+    });
+    return response.data;
+  }
+
+  async createLender(data: LenderWrite & { name: string }): Promise<Lender> {
+    const response = await this.client.post<Lender>('/lenders', data);
+    return response.data;
+  }
+
+  async updateLender(id: string, data: LenderWrite): Promise<Lender> {
+    const response = await this.client.patch<Lender>(`/lenders/${id}`, data);
+    return response.data;
+  }
+
+  /** Archives the lender. 422 `lender_has_active_batches` when a batch is still open. */
+  async archiveLender(id: string): Promise<Lender> {
+    const response = await this.client.delete<Lender>(`/lenders/${id}`);
+    return response.data;
+  }
+
+  async listDepositBatches(params?: {
+    lenderId?: string;
+    status?: DepositBatchStatus;
+  }): Promise<DepositBatch[]> {
+    const response = await this.client.get<DepositBatch[]>('/deposit-batches', {
+      params: {
+        ...(params?.lenderId ? { lenderId: params.lenderId } : {}),
+        ...(params?.status ? { status: params.status } : {}),
+      },
+    });
+    return response.data;
+  }
+
+  async getDepositBatch(id: string): Promise<DepositBatchDetail> {
+    const response = await this.client.get<DepositBatchDetail>(`/deposit-batches/${id}`);
+    return response.data;
+  }
+
+  async createDepositBatch(data: CreateDepositBatch): Promise<DepositBatch> {
+    const response = await this.client.post<DepositBatch>('/deposit-batches', data);
+    return response.data;
+  }
+
+  async updateDepositBatch(id: string, data: UpdateDepositBatch): Promise<DepositBatch> {
+    const response = await this.client.patch<DepositBatch>(`/deposit-batches/${id}`, data);
+    return response.data;
+  }
+
+  async listDepositBatchItems(id: string, state?: DepositCopyState): Promise<DepositBatchItem[]> {
+    const response = await this.client.get<DepositBatchItem[]>(`/deposit-batches/${id}/items`, {
+      params: state ? { state } : undefined,
+    });
+    return response.data;
+  }
+
+  /**
+   * `active` → `returning`. Idempotent. Provided by server PR 2.
+   * The body is assumed to be the updated batch.
+   */
+  async startDepositReturn(id: string): Promise<DepositBatch> {
+    const response = await this.client.post<DepositBatch>(`/deposit-batches/${id}/start-return`);
+    return response.data;
+  }
+
+  /**
+   * Marks one copy returned. Idempotent. Provided by server PR 2.
+   * `alreadyScanned` is assumed when the copy was already scanned out.
+   */
+  async scanOutDepositCopy(id: string, barcode: string): Promise<unknown> {
+    const response = await this.client.post(`/deposit-batches/${id}/scan-out`, { barcode });
+    return response.data;
+  }
+
+  /**
+   * `returning` → `closed`. Provided by server PR 2.
+   * Assumed body: `{ returned, missing }` with barcode and title only.
+   */
+  async closeDepositBatch(id: string): Promise<unknown> {
+    const response = await this.client.post(`/deposit-batches/${id}/close`);
+    return response.data;
+  }
+
   // ─── Z39.50 ──────────────────────────────────────────────────────
 
   async searchZ3950(params: {
@@ -1799,17 +1897,18 @@ class ApiService {
       recordId?: number;
       allowDuplicateIsbn?: boolean;
       confirmReplaceExistingId?: string | number | boolean | null;
+      /** Active deposit batch. Official query name is `deposit_batch_id`. */
+      depositBatchId?: string | null;
     },
   ): Promise<TaskStartResponse> {
-    const params: Record<string, unknown> = { batchId };
-    if (sourceId != null) params.sourceId = sourceId;
-    if (options?.recordId != null) params.recordId = options.recordId;
-    if (options?.allowDuplicateIsbn) params.allowDuplicateIsbn = true;
-    if (options?.confirmReplaceExistingId === true) {
-      params.confirmReplaceExistingId = true;
-    } else if (options?.confirmReplaceExistingId != null && options.confirmReplaceExistingId !== false) {
-      params.confirmReplaceExistingId = options.confirmReplaceExistingId;
-    }
+    const params = buildMarcBatchImportParams({
+      batchId,
+      sourceId,
+      recordId: options?.recordId,
+      allowDuplicateIsbn: options?.allowDuplicateIsbn,
+      confirmReplaceExistingId: options?.confirmReplaceExistingId,
+      depositBatchId: options?.depositBatchId,
+    });
 
     const response = await this.client.post<TaskStartResponse>('/biblios/import-marc-batch', null, {
       params,

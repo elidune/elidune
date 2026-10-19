@@ -1,6 +1,7 @@
 import type { TFunction } from 'i18next';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
 import { refusalReasonRequired } from '@/utils/circulationForce';
+import { depositErrorBlocksForce } from '@/utils/deposits';
 
 const ITEM_HELD_FOR_OTHER = 'item_held_for_other';
 
@@ -39,6 +40,9 @@ export function presentRenewalRefusal(
   options: { alreadyForced: boolean; t: TFunction },
 ): RenewalDeskView {
   const code = getApiErrorCode(error);
+  if (depositErrorBlocksForce(code)) {
+    return { kind: 'sentence', message: renewalDeskMessage(error, options.t) };
+  }
   const force = !options.alreadyForced && responseForceable(error) === true;
   const reasonRequired = refusalReasonRequired(error);
   if (code === ITEM_HELD_FOR_OTHER) {

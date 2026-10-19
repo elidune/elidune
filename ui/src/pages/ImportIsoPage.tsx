@@ -1,5 +1,8 @@
 import { useState, useRef, useCallback, Fragment, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useQuery } from '@tanstack/react-query';
+import type { TFunction } from 'i18next';
 import {
   Upload,
   FileText,
@@ -22,6 +25,11 @@ import { Card, Button, Badge, Input, Modal, BarcodeScanField } from '@/component
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
+import {
+  marcImportFailureMessage,
+  summarizeDepositImportReport,
+  type DepositImportSummary,
+} from '@/utils/deposits';
 import { useBackgroundTask, restoreTaskId } from '@/hooks/common/useBackgroundTask';
 import type {
   Author,
@@ -35,6 +43,7 @@ import type {
   MarcBatchInfo,
   BackgroundTask,
   MarcBatchImportError,
+  DepositBatch,
 } from '@/types';
 import type { AxiosError } from 'axios';
 
@@ -111,6 +120,8 @@ interface ParsedRecord {
   detectedEncoding?: RecordEncoding;
   status: 'pending' | 'importing' | 'imported' | 'error';
   error?: string;
+  /** Set when the failure is `barcode_already_exists`. */
+  existingItemId?: string;
   /** Set when the record was imported via a duplicate-resolution confirmation */
   importedWithWarning?: 'replaced' | 'duplicated';
   importedId?: string;
@@ -220,6 +231,8 @@ function getMarcBatchFailureEntries(result: unknown): MarcBatchImportError[] {
 function normalizeMarcBatchImportError(raw: unknown): MarcBatchImportError {
   const o = raw as Record<string, unknown>;
   const existingIdRaw = o.existingId ?? o.existing_id;
+  const existingItemRaw = o.existingItemId ?? o.existing_item_id;
+  const code = typeof o.code === 'string' && o.code.trim() ? o.code.trim() : undefined;
   return {
     key: String(o.key ?? ''),
     error: String(o.error ?? ''),
@@ -227,6 +240,24 @@ function normalizeMarcBatchImportError(raw: unknown): MarcBatchImportError {
       existingIdRaw != null && String(existingIdRaw).length > 0
         ? String(existingIdRaw)
         : undefined,
+    code,
+    existingItemId:
+      existingItemRaw != null && String(existingItemRaw).length > 0
+        ? String(existingItemRaw)
+        : undefined,
+  };
+}
+
+function failureRecordPatch(
+  failure: MarcBatchImportError,
+  t: TFunction,
+): Pick<ParsedRecord, 'status' | 'error' | 'existingItemId'> {
+  const duplicateId = failure.code === 'barcode_already_exists' ? null : getDuplicateExistingIdFromFailure(failure);
+  return {
+    status: 'error',
+    error: duplicateId ? t('importMarc.duplicateSkippedInBatch') : marcImportFailureMessage(failure, t),
+    existingItemId:
+      failure.code === 'barcode_already_exists' ? failure.existingItemId ?? undefined : undefined,
   };
 }
 
@@ -567,6 +598,7 @@ function parseMARCXML(content: string): ParsedRecord[] {
 
 export default function ImportIsoPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scanInputRef = useRef<HTMLInputElement>(null);
   const seenImportedIdsRef = useRef<Set<string>>(new Set());
@@ -576,6 +608,18 @@ export default function ImportIsoPage() {
   // Sources (for specimen creation) — no default selection
   const [sources, setSources] = useState<Source[]>([]);
   const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
+  const [stockMode, setStockMode] = useState<'own' | 'deposit'>('own');
+  const [selectedDepositBatchId, setSelectedDepositBatchId] = useState<string>('');
+  const [depositSummary, setDepositSummary] = useState<DepositImportSummary | null>(null);
+  const depositBatchesQuery = useQuery({
+    queryKey: ['deposit-batches', 'active-import'],
+    queryFn: () => api.listDepositBatches({ status: 'active' }),
+    enabled: stockMode === 'deposit',
+  });
+  const selectedDepositBatch = (depositBatchesQuery.data ?? []).find(
+    (batch) => batch.id === selectedDepositBatchId,
+  ) ?? null;
+  const importTargetReady = stockMode === 'deposit' ? Boolean(selectedDepositBatchId) : Boolean(selectedSourceId);
   const [showAddSource, setShowAddSource] = useState(false);
   const [newSourceName, setNewSourceName] = useState('');
   const [addSourceLoading, setAddSourceLoading] = useState(false);
@@ -650,13 +694,7 @@ export default function ImportIsoPage() {
         if (failure) {
           return prev.map((r) =>
             r.id === ctx.record.id
-              ? {
-                  ...r,
-                  status: 'error' as const,
-                  error: duplicateExistingId
-                    ? t('importMarc.duplicateSkippedInBatch')
-                    : failure!.error,
-                }
+              ? { ...r, ...failureRecordPatch(failure, t) }
               : r,
           );
         }
@@ -679,11 +717,13 @@ export default function ImportIsoPage() {
       } else if (failure && !duplicateExistingId) {
         setSingleErrorModal({
           title: currentRecord.title1 || currentRecord.identification || t('items.notSpecified'),
-          message: failure.error,
+          message: marcImportFailureMessage(failure, t),
         });
       } else if (importedCount > 0) {
         setSuccessCount((c) => c + 1);
         setReplaceConfirmModal(null);
+        const summary = summarizeDepositImportReport(report);
+        if (summary) setDepositSummary(summary);
       }
     },
     [records, t, setReplaceConfirmError, setReplaceConfirmModal, setSingleErrorModal],
@@ -745,12 +785,7 @@ export default function ImportIsoPage() {
               if (r.status !== 'importing') return r;
               const failure = r.recordIndex != null ? failedByKey.get(r.recordIndex) : undefined;
               if (!failure) return r;
-              const isDuplicate = failure.existingId != null;
-              return {
-                ...r,
-                status: 'error' as const,
-                error: isDuplicate ? t('importMarc.duplicateSkippedInBatch') : failure.error,
-              };
+              return { ...r, ...failureRecordPatch(failure, t) };
             }),
           );
         }
@@ -774,16 +809,13 @@ export default function ImportIsoPage() {
             }
             const failure = r.recordIndex != null ? failedByKey.get(r.recordIndex) : undefined;
             if (failure) {
-              const isDuplicate = getDuplicateExistingIdFromFailure(failure) != null;
-              next.push({
-                ...r,
-                status: 'error',
-                error: isDuplicate ? t('importMarc.duplicateSkippedInBatch') : failure.error,
-              });
+              next.push({ ...r, ...failureRecordPatch(failure, t) });
             }
           }
           return next;
         });
+        const summary = summarizeDepositImportReport(report);
+        if (summary) setDepositSummary(summary);
         const failedCount = getMarcBatchFailedCount(report);
         setSuccessCount((prev) => {
           const importingCount = records.filter((r) => r.status === 'importing').length;
@@ -1016,8 +1048,8 @@ export default function ImportIsoPage() {
   }, []);
 
   const handleImportAll = async () => {
-    if (!selectedSourceId) {
-      setParseError(t('z3950.sourceRequired'));
+    if (!importTargetReady) {
+      setParseError(stockMode === 'deposit' ? t('deposits.import.batchRequired') : t('z3950.sourceRequired'));
       return;
     }
     if (records.some((r) => r.status === 'pending' && shouldBlockImportForValidation(r, batchId))) {
@@ -1040,7 +1072,9 @@ export default function ImportIsoPage() {
       );
 
       try {
-        const { taskId } = await api.importMarcBatch(batchId, selectedSourceId);
+        const { taskId } = await api.importMarcBatch(batchId, stockMode === 'deposit' ? null : selectedSourceId, {
+          depositBatchId: stockMode === 'deposit' ? selectedDepositBatchId : null,
+        });
         marcImportTaskContextRef.current.set(String(taskId), { mode: 'all' });
         importTask.startTask(taskId);
       } catch (error) {
@@ -1114,8 +1148,8 @@ export default function ImportIsoPage() {
       autoReplaceOnDuplicate?: boolean;
     }
   ) => {
-    if (!selectedSourceId) {
-      setParseError(t('z3950.sourceRequired'));
+    if (!importTargetReady) {
+      setParseError(stockMode === 'deposit' ? t('deposits.import.batchRequired') : t('z3950.sourceRequired'));
       return;
     }
     if (shouldBlockImportForValidation(record, batchId)) {
@@ -1133,10 +1167,11 @@ export default function ImportIsoPage() {
     if (batchId != null && record.recordIndex != null) {
       setIsImporting(true);
       try {
-        const { taskId } = await api.importMarcBatch(batchId, selectedSourceId, {
+        const { taskId } = await api.importMarcBatch(batchId, stockMode === 'deposit' ? null : selectedSourceId, {
           recordId: record.recordIndex,
-          allowDuplicateIsbn: options?.allowDuplicateIsbn,
-          confirmReplaceExistingId: options?.confirmReplaceExistingId,
+          allowDuplicateIsbn: stockMode === 'deposit' ? undefined : options?.allowDuplicateIsbn,
+          confirmReplaceExistingId: stockMode === 'deposit' ? undefined : options?.confirmReplaceExistingId,
+          depositBatchId: stockMode === 'deposit' ? selectedDepositBatchId : null,
         });
         const report = await api.waitForMarcBatchImportTask(taskId);
         applySingleMarcImportResult(
@@ -1446,9 +1481,28 @@ export default function ImportIsoPage() {
               <div className="mt-1 flex items-center gap-2">
                 <Badge variant="danger">{t('importMarc.errorTag')}</Badge>
                 {record.error && (
-                  <span className="text-xs text-red-700 dark:text-red-300 truncate" title={record.error}>
-                    {record.error}
-                  </span>
+                  record.existingItemId ? (
+                    <button
+                      type="button"
+                      className="text-xs text-red-700 underline dark:text-red-300 truncate"
+                      title={record.error}
+                      onClick={() => {
+                        const itemId = record.existingItemId;
+                        if (!itemId) return;
+                        void api.getItem(itemId).then((notice) => {
+                          if (notice.id) navigate(`/biblios/${notice.id}`);
+                        }).catch((error: unknown) => {
+                          setParseError(getApiErrorMessage(error, t));
+                        });
+                      }}
+                    >
+                      {record.error}
+                    </button>
+                  ) : (
+                    <span className="text-xs text-red-700 dark:text-red-300 truncate" title={record.error}>
+                      {record.error}
+                    </span>
+                  )
                 )}
               </div>
             )}
@@ -1511,7 +1565,7 @@ export default function ImportIsoPage() {
                   : t('importMarc.importOne')
               }
               leftIcon={<Download className="h-4 w-4" />}
-              disabled={!selectedSourceId || shouldBlockImportForValidation(record, batchId)}
+              disabled={!importTargetReady || shouldBlockImportForValidation(record, batchId)}
             >
               {t('importMarc.import')}
             </Button>
@@ -1533,7 +1587,7 @@ export default function ImportIsoPage() {
                   : undefined
               }
               leftIcon={<Download className="h-4 w-4" />}
-              disabled={!selectedSourceId || shouldBlockImportForValidation(record, batchId)}
+              disabled={!importTargetReady || shouldBlockImportForValidation(record, batchId)}
             >
               {t('importMarc.import')}
             </Button>
@@ -1805,8 +1859,59 @@ export default function ImportIsoPage() {
 
             </div>
 
-            {/* Source selector (required before import) */}
-            <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 space-y-3">
+              <fieldset className="flex flex-wrap gap-4">
+                <legend className={formLabelClass({ marginBottom: false })}>{t('deposits.import.mode')}</legend>
+                <label className="flex items-center gap-2 text-sm text-gray-800 dark:text-gray-200">
+                  <input
+                    type="radio"
+                    name="stock-mode"
+                    checked={stockMode === 'own'}
+                    onChange={() => setStockMode('own')}
+                  />
+                  {t('deposits.import.ownStock')}
+                </label>
+                <label className="flex items-center gap-2 text-sm text-gray-800 dark:text-gray-200">
+                  <input
+                    type="radio"
+                    name="stock-mode"
+                    checked={stockMode === 'deposit'}
+                    onChange={() => setStockMode('deposit')}
+                  />
+                  {t('deposits.import.deposit')}
+                </label>
+              </fieldset>
+              {stockMode === 'deposit' ? (
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className={formLabelClass({ marginBottom: false, inline: true, className: 'shrink-0' })} htmlFor="deposit-batch-select">
+                      {t('deposits.import.batch')}
+                    </label>
+                    <select
+                      id="deposit-batch-select"
+                      value={selectedDepositBatchId}
+                      onChange={(event) => setSelectedDepositBatchId(event.target.value)}
+                      className={formControlClass({ className: 'flex-1 min-w-[200px]' })}
+                    >
+                      <option value="">{t('deposits.import.chooseBatch')}</option>
+                      {(depositBatchesQuery.data ?? []).map((batch: DepositBatch) => (
+                        <option key={batch.id} value={batch.id}>
+                          {batch.reference}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {depositBatchesQuery.isError ? (
+                    <p className="text-sm text-red-600 dark:text-red-400">{t('deposits.import.batchesError')}</p>
+                  ) : null}
+                  <p className="text-sm text-gray-600 dark:text-gray-300">
+                    {t('deposits.site')}: {selectedDepositBatch
+                      ? (sources.find((source) => source.id === selectedDepositBatch.siteId)?.name
+                        || selectedDepositBatch.siteId)
+                      : '—'}
+                  </p>
+                </div>
+              ) : (
               <div className="flex flex-wrap items-center gap-2">
                 <label className={formLabelClass({ marginBottom: false, inline: true, className: 'shrink-0' })}>
                   {t('importMarc.source')} :
@@ -1834,7 +1939,8 @@ export default function ImportIsoPage() {
                   {t('importMarc.addSource')}
                 </Button>
               </div>
-              {showAddSource && (
+              )}
+              {stockMode === 'own' && showAddSource && (
                 <form onSubmit={handleAddSource} className="mt-3 flex flex-wrap items-end gap-2">
                   <Input
                     value={newSourceName}
@@ -1854,12 +1960,25 @@ export default function ImportIsoPage() {
               {sourcesError && (
                 <p className="mt-1 text-sm text-red-600 dark:text-red-400">{sourcesError}</p>
               )}
-              {!selectedSourceId && pendingCount > 0 && !scanMode && (
+              {!importTargetReady && pendingCount > 0 && !scanMode && (
                 <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">
-                  {t('z3950.sourceRequired')}
+                  {stockMode === 'deposit' ? t('deposits.import.batchRequired') : t('z3950.sourceRequired')}
                 </p>
               )}
             </div>
+
+            {depositSummary && (
+              <div className="mt-4 space-y-2 text-sm text-gray-700 dark:text-gray-300">
+                <p>{t('deposits.import.created', { count: depositSummary.created.length })}</p>
+                {depositSummary.attached.map((row) => (
+                  <p key={`${row.key}-${row.biblioId}`}>
+                    <Link to={`/biblios/${row.biblioId}`} className="text-indigo-700 underline dark:text-indigo-300">
+                      {t('deposits.import.attached')}
+                    </Link>
+                  </p>
+                ))}
+              </div>
+            )}
 
             {parseError && (
               <div className="mt-4 flex items-center gap-2 text-red-600 dark:text-red-400">
@@ -1878,10 +1997,10 @@ export default function ImportIsoPage() {
                     variant="secondary"
                     onClick={handleStartScanMode}
                     leftIcon={<ScanLine className="h-4 w-4" />}
-                    disabled={!selectedSourceId || pendingHasValidationErrors}
+                    disabled={!importTargetReady || pendingHasValidationErrors}
                     title={
-                      !selectedSourceId
-                        ? t('z3950.sourceRequired')
+                      !importTargetReady
+                        ? (stockMode === 'deposit' ? t('deposits.import.batchRequired') : t('z3950.sourceRequired'))
                         : pendingHasValidationErrors
                           ? t('importMarc.cannotImportWithValidationErrors')
                           : undefined
@@ -1893,10 +2012,10 @@ export default function ImportIsoPage() {
                     onClick={handleImportAll}
                     isLoading={isImporting}
                     leftIcon={<Download className="h-4 w-4" />}
-                    disabled={!selectedSourceId || pendingHasValidationErrors}
+                    disabled={!importTargetReady || pendingHasValidationErrors}
                     title={
-                      !selectedSourceId
-                        ? t('z3950.sourceRequired')
+                      !importTargetReady
+                        ? (stockMode === 'deposit' ? t('deposits.import.batchRequired') : t('z3950.sourceRequired'))
                         : pendingHasValidationErrors
                           ? t('importMarc.cannotImportWithValidationErrors')
                           : undefined

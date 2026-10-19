@@ -56,6 +56,8 @@ import {
 } from '@/utils/deskScanAlert';
 import { checkoutForceFlag, checkoutNoticeForConflict } from '@/utils/loanConflict';
 import { renewedUntilMessage } from '@/utils/localeDate';
+import { depositDueDateNotice, withDepositDueNotice } from '@/utils/deposits';
+import DepositBadge from '@/components/items/DepositBadge';
 import { patronId } from '@/utils/patronLink';
 import { isWeedingServerMessage } from '@/utils/weeding';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
@@ -145,6 +147,7 @@ type CheckoutRecap = {
   barcode: string;
   dueDate: string;
   patronName: string;
+  dueDateCappedByDeposit?: boolean;
 };
 
 const BORROW_LOANS_PAGE_SIZE = 20;
@@ -622,7 +625,12 @@ export default function LoansPage() {
       await loadOverdue();
       showToast({
         variant: 'success',
-        message: renewedUntilMessage(renewed.expiryAt, t, i18n.language),
+        message: withDepositDueNotice(
+          renewedUntilMessage(renewed.expiryAt, t, i18n.language),
+          renewed,
+          t,
+          i18n.language,
+        ),
       });
     } catch (e: unknown) {
       const barcode = overdueData?.loans.find((loan) => loan.loanId === loanId)?.itemBarcode ?? null;
@@ -993,10 +1001,15 @@ export default function LoansPage() {
         noTitle: t('loans.noTitle'),
         listed: matched ?? null,
       });
-      setLastCheckout(recap);
+      setLastCheckout({ ...recap, dueDateCappedByDeposit: created.dueDateCappedByDeposit === true });
       showToast({
         variant: 'success',
-        message: t('loans.checkoutSuccess', { title: recap.title, patron: recap.patronName }),
+        message: withDepositDueNotice(
+          t('loans.checkoutSuccess', { title: recap.title, patron: recap.patronName }),
+          created,
+          t,
+          i18n.language,
+        ),
       });
     } catch (error: unknown) {
       const rawMessage = getApiErrorRawMessage(error) ?? '';
@@ -1165,7 +1178,7 @@ export default function LoansPage() {
       render: (loan: LoanListItem) => {
         const specs = loan.biblio?.items;
         const spec = specs?.length
-          ? (specs.find((s) => s.borrowed) ?? specs[0])
+          ? (specs.find((s) => s.id === loan.itemId) ?? specs.find((s) => s.borrowed) ?? specs[0])
           : null;
         const specimenBarcode = spec ? (spec.barcode ?? spec.id) : loan.itemIdentification;
         return (
@@ -1182,6 +1195,7 @@ export default function LoansPage() {
                   </p>
                 )}
                 <p>{t('items.barcode')}: <span className="font-mono">{specimenBarcode ?? '-'}</span></p>
+                <DepositBadge deposit={spec?.deposit} />
               </div>
             </div>
           </div>
@@ -1264,7 +1278,7 @@ export default function LoansPage() {
 
   const completeRenew = async (
     busyId: string,
-    request: (force: boolean, overrideReason?: string) => Promise<{ expiryAt: string }>,
+    request: (force: boolean, overrideReason?: string) => Promise<{ expiryAt: string; dueDateCappedByDeposit?: boolean }>,
     force = false,
     barcode: string | null = null,
     overrideReason?: string,
@@ -1284,7 +1298,12 @@ export default function LoansPage() {
       }
       showToast({
         variant: 'success',
-        message: renewedUntilMessage(renewed.expiryAt, t, i18n.language),
+        message: withDepositDueNotice(
+          renewedUntilMessage(renewed.expiryAt, t, i18n.language),
+          renewed,
+          t,
+          i18n.language,
+        ),
       });
       return true;
     } catch (error: unknown) {
@@ -2590,6 +2609,15 @@ function CheckoutRecapPanel({
             </span>
           </span>
         </div>
+        {recap.dueDateCappedByDeposit ? (
+          <p className="text-xs text-gray-700 dark:text-gray-200">
+            {depositDueDateNotice(
+              { dueDateCappedByDeposit: true, expiryAt: recap.dueDate },
+              t,
+              locale,
+            )}
+          </p>
+        ) : null}
         <div className="flex items-center gap-2 pt-1">
           <div
             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-[10px] font-bold uppercase text-indigo-800 dark:bg-indigo-900/55 dark:text-indigo-200"

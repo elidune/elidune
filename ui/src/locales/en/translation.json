@@ -97,11 +97,110 @@
     "funds": "Funds",
     "suggestions": "Purchase suggestions",
     "weeding": "Weeding",
+    "deposits": "Deposits",
+    "lenders": "Lenders",
     "showMore": "Show {{count}} more",
     "showLess": "Show less",
     "sectionGeneral": "General",
     "sectionAdmin": "Administration",
     "sectionUntitled": "Menu"
+  },
+  "deposits": {
+    "badge": "Deposit · {{lender}} · return on {{date}}",
+    "dueDateCapped": "Due date brought forward to {{date}} (deposit return)",
+    "dueDateCappedUnknown": "Due date brought forward to the deposit return date",
+    "lender": "Lender",
+    "site": "Site",
+    "reference": "Reference",
+    "arrivedOn": "Arrival date",
+    "returnDueOn": "Return date",
+    "notes": "Notes",
+    "filter": {
+      "label": "Deposits",
+      "all": "All",
+      "own": "Own stock",
+      "deposits": "Deposits",
+      "anyLender": "Any lender",
+      "loadedOnly": "This filter applies only to the copies already loaded. The catalog list does not accept a deposit query."
+    },
+    "status": {
+      "active": "Active",
+      "returning": "Returning",
+      "closed": "Closed"
+    },
+    "counts": {
+      "total": "Total",
+      "onShelf": "On shelf",
+      "onLoan": "On loan",
+      "onHold": "On hold",
+      "inTransit": "In transit",
+      "returned": "Returned"
+    },
+    "copyState": {
+      "onShelf": "On shelf",
+      "onLoan": "On loan",
+      "onHold": "On hold",
+      "inTransit": "In transit",
+      "returned": "Returned",
+      "missing": "Missing"
+    },
+    "lenders": {
+      "title": "Lenders",
+      "subtitle": "Libraries that lend a collection to us.",
+      "create": "New lender",
+      "edit": "Edit lender",
+      "contact": "Contact",
+      "includeArchived": "Show archived lenders",
+      "archive": "Archive",
+      "archiveConfirm": "Archive {{name}}? Closed batches stay linked.",
+      "archived": "Lender archived",
+      "archivedBadge": "Archived",
+      "saved": "Lender saved",
+      "empty": "No lenders",
+      "nameConflict": "A lender with this name already exists."
+    },
+    "batches": {
+      "title": "Deposit batches",
+      "subtitle": "Collections lent by another library, kept separate from our own stock.",
+      "create": "New batch",
+      "edit": "Edit batch",
+      "created": "Batch created",
+      "saved": "Batch saved",
+      "empty": "No batches",
+      "allStatuses": "All statuses",
+      "siteDoesNotMoveCopies": "Changing the site does not move the copies."
+    },
+    "batch": {
+      "startReturn": "Start the return",
+      "returnStarted": "Return started",
+      "scanTitle": "Scan copies out",
+      "scanHint": "Scan each copy. A copy already scanned stays scanned.",
+      "scanOut": "Scan out",
+      "scanned": "{{barcode}} scanned out",
+      "alreadyScanned": "{{barcode}} was already scanned",
+      "stillOnLoan": "Copies still on loan",
+      "stillOnHold": "Copies still on hold",
+      "none": "None",
+      "close": "Close the batch",
+      "closeConfirm": "Close this batch? Scanned copies and missing copies are archived. The report lists barcodes and titles only.",
+      "closed": "Batch closed",
+      "reportTitle": "Return report",
+      "returnedCopies": "Returned",
+      "missingCopies": "Missing",
+      "print": "Print",
+      "openRecord": "Open record"
+    },
+    "import": {
+      "mode": "Import mode",
+      "ownStock": "Own stock",
+      "deposit": "Deposit",
+      "batch": "Active batch",
+      "chooseBatch": "Choose a batch",
+      "batchRequired": "Choose an active deposit batch.",
+      "batchesError": "Could not load deposit batches.",
+      "created": "Records created: {{count}}",
+      "attached": "Attached to the existing record"
+    }
   },
   "theme": {
     "light": "Light",
@@ -2216,7 +2315,16 @@
       "account_type_system": "Built-in account types cannot be deleted.",
       "last_active_admin": "This change would leave no active account that can manage settings.",
       "birth_date_required": "Birth date is required to determine the reader's public type.",
-      "no_public_type_for_age": "No public type matches this age. An administrator must complete the age ranges in Settings > Public Types."
+      "no_public_type_for_age": "No public type matches this age. An administrator must complete the age ranges in Settings > Public Types.",
+      "deposit_return_due": "This copy must go back to the lending library. The loan cannot run past the deposit return date.",
+      "deposit_renewal_no_extension": "Renewal would not extend the due date: it is already the deposit return date.",
+      "deposit_batch_returning": "This deposit is being returned. New holds on its copies are refused.",
+      "deposit_item_not_owned": "This copy belongs to a deposit and cannot be weeded or withdrawn.",
+      "deposit_site_mismatch": "The chosen site does not match the deposit batch site.",
+      "deposit_batch_not_active": "This deposit batch is not active.",
+      "deposit_import_options_conflict": "Duplicate ISBN options cannot be used when importing a deposit.",
+      "lender_has_active_batches": "This lender still has a batch that is not closed.",
+      "barcode_already_exists": "This barcode is already used by another copy."
     }
   },
   "inventory": {
