@@ -3,12 +3,14 @@
 use super::Repository;
 use crate::error::{error_code, AppError, AppResult};
 use crate::models::deposit::{
-    own_stock_sql, CreateDepositBatch, CreateLender, DepositBatch, DepositBatchCounts,
-    DepositBatchItem, DepositBatchStatus, DepositCopyState, Lender, UpdateDepositBatch,
-    UpdateLender,
+    own_stock_sql, CreateDepositBatch, CreateLender, DepositActiveLoanCopy, DepositBatch,
+    DepositBatchCounts, DepositBatchItem, DepositBatchStatus, DepositCloseCopy, DepositCloseReport,
+    DepositCopyState, DepositScanOut, Lender, UpdateDepositBatch, UpdateLender,
 };
+use crate::models::fine::Cents;
 
-const LENDER_COLUMNS: &str = "id, name, contact, notes, archived_at, created_at, updated_at";
+const LENDER_COLUMNS: &str =
+    "id, name, contact, notes, replacement_rate_cents, loss_flagged_at, archived_at, created_at, updated_at";
 
 const BATCH_COLUMNS: &str = r#"
     id, lender_id, reference, site_id, arrived_on, return_due_on, status,
@@ -67,14 +69,15 @@ impl Repository {
         let name = data.name.trim();
         let result = sqlx::query_as::<_, Lender>(&format!(
             r#"
-            INSERT INTO lenders (name, contact, notes)
-            VALUES ($1, $2, $3)
+            INSERT INTO lenders (name, contact, notes, replacement_rate_cents)
+            VALUES ($1, $2, $3, $4)
             RETURNING {LENDER_COLUMNS}
             "#
         ))
         .bind(name)
         .bind(blank_to_null(data.contact.clone()))
         .bind(blank_to_null(data.notes.clone()))
+        .bind(data.replacement_rate_cents)
         .fetch_one(&self.pool)
         .await;
 
@@ -95,10 +98,13 @@ impl Repository {
             Some(value) => blank_to_null(Some(value.clone())),
             None => existing.notes,
         };
+        let replacement_rate_cents = data
+            .replacement_rate_cents
+            .or(existing.replacement_rate_cents);
         let result = sqlx::query_as::<_, Lender>(&format!(
             r#"
             UPDATE lenders
-            SET name = $2, contact = $3, notes = $4, updated_at = now()
+            SET name = $2, contact = $3, notes = $4, replacement_rate_cents = $5, updated_at = now()
             WHERE id = $1
             RETURNING {LENDER_COLUMNS}
             "#
@@ -107,6 +113,7 @@ impl Repository {
         .bind(name)
         .bind(contact)
         .bind(notes)
+        .bind(replacement_rate_cents)
         .fetch_one(&self.pool)
         .await;
 
@@ -312,6 +319,321 @@ impl Repository {
         Ok(rows)
     }
 
+    /// Mark the lender so staff can tell them a deposit copy was lost or damaged.
+    pub async fn lenders_flag_loss(&self, id: i64) -> AppResult<()> {
+        sqlx::query("UPDATE lenders SET loss_flagged_at = now(), updated_at = now() WHERE id = $1")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Lender replacement rate and the copy price for a deposit item.
+    /// `None` when the copy is own stock.
+    pub async fn item_deposit_replacement(
+        &self,
+        item_id: i64,
+    ) -> AppResult<Option<DepositReplacement>> {
+        let row = sqlx::query_as::<_, DepositReplacement>(
+            r#"
+            SELECT db.lender_id, l.replacement_rate_cents, i.price AS item_price_cents
+            FROM items i
+            JOIN deposit_batches db ON db.id = i.deposit_batch_id
+            JOIN lenders l ON l.id = db.lender_id
+            WHERE i.id = $1
+            "#,
+        )
+        .bind(item_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row)
+    }
+
+    /// Cap `expiry` at the copy's batch `return_due_on`.
+    ///
+    /// Own stock is returned unchanged. A batch due today or earlier is
+    /// [`error_code::DEPOSIT_RETURN_DUE`]. When `block_closed` is set, an
+    /// archived copy or a closed batch is [`error_code::ITEM_NOT_LOANABLE`]
+    /// unless the return date is already due (that code wins).
+    pub(crate) async fn cap_item_due_date_conn(
+        &self,
+        conn: &mut sqlx::PgConnection,
+        item_id: i64,
+        expiry: chrono::DateTime<chrono::Utc>,
+        now: chrono::DateTime<chrono::Utc>,
+        block_closed: bool,
+    ) -> AppResult<DepositDueDecision> {
+        let row = sqlx::query_as::<_, DepositDueRow>(
+            r#"
+            SELECT db.return_due_on, db.status, i.archived_at
+            FROM items i
+            JOIN deposit_batches db ON db.id = i.deposit_batch_id
+            WHERE i.id = $1
+            "#,
+        )
+        .bind(item_id)
+        .fetch_optional(&mut *conn)
+        .await?;
+        let Some(row) = row else {
+            return Ok(DepositDueDecision {
+                expiry_at: expiry,
+                capped: false,
+                is_deposit: false,
+            });
+        };
+        let zone = self.library_zone_conn(conn).await?;
+        let today = crate::services::calendar::local_date(zone, now);
+        if block_closed
+            && (row.archived_at.is_some() || row.status == DepositBatchStatus::Closed)
+            && row.return_due_on > today
+        {
+            return Err(AppError::coded(
+                422,
+                error_code::ITEM_NOT_LOANABLE,
+                "This deposit copy has been returned to the lender",
+            ));
+        }
+        match crate::services::calendar::cap_loan_due_date(expiry, row.return_due_on, today, zone) {
+            Some(capped) => Ok(DepositDueDecision {
+                expiry_at: capped.expiry_at,
+                capped: capped.capped,
+                is_deposit: true,
+            }),
+            None => Err(AppError::coded(
+                422,
+                error_code::DEPOSIT_RETURN_DUE,
+                "This deposit copy is due back to the lender today or is already overdue",
+            )),
+        }
+    }
+
+    /// `active` → `returning`. Already `returning` is a no-op.
+    /// Holds pinned to the batch's copies go back to the title queue.
+    pub async fn deposit_batches_start_return(&self, id: i64) -> AppResult<DepositBatch> {
+        let mut tx = self.pool.begin().await?;
+        let status: Option<String> =
+            sqlx::query_scalar("SELECT status FROM deposit_batches WHERE id = $1 FOR UPDATE")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        let Some(status) = status else {
+            return Err(AppError::NotFound(format!("Deposit batch {id} not found")));
+        };
+        if status == DepositBatchStatus::Closed.as_db_str() {
+            return Err(AppError::coded(
+                422,
+                error_code::DEPOSIT_BATCH_NOT_ACTIVE,
+                "A closed deposit batch cannot start a return",
+            ));
+        }
+        if status == DepositBatchStatus::Active.as_db_str() {
+            sqlx::query(
+                r#"
+                UPDATE deposit_batches
+                SET status = 'returning', updated_at = now()
+                WHERE id = $1 AND status = 'active'
+                "#,
+            )
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        }
+        let item_ids: Vec<i64> =
+            sqlx::query_scalar("SELECT id FROM items WHERE deposit_batch_id = $1")
+                .bind(id)
+                .fetch_all(&mut *tx)
+                .await?;
+        self.holds_release_deposit_copies_tx(&mut tx, &item_ids)
+            .await?;
+        tx.commit().await?;
+        self.deposit_batches_get(id).await
+    }
+
+    /// Set `deposit_returned_at` on one copy of a `returning` batch.
+    /// A second scan keeps the first timestamp.
+    pub async fn deposit_batches_scan_out(
+        &self,
+        id: i64,
+        barcode: &str,
+    ) -> AppResult<DepositScanOut> {
+        let barcode = barcode.trim();
+        if barcode.is_empty() {
+            return Err(AppError::Validation("barcode is required".into()));
+        }
+        let mut tx = self.pool.begin().await?;
+        let status: Option<String> =
+            sqlx::query_scalar("SELECT status FROM deposit_batches WHERE id = $1 FOR UPDATE")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        let Some(status) = status else {
+            return Err(AppError::NotFound(format!("Deposit batch {id} not found")));
+        };
+        if status != DepositBatchStatus::Returning.as_db_str() {
+            return Err(AppError::coded(
+                422,
+                error_code::DEPOSIT_BATCH_NOT_RETURNING,
+                "Copies can be scanned out only while the batch is returning",
+            ));
+        }
+        let row = sqlx::query_as::<_, ScanOutRow>(
+            r#"
+            SELECT id, barcode, deposit_returned_at
+            FROM items
+            WHERE deposit_batch_id = $1 AND barcode = $2
+            FOR UPDATE
+            "#,
+        )
+        .bind(id)
+        .bind(barcode)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(row) = row else {
+            return Err(AppError::NotFound(
+                "This barcode is not a copy of this deposit batch".into(),
+            ));
+        };
+        if let Some(returned_at) = row.deposit_returned_at {
+            tx.commit().await?;
+            return Ok(DepositScanOut {
+                item_id: row.id,
+                barcode: row.barcode.unwrap_or_else(|| barcode.to_string()),
+                deposit_returned_at: returned_at,
+                already_scanned: true,
+            });
+        }
+        let returned_at: chrono::DateTime<chrono::Utc> = sqlx::query_scalar(
+            r#"
+            UPDATE items
+            SET deposit_returned_at = now(), updated_at = now()
+            WHERE id = $1
+            RETURNING deposit_returned_at
+            "#,
+        )
+        .bind(row.id)
+        .fetch_one(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(DepositScanOut {
+            item_id: row.id,
+            barcode: row.barcode.unwrap_or_else(|| barcode.to_string()),
+            deposit_returned_at: returned_at,
+            already_scanned: false,
+        })
+    }
+
+    /// `returning` → `closed` once every copy is returned or declared lost.
+    /// An open loan refuses the close and leaves the batch `returning`.
+    /// Does not delete items. A closed batch returns the same report again.
+    pub async fn deposit_batches_close(&self, id: i64) -> AppResult<DepositCloseReport> {
+        let mut tx = self.pool.begin().await?;
+        let status: Option<String> =
+            sqlx::query_scalar("SELECT status FROM deposit_batches WHERE id = $1 FOR UPDATE")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?;
+        let Some(status) = status else {
+            return Err(AppError::NotFound(format!("Deposit batch {id} not found")));
+        };
+        if status == DepositBatchStatus::Active.as_db_str() {
+            return Err(AppError::coded(
+                422,
+                error_code::DEPOSIT_BATCH_NOT_RETURNING,
+                "Start the return before closing the batch",
+            ));
+        }
+        if status == DepositBatchStatus::Returning.as_db_str() {
+            sqlx::query("SELECT id FROM items WHERE deposit_batch_id = $1 FOR UPDATE")
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+            let on_loan = sqlx::query_as::<_, DepositActiveLoanCopy>(
+                r#"
+                SELECT i.id AS item_id, i.barcode
+                FROM items i
+                JOIN loans l ON l.item_id = i.id AND l.returned_at IS NULL
+                WHERE i.deposit_batch_id = $1
+                ORDER BY i.barcode NULLS LAST, i.id
+                "#,
+            )
+            .bind(id)
+            .fetch_all(&mut *tx)
+            .await?;
+            if !on_loan.is_empty() {
+                return Err(AppError::deposit_batch_has_active_loans(on_loan));
+            }
+            sqlx::query(
+                r#"
+                UPDATE items i
+                SET archived_at = now(), updated_at = now()
+                WHERE i.deposit_batch_id = $1
+                  AND i.archived_at IS NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM loans l
+                      WHERE l.item_id = i.id AND l.returned_at IS NULL
+                  )
+                "#,
+            )
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(
+                r#"
+                UPDATE deposit_batches
+                SET status = 'closed', closed_at = now(), updated_at = now()
+                WHERE id = $1 AND status = 'returning'
+                "#,
+            )
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        }
+        let report = self.deposit_close_report_tx(&mut tx, id).await?;
+        tx.commit().await?;
+        Ok(report)
+    }
+
+    async fn deposit_close_report_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        id: i64,
+    ) -> AppResult<DepositCloseReport> {
+        let rows = sqlx::query_as::<_, ClassifiedCopy>(
+            r#"
+            SELECT i.id AS item_id, i.barcode, b.title,
+                CASE
+                    WHEN EXISTS (
+                        SELECT 1 FROM loans l
+                        WHERE l.item_id = i.id AND l.returned_at IS NULL
+                    ) THEN 'onLoan'
+                    WHEN i.deposit_returned_at IS NOT NULL THEN 'returned'
+                    ELSE 'missing'
+                END AS bucket
+            FROM items i
+            JOIN biblios b ON b.id = i.biblio_id
+            WHERE i.deposit_batch_id = $1
+            ORDER BY i.barcode NULLS LAST, i.id
+            "#,
+        )
+        .bind(id)
+        .fetch_all(&mut **tx)
+        .await?;
+        let mut report = DepositCloseReport::default();
+        for row in rows {
+            let copy = DepositCloseCopy {
+                item_id: row.item_id,
+                barcode: row.barcode,
+                title: row.title,
+            };
+            match row.bucket.as_str() {
+                "returned" => report.returned.push(copy),
+                "missing" => report.missing.push(copy),
+                _ => {}
+            }
+        }
+        Ok(report)
+    }
+
     pub async fn sources_exists(&self, id: i64) -> AppResult<bool> {
         let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sources WHERE id = $1)")
             .bind(id)
@@ -345,11 +667,11 @@ LEFT JOIN LATERAL (
 
 const COPY_BUCKET: &str = r#"
 CASE
-    WHEN i.deposit_returned_at IS NOT NULL THEN 'returned'
     WHEN active_loan.id IS NOT NULL THEN 'onLoan'
+    WHEN i.deposit_returned_at IS NOT NULL THEN 'returned'
+    WHEN i.archived_at IS NOT NULL OR COALESCE(i.circulation_status, 0) = 5 THEN 'missing'
     WHEN active_transit.id IS NOT NULL THEN 'inTransit'
     WHEN assigned_hold.user_id IS NOT NULL THEN 'onHold'
-    WHEN i.archived_at IS NOT NULL OR COALESCE(i.circulation_status, 0) = 5 THEN 'missing'
     WHEN i.borrowable = FALSE
       OR i.weeding_status = 'withdrawn'
       OR COALESCE(i.circulation_status, 0) IN (1, 2, 3, 4)
@@ -357,3 +679,41 @@ CASE
     ELSE 'onShelf'
 END
 "#;
+
+/// Facts used to cap a loan or renewal due date.
+pub(crate) struct DepositDueDecision {
+    pub expiry_at: chrono::DateTime<chrono::Utc>,
+    pub capped: bool,
+    pub is_deposit: bool,
+}
+
+/// Lender rate and copy price used when a deposit copy is lost or damaged.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct DepositReplacement {
+    pub lender_id: i64,
+    pub replacement_rate_cents: Option<Cents>,
+    /// `items.price` in cents. Zero and null are not a billable slip price.
+    pub item_price_cents: Option<Cents>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct DepositDueRow {
+    return_due_on: chrono::NaiveDate,
+    status: DepositBatchStatus,
+    archived_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct ScanOutRow {
+    id: i64,
+    barcode: Option<String>,
+    deposit_returned_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct ClassifiedCopy {
+    item_id: i64,
+    barcode: Option<String>,
+    title: Option<String>,
+    bucket: String,
+}

@@ -106,6 +106,8 @@ pub struct LoanReturnOutcome {
     pub hold_ready_email: Option<HoldReadyEmailOutcome>,
     /// Set when the copy was lost. The return does not change that status.
     pub lost: Option<crate::models::dto::circulation::LostItemOnReturn>,
+    /// True when this return checked in a deposit copy whose batch is `returning`.
+    pub return_to_lender: bool,
 }
 
 /// Hold-ready notification email attempt after a loan return.
@@ -126,6 +128,8 @@ pub struct LoanCreateOutcome {
     pub fulfilled_hold_id: Option<i64>,
     /// Hold left in the queue because `force` skipped `item_held_for_other`.
     pub preserved_hold_id: Option<i64>,
+    /// True when the due date was lowered to the deposit batch `returnDueOn`.
+    pub due_date_capped_by_deposit: bool,
 }
 
 /// How the new due date is computed when a loan is renewed (`loans_settings.renew_at`).

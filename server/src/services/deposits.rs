@@ -62,6 +62,7 @@ impl DepositsService {
         if data.name.trim().is_empty() {
             return Err(AppError::Validation("Lender name is required".into()));
         }
+        reject_non_positive_rate(data.replacement_rate_cents)?;
         self.repository.lenders_create(data).await
     }
 
@@ -75,6 +76,7 @@ impl DepositsService {
         {
             return Err(AppError::Validation("Lender name is required".into()));
         }
+        reject_non_positive_rate(data.replacement_rate_cents)?;
         self.repository.lenders_update(id, data).await
     }
 
@@ -130,6 +132,25 @@ impl DepositsService {
             self.require_site(site_id).await?;
         }
         self.repository.deposit_batches_update(id, data).await
+    }
+
+    pub async fn start_return(&self, id: i64) -> AppResult<DepositBatch> {
+        self.repository.deposit_batches_start_return(id).await
+    }
+
+    pub async fn scan_out(
+        &self,
+        id: i64,
+        barcode: &str,
+    ) -> AppResult<crate::models::deposit::DepositScanOut> {
+        self.repository.deposit_batches_scan_out(id, barcode).await
+    }
+
+    pub async fn close_batch(
+        &self,
+        id: i64,
+    ) -> AppResult<crate::models::deposit::DepositCloseReport> {
+        self.repository.deposit_batches_close(id).await
     }
 
     pub async fn list_batch_items(
@@ -325,6 +346,15 @@ impl DepositsService {
             Err(AppError::NotFound(format!("Source {site_id} not found")))
         }
     }
+}
+
+fn reject_non_positive_rate(rate: Option<crate::models::fine::Cents>) -> AppResult<()> {
+    if rate.is_some_and(|cents| cents.0 <= 0) {
+        return Err(AppError::Validation(
+            "replacementRateCents must be greater than 0".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn is_unique_violation(error: &AppError) -> bool {

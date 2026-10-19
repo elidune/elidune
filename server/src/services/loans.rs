@@ -56,6 +56,8 @@ pub struct ItemCheckIn {
     pub weeding_status: Option<crate::models::item::WeedingStatus>,
     /// Present when this scan set a title hold aside, or repeated that assignment.
     pub set_aside: Option<SetAsideOutcome>,
+    /// True when this check-in returned a deposit copy whose batch is `returning`.
+    pub return_to_lender: bool,
 }
 
 /// Outcome of a title-hold set-aside on the barcode return.
@@ -80,6 +82,8 @@ pub struct TitleHoldSetAside {
 pub struct DeskReturn {
     pub loan: Option<LoanDetails>,
     pub lost: Option<crate::models::dto::circulation::LostItemOnReturn>,
+    /// True when this check-in returned a deposit copy whose batch is `returning`.
+    pub return_to_lender: bool,
 }
 
 /// Result of the unpaid-fine gate for one checkout.
@@ -386,6 +390,7 @@ impl LoansService {
                 Ok(DeskReturn {
                     loan: Some(outcome.details),
                     lost: outcome.lost,
+                    return_to_lender: outcome.return_to_lender,
                 })
             }
             Err(AppError::NotFound(_)) => {
@@ -403,6 +408,7 @@ impl LoansService {
                     return Ok(DeskReturn {
                         loan: None,
                         lost: Some(found.notice),
+                        return_to_lender: false,
                     });
                 }
                 Err(AppError::NotFound(format!("Loan {loan_id} not found")))
@@ -459,6 +465,7 @@ impl LoansService {
                     circulation_status: Some(copy.circulation_status),
                     weeding_status: Some(copy.weeding_status),
                     set_aside: None,
+                    return_to_lender: false,
                 });
             }
         }
@@ -485,6 +492,7 @@ impl LoansService {
                     circulation_status: None,
                     weeding_status: None,
                     set_aside: None,
+                    return_to_lender: outcome.return_to_lender,
                 })
             }
             Err(AppError::NotFound(_)) => {
@@ -510,6 +518,7 @@ impl LoansService {
                         circulation_status: None,
                         weeding_status: None,
                         set_aside: None,
+                        return_to_lender: false,
                     });
                 }
                 if let Some(target) = set_aside {
@@ -552,6 +561,7 @@ impl LoansService {
                         circulation_status: None,
                         weeding_status: None,
                         set_aside: None,
+                        return_to_lender: false,
                     });
                 }
                 if let Some(done) = self
@@ -627,6 +637,7 @@ impl LoansService {
             circulation_status: None,
             weeding_status: None,
             set_aside,
+            return_to_lender: false,
         }
     }
 
@@ -878,7 +889,7 @@ impl LoansService {
         audit_actor: Option<i64>,
         client_ip: Option<String>,
         caller_rights: &UserRights,
-    ) -> AppResult<(DateTime<Utc>, i16)> {
+    ) -> AppResult<(DateTime<Utc>, i16, bool)> {
         self.perform_renewal(
             loan_id,
             force,
@@ -899,7 +910,7 @@ impl LoansService {
         audit_actor: Option<i64>,
         client_ip: Option<String>,
         caller_rights: &UserRights,
-    ) -> AppResult<(DateTime<Utc>, i16)> {
+    ) -> AppResult<(DateTime<Utc>, i16, bool)> {
         let snapshot = self.repository.loans_renewal_snapshot(loan_id).await?;
         if snapshot.returned {
             return Err(AppError::BusinessRule(
@@ -969,7 +980,11 @@ impl LoansService {
                 AuditLogMeta::success(),
             );
         }
-        Ok((renewed.expiry_at, renewed.renew_count))
+        Ok((
+            renewed.expiry_at,
+            renewed.renew_count,
+            renewed.due_date_capped_by_deposit,
+        ))
     }
 
     /// Audit event for a renewal gate this call skipped.
@@ -998,12 +1013,12 @@ impl LoansService {
         audit_actor: Option<i64>,
         client_ip: Option<String>,
         caller_rights: &UserRights,
-    ) -> AppResult<(i64, DateTime<Utc>, i16)> {
+    ) -> AppResult<(i64, DateTime<Utc>, i16, bool)> {
         let loan = self
             .repository
             .loans_get_by_item_identification(item_identification)
             .await?;
-        let (new_expiry_date, renew_count) = self
+        let (new_expiry_date, renew_count, due_date_capped_by_deposit) = self
             .renew_loan(
                 loan.id,
                 force,
@@ -1013,7 +1028,12 @@ impl LoansService {
                 caller_rights,
             )
             .await?;
-        Ok((loan.id, new_expiry_date, renew_count))
+        Ok((
+            loan.id,
+            new_expiry_date,
+            renew_count,
+            due_date_capped_by_deposit,
+        ))
     }
 
     /// Count active loans
@@ -1361,6 +1381,7 @@ mod tests {
                 site_id: None,
                 fulfilled_hold_id: None,
                 preserved_hold_id: progress.preserved_hold_id,
+                due_date_capped_by_deposit: false,
             })
         }
         async fn loans_return(&self, _: i64) -> AppResult<LoanReturnOutcome> {
@@ -1447,6 +1468,7 @@ mod tests {
                 expiry_at: Utc::now() + chrono::Duration::days(21),
                 renew_count: 1,
                 lifted: Vec::new(),
+                due_date_capped_by_deposit: false,
             })
         }
         async fn loans_get_settings(&self) -> AppResult<Vec<crate::models::loan::LoanSettings>> {

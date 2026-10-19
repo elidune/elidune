@@ -35,6 +35,22 @@ pub struct ItemStats {
     pub withdrawals: i64,
     /// Withdrawals by media type
     pub withdrawals_by_media_type: Vec<StatEntry>,
+    /// Active copies the library owns. Deposit copies are not included.
+    pub own_stock: i64,
+    /// Active deposit copies, one row per lender. Included in `total`.
+    pub deposits: Vec<DepositLenderCount>,
+}
+
+/// Active deposit copies of one lender.
+#[serde_as]
+#[derive(Debug, Clone, Serialize, ToSchema, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct DepositLenderCount {
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub lender_id: i64,
+    pub lender_name: String,
+    pub count: i64,
 }
 
 #[derive(Serialize, ToSchema)]

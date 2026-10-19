@@ -148,6 +148,21 @@ pub mod error_code {
     pub const DEPOSIT_IMPORT_OPTIONS_CONFLICT: &str = "deposit_import_options_conflict";
     /// One imported copy kept the lender barcode, and that barcode is already used.
     pub const BARCODE_ALREADY_EXISTS: &str = "barcode_already_exists";
+    /// Checkout or renewal of a deposit copy whose batch `return_due_on` is today or earlier.
+    /// Not forceable.
+    pub const DEPOSIT_RETURN_DUE: &str = "deposit_return_due";
+    /// A renewal whose deposit cap would not move the due date later. Does not consume a renewal.
+    pub const DEPOSIT_RENEWAL_NO_EXTENSION: &str = "deposit_renewal_no_extension";
+    /// A deposit copy in a returning or closed batch, or past `return_due_on`, cannot be assigned to a hold.
+    pub const DEPOSIT_BATCH_RETURNING: &str = "deposit_batch_returning";
+    /// Weeding or withdrawal of a copy that belongs to a deposit batch.
+    pub const DEPOSIT_ITEM_NOT_OWNED: &str = "deposit_item_not_owned";
+    /// Loss or damage of a deposit copy needs a positive amount when the lender has no rate.
+    pub const DEPOSIT_REPLACEMENT_AMOUNT_REQUIRED: &str = "deposit_replacement_amount_required";
+    /// Scan-out and close require batch status `returning`.
+    pub const DEPOSIT_BATCH_NOT_RETURNING: &str = "deposit_batch_not_returning";
+    /// Close refused while a copy of the batch still has an open loan.
+    pub const DEPOSIT_BATCH_HAS_ACTIVE_LOANS: &str = "deposit_batch_has_active_loans";
 }
 
 /// Main application error type
@@ -268,6 +283,14 @@ pub enum AppError {
         remaining_cents: i64,
         message: String,
     },
+
+    /// Close refused while copies of the batch are still on loan (HTTP 422).
+    /// `copies` is boxed so `AppError` stays under `result_large_err`.
+    #[error("{message}")]
+    DepositBatchHasActiveLoans {
+        message: String,
+        copies: Box<Vec<crate::models::deposit::DepositActiveLoanCopy>>,
+    },
 }
 
 impl AppError {
@@ -317,6 +340,20 @@ impl AppError {
         )
     }
 
+    /// Close stays `returning`. `copies` are the items that still have an open loan.
+    #[must_use]
+    pub fn deposit_batch_has_active_loans(
+        copies: Vec<crate::models::deposit::DepositActiveLoanCopy>,
+    ) -> Self {
+        let count = copies.len();
+        Self::DepositBatchHasActiveLoans {
+            message: format!(
+                "Return or declare lost every copy still on loan before closing the batch ({count} still on loan)"
+            ),
+            copies: Box::new(copies),
+        }
+    }
+
     /// `remaining_cents` is `amount - paid_amount` in euro cents.
     #[must_use]
     pub fn payment_exceeds_balance(remaining_cents: i64) -> Self {
@@ -342,6 +379,21 @@ pub struct ErrorResponse {
     pub error: String,
     /// Detailed error message
     pub message: String,
+}
+
+/// `422` from `POST /deposit-batches/{id}/close` while a copy is still on loan.
+/// Same fields as [`ErrorResponse`] plus `copies`. The batch stays `returning`.
+#[derive(Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DepositBatchHasActiveLoansBody {
+    /// Always `"deposit_batch_has_active_loans"`.
+    pub code: String,
+    /// Human-readable category (`"Business Rule Violation"`).
+    pub error: String,
+    /// Why close was refused.
+    pub message: String,
+    /// Copies of this batch that still have an open loan.
+    pub copies: Vec<crate::models::deposit::DepositActiveLoanCopy>,
 }
 
 /// `422` from `POST /fines/{id}/pay` when the payment is above the unpaid balance.
@@ -576,6 +628,12 @@ impl AppError {
                 label: "Business Rule Violation",
                 message: message.clone(),
             },
+            AppError::DepositBatchHasActiveLoans { message, .. } => HttpErrorFields {
+                status: StatusCode::UNPROCESSABLE_ENTITY,
+                code: ec::DEPOSIT_BATCH_HAS_ACTIVE_LOANS,
+                label: "Business Rule Violation",
+                message: message.clone(),
+            },
         }
     }
 }
@@ -642,6 +700,15 @@ impl IntoResponse for AppError {
                     error: "Business Rule Violation".to_string(),
                     message,
                     remaining_cents,
+                });
+                (StatusCode::UNPROCESSABLE_ENTITY, body).into_response()
+            }
+            AppError::DepositBatchHasActiveLoans { message, copies } => {
+                let body = Json(DepositBatchHasActiveLoansBody {
+                    code: ec::DEPOSIT_BATCH_HAS_ACTIVE_LOANS.to_string(),
+                    error: "Business Rule Violation".to_string(),
+                    message,
+                    copies: *copies,
                 });
                 (StatusCode::UNPROCESSABLE_ENTITY, body).into_response()
             }

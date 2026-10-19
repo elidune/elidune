@@ -676,15 +676,22 @@ impl Repository {
         }
 
         let mut tx = self.pool.begin().await?;
-        let current: Option<WeedingStatus> = sqlx::query_scalar(
-            "SELECT weeding_status FROM items WHERE id = $1 AND archived_at IS NULL FOR UPDATE",
+        let current: Option<(WeedingStatus, Option<i64>)> = sqlx::query_as(
+            "SELECT weeding_status, deposit_batch_id FROM items WHERE id = $1 AND archived_at IS NULL FOR UPDATE",
         )
         .bind(item_id)
         .fetch_optional(&mut *tx)
         .await?;
-        let Some(current) = current else {
+        let Some((current, deposit_batch_id)) = current else {
             return Err(AppError::NotFound(format!("Item {item_id} not found")));
         };
+        if deposit_batch_id.is_some() {
+            return Err(AppError::coded(
+                422,
+                error_code::DEPOSIT_ITEM_NOT_OWNED,
+                "A deposit copy is not part of the library's own stock",
+            ));
+        }
         let active_withdrawal: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM item_withdrawals WHERE item_id = $1 AND cancelled_at IS NULL)",
         )

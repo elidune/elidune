@@ -30,7 +30,9 @@ Legacy source DBs have no acquisitions, suggestion, or retired card-number table
 Migration 065 adds lenders and deposit_batches, plus nullable items.deposit_batch_id
 and items.deposit_returned_at. This script inserts items without those columns,
 so every migrated copy stays own stock (deposit_batch_id NULL). Existing rows
-are not reclassified as incoming deposits.)
+are not reclassified as incoming deposits.
+Migration 066 adds nullable lenders.replacement_rate_cents (CHECK > 0) and
+lenders.loss_flagged_at. No rows are rewritten; both columns stay NULL.)
 
 Usage:
     python migrate_data.py --source-db <old_db_url> --target-db <new_db_url>
