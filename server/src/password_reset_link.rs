@@ -162,8 +162,10 @@ mod tests {
             "https://library.example.org",
         );
         let users = test_users(None);
-        let mut server = ServerConfig::default();
-        server.public_base_url = None;
+        let server = ServerConfig {
+            public_base_url: None,
+            ..Default::default()
+        };
         assert_eq!(
             password_reset_public_base(&users, &server).as_deref(),
             Some("https://library.example.org")
