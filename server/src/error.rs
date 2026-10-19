@@ -163,6 +163,12 @@ pub mod error_code {
     pub const DEPOSIT_BATCH_NOT_RETURNING: &str = "deposit_batch_not_returning";
     /// Close refused while a copy of the batch still has an open loan.
     pub const DEPOSIT_BATCH_HAS_ACTIVE_LOANS: &str = "deposit_batch_has_active_loans";
+    /// Scan-out refused while this copy still has an open loan.
+    pub const DEPOSIT_ITEM_ON_LOAN: &str = "deposit_item_on_loan";
+    /// `POST /items/{id}/deposit-loss-notified` on a copy that is not a deposit copy declared lost or damaged.
+    pub const DEPOSIT_LOSS_NOT_DECLARED: &str = "deposit_loss_not_declared";
+    /// That route when `items.deposit_loss_notified_at` is already set. No second audit row is written.
+    pub const DEPOSIT_LOSS_ALREADY_NOTIFIED: &str = "deposit_loss_already_notified";
 }
 
 /// Main application error type
@@ -291,6 +297,13 @@ pub enum AppError {
         message: String,
         copies: Box<Vec<crate::models::deposit::DepositActiveLoanCopy>>,
     },
+
+    /// Scan-out refused while this copy still has an open loan (HTTP 422).
+    #[error("{message}")]
+    DepositItemOnLoan {
+        message: String,
+        copy: Box<crate::models::deposit::DepositActiveLoanCopy>,
+    },
 }
 
 impl AppError {
@@ -354,6 +367,15 @@ impl AppError {
         }
     }
 
+    /// Scan-out stays unchanged. Check the copy in at the desk first.
+    #[must_use]
+    pub fn deposit_item_on_loan(item_id: i64, barcode: Option<String>) -> Self {
+        Self::DepositItemOnLoan {
+            message: "Check this copy in at the desk before scanning it out to the lender. It still has an open loan".into(),
+            copy: Box::new(crate::models::deposit::DepositActiveLoanCopy { item_id, barcode }),
+        }
+    }
+
     /// `remaining_cents` is `amount - paid_amount` in euro cents.
     #[must_use]
     pub fn payment_exceeds_balance(remaining_cents: i64) -> Self {
@@ -379,6 +401,23 @@ pub struct ErrorResponse {
     pub error: String,
     /// Detailed error message
     pub message: String,
+}
+
+/// `422` from `POST /deposit-batches/{id}/scan-out` while this copy is still on loan.
+/// `itemId` is a string. `barcode` is null when the copy has none.
+#[derive(Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DepositItemOnLoanBody {
+    /// Always `"deposit_item_on_loan"`.
+    pub code: String,
+    /// Human-readable category (`"Business Rule Violation"`).
+    pub error: String,
+    /// Why scan-out was refused.
+    pub message: String,
+    /// Copy id, as a string.
+    pub item_id: String,
+    /// Null when the copy has no barcode.
+    pub barcode: Option<String>,
 }
 
 /// `422` from `POST /deposit-batches/{id}/close` while a copy is still on loan.
@@ -634,6 +673,12 @@ impl AppError {
                 label: "Business Rule Violation",
                 message: message.clone(),
             },
+            AppError::DepositItemOnLoan { message, .. } => HttpErrorFields {
+                status: StatusCode::UNPROCESSABLE_ENTITY,
+                code: ec::DEPOSIT_ITEM_ON_LOAN,
+                label: "Business Rule Violation",
+                message: message.clone(),
+            },
         }
     }
 }
@@ -709,6 +754,16 @@ impl IntoResponse for AppError {
                     error: "Business Rule Violation".to_string(),
                     message,
                     copies: *copies,
+                });
+                (StatusCode::UNPROCESSABLE_ENTITY, body).into_response()
+            }
+            AppError::DepositItemOnLoan { message, copy } => {
+                let body = Json(DepositItemOnLoanBody {
+                    code: ec::DEPOSIT_ITEM_ON_LOAN.to_string(),
+                    error: "Business Rule Violation".to_string(),
+                    message,
+                    item_id: copy.item_id.to_string(),
+                    barcode: copy.barcode,
                 });
                 (StatusCode::UNPROCESSABLE_ENTITY, body).into_response()
             }

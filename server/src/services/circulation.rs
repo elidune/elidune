@@ -122,8 +122,7 @@ impl CirculationService {
             item_id: response.item_id,
             actor,
             client_ip,
-        })
-        .await?;
+        });
         Ok(response)
     }
 
@@ -184,8 +183,7 @@ impl CirculationService {
             item_id: response.item_id,
             actor,
             client_ip,
-        })
-        .await?;
+        });
         Ok(response)
     }
 
@@ -426,11 +424,10 @@ impl CirculationService {
             .await
     }
 
-    async fn audit_deposit_loss(&self, audit_row: DepositLossAudit<'_>) -> AppResult<()> {
+    fn audit_deposit_loss(&self, audit_row: DepositLossAudit<'_>) {
         let Some(deposit) = audit_row.deposit else {
-            return Ok(());
+            return;
         };
-        self.repository.lenders_flag_loss(deposit.lender_id).await?;
         self.audit.log(
             audit::event::DEPOSIT_ITEM_LOST,
             audit_row.actor,
@@ -446,7 +443,6 @@ impl CirculationService {
             })),
             AuditLogMeta::success(),
         );
-        Ok(())
     }
 
     async fn resolve_bill_amount(
