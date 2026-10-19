@@ -15,12 +15,17 @@ import { getApiErrorMessage } from './apiError.ts';
 import {
   biblioMatchesDepositFilter,
   buildMarcBatchImportParams,
+  depositActiveLoanCopies,
   depositBadgeText,
   depositDueDateNotice,
+  depositReplacementAmountRequired,
   depositScanAlreadyReturned,
   lenderNameConflictMessage,
   marcImportFailureMessage,
   parseDepositCloseReport,
+  parseReplacementRateEuros,
+  replacementAmountFieldState,
+  returnToLenderNotice,
   withDepositDueNotice,
 } from './deposits.ts';
 
@@ -224,14 +229,103 @@ describe('deposit close report', () => {
     const report = parseDepositCloseReport({
       returned: [{ barcode: 'A1', title: 'Title A', readerName: 'Hidden reader', userId: '9' }],
       missing: [{ barcode: 'B2', title: 'Title B', borrower: { name: 'Also hidden' } }],
+      onLoan: [{ barcode: 'C3', title: 'Title C', userName: 'Still hidden', cardNumber: '100' }],
     });
     assert.deepEqual(report, {
       returned: [{ barcode: 'A1', title: 'Title A' }],
       missing: [{ barcode: 'B2', title: 'Title B' }],
+      onLoan: [{ barcode: 'C3', title: 'Title C' }],
     });
     assert.equal(JSON.stringify(report).includes('Hidden'), false);
+    assert.equal(JSON.stringify(report).includes('Still hidden'), false);
     assert.equal(depositScanAlreadyReturned({ alreadyScanned: true }, false), true);
     assert.equal(depositScanAlreadyReturned({}, true), true);
     assert.equal(depositScanAlreadyReturned({}, false), false);
+  });
+
+  it('reads the copies still on loan from a close refusal and ignores reader names', async () => {
+    const t = await tFor('fr');
+    const error = axiosError(422, 'deposit_batch_has_active_loans', 'copies still out', {
+      onLoan: [
+        { barcode: 'L1', title: 'Encore dehors', userName: 'Lecteur secret', borrower: { name: 'Nope' } },
+      ],
+    });
+    assert.deepEqual(depositActiveLoanCopies(error), [
+      { barcode: 'L1', title: 'Encore dehors' },
+    ]);
+    assert.equal(JSON.stringify(depositActiveLoanCopies(error)).includes('secret'), false);
+    assert.equal(depositActiveLoanCopies(axiosError(422, 'deposit_batch_not_returning')), null);
+    assert.equal(
+      getApiErrorMessage(error, t),
+      'Le lot reste en retour : des exemplaires sont encore en prêt.',
+    );
+    assert.equal(
+      getApiErrorMessage(axiosError(422, 'deposit_batch_not_returning'), t),
+      'Le lot n’est pas en retour. Lancez le retour avant de scanner une sortie ou de clôturer.',
+    );
+  });
+});
+
+describe('return to lender notice', () => {
+  it('names the lender and stays silent when the flag is false', async () => {
+    const fr = await tFor('fr');
+    const en = await tFor('en');
+    const body = {
+      status: 'returned',
+      returnToLender: true,
+      loan: {
+        itemId: '4',
+        user: { firstname: 'Hidden', lastname: 'Reader' },
+        biblio: {
+          items: [{ id: '4', deposit: { lenderName: 'Médiathèque départementale' } }],
+        },
+      },
+    };
+    assert.equal(
+      returnToLenderNotice(body, fr),
+      'À renvoyer au prêteur (Médiathèque départementale) — ne pas remettre en rayon',
+    );
+    assert.equal(
+      returnToLenderNotice({ returnToLender: true }, en, 'County library'),
+      'Send back to the lender (County library) — do not shelve',
+    );
+    assert.equal(
+      returnToLenderNotice({ returnToLender: true }, fr),
+      'À renvoyer au prêteur — ne pas remettre en rayon',
+    );
+    assert.equal(returnToLenderNotice({ returnToLender: false, lenderName: 'Médiathèque' }, fr), null);
+    assert.equal(returnToLenderNotice({ alreadyScanned: true }, fr), null);
+  });
+});
+
+describe('deposit replacement amount', () => {
+  it('requires a positive staff amount after the server refusal', async () => {
+    const t = await tFor('en');
+    const error = axiosError(422, 'deposit_replacement_amount_required');
+    assert.equal(depositReplacementAmountRequired(error), true);
+    assert.equal(depositReplacementAmountRequired(axiosError(422, 'deposit_return_due')), false);
+    assert.equal(
+      getApiErrorMessage(error, t),
+      'Enter the replacement amount. Order: lender rate, then the copy price when it is greater than zero, otherwise the amount you enter. Zero is not accepted.',
+    );
+    assert.deepEqual(
+      replacementAmountFieldState({ kind: 'lost', bill: false, amount: '', serverRequiresAmount: true }),
+      { bill: true, required: true, invalid: true },
+    );
+    assert.equal(
+      replacementAmountFieldState({ kind: 'damaged', bill: false, amount: '0', serverRequiresAmount: true }).invalid,
+      true,
+    );
+    assert.equal(
+      replacementAmountFieldState({ kind: 'lost', bill: false, amount: '12,50', serverRequiresAmount: true }).invalid,
+      false,
+    );
+    assert.equal(
+      replacementAmountFieldState({ kind: 'lost', bill: false, amount: '', serverRequiresAmount: false }).required,
+      false,
+    );
+    assert.deepEqual(parseReplacementRateEuros(''), { ok: true, cents: null });
+    assert.deepEqual(parseReplacementRateEuros('12,50'), { ok: true, cents: 1250 });
+    assert.deepEqual(parseReplacementRateEuros('0'), { ok: false, reason: 'notPositive' });
   });
 });

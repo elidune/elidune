@@ -694,6 +694,9 @@ export interface Lender {
   name: string;
   contact: string | null;
   notes: string | null;
+  /** Integer cents. Null means no lender rate. Never zero. */
+  replacementRateCents: number | null;
+  lossFlaggedAt: string | null;
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -703,6 +706,11 @@ export interface LenderWrite {
   name?: string;
   contact?: string | null;
   notes?: string | null;
+  /**
+   * Integer cents. Null on create means no rate.
+   * Omit on update to keep the stored rate. Zero is rejected.
+   */
+  replacementRateCents?: number | null;
 }
 
 export interface DepositBatch {
@@ -1763,7 +1771,10 @@ export type ApiErrorCode =
   | 'deposit_batch_not_active'
   | 'deposit_import_options_conflict'
   | 'lender_has_active_batches'
-  | 'barcode_already_exists';
+  | 'barcode_already_exists'
+  | 'deposit_batch_has_active_loans'
+  | 'deposit_batch_not_returning'
+  | 'deposit_replacement_amount_required';
 
 // Settings — renewal anchoring (serialized wire values: now, at_due_date)
 export type LoanSettingsRenewAt = 'now' | 'at_due_date';
@@ -2757,6 +2768,11 @@ export interface ItemCheckIn extends LostReturnFields {
   circulationStatus?: ReturnScanCirculationStatus | null;
   /** Current weeding status when the notice is `item_not_available_status`. */
   weedingStatus?: ItemWeedingStatus | null;
+  /**
+   * True only when this check-in returned a deposit copy whose batch is already closed.
+   * Staff send that copy back to the lender. False on every other check-in.
+   */
+  returnToLender?: boolean;
   /**
    * Set-aside only. `ready` when the copy is already at the pickup site,
    * `pending` while it is in transit.

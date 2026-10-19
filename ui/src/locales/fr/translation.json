@@ -109,6 +109,10 @@
     "badge": "Dépôt · {{lender}} · retour le {{date}}",
     "dueDateCapped": "Échéance ramenée au {{date}} (retour du dépôt)",
     "dueDateCappedUnknown": "Échéance ramenée à la date de retour du dépôt",
+    "returnToLender": "À renvoyer au prêteur ({{lender}}) — ne pas remettre en rayon",
+    "returnToLenderUnknown": "À renvoyer au prêteur — ne pas remettre en rayon",
+    "replacementAmountRequired": "Saisissez un montant supérieur à zéro. Le tarif du prêteur s’applique d’abord, puis le prix de l’exemplaire s’il est supérieur à zéro.",
+    "replacementAmountHint": "Obligatoire : aucun tarif de prêteur et aucun prix d’exemplaire supérieur à zéro. Zéro n’est pas accepté.",
     "lender": "Prêteur",
     "site": "Site",
     "reference": "Référence",
@@ -157,7 +161,12 @@
       "archivedBadge": "Archivé",
       "saved": "Prêteur enregistré",
       "empty": "Aucun prêteur",
-      "nameConflict": "Un prêteur porte déjà ce nom."
+      "nameConflict": "Un prêteur porte déjà ce nom.",
+      "replacementRate": "Tarif de remplacement",
+      "replacementRateHint": "En euros. Vide : pas de tarif. Zéro n’est pas accepté. À la modification, un champ vide conserve le tarif déjà enregistré.",
+      "replacementRateNone": "Aucun",
+      "replacementRateInvalid": "Saisissez un montant en euros, avec au plus deux décimales.",
+      "replacementRateNotPositive": "Le tarif doit être vide ou supérieur à zéro."
     },
     "batches": {
       "title": "Lots de dépôt",
@@ -183,6 +192,7 @@
       "none": "Aucun",
       "close": "Clôturer le lot",
       "closeConfirm": "Clôturer ce lot ? Les exemplaires scannés et les exemplaires manquants sont archivés. Le rapport ne contient que le code-barres et le titre.",
+      "closeWithLoans": "{{count}} exemplaire(s) encore en prêt. La clôture les laisse en prêt et les indique au rapport, sans nom de lecteur.",
       "closed": "Lot clôturé",
       "reportTitle": "Rapport de retour",
       "returnedCopies": "Rendus",
@@ -2324,7 +2334,10 @@
       "deposit_batch_not_active": "Ce lot de dépôt n’est pas actif.",
       "deposit_import_options_conflict": "Les options de doublon ISBN ne peuvent pas être utilisées pour un dépôt.",
       "lender_has_active_batches": "Ce prêteur a encore un lot qui n’est pas clôturé.",
-      "barcode_already_exists": "Ce code-barres est déjà utilisé par un autre exemplaire."
+      "barcode_already_exists": "Ce code-barres est déjà utilisé par un autre exemplaire.",
+      "deposit_batch_has_active_loans": "Le lot reste en retour : des exemplaires sont encore en prêt.",
+      "deposit_batch_not_returning": "Le lot n’est pas en retour. Lancez le retour avant de scanner une sortie ou de clôturer.",
+      "deposit_replacement_amount_required": "Indiquez le montant de remplacement. Ordre : tarif du prêteur, puis prix de l’exemplaire s’il est supérieur à zéro, sinon le montant saisi. Zéro n’est pas accepté."
     }
   },
   "inventory": {

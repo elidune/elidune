@@ -56,7 +56,8 @@ import {
 } from '@/utils/deskScanAlert';
 import { checkoutForceFlag, checkoutNoticeForConflict } from '@/utils/loanConflict';
 import { renewedUntilMessage } from '@/utils/localeDate';
-import { depositDueDateNotice, withDepositDueNotice } from '@/utils/deposits';
+import { depositDueDateNotice, lenderNameFromCopies, returnToLenderNotice, withDepositDueNotice, withReturnToLenderNotice } from '@/utils/deposits';
+import ReturnToLenderNotice from '@/components/items/ReturnToLenderNotice';
 import DepositBadge from '@/components/items/DepositBadge';
 import { patronId } from '@/utils/patronLink';
 import { isWeedingServerMessage } from '@/utils/weeding';
@@ -237,6 +238,7 @@ export default function LoansPage() {
   const [returnBarcodeInput, setReturnBarcodeInput] = useState('');
   const returnBarcodeInputRef = useRef<HTMLInputElement>(null);
   const [returnResult, setReturnResult] = useState<ReturnView | null>(null);
+  const [returnToLenderMessage, setReturnToLenderMessage] = useState<string | null>(null);
   const [isProcessingReturn, setIsProcessingReturn] = useState(false);
   const [returnError, setReturnError] = useState('');
   const [lostFound, setLostFound] = useState<(LostReturnFields & { itemId: string | null }) | null>(null);
@@ -586,7 +588,12 @@ export default function LoansPage() {
         );
         await loadOverdue();
         if (await openLostFound(result, { barcode: known?.itemBarcode })) return;
-        showToast({ variant: 'success', message: t('loans.returnSuccess') });
+        const notice = returnToLenderNotice(result, t);
+        setReturnToLenderMessage(notice);
+        showToast({
+          variant: 'success',
+          message: withReturnToLenderNotice(t('loans.returnSuccess'), result, t),
+        });
       } catch (e: unknown) {
         const msg = getApiErrorMessage(e, t) || t('loans.errorReturningLoan');
         setOverdueError(msg);
@@ -1088,7 +1095,13 @@ export default function LoansPage() {
       ) {
         return;
       }
-      showToast({ variant: 'success', message: t('loans.returnSuccess') });
+      const fallback = lenderNameFromCopies(known?.biblio?.items, known?.itemId);
+      const notice = returnToLenderNotice(result, t, fallback);
+      setReturnToLenderMessage(notice);
+      showToast({
+        variant: 'success',
+        message: withReturnToLenderNotice(t('loans.returnSuccess'), result, t, fallback),
+      });
     } catch (error: unknown) {
       const msg = getApiErrorMessage(error, t) || t('loans.errorReturningLoan');
       setRenewError(msg);
@@ -1108,6 +1121,7 @@ export default function LoansPage() {
     setReturnError('');
     setReturnResult(null);
     setReturnScanAlert(null);
+    setReturnToLenderMessage(null);
 
     const barcode = specimenBarcode.trim();
     const snapshot = await readDeskCopy(barcode);
@@ -1115,6 +1129,10 @@ export default function LoansPage() {
 
     try {
       const result = await api.returnLoanByBarcode(barcode);
+      const fallback = snapshot?.lenderName ?? null;
+      const lenderNotice = returnToLenderNotice(result, t, fallback);
+      setReturnToLenderMessage(lenderNotice);
+      const returnedMessage = withReturnToLenderNotice(t('loans.returnSuccess'), result, t, fallback);
       const pick = interpretPickCheckIn(result);
       const feedback = returnScanFeedback(result, { pick: Boolean(pick), hasLoan: Boolean(result.loan) });
       if (feedback.toast === 'none' && feedback.notice) {
@@ -1141,19 +1159,25 @@ export default function LoansPage() {
           notice.kind === 'ready'
             ? t('loans.pickReady', { patron: notice.patronName?.trim() || t('loans.pickPatronUnknown') })
             : t('loans.pickTransit', { site: notice.siteName?.trim() || t('loans.pickSiteUnknown') });
-        showToast({ variant: 'success', message });
+        showToast({
+          variant: 'success',
+          message: lenderNotice ? `${message} ${lenderNotice}` : message,
+        });
       } else if (result.loan) {
         setReturnResult({ kind: 'loan', loan: result.loan });
-        showToast({ variant: 'success', message: t('loans.returnSuccess') });
+        showToast({ variant: 'success', message: returnedMessage });
       } else if (feedback.toast === 'info' && feedback.notice) {
-        setReturnResult({ kind: 'deskNotice', notice: feedback.notice, putBack: true, barcode });
+        setReturnResult({ kind: 'deskNotice', notice: feedback.notice, putBack: !lenderNotice, barcode });
+        const infoMessage = returnNoticeMessage(feedback.notice, (key, values) => String(t(key, values)), {
+          putBack: !lenderNotice,
+        });
         showToast({
           variant: 'info',
-          message: returnNoticeMessage(feedback.notice, (key, values) => String(t(key, values)), { putBack: true }),
+          message: lenderNotice ? `${infoMessage} ${lenderNotice}` : infoMessage,
         });
       } else {
         setReturnResult(null);
-        showToast({ variant: 'success', message: t('loans.returnSuccess') });
+        showToast({ variant: 'success', message: returnedMessage });
       }
       setReturnBarcodeInput('');
     } catch (error: unknown) {
@@ -1912,6 +1936,8 @@ export default function LoansPage() {
                 </div>
               </div>
 
+              {returnToLenderMessage ? <ReturnToLenderNotice message={returnToLenderMessage} /> : null}
+
               {!returnResult && (
                 <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/80 py-14 text-center dark:border-gray-700 dark:bg-gray-800/30">
                   <BookOpen className="mx-auto h-12 w-12 text-gray-300 dark:text-gray-600 mb-3" />
@@ -2275,6 +2301,7 @@ export default function LoansPage() {
         target={exceptionAction.target}
         isLoading={exceptionAction.isLoading}
         error={exceptionAction.error}
+        replacementAmountRequired={exceptionAction.replacementAmountRequired}
         onClose={exceptionAction.close}
         onConfirm={(payload) => void exceptionAction.submit(payload)}
       />
@@ -2503,6 +2530,7 @@ async function readDeskCopy(barcode: string): Promise<DeskCopySnapshot | null> {
       loanUserFirstname,
       loanUserLastname,
       holdFor: copy.holdFor ?? null,
+      lenderName: copy.deposit?.lenderName?.trim() || null,
     };
   } catch {
     return null;

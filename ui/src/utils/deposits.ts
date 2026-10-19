@@ -1,6 +1,6 @@
 import type { TFunction } from 'i18next';
 import type { ItemDeposit } from '@/types';
-import { getHttpStatus } from '@/utils/apiError';
+import { getApiErrorCode, getApiErrorData, getHttpStatus } from '@/utils/apiError';
 import { formatLocaleDate } from '@/utils/localeDate';
 
 /** Checkout and renewal codes that must never offer « Forcer ». */
@@ -39,6 +39,7 @@ export interface DepositCloseLine {
 export interface DepositCloseReport {
   returned: DepositCloseLine[];
   missing: DepositCloseLine[];
+  onLoan: DepositCloseLine[];
 }
 
 export interface DueDateCarrier {
@@ -197,7 +198,13 @@ const DEPOSIT_ERROR_CODES = [
   'deposit_import_options_conflict',
   'lender_has_active_batches',
   'barcode_already_exists',
+  'deposit_batch_has_active_loans',
+  'deposit_batch_not_returning',
+  'deposit_replacement_amount_required',
 ] as const;
+
+/** Lists a 422 close body may use for copies still on loan. Reader fields are ignored. */
+const ACTIVE_LOAN_LIST_KEYS = ['onLoan', 'on_loan', 'items', 'copies', 'activeLoans'] as const;
 
 export function depositErrorMessageKey(code: string | null | undefined): string | null {
   const key = code?.trim() ?? '';
@@ -228,23 +235,184 @@ function closeLine(raw: unknown): DepositCloseLine | null {
   return { barcode, title };
 }
 
+function closeLines(value: unknown): DepositCloseLine[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((line) => {
+    const parsed = closeLine(line);
+    return parsed ? [parsed] : [];
+  });
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function cleanName(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const name = value.trim();
+  return name || null;
+}
+
 /**
  * Close report for the lender. Only barcode and title are kept.
- * Reader identity on the payload is dropped.
+ * Reader identity on the payload is dropped. `onLoan` is the copies still out.
  */
 export function parseDepositCloseReport(body: unknown): DepositCloseReport | null {
-  if (!body || typeof body !== 'object') return null;
-  const row = body as Record<string, unknown>;
-  if (!('returned' in row) && !('missing' in row)) return null;
-  const returned = Array.isArray(row.returned) ? row.returned.flatMap((line) => {
-    const parsed = closeLine(line);
-    return parsed ? [parsed] : [];
+  const row = record(body);
+  if (!row) return null;
+  if (!('returned' in row) && !('missing' in row) && !('onLoan' in row) && !('on_loan' in row)) return null;
+  return {
+    returned: closeLines(row.returned),
+    missing: closeLines(row.missing),
+    onLoan: closeLines(row.onLoan ?? row.on_loan),
+  };
+}
+
+/**
+ * Copies named by `422 deposit_batch_has_active_loans`.
+ * Null when the error is a different code. Only barcode and title are kept.
+ */
+export function depositActiveLoanCopies(error: unknown): DepositCloseLine[] | null {
+  if (getApiErrorCode(error) !== 'deposit_batch_has_active_loans') return null;
+  const data = getApiErrorData(error);
+  if (!data) return [];
+  for (const key of ACTIVE_LOAN_LIST_KEYS) {
+    const lines = closeLines(data[key]);
+    if (lines.length > 0) return lines;
+  }
+  const details = record(data.details);
+  if (details) {
+    for (const key of ACTIVE_LOAN_LIST_KEYS) {
+      const lines = closeLines(details[key]);
+      if (lines.length > 0) return lines;
+    }
+  }
+  return [];
+}
+
+export type ReplacementRateParse =
+  | { ok: true; cents: number | null }
+  | { ok: false; reason: 'invalid' | 'notPositive' };
+
+/**
+ * Euros typed in the lender form, stored as integer cents.
+ * Empty is no rate. Zero and negative values are rejected: the server never stores them.
+ */
+export function parseReplacementRateEuros(raw: string): ReplacementRateParse {
+  const text = raw.trim().replace(/\s/g, '').replace(',', '.');
+  if (!text) return { ok: true, cents: null };
+  if (!/^\d+(\.\d{1,2})?$/.test(text)) return { ok: false, reason: 'invalid' };
+  const [euros, frac = ''] = text.split('.');
+  const cents = Number(euros) * 100 + Number(frac.padEnd(2, '0'));
+  if (!Number.isSafeInteger(cents)) return { ok: false, reason: 'invalid' };
+  if (cents <= 0) return { ok: false, reason: 'notPositive' };
+  return { ok: true, cents };
+}
+
+/** Editable euro string for a stored rate. Empty when there is no rate. */
+export function replacementRateInputValue(cents: number | null | undefined): string {
+  if (cents == null || !Number.isFinite(cents) || cents <= 0) return '';
+  const whole = Math.trunc(cents / 100);
+  const frac = Math.abs(cents % 100);
+  return `${whole}.${String(frac).padStart(2, '0')}`;
+}
+
+export function formatReplacementRateCents(cents: number | null | undefined, locale: string): string | null {
+  if (cents == null || !Number.isFinite(cents) || cents <= 0) return null;
+  return new Intl.NumberFormat(locale, { style: 'currency', currency: 'EUR' }).format(cents / 100);
+}
+
+export function isPositiveEuroAmount(value: string): boolean {
+  const amount = Number(value.trim().replace(',', '.'));
+  return Number.isFinite(amount) && amount > 0;
+}
+
+/**
+ * Lost or damaged deposit copy: a 422 makes the staff amount required.
+ * Server order is lender rate, then a copy price above zero, then this amount. Zero is never a bill.
+ */
+export function replacementAmountFieldState(input: {
+  kind: string;
+  bill: boolean;
+  amount: string;
+  serverRequiresAmount: boolean;
+}): { bill: boolean; required: boolean; invalid: boolean } {
+  const mayBill = input.kind === 'lost' || input.kind === 'damaged';
+  const required = mayBill && input.serverRequiresAmount;
+  const bill = required || input.bill;
+  const positive = isPositiveEuroAmount(input.amount);
+  const invalid = required ? !positive : input.kind === 'damaged' && bill && !positive;
+  return { bill, required, invalid };
+}
+
+export function depositReplacementAmountRequired(error: unknown): boolean {
+  return getApiErrorCode(error) === 'deposit_replacement_amount_required';
+}
+
+interface NamedDepositCopy {
+  id?: string | null;
+  deposit?: { lenderName?: unknown } | null;
+}
+
+/** Lender name on a loan row's embedded copies. */
+export function lenderNameFromCopies(
+  copies: NamedDepositCopy[] | null | undefined,
+  itemId?: string | null,
+): string | null {
+  const rows = copies ?? [];
+  const id = itemId?.trim();
+  const match = id ? rows.find((row) => row.id === id) : undefined;
+  const named = (match ? [match] : rows)
+    .map((row) => cleanName(row.deposit?.lenderName))
+    .find((name): name is string => name != null);
+  return named ?? null;
+}
+
+function lenderNameFromLoanRecord(value: unknown): string | null {
+  const loan = record(value);
+  if (!loan) return null;
+  const item = record(loan.item);
+  const fromItem = cleanName(record(item?.deposit)?.lenderName);
+  if (fromItem) return fromItem;
+  const biblio = record(loan.biblio);
+  const itemId = typeof loan.itemId === 'string' ? loan.itemId : null;
+  const copies = Array.isArray(biblio?.items) ? biblio.items.flatMap((row) => {
+    const copy = record(row);
+    if (!copy) return [];
+    return [{ id: typeof copy.id === 'string' ? copy.id : null, deposit: record(copy.deposit) }];
   }) : [];
-  const missing = Array.isArray(row.missing) ? row.missing.flatMap((line) => {
-    const parsed = closeLine(line);
-    return parsed ? [parsed] : [];
-  }) : [];
-  return { returned, missing };
+  return lenderNameFromCopies(copies, itemId);
+}
+
+/**
+ * Desk notice when a check-in or scan-out says `returnToLender`.
+ * Null when the flag is absent or false.
+ */
+export function returnToLenderNotice(
+  body: unknown,
+  t: TFunction,
+  fallbackLender?: string | null,
+): string | null {
+  const row = record(body);
+  if (!row) return null;
+  if (row.returnToLender !== true && row.return_to_lender !== true) return null;
+  const lender = cleanName(row.lenderName)
+    ?? cleanName(record(row.deposit)?.lenderName)
+    ?? lenderNameFromLoanRecord(row.loan)
+    ?? cleanName(fallbackLender);
+  if (!lender) return t('deposits.returnToLenderUnknown');
+  return t('deposits.returnToLender', { lender });
+}
+
+export function withReturnToLenderNotice(
+  base: string,
+  body: unknown,
+  t: TFunction,
+  fallbackLender?: string | null,
+): string {
+  const notice = returnToLenderNotice(body, t, fallbackLender);
+  return notice ? `${base} ${notice}` : base;
 }
 
 /**

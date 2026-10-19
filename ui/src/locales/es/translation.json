@@ -109,6 +109,10 @@
     "badge": "Depósito · {{lender}} · devolución el {{date}}",
     "dueDateCapped": "Vencimiento adelantado al {{date}} (devolución del depósito)",
     "dueDateCappedUnknown": "Vencimiento adelantado a la fecha de devolución del depósito",
+    "returnToLender": "Devolver al prestamista ({{lender}}) — no reponer en la estantería",
+    "returnToLenderUnknown": "Devolver al prestamista — no reponer en la estantería",
+    "replacementAmountRequired": "Indique un importe mayor que cero. Primero se aplica la tarifa del prestamista y después el precio del ejemplar si es mayor que cero.",
+    "replacementAmountHint": "Obligatorio: no hay tarifa del prestamista ni precio del ejemplar mayor que cero. El cero no se acepta.",
     "lender": "Prestamista",
     "site": "Sede",
     "reference": "Referencia",
@@ -157,7 +161,12 @@
       "archivedBadge": "Archivado",
       "saved": "Prestamista guardado",
       "empty": "Ningún prestamista",
-      "nameConflict": "Ya existe un prestamista con este nombre."
+      "nameConflict": "Ya existe un prestamista con este nombre.",
+      "replacementRate": "Tarifa de reposición",
+      "replacementRateHint": "En euros. Vacío: sin tarifa. El cero no se acepta. Al editar, un campo vacío conserva la tarifa guardada.",
+      "replacementRateNone": "Ninguna",
+      "replacementRateInvalid": "Indique un importe en euros, con dos decimales como máximo.",
+      "replacementRateNotPositive": "La tarifa debe estar vacía o ser mayor que cero."
     },
     "batches": {
       "title": "Lotes de depósito",
@@ -183,6 +192,7 @@
       "none": "Ninguno",
       "close": "Cerrar el lote",
       "closeConfirm": "¿Cerrar este lote? Los ejemplares escaneados y los faltantes se archivan. El informe solo incluye código de barras y título.",
+      "closeWithLoans": "{{count}} ejemplar(es) todavía en préstamo. El cierre los deja en préstamo y los indica en el informe, sin nombre de lector.",
       "closed": "Lote cerrado",
       "reportTitle": "Informe de devolución",
       "returnedCopies": "Devueltos",
@@ -2324,7 +2334,10 @@
       "deposit_batch_not_active": "Este lote de depósito no está activo.",
       "deposit_import_options_conflict": "Las opciones de ISBN duplicado no pueden usarse al importar un depósito.",
       "lender_has_active_batches": "Este prestamista todavía tiene un lote que no está cerrado.",
-      "barcode_already_exists": "Este código de barras ya lo usa otro ejemplar."
+      "barcode_already_exists": "Este código de barras ya lo usa otro ejemplar.",
+      "deposit_batch_has_active_loans": "El lote sigue en devolución: hay ejemplares en préstamo.",
+      "deposit_batch_not_returning": "El lote no está en devolución. Inicie la devolución antes de registrar una salida o de cerrarlo.",
+      "deposit_replacement_amount_required": "Indique el importe de reposición. Orden: tarifa del prestamista, luego el precio del ejemplar si es mayor que cero, si no el importe indicado. El cero no se acepta."
     }
   },
   "inventory": {

@@ -109,6 +109,10 @@
     "badge": "Depot · {{lender}} · Rückgabe am {{date}}",
     "dueDateCapped": "Fälligkeit auf {{date}} vorgezogen (Rückgabe des Depots)",
     "dueDateCappedUnknown": "Fälligkeit auf das Rückgabedatum des Depots vorgezogen",
+    "returnToLender": "An den Verleiher zurücksenden ({{lender}}) — nicht wieder ins Regal stellen",
+    "returnToLenderUnknown": "An den Verleiher zurücksenden — nicht wieder ins Regal stellen",
+    "replacementAmountRequired": "Geben Sie einen Betrag größer als null ein. Zuerst gilt der Tarif des Verleihers, dann der Exemplarpreis, wenn er größer als null ist.",
+    "replacementAmountHint": "Pflicht: kein Verleihertarif und kein Exemplarpreis über null. Null wird nicht akzeptiert.",
     "lender": "Verleiher",
     "site": "Standort",
     "reference": "Referenz",
@@ -157,7 +161,12 @@
       "archivedBadge": "Archiviert",
       "saved": "Verleiher gespeichert",
       "empty": "Keine Verleiher",
-      "nameConflict": "Ein Verleiher mit diesem Namen existiert bereits."
+      "nameConflict": "Ein Verleiher mit diesem Namen existiert bereits.",
+      "replacementRate": "Ersatzbetrag",
+      "replacementRateHint": "In Euro. Leer: kein Tarif. Null wird nicht akzeptiert. Beim Bearbeiten behält ein leeres Feld den gespeicherten Tarif.",
+      "replacementRateNone": "Keiner",
+      "replacementRateInvalid": "Geben Sie einen Betrag in Euro mit höchstens zwei Nachkommastellen ein.",
+      "replacementRateNotPositive": "Der Tarif muss leer oder größer als null sein."
     },
     "batches": {
       "title": "Depotlose",
@@ -183,6 +192,7 @@
       "none": "Keine",
       "close": "Los schließen",
       "closeConfirm": "Dieses Los schließen? Gescannte und fehlende Exemplare werden archiviert. Der Bericht enthält nur Strichcode und Titel.",
+      "closeWithLoans": "{{count}} Exemplar(e) noch ausgeliehen. Der Abschluss lässt sie ausgeliehen und nennt sie im Bericht, ohne Lesername.",
       "closed": "Los geschlossen",
       "reportTitle": "Rückgabebericht",
       "returnedCopies": "Zurückgegeben",
@@ -2324,7 +2334,10 @@
       "deposit_batch_not_active": "Dieses Depotlos ist nicht aktiv.",
       "deposit_import_options_conflict": "ISBN-Dublettenoptionen können bei einem Depotimport nicht verwendet werden.",
       "lender_has_active_batches": "Dieser Verleiher hat noch ein Los, das nicht abgeschlossen ist.",
-      "barcode_already_exists": "Dieser Strichcode wird bereits von einem anderen Exemplar verwendet."
+      "barcode_already_exists": "Dieser Strichcode wird bereits von einem anderen Exemplar verwendet.",
+      "deposit_batch_has_active_loans": "Das Los bleibt in Rückgabe: Exemplare sind noch ausgeliehen.",
+      "deposit_batch_not_returning": "Dieses Los ist nicht in Rückgabe. Starten Sie die Rückgabe, bevor Sie Exemplare ausbuchen oder das Los schließen.",
+      "deposit_replacement_amount_required": "Geben Sie den Ersatzbetrag ein. Reihenfolge: Tarif des Verleihers, dann Exemplarpreis wenn größer als null, sonst der eingegebene Betrag. Null wird nicht akzeptiert."
     }
   },
   "inventory": {

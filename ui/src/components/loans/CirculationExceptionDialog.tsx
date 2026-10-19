@@ -4,11 +4,14 @@ import { ConfirmDialog, Input } from '@/components/common';
 import { formChoiceLabelClass, formLabelClass, formTextareaClass } from '@/utils/formControl';
 import type { CirculationExceptionKind, CirculationExceptionSubmit, CirculationExceptionTarget } from '@/hooks/loans/useCirculationExceptionAction';
 import type { DamageDisposition } from '@/types';
+import { replacementAmountFieldState } from '@/utils/deposits';
 
 interface CirculationExceptionDialogProps {
   target: CirculationExceptionTarget | null;
   isLoading: boolean;
   error: string | null;
+  /** Set after `422 deposit_replacement_amount_required`. */
+  replacementAmountRequired?: boolean;
   onClose: () => void;
   onConfirm: (payload: CirculationExceptionSubmit) => void;
 }
@@ -48,11 +51,6 @@ function copyKey(kind: CirculationExceptionKind): { title: string; message: stri
   }
 }
 
-function isPositiveAmount(value: string): boolean {
-  const n = Number(value.trim().replace(',', '.'));
-  return Number.isFinite(n) && n > 0;
-}
-
 function ExceptionFields({
   target,
   isLoading,
@@ -67,6 +65,7 @@ function ExceptionFields({
   inventoryChecked,
   setInventoryChecked,
   amountInvalid,
+  amountRequired,
 }: {
   target: CirculationExceptionTarget;
   isLoading: boolean;
@@ -81,6 +80,7 @@ function ExceptionFields({
   inventoryChecked: boolean;
   setInventoryChecked: (v: boolean) => void;
   amountInvalid: boolean;
+  amountRequired: boolean;
 }) {
   const { t } = useTranslation();
   const kind = target.kind;
@@ -128,7 +128,7 @@ function ExceptionFields({
               type="checkbox"
               checked={bill}
               onChange={(e) => setBill(e.target.checked)}
-              disabled={isLoading}
+              disabled={isLoading || amountRequired}
             />
             {t(kind === 'lost' ? 'loans.exceptions.billReplacement' : 'loans.exceptions.billDamage')}
           </label>
@@ -136,10 +136,13 @@ function ExceptionFields({
             type="text"
             inputMode="decimal"
             label={t('loans.exceptions.amount')}
+            required={amountRequired}
             hint={
-              kind === 'lost'
-                ? t('loans.exceptions.amountHintLost')
-                : t('loans.exceptions.amountHintDamaged')
+              amountRequired
+                ? t('deposits.replacementAmountHint')
+                : kind === 'lost'
+                  ? t('loans.exceptions.amountHintLost')
+                  : t('loans.exceptions.amountHintDamaged')
             }
             value={amount}
             onChange={(e) => {
@@ -147,7 +150,11 @@ function ExceptionFields({
               if (e.target.value.trim()) setBill(true);
             }}
             disabled={isLoading}
-            error={amountInvalid ? t('loans.exceptions.amountRequired') : undefined}
+            error={
+              amountInvalid
+                ? t(amountRequired ? 'deposits.replacementAmountRequired' : 'loans.exceptions.amountRequired')
+                : undefined
+            }
           />
         </div>
       )}
@@ -185,12 +192,14 @@ function ExceptionForm({
   target,
   isLoading,
   error,
+  replacementAmountRequired = false,
   onClose,
   onConfirm,
 }: {
   target: CirculationExceptionTarget;
   isLoading: boolean;
   error: string | null;
+  replacementAmountRequired?: boolean;
   onClose: () => void;
   onConfirm: (payload: CirculationExceptionSubmit) => void;
 }) {
@@ -204,8 +213,13 @@ function ExceptionForm({
   const kind = target.kind;
   const keys = copyKey(kind);
   const needsInventory = kind === 'resolveFound' || kind === 'resolveNotFound';
-  const amountInvalid = bill && kind === 'damaged' && !isPositiveAmount(amount);
-  const confirmDisabled = (needsInventory && !inventoryChecked) || (kind === 'damaged' && amountInvalid);
+  const amountState = replacementAmountFieldState({
+    kind,
+    bill,
+    amount,
+    serverRequiresAmount: replacementAmountRequired,
+  });
+  const confirmDisabled = (needsInventory && !inventoryChecked) || amountState.invalid;
 
   return (
     <ConfirmDialog
@@ -213,7 +227,7 @@ function ExceptionForm({
       onClose={onClose}
       onConfirm={() => {
         if (confirmDisabled) return;
-        onConfirm({ bill, amount, disposition, notes, inventoryChecked });
+        onConfirm({ bill: amountState.bill, amount, disposition, notes, inventoryChecked });
       }}
       title={t(keys.title)}
       message={t(keys.message)}
@@ -227,7 +241,7 @@ function ExceptionForm({
       <ExceptionFields
         target={target}
         isLoading={isLoading}
-        bill={bill}
+        bill={amountState.bill}
         setBill={setBill}
         amount={amount}
         setAmount={setAmount}
@@ -237,7 +251,8 @@ function ExceptionForm({
         setNotes={setNotes}
         inventoryChecked={inventoryChecked}
         setInventoryChecked={setInventoryChecked}
-        amountInvalid={amountInvalid}
+        amountInvalid={amountState.invalid}
+        amountRequired={amountState.required}
       />
     </ConfirmDialog>
   );
@@ -247,6 +262,7 @@ export default function CirculationExceptionDialog({
   target,
   isLoading,
   error,
+  replacementAmountRequired = false,
   onClose,
   onConfirm,
 }: CirculationExceptionDialogProps) {
@@ -257,6 +273,7 @@ export default function CirculationExceptionDialog({
       target={target}
       isLoading={isLoading}
       error={error}
+      replacementAmountRequired={replacementAmountRequired}
       onClose={onClose}
       onConfirm={onConfirm}
     />

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Library } from 'lucide-react';
 import { Badge, Button, Card, CardHeader, ConfirmDialog, Input, Modal, QueryErrorBanner, Table } from '@/components/common';
+import ReturnToLenderNotice from '@/components/items/ReturnToLenderNotice';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
 import api from '@/services/api';
@@ -16,9 +17,12 @@ import {
 import { getApiErrorMessage } from '@/utils/apiError';
 import { APP_PAGE_CLASS } from '@/utils/appPageLayout';
 import {
+  depositActiveLoanCopies,
   depositScanAlreadyReturned,
   formatCatalogDate,
   parseDepositCloseReport,
+  returnToLenderNotice,
+  type DepositCloseLine,
   type DepositCloseReport,
 } from '@/utils/deposits';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
@@ -36,18 +40,18 @@ function escapeHtml(value: string): string {
 function printCloseReport(
   reference: string,
   report: DepositCloseReport,
-  labels: { title: string; returned: string; missing: string; barcode: string; document: string },
+  labels: { title: string; returned: string; missing: string; onLoan: string; barcode: string; document: string },
 ) {
   const popup = window.open('', '_blank', 'noopener,noreferrer');
   if (!popup) return;
-  const section = (heading: string, lines: DepositCloseReport['returned']) => {
+  const section = (heading: string, lines: DepositCloseLine[]) => {
     const rows = lines
       .map((line) => `<tr><td>${escapeHtml(line.barcode ?? '')}</td><td>${escapeHtml(line.title ?? '')}</td></tr>`)
       .join('');
     return `<h2>${escapeHtml(heading)}</h2><table><thead><tr><th>${escapeHtml(labels.barcode)}</th><th>${escapeHtml(labels.document)}</th></tr></thead><tbody>${rows}</tbody></table>`;
   };
   popup.document.write(
-    `<!DOCTYPE html><html><head><title>${escapeHtml(labels.title)}</title><style>body{font-family:sans-serif;padding:24px}table{border-collapse:collapse;width:100%;margin-bottom:24px}td,th{border:1px solid #ccc;padding:6px;text-align:left}</style></head><body><h1>${escapeHtml(reference)}</h1>${section(labels.returned, report.returned)}${section(labels.missing, report.missing)}</body></html>`,
+    `<!DOCTYPE html><html><head><title>${escapeHtml(labels.title)}</title><style>body{font-family:sans-serif;padding:24px}table{border-collapse:collapse;width:100%;margin-bottom:24px}td,th{border:1px solid #ccc;padding:6px;text-align:left}</style></head><body><h1>${escapeHtml(reference)}</h1>${section(labels.returned, report.returned)}${section(labels.missing, report.missing)}${section(labels.onLoan, report.onLoan)}</body></html>`,
   );
   popup.document.close();
   popup.focus();
@@ -72,6 +76,8 @@ export default function DepositBatchDetailPage() {
   const [scanNotice, setScanNotice] = useState<string | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
   const [closeReport, setCloseReport] = useState<DepositCloseReport | null>(null);
+  const [closeRefusal, setCloseRefusal] = useState<{ message: string; copies: DepositCloseLine[] } | null>(null);
+  const [returnToLenderMessage, setReturnToLenderMessage] = useState<string | null>(null);
   const [returnedBarcodes, setReturnedBarcodes] = useState<Set<string>>(new Set());
 
   const detailQuery = useQuery({
@@ -109,7 +115,8 @@ export default function DepositBatchDetailPage() {
   });
 
   const batch = detailQuery.data;
-  const lenderName = lendersQuery.data?.find((lender) => lender.id === batch?.lenderId)?.name ?? batch?.lenderId;
+  const lenderRecordName = lendersQuery.data?.find((lender) => lender.id === batch?.lenderId)?.name ?? null;
+  const lenderName = lenderRecordName ?? batch?.lenderId;
   const siteName = (site: string | undefined) =>
     sourcesQuery.data?.find((source) => String(source.id) === site)?.name ?? site ?? '—';
 
@@ -155,9 +162,14 @@ export default function DepositBatchDetailPage() {
       const body = await api.scanOutDepositCopy(id, code);
       return { body, already: depositScanAlreadyReturned(body, listed) };
     },
-    onSuccess: ({ already }, code) => {
+    onSuccess: ({ already, body }, code) => {
       setReturnedBarcodes((current) => new Set(current).add(code));
-      setScanNotice(already ? t('deposits.batch.alreadyScanned', { barcode: code }) : t('deposits.batch.scanned', { barcode: code }));
+      const scanned = already
+        ? t('deposits.batch.alreadyScanned', { barcode: code })
+        : t('deposits.batch.scanned', { barcode: code });
+      const lenderNotice = returnToLenderNotice(body, t, lenderRecordName);
+      setReturnToLenderMessage(lenderNotice);
+      setScanNotice(lenderNotice ? `${scanned} ${lenderNotice}` : scanned);
       setBarcode('');
       void refresh();
       requestAnimationFrame(() => scanRef.current?.focus());
@@ -175,11 +187,27 @@ export default function DepositBatchDetailPage() {
     mutationFn: () => api.closeDepositBatch(id),
     onSuccess: (body) => {
       setConfirmClose(false);
+      setCloseRefusal(null);
       setCloseReport(parseDepositCloseReport(body));
       void refresh();
       showToast({ variant: 'success', message: t('deposits.batch.closed') });
     },
-    onError: (error: unknown) => showToast({ variant: 'error', message: getApiErrorMessage(error, t) }),
+    onError: (error: unknown) => {
+      const message = getApiErrorMessage(error, t);
+      const fromError = depositActiveLoanCopies(error);
+      const copies = fromError == null
+        ? []
+        : fromError.length > 0
+          ? fromError
+          : (onLoanQuery.data ?? []).map((item) => ({
+              barcode: item.barcode?.trim() || null,
+              title: item.title?.trim() || null,
+            }));
+      setConfirmClose(false);
+      setCloseReport(null);
+      setCloseRefusal({ message, copies });
+      showToast({ variant: 'error', message });
+    },
   });
 
   const openEdit = () => {
@@ -285,11 +313,36 @@ export default function DepositBatchDetailPage() {
               {t('deposits.batch.scanOut')}
             </Button>
           </form>
+          {returnToLenderMessage ? (
+            <div className="mt-3">
+              <ReturnToLenderNotice message={returnToLenderMessage} />
+            </div>
+          ) : null}
           {scanNotice ? <p className="mt-3 text-sm text-gray-700 dark:text-gray-300">{scanNotice}</p> : null}
           <div className="mt-6 grid gap-4 lg:grid-cols-2">
             <CopyList title={t('deposits.batch.stillOnLoan')} items={onLoanQuery.data ?? []} empty={t('deposits.batch.none')} />
             <CopyList title={t('deposits.batch.stillOnHold')} items={onHoldQuery.data ?? []} empty={t('deposits.batch.none')} />
           </div>
+          {counts && counts.onLoan > 0 ? (
+            <p className="mt-4 text-sm font-medium text-amber-800 dark:text-amber-200" role="status">
+              {t('deposits.batch.closeWithLoans', { count: counts.onLoan })}
+            </p>
+          ) : null}
+          {closeRefusal ? (
+            <div className="mt-4 rounded-lg border border-red-300 bg-red-50 p-4 text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-100" role="alert">
+              <p className="text-sm font-semibold">{closeRefusal.message}</p>
+              {closeRefusal.copies.length > 0 ? (
+                <ul className="mt-2 space-y-1 text-sm">
+                  {closeRefusal.copies.map((line) => (
+                    <li key={`${line.barcode ?? ''}:${line.title ?? ''}`}>
+                      <span className="font-mono">{line.barcode || '—'}</span>
+                      {line.title ? ` · ${line.title}` : ''}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
+          ) : null}
           <div className="mt-4">
             <Button type="button" variant="danger" onClick={() => setConfirmClose(true)}>
               {t('deposits.batch.close')}
@@ -311,6 +364,7 @@ export default function DepositBatchDetailPage() {
                     title: t('deposits.batch.reportTitle'),
                     returned: t('deposits.batch.returnedCopies'),
                     missing: t('deposits.batch.missingCopies'),
+                    onLoan: t('deposits.batch.stillOnLoan'),
                     barcode: t('items.barcode'),
                     document: t('loans.document'),
                   })
@@ -322,6 +376,7 @@ export default function DepositBatchDetailPage() {
           />
           <ReportTable title={t('deposits.batch.returnedCopies')} lines={closeReport.returned} />
           <ReportTable title={t('deposits.batch.missingCopies')} lines={closeReport.missing} />
+          <ReportTable title={t('deposits.batch.stillOnLoan')} lines={closeReport.onLoan} />
         </Card>
       ) : null}
 
@@ -398,7 +453,11 @@ export default function DepositBatchDetailPage() {
         onClose={() => setConfirmClose(false)}
         onConfirm={() => closeMutation.mutate()}
         title={t('deposits.batch.close')}
-        message={t('deposits.batch.closeConfirm')}
+        message={
+          counts && counts.onLoan > 0
+            ? t('deposits.batch.closeWithLoans', { count: counts.onLoan })
+            : t('deposits.batch.closeConfirm')
+        }
         confirmLabel={t('deposits.batch.close')}
         confirmVariant="danger"
         isLoading={closeMutation.isPending}

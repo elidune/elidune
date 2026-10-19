@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
 import { useToast } from '@/contexts/ToastContext';
 import { getApiErrorMessage } from '@/utils/apiError';
+import { depositReplacementAmountRequired } from '@/utils/deposits';
 import type { CirculationExceptionOutcome, DamageDisposition } from '@/types';
 
 export type CirculationExceptionKind =
@@ -96,12 +97,14 @@ export function useCirculationExceptionAction(options: UseCirculationExceptionAc
   const [target, setTarget] = useState<CirculationExceptionTarget | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [replacementAmountRequired, setReplacementAmountRequired] = useState(false);
   const setBusy = options.setBusy;
   const onSuccess = options.onSuccess;
 
   const open = useCallback((next: CirculationExceptionTarget) => {
     if (inFlightRef.current) return;
     setError(null);
+    setReplacementAmountRequired(false);
     setTarget(next);
   }, [inFlightRef]);
 
@@ -109,6 +112,7 @@ export function useCirculationExceptionAction(options: UseCirculationExceptionAc
     if (inFlightRef.current) return;
     setTarget(null);
     setError(null);
+    setReplacementAmountRequired(false);
   }, [inFlightRef]);
 
   const submit = useCallback(
@@ -128,6 +132,7 @@ export function useCirculationExceptionAction(options: UseCirculationExceptionAc
         await onSuccess?.();
       } catch (err: unknown) {
         const msg = getApiErrorMessage(err, t) || t('loans.exceptions.error');
+        if (depositReplacementAmountRequired(err)) setReplacementAmountRequired(true);
         setError(msg);
         showToast({ variant: 'error', message: msg });
       } finally {
@@ -139,5 +144,5 @@ export function useCirculationExceptionAction(options: UseCirculationExceptionAc
     [inFlightRef, onSuccess, queryClient, setBusy, showToast, t, target],
   );
 
-  return { target, isLoading, error, open, close, submit };
+  return { target, isLoading, error, replacementAmountRequired, open, close, submit };
 }

@@ -10,13 +10,18 @@ import api from '@/services/api';
 import { canManageItems, type Lender } from '@/types';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { APP_PAGE_CLASS } from '@/utils/appPageLayout';
-import { lenderNameConflictMessage } from '@/utils/deposits';
+import {
+  formatReplacementRateCents,
+  lenderNameConflictMessage,
+  parseReplacementRateEuros,
+  replacementRateInputValue,
+} from '@/utils/deposits';
 import { formChoiceControlClass } from '@/utils/formControl';
 
 const LENDERS_KEY = ['lenders'] as const;
 
 export default function LendersPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
@@ -28,6 +33,7 @@ export default function LendersPage() {
   const [name, setName] = useState('');
   const [contact, setContact] = useState('');
   const [notes, setNotes] = useState('');
+  const [replacementRate, setReplacementRate] = useState('');
 
   const query = useQuery({
     queryKey: [...LENDERS_KEY, includeArchived],
@@ -40,14 +46,20 @@ export default function LendersPage() {
     setName(lender?.name ?? '');
     setContact(lender?.contact ?? '');
     setNotes(lender?.notes ?? '');
+    setReplacementRate(replacementRateInputValue(lender?.replacementRateCents));
   };
 
   const saveMutation = useMutation({
     mutationFn: async () => {
+      const rate = parseReplacementRateEuros(replacementRate);
+      if (!rate.ok) {
+        return Promise.reject(rate.reason);
+      }
       const body = {
         name: name.trim(),
         contact: contact.trim() || null,
         notes: notes.trim() || null,
+        ...(editing && rate.cents == null ? {} : { replacementRateCents: rate.cents }),
       };
       if (editing) return api.updateLender(editing.id, body);
       return api.createLender(body);
@@ -58,6 +70,14 @@ export default function LendersPage() {
       showToast({ variant: 'success', message: t('deposits.lenders.saved') });
     },
     onError: (error: unknown) => {
+      if (error === 'invalid') {
+        setFormError(t('deposits.lenders.replacementRateInvalid'));
+        return;
+      }
+      if (error === 'notPositive') {
+        setFormError(t('deposits.lenders.replacementRateNotPositive'));
+        return;
+      }
       setFormError(lenderNameConflictMessage(error, t) ?? getApiErrorMessage(error, t));
     },
   });
@@ -126,6 +146,13 @@ export default function LendersPage() {
               render: (lender: Lender) => lender.contact || '—',
             },
             {
+              key: 'replacementRate',
+              header: t('deposits.lenders.replacementRate'),
+              render: (lender: Lender) =>
+                formatReplacementRateCents(lender.replacementRateCents, i18n.language)
+                ?? t('deposits.lenders.replacementRateNone'),
+            },
+            {
               key: 'status',
               header: t('common.status'),
               render: (lender: Lender) =>
@@ -185,6 +212,13 @@ export default function LendersPage() {
         <div className="space-y-3">
           <Input label={t('common.name')} value={name} onChange={(event) => setName(event.target.value)} required autoFocus />
           <Input label={t('deposits.lenders.contact')} value={contact} onChange={(event) => setContact(event.target.value)} />
+          <Input
+            label={t('deposits.lenders.replacementRate')}
+            hint={t('deposits.lenders.replacementRateHint')}
+            inputMode="decimal"
+            value={replacementRate}
+            onChange={(event) => setReplacementRate(event.target.value)}
+          />
           <Input label={t('deposits.notes')} value={notes} onChange={(event) => setNotes(event.target.value)} />
           {formError ? <p className="text-sm text-red-600 dark:text-red-400">{formError}</p> : null}
         </div>
