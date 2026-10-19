@@ -156,9 +156,10 @@ async fn dry_run_writes_nothing_apply_is_idempotent_and_reports_duplicates() {
 
     let open_barcode = format!("OPEN-{token}");
     let quiet_barcode = format!("QUIET-{token}");
+    let peer_barcode = format!("PEER-{token}");
     let open_item = item(pool, biblio_a, old_source, &open_barcode).await;
     let quiet_item = item(pool, quiet, old_source, &quiet_barcode).await;
-    let selected_peer = item(pool, biblio_b, old_source, &format!("PEER-{token}")).await;
+    let selected_peer = item(pool, biblio_b, old_source, &peer_barcode).await;
 
     let loan_id: i64 = sqlx::query_scalar(
         "INSERT INTO loans (user_id, item_id, expiry_at, nb_renews)
@@ -394,9 +395,17 @@ async fn dry_run_writes_nothing_apply_is_idempotent_and_reports_duplicates() {
             .fetch_one(pool)
             .await
             .unwrap();
+    // The copies now sit on the target site, so a second --from-source pass does not see them.
+    // Selecting the same barcodes again is the idempotent rerun.
     let again = execute(
         pool,
-        &command(lender_id, &reference, site_id, selection, true),
+        &command(
+            lender_id,
+            &reference,
+            site_id,
+            Selection::Barcodes(vec![open_barcode, quiet_barcode, peer_barcode]),
+            true,
+        ),
     )
     .await
     .expect("rerun");
