@@ -829,6 +829,11 @@ fn validate_command(command: &ReclassifyCommand) -> Result<(), ReclassifyFailure
                 "--from-source must be a positive id",
             ));
         }
+        if source_id == command.site_id {
+            return Err(ReclassifyFailure::invalid(
+                "--from-source must not equal --site",
+            ));
+        }
     }
     if let Selection::Barcodes(codes) = &command.selection {
         if codes.is_empty() {
@@ -859,6 +864,10 @@ async fn execute_in_tx(
             .ok_or_else(|| ReclassifyFailure::failed("batch id missing during apply"))?;
         apply_updates(tx, command, batch_id, &planned).await?;
     }
+    let mut warnings = report_warnings(batch.return_due_on);
+    if let Some(warning) = from_source_warning(tx, command).await? {
+        warnings.push(warning);
+    }
     Ok(Report {
         dry_run: !command.apply,
         applied: command.apply,
@@ -870,7 +879,7 @@ async fn execute_in_tx(
         arrived_on: batch.arrived_on,
         return_due_on: batch.return_due_on,
         notes: batch.notes,
-        warnings: report_warnings(batch.return_due_on),
+        warnings,
         summary: summarize(&planned),
         items: planned.into_iter().map(|item| item.line).collect(),
         possible_duplicate_records: duplicates,
@@ -990,6 +999,61 @@ async fn resolve_batch(
 }
 
 const RETURN_DUE_ON_PAST: &str = "return_due_on_past";
+const FROM_SOURCE_MIXED: &str = "from_source_mixed";
+
+/// Copies at `--from-source` that sit in more than one deposit batch, or that
+/// have an open loan checked out at a site other than `--site`. A null loan
+/// site is unknown and is not a conflict. Archived copies are outside the
+/// selection, so they are not counted.
+async fn from_source_warning(
+    tx: &mut Tx<'_>,
+    command: &ReclassifyCommand,
+) -> Result<Option<ReportWarning>, ReclassifyFailure> {
+    let Selection::FromSource(source_id) = command.selection else {
+        return Ok(None);
+    };
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)::bigint
+         FROM items i
+         WHERE i.source_id = $1
+           AND i.archived_at IS NULL
+           AND (
+             (
+               (
+                 SELECT COUNT(DISTINCT deposit_batch_id)
+                 FROM items
+                 WHERE source_id = $1
+                   AND archived_at IS NULL
+                   AND deposit_batch_id IS NOT NULL
+               ) > 1
+               AND i.deposit_batch_id IS NOT NULL
+             )
+             OR EXISTS (
+               SELECT 1
+               FROM loans l
+               WHERE l.item_id = i.id
+                 AND l.returned_at IS NULL
+                 AND l.site_id IS NOT NULL
+                 AND l.site_id <> $2
+             )
+           )",
+    )
+    .bind(source_id)
+    .bind(command.site_id)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(failed)?;
+    if count == 0 {
+        return Ok(None);
+    }
+    Ok(Some(ReportWarning {
+        code: FROM_SOURCE_MIXED.to_string(),
+        message: format!(
+            "{count} copies at --from-source are in more than one deposit batch or have an open loan whose site differs from --site"
+        ),
+        count: Some(count),
+    }))
+}
 
 /// The date that will apply is the new batch's `--return-due-on`, or the stored
 /// date when an existing batch is reused. Today is the UTC date, matching

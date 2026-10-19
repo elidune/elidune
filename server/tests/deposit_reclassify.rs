@@ -1152,3 +1152,208 @@ async fn past_or_today_return_due_warns_and_still_applies() {
     assert!(future_report.warnings.is_empty());
     assert_eq!(item_place(pool, future_item).await.1, Some(site_id));
 }
+
+async fn deposit_batch(pool: &PgPool, lender_id: i64, reference: &str, site_id: i64) -> i64 {
+    sqlx::query_scalar(
+        "INSERT INTO deposit_batches
+            (lender_id, reference, site_id, arrived_on, return_due_on)
+         VALUES ($1, $2, $3, '2027-03-01', '2027-09-01')
+         RETURNING id",
+    )
+    .bind(lender_id)
+    .bind(reference)
+    .bind(site_id)
+    .fetch_one(pool)
+    .await
+    .expect("batch")
+}
+
+#[tokio::test]
+async fn from_source_equal_to_site_is_invalid_and_mixed_copies_warn() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let pool = app.state.services.repository.pool();
+    let token = fixtures::unique_token();
+    let site_id = source(pool, &format!("site-{token}")).await;
+    let old_source = source(pool, &format!("old-{token}")).await;
+    let other_site = source(pool, &format!("desk-{token}")).await;
+    let lender_id = lender(pool, &format!("Lender {token}")).await;
+    let user_id = reader(pool, &format!("reader-{token}")).await;
+    let biblio_id = biblio(pool, "Mixed", None).await;
+
+    let same = item(pool, biblio_id, site_id, &format!("SAME-{token}")).await;
+    for apply in [false, true] {
+        let err = execute(
+            pool,
+            &command(
+                lender_id,
+                &format!("SAME-{token}-{apply}"),
+                site_id,
+                Selection::FromSource(site_id),
+                apply,
+            ),
+        )
+        .await
+        .expect_err("from-source equals site");
+        assert!(matches!(err, ReclassifyFailure::Invalid(_)));
+        assert_eq!(err.exit_code(), 2);
+        assert!(err.to_string().contains("--from-source"));
+    }
+    assert_eq!(item_place(pool, same).await, (None, Some(site_id), None));
+    let created: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM deposit_batches WHERE reference LIKE $1")
+            .bind(format!("SAME-{token}-%"))
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(created, 0);
+
+    let batch_a = deposit_batch(pool, lender_id, &format!("A-{token}"), site_id).await;
+    let batch_b = deposit_batch(pool, lender_id, &format!("B-{token}"), site_id).await;
+    let in_a = item(pool, biblio_id, old_source, &format!("A-{token}")).await;
+    let in_b = item(pool, biblio_id, old_source, &format!("B-{token}")).await;
+    let loan_elsewhere = item(pool, biblio_id, old_source, &format!("LOAN-{token}")).await;
+    let loan_here = item(pool, biblio_id, old_source, &format!("HERE-{token}")).await;
+    let loan_unknown = item(pool, biblio_id, old_source, &format!("UNK-{token}")).await;
+    let archived = item(pool, biblio_id, old_source, &format!("ARCH-{token}")).await;
+    let plain = item(pool, biblio_id, old_source, &format!("PLAIN-{token}")).await;
+    sqlx::query("UPDATE items SET deposit_batch_id = $2 WHERE id = $1")
+        .bind(in_a)
+        .bind(batch_a)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE items SET deposit_batch_id = $2 WHERE id = $1")
+        .bind(in_b)
+        .bind(batch_b)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE items SET archived_at = NOW(), deposit_batch_id = $2 WHERE id = $1")
+        .bind(archived)
+        .bind(batch_a)
+        .execute(pool)
+        .await
+        .unwrap();
+    for (item_id, loan_site) in [
+        (loan_elsewhere, Some(other_site)),
+        (loan_here, Some(site_id)),
+        (loan_unknown, None),
+    ] {
+        sqlx::query(
+            "INSERT INTO loans (user_id, item_id, expiry_at, nb_renews, site_id)
+             VALUES ($1, $2, $3, 0, $4)",
+        )
+        .bind(user_id)
+        .bind(item_id)
+        .bind(due())
+        .bind(loan_site)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    let mixed = execute(
+        pool,
+        &command(
+            lender_id,
+            &format!("MIX-{token}"),
+            site_id,
+            Selection::FromSource(old_source),
+            false,
+        ),
+    )
+    .await
+    .expect("mixed source warns");
+    let warning = mixed
+        .warnings
+        .iter()
+        .find(|warning| warning.code == "from_source_mixed")
+        .expect("mixed warning");
+    assert_eq!(warning.count, Some(3));
+    assert!(warning.message.contains("3 copies"));
+    assert_eq!(item_place(pool, plain).await.1, Some(old_source));
+
+    let loan_source = source(pool, &format!("loan-src-{token}")).await;
+    let only_batched = item(pool, biblio_id, loan_source, &format!("ONLYB-{token}")).await;
+    let only_loan_item = item(pool, biblio_id, loan_source, &format!("ONLYL-{token}")).await;
+    let only_batch = deposit_batch(pool, lender_id, &format!("ONLY-{token}"), site_id).await;
+    sqlx::query("UPDATE items SET deposit_batch_id = $2 WHERE id = $1")
+        .bind(only_batched)
+        .bind(only_batch)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO loans (user_id, item_id, expiry_at, nb_renews, site_id)
+         VALUES ($1, $2, $3, 0, $4)",
+    )
+    .bind(user_id)
+    .bind(only_loan_item)
+    .bind(due())
+    .bind(other_site)
+    .execute(pool)
+    .await
+    .unwrap();
+    let only_loan = execute(
+        pool,
+        &command(
+            lender_id,
+            &format!("ONE-{token}"),
+            site_id,
+            Selection::FromSource(loan_source),
+            false,
+        ),
+    )
+    .await
+    .expect("one batch plus a foreign loan");
+    let only_warning = only_loan
+        .warnings
+        .iter()
+        .find(|warning| warning.code == "from_source_mixed")
+        .expect("loan warning");
+    assert_eq!(only_warning.count, Some(1));
+
+    let quiet_source = source(pool, &format!("quiet-{token}")).await;
+    let quiet_item = item(pool, biblio_id, quiet_source, &format!("QUIET-{token}")).await;
+    let quiet_batch = deposit_batch(pool, lender_id, &format!("Q-{token}"), site_id).await;
+    sqlx::query("UPDATE items SET deposit_batch_id = $2 WHERE id = $1")
+        .bind(quiet_item)
+        .bind(quiet_batch)
+        .execute(pool)
+        .await
+        .unwrap();
+    let quiet = execute(
+        pool,
+        &command(
+            lender_id,
+            &format!("QUIET-{token}"),
+            site_id,
+            Selection::FromSource(quiet_source),
+            false,
+        ),
+    )
+    .await
+    .expect("one batch is not mixed");
+    assert!(warning_codes(&quiet)
+        .iter()
+        .all(|code| *code != "from_source_mixed"));
+    assert_eq!(item_place(pool, quiet_item).await.0, Some(quiet_batch));
+
+    let by_barcode = execute(
+        pool,
+        &command(
+            lender_id,
+            &format!("BCODE-{token}"),
+            site_id,
+            Selection::Barcodes(vec![format!("PLAIN-{token}")]),
+            false,
+        ),
+    )
+    .await
+    .expect("barcode mode");
+    assert!(warning_codes(&by_barcode)
+        .iter()
+        .all(|code| *code != "from_source_mixed"));
+}

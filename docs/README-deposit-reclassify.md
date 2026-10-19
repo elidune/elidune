@@ -37,7 +37,9 @@ elidune-server reclassify-deposits \
   --apply
 ```
 
-`--from-source` selects every copy at that source whose `archived_at` is null. `--barcodes path` selects an explicit list instead (one barcode per line, or a CSV with a `barcode` column). Pass exactly one of those two options.
+`--from-source` selects every copy at that source whose `archived_at` is null. It must be a different source from `--site`; passing the same id is an invalid argument and writes nothing. `--barcodes path` selects an explicit list instead (one barcode per line, or a CSV with a `barcode` column). Pass exactly one of those two options.
+
+When `--from-source` holds copies in more than one deposit batch, or copies with an open loan checked out at a site other than `--site`, the report adds a `from_source_mixed` warning with the total number of those copies. A loan with no site is not counted. The command still reclassifies.
 
 `--return-due-on` is required only when no batch with that reference exists for the lender. `--received-on` maps to `arrived_on` and defaults to today (UTC) when the batch is created. When the reference already exists and the batch is `active`, it is reused and those fields are left unchanged. A batch in any other status is refused and nothing is written. When that existing batch's site is not `--site`, the command exits non-zero with `deposit_site_mismatch` and writes nothing.
 
