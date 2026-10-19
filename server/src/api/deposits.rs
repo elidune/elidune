@@ -351,7 +351,7 @@ pub async fn start_deposit_return(
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 403, description = "Insufficient permissions", body = crate::error::ErrorResponse),
         (status = 404, description = "Batch not found, or the barcode is not a copy of this batch", body = crate::error::ErrorResponse),
-        (status = 422, description = "Batch is not `returning` (`deposit_batch_not_returning`)", body = crate::error::ErrorResponse)
+        (status = 422, description = "Batch is not `returning` (`deposit_batch_not_returning`, body `{ code, error, message }`) or this copy still has an open loan (`deposit_item_on_loan`). The loan body is `{ code, error, message, itemId, barcode }`. `itemId` is a string. `barcode` is null when the copy has none. Check the copy in at the desk (`returnToLender`) before scanning it out.", body = crate::error::DepositItemOnLoanBody)
     )
 )]
 pub async fn scan_out_deposit_copy(

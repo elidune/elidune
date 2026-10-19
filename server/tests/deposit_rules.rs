@@ -516,13 +516,17 @@ async fn close_archives_without_delete_and_reports_missing_and_loans() {
             Some(&token),
         )
         .await;
-    assert_eq!(status, StatusCode::OK, "{scanned_loan}");
-    let stamped: chrono::DateTime<chrono::Utc> =
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{scanned_loan}");
+    assert_error(&scanned_loan, "deposit_item_on_loan");
+    assert_eq!(scanned_loan["itemId"], items[2].0.to_string(), "{scanned_loan}");
+    assert_eq!(scanned_loan["barcode"], items[2].1, "{scanned_loan}");
+    let not_stamped: Option<chrono::DateTime<chrono::Utc>> =
         sqlx::query_scalar("SELECT deposit_returned_at FROM items WHERE id = $1")
             .bind(items[2].0)
             .fetch_one(app.state.services.repository.pool())
             .await
             .unwrap();
+    assert!(not_stamped.is_none(), "{not_stamped:?}");
 
     let (status, returned) = app
         .post_empty(
@@ -542,7 +546,7 @@ async fn close_archives_without_delete_and_reports_missing_and_loans() {
         .await
         .unwrap();
     assert!(archived_after.is_none());
-    assert_eq!(marked_returned, Some(stamped));
+    assert!(marked_returned.is_some());
 
     let (status, still_one) = app
         .post_empty(

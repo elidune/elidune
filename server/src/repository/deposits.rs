@@ -494,6 +494,15 @@ impl Repository {
                 "This barcode is not a copy of this deposit batch".into(),
             ));
         };
+        let on_loan: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM loans WHERE item_id = $1 AND returned_at IS NULL)",
+        )
+        .bind(row.id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if on_loan {
+            return Err(AppError::deposit_item_on_loan(row.id, row.barcode.clone()));
+        }
         if let Some(returned_at) = row.deposit_returned_at {
             tx.commit().await?;
             return Ok(DepositScanOut {

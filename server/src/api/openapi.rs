@@ -698,6 +698,7 @@ use crate::api::{
             crate::error::ErrorResponse,
             crate::error::PaymentExceedsBalanceBody,
             crate::error::DepositBatchHasActiveLoansBody,
+            crate::error::DepositItemOnLoanBody,
             crate::checkout_refusal::CheckoutRefusalBody,
             crate::checkout_refusal::CheckoutRefusalDetails,
             crate::checkout_refusal::ItemHeldForOtherDetails,
