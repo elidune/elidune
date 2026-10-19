@@ -572,6 +572,7 @@ use crate::api::{
             crate::models::source::MergeSources,
             sources::SourcesQuery,
             // Incoming deposits
+            deposits::LendersQuery,
             crate::models::deposit::Lender,
             crate::models::deposit::CreateLender,
             crate::models::deposit::UpdateLender,

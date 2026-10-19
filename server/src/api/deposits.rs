@@ -13,6 +13,8 @@ use axum::{
     http::StatusCode,
     Json,
 };
+use serde::Deserialize;
+use utoipa::{IntoParams, ToSchema};
 
 use super::{AuthenticatedUser, ClientIp, ValidatedJson};
 
@@ -32,13 +34,23 @@ pub fn router() -> axum::Router<crate::AppState> {
         .route("/deposit-batches/:id/items", get(list_deposit_batch_items))
 }
 
+/// Query parameters for listing lenders.
+#[derive(Debug, Deserialize, IntoParams, ToSchema)]
+#[serde(rename_all = "camelCase")]
+#[into_params(parameter_in = Query)]
+pub struct LendersQuery {
+    /// Include archived lenders. Default is active lenders only.
+    pub include_archived: Option<bool>,
+}
+
 #[utoipa::path(
     get,
     path = "/lenders",
     tag = "deposits",
     security(("bearer_auth" = [])),
+    params(LendersQuery),
     responses(
-        (status = 200, description = "Active lenders", body = Vec<Lender>),
+        (status = 200, description = "Lenders. Active only unless includeArchived is true.", body = Vec<Lender>),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 403, description = "Insufficient permissions", body = crate::error::ErrorResponse)
     )
@@ -46,9 +58,16 @@ pub fn router() -> axum::Router<crate::AppState> {
 pub async fn list_lenders(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
+    Query(query): Query<LendersQuery>,
 ) -> AppResult<Json<Vec<Lender>>> {
     claims.require_read_items()?;
-    Ok(Json(state.services.deposits.list_lenders().await?))
+    Ok(Json(
+        state
+            .services
+            .deposits
+            .list_lenders(query.include_archived.unwrap_or(false))
+            .await?,
+    ))
 }
 
 #[utoipa::path(

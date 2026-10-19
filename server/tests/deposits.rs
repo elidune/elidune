@@ -150,6 +150,29 @@ async fn deposit_migration_and_batch_api() {
     assert_eq!(status, StatusCode::CONFLICT, "{dup}");
     assert_error(&dup, "conflict");
 
+    let (spare_id, _) = lender(&app, &token).await;
+    let (status, archived) = app
+        .delete_with_auth(&format!("/api/v1/lenders/{spare_id}"), &token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{archived}");
+    assert!(archived["archivedAt"].is_string(), "{archived}");
+    let (status, active_only) = app.get_json_with_auth("/api/v1/lenders", &token).await;
+    assert_eq!(status, StatusCode::OK, "{active_only}");
+    assert!(active_only
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|row| fixtures::json_id(&row["id"]) != spare_id));
+    let (status, with_archived) = app
+        .get_json_with_auth("/api/v1/lenders?includeArchived=true", &token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{with_archived}");
+    assert!(with_archived
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|row| fixtures::json_id(&row["id"]) == spare_id && row["archivedAt"].is_string()));
+
     let batch_id = batch(&app, &token, lender_id, site_id).await;
     let (status, detail) = app
         .get_json_with_auth(&format!("/api/v1/deposit-batches/{batch_id}"), &token)
@@ -340,7 +363,7 @@ async fn deposit_marc_import_isbn_match_and_barcode_report() {
     let (status, accepted) = app
         .post_json(
             &format!(
-                "/api/v1/biblios/import-marc-batch?batchId={batch_key}&depositBatchId={batch_id}&sourceId={site_id}"
+                "/api/v1/biblios/import-marc-batch?batchId={batch_key}&deposit_batch_id={batch_id}&sourceId={site_id}"
             ),
             &json!({}),
             Some(&token),

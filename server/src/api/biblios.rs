@@ -301,8 +301,11 @@ pub struct ImportMarcBatchQuery {
     pub allow_duplicate_isbn: bool,
     /// Set to the existing biblio ID to confirm replacement of a duplicate
     pub confirm_replace_existing_id: Option<i64>,
-    /// Active incoming deposit batch. Also accepted as `deposit_batch_id`.
-    #[serde(default, alias = "deposit_batch_id")]
+    /// Active incoming deposit batch.
+    ///
+    /// Official query name is `deposit_batch_id`, same as `batch_id` and
+    /// `source_id` on this route. `depositBatchId` is accepted as an alias.
+    #[serde(default, rename = "deposit_batch_id", alias = "depositBatchId")]
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub deposit_batch_id: Option<i64>,
@@ -455,7 +458,7 @@ pub async fn load_marc(
         ("record_id" = Option<usize>, Query, description = "Optional single record index; if omitted, all records in the batch are imported"),
         ("allow_duplicate_isbn" = Option<bool>, Query, description = "Allow creating a biblio even when another has the same ISBN (default: false). Refused with a deposit batch."),
         ("confirm_replace_existing_id" = Option<i64>, Query, description = "Confirm replacement of an existing biblio by its ID. Refused with a deposit batch."),
-        ("deposit_batch_id" = Option<String>, Query, description = "Active deposit batch. Copies attach to the existing record with the same ISBN, or create the record when there is no match. The lender barcode is kept.")
+        ("deposit_batch_id" = Option<String>, Query, description = "Active deposit batch. Official name is deposit_batch_id; depositBatchId is accepted as an alias. Copies attach to the existing record with the same ISBN, or create the record when there is no match. The lender barcode is kept.")
     ),
     responses(
         (status = 202, description = "Import task accepted", body = TaskAcceptedResponse),

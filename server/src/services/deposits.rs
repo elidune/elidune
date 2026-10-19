@@ -52,8 +52,8 @@ impl DepositsService {
         }
     }
 
-    pub async fn list_lenders(&self) -> AppResult<Vec<Lender>> {
-        self.repository.lenders_list(false).await
+    pub async fn list_lenders(&self, include_archived: bool) -> AppResult<Vec<Lender>> {
+        self.repository.lenders_list(include_archived).await
     }
 
     pub async fn create_lender(&self, data: &CreateLender) -> AppResult<Lender> {
