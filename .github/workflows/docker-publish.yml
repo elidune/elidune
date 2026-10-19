@@ -1,7 +1,7 @@
 # Publishes Docker images from the monorepo root:
-# - API-only (docker/Dockerfile) → ghcr.io/elidune/elidune-server
-# - UI (docker/Dockerfile.ui) → ghcr.io/elidune/elidune-ui
-# - All-in-one (docker/Dockerfile.all-in-one) → ghcr.io/elidune/elidune-all-in-one
+# - API-only (docker/Dockerfile) → ghcr.io/elidune/elidune-server (main only)
+# - UI (docker/Dockerfile.ui) → ghcr.io/elidune/elidune-ui (main only)
+# - All-in-one (docker/Dockerfile.all-in-one) → ghcr.io/elidune/elidune-all-in-one (main + dev)
 #
 # Tags: :latest on main, :dev on the dev branch, plus :<git-sha> on both.
 # Pushes from dev never overwrite :latest.
@@ -36,10 +36,14 @@ jobs:
         include:
           - dockerfile: docker/Dockerfile
             image: ghcr.io/elidune/elidune-server
+            branches: main
           - dockerfile: docker/Dockerfile.ui
             image: ghcr.io/elidune/elidune-ui
+            branches: main
           - dockerfile: docker/Dockerfile.all-in-one
             image: ghcr.io/elidune/elidune-all-in-one
+            branches: all
+    if: ${{ matrix.branches == 'all' || github.ref_name == 'main' }}
     permissions:
       contents: read
       packages: write
