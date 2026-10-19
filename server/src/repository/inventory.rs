@@ -14,7 +14,13 @@ use crate::{
     },
 };
 
-type ItemBarcodeLookup = (i64, Option<DateTime<Utc>>, Option<i64>, Option<i16>);
+type ItemBarcodeLookup = (
+    i64,
+    Option<DateTime<Utc>>,
+    Option<i64>,
+    Option<i16>,
+    Option<i64>,
+);
 
 #[async_trait]
 pub trait InventoryRepository: Send + Sync {
@@ -227,6 +233,7 @@ const INVENTORY_SESSION_FROM: &str = r#"
 const INVENTORY_SCOPE_PREDICATE: &str = r#"
     (inv.scope_source_id IS NULL OR i.source_id = inv.scope_source_id)
     AND (inv.scope_place IS NULL OR i.place = inv.scope_place)
+    AND i.deposit_batch_id IS NULL
 "#;
 
 const MISSING_ITEMS_CTE: &str = r#"
@@ -235,6 +242,7 @@ const MISSING_ITEMS_CTE: &str = r#"
         FROM items i
         INNER JOIN inventory_sessions inv ON inv.id = $1
         WHERE i.archived_at IS NULL
+          AND i.deposit_batch_id IS NULL
           AND (inv.scope_source_id IS NULL OR i.source_id = inv.scope_source_id)
           AND (inv.scope_place IS NULL OR i.place = inv.scope_place)
           AND NOT EXISTS (
@@ -337,6 +345,7 @@ impl Repository {
             r#"
             SELECT COUNT(*)::bigint FROM items i
             WHERE i.archived_at IS NULL
+              AND i.deposit_batch_id IS NULL
               AND ($1::bigint IS NULL OR i.source_id = $1)
               AND ($2::smallint IS NULL OR i.place = $2)
             "#,
@@ -429,7 +438,7 @@ impl Repository {
         let session = self.inventory_fetch_session(session_id).await?;
 
         let row: Option<ItemBarcodeLookup> = sqlx::query_as(
-            "SELECT id, archived_at, source_id, place FROM items WHERE barcode = $1 LIMIT 1",
+            "SELECT id, archived_at, source_id, place, deposit_batch_id FROM items WHERE barcode = $1 LIMIT 1",
         )
         .bind(barcode)
         .fetch_optional(&self.pool)
@@ -437,8 +446,10 @@ impl Repository {
 
         let (item_id, result) = match row {
             None => (None, InventoryScanResult::UnknownBarcode),
-            Some((id, archived_at, source_id, place)) => {
-                if archived_at.is_some() {
+            Some((id, archived_at, source_id, place, deposit_batch_id)) => {
+                if deposit_batch_id.is_some() {
+                    (Some(id), InventoryScanResult::FoundOutOfScope)
+                } else if archived_at.is_some() {
                     (Some(id), InventoryScanResult::FoundArchived)
                 } else if item_matches_session_scope(
                     session.scope_source_id,
@@ -742,7 +753,7 @@ impl Repository {
                 COUNT(DISTINCT mi.biblio_id) FILTER (
                     WHERE (
                         SELECT COUNT(*)::bigint FROM items i2
-                        WHERE i2.biblio_id = mi.biblio_id AND i2.archived_at IS NULL
+                        WHERE i2.biblio_id = mi.biblio_id AND i2.archived_at IS NULL AND i2.deposit_batch_id IS NULL
                     ) = 1
                 )::bigint
             FROM missing_items mi
@@ -818,7 +829,7 @@ impl Repository {
                 l.expiry_at AS loan_expiry_at,
                 (
                     SELECT COUNT(*)::bigint FROM items i2
-                    WHERE i2.biblio_id = mi.biblio_id AND i2.archived_at IS NULL
+                    WHERE i2.biblio_id = mi.biblio_id AND i2.archived_at IS NULL AND i2.deposit_batch_id IS NULL
                 ) AS biblio_active_item_count
             FROM missing_items mi
             LEFT JOIN biblios b ON b.id = mi.biblio_id

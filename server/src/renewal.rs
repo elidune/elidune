@@ -331,6 +331,8 @@ pub struct LoanRenewalResult {
     pub renew_count: i16,
     /// Refusals this renewal skipped. See [`lifted_renewal_refusals`].
     pub lifted: Vec<RenewalRefusal>,
+    /// True when the new due date was lowered to the deposit batch `returnDueOn`.
+    pub due_date_capped_by_deposit: bool,
 }
 
 /// 422 body for every renewal refusal (`POST /loans/{id}/renew` and the barcode route).

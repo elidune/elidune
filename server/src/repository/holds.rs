@@ -536,6 +536,9 @@ impl Repository {
         if archived_at.is_some() || weeding_status.blocks_circulation() {
             return Ok(None);
         }
+        if deposit_copy_not_holdable(tx, item_id).await? {
+            return Ok(None);
+        }
 
         let already_ready: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM holds WHERE item_id = $1 AND status IN ('ready','to_pick'))",
@@ -757,6 +760,13 @@ impl Repository {
         if weeding_status.blocks_circulation() {
             return Err(AppError::BusinessRule(
                 crate::models::item::WeedingStatus::HOLD_BLOCKED.to_string(),
+            ));
+        }
+        if deposit_copy_not_holdable(&mut tx, item_id).await? {
+            return Err(AppError::coded(
+                422,
+                error_code::DEPOSIT_BATCH_RETURNING,
+                "This deposit copy cannot be assigned to a hold",
             ));
         }
 
@@ -1010,7 +1020,7 @@ impl Repository {
         exclude_item_ids: &[i64],
         prefer_source_id: Option<i64>,
     ) -> AppResult<Option<i64>> {
-        let item_id: Option<i64> = sqlx::query_scalar(
+        let sql = format!(
             r#"
             SELECT i.id
             FROM items i
@@ -1020,6 +1030,7 @@ impl Repository {
               AND i.weeding_status <> 'withdrawn'
               AND i.borrowable = TRUE
               AND COALESCE(i.circulation_status, 0) = 0
+              AND NOT ({})
               AND NOT EXISTS (
                   SELECT 1 FROM loans l
                   WHERE l.item_id = i.id AND l.returned_at IS NULL
@@ -1039,12 +1050,14 @@ impl Repository {
             LIMIT 1
             FOR UPDATE OF i SKIP LOCKED
             "#,
-        )
-        .bind(biblio_id)
-        .bind(exclude_item_ids)
-        .bind(prefer_source_id)
-        .fetch_optional(&mut **tx)
-        .await?;
+            crate::models::deposit::DEPOSIT_COPY_NOT_HOLDABLE_SQL
+        );
+        let item_id: Option<i64> = sqlx::query_scalar(&sql)
+            .bind(biblio_id)
+            .bind(exclude_item_ids)
+            .bind(prefer_source_id)
+            .fetch_optional(&mut **tx)
+            .await?;
         Ok(item_id)
     }
 
@@ -1074,6 +1087,57 @@ impl Repository {
                 hold.id,
                 hold.biblio_id,
                 &[item_id],
+                hold.pickup_site_id,
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    /// Detach holds pinned to deposit copies that are leaving the shelf and
+    /// offer each one another owned copy. Cancels an open transit of those copies.
+    pub(crate) async fn holds_release_deposit_copies_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, Postgres>,
+        item_ids: &[i64],
+    ) -> AppResult<()> {
+        if item_ids.is_empty() {
+            return Ok(());
+        }
+        sqlx::query(
+            r#"
+            UPDATE item_transits
+            SET status = 'cancelled', cancelled_at = NOW()
+            WHERE item_id = ANY($1) AND status IN ('requested', 'in_transit')
+            "#,
+        )
+        .bind(item_ids)
+        .execute(&mut **tx)
+        .await?;
+
+        let holds = sqlx::query_as::<_, Hold>(
+            r#"
+            UPDATE holds
+            SET status = 'pending',
+                item_id = NULL,
+                pick_started_at = NULL,
+                notified_at = NULL,
+                expires_at = NULL
+            WHERE item_id = ANY($1)
+              AND status IN ('pending', 'to_pick', 'ready')
+            RETURNING *
+            "#,
+        )
+        .bind(item_ids)
+        .fetch_all(&mut **tx)
+        .await?;
+
+        for hold in holds {
+            self.holds_reassign_pending_to_shelf_tx(
+                tx,
+                hold.id,
+                hold.biblio_id,
+                item_ids,
                 hold.pickup_site_id,
             )
             .await?;
@@ -1145,7 +1209,7 @@ impl Repository {
         let Some(biblio_id) = biblio_id else {
             return Ok(None);
         };
-        let eligible: Option<i64> = sqlx::query_scalar(
+        let eligible_sql = format!(
             r#"
             SELECT i.id
             FROM items i
@@ -1154,6 +1218,7 @@ impl Repository {
               AND i.weeding_status <> 'withdrawn'
               AND i.borrowable = TRUE
               AND COALESCE(i.circulation_status, 0) = 0
+              AND NOT ({})
               AND NOT EXISTS (
                   SELECT 1 FROM loans l
                   WHERE l.item_id = i.id AND l.returned_at IS NULL
@@ -1169,10 +1234,12 @@ impl Repository {
               )
             FOR UPDATE OF i SKIP LOCKED
             "#,
-        )
-        .bind(item_id)
-        .fetch_optional(&mut **tx)
-        .await?;
+            crate::models::deposit::DEPOSIT_COPY_NOT_HOLDABLE_SQL
+        );
+        let eligible: Option<i64> = sqlx::query_scalar(&eligible_sql)
+            .bind(item_id)
+            .fetch_optional(&mut **tx)
+            .await?;
         if eligible.is_none() {
             return Ok(None);
         }
@@ -1964,7 +2031,7 @@ impl Repository {
         biblio_id: i64,
         exclude_item_id: Option<i64>,
     ) -> AppResult<Option<Hold>> {
-        let candidates: Vec<i64> = sqlx::query_scalar(
+        let candidate_sql = format!(
             r#"
             SELECT i.id FROM items i
             WHERE i.biblio_id = $1
@@ -1973,17 +2040,20 @@ impl Repository {
               AND i.weeding_status <> 'withdrawn'
               AND i.borrowable = TRUE
               AND COALESCE(i.circulation_status, 0) = 0
+              AND NOT ({})
               AND NOT EXISTS (
                   SELECT 1 FROM loans l
                   WHERE l.item_id = i.id AND l.returned_at IS NULL
               )
             ORDER BY i.id
             "#,
-        )
-        .bind(biblio_id)
-        .bind(exclude_item_id)
-        .fetch_all(&mut **tx)
-        .await?;
+            crate::models::deposit::DEPOSIT_COPY_NOT_HOLDABLE_SQL
+        );
+        let candidates: Vec<i64> = sqlx::query_scalar(&candidate_sql)
+            .bind(biblio_id)
+            .bind(exclude_item_id)
+            .fetch_all(&mut **tx)
+            .await?;
 
         let expiry_days = self.hold_ready_expiry_days();
         for candidate_id in candidates {
@@ -2315,9 +2385,9 @@ impl Repository {
             return Ok(None);
         }
 
-        let available_sql = format!(
-            "SELECT EXISTS(SELECT 1 FROM items i WHERE i.id = $1 AND {AVAILABLE_COPY_PREDICATE})"
-        );
+        let predicate = available_copy_predicate();
+        let available_sql =
+            format!("SELECT EXISTS(SELECT 1 FROM items i WHERE i.id = $1 AND {predicate})");
         let this_available: bool = sqlx::query_scalar(&available_sql)
             .bind(item_id)
             .fetch_one(&mut **tx)
@@ -2334,9 +2404,8 @@ impl Repository {
             return Ok(None);
         }
 
-        let count_sql = format!(
-            "SELECT COUNT(*)::bigint FROM items i WHERE i.biblio_id = $1 AND {AVAILABLE_COPY_PREDICATE}"
-        );
+        let count_sql =
+            format!("SELECT COUNT(*)::bigint FROM items i WHERE i.biblio_id = $1 AND {predicate}");
         let available: i64 = sqlx::query_scalar(&count_sql)
             .bind(biblio_id)
             .fetch_one(&mut **tx)
@@ -2400,6 +2469,13 @@ impl Repository {
                 422,
                 error_code::SET_ASIDE_ITEM_MISMATCH,
                 "itemId does not match the scanned copy",
+            ));
+        }
+        if deposit_copy_not_holdable(&mut tx, locked_item_id).await? {
+            return Err(AppError::coded(
+                422,
+                error_code::DEPOSIT_BATCH_RETURNING,
+                "This deposit copy cannot be set aside for a hold",
             ));
         }
 
@@ -2482,9 +2558,9 @@ impl Repository {
             ));
         };
 
-        let available_sql = format!(
-            "SELECT EXISTS(SELECT 1 FROM items i WHERE i.id = $1 AND {AVAILABLE_COPY_PREDICATE})"
-        );
+        let predicate = available_copy_predicate();
+        let available_sql =
+            format!("SELECT EXISTS(SELECT 1 FROM items i WHERE i.id = $1 AND {predicate})");
         let available: bool = sqlx::query_scalar(&available_sql)
             .bind(locked_item_id)
             .fetch_one(&mut *tx)
@@ -2604,8 +2680,32 @@ impl Repository {
     }
 }
 
+/// On shelf and loanable. Excludes in transit, already assigned, not loanable,
+/// and deposit copies that must go back to the lender.
+fn available_copy_predicate() -> String {
+    format!(
+        "{AVAILABLE_COPY_PREDICATE} AND NOT ({})",
+        crate::models::deposit::DEPOSIT_COPY_NOT_HOLDABLE_SQL
+    )
+}
+
+async fn deposit_copy_not_holdable(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    item_id: i64,
+) -> AppResult<bool> {
+    let sql = format!(
+        "SELECT EXISTS(SELECT 1 FROM items i WHERE i.id = $1 AND ({}))",
+        crate::models::deposit::DEPOSIT_COPY_NOT_HOLDABLE_SQL
+    );
+    let blocked: bool = sqlx::query_scalar(&sql)
+        .bind(item_id)
+        .fetch_one(&mut **tx)
+        .await?;
+    Ok(blocked)
+}
+
 /// On shelf and loanable. Excludes in transit, already assigned, and not loanable.
-/// No site filter.
+/// No site filter. Deposit exclusion is added by [`available_copy_predicate`].
 const AVAILABLE_COPY_PREDICATE: &str = r#"
     i.archived_at IS NULL
     AND i.weeding_status <> 'withdrawn'
