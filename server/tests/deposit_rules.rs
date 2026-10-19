@@ -518,7 +518,11 @@ async fn close_archives_without_delete_and_reports_missing_and_loans() {
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{scanned_loan}");
     assert_error(&scanned_loan, "deposit_item_on_loan");
-    assert_eq!(scanned_loan["itemId"], items[2].0.to_string(), "{scanned_loan}");
+    assert_eq!(
+        scanned_loan["itemId"],
+        items[2].0.to_string(),
+        "{scanned_loan}"
+    );
     assert_eq!(scanned_loan["barcode"], items[2].1, "{scanned_loan}");
     let not_stamped: Option<chrono::DateTime<chrono::Utc>> =
         sqlx::query_scalar("SELECT deposit_returned_at FROM items WHERE id = $1")
@@ -870,10 +874,7 @@ async fn loss_bills_the_lender_rate_or_requires_an_amount() {
     assert_eq!(lost["charge"]["amount"], "15.00", "{lost}");
 
     let (status, losses) = app
-        .get_json_with_auth(
-            &format!("/api/v1/deposit-losses?lenderId={rated}"),
-            &token,
-        )
+        .get_json_with_auth(&format!("/api/v1/deposit-losses?lenderId={rated}"), &token)
         .await;
     assert_eq!(status, StatusCode::OK, "{losses}");
     let rated_item = rated_items[0].0.to_string();
@@ -1113,11 +1114,12 @@ async fn lender_replacement_rate_can_be_cleared() {
     };
     let token = fixtures::ensure_first_setup(&app).await;
     let lender_id = lender(&app, &token, Some(1500)).await;
+    let kept_name = format!("Kept rate {}", fixtures::unique_token());
 
     let (status, kept) = patch_json(
         &app,
         &format!("/api/v1/lenders/{lender_id}"),
-        &json!({"name": "Kept rate"}),
+        &json!({"name": kept_name}),
         &token,
     )
     .await;
@@ -1202,7 +1204,10 @@ async fn deposit_loss_notice_is_per_copy() {
         .iter()
         .find(|item| fixtures::json_id(&item["id"]) == items[0].0)
         .expect("copy");
-    assert!(embedded["deposit"]["depositLossNotifiedAt"].is_null(), "{embedded}");
+    assert!(
+        embedded["deposit"]["depositLossNotifiedAt"].is_null(),
+        "{embedded}"
+    );
 
     let (status, lost_loan) = checkout(&app, &token, reader_id, items[0].0, false).await;
     assert_eq!(status, StatusCode::CREATED, "{lost_loan}");
@@ -1323,7 +1328,10 @@ async fn deposit_loss_notice_is_per_copy() {
     .fetch_one(app.state.services.repository.pool())
     .await
     .unwrap();
-    assert_eq!(notified_day, chrono::NaiveDate::from_ymd_opt(2026, 4, 1).unwrap());
+    assert_eq!(
+        notified_day,
+        chrono::NaiveDate::from_ymd_opt(2026, 4, 1).unwrap()
+    );
 
     let audits: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM audit_log WHERE event_type = 'deposit_loss_notified' AND entity_id = $1",
@@ -1375,7 +1383,11 @@ async fn deposit_loss_notice_is_per_copy() {
         .get_json_with_auth(&format!("{list_uri}&notified=true"), &token)
         .await;
     assert_eq!(status, StatusCode::OK, "{notified_list}");
-    assert_eq!(notified_list.as_array().unwrap().len(), 1, "{notified_list}");
+    assert_eq!(
+        notified_list.as_array().unwrap().len(),
+        1,
+        "{notified_list}"
+    );
     assert_eq!(notified_list[0]["itemId"], lost_key, "{notified_list}");
 
     let (status, stamped) = app
@@ -1386,7 +1398,10 @@ async fn deposit_loss_notice_is_per_copy() {
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{stamped}");
-    assert_eq!(stamped["depositLossNotifiedAt"], "2026-05-02T15:04:05Z", "{stamped}");
+    assert_eq!(
+        stamped["depositLossNotifiedAt"], "2026-05-02T15:04:05Z",
+        "{stamped}"
+    );
     assert_eq!(stamped["kind"], "damaged", "{stamped}");
 
     let (status, item) = app
@@ -1394,8 +1409,7 @@ async fn deposit_loss_notice_is_per_copy() {
         .await;
     assert_eq!(status, StatusCode::OK, "{item}");
     assert_eq!(
-        item["items"][0]["deposit"]["depositLossNotifiedAt"],
-        "2026-05-02T15:04:05Z",
+        item["items"][0]["deposit"]["depositLossNotifiedAt"], "2026-05-02T15:04:05Z",
         "{item}"
     );
 }

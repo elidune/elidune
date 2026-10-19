@@ -425,9 +425,9 @@ fn resolve_notified_at(
         None => Ok(now),
         Some(NotifiedOn::Timestamp(timestamp)) => Ok(timestamp),
         Some(NotifiedOn::Date(date)) => {
-            let naive = date.and_hms_opt(0, 0, 0).ok_or_else(|| {
-                AppError::Validation("notifiedOn is not a valid date".into())
-            })?;
+            let naive = date
+                .and_hms_opt(0, 0, 0)
+                .ok_or_else(|| AppError::Validation("notifiedOn is not a valid date".into()))?;
             zone.from_local_datetime(&naive)
                 .earliest()
                 .map(|local| local.with_timezone(&Utc))
