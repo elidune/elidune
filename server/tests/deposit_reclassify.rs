@@ -1356,4 +1356,99 @@ async fn from_source_equal_to_site_is_invalid_and_mixed_copies_warn() {
     assert!(warning_codes(&by_barcode)
         .iter()
         .all(|code| *code != "from_source_mixed"));
+    assert_eq!(by_barcode.remaining_on_old_source, None);
+}
+
+#[tokio::test]
+async fn from_source_report_counts_copies_left_on_the_old_source() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let pool = app.state.services.repository.pool();
+    let token = fixtures::unique_token();
+    let site_id = source(pool, &format!("site-{token}")).await;
+    let old_source = source(pool, &format!("old-{token}")).await;
+    let lender_id = lender(pool, &format!("Lender {token}")).await;
+    let biblio_id = biblio(pool, "Remain", None).await;
+    let live = item(pool, biblio_id, old_source, &format!("LIVE-{token}")).await;
+    let withdrawn = item(pool, biblio_id, old_source, &format!("WEED-{token}")).await;
+    let archived = item(pool, biblio_id, old_source, &format!("ARCH-{token}")).await;
+    sqlx::query("UPDATE items SET weeding_status = 'withdrawn' WHERE id = $1")
+        .bind(withdrawn)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE items SET archived_at = NOW() WHERE id = $1")
+        .bind(archived)
+        .execute(pool)
+        .await
+        .unwrap();
+
+    let selection = Selection::FromSource(old_source);
+    let dry = execute(
+        pool,
+        &command(
+            lender_id,
+            &format!("REM-{token}"),
+            site_id,
+            selection.clone(),
+            false,
+        ),
+    )
+    .await
+    .expect("dry run");
+    assert_eq!(dry.summary.to_reclassify, 1);
+    assert_eq!(dry.remaining_on_old_source, Some(2));
+    let dry_text = elidune_server::deposit_reclassify::render_report(
+        &dry,
+        elidune_server::deposit_reclassify::ReportFormat::Text,
+    );
+    assert!(dry_text.trim_end().ends_with("remaining_on_old_source=2"));
+    assert!(!dry_text.contains("archived manually"));
+    assert_eq!(item_place(pool, live).await.1, Some(old_source));
+
+    let applied = execute(
+        pool,
+        &command(lender_id, &format!("REM-{token}"), site_id, selection, true),
+    )
+    .await
+    .expect("apply");
+    assert_eq!(applied.remaining_on_old_source, Some(2));
+    assert_eq!(item_place(pool, live).await.1, Some(site_id));
+    assert_eq!(item_place(pool, withdrawn).await.1, Some(old_source));
+    assert_eq!(item_place(pool, archived).await.1, Some(old_source));
+
+    let empty_source = source(pool, &format!("empty-{token}")).await;
+    let only = item(pool, biblio_id, empty_source, &format!("ONLY-{token}")).await;
+    let cleared = execute(
+        pool,
+        &command(
+            lender_id,
+            &format!("CLEAR-{token}"),
+            site_id,
+            Selection::FromSource(empty_source),
+            true,
+        ),
+    )
+    .await
+    .expect("source cleared");
+    assert_eq!(cleared.remaining_on_old_source, Some(0));
+    assert_eq!(item_place(pool, only).await.1, Some(site_id));
+    let cleared_text = elidune_server::deposit_reclassify::render_report(
+        &cleared,
+        elidune_server::deposit_reclassify::ReportFormat::Text,
+    );
+    let summary_at = cleared_text.find("summary\t").expect("summary");
+    let remaining_at = cleared_text
+        .find("remaining_on_old_source=0")
+        .expect("remaining");
+    assert!(summary_at < remaining_at);
+    assert!(cleared_text
+        .trim_end()
+        .ends_with("old source can be archived manually"));
+    let json = elidune_server::deposit_reclassify::render_report(
+        &cleared,
+        elidune_server::deposit_reclassify::ReportFormat::Json,
+    );
+    assert!(json.contains("\"remainingOnOldSource\": 0"));
 }

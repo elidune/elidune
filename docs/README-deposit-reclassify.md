@@ -74,6 +74,8 @@ A withdrawn copy is refused even when `--from-source` selects it. A copy with `a
 
 `already_reclassified` is a skip. Running the command again does not write a second audit row for that copy. An open transit can be reclassified later by running the command again after the transit is received or cancelled.
 
+In `--from-source` mode the report ends with `remaining_on_old_source`, the number of item rows that still point at that source (including archived copies). When that number is 0 the old source can be archived manually.
+
 Records of selected copies whose normalized ISBN matches another record **outside** the selection are listed as `possible_duplicate_record` with both record ids. The command never merges or edits bibliographic records. Review those pairs and merge them in the catalog if they are the same title.
 
 Refused copies do not abort the run. The process exits 0 when the report was produced. It exits non-zero for invalid arguments (unknown or archived lender, unknown or archived site, unknown `--from-source`, batch not `active`, missing `--return-due-on` when the batch must be created) and for database errors.

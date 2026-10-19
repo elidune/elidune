@@ -297,6 +297,9 @@ pub struct Report {
     pub return_due_on: NaiveDate,
     pub notes: Option<String>,
     pub warnings: Vec<ReportWarning>,
+    /// Copies whose `source_id` is still `--from-source` after this run.
+    /// Absent when the selection is a barcode list.
+    pub remaining_on_old_source: Option<i64>,
     pub items: Vec<ReportLine>,
     pub possible_duplicate_records: Vec<PossibleDuplicateRecord>,
     pub summary: Summary,
@@ -868,6 +871,7 @@ async fn execute_in_tx(
     if let Some(warning) = from_source_warning(tx, command).await? {
         warnings.push(warning);
     }
+    let remaining_on_old_source = remaining_on_old_source(tx, command, &planned).await?;
     Ok(Report {
         dry_run: !command.apply,
         applied: command.apply,
@@ -880,6 +884,7 @@ async fn execute_in_tx(
         return_due_on: batch.return_due_on,
         notes: batch.notes,
         warnings,
+        remaining_on_old_source,
         summary: summarize(&planned),
         items: planned.into_iter().map(|item| item.line).collect(),
         possible_duplicate_records: duplicates,
@@ -1070,6 +1075,30 @@ fn report_warnings(return_due_on: NaiveDate) -> Vec<ReportWarning> {
         });
     }
     warnings
+}
+
+/// Every item row still pointing at the old source, including archived rows.
+/// A dry run subtracts the copies this run would move. Apply counts after the
+/// updates, still inside the same transaction.
+async fn remaining_on_old_source(
+    tx: &mut Tx<'_>,
+    command: &ReclassifyCommand,
+    planned: &[PlannedItem],
+) -> Result<Option<i64>, ReclassifyFailure> {
+    let Selection::FromSource(source_id) = command.selection else {
+        return Ok(None);
+    };
+    let current: i64 =
+        sqlx::query_scalar("SELECT COUNT(*)::bigint FROM items WHERE source_id = $1")
+            .bind(source_id)
+            .fetch_one(&mut **tx)
+            .await
+            .map_err(failed)?;
+    if command.apply {
+        return Ok(Some(current));
+    }
+    let moving = planned.iter().filter(|item| item.update.is_some()).count() as i64;
+    Ok(Some(current - moving))
 }
 
 fn plan_new_batch(command: &ReclassifyCommand) -> Result<NewBatch, ReclassifyFailure> {
@@ -1467,6 +1496,12 @@ fn render_text(report: &Report) -> String {
             report.summary.already_reclassified
         ),
     );
+    if let Some(remaining) = report.remaining_on_old_source {
+        push_line(&mut out, format!("remaining_on_old_source={remaining}"));
+        if remaining == 0 {
+            push_line(&mut out, "old source can be archived manually");
+        }
+    }
     out
 }
 
@@ -1678,6 +1713,7 @@ mod tests {
             return_due_on: NaiveDate::from_ymd_opt(2026, 9, 1).unwrap(),
             notes: None,
             warnings: Vec::new(),
+            remaining_on_old_source: None,
             items: vec![super::ReportLine {
                 barcode: Some("NOPE".into()),
                 item_id: None,
@@ -1713,6 +1749,7 @@ mod tests {
         assert!(json.contains("\"barcode_unknown\""));
         assert!(json.contains("\"possible_duplicate_record\""));
         assert!(json.contains("\"warnings\": []"));
+        assert!(json.contains("\"remainingOnOldSource\": null"));
     }
 
     #[test]
@@ -1735,6 +1772,7 @@ mod tests {
                         .into(),
                 count: None,
             }],
+            remaining_on_old_source: Some(0),
             items: Vec::new(),
             possible_duplicate_records: Vec::new(),
             summary: super::Summary::default(),
@@ -1743,6 +1781,10 @@ mod tests {
         assert!(text.starts_with("WARNING\tcode=return_due_on_past\t"));
         assert!(text.contains("deposit_return_due"));
         assert!(text.find("WARNING").unwrap() < text.find("mode=").unwrap());
+        assert!(text
+            .trim_end()
+            .ends_with("old source can be archived manually"));
+        assert!(text.find("summary\t").unwrap() < text.find("remaining_on_old_source=0").unwrap());
         let json = render_report(&report, ReportFormat::Json);
         assert!(json.contains("\"code\": \"return_due_on_past\""));
         assert!(json.contains("\"warnings\""));
