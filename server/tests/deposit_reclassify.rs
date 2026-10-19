@@ -140,7 +140,8 @@ async fn dry_run_writes_nothing_apply_is_idempotent_and_reports_duplicates() {
     let normalized = "9780306406157";
     let biblio_a = biblio(pool, "Selected A", Some(dashed)).await;
     let biblio_b = biblio(pool, "Selected B", Some(normalized)).await;
-    let outside = biblio(pool, "Already owned", Some("ISBN 9780306406157")).await;
+    // Punctuation and spacing only. `Isbn` keeps letters, so an "ISBN " prefix would not match.
+    let outside = biblio(pool, "Already owned", Some("978 0-306-40615-7")).await;
     let quiet = biblio(pool, "No match", Some("9780000000002")).await;
 
     let open_barcode = format!("OPEN-{token}");
