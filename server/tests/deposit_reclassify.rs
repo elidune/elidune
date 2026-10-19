@@ -136,13 +136,23 @@ async fn dry_run_writes_nothing_apply_is_idempotent_and_reports_duplicates() {
     let lender_id = lender(pool, &format!("Lender {token}")).await;
     let user_id = reader(pool, &format!("reader-{token}")).await;
 
-    let dashed = "978-0-306-40615-7";
-    let normalized = "9780306406157";
-    let biblio_a = biblio(pool, "Selected A", Some(dashed)).await;
-    let biblio_b = biblio(pool, "Selected B", Some(normalized)).await;
+    let digits = format!("{:013}", fixtures::unique_suffix() % 10_000_000_000_000);
+    let dashed = format!(
+        "{}-{}-{}-{}-{}",
+        &digits[0..3],
+        &digits[3..4],
+        &digits[4..7],
+        &digits[7..12],
+        &digits[12..13]
+    );
+    let normalized = digits.clone();
+    let spaced = format!("{} {}-{}", &digits[0..3], &digits[3..4], &digits[4..]);
+    let biblio_a = biblio(pool, "Selected A", Some(&dashed)).await;
+    let biblio_b = biblio(pool, "Selected B", Some(&normalized)).await;
     // Punctuation and spacing only. `Isbn` keeps letters, so an "ISBN " prefix would not match.
-    let outside = biblio(pool, "Already owned", Some("978 0-306-40615-7")).await;
-    let quiet = biblio(pool, "No match", Some("9780000000002")).await;
+    let outside = biblio(pool, "Already owned", Some(&spaced)).await;
+    let quiet_isbn = format!("2{}", &digits[1..]);
+    let quiet = biblio(pool, "No match", Some(&quiet_isbn)).await;
 
     let open_barcode = format!("OPEN-{token}");
     let quiet_barcode = format!("QUIET-{token}");
