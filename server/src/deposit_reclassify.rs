@@ -586,9 +586,9 @@ fn take_value<'a>(
     index: &mut usize,
     flag: &str,
 ) -> Result<&'a str, ReclassifyFailure> {
-    let value = args.get(*index).ok_or_else(|| {
-        ReclassifyFailure::invalid(format!("{flag} requires a value"))
-    })?;
+    let value = args
+        .get(*index)
+        .ok_or_else(|| ReclassifyFailure::invalid(format!("{flag} requires a value")))?;
     *index += 1;
     Ok(value.as_str())
 }
@@ -604,9 +604,9 @@ fn set_once<T>(slot: &mut Option<T>, flag: &str, value: T) -> Result<(), Reclass
 }
 
 fn parse_id(flag: &str, raw: &str) -> Result<i64, ReclassifyFailure> {
-    let id = raw.parse::<i64>().map_err(|_| {
-        ReclassifyFailure::invalid(format!("{flag} must be an integer id"))
-    })?;
+    let id = raw
+        .parse::<i64>()
+        .map_err(|_| ReclassifyFailure::invalid(format!("{flag} must be an integer id")))?;
     if id <= 0 {
         return Err(ReclassifyFailure::invalid(format!(
             "{flag} must be a positive id"
@@ -616,18 +616,15 @@ fn parse_id(flag: &str, raw: &str) -> Result<i64, ReclassifyFailure> {
 }
 
 fn parse_date(flag: &str, raw: &str) -> Result<NaiveDate, ReclassifyFailure> {
-    NaiveDate::parse_from_str(raw, "%Y-%m-%d").map_err(|_| {
-        ReclassifyFailure::invalid(format!("{flag} must be YYYY-MM-DD"))
-    })
+    NaiveDate::parse_from_str(raw, "%Y-%m-%d")
+        .map_err(|_| ReclassifyFailure::invalid(format!("{flag} must be YYYY-MM-DD")))
 }
 
 fn parse_format(raw: &str) -> Result<ReportFormat, ReclassifyFailure> {
     match raw {
         "json" => Ok(ReportFormat::Json),
         "text" => Ok(ReportFormat::Text),
-        _ => Err(ReclassifyFailure::invalid(
-            "--format must be json or text",
-        )),
+        _ => Err(ReclassifyFailure::invalid("--format must be json or text")),
     }
 }
 
@@ -660,9 +657,8 @@ fn parse_notes(raw: &str) -> Result<Option<String>, ReclassifyFailure> {
 }
 
 fn read_barcodes(path: &str) -> Result<Vec<String>, ReclassifyFailure> {
-    let text = std::fs::read_to_string(path).map_err(|err| {
-        ReclassifyFailure::invalid(format!("cannot read {path}: {err}"))
-    })?;
+    let text = std::fs::read_to_string(path)
+        .map_err(|err| ReclassifyFailure::invalid(format!("cannot read {path}: {err}")))?;
     let codes = parse_barcode_list(&text);
     if codes.is_empty() {
         return Err(ReclassifyFailure::invalid(format!(
@@ -777,9 +773,7 @@ pub async fn execute(
 
 fn validate_command(command: &ReclassifyCommand) -> Result<(), ReclassifyFailure> {
     if command.lender_id <= 0 {
-        return Err(ReclassifyFailure::invalid(
-            "--lender must be a positive id",
-        ));
+        return Err(ReclassifyFailure::invalid("--lender must be a positive id"));
     }
     if command.site_id <= 0 {
         return Err(ReclassifyFailure::invalid("--site must be a positive id"));
@@ -820,9 +814,9 @@ async fn execute_in_tx(
     let biblio_ids = distinct_biblio_ids(&planned);
     let duplicates = find_duplicates(tx, &biblio_ids).await?;
     if command.apply {
-        let batch_id = batch.id.ok_or_else(|| {
-            ReclassifyFailure::failed("batch id missing during apply")
-        })?;
+        let batch_id = batch
+            .id
+            .ok_or_else(|| ReclassifyFailure::failed("batch id missing during apply"))?;
         apply_updates(tx, command, batch_id, &planned).await?;
     }
     Ok(Report {
@@ -871,11 +865,9 @@ async fn ensure_site(tx: &mut Tx<'_>, site_id: i64) -> Result<(), ReclassifyFail
         None => Err(ReclassifyFailure::invalid(format!(
             "site {site_id} does not exist"
         ))),
-        Some(row) if row.archived_at.is_some() || row.is_archive != 0 => {
-            Err(ReclassifyFailure::invalid(format!(
-                "site {site_id} is archived"
-            )))
-        }
+        Some(row) if row.archived_at.is_some() || row.is_archive != 0 => Err(
+            ReclassifyFailure::invalid(format!("site {site_id} is archived")),
+        ),
         Some(_) => Ok(()),
     }
 }
@@ -1302,10 +1294,7 @@ fn render_text(report: &Report) -> String {
         &mut out,
         format!(
             "batch_id={}",
-            report
-                .batch_id
-                .map(|id| id.to_string())
-                .unwrap_or_default()
+            report.batch_id.map(|id| id.to_string()).unwrap_or_default()
         ),
     );
     push_line(&mut out, format!("site_id={}", report.site_id));
@@ -1354,14 +1343,8 @@ fn format_line(line: &ReportLine) -> String {
         "title={}",
         one_line(line.title.as_deref().unwrap_or(""))
     ));
-    parts.push(format!(
-        "old_source_id={}",
-        fmt_opt_id(line.old_source_id)
-    ));
-    parts.push(format!(
-        "new_source_id={}",
-        fmt_opt_id(line.new_source_id)
-    ));
+    parts.push(format!("old_source_id={}", fmt_opt_id(line.old_source_id)));
+    parts.push(format!("new_source_id={}", fmt_opt_id(line.new_source_id)));
     parts.push(format!("on_loan={}", line.on_loan));
     parts.push(format!("has_holds={}", line.has_holds));
     parts.join("\t")
@@ -1500,7 +1483,8 @@ mod tests {
         .unwrap_err();
         assert!(both.to_string().contains("exactly one"));
 
-        let path = std::env::temp_dir().join(format!("elidune-reclassify-{}.txt", std::process::id()));
+        let path =
+            std::env::temp_dir().join(format!("elidune-reclassify-{}.txt", std::process::id()));
         std::fs::write(&path, "B1\nB1\nB2\n").unwrap();
         let invocation = parse_invocation(&[
             "--lender".into(),

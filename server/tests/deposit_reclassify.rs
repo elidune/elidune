@@ -98,13 +98,12 @@ struct LoanSnap {
 }
 
 async fn loan_snap(pool: &PgPool, loan_id: i64) -> LoanSnap {
-    let row: (Option<DateTime<Utc>>, Option<DateTime<Utc>>, i16) = sqlx::query_as(
-        "SELECT expiry_at, returned_at, nb_renews FROM loans WHERE id = $1",
-    )
-    .bind(loan_id)
-    .fetch_one(pool)
-    .await
-    .expect("loan");
+    let row: (Option<DateTime<Utc>>, Option<DateTime<Utc>>, i16) =
+        sqlx::query_as("SELECT expiry_at, returned_at, nb_renews FROM loans WHERE id = $1")
+            .bind(loan_id)
+            .fetch_one(pool)
+            .await
+            .expect("loan");
     LoanSnap {
         expiry_at: row.0,
         returned_at: row.1,
@@ -112,7 +111,10 @@ async fn loan_snap(pool: &PgPool, loan_id: i64) -> LoanSnap {
     }
 }
 
-async fn item_place(pool: &PgPool, item_id: i64) -> (Option<i64>, Option<i64>, Option<DateTime<Utc>>) {
+async fn item_place(
+    pool: &PgPool,
+    item_id: i64,
+) -> (Option<i64>, Option<i64>, Option<DateTime<Utc>>) {
     sqlx::query_as(
         "SELECT deposit_batch_id, source_id, deposit_returned_at FROM items WHERE id = $1",
     )
@@ -288,9 +290,12 @@ async fn dry_run_writes_nothing_apply_is_idempotent_and_reports_duplicates() {
 
     let before_loan = loan_snap(pool, loan_id).await;
     let before_returned = loan_snap(pool, returned_loan).await;
-    let applied = execute(pool, &command(lender_id, &reference, site_id, selection.clone(), true))
-        .await
-        .expect("apply");
+    let applied = execute(
+        pool,
+        &command(lender_id, &reference, site_id, selection.clone(), true),
+    )
+    .await
+    .expect("apply");
     assert!(applied.applied);
     assert_eq!(applied.batch_action, BatchAction::Create);
     let batch_id = applied.batch_id.expect("created batch");
@@ -302,7 +307,10 @@ async fn dry_run_writes_nothing_apply_is_idempotent_and_reports_duplicates() {
         .fetch_one(pool)
         .await
         .unwrap();
-    assert_eq!(arrived, chrono::NaiveDate::from_ymd_opt(2026, 3, 1).unwrap());
+    assert_eq!(
+        arrived,
+        chrono::NaiveDate::from_ymd_opt(2026, 3, 1).unwrap()
+    );
     assert_eq!(due_on, chrono::NaiveDate::from_ymd_opt(2026, 9, 1).unwrap());
     assert_eq!(notes.as_deref(), Some("historical import"));
     assert_eq!(status, "active");
@@ -369,11 +377,12 @@ async fn dry_run_writes_nothing_apply_is_idempotent_and_reports_duplicates() {
     assert_eq!(payload["oldSourceId"], old_source);
     assert_eq!(payload["newSourceId"], site_id);
 
-    let updated_at: DateTime<Utc> = sqlx::query_scalar("SELECT updated_at FROM items WHERE id = $1")
-        .bind(open_item)
-        .fetch_one(pool)
-        .await
-        .unwrap();
+    let updated_at: DateTime<Utc> =
+        sqlx::query_scalar("SELECT updated_at FROM items WHERE id = $1")
+            .bind(open_item)
+            .fetch_one(pool)
+            .await
+            .unwrap();
     let again = execute(
         pool,
         &command(lender_id, &reference, site_id, selection, true),
@@ -582,8 +591,14 @@ async fn refusals_are_reported_and_left_unchanged() {
             .map(|line| line.reason)
             .expect(barcode)
     };
-    assert_eq!(reason(&format!("ARCH-{token}")), Some(LineReason::ItemArchived));
-    assert_eq!(reason(&format!("WD-{token}")), Some(LineReason::ItemArchived));
+    assert_eq!(
+        reason(&format!("ARCH-{token}")),
+        Some(LineReason::ItemArchived)
+    );
+    assert_eq!(
+        reason(&format!("WD-{token}")),
+        Some(LineReason::ItemArchived)
+    );
     assert_eq!(
         reason(&format!("OTH-{token}")),
         Some(LineReason::ItemInOtherBatch)
@@ -631,12 +646,11 @@ async fn refusals_are_reported_and_left_unchanged() {
             .await
             .unwrap();
     assert_eq!(expiry, Some(due()));
-    let hold_status: String =
-        sqlx::query_scalar("SELECT status FROM holds WHERE item_id = $1")
-            .bind(candidate)
-            .fetch_one(pool)
-            .await
-            .unwrap();
+    let hold_status: String = sqlx::query_scalar("SELECT status FROM holds WHERE item_id = $1")
+        .bind(candidate)
+        .fetch_one(pool)
+        .await
+        .unwrap();
     assert_eq!(hold_status, "ready");
     let already_audits: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM audit_log
@@ -687,15 +701,16 @@ async fn from_source_skips_archived_rows_and_refuses_withdrawn() {
     )
     .await
     .unwrap();
-    let ids: Vec<i64> = report.items.iter().filter_map(|line| line.item_id).collect();
+    let ids: Vec<i64> = report
+        .items
+        .iter()
+        .filter_map(|line| line.item_id)
+        .collect();
     assert!(ids.contains(&live));
     assert!(ids.contains(&withdrawn));
     assert!(!ids.contains(&archived));
     assert!(!ids.contains(&elsewhere));
-    assert_eq!(
-        item_place(pool, live).await.0,
-        report.batch_id
-    );
+    assert_eq!(item_place(pool, live).await.0, report.batch_id);
     assert_eq!(item_place(pool, withdrawn).await.0, None);
     assert_eq!(item_place(pool, archived).await.1, Some(old_source));
 }
@@ -741,14 +756,21 @@ async fn batch_reuse_creation_and_invalid_arguments_write_nothing() {
     let report = execute(pool, &reuse).await.expect("reuse");
     assert_eq!(report.batch_action, BatchAction::Reuse);
     assert_eq!(report.batch_id, Some(batch_id));
-    assert_eq!(report.arrived_on, chrono::NaiveDate::from_ymd_opt(2024, 1, 15).unwrap());
+    assert_eq!(
+        report.arrived_on,
+        chrono::NaiveDate::from_ymd_opt(2024, 1, 15).unwrap()
+    );
     assert_eq!(report.notes.as_deref(), Some("kept"));
-    assert_eq!(item_place(pool, item_id).await, (Some(batch_id), Some(site_id), None));
-    let stored_notes: String = sqlx::query_scalar("SELECT notes FROM deposit_batches WHERE id = $1")
-        .bind(batch_id)
-        .fetch_one(pool)
-        .await
-        .unwrap();
+    assert_eq!(
+        item_place(pool, item_id).await,
+        (Some(batch_id), Some(site_id), None)
+    );
+    let stored_notes: String =
+        sqlx::query_scalar("SELECT notes FROM deposit_batches WHERE id = $1")
+            .bind(batch_id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
     assert_eq!(stored_notes, "kept");
 
     sqlx::query("UPDATE items SET source_id = $2 WHERE id = $1")
@@ -847,7 +869,9 @@ async fn batch_reuse_creation_and_invalid_arguments_write_nothing() {
         true,
     );
     missing_date.return_due_on = None;
-    let err = execute(pool, &missing_date).await.expect_err("missing date");
+    let err = execute(pool, &missing_date)
+        .await
+        .expect_err("missing date");
     assert!(err.to_string().contains("return-due-on"));
     let created: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM deposit_batches WHERE lender_id = $1 AND reference = $2",
