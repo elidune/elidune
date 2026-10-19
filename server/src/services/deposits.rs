@@ -76,7 +76,7 @@ impl DepositsService {
         {
             return Err(AppError::Validation("Lender name is required".into()));
         }
-        reject_non_positive_rate(data.replacement_rate_cents)?;
+        reject_non_positive_rate(data.replacement_rate_cents.flatten())?;
         self.repository.lenders_update(id, data).await
     }
 

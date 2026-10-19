@@ -98,9 +98,10 @@ impl Repository {
             Some(value) => blank_to_null(Some(value.clone())),
             None => existing.notes,
         };
-        let replacement_rate_cents = data
-            .replacement_rate_cents
-            .or(existing.replacement_rate_cents);
+        let replacement_rate_cents = match data.replacement_rate_cents {
+            Some(value) => value,
+            None => existing.replacement_rate_cents,
+        };
         let result = sqlx::query_as::<_, Lender>(&format!(
             r#"
             UPDATE lenders

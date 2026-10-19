@@ -119,7 +119,7 @@ pub async fn create_lender(
     params(("id" = i64, Path, description = "Lender ID")),
     request_body = UpdateLender,
     responses(
-        (status = 200, description = "Lender updated", body = Lender),
+        (status = 200, description = "Lender updated. Omit `replacementRateCents` to leave it unchanged. JSON `null` clears it. Zero and negative values are `validation_error`.", body = Lender),
         (status = 400, description = "Validation error", body = crate::error::ErrorResponse),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 403, description = "Insufficient permissions", body = crate::error::ErrorResponse),

@@ -174,8 +174,8 @@ pub struct CreateLender {
     pub replacement_rate_cents: Option<Cents>,
 }
 
-#[derive(Debug, Clone, Deserialize, Validate, ToSchema)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, Deserialize, Validate, ToSchema)]
+#[serde(default, rename_all = "camelCase")]
 pub struct UpdateLender {
     #[validate(length(min = 1, max = 200))]
     pub name: Option<String>,
@@ -183,9 +183,11 @@ pub struct UpdateLender {
     pub contact: Option<String>,
     #[validate(length(max = 4000))]
     pub notes: Option<String>,
-    /// When set, replaces the stored rate. Omit to leave it unchanged. Zero is rejected.
-    #[serde(default)]
-    pub replacement_rate_cents: Option<Cents>,
+    /// Integer cents. Omit the field to leave the stored rate unchanged.
+    /// JSON `null` clears it. Zero and negative values are rejected.
+    #[serde(default, with = "serde_with::rust::double_option")]
+    #[schema(value_type = Option<i64>)]
+    pub replacement_rate_cents: Option<Option<Cents>>,
 }
 
 /// One incoming batch of copies from a lender.
@@ -433,5 +435,24 @@ pub fn item_deposit_from_value(
     match value {
         None | Some(serde_json::Value::Null) => Ok(None),
         Some(value) => serde_json::from_value(value).map(Some),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UpdateLender;
+    use crate::models::fine::Cents;
+
+    #[test]
+    fn replacement_rate_patch_distinguishes_absent_null_and_value() {
+        let absent: UpdateLender = serde_json::from_str(r#"{"name":"A"}"#).unwrap();
+        assert!(absent.replacement_rate_cents.is_none());
+
+        let cleared: UpdateLender =
+            serde_json::from_str(r#"{"replacementRateCents":null}"#).unwrap();
+        assert_eq!(cleared.replacement_rate_cents, Some(None));
+
+        let set: UpdateLender = serde_json::from_str(r#"{"replacementRateCents":1500}"#).unwrap();
+        assert_eq!(set.replacement_rate_cents, Some(Some(Cents(1500))));
     }
 }

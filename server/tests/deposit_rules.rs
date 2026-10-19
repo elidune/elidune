@@ -1091,3 +1091,66 @@ async fn stats_own_stock_plus_deposit_counts_equal_total() {
         assert_eq!(row["count"], 1, "{uri} {stats}");
     }
 }
+
+#[tokio::test]
+async fn lender_replacement_rate_can_be_cleared() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let token = fixtures::ensure_first_setup(&app).await;
+    let lender_id = lender(&app, &token, Some(1500)).await;
+
+    let (status, kept) = patch_json(
+        &app,
+        &format!("/api/v1/lenders/{lender_id}"),
+        &json!({"name": "Kept rate"}),
+        &token,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{kept}");
+    assert_eq!(kept["replacementRateCents"], 1500, "{kept}");
+
+    let (status, cleared) = patch_json(
+        &app,
+        &format!("/api/v1/lenders/{lender_id}"),
+        &json!({"replacementRateCents": null}),
+        &token,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{cleared}");
+    assert!(cleared["replacementRateCents"].is_null(), "{cleared}");
+
+    let (status, set) = patch_json(
+        &app,
+        &format!("/api/v1/lenders/{lender_id}"),
+        &json!({"replacementRateCents": 4200}),
+        &token,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{set}");
+    assert_eq!(set["replacementRateCents"], 4200, "{set}");
+
+    for bad in [json!(0), json!(-5)] {
+        let (status, refused) = patch_json(
+            &app,
+            &format!("/api/v1/lenders/{lender_id}"),
+            &json!({"replacementRateCents": bad}),
+            &token,
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{refused}");
+        assert_error(&refused, "validation_error");
+    }
+    let (status, still) = app
+        .get_json_with_auth("/api/v1/lenders?includeArchived=true", &token)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{still}");
+    let lender_key = lender_id.to_string();
+    let row = still
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["id"].as_str() == Some(lender_key.as_str()))
+        .expect("lender");
+    assert_eq!(row["replacementRateCents"], 4200, "{row}");
+}
