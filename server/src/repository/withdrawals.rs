@@ -7,22 +7,16 @@ use sqlx::{postgres::PgArguments, Arguments, FromRow, Postgres, Transaction};
 use crate::{
     error::{error_code, AppError, AppResult},
     models::withdrawal::{
-        DestinationTotal, ItemWithdrawal, ReasonTotal, WithdrawalCsvSource, WithdrawalDestination,
-        WithdrawalDisposeFailure, WithdrawalList, WithdrawalQuery, WithdrawalReason,
-        WithdrawalWrite,
+        DestinationTotal, ItemWithdrawal, ReasonTotal, WithdrawalCsvSource, WithdrawalDestination, WithdrawalDisposeFailure, WithdrawalList, WithdrawalQuery, WithdrawalReason, WithdrawalWrite,
     },
 };
 
 use super::Repository;
 
-static SNOWFLAKE: std::sync::LazyLock<std::sync::Mutex<Generator>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(Generator::new(11)));
+static SNOWFLAKE: std::sync::LazyLock<std::sync::Mutex<Generator>> = std::sync::LazyLock::new(|| std::sync::Mutex::new(Generator::new(11)));
 
 fn next_id() -> i64 {
-    SNOWFLAKE
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .generate::<i64>()
+    SNOWFLAKE.lock().unwrap_or_else(|e| e.into_inner()).generate::<i64>()
 }
 
 const SELECT_WITHDRAWAL: &str = r#"
@@ -45,12 +39,12 @@ const SELECT_WITHDRAWAL: &str = r#"
         i.call_number,
         i.biblio_id,
         b.title AS biblio_title,
-        i.source_id AS site_id,
+        i.site_id AS site_id,
         so.name AS site_name
     FROM item_withdrawals w
     JOIN items i ON i.id = w.item_id
     LEFT JOIN biblios b ON b.id = i.biblio_id
-    LEFT JOIN sources so ON so.id = i.source_id
+    LEFT JOIN sites so ON so.id = i.site_id
     LEFT JOIN users ag ON ag.id = w.agent_id
     LEFT JOIN users dp ON dp.id = w.disposed_by
 "#;
@@ -83,7 +77,7 @@ const SELECT_WITHDRAWAL_CSV: &str = r#"
     FROM item_withdrawals w
     JOIN items i ON i.id = w.item_id
     LEFT JOIN biblios b ON b.id = i.biblio_id
-    LEFT JOIN sources so ON so.id = i.source_id
+    LEFT JOIN sites so ON so.id = i.site_id
     LEFT JOIN users ag ON ag.id = w.agent_id
     LEFT JOIN users dp ON dp.id = w.disposed_by
 "#;
@@ -164,10 +158,7 @@ struct PreparedFilter {
 }
 
 fn like_escape(value: &str) -> String {
-    value
-        .replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
+    value.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
 }
 
 fn prepare_filter(query: &WithdrawalQuery, export: bool) -> AppResult<PreparedFilter> {
@@ -179,49 +170,34 @@ fn prepare_filter(query: &WithdrawalQuery, export: bool) -> AppResult<PreparedFi
         parts.push("w.cancelled_at IS NULL".to_string());
     }
     if let Some(disposed) = query.disposed {
-        parts.push(if disposed {
-            "w.disposed_at IS NOT NULL".to_string()
-        } else {
-            "w.disposed_at IS NULL".to_string()
-        });
+        parts.push(if disposed { "w.disposed_at IS NOT NULL".to_string() } else { "w.disposed_at IS NULL".to_string() });
     }
     if let Some(from) = parse_bound(query.from.as_deref(), "from")? {
         params.push(Param::Time(from));
         parts.push(format!("w.withdrawn_at >= ${}", params.len()));
     } else if export {
-        return Err(AppError::Validation(
-            "Export requires from and to (RFC3339)".into(),
-        ));
+        return Err(AppError::Validation("Export requires from and to (RFC3339)".into()));
     }
     if let Some(to) = parse_bound(query.to.as_deref(), "to")? {
         params.push(Param::Time(to));
         parts.push(format!("w.withdrawn_at <= ${}", params.len()));
     } else if export {
-        return Err(AppError::Validation(
-            "Export requires from and to (RFC3339)".into(),
-        ));
+        return Err(AppError::Validation("Export requires from and to (RFC3339)".into()));
     }
     if let Some(site_id) = query.site_id {
         params.push(Param::I64(site_id));
-        parts.push(format!("i.source_id = ${}", params.len()));
+        parts.push(format!("i.site_id = ${}", params.len()));
     }
     if let Some(reason) = query.reason {
         params.push(Param::Text(reason.as_db_str().to_string()));
         parts.push(format!("w.reason = ${}", params.len()));
     }
-    if let Some(destination) = query
-        .destination
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
+    if let Some(destination) = query.destination.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         if destination == "unset" {
             parts.push("w.destination IS NULL".to_string());
         } else {
             let Some(parsed) = WithdrawalDestination::from_db_str(destination) else {
-                return Err(AppError::Validation(
-                    "destination must be pulp, donation, sale, deposit, or unset".into(),
-                ));
+                return Err(AppError::Validation("destination must be pulp, donation, sale, deposit, or unset".into()));
             };
             params.push(Param::Text(parsed.as_db_str().to_string()));
             parts.push(format!("w.destination = ${}", params.len()));
@@ -234,24 +210,12 @@ fn prepare_filter(query: &WithdrawalQuery, export: bool) -> AppResult<PreparedFi
             params.len()
         ));
     }
-    if let Some(call_number) = query
-        .call_number
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
+    if let Some(call_number) = query.call_number.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         params.push(Param::Text(format!("%{}%", like_escape(call_number))));
-        parts.push(format!(
-            "unaccent(lower(i.call_number)) LIKE unaccent(lower(${}))",
-            params.len()
-        ));
+        parts.push(format!("unaccent(lower(i.call_number)) LIKE unaccent(lower(${}))", params.len()));
     }
 
-    let where_sql = if parts.is_empty() {
-        "TRUE".to_string()
-    } else {
-        parts.join(" AND ")
-    };
+    let where_sql = if parts.is_empty() { "TRUE".to_string() } else { parts.join(" AND ") };
     Ok(PreparedFilter { where_sql, params })
 }
 
@@ -305,20 +269,13 @@ impl Repository {
     }
 
     /// The non-cancelled withdrawal for a copy, if one exists.
-    pub async fn item_withdrawals_active_for_item(
-        &self,
-        item_id: i64,
-    ) -> AppResult<ItemWithdrawal> {
-        let sql = format!(
-            "{SELECT_WITHDRAWAL} WHERE w.item_id = $1 AND w.cancelled_at IS NULL ORDER BY w.withdrawn_at DESC, w.id DESC LIMIT 1"
-        );
+    pub async fn item_withdrawals_active_for_item(&self, item_id: i64) -> AppResult<ItemWithdrawal> {
+        let sql = format!("{SELECT_WITHDRAWAL} WHERE w.item_id = $1 AND w.cancelled_at IS NULL ORDER BY w.withdrawn_at DESC, w.id DESC LIMIT 1");
         let row = sqlx::query_as::<_, WithdrawalRow>(&sql)
             .bind(item_id)
             .fetch_optional(&self.pool)
             .await?
-            .ok_or_else(|| {
-                AppError::NotFound(format!("Item {item_id} has no active withdrawal"))
-            })?;
+            .ok_or_else(|| AppError::NotFound(format!("Item {item_id} has no active withdrawal")))?;
         Ok(row.into())
     }
 
@@ -326,23 +283,12 @@ impl Repository {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
-        let sql = format!(
-            "{SELECT_WITHDRAWAL} WHERE w.id = ANY($1) ORDER BY array_position($1::bigint[], w.id)"
-        );
-        let rows = sqlx::query_as::<_, WithdrawalRow>(&sql)
-            .bind(ids)
-            .fetch_all(&self.pool)
-            .await?;
+        let sql = format!("{SELECT_WITHDRAWAL} WHERE w.id = ANY($1) ORDER BY array_position($1::bigint[], w.id)");
+        let rows = sqlx::query_as::<_, WithdrawalRow>(&sql).bind(ids).fetch_all(&self.pool).await?;
         Ok(rows.into_iter().map(ItemWithdrawal::from).collect())
     }
 
-    async fn withdraw_one_tx(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        item_id: i64,
-        agent_id: i64,
-        input: &WithdrawalWrite,
-    ) -> AppResult<i64> {
+    async fn withdraw_one_tx(&self, tx: &mut Transaction<'_, Postgres>, item_id: i64, agent_id: i64, input: &WithdrawalWrite) -> AppResult<i64> {
         let locked: Option<(Option<i64>, String, Option<i64>)> = sqlx::query_as(
             r#"
             SELECT biblio_id, weeding_status, deposit_batch_id
@@ -358,76 +304,44 @@ impl Repository {
             return Err(AppError::NotFound(format!("Item {item_id} not found")));
         };
         if deposit_batch_id.is_some() {
-            return Err(AppError::coded(
-                422,
-                error_code::DEPOSIT_ITEM_NOT_OWNED,
-                "A deposit copy is not part of the library's own stock",
-            ));
+            return Err(AppError::coded(422, error_code::DEPOSIT_ITEM_NOT_OWNED, "A deposit copy is not part of the library's own stock"));
         }
 
-        let on_loan: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM loans WHERE item_id = $1 AND returned_at IS NULL)",
-        )
-        .bind(item_id)
-        .fetch_one(&mut **tx)
-        .await?;
+        let on_loan: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM loans WHERE item_id = $1 AND returned_at IS NULL)")
+            .bind(item_id)
+            .fetch_one(&mut **tx)
+            .await?;
         if on_loan {
-            return Err(AppError::coded(
-                422,
-                error_code::ITEM_ON_LOAN,
-                format!("Item {item_id} is on loan and cannot be withdrawn"),
-            ));
+            return Err(AppError::coded(422, error_code::ITEM_ON_LOAN, format!("Item {item_id} is on loan and cannot be withdrawn")));
         }
 
-        let in_transit: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM item_transits WHERE item_id = $1 AND status IN ('requested', 'in_transit'))",
-        )
-        .bind(item_id)
-        .fetch_one(&mut **tx)
-        .await?;
+        let in_transit: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM item_transits WHERE item_id = $1 AND status IN ('requested', 'in_transit'))")
+            .bind(item_id)
+            .fetch_one(&mut **tx)
+            .await?;
         if in_transit {
-            return Err(AppError::coded(
-                422,
-                error_code::ITEM_IN_TRANSIT,
-                format!("Item {item_id} is in transit and cannot be withdrawn"),
-            ));
+            return Err(AppError::coded(422, error_code::ITEM_IN_TRANSIT, format!("Item {item_id} is in transit and cannot be withdrawn")));
         }
 
-        let on_hold: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM holds WHERE item_id = $1 AND status IN ('to_pick', 'ready'))",
-        )
-        .bind(item_id)
-        .fetch_one(&mut **tx)
-        .await?;
+        let on_hold: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM holds WHERE item_id = $1 AND status IN ('to_pick', 'ready'))")
+            .bind(item_id)
+            .fetch_one(&mut **tx)
+            .await?;
         if on_hold {
-            return Err(AppError::coded(
-                422,
-                error_code::ITEM_ON_HOLD,
-                format!("Item {item_id} is on hold for pickup and cannot be withdrawn"),
-            ));
+            return Err(AppError::coded(422, error_code::ITEM_ON_HOLD, format!("Item {item_id} is on hold for pickup and cannot be withdrawn")));
         }
 
-        let active: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM item_withdrawals WHERE item_id = $1 AND cancelled_at IS NULL)",
-        )
-        .bind(item_id)
-        .fetch_one(&mut **tx)
-        .await?;
+        let active: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM item_withdrawals WHERE item_id = $1 AND cancelled_at IS NULL)")
+            .bind(item_id)
+            .fetch_one(&mut **tx)
+            .await?;
         if active || weeding_status == "withdrawn" {
-            return Err(AppError::coded(
-                409,
-                error_code::WITHDRAWAL_ALREADY_ACTIVE,
-                format!("Item {item_id} already has an active withdrawal"),
-            ));
+            return Err(AppError::coded(409, error_code::WITHDRAWAL_ALREADY_ACTIVE, format!("Item {item_id} already has an active withdrawal")));
         }
 
-        let destination = input.destination.ok_or_else(|| {
-            AppError::coded(
-                400,
-                error_code::WITHDRAWAL_DESTINATION_REQUIRED,
-                "destination is required",
-            )
-        })?;
+        let destination = input
+            .destination
+            .ok_or_else(|| AppError::coded(400, error_code::WITHDRAWAL_DESTINATION_REQUIRED, "destination is required"))?;
         let id = next_id();
         let inserted = sqlx::query(
             r#"
@@ -447,11 +361,7 @@ impl Repository {
         .await;
         if let Err(err) = inserted {
             if unique_violation(&err) {
-                return Err(AppError::coded(
-                    409,
-                    error_code::WITHDRAWAL_ALREADY_ACTIVE,
-                    format!("Item {item_id} already has an active withdrawal"),
-                ));
+                return Err(AppError::coded(409, error_code::WITHDRAWAL_ALREADY_ACTIVE, format!("Item {item_id} already has an active withdrawal")));
             }
             return Err(err.into());
         }
@@ -472,64 +382,37 @@ impl Repository {
         let cancelled = self.holds_cancel_active_for_item_tx(tx, item_id).await?;
         if cancelled > 0 {
             if let Some(biblio_id) = biblio_id {
-                self.holds_notify_next_available_copy_tx(tx, biblio_id, Some(item_id))
-                    .await?;
+                self.holds_notify_next_available_copy_tx(tx, biblio_id, Some(item_id)).await?;
             }
         }
 
         Ok(id)
     }
 
-    pub async fn item_withdrawals_create(
-        &self,
-        item_id: i64,
-        agent_id: i64,
-        input: &WithdrawalWrite,
-    ) -> AppResult<ItemWithdrawal> {
+    pub async fn item_withdrawals_create(&self, item_id: i64, agent_id: i64, input: &WithdrawalWrite) -> AppResult<ItemWithdrawal> {
         let mut tx = self.pool.begin().await?;
-        let id = self
-            .withdraw_one_tx(&mut tx, item_id, agent_id, input)
-            .await?;
+        let id = self.withdraw_one_tx(&mut tx, item_id, agent_id, input).await?;
         tx.commit().await?;
         self.load_withdrawal(id).await
     }
 
-    pub async fn item_withdrawals_create_many(
-        &self,
-        item_ids: &[i64],
-        agent_id: i64,
-        input: &WithdrawalWrite,
-    ) -> AppResult<Vec<ItemWithdrawal>> {
+    pub async fn item_withdrawals_create_many(&self, item_ids: &[i64], agent_id: i64, input: &WithdrawalWrite) -> AppResult<Vec<ItemWithdrawal>> {
         let mut tx = self.pool.begin().await?;
         let mut ids = Vec::with_capacity(item_ids.len());
         for item_id in item_ids {
-            ids.push(
-                self.withdraw_one_tx(&mut tx, *item_id, agent_id, input)
-                    .await?,
-            );
+            ids.push(self.withdraw_one_tx(&mut tx, *item_id, agent_id, input).await?);
         }
         tx.commit().await?;
         self.load_withdrawals_ordered(&ids).await
     }
 
-    pub async fn item_withdrawals_cancel(
-        &self,
-        id: i64,
-        agent_id: i64,
-    ) -> AppResult<ItemWithdrawal> {
+    pub async fn item_withdrawals_cancel(&self, id: i64, agent_id: i64) -> AppResult<ItemWithdrawal> {
         let mut tx = self.pool.begin().await?;
-        let state = sqlx::query_as::<_, CancelLock>(
-            "SELECT cancelled_at, disposed_at, item_id FROM item_withdrawals WHERE id = $1 FOR UPDATE",
-        )
-        .bind(id)
-        .fetch_optional(&mut *tx)
-        .await?;
-        let Some(CancelLock {
-            cancelled_at,
-            disposed_at,
-            item_id,
-        }) = state
-        else {
+        let state = sqlx::query_as::<_, CancelLock>("SELECT cancelled_at, disposed_at, item_id FROM item_withdrawals WHERE id = $1 FOR UPDATE")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        let Some(CancelLock { cancelled_at, disposed_at, item_id }) = state else {
             return Err(AppError::NotFound(format!("Withdrawal {id} not found")));
         };
         if disposed_at.is_some() {
@@ -540,19 +423,13 @@ impl Repository {
             ));
         }
         if cancelled_at.is_some() {
-            return Err(AppError::coded(
-                409,
-                error_code::WITHDRAWAL_NOT_ACTIVE,
-                format!("Withdrawal {id} is already cancelled"),
-            ));
+            return Err(AppError::coded(409, error_code::WITHDRAWAL_NOT_ACTIVE, format!("Withdrawal {id} is already cancelled")));
         }
-        sqlx::query(
-            "UPDATE item_withdrawals SET cancelled_at = NOW(), cancelled_by = $2 WHERE id = $1",
-        )
-        .bind(id)
-        .bind(agent_id)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query("UPDATE item_withdrawals SET cancelled_at = NOW(), cancelled_by = $2 WHERE id = $1")
+            .bind(id)
+            .bind(agent_id)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query(
             r#"
             UPDATE items
@@ -570,24 +447,16 @@ impl Repository {
     }
 
     /// Mark every id disposed, or none. Locks rows in id order.
-    pub async fn item_withdrawals_dispose(
-        &self,
-        ids: &[i64],
-        agent_id: i64,
-        disposed_at: DateTime<Utc>,
-    ) -> AppResult<Vec<ItemWithdrawal>> {
+    pub async fn item_withdrawals_dispose(&self, ids: &[i64], agent_id: i64, disposed_at: DateTime<Utc>) -> AppResult<Vec<ItemWithdrawal>> {
         let mut tx = self.pool.begin().await?;
         let mut lock_order = ids.to_vec();
         lock_order.sort_unstable();
-        let mut locked: std::collections::HashMap<i64, DisposalLock> =
-            std::collections::HashMap::new();
+        let mut locked: std::collections::HashMap<i64, DisposalLock> = std::collections::HashMap::new();
         for id in lock_order {
-            let row = sqlx::query_as::<_, DisposalLock>(
-                "SELECT cancelled_at, disposed_at FROM item_withdrawals WHERE id = $1 FOR UPDATE",
-            )
-            .bind(id)
-            .fetch_optional(&mut *tx)
-            .await?;
+            let row = sqlx::query_as::<_, DisposalLock>("SELECT cancelled_at, disposed_at FROM item_withdrawals WHERE id = $1 FOR UPDATE")
+                .bind(id)
+                .fetch_optional(&mut *tx)
+                .await?;
             if let Some(state) = row {
                 locked.insert(id, state);
             }
@@ -620,69 +489,39 @@ impl Repository {
             }
         }
         if !failures.is_empty() {
-            let status = if failures
-                .iter()
-                .any(|failure| failure.code == error_code::NOT_FOUND)
-            {
-                422
-            } else {
-                409
-            };
-            return Err(AppError::WithdrawalDisposeRejected {
-                status,
-                failures: Box::new(failures),
-            });
+            let status = if failures.iter().any(|failure| failure.code == error_code::NOT_FOUND) { 422 } else { 409 };
+            return Err(AppError::WithdrawalDisposeRejected { status, failures: Box::new(failures) });
         }
 
         for id in ids {
-            sqlx::query(
-                "UPDATE item_withdrawals SET disposed_at = $2, disposed_by = $3 WHERE id = $1",
-            )
-            .bind(id)
-            .bind(disposed_at)
-            .bind(agent_id)
-            .execute(&mut *tx)
-            .await?;
+            sqlx::query("UPDATE item_withdrawals SET disposed_at = $2, disposed_by = $3 WHERE id = $1")
+                .bind(id)
+                .bind(disposed_at)
+                .bind(agent_id)
+                .execute(&mut *tx)
+                .await?;
         }
         tx.commit().await?;
         self.load_withdrawals_ordered(ids).await
     }
 
-    pub async fn item_withdrawals_complete(
-        &self,
-        id: i64,
-        input: &WithdrawalWrite,
-    ) -> AppResult<ItemWithdrawal> {
-        let destination = input.destination.ok_or_else(|| {
-            AppError::coded(
-                400,
-                error_code::WITHDRAWAL_DESTINATION_REQUIRED,
-                "destination is required",
-            )
-        })?;
+    pub async fn item_withdrawals_complete(&self, id: i64, input: &WithdrawalWrite) -> AppResult<ItemWithdrawal> {
+        let destination = input
+            .destination
+            .ok_or_else(|| AppError::coded(400, error_code::WITHDRAWAL_DESTINATION_REQUIRED, "destination is required"))?;
         let mut tx = self.pool.begin().await?;
-        let state: Option<(Option<DateTime<Utc>>, bool)> = sqlx::query_as(
-            "SELECT cancelled_at, legacy FROM item_withdrawals WHERE id = $1 FOR UPDATE",
-        )
-        .bind(id)
-        .fetch_optional(&mut *tx)
-        .await?;
+        let state: Option<(Option<DateTime<Utc>>, bool)> = sqlx::query_as("SELECT cancelled_at, legacy FROM item_withdrawals WHERE id = $1 FOR UPDATE")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
         let Some((cancelled_at, legacy)) = state else {
             return Err(AppError::NotFound(format!("Withdrawal {id} not found")));
         };
         if cancelled_at.is_some() {
-            return Err(AppError::coded(
-                409,
-                error_code::WITHDRAWAL_NOT_ACTIVE,
-                format!("Withdrawal {id} is already cancelled"),
-            ));
+            return Err(AppError::coded(409, error_code::WITHDRAWAL_NOT_ACTIVE, format!("Withdrawal {id} is already cancelled")));
         }
         if !legacy {
-            return Err(AppError::coded(
-                422,
-                error_code::WITHDRAWAL_NOT_LEGACY,
-                "Only a legacy withdrawal can be completed later",
-            ));
+            return Err(AppError::coded(422, error_code::WITHDRAWAL_NOT_LEGACY, "Only a legacy withdrawal can be completed later"));
         }
         sqlx::query(
             r#"
@@ -703,10 +542,7 @@ impl Repository {
         self.load_withdrawal(id).await
     }
 
-    pub async fn item_withdrawals_list(
-        &self,
-        query: &WithdrawalQuery,
-    ) -> AppResult<WithdrawalList> {
+    pub async fn item_withdrawals_list(&self, query: &WithdrawalQuery) -> AppResult<WithdrawalList> {
         let prepared = prepare_filter(query, false)?;
         let page = query.page.unwrap_or(1).max(1);
         let per_page = query.per_page.unwrap_or(20).clamp(1, 100);
@@ -721,9 +557,7 @@ impl Repository {
             "#,
             prepared.where_sql
         );
-        let total: i64 = sqlx::query_scalar_with(&count_sql, bind_params(&prepared.params))
-            .fetch_one(&self.pool)
-            .await?;
+        let total: i64 = sqlx::query_scalar_with(&count_sql, bind_params(&prepared.params)).fetch_one(&self.pool).await?;
 
         let mut page_params = Vec::new();
         page_params.extend(prepared.params.iter().map(clone_param));
@@ -735,9 +569,7 @@ impl Repository {
             "{SELECT_WITHDRAWAL} WHERE {} ORDER BY w.withdrawn_at DESC, w.id DESC LIMIT ${limit_idx} OFFSET ${offset_idx}",
             prepared.where_sql
         );
-        let rows = sqlx::query_as_with::<_, WithdrawalRow, _>(&page_sql, bind_params(&page_params))
-            .fetch_all(&self.pool)
-            .await?;
+        let rows = sqlx::query_as_with::<_, WithdrawalRow, _>(&page_sql, bind_params(&page_params)).fetch_all(&self.pool).await?;
         let items = rows.into_iter().map(ItemWithdrawal::from).collect();
 
         let reason_sql = format!(
@@ -750,14 +582,8 @@ impl Repository {
             "#,
             prepared.where_sql
         );
-        let reason_rows: Vec<(WithdrawalReason, i64)> =
-            sqlx::query_as_with(&reason_sql, bind_params(&prepared.params))
-                .fetch_all(&self.pool)
-                .await?;
-        let mut totals_by_reason: Vec<ReasonTotal> = reason_rows
-            .into_iter()
-            .map(|(reason, count)| ReasonTotal { reason, count })
-            .collect();
+        let reason_rows: Vec<(WithdrawalReason, i64)> = sqlx::query_as_with(&reason_sql, bind_params(&prepared.params)).fetch_all(&self.pool).await?;
+        let mut totals_by_reason: Vec<ReasonTotal> = reason_rows.into_iter().map(|(reason, count)| ReasonTotal { reason, count }).collect();
         totals_by_reason.sort_by_key(|row| reason_rank(row.reason));
 
         let destination_sql = format!(
@@ -770,14 +596,8 @@ impl Repository {
             "#,
             prepared.where_sql
         );
-        let destination_rows: Vec<(Option<WithdrawalDestination>, i64)> =
-            sqlx::query_as_with(&destination_sql, bind_params(&prepared.params))
-                .fetch_all(&self.pool)
-                .await?;
-        let mut totals_by_destination: Vec<DestinationTotal> = destination_rows
-            .into_iter()
-            .map(|(destination, count)| DestinationTotal { destination, count })
-            .collect();
+        let destination_rows: Vec<(Option<WithdrawalDestination>, i64)> = sqlx::query_as_with(&destination_sql, bind_params(&prepared.params)).fetch_all(&self.pool).await?;
+        let mut totals_by_destination: Vec<DestinationTotal> = destination_rows.into_iter().map(|(destination, count)| DestinationTotal { destination, count }).collect();
         totals_by_destination.sort_by_key(|row| destination_rank(row.destination));
 
         Ok(WithdrawalList {
@@ -790,28 +610,15 @@ impl Repository {
         })
     }
 
-    pub async fn item_withdrawals_export_rows(
-        &self,
-        query: &WithdrawalQuery,
-    ) -> AppResult<Vec<WithdrawalCsvSource>> {
+    pub async fn item_withdrawals_export_rows(&self, query: &WithdrawalQuery) -> AppResult<Vec<WithdrawalCsvSource>> {
         let prepared = prepare_filter(query, true)?;
-        let sql = format!(
-            "{SELECT_WITHDRAWAL_CSV} WHERE {} ORDER BY w.withdrawn_at ASC, w.id ASC LIMIT 100000",
-            prepared.where_sql
-        );
-        let rows =
-            sqlx::query_as_with::<_, WithdrawalCsvSource, _>(&sql, bind_params(&prepared.params))
-                .fetch_all(&self.pool)
-                .await?;
+        let sql = format!("{SELECT_WITHDRAWAL_CSV} WHERE {} ORDER BY w.withdrawn_at ASC, w.id ASC LIMIT 100000", prepared.where_sql);
+        let rows = sqlx::query_as_with::<_, WithdrawalCsvSource, _>(&sql, bind_params(&prepared.params)).fetch_all(&self.pool).await?;
         Ok(rows)
     }
 
     pub async fn user_preferred_language(&self, user_id: i64) -> AppResult<Option<String>> {
-        let language: Option<Option<String>> =
-            sqlx::query_scalar("SELECT language FROM users WHERE id = $1")
-                .bind(user_id)
-                .fetch_optional(&self.pool)
-                .await?;
+        let language: Option<Option<String>> = sqlx::query_scalar("SELECT language FROM users WHERE id = $1").bind(user_id).fetch_optional(&self.pool).await?;
         Ok(language.flatten())
     }
 }

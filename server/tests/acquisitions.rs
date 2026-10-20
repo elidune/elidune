@@ -24,16 +24,10 @@ fn unique_isbn13() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static SEQ: AtomicU64 = AtomicU64::new(0);
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("clock")
-        .as_nanos();
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("clock").as_nanos();
     let seq = u128::from(SEQ.fetch_add(1, Ordering::Relaxed));
     let pid = u128::from(std::process::id());
-    let mixed = nanos
-        .wrapping_mul(0x9E37_79B9_7F4A_7C15)
-        .wrapping_add(pid << 17)
-        .wrapping_add(seq);
+    let mixed = nanos.wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(pid << 17).wrapping_add(seq);
     let body = mixed % 1_000_000_000;
     let twelve = format!("978{body:09}");
     let check = isbn13_check_digit(&twelve);
@@ -63,10 +57,7 @@ fn isbn13_check_digit_matches_the_306_40615_example() {
     let generated = unique_isbn13();
     assert_eq!(generated.len(), 13);
     assert!(generated.chars().all(|c| c.is_ascii_digit()));
-    assert_eq!(
-        isbn13_check_digit(&generated[..12]),
-        generated.chars().nth(12).expect("check digit")
-    );
+    assert_eq!(isbn13_check_digit(&generated[..12]), generated.chars().nth(12).expect("check digit"));
 }
 
 #[tokio::test]
@@ -77,26 +68,18 @@ async fn reader_cannot_access_acquisitions_admin_can() {
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (_, reader_token) = fixtures::create_reader(&app, &admin_token, "acqreader").await;
 
-    let (reader_status, _) = app
-        .get_json_with_auth("/api/v1/acquisitions/vendors", &reader_token)
-        .await;
+    let (reader_status, _) = app.get_json_with_auth("/api/v1/acquisitions/vendors", &reader_token).await;
     assert_eq!(reader_status, StatusCode::FORBIDDEN);
 
-    let (admin_status, _) = app
-        .get_json_with_auth("/api/v1/acquisitions/vendors", &admin_token)
-        .await;
+    let (admin_status, _) = app.get_json_with_auth("/api/v1/acquisitions/vendors", &admin_token).await;
     assert_eq!(admin_status, StatusCode::OK);
 
-    let (types_status, types) = app
-        .get_json_with_auth("/api/v1/account-types/admin", &admin_token)
-        .await;
+    let (types_status, types) = app.get_json_with_auth("/api/v1/account-types/admin", &admin_token).await;
     assert_eq!(types_status, StatusCode::OK);
     assert_eq!(types["acquisitionsRights"], "w");
     assert_eq!(types["itemsRights"], types["itemsRights"]);
 
-    let (reader_type_status, reader_type) = app
-        .get_json_with_auth("/api/v1/account-types/reader", &admin_token)
-        .await;
+    let (reader_type_status, reader_type) = app.get_json_with_auth("/api/v1/account-types/reader", &admin_token).await;
     assert_eq!(reader_type_status, StatusCode::OK);
     assert_eq!(reader_type["acquisitionsRights"], "n");
 }
@@ -143,21 +126,11 @@ async fn vendor_and_fund_crud() {
     assert_eq!(decimal_str(&fund["spent"]), "0");
     assert_eq!(decimal_str(&fund["available"]), "500.00");
 
-    let (status, listed) = app
-        .get_json_with_auth(
-            &format!("/api/v1/acquisitions/vendors?q=ACME{suffix}"),
-            &admin_token,
-        )
-        .await;
+    let (status, listed) = app.get_json_with_auth(&format!("/api/v1/acquisitions/vendors?q=ACME{suffix}"), &admin_token).await;
     assert_eq!(status, StatusCode::OK);
     assert!(listed["total"].as_i64().unwrap_or(0) >= 1);
 
-    let (status, _) = app
-        .delete_with_auth(
-            &format!("/api/v1/acquisitions/vendors/{vendor_id}"),
-            &admin_token,
-        )
-        .await;
+    let (status, _) = app.delete_with_auth(&format!("/api/v1/acquisitions/vendors/{vendor_id}"), &admin_token).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
 }
 
@@ -207,11 +180,7 @@ async fn order_partial_and_full_receipt_creates_items_and_updates_budget() {
         )
         .await;
     assert_eq!(status, StatusCode::CREATED, "biblio: {biblio_body}");
-    let biblio_id = biblio_body["biblio"]["id"]
-        .as_str()
-        .or_else(|| biblio_body["id"].as_str())
-        .expect("biblio id")
-        .to_string();
+    let biblio_id = biblio_body["biblio"]["id"].as_str().or_else(|| biblio_body["id"].as_str()).expect("biblio id").to_string();
 
     let (status, order) = app
         .post_json(
@@ -234,21 +203,11 @@ async fn order_partial_and_full_receipt_creates_items_and_updates_budget() {
     let order_id = fixtures::json_id(&order["order"]["id"]);
     let line_id = fixtures::json_id(&order["lines"][0]["id"]);
 
-    let (status, submitted) = app
-        .post_empty(
-            &format!("/api/v1/acquisitions/orders/{order_id}/submit"),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, submitted) = app.post_empty(&format!("/api/v1/acquisitions/orders/{order_id}/submit"), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::OK, "submit: {submitted}");
     assert_eq!(submitted["order"]["status"], "ordered");
 
-    let (status, after_submit) = app
-        .get_json_with_auth(
-            &format!("/api/v1/acquisitions/funds/{fund_id}"),
-            &admin_token,
-        )
-        .await;
+    let (status, after_submit) = app.get_json_with_auth(&format!("/api/v1/acquisitions/funds/{fund_id}"), &admin_token).await;
     assert_eq!(status, StatusCode::OK, "{after_submit}");
     assert_eq!(decimal_str(&after_submit["committed"]), "25.00");
     assert_eq!(decimal_str(&after_submit["spent"]), "0");
@@ -276,38 +235,16 @@ async fn order_partial_and_full_receipt_creates_items_and_updates_budget() {
     assert_eq!(partial["lines"][0]["quantity"], 1);
     let item_id = fixtures::json_id(&partial["lines"][0]["itemIds"][0]);
 
-    let (status, item_biblio) = app
-        .get_json_with_auth(&format!("/api/v1/items/{item_id}"), &admin_token)
-        .await;
+    let (status, item_biblio) = app.get_json_with_auth(&format!("/api/v1/items/{item_id}"), &admin_token).await;
     assert_eq!(status, StatusCode::OK, "item on shelf: {item_biblio}");
-    let items = item_biblio
-        .get("items")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default();
-    let found = items
-        .iter()
-        .any(|i| i["barcode"] == barcode_one || fixtures::json_id(&i["id"]) == item_id)
-        || item_biblio["barcode"] == barcode_one;
-    assert!(
-        found,
-        "received item should appear in catalog: {item_biblio}"
-    );
-    let received = items
-        .iter()
-        .find(|i| fixtures::json_id(&i["id"]) == item_id);
+    let items = item_biblio.get("items").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let found = items.iter().any(|i| i["barcode"] == barcode_one || fixtures::json_id(&i["id"]) == item_id) || item_biblio["barcode"] == barcode_one;
+    assert!(found, "received item should appear in catalog: {item_biblio}");
+    let received = items.iter().find(|i| fixtures::json_id(&i["id"]) == item_id);
     let received = received.unwrap_or(&item_biblio);
-    assert_eq!(
-        received["borrowable"], false,
-        "receipt without site must not create a circulable copy: {item_biblio}"
-    );
+    assert_eq!(received["borrowable"], false, "receipt without site must not create a circulable copy: {item_biblio}");
 
-    let (status, mid_fund) = app
-        .get_json_with_auth(
-            &format!("/api/v1/acquisitions/funds/{fund_id}"),
-            &admin_token,
-        )
-        .await;
+    let (status, mid_fund) = app.get_json_with_auth(&format!("/api/v1/acquisitions/funds/{fund_id}"), &admin_token).await;
     assert_eq!(status, StatusCode::OK, "{mid_fund}");
     assert_eq!(decimal_str(&mid_fund["committed"]), "12.50");
     assert_eq!(decimal_str(&mid_fund["spent"]), "12.50");
@@ -330,29 +267,16 @@ async fn order_partial_and_full_receipt_creates_items_and_updates_budget() {
     assert_eq!(status, StatusCode::OK, "full receive: {full}");
     assert_eq!(full["order"]["order"]["status"], "received");
 
-    let (status, final_fund) = app
-        .get_json_with_auth(
-            &format!("/api/v1/acquisitions/funds/{fund_id}"),
-            &admin_token,
-        )
-        .await;
+    let (status, final_fund) = app.get_json_with_auth(&format!("/api/v1/acquisitions/funds/{fund_id}"), &admin_token).await;
     assert_eq!(status, StatusCode::OK, "{final_fund}");
     assert_eq!(decimal_str(&final_fund["committed"]), "0");
     assert_eq!(decimal_str(&final_fund["spent"]), "25.00");
     assert_eq!(decimal_str(&final_fund["available"]), "75.00");
 
-    let (status, copies) = app
-        .get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}/items"), &admin_token)
-        .await;
+    let (status, copies) = app.get_json_with_auth(&format!("/api/v1/biblios/{biblio_id}/items"), &admin_token).await;
     assert_eq!(status, StatusCode::OK, "{copies}");
-    let copy_list = copies
-        .as_array()
-        .or_else(|| copies.get("items").and_then(|v| v.as_array()))
-        .expect("items list");
-    assert!(
-        copy_list.len() >= 2,
-        "both received copies should be on the biblio: {copies}"
-    );
+    let copy_list = copies.as_array().or_else(|| copies.get("items").and_then(|v| v.as_array())).expect("items list");
+    assert!(copy_list.len() >= 2, "both received copies should be on the biblio: {copies}");
 }
 
 #[tokio::test]
@@ -364,11 +288,7 @@ async fn isbn_intent_receipt_creates_stub_biblio_and_item() {
     let suffix = fixtures::unique_suffix();
 
     let (status, vendor) = app
-        .post_json(
-            "/api/v1/acquisitions/vendors",
-            &json!({ "name": format!("ISBN Vendor {suffix}") }),
-            Some(&admin_token),
-        )
+        .post_json("/api/v1/acquisitions/vendors", &json!({ "name": format!("ISBN Vendor {suffix}") }), Some(&admin_token))
         .await;
     assert_eq!(status, StatusCode::CREATED, "{vendor}");
     let vendor_id = vendor["id"].as_str().unwrap();
@@ -395,12 +315,7 @@ async fn isbn_intent_receipt_creates_stub_biblio_and_item() {
     let order_id = fixtures::json_id(&order["order"]["id"]);
     let line_id = fixtures::json_id(&order["lines"][0]["id"]);
 
-    let (status, submitted) = app
-        .post_empty(
-            &format!("/api/v1/acquisitions/orders/{order_id}/submit"),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, submitted) = app.post_empty(&format!("/api/v1/acquisitions/orders/{order_id}/submit"), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::OK, "{submitted}");
 
     let barcode = format!("ISBN-{suffix}");
@@ -419,17 +334,10 @@ async fn isbn_intent_receipt_creates_stub_biblio_and_item() {
         .await;
     assert_eq!(status, StatusCode::OK, "{received}");
     assert_eq!(received["order"]["order"]["status"], "received");
-    let resolved_biblio = received["order"]["lines"][0]["biblioId"]
-        .as_str()
-        .expect("biblio resolved at receipt");
+    let resolved_biblio = received["order"]["lines"][0]["biblioId"].as_str().expect("biblio resolved at receipt");
     let item_id = fixtures::json_id(&received["lines"][0]["itemIds"][0]);
 
-    let (status, copies) = app
-        .get_json_with_auth(
-            &format!("/api/v1/biblios/{resolved_biblio}/items"),
-            &admin_token,
-        )
-        .await;
+    let (status, copies) = app.get_json_with_auth(&format!("/api/v1/biblios/{resolved_biblio}/items"), &admin_token).await;
     assert_eq!(status, StatusCode::OK, "{copies}");
     let _ = item_id;
 }
@@ -443,11 +351,7 @@ async fn cannot_receive_before_submit() {
     let suffix = fixtures::unique_suffix();
 
     let (status, vendor) = app
-        .post_json(
-            "/api/v1/acquisitions/vendors",
-            &json!({ "name": format!("Draft Vendor {suffix}") }),
-            Some(&admin_token),
-        )
+        .post_json("/api/v1/acquisitions/vendors", &json!({ "name": format!("Draft Vendor {suffix}") }), Some(&admin_token))
         .await;
     assert_eq!(status, StatusCode::CREATED, "{vendor}");
     let vendor_id = vendor["id"].as_str().unwrap();
@@ -479,9 +383,7 @@ async fn cannot_receive_before_submit() {
 }
 
 async fn item_copy(app: &TestApp, admin_token: &str, item_id: i64) -> serde_json::Value {
-    let (status, body) = app
-        .get_json_with_auth(&format!("/api/v1/items/{item_id}"), admin_token)
-        .await;
+    let (status, body) = app.get_json_with_auth(&format!("/api/v1/items/{item_id}"), admin_token).await;
     assert_eq!(status, StatusCode::OK, "get item: {body}");
     if body.get("items").and_then(|v| v.as_array()).is_some() {
         body["items"][0].clone()
@@ -490,12 +392,7 @@ async fn item_copy(app: &TestApp, admin_token: &str, item_id: i64) -> serde_json
     }
 }
 
-async fn checkout(
-    app: &TestApp,
-    admin_token: &str,
-    user_id: i64,
-    item_id: i64,
-) -> (StatusCode, serde_json::Value) {
+async fn checkout(app: &TestApp, admin_token: &str, user_id: i64, item_id: i64) -> (StatusCode, serde_json::Value) {
     app.post_json(
         "/api/v1/loans",
         &json!({
@@ -517,11 +414,7 @@ async fn receipt_creates_non_borrowable_item_until_barcode_site_and_price_are_se
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "acqcirc").await;
 
     let (status, vendor) = app
-        .post_json(
-            "/api/v1/acquisitions/vendors",
-            &json!({ "name": format!("Circ Vendor {suffix}") }),
-            Some(&admin_token),
-        )
+        .post_json("/api/v1/acquisitions/vendors", &json!({ "name": format!("Circ Vendor {suffix}") }), Some(&admin_token))
         .await;
     assert_eq!(status, StatusCode::CREATED, "{vendor}");
     let vendor_id = vendor["id"].as_str().unwrap();
@@ -538,10 +431,7 @@ async fn receipt_creates_non_borrowable_item_until_barcode_site_and_price_are_se
         )
         .await;
     assert_eq!(status, StatusCode::CREATED, "{biblio_body}");
-    let biblio_id = biblio_body["biblio"]["id"]
-        .as_str()
-        .or_else(|| biblio_body["id"].as_str())
-        .expect("biblio id");
+    let biblio_id = biblio_body["biblio"]["id"].as_str().or_else(|| biblio_body["id"].as_str()).expect("biblio id");
 
     let (status, order) = app
         .post_json(
@@ -561,12 +451,7 @@ async fn receipt_creates_non_borrowable_item_until_barcode_site_and_price_are_se
     let order_id = fixtures::json_id(&order["order"]["id"]);
     let line_id = fixtures::json_id(&order["lines"][0]["id"]);
 
-    let (status, submitted) = app
-        .post_empty(
-            &format!("/api/v1/acquisitions/orders/{order_id}/submit"),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, submitted) = app.post_empty(&format!("/api/v1/acquisitions/orders/{order_id}/submit"), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::OK, "{submitted}");
 
     let (status, received) = app
@@ -582,21 +467,14 @@ async fn receipt_creates_non_borrowable_item_until_barcode_site_and_price_are_se
     let item_id = fixtures::json_id(&received["lines"][0]["itemIds"][0]);
 
     let item = item_copy(&app, &admin_token, item_id).await;
-    assert_eq!(
-        item["price"], "8.00",
-        "receipt copies the line unit price: {item}"
-    );
+    assert_eq!(item["price"], "8.00", "receipt copies the line unit price: {item}");
     assert_eq!(item["borrowable"], false, "receipt default: {item}");
     assert!(item["barcode"].is_null() || item["barcode"] == "", "{item}");
 
     let (status, body) = checkout(&app, &admin_token, reader_id, item_id).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
     assert!(
-        body["message"]
-            .as_str()
-            .unwrap_or_default()
-            .to_lowercase()
-            .contains("borrowable"),
+        body["message"].as_str().unwrap_or_default().to_lowercase().contains("borrowable"),
         "checkout of incomplete receipt must be blocked: {body}"
     );
 
@@ -614,13 +492,7 @@ async fn receipt_creates_non_borrowable_item_until_barcode_site_and_price_are_se
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{blocked}");
 
-    let (status, site) = app
-        .post_json(
-            "/api/v1/sources",
-            &json!({ "name": format!("Acq Site {suffix}") }),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, site) = app.post_json("/api/v1/sites", &json!({ "name": format!("Acq Site {suffix}") }), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::CREATED, "{site}");
     let site_id = site["id"].as_str().expect("source id");
     let barcode = format!("ACQ-DONE-{suffix}");
@@ -632,7 +504,7 @@ async fn receipt_creates_non_borrowable_item_until_barcode_site_and_price_are_se
                 "id": item_id.to_string(),
                 "biblioId": biblio_id,
                 "barcode": barcode,
-                "sourceId": site_id,
+                "siteId": site_id,
                 "price": "8.00"
             }),
             Some(&admin_token),
@@ -645,11 +517,7 @@ async fn receipt_creates_non_borrowable_item_until_barcode_site_and_price_are_se
     assert_eq!(item["borrowable"], true, "{item}");
 
     let (status, loan) = checkout(&app, &admin_token, reader_id, item_id).await;
-    assert_eq!(
-        status,
-        StatusCode::CREATED,
-        "checkout after complete: {loan}"
-    );
+    assert_eq!(status, StatusCode::CREATED, "checkout after complete: {loan}");
 }
 
 #[tokio::test]
@@ -661,22 +529,12 @@ async fn receipt_with_barcode_site_and_price_or_deferral_is_borrowable() {
     let suffix = fixtures::unique_suffix();
 
     let (status, vendor) = app
-        .post_json(
-            "/api/v1/acquisitions/vendors",
-            &json!({ "name": format!("Ready Vendor {suffix}") }),
-            Some(&admin_token),
-        )
+        .post_json("/api/v1/acquisitions/vendors", &json!({ "name": format!("Ready Vendor {suffix}") }), Some(&admin_token))
         .await;
     assert_eq!(status, StatusCode::CREATED, "{vendor}");
     let vendor_id = vendor["id"].as_str().unwrap();
 
-    let (status, site) = app
-        .post_json(
-            "/api/v1/sources",
-            &json!({ "name": format!("Ready Site {suffix}") }),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, site) = app.post_json("/api/v1/sites", &json!({ "name": format!("Ready Site {suffix}") }), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::CREATED, "{site}");
     let site_id = site["id"].as_str().unwrap();
 
@@ -692,10 +550,7 @@ async fn receipt_with_barcode_site_and_price_or_deferral_is_borrowable() {
         )
         .await;
     assert_eq!(status, StatusCode::CREATED, "{biblio_body}");
-    let biblio_id = biblio_body["biblio"]["id"]
-        .as_str()
-        .or_else(|| biblio_body["id"].as_str())
-        .expect("biblio id");
+    let biblio_id = biblio_body["biblio"]["id"].as_str().or_else(|| biblio_body["id"].as_str()).expect("biblio id");
 
     let (status, order) = app
         .post_json(
@@ -714,12 +569,7 @@ async fn receipt_with_barcode_site_and_price_or_deferral_is_borrowable() {
     let order_id = fixtures::json_id(&order["order"]["id"]);
     let line_id = fixtures::json_id(&order["lines"][0]["id"]);
 
-    let (status, submitted) = app
-        .post_empty(
-            &format!("/api/v1/acquisitions/orders/{order_id}/submit"),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, submitted) = app.post_empty(&format!("/api/v1/acquisitions/orders/{order_id}/submit"), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::OK, "{submitted}");
 
     let (status, received) = app
@@ -732,12 +582,12 @@ async fn receipt_with_barcode_site_and_price_or_deferral_is_borrowable() {
                     "items": [
                         {
                             "barcode": format!("READY-{suffix}"),
-                            "sourceId": site_id,
+                            "siteId": site_id,
                             "price": "4.50"
                         },
                         {
                             "barcode": format!("DEFER-{suffix}"),
-                            "sourceId": site_id,
+                            "siteId": site_id,
                             "priceDeferred": true
                         }
                     ]

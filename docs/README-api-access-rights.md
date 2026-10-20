@@ -129,16 +129,16 @@ Staff versus public JSON on catalog reads (`GET /biblios`, `GET /biblios/:id`, `
 | `PUT /collections/:id` | JWT + `require_write_items()` |
 | `DELETE /collections/:id` | JWT + `require_write_items()` |
 
-## Sources
+## Sites
 
 | Endpoint | Required auth |
 |---|---|
-| `GET /sources` | JWT + `require_read_items()` |
-| `GET /sources/:id` | JWT + `require_read_items()` |
-| `POST /sources` | JWT + `require_write_items()` |
-| `PUT /sources/:id` | JWT + `require_write_items()` |
-| `POST /sources/:id/archive` | JWT + `require_write_items()` |
-| `POST /sources/merge` | JWT + `require_write_items()` |
+| `GET /sites` | JWT + `require_read_items()` |
+| `GET /sites/:id` | JWT + `require_read_items()` |
+| `POST /sites` | JWT + `require_write_items()` |
+| `PUT /sites/:id` | JWT + `require_write_items()` |
+| `POST /sites/:id/archive` | JWT + `require_write_items()` |
+| `POST /sites/merge` | JWT + `require_write_items()` |
 
 ## Users
 

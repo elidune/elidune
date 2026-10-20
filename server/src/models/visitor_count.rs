@@ -18,7 +18,7 @@ pub struct VisitorCount {
     pub count_date: NaiveDate,
     /// Number of visitors
     pub count: i32,
-    /// Source of the count (manual, counter, estimate)
+    /// Site of the count (manual, counter, estimate)
     pub source: Option<String>,
     pub notes: Option<String>,
     pub created_at: Option<DateTime<Utc>>,
@@ -32,7 +32,7 @@ pub struct CreateVisitorCount {
     pub count_date: String,
     /// Number of visitors
     pub count: i32,
-    /// Source: manual, counter, estimate
+    /// Site: manual, counter, estimate
     pub source: Option<String>,
     pub notes: Option<String>,
 }

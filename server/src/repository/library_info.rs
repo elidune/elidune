@@ -61,20 +61,7 @@ impl LibraryInfoRepository for Repository {
         timezone: &Option<String>,
         language: Option<Option<String>>,
     ) -> AppResult<()> {
-        Repository::library_info_upsert(
-            self,
-            name,
-            addr_line1,
-            addr_line2,
-            addr_postcode,
-            addr_city,
-            addr_country,
-            phones_json,
-            email,
-            timezone,
-            language,
-        )
-        .await
+        Repository::library_info_upsert(self, name, addr_line1, addr_line2, addr_postcode, addr_city, addr_country, phones_json, email, timezone, language).await
     }
 }
 
@@ -114,15 +101,8 @@ impl Repository {
         self.library_timezone_name_conn(&mut conn).await
     }
 
-    pub(crate) async fn library_timezone_name_conn(
-        &self,
-        conn: &mut sqlx::PgConnection,
-    ) -> AppResult<String> {
-        let name: Option<String> =
-            sqlx::query_scalar("SELECT timezone FROM library_info WHERE id = 1")
-                .fetch_optional(&mut *conn)
-                .await?
-                .flatten();
+    pub(crate) async fn library_timezone_name_conn(&self, conn: &mut sqlx::PgConnection) -> AppResult<String> {
+        let name: Option<String> = sqlx::query_scalar("SELECT timezone FROM library_info WHERE id = 1").fetch_optional(&mut *conn).await?.flatten();
         Ok(name.unwrap_or_else(|| crate::services::calendar::DEFAULT_TIMEZONE.to_string()))
     }
 
@@ -130,11 +110,9 @@ impl Repository {
     ///
     /// `None` when the row is missing or the column is null.
     pub async fn library_language_code(&self) -> AppResult<Option<String>> {
-        let code = sqlx::query_scalar::<_, Option<String>>(
-            "SELECT language FROM library_info WHERE id = 1",
-        )
-        .fetch_optional(&self.pool)
-        .await?;
+        let code = sqlx::query_scalar::<_, Option<String>>("SELECT language FROM library_info WHERE id = 1")
+            .fetch_optional(&self.pool)
+            .await?;
         Ok(code.flatten())
     }
 
@@ -145,10 +123,7 @@ impl Repository {
     }
 
     /// Parsed library zone using the caller's connection (checkout/renew transaction).
-    pub(crate) async fn library_zone_conn(
-        &self,
-        conn: &mut sqlx::PgConnection,
-    ) -> AppResult<chrono_tz::Tz> {
+    pub(crate) async fn library_zone_conn(&self, conn: &mut sqlx::PgConnection) -> AppResult<chrono_tz::Tz> {
         let name = self.library_timezone_name_conn(conn).await?;
         match crate::services::calendar::parse_timezone(&name) {
             Ok(zone) => Ok(zone),

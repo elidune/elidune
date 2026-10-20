@@ -3,10 +3,8 @@
 use crate::{
     error::{AppError, AppResult},
     models::deposit::{
-        CreateDepositBatch, CreateLender, DepositBatch, DepositBatchDetail, DepositBatchItem,
-        DepositBatchItemsQuery, DepositBatchListQuery, DepositCloseReport, DepositLoss,
-        DepositLossListQuery, DepositScanOut, DepositScanOutRequest, Lender,
-        MarkDepositLossNotified, UpdateDepositBatch, UpdateLender,
+        CreateDepositBatch, CreateLender, DepositBatch, DepositBatchDetail, DepositBatchItem, DepositBatchItemsQuery, DepositBatchListQuery, DepositCloseReport, DepositLoss, DepositLossListQuery,
+        DepositScanOut, DepositScanOutRequest, Lender, MarkDepositLossNotified, UpdateDepositBatch, UpdateLender,
     },
     services::audit,
 };
@@ -27,23 +25,11 @@ pub fn router() -> axum::Router<crate::AppState> {
         .route("/lenders", get(list_lenders).post(create_lender))
         .route("/lenders/:id", patch(update_lender).delete(archive_lender))
         .route("/deposit-losses", get(list_deposit_losses))
-        .route(
-            "/items/:id/deposit-loss-notified",
-            post(mark_deposit_loss_notified),
-        )
-        .route(
-            "/deposit-batches",
-            get(list_deposit_batches).post(create_deposit_batch),
-        )
-        .route(
-            "/deposit-batches/:id",
-            get(get_deposit_batch).patch(update_deposit_batch),
-        )
+        .route("/items/:id/deposit-loss-notified", post(mark_deposit_loss_notified))
+        .route("/deposit-batches", get(list_deposit_batches).post(create_deposit_batch))
+        .route("/deposit-batches/:id", get(get_deposit_batch).patch(update_deposit_batch))
         .route("/deposit-batches/:id/items", get(list_deposit_batch_items))
-        .route(
-            "/deposit-batches/:id/start-return",
-            post(start_deposit_return),
-        )
+        .route("/deposit-batches/:id/start-return", post(start_deposit_return))
         .route("/deposit-batches/:id/scan-out", post(scan_out_deposit_copy))
         .route("/deposit-batches/:id/close", post(close_deposit_batch))
 }
@@ -69,19 +55,9 @@ pub struct LendersQuery {
         (status = 403, description = "Insufficient permissions", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn list_lenders(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Query(query): Query<LendersQuery>,
-) -> AppResult<Json<Vec<Lender>>> {
+pub async fn list_lenders(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<LendersQuery>) -> AppResult<Json<Vec<Lender>>> {
     claims.require_read_items()?;
-    Ok(Json(
-        state
-            .services
-            .deposits
-            .list_lenders(query.include_archived.unwrap_or(false))
-            .await?,
-    ))
+    Ok(Json(state.services.deposits.list_lenders(query.include_archived.unwrap_or(false)).await?))
 }
 
 #[utoipa::path(
@@ -169,12 +145,7 @@ pub async fn update_lender(
         (status = 422, description = "Lender still has a batch that is not closed (`lender_has_active_batches`)", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn archive_lender(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    ClientIp(ip): ClientIp,
-    Path(id): Path<i64>,
-) -> AppResult<Json<Lender>> {
+pub async fn archive_lender(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Path(id): Path<i64>) -> AppResult<Json<Lender>> {
     claims.require_write_items()?;
     let lender = state.services.deposits.archive_lender(id).await?;
     state.services.audit.log(
@@ -208,13 +179,7 @@ pub async fn list_deposit_batches(
     Query(query): Query<DepositBatchListQuery>,
 ) -> AppResult<Json<Vec<DepositBatch>>> {
     claims.require_read_items()?;
-    Ok(Json(
-        state
-            .services
-            .deposits
-            .list_batches(query.lender_id, query.status)
-            .await?,
-    ))
+    Ok(Json(state.services.deposits.list_batches(query.lender_id, query.status).await?))
 }
 
 #[utoipa::path(
@@ -230,11 +195,7 @@ pub async fn list_deposit_batches(
         (status = 404, description = "Deposit batch not found", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn get_deposit_batch(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i64>,
-) -> AppResult<Json<DepositBatchDetail>> {
+pub async fn get_deposit_batch(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(id): Path<i64>) -> AppResult<Json<DepositBatchDetail>> {
     claims.require_read_items()?;
     Ok(Json(state.services.deposits.get_batch(id).await?))
 }
@@ -325,12 +286,7 @@ pub async fn update_deposit_batch(
         (status = 422, description = "Batch is closed (`deposit_batch_not_active`)", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn start_deposit_return(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    ClientIp(ip): ClientIp,
-    Path(id): Path<i64>,
-) -> AppResult<Json<DepositBatch>> {
+pub async fn start_deposit_return(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Path(id): Path<i64>) -> AppResult<Json<DepositBatch>> {
     claims.require_write_items()?;
     let batch = state.services.deposits.start_return(id).await?;
     state.services.audit.log(
@@ -389,7 +345,7 @@ pub async fn scan_out_deposit_copy(
     security(("bearer_auth" = [])),
     params(("id" = i64, Path, description = "Deposit batch ID")),
     responses(
-        (status = 200, description = "Batch closed. The report is `{ returned, missing }`. Copies with `depositReturnedAt` are `returned` and archived. Copies without it (still on the shelf, or declared lost) are `missing` and archived. Nothing is deleted. Calling this again on a closed batch returns the report again.", body = DepositCloseReport),
+        (status = 200, description = "Batch closed. The report is `{ returned, missing }`. Copies with `depositReturnedAt` are `returned` and archived. Copies without it (still on the shelf, or declared lost) are `missing` and archived. Barcodes stay on archived rows; desk uniqueness applies only to active copies. Loan history is kept. Calling this again on a closed batch returns the report again.", body = DepositCloseReport),
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
         (status = 403, description = "Insufficient permissions", body = crate::error::ErrorResponse),
         (status = 404, description = "Deposit batch not found", body = crate::error::ErrorResponse),
@@ -429,19 +385,9 @@ pub async fn close_deposit_batch(
         (status = 404, description = "Lender not found", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn list_deposit_losses(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Query(query): Query<DepositLossListQuery>,
-) -> AppResult<Json<Vec<DepositLoss>>> {
+pub async fn list_deposit_losses(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<DepositLossListQuery>) -> AppResult<Json<Vec<DepositLoss>>> {
     claims.require_read_items()?;
-    Ok(Json(
-        state
-            .services
-            .deposits
-            .list_deposit_losses(query.lender_id, query.notified.unwrap_or(false))
-            .await?,
-    ))
+    Ok(Json(state.services.deposits.list_deposit_losses(query.lender_id, query.notified.unwrap_or(false)).await?))
 }
 
 #[utoipa::path(
@@ -470,11 +416,7 @@ pub async fn mark_deposit_loss_notified(
 ) -> AppResult<Json<DepositLoss>> {
     claims.require_write_items()?;
     let request = parse_mark_deposit_loss_notified(&body)?;
-    let loss = state
-        .services
-        .deposits
-        .mark_deposit_loss_notified(id, request.notified_on, Some(claims.user_id), ip)
-        .await?;
+    let loss = state.services.deposits.mark_deposit_loss_notified(id, request.notified_on, Some(claims.user_id), ip).await?;
     Ok(Json(loss))
 }
 
@@ -482,8 +424,7 @@ fn parse_mark_deposit_loss_notified(bytes: &[u8]) -> AppResult<MarkDepositLossNo
     if bytes.iter().all(u8::is_ascii_whitespace) {
         return Ok(MarkDepositLossNotified { notified_on: None });
     }
-    serde_json::from_slice(bytes)
-        .map_err(|err| AppError::Validation(format!("Invalid JSON body: {err}")))
+    serde_json::from_slice(bytes).map_err(|err| AppError::Validation(format!("Invalid JSON body: {err}")))
 }
 
 #[utoipa::path(
@@ -510,11 +451,5 @@ pub async fn list_deposit_batch_items(
     Query(query): Query<DepositBatchItemsQuery>,
 ) -> AppResult<Json<Vec<DepositBatchItem>>> {
     claims.require_read_items()?;
-    Ok(Json(
-        state
-            .services
-            .deposits
-            .list_batch_items(id, query.state.as_deref())
-            .await?,
-    ))
+    Ok(Json(state.services.deposits.list_batch_items(id, query.state.as_deref()).await?))
 }

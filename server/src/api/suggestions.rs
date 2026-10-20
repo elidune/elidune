@@ -9,10 +9,7 @@ use axum::{
 use crate::{
     error::AppResult,
     models::{
-        acquisition::{
-            CreatePurchaseSuggestion, PurchaseSuggestion, PurchaseSuggestionListResponse,
-            PurchaseSuggestionQuery, ReviewPurchaseSuggestion,
-        },
+        acquisition::{CreatePurchaseSuggestion, PurchaseSuggestion, PurchaseSuggestionListResponse, PurchaseSuggestionQuery, ReviewPurchaseSuggestion},
         user::Rights,
     },
     services::audit,
@@ -27,10 +24,7 @@ use super::{AuthenticatedUser, ClientIp, ValidatedJson};
 pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::{get, post};
     axum::Router::new()
-        .route(
-            "/suggestions",
-            get(list_suggestions).post(create_suggestion),
-        )
+        .route("/suggestions", get(list_suggestions).post(create_suggestion))
         .route("/suggestions/:id", get(get_suggestion))
         .route("/suggestions/:id/accept", post(accept_suggestion))
         .route("/suggestions/:id/refuse", post(refuse_suggestion))
@@ -58,12 +52,7 @@ pub async fn create_suggestion(
     ClientIp(ip): ClientIp,
     ValidatedJson(data): ValidatedJson<CreatePurchaseSuggestion>,
 ) -> AppResult<(StatusCode, Json<PurchaseSuggestion>)> {
-    match state
-        .services
-        .acquisitions
-        .create_suggestion(claims.user_id, &data)
-        .await
-    {
+    match state.services.acquisitions.create_suggestion(claims.user_id, &data).await {
         Ok(suggestion) => {
             state.services.audit.log(
                 audit::event::PURCHASE_SUGGESTION_CREATED,
@@ -107,16 +96,8 @@ pub async fn list_suggestions(
     AuthenticatedUser(claims): AuthenticatedUser,
     Query(query): Query<PurchaseSuggestionQuery>,
 ) -> AppResult<Json<PurchaseSuggestionListResponse>> {
-    let scope = if can_read_all_suggestions(&claims) {
-        None
-    } else {
-        Some(claims.user_id)
-    };
-    let (suggestions, total) = state
-        .services
-        .acquisitions
-        .list_suggestions(&query, scope)
-        .await?;
+    let scope = if can_read_all_suggestions(&claims) { None } else { Some(claims.user_id) };
+    let (suggestions, total) = state.services.acquisitions.list_suggestions(&query, scope).await?;
     Ok(Json(PurchaseSuggestionListResponse { suggestions, total }))
 }
 
@@ -133,16 +114,10 @@ pub async fn list_suggestions(
         (status = 404, description = "Suggestion not found", body = ErrorResponse),
     )
 )]
-pub async fn get_suggestion(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i64>,
-) -> AppResult<Json<PurchaseSuggestion>> {
+pub async fn get_suggestion(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(id): Path<i64>) -> AppResult<Json<PurchaseSuggestion>> {
     let suggestion = state.services.acquisitions.get_suggestion(id).await?;
     if suggestion.proposed_by != claims.user_id && !can_read_all_suggestions(&claims) {
-        return Err(crate::error::AppError::Authorization(
-            "Insufficient rights to view this suggestion".into(),
-        ));
+        return Err(crate::error::AppError::Authorization("Insufficient rights to view this suggestion".into()));
     }
     Ok(Json(suggestion))
 }
@@ -171,12 +146,7 @@ pub async fn accept_suggestion(
     ValidatedJson(data): ValidatedJson<ReviewPurchaseSuggestion>,
 ) -> AppResult<Json<PurchaseSuggestion>> {
     claims.require_write_acquisitions()?;
-    match state
-        .services
-        .acquisitions
-        .accept_suggestion(id, claims.user_id, &data)
-        .await
-    {
+    match state.services.acquisitions.accept_suggestion(id, claims.user_id, &data).await {
         Ok(suggestion) => {
             state.services.audit.log(
                 audit::event::PURCHASE_SUGGESTION_ACCEPTED,
@@ -239,12 +209,7 @@ pub async fn refuse_suggestion(
     ValidatedJson(data): ValidatedJson<ReviewPurchaseSuggestion>,
 ) -> AppResult<Json<PurchaseSuggestion>> {
     claims.require_write_acquisitions()?;
-    match state
-        .services
-        .acquisitions
-        .refuse_suggestion(id, claims.user_id, &data)
-        .await
-    {
+    match state.services.acquisitions.refuse_suggestion(id, claims.user_id, &data).await {
         Ok(suggestion) => {
             state.services.audit.log(
                 audit::event::PURCHASE_SUGGESTION_REFUSED,

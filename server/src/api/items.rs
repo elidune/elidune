@@ -24,10 +24,7 @@ pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::{get, post};
     axum::Router::new()
         .route("/items/barcode/:barcode", get(get_biblio_by_barcode))
-        .route(
-            "/items/:id",
-            get(get_biblio_by_item).put(update_item).delete(delete_item),
-        )
+        .route("/items/:id", get(get_biblio_by_item).put(update_item).delete(delete_item))
         .route("/items/:id/weeding", post(set_item_weeding))
 }
 
@@ -49,22 +46,14 @@ pub fn router() -> axum::Router<crate::AppState> {
         (status = 410, description = "Bibliographic record is archived", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn get_biblio_by_item(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path(item_id): Path<i64>,
-) -> AppResult<Json<BiblioReadResponse>> {
+pub async fn get_biblio_by_item(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(item_id): Path<i64>) -> AppResult<Json<BiblioReadResponse>> {
     claims.require_read_items()?;
     let biblio = state.services.catalog.get_biblio_for_item(item_id).await?;
     if !sees_internal_catalog(&claims) && copy_hidden_from_public(&biblio) {
-        return Err(crate::error::AppError::NotFound(
-            "Bibliographic record not found".into(),
-        ));
+        return Err(crate::error::AppError::NotFound("Bibliographic record not found".into()));
     }
     let body = if sees_internal_catalog(&claims) {
-        BiblioReadResponse::Staff(
-            super::catalog_hold::staff_biblio_view(&state, &claims, biblio).await?,
-        )
+        BiblioReadResponse::Staff(super::catalog_hold::staff_biblio_view(&state, &claims, biblio).await?)
     } else {
         BiblioReadResponse::Public(BiblioPublicView::from(biblio))
     };
@@ -73,10 +62,7 @@ pub async fn get_biblio_by_item(
 
 /// Lost, missing, weeding-in-progress, and withdrawn copies are not a public record.
 fn copy_hidden_from_public(biblio: &crate::models::biblio::Biblio) -> bool {
-    biblio
-        .items
-        .iter()
-        .any(|item| !item.included_in_public_catalog())
+    biblio.items.iter().any(|item| !item.included_in_public_catalog())
 }
 
 /// Get the bibliographic record for a physical copy identified by barcode.
@@ -97,26 +83,14 @@ fn copy_hidden_from_public(biblio: &crate::models::biblio::Biblio) -> bool {
         (status = 410, description = "Bibliographic record is archived", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn get_biblio_by_barcode(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path(barcode): Path<String>,
-) -> AppResult<Json<BiblioReadResponse>> {
+pub async fn get_biblio_by_barcode(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(barcode): Path<String>) -> AppResult<Json<BiblioReadResponse>> {
     claims.require_read_items()?;
-    let biblio = state
-        .services
-        .catalog
-        .get_biblio_for_item_barcode(barcode.as_str())
-        .await?;
+    let biblio = state.services.catalog.get_biblio_for_item_barcode(barcode.as_str()).await?;
     if !sees_internal_catalog(&claims) && copy_hidden_from_public(&biblio) {
-        return Err(crate::error::AppError::NotFound(
-            "Bibliographic record not found".into(),
-        ));
+        return Err(crate::error::AppError::NotFound("Bibliographic record not found".into()));
     }
     let body = if sees_internal_catalog(&claims) {
-        BiblioReadResponse::Staff(
-            super::catalog_hold::staff_biblio_view(&state, &claims, biblio).await?,
-        )
+        BiblioReadResponse::Staff(super::catalog_hold::staff_biblio_view(&state, &claims, biblio).await?)
     } else {
         BiblioReadResponse::Public(BiblioPublicView::from(biblio))
     };
@@ -135,17 +109,11 @@ enum ParsedItemUpdate {
 /// absent; this deserializer runs only when the key is present, including null.
 #[derive(Debug, Deserialize)]
 struct ItemUpdateProbe {
-    #[serde(
-        default,
-        rename = "circulationStatus",
-        deserialize_with = "deserialize_present_json_value"
-    )]
+    #[serde(default, rename = "circulationStatus", deserialize_with = "deserialize_present_json_value")]
     circulation_status: Option<serde_json::Value>,
 }
 
-fn deserialize_present_json_value<'de, D>(
-    deserializer: D,
-) -> Result<Option<serde_json::Value>, D::Error>
+fn deserialize_present_json_value<'de, D>(deserializer: D) -> Result<Option<serde_json::Value>, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -154,22 +122,16 @@ where
 }
 
 fn circulation_status_key_present(value: &serde_json::Value) -> bool {
-    serde_json::from_value::<ItemUpdateProbe>(value.clone())
-        .ok()
-        .and_then(|probe| probe.circulation_status)
-        .is_some()
+    serde_json::from_value::<ItemUpdateProbe>(value.clone()).ok().and_then(|probe| probe.circulation_status).is_some()
 }
 
 fn parse_item_update(bytes: &[u8]) -> AppResult<ParsedItemUpdate> {
-    let value: serde_json::Value = serde_json::from_slice(bytes)
-        .map_err(|e| AppError::Validation(format!("Invalid JSON body: {e}")))?;
+    let value: serde_json::Value = serde_json::from_slice(bytes).map_err(|e| AppError::Validation(format!("Invalid JSON body: {e}")))?;
     if circulation_status_key_present(&value) {
         return Ok(ParsedItemUpdate::CirculationStatusPresent(value));
     }
-    let item: Item = serde_json::from_value(value)
-        .map_err(|e| AppError::Validation(format!("Invalid JSON body: {e}")))?;
-    item.validate()
-        .map_err(|e| AppError::Validation(e.to_string()))?;
+    let item: Item = serde_json::from_value(value).map_err(|e| AppError::Validation(format!("Invalid JSON body: {e}")))?;
+    item.validate().map_err(|e| AppError::Validation(e.to_string()))?;
     Ok(ParsedItemUpdate::Ready(Box::new(item)))
 }
 
@@ -183,9 +145,7 @@ where
     type Rejection = AppError;
 
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
-        let bytes = axum::body::Bytes::from_request(req, state)
-            .await
-            .map_err(|e| AppError::BadRequest(e.to_string()))?;
+        let bytes = axum::body::Bytes::from_request(req, state).await.map_err(|e| AppError::BadRequest(e.to_string()))?;
         parse_item_update(&bytes).map(Self)
     }
 }
@@ -359,12 +319,7 @@ pub async fn set_item_weeding(
     ValidatedJson(body): ValidatedJson<SetWeedingRequest>,
 ) -> AppResult<Json<Item>> {
     claims.require_weeding()?;
-    match state
-        .services
-        .catalog
-        .set_item_weeding(item_id, body.status, body.reason.clone())
-        .await
-    {
+    match state.services.catalog.set_item_weeding(item_id, body.status, body.reason.clone()).await {
         Ok(item) => {
             state.services.audit.log(
                 audit::event::ITEM_WEEDING_UPDATED,
@@ -408,25 +363,14 @@ mod tests {
 
     #[test]
     fn circulation_status_key_is_present_for_any_json_value() {
-        for value in [
-            json!(1),
-            json!("lost"),
-            json!(null),
-            json!({"status": "lost"}),
-            json!(true),
-            json!(["lost"]),
-        ] {
+        for value in [json!(1), json!("lost"), json!(null), json!({"status": "lost"}), json!(true), json!(["lost"])] {
             let body = json!({
                 "callNumber": "SHELF-B",
                 "circulationStatus": value,
             });
             assert!(circulation_status_key_present(&body), "present for {value}");
-            let parsed =
-                parse_item_update(&serde_json::to_vec(&body).expect("json")).expect("parse");
-            assert!(
-                matches!(parsed, ParsedItemUpdate::CirculationStatusPresent(_)),
-                "rejected before item decode for {value}"
-            );
+            let parsed = parse_item_update(&serde_json::to_vec(&body).expect("json")).expect("parse");
+            assert!(matches!(parsed, ParsedItemUpdate::CirculationStatusPresent(_)), "rejected before item decode for {value}");
         }
     }
 

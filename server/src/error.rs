@@ -118,18 +118,15 @@ pub mod error_code {
     /// `force` skipped a gate that requires `overrideReason`, and the reason was missing or blank.
     pub const OVERRIDE_REASON_REQUIRED: &str = "override_reason_required";
     /// Client `message` for [`OVERRIDE_REASON_REQUIRED`].
-    pub const OVERRIDE_REASON_REQUIRED_MESSAGE: &str =
-        "A reason is required to force this circulation action";
+    pub const OVERRIDE_REASON_REQUIRED_MESSAGE: &str = "A reason is required to force this circulation action";
     /// `PUT /items/{id}` included `circulationStatus`. That column is not writable here.
     pub const CIRCULATION_STATUS_READ_ONLY: &str = "circulation_status_read_only";
     /// Client `message` for [`CIRCULATION_STATUS_READ_ONLY`].
-    pub const CIRCULATION_STATUS_READ_ONLY_MESSAGE: &str =
-        "circulationStatus is read-only. Use the dedicated actions (lost, missing, to-search).";
+    pub const CIRCULATION_STATUS_READ_ONLY_MESSAGE: &str = "circulationStatus is read-only. Use the dedicated actions (lost, missing, to-search).";
     /// `POST /users` for a reader omitted `birthdate`. The server needs it to set `publicType`.
     pub const BIRTH_DATE_REQUIRED: &str = "birth_date_required";
     /// Client `message` for [`BIRTH_DATE_REQUIRED`].
-    pub const BIRTH_DATE_REQUIRED_MESSAGE: &str =
-        "Birth date is required to determine the reader's public type";
+    pub const BIRTH_DATE_REQUIRED_MESSAGE: &str = "Birth date is required to determine the reader's public type";
     /// No age band covers the reader's completed years. The body asks an admin to complete the bands.
     pub const NO_PUBLIC_TYPE_FOR_AGE: &str = "no_public_type_for_age";
     /// Create or update of a public type whose age band intersects another band.
@@ -148,6 +145,10 @@ pub mod error_code {
     pub const DEPOSIT_IMPORT_OPTIONS_CONFLICT: &str = "deposit_import_options_conflict";
     /// One imported copy kept the lender barcode, and that barcode is already used.
     pub const BARCODE_ALREADY_EXISTS: &str = "barcode_already_exists";
+    /// Deposit import: archived copy was declared lost and billed; staff must use lost-found.
+    pub const DEPOSIT_ITEM_WAS_LOST: &str = "deposit_item_was_lost";
+    /// Re-activating an archived copy while its barcode is taken by an active copy.
+    pub const ITEM_REACTIVATION_BARCODE_TAKEN: &str = "item_reactivation_barcode_taken";
     /// Checkout or renewal of a deposit copy whose batch `return_due_on` is today or earlier.
     /// Not forceable.
     pub const DEPOSIT_RETURN_DUE: &str = "deposit_return_due";
@@ -232,27 +233,15 @@ pub enum AppError {
     /// Renewal refused on the HTTP boundary (HTTP 422).
     /// `forceable` comes from [`crate::renewal::renewal_refusal_forceable`].
     #[error("{message}")]
-    RenewalDenied {
-        code: &'static str,
-        message: String,
-        forceable: bool,
-    },
+    RenewalDenied { code: &'static str, message: String, forceable: bool },
 
     /// Confirmation payload is boxed: `BiblioShort` is far larger than the
     /// `result_large_err` limit and would otherwise inflate every `AppResult`.
     #[error("Duplicate ISBN requires confirmation")]
-    DuplicateNeedsConfirmation {
-        existing_id: i64,
-        existing_item: Box<BiblioShort>,
-        message: String,
-    },
+    DuplicateNeedsConfirmation { existing_id: i64, existing_item: Box<BiblioShort>, message: String },
 
     #[error("Duplicate barcode requires confirmation")]
-    DuplicateBarcodeNeedsConfirmation {
-        existing_id: i64,
-        existing_item: Box<ItemShort>,
-        message: String,
-    },
+    DuplicateBarcodeNeedsConfirmation { existing_id: i64, existing_item: Box<ItemShort>, message: String },
 
     /// Temporary auth throttle. `retry_after` is seconds for `Retry-After`.
     #[error("Rate limited, retry after {retry_after}s")]
@@ -270,11 +259,7 @@ pub enum AppError {
 
     /// Stable `error_code` with an explicit HTTP status (400, 409, or 422).
     #[error("{message}")]
-    Coded {
-        status: u16,
-        code: &'static str,
-        message: String,
-    },
+    Coded { status: u16, code: &'static str, message: String },
 
     /// Batch disposal applied to none of the ids. `failures` is one reason per rejected id.
     #[error("No withdrawal was marked disposed")]
@@ -285,10 +270,7 @@ pub enum AppError {
 
     /// Payment is greater than the fine's unpaid balance (HTTP 422, `payment_exceeds_balance`).
     #[error("{message}")]
-    PaymentExceedsBalance {
-        remaining_cents: i64,
-        message: String,
-    },
+    PaymentExceedsBalance { remaining_cents: i64, message: String },
 
     /// Close refused while copies of the batch are still on loan (HTTP 422).
     /// `copies` is boxed so `AppError` stays under `result_large_err`.
@@ -319,50 +301,30 @@ impl AppError {
     /// `PUT /items/{id}` included a `circulationStatus` key.
     #[must_use]
     pub fn circulation_status_read_only() -> Self {
-        Self::coded(
-            422,
-            error_code::CIRCULATION_STATUS_READ_ONLY,
-            error_code::CIRCULATION_STATUS_READ_ONLY_MESSAGE,
-        )
+        Self::coded(422, error_code::CIRCULATION_STATUS_READ_ONLY, error_code::CIRCULATION_STATUS_READ_ONLY_MESSAGE)
     }
 
     #[must_use]
     pub fn account_type_in_use() -> Self {
-        Self::coded(
-            409,
-            error_code::ACCOUNT_TYPE_IN_USE,
-            "Account type is still assigned to one or more accounts",
-        )
+        Self::coded(409, error_code::ACCOUNT_TYPE_IN_USE, "Account type is still assigned to one or more accounts")
     }
 
     #[must_use]
     pub fn account_type_system() -> Self {
-        Self::coded(
-            409,
-            error_code::ACCOUNT_TYPE_SYSTEM,
-            "System account types cannot be deleted",
-        )
+        Self::coded(409, error_code::ACCOUNT_TYPE_SYSTEM, "System account types cannot be deleted")
     }
 
     #[must_use]
     pub fn last_active_admin() -> Self {
-        Self::coded(
-            409,
-            error_code::LAST_ACTIVE_ADMIN,
-            "This change would leave no active account with admin rights",
-        )
+        Self::coded(409, error_code::LAST_ACTIVE_ADMIN, "This change would leave no active account with admin rights")
     }
 
     /// Close stays `returning`. `copies` are the items that still have an open loan.
     #[must_use]
-    pub fn deposit_batch_has_active_loans(
-        copies: Vec<crate::models::deposit::DepositActiveLoanCopy>,
-    ) -> Self {
+    pub fn deposit_batch_has_active_loans(copies: Vec<crate::models::deposit::DepositActiveLoanCopy>) -> Self {
         let count = copies.len();
         Self::DepositBatchHasActiveLoans {
-            message: format!(
-                "Return or declare lost every copy still on loan before closing the batch ({count} still on loan)"
-            ),
+            message: format!("Return or declare lost every copy still on loan before closing the batch ({count} still on loan)"),
             copies: Box::new(copies),
         }
     }
@@ -612,8 +574,7 @@ impl AppError {
                 label: "Business Rule Violation",
                 message: message.clone(),
             },
-            AppError::DuplicateNeedsConfirmation { .. }
-            | AppError::DuplicateBarcodeNeedsConfirmation { .. } => HttpErrorFields {
+            AppError::DuplicateNeedsConfirmation { .. } | AppError::DuplicateBarcodeNeedsConfirmation { .. } => HttpErrorFields {
                 status: StatusCode::CONFLICT,
                 code: ec::CONFLICT,
                 label: "Conflict",
@@ -637,11 +598,7 @@ impl AppError {
                 label: "Not Found",
                 message: msg.clone(),
             },
-            AppError::Coded {
-                status,
-                code,
-                message,
-            } => HttpErrorFields {
+            AppError::Coded { status, code, message } => HttpErrorFields {
                 status: StatusCode::from_u16(*status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
                 code,
                 label: match *status {
@@ -654,11 +611,7 @@ impl AppError {
             AppError::WithdrawalDisposeRejected { status, .. } => HttpErrorFields {
                 status: StatusCode::from_u16(*status).unwrap_or(StatusCode::CONFLICT),
                 code: ec::WITHDRAWAL_DISPOSE_REJECTED,
-                label: if *status == 409 {
-                    "Conflict"
-                } else {
-                    "Business Rule Violation"
-                },
+                label: if *status == 409 { "Conflict" } else { "Business Rule Violation" },
                 message: "No withdrawal was marked disposed".to_string(),
             },
             AppError::PaymentExceedsBalance { message, .. } => HttpErrorFields {
@@ -688,26 +641,16 @@ impl IntoResponse for AppError {
         use error_code as ec;
 
         match self {
-            AppError::DuplicateNeedsConfirmation {
-                existing_id,
-                existing_item,
-                message,
-            } => {
-                let body = Json(
-                    crate::models::import_report::DuplicateConfirmationRequired {
-                        code: ec::DUPLICATE_ISBN.to_string(),
-                        existing_id,
-                        existing_biblio: *existing_item,
-                        message,
-                    },
-                );
+            AppError::DuplicateNeedsConfirmation { existing_id, existing_item, message } => {
+                let body = Json(crate::models::import_report::DuplicateConfirmationRequired {
+                    code: ec::DUPLICATE_ISBN.to_string(),
+                    existing_id,
+                    existing_biblio: *existing_item,
+                    message,
+                });
                 (StatusCode::CONFLICT, body).into_response()
             }
-            AppError::DuplicateBarcodeNeedsConfirmation {
-                existing_id,
-                existing_item,
-                message,
-            } => {
+            AppError::DuplicateBarcodeNeedsConfirmation { existing_id, existing_item, message } => {
                 let body = Json(crate::models::import_report::DuplicateItemBarcodeRequired {
                     code: ec::DUPLICATE_BARCODE.to_string(),
                     existing_id,
@@ -719,11 +662,7 @@ impl IntoResponse for AppError {
             AppError::RateLimited { retry_after } => rate_limited_response(retry_after),
             AppError::WithdrawalDisposeRejected { status, failures } => {
                 let http = StatusCode::from_u16(status).unwrap_or(StatusCode::CONFLICT);
-                let label = if status == 409 {
-                    "Conflict"
-                } else {
-                    "Business Rule Violation"
-                };
+                let label = if status == 409 { "Conflict" } else { "Business Rule Violation" };
                 let body = Json(crate::models::withdrawal::WithdrawalDisposeRejectedBody {
                     code: ec::WITHDRAWAL_DISPOSE_REJECTED.to_string(),
                     error: label.to_string(),
@@ -736,10 +675,7 @@ impl IntoResponse for AppError {
                 let body = Json(refusal.to_body());
                 (StatusCode::UNPROCESSABLE_ENTITY, body).into_response()
             }
-            AppError::PaymentExceedsBalance {
-                remaining_cents,
-                message,
-            } => {
+            AppError::PaymentExceedsBalance { remaining_cents, message } => {
                 let body = Json(PaymentExceedsBalanceBody {
                     code: ec::PAYMENT_EXCEEDS_BALANCE.to_string(),
                     error: "Business Rule Violation".to_string(),
@@ -767,13 +703,8 @@ impl IntoResponse for AppError {
                 });
                 (StatusCode::UNPROCESSABLE_ENTITY, body).into_response()
             }
-            AppError::RenewalDenied {
-                code,
-                message,
-                forceable,
-            } => {
-                let reason_required =
-                    forceable && crate::checkout_refusal::checkout_override_reason_required(code);
+            AppError::RenewalDenied { code, message, forceable } => {
+                let reason_required = forceable && crate::checkout_refusal::checkout_override_reason_required(code);
                 let body = Json(crate::renewal::RenewalRefusalBody {
                     code: code.to_string(),
                     error: "Business Rule Violation".to_string(),
@@ -802,12 +733,8 @@ impl AppError {
         use error_code as ec;
 
         match self {
-            AppError::DuplicateNeedsConfirmation { message, .. } => {
-                (409, ec::DUPLICATE_ISBN, message.clone())
-            }
-            AppError::DuplicateBarcodeNeedsConfirmation { message, .. } => {
-                (409, ec::DUPLICATE_BARCODE, message.clone())
-            }
+            AppError::DuplicateNeedsConfirmation { message, .. } => (409, ec::DUPLICATE_ISBN, message.clone()),
+            AppError::DuplicateBarcodeNeedsConfirmation { message, .. } => (409, ec::DUPLICATE_BARCODE, message.clone()),
             other => {
                 let f = other.http_fields();
                 (f.status.as_u16(), f.code, f.message)
@@ -831,9 +758,7 @@ mod tests {
 
     #[test]
     fn renewal_too_early_uses_a_dedicated_code() {
-        let err = AppError::RenewalTooEarly(
-            "Renewal is too early. Renewal is possible from 2026-10-25.".into(),
-        );
+        let err = AppError::RenewalTooEarly("Renewal is too early. Renewal is possible from 2026-10-25.".into());
         let (status, code, message) = err.audit_http_fields();
         assert_eq!(status, 422);
         assert_eq!(code, error_code::RENEWAL_TOO_EARLY);
@@ -851,20 +776,12 @@ mod tests {
 
     #[test]
     fn open_loan_conflicts_are_409_with_stable_codes() {
-        let other = AppError::coded(
-            409,
-            error_code::ITEM_ON_LOAN_TO_OTHER_BORROWER,
-            "This item is on loan to another borrower.",
-        );
+        let other = AppError::coded(409, error_code::ITEM_ON_LOAN_TO_OTHER_BORROWER, "This item is on loan to another borrower.");
         let (status, code, _) = other.audit_http_fields();
         assert_eq!(status, 409);
         assert_eq!(code, error_code::ITEM_ON_LOAN_TO_OTHER_BORROWER);
 
-        let same = AppError::coded(
-            409,
-            error_code::ITEM_ALREADY_ON_LOAN_TO_BORROWER,
-            "Renew the existing loan.",
-        );
+        let same = AppError::coded(409, error_code::ITEM_ALREADY_ON_LOAN_TO_BORROWER, "Renew the existing loan.");
         let (status, code, message) = same.audit_http_fields();
         assert_eq!(status, 409);
         assert_eq!(code, error_code::ITEM_ALREADY_ON_LOAN_TO_BORROWER);

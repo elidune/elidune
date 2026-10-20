@@ -66,7 +66,7 @@ export default function HoldsPage() {
   const [holdScope, setHoldScope] = useState<HoldPlacementScope>('title');
   const [createPatronNote, setCreatePatronNote] = useState('');
   const [createInternalNote, setCreateInternalNote] = useState('');
-  const { sources, pickupSiteId, setPickupSiteId, missing: pickupMissing } = usePickupSiteDraft(showCreateModal);
+  const { sites, pickupSiteId, setPickupSiteId, missing: pickupMissing } = usePickupSiteDraft(showCreateModal);
   const transitActions = useTransitActions();
   const activeTransitsQuery = useActiveTransitsQuery();
   const transitByHoldId = useMemo(
@@ -353,7 +353,7 @@ export default function HoldsPage() {
       key: 'pickup',
       header: t('holds.columnPickup'),
       render: (r: HoldListItem) => (
-        <HoldPickupCell hold={r} sources={sources} transit={transitByHoldId.get(r.id)} />
+        <HoldPickupCell hold={r} sites={ sites } transit={transitByHoldId.get(r.id)} />
       ),
     },
     {
@@ -508,7 +508,7 @@ export default function HoldsPage() {
                         linked={canOpenReader}
                         emphasizePickup
                         statusBadge={(s) => statusBadge(t, s)}
-                        pickupSources={sources}
+                        pickupSources={ sites }
                         transit={transitByHoldId.get(r.id)}
                         extraActions={
                           <HoldTransitActions
@@ -760,7 +760,7 @@ export default function HoldsPage() {
 
           <PickupSiteSelect
             id="desk-pickup-site"
-            sources={sources}
+            sites={ sites }
             value={pickupSiteId}
             onChange={setPickupSiteId}
             disabled={createMutation.isPending}

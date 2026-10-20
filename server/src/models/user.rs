@@ -53,9 +53,7 @@ impl From<char> for Rights {
 
 impl From<Option<String>> for Rights {
     fn from(s: Option<String>) -> Self {
-        s.and_then(|s| s.chars().next())
-            .map(Rights::from)
-            .unwrap_or(Rights::None)
+        s.and_then(|s| s.chars().next()).map(Rights::from).unwrap_or(Rights::None)
     }
 }
 
@@ -134,17 +132,12 @@ impl<'de> Deserialize<'de> for AccountTypeSlug {
 }
 
 impl<'s> ToSchema<'s> for AccountTypeSlug {
-    fn schema() -> (
-        &'s str,
-        utoipa::openapi::RefOr<utoipa::openapi::schema::Schema>,
-    ) {
+    fn schema() -> (&'s str, utoipa::openapi::RefOr<utoipa::openapi::schema::Schema>) {
         (
             "AccountTypeSlug",
             utoipa::openapi::ObjectBuilder::new()
                 .schema_type(utoipa::openapi::SchemaType::String)
-                .description(Some(
-                    "Account type code. Built-in codes are guest, reader, librarian, admin, and group. Other codes are custom types.",
-                ))
+                .description(Some("Account type code. Built-in codes are guest, reader, librarian, admin, and group. Other codes are custom types."))
                 .into(),
         )
     }
@@ -242,8 +235,7 @@ impl From<String> for FeeSlug {
 
 impl From<Option<String>> for FeeSlug {
     fn from(s: Option<String>) -> Self {
-        s.map(|s| s.parse().unwrap_or(FeeSlug::Free))
-            .unwrap_or(FeeSlug::Free)
+        s.map(|s| s.parse().unwrap_or(FeeSlug::Free)).unwrap_or(FeeSlug::Free)
     }
 }
 
@@ -375,9 +367,7 @@ pub struct UserRow {
 
 impl From<UserRow> for User {
     fn from(row: UserRow) -> Self {
-        let birth_date_missing = AccountTypeSlug::from(row.account_type.as_str())
-            .derives_public_type_from_birthdate()
-            && row.birthdate.is_none();
+        let birth_date_missing = AccountTypeSlug::from(row.account_type.as_str()).derives_public_type_from_birthdate() && row.birthdate.is_none();
         User {
             id: row.id,
             group_id: row.group_id,
@@ -418,10 +408,7 @@ impl From<UserRow> for User {
             guardian_id: None,
             events_consent: row.events_consent_at.is_some(),
             events_consent_at: row.events_consent_at,
-            events_consent_source: row
-                .events_consent_source
-                .as_deref()
-                .and_then(EventsConsentSource::parse),
+            events_consent_source: row.events_consent_source.as_deref().and_then(EventsConsentSource::parse),
             birth_date_missing,
         }
     }
@@ -596,9 +583,7 @@ impl From<UserShortRow> for UserShort {
             barcode: row.barcode,
             firstname: row.firstname,
             lastname: row.lastname,
-            account_type: row
-                .account_type
-                .map(|s| s.parse().unwrap_or(AccountTypeSlug::Guest)),
+            account_type: row.account_type.map(|s| s.parse().unwrap_or(AccountTypeSlug::Guest)),
             public_type: row.public_type,
             nb_loans: row.nb_loans,
             nb_late_loans: row.nb_late_loans,
@@ -706,9 +691,7 @@ impl<'de> Deserialize<'de> for GuardianIdPatch {
                 if v.is_empty() {
                     return Ok(GuardianIdPatch::Clear);
                 }
-                v.parse::<i64>()
-                    .map(GuardianIdPatch::Set)
-                    .map_err(|_| E::custom("guardianId must be a patron id"))
+                v.parse::<i64>().map(GuardianIdPatch::Set).map_err(|_| E::custom("guardianId must be a patron id"))
             }
 
             fn visit_string<E: serde::de::Error>(self, v: String) -> Result<Self::Value, E> {
@@ -720,9 +703,7 @@ impl<'de> Deserialize<'de> for GuardianIdPatch {
             }
 
             fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<Self::Value, E> {
-                i64::try_from(v)
-                    .map(GuardianIdPatch::Set)
-                    .map_err(|_| E::custom("guardianId out of range"))
+                i64::try_from(v).map(GuardianIdPatch::Set).map_err(|_| E::custom("guardianId out of range"))
             }
         }
 
@@ -820,29 +801,17 @@ pub enum UserNoticeLanguage {
 impl UserPayload {
     /// Validates required patron identity fields for admin create and full user update.
     pub fn validate_required_patron_fields(&self) -> Result<(), AppError> {
-        let login = self
-            .login
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty());
+        let login = self.login.as_deref().map(str::trim).filter(|s| !s.is_empty());
         if login.is_none() {
             return Err(AppError::Validation("login is required".into()));
         }
 
-        let firstname = self
-            .firstname
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty());
+        let firstname = self.firstname.as_deref().map(str::trim).filter(|s| !s.is_empty());
         if firstname.is_none() {
             return Err(AppError::Validation("firstname is required".into()));
         }
 
-        let lastname = self
-            .lastname
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty());
+        let lastname = self.lastname.as_deref().map(str::trim).filter(|s| !s.is_empty());
         if lastname.is_none() {
             return Err(AppError::Validation("lastname is required".into()));
         }
@@ -851,21 +820,14 @@ impl UserPayload {
             return Err(AppError::Validation("sex is required".into()));
         }
 
-        let reader = self
-            .account_type
-            .as_ref()
-            .is_some_and(AccountTypeSlug::derives_public_type_from_birthdate);
+        let reader = self.account_type.as_ref().is_some_and(AccountTypeSlug::derives_public_type_from_birthdate);
         // Readers are rejected earlier with 422 `birth_date_required`. Other account
         // types keep the previous create rules: birth date optional, public type required.
         if self.public_type.is_none() && !reader {
             return Err(AppError::Validation("publicType is required".into()));
         }
 
-        let city = self
-            .addr_city
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty());
+        let city = self.addr_city.as_deref().map(str::trim).filter(|s| !s.is_empty());
         if city.is_none() {
             return Err(AppError::Validation("addrCity is required".into()));
         }
@@ -1022,30 +984,20 @@ impl UserClaims {
     /// Create a new JWT token (HS256 only).
     pub fn create_token(&self, secret: &str) -> Result<String, jsonwebtoken::errors::Error> {
         use jsonwebtoken::{encode, EncodingKey};
-        encode(
-            &Self::hs256_header(),
-            self,
-            &EncodingKey::from_secret(secret.as_bytes()),
-        )
+        encode(&Self::hs256_header(), self, &EncodingKey::from_secret(secret.as_bytes()))
     }
 
     /// Parse JWT token (HS256 only).
     pub fn from_token(token: &str, secret: &str) -> Result<Self, jsonwebtoken::errors::Error> {
         use jsonwebtoken::{decode, DecodingKey};
-        let token_data = decode::<Self>(
-            token,
-            &DecodingKey::from_secret(secret.as_bytes()),
-            &Self::hs256_validation(),
-        )?;
+        let token_data = decode::<Self>(token, &DecodingKey::from_secret(secret.as_bytes()), &Self::hs256_validation())?;
         Ok(token_data.claims)
     }
 
     /// Reject tokens issued before the user's current `token_version` (session revocation).
     pub fn check_token_version(&self, current: i64) -> Result<(), AppError> {
         if self.token_version != current {
-            return Err(AppError::Authentication(
-                "Token has been revoked".to_string(),
-            ));
+            return Err(AppError::Authentication("Token has been revoked".to_string()));
         }
         Ok(())
     }
@@ -1055,9 +1007,7 @@ impl UserClaims {
         if self.rights.items_rights.rank() >= Rights::Read.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization(
-                "Insufficient rights to read items".to_string(),
-            ))
+            Err(AppError::Authorization("Insufficient rights to read items".to_string()))
         }
     }
 
@@ -1065,9 +1015,7 @@ impl UserClaims {
         if self.rights.items_rights.rank() >= Rights::Write.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization(
-                "Insufficient rights to write items".to_string(),
-            ))
+            Err(AppError::Authorization("Insufficient rights to write items".to_string()))
         }
     }
 
@@ -1076,9 +1024,7 @@ impl UserClaims {
         if self.rights.weeding_rights.rank() >= Rights::Read.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization(
-                "Insufficient rights to view weeding".to_string(),
-            ))
+            Err(AppError::Authorization("Insufficient rights to view weeding".to_string()))
         }
     }
 
@@ -1087,9 +1033,7 @@ impl UserClaims {
         if self.rights.weeding_rights.rank() >= Rights::Write.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization(
-                "Insufficient rights to weed copies".to_string(),
-            ))
+            Err(AppError::Authorization("Insufficient rights to weed copies".to_string()))
         }
     }
 
@@ -1098,9 +1042,7 @@ impl UserClaims {
         if self.rights.weeding_cancel_rights.rank() >= Rights::Write.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization(
-                "Insufficient rights to cancel a withdrawal".to_string(),
-            ))
+            Err(AppError::Authorization("Insufficient rights to cancel a withdrawal".to_string()))
         }
     }
 
@@ -1109,9 +1051,7 @@ impl UserClaims {
         if self.rights.items_archive_rights.rank() >= Rights::Write.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization(
-                "Insufficient rights to delete copies".to_string(),
-            ))
+            Err(AppError::Authorization("Insufficient rights to delete copies".to_string()))
         }
     }
 
@@ -1119,9 +1059,7 @@ impl UserClaims {
         if self.rights.users_rights.rank() >= Rights::Read.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization(
-                "Insufficient rights to read users".to_string(),
-            ))
+            Err(AppError::Authorization("Insufficient rights to read users".to_string()))
         }
     }
 
@@ -1129,22 +1067,16 @@ impl UserClaims {
         if self.rights.users_rights.rank() >= Rights::Write.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization(
-                "Insufficient rights to write users".to_string(),
-            ))
+            Err(AppError::Authorization("Insufficient rights to write users".to_string()))
         }
     }
 
     /// Report a library card lost. Users write or loans write. The route only sets `card_lost`.
     pub fn require_report_card_lost(&self) -> Result<(), AppError> {
-        if self.rights.users_rights.rank() >= Rights::Write.rank()
-            || self.rights.loans_rights.rank() >= Rights::Write.rank()
-        {
+        if self.rights.users_rights.rank() >= Rights::Write.rank() || self.rights.loans_rights.rank() >= Rights::Write.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization(
-                "Insufficient rights to report a lost library card".to_string(),
-            ))
+            Err(AppError::Authorization("Insufficient rights to report a lost library card".to_string()))
         }
     }
 
@@ -1152,9 +1084,7 @@ impl UserClaims {
         if self.rights.items_rights.rank() >= Rights::Read.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization(
-                "Insufficient rights to read catalog".to_string(),
-            ))
+            Err(AppError::Authorization("Insufficient rights to read catalog".to_string()))
         }
     }
 
@@ -1163,9 +1093,7 @@ impl UserClaims {
         if self.rights.holds_rights.rank() >= Rights::Write.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization(
-                "Insufficient rights for circulation/hold management".to_string(),
-            ))
+            Err(AppError::Authorization("Insufficient rights for circulation/hold management".to_string()))
         }
     }
 
@@ -1174,9 +1102,7 @@ impl UserClaims {
         if self.rights.holds_rights.rank() >= Rights::Read.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization(
-                "Insufficient rights to view hold queues".to_string(),
-            ))
+            Err(AppError::Authorization("Insufficient rights to view hold queues".to_string()))
         }
     }
 
@@ -1184,9 +1110,7 @@ impl UserClaims {
         if self.rights.loans_rights.rank() >= Rights::Read.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization(
-                "Insufficient rights to read loans".to_string(),
-            ))
+            Err(AppError::Authorization("Insufficient rights to read loans".to_string()))
         }
     }
 
@@ -1194,9 +1118,7 @@ impl UserClaims {
         if self.rights.loans_rights.rank() >= Rights::Write.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization(
-                "Insufficient rights to write loans".to_string(),
-            ))
+            Err(AppError::Authorization("Insufficient rights to write loans".to_string()))
         }
     }
 
@@ -1204,9 +1126,7 @@ impl UserClaims {
         if self.rights.settings_rights.rank() >= Rights::Read.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization(
-                "Insufficient rights to read settings".to_string(),
-            ))
+            Err(AppError::Authorization("Insufficient rights to read settings".to_string()))
         }
     }
 
@@ -1214,9 +1134,7 @@ impl UserClaims {
         if self.rights.settings_rights.rank() >= Rights::Write.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization(
-                "Insufficient rights to write settings".to_string(),
-            ))
+            Err(AppError::Authorization("Insufficient rights to write settings".to_string()))
         }
     }
 
@@ -1224,9 +1142,7 @@ impl UserClaims {
         if self.rights.events_rights.rank() >= Rights::Read.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization(
-                "Insufficient rights to read events".to_string(),
-            ))
+            Err(AppError::Authorization("Insufficient rights to read events".to_string()))
         }
     }
 
@@ -1234,9 +1150,7 @@ impl UserClaims {
         if self.rights.events_rights.rank() >= Rights::Write.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization(
-                "Insufficient rights to manage events".to_string(),
-            ))
+            Err(AppError::Authorization("Insufficient rights to manage events".to_string()))
         }
     }
 
@@ -1244,9 +1158,7 @@ impl UserClaims {
         if self.rights.acquisitions_rights.rank() >= Rights::Read.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization(
-                "Insufficient rights to read acquisitions".to_string(),
-            ))
+            Err(AppError::Authorization("Insufficient rights to read acquisitions".to_string()))
         }
     }
 
@@ -1254,45 +1166,31 @@ impl UserClaims {
         if self.rights.acquisitions_rights.rank() >= Rights::Write.rank() {
             Ok(())
         } else {
-            Err(AppError::Authorization(
-                "Insufficient rights to manage acquisitions".to_string(),
-            ))
+            Err(AppError::Authorization("Insufficient rights to manage acquisitions".to_string()))
         }
     }
 
     pub fn require_list_holds(&self) -> Result<(), AppError> {
-        if self.rights.holds_rights.rank() >= Rights::Read.rank()
-            || self.rights.holds_rights == Rights::Own
-        {
+        if self.rights.holds_rights.rank() >= Rights::Read.rank() || self.rights.holds_rights == Rights::Own {
             Ok(())
         } else {
-            Err(AppError::Authorization(
-                "Insufficient rights to list holds".into(),
-            ))
+            Err(AppError::Authorization("Insufficient rights to list holds".into()))
         }
     }
 
     pub fn require_create_hold(&self) -> Result<(), AppError> {
-        if self.rights.holds_rights.rank() >= Rights::Write.rank()
-            || self.rights.holds_rights == Rights::Own
-        {
+        if self.rights.holds_rights.rank() >= Rights::Write.rank() || self.rights.holds_rights == Rights::Own {
             Ok(())
         } else {
-            Err(AppError::Authorization(
-                "Insufficient rights to place a hold".into(),
-            ))
+            Err(AppError::Authorization("Insufficient rights to place a hold".into()))
         }
     }
 
     pub fn require_cancel_hold(&self) -> Result<(), AppError> {
-        if self.rights.holds_rights.rank() >= Rights::Write.rank()
-            || self.rights.holds_rights == Rights::Own
-        {
+        if self.rights.holds_rights.rank() >= Rights::Write.rank() || self.rights.holds_rights == Rights::Own {
             Ok(())
         } else {
-            Err(AppError::Authorization(
-                "Insufficient rights to cancel a hold".into(),
-            ))
+            Err(AppError::Authorization("Insufficient rights to cancel a hold".into()))
         }
     }
 
@@ -1303,10 +1201,7 @@ impl UserClaims {
 
     /// Check if user is librarian or admin
     pub fn is_librarian(&self) -> bool {
-        matches!(
-            self.account_type,
-            AccountTypeSlug::Librarian | AccountTypeSlug::Admin
-        )
+        matches!(self.account_type, AccountTypeSlug::Librarian | AccountTypeSlug::Admin)
     }
 
     /// Require admin privileges
@@ -1314,9 +1209,7 @@ impl UserClaims {
         if self.is_admin() {
             Ok(())
         } else {
-            Err(AppError::Authorization(
-                "Administrator privileges required".to_string(),
-            ))
+            Err(AppError::Authorization("Administrator privileges required".to_string()))
         }
     }
 
@@ -1354,9 +1247,7 @@ pub struct UserErasureResult {
 #[must_use]
 pub fn borrower_age_band(birthdate: NaiveDate, on: NaiveDate) -> Option<&'static str> {
     let mut years = on.year() - birthdate.year();
-    if on.month() < birthdate.month()
-        || (on.month() == birthdate.month() && on.day() < birthdate.day())
-    {
+    if on.month() < birthdate.month() || (on.month() == birthdate.month() && on.day() < birthdate.day()) {
         years -= 1;
     }
     if years < 0 {
@@ -1469,22 +1360,10 @@ mod erasure_tests {
 
     #[test]
     fn borrower_age_band_matches_stats_buckets() {
-        assert_eq!(
-            borrower_age_band(d(2010, 6, 1), d(2026, 6, 1)),
-            Some("0-17")
-        );
-        assert_eq!(
-            borrower_age_band(d(2000, 6, 1), d(2026, 6, 1)),
-            Some("18-29")
-        );
-        assert_eq!(
-            borrower_age_band(d(1990, 6, 1), d(2026, 6, 1)),
-            Some("30-49")
-        );
-        assert_eq!(
-            borrower_age_band(d(1965, 1, 1), d(2026, 1, 1)),
-            Some("50-64")
-        );
+        assert_eq!(borrower_age_band(d(2010, 6, 1), d(2026, 6, 1)), Some("0-17"));
+        assert_eq!(borrower_age_band(d(2000, 6, 1), d(2026, 6, 1)), Some("18-29"));
+        assert_eq!(borrower_age_band(d(1990, 6, 1), d(2026, 6, 1)), Some("30-49"));
+        assert_eq!(borrower_age_band(d(1965, 1, 1), d(2026, 1, 1)), Some("50-64"));
         assert_eq!(borrower_age_band(d(1950, 1, 1), d(2026, 1, 1)), Some("65+"));
         assert_eq!(borrower_age_band(d(2030, 1, 1), d(2026, 1, 1)), None);
     }
@@ -1496,12 +1375,10 @@ mod erasure_tests {
         let omitted: UserPayload = serde_json::from_value(serde_json::json!({})).unwrap();
         assert_eq!(omitted.guardian_id, GuardianIdPatch::Unspecified);
 
-        let cleared: UserPayload =
-            serde_json::from_value(serde_json::json!({ "guardianId": null })).unwrap();
+        let cleared: UserPayload = serde_json::from_value(serde_json::json!({ "guardianId": null })).unwrap();
         assert_eq!(cleared.guardian_id, GuardianIdPatch::Clear);
 
-        let set: UserPayload =
-            serde_json::from_value(serde_json::json!({ "guardianId": "42" })).unwrap();
+        let set: UserPayload = serde_json::from_value(serde_json::json!({ "guardianId": "42" })).unwrap();
         assert_eq!(set.guardian_id, GuardianIdPatch::Set(42));
     }
 }

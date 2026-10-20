@@ -81,10 +81,7 @@ pub fn patron_block_reasons(input: &PatronGateInput) -> Vec<PatronBlockReason> {
 /// True when checkout without `force` would refuse this patron.
 #[must_use]
 pub fn patron_checkout_blocked(reasons: &[PatronBlockReason]) -> bool {
-    reasons
-        .iter()
-        .copied()
-        .any(PatronBlockReason::blocks_checkout)
+    reasons.iter().copied().any(PatronBlockReason::blocks_checkout)
 }
 
 #[cfg(test)]
@@ -113,22 +110,8 @@ mod tests {
     #[test]
     fn each_checkout_reason_blocks_and_overdue_does_not() {
         let cases = [
-            (
-                PatronGateInput {
-                    can_borrow: false,
-                    ..clear()
-                },
-                PatronBlockReason::AccountBlocked,
-                true,
-            ),
-            (
-                PatronGateInput {
-                    card_lost: true,
-                    ..clear()
-                },
-                PatronBlockReason::CardLost,
-                true,
-            ),
+            (PatronGateInput { can_borrow: false, ..clear() }, PatronBlockReason::AccountBlocked, true),
+            (PatronGateInput { card_lost: true, ..clear() }, PatronBlockReason::CardLost, true),
             (
                 PatronGateInput {
                     subscription_expired: true,
@@ -137,14 +120,7 @@ mod tests {
                 PatronBlockReason::SubscriptionExpired,
                 true,
             ),
-            (
-                PatronGateInput {
-                    fines_block: true,
-                    ..clear()
-                },
-                PatronBlockReason::UnpaidFines,
-                true,
-            ),
+            (PatronGateInput { fines_block: true, ..clear() }, PatronBlockReason::UnpaidFines, true),
             (
                 PatronGateInput {
                     active_loans: 5,

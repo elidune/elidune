@@ -87,9 +87,7 @@ impl sqlx::Type<sqlx::Postgres> for PurchaseOrderStatus {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for PurchaseOrderStatus {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
         Ok(Self::from(s.as_str()))
     }
@@ -401,9 +399,9 @@ pub struct ReceiveItemSpec {
     pub barcode: Option<String>,
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
-    pub source_id: Option<i64>,
+    pub site_id: Option<i64>,
     #[validate(length(max = 200))]
-    pub source_name: Option<String>,
+    pub site_name: Option<String>,
     #[validate(length(max = 100))]
     /// Copy price as a decimal-euro string (`"12.50"` or `"12,50"`). Stored as integer cents.
     #[schema(value_type = Option<String>, example = "12.50")]
@@ -560,9 +558,7 @@ impl sqlx::Type<sqlx::Postgres> for PurchaseSuggestionStatus {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for PurchaseSuggestionStatus {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
         Ok(Self::from(s.as_str()))
     }

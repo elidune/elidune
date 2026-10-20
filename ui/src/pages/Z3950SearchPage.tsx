@@ -16,7 +16,7 @@ import {
 import { Card, CardHeader, Button, Table, Modal, Input, ScrollableListRegion, ResponsiveRecordList, BarcodeScanField } from '@/components/common';
 import CallNumberField from '@/components/specimen/CallNumberField';
 import api from '@/services/api';
-import type { Biblio, Author, Z3950Server, Source, ImportReport, DuplicateConfirmationRequired } from '@/types';
+import type { Biblio, Author, Z3950Server, Site, ImportReport, DuplicateConfirmationRequired } from '@/types';
 import { buildSuggestedCallNumber, validateCallNumber } from '@/utils/callNumber';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
@@ -89,9 +89,9 @@ export default function Z3950SearchPage() {
   const [importError, setImportError] = useState<string | null>(null);
   
   // Sources state
-  const [sources, setSources] = useState<Source[]>([]);
-  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
-  const [sourcesError, setSourcesError] = useState<string | null>(null);
+  const [sites, setSites] = useState<Site[]>([]);
+  const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
+  const [sitesError, setSitesError] = useState<string | null>(null);
 
   // Load servers and sources from settings on mount
   useEffect(() => {
@@ -114,18 +114,18 @@ export default function Z3950SearchPage() {
     
     const fetchSources = async () => {
       try {
-        setSourcesError(null);
-        const sourcesData = await api.getSources(false);
-        setSources(sourcesData);
-        const defaultSource = sourcesData.find(s => s.default);
-        if (defaultSource) {
-          setSelectedSourceId(defaultSource.id);
-        } else if (sourcesData.length > 0) {
-          setSelectedSourceId(sourcesData[0].id);
+        setSitesError(null);
+        const sitesData = await api.getSites(false);
+        setSites(sitesData);
+        const defaultSite = sitesData.find(s => s.default);
+        if (defaultSite) {
+          setSelectedSiteId(defaultSite.id);
+        } else if (sitesData.length > 0) {
+          setSelectedSiteId(sitesData[0].id);
         }
       } catch (error) {
-        console.error('Error fetching sources:', error);
-        setSourcesError(t('z3950.sourcesError'));
+        console.error('Error fetching sites:', error);
+        setSitesError(t('z3950.sitesError'));
       }
     };
     
@@ -191,11 +191,11 @@ export default function Z3950SearchPage() {
     setConfirmReplaceError(null);
     setImportError(null);
     // Reset to default source when opening import modal
-    const defaultSource = sources.find(s => s.default);
-    if (defaultSource) {
-      setSelectedSourceId(defaultSource.id);
-    } else if (sources.length > 0) {
-      setSelectedSourceId(sources[0].id);
+    const defaultSite = sites.find(s => s.default);
+    if (defaultSite) {
+      setSelectedSiteId(defaultSite.id);
+    } else if (sites.length > 0) {
+      setSelectedSiteId(sites[0].id);
     }
     setShowImportModal(true);
   };
@@ -218,7 +218,7 @@ export default function Z3950SearchPage() {
 
   const handleImport = async () => {
     if (selectedItemId == null) return;
-    if (!selectedSourceId) {
+    if (!selectedSiteId) {
       setImportError(t('z3950.sourceRequired'));
       return;
     }
@@ -235,7 +235,7 @@ export default function Z3950SearchPage() {
       const imported = await api.importZ3950(
         selectedItemId,
         validSpecimens.length > 0 ? validSpecimens : undefined,
-        selectedSourceId || undefined
+        selectedSiteId || undefined
       );
       
       setImportSuccess(imported.biblio.id ?? null);
@@ -263,7 +263,7 @@ export default function Z3950SearchPage() {
       const imported = await api.importZ3950(
         selectedItemId,
         validSpecimens.length > 0 ? validSpecimens : undefined,
-        selectedSourceId || undefined,
+        selectedSiteId || undefined,
         { confirmReplaceExistingId: confirmReplaceModal.existingId }
       );
       setConfirmReplaceModal(null);
@@ -562,7 +562,7 @@ export default function Z3950SearchPage() {
                 type="button"
                 onClick={handleImport}
                 isLoading={isImporting}
-                disabled={!selectedSourceId || sources.length === 0}
+                disabled={!selectedSiteId || sites.length === 0}
                 leftIcon={<Download className="h-4 w-4" />}
               >
                 {t('z3950.import')}
@@ -634,20 +634,20 @@ export default function Z3950SearchPage() {
             {/* Source selector (required for /z3950/import) */}
             <div>
               <label className={formLabelClass()}>
-                {t('items.source')} <span className="text-red-500">*</span>
+                {t('items.site')} <span className="text-red-500">*</span>
               </label>
-              {sourcesError ? (
-                <p className="text-sm text-red-600 dark:text-red-400">{sourcesError}</p>
-              ) : sources.length === 0 ? (
+              {sitesError ? (
+                <p className="text-sm text-red-600 dark:text-red-400">{sitesError}</p>
+              ) : sites.length === 0 ? (
                 <p className="text-sm text-amber-600 dark:text-amber-400">{t('z3950.noSources')}</p>
               ) : (
                 <select
-                  value={selectedSourceId || ''}
-                  onChange={(e) => setSelectedSourceId(e.target.value || null)}
+                  value={selectedSiteId || ''}
+                  onChange={(e) => setSelectedSiteId(e.target.value || null)}
                   className={formControlClass({ className: 'w-full' })}
                 >
-                  <option value="">{t('z3950.selectSource')}</option>
-                  {sources.map((source) => (
+                  <option value="">{t('z3950.selectSite')}</option>
+                  {sites.map((source) => (
                     <option key={source.id} value={source.id}>
                       {source.name || `Source ${source.id}`}
                       {source.default ? ` (${t('importMarc.default')})` : ''}

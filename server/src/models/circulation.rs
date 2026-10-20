@@ -123,55 +123,28 @@ impl CirculationStatus {
     /// a return of that open loan still clears it.
     #[must_use]
     pub fn blocks_return_scan(self) -> bool {
-        matches!(
-            self,
-            Self::Lost | Self::Damaged | Self::Missing | Self::ToSearch
-        )
+        matches!(self, Self::Lost | Self::Damaged | Self::Missing | Self::ToSearch)
     }
 
     /// Next item status, or a desk-facing refusal.
     pub fn transition(self, action: CirculationAction) -> Result<Self, &'static str> {
         match (self, action) {
-            (
-                Self::Available
-                | Self::Damaged
-                | Self::ClaimedReturned
-                | Self::ToSearch
-                | Self::Missing,
-                CirculationAction::MarkLost,
-            ) => Ok(Self::Lost),
+            (Self::Available | Self::Damaged | Self::ClaimedReturned | Self::ToSearch | Self::Missing, CirculationAction::MarkLost) => Ok(Self::Lost),
             (Self::Lost, CirculationAction::MarkLost) => Err("Item is already marked lost"),
             (Self::Available | Self::Damaged, CirculationAction::MarkDamaged) => Ok(Self::Damaged),
-            (Self::Lost, CirculationAction::MarkDamaged) => {
-                Err("Cannot mark a lost item as damaged")
-            }
-            (Self::Missing, CirculationAction::MarkDamaged) => {
-                Err("Cannot mark a missing item as damaged")
-            }
-            (Self::ClaimedReturned, CirculationAction::MarkDamaged) => {
-                Err("Resolve the claims-returned case before marking the item damaged")
-            }
-            (Self::ToSearch, CirculationAction::MarkDamaged) => {
-                Err("Clear the missing-shelf search before marking the item damaged")
-            }
+            (Self::Lost, CirculationAction::MarkDamaged) => Err("Cannot mark a lost item as damaged"),
+            (Self::Missing, CirculationAction::MarkDamaged) => Err("Cannot mark a missing item as damaged"),
+            (Self::ClaimedReturned, CirculationAction::MarkDamaged) => Err("Resolve the claims-returned case before marking the item damaged"),
+            (Self::ToSearch, CirculationAction::MarkDamaged) => Err("Clear the missing-shelf search before marking the item damaged"),
             (Self::Available, CirculationAction::ClaimReturned) => Ok(Self::ClaimedReturned),
-            (Self::ClaimedReturned, CirculationAction::ClaimReturned) => {
-                Err("Item is already in the claims-returned queue")
-            }
-            (
-                Self::Lost | Self::Damaged | Self::ToSearch | Self::Missing,
-                CirculationAction::ClaimReturned,
-            ) => Err("Cannot flag claims-returned on a lost, damaged, or missing-shelf item"),
+            (Self::ClaimedReturned, CirculationAction::ClaimReturned) => Err("Item is already in the claims-returned queue"),
+            (Self::Lost | Self::Damaged | Self::ToSearch | Self::Missing, CirculationAction::ClaimReturned) => Err("Cannot flag claims-returned on a lost, damaged, or missing-shelf item"),
             (Self::ClaimedReturned, CirculationAction::ResolveFound) => Ok(Self::Available),
             (Self::ClaimedReturned, CirculationAction::ResolveNotFound) => Ok(Self::Lost),
-            (_, CirculationAction::ResolveFound | CirculationAction::ResolveNotFound) => {
-                Err("Item is not in the claims-returned queue")
-            }
+            (_, CirculationAction::ResolveFound | CirculationAction::ResolveNotFound) => Err("Item is not in the claims-returned queue"),
             (Self::Lost, CirculationAction::AcceptFound) => Ok(Self::Available),
             (Self::Lost, CirculationAction::AcceptFoundDamaged) => Ok(Self::Damaged),
-            (_, CirculationAction::AcceptFound | CirculationAction::AcceptFoundDamaged) => {
-                Err("Item is not marked lost")
-            }
+            (_, CirculationAction::AcceptFound | CirculationAction::AcceptFoundDamaged) => Err("Item is not marked lost"),
         }
     }
 
@@ -226,35 +199,14 @@ mod tests {
 
     #[test]
     fn from_db_maps_known_and_legacy_values() {
-        assert_eq!(
-            CirculationStatus::from_db(None),
-            CirculationStatus::Available
-        );
-        assert_eq!(
-            CirculationStatus::from_db(Some(0)),
-            CirculationStatus::Available
-        );
+        assert_eq!(CirculationStatus::from_db(None), CirculationStatus::Available);
+        assert_eq!(CirculationStatus::from_db(Some(0)), CirculationStatus::Available);
         assert_eq!(CirculationStatus::from_db(Some(1)), CirculationStatus::Lost);
-        assert_eq!(
-            CirculationStatus::from_db(Some(2)),
-            CirculationStatus::Damaged
-        );
-        assert_eq!(
-            CirculationStatus::from_db(Some(3)),
-            CirculationStatus::ClaimedReturned
-        );
-        assert_eq!(
-            CirculationStatus::from_db(Some(4)),
-            CirculationStatus::ToSearch
-        );
-        assert_eq!(
-            CirculationStatus::from_db(Some(5)),
-            CirculationStatus::Missing
-        );
-        assert_eq!(
-            CirculationStatus::from_db(Some(99)),
-            CirculationStatus::Available
-        );
+        assert_eq!(CirculationStatus::from_db(Some(2)), CirculationStatus::Damaged);
+        assert_eq!(CirculationStatus::from_db(Some(3)), CirculationStatus::ClaimedReturned);
+        assert_eq!(CirculationStatus::from_db(Some(4)), CirculationStatus::ToSearch);
+        assert_eq!(CirculationStatus::from_db(Some(5)), CirculationStatus::Missing);
+        assert_eq!(CirculationStatus::from_db(Some(99)), CirculationStatus::Available);
     }
 
     #[test]
@@ -269,9 +221,7 @@ mod tests {
 
     #[test]
     fn lost_closes_loan_and_blocks_borrow() {
-        let next = CirculationStatus::Available
-            .transition(CirculationAction::MarkLost)
-            .expect("lost");
+        let next = CirculationStatus::Available.transition(CirculationAction::MarkLost).expect("lost");
         assert_eq!(next, CirculationStatus::Lost);
         assert!(next.blocks_circulation());
         assert!(!next.borrowable_after());
@@ -281,9 +231,7 @@ mod tests {
 
     #[test]
     fn damaged_return_closes_loan_keep_does_not() {
-        let next = CirculationStatus::Available
-            .transition(CirculationAction::MarkDamaged)
-            .expect("damaged");
+        let next = CirculationStatus::Available.transition(CirculationAction::MarkDamaged).expect("damaged");
         assert_eq!(next, CirculationStatus::Damaged);
         assert!(!next.borrowable_after());
         assert!(CirculationAction::MarkDamaged.closes_loan(Some(DamageDisposition::Return)));
@@ -293,9 +241,7 @@ mod tests {
 
     #[test]
     fn claimed_returned_keeps_loan_open() {
-        let next = CirculationStatus::Available
-            .transition(CirculationAction::ClaimReturned)
-            .expect("claimed");
+        let next = CirculationStatus::Available.transition(CirculationAction::ClaimReturned).expect("claimed");
         assert_eq!(next, CirculationStatus::ClaimedReturned);
         assert!(!next.borrowable_after());
         assert!(!CirculationAction::ClaimReturned.closes_loan(None));
@@ -306,18 +252,8 @@ mod tests {
     fn claimed_returned_does_not_silently_clear() {
         let status = CirculationStatus::ClaimedReturned;
         assert!(status.transition(CirculationAction::ClaimReturned).is_err());
-        assert_eq!(
-            status
-                .transition(CirculationAction::ResolveFound)
-                .expect("found"),
-            CirculationStatus::Available
-        );
-        assert_eq!(
-            status
-                .transition(CirculationAction::ResolveNotFound)
-                .expect("not found"),
-            CirculationStatus::Lost
-        );
+        assert_eq!(status.transition(CirculationAction::ResolveFound).expect("found"), CirculationStatus::Available);
+        assert_eq!(status.transition(CirculationAction::ResolveNotFound).expect("not found"), CirculationStatus::Lost);
         assert!(CirculationAction::ResolveFound.closes_loan(None));
         assert!(CirculationAction::ResolveFound.notify_holds());
         assert!(CirculationAction::ResolveNotFound.closes_loan(None));
@@ -326,31 +262,16 @@ mod tests {
 
     #[test]
     fn cannot_resolve_available_or_damage_lost_item() {
-        assert!(CirculationStatus::Available
-            .transition(CirculationAction::ResolveFound)
-            .is_err());
-        assert!(CirculationStatus::Lost
-            .transition(CirculationAction::MarkDamaged)
-            .is_err());
-        assert!(CirculationStatus::Lost
-            .transition(CirculationAction::ClaimReturned)
-            .is_err());
-        assert!(CirculationStatus::Damaged
-            .transition(CirculationAction::ClaimReturned)
-            .is_err());
-        assert!(CirculationStatus::ClaimedReturned
-            .transition(CirculationAction::MarkDamaged)
-            .is_err());
+        assert!(CirculationStatus::Available.transition(CirculationAction::ResolveFound).is_err());
+        assert!(CirculationStatus::Lost.transition(CirculationAction::MarkDamaged).is_err());
+        assert!(CirculationStatus::Lost.transition(CirculationAction::ClaimReturned).is_err());
+        assert!(CirculationStatus::Damaged.transition(CirculationAction::ClaimReturned).is_err());
+        assert!(CirculationStatus::ClaimedReturned.transition(CirculationAction::MarkDamaged).is_err());
     }
 
     #[test]
     fn claimed_returned_may_escalate_to_lost() {
-        assert_eq!(
-            CirculationStatus::ClaimedReturned
-                .transition(CirculationAction::MarkLost)
-                .expect("escalate"),
-            CirculationStatus::Lost
-        );
+        assert_eq!(CirculationStatus::ClaimedReturned.transition(CirculationAction::MarkLost).expect("escalate"), CirculationStatus::Lost);
     }
 
     #[test]
@@ -364,23 +285,11 @@ mod tests {
 
     #[test]
     fn lost_found_returns_to_shelf_or_damaged_without_billing() {
-        assert_eq!(
-            CirculationStatus::Lost
-                .transition(CirculationAction::AcceptFound)
-                .expect("circulate"),
-            CirculationStatus::Available
-        );
+        assert_eq!(CirculationStatus::Lost.transition(CirculationAction::AcceptFound).expect("circulate"), CirculationStatus::Available);
         assert!(CirculationStatus::Available.borrowable_after());
-        assert_eq!(
-            CirculationStatus::Lost
-                .transition(CirculationAction::AcceptFoundDamaged)
-                .expect("damaged"),
-            CirculationStatus::Damaged
-        );
+        assert_eq!(CirculationStatus::Lost.transition(CirculationAction::AcceptFoundDamaged).expect("damaged"), CirculationStatus::Damaged);
         assert!(!CirculationStatus::Damaged.borrowable_after());
-        assert!(CirculationStatus::Available
-            .transition(CirculationAction::AcceptFound)
-            .is_err());
+        assert!(CirculationStatus::Available.transition(CirculationAction::AcceptFound).is_err());
         assert!(!CirculationAction::AcceptFound.closes_loan(None));
         assert!(CirculationAction::AcceptFound.notify_holds());
         assert!(!CirculationAction::AcceptFoundDamaged.notify_holds());

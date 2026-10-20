@@ -55,9 +55,7 @@ pub enum SubmittedBirthdate {
 /// matching value can be ignored and a different value can be refused before any write.
 pub fn submitted_birthdate(body: &Value) -> AppResult<SubmittedBirthdate> {
     let Some(object) = body.as_object() else {
-        return Err(AppError::Validation(
-            "JSON body must be an object".to_string(),
-        ));
+        return Err(AppError::Validation("JSON body must be an object".to_string()));
     };
     let Some(value) = object.get("birthdate") else {
         return Ok(SubmittedBirthdate::Absent);
@@ -65,9 +63,7 @@ pub fn submitted_birthdate(body: &Value) -> AppResult<SubmittedBirthdate> {
     if value.is_null() {
         return Ok(SubmittedBirthdate::Present(None));
     }
-    let date = serde_json::from_value(value.clone()).map_err(|_| {
-        AppError::Validation("birthdate must be an ISO date (YYYY-MM-DD) or null".to_string())
-    })?;
+    let date = serde_json::from_value(value.clone()).map_err(|_| AppError::Validation("birthdate must be an ISO date (YYYY-MM-DD) or null".to_string()))?;
     Ok(SubmittedBirthdate::Present(Some(date)))
 }
 
@@ -76,10 +72,7 @@ pub fn submitted_birthdate(body: &Value) -> AppResult<SubmittedBirthdate> {
 /// An omitted key is not a change. JSON null differs from a stored date, and a stored
 /// null differs from a date. Equal values, including null and null, are not a change.
 #[must_use]
-pub fn self_service_birthdate_differs(
-    submitted: &SubmittedBirthdate,
-    stored: Option<NaiveDate>,
-) -> bool {
+pub fn self_service_birthdate_differs(submitted: &SubmittedBirthdate, stored: Option<NaiveDate>) -> bool {
     match submitted {
         SubmittedBirthdate::Absent => false,
         SubmittedBirthdate::Present(value) => *value != stored,
@@ -94,30 +87,17 @@ pub fn without_birthdate_key(mut body: Value) -> Value {
     body
 }
 
-const ALLOWED: &[&str] = &[
-    "email",
-    "phone",
-    "addrStreet",
-    "addrZipCode",
-    "addrCity",
-    "language",
-    "eventsConsent",
-    "receiveReminders",
-];
+const ALLOWED: &[&str] = &["email", "phone", "addrStreet", "addrZipCode", "addrCity", "language", "eventsConsent", "receiveReminders"];
 
 /// Parse an own-record body. A key outside the contact allowlist is `403`.
 /// A present allowlisted key with the wrong JSON type is `400`. Nothing is implied
 /// about persistence: the caller writes only after this returns `Ok`.
 pub fn parse_own_contact(body: &Value) -> AppResult<OwnContactPatch> {
-    let object = body
-        .as_object()
-        .ok_or_else(|| AppError::Validation("JSON body must be an object".to_string()))?;
+    let object = body.as_object().ok_or_else(|| AppError::Validation("JSON body must be an object".to_string()))?;
 
     for key in object.keys() {
         if !ALLOWED.contains(&key.as_str()) {
-            return Err(AppError::Authorization(format!(
-                "Field '{key}' cannot be changed on your own record"
-            )));
+            return Err(AppError::Authorization(format!("Field '{key}' cannot be changed on your own record")));
         }
     }
 
@@ -133,12 +113,7 @@ pub fn parse_own_contact(body: &Value) -> AppResult<OwnContactPatch> {
     })
 }
 
-fn optional_string(
-    value: Option<&Value>,
-    field: &str,
-    max_len: usize,
-    email: bool,
-) -> AppResult<ContactField<String>> {
+fn optional_string(value: Option<&Value>, field: &str, max_len: usize, email: bool) -> AppResult<ContactField<String>> {
     let Some(value) = value else {
         return Ok(ContactField::Absent);
     };
@@ -146,18 +121,14 @@ fn optional_string(
         return Ok(ContactField::Clear);
     }
     let Some(raw) = value.as_str() else {
-        return Err(AppError::Validation(format!(
-            "{field} must be a string or null"
-        )));
+        return Err(AppError::Validation(format!("{field} must be a string or null")));
     };
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return Ok(ContactField::Clear);
     }
     if trimmed.chars().count() > max_len {
-        return Err(AppError::Validation(format!(
-            "{field} must be at most {max_len} characters"
-        )));
+        return Err(AppError::Validation(format!("{field} must be at most {max_len} characters")));
     }
     if email && !trimmed.validate_email() {
         return Err(AppError::Validation("Invalid email format".to_string()));
@@ -173,12 +144,9 @@ fn optional_zip(value: Option<&Value>) -> AppResult<ContactField<i32>> {
         return Ok(ContactField::Clear);
     }
     let Some(number) = value.as_i64() else {
-        return Err(AppError::Validation(
-            "addrZipCode must be an integer or null".to_string(),
-        ));
+        return Err(AppError::Validation("addrZipCode must be an integer or null".to_string()));
     };
-    let zip = i32::try_from(number)
-        .map_err(|_| AppError::Validation("addrZipCode is out of range".to_string()))?;
+    let zip = i32::try_from(number).map_err(|_| AppError::Validation("addrZipCode is out of range".to_string()))?;
     Ok(ContactField::Set(zip))
 }
 
@@ -189,8 +157,7 @@ fn optional_language(value: Option<&Value>) -> AppResult<ContactField<Language>>
     if value.is_null() {
         return Ok(ContactField::Clear);
     }
-    let language = serde_json::from_value(value.clone())
-        .map_err(|_| AppError::Validation("language is not a known language".to_string()))?;
+    let language = serde_json::from_value(value.clone()).map_err(|_| AppError::Validation("language is not a known language".to_string()))?;
     Ok(ContactField::Set(language))
 }
 
@@ -198,10 +165,7 @@ fn optional_bool(value: Option<&Value>, field: &str) -> AppResult<Option<bool>> 
     let Some(value) = value else {
         return Ok(None);
     };
-    value
-        .as_bool()
-        .map(Some)
-        .ok_or_else(|| AppError::Validation(format!("{field} must be true or false")))
+    value.as_bool().map(Some).ok_or_else(|| AppError::Validation(format!("{field} must be true or false")))
 }
 
 #[cfg(test)]
@@ -233,26 +197,11 @@ mod tests {
     #[test]
     fn birthdate_key_matches_only_the_stored_value() {
         let stored = NaiveDate::from_ymd_opt(1990, 6, 1).unwrap();
-        assert!(!self_service_birthdate_differs(
-            &submitted_birthdate(&json!({"phone": "1"})).unwrap(),
-            Some(stored)
-        ));
-        assert!(!self_service_birthdate_differs(
-            &submitted_birthdate(&json!({"birthdate": "1990-06-01"})).unwrap(),
-            Some(stored)
-        ));
-        assert!(self_service_birthdate_differs(
-            &submitted_birthdate(&json!({"birthdate": "1991-06-01"})).unwrap(),
-            Some(stored)
-        ));
-        assert!(self_service_birthdate_differs(
-            &submitted_birthdate(&json!({"birthdate": null})).unwrap(),
-            Some(stored)
-        ));
-        assert!(!self_service_birthdate_differs(
-            &submitted_birthdate(&json!({"birthdate": null})).unwrap(),
-            None
-        ));
+        assert!(!self_service_birthdate_differs(&submitted_birthdate(&json!({"phone": "1"})).unwrap(), Some(stored)));
+        assert!(!self_service_birthdate_differs(&submitted_birthdate(&json!({"birthdate": "1990-06-01"})).unwrap(), Some(stored)));
+        assert!(self_service_birthdate_differs(&submitted_birthdate(&json!({"birthdate": "1991-06-01"})).unwrap(), Some(stored)));
+        assert!(self_service_birthdate_differs(&submitted_birthdate(&json!({"birthdate": null})).unwrap(), Some(stored)));
+        assert!(!self_service_birthdate_differs(&submitted_birthdate(&json!({"birthdate": null})).unwrap(), None));
         assert!(submitted_birthdate(&json!({"birthdate": "tomorrow"})).is_err());
     }
 
@@ -270,10 +219,7 @@ mod tests {
             json!({"firstname": "Ada"}),
         ] {
             let err = parse_own_contact(&body).expect_err("forbidden");
-            assert!(
-                matches!(err, AppError::Authorization(_)),
-                "{body} -> {err:?}"
-            );
+            assert!(matches!(err, AppError::Authorization(_)), "{body} -> {err:?}");
         }
     }
 }

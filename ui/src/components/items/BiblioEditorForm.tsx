@@ -17,7 +17,7 @@ import CallNumberField from '@/components/specimen/CallNumberField';
 import { buildSuggestedCallNumber, validateCallNumber } from '@/utils/callNumber';
 import { formControlClass, formTextareaClass, formLabelClass } from '@/utils/formControl';
 import api from '@/services/api';
-import type { Author, Biblio, BiblioStaffView, CreateBiblioItemInput, MediaType, MediaTypeOption, Source, Z3950Server, Serie, Collection } from '@/types';
+import type { Author, Biblio, BiblioStaffView, CreateBiblioItemInput, MediaType, MediaTypeOption, Site, Z3950Server, Serie, Collection } from '@/types';
 import { LANG_OPTIONS, FUNCTION_OPTIONS, PUBLIC_TYPE_OPTIONS } from '@/utils/codeLabels';
 import { formatIsbnDisplay, stripIsbnForZ3950Query } from '@/utils/isbnDisplay';
 import { EntityLinker, type LinkedEntry } from './EntityLinker';
@@ -26,7 +26,7 @@ export type CreateBiblioPayload = Omit<Partial<Biblio>, 'items'> & { items?: Cre
 
 export type AuthorFormRow = { id: string; lastname: string; firstname: string; function: string };
 
-export type SpecimenFormRow = { barcode: string; callNumber: string; sourceId: string };
+export type SpecimenFormRow = { barcode: string; callNumber: string; siteId: string };
 
 const Z3950_PICK_PAGE_SIZE = 8;
 
@@ -332,9 +332,9 @@ export default function BiblioEditorForm({
   const [openSections, setOpenSections] = useState<Partial<Record<CollapsibleSectionId, boolean>>>({});
   const [noSpecimensConfirmOpen, setNoSpecimensConfirmOpen] = useState(false);
 
-  const [sources, setSources] = useState<Source[]>([]);
+  const [sites, setSites] = useState<Site[]>([]);
   const [specimens, setSpecimens] = useState<SpecimenFormRow[]>([
-    { barcode: '', callNumber: '', sourceId: '' },
+    { barcode: '', callNumber: '', siteId: '' },
   ]);
 
   const formDataRef = useRef(formData);
@@ -384,12 +384,12 @@ export default function BiblioEditorForm({
     if (!showSpecimens) return;
     const load = async () => {
       try {
-        const list = await api.getSources(false);
-        setSources(list);
+        const list = await api.getSites(false);
+        setSites(list);
         const defaultId = list.find((s) => s.default)?.id ?? list[0]?.id ?? '';
         setSpecimens((prev) =>
-          prev.length === 1 && prev[0].sourceId === '' && defaultId
-            ? [{ ...prev[0], sourceId: defaultId }]
+          prev.length === 1 && prev[0].siteId === '' && defaultId
+            ? [{ ...prev[0], siteId: defaultId }]
             : prev
         );
       } catch {
@@ -462,12 +462,12 @@ export default function BiblioEditorForm({
 
   const buildSpecimensPayload = (): CreateBiblioItemInput[] | undefined => {
     if (!showSpecimens) return undefined;
-    const filled = specimens.filter((s) => s.sourceId.trim() !== '' && s.barcode.trim() !== '');
+    const filled = specimens.filter((s) => s.siteId.trim() !== '' && s.barcode.trim() !== '');
     if (filled.length === 0) return undefined;
     return filled.map((s) => ({
       barcode: s.barcode.trim(),
       callNumber: s.callNumber.trim() || undefined,
-      sourceId: s.sourceId,
+      siteId: s.siteId,
     }));
   };
 
@@ -507,8 +507,8 @@ export default function BiblioEditorForm({
   };
 
   const handleAddSpecimen = () => {
-    const defaultId = sources.find((s) => s.default)?.id ?? sources[0]?.id ?? '';
-    setSpecimens([...specimens, { barcode: '', callNumber: '', sourceId: defaultId }]);
+    const defaultId = sites.find((s) => s.default)?.id ?? sites[0]?.id ?? '';
+    setSpecimens([...specimens, { barcode: '', callNumber: '', siteId: defaultId }]);
   };
 
   const handleRemoveSpecimen = (index: number) => {
@@ -636,7 +636,7 @@ export default function BiblioEditorForm({
       );
       if (invalidCallNumber) return;
       const specimenPayload = buildSpecimensPayload();
-      if (specimenPayload?.some((s) => !s.sourceId)) return;
+      if (specimenPayload?.some((s) => !s.siteId)) return;
 
       if (!specimenPayload?.length) {
         setNoSpecimensConfirmOpen(true);
@@ -693,7 +693,7 @@ export default function BiblioEditorForm({
     );
     if (invalidCallNumber) return;
     const specimenPayload = buildSpecimensPayload();
-    if (specimenPayload?.some((s) => !s.sourceId)) return;
+    if (specimenPayload?.some((s) => !s.siteId)) return;
     const payload = buildCreatePayload(specimenPayload);
     await onSubmitCreate?.(payload);
   };
@@ -1142,12 +1142,12 @@ export default function BiblioEditorForm({
                   />
                   <div className="min-w-0">
                     <select
-                      value={specimen.sourceId}
-                      onChange={(e) => handleSpecimenChange(index, 'sourceId', e.target.value)}
+                      value={specimen.siteId}
+                      onChange={(e) => handleSpecimenChange(index, 'siteId', e.target.value)}
                       className={BIBLIO_FORM_SELECT}
                     >
-                      <option value="">{t('items.selectSource')}</option>
-                      {sources.map((src) => (
+                      <option value="">{t('items.selectSite')}</option>
+                      {sites.map((src) => (
                         <option key={src.id} value={src.id}>
                           {src.name || src.id}
                           {src.default ? ` (${t('importMarc.default')})` : ''}

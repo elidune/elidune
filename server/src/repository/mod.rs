@@ -28,7 +28,7 @@ pub mod my_account;
 pub mod public_types;
 pub mod schedules;
 pub mod settings;
-pub mod sources;
+pub mod sites;
 pub mod stats;
 pub mod transits;
 pub mod users;
@@ -53,7 +53,7 @@ pub use maintenance::MaintenanceRepository;
 pub use public_types::PublicTypesRepository;
 pub use schedules::SchedulesRepository;
 pub use settings::RuntimeSettingsRepository;
-pub use sources::SourcesRepository;
+pub use sites::SitesRepository;
 pub use transits::TransitsRepository;
 pub use users::UsersRepository;
 pub use visitor_counts::VisitorCountsRepository;
@@ -78,10 +78,7 @@ impl Repository {
     /// Create a new repository with the given database pool.
     /// Pass `dynamic_config` so hold pickup windows follow TOML / DB settings.
     pub fn new(pool: Pool<Postgres>, dynamic_config: Option<Arc<DynamicConfig>>) -> Self {
-        Self {
-            pool,
-            dynamic_config,
-        }
+        Self { pool, dynamic_config }
     }
 
     /// Days until a `ready` hold expires (`expires_at`), from config or default **7** when no dynamic config.
@@ -110,20 +107,14 @@ impl Repository {
             .unwrap_or_else(|| crate::config::RemindersConfig::default().accrue_fines)
     }
 
-    /// Library default site (`sources."default"`), or none when that flag is unset.
+    /// Library default site (`sites."default"`), or none when that flag is unset.
     ///
     /// A NULL `loans.site_id` resolves to this at query time. The subquery is
     /// [`crate::services::calendar::LIBRARY_DEFAULT_SITE_ID_SQL`].
-    pub(crate) async fn library_default_site_id_conn(
-        &self,
-        conn: &mut sqlx::PgConnection,
-    ) -> crate::error::AppResult<Option<i64>> {
-        let id: Option<i64> = sqlx::query_scalar(&format!(
-            "SELECT id FROM sources WHERE id = {}",
-            crate::services::calendar::LIBRARY_DEFAULT_SITE_ID_SQL
-        ))
-        .fetch_optional(&mut *conn)
-        .await?;
+    pub(crate) async fn library_default_site_id_conn(&self, conn: &mut sqlx::PgConnection) -> crate::error::AppResult<Option<i64>> {
+        let id: Option<i64> = sqlx::query_scalar(&format!("SELECT id FROM sites WHERE id = {}", crate::services::calendar::LIBRARY_DEFAULT_SITE_ID_SQL))
+            .fetch_optional(&mut *conn)
+            .await?;
         Ok(id)
     }
 
@@ -148,12 +139,8 @@ impl Repository {
         let zone = self.library_zone_conn(conn).await?;
         let start = crate::services::calendar::local_date(zone, candidate);
         let end = start + chrono::Duration::days(crate::circulation_calendar::MAX_LOOKAHEAD_DAYS);
-        let calendar = self
-            .schedules_opening_calendar_conn(conn, start, end)
-            .await?;
-        Ok(crate::services::calendar::slide_due_date(
-            candidate, zone, site_id, &calendar,
-        ))
+        let calendar = self.schedules_opening_calendar_conn(conn, start, end).await?;
+        Ok(crate::services::calendar::slide_due_date(candidate, zone, site_id, &calendar))
     }
 
     /// Expose the underlying pool for callers that need to begin transactions directly.
@@ -168,11 +155,7 @@ impl crate::services::calendar::OpeningDays for Repository {
         self.library_zone().await
     }
 
-    async fn opening_between(
-        &self,
-        from: chrono::NaiveDate,
-        to: chrono::NaiveDate,
-    ) -> crate::error::AppResult<crate::circulation_calendar::OpeningCalendar> {
+    async fn opening_between(&self, from: chrono::NaiveDate, to: chrono::NaiveDate) -> crate::error::AppResult<crate::circulation_calendar::OpeningCalendar> {
         self.schedules_opening_calendar(from, to).await
     }
 }

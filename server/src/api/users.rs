@@ -10,16 +10,10 @@ use serde::Deserialize;
 use crate::{
     error::{AppError, AppResult},
     models::catalog_view::{borrower_initials, UserShortStaff},
-    models::dto::card::{
-        ReplaceCardRequest, ReplaceCardResponse, ReportCardLostDeskBody, ReportCardLostRequest,
-        ReportCardLostResponse, ReportCardLostStaffBody,
-    },
+    models::dto::card::{ReplaceCardRequest, ReplaceCardResponse, ReportCardLostDeskBody, ReportCardLostRequest, ReportCardLostResponse, ReportCardLostStaffBody},
     models::dto::patron_card::{CardLookupResponse, DeskCardLookup, StaffCardLookup},
     models::own_contact::{parse_own_contact, submitted_birthdate, without_birthdate_key},
-    models::user::{
-        EventsConsentSource, Rights, UpdateAccountType, UpdateProfile, User, UserClaims,
-        UserPayload, UserQuery,
-    },
+    models::user::{EventsConsentSource, Rights, UpdateAccountType, UpdateProfile, User, UserClaims, UserPayload, UserQuery},
     services::audit,
 };
 
@@ -32,22 +26,13 @@ pub fn router() -> axum::Router<crate::AppState> {
     axum::Router::new()
         .route("/users", get(list_users).post(create_user))
         .route("/users/by-card/:card_number", get(get_user_by_card))
-        .route(
-            "/users/:id",
-            get(get_user).put(update_user).delete(delete_user),
-        )
+        .route("/users/:id", get(get_user).put(update_user).delete(delete_user))
         .route("/users/:id/card-lost", post(report_card_lost))
         .route("/users/:id/replace-card", post(replace_card))
         .route("/users/:id/account-type", put(update_account_type))
-        .route(
-            "/users/:id/force-password-change",
-            put(force_password_change),
-        )
+        .route("/users/:id/force-password-change", put(force_password_change))
         .route("/users/:id/loans", get(super::loans::get_user_loans))
-        .route(
-            "/users/:id/loans/export",
-            get(super::loans::export_user_loans_marc),
-        )
+        .route("/users/:id/loans/export", get(super::loans::export_user_loans_marc))
 }
 
 /// List users with search and pagination
@@ -67,23 +52,14 @@ pub fn router() -> axum::Router<crate::AppState> {
         (status = 401, description = "Not authenticated")
     )
 )]
-pub async fn list_users(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Query(query): Query<UserQuery>,
-) -> AppResult<Json<PaginatedResponse<UserShortStaff>>> {
+pub async fn list_users(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<UserQuery>) -> AppResult<Json<PaginatedResponse<UserShortStaff>>> {
     claims.require_read_users()?;
 
     let (users, total) = state.services.users.search_users(&query).await?;
     let page = query.page.unwrap_or(1);
     let per_page = query.per_page.unwrap_or(20);
 
-    Ok(Json(PaginatedResponse::new(
-        users.into_iter().map(UserShortStaff::from).collect(),
-        total,
-        page,
-        per_page,
-    )))
+    Ok(Json(PaginatedResponse::new(users.into_iter().map(UserShortStaff::from).collect(), total, page, per_page)))
 }
 
 /// Exact library-card lookup for the circulation desk.
@@ -105,27 +81,15 @@ pub async fn list_users(
         (status = 404, description = "No active patron with this exact card")
     )
 )]
-pub async fn get_user_by_card(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path(card_number): Path<String>,
-) -> AppResult<Json<CardLookupResponse>> {
+pub async fn get_user_by_card(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(card_number): Path<String>) -> AppResult<Json<CardLookupResponse>> {
     let users_read = claims.rights.users_rights.rank() >= Rights::Read.rank();
     let loans_read = claims.rights.loans_rights.rank() >= Rights::Read.rank();
     if !users_read && !loans_read {
-        return Err(crate::error::AppError::Authorization(
-            "Insufficient rights to look up a patron card".to_string(),
-        ));
+        return Err(crate::error::AppError::Authorization("Insufficient rights to look up a patron card".to_string()));
     }
 
     // No site is stored on the staff user or the JWT. None counts every pickup site.
-    let lookup = crate::services::patron_card::lookup_patron_by_card(
-        &state.services.repository,
-        &state.services.fines,
-        &card_number,
-        None,
-    )
-    .await?;
+    let lookup = crate::services::patron_card::lookup_patron_by_card(&state.services.repository, &state.services.fines, &card_number, None).await?;
 
     if users_read {
         return Ok(Json(CardLookupResponse::Staff(Box::new(StaffCardLookup {
@@ -135,10 +99,7 @@ pub async fn get_user_by_card(
     }
 
     let card_number = lookup.user.barcode.filter(|value| !value.trim().is_empty());
-    let initials = borrower_initials(
-        lookup.user.firstname.as_deref(),
-        lookup.user.lastname.as_deref(),
-    );
+    let initials = borrower_initials(lookup.user.firstname.as_deref(), lookup.user.lastname.as_deref());
     Ok(Json(CardLookupResponse::Desk(DeskCardLookup {
         id: lookup.user.id,
         card_number,
@@ -162,11 +123,7 @@ pub async fn get_user_by_card(
         (status = 404, description = "User not found")
     )
 )]
-pub async fn get_user(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i64>,
-) -> AppResult<Json<User>> {
+pub async fn get_user(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(id): Path<i64>) -> AppResult<Json<User>> {
     require_read_user(&claims, id)?;
 
     let user = state.services.users.get_by_id(id).await?;
@@ -175,14 +132,10 @@ pub async fn get_user(
 
 /// `users_rights` read or write, or own rights on the caller's id.
 fn require_read_user(claims: &UserClaims, id: i64) -> Result<(), AppError> {
-    if claims.rights.users_rights.rank() >= Rights::Read.rank()
-        || (claims.rights.users_rights == Rights::Own && claims.user_id == id)
-    {
+    if claims.rights.users_rights.rank() >= Rights::Read.rank() || (claims.rights.users_rights == Rights::Own && claims.user_id == id) {
         Ok(())
     } else {
-        Err(AppError::Authorization(
-            "Insufficient rights to read this user".to_string(),
-        ))
+        Err(AppError::Authorization("Insufficient rights to read this user".to_string()))
     }
 }
 
@@ -208,12 +161,7 @@ pub async fn create_user(
 ) -> AppResult<(StatusCode, Json<User>)> {
     claims.require_write_users()?;
     let for_audit = user.clone();
-    match state
-        .services
-        .users
-        .create_user(user, EventsConsentSource::Desk)
-        .await
-    {
+    match state.services.users.create_user(user, EventsConsentSource::Desk).await {
         Ok(created) => {
             state.services.audit.log(
                 audit::event::USER_CREATED,
@@ -269,19 +217,12 @@ pub async fn update_user(
 ) -> AppResult<Json<User>> {
     if claims.rights.users_rights == Rights::Own {
         if claims.user_id != id {
-            return Err(AppError::Authorization(
-                "Insufficient rights to update this user".to_string(),
-            ));
+            return Err(AppError::Authorization("Insufficient rights to update this user".to_string()));
         }
         let submitted = submitted_birthdate(&body)?;
         let patch = parse_own_contact(&without_birthdate_key(body.clone()))?;
         let audit_payload = body.clone();
-        return match state
-            .services
-            .users
-            .update_own_contact(id, patch, &submitted)
-            .await
-        {
+        return match state.services.users.update_own_contact(id, patch, &submitted).await {
             Ok(updated) => {
                 state.services.audit.log(
                     audit::event::USER_UPDATED,
@@ -310,17 +251,10 @@ pub async fn update_user(
     }
 
     claims.require_write_users()?;
-    let user: UserPayload = serde_json::from_value(body)
-        .map_err(|e| AppError::Validation(format!("Invalid JSON body: {e}")))?;
-    user.validate()
-        .map_err(|e| AppError::Validation(e.to_string()))?;
+    let user: UserPayload = serde_json::from_value(body).map_err(|e| AppError::Validation(format!("Invalid JSON body: {e}")))?;
+    user.validate().map_err(|e| AppError::Validation(e.to_string()))?;
     let audit_payload = user.clone();
-    match state
-        .services
-        .users
-        .update_user(id, user, EventsConsentSource::Desk)
-        .await
-    {
+    match state.services.users.update_user(id, user, EventsConsentSource::Desk).await {
         Ok(updated) => {
             state.services.audit.log(
                 audit::event::USER_UPDATED,
@@ -383,12 +317,7 @@ pub async fn report_card_lost(
         "detail": body.detail,
         "actorId": claims.user_id,
     });
-    match state
-        .services
-        .users
-        .report_card_lost(id, body.reason, body.detail)
-        .await
-    {
+    match state.services.users.report_card_lost(id, body.reason, body.detail).await {
         Ok(reported) => {
             state.services.audit.log(
                 audit::event::USER_CARD_LOST,
@@ -420,10 +349,7 @@ pub async fn report_card_lost(
     }
 }
 
-fn report_card_lost_body(
-    claims: &crate::models::user::UserClaims,
-    reported: crate::models::dto::card::ReportedLostCard,
-) -> ReportCardLostResponse {
+fn report_card_lost_body(claims: &crate::models::user::UserClaims, reported: crate::models::dto::card::ReportedLostCard) -> ReportCardLostResponse {
     if claims.rights.users_rights.rank() >= Rights::Read.rank() {
         ReportCardLostResponse::Staff(ReportCardLostStaffBody {
             user_id: reported.user_id,
@@ -435,10 +361,7 @@ fn report_card_lost_body(
         ReportCardLostResponse::Desk(ReportCardLostDeskBody {
             id: reported.user_id,
             card_number: reported.card_number,
-            initials: borrower_initials(
-                reported.firstname.as_deref(),
-                reported.lastname.as_deref(),
-            ),
+            initials: borrower_initials(reported.firstname.as_deref(), reported.lastname.as_deref()),
         })
     }
 }
@@ -478,12 +401,7 @@ pub async fn replace_card(
         "barcode": body.barcode,
         "actorId": claims.user_id,
     });
-    match state
-        .services
-        .users
-        .replace_card(id, &body.barcode, claims.user_id)
-        .await
-    {
+    match state.services.users.replace_card(id, &body.barcode, claims.user_id).await {
         Ok(replaced) => {
             state.services.audit.log(
                 audit::event::USER_CARD_REPLACED,
@@ -596,22 +514,11 @@ pub struct DeleteUserParams {
         (status = 422, description = "A reader whose age matches no band is `no_public_type_for_age`.", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn update_my_profile(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Json(body): Json<serde_json::Value>,
-) -> AppResult<Json<User>> {
+pub async fn update_my_profile(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Json(body): Json<serde_json::Value>) -> AppResult<Json<User>> {
     let submitted = submitted_birthdate(&body)?;
-    let profile: UpdateProfile = serde_json::from_value(without_birthdate_key(body))
-        .map_err(|e| AppError::Validation(format!("Invalid JSON body: {e}")))?;
-    profile
-        .validate()
-        .map_err(|e| AppError::Validation(e.to_string()))?;
-    let updated = state
-        .services
-        .users
-        .update_profile(claims.user_id, profile, &submitted)
-        .await?;
+    let profile: UpdateProfile = serde_json::from_value(without_birthdate_key(body)).map_err(|e| AppError::Validation(format!("Invalid JSON body: {e}")))?;
+    profile.validate().map_err(|e| AppError::Validation(e.to_string()))?;
+    let updated = state.services.users.update_profile(claims.user_id, profile, &submitted).await?;
     Ok(Json(updated))
 }
 
@@ -639,12 +546,7 @@ pub async fn update_account_type(
     Json(request): Json<UpdateAccountType>,
 ) -> AppResult<Json<User>> {
     claims.require_admin()?;
-    match state
-        .services
-        .users
-        .update_account_type(id, &request.account_type)
-        .await
-    {
+    match state.services.users.update_account_type(id, &request.account_type).await {
         Ok(updated) => {
             state.services.audit.log(
                 audit::event::USER_ACCOUNT_TYPE_CHANGED,
@@ -694,12 +596,7 @@ pub async fn force_password_change(
 ) -> AppResult<Json<serde_json::Value>> {
     claims.require_admin()?;
 
-    match state
-        .services
-        .users
-        .set_must_change_password(id, true)
-        .await
-    {
+    match state.services.users.set_must_change_password(id, true).await {
         Ok(()) => {
             state.services.audit.log(
                 audit::event::USER_UPDATED,
@@ -710,9 +607,7 @@ pub async fn force_password_change(
                 Some(serde_json::json!({ "must_change_password": true })),
                 audit::AuditLogMeta::success(),
             );
-            Ok(Json(
-                serde_json::json!({ "message": "User must change password on next login" }),
-            ))
+            Ok(Json(serde_json::json!({ "message": "User must change password on next login" })))
         }
         Err(e) => {
             state.services.audit.log(

@@ -40,7 +40,7 @@ import type {
   InventoryScan,
   InventoryScanResultCode,
   InventoryConsolidationResult,
-  Source,
+  Site,
 } from '@/types';
 
 const SCANS_PER_PAGE = 50;
@@ -66,9 +66,9 @@ function formatSessionScope(
   session: InventorySession,
   t: (key: string, opts?: Record<string, unknown>) => string
 ): string {
-  const source = session.scopeSourceName?.trim()
-    ? session.scopeSourceName.trim()
-    : t('inventory.scopeAllSources');
+  const source = session.scopeSiteName?.trim()
+    ? session.scopeSiteName.trim()
+    : t('inventory.scopeAllSites');
   const place =
     session.scopePlace != null
       ? t('inventory.scopePlaceShort', { n: session.scopePlace })
@@ -123,9 +123,9 @@ export default function InventoryPage() {
   const [showConsolidationModal, setShowConsolidationModal] = useState(false);
   const barcodeRef = useRef<HTMLInputElement>(null);
 
-  const sourcesQuery = useQuery({
-    queryKey: ['sources', false],
-    queryFn: () => api.getSources(false),
+  const sitesQuery = useQuery({
+    queryKey: ['sites', false],
+    queryFn: () => api.getSites(false),
     enabled: showCreateModal,
     staleTime: 60_000,
   });
@@ -257,10 +257,10 @@ export default function InventoryPage() {
       }
       scopePlace = n;
     }
-    const scopeSourceId = createScopeSourceId.trim() === '' ? null : createScopeSourceId.trim();
+    const scopeSiteId = createScopeSourceId.trim() === '' ? null : createScopeSourceId.trim();
     return {
       scopePlace: scopeRaw === '' ? null : scopePlace,
-      scopeSourceId,
+      scopeSiteId,
     };
   }, [createScopePlace, createScopeSourceId]);
 
@@ -293,7 +293,7 @@ export default function InventoryPage() {
           const open = await api.getInventorySessions({ status: 'open', perPage: 200 });
           const existing = open.items.find(
             (s) =>
-              (s.scopeSourceId ?? null) === scope.scopeSourceId &&
+              (s.scopeSiteId ?? null) === scope.scopeSiteId &&
               (s.scopePlace ?? null) === scope.scopePlace
           );
           if (existing) {
@@ -380,7 +380,7 @@ export default function InventoryPage() {
       locationFilter: createLocationFilter.trim() || null,
       notes: createNotes.trim() || null,
       scopePlace: scope.scopePlace,
-      scopeSourceId: scope.scopeSourceId,
+      scopeSiteId: scope.scopeSiteId,
     });
   };
 
@@ -918,7 +918,7 @@ export default function InventoryPage() {
                           <th className="py-2 pr-3 font-medium">{t('inventory.missingColTitle')}</th>
                           <th className="py-2 pr-3 font-medium">{t('items.callNumber')}</th>
                           <th className="py-2 pr-3 font-medium">{t('inventory.missingColBarcode')}</th>
-                          <th className="py-2 pr-3 font-medium">{t('items.source')}</th>
+                          <th className="py-2 pr-3 font-medium">{t('items.site')}</th>
                           <th className="py-2 font-medium">{t('inventory.missingColPlace')}</th>
                         </tr>
                       </thead>
@@ -957,7 +957,7 @@ export default function InventoryPage() {
                                   {row.barcode ?? '—'}
                                 </td>
                                 <td className="py-2 pr-3 text-gray-700 dark:text-gray-300">
-                                  {row.sourceName ?? '—'}
+                                  {row.siteName ?? '—'}
                                 </td>
                                 <td className="py-2 text-gray-600 dark:text-gray-400">
                                   {row.place != null ? row.place : '—'}
@@ -1166,15 +1166,15 @@ export default function InventoryPage() {
           />
           <div>
             <label className={formLabelClass()}>
-              {t('inventory.scopeSource')}
+              {t('inventory.scopeSite')}
             </label>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">{t('inventory.scopeSourceHint')}</p>
-            {sourcesQuery.isLoading ? (
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1.5">{t('inventory.scopeSiteHint')}</p>
+            {sitesQuery.isLoading ? (
               <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 py-2">
                 <Loader2 className="h-4 w-4 animate-spin shrink-0" />
                 {t('common.loading')}
               </div>
-            ) : sourcesQuery.isError ? (
+            ) : sitesQuery.isError ? (
               <p className="text-sm text-red-600 dark:text-red-400">{t('inventory.sourcesLoadError')}</p>
             ) : (
               <select
@@ -1182,11 +1182,11 @@ export default function InventoryPage() {
                 onChange={(e) => setCreateScopeSourceId(e.target.value)}
                 className={formControlClass({ className: 'w-full' })}
               >
-                <option value="">{t('inventory.scopeAllSources')}</option>
-                {(sourcesQuery.data ?? []).map((source: Source) => (
+                <option value="">{t('inventory.scopeAllSites')}</option>
+                {(sitesQuery.data ?? []).map((source: Site) => (
                   <option key={source.id} value={source.id}>
                     {source.name || source.key || `Source ${source.id}`}
-                    {source.default ? ` (${t('inventory.defaultSource')})` : ''}
+                    {source.default ? ` (${t('inventory.defaultSite')})` : ''}
                   </option>
                 ))}
               </select>
@@ -1246,7 +1246,7 @@ function findSpecimenInBiblio(
       callNumber: string | null;
       volumeDesignation: string | null;
       place: number | null;
-      sourceName: string | null;
+      siteName: string | null;
     }>;
   },
   itemId: string,
@@ -1310,7 +1310,7 @@ function InventoryExpandContent({
       ].filter(Boolean)
     : [];
   const specimenLine = specimenBits.length ? specimenBits.join(' · ') : '—';
-  const source = (sp?.sourceName ?? '').trim() || '—';
+  const source = (sp?.siteName ?? '').trim() || '—';
 
   const biblioId = biblio.id != null && String(biblio.id) !== '' ? String(biblio.id) : null;
 
@@ -1349,7 +1349,7 @@ function InventoryExpandContent({
         <span className="text-gray-500 dark:text-gray-500 font-sans">{t('inventory.expandSpecimen')} </span>
         {specimenLine}
         <span className="font-sans text-gray-400 dark:text-gray-600"> · </span>
-        <span className="text-gray-500 dark:text-gray-500 font-sans">{t('items.source')} </span>
+        <span className="text-gray-500 dark:text-gray-500 font-sans">{t('items.site')} </span>
         <span className="font-sans">{source}</span>
       </p>
     </div>
@@ -1643,7 +1643,7 @@ function ConsolidationModal({
                           <th className="py-2 px-3 font-medium">{t('inventory.consolidationColTitle')}</th>
                           <th className="py-2 px-3 font-medium">{t('items.callNumber')}</th>
                           <th className="py-2 px-3 font-medium">{t('inventory.missingColBarcode')}</th>
-                          <th className="py-2 px-3 font-medium">{t('items.source')}</th>
+                          <th className="py-2 px-3 font-medium">{t('items.site')}</th>
                           <th className="py-2 px-3 font-medium">{t('inventory.consolidationColOnLoan')}</th>
                           <th className="py-2 px-3 font-medium">{t('inventory.consolidationColOrphan')}</th>
                           <th className="py-2 px-3 font-medium">{t('inventory.consolidationColLoanReader')}</th>
@@ -1670,7 +1670,7 @@ function ConsolidationModal({
                               <td className="py-2 px-3 text-gray-900 dark:text-gray-100">{row.biblioTitle ?? '—'}</td>
                               <td className="py-2 px-3 font-mono text-gray-700 dark:text-gray-300">{row.callNumber ?? '—'}</td>
                               <td className="py-2 px-3 font-mono text-gray-700 dark:text-gray-300">{row.barcode ?? '—'}</td>
-                              <td className="py-2 px-3 text-gray-700 dark:text-gray-300">{row.sourceName ?? '—'}</td>
+                              <td className="py-2 px-3 text-gray-700 dark:text-gray-300">{row.siteName ?? '—'}</td>
                               <td className="py-2 px-3">
                                 {row.onLoan ? (
                                   <Badge variant="warning">{t('inventory.consolidationOnLoanYes')}</Badge>

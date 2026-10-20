@@ -266,22 +266,22 @@ export function summaryAvailability(
 export interface CopyLocationLike {
   availability?: string | null;
   callNumber?: string | null;
-  sourceName?: string | null;
+  siteName?: string | null;
 }
 
 /** Prefer a copy the server marked available; otherwise the first copy with a location. */
 export function primaryCopyLocation(items?: CopyLocationLike[] | null): {
   callNumber: string | null;
-  sourceName: string | null;
+  siteName: string | null;
 } {
-  if (!items?.length) return { callNumber: null, sourceName: null };
+  if (!items?.length) return { callNumber: null, siteName: null };
   const preferred =
     items.find((item) => item.availability === 'available') ??
-    items.find((item) => item.callNumber || item.sourceName) ??
+    items.find((item) => item.callNumber || item.siteName) ??
     items[0];
   return {
     callNumber: preferred?.callNumber?.trim() || null,
-    sourceName: preferred?.sourceName?.trim() || null,
+    siteName: preferred?.siteName?.trim() || null,
   };
 }
 
@@ -290,7 +290,7 @@ export function uniqueCopySites(items?: CopyLocationLike[] | null): string[] {
   const seen = new Set<string>();
   const sites: string[] = [];
   for (const item of items) {
-    const name = item.sourceName?.trim();
+    const name = item.siteName?.trim();
     if (!name || seen.has(name)) continue;
     seen.add(name);
     sites.push(name);

@@ -1,10 +1,10 @@
 import { useTranslation } from 'react-i18next';
-import type { Source } from '@/types';
+import type { Site } from '@/types';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 import { pickupSiteRequired } from '@/utils/transitDisplay';
 
 export interface PickupSiteSelectProps {
-  sources: Source[];
+  sites: Site[];
   value: string;
   onChange: (id: string) => void;
   disabled?: boolean;
@@ -13,7 +13,7 @@ export interface PickupSiteSelectProps {
 }
 
 export default function PickupSiteSelect({
-  sources,
+  sites,
   value,
   onChange,
   disabled = false,
@@ -21,9 +21,9 @@ export default function PickupSiteSelect({
   showHint = true,
 }: PickupSiteSelectProps) {
   const { t } = useTranslation();
-  if (sources.length === 0) return null;
+  if (sites.length === 0) return null;
 
-  const required = pickupSiteRequired(sources);
+  const required = pickupSiteRequired(sites);
 
   return (
     <div className="space-y-1">
@@ -41,7 +41,7 @@ export default function PickupSiteSelect({
       >
         {!required && <option value="">{t('holds.pickupSiteAny')}</option>}
         {required && !value && <option value="">{t('holds.pickupSiteRequired')}</option>}
-        {sources.map((site) => (
+        {sites.map((site) => (
           <option key={site.id} value={site.id}>
             {site.name?.trim() || site.id}
           </option>

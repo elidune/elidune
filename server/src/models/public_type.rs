@@ -32,10 +32,7 @@ pub struct PublicType {
     /// Integer cents. Present only when `unpaidThresholdMode` is `amount`.
     /// `0` blocks any positive unpaid balance.
     #[sqlx(rename = "unpaid_fine_threshold")]
-    #[serde(
-        rename = "unpaidThresholdCents",
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(rename = "unpaidThresholdCents", skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<i64>)]
     pub unpaid_threshold_cents: Option<MoneyCents>,
     /// Optional max `pending`/`ready` holds. `None` inherits the global circulation policy.
@@ -192,26 +189,18 @@ mod tests {
         assert!(omitted.age_min.is_none());
         assert!(omitted.subscription_price.is_none());
 
-        let cleared: UpdatePublicType =
-            serde_json::from_str(r#"{"maxActiveHolds":null,"ageMax":null}"#).expect("nulls");
+        let cleared: UpdatePublicType = serde_json::from_str(r#"{"maxActiveHolds":null,"ageMax":null}"#).expect("nulls");
         assert_eq!(cleared.max_active_holds, Some(None));
         assert!(cleared.unpaid_threshold_mode.is_none());
         assert_eq!(cleared.age_max, Some(None));
 
-        assert!(
-            serde_json::from_str::<UpdatePublicType>(r#"{"unpaidThresholdMode":null}"#).is_err()
-        );
+        assert!(serde_json::from_str::<UpdatePublicType>(r#"{"unpaidThresholdMode":null}"#).is_err());
 
         let set: UpdatePublicType = serde_json::from_str(r#"{"maxActiveHolds":7}"#).expect("value");
         assert_eq!(set.max_active_holds, Some(Some(7)));
 
-        let amount: UpdatePublicType =
-            serde_json::from_str(r#"{"unpaidThresholdMode":"amount","unpaidThresholdCents":450}"#)
-                .expect("amount");
-        assert_eq!(
-            amount.unpaid_threshold_mode,
-            Some(super::AudienceUnpaidThresholdMode::Amount)
-        );
+        let amount: UpdatePublicType = serde_json::from_str(r#"{"unpaidThresholdMode":"amount","unpaidThresholdCents":450}"#).expect("amount");
+        assert_eq!(amount.unpaid_threshold_mode, Some(super::AudienceUnpaidThresholdMode::Amount));
         assert_eq!(amount.unpaid_threshold_cents, Some(450));
     }
 }

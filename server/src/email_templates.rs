@@ -58,20 +58,9 @@ struct RawTemplate {
 /// The first language in this list that has a template is the language of the
 /// whole notice, including barcode and loan-list labels.
 #[must_use]
-pub(crate) fn notice_language_order(
-    patron: Option<Language>,
-    library: Option<Language>,
-) -> Vec<Language> {
+pub(crate) fn notice_language_order(patron: Option<Language>, library: Option<Language>) -> Vec<Language> {
     let mut order = Vec::with_capacity(4);
-    for candidate in [
-        patron,
-        library,
-        Some(Language::French),
-        Some(Language::English),
-    ]
-    .into_iter()
-    .flatten()
-    {
+    for candidate in [patron, library, Some(Language::French), Some(Language::English)].into_iter().flatten() {
         if !is_notice_language(candidate) || order.contains(&candidate) {
             continue;
         }
@@ -81,10 +70,7 @@ pub(crate) fn notice_language_order(
 }
 
 fn is_notice_language(language: Language) -> bool {
-    matches!(
-        language,
-        Language::French | Language::English | Language::German | Language::Spanish
-    )
+    matches!(language, Language::French | Language::English | Language::German | Language::Spanish)
 }
 
 /// Load a patron notice, returning the language the template was found in.
@@ -114,12 +100,7 @@ pub(crate) async fn load_notice_template_async(
 
 /// On-disk notice resolution. Same order as [`load_notice_template_async`].
 #[cfg(test)]
-fn load_notice_template_from_files(
-    templates_dir: &Path,
-    template_id: &str,
-    patron: Option<Language>,
-    library: Option<Language>,
-) -> AppResult<(Language, EmailTemplate)> {
+fn load_notice_template_from_files(templates_dir: &Path, template_id: &str, patron: Option<Language>, library: Option<Language>) -> AppResult<(Language, EmailTemplate)> {
     let order = notice_language_order(patron, library);
     for language in &order {
         if let Some(raw) = load_from_file(templates_dir, template_id, language.as_db_str())? {
@@ -133,11 +114,7 @@ fn load_notice_template_from_files(
 fn missing_notice(template_id: &str, order: &[Language]) -> AppError {
     AppError::Internal(format!(
         "No template found for {template_id} (tried languages: {})",
-        order
-            .iter()
-            .map(Language::as_db_str)
-            .collect::<Vec<_>>()
-            .join(", ")
+        order.iter().map(Language::as_db_str).collect::<Vec<_>>().join(", ")
     ))
 }
 
@@ -155,12 +132,7 @@ fn language_chain(lang: Option<Language>) -> Vec<&'static str> {
 
 /// Load template for given id and language from the DB, with cascade `lang → french → english`.
 /// Falls back to the on-disk JSON file (same cascade) if no DB row matches.
-pub async fn load_template_async(
-    pool: &Pool<Postgres>,
-    templates_dir: &Path,
-    template_id: &str,
-    lang: Option<Language>,
-) -> AppResult<EmailTemplate> {
+pub async fn load_template_async(pool: &Pool<Postgres>, templates_dir: &Path, template_id: &str, lang: Option<Language>) -> AppResult<EmailTemplate> {
     let candidates = language_chain(lang);
 
     for lang_key in &candidates {
@@ -175,20 +147,12 @@ pub async fn load_template_async(
         }
     }
 
-    Err(AppError::Internal(format!(
-        "No template found for {} (tried languages: {})",
-        template_id,
-        candidates.join(", ")
-    )))
+    Err(AppError::Internal(format!("No template found for {} (tried languages: {})", template_id, candidates.join(", "))))
 }
 
 /// Synchronous on-disk loader kept for callers that do not (yet) own a DB pool.
 /// Newer code should prefer [`load_template_async`].
-pub fn load_template(
-    templates_dir: &Path,
-    template_id: &str,
-    lang: Option<Language>,
-) -> AppResult<EmailTemplate> {
+pub fn load_template(templates_dir: &Path, template_id: &str, lang: Option<Language>) -> AppResult<EmailTemplate> {
     let candidates = language_chain(lang);
 
     for lang_key in &candidates {
@@ -197,18 +161,10 @@ pub fn load_template(
         }
     }
 
-    Err(AppError::Internal(format!(
-        "No template found for {} (tried languages: {})",
-        template_id,
-        candidates.join(", ")
-    )))
+    Err(AppError::Internal(format!("No template found for {} (tried languages: {})", template_id, candidates.join(", "))))
 }
 
-async fn load_from_db(
-    pool: &Pool<Postgres>,
-    template_id: &str,
-    language: &str,
-) -> AppResult<Option<EmailTemplate>> {
+async fn load_from_db(pool: &Pool<Postgres>, template_id: &str, language: &str) -> AppResult<Option<EmailTemplate>> {
     let repo = Repository::new(pool.clone(), None);
     let row = repo.email_templates_get(template_id, language).await?;
     Ok(row.map(|r| EmailTemplate {
@@ -218,19 +174,13 @@ async fn load_from_db(
     }))
 }
 
-fn load_from_file(
-    templates_dir: &Path,
-    template_id: &str,
-    language: &str,
-) -> AppResult<Option<RawTemplate>> {
+fn load_from_file(templates_dir: &Path, template_id: &str, language: &str) -> AppResult<Option<RawTemplate>> {
     let path: PathBuf = templates_dir.join(format!("{}.{}.json", template_id, language));
     if !path.exists() {
         return Ok(None);
     }
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| AppError::Internal(format!("Failed to read template {:?}: {}", path, e)))?;
-    let raw: RawTemplate = serde_json::from_str(&content)
-        .map_err(|e| AppError::Internal(format!("Invalid template {:?}: {}", path, e)))?;
+    let content = std::fs::read_to_string(&path).map_err(|e| AppError::Internal(format!("Failed to read template {:?}: {}", path, e)))?;
+    let raw: RawTemplate = serde_json::from_str(&content).map_err(|e| AppError::Internal(format!("Invalid template {:?}: {}", path, e)))?;
     Ok(Some(raw))
 }
 
@@ -243,11 +193,7 @@ fn raw_to_email_template(raw: &RawTemplate) -> EmailTemplate {
 }
 
 /// Load one on-disk template language, with no fallback chain.
-pub fn load_template_file(
-    templates_dir: &Path,
-    template_id: &str,
-    language: &str,
-) -> AppResult<Option<EmailTemplate>> {
+pub fn load_template_file(templates_dir: &Path, template_id: &str, language: &str) -> AppResult<Option<EmailTemplate>> {
     match load_from_file(templates_dir, template_id, language)? {
         Some(raw) => Ok(Some(raw_to_email_template(&raw))),
         None => Ok(None),
@@ -263,12 +209,7 @@ pub fn substitute(template: &EmailTemplate, vars: &[(&str, &str)]) -> (String, S
         .body_html
         .as_ref()
         .map(|h| substitute_str(h, vars))
-        .unwrap_or_else(|| {
-            format!(
-                "<html><body><pre>{}</pre></body></html>",
-                plain.replace('\n', "<br>")
-            )
-        });
+        .unwrap_or_else(|| format!("<html><body><pre>{}</pre></body></html>", plain.replace('\n', "<br>")));
     (subj, plain, html)
 }
 
@@ -295,49 +236,27 @@ pub async fn bootstrap_from_files(pool: &Pool<Postgres>, templates_dir: &Path) -
     for template_id in KNOWN_TEMPLATE_IDS {
         for language in SUPPORTED_LANGUAGES {
             // check if the template already exists in the database, if so, skip it
-            if repo
-                .email_templates_get(template_id, language)
-                .await?
-                .is_some()
-            {
+            if repo.email_templates_get(template_id, language).await?.is_some() {
                 continue;
             }
 
             match load_from_file(templates_dir, template_id, language)? {
                 Some(raw) => {
-                    repo.email_templates_upsert(
-                        template_id,
-                        language,
-                        raw.name.trim(),
-                        &raw.subject,
-                        &raw.body_plain,
-                        raw.body_html.as_deref(),
-                    )
-                    .await?;
+                    repo.email_templates_upsert(template_id, language, raw.name.trim(), &raw.subject, &raw.body_plain, raw.body_html.as_deref())
+                        .await?;
                     inserted += 1;
                 }
                 None => {
-                    tracing::debug!(
-                        "Email template bootstrap: no file for {}.{}.json — skipped",
-                        template_id,
-                        language
-                    );
+                    tracing::debug!("Email template bootstrap: no file for {}.{}.json — skipped", template_id, language);
                 }
             }
         }
     }
 
     if inserted == 0 {
-        tracing::warn!(
-            "Email template bootstrap: no JSON files found under {:?}; the table stays empty",
-            templates_dir
-        );
+        tracing::warn!("Email template bootstrap: no JSON files found under {:?}; the table stays empty", templates_dir);
     } else {
-        tracing::info!(
-            "Email template bootstrap: seeded {} rows from {:?}",
-            inserted,
-            templates_dir
-        );
+        tracing::info!("Email template bootstrap: seeded {} rows from {:?}", inserted, templates_dir);
     }
 
     Ok(inserted)
@@ -353,23 +272,11 @@ mod tests {
             notice_language_order(Some(Language::English), Some(Language::German)),
             vec![Language::English, Language::German, Language::French]
         );
-        assert_eq!(
-            notice_language_order(None, Some(Language::German)),
-            vec![Language::German, Language::French, Language::English]
-        );
-        assert_eq!(
-            notice_language_order(None, None),
-            vec![Language::French, Language::English]
-        );
-        assert_eq!(
-            notice_language_order(Some(Language::French), Some(Language::French)),
-            vec![Language::French, Language::English]
-        );
+        assert_eq!(notice_language_order(None, Some(Language::German)), vec![Language::German, Language::French, Language::English]);
+        assert_eq!(notice_language_order(None, None), vec![Language::French, Language::English]);
+        assert_eq!(notice_language_order(Some(Language::French), Some(Language::French)), vec![Language::French, Language::English]);
         // Italian has no notice template, so the library language is next.
-        assert_eq!(
-            notice_language_order(Some(Language::Italian), Some(Language::English)),
-            vec![Language::English, Language::French]
-        );
+        assert_eq!(notice_language_order(Some(Language::Italian), Some(Language::English)), vec![Language::English, Language::French]);
     }
 
     #[test]
@@ -379,19 +286,11 @@ mod tests {
         write_notice(&dir, "hold_ready", "english", "English hold");
         write_notice(&dir, "hold_ready", "french", "French hold");
 
-        let (language, template) = load_notice_template_from_files(
-            &dir,
-            "hold_ready",
-            Some(Language::German),
-            Some(Language::English),
-        )
-        .expect("english library template");
+        let (language, template) = load_notice_template_from_files(&dir, "hold_ready", Some(Language::German), Some(Language::English)).expect("english library template");
         assert_eq!(language, Language::English);
         assert_eq!(template.subject, "English hold");
 
-        let (language, template) =
-            load_notice_template_from_files(&dir, "hold_ready", Some(Language::German), None)
-                .expect("french fallback");
+        let (language, template) = load_notice_template_from_files(&dir, "hold_ready", Some(Language::German), None).expect("french fallback");
         assert_eq!(language, Language::French);
         assert_eq!(template.subject, "French hold");
 
@@ -401,21 +300,11 @@ mod tests {
     #[test]
     fn shipped_notice_templates_share_placeholders() {
         let dir = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/data/email_templates"));
-        for template_id in [
-            "hold_ready",
-            "password_reset",
-            "overdue_reminder",
-            "overdue_second_reminder",
-            "overdue_formal_notice",
-        ] {
+        for template_id in ["hold_ready", "password_reset", "overdue_reminder", "overdue_second_reminder", "overdue_formal_notice"] {
             let english = read_raw(dir, template_id, "english");
             for language in ["french", "german", "spanish"] {
                 let other = read_raw(dir, template_id, language);
-                assert_eq!(
-                    placeholders(&english.body_plain),
-                    placeholders(&other.body_plain),
-                    "{template_id}.{language} plain placeholders"
-                );
+                assert_eq!(placeholders(&english.body_plain), placeholders(&other.body_plain), "{template_id}.{language} plain placeholders");
                 assert_eq!(
                     placeholders(english.body_html.as_deref().unwrap_or("")),
                     placeholders(other.body_html.as_deref().unwrap_or("")),
@@ -427,11 +316,8 @@ mod tests {
     }
 
     fn write_notice(dir: &Path, template_id: &str, language: &str, subject: &str) {
-        let body = format!(
-            r#"{{"name":"{subject}","subject":"{subject}","body_plain":"Hello","body_html":null}}"#
-        );
-        std::fs::write(dir.join(format!("{template_id}.{language}.json")), body)
-            .expect("write notice");
+        let body = format!(r#"{{"name":"{subject}","subject":"{subject}","body_plain":"Hello","body_html":null}}"#);
+        std::fs::write(dir.join(format!("{template_id}.{language}.json")), body).expect("write notice");
     }
 
     fn read_raw(dir: &Path, template_id: &str, language: &str) -> RawTemplate {

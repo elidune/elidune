@@ -1,21 +1,21 @@
 import { useTranslation } from 'react-i18next';
-import type { HoldListItem, ItemTransit, Source } from '@/types';
+import type { HoldListItem, ItemTransit, Site } from '@/types';
 import { sourceLabel } from '@/utils/transitDisplay';
 import TransitStatusBadge from '@/components/holds/TransitStatusBadge';
 
 export default function HoldPickupCell({
   hold,
-  sources,
+  sites,
   transit,
   showTransit = true,
 }: {
   hold: HoldListItem;
-  sources?: Source[];
+  sites?: Site[];
   transit?: ItemTransit | null;
   showTransit?: boolean;
 }) {
   const { t } = useTranslation();
-  const site = sourceLabel(sources, hold.pickupSiteId);
+  const site = sourceLabel(sites, hold.pickupSiteId);
 
   return (
     <div className="space-y-1 min-w-0">

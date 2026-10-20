@@ -55,11 +55,7 @@ fn page_count(total: i64, per_page: i64) -> i64 {
         (status = 401, description = "Not authenticated"),
     )
 )]
-pub async fn list_series(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Query(query): Query<SerieQuery>,
-) -> AppResult<Json<PaginatedSeries>> {
+pub async fn list_series(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<SerieQuery>) -> AppResult<Json<PaginatedSeries>> {
     claims.require_read_items()?;
     let page = query.page.unwrap_or(1).max(1);
     let per_page = query.per_page.unwrap_or(50).min(200);
@@ -85,11 +81,7 @@ pub async fn list_series(
         (status = 404, description = "Not found"),
     )
 )]
-pub async fn get_serie(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i64>,
-) -> AppResult<Json<Serie>> {
+pub async fn get_serie(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(id): Path<i64>) -> AppResult<Json<Serie>> {
     claims.require_read_items()?;
     let serie = state.services.catalog.get_serie(id).await?;
     Ok(Json(serie))
@@ -107,25 +99,17 @@ pub async fn get_serie(
         (status = 404, description = "Not found"),
     )
 )]
-pub async fn get_serie_biblios(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i64>,
-) -> AppResult<Json<BiblioShortListResponse>> {
+pub async fn get_serie_biblios(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(id): Path<i64>) -> AppResult<Json<BiblioShortListResponse>> {
     claims.require_read_items()?;
     state.services.catalog.get_serie(id).await?;
     let biblios = state.services.catalog.get_biblios_by_series(id).await?;
     let body = if sees_internal_catalog(&claims) {
-        BiblioShortListResponse::Staff(
-            super::catalog_hold::staff_biblio_shorts(&state, &claims, biblios).await?,
-        )
+        BiblioShortListResponse::Staff(super::catalog_hold::staff_biblio_shorts(&state, &claims, biblios).await?)
     } else {
         BiblioShortListResponse::Public(
             biblios
                 .into_iter()
-                .filter(|biblio| {
-                    biblio.weeding_status != crate::models::item::WeedingStatus::Withdrawn
-                })
+                .filter(|biblio| biblio.weeding_status != crate::models::item::WeedingStatus::Withdrawn)
                 .map(BiblioShortPublic::from)
                 .collect(),
         )
@@ -147,12 +131,7 @@ pub async fn get_serie_biblios(
         (status = 409, description = "Duplicate key"),
     )
 )]
-pub async fn create_serie(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    ClientIp(ip): ClientIp,
-    Json(data): Json<CreateSerie>,
-) -> AppResult<impl IntoResponse> {
+pub async fn create_serie(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Json(data): Json<CreateSerie>) -> AppResult<impl IntoResponse> {
     claims.require_write_items()?;
     match state.services.catalog.create_serie(&data).await {
         Ok(serie) => {
@@ -247,12 +226,7 @@ pub async fn update_serie(
         (status = 409, description = "Still linked to biblios"),
     )
 )]
-pub async fn delete_serie(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    ClientIp(ip): ClientIp,
-    Path(id): Path<i64>,
-) -> AppResult<StatusCode> {
+pub async fn delete_serie(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Path(id): Path<i64>) -> AppResult<StatusCode> {
     claims.require_write_items()?;
     match state.services.catalog.delete_serie(id).await {
         Ok(()) => {
@@ -285,9 +259,6 @@ pub async fn delete_serie(
 pub fn router() -> Router<crate::AppState> {
     Router::new()
         .route("/series", get(list_series).post(create_serie))
-        .route(
-            "/series/:id",
-            get(get_serie).put(update_serie).delete(delete_serie),
-        )
+        .route("/series/:id", get(get_serie).put(update_serie).delete(delete_serie))
         .route("/series/:id/biblios", get(get_serie_biblios))
 }

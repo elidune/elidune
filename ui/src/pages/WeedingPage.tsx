@@ -13,7 +13,7 @@ import {
 } from '@/components/common';
 import { APP_PAGE_CLASS } from '@/utils/appPageLayout';
 import { useAuth } from '@/contexts/AuthContext';
-import { useSourcesQuery } from '@/hooks/holds/useSourcesQuery';
+import { useSitesQuery } from '@/hooks/holds/useSitesQuery';
 import api from '@/services/api';
 import { canManageWeeding } from '@/types';
 import type { Collection, ItemWithdrawal } from '@/types';
@@ -74,7 +74,7 @@ export default function WeedingPage() {
     queryKey: ['item-withdrawals', params],
     queryFn: () => api.listItemWithdrawals(params),
   });
-  const sourcesQuery = useSourcesQuery();
+  const sitesQuery = useSitesQuery();
   const collectionsQuery = useQuery({
     queryKey: ['collections', 'weeding', collectionSearch],
     queryFn: () => api.getCollections({ name: collectionSearch.trim() || undefined, page: 1, perPage: 50 }),
@@ -202,7 +202,7 @@ export default function WeedingPage() {
               onChange={(e) => patchFilters({ siteId: e.target.value })}
             >
               <option value="">{t('common.all')}</option>
-              {(sourcesQuery.data ?? []).map((source) => (
+              {(sitesQuery.data ?? []).map((source) => (
                 <option key={source.id} value={source.id}>
                   {source.name || source.id}
                 </option>

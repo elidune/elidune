@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Plus, BookOpen, SlidersHorizontal, Loader2, AlertCircle, Trash2, Layers, BookMarked, Edit, ChevronLeft, ChevronRight, ScanLine } from 'lucide-react';
-import { Card, Button, Table, SearchInput, Modal, Input, ScrollableListRegion, ResponsiveRecordList, ListSkeleton } from '@/components/common';
+import { Card, Button, Table, SearchInput, Modal, Input, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, SectionTabBar } from '@/components/common';
 import BiblioCatalogItemCard from '@/components/items/BiblioCatalogItemCard';
 import BatchDeleteSpecimensDialog from '@/components/specimen/BatchDeleteSpecimensDialog';
 import { useAuth } from '@/contexts/AuthContext';
@@ -463,30 +463,18 @@ export default function BibliosPage() {
       </div>
 
       {/* Tab navigation — staff cataloging only */}
-      {canManage && (
-      <div className="border-b border-gray-200 dark:border-gray-700">
-        <nav className="-mb-px flex gap-6">
-          {([
-            { key: 'catalog', label: t('catalog.tabCatalog'), icon: BookOpen },
-            { key: 'collections', label: t('catalog.tabCollections'), icon: Layers },
-            { key: 'series', label: t('catalog.tabSeries'), icon: BookMarked },
-          ] as { key: CatalogTab; label: string; icon: React.ComponentType<{ className?: string }> }[]).map(({ key, label, icon: Icon }) => (
-            <button
-              key={key}
-              onClick={() => setActiveTab(key)}
-              className={`flex items-center gap-2 py-3 px-1 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === key
-                  ? 'border-amber-500 text-amber-600 dark:text-amber-400'
-                  : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'
-              }`}
-            >
-              <Icon className="h-4 w-4" />
-              {label}
-            </button>
-          ))}
-        </nav>
-      </div>
-      )}
+      {canManage ? (
+        <SectionTabBar
+          ariaLabel={t('catalog.pageTitle')}
+          activeTab={activeTab}
+          onSelectTab={setActiveTab}
+          tabs={[
+            { id: 'catalog', label: t('catalog.tabCatalog'), icon: BookOpen },
+            { id: 'collections', label: t('catalog.tabCollections'), icon: Layers },
+            { id: 'series', label: t('catalog.tabSeries'), icon: BookMarked },
+          ]}
+        />
+      ) : null}
 
       {/* Collections tab */}
       {activeTab === 'collections' && (

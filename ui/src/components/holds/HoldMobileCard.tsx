@@ -6,7 +6,7 @@ import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
 import HoldExpiresCell from '@/components/holds/HoldExpiresCell';
 import HoldPatronLabel from '@/components/holds/HoldPatronLabel';
 import HoldPickupCell from '@/components/holds/HoldPickupCell';
-import type { HoldListItem, ItemTransit, Source } from '@/types';
+import type { HoldListItem, ItemTransit, Site } from '@/types';
 
 interface HoldMobileCardProps {
   hold: HoldListItem;
@@ -19,7 +19,7 @@ interface HoldMobileCardProps {
   linked?: boolean;
   /** Highlight pickup expiry for ready holds (patron UX). */
   emphasizePickup?: boolean;
-  pickupSources?: Source[];
+  pickupSources?: Site[];
   transit?: ItemTransit | null;
   extraActions?: ReactNode;
 }
@@ -75,7 +75,7 @@ export default function HoldMobileCard({
         {(hold.pickupSiteId || transit) && (
           <div className="col-span-2">
             <span className="text-gray-500 block">{t('holds.columnPickup')}</span>
-            <HoldPickupCell hold={hold} sources={pickupSources} transit={transit} />
+            <HoldPickupCell hold={hold} sites={pickupSources} transit={transit} />
           </div>
         )}
       </div>

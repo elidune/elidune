@@ -27,11 +27,7 @@ pub const INVALID_REQUEST: &str = "Invalid request.\n";
 pub fn sign(secret: &[u8], user_id: i64) -> AppResult<String> {
     let payload = format!("{PURPOSE}:{user_id}");
     let mac = hmac_sha256(secret, payload.as_bytes())?;
-    Ok(format!(
-        "{}.{}",
-        URL_SAFE_NO_PAD.encode(payload.as_bytes()),
-        URL_SAFE_NO_PAD.encode(mac)
-    ))
+    Ok(format!("{}.{}", URL_SAFE_NO_PAD.encode(payload.as_bytes()), URL_SAFE_NO_PAD.encode(mac)))
 }
 
 /// Recover the user id from a token signed with `secret`.
@@ -50,20 +46,14 @@ pub fn verify(secret: &[u8], token: &str) -> Option<i64> {
     mac.verify_slice(&presented).ok()?;
     let payload = std::str::from_utf8(&payload).ok()?;
     let user_id = payload.strip_prefix(&format!("{PURPOSE}:"))?;
-    if user_id.is_empty()
-        || !user_id
-            .bytes()
-            .all(|byte| byte.is_ascii_digit() || byte == b'-')
-    {
+    if user_id.is_empty() || !user_id.bytes().all(|byte| byte.is_ascii_digit() || byte == b'-') {
         return None;
     }
     user_id.parse().ok()
 }
 
 fn hmac_sha256(secret: &[u8], data: &[u8]) -> AppResult<Vec<u8>> {
-    let mut mac = HmacSha256::new_from_slice(secret).map_err(|err| {
-        AppError::Internal(format!("events unsubscribe token key rejected: {err}"))
-    })?;
+    let mut mac = HmacSha256::new_from_slice(secret).map_err(|err| AppError::Internal(format!("events unsubscribe token key rejected: {err}")))?;
     mac.update(data);
     Ok(mac.finalize().into_bytes().to_vec())
 }
@@ -71,13 +61,7 @@ fn hmac_sha256(secret: &[u8], data: &[u8]) -> AppResult<Vec<u8>> {
 /// `List-Unsubscribe` and `List-Unsubscribe-Post` values for one announcement.
 #[must_use]
 pub fn list_unsubscribe_headers(url: &str) -> [(&'static str, String); 2] {
-    [
-        ("List-Unsubscribe", format!("<{url}>")),
-        (
-            "List-Unsubscribe-Post",
-            "List-Unsubscribe=One-Click".to_string(),
-        ),
-    ]
+    [("List-Unsubscribe", format!("<{url}>")), ("List-Unsubscribe-Post", "List-Unsubscribe=One-Click".to_string())]
 }
 
 struct ConsentCopy {
@@ -96,7 +80,8 @@ fn copy_for(language: Option<&str>) -> ConsentCopy {
         },
         Language::German => ConsentCopy {
             link_label: "Von Veranstaltungsankündigungen abmelden",
-            migration_notice: "Sie erhalten diese Nachricht, weil Ihr bestehendes Bibliothekskonto für das Veranstaltungsprogramm angemeldet wurde. Um diese Nachrichten abzulehnen, verwenden Sie den Abmeldelink.",
+            migration_notice:
+                "Sie erhalten diese Nachricht, weil Ihr bestehendes Bibliothekskonto für das Veranstaltungsprogramm angemeldet wurde. Um diese Nachrichten abzulehnen, verwenden Sie den Abmeldelink.",
             label_separator: ": ",
         },
         Language::Spanish => ConsentCopy {
@@ -113,13 +98,7 @@ fn copy_for(language: Option<&str>) -> ConsentCopy {
 }
 
 /// Append the migration explanation (once) and the unsubscribe link to both bodies.
-pub fn append_announcement_footer(
-    plain: &mut String,
-    html: &mut String,
-    language: Option<&str>,
-    include_migration_notice: bool,
-    unsubscribe_url: &str,
-) {
+pub fn append_announcement_footer(plain: &mut String, html: &mut String, language: Option<&str>, include_migration_notice: bool, unsubscribe_url: &str) {
     let copy = copy_for(language);
     if include_migration_notice {
         plain.push_str("\n\n");
@@ -129,10 +108,7 @@ pub fn append_announcement_footer(
         html.push_str(&html_escape(copy.migration_notice));
         html.push_str("</p>");
     }
-    let line = format!(
-        "{}{}{}",
-        copy.link_label, copy.label_separator, unsubscribe_url
-    );
+    let line = format!("{}{}{}", copy.link_label, copy.label_separator, unsubscribe_url);
     plain.push('\n');
     plain.push_str(&line);
     plain.push('\n');
@@ -144,11 +120,7 @@ pub fn append_announcement_footer(
 }
 
 fn html_escape(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
+    value.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
 }
 
 #[cfg(test)]
@@ -209,15 +181,8 @@ mod tests {
     fn french_link_has_a_space_before_the_colon() {
         let mut plain = String::new();
         let mut html = String::new();
-        append_announcement_footer(
-            &mut plain,
-            &mut html,
-            Some("french"),
-            true,
-            "https://library.example/unsub",
-        );
-        assert!(plain
-            .contains("Se désabonner des annonces d'événements : https://library.example/unsub"));
+        append_announcement_footer(&mut plain, &mut html, Some("french"), true, "https://library.example/unsub");
+        assert!(plain.contains("Se désabonner des annonces d'événements : https://library.example/unsub"));
         assert!(plain.contains("compte existant a été inscrit"));
         assert!(html.contains("compte existant a été inscrit"));
         assert!(!plain.contains("You are receiving this message"));
@@ -226,33 +191,15 @@ mod tests {
     #[test]
     fn english_german_and_spanish_have_no_space_before_the_colon() {
         for (lang, label) in [
-            (
-                "english",
-                "Unsubscribe from event announcements: https://library.example/unsub",
-            ),
-            (
-                "german",
-                "Von Veranstaltungsankündigungen abmelden: https://library.example/unsub",
-            ),
-            (
-                "spanish",
-                "Cancelar la suscripción a los anuncios de eventos: https://library.example/unsub",
-            ),
+            ("english", "Unsubscribe from event announcements: https://library.example/unsub"),
+            ("german", "Von Veranstaltungsankündigungen abmelden: https://library.example/unsub"),
+            ("spanish", "Cancelar la suscripción a los anuncios de eventos: https://library.example/unsub"),
         ] {
             let mut plain = String::new();
             let mut html = String::new();
-            append_announcement_footer(
-                &mut plain,
-                &mut html,
-                Some(lang),
-                false,
-                "https://library.example/unsub",
-            );
+            append_announcement_footer(&mut plain, &mut html, Some(lang), false, "https://library.example/unsub");
             assert!(plain.contains(label), "{lang}: {plain}");
-            assert!(
-                !plain.contains("compte existant"),
-                "{lang} must not include the migration notice"
-            );
+            assert!(!plain.contains("compte existant"), "{lang} must not include the migration notice");
             assert!(html.contains("href=\"https://library.example/unsub\""));
         }
     }
@@ -261,26 +208,16 @@ mod tests {
     fn unknown_language_uses_french_link_label() {
         let mut plain = String::new();
         let mut html = String::new();
-        append_announcement_footer(
-            &mut plain,
-            &mut html,
-            Some("italian"),
-            false,
-            "https://library.example/events/unsubscribe?token=abc",
-        );
+        append_announcement_footer(&mut plain, &mut html, Some("italian"), false, "https://library.example/events/unsubscribe?token=abc");
         assert!(plain.contains("Se désabonner des annonces d'événements : https://library.example/events/unsubscribe?token=abc"));
         assert!(!plain.contains("Unsubscribe from event announcements:"));
     }
 
     #[test]
     fn list_unsubscribe_headers_follow_rfc_8058() {
-        let headers =
-            list_unsubscribe_headers("https://library.example/api/v1/events/unsubscribe?token=abc");
+        let headers = list_unsubscribe_headers("https://library.example/api/v1/events/unsubscribe?token=abc");
         assert_eq!(headers[0].0, "List-Unsubscribe");
-        assert_eq!(
-            headers[0].1,
-            "<https://library.example/api/v1/events/unsubscribe?token=abc>"
-        );
+        assert_eq!(headers[0].1, "<https://library.example/api/v1/events/unsubscribe?token=abc>");
         assert_eq!(headers[1].0, "List-Unsubscribe-Post");
         assert_eq!(headers[1].1, "List-Unsubscribe=One-Click");
     }

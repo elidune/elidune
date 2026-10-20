@@ -45,22 +45,15 @@ async fn mark_to_search(app: &TestApp, item_id: i64) {
 }
 
 async fn snapshot(app: &TestApp, item_id: i64) -> ItemSnapshot {
-    sqlx::query_as(
-        "SELECT call_number, internal_note, circulation_status, borrowable FROM items WHERE id = $1",
-    )
-    .bind(item_id)
-    .fetch_one(app.state.services.repository.pool())
-    .await
-    .expect("read item")
+    sqlx::query_as("SELECT call_number, internal_note, circulation_status, borrowable FROM items WHERE id = $1")
+        .bind(item_id)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .expect("read item")
 }
 
 fn assert_read_only_body(body: &Value) {
-    let mut keys: Vec<&str> = body
-        .as_object()
-        .unwrap_or_else(|| panic!("error object: {body}"))
-        .keys()
-        .map(String::as_str)
-        .collect();
+    let mut keys: Vec<&str> = body.as_object().unwrap_or_else(|| panic!("error object: {body}")).keys().map(String::as_str).collect();
     keys.sort_unstable();
     assert_eq!(keys, ["code", "error", "message"], "{body}");
     assert_eq!(body["code"], "circulation_status_read_only", "{body}");
@@ -83,12 +76,7 @@ async fn put_with_circulation_status_is_422_and_writes_nothing() {
     let before = snapshot(&app, item_id).await;
     assert_eq!(before.2, Some(4));
 
-    let cases = [
-        ("integer", json!(1)),
-        ("string", json!("lost")),
-        ("null", json!(null)),
-        ("object", json!({"status": "lost"})),
-    ];
+    let cases = [("integer", json!(1)), ("string", json!("lost")), ("null", json!(null)), ("object", json!({"status": "lost"}))];
     for (label, circulation_status) in cases {
         let (status, body) = app
             .put_json(
@@ -105,11 +93,7 @@ async fn put_with_circulation_status_is_422_and_writes_nothing() {
 
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{label}: {body}");
         assert_read_only_body(&body);
-        assert_eq!(
-            snapshot(&app, item_id).await,
-            before,
-            "{label}: circulationStatus on PUT must not apply any other field"
-        );
+        assert_eq!(snapshot(&app, item_id).await, before, "{label}: circulationStatus on PUT must not apply any other field");
     }
 }
 

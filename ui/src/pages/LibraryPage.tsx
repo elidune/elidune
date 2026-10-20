@@ -13,7 +13,7 @@ import {
   Check,
   Phone,
 } from 'lucide-react';
-import { Card, Button, Input, Modal, CountrySelect, LibraryTimezoneControl } from '@/components/common';
+import { Card, Button, Input, Modal, CountrySelect, LibraryTimezoneControl, SectionTabBar } from '@/components/common';
 import { useLibraryInfoQuery, useUpdateLibraryInfoMutation } from '@/hooks/common/useLibraryInfoQuery';
 import { LANGUAGE_NAMES, PUBLIC_LANGUAGE_OPTIONS } from '@/locales';
 import api from '@/services/api';
@@ -964,23 +964,12 @@ export function LibrarySettingsPanel() {
 
   return (
     <div className="space-y-6">
-      <div className="flex gap-1 p-1 bg-gray-100 dark:bg-gray-800 rounded-lg w-fit">
-        {tabs.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setActiveTab(id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-              activeTab === id
-                ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
-                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-            }`}
-          >
-            <Icon className="h-4 w-4" />
-            {label}
-          </button>
-        ))}
-      </div>
+      <SectionTabBar
+        ariaLabel={t('library.title')}
+        activeTab={activeTab}
+        onSelectTab={setActiveTab}
+        tabs={tabs.map(({ id, label, icon }) => ({ id, label, icon }))}
+      />
 
       {activeTab === 'general' && <GeneralTab />}
       {activeTab === 'hours' && <HoursTab />}

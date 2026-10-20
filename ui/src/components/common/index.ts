@@ -24,3 +24,5 @@ export { default as ListSkeleton } from './ListSkeleton';
 export { default as BackgroundTasksPanel, BackgroundTasksNavItem, BackgroundTasksDrawer } from './BackgroundTasksPanel';
 export { default as BarcodeCameraScannerModal } from './BarcodeCameraScannerModal';
 export { default as BarcodeScanField } from './BarcodeScanField';
+export { default as SectionTabBar } from './SectionTabBar';
+export type { SectionTabItem } from './SectionTabBar';

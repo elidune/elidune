@@ -173,8 +173,8 @@ export default function AcquisitionsOrderDetailPage() {
             biblioId: biblio.id ?? item?.biblioId ?? '',
             title: biblio.title,
             barcode: item?.barcode,
-            sourceId: item?.sourceId,
-            sourceName: item?.sourceName,
+            siteId: item?.siteId,
+            siteName: item?.siteName,
             price: item?.price,
             borrowable: item?.borrowable === true,
           };

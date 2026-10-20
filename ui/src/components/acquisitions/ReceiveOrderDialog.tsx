@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Badge, Button, ConfirmDialog, Input, Modal } from '@/components/common';
-import { useSourcesQuery } from '@/hooks/holds/useSourcesQuery';
+import { useSitesQuery } from '@/hooks/holds/useSitesQuery';
 import type { PurchaseOrderLine, ReceiveItemSpec, ReceivePurchaseOrder } from '@/types';
 import { formatMoney, lineIntentLabel, moneyInputToApi, quantityRemaining } from '@/utils/acquisitionDisplay';
 import { getApiErrorMessage } from '@/utils/apiError';
@@ -10,7 +10,7 @@ import { formControlClass, formLabelClass, formTextareaClass } from '@/utils/for
 
 interface ReceiveDraftItem {
   barcode: string;
-  sourceId: string;
+  siteId: string;
   price: string;
   priceDeferred: boolean;
   callNumber: string;
@@ -24,7 +24,7 @@ interface ReceiveDraftLine {
 }
 
 function emptyItem(price = ''): ReceiveDraftItem {
-  return { barcode: '', sourceId: '', price, priceDeferred: false, callNumber: '' };
+  return { barcode: '', siteId: '', price, priceDeferred: false, callNumber: '' };
 }
 
 function syncItems(items: ReceiveDraftItem[], qty: number, defaultPrice: string): ReceiveDraftItem[] {
@@ -36,7 +36,7 @@ function syncItems(items: ReceiveDraftItem[], qty: number, defaultPrice: string)
 function draftItemToSpec(item: ReceiveDraftItem, unitPrice: string | null): ReceiveItemSpec {
   return {
     barcode: item.barcode.trim() || null,
-    sourceId: item.sourceId || null,
+    siteId: item.siteId || null,
     price: item.priceDeferred ? null : moneyInputToApi(item.price) || unitPrice,
     priceDeferred: item.priceDeferred || undefined,
     callNumber: item.callNumber.trim() || null,
@@ -46,8 +46,8 @@ function draftItemToSpec(item: ReceiveDraftItem, unitPrice: string | null): Rece
 function specIsReady(spec: ReceiveItemSpec): boolean {
   return isReadyToCirculate({
     barcode: spec.barcode,
-    sourceId: spec.sourceId,
-    sourceName: spec.sourceName,
+    siteId: spec.siteId,
+    siteName: spec.siteName,
     price: spec.price,
     priceDeferred: spec.priceDeferred,
   });
@@ -73,7 +73,7 @@ export default function ReceiveOrderDialog({
   onSubmit,
 }: ReceiveOrderDialogProps) {
   const { t } = useTranslation();
-  const sourcesQuery = useSourcesQuery(isOpen);
+  const sitesQuery = useSitesQuery(isOpen);
   const receivable = useMemo(
     () => lines.filter((line) => quantityRemaining(line) > 0),
     [lines],
@@ -175,9 +175,9 @@ export default function ReceiveOrderDialog({
         <form id="receive-form" className="space-y-5" onSubmit={handleSubmit}>
           <p className="text-sm text-gray-600 dark:text-gray-400">{t('acquisitions.receive.help')}</p>
           <p className="text-sm text-amber-800 dark:text-amber-300">{t('acquisitions.receive.incompleteHint')}</p>
-          {sourcesQuery.isError ? (
+          {sitesQuery.isError ? (
             <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-              {getApiErrorMessage(sourcesQuery.error, t) || t('acquisitions.receive.sourcesLoadError')}
+              {getApiErrorMessage(sitesQuery.error, t) || t('acquisitions.receive.sourcesLoadError')}
             </p>
           ) : null}
           {receivable.length === 0 ? (
@@ -254,11 +254,11 @@ export default function ReceiveOrderDialog({
                           <select
                             id={`src-${line.id}-${idx}`}
                             className={formControlClass()}
-                            value={item.sourceId}
-                            onChange={(e) => patchItem(line.id, idx, { sourceId: e.target.value })}
+                            value={item.siteId}
+                            onChange={(e) => patchItem(line.id, idx, { siteId: e.target.value })}
                           >
                             <option value="">{t('acquisitions.receive.sourceNone')}</option>
-                            {(sourcesQuery.data ?? []).map((s) => (
+                            {(sitesQuery.data ?? []).map((s) => (
                               <option key={s.id} value={s.id}>
                                 {s.name ?? s.key ?? s.id}
                               </option>

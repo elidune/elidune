@@ -40,7 +40,7 @@ src/
 | **Biblio** | Bibliographic record (book, DVD, etc.) with ISBN, authors, series, etc. |
 | **Item** | Physical copy of a biblio (barcode, call number, borrowable flag). Retired synonym: Specimen — do not use in new docs/code. |
 | **Loan** | Borrowing of an item by a user |
-| **Source** | Z39.50 or external catalog source for importing records |
+| **Site** | Physical catalog location (branch, room, collection point) |
 | **PublicType** | Audience classification for biblios (e.g. youth, adult) |
 | **MARC** | `src/marc/translator.rs` converts `z3950_rs::MarcRecord` → `Biblio` (+ local `Item`s) |
 

@@ -5,11 +5,7 @@ use sqlx::PgPool;
 use crate::error::AppError;
 use crate::models::stats_builder::{SavedStatsQuery, SavedStatsQueryWrite, StatsBuilderBody};
 
-pub async fn list_for_user(
-    pool: &PgPool,
-    user_id: i64,
-    is_admin: bool,
-) -> Result<Vec<SavedStatsQuery>, AppError> {
+pub async fn list_for_user(pool: &PgPool, user_id: i64, is_admin: bool) -> Result<Vec<SavedStatsQuery>, AppError> {
     let rows: Vec<SavedStatsQueryRow> = if is_admin {
         sqlx::query_as::<_, SavedStatsQueryRow>(
             r#"
@@ -35,17 +31,10 @@ pub async fn list_for_user(
     }
     .map_err(|e| AppError::Internal(format!("List saved queries: {}", e)))?;
 
-    rows.into_iter()
-        .map(row_to_public)
-        .collect::<Result<Vec<_>, _>>()
+    rows.into_iter().map(row_to_public).collect::<Result<Vec<_>, _>>()
 }
 
-pub async fn get_by_id(
-    pool: &PgPool,
-    id: i64,
-    user_id: i64,
-    is_admin: bool,
-) -> Result<Option<SavedStatsQuery>, AppError> {
+pub async fn get_by_id(pool: &PgPool, id: i64, user_id: i64, is_admin: bool) -> Result<Option<SavedStatsQuery>, AppError> {
     let row = sqlx::query_as::<_, SavedStatsQueryRow>(
         r#"
         SELECT id, name, description, query_json, user_id, is_shared, created_at, updated_at
@@ -62,21 +51,14 @@ pub async fn get_by_id(
     };
 
     if !is_admin && r.user_id != user_id && !r.is_shared {
-        return Err(AppError::Authorization(
-            "Cannot access this saved query".into(),
-        ));
+        return Err(AppError::Authorization("Cannot access this saved query".into()));
     }
 
     Ok(Some(row_to_public(r)?))
 }
 
-pub async fn insert(
-    pool: &PgPool,
-    user_id: i64,
-    body: &SavedStatsQueryWrite,
-) -> Result<SavedStatsQuery, AppError> {
-    let query_json = serde_json::to_value(&body.query)
-        .map_err(|e| AppError::Internal(format!("Serialize query: {}", e)))?;
+pub async fn insert(pool: &PgPool, user_id: i64, body: &SavedStatsQueryWrite) -> Result<SavedStatsQuery, AppError> {
+    let query_json = serde_json::to_value(&body.query).map_err(|e| AppError::Internal(format!("Serialize query: {}", e)))?;
 
     let row = sqlx::query_as::<_, SavedStatsQueryRow>(
         r#"
@@ -97,13 +79,7 @@ pub async fn insert(
     row_to_public(row)
 }
 
-pub async fn update(
-    pool: &PgPool,
-    id: i64,
-    user_id: i64,
-    is_admin: bool,
-    body: &SavedStatsQueryWrite,
-) -> Result<SavedStatsQuery, AppError> {
+pub async fn update(pool: &PgPool, id: i64, user_id: i64, is_admin: bool, body: &SavedStatsQueryWrite) -> Result<SavedStatsQuery, AppError> {
     let owner = sqlx::query_scalar::<_, i64>("SELECT user_id FROM saved_queries WHERE id = $1")
         .bind(id)
         .fetch_optional(pool)
@@ -112,13 +88,10 @@ pub async fn update(
         .ok_or_else(|| AppError::NotFound("Saved query not found".into()))?;
 
     if !is_admin && owner != user_id {
-        return Err(AppError::Authorization(
-            "Only the owner can update this saved query".into(),
-        ));
+        return Err(AppError::Authorization("Only the owner can update this saved query".into()));
     }
 
-    let query_json = serde_json::to_value(&body.query)
-        .map_err(|e| AppError::Internal(format!("Serialize query: {}", e)))?;
+    let query_json = serde_json::to_value(&body.query).map_err(|e| AppError::Internal(format!("Serialize query: {}", e)))?;
 
     let row = sqlx::query_as::<_, SavedStatsQueryRow>(
         r#"
@@ -140,12 +113,7 @@ pub async fn update(
     row_to_public(row)
 }
 
-pub async fn delete_by_id(
-    pool: &PgPool,
-    id: i64,
-    user_id: i64,
-    is_admin: bool,
-) -> Result<(), AppError> {
+pub async fn delete_by_id(pool: &PgPool, id: i64, user_id: i64, is_admin: bool) -> Result<(), AppError> {
     let owner = sqlx::query_scalar::<_, i64>("SELECT user_id FROM saved_queries WHERE id = $1")
         .bind(id)
         .fetch_optional(pool)
@@ -154,9 +122,7 @@ pub async fn delete_by_id(
         .ok_or_else(|| AppError::NotFound("Saved query not found".into()))?;
 
     if !is_admin && owner != user_id {
-        return Err(AppError::Authorization(
-            "Only the owner can delete this saved query".into(),
-        ));
+        return Err(AppError::Authorization("Only the owner can delete this saved query".into()));
     }
 
     sqlx::query("DELETE FROM saved_queries WHERE id = $1")
@@ -181,8 +147,7 @@ struct SavedStatsQueryRow {
 }
 
 fn row_to_public(row: SavedStatsQueryRow) -> Result<SavedStatsQuery, AppError> {
-    let query: StatsBuilderBody = serde_json::from_value(row.query_json)
-        .map_err(|e| AppError::Internal(format!("Invalid stored query_json: {}", e)))?;
+    let query: StatsBuilderBody = serde_json::from_value(row.query_json).map_err(|e| AppError::Internal(format!("Invalid stored query_json: {}", e)))?;
     Ok(SavedStatsQuery {
         id: row.id,
         name: row.name,

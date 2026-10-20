@@ -9,10 +9,7 @@ use axum::{
 
 use crate::{
     error::AppResult,
-    models::withdrawal::{
-        BatchDisposeRequest, BatchWithdrawalRequest, BatchWithdrawalResponse, ItemWithdrawal,
-        WithdrawalList, WithdrawalQuery, WithdrawalWrite,
-    },
+    models::withdrawal::{BatchDisposeRequest, BatchWithdrawalRequest, BatchWithdrawalResponse, ItemWithdrawal, WithdrawalList, WithdrawalQuery, WithdrawalWrite},
     services::audit,
 };
 
@@ -22,18 +19,12 @@ pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::{get, post};
     axum::Router::new()
         .route("/items/withdrawals", post(batch_withdraw))
-        .route(
-            "/items/:id/withdrawals",
-            post(withdraw_item).get(get_active_item_withdrawal),
-        )
+        .route("/items/:id/withdrawals", post(withdraw_item).get(get_active_item_withdrawal))
         .route("/item-withdrawals/export.csv", get(export_withdrawals_csv))
         .route("/item-withdrawals/dispose", post(dispose_withdrawals))
         .route("/item-withdrawals", get(list_withdrawals))
         .route("/item-withdrawals/:id/cancel", post(cancel_withdrawal))
-        .route(
-            "/item-withdrawals/:id",
-            get(get_withdrawal).patch(complete_legacy_withdrawal),
-        )
+        .route("/item-withdrawals/:id", get(get_withdrawal).patch(complete_legacy_withdrawal))
 }
 
 #[utoipa::path(
@@ -60,12 +51,7 @@ pub async fn withdraw_item(
     Json(body): Json<WithdrawalWrite>,
 ) -> AppResult<(StatusCode, Json<ItemWithdrawal>)> {
     claims.require_weeding()?;
-    match state
-        .services
-        .catalog
-        .withdraw_item(item_id, claims.user_id, &body)
-        .await
-    {
+    match state.services.catalog.withdraw_item(item_id, claims.user_id, &body).await {
         Ok(withdrawal) => {
             state.services.audit.log(
                 audit::event::ITEM_WITHDRAWN,
@@ -118,12 +104,7 @@ pub async fn batch_withdraw(
 ) -> AppResult<(StatusCode, Json<BatchWithdrawalResponse>)> {
     claims.require_weeding()?;
     let write = body.write();
-    match state
-        .services
-        .catalog
-        .withdraw_items(&body.item_ids, claims.user_id, &write)
-        .await
-    {
+    match state.services.catalog.withdraw_items(&body.item_ids, claims.user_id, &write).await {
         Ok(response) => {
             state.services.audit.log(
                 audit::event::ITEM_WITHDRAWALS_BATCH,
@@ -171,19 +152,9 @@ pub async fn batch_withdraw(
         (status = 409, description = "Withdrawal is already cancelled or already disposed", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn cancel_withdrawal(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    ClientIp(ip): ClientIp,
-    Path(id): Path<i64>,
-) -> AppResult<Json<ItemWithdrawal>> {
+pub async fn cancel_withdrawal(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Path(id): Path<i64>) -> AppResult<Json<ItemWithdrawal>> {
     claims.require_cancel_withdrawal()?;
-    match state
-        .services
-        .catalog
-        .cancel_withdrawal(id, claims.user_id)
-        .await
-    {
+    match state.services.catalog.cancel_withdrawal(id, claims.user_id).await {
         Ok(withdrawal) => {
             state.services.audit.log(
                 audit::event::ITEM_WITHDRAWAL_CANCELLED,
@@ -235,16 +206,7 @@ pub async fn dispose_withdrawals(
     Json(body): Json<BatchDisposeRequest>,
 ) -> AppResult<Json<BatchWithdrawalResponse>> {
     claims.require_weeding()?;
-    match state
-        .services
-        .catalog
-        .dispose_withdrawals(
-            &body.withdrawal_ids,
-            claims.user_id,
-            body.disposed_at.as_deref(),
-        )
-        .await
-    {
+    match state.services.catalog.dispose_withdrawals(&body.withdrawal_ids, claims.user_id, body.disposed_at.as_deref()).await {
         Ok(response) => {
             state.services.audit.log(
                 audit::event::ITEM_WITHDRAWALS_DISPOSED,
@@ -306,12 +268,7 @@ pub async fn complete_legacy_withdrawal(
     Json(body): Json<WithdrawalWrite>,
 ) -> AppResult<Json<ItemWithdrawal>> {
     claims.require_weeding()?;
-    match state
-        .services
-        .catalog
-        .complete_legacy_withdrawal(id, &body)
-        .await
-    {
+    match state.services.catalog.complete_legacy_withdrawal(id, &body).await {
         Ok(withdrawal) => {
             state.services.audit.log(
                 audit::event::ITEM_WITHDRAWAL_COMPLETED,
@@ -355,17 +312,9 @@ pub async fn complete_legacy_withdrawal(
         (status = 404, description = "No active withdrawal", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn get_active_item_withdrawal(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path(item_id): Path<i64>,
-) -> AppResult<Json<ItemWithdrawal>> {
+pub async fn get_active_item_withdrawal(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(item_id): Path<i64>) -> AppResult<Json<ItemWithdrawal>> {
     claims.require_read_weeding()?;
-    let withdrawal = state
-        .services
-        .catalog
-        .get_active_item_withdrawal(item_id)
-        .await?;
+    let withdrawal = state.services.catalog.get_active_item_withdrawal(item_id).await?;
     Ok(Json(withdrawal))
 }
 
@@ -381,11 +330,7 @@ pub async fn get_active_item_withdrawal(
         (status = 404, description = "Withdrawal not found", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn get_withdrawal(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i64>,
-) -> AppResult<Json<ItemWithdrawal>> {
+pub async fn get_withdrawal(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(id): Path<i64>) -> AppResult<Json<ItemWithdrawal>> {
     claims.require_read_weeding()?;
     let withdrawal = state.services.catalog.get_withdrawal(id).await?;
     Ok(Json(withdrawal))
@@ -401,11 +346,7 @@ pub async fn get_withdrawal(
         (status = 200, description = "Withdrawn copies, with totals by reason and destination", body = WithdrawalList)
     )
 )]
-pub async fn list_withdrawals(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Query(query): Query<WithdrawalQuery>,
-) -> AppResult<Json<WithdrawalList>> {
+pub async fn list_withdrawals(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<WithdrawalQuery>) -> AppResult<Json<WithdrawalList>> {
     claims.require_read_weeding()?;
     let list = state.services.catalog.list_withdrawals(&query).await?;
     Ok(Json(list))
@@ -422,24 +363,13 @@ pub async fn list_withdrawals(
         (status = 400, description = "from and to are required", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn export_withdrawals_csv(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Query(query): Query<WithdrawalQuery>,
-) -> AppResult<axum::response::Response> {
+pub async fn export_withdrawals_csv(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<WithdrawalQuery>) -> AppResult<axum::response::Response> {
     claims.require_read_weeding()?;
-    let csv = state
-        .services
-        .catalog
-        .export_withdrawals_csv(&query, claims.user_id)
-        .await?;
+    let csv = state.services.catalog.export_withdrawals_csv(&query, claims.user_id).await?;
     Ok((
         [
             (header::CONTENT_TYPE, "text/csv; charset=utf-8"),
-            (
-                header::CONTENT_DISPOSITION,
-                "attachment; filename=\"withdrawals.csv\"",
-            ),
+            (header::CONTENT_DISPOSITION, "attachment; filename=\"withdrawals.csv\""),
         ],
         csv,
     )

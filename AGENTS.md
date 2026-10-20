@@ -20,6 +20,15 @@ Elidune is a library management system split into two independently buildable co
 
 ## Common commands (from repo root)
 
+[just](https://github.com/casey/just) recipes mirror `.github/workflows/ci.yml` (`just --list`).
+
+```bash
+just ci              # PR-equivalent: UI + server lint, unit tests, DB integration
+just ci-ui           # pnpm install, lint, test, build
+just ci-server       # fmt, clippy, openapi, lib tests, DB tests (starts db/redis)
+just install-sqlx    # once: sqlx-cli 0.7.4 (CI pin)
+```
+
 ```bash
 # Dev — two terminals
 cd server && cargo run -- --config config/default.toml
@@ -28,7 +37,7 @@ cd ui && pnpm dev
 # Docker full stack
 docker compose -f docker/docker-compose.yml up --build
 
-# Lint / test
+# Lint / test (manual)
 cd server && cargo fmt --check && cargo clippy && cargo test
 cd ui && pnpm lint && pnpm build
 ```

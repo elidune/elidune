@@ -12,12 +12,8 @@ use sqlx::Row;
 
 fn legacy_copy_statements() -> Vec<String> {
     let migration = include_str!("../migrations/036_events_audiences.sql");
-    let start = migration
-        .find("-- BEGIN LEGACY AUDIENCE COPY")
-        .expect("start marker");
-    let end = migration
-        .find("-- END LEGACY AUDIENCE COPY")
-        .expect("end marker");
+    let start = migration.find("-- BEGIN LEGACY AUDIENCE COPY").expect("start marker");
+    let end = migration.find("-- END LEGACY AUDIENCE COPY").expect("end marker");
     migration[start..end]
         .lines()
         .filter(|line| !line.trim_start().starts_with("--"))
@@ -36,15 +32,8 @@ async fn migration_copies_null_and_single_public_type() {
         return;
     }
     let url = std::env::var("DATABASE_URL").expect("DATABASE_URL");
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&url)
-        .await
-        .expect("connect");
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await
-        .expect("migrate");
+    let pool = sqlx::postgres::PgPoolOptions::new().max_connections(1).connect(&url).await.expect("connect");
+    sqlx::migrate!("./migrations").run(&pool).await.expect("migrate");
 
     let mut tx = pool.begin().await.expect("begin");
 
@@ -74,42 +63,23 @@ async fn migration_copies_null_and_single_public_type() {
     .await
     .expect("temp event_audiences");
 
-    sqlx::query(
-        "INSERT INTO events (id, public_type, all_audiences) VALUES (1, NULL, FALSE), (2, 'child', FALSE)",
-    )
-    .execute(&mut *tx)
-    .await
-    .expect("fixture rows");
+    sqlx::query("INSERT INTO events (id, public_type, all_audiences) VALUES (1, NULL, FALSE), (2, 'child', FALSE)")
+        .execute(&mut *tx)
+        .await
+        .expect("fixture rows");
 
     for statement in legacy_copy_statements() {
-        sqlx::query(&statement)
-            .execute(&mut *tx)
-            .await
-            .unwrap_or_else(|err| panic!("legacy copy failed: {statement}\n{err}"));
+        sqlx::query(&statement).execute(&mut *tx).await.unwrap_or_else(|err| panic!("legacy copy failed: {statement}\n{err}"));
     }
 
-    let all_flag: bool = sqlx::query_scalar("SELECT all_audiences FROM events WHERE id = 1")
-        .fetch_one(&mut *tx)
-        .await
-        .unwrap();
+    let all_flag: bool = sqlx::query_scalar("SELECT all_audiences FROM events WHERE id = 1").fetch_one(&mut *tx).await.unwrap();
     assert!(all_flag, "NULL public_type becomes all_audiences");
-    let all_links: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM event_audiences WHERE event_id = 1")
-            .fetch_one(&mut *tx)
-            .await
-            .unwrap();
+    let all_links: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM event_audiences WHERE event_id = 1").fetch_one(&mut *tx).await.unwrap();
     assert_eq!(all_links, 0);
 
-    let child_flag: bool = sqlx::query_scalar("SELECT all_audiences FROM events WHERE id = 2")
-        .fetch_one(&mut *tx)
-        .await
-        .unwrap();
+    let child_flag: bool = sqlx::query_scalar("SELECT all_audiences FROM events WHERE id = 2").fetch_one(&mut *tx).await.unwrap();
     assert!(!child_flag);
-    let audience: String =
-        sqlx::query_scalar("SELECT audience FROM event_audiences WHERE event_id = 2")
-            .fetch_one(&mut *tx)
-            .await
-            .unwrap();
+    let audience: String = sqlx::query_scalar("SELECT audience FROM event_audiences WHERE event_id = 2").fetch_one(&mut *tx).await.unwrap();
     assert_eq!(audience, "child");
 
     tx.rollback().await.unwrap();
@@ -133,10 +103,7 @@ async fn event_audiences_create_update_read_and_reject_empty() {
         .iter()
         .filter_map(|row| row["name"].as_str().map(str::to_string))
         .collect();
-    assert!(
-        names.len() >= 2,
-        "need two public types to test multi-audience, got {names:?}"
-    );
+    assert!(names.len() >= 2, "need two public types to test multi-audience, got {names:?}");
     let first = &names[0];
     let second = &names[1];
 
@@ -152,11 +119,7 @@ async fn event_audiences_create_update_read_and_reject_empty() {
             Some(&token),
         )
         .await;
-    assert_eq!(
-        empty_status,
-        StatusCode::BAD_REQUEST,
-        "empty selection: {empty_body}"
-    );
+    assert_eq!(empty_status, StatusCode::BAD_REQUEST, "empty selection: {empty_body}");
 
     let (legacy_status, legacy_body) = app
         .post_json(
@@ -187,19 +150,14 @@ async fn event_audiences_create_update_read_and_reject_empty() {
         .await;
     assert_eq!(multi_status, StatusCode::CREATED, "multi: {multi_body}");
     assert_eq!(multi_body["allAudiences"], false);
-    let mut stored = multi_body["publicTypes"]
-        .as_array()
-        .expect("publicTypes")
-        .clone();
+    let mut stored = multi_body["publicTypes"].as_array().expect("publicTypes").clone();
     stored.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
     let mut expected = vec![json!(first), json!(second)];
     expected.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
     assert_eq!(stored, expected, "duplicates dropped");
     let multi_id = fixtures::json_id(&multi_body["id"]);
 
-    let (read_status, read_body) = app
-        .get_json_with_auth(&format!("/api/v1/events/{multi_id}"), &token)
-        .await;
+    let (read_status, read_body) = app.get_json_with_auth(&format!("/api/v1/events/{multi_id}"), &token).await;
     assert_eq!(read_status, StatusCode::OK, "read: {read_body}");
     assert_eq!(read_body["publicTypes"], multi_body["publicTypes"]);
 
@@ -218,13 +176,9 @@ async fn event_audiences_create_update_read_and_reject_empty() {
     assert_eq!(all_body["publicTypes"], json!([]));
 
     let listed = app
-        .find_paged_row(
-            &token,
-            "/api/v1/events?startDate=2026-09-03&endDate=2026-09-03",
-            "events",
-            &format!("event {multi_id}"),
-            |event| fixtures::json_id(&event["id"]) == multi_id,
-        )
+        .find_paged_row(&token, "/api/v1/events?startDate=2026-09-03&endDate=2026-09-03", "events", &format!("event {multi_id}"), |event| {
+            fixtures::json_id(&event["id"]) == multi_id
+        })
         .await;
     assert_eq!(listed["allAudiences"], true);
 
@@ -255,49 +209,22 @@ async fn child_only_event_emails_the_guardian_and_names_the_child() {
     let (guardian_id, _) = fixtures::create_reader(&app, &token, "announce_guard").await;
     grant_events_consent(&app, guardian_id).await;
     let guardian_email = patron_email(&app, &token, guardian_id).await;
-    let (child_id, child_email) = create_child(
-        &app,
-        &token,
-        guardian_id,
-        "Lea",
-        &format!("Martin{suffix}"),
-        &format!("child_{suffix}"),
-    )
-    .await;
+    let (child_id, child_email) = create_child(&app, &token, guardian_id, "Lea", &format!("Martin{suffix}"), &format!("child_{suffix}")).await;
     sqlx::query("UPDATE users SET receive_reminders = FALSE WHERE id = $1")
         .bind(child_id)
         .execute(app.state.services.repository.pool())
         .await
         .expect("clear child opt-in");
 
-    let event_id = create_event(
-        &app,
-        &token,
-        &format!("Child only {suffix}"),
-        "2026-11-01",
-        json!({ "publicTypes": ["child"] }),
-    )
-    .await;
+    let event_id = create_event(&app, &token, &format!("Child only {suffix}"), "2026-11-01", json!({ "publicTypes": ["child"] })).await;
 
     let (status, body) = send_template_announcement(&app, &token, event_id).await;
     assert_eq!(status, StatusCode::OK, "send child announcement: {body}");
     let mailed = outbox_bodies_for(&app, event_id, &guardian_email).await;
     assert_eq!(mailed.len(), 1, "guardian gets one email: {mailed:?}");
-    assert!(
-        mailed[0].contains(&format!("Lea Martin{suffix}")),
-        "email must name the child: {}",
-        mailed[0]
-    );
-    assert!(
-        mailed[0].contains("Cette invitation concerne"),
-        "default language is french: {}",
-        mailed[0]
-    );
-    assert_eq!(
-        outbox_rows_for(&app, event_id, &child_email).await,
-        0,
-        "child address must not be queued"
-    );
+    assert!(mailed[0].contains(&format!("Lea Martin{suffix}")), "email must name the child: {}", mailed[0]);
+    assert!(mailed[0].contains("Cette invitation concerne"), "default language is french: {}", mailed[0]);
+    assert_eq!(outbox_rows_for(&app, event_id, &child_email).await, 0, "child address must not be queued");
 }
 
 /// One guardian, two targeted children: a single email names both.
@@ -311,48 +238,17 @@ async fn guardian_of_two_children_gets_one_email_naming_both() {
     let (guardian_id, _) = fixtures::create_reader(&app, &token, "announce_two").await;
     grant_events_consent(&app, guardian_id).await;
     let guardian_email = patron_email(&app, &token, guardian_id).await;
-    let _ = create_child(
-        &app,
-        &token,
-        guardian_id,
-        "Lea",
-        &format!("One{suffix}"),
-        &format!("child_a_{suffix}"),
-    )
-    .await;
-    let _ = create_child(
-        &app,
-        &token,
-        guardian_id,
-        "Noe",
-        &format!("Two{suffix}"),
-        &format!("child_b_{suffix}"),
-    )
-    .await;
+    let _ = create_child(&app, &token, guardian_id, "Lea", &format!("One{suffix}"), &format!("child_a_{suffix}")).await;
+    let _ = create_child(&app, &token, guardian_id, "Noe", &format!("Two{suffix}"), &format!("child_b_{suffix}")).await;
 
-    let event_id = create_event(
-        &app,
-        &token,
-        &format!("Two children {suffix}"),
-        "2026-11-03",
-        json!({ "publicTypes": ["child"] }),
-    )
-    .await;
+    let event_id = create_event(&app, &token, &format!("Two children {suffix}"), "2026-11-03", json!({ "publicTypes": ["child"] })).await;
 
     let (status, body) = send_template_announcement(&app, &token, event_id).await;
     assert_eq!(status, StatusCode::OK, "send: {body}");
     let mailed = outbox_bodies_for(&app, event_id, &guardian_email).await;
     assert_eq!(mailed.len(), 1, "one email for both children: {mailed:?}");
-    assert!(
-        mailed[0].contains(&format!("Lea One{suffix}")),
-        "missing first child: {}",
-        mailed[0]
-    );
-    assert!(
-        mailed[0].contains(&format!("Noe Two{suffix}")),
-        "missing second child: {}",
-        mailed[0]
-    );
+    assert!(mailed[0].contains(&format!("Lea One{suffix}")), "missing first child: {}", mailed[0]);
+    assert!(mailed[0].contains(&format!("Noe Two{suffix}")), "missing second child: {}", mailed[0]);
 }
 
 /// A guardian who is also in the audience still receives a single email.
@@ -366,38 +262,15 @@ async fn guardian_also_in_the_audience_gets_one_email() {
     let (guardian_id, _) = fixtures::create_reader(&app, &token, "announce_both").await;
     grant_events_consent(&app, guardian_id).await;
     let guardian_email = patron_email(&app, &token, guardian_id).await;
-    let _ = create_child(
-        &app,
-        &token,
-        guardian_id,
-        "Ada",
-        &format!("Both{suffix}"),
-        &format!("child_both_{suffix}"),
-    )
-    .await;
+    let _ = create_child(&app, &token, guardian_id, "Ada", &format!("Both{suffix}"), &format!("child_both_{suffix}")).await;
 
-    let event_id = create_event(
-        &app,
-        &token,
-        &format!("Adult and child {suffix}"),
-        "2026-11-04",
-        json!({ "publicTypes": ["adult", "child"] }),
-    )
-    .await;
+    let event_id = create_event(&app, &token, &format!("Adult and child {suffix}"), "2026-11-04", json!({ "publicTypes": ["adult", "child"] })).await;
 
     let (status, body) = send_template_announcement(&app, &token, event_id).await;
     assert_eq!(status, StatusCode::OK, "send: {body}");
     let mailed = outbox_bodies_for(&app, event_id, &guardian_email).await;
-    assert_eq!(
-        mailed.len(),
-        1,
-        "direct match and guardian route collapse to one email: {mailed:?}"
-    );
-    assert!(
-        mailed[0].contains(&format!("Ada Both{suffix}")),
-        "the one email still names the child: {}",
-        mailed[0]
-    );
+    assert_eq!(mailed.len(), 1, "direct match and guardian route collapse to one email: {mailed:?}");
+    assert!(mailed[0].contains(&format!("Ada Both{suffix}")), "the one email still names the child: {}", mailed[0]);
 }
 
 /// An erased child does not cause an email to their guardian.
@@ -410,37 +283,16 @@ async fn erased_child_does_not_email_the_guardian() {
     let suffix = fixtures::unique_suffix();
     let (guardian_id, _) = fixtures::create_reader(&app, &token, "announce_erased_child").await;
     let guardian_email = patron_email(&app, &token, guardian_id).await;
-    let (child_id, _) = create_child(
-        &app,
-        &token,
-        guardian_id,
-        "Gone",
-        &format!("Erased{suffix}"),
-        &format!("child_erased_{suffix}"),
-    )
-    .await;
+    let (child_id, _) = create_child(&app, &token, guardian_id, "Gone", &format!("Erased{suffix}"), &format!("child_erased_{suffix}")).await;
 
-    let (status, body) = app
-        .delete_with_auth(&format!("/api/v1/users/{child_id}"), &token)
-        .await;
+    let (status, body) = app.delete_with_auth(&format!("/api/v1/users/{child_id}"), &token).await;
     assert_eq!(status, StatusCode::NO_CONTENT, "erase child: {body}");
 
-    let event_id = create_event(
-        &app,
-        &token,
-        &format!("Erased child {suffix}"),
-        "2026-11-05",
-        json!({ "publicTypes": ["child"] }),
-    )
-    .await;
+    let event_id = create_event(&app, &token, &format!("Erased child {suffix}"), "2026-11-05", json!({ "publicTypes": ["child"] })).await;
 
     let (status, body) = send_template_announcement(&app, &token, event_id).await;
     assert_eq!(status, StatusCode::OK, "send: {body}");
-    assert_eq!(
-        outbox_rows_for(&app, event_id, &guardian_email).await,
-        0,
-        "erased child must not route to the guardian"
-    );
+    assert_eq!(outbox_rows_for(&app, event_id, &guardian_email).await, 0, "erased child must not route to the guardian");
 }
 
 /// The guardian's event consent is required. `receive_reminders` and the child's consent are not substitutes.
@@ -453,38 +305,19 @@ async fn guardian_without_consent_gets_nothing() {
     let suffix = fixtures::unique_suffix();
     let (guardian_id, _) = fixtures::create_reader(&app, &token, "announce_nocon").await;
     let guardian_email = patron_email(&app, &token, guardian_id).await;
-    let (child_id, child_email) = create_child(
-        &app,
-        &token,
-        guardian_id,
-        "Mia",
-        &format!("NoCon{suffix}"),
-        &format!("child_nocon_{suffix}"),
-    )
-    .await;
-    sqlx::query(
-        "UPDATE users SET receive_reminders = TRUE, events_consent_at = NULL, events_consent_source = NULL WHERE id = $1",
-    )
-    .bind(guardian_id)
-    .execute(app.state.services.repository.pool())
-    .await
-    .expect("clear guardian event consent");
-    sqlx::query(
-        "UPDATE users SET events_consent_at = NOW(), events_consent_source = 'desk', events_consent_changed_at = NOW() WHERE id = $1",
-    )
-    .bind(child_id)
-    .execute(app.state.services.repository.pool())
-    .await
-    .expect("child consent must not count");
+    let (child_id, child_email) = create_child(&app, &token, guardian_id, "Mia", &format!("NoCon{suffix}"), &format!("child_nocon_{suffix}")).await;
+    sqlx::query("UPDATE users SET receive_reminders = TRUE, events_consent_at = NULL, events_consent_source = NULL WHERE id = $1")
+        .bind(guardian_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("clear guardian event consent");
+    sqlx::query("UPDATE users SET events_consent_at = NOW(), events_consent_source = 'desk', events_consent_changed_at = NOW() WHERE id = $1")
+        .bind(child_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("child consent must not count");
 
-    let event_id = create_event(
-        &app,
-        &token,
-        &format!("No consent {suffix}"),
-        "2026-11-06",
-        json!({ "publicTypes": ["child"] }),
-    )
-    .await;
+    let event_id = create_event(&app, &token, &format!("No consent {suffix}"), "2026-11-06", json!({ "publicTypes": ["child"] })).await;
 
     let (status, body) = send_template_announcement(&app, &token, event_id).await;
     assert_eq!(status, StatusCode::OK, "send: {body}");
@@ -502,29 +335,14 @@ async fn child_without_guardian_gets_nothing() {
     let suffix = fixtures::unique_suffix();
     let (guardian_id, _) = fixtures::create_reader(&app, &token, "announce_nolink").await;
     let guardian_email = patron_email(&app, &token, guardian_id).await;
-    let (child_id, child_email) = create_child(
-        &app,
-        &token,
-        guardian_id,
-        "Orphan",
-        &format!("NoLink{suffix}"),
-        &format!("child_nolink_{suffix}"),
-    )
-    .await;
+    let (child_id, child_email) = create_child(&app, &token, guardian_id, "Orphan", &format!("NoLink{suffix}"), &format!("child_nolink_{suffix}")).await;
     sqlx::query("DELETE FROM user_guardians WHERE child_id = $1")
         .bind(child_id)
         .execute(app.state.services.repository.pool())
         .await
         .expect("drop guardian link");
 
-    let event_id = create_event(
-        &app,
-        &token,
-        &format!("No guardian {suffix}"),
-        "2026-11-07",
-        json!({ "publicTypes": ["child"] }),
-    )
-    .await;
+    let event_id = create_event(&app, &token, &format!("No guardian {suffix}"), "2026-11-07", json!({ "publicTypes": ["child"] })).await;
 
     let (status, body) = send_template_announcement(&app, &token, event_id).await;
     assert_eq!(status, StatusCode::OK, "send: {body}");
@@ -543,15 +361,11 @@ async fn erased_patron_receives_no_announcement() {
     let suffix = fixtures::unique_suffix();
     let (reader_id, _) = fixtures::create_reader(&app, &token, "announce_erase").await;
 
-    let (status, user) = app
-        .get_json_with_auth(&format!("/api/v1/users/{reader_id}"), &token)
-        .await;
+    let (status, user) = app.get_json_with_auth(&format!("/api/v1/users/{reader_id}"), &token).await;
     assert_eq!(status, StatusCode::OK, "read patron: {user}");
     let email = user["email"].as_str().expect("patron email").to_string();
 
-    let (status, body) = app
-        .delete_with_auth(&format!("/api/v1/users/{reader_id}"), &token)
-        .await;
+    let (status, body) = app.delete_with_auth(&format!("/api/v1/users/{reader_id}"), &token).await;
     assert_eq!(status, StatusCode::NO_CONTENT, "erase patron: {body}");
 
     let row = sqlx::query("SELECT status, receive_reminders, email FROM users WHERE id = $1")
@@ -567,40 +381,21 @@ async fn erased_patron_receives_no_announcement() {
     assert!(stored_email.is_none(), "erasure clears email");
 
     // Put the address and consent back so a dropped status filter would enqueue this patron.
-    sqlx::query(
-        "UPDATE users SET email = $1, events_consent_at = NOW(), events_consent_source = 'desk', events_consent_changed_at = NOW() WHERE id = $2",
-    )
-    .bind(&email)
-    .bind(reader_id)
-    .execute(app.state.services.repository.pool())
-    .await
-    .expect("restore email and consent");
+    sqlx::query("UPDATE users SET email = $1, events_consent_at = NOW(), events_consent_source = 'desk', events_consent_changed_at = NOW() WHERE id = $2")
+        .bind(&email)
+        .bind(reader_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("restore email and consent");
 
-    let event_id = create_event(
-        &app,
-        &token,
-        &format!("All audiences {suffix}"),
-        "2026-11-02",
-        json!({ "allAudiences": true }),
-    )
-    .await;
+    let event_id = create_event(&app, &token, &format!("All audiences {suffix}"), "2026-11-02", json!({ "allAudiences": true })).await;
 
     let (status, body) = send_announcement(&app, &token, event_id).await;
     assert_eq!(status, StatusCode::OK, "send after erasure: {body}");
-    assert_eq!(
-        outbox_rows_for(&app, event_id, &email).await,
-        0,
-        "erased patron must not be queued: {body}"
-    );
+    assert_eq!(outbox_rows_for(&app, event_id, &email).await, 0, "erased patron must not be queued: {body}");
 }
 
-async fn create_event(
-    app: &TestApp,
-    token: &str,
-    name: &str,
-    event_date: &str,
-    audience: serde_json::Value,
-) -> i64 {
+async fn create_event(app: &TestApp, token: &str, name: &str, event_date: &str, audience: serde_json::Value) -> i64 {
     let mut payload = json!({
         "name": name,
         "eventDate": event_date
@@ -614,14 +409,7 @@ async fn create_event(
     fixtures::json_id(&body["id"])
 }
 
-async fn create_child(
-    app: &TestApp,
-    token: &str,
-    guardian_id: i64,
-    firstname: &str,
-    lastname: &str,
-    login_prefix: &str,
-) -> (i64, String) {
+async fn create_child(app: &TestApp, token: &str, guardian_id: i64, firstname: &str, lastname: &str, login_prefix: &str) -> (i64, String) {
     let child_type = fixtures::public_type_id_by_name(app, token, "child").await;
     let login = format!("{login_prefix}_{}", fixtures::unique_suffix());
     let email = format!("{login}@test.local");
@@ -649,41 +437,24 @@ async fn create_child(
 }
 
 async fn grant_events_consent(app: &TestApp, user_id: i64) {
-    sqlx::query(
-        "UPDATE users SET events_consent_at = NOW(), events_consent_source = 'desk', events_consent_changed_at = NOW() WHERE id = $1",
-    )
-    .bind(user_id)
-    .execute(app.state.services.repository.pool())
-    .await
-    .expect("grant events consent");
+    sqlx::query("UPDATE users SET events_consent_at = NOW(), events_consent_source = 'desk', events_consent_changed_at = NOW() WHERE id = $1")
+        .bind(user_id)
+        .execute(app.state.services.repository.pool())
+        .await
+        .expect("grant events consent");
 }
 
 async fn patron_email(app: &TestApp, token: &str, user_id: i64) -> String {
-    let (status, user) = app
-        .get_json_with_auth(&format!("/api/v1/users/{user_id}"), token)
-        .await;
+    let (status, user) = app.get_json_with_auth(&format!("/api/v1/users/{user_id}"), token).await;
     assert_eq!(status, StatusCode::OK, "read patron: {user}");
     user["email"].as_str().expect("patron email").to_string()
 }
 
-async fn send_template_announcement(
-    app: &TestApp,
-    token: &str,
-    event_id: i64,
-) -> (StatusCode, serde_json::Value) {
-    app.post_json(
-        &format!("/api/v1/events/{event_id}/send-announcement"),
-        &json!({}),
-        Some(token),
-    )
-    .await
+async fn send_template_announcement(app: &TestApp, token: &str, event_id: i64) -> (StatusCode, serde_json::Value) {
+    app.post_json(&format!("/api/v1/events/{event_id}/send-announcement"), &json!({}), Some(token)).await
 }
 
-async fn send_announcement(
-    app: &TestApp,
-    token: &str,
-    event_id: i64,
-) -> (StatusCode, serde_json::Value) {
+async fn send_announcement(app: &TestApp, token: &str, event_id: i64) -> (StatusCode, serde_json::Value) {
     app.post_json(
         &format!("/api/v1/events/{event_id}/send-announcement"),
         &json!({

@@ -101,21 +101,10 @@ fn database_url() -> Option<String> {
 
 async fn scratch_connection(schema: &str) -> Option<sqlx::PgConnection> {
     let url = database_url()?;
-    let mut conn = sqlx::postgres::PgConnection::connect(&url)
-        .await
-        .expect("connect");
-    sqlx::query(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"))
-        .execute(&mut conn)
-        .await
-        .expect("drop scratch schema");
-    sqlx::query(&format!("CREATE SCHEMA {schema}"))
-        .execute(&mut conn)
-        .await
-        .expect("create scratch schema");
-    sqlx::query(&format!("SET search_path TO {schema}"))
-        .execute(&mut conn)
-        .await
-        .expect("search_path");
+    let mut conn = sqlx::postgres::PgConnection::connect(&url).await.expect("connect");
+    sqlx::query(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE")).execute(&mut conn).await.expect("drop scratch schema");
+    sqlx::query(&format!("CREATE SCHEMA {schema}")).execute(&mut conn).await.expect("create scratch schema");
+    sqlx::query(&format!("SET search_path TO {schema}")).execute(&mut conn).await.expect("search_path");
     Some(conn)
 }
 
@@ -131,13 +120,10 @@ fn migration_sql_is_one_file_found_by_suffix() {
     let sql = money_migration_sql();
     let statements = split_sql(&sql);
     assert!(statements.len() > 5, "{}", statements.len());
-    assert!(statements.iter().any(|statement| {
-        statement.contains("elidune_migrate_item_price") && statement.contains("RETURN NEXT")
-    }));
-    assert!(
-        sql.contains("RAISE NOTICE 'money migration rejects: %'"),
-        "migration must log the total reject count"
-    );
+    assert!(statements
+        .iter()
+        .any(|statement| { statement.contains("elidune_migrate_item_price") && statement.contains("RETURN NEXT") }));
+    assert!(sql.contains("RAISE NOTICE 'money migration rejects: %'"), "migration must log the total reject count");
 }
 
 #[test]
@@ -218,15 +204,9 @@ async fn migration_converts_euros_and_records_rejects() {
     .await
     .expect("seed old money schema");
 
-    exec_statements(&mut conn, &money_migration_sql())
-        .await
-        .expect("cents migration");
+    exec_statements(&mut conn, &money_migration_sql()).await.expect("cents migration");
 
-    let prices: Vec<(i64, Option<i64>, bool)> =
-        sqlx::query_as("SELECT id, price, price_deferred FROM items ORDER BY id")
-            .fetch_all(&mut conn)
-            .await
-            .expect("prices");
+    let prices: Vec<(i64, Option<i64>, bool)> = sqlx::query_as("SELECT id, price, price_deferred FROM items ORDER BY id").fetch_all(&mut conn).await.expect("prices");
     assert_eq!(
         prices,
         vec![
@@ -247,87 +227,58 @@ async fn migration_converts_euros_and_records_rejects() {
         ]
     );
 
-    let fine: (i64, i64, i64) =
-        sqlx::query_as("SELECT amount, paid_amount, refunded_amount FROM fines WHERE id = 1")
-            .fetch_one(&mut conn)
-            .await
-            .expect("fine");
-    assert_eq!(fine, (1250, 0, 0));
-    let refunded: (i64, i64, i64) =
-        sqlx::query_as("SELECT amount, paid_amount, refunded_amount FROM fines WHERE id = 2")
-            .fetch_one(&mut conn)
-            .await
-            .expect("refunded fine");
-    assert_eq!(refunded, (1500, 1500, 1500));
-
-    let rule: (i64, Option<i64>) =
-        sqlx::query_as("SELECT daily_rate, max_amount FROM fine_rules WHERE id = 1")
-            .fetch_one(&mut conn)
-            .await
-            .expect("rule");
-    assert_eq!(rule, (20, Some(1500)));
-    let bad_cap: Option<i64> = sqlx::query_scalar("SELECT max_amount FROM fine_rules WHERE id = 2")
+    let fine: (i64, i64, i64) = sqlx::query_as("SELECT amount, paid_amount, refunded_amount FROM fines WHERE id = 1")
         .fetch_one(&mut conn)
         .await
-        .expect("bad cap");
+        .expect("fine");
+    assert_eq!(fine, (1250, 0, 0));
+    let refunded: (i64, i64, i64) = sqlx::query_as("SELECT amount, paid_amount, refunded_amount FROM fines WHERE id = 2")
+        .fetch_one(&mut conn)
+        .await
+        .expect("refunded fine");
+    assert_eq!(refunded, (1500, 1500, 1500));
+
+    let rule: (i64, Option<i64>) = sqlx::query_as("SELECT daily_rate, max_amount FROM fine_rules WHERE id = 1").fetch_one(&mut conn).await.expect("rule");
+    assert_eq!(rule, (20, Some(1500)));
+    let bad_cap: Option<i64> = sqlx::query_scalar("SELECT max_amount FROM fine_rules WHERE id = 2").fetch_one(&mut conn).await.expect("bad cap");
     assert_eq!(bad_cap, None);
 
-    let threshold: i64 =
-        sqlx::query_scalar("SELECT unpaid_fine_threshold FROM circulation_settings WHERE id = 1")
-            .fetch_one(&mut conn)
-            .await
-            .expect("threshold");
+    let threshold: i64 = sqlx::query_scalar("SELECT unpaid_fine_threshold FROM circulation_settings WHERE id = 1")
+        .fetch_one(&mut conn)
+        .await
+        .expect("threshold");
     assert_eq!(threshold, 0);
 
-    let adult: (i64, Option<i64>) = sqlx::query_as(
-        "SELECT subscription_price, unpaid_fine_threshold FROM public_types WHERE id = 1",
-    )
-    .fetch_one(&mut conn)
-    .await
-    .expect("adult");
+    let adult: (i64, Option<i64>) = sqlx::query_as("SELECT subscription_price, unpaid_fine_threshold FROM public_types WHERE id = 1")
+        .fetch_one(&mut conn)
+        .await
+        .expect("adult");
     assert_eq!(adult, (1500, Some(450)));
-    let cleared: (i64, Option<i64>) = sqlx::query_as(
-        "SELECT subscription_price, unpaid_fine_threshold FROM public_types WHERE id = 2",
-    )
-    .fetch_one(&mut conn)
-    .await
-    .expect("cleared threshold");
+    let cleared: (i64, Option<i64>) = sqlx::query_as("SELECT subscription_price, unpaid_fine_threshold FROM public_types WHERE id = 2")
+        .fetch_one(&mut conn)
+        .await
+        .expect("cleared threshold");
     assert_eq!(cleared.0, 0);
     assert_eq!(cleared.1, None);
 
-    let rejects: Vec<(String, String, Option<String>)> = sqlx::query_as(
-        "SELECT table_name, column_name, raw_value FROM money_migration_rejects ORDER BY id",
-    )
-    .fetch_all(&mut conn)
-    .await
-    .expect("rejects");
+    let rejects: Vec<(String, String, Option<String>)> = sqlx::query_as("SELECT table_name, column_name, raw_value FROM money_migration_rejects ORDER BY id")
+        .fetch_all(&mut conn)
+        .await
+        .expect("rejects");
     assert_eq!(rejects.len(), 7, "{rejects:?}");
-    assert_eq!(
-        rejects
-            .iter()
-            .filter(|(table, column, _)| table == "items" && column == "price")
-            .count(),
-        5
-    );
+    assert_eq!(rejects.iter().filter(|(table, column, _)| table == "items" && column == "price").count(), 5);
     assert!(
-        !rejects.iter().any(|(table, column, _)| {
-            table == "fines" && column == "paid_amount+refunded_amount"
-        }),
+        !rejects.iter().any(|(table, column, _)| { table == "fines" && column == "paid_amount+refunded_amount" }),
         "a refund keeps paid_amount and is not a reject: {rejects:?}"
     );
-    let refund_rejects: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM money_migration_rejects WHERE table_name = 'fines' AND row_id = 2",
-    )
-    .fetch_one(&mut conn)
-    .await
-    .expect("refund rejects");
+    let refund_rejects: i64 = sqlx::query_scalar("SELECT count(*) FROM money_migration_rejects WHERE table_name = 'fines' AND row_id = 2")
+        .fetch_one(&mut conn)
+        .await
+        .expect("refund rejects");
     assert_eq!(refund_rejects, 0);
-    assert!(rejects.iter().all(|(_, _, raw)| {
-        !matches!(
-            raw.as_deref(),
-            Some("12,50") | Some("12,50 €") | Some("12,50€") | Some("12 €")
-        )
-    }));
+    assert!(rejects
+        .iter()
+        .all(|(_, _, raw)| { !matches!(raw.as_deref(), Some("12,50") | Some("12,50 €") | Some("12,50€") | Some("12 €")) }));
 
     let columns: Vec<(String, String, String)> = sqlx::query_as(
         r#"
@@ -349,19 +300,13 @@ async fn migration_converts_euros_and_records_rejects() {
             ("row_id".into(), "bigint".into(), "NO".into()),
             ("column_name".into(), "text".into(), "NO".into()),
             ("raw_value".into(), "text".into(), "YES".into()),
-            (
-                "migrated_at".into(),
-                "timestamp with time zone".into(),
-                "NO".into()
-            ),
+            ("migrated_at".into(), "timestamp with time zone".into(), "NO".into()),
         ]
     );
-    let missing_migrated_at: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM money_migration_rejects WHERE migrated_at IS NULL",
-    )
-    .fetch_one(&mut conn)
-    .await
-    .expect("migrated_at");
+    let missing_migrated_at: i64 = sqlx::query_scalar("SELECT count(*) FROM money_migration_rejects WHERE migrated_at IS NULL")
+        .fetch_one(&mut conn)
+        .await
+        .expect("migrated_at");
     assert_eq!(missing_migrated_at, 0);
     let foreign_keys: i64 = sqlx::query_scalar(
         r#"
@@ -376,35 +321,20 @@ async fn migration_converts_euros_and_records_rejects() {
     .expect("foreign keys");
     assert_eq!(foreign_keys, 0);
 
-    let paid_cap: String = sqlx::query_scalar(
-        "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'fines_paid_amount_lte_amount'",
-    )
-    .fetch_one(&mut conn)
-    .await
-    .expect("paid cap");
-    assert!(
-        paid_cap.contains("paid_amount") && paid_cap.contains("amount"),
-        "{paid_cap}"
-    );
+    let paid_cap: String = sqlx::query_scalar("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'fines_paid_amount_lte_amount'")
+        .fetch_one(&mut conn)
+        .await
+        .expect("paid cap");
+    assert!(paid_cap.contains("paid_amount") && paid_cap.contains("amount"), "{paid_cap}");
     let mut tx = conn.begin().await.expect("begin paid cap");
-    let overpaid = sqlx::query(
-        "INSERT INTO fines (id, amount, paid_amount, refunded_amount) VALUES (99, 100, 101, 0)",
-    )
-    .execute(&mut *tx)
-    .await
-    .expect_err("paid above amount");
-    assert!(
-        overpaid
-            .to_string()
-            .contains("fines_paid_amount_lte_amount"),
-        "{overpaid}"
-    );
+    let overpaid = sqlx::query("INSERT INTO fines (id, amount, paid_amount, refunded_amount) VALUES (99, 100, 101, 0)")
+        .execute(&mut *tx)
+        .await
+        .expect_err("paid above amount");
+    assert!(overpaid.to_string().contains("fines_paid_amount_lte_amount"), "{overpaid}");
     tx.rollback().await.expect("rollback paid cap");
 
-    sqlx::query("DROP SCHEMA money_cents_fixture CASCADE")
-        .execute(&mut conn)
-        .await
-        .expect("cleanup");
+    sqlx::query("DROP SCHEMA money_cents_fixture CASCADE").execute(&mut conn).await.expect("cleanup");
 }
 
 fn minimal_money_schema(fines_seed: &str) -> String {
@@ -445,9 +375,7 @@ async fn migration_aborts_when_paid_amount_exceeds_amount() {
     };
     exec_statements(
         &mut conn,
-        &minimal_money_schema(
-            "INSERT INTO fines (id, amount, paid_amount, refunded_amount) VALUES (7, 10.00, 15.00, 0), (41, 1.00, 2.00, 0), (3, 4.00, 4.00, 4.00)",
-        ),
+        &minimal_money_schema("INSERT INTO fines (id, amount, paid_amount, refunded_amount) VALUES (7, 10.00, 15.00, 0), (41, 1.00, 2.00, 0), (3, 4.00, 4.00, 4.00)"),
     )
     .await
     .expect("seed paid cap fixture");
@@ -464,38 +392,24 @@ async fn migration_aborts_when_paid_amount_exceeds_amount() {
         failed.expect("paid above amount must abort")
     };
     let message = error.to_string();
-    assert!(
-        message.contains("2 fine(s) have paid_amount > amount"),
-        "{message}"
-    );
+    assert!(message.contains("2 fine(s) have paid_amount > amount"), "{message}");
     assert!(message.contains("ids 7, 41"), "{message}");
-    assert!(
-        message.contains("see money_migration_rejects; fix these fines manually, then rerun"),
-        "{message}"
-    );
+    assert!(message.contains("see money_migration_rejects; fix these fines manually, then rerun"), "{message}");
     assert!(!message.contains("id 3"), "{message}");
     tx.rollback().await.expect("rollback aborted migration");
 
-    let unchanged: bool =
-        sqlx::query_scalar("SELECT amount = 10.00 AND paid_amount = 15.00 FROM fines WHERE id = 7")
-            .fetch_one(&mut conn)
-            .await
-            .expect("violating fine still stored");
-    assert!(unchanged, "amounts must not be rewritten");
-    let rejects_left: bool =
-        sqlx::query_scalar("SELECT to_regclass('money_migration_rejects') IS NOT NULL")
-            .fetch_one(&mut conn)
-            .await
-            .expect("rejects relation");
-    assert!(
-        !rejects_left,
-        "the rejects insert rolls back with the migration"
-    );
-
-    sqlx::query("DROP SCHEMA money_cents_paid_cap CASCADE")
-        .execute(&mut conn)
+    let unchanged: bool = sqlx::query_scalar("SELECT amount = 10.00 AND paid_amount = 15.00 FROM fines WHERE id = 7")
+        .fetch_one(&mut conn)
         .await
-        .expect("cleanup");
+        .expect("violating fine still stored");
+    assert!(unchanged, "amounts must not be rewritten");
+    let rejects_left: bool = sqlx::query_scalar("SELECT to_regclass('money_migration_rejects') IS NOT NULL")
+        .fetch_one(&mut conn)
+        .await
+        .expect("rejects relation");
+    assert!(!rejects_left, "the rejects insert rolls back with the migration");
+
+    sqlx::query("DROP SCHEMA money_cents_paid_cap CASCADE").execute(&mut conn).await.expect("cleanup");
 }
 
 #[tokio::test]
@@ -505,42 +419,27 @@ async fn migration_adds_paid_cap_when_every_fine_is_within_amount() {
     };
     exec_statements(
         &mut conn,
-        &minimal_money_schema(
-            "INSERT INTO fines (id, amount, paid_amount, refunded_amount) VALUES (1, 12.50, 0, 0), (2, 15.00, 15.00, 15.00)",
-        ),
+        &minimal_money_schema("INSERT INTO fines (id, amount, paid_amount, refunded_amount) VALUES (1, 12.50, 0, 0), (2, 15.00, 15.00, 15.00)"),
     )
     .await
     .expect("seed clean fines");
 
-    exec_statements(&mut conn, &money_migration_sql())
-        .await
-        .expect("clean fines migrate");
+    exec_statements(&mut conn, &money_migration_sql()).await.expect("clean fines migrate");
 
-    let fines: Vec<(i64, i64, i64)> =
-        sqlx::query_as("SELECT id, amount, paid_amount FROM fines ORDER BY id")
-            .fetch_all(&mut conn)
-            .await
-            .expect("fines");
+    let fines: Vec<(i64, i64, i64)> = sqlx::query_as("SELECT id, amount, paid_amount FROM fines ORDER BY id").fetch_all(&mut conn).await.expect("fines");
     assert_eq!(fines, vec![(1, 1250, 0), (2, 1500, 1500)]);
-    let paid_rejects: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM money_migration_rejects WHERE table_name = 'fines' AND column_name = 'paid_amount'",
-    )
-    .fetch_one(&mut conn)
-    .await
-    .expect("paid rejects");
+    let paid_rejects: i64 = sqlx::query_scalar("SELECT count(*) FROM money_migration_rejects WHERE table_name = 'fines' AND column_name = 'paid_amount'")
+        .fetch_one(&mut conn)
+        .await
+        .expect("paid rejects");
     assert_eq!(paid_rejects, 0);
-    let paid_cap: String = sqlx::query_scalar(
-        "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'fines_paid_amount_lte_amount'",
-    )
-    .fetch_one(&mut conn)
-    .await
-    .expect("paid cap");
+    let paid_cap: String = sqlx::query_scalar("SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'fines_paid_amount_lte_amount'")
+        .fetch_one(&mut conn)
+        .await
+        .expect("paid cap");
     assert!(paid_cap.contains("paid_amount <= amount"), "{paid_cap}");
 
-    sqlx::query("DROP SCHEMA money_cents_paid_ok CASCADE")
-        .execute(&mut conn)
-        .await
-        .expect("cleanup");
+    sqlx::query("DROP SCHEMA money_cents_paid_ok CASCADE").execute(&mut conn).await.expect("cleanup");
 }
 
 #[tokio::test]
@@ -580,16 +479,11 @@ async fn migration_aborts_when_a_required_amount_is_not_exact_cents() {
     .await
     .expect("seed abort fixture");
 
-    let error = exec_statements(&mut conn, &money_migration_sql())
-        .await
-        .expect_err("extra decimals must abort");
+    let error = exec_statements(&mut conn, &money_migration_sql()).await.expect_err("extra decimals must abort");
     let message = error.to_string();
     assert!(message.contains("money migration aborted"), "{message}");
 
-    sqlx::query("DROP SCHEMA money_cents_abort CASCADE")
-        .execute(&mut conn)
-        .await
-        .expect("cleanup");
+    sqlx::query("DROP SCHEMA money_cents_abort CASCADE").execute(&mut conn).await.expect("cleanup");
 }
 
 #[tokio::test]
@@ -599,12 +493,7 @@ async fn adult_subscription_price_stays_integer_cents() {
     };
     let (status, body) = app.get_json("/api/v1/public-types").await;
     assert_eq!(status, StatusCode::OK, "{body}");
-    let adult = body
-        .as_array()
-        .expect("list")
-        .iter()
-        .find(|row| row["name"] == "adult")
-        .expect("adult public type");
+    let adult = body.as_array().expect("list").iter().find(|row| row["name"] == "adult").expect("adult public type");
     assert_eq!(adult["subscriptionPrice"], 1500, "{adult}");
 }
 
@@ -677,15 +566,10 @@ async fn rejected_item_price_is_exposed_as_price_deferred() {
     assert_eq!(status, StatusCode::CREATED, "{created}");
     let item_id = fixtures::json_id(&created["biblio"]["items"][0]["id"]);
 
-    let (status, before) = app
-        .get_json_with_auth(&format!("/api/v1/items/{item_id}"), &admin_token)
-        .await;
+    let (status, before) = app.get_json_with_auth(&format!("/api/v1/items/{item_id}"), &admin_token).await;
     assert_eq!(status, StatusCode::OK, "{before}");
     assert_eq!(before["items"][0]["price"], "4.00", "{before}");
-    assert!(
-        before["items"][0].get("priceDeferred").is_none(),
-        "{before}"
-    );
+    assert!(before["items"][0].get("priceDeferred").is_none(), "{before}");
 
     sqlx::query("UPDATE items SET price = NULL, price_deferred = TRUE WHERE id = $1")
         .bind(item_id)
@@ -693,9 +577,7 @@ async fn rejected_item_price_is_exposed_as_price_deferred() {
         .await
         .expect("mark rejected price");
 
-    let (status, body) = app
-        .get_json_with_auth(&format!("/api/v1/items/{item_id}"), &admin_token)
-        .await;
+    let (status, body) = app.get_json_with_auth(&format!("/api/v1/items/{item_id}"), &admin_token).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert!(body["items"][0]["price"].is_null(), "{body}");
     assert_eq!(body["items"][0]["priceDeferred"], true, "{body}");
@@ -753,24 +635,14 @@ async fn money_checks_reject_negative_cents() {
         "public_types_unpaid_fine_threshold_check",
         "fines_paid_amount_lte_amount",
     ] {
-        let def = defs
-            .iter()
-            .find(|(constraint, _)| constraint == name)
-            .unwrap_or_else(|| panic!("missing {name}: {defs:?}"));
+        let def = defs.iter().find(|(constraint, _)| constraint == name).unwrap_or_else(|| panic!("missing {name}: {defs:?}"));
         let nonnegative = def.1.contains(">= 0") || def.1.contains(">= (0)");
-        let paid_cap = name == "fines_paid_amount_lte_amount"
-            && def.1.contains("paid_amount")
-            && (def.1.contains("<= amount") || def.1.contains("<= (amount)"));
+        let paid_cap = name == "fines_paid_amount_lte_amount" && def.1.contains("paid_amount") && (def.1.contains("<= amount") || def.1.contains("<= (amount)"));
         assert!(nonnegative || paid_cap, "{name}: {}", def.1);
     }
 
     let fine_id = (fixtures::unique_suffix() % i64::MAX as u128) as i64;
-    expect_check(
-        pool,
-        &format!("UPDATE items SET price = -1 WHERE id = {item_id}"),
-        "items_price_nonnegative",
-    )
-    .await;
+    expect_check(pool, &format!("UPDATE items SET price = -1 WHERE id = {item_id}"), "items_price_nonnegative").await;
     expect_check(
         pool,
         "UPDATE circulation_settings SET unpaid_fine_threshold = -1 WHERE id = 1",
@@ -801,33 +673,22 @@ async fn money_checks_reject_negative_cents() {
         "fine_rules_max_amount_check",
     )
     .await;
+    expect_check(pool, &format!("INSERT INTO fines (id, loan_id, amount) VALUES ({fine_id}, 1, -1)"), "fines_amount_check").await;
     expect_check(
         pool,
-        &format!("INSERT INTO fines (id, loan_id, amount) VALUES ({fine_id}, 1, -1)"),
-        "fines_amount_check",
-    )
-    .await;
-    expect_check(
-        pool,
-        &format!(
-            "INSERT INTO fines (id, loan_id, amount, paid_amount) VALUES ({fine_id}, 1, 0, -1)"
-        ),
+        &format!("INSERT INTO fines (id, loan_id, amount, paid_amount) VALUES ({fine_id}, 1, 0, -1)"),
         "fines_paid_amount_check",
     )
     .await;
     expect_check(
         pool,
-        &format!(
-            "INSERT INTO fines (id, loan_id, amount, refunded_amount) VALUES ({fine_id}, 1, 0, -1)"
-        ),
+        &format!("INSERT INTO fines (id, loan_id, amount, refunded_amount) VALUES ({fine_id}, 1, 0, -1)"),
         "fines_refunded_amount_check",
     )
     .await;
     expect_check(
         pool,
-        &format!(
-            "INSERT INTO fines (id, loan_id, amount, paid_amount) VALUES ({fine_id}, {fine_id}, 100, 101)"
-        ),
+        &format!("INSERT INTO fines (id, loan_id, amount, paid_amount) VALUES ({fine_id}, {fine_id}, 100, 101)"),
         "fines_paid_amount_lte_amount",
     )
     .await;
@@ -854,21 +715,9 @@ async fn lost_bill_without_price_asks_for_an_amount_unless_a_replacement_rule_ex
 
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "noprice").await;
     let (loan_id, _) = checkout_without_price(&app, &admin_token, reader_id).await;
-    let (status, body) = app
-        .post_json(
-            &format!("/api/v1/loans/{loan_id}/lost"),
-            &json!({ "bill": true }),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, body) = app.post_json(&format!("/api/v1/loans/{loan_id}/lost"), &json!({ "bill": true }), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
-    assert!(
-        body["message"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("no default replacement rule"),
-        "{body}"
-    );
+    assert!(body["message"].as_str().unwrap_or_default().contains("no default replacement rule"), "{body}");
 
     let (status, rule) = app
         .put_json(
@@ -886,25 +735,13 @@ async fn lost_bill_without_price_asks_for_an_amount_unless_a_replacement_rule_ex
 
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "ruleprice").await;
     let (loan_id, _) = checkout_without_price(&app, &admin_token, reader_id).await;
-    let (status, billed) = app
-        .post_json(
-            &format!("/api/v1/loans/{loan_id}/lost"),
-            &json!({ "bill": true }),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, billed) = app.post_json(&format!("/api/v1/loans/{loan_id}/lost"), &json!({ "bill": true }), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::OK, "{billed}");
     assert_eq!(billed["charge"]["amount"], "2.50", "{billed}");
 
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "zeroprice").await;
     let (loan_id, _) = checkout_with_price(&app, &admin_token, reader_id, "0.00").await;
-    let (status, billed) = app
-        .post_json(
-            &format!("/api/v1/loans/{loan_id}/lost"),
-            &json!({ "bill": true }),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, billed) = app.post_json(&format!("/api/v1/loans/{loan_id}/lost"), &json!({ "bill": true }), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::OK, "{billed}");
     assert_eq!(billed["charge"]["amount"], "2.50", "{billed}");
 
@@ -924,39 +761,17 @@ async fn lost_bill_without_price_asks_for_an_amount_unless_a_replacement_rule_ex
 
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "zerorule").await;
     let (loan_id, _) = checkout_without_price(&app, &admin_token, reader_id).await;
-    let (status, body) = app
-        .post_json(
-            &format!("/api/v1/loans/{loan_id}/lost"),
-            &json!({ "bill": true }),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, body) = app.post_json(&format!("/api/v1/loans/{loan_id}/lost"), &json!({ "bill": true }), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
-    assert!(
-        body["message"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("no default replacement rule"),
-        "{body}"
-    );
+    assert!(body["message"].as_str().unwrap_or_default().contains("no default replacement rule"), "{body}");
 
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "zeroexplicit").await;
     let (loan_id, _) = checkout_with_price(&app, &admin_token, reader_id, "4.00").await;
     let (status, body) = app
-        .post_json(
-            &format!("/api/v1/loans/{loan_id}/lost"),
-            &json!({ "bill": true, "amount": "0.00" }),
-            Some(&admin_token),
-        )
+        .post_json(&format!("/api/v1/loans/{loan_id}/lost"), &json!({ "bill": true, "amount": "0.00" }), Some(&admin_token))
         .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
-    assert!(
-        body["message"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("must be positive"),
-        "{body}"
-    );
+    assert!(body["message"].as_str().unwrap_or_default().contains("must be positive"), "{body}");
 
     sqlx::query("DELETE FROM fine_rules WHERE lower(media_type) = 'replacement'")
         .execute(app.state.services.repository.pool())
@@ -964,12 +779,7 @@ async fn lost_bill_without_price_asks_for_an_amount_unless_a_replacement_rule_ex
         .expect("remove replacement rule");
 }
 
-async fn checkout_with_price(
-    app: &TestApp,
-    admin_token: &str,
-    reader_id: i64,
-    price: &str,
-) -> (i64, i64) {
+async fn checkout_with_price(app: &TestApp, admin_token: &str, reader_id: i64, price: &str) -> (i64, i64) {
     let (status, body) = app
         .post_json(
             "/api/v1/biblios",

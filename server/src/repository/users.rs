@@ -10,10 +10,7 @@ use super::Repository;
 use crate::{
     error::{error_code, AppError, AppResult},
     models::own_contact::{ContactField, OwnContactPatch},
-    models::user::{
-        AccountTypeSlug, GuardianIdPatch, Rights, UpdateProfile, User, UserErasureResult,
-        UserPayload, UserQuery, UserRights, UserShort, UserStatus,
-    },
+    models::user::{AccountTypeSlug, GuardianIdPatch, Rights, UpdateProfile, User, UserErasureResult, UserPayload, UserQuery, UserRights, UserShort, UserStatus},
 };
 
 /// Result of assigning a new library card number.
@@ -152,12 +149,9 @@ ORDER BY id, child_id NULLS FIRST
 /// A null `child_id` is a direct send. Several children of the same guardian,
 /// or a guardian who is also targeted directly, become one recipient whose
 /// `children` lists each child once, ordered by id. Recipient order is first-seen.
-pub(crate) fn group_announcement_recipients(
-    rows: Vec<AnnouncementRecipientRow>,
-) -> Vec<AnnouncementRecipient> {
+pub(crate) fn group_announcement_recipients(rows: Vec<AnnouncementRecipientRow>) -> Vec<AnnouncementRecipient> {
     let mut order: Vec<i64> = Vec::new();
-    let mut by_id: std::collections::HashMap<i64, AnnouncementRecipient> =
-        std::collections::HashMap::new();
+    let mut by_id: std::collections::HashMap<i64, AnnouncementRecipient> = std::collections::HashMap::new();
 
     for row in rows {
         let id = row.id;
@@ -194,10 +188,7 @@ pub(crate) fn group_announcement_recipients(
         }
     }
 
-    let mut recipients: Vec<AnnouncementRecipient> = order
-        .into_iter()
-        .filter_map(|id| by_id.remove(&id))
-        .collect();
+    let mut recipients: Vec<AnnouncementRecipient> = order.into_iter().filter_map(|id| by_id.remove(&id)).collect();
     for recipient in &mut recipients {
         recipient.children.sort_by_key(|child| child.id);
     }
@@ -226,57 +217,25 @@ pub trait UsersRepository: Send + Sync {
     async fn users_get_rights(&self, account_type: &AccountTypeSlug) -> AppResult<UserRights>;
     async fn users_search(&self, query: &UserQuery) -> AppResult<(Vec<UserShort>, i64)>;
     async fn users_create(&self, user: &UserPayload, password: Option<String>) -> AppResult<User>;
-    async fn users_update(
-        &self,
-        id: i64,
-        user: &UserPayload,
-        password: Option<String>,
-    ) -> AppResult<User>;
+    async fn users_update(&self, id: i64, user: &UserPayload, password: Option<String>) -> AppResult<User>;
     async fn users_delete(&self, id: i64, force: bool) -> AppResult<UserErasureResult>;
-    async fn users_list_due_for_auto_erasure(&self, years_after_expiry: u32)
-        -> AppResult<Vec<i64>>;
+    async fn users_list_due_for_auto_erasure(&self, years_after_expiry: u32) -> AppResult<Vec<i64>>;
     async fn users_block(&self, id: i64) -> AppResult<User>;
     async fn users_unblock(&self, id: i64) -> AppResult<User>;
-    async fn users_update_profile(
-        &self,
-        id: i64,
-        profile: &UpdateProfile,
-        password: Option<String>,
-    ) -> AppResult<User>;
-    async fn users_update_account_type(
-        &self,
-        id: i64,
-        account_type: &AccountTypeSlug,
-    ) -> AppResult<User>;
-    async fn users_update_2fa_settings(
-        &self,
-        id: i64,
-        enabled: bool,
-        method: Option<&str>,
-        totp_secret: Option<&str>,
-        recovery_codes: Option<&str>,
-    ) -> AppResult<()>;
+    async fn users_update_profile(&self, id: i64, profile: &UpdateProfile, password: Option<String>) -> AppResult<User>;
+    async fn users_update_account_type(&self, id: i64, account_type: &AccountTypeSlug) -> AppResult<User>;
+    async fn users_update_2fa_settings(&self, id: i64, enabled: bool, method: Option<&str>, totp_secret: Option<&str>, recovery_codes: Option<&str>) -> AppResult<()>;
     async fn users_mark_recovery_code_used(&self, id: i64, used_codes: &str) -> AppResult<()>;
-    async fn users_get_emails_by_public_type(
-        &self,
-        public_type: Option<i64>,
-    ) -> AppResult<Vec<UserEmailTarget>>;
+    async fn users_get_emails_by_public_type(&self, public_type: Option<i64>) -> AppResult<Vec<UserEmailTarget>>;
     /// Patrons who should receive an event announcement, one entry per recipient.
     /// `all_audiences` skips the type filter. Otherwise `public_types.name` must be in `audience_names`.
     /// A `child` is not emailed; their major guardian is, when the child is still active.
     /// Consent is `events_consent_at IS NOT NULL` on the adult recipient, or on the
     /// guardian when a child is routed. The child's own consent is not consulted.
-    async fn users_list_announcement_recipients(
-        &self,
-        all_audiences: bool,
-        audience_names: &[String],
-    ) -> AppResult<Vec<AnnouncementRecipient>>;
+    async fn users_list_announcement_recipients(&self, all_audiences: bool, audience_names: &[String]) -> AppResult<Vec<AnnouncementRecipient>>;
     async fn users_count(&self) -> AppResult<i64>;
     async fn users_set_must_change_password(&self, id: i64, value: bool) -> AppResult<()>;
-    async fn users_hold_ready_contact(
-        &self,
-        user_id: i64,
-    ) -> AppResult<Option<HoldReadyUserContact>>;
+    async fn users_hold_ready_contact(&self, user_id: i64) -> AppResult<Option<HoldReadyUserContact>>;
     /// `users.card_lost`. Missing user is false so checkout can return its own not-found.
     async fn users_card_lost(&self, id: i64) -> AppResult<bool>;
 }
@@ -299,65 +258,31 @@ impl UsersRepository for Repository {
     async fn users_get_token_version(&self, id: i64) -> crate::error::AppResult<i64> {
         Repository::users_get_token_version(self, id).await
     }
-    async fn users_update_password(
-        &self,
-        id: i64,
-        password_hash: &str,
-    ) -> crate::error::AppResult<()> {
+    async fn users_update_password(&self, id: i64, password_hash: &str) -> crate::error::AppResult<()> {
         Repository::users_update_password(self, id, password_hash).await
     }
-    async fn users_email_exists(
-        &self,
-        email: &str,
-        exclude_id: Option<i64>,
-    ) -> crate::error::AppResult<bool> {
+    async fn users_email_exists(&self, email: &str, exclude_id: Option<i64>) -> crate::error::AppResult<bool> {
         Repository::users_email_exists(self, email, exclude_id).await
     }
-    async fn users_login_exists(
-        &self,
-        login: &str,
-        exclude_id: Option<i64>,
-    ) -> crate::error::AppResult<bool> {
+    async fn users_login_exists(&self, login: &str, exclude_id: Option<i64>) -> crate::error::AppResult<bool> {
         Repository::users_login_exists(self, login, exclude_id).await
     }
-    async fn users_get_rights(
-        &self,
-        account_type: &crate::models::user::AccountTypeSlug,
-    ) -> crate::error::AppResult<crate::models::user::UserRights> {
+    async fn users_get_rights(&self, account_type: &crate::models::user::AccountTypeSlug) -> crate::error::AppResult<crate::models::user::UserRights> {
         Repository::users_get_rights(self, account_type).await
     }
-    async fn users_search(
-        &self,
-        query: &crate::models::user::UserQuery,
-    ) -> crate::error::AppResult<(Vec<crate::models::user::UserShort>, i64)> {
+    async fn users_search(&self, query: &crate::models::user::UserQuery) -> crate::error::AppResult<(Vec<crate::models::user::UserShort>, i64)> {
         Repository::users_search(self, query).await
     }
-    async fn users_create(
-        &self,
-        user: &crate::models::user::UserPayload,
-        password: Option<String>,
-    ) -> crate::error::AppResult<User> {
+    async fn users_create(&self, user: &crate::models::user::UserPayload, password: Option<String>) -> crate::error::AppResult<User> {
         Repository::users_create(self, user, password).await
     }
-    async fn users_update(
-        &self,
-        id: i64,
-        user: &crate::models::user::UserPayload,
-        password: Option<String>,
-    ) -> crate::error::AppResult<User> {
+    async fn users_update(&self, id: i64, user: &crate::models::user::UserPayload, password: Option<String>) -> crate::error::AppResult<User> {
         Repository::users_update(self, id, user, password).await
     }
-    async fn users_delete(
-        &self,
-        id: i64,
-        force: bool,
-    ) -> crate::error::AppResult<crate::models::user::UserErasureResult> {
+    async fn users_delete(&self, id: i64, force: bool) -> crate::error::AppResult<crate::models::user::UserErasureResult> {
         Repository::users_delete(self, id, force).await
     }
-    async fn users_list_due_for_auto_erasure(
-        &self,
-        years_after_expiry: u32,
-    ) -> crate::error::AppResult<Vec<i64>> {
+    async fn users_list_due_for_auto_erasure(&self, years_after_expiry: u32) -> crate::error::AppResult<Vec<i64>> {
         Repository::users_list_due_for_auto_erasure(self, years_after_expiry).await
     }
     async fn users_block(&self, id: i64) -> crate::error::AppResult<User> {
@@ -366,73 +291,31 @@ impl UsersRepository for Repository {
     async fn users_unblock(&self, id: i64) -> crate::error::AppResult<User> {
         Repository::users_unblock(self, id).await
     }
-    async fn users_update_profile(
-        &self,
-        id: i64,
-        profile: &crate::models::user::UpdateProfile,
-        password: Option<String>,
-    ) -> crate::error::AppResult<User> {
+    async fn users_update_profile(&self, id: i64, profile: &crate::models::user::UpdateProfile, password: Option<String>) -> crate::error::AppResult<User> {
         Repository::users_update_profile(self, id, profile, password).await
     }
-    async fn users_update_account_type(
-        &self,
-        id: i64,
-        account_type: &crate::models::user::AccountTypeSlug,
-    ) -> crate::error::AppResult<User> {
+    async fn users_update_account_type(&self, id: i64, account_type: &crate::models::user::AccountTypeSlug) -> crate::error::AppResult<User> {
         Repository::users_update_account_type(self, id, account_type).await
     }
-    async fn users_update_2fa_settings(
-        &self,
-        id: i64,
-        enabled: bool,
-        method: Option<&str>,
-        totp_secret: Option<&str>,
-        recovery_codes: Option<&str>,
-    ) -> crate::error::AppResult<()> {
-        Repository::users_update_2fa_settings(
-            self,
-            id,
-            enabled,
-            method,
-            totp_secret,
-            recovery_codes,
-        )
-        .await
+    async fn users_update_2fa_settings(&self, id: i64, enabled: bool, method: Option<&str>, totp_secret: Option<&str>, recovery_codes: Option<&str>) -> crate::error::AppResult<()> {
+        Repository::users_update_2fa_settings(self, id, enabled, method, totp_secret, recovery_codes).await
     }
-    async fn users_mark_recovery_code_used(
-        &self,
-        id: i64,
-        used_codes: &str,
-    ) -> crate::error::AppResult<()> {
+    async fn users_mark_recovery_code_used(&self, id: i64, used_codes: &str) -> crate::error::AppResult<()> {
         Repository::users_mark_recovery_code_used(self, id, used_codes).await
     }
-    async fn users_get_emails_by_public_type(
-        &self,
-        public_type: Option<i64>,
-    ) -> crate::error::AppResult<Vec<UserEmailTarget>> {
+    async fn users_get_emails_by_public_type(&self, public_type: Option<i64>) -> crate::error::AppResult<Vec<UserEmailTarget>> {
         Repository::users_get_emails_by_public_type(self, public_type).await
     }
-    async fn users_list_announcement_recipients(
-        &self,
-        all_audiences: bool,
-        audience_names: &[String],
-    ) -> crate::error::AppResult<Vec<AnnouncementRecipient>> {
+    async fn users_list_announcement_recipients(&self, all_audiences: bool, audience_names: &[String]) -> crate::error::AppResult<Vec<AnnouncementRecipient>> {
         Repository::users_list_announcement_recipients(self, all_audiences, audience_names).await
     }
     async fn users_count(&self) -> crate::error::AppResult<i64> {
         Repository::users_count(self).await
     }
-    async fn users_set_must_change_password(
-        &self,
-        id: i64,
-        value: bool,
-    ) -> crate::error::AppResult<()> {
+    async fn users_set_must_change_password(&self, id: i64, value: bool) -> crate::error::AppResult<()> {
         Repository::users_set_must_change_password(self, id, value).await
     }
-    async fn users_hold_ready_contact(
-        &self,
-        user_id: i64,
-    ) -> crate::error::AppResult<Option<HoldReadyUserContact>> {
+    async fn users_hold_ready_contact(&self, user_id: i64) -> crate::error::AppResult<Option<HoldReadyUserContact>> {
         Repository::users_hold_ready_contact(self, user_id).await
     }
 
@@ -460,10 +343,7 @@ impl Repository {
     }
 
     /// Patron summary for loan embeds (`barcode` included).
-    pub async fn users_get_short(
-        &self,
-        id: i64,
-    ) -> AppResult<Option<crate::models::user::UserShort>> {
+    pub async fn users_get_short(&self, id: i64) -> AppResult<Option<crate::models::user::UserShort>> {
         use crate::models::user::UserShortRow;
         let row = sqlx::query_as::<_, UserShortRow>(
             r#"
@@ -482,10 +362,7 @@ impl Repository {
     }
 
     /// Batch patron summaries (`barcode` included) for hold identity projection.
-    pub async fn users_get_short_by_ids(
-        &self,
-        ids: &[i64],
-    ) -> AppResult<std::collections::HashMap<i64, crate::models::user::UserShort>> {
+    pub async fn users_get_short_by_ids(&self, ids: &[i64]) -> AppResult<std::collections::HashMap<i64, crate::models::user::UserShort>> {
         use crate::models::user::UserShortRow;
         if ids.is_empty() {
             return Ok(std::collections::HashMap::new());
@@ -514,12 +391,10 @@ impl Repository {
 
     /// Legal guardian of `child_id`, if a `user_guardians` row exists.
     pub async fn users_guardian_id(&self, child_id: i64) -> AppResult<Option<i64>> {
-        Ok(sqlx::query_scalar::<_, i64>(
-            "SELECT guardian_id FROM user_guardians WHERE child_id = $1",
-        )
-        .bind(child_id)
-        .fetch_optional(&self.pool)
-        .await?)
+        Ok(sqlx::query_scalar::<_, i64>("SELECT guardian_id FROM user_guardians WHERE child_id = $1")
+            .bind(child_id)
+            .fetch_optional(&self.pool)
+            .await?)
     }
 
     /// Insert or replace the unique guardian for `child_id`.
@@ -540,10 +415,7 @@ impl Repository {
 
     /// Remove the legal guardian link for `child_id`, if any.
     pub async fn users_clear_guardian(&self, child_id: i64) -> AppResult<()> {
-        sqlx::query("DELETE FROM user_guardians WHERE child_id = $1")
-            .bind(child_id)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query("DELETE FROM user_guardians WHERE child_id = $1").bind(child_id).execute(&self.pool).await?;
         Ok(())
     }
 
@@ -593,11 +465,7 @@ impl Repository {
     /// Current JWT revocation counter for a user.
     #[tracing::instrument(skip(self), err)]
     pub async fn users_get_token_version(&self, id: i64) -> AppResult<i64> {
-        let version: Option<i64> =
-            sqlx::query_scalar("SELECT token_version FROM users WHERE id = $1")
-                .bind(id)
-                .fetch_optional(&self.pool)
-                .await?;
+        let version: Option<i64> = sqlx::query_scalar("SELECT token_version FROM users WHERE id = $1").bind(id).fetch_optional(&self.pool).await?;
 
         version.ok_or_else(|| AppError::NotFound(format!("User with id {} not found", id)))
     }
@@ -605,23 +473,17 @@ impl Repository {
     /// Current password-reset link generation. A mismatch rejects the JWT.
     #[tracing::instrument(skip(self), err)]
     pub async fn users_get_password_reset_nonce(&self, id: i64) -> AppResult<i64> {
-        let nonce: Option<i64> =
-            sqlx::query_scalar("SELECT password_reset_nonce FROM users WHERE id = $1")
-                .bind(id)
-                .fetch_optional(&self.pool)
-                .await?;
+        let nonce: Option<i64> = sqlx::query_scalar("SELECT password_reset_nonce FROM users WHERE id = $1").bind(id).fetch_optional(&self.pool).await?;
         nonce.ok_or_else(|| AppError::NotFound(format!("User with id {id} not found")))
     }
 
     /// Issue a new reset generation and return it. Older reset JWTs no longer match.
     #[tracing::instrument(skip(self), err)]
     pub async fn users_bump_password_reset_nonce(&self, id: i64) -> AppResult<i64> {
-        let nonce: Option<i64> = sqlx::query_scalar(
-            "UPDATE users SET password_reset_nonce = password_reset_nonce + 1 WHERE id = $1 RETURNING password_reset_nonce",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await?;
+        let nonce: Option<i64> = sqlx::query_scalar("UPDATE users SET password_reset_nonce = password_reset_nonce + 1 WHERE id = $1 RETURNING password_reset_nonce")
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
         nonce.ok_or_else(|| AppError::NotFound(format!("User with id {id} not found")))
     }
 
@@ -629,35 +491,10 @@ impl Repository {
     /// Also clears the must_change_password flag and bumps `token_version`.
     #[tracing::instrument(skip(self), err)]
     pub async fn users_update_password(&self, id: i64, password_hash: &str) -> AppResult<()> {
-        let result = sqlx::query("UPDATE users SET password = $1, must_change_password = FALSE, token_version = token_version + 1, password_reset_nonce = password_reset_nonce + 1, update_at = NOW() WHERE id = $2")
-            .bind(password_hash)
-            .bind(id)
-            .execute(&self.pool)
-            .await?;
-
-        if result.rows_affected() == 0 {
-            return Err(AppError::NotFound(format!("User with id {} not found", id)));
-        }
-
-        Ok(())
-    }
-
-    /// Count total users (used to detect first-run empty database).
-    #[tracing::instrument(skip(self), err)]
-    pub async fn users_count(&self) -> AppResult<i64> {
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-            .fetch_one(&self.pool)
-            .await?;
-        Ok(count)
-    }
-
-    /// Set or clear the must_change_password flag for a user.
-    #[tracing::instrument(skip(self), err)]
-    pub async fn users_set_must_change_password(&self, id: i64, value: bool) -> AppResult<()> {
         let result = sqlx::query(
-            "UPDATE users SET must_change_password = $1, update_at = NOW() WHERE id = $2",
+            "UPDATE users SET password = $1, must_change_password = FALSE, token_version = token_version + 1, password_reset_nonce = password_reset_nonce + 1, update_at = NOW() WHERE id = $2",
         )
-        .bind(value)
+        .bind(password_hash)
         .bind(id)
         .execute(&self.pool)
         .await?;
@@ -669,21 +506,38 @@ impl Repository {
         Ok(())
     }
 
+    /// Count total users (used to detect first-run empty database).
+    #[tracing::instrument(skip(self), err)]
+    pub async fn users_count(&self) -> AppResult<i64> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users").fetch_one(&self.pool).await?;
+        Ok(count)
+    }
+
+    /// Set or clear the must_change_password flag for a user.
+    #[tracing::instrument(skip(self), err)]
+    pub async fn users_set_must_change_password(&self, id: i64, value: bool) -> AppResult<()> {
+        let result = sqlx::query("UPDATE users SET must_change_password = $1, update_at = NOW() WHERE id = $2")
+            .bind(value)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+
+        if result.rows_affected() == 0 {
+            return Err(AppError::NotFound(format!("User with id {} not found", id)));
+        }
+
+        Ok(())
+    }
+
     /// Check if email already exists
     #[tracing::instrument(skip(self), err)]
-    pub async fn users_email_exists(
-        &self,
-        email: &str,
-        exclude_id: Option<i64>,
-    ) -> AppResult<bool> {
+    pub async fn users_email_exists(&self, email: &str, exclude_id: Option<i64>) -> AppResult<bool> {
         let exists: bool = if let Some(id) = exclude_id {
-            sqlx::query_scalar(
-                "SELECT EXISTS(SELECT 1 FROM users WHERE LOWER(email) = LOWER($1) AND id != $2)",
-            )
-            .bind(email)
-            .bind(id)
-            .fetch_one(&self.pool)
-            .await?
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE LOWER(email) = LOWER($1) AND id != $2)")
+                .bind(email)
+                .bind(id)
+                .fetch_one(&self.pool)
+                .await?
         } else {
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE LOWER(email) = LOWER($1))")
                 .bind(email)
@@ -695,11 +549,7 @@ impl Repository {
 
     /// Check if login already exists
     #[tracing::instrument(skip(self), err)]
-    pub async fn users_login_exists(
-        &self,
-        login: &str,
-        exclude_id: Option<i64>,
-    ) -> AppResult<bool> {
+    pub async fn users_login_exists(&self, login: &str, exclude_id: Option<i64>) -> AppResult<bool> {
         let exists: bool = if let Some(id) = exclude_id {
             sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE LOWER(login) = LOWER($1) AND id != $2 AND (status IS NULL OR status <> 'deleted'))")
                 .bind(login)
@@ -731,12 +581,7 @@ impl Repository {
         .bind(account_type.as_str())
         .fetch_optional(&self.pool)
         .await?
-        .ok_or_else(|| {
-            AppError::NotFound(format!(
-                "Account type '{}' not found",
-                account_type.as_str()
-            ))
-        })?;
+        .ok_or_else(|| AppError::NotFound(format!("Account type '{}' not found", account_type.as_str())))?;
 
         Ok(UserRights {
             items_rights: Rights::from(row.get::<Option<String>, _>("items_rights")),
@@ -747,15 +592,9 @@ impl Repository {
             events_rights: Rights::from(row.get::<Option<String>, _>("events_rights")),
             acquisitions_rights: Rights::from(row.get::<Option<String>, _>("acquisitions_rights")),
             weeding_rights: Rights::from(row.get::<Option<String>, _>("weeding_rights")),
-            weeding_cancel_rights: Rights::from(
-                row.get::<Option<String>, _>("weeding_cancel_rights"),
-            ),
-            items_archive_rights: Rights::from(
-                row.get::<Option<String>, _>("items_archive_rights"),
-            ),
-            circulation_override_rights: Rights::from(
-                row.get::<Option<String>, _>("circulation_override_rights"),
-            ),
+            weeding_cancel_rights: Rights::from(row.get::<Option<String>, _>("weeding_cancel_rights")),
+            items_archive_rights: Rights::from(row.get::<Option<String>, _>("items_archive_rights")),
+            circulation_override_rights: Rights::from(row.get::<Option<String>, _>("circulation_override_rights")),
         })
     }
 
@@ -771,11 +610,7 @@ impl Repository {
 
         if let Some(ref name) = query.name {
             params.push(format!("%{}%", name.to_lowercase()));
-            conditions.push(format!(
-                "(LOWER(firstname) LIKE ${} OR LOWER(lastname) LIKE ${})",
-                params.len(),
-                params.len()
-            ));
+            conditions.push(format!("(LOWER(firstname) LIKE ${} OR LOWER(lastname) LIKE ${})", params.len(), params.len()));
         }
 
         if let Some(ref barcode) = query.barcode {
@@ -783,11 +618,7 @@ impl Repository {
             conditions.push(format!("barcode = ${}", params.len()));
         }
 
-        let where_clause = if conditions.is_empty() {
-            String::new()
-        } else {
-            format!("WHERE {}", conditions.join(" AND "))
-        };
+        let where_clause = if conditions.is_empty() { String::new() } else { format!("WHERE {}", conditions.join(" AND ")) };
 
         // Count total
         let count_query = format!(
@@ -837,29 +668,15 @@ impl Repository {
 
     /// Create a new user
     #[tracing::instrument(skip(self), err)]
-    pub async fn users_create(
-        &self,
-        user: &UserPayload,
-        password: Option<String>,
-    ) -> AppResult<User> {
+    pub async fn users_create(&self, user: &UserPayload, password: Option<String>) -> AppResult<User> {
         let now = Utc::now();
 
-        let account_type = user
-            .account_type
-            .as_ref()
-            .map(|at| at.as_str())
-            .unwrap_or("guest");
+        let account_type = user.account_type.as_ref().map(|at| at.as_str()).unwrap_or("guest");
         let fee = user.fee.as_ref().map(|f| f.as_str());
 
         // Parse staff dates
-        let staff_start_date = user
-            .staff_start_date
-            .as_ref()
-            .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
-        let staff_end_date = user
-            .staff_end_date
-            .as_ref()
-            .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+        let staff_start_date = user.staff_start_date.as_ref().and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+        let staff_end_date = user.staff_end_date.as_ref().and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
         let hours_pw = user.hours_per_week.map(|v| v as f32);
 
         let mut tx = self.pool.begin().await?;
@@ -880,11 +697,7 @@ impl Repository {
             ) RETURNING id
             "#,
         )
-        .bind(
-            user.login
-                .as_deref()
-                .ok_or_else(|| AppError::Validation("Login is required".to_string()))?,
-        )
+        .bind(user.login.as_deref().ok_or_else(|| AppError::Validation("Login is required".to_string()))?)
         .bind(&password)
         .bind(&user.firstname)
         .bind(&user.lastname)
@@ -935,25 +748,16 @@ impl Repository {
 
     /// Update an existing user
     #[tracing::instrument(skip(self), err)]
-    pub async fn users_update(
-        &self,
-        id: i64,
-        user: &UserPayload,
-        password: Option<String>,
-    ) -> AppResult<User> {
+    pub async fn users_update(&self, id: i64, user: &UserPayload, password: Option<String>) -> AppResult<User> {
         let deactivating = matches!(user.status, Some(status) if status != UserStatus::Active);
         if let Some(ref account_type) = user.account_type {
-            self.account_types_get_by_code(account_type.as_str())
-                .await?;
+            self.account_types_get_by_code(account_type.as_str()).await?;
         }
         if user.account_type.is_some() || deactivating {
             self.guard_active_admins(&ActiveAdminForecast {
                 exclude_user_id: deactivating.then_some(id),
                 move_user_id: user.account_type.as_ref().map(|_| id),
-                move_to_type: user
-                    .account_type
-                    .as_ref()
-                    .map(|account_type| account_type.as_str().to_string()),
+                move_to_type: user.account_type.as_ref().map(|account_type| account_type.as_str().to_string()),
                 ..ActiveAdminForecast::default()
             })
             .await?;
@@ -1015,21 +819,11 @@ impl Repository {
             sets.push("token_version = token_version + 1".to_string());
         }
 
-        let query = format!(
-            "UPDATE users SET {}, update_at = NOW() WHERE id = {}",
-            sets.join(", "),
-            id
-        );
+        let query = format!("UPDATE users SET {}, update_at = NOW() WHERE id = {}", sets.join(", "), id);
 
         // Parse staff dates before binding
-        let staff_start_date = user
-            .staff_start_date
-            .as_ref()
-            .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
-        let staff_end_date = user
-            .staff_end_date
-            .as_ref()
-            .and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+        let staff_start_date = user.staff_start_date.as_ref().and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
+        let staff_end_date = user.staff_end_date.as_ref().and_then(|s| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").ok());
         let hours_pw = user.hours_per_week.map(|v| v as f32);
 
         let mut builder = sqlx::query(&query);
@@ -1084,10 +878,7 @@ impl Repository {
             builder = builder.bind(hash);
         }
 
-        builder
-            .execute(&self.pool)
-            .await
-            .map_err(map_user_unique_violation)?;
+        builder.execute(&self.pool).await.map_err(map_user_unique_violation)?;
 
         match user.guardian_id {
             GuardianIdPatch::Set(guardian_id) => {
@@ -1129,9 +920,7 @@ impl Repository {
 
         if !active_loans.is_empty() {
             if !force {
-                return Err(AppError::BusinessRule(
-                    "User has active loans. Use force=true to delete anyway.".to_string(),
-                ));
+                return Err(AppError::BusinessRule("User has active loans. Use force=true to delete anyway.".to_string()));
             }
             for loan_id in active_loans {
                 self.loans_return(loan_id).await?;
@@ -1144,17 +933,10 @@ impl Repository {
         let mut tx = self.pool.begin().await?;
 
         if let Some(ref email) = user.email {
-            sqlx::query("DELETE FROM email_outbox WHERE status = 'pending' AND to_addr = $1")
-                .bind(email)
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query("DELETE FROM email_outbox WHERE status = 'pending' AND to_addr = $1").bind(email).execute(&mut *tx).await?;
         }
 
-        let hold_items: Vec<(Option<i64>, String)> =
-            sqlx::query_as("DELETE FROM holds WHERE user_id = $1 RETURNING item_id, status")
-                .bind(id)
-                .fetch_all(&mut *tx)
-                .await?;
+        let hold_items: Vec<(Option<i64>, String)> = sqlx::query_as("DELETE FROM holds WHERE user_id = $1 RETURNING item_id, status").bind(id).fetch_all(&mut *tx).await?;
         let holds_cancelled = hold_items.len() as u64;
         let mut seen_items = std::collections::HashSet::new();
         for (item_id, status) in hold_items {
@@ -1163,11 +945,9 @@ impl Repository {
             };
             if seen_items.insert(item_id) {
                 if status == crate::models::hold::HoldStatus::ToPick.as_str() {
-                    self.holds_offer_shelf_copy_to_next_pending_tx(&mut tx, item_id)
-                        .await?;
+                    self.holds_offer_shelf_copy_to_next_pending_tx(&mut tx, item_id).await?;
                 } else {
-                    self.holds_notify_next_tx(&mut tx, item_id, self.hold_ready_expiry_days())
-                        .await?;
+                    self.holds_notify_next_tx(&mut tx, item_id, self.hold_ready_expiry_days()).await?;
                 }
             }
         }
@@ -1201,11 +981,7 @@ impl Repository {
         .await?
         .rows_affected();
 
-        let fines_unlinked = sqlx::query("UPDATE fines SET user_id = NULL WHERE user_id = $1")
-            .bind(id)
-            .execute(&mut *tx)
-            .await?
-            .rows_affected();
+        let fines_unlinked = sqlx::query("UPDATE fines SET user_id = NULL WHERE user_id = $1").bind(id).execute(&mut *tx).await?.rows_affected();
 
         sqlx::query(
             r#"
@@ -1265,10 +1041,7 @@ impl Repository {
 
     /// Memberships expired at least `years_after_expiry` years ago and not yet erased.
     #[tracing::instrument(skip(self), err)]
-    pub async fn users_list_due_for_auto_erasure(
-        &self,
-        years_after_expiry: u32,
-    ) -> AppResult<Vec<i64>> {
+    pub async fn users_list_due_for_auto_erasure(&self, years_after_expiry: u32) -> AppResult<Vec<i64>> {
         if years_after_expiry == 0 {
             return Ok(Vec::new());
         }
@@ -1319,12 +1092,7 @@ impl Repository {
 
     /// Update user's own profile (firstname, lastname, password)
     #[tracing::instrument(skip(self), err)]
-    pub async fn users_update_profile(
-        &self,
-        id: i64,
-        profile: &UpdateProfile,
-        password: Option<String>,
-    ) -> AppResult<User> {
+    pub async fn users_update_profile(&self, id: i64, profile: &UpdateProfile, password: Option<String>) -> AppResult<User> {
         let mut sets = vec![];
         let mut param_idx = 1;
 
@@ -1357,11 +1125,7 @@ impl Repository {
             sets.push("password_reset_nonce = password_reset_nonce + 1".to_string());
         }
 
-        let query = format!(
-            "UPDATE users SET {}, update_at = NOW() WHERE id = {}",
-            sets.join(", "),
-            id
-        );
+        let query = format!("UPDATE users SET {}, update_at = NOW() WHERE id = {}", sets.join(", "), id);
 
         let mut builder = sqlx::query(&query);
 
@@ -1406,11 +1170,7 @@ impl Repository {
     /// Does not touch account type, rights, card number, status, fees, or fines.
     /// An empty patch is a no-op. Event consent is recorded by the service.
     #[tracing::instrument(skip(self, patch), err)]
-    pub async fn users_update_own_contact(
-        &self,
-        id: i64,
-        patch: &OwnContactPatch,
-    ) -> AppResult<()> {
+    pub async fn users_update_own_contact(&self, id: i64, patch: &OwnContactPatch) -> AppResult<()> {
         let mut sets = Vec::new();
         let mut param_idx = 1_i32;
 
@@ -1479,10 +1239,7 @@ impl Repository {
             return Ok(());
         }
 
-        let query = format!(
-            "UPDATE users SET {}, update_at = NOW() WHERE id = ${param_idx}",
-            sets.join(", ")
-        );
+        let query = format!("UPDATE users SET {}, update_at = NOW() WHERE id = ${param_idx}", sets.join(", "));
         let mut builder = sqlx::query(&query);
         for bind in binds {
             builder = match bind {
@@ -1502,12 +1259,7 @@ impl Repository {
     /// `source` (the route that recorded the withdrawal), and refreshes
     /// `events_consent_changed_at`.
     #[tracing::instrument(skip(self), err)]
-    pub async fn users_set_events_consent(
-        &self,
-        id: i64,
-        grant: bool,
-        source: &str,
-    ) -> AppResult<()> {
+    pub async fn users_set_events_consent(&self, id: i64, grant: bool, source: &str) -> AppResult<()> {
         if grant {
             sqlx::query(
                 r#"
@@ -1584,13 +1336,8 @@ impl Repository {
 
     /// Update user's account type (admin only)
     #[tracing::instrument(skip(self), err)]
-    pub async fn users_update_account_type(
-        &self,
-        id: i64,
-        account_type: &AccountTypeSlug,
-    ) -> AppResult<User> {
-        self.account_types_get_by_code(account_type.as_str())
-            .await?;
+    pub async fn users_update_account_type(&self, id: i64, account_type: &AccountTypeSlug) -> AppResult<User> {
+        self.account_types_get_by_code(account_type.as_str()).await?;
         self.guard_active_admins(&ActiveAdminForecast {
             move_user_id: Some(id),
             move_to_type: Some(account_type.as_str().to_string()),
@@ -1608,14 +1355,7 @@ impl Repository {
 
     /// Update 2FA settings for a user
     #[tracing::instrument(skip(self), err)]
-    pub async fn users_update_2fa_settings(
-        &self,
-        id: i64,
-        enabled: bool,
-        method: Option<&str>,
-        totp_secret: Option<&str>,
-        recovery_codes: Option<&str>,
-    ) -> AppResult<()> {
+    pub async fn users_update_2fa_settings(&self, id: i64, enabled: bool, method: Option<&str>, totp_secret: Option<&str>, recovery_codes: Option<&str>) -> AppResult<()> {
         sqlx::query(
             r#"
             UPDATE users 
@@ -1654,10 +1394,7 @@ impl Repository {
     /// Fetch all active users with a non-empty email, optionally filtered by public_type.
     /// If `public_type` is None, all users with an email are returned (no filter).
     #[tracing::instrument(skip(self), err)]
-    pub async fn users_get_emails_by_public_type(
-        &self,
-        public_type: Option<i64>,
-    ) -> AppResult<Vec<UserEmailTarget>> {
+    pub async fn users_get_emails_by_public_type(&self, public_type: Option<i64>) -> AppResult<Vec<UserEmailTarget>> {
         let rows = if let Some(pt) = public_type {
             sqlx::query_as::<_, UserEmailTarget>(
                 r#"
@@ -1695,11 +1432,7 @@ impl Repository {
     /// is required. Rows are grouped so a guardian of several children, or a guardian
     /// who is also targeted directly, is returned once.
     #[tracing::instrument(skip(self, audience_names), err)]
-    pub async fn users_list_announcement_recipients(
-        &self,
-        all_audiences: bool,
-        audience_names: &[String],
-    ) -> AppResult<Vec<AnnouncementRecipient>> {
+    pub async fn users_list_announcement_recipients(&self, all_audiences: bool, audience_names: &[String]) -> AppResult<Vec<AnnouncementRecipient>> {
         let rows = sqlx::query_as::<_, AnnouncementRecipientRow>(ANNOUNCEMENT_RECIPIENTS_SQL)
             .bind(all_audiences)
             .bind(audience_names)
@@ -1710,10 +1443,7 @@ impl Repository {
 
     /// True when this patron's library card is declared lost or stolen.
     pub async fn users_card_lost(&self, id: i64) -> AppResult<bool> {
-        let lost: Option<bool> = sqlx::query_scalar("SELECT card_lost FROM users WHERE id = $1")
-            .bind(id)
-            .fetch_optional(&self.pool)
-            .await?;
+        let lost: Option<bool> = sqlx::query_scalar("SELECT card_lost FROM users WHERE id = $1").bind(id).fetch_optional(&self.pool).await?;
         Ok(lost.unwrap_or(false))
     }
 
@@ -1737,11 +1467,7 @@ impl Repository {
     /// Loan, hold, and lost-card counters for a card scan.
     ///
     /// `agent_site_id` of `None` counts ready holds at every pickup site.
-    pub async fn patron_card_counters(
-        &self,
-        user_id: i64,
-        agent_site_id: Option<i64>,
-    ) -> AppResult<PatronCardCounters> {
+    pub async fn patron_card_counters(&self, user_id: i64, agent_site_id: Option<i64>) -> AppResult<PatronCardCounters> {
         sqlx::query_as::<_, PatronCardCounters>(
             r#"
             SELECT
@@ -1767,17 +1493,12 @@ impl Repository {
         .ok_or_else(|| AppError::NotFound(format!("User with id {user_id} not found")))
     }
 
-    pub async fn users_hold_ready_contact(
-        &self,
-        user_id: i64,
-    ) -> AppResult<Option<HoldReadyUserContact>> {
-        sqlx::query_as::<_, HoldReadyUserContact>(
-            r#"SELECT email, firstname, lastname, language FROM users WHERE id = $1"#,
-        )
-        .bind(user_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(Into::into)
+    pub async fn users_hold_ready_contact(&self, user_id: i64) -> AppResult<Option<HoldReadyUserContact>> {
+        sqlx::query_as::<_, HoldReadyUserContact>(r#"SELECT email, firstname, lastname, language FROM users WHERE id = $1"#)
+            .bind(user_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(Into::into)
     }
 
     /// Set or clear `users.card_lost`. A missing or deleted patron is not found.
@@ -1801,11 +1522,7 @@ impl Repository {
     }
 
     /// True when `barcode` is already on another user row, including a deleted row that still holds it.
-    pub async fn users_barcode_taken(
-        &self,
-        barcode: &str,
-        exclude_id: Option<i64>,
-    ) -> AppResult<bool> {
+    pub async fn users_barcode_taken(&self, barcode: &str, exclude_id: Option<i64>) -> AppResult<bool> {
         let taken: bool = sqlx::query_scalar(
             r#"
             SELECT EXISTS(
@@ -1824,12 +1541,10 @@ impl Repository {
 
     /// True when this exact card number was retired by a replacement.
     pub async fn retired_card_number_exists(&self, barcode: &str) -> AppResult<bool> {
-        let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM retired_card_numbers WHERE card_number = $1)",
-        )
-        .bind(barcode)
-        .fetch_one(&self.pool)
-        .await?;
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM retired_card_numbers WHERE card_number = $1)")
+            .bind(barcode)
+            .fetch_one(&self.pool)
+            .await?;
         Ok(exists)
     }
 
@@ -1837,12 +1552,7 @@ impl Repository {
     ///
     /// `new_barcode` must already be trimmed and non-empty. The previous number, when present,
     /// is inserted before the user row changes so a concurrent assign cannot take it.
-    pub async fn users_replace_card(
-        &self,
-        user_id: i64,
-        new_barcode: &str,
-        actor_id: i64,
-    ) -> AppResult<ReplacedCard> {
+    pub async fn users_replace_card(&self, user_id: i64, new_barcode: &str, actor_id: i64) -> AppResult<ReplacedCard> {
         let mut tx = self.pool.begin().await?;
         let row = sqlx::query(
             r#"
@@ -1859,28 +1569,19 @@ impl Repository {
 
         let status: Option<String> = row.get("status");
         if status.as_deref() == Some(UserStatus::Deleted.as_str()) {
-            return Err(AppError::NotFound(format!(
-                "User with id {user_id} not found"
-            )));
+            return Err(AppError::NotFound(format!("User with id {user_id} not found")));
         }
 
         let previous: Option<String> = row.get("barcode");
         let previous = previous.filter(|value| !value.trim().is_empty());
-        if previous
-            .as_deref()
-            .is_some_and(|current| current == new_barcode)
-        {
-            return Err(AppError::Validation(
-                "New barcode must be different from the current card number".to_string(),
-            ));
+        if previous.as_deref().is_some_and(|current| current == new_barcode) {
+            return Err(AppError::Validation("New barcode must be different from the current card number".to_string()));
         }
 
-        let retired: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM retired_card_numbers WHERE card_number = $1)",
-        )
-        .bind(new_barcode)
-        .fetch_one(&mut *tx)
-        .await?;
+        let retired: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM retired_card_numbers WHERE card_number = $1)")
+            .bind(new_barcode)
+            .fetch_one(&mut *tx)
+            .await?;
         if retired {
             return Err(retired_number_error(new_barcode));
         }
@@ -1898,9 +1599,7 @@ impl Repository {
         .fetch_one(&mut *tx)
         .await?;
         if taken {
-            return Err(AppError::Conflict(format!(
-                "Card number {new_barcode} is already assigned"
-            )));
+            return Err(AppError::Conflict(format!("Card number {new_barcode} is already assigned")));
         }
 
         if let Some(ref old) = previous {
@@ -1943,57 +1642,35 @@ impl Repository {
     }
 }
 
-static RETIRED_CARD_IDS: std::sync::LazyLock<std::sync::Mutex<Generator>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(Generator::new(12)));
+static RETIRED_CARD_IDS: std::sync::LazyLock<std::sync::Mutex<Generator>> = std::sync::LazyLock::new(|| std::sync::Mutex::new(Generator::new(12)));
 
 fn next_retired_card_id() -> i64 {
-    RETIRED_CARD_IDS
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .generate()
+    RETIRED_CARD_IDS.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).generate()
 }
 
 fn retired_number_error(barcode: &str) -> AppError {
-    AppError::coded(
-        409,
-        error_code::CARD_NUMBER_RETIRED,
-        format!("Card number {barcode} was retired and cannot be assigned again"),
-    )
+    AppError::coded(409, error_code::CARD_NUMBER_RETIRED, format!("Card number {barcode} was retired and cannot be assigned again"))
 }
 
 fn map_user_unique_violation(err: sqlx::Error) -> AppError {
     let constraint = match &err {
-        sqlx::Error::Database(db) if db.code().as_deref() == Some("23505") => {
-            db.constraint().map(str::to_owned)
-        }
+        sqlx::Error::Database(db) if db.code().as_deref() == Some("23505") => db.constraint().map(str::to_owned),
         _ => None,
     };
     match constraint.as_deref() {
-        Some("users_barcode_key") => {
-            AppError::Conflict("Card number is already assigned".to_string())
-        }
-        Some("retired_card_numbers_card_number_key") => AppError::coded(
-            409,
-            error_code::CARD_NUMBER_RETIRED,
-            "Card number was retired and cannot be assigned again".to_string(),
-        ),
+        Some("users_barcode_key") => AppError::Conflict("Card number is already assigned".to_string()),
+        Some("retired_card_numbers_card_number_key") => AppError::coded(409, error_code::CARD_NUMBER_RETIRED, "Card number was retired and cannot be assigned again".to_string()),
         _ => AppError::Database(Box::new(err)),
     }
 }
 
 #[cfg(test)]
 mod announcement_recipient_sql_tests {
-    use super::{
-        group_announcement_recipients, AnnouncementRecipientRow, ANNOUNCEMENT_RECIPIENTS_SQL,
-    };
+    use super::{group_announcement_recipients, AnnouncementRecipientRow, ANNOUNCEMENT_RECIPIENTS_SQL};
 
     fn row(id: i64, child: Option<(i64, &str, &str)>) -> AnnouncementRecipientRow {
         let (child_id, child_firstname, child_lastname) = match child {
-            Some((child_id, first, last)) => (
-                Some(child_id),
-                Some(first.to_string()),
-                Some(last.to_string()),
-            ),
+            Some((child_id, first, last)) => (Some(child_id), Some(first.to_string()), Some(last.to_string())),
             None => (None, None, None),
         };
         AnnouncementRecipientRow {
@@ -2012,28 +1689,13 @@ mod announcement_recipient_sql_tests {
     #[test]
     fn filters_consent_audience_and_guardian_routing_in_sql() {
         let sql = ANNOUNCEMENT_RECIPIENTS_SQL;
-        assert!(
-            sql.contains("u.events_consent_at IS NOT NULL"),
-            "direct consent stays in the query"
-        );
-        assert!(
-            sql.contains("g.events_consent_at IS NOT NULL"),
-            "guardian consent is what counts for a child"
-        );
-        assert!(
-            !sql.contains("c.events_consent_at"),
-            "the child's own consent is not consulted"
-        );
-        assert!(
-            !sql.contains("receive_reminders"),
-            "overdue-reminder opt-in is not the announcement filter"
-        );
+        assert!(sql.contains("u.events_consent_at IS NOT NULL"), "direct consent stays in the query");
+        assert!(sql.contains("g.events_consent_at IS NOT NULL"), "guardian consent is what counts for a child");
+        assert!(!sql.contains("c.events_consent_at"), "the child's own consent is not consulted");
+        assert!(!sql.contains("receive_reminders"), "overdue-reminder opt-in is not the announcement filter");
         assert!(sql.contains("JOIN user_guardians ug ON ug.child_id = c.id"));
         assert!(sql.contains("cpt.name = 'child'"));
-        assert!(
-            sql.contains("pt.name IS DISTINCT FROM 'child'"),
-            "a child is not a direct recipient"
-        );
+        assert!(sql.contains("pt.name IS DISTINCT FROM 'child'"), "a child is not a direct recipient");
         assert!(sql.contains("(c.status IS NULL OR c.status <> 'deleted')"));
         assert!(sql.contains("(g.status IS NULL OR g.status <> 'deleted')"));
         assert!(sql.contains("g.email IS NOT NULL"));
@@ -2042,60 +1704,31 @@ mod announcement_recipient_sql_tests {
         assert!(sql.contains("gpt.name IS DISTINCT FROM 'school'"));
         assert!(sql.contains("$1::boolean OR pt.name = ANY($2::text[])"));
         assert!(sql.contains("$1::boolean OR cpt.name = ANY($2::text[])"));
-        assert!(
-            !sql.contains("Temporary until guardian routing"),
-            "the provisional exclusion is replaced by guardian routing"
-        );
+        assert!(!sql.contains("Temporary until guardian routing"), "the provisional exclusion is replaced by guardian routing");
     }
 
     #[test]
     fn direct_send_has_no_children() {
         let grouped = group_announcement_recipients(vec![row(1, None), row(2, None)]);
         assert_eq!(grouped.len(), 2);
-        assert!(grouped
-            .iter()
-            .all(|recipient| recipient.children.is_empty()));
+        assert!(grouped.iter().all(|recipient| recipient.children.is_empty()));
         assert_eq!(grouped[0].id, 1);
         assert_eq!(grouped[1].id, 2);
     }
 
     #[test]
     fn guardian_of_several_children_is_one_recipient() {
-        let grouped = group_announcement_recipients(vec![
-            row(10, Some((3, "Noe", "Martin"))),
-            row(10, Some((2, "Lea", "Martin"))),
-            row(10, Some((2, "Lea", "Martin"))),
-        ]);
+        let grouped = group_announcement_recipients(vec![row(10, Some((3, "Noe", "Martin"))), row(10, Some((2, "Lea", "Martin"))), row(10, Some((2, "Lea", "Martin")))]);
         assert_eq!(grouped.len(), 1);
         assert_eq!(grouped[0].id, 10);
         assert_eq!(grouped[0].email.as_deref(), Some("user10@test.local"));
-        let names: Vec<_> = grouped[0]
-            .children
-            .iter()
-            .map(|child| {
-                (
-                    child.id,
-                    child.firstname.as_deref(),
-                    child.lastname.as_deref(),
-                )
-            })
-            .collect();
-        assert_eq!(
-            names,
-            vec![
-                (2, Some("Lea"), Some("Martin")),
-                (3, Some("Noe"), Some("Martin"))
-            ]
-        );
+        let names: Vec<_> = grouped[0].children.iter().map(|child| (child.id, child.firstname.as_deref(), child.lastname.as_deref())).collect();
+        assert_eq!(names, vec![(2, Some("Lea"), Some("Martin")), (3, Some("Noe"), Some("Martin"))]);
     }
 
     #[test]
     fn guardian_who_is_also_targeted_stays_one_recipient() {
-        let grouped = group_announcement_recipients(vec![
-            row(7, None),
-            row(7, Some((4, "Ada", "Lovelace"))),
-            row(8, None),
-        ]);
+        let grouped = group_announcement_recipients(vec![row(7, None), row(7, Some((4, "Ada", "Lovelace"))), row(8, None)]);
         assert_eq!(grouped.len(), 2);
         assert_eq!(grouped[0].id, 7);
         assert_eq!(grouped[0].children.len(), 1);

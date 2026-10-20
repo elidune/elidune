@@ -20,12 +20,7 @@ pub struct PatronCardLookup {
 ///
 /// `agent_site_id` limits `readyHolds` to that pickup site. `None` counts every
 /// site: the user row and the JWT have no site, so callers pass `None`.
-pub async fn lookup_patron_by_card(
-    repo: &Repository,
-    fines: &FinesService,
-    card_number: &str,
-    agent_site_id: Option<i64>,
-) -> AppResult<PatronCardLookup> {
+pub async fn lookup_patron_by_card(repo: &Repository, fines: &FinesService, card_number: &str, agent_site_id: Option<i64>) -> AppResult<PatronCardLookup> {
     let card_number = card_number.trim();
     if card_number.is_empty() {
         return Err(AppError::Validation("Card number is required".to_string()));
@@ -38,9 +33,7 @@ pub async fn lookup_patron_by_card(
     let user = repo.users_get_by_id(user_id).await?;
     let counters = repo.patron_card_counters(user_id, agent_site_id).await?;
     let (_, _, max_total, _, _) = repo.resolve_loan_settings(user.public_type, None).await?;
-    let fines_check = fines
-        .check_unpaid_threshold(user_id, user.public_type)
-        .await?;
+    let fines_check = fines.check_unpaid_threshold(user_id, user.public_type).await?;
     let unpaid_fines_cents = fines_check.unpaid.get();
 
     let zone = match repo.library_timezone_name().await {
@@ -50,9 +43,7 @@ pub async fn lookup_patron_by_card(
             calendar::default_zone()
         }
     };
-    let subscription_expires_at = user
-        .expiry_at
-        .map(|instant| calendar::local_date(zone, instant));
+    let subscription_expires_at = user.expiry_at.map(|instant| calendar::local_date(zone, instant));
     let subscription_expired = user.expiry_at.is_some_and(|expiry| expiry < Utc::now());
 
     let reasons = patron_block_reasons(&PatronGateInput {

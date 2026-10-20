@@ -6,10 +6,7 @@ use crate::{
     error::{AppError, AppResult},
     marc::MarcRecord,
     models::{
-        biblio::{
-            Biblio, BiblioQuery, BiblioShort, Collection, CollectionQuery, CreateCollection,
-            CreateSerie, Serie, SerieQuery, UpdateCollection, UpdateSerie,
-        },
+        biblio::{Biblio, BiblioQuery, BiblioShort, Collection, CollectionQuery, CreateCollection, CreateSerie, Serie, SerieQuery, UpdateCollection, UpdateSerie},
         import_report::{ImportAction, ImportReport},
         item::{Item, WeedingStatus},
     },
@@ -21,9 +18,7 @@ use crate::{
 /// Reject retired `notes` and over-long copy notes before any item write.
 fn check_item_notes(items: &[Item]) -> AppResult<()> {
     if items.iter().any(|item| item.legacy_notes_present) {
-        return Err(AppError::Validation(
-            crate::models::item::LEGACY_ITEM_NOTES_MESSAGE.to_string(),
-        ));
+        return Err(AppError::Validation(crate::models::item::LEGACY_ITEM_NOTES_MESSAGE.to_string()));
     }
     for item in items {
         item.validate_copy_notes().map_err(AppError::Validation)?;
@@ -40,11 +35,7 @@ pub struct CatalogService {
 }
 
 impl CatalogService {
-    pub fn new(
-        repository: Arc<dyn BibliosRepository>,
-        entities: Arc<dyn CatalogEntitiesRepository>,
-        audit: AuditService,
-    ) -> Self {
+    pub fn new(repository: Arc<dyn BibliosRepository>, entities: Arc<dyn CatalogEntitiesRepository>, audit: AuditService) -> Self {
         Self {
             repository,
             entities,
@@ -53,12 +44,7 @@ impl CatalogService {
         }
     }
 
-    pub fn with_search(
-        repository: Arc<dyn BibliosRepository>,
-        entities: Arc<dyn CatalogEntitiesRepository>,
-        search: Arc<MeilisearchService>,
-        audit: AuditService,
-    ) -> Self {
+    pub fn with_search(repository: Arc<dyn BibliosRepository>, entities: Arc<dyn CatalogEntitiesRepository>, search: Arc<MeilisearchService>, audit: AuditService) -> Self {
         Self {
             repository,
             entities,
@@ -90,11 +76,7 @@ impl CatalogService {
     /// Check ISBN uniqueness among active biblios.
     /// Returns structured 409 error with `BiblioShort` if a duplicate is found.
     async fn ensure_isbn_unique(&self, isbn: &str, exclude_id: Option<i64>) -> AppResult<()> {
-        if let Some(existing_id) = self
-            .repository
-            .biblios_find_active_by_isbn(isbn, exclude_id)
-            .await?
-        {
+        if let Some(existing_id) = self.repository.biblios_find_active_by_isbn(isbn, exclude_id).await? {
             let existing_biblio = self.repository.biblios_get_short_by_id(existing_id).await?;
             return Err(AppError::DuplicateNeedsConfirmation {
                 existing_id,
@@ -109,18 +91,10 @@ impl CatalogService {
         Ok(())
     }
 
-    /// Check item barcode uniqueness (active and archived).
+    /// Check item barcode uniqueness among active copies.
     /// Returns structured 409 error with `ItemShort` if a duplicate is found.
-    async fn ensure_barcode_unique(
-        &self,
-        barcode: &str,
-        exclude_item_id: Option<i64>,
-    ) -> AppResult<()> {
-        if let Some(existing) = self
-            .repository
-            .items_find_short_by_barcode(barcode, exclude_item_id)
-            .await?
-        {
+    async fn ensure_barcode_unique(&self, barcode: &str, exclude_item_id: Option<i64>) -> AppResult<()> {
+        if let Some(existing) = self.repository.items_find_short_by_barcode(barcode, exclude_item_id).await? {
             return Err(AppError::DuplicateBarcodeNeedsConfirmation {
                 existing_id: existing.id,
                 existing_item: Box::new(existing),
@@ -131,11 +105,7 @@ impl CatalogService {
     }
 
     /// Process embedded items (physical copies) through barcode policy, then upsert each one.
-    async fn process_embedded_items(
-        &self,
-        biblio_id: i64,
-        mut items: Vec<Item>,
-    ) -> AppResult<Vec<Item>> {
+    async fn process_embedded_items(&self, biblio_id: i64, mut items: Vec<Item>) -> AppResult<Vec<Item>> {
         check_item_notes(&items)?;
         for item in &mut items {
             if let Some(ref barcode) = item.barcode {
@@ -193,9 +163,7 @@ impl CatalogService {
                     lang: query.lang.clone(),
                     audience_type: query.audience_type.clone(),
                     archive: query.archive,
-                    include_without_active_items: query
-                        .include_without_active_items
-                        .unwrap_or(false),
+                    include_without_active_items: query.include_without_active_items.unwrap_or(false),
                     exclude_fully_withdrawn: query.exclude_fully_withdrawn.unwrap_or(false),
                 };
                 let page = query.page.unwrap_or(1).max(1);
@@ -203,17 +171,11 @@ impl CatalogService {
 
                 match svc.search(fs, &filters, page, per_page).await {
                     Ok((ids, total)) => {
-                        let biblios = self
-                            .repository
-                            .biblios_get_short_by_ids_ordered(&ids)
-                            .await?;
+                        let biblios = self.repository.biblios_get_short_by_ids_ordered(&ids).await?;
                         return Ok((biblios, total));
                     }
                     Err(e) => {
-                        tracing::warn!(
-                            "Meilisearch search failed, falling back to PostgreSQL: {}",
-                            e
-                        );
+                        tracing::warn!("Meilisearch search failed, falling back to PostgreSQL: {}", e);
                     }
                 }
             }
@@ -230,9 +192,7 @@ impl CatalogService {
 
     /// Active bibliographic record id for a normalized ISBN, if one exists.
     pub async fn find_active_biblio_id_by_isbn(&self, isbn: &str) -> AppResult<Option<i64>> {
-        self.repository
-            .biblios_find_active_by_isbn(isbn, None)
-            .await
+        self.repository.biblios_find_active_by_isbn(isbn, None).await
     }
 
     /// Get the bibliographic record for a physical copy (`item_id`).
@@ -241,9 +201,7 @@ impl CatalogService {
     #[tracing::instrument(skip(self), err)]
     pub async fn get_biblio_for_item(&self, item_id: i64) -> AppResult<Biblio> {
         let item = self.repository.items_get_active_by_id(item_id).await?;
-        let biblio_id = item
-            .biblio_id
-            .ok_or_else(|| AppError::Internal("Item has no biblio_id".to_string()))?;
+        let biblio_id = item.biblio_id.ok_or_else(|| AppError::Internal("Item has no biblio_id".to_string()))?;
         let mut biblio = self.repository.biblios_get_by_id(biblio_id).await?;
         biblio.items = vec![item];
         Ok(biblio)
@@ -253,9 +211,7 @@ impl CatalogService {
     #[tracing::instrument(skip(self), err)]
     pub async fn get_biblio_for_item_barcode(&self, barcode: &str) -> AppResult<Biblio> {
         let item = self.repository.items_get_active_by_barcode(barcode).await?;
-        let biblio_id = item
-            .biblio_id
-            .ok_or_else(|| AppError::Internal("Item has no biblio_id".to_string()))?;
+        let biblio_id = item.biblio_id.ok_or_else(|| AppError::Internal("Item has no biblio_id".to_string()))?;
         let mut biblio = self.repository.biblios_get_by_id(biblio_id).await?;
         biblio.items = vec![item];
         Ok(biblio)
@@ -264,14 +220,8 @@ impl CatalogService {
     /// Like [`Self::get_biblio_for_item`], plus `biblio.marc_record` when stored in DB (for MARC export).
     pub async fn get_biblio_for_item_with_marc(&self, item_id: i64) -> AppResult<Biblio> {
         let mut biblio = self.get_biblio_for_item(item_id).await?;
-        let bid = biblio
-            .id
-            .ok_or_else(|| AppError::Internal("Biblio id missing".to_string()))?;
-        if let Some(rec) = self
-            .repository
-            .biblios_get_marc_record_optional(bid)
-            .await?
-        {
+        let bid = biblio.id.ok_or_else(|| AppError::Internal("Biblio id missing".to_string()))?;
+        if let Some(rec) = self.repository.biblios_get_marc_record_optional(bid).await? {
             biblio.marc_record = Some(rec);
         }
         Ok(biblio)
@@ -287,50 +237,30 @@ impl CatalogService {
     ///
     /// Embedded items (physical copies) are created through the barcode policy.
     #[tracing::instrument(skip(self), err)]
-    pub async fn create_biblio(
-        &self,
-        mut biblio: Biblio,
-        allow_duplicate_isbn: bool,
-        replace_existing: Option<i64>,
-    ) -> AppResult<(Biblio, ImportReport)> {
+    pub async fn create_biblio(&self, mut biblio: Biblio, allow_duplicate_isbn: bool, replace_existing: Option<i64>) -> AppResult<(Biblio, ImportReport)> {
         check_item_notes(&biblio.items)?;
         if !allow_duplicate_isbn {
             if let Some(ref isbn) = biblio.isbn {
-                if let Some(existing_id) = self
-                    .repository
-                    .biblios_find_active_by_isbn(isbn.as_str(), None)
-                    .await?
-                {
+                if let Some(existing_id) = self.repository.biblios_find_active_by_isbn(isbn.as_str(), None).await? {
                     if replace_existing == Some(existing_id) {
-                        tracing::info!(
-                            "Catalog create: confirmed merge into biblio id={}",
-                            existing_id
-                        );
+                        tracing::info!("Catalog create: confirmed merge into biblio id={}", existing_id);
                         let pending = std::mem::take(&mut biblio.items);
-                        self.repository
-                            .biblios_update(existing_id, &mut biblio)
-                            .await?;
+                        self.repository.biblios_update(existing_id, &mut biblio).await?;
                         biblio.items = self.process_embedded_items(existing_id, pending).await?;
                         if !biblio.items.is_empty() {
-                            self.repository
-                                .biblios_update_marc_record(&mut biblio)
-                                .await?;
+                            self.repository.biblios_update_marc_record(&mut biblio).await?;
                         }
                         self.sync_index(existing_id).await;
                         let report = ImportReport {
                             action: ImportAction::MergedBibliographic,
                             existing_id: Some(existing_id),
                             warnings: vec![],
-                            message: Some(format!(
-                                "Merged bibliographic data into biblio id={} after confirmation.",
-                                existing_id
-                            )),
+                            message: Some(format!("Merged bibliographic data into biblio id={} after confirmation.", existing_id)),
                         };
                         return Ok((biblio, report));
                     }
 
-                    let existing_biblio =
-                        self.repository.biblios_get_short_by_id(existing_id).await?;
+                    let existing_biblio = self.repository.biblios_get_short_by_id(existing_id).await?;
                     return Err(AppError::DuplicateNeedsConfirmation {
                         existing_id,
                         existing_item: Box::new(existing_biblio),
@@ -346,21 +276,15 @@ impl CatalogService {
 
         let mut warnings = Vec::new();
         if biblio.isbn.is_none() && !allow_duplicate_isbn {
-            warnings.push(
-                "No ISBN — duplicate check skipped. This may create silent duplicates.".to_string(),
-            );
+            warnings.push("No ISBN — duplicate check skipped. This may create silent duplicates.".to_string());
         }
 
         let pending_items = std::mem::take(&mut biblio.items);
         self.repository.biblios_create(&mut biblio).await?;
         let biblio_id = biblio.id.unwrap();
-        biblio.items = self
-            .process_embedded_items(biblio_id, pending_items)
-            .await?;
+        biblio.items = self.process_embedded_items(biblio_id, pending_items).await?;
         if !biblio.items.is_empty() {
-            self.repository
-                .biblios_update_marc_record(&mut biblio)
-                .await?;
+            self.repository.biblios_update_marc_record(&mut biblio).await?;
         }
         self.sync_index(biblio_id).await;
 
@@ -375,12 +299,7 @@ impl CatalogService {
 
     /// Update an existing biblio.
     #[tracing::instrument(skip(self), err)]
-    pub async fn update_biblio(
-        &self,
-        id: i64,
-        mut biblio: Biblio,
-        allow_duplicate_isbn: bool,
-    ) -> AppResult<Biblio> {
+    pub async fn update_biblio(&self, id: i64, mut biblio: Biblio, allow_duplicate_isbn: bool) -> AppResult<Biblio> {
         check_item_notes(&biblio.items)?;
         self.repository.biblios_get_by_id(id).await?;
 
@@ -394,9 +313,7 @@ impl CatalogService {
         self.repository.biblios_update(id, &mut biblio).await?;
         biblio.items = self.process_embedded_items(id, pending_items).await?;
         if !biblio.items.is_empty() {
-            self.repository
-                .biblios_update_marc_record(&mut biblio)
-                .await?;
+            self.repository.biblios_update_marc_record(&mut biblio).await?;
         }
         self.sync_index(id).await;
 
@@ -405,23 +322,16 @@ impl CatalogService {
 
     /// Replace bibliographic data and stored MARC from a Z39.50 fetch; keeps existing physical items and `created_at`.
     #[tracing::instrument(skip(self, remote_marc), err)]
-    pub async fn refresh_biblio_from_z3950_marc(
-        &self,
-        biblio_id: i64,
-        remote_marc: MarcRecord,
-    ) -> AppResult<Biblio> {
+    pub async fn refresh_biblio_from_z3950_marc(&self, biblio_id: i64, remote_marc: MarcRecord) -> AppResult<Biblio> {
         let existing = self.repository.biblios_get_by_id(biblio_id).await?;
         let mut merged: Biblio = remote_marc.into();
         merged.id = Some(biblio_id);
         merged.items = existing.items;
         merged.created_at = existing.created_at;
         if let Some(ref isbn) = merged.isbn {
-            self.ensure_isbn_unique(isbn.as_str(), Some(biblio_id))
-                .await?;
+            self.ensure_isbn_unique(isbn.as_str(), Some(biblio_id)).await?;
         }
-        self.repository
-            .biblios_full_bibliographic_replace(biblio_id, &mut merged)
-            .await?;
+        self.repository.biblios_full_bibliographic_replace(biblio_id, &mut merged).await?;
         self.sync_index(biblio_id).await;
         self.repository.biblios_get_by_id(biblio_id).await
     }
@@ -457,10 +367,7 @@ impl CatalogService {
             self.ensure_barcode_unique(barcode, None).await?;
         }
 
-        let result = self
-            .repository
-            .biblios_create_item(biblio_id, &item)
-            .await?;
+        let result = self.repository.biblios_create_item(biblio_id, &item).await?;
         self.sync_index(biblio_id).await;
         Ok(result)
     }
@@ -469,11 +376,7 @@ impl CatalogService {
     ///
     /// `item_id` (path) is the source of truth; if `item.id` is set it must match.
     #[tracing::instrument(skip(self), err)]
-    pub async fn update_item<'a>(
-        &self,
-        item_id: i64,
-        item: &'a mut Item,
-    ) -> AppResult<(i64, &'a mut Item)> {
+    pub async fn update_item<'a>(&self, item_id: i64, item: &'a mut Item) -> AppResult<(i64, &'a mut Item)> {
         check_item_notes(std::slice::from_ref(item))?;
         // Status changes are audited actions. Reject the whole request so a
         // call number or note edit cannot ride along with a silent ignore.
@@ -485,23 +388,17 @@ impl CatalogService {
         item.validate_copy_notes().map_err(AppError::Validation)?;
         if let Some(body_id) = item.id {
             if body_id != item_id {
-                return Err(AppError::Validation(
-                    "Item id in body must match path id".to_string(),
-                ));
+                return Err(AppError::Validation("Item id in body must match path id".to_string()));
             }
         }
         item.id = Some(item_id);
 
         let existing = self.repository.items_get_active_by_id(item_id).await?;
-        let biblio_id = existing
-            .biblio_id
-            .ok_or_else(|| AppError::Internal("Active item is missing biblio_id".to_string()))?;
+        let biblio_id = existing.biblio_id.ok_or_else(|| AppError::Internal("Active item is missing biblio_id".to_string()))?;
 
         if let Some(body_biblio) = item.biblio_id {
             if body_biblio != biblio_id {
-                return Err(AppError::Validation(
-                    "Item biblioId in body must match the item's bibliographic record".to_string(),
-                ));
+                return Err(AppError::Validation("Item biblioId in body must match the item's bibliographic record".to_string()));
             }
         }
 
@@ -522,9 +419,7 @@ impl CatalogService {
     #[tracing::instrument(skip(self), err)]
     pub async fn delete_item(&self, item_id: i64, force: bool) -> AppResult<i64> {
         let existing = self.repository.items_get_active_by_id(item_id).await?;
-        let biblio_id = existing
-            .biblio_id
-            .ok_or_else(|| AppError::Internal("Active item is missing biblio_id".to_string()))?;
+        let biblio_id = existing.biblio_id.ok_or_else(|| AppError::Internal("Active item is missing biblio_id".to_string()))?;
 
         self.repository.items_delete(item_id, force).await?;
         self.sync_index(biblio_id).await;
@@ -533,16 +428,8 @@ impl CatalogService {
 
     /// Set weeding status on a physical copy. Does not archive the item or the biblio.
     #[tracing::instrument(skip(self), err)]
-    pub async fn set_item_weeding(
-        &self,
-        item_id: i64,
-        status: WeedingStatus,
-        reason: Option<String>,
-    ) -> AppResult<Item> {
-        let item = self
-            .repository
-            .items_set_weeding(item_id, status, reason)
-            .await?;
+    pub async fn set_item_weeding(&self, item_id: i64, status: WeedingStatus, reason: Option<String>) -> AppResult<Item> {
+        let item = self.repository.items_set_weeding(item_id, status, reason).await?;
         if let Some(biblio_id) = item.biblio_id {
             self.sync_index(biblio_id).await;
         }
@@ -567,13 +454,8 @@ impl CatalogService {
 
     /// List all biblios in a collection (ordered by volume number)
     #[tracing::instrument(skip(self), err)]
-    pub async fn get_biblios_by_collection(
-        &self,
-        collection_id: i64,
-    ) -> AppResult<Vec<BiblioShort>> {
-        self.repository
-            .biblios_get_by_collection(collection_id)
-            .await
+    pub async fn get_biblios_by_collection(&self, collection_id: i64) -> AppResult<Vec<BiblioShort>> {
+        self.repository.biblios_get_by_collection(collection_id).await
     }
 
     // =========================================================================
@@ -616,10 +498,7 @@ impl CatalogService {
     // =========================================================================
 
     #[tracing::instrument(skip(self), err)]
-    pub async fn list_collections(
-        &self,
-        query: &CollectionQuery,
-    ) -> AppResult<(Vec<Collection>, i64)> {
+    pub async fn list_collections(&self, query: &CollectionQuery) -> AppResult<(Vec<Collection>, i64)> {
         self.entities.collections_list(query).await
     }
 
@@ -631,23 +510,15 @@ impl CatalogService {
     #[tracing::instrument(skip(self), err)]
     pub async fn create_collection(&self, data: &CreateCollection) -> AppResult<Collection> {
         if data.name.trim().is_empty() {
-            return Err(AppError::Validation(
-                "Collection name must not be empty".into(),
-            ));
+            return Err(AppError::Validation("Collection name must not be empty".into()));
         }
         self.entities.collections_create(data).await
     }
 
     #[tracing::instrument(skip(self), err)]
-    pub async fn update_collection(
-        &self,
-        id: i64,
-        data: &UpdateCollection,
-    ) -> AppResult<Collection> {
+    pub async fn update_collection(&self, id: i64, data: &UpdateCollection) -> AppResult<Collection> {
         if data.name.as_deref().is_some_and(|n| n.trim().is_empty()) {
-            return Err(AppError::Validation(
-                "Collection name must not be empty".into(),
-            ));
+            return Err(AppError::Validation("Collection name must not be empty".into()));
         }
         self.entities.collections_update(id, data).await
     }
@@ -686,10 +557,7 @@ impl CatalogService {
         let mut since_last_log = 0usize;
 
         loop {
-            let batch = self
-                .repository
-                .biblios_get_meili_documents_batch(cursor, BATCH_SIZE)
-                .await?;
+            let batch = self.repository.biblios_get_meili_documents_batch(cursor, BATCH_SIZE).await?;
 
             if batch.is_empty() {
                 break;
@@ -705,10 +573,7 @@ impl CatalogService {
             since_last_log += batch_len;
 
             if since_last_log >= LOG_EVERY {
-                tracing::info!(
-                    "Meilisearch reindex progress: {} documents queued so far",
-                    total
-                );
+                tracing::info!("Meilisearch reindex progress: {} documents queued so far", total);
                 since_last_log = 0;
             }
 
@@ -734,14 +599,11 @@ fn apply_circulation_readiness(item: &mut Item, existing: &Item) -> AppResult<()
         return Ok(());
     }
 
-    let barcode = nonempty_text(item.barcode.as_deref())
-        .or_else(|| nonempty_text(existing.barcode.as_deref()));
-    let source_id = item.source_id.or(existing.source_id);
-    let source_name = nonempty_text(item.source_name.as_deref())
-        .or_else(|| nonempty_text(existing.source_name.as_deref()));
+    let barcode = nonempty_text(item.barcode.as_deref()).or_else(|| nonempty_text(existing.barcode.as_deref()));
+    let site_id = item.site_id.or(existing.site_id);
+    let site_name = nonempty_text(item.site_name.as_deref()).or_else(|| nonempty_text(existing.site_name.as_deref()));
     let price = item.price.or(existing.price);
-    let ready =
-        Item::ready_to_circulate(barcode, source_id, source_name, price, item.price_deferred);
+    let ready = Item::ready_to_circulate(barcode, site_id, site_name, price, item.price_deferred);
 
     if ready {
         item.borrowable = true;
@@ -750,8 +612,7 @@ fn apply_circulation_readiness(item: &mut Item, existing: &Item) -> AppResult<()
 
     if item.borrowable && !existing.borrowable {
         return Err(AppError::BusinessRule(
-            "Item cannot be made borrowable until barcode, site, and price (or an explicit price deferral) are set"
-                .into(),
+            "Item cannot be made borrowable until barcode, site, and price (or an explicit price deferral) are set".into(),
         ));
     }
     if !existing.borrowable {

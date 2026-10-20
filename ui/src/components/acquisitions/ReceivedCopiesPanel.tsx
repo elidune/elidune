@@ -13,8 +13,8 @@ export interface ReceivedCopy {
   biblioId: string;
   title?: string | null;
   barcode?: string | null;
-  sourceId?: string | null;
-  sourceName?: string | null;
+  siteId?: string | null;
+  siteName?: string | null;
   price?: string | null;
   borrowable: boolean;
 }
@@ -74,7 +74,7 @@ export default function ReceivedCopiesPanel({ copies, onDismiss }: ReceivedCopie
                 </div>
                 <p className="text-sm text-gray-500">
                   {copy.title?.trim() || copy.biblioId || copy.itemId}
-                  {copy.sourceName ? ` · ${copy.sourceName}` : ''}
+                  {copy.siteName ? ` · ${copy.siteName}` : ''}
                   {copy.price ? ` · ${copy.price}` : ''}
                 </p>
                 {!ready && missing.length > 0 ? (

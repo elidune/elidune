@@ -35,19 +35,10 @@ async fn create_copy(app: &TestApp, admin_token: &str, title: &str) -> (i64, i64
         )
         .await;
     assert_eq!(status, StatusCode::CREATED, "create biblio: {body}");
-    (
-        fixtures::json_id(&body["biblio"]["id"]),
-        fixtures::json_id(&body["biblio"]["items"][0]["id"]),
-    )
+    (fixtures::json_id(&body["biblio"]["id"]), fixtures::json_id(&body["biblio"]["items"][0]["id"]))
 }
 
-async fn ready_hold(
-    app: &TestApp,
-    holder_id: i64,
-    item_id: i64,
-    biblio_id: i64,
-    position: i32,
-) -> i64 {
+async fn ready_hold(app: &TestApp, holder_id: i64, item_id: i64, biblio_id: i64, position: i32) -> i64 {
     let hold_id = next_id();
     sqlx::query(
         r#"
@@ -92,11 +83,7 @@ fn migration_062_copies_every_settings_write_type() {
     let update = sql.split("UPDATE account_types").nth(1).expect("update");
     assert!(update.contains("circulation_override_rights = 'w'"));
     assert!(update.contains("WHERE settings_rights = 'w'"));
-    let predicate = update
-        .split("WHERE")
-        .nth(1)
-        .expect("predicate")
-        .to_ascii_lowercase();
+    let predicate = update.split("WHERE").nth(1).expect("predicate").to_ascii_lowercase();
     assert!(!predicate.contains("code"), "{predicate}");
     assert!(!predicate.contains("admin"), "{predicate}");
 }
@@ -107,12 +94,10 @@ async fn built_in_types_keep_today_force_capability() {
         return;
     };
     let _admin = fixtures::ensure_first_setup(&app).await;
-    let rows: Vec<(String, String, String)> = sqlx::query_as(
-        "SELECT code, settings_rights, circulation_override_rights FROM account_types WHERE is_system ORDER BY code",
-    )
-    .fetch_all(app.state.services.repository.pool())
-    .await
-    .expect("account types");
+    let rows: Vec<(String, String, String)> = sqlx::query_as("SELECT code, settings_rights, circulation_override_rights FROM account_types WHERE is_system ORDER BY code")
+        .fetch_all(app.state.services.repository.pool())
+        .await
+        .expect("account types");
     for (code, settings, override_rights) in rows {
         let expected = if settings == "w" { "w" } else { "n" };
         assert_eq!(override_rights, expected, "{code} settings={settings}");
@@ -125,9 +110,7 @@ async fn forced_loan_keeps_the_hold_first_and_audits_the_reason() {
         return;
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
-    let (me_status, me) = app
-        .get_json_with_auth("/api/v1/auth/me", &admin_token)
-        .await;
+    let (me_status, me) = app.get_json_with_auth("/api/v1/auth/me", &admin_token).await;
     assert_eq!(me_status, StatusCode::OK, "{me}");
     let staff_id = fixtures::json_id(&me["id"]);
     let (holder_id, _) = fixtures::create_reader(&app, &admin_token, "holdkeep").await;
@@ -149,25 +132,14 @@ async fn forced_loan_keeps_the_hold_first_and_audits_the_reason() {
     .await
     .expect("second hold");
 
-    let (status, refused) = app
-        .post_json(
-            "/api/v1/loans",
-            &checkout_body(borrower_id, item_id, false, None),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, refused) = app.post_json("/api/v1/loans", &checkout_body(borrower_id, item_id, false, None), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{refused}");
     assert_eq!(refused["code"], "item_held_for_other", "{refused}");
     assert_eq!(refused["error"], "Business Rule Violation", "{refused}");
     assert_eq!(refused["forceable"], true, "{refused}");
     assert_eq!(refused["reasonRequired"], true, "{refused}");
     let detail_keys = {
-        let mut keys: Vec<_> = refused["details"]
-            .as_object()
-            .expect("details")
-            .keys()
-            .cloned()
-            .collect();
+        let mut keys: Vec<_> = refused["details"].as_object().expect("details").keys().cloned().collect();
         keys.sort();
         keys
     };
@@ -181,11 +153,7 @@ async fn forced_loan_keeps_the_hold_first_and_audits_the_reason() {
     assert!(!refused.to_string().contains("Reader"), "{refused}");
 
     let (status, created) = app
-        .post_json(
-            "/api/v1/loans",
-            &checkout_body(borrower_id, item_id, true, Some("reader is in the room")),
-            Some(&admin_token),
-        )
+        .post_json("/api/v1/loans", &checkout_body(borrower_id, item_id, true, Some("reader is in the room")), Some(&admin_token))
         .await;
     assert_eq!(status, StatusCode::CREATED, "{created}");
     let loan_id = fixtures::json_id(&created["id"]);
@@ -194,25 +162,18 @@ async fn forced_loan_keeps_the_hold_first_and_audits_the_reason() {
     assert_eq!(position, 1);
     assert_eq!(user_id, holder_id);
     assert_eq!(assigned, Some(item_id));
-    let (behind_status, behind_position, behind_user, _): (String, i32, i64, Option<i64>) =
-        hold_row(&app, behind_id).await;
+    let (behind_status, behind_position, behind_user, _): (String, i32, i64, Option<i64>) = hold_row(&app, behind_id).await;
     assert_eq!(behind_status, "pending");
     assert_eq!(behind_position, 2);
     assert_eq!(behind_user, other_id);
 
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     let (status, audit) = app
-        .get_json_with_auth(
-            &format!("/api/v1/audit?eventType=loan.held_for_other_overridden&entityId={loan_id}"),
-            &admin_token,
-        )
+        .get_json_with_auth(&format!("/api/v1/audit?eventType=loan.held_for_other_overridden&entityId={loan_id}"), &admin_token)
         .await;
     assert_eq!(status, StatusCode::OK, "{audit}");
     let entries = audit["entries"].as_array().cloned().unwrap_or_default();
-    let row = entries
-        .iter()
-        .find(|row| fixtures::json_id(&row["entityId"]) == loan_id)
-        .expect("hold override audit");
+    let row = entries.iter().find(|row| fixtures::json_id(&row["entityId"]) == loan_id).expect("hold override audit");
     assert_eq!(fixtures::json_id(&row["userId"]), staff_id);
     assert_eq!(row["entityType"], "loan");
     assert_eq!(row["payload"]["reason"], "reader is in the room");
@@ -222,30 +183,18 @@ async fn forced_loan_keeps_the_hold_first_and_audits_the_reason() {
     assert_eq!(fixtures::json_id(&row["payload"]["loanId"]), loan_id);
     assert!(row["payload"].get("staffId").is_none(), "{row}");
 
-    let (status, returned) = app
-        .post_empty(
-            &format!("/api/v1/loans/{loan_id}/return"),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, returned) = app.post_empty(&format!("/api/v1/loans/{loan_id}/return"), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::OK, "{returned}");
     let (status_name, position, user_id, assigned) = hold_row(&app, hold_id).await;
     assert_eq!(status_name, "ready", "return serves the same hold");
     assert_eq!(position, 1);
     assert_eq!(user_id, holder_id);
     assert_eq!(assigned, Some(item_id));
-    let (behind_status, behind_position, _, _): (String, i32, i64, Option<i64>) =
-        hold_row(&app, behind_id).await;
+    let (behind_status, behind_position, _, _): (String, i32, i64, Option<i64>) = hold_row(&app, behind_id).await;
     assert_eq!(behind_status, "pending");
     assert_eq!(behind_position, 2);
 
-    let (status, holder_loan) = app
-        .post_json(
-            "/api/v1/loans",
-            &checkout_body(holder_id, item_id, false, None),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, holder_loan) = app.post_json("/api/v1/loans", &checkout_body(holder_id, item_id, false, None), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::CREATED, "queued patron: {holder_loan}");
 }
 
@@ -266,11 +215,7 @@ async fn lost_card_and_open_loan_stay_non_forceable() {
         .expect("lose card");
 
     let (status, lost) = app
-        .post_json(
-            "/api/v1/loans",
-            &checkout_body(borrower_id, item_id, true, Some("card was found")),
-            Some(&admin_token),
-        )
+        .post_json("/api/v1/loans", &checkout_body(borrower_id, item_id, true, Some("card was found")), Some(&admin_token))
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{lost}");
     assert_eq!(lost["code"], "card_lost", "{lost}");
@@ -283,26 +228,11 @@ async fn lost_card_and_open_loan_stay_non_forceable() {
     let (owner_id, _) = fixtures::create_reader(&app, &admin_token, "openown").await;
     let (other_id, _) = fixtures::create_reader(&app, &admin_token, "openoth").await;
     let (_, loaned_id) = create_copy(&app, &admin_token, "Already Out").await;
-    let (status, first) = app
-        .post_json(
-            "/api/v1/loans",
-            &checkout_body(owner_id, loaned_id, false, None),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, first) = app.post_json("/api/v1/loans", &checkout_body(owner_id, loaned_id, false, None), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::CREATED, "{first}");
-    let (status, conflict) = app
-        .post_json(
-            "/api/v1/loans",
-            &checkout_body(other_id, loaned_id, true, Some("they asked")),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, conflict) = app.post_json("/api/v1/loans", &checkout_body(other_id, loaned_id, true, Some("they asked")), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::CONFLICT, "{conflict}");
-    assert_eq!(
-        conflict["code"], "item_on_loan_to_other_borrower",
-        "{conflict}"
-    );
+    assert_eq!(conflict["code"], "item_on_loan_to_other_borrower", "{conflict}");
     assert_eq!(conflict["error"], "Conflict", "{conflict}");
     assert!(conflict.get("message").is_some(), "{conflict}");
     assert!(conflict.get("forceable").is_none(), "{conflict}");

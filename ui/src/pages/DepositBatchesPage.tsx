@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Library, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { Badge, Button, Card, Input, Modal, QueryErrorBanner, Table } from '@/components/common';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
@@ -12,7 +12,7 @@ import {
   type DepositBatch,
   type DepositBatchStatus,
   type Lender,
-  type Source,
+  type Site,
 } from '@/types';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { APP_PAGE_CLASS } from '@/utils/appPageLayout';
@@ -29,7 +29,7 @@ function statusVariant(status: DepositBatchStatus): 'success' | 'warning' | 'def
   return 'default';
 }
 
-export default function DepositBatchesPage() {
+export function DepositBatchesPanel() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -54,15 +54,15 @@ export default function DepositBatchesPage() {
     queryKey: ['lenders', 'names'],
     queryFn: () => api.listLenders(true),
   });
-  const sourcesQuery = useQuery({
-    queryKey: ['sources', 'active'],
-    queryFn: () => api.getSources(false),
+  const sitesQuery = useQuery({
+    queryKey: ['sites', 'active'],
+    queryFn: () => api.getSites(false),
   });
 
   const lenderName = (id: string) =>
     lendersQuery.data?.find((lender) => lender.id === id)?.name ?? id;
   const siteName = (id: string) =>
-    sourcesQuery.data?.find((source) => String(source.id) === id)?.name ?? id;
+    sitesQuery.data?.find((source) => String(source.id) === id)?.name ?? id;
 
   const resetForm = () => {
     setLenderId('');
@@ -97,34 +97,21 @@ export default function DepositBatchesPage() {
   const activeLenders = (lendersQuery.data ?? []).filter((lender) => !lender.archivedAt);
 
   return (
-    <div className={APP_PAGE_CLASS}>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-start gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-800">
-            <Library className="h-6 w-6 text-gray-700 dark:text-gray-200" aria-hidden />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('deposits.batches.title')}</h1>
-            <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{t('deposits.batches.subtitle')}</p>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Link to="/deposits/lenders" className="text-sm text-indigo-700 hover:underline dark:text-indigo-300">
-            {t('deposits.lenders.title')}
-          </Link>
-          {canWrite ? (
-            <Button
-              type="button"
-              leftIcon={<Plus className="h-4 w-4" />}
-              onClick={() => {
-                resetForm();
-                setCreating(true);
-              }}
-            >
-              {t('deposits.batches.create')}
-            </Button>
-          ) : null}
-        </div>
+    <div className="space-y-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-gray-600 dark:text-gray-300">{t('deposits.batches.subtitle')}</p>
+        {canWrite ? (
+          <Button
+            type="button"
+            leftIcon={<Plus className="h-4 w-4" />}
+            onClick={() => {
+              resetForm();
+              setCreating(true);
+            }}
+          >
+            {t('deposits.batches.create')}
+          </Button>
+        ) : null}
       </div>
 
       <Card className="overflow-hidden">
@@ -216,7 +203,7 @@ export default function DepositBatchesPage() {
         <div className="space-y-3">
           <LenderSiteFields
             lenders={activeLenders}
-            sources={sourcesQuery.data ?? []}
+            sites={sitesQuery.data ?? []}
             lenderId={lenderId}
             siteId={siteId}
             onLender={setLenderId}
@@ -233,16 +220,24 @@ export default function DepositBatchesPage() {
   );
 }
 
+export default function DepositBatchesPage() {
+  return (
+    <div className={APP_PAGE_CLASS}>
+      <DepositBatchesPanel />
+    </div>
+  );
+}
+
 function LenderSiteFields({
   lenders,
-  sources,
+  sites,
   lenderId,
   siteId,
   onLender,
   onSite,
 }: {
   lenders: Lender[];
-  sources: Source[];
+  sites: Site[];
   lenderId: string;
   siteId: string;
   onLender: (id: string) => void;
@@ -264,7 +259,7 @@ function LenderSiteFields({
         <label htmlFor="deposit-site" className={formLabelClass()}>{t('deposits.site')}</label>
         <select id="deposit-site" className={formControlClass()} value={siteId} onChange={(event) => onSite(event.target.value)}>
           <option value="">{t('common.select')}</option>
-          {sources.map((source) => (
+          {sites.map((source) => (
             <option key={source.id} value={String(source.id)}>{source.name || source.key || source.id}</option>
           ))}
         </select>

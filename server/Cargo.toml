@@ -76,6 +76,7 @@ tower_governor = { version = "0.3", features = ["axum"] }
 governor = "0.6"
 ipnet = "2"
 z3950-rs = "1.0.2"
+encoding_rs = "0.8"
 # z3950-rs = { path = "../z3950-rs" }
 regex = "1"
 meilisearch-sdk = "0.32"

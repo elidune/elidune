@@ -12,20 +12,10 @@ use crate::models::stats_builder::{ColumnMeta, StatsTableResponse};
 const QUERY_TIMEOUT: Duration = Duration::from_secs(30);
 
 fn labeled_sql(data_sql: &str, count_sql: &str) -> String {
-    format!(
-        "-- data\n{}\n\n-- count\n{}",
-        data_sql.trim_end(),
-        count_sql.trim_end()
-    )
+    format!("-- data\n{}\n\n-- count\n{}", data_sql.trim_end(), count_sql.trim_end())
 }
 
-fn sql_failure_response(
-    limit: u32,
-    offset: u32,
-    data_sql: &str,
-    count_sql: &str,
-    message: impl Into<String>,
-) -> StatsTableResponse {
+fn sql_failure_response(limit: u32, offset: u32, data_sql: &str, count_sql: &str, message: impl Into<String>) -> StatsTableResponse {
     StatsTableResponse {
         columns: Vec::new(),
         rows: Vec::new(),
@@ -44,38 +34,19 @@ fn format_sqlx_error(e: &sqlx::Error) -> String {
     }
 }
 
-pub async fn execute(
-    pool: &PgPool,
-    data_sql: &str,
-    count_sql: &str,
-    binds: &[serde_json::Value],
-    limit: u32,
-    offset: u32,
-) -> Result<StatsTableResponse, AppError> {
+pub async fn execute(pool: &PgPool, data_sql: &str, count_sql: &str, binds: &[serde_json::Value], limit: u32, offset: u32) -> Result<StatsTableResponse, AppError> {
     let work = async {
         let rows = match execute_raw(pool, data_sql, binds).await {
             Ok(r) => r,
             Err(e) => {
-                return Ok(sql_failure_response(
-                    limit,
-                    offset,
-                    data_sql,
-                    count_sql,
-                    format_sqlx_error(&e),
-                ));
+                return Ok(sql_failure_response(limit, offset, data_sql, count_sql, format_sqlx_error(&e)));
             }
         };
 
         let total_rows = match fetch_count_row(pool, count_sql, binds).await {
             Ok(row) => parse_count_total(&row)?,
             Err(e) => {
-                return Ok(sql_failure_response(
-                    limit,
-                    offset,
-                    data_sql,
-                    count_sql,
-                    format_sqlx_error(&e),
-                ));
+                return Ok(sql_failure_response(limit, offset, data_sql, count_sql, format_sqlx_error(&e)));
             }
         };
 
@@ -93,8 +64,7 @@ pub async fn execute(
             Vec::new()
         };
 
-        let json_rows: Vec<serde_json::Map<String, serde_json::Value>> =
-            rows.iter().map(row_to_json).collect();
+        let json_rows: Vec<serde_json::Map<String, serde_json::Value>> = rows.iter().map(row_to_json).collect();
 
         Ok(StatsTableResponse {
             columns,
@@ -119,37 +89,24 @@ pub async fn execute(
     }
 }
 
-async fn execute_raw(
-    pool: &PgPool,
-    sql: &str,
-    binds: &[serde_json::Value],
-) -> Result<Vec<PgRow>, sqlx::Error> {
+async fn execute_raw(pool: &PgPool, sql: &str, binds: &[serde_json::Value]) -> Result<Vec<PgRow>, sqlx::Error> {
     let mut q = sqlx::query(sql);
     q = bind_values(q, binds);
     q.fetch_all(pool).await
 }
 
-async fn fetch_count_row(
-    pool: &PgPool,
-    sql: &str,
-    binds: &[serde_json::Value],
-) -> Result<PgRow, sqlx::Error> {
+async fn fetch_count_row(pool: &PgPool, sql: &str, binds: &[serde_json::Value]) -> Result<PgRow, sqlx::Error> {
     let mut q = sqlx::query(sql);
     q = bind_values(q, binds);
     q.fetch_one(pool).await
 }
 
 fn parse_count_total(row: &PgRow) -> Result<u64, AppError> {
-    let total: i64 = row
-        .try_get("__total")
-        .map_err(|e| AppError::Internal(format!("Reading total row count: {}", e)))?;
+    let total: i64 = row.try_get("__total").map_err(|e| AppError::Internal(format!("Reading total row count: {}", e)))?;
     Ok(total as u64)
 }
 
-fn bind_values<'q>(
-    mut q: sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>,
-    binds: &'q [serde_json::Value],
-) -> sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments> {
+fn bind_values<'q>(mut q: sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>, binds: &'q [serde_json::Value]) -> sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments> {
     for bind in binds {
         q = match bind {
             serde_json::Value::String(s) => q.bind(s.as_str()),
@@ -178,18 +135,9 @@ fn row_to_json(row: &PgRow) -> serde_json::Map<String, serde_json::Value> {
         let type_name = col.type_info().name();
 
         let val: serde_json::Value = match type_name {
-            "INT2" => row
-                .try_get::<i16, _>(name)
-                .map(|v| serde_json::Value::from(v as i64))
-                .unwrap_or(serde_json::Value::Null),
-            "INT4" => row
-                .try_get::<i32, _>(name)
-                .map(|v| serde_json::Value::from(v as i64))
-                .unwrap_or(serde_json::Value::Null),
-            "INT8" => row
-                .try_get::<i64, _>(name)
-                .map(serde_json::Value::from)
-                .unwrap_or(serde_json::Value::Null),
+            "INT2" => row.try_get::<i16, _>(name).map(|v| serde_json::Value::from(v as i64)).unwrap_or(serde_json::Value::Null),
+            "INT4" => row.try_get::<i32, _>(name).map(|v| serde_json::Value::from(v as i64)).unwrap_or(serde_json::Value::Null),
+            "INT8" => row.try_get::<i64, _>(name).map(serde_json::Value::from).unwrap_or(serde_json::Value::Null),
             "FLOAT4" => row
                 .try_get::<f32, _>(name)
                 .ok()
@@ -202,14 +150,8 @@ fn row_to_json(row: &PgRow) -> serde_json::Map<String, serde_json::Value> {
                 .and_then(serde_json::Number::from_f64)
                 .map(serde_json::Value::Number)
                 .unwrap_or(serde_json::Value::Null),
-            "BOOL" => row
-                .try_get::<bool, _>(name)
-                .map(serde_json::Value::from)
-                .unwrap_or(serde_json::Value::Null),
-            "TEXT" | "VARCHAR" | "CHAR" | "NAME" | "BPCHAR" => row
-                .try_get::<String, _>(name)
-                .map(serde_json::Value::from)
-                .unwrap_or(serde_json::Value::Null),
+            "BOOL" => row.try_get::<bool, _>(name).map(serde_json::Value::from).unwrap_or(serde_json::Value::Null),
+            "TEXT" | "VARCHAR" | "CHAR" | "NAME" | "BPCHAR" => row.try_get::<String, _>(name).map(serde_json::Value::from).unwrap_or(serde_json::Value::Null),
             "DATE" => row
                 .try_get::<chrono::NaiveDate, _>(name)
                 .map(|v| serde_json::Value::String(v.to_string()))
@@ -226,17 +168,9 @@ fn row_to_json(row: &PgRow) -> serde_json::Map<String, serde_json::Value> {
                 .try_get::<chrono::DateTime<chrono::Utc>, _>(name)
                 .map(|v| serde_json::Value::String(v.to_rfc3339()))
                 .unwrap_or(serde_json::Value::Null),
-            "JSON" | "JSONB" => row
-                .try_get::<serde_json::Value, _>(name)
-                .unwrap_or(serde_json::Value::Null),
-            "UUID" => row
-                .try_get::<uuid::Uuid, _>(name)
-                .map(|v| serde_json::Value::String(v.to_string()))
-                .unwrap_or(serde_json::Value::Null),
-            _ => row
-                .try_get::<String, _>(name)
-                .map(serde_json::Value::from)
-                .unwrap_or(serde_json::Value::Null),
+            "JSON" | "JSONB" => row.try_get::<serde_json::Value, _>(name).unwrap_or(serde_json::Value::Null),
+            "UUID" => row.try_get::<uuid::Uuid, _>(name).map(|v| serde_json::Value::String(v.to_string())).unwrap_or(serde_json::Value::Null),
+            _ => row.try_get::<String, _>(name).map(serde_json::Value::from).unwrap_or(serde_json::Value::Null),
         };
 
         map.insert(name.to_string(), val);

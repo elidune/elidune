@@ -253,12 +253,12 @@ pub struct CatalogStatsTotals {
 #[derive(Serialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogSourceStats {
-    /// Source ID
+    /// Site ID
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
-    pub source_id: i64,
-    /// Source name
-    pub source_name: String,
+    pub site_id: i64,
+    /// Site name
+    pub site_name: String,
     /// Number of active items/physical copies
     pub active_items: i64,
     /// Number of items entered in the period

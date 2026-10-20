@@ -67,9 +67,7 @@ impl sqlx::Type<sqlx::Postgres> for TransitStatus {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for TransitStatus {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
         Ok(Self::from(s))
     }
@@ -126,7 +124,7 @@ pub fn transit_patron(rights: &UserRights, patron: UserShort) -> Option<TransitP
 /// `barcode`, `title`, `sourceId`, `sourceName`, and `patron` are filled when a
 /// transit is returned. They are not columns of `item_transits`.
 ///
-/// `sourceId` is the copy's current site (`items.source_id`), next to `sourceName`.
+/// `sourceId` is the copy's current site (`items.site_id`), next to `sourceName`.
 /// `patron` is `{ cardNumber, initials }` while the linked hold is pending, set
 /// aside (`to_pick`), or ready for pickup, and the caller may see that patron.
 /// It is null for a return to the home site, a cancelled or expired hold, and a
@@ -149,16 +147,16 @@ pub struct ItemTransit {
     #[serde(default)]
     #[sqlx(skip)]
     pub title: Option<String>,
-    /// Current site of the copy (`items.source_id`), beside [`Self::source_name`].
+    /// Current site of the copy (`items.site_id`), beside [`Self::site_name`].
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     #[serde(default)]
     #[sqlx(skip)]
-    pub source_id: Option<i64>,
+    pub site_id: Option<i64>,
     /// Current site name (`sources.name` for [`Self::source_id`]).
     #[serde(default)]
     #[sqlx(skip)]
-    pub source_name: Option<String>,
+    pub site_name: Option<String>,
     /// `{ cardNumber, initials }`, or null. See [`TransitPatron`].
     #[serde(default)]
     #[sqlx(skip)]
@@ -168,10 +166,10 @@ pub struct ItemTransit {
     pub hold_id: Option<i64>,
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
-    pub from_source_id: i64,
+    pub from_site_id: i64,
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
-    pub to_source_id: i64,
+    pub to_site_id: i64,
     pub status: TransitStatus,
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -202,12 +200,12 @@ pub struct CreateTransit {
     pub item_id: Option<i64>,
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
-    pub from_source_id: Option<i64>,
+    pub from_site_id: Option<i64>,
     /// Destination. Must match `hold.pickupSiteId` when that field is already set.
     /// If the hold has no pickup site yet, this value is stored on the hold.
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
-    pub to_source_id: Option<i64>,
+    pub to_site_id: Option<i64>,
     pub notes: Option<String>,
     /// When true, skip `requested` and mark the copy in transit immediately.
     #[serde(default)]
@@ -239,12 +237,7 @@ mod tests {
 
     #[test]
     fn users_read_still_yields_card_and_initials_only() {
-        let mut patron = partial_user_short(
-            7,
-            Some("CARD".into()),
-            Some("Helene".into()),
-            Some("Holder".into()),
-        );
+        let mut patron = partial_user_short(7, Some("CARD".into()), Some("Helene".into()), Some("Holder".into()));
         patron.login = Some("helene".into());
         let rights = UserRights {
             holds_rights: Rights::Write,
@@ -255,12 +248,7 @@ mod tests {
         assert_eq!(shown.card_number.as_deref(), Some("CARD"));
         assert_eq!(shown.initials, "HH");
         let value = serde_json::to_value(&shown).expect("json");
-        let mut keys: Vec<&str> = value
-            .as_object()
-            .expect("object")
-            .keys()
-            .map(String::as_str)
-            .collect();
+        let mut keys: Vec<&str> = value.as_object().expect("object").keys().map(String::as_str).collect();
         keys.sort_unstable();
         assert_eq!(keys, ["cardNumber", "initials"]);
         assert!(!value.to_string().contains("Helene"));
@@ -269,22 +257,14 @@ mod tests {
 
     #[test]
     fn own_or_no_holds_rights_hides_the_patron_even_with_users_read() {
-        let patron = partial_user_short(
-            7,
-            Some("CARD".into()),
-            Some("Helene".into()),
-            Some("Holder".into()),
-        );
+        let patron = partial_user_short(7, Some("CARD".into()), Some("Helene".into()), Some("Holder".into()));
         for holds_rights in [Rights::None, Rights::Own] {
             let rights = UserRights {
                 holds_rights,
                 users_rights: Rights::Write,
                 ..UserRights::default()
             };
-            assert!(
-                transit_patron(&rights, patron.clone()).is_none(),
-                "{holds_rights:?}"
-            );
+            assert!(transit_patron(&rights, patron.clone()).is_none(), "{holds_rights:?}");
         }
     }
 

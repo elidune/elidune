@@ -6,7 +6,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import FinePolicySettings from '@/components/settings/FinePolicySettings';
 import HoldsPolicySettings from '@/components/settings/HoldsPolicySettings';
 import OverdueRemindersSettings from '@/components/settings/OverdueRemindersSettings';
-import { Card, CardHeader, Button, Input, Badge, ConfirmDialog } from '@/components/common';
+import { Card, CardHeader, Button, Input, Badge, ConfirmDialog, SectionTabBar } from '@/components/common';
 import api from '@/services/api';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
 import { deferFromEffect } from '@/utils/deferFromEffect';
@@ -31,7 +31,7 @@ import type {
   PublicTypeLoanSettingInput,
   Z3950Server,
   MediaType,
-  Source,
+  Site,
   PublicType,
   PublicTypeLoanSettings,
   CreatePublicType,
@@ -117,7 +117,7 @@ function globalRenewInheritLabel(
 // ─── Source Editor Component ───────────────────────────────────────────────────
 function SourceEditor() {
   const { t } = useTranslation();
-  const [sources, setSources] = useState<Source[]>([]);
+  const [sources, setSources] = useState<Site[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showArchived, setShowArchived] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -133,18 +133,18 @@ function SourceEditor() {
   const [mergeName, setMergeName] = useState('');
   const [isMerging, setIsMerging] = useState(false);
   const [showMergeDialog, setShowMergeDialog] = useState(false);
-  const [archiveConfirmSource, setArchiveConfirmSource] = useState<Source | null>(null);
+  const [archiveConfirmSource, setArchiveConfirmSource] = useState<Site | null>(null);
 
   const clearMessages = () => { setError(null); setSuccessMsg(null); };
   const showSuccess = (msg: string) => { setSuccessMsg(msg); setTimeout(() => setSuccessMsg(null), 3000); };
 
   const fetchSources = useCallback(async () => {
     try {
-      const data = await api.getSources(showArchived);
+      const data = await api.getSites(showArchived);
       setSources(data);
       setError(null);
     } catch {
-      setError(t('settings.sources.errorLoad'));
+      setError(t('settings.sites.errorLoad'));
     } finally {
       setIsLoading(false);
     }
@@ -152,7 +152,7 @@ function SourceEditor() {
 
   useEffect(() => deferFromEffect(() => { void fetchSources(); }), [fetchSources]);
 
-  const handleRenameStart = (source: Source) => {
+  const handleRenameStart = (source: Site) => {
     clearMessages();
     setRenamingId(source.id);
     setRenameValue(source.name || '');
@@ -161,48 +161,48 @@ function SourceEditor() {
   const handleRenameConfirm = async (id: string) => {
     if (!renameValue.trim()) return;
     try {
-      await api.renameSource(id, renameValue.trim());
+      await api.renameSite(id, renameValue.trim());
       setRenamingId(null);
-      showSuccess(t('settings.sources.renameSuccess'));
+      showSuccess(t('settings.sites.renameSuccess'));
       fetchSources();
     } catch {
-      setError(t('settings.sources.errorRename'));
+      setError(t('settings.sites.errorRename'));
     }
   };
 
-  const handleToggleDefault = async (source: Source) => {
+  const handleToggleDefault = async (source: Site) => {
     clearMessages();
     const newDefaultValue = !source.default;
     try {
-      // If setting as default, first unset all other sources as default
+      // If setting as default, first unset all other sites as default
       if (newDefaultValue) {
         const otherDefaultSources = sources.filter(s => s.default && s.id !== source.id);
         for (const otherSource of otherDefaultSources) {
-          await api.updateSource(otherSource.id, { default: false });
+          await api.updateSite(otherSource.id, { default: false });
         }
       }
-      await api.updateSource(source.id, { default: newDefaultValue });
-      showSuccess(t('settings.sources.defaultUpdated'));
+      await api.updateSite(source.id, { default: newDefaultValue });
+      showSuccess(t('settings.sites.defaultUpdated'));
       fetchSources();
     } catch {
-      setError(t('settings.sources.errorUpdateDefault'));
+      setError(t('settings.sites.errorUpdateDefault'));
     }
   };
 
   const handleRenameCancel = () => { setRenamingId(null); setRenameValue(''); };
 
-  const performArchiveSource = async (source: Source) => {
+  const performArchiveSource = async (source: Site) => {
     clearMessages();
     try {
-      await api.archiveSource(source.id);
-      showSuccess(t('settings.sources.archiveSuccess'));
+      await api.archiveSite(source.id);
+      showSuccess(t('settings.sites.archiveSuccess'));
       fetchSources();
     } catch (err: unknown) {
       const axiosErr = err as { response?: { status?: number; data?: { message?: string } } };
       if (axiosErr.response?.status === 422) {
-        setError(getApiErrorMessage(axiosErr, t) || t('settings.sources.errorArchive'));
+        setError(getApiErrorMessage(axiosErr, t) || t('settings.sites.errorArchive'));
       } else {
-        setError(t('settings.sources.errorArchive'));
+        setError(t('settings.sites.errorArchive'));
       }
     }
   };
@@ -217,7 +217,7 @@ function SourceEditor() {
 
   const handleMergeOpen = () => {
     clearMessages();
-    if (selectedIds.size < 2) { setError(t('settings.sources.mergeMinTwo')); return; }
+    if (selectedIds.size < 2) { setError(t('settings.sites.mergeMinTwo')); return; }
     setMergeName('');
     setShowMergeDialog(true);
   };
@@ -226,14 +226,14 @@ function SourceEditor() {
     if (!mergeName.trim() || selectedIds.size < 2) return;
     setIsMerging(true);
     try {
-      await api.mergeSources(Array.from(selectedIds), mergeName.trim());
-      showSuccess(t('settings.sources.mergeSuccess'));
+      await api.mergeSites(Array.from(selectedIds), mergeName.trim());
+      showSuccess(t('settings.sites.mergeSuccess'));
       setSelectedIds(new Set());
       setMergeMode(false);
       setShowMergeDialog(false);
       fetchSources();
     } catch {
-      setError(t('settings.sources.errorMerge'));
+      setError(t('settings.sites.errorMerge'));
     } finally {
       setIsMerging(false);
     }
@@ -242,7 +242,7 @@ function SourceEditor() {
   const activeSources = sources.filter(s => !s.isArchive);
   const archivedSources = sources.filter(s => !!s.isArchive);
 
-  const renderSourceRow = (source: Source) => {
+  const renderSourceRow = (source: Site) => {
     const isArchived = !!source.isArchive;
     const isRenaming = renamingId === source.id;
     const isSelected = selectedIds.has(source.id);
@@ -318,12 +318,12 @@ function SourceEditor() {
                 </span>
               )}
               {isArchived ? (
-                <Badge variant="default">{t('settings.sources.archived')}</Badge>
+                <Badge variant="default">{t('settings.sites.archived')}</Badge>
               ) : (
-                <Badge variant="success">{t('settings.sources.active')}</Badge>
+                <Badge variant="success">{t('settings.sites.active')}</Badge>
               )}
               {!isArchived && source.default && (
-                <Badge variant="default">{t('settings.sources.default')}</Badge>
+                <Badge variant="default">{t('settings.sites.default')}</Badge>
               )}
             </div>
           )}
@@ -338,23 +338,23 @@ function SourceEditor() {
                 checked={source.default || false}
                 onChange={() => handleToggleDefault(source)}
                 className={formChoiceControlClass('rounded')}
-                title={t('settings.sources.setDefault')}
+                title={t('settings.sites.setDefault')}
               />
               <span className="text-xs text-gray-500 dark:text-gray-400">
-                {t('settings.sources.default')}
+                {t('settings.sites.default')}
               </span>
             </label>
             <button
               onClick={() => handleRenameStart(source)}
               className="p-1.5 rounded-md text-gray-400 hover:text-indigo-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-              title={t('settings.sources.rename')}
+              title={t('settings.sites.rename')}
             >
               <Pencil className="h-4 w-4" />
             </button>
             <button
               onClick={() => setArchiveConfirmSource(source)}
               className="p-1.5 rounded-md text-gray-400 hover:text-amber-600 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-              title={t('settings.sources.archive')}
+              title={t('settings.sites.archive')}
             >
               <Archive className="h-4 w-4" />
             </button>
@@ -367,7 +367,7 @@ function SourceEditor() {
   if (isLoading) {
     return (
       <Card className="rounded-2xl border-gray-200/80 dark:border-gray-800/80 shadow-sm overflow-hidden">
-        <CardHeader title={t('settings.sources.title')} />
+        <CardHeader title={t('settings.sites.title')} />
         <div className="flex items-center justify-center h-24">
           <div className="h-6 w-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
         </div>
@@ -378,14 +378,14 @@ function SourceEditor() {
   return (
     <Card className="rounded-2xl border-gray-200/80 dark:border-gray-800/80 shadow-sm overflow-hidden">
       <CardHeader
-        title={t('settings.sources.title')}
+        title={t('settings.sites.title')}
         action={
           <div className="flex items-center gap-2">
             {mergeMode ? (
               <>
                 {selectedIds.size > 0 && (
                   <span className="text-sm text-gray-500 dark:text-gray-400">
-                    {t('settings.sources.selected', { count: selectedIds.size })}
+                    {t('settings.sites.selected', { count: selectedIds.size })}
                   </span>
                 )}
                 <Button
@@ -395,7 +395,7 @@ function SourceEditor() {
                   onClick={handleMergeOpen}
                   disabled={selectedIds.size < 2}
                 >
-                  {t('settings.sources.mergeSelected')}
+                  {t('settings.sites.mergeSelected')}
                 </Button>
                 <Button
                   size="sm"
@@ -412,7 +412,7 @@ function SourceEditor() {
                 leftIcon={<Merge className="h-4 w-4" />}
                 onClick={() => { clearMessages(); setMergeMode(true); setSelectedIds(new Set()); }}
               >
-                {t('settings.sources.merge')}
+                {t('settings.sites.merge')}
               </Button>
             )}
           </div>
@@ -443,14 +443,14 @@ function SourceEditor() {
             onChange={(e) => setShowArchived(e.target.checked)}
             className={formChoiceControlClass('rounded')}
           />
-          {t('settings.sources.showArchived')}
+          {t('settings.sites.showArchived')}
         </label>
       </div>
 
       {/* Source list */}
       <div className="px-4 pb-4 space-y-2">
         {activeSources.length === 0 && archivedSources.length === 0 && (
-          <p className="text-center text-gray-500 dark:text-gray-400 py-4">{t('settings.sources.noSources')}</p>
+          <p className="text-center text-gray-500 dark:text-gray-400 py-4">{t('settings.sites.noSites')}</p>
         )}
         {activeSources.map(renderSourceRow)}
         {showArchived && archivedSources.length > 0 && (
@@ -466,20 +466,20 @@ function SourceEditor() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl max-w-md w-full mx-4 p-6 space-y-4">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-              {t('settings.sources.mergeTitle')}
+              {t('settings.sites.mergeTitle')}
             </h3>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              {t('settings.sources.mergeHint')}
+              {t('settings.sites.mergeHint')}
             </p>
             <div className="space-y-1">
               <label className={formLabelClass({ marginBottom: false })}>
-                {t('settings.sources.mergeName')}
+                {t('settings.sites.mergeName')}
               </label>
               <input
                 type="text"
                 value={mergeName}
                 onChange={(e) => setMergeName(e.target.value)}
-                placeholder={t('settings.sources.mergeNamePlaceholder')}
+                placeholder={t('settings.sites.mergeNamePlaceholder')}
                 autoFocus
                 onKeyDown={(e) => { if (e.key === 'Enter' && mergeName.trim()) handleMergeConfirm(); }}
                 className={formControlClass({ className: 'w-full' })}
@@ -487,7 +487,7 @@ function SourceEditor() {
             </div>
             <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
               <Package className="h-3.5 w-3.5" />
-              {t('settings.sources.selected', { count: selectedIds.size })}
+              {t('settings.sites.selected', { count: selectedIds.size })}
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <Button
@@ -505,7 +505,7 @@ function SourceEditor() {
                 onClick={handleMergeConfirm}
                 disabled={!mergeName.trim()}
               >
-                {t('settings.sources.merge')}
+                {t('settings.sites.merge')}
               </Button>
             </div>
           </div>
@@ -521,7 +521,7 @@ function SourceEditor() {
         }}
         message={
           archiveConfirmSource
-            ? t('settings.sources.archiveConfirm', { name: archiveConfirmSource.name })
+            ? t('settings.sites.archiveConfirm', { name: archiveConfirmSource.name })
             : ''
         }
         confirmVariant="danger"
@@ -730,32 +730,17 @@ function PublicTypesEditor() {
               </div>
               {expandedId === pt.id && (
                 <div className="border-t border-gray-200 dark:border-gray-700 px-4 py-3 bg-gray-50 dark:bg-gray-900/50">
-                  <div className="border-b border-gray-200 dark:border-gray-800 mb-4">
-                    <nav className="-mb-px flex gap-4">
-                      <button
-                        type="button"
-                        onClick={() => setDetailsTab('general')}
-                        className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                          detailsTab === 'general'
-                            ? 'border-amber-500 text-amber-700 dark:text-amber-400'
-                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-                        }`}
-                      >
-                        {t('settings.publicTypes.general')}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDetailsTab('overrides')}
-                        className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                          detailsTab === 'overrides'
-                            ? 'border-amber-500 text-amber-700 dark:text-amber-400'
-                            : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-                        }`}
-                      >
-                        {t('settings.publicTypes.loanOverrides')}
-                      </button>
-                    </nav>
-                  </div>
+                  <SectionTabBar
+                    className="mb-4"
+                    size="compact"
+                    ariaLabel={t('settings.publicTypes.title')}
+                    activeTab={detailsTab}
+                    onSelectTab={setDetailsTab}
+                    tabs={[
+                      { id: 'general', label: t('settings.publicTypes.general') },
+                      { id: 'overrides', label: t('settings.publicTypes.loanOverrides') },
+                    ]}
+                  />
 
                   {detailsTab === 'general' ? (
                     <PublicTypeEditForm
@@ -1717,7 +1702,7 @@ type SettingsTab =
   | 'loans'
   | 'server'
   | 'audit'
-  | 'sources'
+  | 'sites'
   | 'publicTypes'
   | 'accountTypes'
   | 'emailTemplates'
@@ -1729,7 +1714,7 @@ const SETTINGS_TAB_IDS: SettingsTab[] = [
   'publicTypes',
   'accountTypes',
   'emailTemplates',
-  'sources',
+  'sites',
   'z3950',
   'server',
   'audit',
@@ -1928,16 +1913,16 @@ export default function SettingsPage() {
     );
   }
 
-  const allTabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
-    { id: 'library', label: t('nav.library'), icon: <Library className="h-5 w-5" /> },
-    { id: 'loans', label: t('settings.loanSettings'), icon: <BookOpen className="h-5 w-5" /> },
-    { id: 'publicTypes', label: t('settings.publicTypes.title'), icon: <Users className="h-5 w-5" /> },
-    { id: 'accountTypes', label: t('settings.accountTypes.title'), icon: <Shield className="h-5 w-5" /> },
-    { id: 'emailTemplates', label: t('settings.emailTemplates.title'), icon: <Mail className="h-5 w-5" /> },
-    { id: 'sources', label: t('settings.sources.title'), icon: <Package className="h-5 w-5" /> },
-    { id: 'z3950', label: t('settings.z3950Servers'), icon: <Server className="h-5 w-5" /> },
-    { id: 'server', label: t('settings.server.title'), icon: <Cog className="h-5 w-5" /> },
-    { id: 'audit', label: t('settings.audit.title'), icon: <ScrollText className="h-5 w-5" /> },
+  const allTabs: { id: SettingsTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+    { id: 'library', label: t('nav.library'), icon: Library },
+    { id: 'loans', label: t('settings.loanSettings'), icon: BookOpen },
+    { id: 'publicTypes', label: t('settings.publicTypes.title'), icon: Users },
+    { id: 'accountTypes', label: t('settings.accountTypes.title'), icon: Shield },
+    { id: 'emailTemplates', label: t('settings.emailTemplates.title'), icon: Mail },
+    { id: 'sites', label: t('settings.sites.title'), icon: Package },
+    { id: 'z3950', label: t('settings.z3950Servers'), icon: Server },
+    { id: 'server', label: t('settings.server.title'), icon: Cog },
+    { id: 'audit', label: t('settings.audit.title'), icon: ScrollText },
   ];
 
   const tabs = canEditAllSettings ? allTabs : allTabs.filter((tab) => tab.id === 'library');
@@ -1956,26 +1941,13 @@ export default function SettingsPage() {
         )}
       </div>
 
-      {/* Tabs */}
-      <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800/80 bg-gray-50/50 dark:bg-gray-900/30 p-1.5 sm:p-2">
-        <nav className="flex flex-wrap gap-1">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => selectTab(tab.id)}
-              className={`flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
-                activeTab === tab.id
-                  ? 'bg-white dark:bg-gray-800 text-amber-700 dark:text-amber-400 shadow-sm border border-gray-200/70 dark:border-gray-700/70'
-                  : 'text-gray-600 dark:text-gray-400 hover:bg-white/60 dark:hover:bg-gray-800/40 hover:text-gray-900 dark:hover:text-gray-200 border border-transparent'
-              }`}
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
-          ))}
-        </nav>
-      </div>
+      <SectionTabBar
+        ariaLabel={t('settings.title')}
+        activeTab={activeTab}
+        onSelectTab={selectTab}
+        scrollable
+        tabs={tabs.map((tab) => ({ id: tab.id, label: tab.label, icon: tab.icon }))}
+      />
 
       {/* Library (identity, hours) */}
       {activeTab === 'library' && (
@@ -2196,7 +2168,7 @@ export default function SettingsPage() {
       {activeTab === 'loans' && <FinePolicySettings />}
 
       {/* Sources */}
-      {activeTab === 'sources' && <SourceEditor />}
+      {activeTab === 'sites' && <SourceEditor />}
 
       {/* Public types */}
       {activeTab === 'publicTypes' && <PublicTypesEditor />}

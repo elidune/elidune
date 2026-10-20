@@ -106,6 +106,9 @@
     "sectionUntitled": "Menü"
   },
   "deposits": {
+    "pageTitle": "Depots",
+    "pageSubtitle": "Eingehende Leihlose und Partner-Verleiher.",
+    "sectionNav": "Depot-Bereiche",
     "badge": "Depot · {{lender}} · Rückgabe am {{date}}",
     "dueDateCapped": "Fälligkeit auf {{date}} vorgezogen (Rückgabe des Depots)",
     "dueDateCappedUnknown": "Fälligkeit auf das Rückgabedatum des Depots vorgezogen",
@@ -114,6 +117,7 @@
     "replacementAmountRequired": "Geben Sie einen Betrag größer als null ein. Zuerst gilt der Tarif des Verleihers, dann der Exemplarpreis, wenn er größer als null ist.",
     "replacementAmountHint": "Pflicht: kein Verleihertarif und kein Exemplarpreis über null. Null wird nicht akzeptiert.",
     "lender": "Verleiher",
+    "lenderBarcode": "Leihgeber-Barcode",
     "site": "Standort",
     "reference": "Referenz",
     "arrivedOn": "Eingangsdatum",
@@ -198,7 +202,9 @@
       "returnedCopies": "Zurückgegeben",
       "missingCopies": "Fehlend",
       "print": "Drucken",
-      "openRecord": "Aufnahme öffnen"
+      "openRecord": "Aufnahme öffnen",
+      "marcImportTitle": "MARC-Import",
+      "marcImportSubtitle": "Aufnahmen und Exemplare zu diesem Los hinzufügen. ISBN-Dubletten werden angehängt, ohne den Eigenbestand zu ersetzen."
     },
     "import": {
       "mode": "Importmodus",
@@ -209,7 +215,11 @@
       "batchRequired": "Wählen Sie ein aktives Depotlos.",
       "batchesError": "Depotlose konnten nicht geladen werden.",
       "created": "Aufnahmen erstellt: {{count}}",
-      "attached": "An die bestehende Aufnahme angehängt"
+      "attached": "An die bestehende Aufnahme angehängt",
+      "relabelNotice": "Leihgeber-Barcode {{lender}} → lokaler Barcode {{local}} (neu etikettieren)",
+      "targetSite": "Zielstandort",
+      "targetSiteHint": "Muss zum Los-Standort passen. Hier keine Quelle anlegen.",
+      "targetSiteRequired": "Wählen Sie den Zielstandort des Loses."
     }
   },
   "theme": {
@@ -768,7 +778,6 @@
     "createBiblioNoSpecimensConfirm": "Sie haben kein Exemplar für diesen Titel erfasst. Möchten Sie fortfahren?",
     "specimenBarcode": "Exemplar-Barcode",
     "callNumber": "Signatur",
-    "selectSource": "Quelle auswählen",
     "addSpecimen": "Exemplar hinzufügen",
     "barcode": "Barcode",
     "callNumberInvalid": "Nur Buchstaben, Ziffern, Leerzeichen, Punkte und Bindestriche",
@@ -820,7 +829,6 @@
     "cannotMakeBorrowable": "Dieses Exemplar kann erst ausleihbar gemacht werden, wenn Barcode, Standort und Preis (oder eine ausdrückliche Preiszurückstellung) gesetzt sind.",
     "volumeDesignation": "Bandbezeichnung",
     "volumeDesignationPlaceholder": "z. B. Bd. 2",
-    "source": "Quelle",
     "specimenBarcodeRequired": "Barcode ist erforderlich",
     "borrowable": "Ausleihbar",
     "publicNote": "Öffentliche Notiz (für Leser sichtbar)",
@@ -911,7 +919,9 @@
       "statusError": "Fehler"
     },
     "biblioNotFound": "Titeldatensatz nicht gefunden",
-    "notValidated": "Nicht validiert"
+    "notValidated": "Nicht validiert",
+    "site": "Standort",
+    "selectSite": "Quelle auswählen"
   },
   "weeding": {
     "label": "Aussonderung",
@@ -1162,7 +1172,6 @@
     "importSuccessMessage": "Das Dokument wurde erfolgreich in Ihren Katalog importiert.",
     "viewDocument": "Dokument ansehen",
     "noSources": "Keine Quellen verfügbar. Erstellen Sie eine Quelle in den Einstellungen.",
-    "selectSource": "Quelle auswählen...",
     "specimensToCreate": "Zu erstellende Exemplare (optional)",
     "specimensHint": "Sie können diese Felder leer lassen, um nur den bibliographischen Datensatz zu importieren",
     "confirmReplaceTitle": "Bestätigung erforderlich",
@@ -1171,7 +1180,8 @@
     "confirmReplaceExplanation": "Der bestehende Eintrag hat keine Exemplare und ist nicht archiviert. Das Ersetzen ändert nur die bibliografische Aufnahme.",
     "documentsFound_other": "{{count}} Dokumente gefunden",
     "port": "Port",
-    "database": "Datenbank"
+    "database": "Datenbank",
+    "selectSite": "Quelle auswählen..."
   },
   "catalog": {
     "searchOrCreateCollection": "Sammlung suchen oder eingeben …",
@@ -1205,17 +1215,34 @@
   },
   "importMarc": {
     "default": "Standard",
+    "depositDuplicate": {
+      "title": "Deposit-Kopie bereits im Bestand",
+      "intro": "Dieser Import verwendet einen Leihgeber-Barcode, der schon existiert. Wählen Sie, wie fortgefahren werden soll.",
+      "count": "{{count}} Konflikte in diesem Import",
+      "lenderBarcode": "Leihgeber-Barcode",
+      "existingBarcode": "Aktiver Desk-Barcode",
+      "kindActiveBarcode": "Eine aktive Kopie verwendet diesen Barcode bereits.",
+      "kindReactivation": "Eine zurückgegebene Deposit-Kopie kann reaktiviert werden.",
+      "kindWasLost": "Kopie verloren und abgerechnet — kein Re-Import.",
+      "lostOnly": "Nur Überspringen oder Abbrechen möglich.",
+      "actionLegend": "Vorgehen",
+      "overwriteHint": "Überschreiben — bestehende Kopie mit MARC-Daten aktualisieren.",
+      "relabelHint": "Neu etikettieren — Leihgeber-Barcode behalten, neuen lokalen Barcode vergeben.",
+      "overwrite": "Überschreiben",
+      "relabelConfirm": "Neu etikettieren",
+      "ignore": "Überspringen",
+      "confirm": "Fortfahren",
+      "applyToAll": "Gleiches für alle anderen Konflikte"
+    },
     "duplicateIsbnTitle": "Doppelte ISBN",
     "duplicateIsbnCreateNew": "Duplicate ISBN",
     "duplicateIsbnReplace": "Ersetzen",
     "duplicateIsbnPrompt": "Es existiert bereits eine Aufnahme mit dem Titel \"{{title}}\".",
     "duplicateSkippedInBatch": "Doppelte ISBN — übersprungen (Stapelimport). Klicken Sie auf „Importieren“, um einzeln zu bearbeiten.",
     "importErrorGeneric": "Beim Import ist ein Fehler aufgetreten.",
-    "sourcesError": "Quellen konnten nicht geladen werden",
     "batchesLoadError": "Stapel-Liste konnte nicht geladen werden.",
     "noRecordsFound": "Keine Datensätze gefunden. Überprüfen Sie das Format ({{format}}).",
     "batchLoadError": "Dieser Stapel konnte nicht geladen werden (abgelaufen oder nicht gefunden).",
-    "sourceCreateError": "Quelle konnte nicht erstellt werden",
     "readError": "Fehler beim Lesen der Datei.",
     "cannotImportWithValidationErrors": "Import nicht möglich, solange MARC-Validierungsfehler bei einem oder mehreren Datensätzen vorliegen.",
     "cannotReplaceNoId": "Ersetzen nicht möglich: Die ID des vorhandenen Datensatzes ist nicht verfügbar.",
@@ -1232,6 +1259,16 @@
     "analyzing": "Datei wird analysiert...",
     "dropFile": "MARC-Datei hierher ziehen",
     "orClickToBrowse": "oder klicken Sie zum Durchsuchen",
+    "fileEncoding": "Standard-Dateikodierung (ISO 2709)",
+    "fileEncodingHint": "Wird verwendet, wenn der Datensatz keine Kodierung angibt. MARCXML ist immer UTF-8.",
+    "encoding": {
+      "utf8": "UTF-8",
+      "marc8": "MARC-8",
+      "iso5426": "ISO 5426",
+      "iso8859_2": "ISO 8859-2",
+      "iso8859_3": "ISO 8859-3",
+      "iso8859_5": "ISO 8859-5"
+    },
     "batchHint": "Wählen Sie einen auf dem Server zwischengespeicherten MARC-Stapel, um einen früheren Import fortzusetzen.",
     "refresh": "Aktualisieren",
     "noBatches": "Keine zwischengespeicherten Stapel auf dem Server.",
@@ -1245,10 +1282,6 @@
     "duplicateExistingCount_one": "{{count}} bestehender Datensatz",
     "importWithScan": "Mit Scan importieren",
     "importAll": "Alle importieren ({{count}})",
-    "source": "Quelle (für Exemplare)",
-    "noSource": "Keine Quelle",
-    "addSource": "Quelle hinzufügen",
-    "newSourceName": "Name der neuen Quelle",
     "scanMode": "Scanmodus aktiviert",
     "scanModeHint": "Scannen Sie den ISBN-Barcode jedes zu importierenden Dokuments",
     "scanPlaceholder": "ISBN scannen oder eingeben...",
@@ -1282,7 +1315,13 @@
     "documentsCount_other": "{{count}} Dokumente",
     "errors_other": "{{count}} Fehler",
     "duplicateExistingCount_other": "{{count}} bestehende Datensätze",
-    "remainingToScan_other": "{{count}} Dokumente noch zu scannen"
+    "remainingToScan_other": "{{count}} Dokumente noch zu scannen",
+    "site": "Quelle (für Exemplare)",
+    "sitesError": "Quellen konnten nicht geladen werden",
+    "noSite": "Keine Quelle",
+    "addSite": "Quelle hinzufügen",
+    "newSiteName": "Name der neuen Quelle",
+    "siteCreateError": "Quelle konnte nicht erstellt werden"
   },
   "loans": {
     "noTitle": "Kein Titel",
@@ -1962,7 +2001,36 @@
     "maxLoansDefaultLabel": "Maximale aktive Ausleihen (alle Medientypen)",
     "maxLoansPerMediaLabel": "Maximum für diesen Medientyp",
     "loanLimitsResolutionHint": "Die wirksame Gesamtobergrenze wird serverseitig in dieser Reihenfolge ermittelt: „Max. Ausleihen“ im Öffentlichkeitstyp, dann die Standardzeile der Profil-Ausnahmen, dann die globale Standardzeile. Hier sehen Sie Ihre gespeicherten Werte; der Server wendet die Prioritätskette an.",
-    "defaultLoanRowNotDeletable": "Die globale Standardzeile kann nicht gelöscht werden."
+    "defaultLoanRowNotDeletable": "Die globale Standardzeile kann nicht gelöscht werden.",
+    "sites": {
+      "errorLoad": "Fehler beim Laden der Quellen",
+      "renameSuccess": "Quelle erfolgreich umbenannt",
+      "errorRename": "Fehler beim Umbenennen",
+      "defaultUpdated": "Standardquelle aktualisiert",
+      "errorUpdateDefault": "Fehler beim Aktualisieren der Standardquelle",
+      "archiveSuccess": "Quelle erfolgreich archiviert",
+      "errorArchive": "Fehler beim Archivieren",
+      "mergeMinTwo": "Wählen Sie mindestens 2 Quellen zum Zusammenführen",
+      "mergeSuccess": "Quellen erfolgreich zusammengeführt",
+      "errorMerge": "Fehler beim Zusammenführen",
+      "archived": "Archiviert",
+      "active": "Aktiv",
+      "default": "Standard",
+      "setDefault": "Als Standardquelle festlegen",
+      "rename": "Umbenennen",
+      "archive": "Archivieren",
+      "title": "Standortverwaltung",
+      "selected": "{{count}} ausgewählt",
+      "mergeSelected": "Auswahl zusammenführen",
+      "merge": "Zusammenführen",
+      "showArchived": "Archivierte anzeigen",
+      "mergeTitle": "Quellen zusammenführen",
+      "mergeHint": "Exemplare und Einträge der ausgewählten Quellen werden der neuen Quelle zugeordnet. Alte Quellen werden archiviert.",
+      "mergeName": "Name der neuen Quelle",
+      "mergeNamePlaceholder": "Name der zusammengeführten Quelle eingeben",
+      "archiveConfirm": "Möchten Sie die Quelle \"{{name}}\" wirklich archivieren?",
+      "noSites": "Keine Standorte"
+    }
   },
   "backgroundTask": {
     "progress": "Fortschritt",
@@ -2476,16 +2544,16 @@
     "createAcknowledgeWarnings": "Scan starten",
     "createConflict": "Für diese Quelle und diesen Standort existiert bereits eine offene Sitzung.",
     "createExpectedInScope": "{{count}} Exemplar(e) im Umfang erwartet.",
-    "defaultSource": "Standard",
     "progressLabel": "Fortschritt (verschiedene Exemplare / erwartet)",
     "progressRatio": "{{scanned}} / {{expected}}",
     "scanOutOfScope": "Exemplar außerhalb des Umfangs (Quelle oder Standort): {{barcode}} — nicht als gefunden gezählt.",
     "scopeAllPlaces": "Alle Standorte",
-    "scopeAllSources": "Alle Quellen",
-    "scopeSource": "Quelle (Umfang)",
-    "scopeSourceHint": "Empfohlen für Inventur nach Bestand. Leer lassen für die gesamte Bibliothek.",
-    "sourcesLoadError": "Quellenliste konnte nicht geladen werden.",
-    "totalFoundOutOfScope": "Außerhalb des Umfangs"
+    "totalFoundOutOfScope": "Außerhalb des Umfangs",
+    "scopeAllSites": "Alle Quellen",
+    "scopeSite": "Quelle (Umfang)",
+    "scopeSiteHint": "Empfohlen für Inventur nach Bestand. Leer lassen für die gesamte Bibliothek.",
+    "defaultSite": "Standard",
+    "sitesLoadError": "Quellenliste konnte nicht geladen werden."
   },
   "opac": {
     "filterAll": "Alle",

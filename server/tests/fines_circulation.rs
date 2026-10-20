@@ -10,17 +10,9 @@ use sqlx::Row;
 
 fn untouched_default_statement() -> String {
     let migration = include_str!("../migrations/051_unpaid_threshold_nullable.sql");
-    let start = migration
-        .find("-- BEGIN UNTOUCHED DEFAULT THRESHOLD")
-        .expect("start marker");
-    let end = migration
-        .find("-- END UNTOUCHED DEFAULT THRESHOLD")
-        .expect("end marker");
-    migration[start..end]
-        .lines()
-        .filter(|line| !line.trim_start().starts_with("--"))
-        .collect::<Vec<_>>()
-        .join("\n")
+    let start = migration.find("-- BEGIN UNTOUCHED DEFAULT THRESHOLD").expect("start marker");
+    let end = migration.find("-- END UNTOUCHED DEFAULT THRESHOLD").expect("end marker");
+    migration[start..end].lines().filter(|line| !line.trim_start().starts_with("--")).collect::<Vec<_>>().join("\n")
 }
 
 async fn migration_fixture_pool() -> Option<sqlx::PgPool> {
@@ -29,15 +21,8 @@ async fn migration_fixture_pool() -> Option<sqlx::PgPool> {
         return None;
     }
     let url = std::env::var("DATABASE_URL").expect("DATABASE_URL");
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&url)
-        .await
-        .expect("connect");
-    sqlx::migrate!("./migrations")
-        .run(&pool)
-        .await
-        .expect("migrate");
+    let pool = sqlx::postgres::PgPoolOptions::new().max_connections(1).connect(&url).await.expect("connect");
+    sqlx::migrate!("./migrations").run(&pool).await.expect("migrate");
     Some(pool)
 }
 
@@ -107,34 +92,19 @@ async fn apply_untouched_default(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>)
         if statement.is_empty() {
             continue;
         }
-        sqlx::query(statement)
-            .execute(&mut **tx)
-            .await
-            .expect("untouched default update");
+        sqlx::query(statement).execute(&mut **tx).await.expect("untouched default update");
     }
 }
 
 async fn mode_text(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, table: &str, id: i64) -> String {
     let sql = format!("SELECT unpaid_threshold_mode FROM {table} WHERE id = $1");
-    let row = sqlx::query(&sql)
-        .bind(id)
-        .fetch_one(&mut **tx)
-        .await
-        .expect("read mode");
+    let row = sqlx::query(&sql).bind(id).fetch_one(&mut **tx).await.expect("read mode");
     row.get(0)
 }
 
-async fn threshold_text(
-    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    table: &str,
-    id: i64,
-) -> Option<String> {
+async fn threshold_text(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, table: &str, id: i64) -> Option<String> {
     let sql = format!("SELECT unpaid_fine_threshold::text FROM {table} WHERE id = $1");
-    let row = sqlx::query(&sql)
-        .bind(id)
-        .fetch_one(&mut **tx)
-        .await
-        .expect("read threshold");
+    let row = sqlx::query(&sql).bind(id).fetch_one(&mut **tx).await.expect("read threshold");
     row.get(0)
 }
 
@@ -148,9 +118,7 @@ async fn create_borrowable_item(app: &TestApp, admin_token: &str, prefix: &str) 
             "borrowable": true
         }]
     });
-    let (status, body) = app
-        .post_json("/api/v1/biblios", &payload, Some(admin_token))
-        .await;
+    let (status, body) = app.post_json("/api/v1/biblios", &payload, Some(admin_token)).await;
     assert_eq!(status, StatusCode::CREATED, "create biblio: {body}");
     fixtures::json_id(&body["biblio"]["items"][0]["id"])
 }
@@ -160,13 +128,7 @@ fn policy_lock() -> &'static tokio::sync::Mutex<()> {
     &LOCK
 }
 
-async fn checkout(
-    app: &TestApp,
-    admin_token: &str,
-    user_id: i64,
-    item_id: i64,
-    force: bool,
-) -> (StatusCode, serde_json::Value) {
+async fn checkout(app: &TestApp, admin_token: &str, user_id: i64, item_id: i64, force: bool) -> (StatusCode, serde_json::Value) {
     app.post_json(
         "/api/v1/loans",
         &json!({
@@ -212,21 +174,13 @@ async fn unpaid_under_threshold_allows_checkout() {
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "fineunder").await;
 
     let (status, body) = app
-        .put_json(
-            "/api/v1/fines/policy",
-            &json!({ "unpaidThresholdMode": "amount", "unpaidThresholdCents": 1000 }),
-            Some(&admin_token),
-        )
+        .put_json("/api/v1/fines/policy", &json!({ "unpaidThresholdMode": "amount", "unpaidThresholdCents": 1000 }), Some(&admin_token))
         .await;
     assert_eq!(status, StatusCode::OK, "set policy: {body}");
 
     let item_id = create_borrowable_item(&app, &admin_token, "UNDER").await;
     let (status, body) = checkout(&app, &admin_token, reader_id, item_id, false).await;
-    assert_eq!(
-        status,
-        StatusCode::CREATED,
-        "checkout under threshold: {body}"
-    );
+    assert_eq!(status, StatusCode::CREATED, "checkout under threshold: {body}");
 }
 
 #[tokio::test]
@@ -239,11 +193,7 @@ async fn unpaid_over_threshold_blocks_checkout_and_force_is_audited() {
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "fineover").await;
 
     let (status, body) = app
-        .put_json(
-            "/api/v1/fines/policy",
-            &json!({ "unpaidThresholdMode": "amount", "unpaidThresholdCents": 500 }),
-            Some(&admin_token),
-        )
+        .put_json("/api/v1/fines/policy", &json!({ "unpaidThresholdMode": "amount", "unpaidThresholdCents": 500 }), Some(&admin_token))
         .await;
     assert_eq!(status, StatusCode::OK, "set policy: {body}");
 
@@ -255,12 +205,7 @@ async fn unpaid_over_threshold_blocks_checkout_and_force_is_audited() {
     app.state
         .services
         .repository
-        .fines_create(
-            loan_id,
-            reader_id,
-            elidune_server::models::fine::Cents(1500),
-            Some("overdue"),
-        )
+        .fines_create(loan_id, reader_id, elidune_server::models::fine::Cents(1500), Some("overdue"))
         .await
         .expect("create unpaid fine");
 
@@ -292,11 +237,7 @@ async fn unpaid_over_threshold_blocks_renew_unless_forced() {
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "finerenew").await;
 
     let (status, body) = app
-        .put_json(
-            "/api/v1/fines/policy",
-            &json!({ "unpaidThresholdMode": "amount", "unpaidThresholdCents": 0 }),
-            Some(&admin_token),
-        )
+        .put_json("/api/v1/fines/policy", &json!({ "unpaidThresholdMode": "amount", "unpaidThresholdCents": 0 }), Some(&admin_token))
         .await;
     assert_eq!(status, StatusCode::OK, "set policy: {body}");
 
@@ -309,33 +250,14 @@ async fn unpaid_over_threshold_blocks_renew_unless_forced() {
     app.state
         .services
         .repository
-        .fines_create(
-            loan_id,
-            reader_id,
-            elidune_server::models::fine::Cents(250),
-            Some("late"),
-        )
+        .fines_create(loan_id, reader_id, elidune_server::models::fine::Cents(250), Some("late"))
         .await
         .expect("create unpaid fine");
 
-    let (status, body) = app
-        .post_empty(
-            &format!("/api/v1/loans/{loan_id}/renew"),
-            Some(&admin_token),
-        )
-        .await;
-    assert_eq!(
-        status,
-        StatusCode::UNPROCESSABLE_ENTITY,
-        "renew blocked: {body}"
-    );
+    let (status, body) = app.post_empty(&format!("/api/v1/loans/{loan_id}/renew"), Some(&admin_token)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "renew blocked: {body}");
 
-    let (status, body) = app
-        .post_empty(
-            &format!("/api/v1/loans/{loan_id}/renew?force=true"),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, body) = app.post_empty(&format!("/api/v1/loans/{loan_id}/renew?force=true"), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::OK, "force renew: {body}");
 }
 
@@ -353,12 +275,7 @@ async fn untouched_default_zero_threshold_becomes_null() {
         .expect("seed zero");
     apply_untouched_default(&mut tx).await;
     assert_eq!(mode_text(&mut tx, "circulation_settings", 1).await, "none");
-    assert_eq!(
-        threshold_text(&mut tx, "circulation_settings", 1)
-            .await
-            .as_deref(),
-        Some("0.00")
-    );
+    assert_eq!(threshold_text(&mut tx, "circulation_settings", 1).await.as_deref(), Some("0.00"));
 
     sqlx::query("UPDATE circulation_settings SET unpaid_fine_threshold = 0 WHERE id = 1")
         .execute(&mut *tx)
@@ -374,11 +291,7 @@ async fn untouched_default_zero_threshold_becomes_null() {
     .await
     .expect("failure audit");
     apply_untouched_default(&mut tx).await;
-    assert_eq!(
-        mode_text(&mut tx, "circulation_settings", 1).await,
-        "none",
-        "a failed policy write does not count as a modification"
-    );
+    assert_eq!(mode_text(&mut tx, "circulation_settings", 1).await, "none", "a failed policy write does not count as a modification");
 
     tx.rollback().await.unwrap();
 }
@@ -405,66 +318,32 @@ async fn explicit_threshold_including_zero_is_unchanged() {
     .await
     .expect("success audit");
     apply_untouched_default(&mut tx).await;
-    assert_eq!(
-        mode_text(&mut tx, "circulation_settings", 1).await,
-        "amount"
-    );
-    assert_eq!(
-        threshold_text(&mut tx, "circulation_settings", 1)
-            .await
-            .as_deref(),
-        Some("0.00")
-    );
+    assert_eq!(mode_text(&mut tx, "circulation_settings", 1).await, "amount");
+    assert_eq!(threshold_text(&mut tx, "circulation_settings", 1).await.as_deref(), Some("0.00"));
 
     sqlx::query("UPDATE circulation_settings SET unpaid_fine_threshold = 12.50 WHERE id = 1")
         .execute(&mut *tx)
         .await
         .expect("explicit amount");
     apply_untouched_default(&mut tx).await;
-    assert_eq!(
-        mode_text(&mut tx, "circulation_settings", 1).await,
-        "amount"
-    );
-    assert_eq!(
-        threshold_text(&mut tx, "circulation_settings", 1)
-            .await
-            .as_deref(),
-        Some("12.50")
-    );
+    assert_eq!(mode_text(&mut tx, "circulation_settings", 1).await, "amount");
+    assert_eq!(threshold_text(&mut tx, "circulation_settings", 1).await.as_deref(), Some("12.50"));
 
-    sqlx::query("DELETE FROM audit_log")
-        .execute(&mut *tx)
-        .await
-        .expect("clear audit");
+    sqlx::query("DELETE FROM audit_log").execute(&mut *tx).await.expect("clear audit");
     sqlx::query("UPDATE circulation_settings SET unpaid_fine_threshold = 4.50 WHERE id = 1")
         .execute(&mut *tx)
         .await
         .expect("nonzero without audit");
     apply_untouched_default(&mut tx).await;
-    assert_eq!(
-        mode_text(&mut tx, "circulation_settings", 1).await,
-        "amount"
-    );
-    assert_eq!(
-        threshold_text(&mut tx, "circulation_settings", 1)
-            .await
-            .as_deref(),
-        Some("4.50"),
-        "only an untouched 0 becomes none"
-    );
+    assert_eq!(mode_text(&mut tx, "circulation_settings", 1).await, "amount");
+    assert_eq!(threshold_text(&mut tx, "circulation_settings", 1).await.as_deref(), Some("4.50"), "only an untouched 0 becomes none");
 
     assert_eq!(mode_text(&mut tx, "public_types", 1).await, "amount");
-    assert_eq!(
-        threshold_text(&mut tx, "public_types", 1).await.as_deref(),
-        Some("0.00")
-    );
+    assert_eq!(threshold_text(&mut tx, "public_types", 1).await.as_deref(), Some("0.00"));
     assert_eq!(mode_text(&mut tx, "public_types", 2).await, "inherit");
     assert_eq!(threshold_text(&mut tx, "public_types", 2).await, None);
     assert_eq!(mode_text(&mut tx, "public_types", 3).await, "amount");
-    assert_eq!(
-        threshold_text(&mut tx, "public_types", 3).await.as_deref(),
-        Some("4.50")
-    );
+    assert_eq!(threshold_text(&mut tx, "public_types", 3).await.as_deref(), Some("4.50"));
 
     tx.rollback().await.unwrap();
 }
@@ -477,20 +356,10 @@ async fn no_unpaid_threshold_means_no_block() {
     let _policy = policy_lock().lock().await;
     let admin_token = fixtures::ensure_first_setup(&app).await;
 
-    let (status, body) = app
-        .put_json(
-            "/api/v1/fines/policy",
-            &json!({ "unpaidThresholdMode": "none" }),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, body) = app.put_json("/api/v1/fines/policy", &json!({ "unpaidThresholdMode": "none" }), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::OK, "disable global threshold: {body}");
     assert_eq!(body["unpaidThresholdMode"], "none", "{body}");
-    assert!(
-        body.get("unpaidThresholdCents")
-            .is_none_or(|cents| cents.is_null()),
-        "none omits cents: {body}"
-    );
+    assert!(body.get("unpaidThresholdCents").is_none_or(|cents| cents.is_null()), "none omits cents: {body}");
 
     let name = format!("nothresh_{}", fixtures::unique_suffix());
     let (status, created) = app
@@ -506,12 +375,7 @@ async fn no_unpaid_threshold_means_no_block() {
         .await;
     assert_eq!(status, StatusCode::CREATED, "public type: {created}");
     assert_eq!(created["unpaidThresholdMode"], "inherit", "{created}");
-    assert!(
-        created
-            .get("unpaidThresholdCents")
-            .is_none_or(|cents| cents.is_null()),
-        "inherit omits cents: {created}"
-    );
+    assert!(created.get("unpaidThresholdCents").is_none_or(|cents| cents.is_null()), "inherit omits cents: {created}");
     let public_type_id = fixtures::json_id(&created["id"]);
     let (status, settings) = app
         .put_json(
@@ -546,12 +410,7 @@ async fn no_unpaid_threshold_means_no_block() {
     assert_eq!(status, StatusCode::CREATED, "patron: {patron}");
     let reader_id = fixtures::json_id(&patron["id"]);
     fixtures::assign_public_type(&app, reader_id, public_type_id).await;
-    app.state
-        .services
-        .users
-        .set_must_change_password(reader_id, false)
-        .await
-        .expect("clear password flag");
+    app.state.services.users.set_must_change_password(reader_id, false).await.expect("clear password flag");
 
     let first_item = create_borrowable_item(&app, &admin_token, "NULL1").await;
     let (status, loan) = checkout(&app, &admin_token, reader_id, first_item, false).await;
@@ -560,44 +419,22 @@ async fn no_unpaid_threshold_means_no_block() {
     app.state
         .services
         .repository
-        .fines_create(
-            loan_id,
-            reader_id,
-            elidune_server::models::fine::Cents(2500),
-            Some("open"),
-        )
+        .fines_create(loan_id, reader_id, elidune_server::models::fine::Cents(2500), Some("open"))
         .await
         .expect("create unpaid fine");
 
     let second_item = create_borrowable_item(&app, &admin_token, "NULL2").await;
     let (status, borrowed) = checkout(&app, &admin_token, reader_id, second_item, false).await;
-    assert_eq!(
-        status,
-        StatusCode::CREATED,
-        "null threshold allows checkout with unpaid fines: {borrowed}"
-    );
+    assert_eq!(status, StatusCode::CREATED, "null threshold allows checkout with unpaid fines: {borrowed}");
 
-    let (status, scan) = app
-        .get_json_with_auth(&format!("/api/v1/users/by-card/{card}"), &admin_token)
-        .await;
+    let (status, scan) = app.get_json_with_auth(&format!("/api/v1/users/by-card/{card}"), &admin_token).await;
     assert_eq!(status, StatusCode::OK, "card scan: {scan}");
-    let reasons = scan["loanStatus"]["blockReasons"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
-    assert!(
-        !reasons.iter().any(|reason| reason == "unpaid_fines"),
-        "card scan must not report unpaid_fines: {scan}"
-    );
+    let reasons = scan["loanStatus"]["blockReasons"].as_array().cloned().unwrap_or_default();
+    assert!(!reasons.iter().any(|reason| reason == "unpaid_fines"), "card scan must not report unpaid_fines: {scan}");
     assert_eq!(scan["loanStatus"]["unpaidFinesCents"], 2500, "{scan}");
 }
 
-async fn create_mode_audience(
-    app: &TestApp,
-    admin_token: &str,
-    mode: &str,
-    cents: Option<i64>,
-) -> i64 {
+async fn create_mode_audience(app: &TestApp, admin_token: &str, mode: &str, cents: Option<i64>) -> i64 {
     let name = format!("mode_{}", fixtures::unique_suffix());
     let mut body = json!({
         "name": name,
@@ -607,9 +444,7 @@ async fn create_mode_audience(
     if let Some(cents) = cents {
         body["unpaidThresholdCents"] = json!(cents);
     }
-    let (status, created) = app
-        .post_json("/api/v1/public-types", &body, Some(admin_token))
-        .await;
+    let (status, created) = app.post_json("/api/v1/public-types", &body, Some(admin_token)).await;
     assert_eq!(status, StatusCode::CREATED, "public type: {created}");
     let public_type_id = fixtures::json_id(&created["id"]);
     let (status, settings) = app
@@ -623,13 +458,7 @@ async fn create_mode_audience(
     public_type_id
 }
 
-async fn patron_with_unpaid(
-    app: &TestApp,
-    admin_token: &str,
-    public_type_id: i64,
-    prefix: &str,
-    unpaid_cents: i64,
-) -> (i64, String) {
+async fn patron_with_unpaid(app: &TestApp, admin_token: &str, public_type_id: i64, prefix: &str, unpaid_cents: i64) -> (i64, String) {
     let suffix = fixtures::unique_suffix();
     let card = format!("CARD-{prefix}-{suffix}");
     let (status, patron) = app
@@ -654,38 +483,22 @@ async fn patron_with_unpaid(
     assert_eq!(status, StatusCode::CREATED, "patron: {patron}");
     let reader_id = fixtures::json_id(&patron["id"]);
     fixtures::assign_public_type(app, reader_id, public_type_id).await;
-    app.state
-        .services
-        .users
-        .set_must_change_password(reader_id, false)
-        .await
-        .expect("clear password flag");
+    app.state.services.users.set_must_change_password(reader_id, false).await.expect("clear password flag");
     let seed = create_borrowable_item(app, admin_token, &format!("{prefix}SEED")).await;
     let (status, loan) = checkout(app, admin_token, reader_id, seed, false).await;
     assert_eq!(status, StatusCode::CREATED, "seed loan: {loan}");
     app.state
         .services
         .repository
-        .fines_create(
-            fixtures::json_id(&loan["id"]),
-            reader_id,
-            elidune_server::models::fine::Cents(unpaid_cents),
-            Some("open"),
-        )
+        .fines_create(fixtures::json_id(&loan["id"]), reader_id, elidune_server::models::fine::Cents(unpaid_cents), Some("open"))
         .await
         .expect("create unpaid fine");
     (reader_id, card)
 }
 
 fn assert_no_unpaid_fines(scan: &serde_json::Value) {
-    let reasons = scan["loanStatus"]["blockReasons"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
-    assert!(
-        !reasons.iter().any(|reason| reason == "unpaid_fines"),
-        "card scan must not report unpaid_fines: {scan}"
-    );
+    let reasons = scan["loanStatus"]["blockReasons"].as_array().cloned().unwrap_or_default();
+    assert!(!reasons.iter().any(|reason| reason == "unpaid_fines"), "card scan must not report unpaid_fines: {scan}");
 }
 
 #[tokio::test]
@@ -696,11 +509,7 @@ async fn global_10_euros_youth_type_none_15_due_not_blocked() {
     let _policy = policy_lock().lock().await;
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (status, body) = app
-        .put_json(
-            "/api/v1/fines/policy",
-            &json!({ "unpaidThresholdMode": "amount", "unpaidThresholdCents": 1000 }),
-            Some(&admin_token),
-        )
+        .put_json("/api/v1/fines/policy", &json!({ "unpaidThresholdMode": "amount", "unpaidThresholdCents": 1000 }), Some(&admin_token))
         .await;
     assert_eq!(status, StatusCode::OK, "global 10 euros: {body}");
 
@@ -708,14 +517,8 @@ async fn global_10_euros_youth_type_none_15_due_not_blocked() {
     let (reader_id, card) = patron_with_unpaid(&app, &admin_token, youth, "youthnone", 1500).await;
     let item = create_borrowable_item(&app, &admin_token, "YOUTH").await;
     let (status, borrowed) = checkout(&app, &admin_token, reader_id, item, false).await;
-    assert_eq!(
-        status,
-        StatusCode::CREATED,
-        "type none ignores a global amount: {borrowed}"
-    );
-    let (status, scan) = app
-        .get_json_with_auth(&format!("/api/v1/users/by-card/{card}"), &admin_token)
-        .await;
+    assert_eq!(status, StatusCode::CREATED, "type none ignores a global amount: {borrowed}");
+    let (status, scan) = app.get_json_with_auth(&format!("/api/v1/users/by-card/{card}"), &admin_token).await;
     assert_eq!(status, StatusCode::OK, "card scan: {scan}");
     assert_no_unpaid_fines(&scan);
 }
@@ -728,11 +531,7 @@ async fn inherit_follows_global_threshold() {
     let _policy = policy_lock().lock().await;
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (status, body) = app
-        .put_json(
-            "/api/v1/fines/policy",
-            &json!({ "unpaidThresholdMode": "amount", "unpaidThresholdCents": 1000 }),
-            Some(&admin_token),
-        )
+        .put_json("/api/v1/fines/policy", &json!({ "unpaidThresholdMode": "amount", "unpaidThresholdCents": 1000 }), Some(&admin_token))
         .await;
     assert_eq!(status, StatusCode::OK, "global amount: {body}");
 
@@ -740,29 +539,13 @@ async fn inherit_follows_global_threshold() {
     let (reader_id, card) = patron_with_unpaid(&app, &admin_token, audience, "inherit", 1500).await;
     let blocked = create_borrowable_item(&app, &admin_token, "INHBLOCK").await;
     let (status, body) = checkout(&app, &admin_token, reader_id, blocked, false).await;
-    assert_eq!(
-        status,
-        StatusCode::UNPROCESSABLE_ENTITY,
-        "inherit follows global amount: {body}"
-    );
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "inherit follows global amount: {body}");
 
-    let (status, body) = app
-        .put_json(
-            "/api/v1/fines/policy",
-            &json!({ "unpaidThresholdMode": "none" }),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, body) = app.put_json("/api/v1/fines/policy", &json!({ "unpaidThresholdMode": "none" }), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::OK, "global none: {body}");
     let (status, borrowed) = checkout(&app, &admin_token, reader_id, blocked, false).await;
-    assert_eq!(
-        status,
-        StatusCode::CREATED,
-        "inherit follows global none: {borrowed}"
-    );
-    let (status, scan) = app
-        .get_json_with_auth(&format!("/api/v1/users/by-card/{card}"), &admin_token)
-        .await;
+    assert_eq!(status, StatusCode::CREATED, "inherit follows global none: {borrowed}");
+    let (status, scan) = app.get_json_with_auth(&format!("/api/v1/users/by-card/{card}"), &admin_token).await;
     assert_eq!(status, StatusCode::OK, "card scan: {scan}");
     assert_no_unpaid_fines(&scan);
 }
@@ -775,11 +558,7 @@ async fn public_type_amount_overrides_global() {
     let _policy = policy_lock().lock().await;
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (status, body) = app
-        .put_json(
-            "/api/v1/fines/policy",
-            &json!({ "unpaidThresholdMode": "amount", "unpaidThresholdCents": 1000 }),
-            Some(&admin_token),
-        )
+        .put_json("/api/v1/fines/policy", &json!({ "unpaidThresholdMode": "amount", "unpaidThresholdCents": 1000 }), Some(&admin_token))
         .await;
     assert_eq!(status, StatusCode::OK, "global 10 euros: {body}");
 
@@ -787,11 +566,7 @@ async fn public_type_amount_overrides_global() {
     let (reader_id, _) = patron_with_unpaid(&app, &admin_token, audience, "override", 1500).await;
     let item = create_borrowable_item(&app, &admin_token, "OVR").await;
     let (status, borrowed) = checkout(&app, &admin_token, reader_id, item, false).await;
-    assert_eq!(
-        status,
-        StatusCode::CREATED,
-        "type amount 20 euros allows 15 due under a global 10: {borrowed}"
-    );
+    assert_eq!(status, StatusCode::CREATED, "type amount 20 euros allows 15 due under a global 10: {borrowed}");
 
     let (status, updated) = app
         .put_json(
@@ -803,21 +578,11 @@ async fn public_type_amount_overrides_global() {
     assert_eq!(status, StatusCode::OK, "lower type amount: {updated}");
     assert_eq!(updated["unpaidThresholdCents"], 500, "{updated}");
 
-    let (status, body) = app
-        .put_json(
-            "/api/v1/fines/policy",
-            &json!({ "unpaidThresholdMode": "none" }),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, body) = app.put_json("/api/v1/fines/policy", &json!({ "unpaidThresholdMode": "none" }), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::OK, "global none: {body}");
     let next = create_borrowable_item(&app, &admin_token, "OVR2").await;
     let (status, blocked) = checkout(&app, &admin_token, reader_id, next, false).await;
-    assert_eq!(
-        status,
-        StatusCode::UNPROCESSABLE_ENTITY,
-        "type amount still blocks when global is none: {blocked}"
-    );
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "type amount still blocks when global is none: {blocked}");
 }
 
 #[tokio::test]
@@ -828,49 +593,27 @@ async fn put_without_mode_leaves_threshold_unchanged() {
     let _policy = policy_lock().lock().await;
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (status, body) = app
-        .put_json(
-            "/api/v1/fines/policy",
-            &json!({ "unpaidThresholdMode": "amount", "unpaidThresholdCents": 1000 }),
-            Some(&admin_token),
-        )
+        .put_json("/api/v1/fines/policy", &json!({ "unpaidThresholdMode": "amount", "unpaidThresholdCents": 1000 }), Some(&admin_token))
         .await;
     assert_eq!(status, StatusCode::OK, "set global: {body}");
 
-    let (status, body) = app
-        .put_json("/api/v1/fines/policy", &json!({}), Some(&admin_token))
-        .await;
+    let (status, body) = app.put_json("/api/v1/fines/policy", &json!({}), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::OK, "empty put: {body}");
     assert_eq!(body["unpaidThresholdMode"], "amount", "{body}");
     assert_eq!(body["unpaidThresholdCents"], 1000, "{body}");
 
-    let (status, body) = app
-        .put_json(
-            "/api/v1/fines/policy",
-            &json!({ "unpaidThresholdCents": 50 }),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, body) = app.put_json("/api/v1/fines/policy", &json!({ "unpaidThresholdCents": 50 }), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::OK, "cents without mode: {body}");
     assert_eq!(body["unpaidThresholdCents"], 1000, "{body}");
 
     let audience = create_mode_audience(&app, &admin_token, "amount", Some(450)).await;
-    let (status, kept) = app
-        .put_json(
-            &format!("/api/v1/public-types/{audience}"),
-            &json!({ "label": "kept label" }),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, kept) = app.put_json(&format!("/api/v1/public-types/{audience}"), &json!({ "label": "kept label" }), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::OK, "omit mode: {kept}");
     assert_eq!(kept["unpaidThresholdMode"], "amount", "{kept}");
     assert_eq!(kept["unpaidThresholdCents"], 450, "{kept}");
 
     let (status, kept) = app
-        .put_json(
-            &format!("/api/v1/public-types/{audience}"),
-            &json!({ "unpaidThresholdCents": 10 }),
-            Some(&admin_token),
-        )
+        .put_json(&format!("/api/v1/public-types/{audience}"), &json!({ "unpaidThresholdCents": 10 }), Some(&admin_token))
         .await;
     assert_eq!(status, StatusCode::OK, "cents without mode: {kept}");
     assert_eq!(kept["unpaidThresholdMode"], "amount", "{kept}");
@@ -885,30 +628,12 @@ async fn amount_mode_without_cents_is_422() {
     let _policy = policy_lock().lock().await;
     let admin_token = fixtures::ensure_first_setup(&app).await;
 
-    let (status, body) = app
-        .put_json(
-            "/api/v1/fines/policy",
-            &json!({ "unpaidThresholdMode": "amount" }),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, body) = app.put_json("/api/v1/fines/policy", &json!({ "unpaidThresholdMode": "amount" }), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
     assert_eq!(body["code"], "validation_error", "{body}");
-    assert!(
-        body["message"]
-            .as_str()
-            .unwrap_or_default()
-            .contains("unpaidThresholdCents"),
-        "{body}"
-    );
+    assert!(body["message"].as_str().unwrap_or_default().contains("unpaidThresholdCents"), "{body}");
 
-    let (status, _) = app
-        .put_json(
-            "/api/v1/fines/policy",
-            &json!({ "unpaidThresholdMode": null }),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, _) = app.put_json("/api/v1/fines/policy", &json!({ "unpaidThresholdMode": null }), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
 
     let name = format!("nocents_{}", fixtures::unique_suffix());
@@ -928,30 +653,18 @@ async fn amount_mode_without_cents_is_422() {
 
     let audience = create_mode_audience(&app, &admin_token, "inherit", None).await;
     let (status, body) = app
-        .put_json(
-            &format!("/api/v1/public-types/{audience}"),
-            &json!({ "unpaidThresholdMode": "amount" }),
-            Some(&admin_token),
-        )
+        .put_json(&format!("/api/v1/public-types/{audience}"), &json!({ "unpaidThresholdMode": "amount" }), Some(&admin_token))
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body}");
     assert_eq!(body["code"], "validation_error", "{body}");
 
     let (status, _) = app
-        .put_json(
-            &format!("/api/v1/public-types/{audience}"),
-            &json!({ "unpaidThresholdMode": null }),
-            Some(&admin_token),
-        )
+        .put_json(&format!("/api/v1/public-types/{audience}"), &json!({ "unpaidThresholdMode": null }), Some(&admin_token))
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
 
     let (status, body) = app
-        .put_json(
-            "/api/v1/fines/policy",
-            &json!({ "unpaidThresholdMode": "amount", "unpaidThresholdCents": -1 }),
-            Some(&admin_token),
-        )
+        .put_json("/api/v1/fines/policy", &json!({ "unpaidThresholdMode": "amount", "unpaidThresholdCents": -1 }), Some(&admin_token))
         .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
 }

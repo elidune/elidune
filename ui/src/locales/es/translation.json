@@ -106,6 +106,9 @@
     "sectionUntitled": "Menú"
   },
   "deposits": {
+    "pageTitle": "Depósitos",
+    "pageSubtitle": "Lotes recibidos en préstamo y prestamistas asociados.",
+    "sectionNav": "Secciones de depósitos",
     "badge": "Depósito · {{lender}} · devolución el {{date}}",
     "dueDateCapped": "Vencimiento adelantado al {{date}} (devolución del depósito)",
     "dueDateCappedUnknown": "Vencimiento adelantado a la fecha de devolución del depósito",
@@ -114,6 +117,7 @@
     "replacementAmountRequired": "Indique un importe mayor que cero. Primero se aplica la tarifa del prestamista y después el precio del ejemplar si es mayor que cero.",
     "replacementAmountHint": "Obligatorio: no hay tarifa del prestamista ni precio del ejemplar mayor que cero. El cero no se acepta.",
     "lender": "Prestamista",
+    "lenderBarcode": "Código del prestador",
     "site": "Sede",
     "reference": "Referencia",
     "arrivedOn": "Fecha de llegada",
@@ -198,7 +202,9 @@
       "returnedCopies": "Devueltos",
       "missingCopies": "Faltantes",
       "print": "Imprimir",
-      "openRecord": "Abrir el registro"
+      "openRecord": "Abrir el registro",
+      "marcImportTitle": "Importación MARC",
+      "marcImportSubtitle": "Añada registros y ejemplares a este lote. Los ISBN duplicados se vinculan sin reemplazar el fondo propio."
     },
     "import": {
       "mode": "Modo de importación",
@@ -209,7 +215,11 @@
       "batchRequired": "Elija un lote de depósito activo.",
       "batchesError": "No se pudieron cargar los lotes de depósito.",
       "created": "Registros creados: {{count}}",
-      "attached": "vinculado al registro existente"
+      "attached": "vinculado al registro existente",
+      "relabelNotice": "Código del prestador {{lender}} → código local {{local}} (re etiquetar)",
+      "targetSite": "Sede de destino",
+      "targetSiteHint": "Debe coincidir con la sede del lote. No hace falta crear una fuente aquí.",
+      "targetSiteRequired": "Elija la sede de destino del lote."
     }
   },
   "theme": {
@@ -768,7 +778,6 @@
     "createBiblioNoSpecimensConfirm": "No ha introducido ningún ejemplar para este registro bibliográfico. ¿Desea continuar?",
     "specimenBarcode": "Código de barras del ejemplar",
     "callNumber": "Signatura",
-    "selectSource": "Seleccionar fuente",
     "addSpecimen": "Añadir ejemplar",
     "barcode": "Código de barras",
     "callNumberInvalid": "Solo letras, cifras, espacios, puntos y guiones",
@@ -820,7 +829,6 @@
     "cannotMakeBorrowable": "No se puede hacer prestable este ejemplar hasta que estén el código de barras, la sede y el precio (o una prórroga explícita del precio).",
     "volumeDesignation": "Designación de volumen",
     "volumeDesignationPlaceholder": "p. ej. t. 2",
-    "source": "Fuente",
     "specimenBarcodeRequired": "El código de barras es obligatorio",
     "borrowable": "Prestable",
     "publicNote": "Nota pública (visible para los lectores)",
@@ -911,7 +919,9 @@
       "statusError": "Error"
     },
     "biblioNotFound": "Registro no encontrado",
-    "notValidated": "No validado"
+    "notValidated": "No validado",
+    "site": "Sede",
+    "selectSite": "Seleccionar fuente"
   },
   "weeding": {
     "label": "Expurgo",
@@ -1162,7 +1172,6 @@
     "importSuccessMessage": "El documento se ha importado correctamente a su catálogo.",
     "viewDocument": "Ver documento",
     "noSources": "No hay fuentes disponibles. Cree una fuente en la configuración.",
-    "selectSource": "Seleccionar una fuente...",
     "specimensToCreate": "Ejemplares a crear (opcional)",
     "specimensHint": "Puede dejar estos campos vacíos para importar solo el registro bibliográfico",
     "confirmReplaceTitle": "Confirmación requerida",
@@ -1171,7 +1180,8 @@
     "confirmReplaceExplanation": "El registro existente no tiene ejemplares y no está archivado. El reemplazo solo modificará el registro bibliográfico.",
     "documentsFound_other": "{{count}} documentos encontrados",
     "port": "Puerto",
-    "database": "Base de datos"
+    "database": "Base de datos",
+    "selectSite": "Seleccionar una fuente..."
   },
   "catalog": {
     "searchOrCreateCollection": "Buscar o introducir una colección…",
@@ -1205,17 +1215,34 @@
   },
   "importMarc": {
     "default": "por defecto",
+    "depositDuplicate": {
+      "title": "Ejemplar de depósito ya conocido",
+      "intro": "Esta importación reutiliza un código del prestador que ya existe. Elija cómo continuar.",
+      "count": "{{count}} conflictos en esta importación",
+      "lenderBarcode": "Código del prestador",
+      "existingBarcode": "Código en mostrador en uso",
+      "kindActiveBarcode": "Ya hay un ejemplar activo con este código.",
+      "kindReactivation": "Un ejemplar devuelto puede reactivarse.",
+      "kindWasLost": "Ejemplar perdido y facturado; no se puede reimportar.",
+      "lostOnly": "Solo puede omitirlos o cancelar la importación.",
+      "actionLegend": "Acción",
+      "overwriteHint": "Sobrescribir — actualizar el ejemplar existente con los datos MARC.",
+      "relabelHint": "Re etiquetar — conservar el código del prestador y asignar un código local nuevo.",
+      "overwrite": "Sobrescribir",
+      "relabelConfirm": "Re etiquetar",
+      "ignore": "Omitir",
+      "confirm": "Continuar",
+      "applyToAll": "Hacer lo mismo con los demás conflictos"
+    },
     "duplicateIsbnTitle": "ISBN duplicado",
     "duplicateIsbnCreateNew": "Duplicate ISBN",
     "duplicateIsbnReplace": "Reemplazar",
     "duplicateIsbnPrompt": "Ya existe una ficha con el título \"{{title}}\".",
     "duplicateSkippedInBatch": "ISBN duplicado — omitido (importación por lotes). Haga clic en «Importar» para tratarlo individualmente.",
     "importErrorGeneric": "Se produjo un error durante la importación.",
-    "sourcesError": "Error al cargar las fuentes",
     "batchesLoadError": "No se pudo cargar la lista de lotes.",
     "noRecordsFound": "No se encontraron registros. Verifique el formato ({{format}}).",
     "batchLoadError": "No se pudo cargar este lote (caducado o no encontrado).",
-    "sourceCreateError": "Error al crear la fuente",
     "readError": "Error al leer el archivo.",
     "cannotImportWithValidationErrors": "Importación bloqueada mientras haya errores de validación MARC en uno o más registros.",
     "cannotReplaceNoId": "No se puede reemplazar: el identificador del registro existente no está disponible.",
@@ -1232,6 +1259,16 @@
     "analyzing": "Analizando archivo...",
     "dropFile": "Arrastre su archivo MARC",
     "orClickToBrowse": "o haga clic para explorar",
+    "fileEncoding": "Codificación predeterminada del archivo (ISO 2709)",
+    "fileEncodingHint": "Se usa cuando el registro no declara una codificación. MARCXML siempre es UTF-8.",
+    "encoding": {
+      "utf8": "UTF-8",
+      "marc8": "MARC-8",
+      "iso5426": "ISO 5426",
+      "iso8859_2": "ISO 8859-2",
+      "iso8859_3": "ISO 8859-3",
+      "iso8859_5": "ISO 8859-5"
+    },
     "batchHint": "Seleccione un lote MARC en caché en el servidor para reanudar una importación anterior.",
     "refresh": "Actualizar",
     "noBatches": "No hay lotes en caché en el servidor.",
@@ -1245,10 +1282,6 @@
     "duplicateExistingCount_one": "{{count}} registro existente",
     "importWithScan": "Importar con escaneo",
     "importAll": "Importar todo ({{count}})",
-    "source": "Fuente (para ejemplares)",
-    "noSource": "Sin fuente",
-    "addSource": "Añadir fuente",
-    "newSourceName": "Nombre de la nueva fuente",
     "scanMode": "Modo escaneo activado",
     "scanModeHint": "Escanee el código de barras ISBN de cada documento a importar",
     "scanPlaceholder": "Escanear o introducir ISBN...",
@@ -1282,7 +1315,13 @@
     "documentsCount_other": "{{count}} documentos",
     "errors_other": "{{count}} errores",
     "duplicateExistingCount_other": "{{count}} registros existentes",
-    "remainingToScan_other": "{{count}} documentos pendientes de escanear"
+    "remainingToScan_other": "{{count}} documentos pendientes de escanear",
+    "site": "Fuente (para ejemplares)",
+    "sitesError": "Error al cargar las fuentes",
+    "noSite": "Sin fuente",
+    "addSite": "Añadir fuente",
+    "newSiteName": "Nombre de la nueva fuente",
+    "siteCreateError": "Error al crear la fuente"
   },
   "loans": {
     "noTitle": "Sin título",
@@ -1962,7 +2001,36 @@
     "maxLoansDefaultLabel": "Préstamos activos máximos (todos los soportes)",
     "maxLoansPerMediaLabel": "Máximo para este tipo de documento",
     "loanLimitsResolutionHint": "El techo total efectivo lo resuelve el servidor en este orden: «préstamos máx.» en la ficha del tipo de público, luego la fila predeterminada de excepciones del perfil, luego la fila predeterminada global. Aquí se muestran los valores que guarda; el servidor aplica la cadena de prioridad.",
-    "defaultLoanRowNotDeletable": "La fila predeterminada global no se puede eliminar."
+    "defaultLoanRowNotDeletable": "La fila predeterminada global no se puede eliminar.",
+    "sites": {
+      "errorLoad": "Error al cargar las fuentes",
+      "renameSuccess": "Fuente renombrada con éxito",
+      "errorRename": "Error al renombrar",
+      "defaultUpdated": "Fuente por defecto actualizada",
+      "errorUpdateDefault": "Error al actualizar la fuente por defecto",
+      "archiveSuccess": "Fuente archivada con éxito",
+      "errorArchive": "Error al archivar",
+      "mergeMinTwo": "Seleccione al menos 2 fuentes para fusionar",
+      "mergeSuccess": "Fuentes fusionadas con éxito",
+      "errorMerge": "Error al fusionar",
+      "archived": "Archivada",
+      "active": "Activa",
+      "default": "Por defecto",
+      "setDefault": "Establecer como fuente por defecto",
+      "rename": "Renombrar",
+      "archive": "Archivar",
+      "title": "Gestión de sedes",
+      "selected": "{{count}} seleccionada(s)",
+      "mergeSelected": "Fusionar selección",
+      "merge": "Fusionar",
+      "showArchived": "Mostrar archivadas",
+      "mergeTitle": "Fusionar fuentes",
+      "mergeHint": "Los ejemplares e ítems de las fuentes seleccionadas se reasignarán a la nueva fuente. Las fuentes antiguas se archivarán.",
+      "mergeName": "Nombre de la nueva fuente",
+      "mergeNamePlaceholder": "Ingrese el nombre de la fuente fusionada",
+      "archiveConfirm": "¿Está seguro de que desea archivar la fuente \"{{name}}\"?",
+      "noSites": "Ninguna sede"
+    }
   },
   "backgroundTask": {
     "progress": "Progreso",
@@ -2476,16 +2544,16 @@
     "createAcknowledgeWarnings": "Comenzar escaneo",
     "createConflict": "Ya existe una sesión abierta para esta fuente y ubicación.",
     "createExpectedInScope": "{{count}} ejemplar(es) esperado(s) en el ámbito.",
-    "defaultSource": "predeterminado",
     "progressLabel": "Progreso (ejemplares distintos / esperados)",
     "progressRatio": "{{scanned}} / {{expected}}",
     "scanOutOfScope": "Ejemplar fuera de ámbito (fuente o ubicación): {{barcode}} — no contabilizado como encontrado.",
     "scopeAllPlaces": "Todas las ubicaciones",
-    "scopeAllSources": "Todas las fuentes",
-    "scopeSource": "Fuente (ámbito)",
-    "scopeSourceHint": "Recomendado para inventario por fondo. Déjelo vacío para toda la biblioteca.",
-    "sourcesLoadError": "No se pudo cargar la lista de fuentes.",
-    "totalFoundOutOfScope": "Fuera de ámbito"
+    "totalFoundOutOfScope": "Fuera de ámbito",
+    "scopeAllSites": "Todas las fuentes",
+    "scopeSite": "Fuente (ámbito)",
+    "scopeSiteHint": "Recomendado para inventario por fondo. Déjelo vacío para toda la biblioteca.",
+    "defaultSite": "predeterminado",
+    "sitesLoadError": "No se pudo cargar la lista de fuentes."
   },
   "opac": {
     "filterAll": "Todos",

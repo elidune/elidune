@@ -11,7 +11,7 @@ import {
   QueryErrorBanner,
   Table,
 } from '@/components/common';
-import { useSourcesQuery } from '@/hooks/holds/useSourcesQuery';
+import { useSitesQuery } from '@/hooks/holds/useSitesQuery';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
@@ -39,8 +39,8 @@ export default function PickListPage() {
   const { t, i18n } = useTranslation();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
-  const sourcesQuery = useSourcesQuery();
-  const sources = sourcesQuery.data ?? [];
+  const sitesQuery = useSitesQuery();
+  const sites = sitesQuery.data ?? [];
   const [siteChoice, setSiteChoice] = useState<string | null>(() =>
     readPickListSiteChoice(browserStorage()),
   );
@@ -48,8 +48,8 @@ export default function PickListPage() {
   const siteId =
     siteChoice == null || siteChoice.trim() === ''
       ? PICK_LIST_ALL_SITES
-      : sourcesQuery.isFetched
-        ? resolvePickListSiteId(sources, siteChoice)
+      : sitesQuery.isFetched
+        ? resolvePickListSiteId(sites, siteChoice)
         : null;
 
   const pickQuery = useQuery({
@@ -187,7 +187,7 @@ export default function PickListPage() {
               id="pick-list-site"
               className={formControlClass({ className: 'w-full' })}
               value={siteId ?? ''}
-              disabled={sourcesQuery.isLoading || siteId === null}
+              disabled={sitesQuery.isLoading || siteId === null}
               onChange={(event) => {
                 const next = event.target.value;
                 setSiteChoice(next);
@@ -195,7 +195,7 @@ export default function PickListPage() {
               }}
             >
               <option value={PICK_LIST_ALL_SITES}>{t('pickList.allSites')}</option>
-              {sources.map((site) => (
+              {sites.map((site) => (
                 <option key={site.id} value={site.id}>
                   {site.name?.trim() || site.id}
                 </option>

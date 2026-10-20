@@ -2,6 +2,7 @@
 
 pub mod card;
 pub mod circulation;
+pub mod deposit_import;
 pub mod fines;
 pub mod holds;
 pub mod library_info;

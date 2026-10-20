@@ -785,7 +785,7 @@ export interface ItemShortStaff {
   callNumber: string | null;
   borrowable: boolean;
   weedingStatus: ItemWeedingStatus;
-  sourceName: string | null;
+  siteName: string | null;
   borrowed: boolean;
   /**
    * `items.circulation_status`. Null or 0 is available; 1 lost, 2 damaged,
@@ -816,7 +816,7 @@ export interface ItemShortPublic {
   barcode: string | null;
   callNumber: string | null;
   borrowable: boolean;
-  sourceName: string | null;
+  siteName: string | null;
   borrowed: boolean;
   availability: ItemPublicAvailability;
   canHoldItem: boolean;
@@ -868,7 +868,7 @@ export interface ItemCopyBorrower {
 export interface Item {
   id: string;
   biblioId?: string | null;
-  sourceId?: string | null;
+  siteId?: string | null;
   barcode?: string | null;
   callNumber?: string | null;
   volumeDesignation?: string | null;
@@ -895,7 +895,7 @@ export interface Item {
   archivedAt?: string | null;
   weedingStatus?: ItemWeedingStatus | null;
   weedingReason?: string | null;
-  sourceName?: string | null;
+  siteName?: string | null;
   borrowed?: boolean;
   /** Active loan id when borrowed (staff circulation lookup). Never shown as a borrower name. */
   loanId?: string | null;
@@ -926,8 +926,10 @@ export interface Item {
 export interface ItemStaffView {
   id: string | null;
   biblioId: string | null;
-  sourceId: string | null;
+  siteId: string | null;
   barcode: string | null;
+  /** Lender barcode on deposit copies (staff). Omitted when null. */
+  lenderBarcode?: string | null;
   callNumber: string | null;
   volumeDesignation: string | null;
   place: number | null;
@@ -944,7 +946,7 @@ export interface ItemStaffView {
   createdAt: string | null;
   updatedAt: string | null;
   archivedAt: string | null;
-  sourceName: string | null;
+  siteName: string | null;
   borrowed: boolean;
   loanId?: string | null;
   /** Active loan due instant. Null when the copy is not on loan. */
@@ -980,7 +982,7 @@ export interface ItemStaffView {
 export interface ItemPublicView {
   id: string | null;
   biblioId: string | null;
-  sourceId: string | null;
+  siteId: string | null;
   barcode: string | null;
   callNumber: string | null;
   volumeDesignation: string | null;
@@ -992,7 +994,7 @@ export interface ItemPublicView {
   createdAt: string | null;
   updatedAt: string | null;
   archivedAt: string | null;
-  sourceName: string | null;
+  siteName: string | null;
   borrowed: boolean;
   /**
    * Library-local calendar date (`YYYY-MM-DD`, no time) of the open loan.
@@ -1148,7 +1150,7 @@ export interface BiblioPublicView {
 export interface CreateBiblioItemInput {
   barcode?: string | null;
   callNumber?: string | null;
-  sourceId: string;
+  siteId: string;
 }
 
 /** Payload for POST /biblios/{id}/items */
@@ -1165,8 +1167,8 @@ export interface CreateItem {
   price?: string | null;
   /** Write-only: treat a missing price as an explicit deferral when enabling circulation. */
   priceDeferred?: boolean | null;
-  sourceId?: string | null;
-  sourceName?: string | null;
+  siteId?: string | null;
+  siteName?: string | null;
 }
 
 /** Payload for PUT /items/{id} */
@@ -1186,8 +1188,8 @@ export interface UpdateItem {
   price?: string | null;
   /** Write-only: treat a missing price as an explicit deferral when enabling circulation. */
   priceDeferred?: boolean | null;
-  sourceId?: string | null;
-  sourceName?: string | null;
+  siteId?: string | null;
+  siteName?: string | null;
 }
 
 // Circulation exceptions (lost / damaged / claimed-returned) — staff desk API
@@ -1407,8 +1409,8 @@ export interface LoanTimeStats {
 // Catalog stats from /stats/catalog
 export interface CatalogStatsBreakdown {
   label?: string;
-  sourceId?: string;
-  sourceName?: string;
+  siteId?: string;
+  siteName?: string;
   activeItems: number;
   enteredItems: number;
   archivedItems: number;
@@ -1658,6 +1660,31 @@ export interface MarcBatchAttached {
   biblioId: string;
 }
 
+export type DepositDuplicateConflictKind = 'activeBarcode' | 'reactivation' | 'wasLost';
+
+export type DepositDuplicateAction = 'overwrite' | 'relabel' | 'ignore';
+
+export interface DepositDuplicateConflict {
+  recordKey: string;
+  lenderBarcode: string;
+  kind: DepositDuplicateConflictKind;
+  existingItemId: string;
+  existingBarcode?: string | null;
+}
+
+export interface DepositDuplicateScanReport {
+  batchId: string;
+  conflicts: DepositDuplicateConflict[];
+}
+
+export interface MarcDepositCopyLine {
+  recordKey: string;
+  lenderBarcode: string;
+  itemId: string;
+  barcode?: string;
+  localBarcode?: string;
+}
+
 export interface MarcBatchImportReport {
   batchId: string;
   /** IDs of successfully imported records. Union of created and attached. */
@@ -1667,6 +1694,11 @@ export interface MarcBatchImportReport {
   /** Records whose copies were attached to an existing ISBN. */
   attached?: MarcBatchAttached[];
   failed: MarcBatchImportError[];
+  copiesCreated?: MarcDepositCopyLine[];
+  copiesReactivated?: MarcDepositCopyLine[];
+  copiesRelabeled?: MarcDepositCopyLine[];
+  copiesOverwritten?: MarcDepositCopyLine[];
+  copiesRefused?: Array<{ recordKey: string; lenderBarcode: string; code: string; itemId?: string | null }>;
 }
 
 export interface MarcBatchInfo {
@@ -1914,7 +1946,7 @@ export interface UpdatePublicType {
 }
 
 // Source type
-export interface Source {
+export interface Site {
   id: string;
   key: string | null;
   name: string | null;
@@ -2849,8 +2881,8 @@ export interface ItemTransit {
   id: string;
   itemId: string;
   holdId?: string | null;
-  fromSourceId: string;
-  toSourceId: string;
+  fromSiteId: string;
+  toSiteId: string;
   status: TransitStatus;
   notes?: string | null;
   createdAt: string;
@@ -2863,21 +2895,21 @@ export interface ItemTransit {
   reversedFromId?: string | null;
   /**
    * Copy and patron fields. Optional so a server that does not send them yet
-   * still type-checks. `sourceId` is the copy's current site.
+   * still type-checks. `siteId` is the copy's current site.
    */
   barcode?: string | null;
   title?: string | null;
-  sourceId?: string | null;
-  sourceName?: string | null;
+  siteId?: string | null;
+  siteName?: string | null;
   patron?: TransitPatron | null;
 }
 
 /** POST /holds/{id}/transits — allocate a copy toward the hold’s pickup site. */
 export interface CreateTransit {
   itemId?: string | null;
-  fromSourceId?: string | null;
+  fromSiteId?: string | null;
   /** Must match hold.pickupSiteId when that field is already set. */
-  toSourceId?: string | null;
+  toSiteId?: string | null;
   notes?: string | null;
   /** Skip `requested` and mark the copy in transit immediately. */
   ship?: boolean;
@@ -2899,7 +2931,7 @@ export interface ListTransitsParams {
   status?: TransitStatus;
   itemId?: string;
   holdId?: string;
-  toSourceId?: string;
+  toSiteId?: string;
   page?: number;
   perPage?: number;
 }
@@ -3024,9 +3056,9 @@ export interface InventorySession {
   createdBy?: string | null;
   /** When set, scope is active non-archived items with this `items.place` only; null = entire active collection */
   scopePlace?: number | null;
-  /** Catalog source filter (`items.source_id`); null = all sources */
-  scopeSourceId?: string | null;
-  scopeSourceName?: string | null;
+  /** Catalog source filter (`items.site_id`); null = all sites */
+  scopeSiteId?: string | null;
+  scopeSiteName?: string | null;
   consolidatedAt?: string | null;
   consolidatedBy?: string | null;
 }
@@ -3036,7 +3068,7 @@ export interface CreateInventorySession {
   locationFilter?: string | null;
   notes?: string | null;
   scopePlace?: number | null;
-  scopeSourceId?: string | null;
+  scopeSiteId?: string | null;
 }
 
 export interface CreateInventorySessionResponse {
@@ -3064,8 +3096,8 @@ export interface InventoryMissingRow {
   callNumber?: string | null;
   place?: number | null;
   biblioTitle?: string | null;
-  sourceId?: string | null;
-  sourceName?: string | null;
+  siteId?: string | null;
+  siteName?: string | null;
 }
 
 export interface InventoryReport {
@@ -3105,8 +3137,8 @@ export interface InventoryConsolidationPreviewRow {
   barcode?: string | null;
   callNumber?: string | null;
   place?: number | null;
-  sourceId?: string | null;
-  sourceName?: string | null;
+  siteId?: string | null;
+  siteName?: string | null;
   biblioId?: string | null;
   biblioTitle?: string | null;
   onLoan: boolean;
@@ -3456,8 +3488,8 @@ export interface UpdatePurchaseOrder {
 
 export interface ReceiveItemSpec {
   barcode?: string | null;
-  sourceId?: string | null;
-  sourceName?: string | null;
+  siteId?: string | null;
+  siteName?: string | null;
   price?: string | null;
   /** Staff explicitly defers recording a price (report later). */
   priceDeferred?: boolean;

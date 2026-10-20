@@ -397,6 +397,15 @@ Each row's `user` follows the users-rights rule. With users read, the row is `Lo
 ### `ImportMarcBatchQuery` (query params for `POST /biblios/import-marc-batch`)
 `?sourceId=100000000000000001&batchId=927364819265437696&recordId=1`
 
+Deposit mode task result (`MarcBatchImportReport`) adds per-copy arrays (empty outside deposit import):
+
+- `copiesCreated` — `{ recordKey, lenderBarcode, itemId, barcode }`
+- `copiesReactivated` — same shape (returned archived copy on same lender + `lender_barcode`)
+- `copiesRelabeled` — `{ recordKey, lenderBarcode, itemId, localBarcode }` when desk barcode collides with an active copy
+- `copiesRefused` — `{ recordKey, lenderBarcode, code, itemId? }` e.g. `deposit_item_was_lost`, `item_reactivation_barcode_taken`
+
+Desk barcodes are unique among **active** copies only (`items.lender_barcode` keeps the lender label on deposit copies).
+
 ### MARC preview — `EnqueueResult` (`POST /biblios/load-marc`, `GET /biblios/marc-batch/:batchId`)
 
 Réponse commune après upload UNIMARC ou rechargement d’un lot en cache. Voir **[MARC import preview — guide GUI](marc-import-preview-api-gui.md)** (migration `biblios` → `previews`, champ `validationIssues`).
@@ -671,19 +680,19 @@ Staff hold rows (`GET /holds`, `GET /biblios/:id/holds`, `GET /items/:id/holds`,
 
 ---
 
-## Sources (`/api/v1/sources`)
+## Sites (`/api/v1/sites`)
 
-### `SourcesQuery` (query params)
+### `SitesQuery` (query params)
 `?includeArchived=false`
 
-### `Source`
+### `Site`
 ```json
 { "id": "100000000000000001", "key": "fonds-general", "name": "Fonds général", "isArchive": null, "archivedAt": null, "default": true }
 ```
 
-### `MergeSources`
+### `MergeSites`
 ```json
-{ "sourceIds": ["100000000000000001", "100000000000000002"], "name": "Fonds unifié" }
+{ "siteIds": ["100000000000000001", "100000000000000002"], "name": "Fonds unifié" }
 ```
 
 ---

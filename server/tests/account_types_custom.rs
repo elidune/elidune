@@ -63,19 +63,8 @@ async fn create_user_of_type(app: &TestApp, admin_token: &str, code: &str) -> (i
         .await;
     assert_eq!(status, StatusCode::CREATED, "create user: {body}");
     let user_id = fixtures::json_id(&body["id"]);
-    app.state
-        .services
-        .users
-        .set_must_change_password(user_id, false)
-        .await
-        .expect("clear must_change_password");
-    let (login_status, login_body) = app
-        .post_json(
-            "/api/v1/auth/login",
-            &json!({ "username": login, "password": "readerpass1234" }),
-            None,
-        )
-        .await;
+    app.state.services.users.set_must_change_password(user_id, false).await.expect("clear must_change_password");
+    let (login_status, login_body) = app.post_json("/api/v1/auth/login", &json!({ "username": login, "password": "readerpass1234" }), None).await;
     assert_eq!(login_status, StatusCode::OK, "login: {login_body}");
     let token = login_body["token"].as_str().expect("token").to_string();
     (user_id, token)
@@ -98,23 +87,13 @@ async fn delete_assigned_account_type_returns_409() {
     create_type(&app, &token, &code, "n").await;
     let (user_id, _) = create_user_of_type(&app, &token, &code).await;
 
-    let (status, body) = app
-        .delete_with_auth(&format!("/api/v1/account-types/{code}"), &token)
-        .await;
+    let (status, body) = app.delete_with_auth(&format!("/api/v1/account-types/{code}"), &token).await;
     assert_conflict(status, &body, "account_type_in_use");
 
-    let (moved, move_body) = app
-        .put_json(
-            &format!("/api/v1/users/{user_id}/account-type"),
-            &json!({ "accountType": "reader" }),
-            Some(&token),
-        )
-        .await;
+    let (moved, move_body) = app.put_json(&format!("/api/v1/users/{user_id}/account-type"), &json!({ "accountType": "reader" }), Some(&token)).await;
     assert_eq!(moved, StatusCode::OK, "reassign: {move_body}");
 
-    let (deleted, deleted_body) = app
-        .delete_with_auth(&format!("/api/v1/account-types/{code}"), &token)
-        .await;
+    let (deleted, deleted_body) = app.delete_with_auth(&format!("/api/v1/account-types/{code}"), &token).await;
     assert_eq!(deleted, StatusCode::NO_CONTENT, "{deleted_body}");
 }
 
@@ -125,15 +104,11 @@ async fn system_account_types_cannot_be_deleted() {
     };
     let (token, _) = admin(&app).await;
     for code in ["admin", "librarian", "reader"] {
-        let (status, body) = app
-            .get_json_with_auth(&format!("/api/v1/account-types/{code}"), &token)
-            .await;
+        let (status, body) = app.get_json_with_auth(&format!("/api/v1/account-types/{code}"), &token).await;
         assert_eq!(status, StatusCode::OK, "{body}");
         assert_eq!(body["isSystem"], true, "{code}");
 
-        let (status, body) = app
-            .delete_with_auth(&format!("/api/v1/account-types/{code}"), &token)
-            .await;
+        let (status, body) = app.delete_with_auth(&format!("/api/v1/account-types/{code}"), &token).await;
         assert_conflict(status, &body, "account_type_system");
     }
 }
@@ -145,41 +120,19 @@ async fn last_active_admin_is_protected() {
     };
     let (token, admin_id) = admin(&app).await;
 
-    let (status, body) = app
-        .put_json(
-            "/api/v1/account-types/admin",
-            &json!({ "settingsRights": "r" }),
-            Some(&token),
-        )
-        .await;
+    let (status, body) = app.put_json("/api/v1/account-types/admin", &json!({ "settingsRights": "r" }), Some(&token)).await;
     assert_conflict(status, &body, "last_active_admin");
-    let (status, body) = app
-        .get_json_with_auth("/api/v1/account-types/admin", &token)
-        .await;
+    let (status, body) = app.get_json_with_auth("/api/v1/account-types/admin", &token).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["settingsRights"], "w");
 
-    let (status, body) = app
-        .put_json(
-            &format!("/api/v1/users/{admin_id}/account-type"),
-            &json!({ "accountType": "reader" }),
-            Some(&token),
-        )
-        .await;
+    let (status, body) = app.put_json(&format!("/api/v1/users/{admin_id}/account-type"), &json!({ "accountType": "reader" }), Some(&token)).await;
     assert_conflict(status, &body, "last_active_admin");
 
-    let (status, body) = app
-        .put_json(
-            &format!("/api/v1/users/{admin_id}"),
-            &json!({ "status": "blocked" }),
-            Some(&token),
-        )
-        .await;
+    let (status, body) = app.put_json(&format!("/api/v1/users/{admin_id}"), &json!({ "status": "blocked" }), Some(&token)).await;
     assert_conflict(status, &body, "last_active_admin");
 
-    let (status, body) = app
-        .delete_with_auth(&format!("/api/v1/users/{admin_id}"), &token)
-        .await;
+    let (status, body) = app.delete_with_auth(&format!("/api/v1/users/{admin_id}"), &token).await;
     assert_conflict(status, &body, "last_active_admin");
 
     let (status, body) = app.get_json_with_auth("/api/v1/auth/me", &token).await;
@@ -196,13 +149,7 @@ async fn rights_change_writes_an_audit_row() {
     let code = type_code("aud");
     create_type(&app, &token, &code, "n").await;
 
-    let (status, body) = app
-        .put_json(
-            &format!("/api/v1/account-types/{code}"),
-            &json!({ "loansRights": "r" }),
-            Some(&token),
-        )
-        .await;
+    let (status, body) = app.put_json(&format!("/api/v1/account-types/{code}"), &json!({ "loansRights": "r" }), Some(&token)).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["loansRights"], "r");
 
@@ -246,34 +193,14 @@ async fn removing_a_right_invalidates_open_sessions() {
     let (status, body) = app.get_json_with_auth("/api/v1/auth/me", &user_token).await;
     assert_eq!(status, StatusCode::OK, "session before change: {body}");
 
-    let (status, body) = app
-        .put_json(
-            &format!("/api/v1/account-types/{code}"),
-            &json!({ "loansRights": "r" }),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, body) = app.put_json(&format!("/api/v1/account-types/{code}"), &json!({ "loansRights": "r" }), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::OK, "add right: {body}");
     let (status, body) = app.get_json_with_auth("/api/v1/auth/me", &user_token).await;
-    assert_eq!(
-        status,
-        StatusCode::OK,
-        "added right keeps the session: {body}"
-    );
+    assert_eq!(status, StatusCode::OK, "added right keeps the session: {body}");
 
-    let (status, body) = app
-        .put_json(
-            &format!("/api/v1/account-types/{code}"),
-            &json!({ "loansRights": "n" }),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, body) = app.put_json(&format!("/api/v1/account-types/{code}"), &json!({ "loansRights": "n" }), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::OK, "remove right: {body}");
     let (status, body) = app.get_json_with_auth("/api/v1/auth/me", &user_token).await;
-    assert_eq!(
-        status,
-        StatusCode::UNAUTHORIZED,
-        "removed right revokes the session: {body}"
-    );
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "removed right revokes the session: {body}");
     assert_eq!(body["code"], "authentication_failed");
 }

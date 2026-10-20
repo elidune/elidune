@@ -36,6 +36,43 @@ body {
   --focus-ring-offset: #030712;
 }
 
+/* Pointer on interactive controls (text fields keep the I-beam). */
+@layer base {
+  :where(
+    a[href],
+    button:not(:disabled),
+    select:not(:disabled),
+    summary,
+    input[type="checkbox"]:not(:disabled),
+    input[type="radio"]:not(:disabled),
+    input[type="submit"]:not(:disabled),
+    input[type="button"]:not(:disabled),
+    input[type="reset"]:not(:disabled),
+    input[type="file"]:not(:disabled),
+    label:has(> input[type="checkbox"]:not(:disabled)),
+    label:has(> input[type="radio"]:not(:disabled)),
+    label:has(input[type="checkbox"]:not(:disabled)),
+    label:has(input[type="radio"]:not(:disabled)),
+    [role="button"]:not([aria-disabled="true"]),
+    [role="tab"]:not([aria-disabled="true"]),
+    [role="menuitem"]:not([aria-disabled="true"]),
+    [role="option"]:not([aria-disabled="true"]),
+    [role="link"],
+    .cursor-pointer
+  ) {
+    cursor: pointer;
+  }
+
+  :where(
+    button:disabled,
+    select:disabled,
+    input:disabled,
+    [aria-disabled="true"]
+  ) {
+    cursor: not-allowed;
+  }
+}
+
 /* Shared keyboard-focus style */
 :where(
   a,

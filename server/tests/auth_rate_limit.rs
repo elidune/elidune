@@ -31,26 +31,13 @@ fn identifier_options() -> AppBuildOptions {
     options
 }
 
-async fn post_login(
-    app: &TestApp,
-    username: &str,
-    extra_headers: &[(&str, &str)],
-) -> (StatusCode, axum::http::HeaderMap, Value) {
-    let mut builder = Request::builder()
-        .method("POST")
-        .uri("/api/v1/auth/login")
-        .header("content-type", "application/json");
+async fn post_login(app: &TestApp, username: &str, extra_headers: &[(&str, &str)]) -> (StatusCode, axum::http::HeaderMap, Value) {
+    let mut builder = Request::builder().method("POST").uri("/api/v1/auth/login").header("content-type", "application/json");
     for (name, value) in extra_headers {
         builder = builder.header(*name, *value);
     }
     let response = app
-        .request(
-            builder
-                .body(Body::from(
-                    json!({ "username": username, "password": "wrong-password-1" }).to_string(),
-                ))
-                .unwrap(),
-        )
+        .request(builder.body(Body::from(json!({ "username": username, "password": "wrong-password-1" }).to_string())).unwrap())
         .await;
     let status = response.status();
     let headers = response.headers().clone();
@@ -64,10 +51,7 @@ fn assert_rate_limited(status: StatusCode, headers: &axum::http::HeaderMap, body
     assert_eq!(body["code"], "rate_limited");
     let retry_after = body["retryAfter"].as_u64().expect("retryAfter");
     assert!(retry_after >= 1, "retryAfter={retry_after}");
-    let header = headers
-        .get("retry-after")
-        .and_then(|v| v.to_str().ok())
-        .expect("Retry-After");
+    let header = headers.get("retry-after").and_then(|v| v.to_str().ok()).expect("Retry-After");
     assert_eq!(header, retry_after.to_string());
     assert!(body["error"].is_string());
     assert!(body["message"].is_string());
@@ -99,8 +83,7 @@ async fn auth_me_stays_available_when_strict_ip_limit_is_exhausted() {
     assert!(saw_limit, "strict IP limiter did not return 429");
 
     // Unset trusted proxies: a forged X-Forwarded-For must stay on the peer bucket.
-    let (status, headers, body) =
-        post_login(&app, "nobody", &[("x-forwarded-for", "203.0.113.9")]).await;
+    let (status, headers, body) = post_login(&app, "nobody", &[("x-forwarded-for", "203.0.113.9")]).await;
     assert_rate_limited(status, &headers, &body);
 }
 
@@ -116,11 +99,7 @@ async fn login_identifier_block_is_per_account_and_staff_can_clear_it() {
 
     for attempt in 1..=3 {
         let (status, _, body) = post_login(&app, &victim, &[]).await;
-        assert_eq!(
-            status,
-            StatusCode::UNAUTHORIZED,
-            "attempt {attempt} should still be checked: {body}"
-        );
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "attempt {attempt} should still be checked: {body}");
         assert_ne!(body["code"], "rate_limited");
     }
 
@@ -134,24 +113,13 @@ async fn login_identifier_block_is_per_account_and_staff_can_clear_it() {
     assert_eq!(body["code"], "authentication_failed");
 
     let (_, reader_token) = fixtures::create_reader(&app, &admin_token, "unblocker").await;
-    let (status, body) = app
-        .delete_with_auth(&format!("/api/v1/auth/rate-limit/{victim}"), &reader_token)
-        .await;
+    let (status, body) = app.delete_with_auth(&format!("/api/v1/auth/rate-limit/{victim}"), &reader_token).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
 
-    let (status, body) = app
-        .delete_with_auth(
-            &format!("/api/v1/auth/rate-limit/{}", victim.to_lowercase()),
-            &admin_token,
-        )
-        .await;
+    let (status, body) = app.delete_with_auth(&format!("/api/v1/auth/rate-limit/{}", victim.to_lowercase()), &admin_token).await;
     assert_eq!(status, StatusCode::NO_CONTENT, "{body}");
 
     let (status, _, body) = post_login(&app, &victim, &[]).await;
-    assert_eq!(
-        status,
-        StatusCode::UNAUTHORIZED,
-        "cleared identifier should be checked again: {body}"
-    );
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "cleared identifier should be checked again: {body}");
     assert_ne!(body["code"], "rate_limited");
 }

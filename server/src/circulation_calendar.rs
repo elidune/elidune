@@ -1,6 +1,6 @@
 //! Opening-day calendar used when assigning loan due dates and counting overdue days.
 //!
-//! Source of truth is the existing schedule tables:
+//! Site of truth is the existing schedule tables:
 //! - `schedule_slots.day_of_week` (0 = Monday … 6 = Sunday) on the active period
 //! - `schedule_closures` for one-off closed days (network-wide when `source_id` is null,
 //!   otherwise that site only)
@@ -26,11 +26,7 @@ pub struct PeriodOpenDays {
 }
 
 impl PeriodOpenDays {
-    pub fn new(
-        start: NaiveDate,
-        end: NaiveDate,
-        open_weekdays: impl IntoIterator<Item = i16>,
-    ) -> Self {
+    pub fn new(start: NaiveDate, end: NaiveDate, open_weekdays: impl IntoIterator<Item = i16>) -> Self {
         Self {
             start,
             end,
@@ -61,11 +57,7 @@ impl OpeningCalendar {
     }
 
     #[must_use]
-    pub fn with_weekly(
-        start: NaiveDate,
-        end: NaiveDate,
-        open_weekdays: impl IntoIterator<Item = i16>,
-    ) -> Self {
+    pub fn with_weekly(start: NaiveDate, end: NaiveDate, open_weekdays: impl IntoIterator<Item = i16>) -> Self {
         Self {
             closures: HashSet::new(),
             site_closures: HashMap::new(),
@@ -108,11 +100,7 @@ impl OpeningCalendar {
             return false;
         }
         if let Some(site) = site_id {
-            if self
-                .site_closures
-                .get(&site)
-                .is_some_and(|days| days.contains(&date))
-            {
+            if self.site_closures.get(&site).is_some_and(|days| days.contains(&date)) {
                 return false;
             }
         }
@@ -201,10 +189,7 @@ mod tests {
     }
 
     fn utc(y: i32, m: u32, d: u32, h: u32, min: u32) -> DateTime<Utc> {
-        date(y, m, d)
-            .and_hms_opt(h, min, 0)
-            .expect("valid time")
-            .and_utc()
+        date(y, m, d).and_hms_opt(h, min, 0).expect("valid time").and_utc()
     }
 
     /// 2026-09-06 is a Sunday.
@@ -225,10 +210,7 @@ mod tests {
     #[test]
     fn no_schedule_keeps_candidate() {
         let candidate = sunday_due();
-        assert_eq!(
-            adjust_due_date(candidate, &OpeningCalendar::empty()),
-            candidate
-        );
+        assert_eq!(adjust_due_date(candidate, &OpeningCalendar::empty()), candidate);
     }
 
     #[test]
@@ -240,8 +222,7 @@ mod tests {
 
     #[test]
     fn one_off_closure_moves_to_next_open_day() {
-        let calendar = OpeningCalendar::with_weekly(date(2026, 1, 1), date(2026, 12, 31), 0..=6)
-            .with_closure(date(2026, 9, 7));
+        let calendar = OpeningCalendar::with_weekly(date(2026, 1, 1), date(2026, 12, 31), 0..=6).with_closure(date(2026, 9, 7));
         let adjusted = adjust_due_date(utc(2026, 9, 7, 10, 0), &calendar);
         assert_eq!(adjusted, utc(2026, 9, 8, 10, 0));
     }
@@ -280,17 +261,10 @@ mod tests {
     #[test]
     fn exhausted_lookahead_stops() {
         let start = date(2026, 1, 1);
-        let calendar = OpeningCalendar::with_weekly(
-            start,
-            start + Duration::days(400),
-            std::iter::empty::<i16>(),
-        );
+        let calendar = OpeningCalendar::with_weekly(start, start + Duration::days(400), std::iter::empty::<i16>());
         let candidate = utc(2026, 1, 1, 10, 0);
         let adjusted = adjust_due_date(candidate, &calendar);
-        assert_eq!(
-            adjusted.date_naive(),
-            start + Duration::days(MAX_LOOKAHEAD_DAYS)
-        );
+        assert_eq!(adjusted.date_naive(), start + Duration::days(MAX_LOOKAHEAD_DAYS));
     }
 
     #[test]
@@ -302,9 +276,7 @@ mod tests {
     #[test]
     fn network_closure_closes_every_site_and_site_closure_does_not() {
         let summer = date(2026, 8, 1);
-        let calendar = OpeningCalendar::empty()
-            .with_closure(summer)
-            .with_site_closure(7, date(2026, 8, 2));
+        let calendar = OpeningCalendar::empty().with_closure(summer).with_site_closure(7, date(2026, 8, 2));
         assert!(!calendar.is_open_on(Some(7), summer));
         assert!(!calendar.is_open_on(Some(8), summer));
         assert!(!calendar.is_open_on(None, summer));
@@ -325,10 +297,7 @@ mod tests {
         // Due the day before the closure, returned the day it reopens: 21 closed days do not count.
         let due = start - Duration::days(1);
         assert_eq!(calendar.open_days_between(Some(1), due, after), 1);
-        assert_eq!(
-            calendar.open_days_between(Some(1), due, after + Duration::days(2)),
-            3
-        );
+        assert_eq!(calendar.open_days_between(Some(1), due, after + Duration::days(2)), 3);
     }
 
     #[test]

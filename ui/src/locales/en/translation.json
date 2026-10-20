@@ -106,6 +106,9 @@
     "sectionUntitled": "Menu"
   },
   "deposits": {
+    "pageTitle": "Deposits",
+    "pageSubtitle": "Incoming loan batches and partner lenders.",
+    "sectionNav": "Deposit sections",
     "badge": "Deposit · {{lender}} · return on {{date}}",
     "dueDateCapped": "Due date brought forward to {{date}} (deposit return)",
     "dueDateCappedUnknown": "Due date brought forward to the deposit return date",
@@ -114,6 +117,7 @@
     "replacementAmountRequired": "Enter an amount greater than zero. The lender rate applies first, then the copy price when it is greater than zero.",
     "replacementAmountHint": "Required: no lender rate and no copy price above zero. Zero is not accepted.",
     "lender": "Lender",
+    "lenderBarcode": "Lender barcode",
     "site": "Site",
     "reference": "Reference",
     "arrivedOn": "Arrival date",
@@ -198,7 +202,9 @@
       "returnedCopies": "Returned",
       "missingCopies": "Missing",
       "print": "Print",
-      "openRecord": "Open record"
+      "openRecord": "Open record",
+      "marcImportTitle": "MARC import",
+      "marcImportSubtitle": "Add records and copies to this batch. Duplicate ISBNs attach without replacing own stock."
     },
     "import": {
       "mode": "Import mode",
@@ -209,7 +215,11 @@
       "batchRequired": "Choose an active deposit batch.",
       "batchesError": "Could not load deposit batches.",
       "created": "Records created: {{count}}",
-      "attached": "Attached to the existing record"
+      "attached": "Attached to the existing record",
+      "relabelNotice": "Lender barcode {{lender}} → local barcode {{local}} (relabel the copy)",
+      "targetSite": "Target site",
+      "targetSiteHint": "Must match the batch site. No need to create a source here.",
+      "targetSiteRequired": "Choose the batch target site."
     }
   },
   "theme": {
@@ -768,7 +778,6 @@
     "createBiblioNoSpecimensConfirm": "You have not entered a copy for this bibliographic record. Do you want to continue?",
     "specimenBarcode": "Copy barcode",
     "callNumber": "Call number",
-    "selectSource": "Select source",
     "addSpecimen": "Add copy",
     "barcode": "Barcode",
     "callNumberInvalid": "Letters, digits, spaces, dots and dashes only",
@@ -820,7 +829,6 @@
     "cannotMakeBorrowable": "Cannot make this copy borrowable until barcode, site, and price (or an explicit price deferral) are set.",
     "volumeDesignation": "Volume designation",
     "volumeDesignationPlaceholder": "e.g. t. 2",
-    "source": "Source",
     "specimenBarcodeRequired": "Barcode is required",
     "borrowable": "Borrowable",
     "publicNote": "Public note (visible to readers)",
@@ -911,7 +919,9 @@
       "statusError": "Error"
     },
     "biblioNotFound": "Record not found",
-    "notValidated": "Not validated"
+    "notValidated": "Not validated",
+    "site": "Site",
+    "selectSite": "Select a site..."
   },
   "weeding": {
     "label": "Weeding",
@@ -1162,7 +1172,6 @@
     "importSuccessMessage": "The document has been successfully imported into your catalog.",
     "viewDocument": "View document",
     "noSources": "No sources available. Create a source in settings.",
-    "selectSource": "Select a source...",
     "specimensToCreate": "Copies to create (optional)",
     "specimensHint": "You can leave these fields empty to import only the bibliographic record",
     "confirmReplaceTitle": "Confirmation required",
@@ -1171,7 +1180,8 @@
     "confirmReplaceExplanation": "The existing item has no copies and is not archived. Replacing will modify only the bibliographic record.",
     "documentsFound_other": "{{count}} documents found",
     "port": "Port",
-    "database": "Database"
+    "database": "Database",
+    "selectSite": "Select a site..."
   },
   "catalog": {
     "searchOrCreateCollection": "Search or enter a collection…",
@@ -1205,17 +1215,34 @@
   },
   "importMarc": {
     "default": "default",
+    "depositDuplicate": {
+      "title": "Deposit copy already in catalog",
+      "intro": "This import reuses a lender barcode that already exists. Choose how to proceed — you may have started the same import twice by mistake.",
+      "count": "{{count}} conflicting copies in this import",
+      "lenderBarcode": "Lender barcode",
+      "existingBarcode": "Desk barcode in use",
+      "kindActiveBarcode": "An active copy already uses this barcode on the desk.",
+      "kindReactivation": "A returned deposit copy with this lender barcode can be reactivated.",
+      "kindWasLost": "This copy was lost and billed; it cannot be re-imported.",
+      "lostOnly": "These copies were lost and billed. You can only skip them or cancel the import.",
+      "actionLegend": "Resolution",
+      "overwriteHint": "Overwrite — update the existing copy with the MARC data and attach it to this deposit batch.",
+      "relabelHint": "Relabel — keep the lender barcode on file but assign a new local desk barcode (relabel the physical copy).",
+      "overwrite": "Overwrite",
+      "relabelConfirm": "Relabel",
+      "ignore": "Skip",
+      "confirm": "Continue",
+      "applyToAll": "Do the same for the other conflicts in this import"
+    },
     "duplicateIsbnTitle": "Duplicate ISBN",
     "duplicateIsbnCreateNew": "Create duplicate",
     "duplicateIsbnReplace": "Replace",
     "duplicateIsbnPrompt": "A record already exists with the title \"{{title}}\" (ISBN {{isbn}}). What would you like to do?",
     "duplicateSkippedInBatch": "Duplicate ISBN — skipped (batch import). Click \"Import\" to handle individually.",
     "importErrorGeneric": "An error occurred during import.",
-    "sourcesError": "Failed to load sources",
     "batchesLoadError": "Failed to load batch list.",
     "noRecordsFound": "No records found. Check the format ({{format}}).",
     "batchLoadError": "Failed to load this batch (expired or not found).",
-    "sourceCreateError": "Failed to create source",
     "readError": "Error reading file.",
     "cannotImportWithValidationErrors": "Import is blocked while MARC validation errors are present on one or more records.",
     "cannotReplaceNoId": "Cannot replace: the existing record ID is not available.",
@@ -1232,6 +1259,16 @@
     "analyzing": "Analyzing file...",
     "dropFile": "Drop your MARC file",
     "orClickToBrowse": "or click to browse your files",
+    "fileEncoding": "Default file encoding (ISO 2709)",
+    "fileEncodingHint": "Used when the file does not declare an encoding per record. MARCXML is always UTF-8.",
+    "encoding": {
+      "utf8": "UTF-8",
+      "marc8": "MARC-8",
+      "iso5426": "ISO 5426",
+      "iso8859_2": "ISO 8859-2",
+      "iso8859_3": "ISO 8859-3",
+      "iso8859_5": "ISO 8859-5"
+    },
     "batchHint": "Select a MARC batch cached on the server to resume a previous import.",
     "refresh": "Refresh",
     "noBatches": "No cached batches on the server.",
@@ -1245,10 +1282,6 @@
     "duplicateExistingCount_one": "{{count}} existing record",
     "importWithScan": "Import with scan",
     "importAll": "Import all ({{count}})",
-    "source": "Source (for copies)",
-    "noSource": "No source",
-    "addSource": "Add source",
-    "newSourceName": "New source name",
     "scanMode": "Scan mode activated",
     "scanModeHint": "Scan a copy barcode to import its linked bibliographic record",
     "scanPlaceholder": "Scan or enter copy barcode...",
@@ -1282,7 +1315,13 @@
     "documentsCount_other": "{{count}} documents",
     "errors_other": "{{count}} errors",
     "duplicateExistingCount_other": "{{count}} existing records",
-    "remainingToScan_other": "{{count}} documents remaining to scan"
+    "remainingToScan_other": "{{count}} documents remaining to scan",
+    "site": "Source (for copies)",
+    "sitesError": "Failed to load sources",
+    "noSite": "No source",
+    "addSite": "Add source",
+    "newSiteName": "New source name",
+    "siteCreateError": "Failed to create source"
   },
   "loans": {
     "noTitle": "No title",
@@ -1962,7 +2001,36 @@
     "maxLoansDefaultLabel": "Maximum active loans (all media types)",
     "maxLoansPerMediaLabel": "Maximum for this document type",
     "loanLimitsResolutionHint": "The effective total cap is resolved on the server in this order: \"max loans\" on the public-type record, then the audience default override row, then the global default row. Values shown here are what you save; the server applies the priority chain.",
-    "defaultLoanRowNotDeletable": "The global default row cannot be deleted."
+    "defaultLoanRowNotDeletable": "The global default row cannot be deleted.",
+    "sites": {
+      "errorLoad": "Error loading sites",
+      "renameSuccess": "Site renamed successfully",
+      "errorRename": "Error renaming site",
+      "defaultUpdated": "Default site updated",
+      "errorUpdateDefault": "Error updating default site",
+      "archiveSuccess": "Site archived successfully",
+      "errorArchive": "Error archiving site",
+      "mergeMinTwo": "Select at least 2 sites to merge",
+      "mergeSuccess": "Sites merged successfully",
+      "errorMerge": "Error merging sites",
+      "archived": "Archived",
+      "active": "Active",
+      "default": "Default",
+      "setDefault": "Set as default site",
+      "rename": "Rename",
+      "archive": "Archive",
+      "title": "Site management",
+      "selected": "{{count}} selected",
+      "mergeSelected": "Merge selection",
+      "merge": "Merge",
+      "showArchived": "Show archived",
+      "mergeTitle": "Merge sites",
+      "mergeHint": "Copies from selected sites will be reassigned to the new site. Old sites will be archived.",
+      "mergeName": "New site name",
+      "mergeNamePlaceholder": "Enter the merged site name",
+      "archiveConfirm": "Are you sure you want to archive the site \"{{name}}\"?",
+      "noSites": "No sites found"
+    }
   },
   "backgroundTask": {
     "progress": "Progress",
@@ -2476,16 +2544,16 @@
     "createAcknowledgeWarnings": "Start scanning",
     "createConflict": "An open session already exists for this source and place.",
     "createExpectedInScope": "{{count}} copy/copies expected in scope.",
-    "defaultSource": "default",
     "progressLabel": "Progress (distinct copies / expected)",
     "progressRatio": "{{scanned}} / {{expected}}",
     "scanOutOfScope": "Copy out of scope (source or place): {{barcode}} — not counted as found.",
     "scopeAllPlaces": "All places",
-    "scopeAllSources": "All sources",
-    "scopeSource": "Source (scope)",
-    "scopeSourceHint": "Recommended for stocktaking by collection. Leave empty for the whole library.",
-    "sourcesLoadError": "Could not load the source list.",
-    "totalFoundOutOfScope": "Out of scope"
+    "totalFoundOutOfScope": "Out of scope",
+    "scopeAllSites": "All sources",
+    "scopeSite": "Source (scope)",
+    "scopeSiteHint": "Recommended for stocktaking by collection. Leave empty for the whole library.",
+    "defaultSite": "default",
+    "sitesLoadError": "Could not load the source list."
   },
   "opac": {
     "filterAll": "All",

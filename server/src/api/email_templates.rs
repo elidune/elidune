@@ -27,10 +27,7 @@ pub fn router() -> axum::Router<AppState> {
     use axum::routing::get;
     axum::Router::new()
         .route("/settings/email-templates", get(list_email_templates))
-        .route(
-            "/settings/email-templates/:template_id/:language",
-            get(get_email_template).put(update_email_template),
-        )
+        .route("/settings/email-templates/:template_id/:language", get(get_email_template).put(update_email_template))
 }
 
 /// Persisted email template (one (templateId, language) pair).
@@ -82,16 +79,9 @@ pub struct UpdateEmailTemplateRequest {
         (status = 403, description = "Insufficient permissions")
     )
 )]
-pub async fn list_email_templates(
-    State(state): State<AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-) -> AppResult<Json<Vec<EmailTemplate>>> {
+pub async fn list_email_templates(State(state): State<AppState>, AuthenticatedUser(claims): AuthenticatedUser) -> AppResult<Json<Vec<EmailTemplate>>> {
     claims.require_read_settings()?;
-    let rows = state
-        .services
-        .minimal_repository()
-        .email_templates_list()
-        .await?;
+    let rows = state.services.minimal_repository().email_templates_list().await?;
     Ok(Json(rows.into_iter().map(EmailTemplate::from).collect()))
 }
 
@@ -111,11 +101,7 @@ pub async fn list_email_templates(
         (status = 404, description = "Not found")
     )
 )]
-pub async fn get_email_template(
-    State(state): State<AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path((template_id, language)): Path<(String, String)>,
-) -> AppResult<Json<EmailTemplate>> {
+pub async fn get_email_template(State(state): State<AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path((template_id, language)): Path<(String, String)>) -> AppResult<Json<EmailTemplate>> {
     claims.require_read_settings()?;
     validate_identifiers(&template_id, &language)?;
 
@@ -124,12 +110,7 @@ pub async fn get_email_template(
         .minimal_repository()
         .email_templates_get(&template_id, &language)
         .await?
-        .ok_or_else(|| {
-            AppError::NotFound(format!(
-                "Email template not found: {}/{}",
-                template_id, language
-            ))
-        })?;
+        .ok_or_else(|| AppError::NotFound(format!("Email template not found: {}/{}", template_id, language)))?;
 
     Ok(Json(row.into()))
 }
@@ -168,22 +149,12 @@ pub async fn update_email_template(
     if body.body_plain.trim().is_empty() {
         return Err(AppError::Validation("bodyPlain must not be empty".into()));
     }
-    let body_html = body
-        .body_html
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty());
+    let body_html = body.body_html.as_deref().map(str::trim).filter(|s| !s.is_empty());
 
     let row = state
         .services
         .minimal_repository()
-        .email_templates_update_content(
-            &template_id,
-            &language,
-            subject,
-            &body.body_plain,
-            body_html,
-        )
+        .email_templates_update_content(&template_id, &language, subject, &body.body_plain, body_html)
         .await?;
 
     state.services.audit.log(
@@ -204,18 +175,10 @@ pub async fn update_email_template(
 
 fn validate_identifiers(template_id: &str, language: &str) -> AppResult<()> {
     if !KNOWN_TEMPLATE_IDS.contains(&template_id) {
-        return Err(AppError::Validation(format!(
-            "Unknown templateId '{}'. Allowed: {}",
-            template_id,
-            KNOWN_TEMPLATE_IDS.join(", ")
-        )));
+        return Err(AppError::Validation(format!("Unknown templateId '{}'. Allowed: {}", template_id, KNOWN_TEMPLATE_IDS.join(", "))));
     }
     if !SUPPORTED_LANGUAGES.contains(&language) {
-        return Err(AppError::Validation(format!(
-            "Unsupported language '{}'. Allowed: {}",
-            language,
-            SUPPORTED_LANGUAGES.join(", ")
-        )));
+        return Err(AppError::Validation(format!("Unsupported language '{}'. Allowed: {}", language, SUPPORTED_LANGUAGES.join(", "))));
     }
     Ok(())
 }

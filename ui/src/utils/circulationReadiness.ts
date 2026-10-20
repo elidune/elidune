@@ -2,8 +2,8 @@
 
 export type CirculationReadinessInput = {
   barcode?: string | null;
-  sourceId?: string | null;
-  sourceName?: string | null;
+  siteId?: string | null;
+  siteName?: string | null;
   price?: string | null;
   priceDeferred?: boolean | null;
 };
@@ -18,7 +18,7 @@ export function nonemptyText(value?: string | null): string | undefined {
 export function missingCirculationFields(input: CirculationReadinessInput): CirculationField[] {
   const missing: CirculationField[] = [];
   if (nonemptyText(input.barcode) == null) missing.push('barcode');
-  if (nonemptyText(input.sourceId) == null && nonemptyText(input.sourceName) == null) {
+  if (nonemptyText(input.siteId) == null && nonemptyText(input.siteName) == null) {
     missing.push('site');
   }
   if (!input.priceDeferred && nonemptyText(input.price) == null) missing.push('price');

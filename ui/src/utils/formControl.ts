@@ -37,7 +37,7 @@ export function formChoiceLabelClass(className = ''): string {
 /** Checkbox and radio — amber accent and focus ring, matching text inputs. */
 export function formChoiceControlClass(className = ''): string {
   return [
-    'h-4 w-4 shrink-0 border-gray-300 bg-white accent-amber-600',
+    'h-4 w-4 shrink-0 cursor-pointer border-gray-300 bg-white accent-amber-600',
     'dark:border-gray-600 dark:bg-gray-900 dark:accent-amber-500',
     'focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500/40',
     'disabled:cursor-not-allowed disabled:opacity-50',

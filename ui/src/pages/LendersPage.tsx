@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Library, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { Badge, Button, Card, ConfirmDialog, Input, Modal, QueryErrorBanner, Table } from '@/components/common';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
@@ -20,7 +19,7 @@ import { formChoiceControlClass } from '@/utils/formControl';
 
 const LENDERS_KEY = ['lenders'] as const;
 
-export default function LendersPage() {
+export function LendersPanel() {
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const { showToast } = useToast();
@@ -95,27 +94,14 @@ export default function LendersPage() {
   });
 
   return (
-    <div className={APP_PAGE_CLASS}>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-start gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-800">
-            <Library className="h-6 w-6 text-gray-700 dark:text-gray-200" aria-hidden />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('deposits.lenders.title')}</h1>
-            <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{t('deposits.lenders.subtitle')}</p>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Link to="/deposits" className="text-sm text-indigo-700 hover:underline dark:text-indigo-300">
-            {t('deposits.batches.title')}
-          </Link>
-          {canWrite ? (
-            <Button type="button" leftIcon={<Plus className="h-4 w-4" />} onClick={() => openForm(null)}>
-              {t('deposits.lenders.create')}
-            </Button>
-          ) : null}
-        </div>
+    <div className="space-y-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-gray-600 dark:text-gray-300">{t('deposits.lenders.subtitle')}</p>
+        {canWrite ? (
+          <Button type="button" leftIcon={<Plus className="h-4 w-4" />} onClick={() => openForm(null)}>
+            {t('deposits.lenders.create')}
+          </Button>
+        ) : null}
       </div>
 
       <Card className="overflow-hidden">
@@ -236,6 +222,14 @@ export default function LendersPage() {
         confirmVariant="danger"
         isLoading={archiveMutation.isPending}
       />
+    </div>
+  );
+}
+
+export default function LendersPage() {
+  return (
+    <div className={APP_PAGE_CLASS}>
+      <LendersPanel />
     </div>
   );
 }

@@ -14,10 +14,7 @@ use sqlx::postgres::PgPoolOptions;
 use tokio::sync::Notify;
 use tower::ServiceExt;
 
-use elidune_server::{
-    build_app_with_options, repository::Repository, services::Services, AppBuildOptions, AppConfig,
-    AppState, DynamicConfig, EmailService,
-};
+use elidune_server::{build_app_with_options, repository::Repository, services::Services, AppBuildOptions, AppConfig, AppState, DynamicConfig, EmailService};
 
 pub mod fixtures;
 
@@ -46,22 +43,13 @@ impl TestApp {
             return None;
         }
 
-        let pool = PgPoolOptions::new()
-            .max_connections(5)
-            .connect(&config.database.url)
-            .await
-            .expect("connect test database");
+        let pool = PgPoolOptions::new().max_connections(5).connect(&config.database.url).await.expect("connect test database");
 
-        sqlx::migrate!("./migrations")
-            .run(&pool)
-            .await
-            .expect("run migrations");
+        sqlx::migrate!("./migrations").run(&pool).await.expect("run migrations");
 
         let dynamic_config = DynamicConfig::new(config.clone());
 
-        let redis_service = elidune_server::services::redis::RedisService::new(&config.redis.url)
-            .await
-            .expect("connect redis");
+        let redis_service = elidune_server::services::redis::RedisService::new(&config.redis.url).await.expect("connect redis");
 
         let email_service = Arc::new(EmailService::new(dynamic_config.clone(), pool.clone()));
 
@@ -102,26 +90,13 @@ impl TestApp {
     /// Send an HTTP request and return the full response.
     pub async fn request(&self, mut req: Request<Body>) -> Response<Body> {
         // `GovernorLayer` keys on peer IP; oneshot requests have no socket unless we set it.
-        req.extensions_mut()
-            .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 3000))));
-        self.router
-            .clone()
-            .oneshot(req)
-            .await
-            .expect("router oneshot")
+        req.extensions_mut().insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 3000))));
+        self.router.clone().oneshot(req).await.expect("router oneshot")
     }
 
     /// GET helper returning status and JSON body.
     pub async fn get_json(&self, uri: &str) -> (StatusCode, serde_json::Value) {
-        let response = self
-            .request(
-                Request::builder()
-                    .method("GET")
-                    .uri(uri)
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await;
+        let response = self.request(Request::builder().method("GET").uri(uri).body(Body::empty()).unwrap()).await;
         let status = response.status();
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
         let json: serde_json::Value = if bytes.is_empty() {
@@ -133,24 +108,12 @@ impl TestApp {
     }
 
     /// POST JSON helper.
-    pub async fn post_json(
-        &self,
-        uri: &str,
-        body: &serde_json::Value,
-        auth_token: Option<&str>,
-    ) -> (StatusCode, serde_json::Value) {
-        self.post_json_with_headers(uri, body, auth_token, &[])
-            .await
+    pub async fn post_json(&self, uri: &str, body: &serde_json::Value, auth_token: Option<&str>) -> (StatusCode, serde_json::Value) {
+        self.post_json_with_headers(uri, body, auth_token, &[]).await
     }
 
     /// POST JSON with extra headers (e.g. `Idempotency-Key`).
-    pub async fn post_json_with_headers(
-        &self,
-        uri: &str,
-        body: &serde_json::Value,
-        auth_token: Option<&str>,
-        headers: &[(&str, &str)],
-    ) -> (StatusCode, serde_json::Value) {
+    pub async fn post_json_with_headers(&self, uri: &str, body: &serde_json::Value, auth_token: Option<&str>, headers: &[(&str, &str)]) -> (StatusCode, serde_json::Value) {
         let mut builder = Request::builder().method("POST").uri(uri);
         if let Some(token) = auth_token {
             builder = builder.header("Authorization", format!("Bearer {token}"));
@@ -158,14 +121,7 @@ impl TestApp {
         for (name, value) in headers {
             builder = builder.header(*name, *value);
         }
-        let response = self
-            .request(
-                builder
-                    .header("Content-Type", "application/json")
-                    .body(Body::from(body.to_string()))
-                    .unwrap(),
-            )
-            .await;
+        let response = self.request(builder.header("Content-Type", "application/json").body(Body::from(body.to_string())).unwrap()).await;
         let status = response.status();
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
         let json: serde_json::Value = if bytes.is_empty() {
@@ -177,11 +133,7 @@ impl TestApp {
     }
 
     /// GET helper with Bearer auth.
-    pub async fn get_json_with_auth(
-        &self,
-        uri: &str,
-        token: &str,
-    ) -> (StatusCode, serde_json::Value) {
+    pub async fn get_json_with_auth(&self, uri: &str, token: &str) -> (StatusCode, serde_json::Value) {
         let response = self
             .request(
                 Request::builder()
@@ -203,24 +155,12 @@ impl TestApp {
     }
 
     /// PUT JSON helper.
-    pub async fn put_json(
-        &self,
-        uri: &str,
-        body: &serde_json::Value,
-        auth_token: Option<&str>,
-    ) -> (StatusCode, serde_json::Value) {
+    pub async fn put_json(&self, uri: &str, body: &serde_json::Value, auth_token: Option<&str>) -> (StatusCode, serde_json::Value) {
         let mut builder = Request::builder().method("PUT").uri(uri);
         if let Some(token) = auth_token {
             builder = builder.header("Authorization", format!("Bearer {token}"));
         }
-        let response = self
-            .request(
-                builder
-                    .header("Content-Type", "application/json")
-                    .body(Body::from(body.to_string()))
-                    .unwrap(),
-            )
-            .await;
+        let response = self.request(builder.header("Content-Type", "application/json").body(Body::from(body.to_string())).unwrap()).await;
         let status = response.status();
         let bytes = response.into_body().collect().await.unwrap().to_bytes();
         let json: serde_json::Value = if bytes.is_empty() {
@@ -232,11 +172,7 @@ impl TestApp {
     }
 
     /// DELETE helper with Bearer auth.
-    pub async fn delete_with_auth(
-        &self,
-        uri: &str,
-        token: &str,
-    ) -> (StatusCode, serde_json::Value) {
+    pub async fn delete_with_auth(&self, uri: &str, token: &str) -> (StatusCode, serde_json::Value) {
         let response = self
             .request(
                 Request::builder()
@@ -258,21 +194,12 @@ impl TestApp {
     }
 
     /// POST with empty body.
-    pub async fn post_empty(
-        &self,
-        uri: &str,
-        auth_token: Option<&str>,
-    ) -> (StatusCode, serde_json::Value) {
+    pub async fn post_empty(&self, uri: &str, auth_token: Option<&str>) -> (StatusCode, serde_json::Value) {
         self.post_empty_with_headers(uri, auth_token, &[]).await
     }
 
     /// POST empty body with extra headers (e.g. `Idempotency-Key`).
-    pub async fn post_empty_with_headers(
-        &self,
-        uri: &str,
-        auth_token: Option<&str>,
-        headers: &[(&str, &str)],
-    ) -> (StatusCode, serde_json::Value) {
+    pub async fn post_empty_with_headers(&self, uri: &str, auth_token: Option<&str>, headers: &[(&str, &str)]) -> (StatusCode, serde_json::Value) {
         let mut builder = Request::builder().method("POST").uri(uri);
         if let Some(token) = auth_token {
             builder = builder.header("Authorization", format!("Bearer {token}"));
@@ -296,14 +223,7 @@ impl TestApp {
     /// `path` may already include filters. `page` and `perPage` are appended.
     /// The route has no row filter, so a shared database can push a seeded row
     /// off the first page.
-    pub async fn find_paged_row<F>(
-        &self,
-        token: &str,
-        path: &str,
-        items_key: &str,
-        what: &str,
-        predicate: F,
-    ) -> serde_json::Value
+    pub async fn find_paged_row<F>(&self, token: &str, path: &str, items_key: &str, what: &str, predicate: F) -> serde_json::Value
     where
         F: Fn(&serde_json::Value) -> bool,
     {
@@ -331,13 +251,9 @@ impl TestApp {
 
     /// `GET /loans/overdue` has only `page` and `perPage`. Find the seeded loan on any page.
     pub async fn find_overdue_loan(&self, token: &str, loan_id: i64) -> serde_json::Value {
-        self.find_paged_row(
-            token,
-            "/api/v1/loans/overdue",
-            "loans",
-            &format!("overdue loan {loan_id}"),
-            |row| fixtures::json_id(&row["loanId"]) == loan_id,
-        )
+        self.find_paged_row(token, "/api/v1/loans/overdue", "loans", &format!("overdue loan {loan_id}"), |row| {
+            fixtures::json_id(&row["loanId"]) == loan_id
+        })
         .await
     }
 }

@@ -20,44 +20,23 @@ pub struct HoldsService {
 
 impl HoldsService {
     pub fn new(repository: Arc<dyn HoldsRepository>) -> Self {
-        Self {
-            repository,
-            audit: None,
-        }
+        Self { repository, audit: None }
     }
 
     pub fn with_audit(repository: Arc<dyn HoldsRepository>, audit: AuditService) -> Self {
-        Self {
-            repository,
-            audit: Some(audit),
-        }
+        Self { repository, audit: Some(audit) }
     }
 
     /// Paginated list of all holds (newest first).
     #[tracing::instrument(skip(self), err)]
-    pub async fn list_all(
-        &self,
-        page: i64,
-        per_page: i64,
-        active_only: bool,
-    ) -> AppResult<(Vec<HoldDetails>, i64)> {
-        self.repository
-            .holds_list_all(page, per_page, active_only)
-            .await
+    pub async fn list_all(&self, page: i64, per_page: i64, active_only: bool) -> AppResult<(Vec<HoldDetails>, i64)> {
+        self.repository.holds_list_all(page, per_page, active_only).await
     }
 
     /// Paginated holds for one user (`holds_rights == own` on `GET /holds`).
     #[tracing::instrument(skip(self), err)]
-    pub async fn list_for_user_paginated(
-        &self,
-        user_id: i64,
-        page: i64,
-        per_page: i64,
-        active_only: bool,
-    ) -> AppResult<(Vec<HoldDetails>, i64)> {
-        self.repository
-            .holds_list_for_user_paginated(user_id, page, per_page, active_only)
-            .await
+    pub async fn list_for_user_paginated(&self, user_id: i64, page: i64, per_page: i64, active_only: bool) -> AppResult<(Vec<HoldDetails>, i64)> {
+        self.repository.holds_list_for_user_paginated(user_id, page, per_page, active_only).await
     }
 
     /// Global default cap (public-type overrides are applied in [`Self::quota_for_user`]).
@@ -71,11 +50,7 @@ impl HoldsService {
 
     /// Replace the global default max active holds and, when set, the pick delay.
     #[tracing::instrument(skip(self), err)]
-    pub async fn set_policy(
-        &self,
-        max_active_holds: i16,
-        pick_delay_days: Option<i16>,
-    ) -> AppResult<HoldsPolicy> {
+    pub async fn set_policy(&self, max_active_holds: i16, pick_delay_days: Option<i16>) -> AppResult<HoldsPolicy> {
         validate_max_active_holds(Some(max_active_holds))?;
         let delay = if let Some(days) = pick_delay_days {
             validate_pick_delay_days(days)?;
@@ -84,35 +59,22 @@ impl HoldsService {
             self.repository.holds_get_pick_delay_days().await?
         };
         Ok(HoldsPolicy {
-            max_active_holds: self
-                .repository
-                .holds_set_global_max_active(max_active_holds)
-                .await?,
+            max_active_holds: self.repository.holds_set_global_max_active(max_active_holds).await?,
             pick_delay_days: Some(delay),
         })
     }
 
     /// Copy missing from the shelf: mark `to_search` and reassign or release the hold.
     #[tracing::instrument(skip(self), err)]
-    pub async fn pick_not_found(
-        &self,
-        id: i64,
-    ) -> AppResult<crate::models::dto::holds::PickNotFoundOutcome> {
+    pub async fn pick_not_found(&self, id: i64) -> AppResult<crate::models::dto::holds::PickNotFoundOutcome> {
         self.repository.holds_pick_not_found(id).await
     }
 
     /// Resolved cap, used count, and remaining slots for a patron.
     #[tracing::instrument(skip(self), err)]
     pub async fn quota_for_user(&self, user_id: i64) -> AppResult<HoldQuota> {
-        let (active_holds, max_active_holds) = tokio::try_join!(
-            self.repository.holds_count_active_for_user(user_id),
-            self.repository.holds_get_max_active_for_user(user_id),
-        )?;
-        Ok(HoldQuota::from_counts(
-            user_id,
-            max_active_holds,
-            active_holds,
-        ))
+        let (active_holds, max_active_holds) = tokio::try_join!(self.repository.holds_count_active_for_user(user_id), self.repository.holds_get_max_active_for_user(user_id),)?;
+        Ok(HoldQuota::from_counts(user_id, max_active_holds, active_holds))
     }
 
     /// Place a copy-level or title-level hold.
@@ -121,16 +83,9 @@ impl HoldsService {
     /// are at/over the active-hold cap (unless `force`). Unique indexes remain
     /// the last line of defense.
     #[tracing::instrument(skip(self), err)]
-    pub async fn place_hold(
-        &self,
-        data: CreateHold,
-        audit_actor: Option<i64>,
-        client_ip: Option<String>,
-    ) -> AppResult<Hold> {
+    pub async fn place_hold(&self, data: CreateHold, audit_actor: Option<i64>, client_ip: Option<String>) -> AppResult<Hold> {
         if data.item_id.is_none() && data.biblio_id.is_none() {
-            return Err(AppError::Validation(
-                "itemId or biblioId is required".to_string(),
-            ));
+            return Err(AppError::Validation("itemId or biblioId is required".to_string()));
         }
 
         if let Some(item_id) = data.item_id {
@@ -138,44 +93,23 @@ impl HoldsService {
                 Some(id) => id,
                 None => self.repository.holds_biblio_id_of_item(item_id).await?,
             };
-            if self
-                .repository
-                .holds_has_active_for_user_biblio(data.user_id, biblio_id)
-                .await?
-            {
-                return Err(AppError::Conflict(
-                    "User already has an active hold for this title".to_string(),
-                ));
+            if self.repository.holds_has_active_for_user_biblio(data.user_id, biblio_id).await? {
+                return Err(AppError::Conflict("User already has an active hold for this title".to_string()));
             }
         } else if let Some(biblio_id) = data.biblio_id {
-            if self
-                .repository
-                .holds_has_active_for_user_biblio(data.user_id, biblio_id)
-                .await?
-            {
-                return Err(AppError::Conflict(
-                    "User already has an active hold for this title".to_string(),
-                ));
+            if self.repository.holds_has_active_for_user_biblio(data.user_id, biblio_id).await? {
+                return Err(AppError::Conflict("User already has an active hold for this title".to_string()));
             }
         }
 
-        self.enforce_max_active_holds(&data, audit_actor, client_ip)
-            .await?;
+        self.enforce_max_active_holds(&data, audit_actor, client_ip).await?;
 
         self.repository.holds_create(&data).await
     }
 
     /// Cap of active holds (`pending` / `to_pick` / `ready`) by patron category. `force=true` bypasses and is audited.
-    async fn enforce_max_active_holds(
-        &self,
-        data: &CreateHold,
-        audit_actor: Option<i64>,
-        client_ip: Option<String>,
-    ) -> AppResult<()> {
-        let (active, max) = tokio::try_join!(
-            self.repository.holds_count_active_for_user(data.user_id),
-            self.repository.holds_get_max_active_for_user(data.user_id),
-        )?;
+    async fn enforce_max_active_holds(&self, data: &CreateHold, audit_actor: Option<i64>, client_ip: Option<String>) -> AppResult<()> {
+        let (active, max) = tokio::try_join!(self.repository.holds_count_active_for_user(data.user_id), self.repository.holds_get_max_active_for_user(data.user_id),)?;
         if active < i64::from(max) {
             return Ok(());
         }
@@ -218,17 +152,10 @@ impl HoldsService {
     }
 
     #[tracing::instrument(skip(self), err)]
-    pub async fn cancel(
-        &self,
-        id: i64,
-        requesting_user_id: i64,
-        can_manage_others: bool,
-    ) -> AppResult<Hold> {
+    pub async fn cancel(&self, id: i64, requesting_user_id: i64, can_manage_others: bool) -> AppResult<Hold> {
         let hold = self.repository.holds_get_by_id(id).await?;
         if !can_manage_others && hold.user_id != requesting_user_id {
-            return Err(AppError::Authorization(
-                "Cannot cancel another user's hold".to_string(),
-            ));
+            return Err(AppError::Authorization("Cannot cancel another user's hold".to_string()));
         }
         self.repository.holds_cancel(id).await
     }
@@ -236,9 +163,7 @@ impl HoldsService {
     /// Notify the first pending hold when a loan is returned.
     #[tracing::instrument(skip(self), err)]
     pub async fn notify_next(&self, item_id: i64, expiry_days: i32) -> AppResult<Option<Hold>> {
-        self.repository
-            .holds_notify_next(item_id, expiry_days)
-            .await
+        self.repository.holds_notify_next(item_id, expiry_days).await
     }
 
     #[tracing::instrument(skip(self), err)]
@@ -253,19 +178,14 @@ impl HoldsService {
 
     /// Staff shelf-pick list (`to_pick`), optionally limited to the copy's current site.
     #[tracing::instrument(skip(self), err)]
-    pub async fn list_pick(
-        &self,
-        site_id: Option<i64>,
-    ) -> AppResult<Vec<crate::models::dto::holds::HoldPickListRow>> {
+    pub async fn list_pick(&self, site_id: Option<i64>) -> AppResult<Vec<crate::models::dto::holds::HoldPickListRow>> {
         self.repository.holds_list_pick(site_id).await
     }
 
     /// Active holds (`pending` / `to_pick` / `ready`) across all copies of a biblio.
     #[tracing::instrument(skip(self), err)]
     pub async fn count_active_for_biblio(&self, biblio_id: i64) -> AppResult<i64> {
-        self.repository
-            .holds_count_active_for_biblio(biblio_id)
-            .await
+        self.repository.holds_count_active_for_biblio(biblio_id).await
     }
 }
 
@@ -274,26 +194,20 @@ pub(crate) fn validate_max_active_holds(max: Option<i16>) -> AppResult<()> {
         return Ok(());
     };
     if !(MIN_MAX_ACTIVE_HOLDS..=MAX_MAX_ACTIVE_HOLDS).contains(&max) {
-        return Err(AppError::Validation(format!(
-            "maxActiveHolds must be between {MIN_MAX_ACTIVE_HOLDS} and {MAX_MAX_ACTIVE_HOLDS}"
-        )));
+        return Err(AppError::Validation(format!("maxActiveHolds must be between {MIN_MAX_ACTIVE_HOLDS} and {MAX_MAX_ACTIVE_HOLDS}")));
     }
     Ok(())
 }
 
 fn validate_pick_delay_days(days: i16) -> AppResult<()> {
     if !(0..=365).contains(&days) {
-        return Err(AppError::Validation(
-            "pickDelayDays must be between 0 and 365".to_string(),
-        ));
+        return Err(AppError::Validation("pickDelayDays must be between 0 and 365".to_string()));
     }
     Ok(())
 }
 
 fn hold_cap_block_message(active: i64, max: i16) -> String {
-    format!(
-        "Maximum of {max} active holds reached ({active} pending/to_pick/ready) — cancel a hold or use force=true to override"
-    )
+    format!("Maximum of {max} active holds reached ({active} pending/to_pick/ready) — cancel a hold or use force=true to override")
 }
 
 #[cfg(test)]
@@ -323,21 +237,10 @@ mod tests {
 
     #[async_trait]
     impl HoldsRepository for FakeHoldsRepo {
-        async fn holds_list_all(
-            &self,
-            _: i64,
-            _: i64,
-            _: bool,
-        ) -> AppResult<(Vec<HoldDetails>, i64)> {
+        async fn holds_list_all(&self, _: i64, _: i64, _: bool) -> AppResult<(Vec<HoldDetails>, i64)> {
             Ok((vec![], 0))
         }
-        async fn holds_list_for_user_paginated(
-            &self,
-            _: i64,
-            _: i64,
-            _: i64,
-            _: bool,
-        ) -> AppResult<(Vec<HoldDetails>, i64)> {
+        async fn holds_list_for_user_paginated(&self, _: i64, _: i64, _: i64, _: bool) -> AppResult<(Vec<HoldDetails>, i64)> {
             Ok((vec![], 0))
         }
         async fn holds_has_active_for_user_item(&self, _: i64, _: i64) -> AppResult<bool> {
@@ -431,10 +334,7 @@ mod tests {
         async fn holds_set_global_max_active(&self, max_active_holds: i16) -> AppResult<i16> {
             Ok(max_active_holds)
         }
-        async fn holds_list_pick(
-            &self,
-            _: Option<i64>,
-        ) -> AppResult<Vec<crate::models::dto::holds::HoldPickListRow>> {
+        async fn holds_list_pick(&self, _: Option<i64>) -> AppResult<Vec<crate::models::dto::holds::HoldPickListRow>> {
             Ok(vec![])
         }
         async fn holds_get_pick_delay_days(&self) -> AppResult<i16> {
@@ -443,10 +343,7 @@ mod tests {
         async fn holds_set_pick_delay_days(&self, days: i16) -> AppResult<i16> {
             Ok(days)
         }
-        async fn holds_pick_not_found(
-            &self,
-            id: i64,
-        ) -> AppResult<crate::models::dto::holds::PickNotFoundOutcome> {
+        async fn holds_pick_not_found(&self, id: i64) -> AppResult<crate::models::dto::holds::PickNotFoundOutcome> {
             Ok(crate::models::dto::holds::PickNotFoundOutcome {
                 hold: self.holds_get_by_id(id).await?,
                 item_id: 1,
@@ -472,10 +369,7 @@ mod tests {
             duplicate: true,
             ..FakeHoldsRepo::ok()
         }));
-        let err = svc
-            .place_hold(create_hold(false), None, None)
-            .await
-            .unwrap_err();
+        let err = svc.place_hold(create_hold(false), None, None).await.unwrap_err();
         assert!(matches!(err, AppError::Conflict(_)));
     }
 
@@ -486,10 +380,7 @@ mod tests {
             max_active: 2,
             ..FakeHoldsRepo::ok()
         }));
-        let hold = svc
-            .place_hold(create_hold(false), None, None)
-            .await
-            .expect("under cap");
+        let hold = svc.place_hold(create_hold(false), None, None).await.expect("under cap");
         assert_eq!(hold.item_id, Some(42));
     }
 
@@ -500,10 +391,7 @@ mod tests {
             max_active: 2,
             ..FakeHoldsRepo::ok()
         }));
-        let err = svc
-            .place_hold(create_hold(false), None, None)
-            .await
-            .unwrap_err();
+        let err = svc.place_hold(create_hold(false), None, None).await.unwrap_err();
         match err {
             AppError::BusinessRule(msg) => {
                 assert!(msg.contains("Maximum of 2"), "{msg}");
@@ -520,10 +408,7 @@ mod tests {
             max_active: 2,
             ..FakeHoldsRepo::ok()
         }));
-        let err = svc
-            .place_hold(create_hold(false), None, None)
-            .await
-            .unwrap_err();
+        let err = svc.place_hold(create_hold(false), None, None).await.unwrap_err();
         assert!(matches!(err, AppError::BusinessRule(_)));
     }
 
@@ -534,10 +419,7 @@ mod tests {
             max_active: 2,
             ..FakeHoldsRepo::ok()
         }));
-        let hold = svc
-            .place_hold(create_hold(true), None, None)
-            .await
-            .expect("staff force");
+        let hold = svc.place_hold(create_hold(true), None, None).await.expect("staff force");
         assert_eq!(hold.user_id, 1);
     }
 
@@ -562,15 +444,9 @@ mod tests {
         assert!(matches!(err, AppError::Validation(_)));
         let err = svc.set_policy(1001, None).await.unwrap_err();
         assert!(matches!(err, AppError::Validation(_)));
-        let policy = svc
-            .set_policy(DEFAULT_MAX_ACTIVE_HOLDS, None)
-            .await
-            .expect("ok");
+        let policy = svc.set_policy(DEFAULT_MAX_ACTIVE_HOLDS, None).await.expect("ok");
         assert_eq!(policy.max_active_holds, DEFAULT_MAX_ACTIVE_HOLDS);
-        assert_eq!(
-            policy.pick_delay_days,
-            Some(crate::models::hold::DEFAULT_PICK_DELAY_DAYS)
-        );
+        assert_eq!(policy.pick_delay_days, Some(crate::models::hold::DEFAULT_PICK_DELAY_DAYS));
     }
 
     #[tokio::test]

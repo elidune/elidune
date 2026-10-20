@@ -7,25 +7,16 @@ use super::super::Repository;
 use super::LOAN_DETAILS_FIRST_AUTHOR_SQL;
 use crate::models::deposit::{item_deposit_from_value, item_deposit_join, item_deposit_json};
 use crate::{
-    checkout_refusal::{
-        finish_checkout_refusals, push_checkout_refusal, CheckoutProgress, CheckoutRefusal,
-        ToPickPatron,
-    },
+    checkout_refusal::{finish_checkout_refusals, push_checkout_refusal, CheckoutProgress, CheckoutRefusal, ToPickPatron},
     error::{error_code, AppError, AppResult},
     models::{
         biblio::BiblioShort,
         circulation::CirculationStatus,
         item::{ItemShort, WeedingStatus},
-        loan::{
-            CreateLoan, Loan, LoanClosureReason, LoanCreateOutcome, LoanDetails, LoanReturnOutcome,
-            LoanSettingsRenewAt,
-        },
+        loan::{CreateLoan, Loan, LoanClosureReason, LoanCreateOutcome, LoanDetails, LoanReturnOutcome, LoanSettingsRenewAt},
         user::{UserRights, UserShort, UserShortRow},
     },
-    renewal::{
-        renewal_eligibility, LoanRenewalResult, LoanRenewalSnapshot, RenewalContext, RenewalLoan,
-        RenewalUser,
-    },
+    renewal::{renewal_eligibility, LoanRenewalResult, LoanRenewalSnapshot, RenewalContext, RenewalLoan, RenewalUser},
     services::fines::UnpaidThresholdCheck,
 };
 
@@ -43,25 +34,15 @@ impl Repository {
     /// Patron gates already collected by the service live on `progress`. A later
     /// non-forceable item gate wins. `force` never closes an open loan.
     pub async fn loans_create(&self, loan: &CreateLoan) -> AppResult<LoanCreateOutcome> {
-        let mut progress = CheckoutProgress::new(
-            crate::checkout_refusal::normalized_override_reason(loan.override_reason.as_deref()),
-        );
-        self.loans_create_with_prior(loan, &mut progress, &UserRights::default())
-            .await
+        let mut progress = CheckoutProgress::new(crate::checkout_refusal::normalized_override_reason(loan.override_reason.as_deref()));
+        self.loans_create_with_prior(loan, &mut progress, &UserRights::default()).await
     }
 
-    pub async fn loans_create_with_prior(
-        &self,
-        loan: &CreateLoan,
-        progress: &mut CheckoutProgress,
-        caller_rights: &UserRights,
-    ) -> AppResult<LoanCreateOutcome> {
+    pub async fn loans_create_with_prior(&self, loan: &CreateLoan, progress: &mut CheckoutProgress, caller_rights: &UserRights) -> AppResult<LoanCreateOutcome> {
         let now = Utc::now();
 
         if loan.item_id.is_none() && loan.item_identification.is_none() {
-            return Err(AppError::BadRequest(
-                "item_id or item_identification required".to_string(),
-            ));
+            return Err(AppError::BadRequest("item_id or item_identification required".to_string()));
         }
 
         let mut tx = self.pool.begin().await?;
@@ -89,6 +70,7 @@ impl Repository {
                 FROM items it
                 JOIN biblios b ON it.biblio_id = b.id
                 WHERE it.barcode = $1
+                  AND it.archived_at IS NULL
                 FOR UPDATE OF it
                 "#,
             )
@@ -101,35 +83,21 @@ impl Repository {
         let item_id: i64 = item_row.get("id");
         let biblio_id: i64 = item_row.get("biblio_id");
         let borrowable: bool = item_row.get("borrowable");
-        let circulation_status = crate::models::circulation::CirculationStatus::from_db(
-            item_row.get("circulation_status"),
-        );
+        let circulation_status = crate::models::circulation::CirculationStatus::from_db(item_row.get("circulation_status"));
         let weeding_status: crate::models::item::WeedingStatus = item_row.get("weeding_status");
         let media_type: Option<String> = item_row.get("media_type");
 
         if weeding_status.blocks_circulation() {
-            push_checkout_refusal(
-                progress,
-                loan.force,
-                CheckoutRefusal::business(
-                    crate::models::item::WeedingStatus::CHECKOUT_BLOCKED,
-                    caller_rights,
-                ),
-            )?;
+            push_checkout_refusal(progress, loan.force, CheckoutRefusal::business(crate::models::item::WeedingStatus::CHECKOUT_BLOCKED, caller_rights))?;
         }
 
-        let existing: Option<Loan> = sqlx::query_as::<_, Loan>(
-            "SELECT * FROM loans WHERE item_id = $1 AND returned_at IS NULL FOR UPDATE",
-        )
-        .bind(item_id)
-        .fetch_optional(&mut *tx)
-        .await?;
+        let existing: Option<Loan> = sqlx::query_as::<_, Loan>("SELECT * FROM loans WHERE item_id = $1 AND returned_at IS NULL FOR UPDATE")
+            .bind(item_id)
+            .fetch_optional(&mut *tx)
+            .await?;
 
         if let Some(ref existing_loan) = existing {
-            return Err(open_loan_conflict(
-                Some(existing_loan.user_id),
-                loan.user_id,
-            ));
+            return Err(open_loan_conflict(Some(existing_loan.user_id), loan.user_id));
         }
 
         if let Some(transit) = self.transits_active_for_item_tx(&mut tx, item_id).await? {
@@ -138,89 +106,53 @@ impl Repository {
                 push_checkout_refusal(
                     progress,
                     loan.force,
-                    CheckoutRefusal::business(
-                        "Item is in transit to another site and cannot be checked out",
-                        caller_rights,
-                    ),
+                    CheckoutRefusal::business("Item is in transit to another site and cannot be checked out", caller_rights),
                 )?;
             }
         }
 
         match circulation_status {
-            CirculationStatus::Lost
-            | CirculationStatus::ClaimedReturned
-            | CirculationStatus::ToSearch
-            | CirculationStatus::Missing => {
-                push_checkout_refusal(
-                    progress,
-                    loan.force,
-                    CheckoutRefusal::status_action(circulation_status, caller_rights),
-                )?;
+            CirculationStatus::Lost | CirculationStatus::ClaimedReturned | CirculationStatus::ToSearch | CirculationStatus::Missing => {
+                push_checkout_refusal(progress, loan.force, CheckoutRefusal::status_action(circulation_status, caller_rights))?;
             }
             CirculationStatus::Damaged => {
                 push_checkout_refusal(
                     progress,
                     loan.force,
-                    CheckoutRefusal::new(
-                        error_code::ITEM_NOT_LOANABLE,
-                        "Item is marked damaged and is not borrowable",
-                        caller_rights,
-                    ),
+                    CheckoutRefusal::new(error_code::ITEM_NOT_LOANABLE, "Item is marked damaged and is not borrowable", caller_rights),
                 )?;
             }
             CirculationStatus::Available if !borrowable => {
-                push_checkout_refusal(
-                    progress,
-                    loan.force,
-                    CheckoutRefusal::new(
-                        error_code::ITEM_NOT_LOANABLE,
-                        "Item is not borrowable",
-                        caller_rights,
-                    ),
-                )?;
+                push_checkout_refusal(progress, loan.force, CheckoutRefusal::new(error_code::ITEM_NOT_LOANABLE, "Item is not borrowable", caller_rights))?;
             }
             CirculationStatus::Available => {}
         }
 
-        let user_public_type: Option<i64> =
-            sqlx::query_scalar::<_, Option<i64>>("SELECT public_type FROM users WHERE id = $1")
-                .bind(loan.user_id)
-                .fetch_optional(&mut *tx)
-                .await?
-                .flatten();
+        let user_public_type: Option<i64> = sqlx::query_scalar::<_, Option<i64>>("SELECT public_type FROM users WHERE id = $1")
+            .bind(loan.user_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .flatten();
 
-        let (duration_days, nb_max_media, nb_max_total, _, _) = self
-            .resolve_loan_settings_conn(&mut tx, user_public_type, media_type.as_deref())
-            .await?;
+        let (duration_days, nb_max_media, nb_max_total, _, _) = self.resolve_loan_settings_conn(&mut tx, user_public_type, media_type.as_deref()).await?;
 
         if let Some(site_id) = loan.site_id {
-            let exists: bool =
-                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sources WHERE id = $1)")
-                    .bind(site_id)
-                    .fetch_one(&mut *tx)
-                    .await?;
+            let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sites WHERE id = $1)").bind(site_id).fetch_one(&mut *tx).await?;
             if !exists {
                 return Err(AppError::NotFound(format!("Site {site_id} not found")));
             }
         }
         let default_site_id = self.library_default_site_id_conn(&mut tx).await?;
-        let calendar_site =
-            crate::services::calendar::loan_calendar_site(loan.site_id, default_site_id);
-        let expiry_at = self
-            .loans_due_at(&mut tx, now, duration_days, calendar_site)
-            .await?;
-        let due = self
-            .cap_item_due_date_conn(&mut tx, item_id, expiry_at, now, true)
-            .await?;
+        let calendar_site = crate::services::calendar::loan_calendar_site(loan.site_id, default_site_id);
+        let expiry_at = self.loans_due_at(&mut tx, now, duration_days, calendar_site).await?;
+        let due = self.cap_item_due_date_conn(&mut tx, item_id, expiry_at, now, true).await?;
         let expiry_at = due.expiry_at;
         let due_date_capped_by_deposit = due.capped;
 
-        let current_loans_total: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM loans WHERE user_id = $1 AND returned_at IS NULL",
-        )
-        .bind(loan.user_id)
-        .fetch_one(&mut *tx)
-        .await?;
+        let current_loans_total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM loans WHERE user_id = $1 AND returned_at IS NULL")
+            .bind(loan.user_id)
+            .fetch_one(&mut *tx)
+            .await?;
         let current_loans_media: i64 = if let Some(ref mt) = media_type {
             sqlx::query_scalar(
                 r#"
@@ -250,27 +182,14 @@ impl Repository {
                         current_loans_total, nb_max_total, current_loans_media, nb_max_media
                     ),
                 ),
-                (true, false) => (
-                    error_code::MAX_LOANS,
-                    format!(
-                        "Maximum total loans reached ({}/{})",
-                        current_loans_total, nb_max_total
-                    ),
-                ),
+                (true, false) => (error_code::MAX_LOANS, format!("Maximum total loans reached ({}/{})", current_loans_total, nb_max_total)),
                 (false, true) => (
                     error_code::MAX_MEDIA_LOANS,
-                    format!(
-                        "Maximum loans for this document type reached ({}/{})",
-                        current_loans_media, nb_max_media
-                    ),
+                    format!("Maximum loans for this document type reached ({}/{})", current_loans_media, nb_max_media),
                 ),
                 (false, false) => unreachable!(),
             };
-            push_checkout_refusal(
-                progress,
-                loan.force,
-                CheckoutRefusal::new(code, msg, caller_rights),
-            )?;
+            push_checkout_refusal(progress, loan.force, CheckoutRefusal::new(code, msg, caller_rights))?;
         }
 
         // Only a hold assigned to this copy (`ready`, `to_pick`, or a pinned `pending`)
@@ -283,10 +202,7 @@ impl Repository {
         // available copies (this copy included). The hold named in the refusal is
         // the oldest pending unassigned hold in queue order. Those rows are locked
         // in the same transaction as the loan insert.
-        if let Some((hold_id, user_id, status, card_number, initials)) = self
-            .holds_assigned_hold_blocks_lending_tx(&mut tx, item_id)
-            .await?
-        {
+        if let Some((hold_id, user_id, status, card_number, initials)) = self.holds_assigned_hold_blocks_lending_tx(&mut tx, item_id).await? {
             if user_id != loan.user_id {
                 let patron = ToPickPatron {
                     hold_id,
@@ -309,10 +225,7 @@ impl Repository {
             }
         }
 
-        if let Some((hold_id, user_id, card_number, initials)) = self
-            .holds_pending_title_hold_blocks_checkout_tx(&mut tx, biblio_id, item_id, loan.user_id)
-            .await?
-        {
+        if let Some((hold_id, user_id, card_number, initials)) = self.holds_pending_title_hold_blocks_checkout_tx(&mut tx, biblio_id, item_id, loan.user_id).await? {
             push_checkout_refusal(
                 progress,
                 loan.force,
@@ -336,9 +249,7 @@ impl Repository {
         // Savepoint so a unique-index conflict can be re-read on this connection.
         // PostgreSQL aborts the statement; without the savepoint the transaction
         // cannot look up which borrower holds the copy.
-        sqlx::query("SAVEPOINT loan_insert")
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query("SAVEPOINT loan_insert").execute(&mut *tx).await?;
         let loan_id = match sqlx::query_scalar::<_, i64>(
             r#"
             INSERT INTO loans (user_id, item_id, date, expiry_at, nb_renews, site_id)
@@ -355,21 +266,15 @@ impl Repository {
         .await
         {
             Ok(id) => {
-                sqlx::query("RELEASE SAVEPOINT loan_insert")
-                    .execute(&mut *tx)
-                    .await?;
+                sqlx::query("RELEASE SAVEPOINT loan_insert").execute(&mut *tx).await?;
                 id
             }
             Err(e) if is_active_loan_unique_violation(&e) => {
-                sqlx::query("ROLLBACK TO SAVEPOINT loan_insert")
-                    .execute(&mut *tx)
+                sqlx::query("ROLLBACK TO SAVEPOINT loan_insert").execute(&mut *tx).await?;
+                let existing_user_id: Option<i64> = sqlx::query_scalar("SELECT user_id FROM loans WHERE item_id = $1 AND returned_at IS NULL")
+                    .bind(item_id)
+                    .fetch_optional(&mut *tx)
                     .await?;
-                let existing_user_id: Option<i64> = sqlx::query_scalar(
-                    "SELECT user_id FROM loans WHERE item_id = $1 AND returned_at IS NULL",
-                )
-                .bind(item_id)
-                .fetch_optional(&mut *tx)
-                .await?;
                 return Err(open_loan_conflict(existing_user_id, loan.user_id));
             }
             Err(e) => return Err(e.into()),
@@ -379,12 +284,10 @@ impl Repository {
         let fulfilled_hold_id = if preserved_hold_id.is_some() {
             None
         } else if loan.force {
-            self.holds_cancel_active_for_item_tx(&mut tx, item_id)
-                .await?;
+            self.holds_cancel_active_for_item_tx(&mut tx, item_id).await?;
             None
         } else {
-            self.holds_fulfill_active_for_user_item_tx(&mut tx, loan.user_id, item_id)
-                .await?
+            self.holds_fulfill_active_for_user_item_tx(&mut tx, loan.user_id, item_id).await?
         };
 
         tx.commit().await?;
@@ -407,19 +310,14 @@ impl Repository {
         returned_at: DateTime<Utc>,
         closure_reason: LoanClosureReason,
     ) -> AppResult<()> {
-        let user_row = sqlx::query(
-            "SELECT addr_city, account_type, public_type, birthdate FROM users WHERE id = $1",
-        )
-        .bind(loan.user_id)
-        .fetch_optional(&mut **tx)
-        .await?;
+        let user_row = sqlx::query("SELECT addr_city, account_type, public_type, birthdate FROM users WHERE id = $1")
+            .bind(loan.user_id)
+            .fetch_optional(&mut **tx)
+            .await?;
 
         let account_type: Option<String> = user_row.as_ref().and_then(|r| r.get("account_type"));
-        let birthdate: Option<chrono::NaiveDate> =
-            user_row.as_ref().and_then(|r| r.get("birthdate"));
-        let age_band = birthdate.and_then(|b| {
-            crate::models::user::borrower_age_band(b, loan.date.date_naive()).map(str::to_string)
-        });
+        let birthdate: Option<chrono::NaiveDate> = user_row.as_ref().and_then(|r| r.get("birthdate"));
+        let age_band = birthdate.and_then(|b| crate::models::user::borrower_age_band(b, loan.date.date_naive()).map(str::to_string));
         let loan_year = i16::try_from(loan.date.year()).ok();
 
         sqlx::query(
@@ -440,16 +338,8 @@ impl Repository {
         .bind(loan.expiry_at)
         .bind(returned_at)
         .bind(&loan.notes)
-        .bind(
-            user_row
-                .as_ref()
-                .and_then(|r| r.get::<Option<i64>, _>("public_type")),
-        )
-        .bind(
-            user_row
-                .as_ref()
-                .and_then(|r| r.get::<Option<String>, _>("addr_city")),
-        )
+        .bind(user_row.as_ref().and_then(|r| r.get::<Option<i64>, _>("public_type")))
+        .bind(user_row.as_ref().and_then(|r| r.get::<Option<String>, _>("addr_city")))
         .bind(account_type)
         .bind(age_band)
         .bind(loan_year)
@@ -458,10 +348,7 @@ impl Repository {
         .execute(&mut **tx)
         .await?;
 
-        sqlx::query("DELETE FROM loans WHERE id = $1")
-            .bind(loan.id)
-            .execute(&mut **tx)
-            .await?;
+        sqlx::query("DELETE FROM loans WHERE id = $1").bind(loan.id).execute(&mut **tx).await?;
 
         Ok(())
     }
@@ -472,12 +359,7 @@ impl Repository {
     /// archive for this copy. If that archive was not labeled `lost` (older
     /// data), it is corrected: the copy is lost now, and a lost copy cannot
     /// have been checked out again.
-    pub(crate) async fn loans_mark_lost_copy_found_tx(
-        &self,
-        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        item_id: i64,
-        found_at: DateTime<Utc>,
-    ) -> AppResult<()> {
+    pub(crate) async fn loans_mark_lost_copy_found_tx(&self, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, item_id: i64, found_at: DateTime<Utc>) -> AppResult<()> {
         sqlx::query(
             r#"
             UPDATE loans_archives
@@ -515,15 +397,13 @@ impl Repository {
 
         let mut tx = self.pool.begin().await?;
 
-        self.loans_archive_and_delete_tx(&mut tx, &loan, now, LoanClosureReason::Returned)
-            .await?;
+        self.loans_archive_and_delete_tx(&mut tx, &loan, now, LoanClosureReason::Returned).await?;
 
-        let status_before: Option<i16> =
-            sqlx::query_scalar("SELECT circulation_status FROM items WHERE id = $1")
-                .bind(loan.item_id)
-                .fetch_optional(&mut *tx)
-                .await?
-                .flatten();
+        let status_before: Option<i16> = sqlx::query_scalar("SELECT circulation_status FROM items WHERE id = $1")
+            .bind(loan.item_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .flatten();
         let was_lost = CirculationStatus::from_db(status_before) == CirculationStatus::Lost;
 
         // A physical return is an inventory check: clear claims-returned and
@@ -576,14 +456,10 @@ impl Repository {
         let readied_hold = if was_lost {
             None
         } else {
-            self.holds_notify_next_tx(&mut tx, loan.item_id, self.hold_ready_expiry_days())
-                .await?
+            self.holds_notify_next_tx(&mut tx, loan.item_id, self.hold_ready_expiry_days()).await?
         };
         let lost = if was_lost {
-            Some(
-                self.fines_lost_return_notice_tx(&mut tx, loan.id, loan.item_id)
-                    .await?,
-            )
+            Some(self.fines_lost_return_notice_tx(&mut tx, loan.id, loan.item_id).await?)
         } else {
             None
         };
@@ -605,12 +481,12 @@ impl Repository {
                    it.barcode as item_identification,
                    it.id as item_copy_id, it.barcode as item_barcode,
                    it.call_number as item_call_number, it.borrowable as item_borrowable,
-                   so.name as item_source_name,
+                   so.name as item_site_name,
                    {author},
                    {deposit_json} AS deposit
             FROM biblios b
             JOIN items it ON it.biblio_id = b.id
-            LEFT JOIN sources so ON it.source_id = so.id
+            LEFT JOIN sites so ON it.site_id = so.id
             {deposit_join}
             WHERE it.id = $1
             "#,
@@ -639,12 +515,7 @@ impl Repository {
 
         let borrowable: bool = biblio_row.get("item_borrowable");
         let weeding_status = crate::models::item::WeedingStatus::OnShelf;
-        let (availability, can_hold_item) = crate::models::item::ItemAvailability::local_pair(
-            true,
-            borrowable,
-            None,
-            weeding_status,
-        );
+        let (availability, can_hold_item) = crate::models::item::ItemAvailability::local_pair(true, borrowable, None, weeding_status);
         let item_short = ItemShort {
             id: biblio_row.get("item_copy_id"),
             barcode: biblio_row.get("item_barcode"),
@@ -652,7 +523,7 @@ impl Repository {
             borrowable,
             circulation_status: None,
             weeding_status,
-            source_name: biblio_row.get("item_source_name"),
+            site_name: biblio_row.get("item_site_name"),
             borrowed: true,
             availability,
             can_hold_item,
@@ -660,8 +531,7 @@ impl Repository {
             hold_user_barcode: None,
             hold_user_firstname: None,
             hold_user_lastname: None,
-            deposit: item_deposit_from_value(biblio_row.try_get("deposit")?)
-                .map_err(|err| AppError::Internal(format!("deposit json: {err}")))?,
+            deposit: item_deposit_from_value(biblio_row.try_get("deposit")?).map_err(|err| AppError::Internal(format!("deposit json: {err}")))?,
         };
 
         let details = LoanDetails {
@@ -685,9 +555,7 @@ impl Repository {
                 is_valid: Some(true),
                 archived_at: None,
                 weeding_status: crate::models::item::WeedingStatus::OnShelf,
-                author: biblio_row
-                    .get::<Option<serde_json::Value>, _>("author")
-                    .and_then(|v| serde_json::from_value(v).ok()),
+                author: biblio_row.get::<Option<serde_json::Value>, _>("author").and_then(|v| serde_json::from_value(v).ok()),
                 items: vec![item_short],
             },
             user,
@@ -706,10 +574,7 @@ impl Repository {
 
     /// Loan already archived when the copy was declared lost. Returns the desk
     /// alert when that copy is still lost. `None` when this id is not that case.
-    pub async fn loans_lost_notice_for_closed_loan(
-        &self,
-        loan_id: i64,
-    ) -> AppResult<Option<crate::models::dto::circulation::ClosedLostLoan>> {
+    pub async fn loans_lost_notice_for_closed_loan(&self, loan_id: i64) -> AppResult<Option<crate::models::dto::circulation::ClosedLostLoan>> {
         let row = sqlx::query(
             r#"
             SELECT i.id AS item_id
@@ -731,20 +596,12 @@ impl Repository {
             return Ok(None);
         };
         let item_id: i64 = row.get("item_id");
-        let notice = self
-            .fines_lost_return_notice(Some(loan_id), item_id)
-            .await?;
-        Ok(Some(crate::models::dto::circulation::ClosedLostLoan {
-            item_id,
-            notice,
-        }))
+        let notice = self.fines_lost_return_notice(Some(loan_id), item_id).await?;
+        Ok(Some(crate::models::dto::circulation::ClosedLostLoan { item_id, notice }))
     }
 
     /// Barcode of a lost copy that is not on an active loan.
-    pub async fn loans_lost_scan_by_barcode(
-        &self,
-        barcode: &str,
-    ) -> AppResult<Option<crate::models::dto::circulation::ClosedLostLoan>> {
+    pub async fn loans_lost_scan_by_barcode(&self, barcode: &str) -> AppResult<Option<crate::models::dto::circulation::ClosedLostLoan>> {
         let item_id: Option<i64> = sqlx::query_scalar(
             r#"
             SELECT id FROM items
@@ -763,10 +620,7 @@ impl Repository {
             return Ok(None);
         };
         let notice = self.fines_lost_return_notice(None, item_id).await?;
-        Ok(Some(crate::models::dto::circulation::ClosedLostLoan {
-            item_id,
-            notice,
-        }))
+        Ok(Some(crate::models::dto::circulation::ClosedLostLoan { item_id, notice }))
     }
 
     /// Loan-level facts plus the media settings [`crate::renewal::renewal_eligibility`] needs.
@@ -803,18 +657,13 @@ impl Repository {
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Loan with id {loan_id} not found")))?;
 
-        let public_type: Option<i64> =
-            sqlx::query_scalar("SELECT public_type FROM users WHERE id = $1")
-                .bind(row.user_id)
-                .fetch_optional(&self.pool)
-                .await?
-                .flatten();
-        let (_, _, _, max_renewals, _) = self
-            .resolve_loan_settings(public_type, row.media_type.as_deref())
-            .await?;
-        let renew_window_days = self
-            .resolve_renew_window_days(row.media_type.as_deref())
-            .await?;
+        let public_type: Option<i64> = sqlx::query_scalar("SELECT public_type FROM users WHERE id = $1")
+            .bind(row.user_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .flatten();
+        let (_, _, _, max_renewals, _) = self.resolve_loan_settings(public_type, row.media_type.as_deref()).await?;
+        let renew_window_days = self.resolve_renew_window_days(row.media_type.as_deref()).await?;
 
         Ok(LoanRenewalSnapshot {
             user_id: row.user_id,
@@ -823,8 +672,7 @@ impl Repository {
                 renewal_count: row.renewal_count,
                 due_at: row.due_at,
                 withdrawn: WeedingStatus::from_db_str(&row.weeding_status).blocks_circulation(),
-                claimed_returned: CirculationStatus::from_db(row.circulation_status)
-                    == CirculationStatus::ClaimedReturned,
+                claimed_returned: CirculationStatus::from_db(row.circulation_status) == CirculationStatus::ClaimedReturned,
                 hold_waiting: row.hold_waiting,
             },
             max_renewals,
@@ -843,11 +691,7 @@ impl Repository {
     /// A returned loan is refused before that function.
     /// The due-date calendar slide stays after eligibility succeeds.
     /// `lifted` lists the refusals this override actually skipped.
-    pub async fn loans_renew(
-        &self,
-        loan_id: i64,
-        renewal_override: crate::renewal::RenewalOverride,
-    ) -> AppResult<LoanRenewalResult> {
+    pub async fn loans_renew(&self, loan_id: i64, renewal_override: crate::renewal::RenewalOverride) -> AppResult<LoanRenewalResult> {
         let now = Utc::now();
         let mut tx = self.pool.begin().await?;
 
@@ -883,47 +727,33 @@ impl Repository {
             .ok_or_else(|| AppError::NotFound(format!("Loan with id {loan_id} not found")))?;
 
         if loan.returned_at.is_some() {
-            return Err(AppError::BusinessRule(
-                "Cannot renew a returned loan".to_string(),
-            ));
+            return Err(AppError::BusinessRule("Cannot renew a returned loan".to_string()));
         }
 
         // Account, fines, settings, and the due-date calendar stay on this
         // transaction. A second pool connection here deadlocks under load the
         // same way checkout used to.
-        let account = sqlx::query(
-            "SELECT status, archived_at, account_type, public_type, card_lost, expiry_at FROM users WHERE id = $1",
-        )
-        .bind(loan.user_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("User with id {} not found", loan.user_id)))?;
+        let account = sqlx::query("SELECT status, archived_at, account_type, public_type, card_lost, expiry_at FROM users WHERE id = $1")
+            .bind(loan.user_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("User with id {} not found", loan.user_id)))?;
         let status: Option<crate::models::user::UserStatus> = account.get("status");
         let archived_at: Option<DateTime<Utc>> = account.get("archived_at");
         let account_type: String = account.get("account_type");
         let public_type: Option<i64> = account.get("public_type");
-        let can_borrow = status == Some(crate::models::user::UserStatus::Active)
-            && archived_at.is_none()
-            && !account_type.eq_ignore_ascii_case("guest");
+        let can_borrow = status == Some(crate::models::user::UserStatus::Active) && archived_at.is_none() && !account_type.eq_ignore_ascii_case("guest");
         let card_lost: bool = account.get("card_lost");
         let subscription_expiry: Option<DateTime<Utc>> = account.get("expiry_at");
 
         let unpaid = self.fines_total_unpaid_conn(&mut tx, loan.user_id).await?;
-        let threshold = self
-            .fines_get_unpaid_threshold_conn(&mut tx, public_type)
-            .await?;
+        let threshold = self.fines_get_unpaid_threshold_conn(&mut tx, public_type).await?;
         let check = UnpaidThresholdCheck::new(unpaid, threshold, self.accrue_fines_enabled());
         let fines_over_threshold = check.blocks_circulation();
         let fines_message = check.desk_block_message();
-        let hold_waiting = self
-            .holds_waiting_hold_blocks_renewal_tx(&mut tx, loan.item_id, loan.user_id)
-            .await?;
-        let (duration_days, _nb_max_media, _nb_max_total, max_renews, renew_at_policy) = self
-            .resolve_loan_settings_conn(&mut tx, public_type, media_type.as_deref())
-            .await?;
-        let renew_window_days = self
-            .resolve_renew_window_days_conn(&mut tx, media_type.as_deref())
-            .await?;
+        let hold_waiting = self.holds_waiting_hold_blocks_renewal_tx(&mut tx, loan.item_id, loan.user_id).await?;
+        let (duration_days, _nb_max_media, _nb_max_total, max_renews, renew_at_policy) = self.resolve_loan_settings_conn(&mut tx, public_type, media_type.as_deref()).await?;
+        let renew_window_days = self.resolve_renew_window_days_conn(&mut tx, media_type.as_deref()).await?;
         let renewal_loan = RenewalLoan {
             renewal_count: loan.nb_renews.unwrap_or(0),
             due_at: loan.expiry_at.unwrap_or(now),
@@ -959,14 +789,9 @@ impl Repository {
             LoanSettingsRenewAt::AtDueDate => current_expiry,
         };
         let default_site_id = self.library_default_site_id_conn(&mut tx).await?;
-        let calendar_site =
-            crate::services::calendar::loan_calendar_site(loan.site_id, default_site_id);
-        let new_expiry_date = self
-            .loans_due_at(&mut tx, anchor, duration_days, calendar_site)
-            .await?;
-        let due = self
-            .cap_item_due_date_conn(&mut tx, item_id, new_expiry_date, now, false)
-            .await?;
+        let calendar_site = crate::services::calendar::loan_calendar_site(loan.site_id, default_site_id);
+        let new_expiry_date = self.loans_due_at(&mut tx, anchor, duration_days, calendar_site).await?;
+        let due = self.cap_item_due_date_conn(&mut tx, item_id, new_expiry_date, now, false).await?;
         let new_expiry_date = due.expiry_at;
         if new_expiry_date <= current_expiry {
             if due.is_deposit {
@@ -976,9 +801,7 @@ impl Repository {
                     "Renewal would not extend the due date past the deposit return date",
                 ));
             }
-            return Err(AppError::BusinessRule(
-                "Renewal would not move the due date, so it was not counted".to_string(),
-            ));
+            return Err(AppError::BusinessRule("Renewal would not move the due date, so it was not counted".to_string()));
         }
         let new_renews = current_renews + 1;
 
@@ -1012,21 +835,14 @@ fn open_loan_conflict(existing_user_id: Option<i64>, requester_id: i64) -> AppEr
             "This item is already on loan to this borrower. Renew the existing loan instead of creating a new one.",
         )
     } else {
-        AppError::coded(
-            409,
-            error_code::ITEM_ON_LOAN_TO_OTHER_BORROWER,
-            "This item is on loan to another borrower.",
-        )
+        AppError::coded(409, error_code::ITEM_ON_LOAN_TO_OTHER_BORROWER, "This item is on loan to another borrower.")
     }
 }
 
 /// `idx_loans_one_active_per_item` — last line of defense if two inserts race.
 fn is_active_loan_unique_violation(err: &sqlx::Error) -> bool {
     match err {
-        sqlx::Error::Database(db) => {
-            db.code().as_deref() == Some("23505")
-                && db.constraint() == Some("idx_loans_one_active_per_item")
-        }
+        sqlx::Error::Database(db) => db.code().as_deref() == Some("23505") && db.constraint() == Some("idx_loans_one_active_per_item"),
         _ => false,
     }
 }

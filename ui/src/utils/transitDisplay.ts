@@ -1,24 +1,24 @@
-import type { HoldListItem, ItemTransit, Source, TransitPatron, TransitStatus } from '@/types';
+import type { HoldListItem, ItemTransit, Site, TransitPatron, TransitStatus } from '@/types';
 
 export function isActiveTransitStatus(status: TransitStatus): boolean {
   return status === 'requested' || status === 'inTransit';
 }
 
-export function sourceLabel(sources: Source[] | undefined, id?: string | null): string | null {
+export function sourceLabel(sites: Site[] | undefined, id?: string | null): string | null {
   if (!id) return null;
-  const match = sources?.find((s) => s.id === id);
+  const match = sites?.find((s) => s.id === id);
   const name = match?.name?.trim();
   return name || id;
 }
 
-export function defaultPickupSiteId(sources: Source[]): string {
-  if (sources.length === 0) return '';
-  return sources.find((s) => s.default)?.id ?? sources[0].id;
+export function defaultPickupSiteId(sites: Site[]): string {
+  if (sites.length === 0) return '';
+  return sites.find((s) => s.default)?.id ?? sites[0].id;
 }
 
 /** Multi-site desks must choose a pickup site; a single site is pre-selected. */
-export function pickupSiteRequired(sources: Source[]): boolean {
-  return sources.length >= 2;
+export function pickupSiteRequired(sites: Site[]): boolean {
+  return sites.length >= 2;
 }
 
 export function indexTransitsByHoldId(transits: ItemTransit[]): Map<string, ItemTransit> {
@@ -35,13 +35,13 @@ export function indexTransitsByHoldId(transits: ItemTransit[]): Map<string, Item
 export function canStartHoldTransit(
   hold: HoldListItem,
   active?: ItemTransit | null,
-  copySourceId?: string | null,
+  copySiteId?: string | null,
 ): boolean {
   if (hold.status !== 'pending') return false;
   if (!hold.pickupSiteId) return false;
   if (active && isActiveTransitStatus(active.status)) return false;
-  const sourceId = clean(copySourceId) ?? clean(active?.sourceId);
-  if (copyAlreadyAtPickupSite(hold.pickupSiteId, sourceId)) return false;
+  const siteId = clean(copySiteId) ?? clean(active?.siteId);
+  if (copyAlreadyAtPickupSite(hold.pickupSiteId, siteId)) return false;
   return true;
 }
 
@@ -74,15 +74,15 @@ export function sameSiteSetAsideBarcode(
   return clean(match?.barcode);
 }
 
-/** True when the copy's `sourceId` is the hold pickup site. Missing ids do not match. */
+/** True when the copy's `siteId` is the hold pickup site. Missing ids do not match. */
 export function copyAlreadyAtPickupSite(
   pickupSiteId?: string | null,
-  copySourceId?: string | null,
+  copySiteId?: string | null,
 ): boolean {
   const pickup = clean(pickupSiteId);
-  const source = clean(copySourceId);
-  if (!pickup || !source) return false;
-  return pickup === source;
+  const site = clean(copySiteId);
+  if (!pickup || !site) return false;
+  return pickup === site;
 }
 
 /** Barcode on the transit. No item-id fallback. Missing on older servers. */

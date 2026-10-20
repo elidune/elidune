@@ -60,8 +60,8 @@ export default function StartTransitDialog({
         selectedCopy,
       )
     : null;
-  const selectedSourceId = copies.find((c) => c.id === selectedCopy)?.sourceId ?? null;
-  const sameSite = hold ? copyAlreadyAtPickupSite(hold.pickupSiteId, selectedSourceId) : false;
+  const selectedSiteId = copies.find((c) => c.id === selectedCopy)?.siteId ?? null;
+  const sameSite = hold ? copyAlreadyAtPickupSite(hold.pickupSiteId, selectedSiteId) : false;
   const sitePending = !!selectedCopy && (copiesQuery.isLoading || copiesQuery.isFetching);
   const needsCopy = !pinned;
   const canSubmit = !!hold && !!selectedCopy && !sameSite && !sitePending && !isLoading;
@@ -115,7 +115,7 @@ export default function StartTransitDialog({
                 {copies.map((it) => (
                   <option key={it.id ?? it.barcode ?? it.callNumber ?? ''} value={it.id ?? ''} disabled={it.borrowed === true || it.id == null}>
                     {it.barcode || it.callNumber || it.id}
-                    {it.sourceName ? ` — ${it.sourceName}` : ''}
+                    {it.siteName ? ` — ${it.siteName}` : ''}
                     {it.borrowed ? ` (${t('holds.hintBorrowed')})` : ''}
                   </option>
                 ))}

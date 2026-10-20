@@ -139,10 +139,10 @@ pub mod event {
     pub const LOAN_RENEWAL_FORCED: &str = "loan.renewal_forced";
 
     // Sources
-    pub const SOURCE_CREATED: &str = "source.created";
-    pub const SOURCE_UPDATED: &str = "source.updated";
-    pub const SOURCE_ARCHIVED: &str = "source.archived";
-    pub const SOURCE_MERGED: &str = "source.merged";
+    pub const SITE_CREATED: &str = "site.created";
+    pub const SITE_UPDATED: &str = "site.updated";
+    pub const SITE_ARCHIVED: &str = "site.archived";
+    pub const SITE_MERGED: &str = "site.merged";
 
     // Equipment
     pub const EQUIPMENT_CREATED: &str = "equipment.created";
@@ -274,6 +274,8 @@ pub mod event {
     pub const DEPOSIT_BATCH_RECLASSIFIED: &str = "deposit_batch_reclassified";
     /// Loss or damage of a deposit copy. Payload includes `lenderId` so the lender can be notified.
     pub const DEPOSIT_ITEM_LOST: &str = "deposit_item_lost";
+    /// Deposit MARC import re-attached a returned archived copy to a new batch.
+    pub const DEPOSIT_ITEM_REACTIVATED: &str = "deposit_item_reactivated";
     /// Staff recorded that the lender was told about one lost or damaged deposit copy.
     ///
     /// Payload includes `lenderId` and `itemId`. A second notice for the same copy
@@ -436,15 +438,8 @@ impl AuditService {
 
     /// Export audit log entries for a date range (unbounded, for CSV/JSON export).
     #[tracing::instrument(skip(self), err)]
-    pub async fn export(
-        &self,
-        from_date: Option<DateTime<Utc>>,
-        to_date: Option<DateTime<Utc>>,
-        event_type: Option<&str>,
-    ) -> AppResult<Vec<AuditLogEntry>> {
-        self.repository
-            .audit_export(from_date, to_date, event_type)
-            .await
+    pub async fn export(&self, from_date: Option<DateTime<Utc>>, to_date: Option<DateTime<Utc>>, event_type: Option<&str>) -> AppResult<Vec<AuditLogEntry>> {
+        self.repository.audit_export(from_date, to_date, event_type).await
     }
 
     /// Delete audit log entries older than `retention_days` days.
@@ -459,22 +454,13 @@ fn audit_payload<P: Serialize>(event_type: &str, payload: Option<P>) -> Option<V
     payload.and_then(|p| match serde_json::to_value(p) {
         Ok(v) => Some(mask_sensitive_fields(v)),
         Err(e) => {
-            tracing::warn!(
-                "audit log payload serialization failed for '{}': {}",
-                event_type,
-                e
-            );
+            tracing::warn!("audit log payload serialization failed for '{}': {}", event_type, e);
             None
         }
     })
 }
 
-fn trace_audit(
-    event_type: &str,
-    outcome: &str,
-    http_status: Option<i16>,
-    error_code: Option<&str>,
-) {
+fn trace_audit(event_type: &str, outcome: &str, http_status: Option<i16>, error_code: Option<&str>) {
     tracing::info!(
         target: "audit",
         event_type = %event_type,
@@ -556,10 +542,7 @@ mod tests {
         assert_eq!(event::HOLD_READY, "hold.ready");
         assert_eq!(event::TRANSIT_SHIPPED, "transit.shipped");
         assert_eq!(event::TRANSIT_RECEIVED, "transit.received");
-        assert_eq!(
-            event::SYSTEM_HOLD_EXPIRY_BATCH_COMPLETED,
-            "system.hold_expiry_batch_completed"
-        );
+        assert_eq!(event::SYSTEM_HOLD_EXPIRY_BATCH_COMPLETED, "system.hold_expiry_batch_completed");
         assert_eq!(event::IMPORT_MARC_UPLOAD, "import.marc_upload");
         assert_eq!(event::ADMIN_REINDEX_SEARCH, "admin.reindex_search");
         assert_eq!(event::SEARCH_INDEX_SYNC_FAILED, "search.index_sync_failed");
@@ -568,31 +551,13 @@ mod tests {
         assert_eq!(event::PURCHASE_ORDER_RECEIVED, "purchase_order.received");
         assert_eq!(event::VENDOR_CREATED, "vendor.created");
         assert_eq!(event::FINE_RULE_UPDATED, "fine_rule.updated");
-        assert_eq!(
-            event::LOAN_FINE_THRESHOLD_OVERRIDDEN,
-            "loan.fine_threshold_overridden"
-        );
-        assert_eq!(
-            event::LOAN_SUBSCRIPTION_EXPIRED_OVERRIDDEN,
-            "loan.subscription_expired_overridden"
-        );
+        assert_eq!(event::LOAN_FINE_THRESHOLD_OVERRIDDEN, "loan.fine_threshold_overridden");
+        assert_eq!(event::LOAN_SUBSCRIPTION_EXPIRED_OVERRIDDEN, "loan.subscription_expired_overridden");
         assert_eq!(event::LOAN_RENEWAL_FORCED, "loan.renewal_forced");
-        assert_eq!(
-            event::LOAN_HELD_FOR_OTHER_OVERRIDDEN,
-            "loan.held_for_other_overridden"
-        );
+        assert_eq!(event::LOAN_HELD_FOR_OTHER_OVERRIDDEN, "loan.held_for_other_overridden");
         assert_eq!(event::FINE_ACCRUED, "fine.accrued");
-        assert_eq!(
-            event::SYSTEM_FINES_ACCRUAL_BATCH_COMPLETED,
-            "system.fines_accrual_batch_completed"
-        );
-        assert_eq!(
-            event::SYSTEM_PRIVACY_AUTO_ERASURE,
-            "system.privacy_auto_erasure"
-        );
-        assert_eq!(
-            event::DEPOSIT_BATCH_RECLASSIFIED,
-            "deposit_batch_reclassified"
-        );
+        assert_eq!(event::SYSTEM_FINES_ACCRUAL_BATCH_COMPLETED, "system.fines_accrual_batch_completed");
+        assert_eq!(event::SYSTEM_PRIVACY_AUTO_ERASURE, "system.privacy_auto_erasure");
+        assert_eq!(event::DEPOSIT_BATCH_RECLASSIFIED, "deposit_batch_reclassified");
     }
 }

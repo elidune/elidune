@@ -21,16 +21,11 @@ pub fn validate_union_branches(entity: &str, union_with: &[String]) -> Result<()
     names.extend(union_with.iter().cloned());
     let set: HashSet<&str> = names.iter().map(|s| s.as_str()).collect();
     if set.len() != names.len() {
-        return Err(AppError::Validation(
-            "unionWith must not duplicate entity names".into(),
-        ));
+        return Err(AppError::Validation("unionWith must not duplicate entity names".into()));
     }
     let allowed: HashSet<&str> = LOANS_UNION_GROUP.iter().copied().collect();
     if set != allowed {
-        return Err(AppError::Validation(
-            "unionWith is only supported for combining loans and loans_archives (exactly both)"
-                .into(),
-        ));
+        return Err(AppError::Validation("unionWith is only supported for combining loans and loans_archives (exactly both)".into()));
     }
     Ok(())
 }
@@ -127,12 +122,7 @@ fn c(sql_template: &'static str, data_type: &'static str, label: &'static str) -
     }
 }
 
-fn r(
-    target_entity: &'static str,
-    from_column: &'static str,
-    to_column: &'static str,
-    label: &'static str,
-) -> RelationDef {
+fn r(target_entity: &'static str, from_column: &'static str, to_column: &'static str, label: &'static str) -> RelationDef {
     RelationDef {
         target_entity,
         from_column,
@@ -156,19 +146,9 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
                 ("item_id", f("item_id", "bigint", "Item id")),
                 ("date", f("date", "timestamptz", "Loan date")),
                 ("expiry_at", f("expiry_at", "timestamptz", "Due date")),
-                (
-                    "returned_at",
-                    f("returned_at", "timestamptz", "Return date"),
-                ),
+                ("returned_at", f("returned_at", "timestamptz", "Return date")),
                 ("nb_renews", f("nb_renews", "integer", "Renewals")),
-                (
-                    "site_id",
-                    f(
-                        "site_id",
-                        "bigint",
-                        "Desk site where the loan was made. Null on loans recorded before the column existed",
-                    ),
-                ),
+                ("site_id", f("site_id", "bigint", "Desk site where the loan was made. Null on loans recorded before the column existed")),
                 (
                     "effective_site_id",
                     c(
@@ -177,22 +157,12 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
                         "Loan site, or the library default site when the loan has no recorded site",
                     ),
                 ),
-                (
-                    "union_source",
-                    c(
-                        "{alias}.__union_source",
-                        "text",
-                        "Union branch (loans | loans_archives); only when using unionWith",
-                    ),
-                ),
+                ("union_source", c("{alias}.__union_source", "text", "Union branch (loans | loans_archives); only when using unionWith")),
             ]),
             relations: HashMap::from([
                 ("users", r("users", "user_id", "id", "Borrower")),
                 ("items", r("items", "item_id", "id", "Item copy")),
-                (
-                    "sources",
-                    r("sources", "site_id", "id", "Loan site"),
-                ),
+                ("sources", r("sources", "site_id", "id", "Loan site")),
             ]),
         },
     );
@@ -264,15 +234,9 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
                 ("barcode", f("barcode", "text", "Barcode")),
                 ("call_number", f("call_number", "text", "Call number")),
                 ("created_at", f("created_at", "timestamptz", "Created at")),
-                (
-                    "archived_at",
-                    f("archived_at", "timestamptz", "Archived at"),
-                ),
+                ("archived_at", f("archived_at", "timestamptz", "Archived at")),
             ]),
-            relations: HashMap::from([
-                ("biblios", r("biblios", "biblio_id", "id", "Biblio")),
-                ("sources", r("sources", "source_id", "id", "Catalog source")),
-            ]),
+            relations: HashMap::from([("biblios", r("biblios", "biblio_id", "id", "Biblio")), ("sources", r("sources", "source_id", "id", "Catalog source"))]),
         },
     );
 
@@ -281,10 +245,7 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
         EntityDef {
             table: "sources",
             label: "Catalog sources",
-            fields: HashMap::from([
-                ("id", f("id", "bigint", "Source id")),
-                ("name", f("name", "text", "Source name")),
-            ]),
+            fields: HashMap::from([("id", f("id", "bigint", "Source id")), ("name", f("name", "text", "Source name"))]),
             relations: HashMap::new(),
         },
     );
@@ -300,10 +261,7 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
                 ("media_type", f("media_type", "text", "Media type")),
                 ("audience_type", f("audience_type", "text", "Audience")),
                 ("lang", f("lang", "text", "Language")),
-                (
-                    "publication_date",
-                    f("publication_date", "text", "Publication date"),
-                ),
+                ("publication_date", f("publication_date", "text", "Publication date")),
             ]),
             relations: HashMap::new(),
         },
@@ -314,11 +272,7 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
         EntityDef {
             table: "public_types",
             label: "Audience types",
-            fields: HashMap::from([
-                ("id", f("id", "bigint", "Id")),
-                ("name", f("name", "text", "Code")),
-                ("label", f("label", "text", "Label")),
-            ]),
+            fields: HashMap::from([("id", f("id", "bigint", "Id")), ("name", f("name", "text", "Code")), ("label", f("label", "text", "Label"))]),
             relations: HashMap::new(),
         },
     );
@@ -331,14 +285,8 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
             fields: HashMap::from([
                 ("code", f("code", "text", "Code")),
                 ("name", f("name", "text", "Name")),
-                (
-                    "events_rights",
-                    f("events_rights", "text", "Events (n/r/w)"),
-                ),
-                (
-                    "acquisitions_rights",
-                    f("acquisitions_rights", "text", "Acquisitions (n/r/w)"),
-                ),
+                ("events_rights", f("events_rights", "text", "Events (n/r/w)")),
+                ("acquisitions_rights", f("acquisitions_rights", "text", "Acquisitions (n/r/w)")),
             ]),
             relations: HashMap::new(),
         },
@@ -369,10 +317,7 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
                 ("code", f("code", "text", "Fund code")),
                 ("name", f("name", "text", "Name")),
                 ("fiscal_year", f("fiscal_year", "int", "Fiscal year")),
-                (
-                    "allocated_amount",
-                    f("allocated_amount", "numeric", "Allocated"),
-                ),
+                ("allocated_amount", f("allocated_amount", "numeric", "Allocated")),
                 ("currency", f("currency", "text", "Currency")),
             ]),
             relations: HashMap::new(),
@@ -389,24 +334,12 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
                 ("proposed_by", f("proposed_by", "bigint", "Patron id")),
                 ("title", f("title", "text", "Title")),
                 ("author", f("author", "text", "Author")),
-                (
-                    "status",
-                    f("status", "text", "proposed / accepted / refused"),
-                ),
-                (
-                    "purchase_order_id",
-                    f("purchase_order_id", "bigint", "Opened order id"),
-                ),
+                ("status", f("status", "text", "proposed / accepted / refused")),
+                ("purchase_order_id", f("purchase_order_id", "bigint", "Opened order id")),
             ]),
             relations: HashMap::from([
-                (
-                    "proposer",
-                    r("users", "proposed_by", "id", "Proposing patron"),
-                ),
-                (
-                    "order",
-                    r("purchase_orders", "purchase_order_id", "id", "Order intent"),
-                ),
+                ("proposer", r("users", "proposed_by", "id", "Proposing patron")),
+                ("order", r("purchase_orders", "purchase_order_id", "id", "Order intent")),
             ]),
         },
     );
@@ -424,10 +357,7 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
                 ("status", f("status", "text", "Status")),
                 ("ordered_at", f("ordered_at", "timestamptz", "Ordered at")),
             ]),
-            relations: HashMap::from([
-                ("vendor", r("vendors", "vendor_id", "id", "Vendor")),
-                ("fund", r("acquisition_funds", "fund_id", "id", "Fund")),
-            ]),
+            relations: HashMap::from([("vendor", r("vendors", "vendor_id", "id", "Vendor")), ("fund", r("acquisition_funds", "fund_id", "id", "Fund"))]),
         },
     );
 
@@ -456,18 +386,8 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
                 ("name", f("name", "text", "Name")),
                 ("event_type", f("event_type", "integer", "Type")),
                 ("event_date", f("event_date", "date", "Date")),
-                (
-                    "attendees_count",
-                    f("attendees_count", "integer", "Attendees"),
-                ),
-                (
-                    "all_audiences",
-                    f(
-                        "all_audiences",
-                        "boolean",
-                        "True when the event targets every audience (see event_audiences)",
-                    ),
-                ),
+                ("attendees_count", f("attendees_count", "integer", "Attendees")),
+                ("all_audiences", f("all_audiences", "boolean", "True when the event targets every audience (see event_audiences)")),
                 ("school_name", f("school_name", "text", "School")),
                 ("students_count", f("students_count", "integer", "Students")),
             ]),
@@ -488,14 +408,7 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
                 ("expiry_at", f("expiry_at", "timestamptz", "Due date")),
                 ("returned_at", f("returned_at", "timestamptz", "Return")),
                 ("nb_renews", f("nb_renews", "integer", "Renewals")),
-                (
-                    "site_id",
-                    f(
-                        "site_id",
-                        "bigint",
-                        "Desk site copied from the loan. Null when the loan had no recorded site",
-                    ),
-                ),
+                ("site_id", f("site_id", "bigint", "Desk site copied from the loan. Null when the loan had no recorded site")),
                 (
                     "effective_site_id",
                     c(
@@ -508,34 +421,12 @@ pub static SCHEMA: Lazy<HashMap<&'static str, EntityDef>> = Lazy::new(|| {
                 ("account_type", f("account_type", "text", "Account type")),
                 ("age_band", f("age_band", "text", "Age band at loan")),
                 ("loan_year", f("loan_year", "integer", "Loan year")),
-                (
-                    "closure_reason",
-                    f(
-                        "closure_reason",
-                        "text",
-                        "Why the loan closed: returned or lost",
-                    ),
-                ),
-                (
-                    "found_at",
-                    f(
-                        "found_at",
-                        "timestamptz",
-                        "When a lost copy was later found",
-                    ),
-                ),
+                ("closure_reason", f("closure_reason", "text", "Why the loan closed: returned or lost")),
+                ("found_at", f("found_at", "timestamptz", "When a lost copy was later found")),
             ]),
             relations: HashMap::from([
                 ("users", r("users", "user_id", "id", "Borrower")),
-                (
-                    "public_types",
-                    r(
-                        "public_types",
-                        "borrower_public_type",
-                        "id",
-                        "Audience type",
-                    ),
-                ),
+                ("public_types", r("public_types", "borrower_public_type", "id", "Audience type")),
                 ("items", r("items", "item_id", "id", "Item copy")),
                 ("sources", r("sources", "site_id", "id", "Loan site")),
             ]),

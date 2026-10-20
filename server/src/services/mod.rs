@@ -18,6 +18,7 @@ pub mod holds;
 pub mod i18n;
 pub mod idempotency;
 pub mod inventory;
+pub mod item_barcode;
 pub mod library_info;
 pub mod loans;
 pub mod maintenance_service;
@@ -30,7 +31,7 @@ pub mod reminders;
 pub mod scheduler;
 pub mod schedules;
 pub mod search;
-pub mod sources;
+pub mod sites;
 pub mod stats;
 pub mod task_manager;
 pub mod transits;
@@ -50,11 +51,8 @@ use crate::{
     dynamic_config::DynamicConfig,
     error::AppResult,
     repository::{
-        AccountTypesCatalogRepository, AcquisitionsRepository, BibliosRepository,
-        CatalogEntitiesRepository, EquipmentRepository, EventsServiceRepository, FinesRepository,
-        HoldsRepository, InventoryRepository, LoansRepository, LoansServiceRepository,
-        PublicTypesRepository, Repository, SchedulesRepository, SourcesRepository,
-        VisitorCountsRepository,
+        AccountTypesCatalogRepository, AcquisitionsRepository, BibliosRepository, CatalogEntitiesRepository, EquipmentRepository, EventsServiceRepository, FinesRepository, HoldsRepository,
+        InventoryRepository, LoansRepository, LoansServiceRepository, PublicTypesRepository, Repository, SchedulesRepository, SitesRepository, VisitorCountsRepository,
     },
 };
 
@@ -83,7 +81,7 @@ pub struct Services {
     pub holds: holds::HoldsService,
     pub schedules: schedules::SchedulesService,
     pub search: Option<Arc<search::MeilisearchService>>,
-    pub sources: sources::SourcesService,
+    pub sites: sites::SitesService,
     pub stats: stats::StatsService,
     pub transits: transits::TransitsService,
     /// Background task registry (MARC imports, maintenance, …).
@@ -119,56 +117,33 @@ impl Services {
         let repo = Arc::new(repository.clone());
 
         // Build optional Meilisearch service
-        let search_service: Option<Arc<search::MeilisearchService>> =
-            if let Some(ref cfg) = meilisearch_config {
-                let svc = search::MeilisearchService::new(cfg);
-                svc.ensure_index().await;
-                Some(Arc::new(svc))
-            } else {
-                tracing::info!(
-                    "Meilisearch not configured — catalog freesearch will use PostgreSQL fallback"
-                );
-                None
-            };
+        let search_service: Option<Arc<search::MeilisearchService>> = if let Some(ref cfg) = meilisearch_config {
+            let svc = search::MeilisearchService::new(cfg);
+            svc.ensure_index().await;
+            Some(Arc::new(svc))
+        } else {
+            tracing::info!("Meilisearch not configured — catalog freesearch will use PostgreSQL fallback");
+            None
+        };
 
         let biblios_repo: Arc<dyn BibliosRepository> = repo.clone();
         let entities_repo: Arc<dyn CatalogEntitiesRepository> = repo.clone();
         let audit_service = audit::AuditService::new(repository.clone());
         let catalog = if let Some(ref svc) = search_service {
-            catalog::CatalogService::with_search(
-                biblios_repo.clone(),
-                entities_repo,
-                Arc::clone(svc),
-                audit_service.clone(),
-            )
+            catalog::CatalogService::with_search(biblios_repo.clone(), entities_repo, Arc::clone(svc), audit_service.clone())
         } else {
             catalog::CatalogService::new(biblios_repo, entities_repo, audit_service.clone())
         };
 
-        let deposits = deposits::DepositsService::new(
-            repository.clone(),
-            catalog.clone(),
-            audit_service.clone(),
-        );
-        let marc_service =
-            marc::MarcService::new(catalog.clone(), redis_service.clone(), deposits.clone());
+        let deposits = deposits::DepositsService::new(repository.clone(), catalog.clone(), audit_service.clone());
+        let marc_service = marc::MarcService::new(catalog.clone(), redis_service.clone(), deposits.clone());
 
-        let z3950_service = z3950::Z3950Service::new(
-            repository.clone(),
-            catalog.clone(),
-            redis_service.clone(),
-            redis_config.z3950_cache_ttl_seconds,
-        );
+        let z3950_service = z3950::Z3950Service::new(repository.clone(), catalog.clone(), redis_service.clone(), redis_config.z3950_cache_ttl_seconds);
 
         let loans_repo: Arc<dyn LoansServiceRepository> = repo.clone();
         let loans_repo_only: Arc<dyn LoansRepository> = repo.clone();
         let email = email_service.as_ref().clone();
-        let reminders_service = reminders::RemindersService::new(
-            loans_repo_only,
-            email.clone(),
-            audit_service.clone(),
-            dynamic_config.clone(),
-        );
+        let reminders_service = reminders::RemindersService::new(loans_repo_only, email.clone(), audit_service.clone(), dynamic_config.clone());
         let fines_service = fines::FinesService::with_money_audit(
             repo.clone() as Arc<dyn FinesRepository>,
             repo.clone() as Arc<dyn calendar::OpeningDays>,
@@ -179,25 +154,13 @@ impl Services {
         Ok(Self {
             repository: repo.clone(),
             audit: audit_service.clone(),
-            account_types_catalog: account_types_catalog::AccountTypesCatalogService::new(
-                repo.clone() as Arc<dyn AccountTypesCatalogRepository>,
-            ),
-            acquisitions: acquisitions::AcquisitionsService::new(
-                repo.clone() as Arc<dyn AcquisitionsRepository>,
-                catalog.clone(),
-            ),
+            account_types_catalog: account_types_catalog::AccountTypesCatalogService::new(repo.clone() as Arc<dyn AccountTypesCatalogRepository>),
+            acquisitions: acquisitions::AcquisitionsService::new(repo.clone() as Arc<dyn AcquisitionsRepository>, catalog.clone()),
             catalog: catalog.clone(),
             deposits: deposits.clone(),
-            circulation: circulation::CirculationService::new(
-                repo.clone(),
-                audit_service.clone(),
-                event_bus.clone(),
-                email.clone(),
-            ),
+            circulation: circulation::CirculationService::new(repo.clone(), audit_service.clone(), event_bus.clone(), email.clone()),
             email: email.clone(),
-            equipment: equipment::EquipmentService::new(
-                repo.clone() as Arc<dyn EquipmentRepository>
-            ),
+            equipment: equipment::EquipmentService::new(repo.clone() as Arc<dyn EquipmentRepository>),
             events: events::EventsService::new(
                 repo.clone() as Arc<dyn EventsServiceRepository>,
                 email.clone(),
@@ -208,51 +171,27 @@ impl Services {
             fines: fines_service.clone(),
             inventory: inventory::InventoryService::new(
                 repo.clone() as Arc<dyn InventoryRepository>,
-                repo.clone() as Arc<dyn SourcesRepository>,
+                repo.clone() as Arc<dyn SitesRepository>,
                 catalog.clone(),
                 email.clone(),
                 audit_service.clone(),
             ),
             library_info: library_info::LibraryInfoService::new(repository.clone()),
-            loans: loans::LoansService::new(
-                loans_repo,
-                fines_service,
-                audit_service.clone(),
-                email.clone(),
-                event_bus.clone(),
-            ),
-            maintenance: maintenance_service::MaintenanceService::new(
-                catalog.clone(),
-                z3950_service.clone(),
-                audit_service.clone(),
-            ),
+            loans: loans::LoansService::new(loans_repo, fines_service, audit_service.clone(), email.clone(), event_bus.clone()),
+            maintenance: maintenance_service::MaintenanceService::new(catalog.clone(), z3950_service.clone(), audit_service.clone()),
             marc: marc_service,
-            public_types: public_types::PublicTypesService::new(
-                repo.clone() as Arc<dyn PublicTypesRepository>
-            ),
+            public_types: public_types::PublicTypesService::new(repo.clone() as Arc<dyn PublicTypesRepository>),
             redis: redis_service.clone(),
             reminders: reminders_service,
-            holds: holds::HoldsService::with_audit(
-                repo.clone() as Arc<dyn HoldsRepository>,
-                audit_service.clone(),
-            ),
-            schedules: schedules::SchedulesService::new(
-                repo.clone() as Arc<dyn SchedulesRepository>
-            ),
+            holds: holds::HoldsService::with_audit(repo.clone() as Arc<dyn HoldsRepository>, audit_service.clone()),
+            schedules: schedules::SchedulesService::new(repo.clone() as Arc<dyn SchedulesRepository>),
             search: search_service,
-            sources: sources::SourcesService::new(repo.clone() as Arc<dyn SourcesRepository>),
+            sites: sites::SitesService::new(repo.clone() as Arc<dyn SitesRepository>),
             stats: stats::StatsService::new(repository.clone(), redis_service.clone()),
-            transits: transits::TransitsService::new(
-                repo.clone(),
-                audit_service.clone(),
-                event_bus,
-                email,
-            ),
+            transits: transits::TransitsService::new(repo.clone(), audit_service.clone(), event_bus, email),
             tasks: task_manager::TaskManager::new(redis_service.clone()),
             users: users::UsersService::new(repository.clone(), auth_config, redis_service.clone()),
-            visitor_counts: visitor_counts::VisitorCountsService::new(
-                repo.clone() as Arc<dyn VisitorCountsRepository>
-            ),
+            visitor_counts: visitor_counts::VisitorCountsService::new(repo.clone() as Arc<dyn VisitorCountsRepository>),
             z3950: z3950_service,
         })
     }

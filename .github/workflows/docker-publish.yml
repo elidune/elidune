@@ -5,6 +5,7 @@
 #
 # Tags: :latest on main, :dev on the dev branch, plus :<git-sha> on both.
 # Pushes from dev never overwrite :latest.
+# After each run, only the 10 newest GHCR package versions per image are kept.
 name: Build & Push Docker Image
 
 on:
@@ -26,6 +27,8 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
+  PACKAGE_OWNER: elidune
+  PACKAGE_VERSIONS_TO_KEEP: 10
 
 jobs:
   build-split-images:
@@ -119,3 +122,55 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha,scope=docker/Dockerfile.all-in-one
           cache-to: type=gha,mode=max,scope=docker/Dockerfile.all-in-one
+
+  prune-package-versions:
+    needs: [build-split-images, build-all-in-one]
+    if: always() && needs.build-all-in-one.result == 'success'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - elidune-server
+          - elidune-ui
+          - elidune-all-in-one
+    permissions:
+      packages: write
+
+    steps:
+      - name: Prune old GHCR versions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE_NAME: ${{ matrix.package }}
+        run: |
+          set -euo pipefail
+          owner="${{ env.PACKAGE_OWNER }}"
+          keep="${{ env.PACKAGE_VERSIONS_TO_KEEP }}"
+          pkg="${PACKAGE_NAME}"
+
+          if ! gh api "/orgs/${owner}/packages/container/${pkg}/versions?per_page=1" >/dev/null 2>&1; then
+            echo "Package ${pkg} not found or not accessible; skipping."
+            exit 0
+          fi
+
+          mapfile -t delete_ids < <(
+            gh api --paginate \
+              "/orgs/${owner}/packages/container/${pkg}/versions?per_page=100" \
+              | jq -s --argjson keep "$keep" '
+                  add
+                  | sort_by(.created_at)
+                  | reverse
+                  | .[$keep:]
+                  | .[].id
+                '
+          )
+
+          if [ "${#delete_ids[@]}" -eq 0 ]; then
+            echo "Nothing to prune for ${pkg} (keeping ${keep} newest versions)."
+            exit 0
+          fi
+
+          for id in "${delete_ids[@]}"; do
+            echo "Deleting ${pkg} version id ${id}"
+            gh api --method DELETE "/orgs/${owner}/packages/container/${pkg}/versions/${id}"
+          done

@@ -106,6 +106,9 @@
     "sectionUntitled": "Menu"
   },
   "deposits": {
+    "pageTitle": "Dépôts",
+    "pageSubtitle": "Lots reçus en prêt et prêteurs partenaires.",
+    "sectionNav": "Sections dépôts",
     "badge": "Dépôt · {{lender}} · retour le {{date}}",
     "dueDateCapped": "Échéance ramenée au {{date}} (retour du dépôt)",
     "dueDateCappedUnknown": "Échéance ramenée à la date de retour du dépôt",
@@ -114,6 +117,7 @@
     "replacementAmountRequired": "Saisissez un montant supérieur à zéro. Le tarif du prêteur s’applique d’abord, puis le prix de l’exemplaire s’il est supérieur à zéro.",
     "replacementAmountHint": "Obligatoire : aucun tarif de prêteur et aucun prix d’exemplaire supérieur à zéro. Zéro n’est pas accepté.",
     "lender": "Prêteur",
+    "lenderBarcode": "Code prêteur",
     "site": "Site",
     "reference": "Référence",
     "arrivedOn": "Date d’arrivée",
@@ -198,7 +202,9 @@
       "returnedCopies": "Rendus",
       "missingCopies": "Manquants",
       "print": "Imprimer",
-      "openRecord": "Ouvrir la notice"
+      "openRecord": "Ouvrir la notice",
+      "marcImportTitle": "Import MARC",
+      "marcImportSubtitle": "Ajoutez des notices et des exemplaires à ce lot. Les doublons ISBN sont rattachés sans remplacer le fonds propre."
     },
     "import": {
       "mode": "Mode d’import",
@@ -209,7 +215,11 @@
       "batchRequired": "Choisissez un lot de dépôt actif.",
       "batchesError": "Impossible de charger les lots de dépôt.",
       "created": "Notices créées : {{count}}",
-      "attached": "rattaché à la notice existante"
+      "attached": "rattaché à la notice existante",
+      "relabelNotice": "Code prêteur {{lender}} → code local {{local}} (à réétiqueter)",
+      "targetSite": "Site cible",
+      "targetSiteHint": "Doit correspondre au site du lot. Aucune source à créer ici.",
+      "targetSiteRequired": "Choisissez le site cible du lot."
     }
   },
   "theme": {
@@ -768,7 +778,6 @@
     "createBiblioNoSpecimensConfirm": "Vous n'avez pas saisi d'exemplaire pour cette notice. Voulez-vous continuer ?",
     "specimenBarcode": "Code-barres de l'exemplaire",
     "callNumber": "Cote",
-    "selectSource": "Choisir une source",
     "addSpecimen": "Ajouter un exemplaire",
     "barcode": "Code-barres",
     "callNumberInvalid": "Lettres, chiffres, espaces, points et tirets uniquement",
@@ -820,7 +829,6 @@
     "cannotMakeBorrowable": "Impossible de rendre cet exemplaire empruntable tant que le code-barres, le site et le prix (ou un report explicite) ne sont pas renseignés.",
     "volumeDesignation": "Désignation de volume",
     "volumeDesignationPlaceholder": "ex. t. 2",
-    "source": "Source",
     "specimenBarcodeRequired": "Le code-barres est requis",
     "borrowable": "Empruntable",
     "publicNote": "Note publique (visible par les lecteurs)",
@@ -911,7 +919,9 @@
       "statusError": "Erreur"
     },
     "biblioNotFound": "Document non trouvé",
-    "notValidated": "Non validé"
+    "notValidated": "Non validé",
+    "site": "Site",
+    "selectSite": "Choisir une source"
   },
   "weeding": {
     "label": "Désherbage",
@@ -1162,7 +1172,6 @@
     "importSuccessMessage": "Le document a été importé avec succès dans votre catalogue.",
     "viewDocument": "Voir le document",
     "noSources": "Aucune source disponible. Créez une source dans les paramètres.",
-    "selectSource": "Choisir une source...",
     "specimensToCreate": "Exemplaires à créer (optionnel)",
     "specimensHint": "Vous pouvez laisser ces champs vides pour importer uniquement la notice bibliographique",
     "confirmReplaceTitle": "Confirmation requise",
@@ -1171,7 +1180,8 @@
     "confirmReplaceExplanation": "La notice existante n'a pas d'exemplaires et n'est pas archivée. Le remplacement modifiera uniquement la notice bibliographique.",
     "documentsFound_other": "{{count}} documents trouvés",
     "port": "Port",
-    "database": "Base de données"
+    "database": "Base de données",
+    "selectSite": "Choisir une source..."
   },
   "catalog": {
     "searchOrCreateCollection": "Rechercher ou saisir une collection…",
@@ -1205,17 +1215,34 @@
   },
   "importMarc": {
     "default": "par défaut",
+    "depositDuplicate": {
+      "title": "Exemplaire dépôt déjà connu",
+      "intro": "Cet import réutilise un code-barres prêteur déjà présent. Indiquez comment continuer — il peut s'agir d'un import relancé par erreur.",
+      "count": "{{count}} exemplaires en conflit dans cet import",
+      "lenderBarcode": "Code prêteur",
+      "existingBarcode": "Code local en service",
+      "kindActiveBarcode": "Un exemplaire actif utilise déjà ce code au comptoir.",
+      "kindReactivation": "Un exemplaire dépôt retourné avec ce code prêteur peut être réactivé.",
+      "kindWasLost": "Cet exemplaire a été déclaré perdu et facturé ; il ne peut pas être réimporté.",
+      "lostOnly": "Ces exemplaires sont perdus et facturés. Vous pouvez seulement les ignorer ou annuler l'import.",
+      "actionLegend": "Action",
+      "overwriteHint": "Écraser — mettre à jour l'exemplaire existant avec les données MARC et le rattacher à ce dépôt.",
+      "relabelHint": "Réétiqueter — conserver le code prêteur en base mais attribuer un nouveau code local (réétiqueter l'exemplaire).",
+      "overwrite": "Écraser",
+      "relabelConfirm": "Réétiqueter",
+      "ignore": "Ignorer",
+      "confirm": "Continuer",
+      "applyToAll": "Faire de même pour les autres conflits de cet import"
+    },
     "duplicateIsbnTitle": "ISBN en double",
     "duplicateIsbnCreateNew": "Créer un doublon",
     "duplicateIsbnReplace": "Écraser",
     "duplicateIsbnPrompt": "Une notice existe déjà avec le titre \"{{title}}\" (ISBN {{isbn}}). Que souhaitez-vous faire ?",
     "duplicateSkippedInBatch": "ISBN en double — passé (import par lot). Cliquer sur « Importer » pour traiter individuellement.",
     "importErrorGeneric": "Une erreur s'est produite lors de l'import.",
-    "sourcesError": "Impossible de charger les sources",
     "batchesLoadError": "Impossible de charger la liste des batches.",
     "noRecordsFound": "Aucun enregistrement trouvé. Vérifiez le format ({{format}}).",
     "batchLoadError": "Impossible de charger ce batch (expiré ou introuvable).",
-    "sourceCreateError": "Impossible de créer la source",
     "readError": "Erreur lors de la lecture du fichier.",
     "cannotImportWithValidationErrors": "Import impossible tant que des erreurs de validation MARC sont présentes sur une ou plusieurs notices.",
     "cannotReplaceNoId": "Impossible d'écraser : l'identifiant de la notice existante n'est pas disponible.",
@@ -1232,6 +1259,16 @@
     "analyzing": "Analyse du fichier en cours...",
     "dropFile": "Déposez votre fichier MARC",
     "orClickToBrowse": "ou cliquez pour parcourir vos fichiers",
+    "fileEncoding": "Encodage par défaut du fichier (ISO 2709)",
+    "fileEncodingHint": "Utilisé lorsque l'encodage n'est pas déclaré dans chaque notice. Le MARCXML est toujours en UTF-8.",
+    "encoding": {
+      "utf8": "UTF-8",
+      "marc8": "MARC-8",
+      "iso5426": "ISO 5426",
+      "iso8859_2": "ISO 8859-2",
+      "iso8859_3": "ISO 8859-3",
+      "iso8859_5": "ISO 8859-5"
+    },
     "batchHint": "Sélectionnez un batch MARC mis en cache sur le serveur pour reprendre un import précédent.",
     "refresh": "Rafraîchir",
     "noBatches": "Aucun batch en cache sur le serveur.",
@@ -1245,10 +1282,6 @@
     "duplicateExistingCount_one": "{{count}} notice existante",
     "importWithScan": "Importer avec scan",
     "importAll": "Tout importer ({{count}})",
-    "source": "Source (pour les exemplaires)",
-    "noSource": "Aucune source",
-    "addSource": "Ajouter une source",
-    "newSourceName": "Nom de la nouvelle source",
     "scanMode": "Mode scan activé",
     "scanModeHint": "Scannez le code-barres d'un exemplaire pour importer sa notice",
     "scanPlaceholder": "Scanner ou saisir le code-barres exemplaire...",
@@ -1282,7 +1315,13 @@
     "documentsCount_other": "{{count}} documents",
     "errors_other": "{{count}} erreurs",
     "duplicateExistingCount_other": "{{count}} notices existantes",
-    "remainingToScan_other": "{{count}} documents restants à scanner"
+    "remainingToScan_other": "{{count}} documents restants à scanner",
+    "site": "Source (pour les exemplaires)",
+    "sitesError": "Impossible de charger les sources",
+    "noSite": "Aucune source",
+    "addSite": "Ajouter une source",
+    "newSiteName": "Nom de la nouvelle source",
+    "siteCreateError": "Impossible de créer la source"
   },
   "loans": {
     "noTitle": "Sans titre",
@@ -1962,7 +2001,36 @@
     "maxLoansDefaultLabel": "Prêts actifs maximum (tous supports)",
     "maxLoansPerMediaLabel": "Maximum pour ce type de document",
     "loanLimitsResolutionHint": "Le plafond total effectif est résolu côté serveur dans cet ordre : « emprunts max » sur la fiche du type de public, puis la ligne défaut des dérogations du profil, puis la ligne défaut globale. Les valeurs affichées ici sont celles que vous enregistrez ; le serveur applique la chaîne de priorité.",
-    "defaultLoanRowNotDeletable": "La ligne par défaut globale ne peut pas être supprimée."
+    "defaultLoanRowNotDeletable": "La ligne par défaut globale ne peut pas être supprimée.",
+    "sites": {
+      "errorLoad": "Erreur lors du chargement des sources",
+      "renameSuccess": "Source renommée avec succès",
+      "errorRename": "Erreur lors du renommage",
+      "defaultUpdated": "Site par défaut mis à jour",
+      "errorUpdateDefault": "Erreur lors de la mise à jour de la source par défaut",
+      "archiveSuccess": "Source archivée avec succès",
+      "errorArchive": "Erreur lors de l'archivage",
+      "mergeMinTwo": "Sélectionnez au moins 2 sources pour fusionner",
+      "mergeSuccess": "Sources fusionnées avec succès",
+      "errorMerge": "Erreur lors de la fusion",
+      "archived": "Archivée",
+      "active": "Active",
+      "default": "Par défaut",
+      "setDefault": "Définir comme source par défaut",
+      "rename": "Renommer",
+      "archive": "Archiver",
+      "title": "Gestion des sites",
+      "selected": "{{count}} sélectionnée(s)",
+      "mergeSelected": "Fusionner la sélection",
+      "merge": "Fusionner",
+      "showArchived": "Afficher les archivées",
+      "mergeTitle": "Fusionner les sources",
+      "mergeHint": "Les exemplaires et items des sources sélectionnées seront réaffectés à la nouvelle source. Les anciennes sources seront archivées.",
+      "mergeName": "Nom de la nouvelle source",
+      "mergeNamePlaceholder": "Saisir le nom de la source fusionnée",
+      "archiveConfirm": "Êtes-vous sûr de vouloir archiver la source \"{{name}}\" ?",
+      "noSites": "Aucun site"
+    }
   },
   "backgroundTask": {
     "progress": "Progression",
@@ -2346,12 +2414,7 @@
     "createConflict": "Une session ouverte existe déjà pour cette source et ce lieu.",
     "createExpectedInScope": "{{count}} exemplaire(s) attendu(s) dans le périmètre.",
     "createAcknowledgeWarnings": "Commencer le scan",
-    "sourcesLoadError": "Impossible de charger la liste des sources.",
-    "scopeSource": "Source (périmètre)",
-    "scopeSourceHint": "Recommandé pour un inventaire par fonds. Laissez vide pour toute la bibliothèque.",
-    "scopeAllSources": "Toutes sources",
     "scopeAllPlaces": "Tous lieux",
-    "defaultSource": "par défaut",
     "scanError": "Erreur lors du scan (session fermée ou réseau).",
     "batchDone": "{{count}} scan(s) enregistré(s).",
     "batchError": "Échec de l'import (session fermée, plus de 500 codes par lot côté serveur, ou erreur réseau).",
@@ -2485,7 +2548,12 @@
     "consolidationEmailErrors": "{{count}} erreur(s) d'envoi d'e-mail.",
     "consolidationNoMissing": "Aucun exemplaire manquant à consolider.",
     "consolidationPreviewLoadError": "Impossible de charger l'aperçu.",
-    "consolidationRetryForce": "Réessayer en forçant"
+    "consolidationRetryForce": "Réessayer en forçant",
+    "scopeAllSites": "Toutes sources",
+    "scopeSite": "Source (périmètre)",
+    "scopeSiteHint": "Recommandé pour un inventaire par fonds. Laissez vide pour toute la bibliothèque.",
+    "defaultSite": "par défaut",
+    "sitesLoadError": "Impossible de charger la liste des sources."
   },
   "opac": {
     "filterAll": "Tous",

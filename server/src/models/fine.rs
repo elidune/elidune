@@ -51,9 +51,7 @@ impl sqlx::Type<sqlx::Postgres> for FineChargeType {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for FineChargeType {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
         Ok(Self::from(s))
     }
@@ -120,9 +118,7 @@ impl sqlx::Type<sqlx::Postgres> for FineStatus {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for FineStatus {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
         Ok(Self::from(s))
     }
@@ -269,9 +265,7 @@ impl Cents {
         }
         let padded = format!("{frac:0<2}");
         let combined = format!("{whole}{padded}");
-        let value = combined
-            .parse::<i64>()
-            .map_err(|_| EuroParseError::Unparseable)?;
+        let value = combined.parse::<i64>().map_err(|_| EuroParseError::Unparseable)?;
         Ok(Some(Self(value)))
     }
 
@@ -299,20 +293,13 @@ impl std::fmt::Display for Cents {
 }
 
 impl<'s> utoipa::ToSchema<'s> for Cents {
-    fn schema() -> (
-        &'s str,
-        utoipa::openapi::RefOr<utoipa::openapi::schema::Schema>,
-    ) {
+    fn schema() -> (&'s str, utoipa::openapi::RefOr<utoipa::openapi::schema::Schema>) {
         (
             "Cents",
             utoipa::openapi::ObjectBuilder::new()
                 .schema_type(utoipa::openapi::SchemaType::Integer)
-                .format(Some(utoipa::openapi::SchemaFormat::KnownFormat(
-                    utoipa::openapi::KnownFormat::Int64,
-                )))
-                .description(Some(
-                    "Integer euro cents. 1500 is 15.00 EUR. Fields documented as decimal euros use a string instead.",
-                ))
+                .format(Some(utoipa::openapi::SchemaFormat::KnownFormat(utoipa::openapi::KnownFormat::Int64)))
+                .description(Some("Integer euro cents. 1500 is 15.00 EUR. Fields documented as decimal euros use a string instead."))
                 .into(),
         )
     }
@@ -347,9 +334,7 @@ impl sqlx::Type<sqlx::Postgres> for Cents {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for Cents {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let n = <i64 as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
         Ok(Self(n))
     }
@@ -382,19 +367,14 @@ pub mod euro_string {
         use super::super::Cents;
         use serde::{Deserialize, Deserializer, Serializer};
 
-        pub fn serialize<S: Serializer>(
-            value: &Option<Cents>,
-            serializer: S,
-        ) -> Result<S::Ok, S::Error> {
+        pub fn serialize<S: Serializer>(value: &Option<Cents>, serializer: S) -> Result<S::Ok, S::Error> {
             match value {
                 Some(cents) => serializer.serialize_str(&cents.to_euro_string()),
                 None => serializer.serialize_none(),
             }
         }
 
-        pub fn deserialize<'de, D: Deserializer<'de>>(
-            deserializer: D,
-        ) -> Result<Option<Cents>, D::Error> {
+        pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Cents>, D::Error> {
             let raw = Option::<String>::deserialize(deserializer)?;
             match raw {
                 None => Ok(None),
@@ -411,11 +391,7 @@ fn strip_trailing_currency(raw: &str) -> &str {
     }
     if end.len() >= 3 && end[end.len() - 3..].eq_ignore_ascii_case("eur") {
         let rest = &end[..end.len() - 3];
-        if rest
-            .chars()
-            .next_back()
-            .is_some_and(|ch| ch.is_ascii_alphabetic())
-        {
+        if rest.chars().next_back().is_some_and(|ch| ch.is_ascii_alphabetic()) {
             return raw.trim();
         }
         return rest.trim_end();
@@ -449,9 +425,7 @@ fn split_plain_amount(s: &str) -> Result<(&str, &str), EuroParseError> {
 
 /// Exact non-negative cent conversion. Does not round extra fractional digits.
 pub fn money_to_cents(amount: Decimal) -> Result<i64, &'static str> {
-    Cents::try_from_decimal(amount)
-        .map(Cents::get)
-        .map_err(|_| "amount is not an exact non-negative cent value")
+    Cents::try_from_decimal(amount).map(Cents::get).map_err(|_| "amount is not an exact non-negative cent value")
 }
 
 /// Integer cents as a major-unit decimal (two places).
@@ -473,19 +447,14 @@ macro_rules! impl_pg_text_enum {
         }
 
         impl<'r> sqlx::Decode<'r, sqlx::Postgres> for $ty {
-            fn decode(
-                value: sqlx::postgres::PgValueRef<'r>,
-            ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+            fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
                 let text: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
                 Self::from_db(&text).map_err(Into::into)
             }
         }
 
         impl sqlx::Encode<'_, sqlx::Postgres> for $ty {
-            fn encode_by_ref(
-                &self,
-                buf: &mut sqlx::postgres::PgArgumentBuffer,
-            ) -> sqlx::encode::IsNull {
+            fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
                 <String as sqlx::Encode<sqlx::Postgres>>::encode(self.as_str().to_string(), buf)
             }
         }
@@ -567,9 +536,7 @@ impl ThresholdInputError {
 
     pub fn message(self) -> &'static str {
         match self {
-            Self::CentsRequired => {
-                "unpaidThresholdCents is required when unpaidThresholdMode is amount"
-            }
+            Self::CentsRequired => "unpaidThresholdCents is required when unpaidThresholdMode is amount",
             Self::Negative => "Unpaid fine threshold cannot be negative",
         }
     }
@@ -594,20 +561,14 @@ pub struct StoredGlobalUnpaidThreshold {
 }
 
 /// Amount stored for global mode `amount`. `None` means mode `none` (keep the numeric column).
-pub fn resolve_global_amount(
-    mode: GlobalUnpaidThresholdMode,
-    cents: Option<i64>,
-) -> Result<Option<Cents>, ThresholdInputError> {
+pub fn resolve_global_amount(mode: GlobalUnpaidThresholdMode, cents: Option<i64>) -> Result<Option<Cents>, ThresholdInputError> {
     match mode {
         GlobalUnpaidThresholdMode::None => Ok(None),
         GlobalUnpaidThresholdMode::Amount => cents_amount(cents),
     }
 }
 
-pub fn resolve_audience_threshold_create(
-    mode: Option<AudienceUnpaidThresholdMode>,
-    cents: Option<i64>,
-) -> Result<(AudienceUnpaidThresholdMode, Option<Cents>), ThresholdInputError> {
+pub fn resolve_audience_threshold_create(mode: Option<AudienceUnpaidThresholdMode>, cents: Option<i64>) -> Result<(AudienceUnpaidThresholdMode, Option<Cents>), ThresholdInputError> {
     resolve_audience_mode(mode.unwrap_or(AudienceUnpaidThresholdMode::Inherit), cents)
 }
 
@@ -624,15 +585,10 @@ pub fn resolve_audience_threshold_update(
     resolve_audience_mode(mode, cents)
 }
 
-fn resolve_audience_mode(
-    mode: AudienceUnpaidThresholdMode,
-    cents: Option<i64>,
-) -> Result<(AudienceUnpaidThresholdMode, Option<Cents>), ThresholdInputError> {
+fn resolve_audience_mode(mode: AudienceUnpaidThresholdMode, cents: Option<i64>) -> Result<(AudienceUnpaidThresholdMode, Option<Cents>), ThresholdInputError> {
     match mode {
         AudienceUnpaidThresholdMode::Amount => Ok((mode, cents_amount(cents)?)),
-        AudienceUnpaidThresholdMode::Inherit | AudienceUnpaidThresholdMode::None => {
-            Ok((mode, None))
-        }
+        AudienceUnpaidThresholdMode::Inherit | AudienceUnpaidThresholdMode::None => Ok((mode, None)),
     }
 }
 
@@ -756,13 +712,7 @@ mod tests {
         assert_eq!(Cents::ZERO.to_csv_euro(), "0,00");
         let amount = rust_decimal::Decimal::new(1250, 2);
         assert_eq!(Cents::try_from_decimal(amount).unwrap(), Cents(1250));
-        assert_eq!(
-            Cents::try_from_decimal(rust_decimal::Decimal::new(12501, 3)),
-            Err(EuroParseError::TooManyDecimals)
-        );
-        assert_eq!(
-            Cents::try_from_decimal(rust_decimal::Decimal::new(-1, 2)),
-            Err(EuroParseError::Negative)
-        );
+        assert_eq!(Cents::try_from_decimal(rust_decimal::Decimal::new(12501, 3)), Err(EuroParseError::TooManyDecimals));
+        assert_eq!(Cents::try_from_decimal(rust_decimal::Decimal::new(-1, 2)), Err(EuroParseError::Negative));
     }
 }

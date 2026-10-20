@@ -12,10 +12,7 @@ use crate::{
             circulation::{LostFineAction, LostFineDeskStatus, LostItemOnReturn},
             fines::AccrueOutcome,
         },
-        fine::{
-            Cents, Fine, FineAccrualLoan, FineChargeType, FineRule, FineStatus,
-            GlobalUnpaidThresholdMode, StoredGlobalUnpaidThreshold,
-        },
+        fine::{Cents, Fine, FineAccrualLoan, FineChargeType, FineRule, FineStatus, GlobalUnpaidThresholdMode, StoredGlobalUnpaidThreshold},
         user::UserStatus,
     },
 };
@@ -24,48 +21,20 @@ use crate::{
 pub trait FinesRepository: Send + Sync {
     async fn fines_list_for_user(&self, user_id: i64) -> AppResult<Vec<Fine>>;
     async fn fines_get_by_id(&self, id: i64) -> AppResult<Fine>;
-    async fn fines_create(
-        &self,
-        loan_id: i64,
-        user_id: i64,
-        amount: Cents,
-        notes: Option<&str>,
-    ) -> AppResult<Fine>;
+    async fn fines_create(&self, loan_id: i64, user_id: i64, amount: Cents, notes: Option<&str>) -> AppResult<Fine>;
     async fn fines_pay(&self, id: i64, payment: Cents, notes: Option<&str>) -> AppResult<Fine>;
     async fn fines_waive(&self, id: i64, notes: Option<&str>) -> AppResult<Fine>;
     async fn fines_list_rules(&self) -> AppResult<Vec<FineRule>>;
-    async fn fines_upsert_rule(
-        &self,
-        media_type: Option<&str>,
-        daily_rate: Cents,
-        max_amount: Option<Cents>,
-        grace_days: i32,
-    ) -> AppResult<FineRule>;
+    async fn fines_upsert_rule(&self, media_type: Option<&str>, daily_rate: Cents, max_amount: Option<Cents>, grace_days: i32) -> AppResult<FineRule>;
     async fn fines_total_unpaid(&self, user_id: i64) -> AppResult<Cents>;
-    async fn fines_get_unpaid_threshold(
-        &self,
-        public_type_id: Option<i64>,
-    ) -> AppResult<Option<Cents>>;
+    async fn fines_get_unpaid_threshold(&self, public_type_id: Option<i64>) -> AppResult<Option<Cents>>;
     fn accrue_fines_enabled(&self) -> bool;
     async fn fines_get_global_unpaid_threshold(&self) -> AppResult<StoredGlobalUnpaidThreshold>;
-    async fn fines_set_global_unpaid_threshold(
-        &self,
-        mode: GlobalUnpaidThresholdMode,
-        amount: Option<Cents>,
-    ) -> AppResult<StoredGlobalUnpaidThreshold>;
+    async fn fines_set_global_unpaid_threshold(&self, mode: GlobalUnpaidThresholdMode, amount: Option<Cents>) -> AppResult<StoredGlobalUnpaidThreshold>;
     async fn fines_get_open_for_loan(&self, loan_id: i64) -> AppResult<Option<Fine>>;
-    async fn fines_upsert_open(
-        &self,
-        loan_id: i64,
-        user_id: i64,
-        amount: Cents,
-        notes: Option<&str>,
-    ) -> AppResult<(Fine, AccrueOutcome)>;
+    async fn fines_upsert_open(&self, loan_id: i64, user_id: i64, amount: Cents, notes: Option<&str>) -> AppResult<(Fine, AccrueOutcome)>;
     async fn fines_get_accrual_loan(&self, loan_id: i64) -> AppResult<FineAccrualLoan>;
-    async fn fines_list_accrual_loans(
-        &self,
-        user_id: Option<i64>,
-    ) -> AppResult<Vec<FineAccrualLoan>>;
+    async fn fines_list_accrual_loans(&self, user_id: Option<i64>) -> AppResult<Vec<FineAccrualLoan>>;
 }
 
 #[async_trait::async_trait]
@@ -76,13 +45,7 @@ impl FinesRepository for Repository {
     async fn fines_get_by_id(&self, id: i64) -> AppResult<Fine> {
         Repository::fines_get_by_id(self, id).await
     }
-    async fn fines_create(
-        &self,
-        loan_id: i64,
-        user_id: i64,
-        amount: Cents,
-        notes: Option<&str>,
-    ) -> AppResult<Fine> {
+    async fn fines_create(&self, loan_id: i64, user_id: i64, amount: Cents, notes: Option<&str>) -> AppResult<Fine> {
         Repository::fines_create(self, loan_id, user_id, amount, notes).await
     }
     async fn fines_pay(&self, id: i64, payment: Cents, notes: Option<&str>) -> AppResult<Fine> {
@@ -94,22 +57,13 @@ impl FinesRepository for Repository {
     async fn fines_list_rules(&self) -> AppResult<Vec<FineRule>> {
         Repository::fines_list_rules(self).await
     }
-    async fn fines_upsert_rule(
-        &self,
-        media_type: Option<&str>,
-        daily_rate: Cents,
-        max_amount: Option<Cents>,
-        grace_days: i32,
-    ) -> AppResult<FineRule> {
+    async fn fines_upsert_rule(&self, media_type: Option<&str>, daily_rate: Cents, max_amount: Option<Cents>, grace_days: i32) -> AppResult<FineRule> {
         Repository::fines_upsert_rule(self, media_type, daily_rate, max_amount, grace_days).await
     }
     async fn fines_total_unpaid(&self, user_id: i64) -> AppResult<Cents> {
         Repository::fines_total_unpaid(self, user_id).await
     }
-    async fn fines_get_unpaid_threshold(
-        &self,
-        public_type_id: Option<i64>,
-    ) -> AppResult<Option<Cents>> {
+    async fn fines_get_unpaid_threshold(&self, public_type_id: Option<i64>) -> AppResult<Option<Cents>> {
         Repository::fines_get_unpaid_threshold(self, public_type_id).await
     }
     fn accrue_fines_enabled(&self) -> bool {
@@ -118,56 +72,37 @@ impl FinesRepository for Repository {
     async fn fines_get_global_unpaid_threshold(&self) -> AppResult<StoredGlobalUnpaidThreshold> {
         Repository::fines_get_global_unpaid_threshold(self).await
     }
-    async fn fines_set_global_unpaid_threshold(
-        &self,
-        mode: GlobalUnpaidThresholdMode,
-        amount: Option<Cents>,
-    ) -> AppResult<StoredGlobalUnpaidThreshold> {
+    async fn fines_set_global_unpaid_threshold(&self, mode: GlobalUnpaidThresholdMode, amount: Option<Cents>) -> AppResult<StoredGlobalUnpaidThreshold> {
         Repository::fines_set_global_unpaid_threshold(self, mode, amount).await
     }
     async fn fines_get_open_for_loan(&self, loan_id: i64) -> AppResult<Option<Fine>> {
         Repository::fines_get_open_for_loan(self, loan_id).await
     }
-    async fn fines_upsert_open(
-        &self,
-        loan_id: i64,
-        user_id: i64,
-        amount: Cents,
-        notes: Option<&str>,
-    ) -> AppResult<(Fine, AccrueOutcome)> {
+    async fn fines_upsert_open(&self, loan_id: i64, user_id: i64, amount: Cents, notes: Option<&str>) -> AppResult<(Fine, AccrueOutcome)> {
         Repository::fines_upsert_open(self, loan_id, user_id, amount, notes).await
     }
     async fn fines_get_accrual_loan(&self, loan_id: i64) -> AppResult<FineAccrualLoan> {
         Repository::fines_get_accrual_loan(self, loan_id).await
     }
-    async fn fines_list_accrual_loans(
-        &self,
-        user_id: Option<i64>,
-    ) -> AppResult<Vec<FineAccrualLoan>> {
+    async fn fines_list_accrual_loans(&self, user_id: Option<i64>) -> AppResult<Vec<FineAccrualLoan>> {
         Repository::fines_list_accrual_loans(self, user_id).await
     }
 }
 
-static SNOWFLAKE: std::sync::LazyLock<std::sync::Mutex<Generator>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(Generator::new(2)));
+static SNOWFLAKE: std::sync::LazyLock<std::sync::Mutex<Generator>> = std::sync::LazyLock::new(|| std::sync::Mutex::new(Generator::new(2)));
 
 fn next_id() -> i64 {
-    SNOWFLAKE
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .generate::<i64>()
+    SNOWFLAKE.lock().unwrap_or_else(|e| e.into_inner()).generate::<i64>()
 }
 
 impl Repository {
     /// List fines for a user
     #[tracing::instrument(skip(self), err)]
     pub async fn fines_list_for_user(&self, user_id: i64) -> AppResult<Vec<Fine>> {
-        let rows = sqlx::query_as::<_, Fine>(
-            "SELECT * FROM fines WHERE user_id = $1 ORDER BY created_at DESC",
-        )
-        .bind(user_id)
-        .fetch_all(&self.pool)
-        .await?;
+        let rows = sqlx::query_as::<_, Fine>("SELECT * FROM fines WHERE user_id = $1 ORDER BY created_at DESC")
+            .bind(user_id)
+            .fetch_all(&self.pool)
+            .await?;
         Ok(rows)
     }
 
@@ -183,13 +118,7 @@ impl Repository {
 
     /// Create a fine for a loan
     #[tracing::instrument(skip(self), err)]
-    pub async fn fines_create(
-        &self,
-        loan_id: i64,
-        user_id: i64,
-        amount: Cents,
-        notes: Option<&str>,
-    ) -> AppResult<Fine> {
+    pub async fn fines_create(&self, loan_id: i64, user_id: i64, amount: Cents, notes: Option<&str>) -> AppResult<Fine> {
         let id = next_id();
         let row = sqlx::query_as::<_, Fine>(
             r#"
@@ -211,14 +140,7 @@ impl Repository {
 
     /// Create a charge of an explicit type (replacement / damage / overdue).
     #[tracing::instrument(skip(self), err)]
-    pub async fn fines_create_charge(
-        &self,
-        loan_id: i64,
-        user_id: i64,
-        amount: Cents,
-        charge_type: FineChargeType,
-        notes: Option<&str>,
-    ) -> AppResult<Fine> {
+    pub async fn fines_create_charge(&self, loan_id: i64, user_id: i64, amount: Cents, charge_type: FineChargeType, notes: Option<&str>) -> AppResult<Fine> {
         let id = next_id();
         let row = sqlx::query_as::<_, Fine>(
             r#"
@@ -278,12 +200,7 @@ impl Repository {
     }
 
     /// Apply a payment inside an open transaction.
-    pub async fn fines_pay_tx(
-        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        id: i64,
-        payment: Cents,
-        notes: Option<&str>,
-    ) -> AppResult<Fine> {
+    pub async fn fines_pay_tx(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, id: i64, payment: Cents, notes: Option<&str>) -> AppResult<Fine> {
         apply_fine_payment(tx, id, payment, notes).await
     }
 
@@ -294,34 +211,20 @@ impl Repository {
     }
 
     /// Waive a fine inside an open transaction.
-    pub async fn fines_waive_tx(
-        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        id: i64,
-        notes: Option<&str>,
-    ) -> AppResult<Fine> {
+    pub async fn fines_waive_tx(tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, id: i64, notes: Option<&str>) -> AppResult<Fine> {
         waive_fine(&mut **tx, id, notes).await
     }
 
     /// Get fine rules (per media type + default)
     #[tracing::instrument(skip(self), err)]
     pub async fn fines_list_rules(&self) -> AppResult<Vec<FineRule>> {
-        let rows = sqlx::query_as::<_, FineRule>(
-            "SELECT * FROM fine_rules ORDER BY media_type NULLS FIRST",
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let rows = sqlx::query_as::<_, FineRule>("SELECT * FROM fine_rules ORDER BY media_type NULLS FIRST").fetch_all(&self.pool).await?;
         Ok(rows)
     }
 
     /// Upsert a fine rule for a media type (or default)
     #[tracing::instrument(skip(self), err)]
-    pub async fn fines_upsert_rule(
-        &self,
-        media_type: Option<&str>,
-        daily_rate: Cents,
-        max_amount: Option<Cents>,
-        grace_days: i32,
-    ) -> AppResult<FineRule> {
+    pub async fn fines_upsert_rule(&self, media_type: Option<&str>, daily_rate: Cents, max_amount: Option<Cents>, grace_days: i32) -> AppResult<FineRule> {
         let updated = if media_type.is_none() {
             sqlx::query_as::<_, FineRule>(
                 r#"
@@ -383,11 +286,7 @@ impl Repository {
         self.fines_total_unpaid_conn(&mut conn, user_id).await
     }
 
-    pub(crate) async fn fines_total_unpaid_conn(
-        &self,
-        conn: &mut sqlx::PgConnection,
-        user_id: i64,
-    ) -> AppResult<Cents> {
+    pub(crate) async fn fines_total_unpaid_conn(&self, conn: &mut sqlx::PgConnection, user_id: i64) -> AppResult<Cents> {
         let total: i64 = sqlx::query_scalar(
             "SELECT COALESCE(SUM(amount - paid_amount), 0)::bigint FROM fines
              WHERE user_id = $1
@@ -406,20 +305,12 @@ impl Repository {
     /// `inherit` (or no public type) uses the global mode: `amount` uses the
     /// global value, `none` does not block.
     #[tracing::instrument(skip(self), err)]
-    pub async fn fines_get_unpaid_threshold(
-        &self,
-        public_type_id: Option<i64>,
-    ) -> AppResult<Option<Cents>> {
+    pub async fn fines_get_unpaid_threshold(&self, public_type_id: Option<i64>) -> AppResult<Option<Cents>> {
         let mut conn = self.pool.acquire().await?;
-        self.fines_get_unpaid_threshold_conn(&mut conn, public_type_id)
-            .await
+        self.fines_get_unpaid_threshold_conn(&mut conn, public_type_id).await
     }
 
-    pub(crate) async fn fines_get_unpaid_threshold_conn(
-        &self,
-        conn: &mut sqlx::PgConnection,
-        public_type_id: Option<i64>,
-    ) -> AppResult<Option<Cents>> {
+    pub(crate) async fn fines_get_unpaid_threshold_conn(&self, conn: &mut sqlx::PgConnection, public_type_id: Option<i64>) -> AppResult<Option<Cents>> {
         let threshold: Option<i64> = sqlx::query_scalar(
             r#"
             SELECT CASE
@@ -440,9 +331,7 @@ impl Repository {
     }
 
     #[tracing::instrument(skip(self), err)]
-    pub async fn fines_get_global_unpaid_threshold(
-        &self,
-    ) -> AppResult<StoredGlobalUnpaidThreshold> {
+    pub async fn fines_get_global_unpaid_threshold(&self) -> AppResult<StoredGlobalUnpaidThreshold> {
         let stored = sqlx::query_as::<_, StoredGlobalUnpaidThreshold>(
             r#"
             SELECT unpaid_threshold_mode, unpaid_fine_threshold
@@ -460,11 +349,7 @@ impl Repository {
 
     /// `amount` is written only when `Some`. Mode `none` keeps the stored numeric value.
     #[tracing::instrument(skip(self), err)]
-    pub async fn fines_set_global_unpaid_threshold(
-        &self,
-        mode: GlobalUnpaidThresholdMode,
-        amount: Option<Cents>,
-    ) -> AppResult<StoredGlobalUnpaidThreshold> {
+    pub async fn fines_set_global_unpaid_threshold(&self, mode: GlobalUnpaidThresholdMode, amount: Option<Cents>) -> AppResult<StoredGlobalUnpaidThreshold> {
         let stored = sqlx::query_as::<_, StoredGlobalUnpaidThreshold>(
             r#"
             INSERT INTO circulation_settings (id, unpaid_threshold_mode, unpaid_fine_threshold)
@@ -485,31 +370,21 @@ impl Repository {
     /// Open (pending/partial) fine for a loan, if any.
     #[tracing::instrument(skip(self), err)]
     pub async fn fines_get_open_for_loan(&self, loan_id: i64) -> AppResult<Option<Fine>> {
-        let row = sqlx::query_as::<_, Fine>(
-            "SELECT * FROM fines WHERE loan_id = $1 AND status IN ('pending','partial') LIMIT 1",
-        )
-        .bind(loan_id)
-        .fetch_optional(&self.pool)
-        .await?;
+        let row = sqlx::query_as::<_, Fine>("SELECT * FROM fines WHERE loan_id = $1 AND status IN ('pending','partial') LIMIT 1")
+            .bind(loan_id)
+            .fetch_optional(&self.pool)
+            .await?;
         Ok(row)
     }
 
     /// Insert or refresh the single open fine for a loan.
     #[tracing::instrument(skip(self), err)]
-    pub async fn fines_upsert_open(
-        &self,
-        loan_id: i64,
-        user_id: i64,
-        amount: Cents,
-        notes: Option<&str>,
-    ) -> AppResult<(Fine, AccrueOutcome)> {
+    pub async fn fines_upsert_open(&self, loan_id: i64, user_id: i64, amount: Cents, notes: Option<&str>) -> AppResult<(Fine, AccrueOutcome)> {
         if let Some(existing) = self.fines_get_open_for_loan(loan_id).await? {
             if existing.amount == amount && existing.notes.as_deref() == notes {
                 return Ok((existing, AccrueOutcome::Unchanged));
             }
-            let updated = self
-                .fines_update_open_amount(existing.id, amount, notes)
-                .await?;
+            let updated = self.fines_update_open_amount(existing.id, amount, notes).await?;
             return Ok((updated, AccrueOutcome::Updated));
         }
 
@@ -519,29 +394,18 @@ impl Repository {
                 let existing = self
                     .fines_get_open_for_loan(loan_id)
                     .await?
-                    .ok_or_else(|| {
-                        AppError::Conflict(format!(
-                            "Open fine for loan {loan_id} raced and then disappeared"
-                        ))
-                    })?;
+                    .ok_or_else(|| AppError::Conflict(format!("Open fine for loan {loan_id} raced and then disappeared")))?;
                 if existing.amount == amount && existing.notes.as_deref() == notes {
                     return Ok((existing, AccrueOutcome::Unchanged));
                 }
-                let updated = self
-                    .fines_update_open_amount(existing.id, amount, notes)
-                    .await?;
+                let updated = self.fines_update_open_amount(existing.id, amount, notes).await?;
                 Ok((updated, AccrueOutcome::Updated))
             }
             Err(e) => Err(e),
         }
     }
 
-    async fn fines_update_open_amount(
-        &self,
-        id: i64,
-        amount: Cents,
-        notes: Option<&str>,
-    ) -> AppResult<Fine> {
+    async fn fines_update_open_amount(&self, id: i64, amount: Cents, notes: Option<&str>) -> AppResult<Fine> {
         sqlx::query_as::<_, Fine>(
             r#"
             UPDATE fines SET
@@ -596,10 +460,7 @@ impl Repository {
 
     /// Unreturned overdue loans eligible for accrual (skips deleted patrons).
     #[tracing::instrument(skip(self), err)]
-    pub async fn fines_list_accrual_loans(
-        &self,
-        user_id: Option<i64>,
-    ) -> AppResult<Vec<FineAccrualLoan>> {
+    pub async fn fines_list_accrual_loans(&self, user_id: Option<i64>) -> AppResult<Vec<FineAccrualLoan>> {
         let site = loan_calendar_site_sql();
         let rows = sqlx::query(&format!(
             r#"
@@ -630,46 +491,26 @@ impl Repository {
     }
 
     /// Replacement charge to show when a lost copy is checked in.
-    pub async fn fines_lost_return_notice(
-        &self,
-        loan_id: Option<i64>,
-        item_id: i64,
-    ) -> AppResult<LostItemOnReturn> {
+    pub async fn fines_lost_return_notice(&self, loan_id: Option<i64>, item_id: i64) -> AppResult<LostItemOnReturn> {
         let row = replacement_row(&self.pool, loan_id, item_id, false).await?;
         lost_notice(row.map(|row| (row.id, row.amount, row.paid_amount, row.status)))
     }
 
     /// Same lookup inside the return transaction.
-    pub async fn fines_lost_return_notice_tx(
-        &self,
-        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        loan_id: i64,
-        item_id: i64,
-    ) -> AppResult<LostItemOnReturn> {
+    pub async fn fines_lost_return_notice_tx(&self, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, loan_id: i64, item_id: i64) -> AppResult<LostItemOnReturn> {
         let row = replacement_row(&mut **tx, Some(loan_id), item_id, true).await?;
         lost_notice(row.map(|row| (row.id, row.amount, row.paid_amount, row.status)))
     }
 
     /// Open replacement charge linked to the copy. Does not update the row.
-    pub async fn fines_linked_replacement_id_tx(
-        &self,
-        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        item_id: i64,
-    ) -> AppResult<Option<i64>> {
-        Ok(replacement_row(&mut **tx, None, item_id, false)
-            .await?
-            .map(|row| row.id))
+    pub async fn fines_linked_replacement_id_tx(&self, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, item_id: i64) -> AppResult<Option<i64>> {
+        Ok(replacement_row(&mut **tx, None, item_id, false).await?.map(|row| row.id))
     }
 
     /// Cancel an unpaid replacement charge, refund a collected one, or both.
     /// Does nothing when no actionable replacement charge is linked to the copy.
     /// Not used for disposition `damaged` — that path leaves the charge as it is.
-    pub async fn fines_settle_replacement_tx(
-        &self,
-        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        item_id: i64,
-        notes: Option<&str>,
-    ) -> AppResult<Option<LostFineSettlement>> {
+    pub async fn fines_settle_replacement_tx(&self, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, item_id: i64, notes: Option<&str>) -> AppResult<Option<LostFineSettlement>> {
         let Some(row) = replacement_row(&mut **tx, None, item_id, true).await? else {
             return Ok(None);
         };
@@ -734,12 +575,7 @@ struct ReplacementRow {
     status: FineStatus,
 }
 
-async fn replacement_row<'e, E>(
-    executor: E,
-    loan_id: Option<i64>,
-    item_id: i64,
-    lock: bool,
-) -> AppResult<Option<ReplacementRow>>
+async fn replacement_row<'e, E>(executor: E, loan_id: Option<i64>, item_id: i64, lock: bool) -> AppResult<Option<ReplacementRow>>
 where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
@@ -765,11 +601,7 @@ where
         LIMIT 1
         "#
     };
-    let row = sqlx::query(sql)
-        .bind(item_id)
-        .bind(loan_id)
-        .fetch_optional(executor)
-        .await?;
+    let row = sqlx::query(sql).bind(item_id).bind(loan_id).fetch_optional(executor).await?;
     Ok(row.map(|row| ReplacementRow {
         id: row.get("id"),
         user_id: row.get("user_id"),
@@ -780,10 +612,7 @@ where
 }
 
 fn loan_calendar_site_sql() -> String {
-    format!(
-        "COALESCE(l.site_id, {})",
-        crate::services::calendar::LIBRARY_DEFAULT_SITE_ID_SQL
-    )
+    format!("COALESCE(l.site_id, {})", crate::services::calendar::LIBRARY_DEFAULT_SITE_ID_SQL)
 }
 
 fn accrual_loan_from_row(row: &sqlx::postgres::PgRow) -> FineAccrualLoan {
@@ -794,10 +623,7 @@ fn accrual_loan_from_row(row: &sqlx::postgres::PgRow) -> FineAccrualLoan {
         expiry_at: row.get("expiry_at"),
         returned_at: row.get("returned_at"),
         media_type: row.get("media_type"),
-        user_status: status
-            .as_deref()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(UserStatus::Active),
+        user_status: status.as_deref().and_then(|s| s.parse().ok()).unwrap_or(UserStatus::Active),
         site_id: row.get("site_id"),
     }
 }
@@ -816,11 +642,7 @@ pub struct LostFineSettlement {
 /// A zero paid amount never produces a refund.
 #[must_use]
 pub fn settle_replacement_charge(amount: Cents, paid_amount: Cents) -> LostFineSettlement {
-    let refunded = if paid_amount.0 > 0 {
-        paid_amount
-    } else {
-        Cents::ZERO
-    };
+    let refunded = if paid_amount.0 > 0 { paid_amount } else { Cents::ZERO };
     let cancelled = amount.saturating_sub(paid_amount);
     let action = match (refunded.0 > 0, cancelled.0 > 0) {
         (false, _) => LostFineAction::Cancelled,
@@ -880,21 +702,12 @@ fn lost_notice(fine: Option<(i64, Cents, Cents, FineStatus)>) -> AppResult<LostI
     })
 }
 
-async fn apply_fine_payment(
-    conn: &mut sqlx::PgConnection,
-    id: i64,
-    payment: Cents,
-    notes: Option<&str>,
-) -> AppResult<Fine> {
+async fn apply_fine_payment(conn: &mut sqlx::PgConnection, id: i64, payment: Cents, notes: Option<&str>) -> AppResult<Fine> {
     // A check-constraint failure aborts an open transaction. The savepoint lets
     // the follow-up read of the remaining balance still run.
-    let in_tx: bool = sqlx::query_scalar("SELECT pg_current_xact_id_if_assigned() IS NOT NULL")
-        .fetch_one(&mut *conn)
-        .await?;
+    let in_tx: bool = sqlx::query_scalar("SELECT pg_current_xact_id_if_assigned() IS NOT NULL").fetch_one(&mut *conn).await?;
     if in_tx {
-        sqlx::query("SAVEPOINT fine_payment")
-            .execute(&mut *conn)
-            .await?;
+        sqlx::query("SAVEPOINT fine_payment").execute(&mut *conn).await?;
     }
 
     let updated = sqlx::query_as::<_, Fine>(
@@ -929,9 +742,7 @@ async fn apply_fine_payment(
         }
         Err(err) if is_fines_paid_amount_cap(&err) => {
             if in_tx {
-                sqlx::query("ROLLBACK TO SAVEPOINT fine_payment")
-                    .execute(&mut *conn)
-                    .await?;
+                sqlx::query("ROLLBACK TO SAVEPOINT fine_payment").execute(&mut *conn).await?;
             }
             release_fine_payment_savepoint(conn, in_tx).await?;
             unpaid_or_missing(conn, id).await
@@ -942,38 +753,25 @@ async fn apply_fine_payment(
 
 /// `NotFound` when the fine is gone, otherwise 422 with `amount - paid_amount`.
 async fn unpaid_or_missing(conn: &mut sqlx::PgConnection, id: i64) -> AppResult<Fine> {
-    let row = sqlx::query("SELECT amount, paid_amount FROM fines WHERE id = $1")
-        .bind(id)
-        .fetch_optional(&mut *conn)
-        .await?;
+    let row = sqlx::query("SELECT amount, paid_amount FROM fines WHERE id = $1").bind(id).fetch_optional(&mut *conn).await?;
     let Some(row) = row else {
         return Err(AppError::NotFound(format!("Fine {id} not found")));
     };
     let amount: Cents = row.get("amount");
     let paid_amount: Cents = row.get("paid_amount");
-    Err(AppError::payment_exceeds_balance(
-        amount.saturating_sub(paid_amount).get(),
-    ))
+    Err(AppError::payment_exceeds_balance(amount.saturating_sub(paid_amount).get()))
 }
 
-async fn release_fine_payment_savepoint(
-    conn: &mut sqlx::PgConnection,
-    in_tx: bool,
-) -> AppResult<()> {
+async fn release_fine_payment_savepoint(conn: &mut sqlx::PgConnection, in_tx: bool) -> AppResult<()> {
     if in_tx {
-        sqlx::query("RELEASE SAVEPOINT fine_payment")
-            .execute(&mut *conn)
-            .await?;
+        sqlx::query("RELEASE SAVEPOINT fine_payment").execute(&mut *conn).await?;
     }
     Ok(())
 }
 
 fn is_fines_paid_amount_cap(err: &sqlx::Error) -> bool {
     match err {
-        sqlx::Error::Database(db) => {
-            db.code().as_deref() == Some("23514")
-                && db.constraint() == Some("fines_paid_amount_lte_amount")
-        }
+        sqlx::Error::Database(db) => db.code().as_deref() == Some("23514") && db.constraint() == Some("fines_paid_amount_lte_amount"),
         _ => false,
     }
 }
@@ -995,14 +793,7 @@ where
 
 fn is_open_fine_unique_violation(err: &sqlx::Error) -> bool {
     match err {
-        sqlx::Error::Database(db) => {
-            db.code().as_deref() == Some("23505")
-                && matches!(
-                    db.constraint(),
-                    Some("idx_fines_one_open_per_loan")
-                        | Some("idx_fines_one_open_per_loan_charge")
-                )
-        }
+        sqlx::Error::Database(db) => db.code().as_deref() == Some("23505") && matches!(db.constraint(), Some("idx_fines_one_open_per_loan") | Some("idx_fines_one_open_per_loan_charge")),
         _ => false,
     }
 }

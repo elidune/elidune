@@ -82,16 +82,9 @@ impl ReminderTier {
 
 /// Next tier shown on the overdue list, or `None` when sending must stop.
 #[must_use]
-pub fn next_reminder_tier(
-    reminder_count: i32,
-    circulation_status: Option<i16>,
-    cfg: &RemindersConfig,
-) -> Option<ReminderTier> {
+pub fn next_reminder_tier(reminder_count: i32, circulation_status: Option<i16>, cfg: &RemindersConfig) -> Option<ReminderTier> {
     match CirculationStatus::from_db(circulation_status) {
-        CirculationStatus::Lost
-        | CirculationStatus::Missing
-        | CirculationStatus::ClaimedReturned
-        | CirculationStatus::ToSearch => None,
+        CirculationStatus::Lost | CirculationStatus::Missing | CirculationStatus::ClaimedReturned | CirculationStatus::ToSearch => None,
         _ => {
             let next = ReminderTier::from_count(reminder_count)?;
             next.is_enabled(cfg).then_some(next)
@@ -179,12 +172,7 @@ pub struct RemindersService {
 }
 
 impl RemindersService {
-    pub fn new(
-        repository: Arc<dyn LoansRepository>,
-        email: EmailService,
-        audit: AuditService,
-        dynamic_config: Arc<DynamicConfig>,
-    ) -> Self {
+    pub fn new(repository: Arc<dyn LoansRepository>, email: EmailService, audit: AuditService, dynamic_config: Arc<DynamicConfig>) -> Self {
         Self {
             repository,
             email,
@@ -219,38 +207,21 @@ impl RemindersService {
                 expiry_at: r.expiry_at,
                 last_reminder_sent_at: r.last_reminder_sent_at,
                 reminder_count: r.reminder_count,
-                next_reminder_tier: next_reminder_tier(
-                    r.reminder_count,
-                    r.circulation_status,
-                    &reminders_cfg,
-                ),
+                next_reminder_tier: next_reminder_tier(r.reminder_count, r.circulation_status, &reminders_cfg),
             })
             .collect();
 
-        Ok(OverdueLoansPage {
-            loans,
-            total,
-            page,
-            per_page,
-        })
+        Ok(OverdueLoansPage { loans, total, page, per_page })
     }
 
     /// Enqueue overdue reminder emails for delivery by the outbox worker.
     /// If `dry_run` is true, builds the report but does NOT enqueue emails or update the DB.
     #[tracing::instrument(skip(self), err)]
-    pub async fn send_overdue_reminders(
-        &self,
-        dry_run: bool,
-        triggered_by: Option<i64>,
-        client_ip: Option<String>,
-    ) -> AppResult<ReminderReport> {
+    pub async fn send_overdue_reminders(&self, dry_run: bool, triggered_by: Option<i64>, client_ip: Option<String>) -> AppResult<ReminderReport> {
         let reminders_cfg = self.dynamic_config.read_reminders();
         let delays = ReminderTierDelays::from_config(&reminders_cfg);
 
-        let overdue_rows = self
-            .repository
-            .loans_get_overdue_for_reminders(delays)
-            .await?;
+        let overdue_rows = self.repository.loans_get_overdue_for_reminders(delays).await?;
 
         if overdue_rows.is_empty() {
             return Ok(ReminderReport {
@@ -265,15 +236,10 @@ impl RemindersService {
         // One mail per patron per tier (same-tier loans share a template).
         let mut by_user_tier: HashMap<(i64, ReminderTier), Vec<_>> = HashMap::new();
         for row in &overdue_rows {
-            let Some(tier) = ReminderTier::from_count(row.reminder_count)
-                .filter(|t| t.is_enabled(&reminders_cfg))
-            else {
+            let Some(tier) = ReminderTier::from_count(row.reminder_count).filter(|t| t.is_enabled(&reminders_cfg)) else {
                 continue;
             };
-            by_user_tier
-                .entry((row.user_id, tier))
-                .or_default()
-                .push(row);
+            by_user_tier.entry((row.user_id, tier)).or_default().push(row);
         }
 
         let mut details = Vec::new();
@@ -281,8 +247,7 @@ impl RemindersService {
         let mut queued_loan_ids: Vec<i64> = Vec::new();
         let library_lang = self.email.library_notice_language().await;
         let zone = match self.repository.library_timezone_name().await {
-            Ok(name) => crate::services::calendar::parse_timezone(&name)
-                .unwrap_or_else(|_| crate::services::calendar::default_zone()),
+            Ok(name) => crate::services::calendar::parse_timezone(&name).unwrap_or_else(|_| crate::services::calendar::default_zone()),
             Err(err) => {
                 tracing::warn!(
                     error = %err,
@@ -305,10 +270,7 @@ impl RemindersService {
             let template_id = tier.template_id(&reminders_cfg).to_string();
 
             if !dry_run {
-                let template_result = self
-                    .email
-                    .load_notice_template(&template_id, patron_lang, library_lang)
-                    .await;
+                let template_result = self.email.load_notice_template(&template_id, patron_lang, library_lang).await;
 
                 match template_result {
                     Err(e) => {
@@ -322,24 +284,12 @@ impl RemindersService {
                     Ok((language, template)) => {
                         let loans_list = loan_list_plain(loans, zone, Some(language));
                         let loans_table_html = loan_table_html(loans, zone, Some(language));
-                        let vars: Vec<(&str, &str)> = vec![
-                            ("firstname", firstname),
-                            ("lastname", lastname),
-                            ("loans_list", &loans_list),
-                            ("loans_table_html", &loans_table_html),
-                        ];
-                        let (subject, body_plain, body_html) =
-                            email_templates::substitute(&template, &vars);
+                        let vars: Vec<(&str, &str)> = vec![("firstname", firstname), ("lastname", lastname), ("loans_list", &loans_list), ("loans_table_html", &loans_table_html)];
+                        let (subject, body_plain, body_html) = email_templates::substitute(&template, &vars);
 
                         match self
                             .email
-                            .enqueue_overdue_reminder(
-                                &email_addr,
-                                &subject,
-                                &body_plain,
-                                &body_html,
-                                &loans.iter().map(|l| l.loan_id).collect::<Vec<_>>(),
-                            )
+                            .enqueue_overdue_reminder(&email_addr, &subject, &body_plain, &body_html, &loans.iter().map(|l| l.loan_id).collect::<Vec<_>>())
                             .await
                         {
                             Ok(outbox_id) => {
@@ -422,11 +372,7 @@ impl RemindersService {
     }
 }
 
-fn loan_list_plain(
-    loans: &[&crate::repository::loans::OverdueLoanRow],
-    zone: chrono_tz::Tz,
-    lang: Option<Language>,
-) -> String {
+fn loan_list_plain(loans: &[&crate::repository::loans::OverdueLoanRow], zone: chrono_tz::Tz, lang: Option<Language>) -> String {
     loans
         .iter()
         .map(|l| {
@@ -444,11 +390,7 @@ fn loan_list_plain(
         .join("\n")
 }
 
-fn loan_table_html(
-    loans: &[&crate::repository::loans::OverdueLoanRow],
-    zone: chrono_tz::Tz,
-    lang: Option<Language>,
-) -> String {
+fn loan_table_html(loans: &[&crate::repository::loans::OverdueLoanRow], zone: chrono_tz::Tz, lang: Option<Language>) -> String {
     let table_rows = loans
         .iter()
         .map(|l| {
@@ -467,12 +409,7 @@ fn loan_table_html(
         .collect::<Vec<_>>()
         .join("\n");
 
-    let th = |key: i18n::Label| {
-        format!(
-            "<th style=\"padding:4px 8px;border:1px solid #ccc;background:#f5f5f5\">{}</th>",
-            i18n::label(lang, key)
-        )
-    };
+    let th = |key: i18n::Label| format!("<th style=\"padding:4px 8px;border:1px solid #ccc;background:#f5f5f5\">{}</th>", i18n::label(lang, key));
     format!(
         "<table style=\"border-collapse:collapse;width:100%\">\
          <thead><tr>{}{}{}{}</tr></thead><tbody>{table_rows}</tbody></table>",
@@ -490,11 +427,7 @@ fn loan_title(lang: Option<Language>, title: Option<&str>) -> String {
     }
 }
 
-fn due_label(
-    lang: Option<Language>,
-    expiry_at: Option<DateTime<Utc>>,
-    zone: chrono_tz::Tz,
-) -> String {
+fn due_label(lang: Option<Language>, expiry_at: Option<DateTime<Utc>>, zone: chrono_tz::Tz) -> String {
     expiry_at
         .map(|d| crate::services::calendar::format_patron_date(zone, d))
         .unwrap_or_else(|| i18n::label(lang, i18n::Label::NotAvailable).to_string())
@@ -513,10 +446,7 @@ mod tests {
     fn from_count_advances_one_tier_and_never_skips() {
         assert_eq!(ReminderTier::from_count(0), Some(ReminderTier::First));
         assert_eq!(ReminderTier::from_count(1), Some(ReminderTier::Second));
-        assert_eq!(
-            ReminderTier::from_count(2),
-            Some(ReminderTier::FormalNotice)
-        );
+        assert_eq!(ReminderTier::from_count(2), Some(ReminderTier::FormalNotice));
         assert_eq!(ReminderTier::from_count(3), None);
         assert_eq!(ReminderTier::from_count(99), None);
     }
@@ -531,18 +461,9 @@ mod tests {
     #[test]
     fn stop_when_lost_or_claimed_returned() {
         let cfg = cfg();
-        assert_eq!(
-            next_reminder_tier(0, Some(CirculationStatus::LOST), &cfg),
-            None
-        );
-        assert_eq!(
-            next_reminder_tier(0, Some(CirculationStatus::CLAIMED_RETURNED), &cfg),
-            None
-        );
-        assert_eq!(
-            next_reminder_tier(0, Some(CirculationStatus::DAMAGED), &cfg),
-            Some(ReminderTier::First)
-        );
+        assert_eq!(next_reminder_tier(0, Some(CirculationStatus::LOST), &cfg), None);
+        assert_eq!(next_reminder_tier(0, Some(CirculationStatus::CLAIMED_RETURNED), &cfg), None);
+        assert_eq!(next_reminder_tier(0, Some(CirculationStatus::DAMAGED), &cfg), Some(ReminderTier::First));
         assert_eq!(next_reminder_tier(0, None, &cfg), Some(ReminderTier::First));
     }
 
@@ -553,10 +474,7 @@ mod tests {
         cfg.normalize_tier_enabled();
         assert!(cfg.second_reminder_enabled);
         assert!(!cfg.formal_notice_enabled);
-        assert_eq!(
-            next_reminder_tier(1, None, &cfg),
-            Some(ReminderTier::Second)
-        );
+        assert_eq!(next_reminder_tier(1, None, &cfg), Some(ReminderTier::Second));
         assert_eq!(next_reminder_tier(2, None, &cfg), None);
         assert_eq!(cfg.max_sendable_reminder_count(), 2);
     }
@@ -582,10 +500,7 @@ mod tests {
         cfg.formal_notice_enabled = false;
         cfg.normalize_tier_enabled();
         assert_eq!(next_reminder_tier(2, None, &cfg), None);
-        assert_eq!(
-            next_reminder_tier(1, None, &cfg),
-            Some(ReminderTier::Second)
-        );
+        assert_eq!(next_reminder_tier(1, None, &cfg), Some(ReminderTier::Second));
 
         cfg.second_reminder_enabled = false;
         cfg.normalize_tier_enabled();
@@ -607,14 +522,8 @@ mod tests {
     fn templates_are_distinct_per_tier() {
         let cfg = cfg();
         assert_eq!(ReminderTier::First.template_id(&cfg), "overdue_reminder");
-        assert_eq!(
-            ReminderTier::Second.template_id(&cfg),
-            "overdue_second_reminder"
-        );
-        assert_eq!(
-            ReminderTier::FormalNotice.template_id(&cfg),
-            "overdue_formal_notice"
-        );
+        assert_eq!(ReminderTier::Second.template_id(&cfg), "overdue_second_reminder");
+        assert_eq!(ReminderTier::FormalNotice.template_id(&cfg), "overdue_formal_notice");
     }
 
     fn overdue_row(title: Option<&str>, expiry: Option<DateTime<Utc>>) -> OverdueLoanRow {
@@ -649,18 +558,12 @@ mod tests {
         let loans = [&row];
 
         let french = loan_list_plain(&loans, zone, Some(Language::French));
-        assert_eq!(
-            french,
-            "- L'Étranger (Camus) — emprunté le 10/01/2026, à rendre le 24/01/2026"
-        );
+        assert_eq!(french, "- L'Étranger (Camus) — emprunté le 10/01/2026, à rendre le 24/01/2026");
         assert!(!french.contains("borrowed:"));
         assert!(!french.contains("due:"));
 
         let english = loan_list_plain(&loans, zone, Some(Language::English));
-        assert_eq!(
-            english,
-            "- L'Étranger (Camus) — borrowed: 10/01/2026, due: 24/01/2026"
-        );
+        assert_eq!(english, "- L'Étranger (Camus) — borrowed: 10/01/2026, due: 24/01/2026");
 
         let german = loan_table_html(&loans, zone, Some(Language::German));
         assert!(german.contains(">Titel</th>"));

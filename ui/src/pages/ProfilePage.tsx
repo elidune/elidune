@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Navigate, useLocation, useSearchParams } from 'react-router-dom';
@@ -24,7 +24,7 @@ import {
   Palette,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import { Card, CardHeader, Button, Input, Modal } from '@/components/common';
+import { Card, CardHeader, Button, Input, Modal, SectionTabBar } from '@/components/common';
 import ThemeSwitcher from '@/components/common/ThemeSwitcher';
 import EventsConsentFields from '@/components/users/EventsConsentFields';
 import ReaderPublicTypeReadout from '@/components/users/ReaderPublicTypeReadout';
@@ -136,14 +136,10 @@ export default function ProfilePage() {
     );
   };
 
-  const profileTabs: { id: ProfileTab; label: string; icon: ReactNode }[] = [
-    { id: 'personal', label: t('profile.tabs.personal'), icon: <User className="h-5 w-5" aria-hidden /> },
-    {
-      id: 'preferences',
-      label: t('profile.tabs.preferences'),
-      icon: <Palette className="h-5 w-5" aria-hidden />,
-    },
-    { id: 'security', label: t('profile.tabs.security'), icon: <Shield className="h-5 w-5" aria-hidden /> },
+  const profileTabs = [
+    { id: 'personal' as const, label: t('profile.tabs.personal'), icon: User },
+    { id: 'preferences' as const, label: t('profile.tabs.preferences'), icon: Palette },
+    { id: 'security' as const, label: t('profile.tabs.security'), icon: Shield },
   ];
 
   const [prevProfileUser, setPrevProfileUser] = useState(user);
@@ -321,29 +317,12 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-gray-200/80 dark:border-gray-800/80 bg-gray-50/50 dark:bg-gray-900/30 p-1.5 sm:p-2">
-        <nav className="flex flex-wrap gap-1" role="tablist" aria-label={t('profile.tabs.ariaLabel')}>
-          {profileTabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              id={`profile-tab-${tab.id}`}
-              aria-selected={activeTab === tab.id}
-              aria-controls={`profile-panel-${tab.id}`}
-              onClick={() => selectTab(tab.id)}
-              className={`flex items-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
-                activeTab === tab.id
-                  ? 'bg-white dark:bg-gray-800 text-amber-700 dark:text-amber-400 shadow-sm border border-gray-200/70 dark:border-gray-700/70'
-                  : 'text-gray-600 dark:text-gray-400 hover:bg-white/60 dark:hover:bg-gray-800/40 hover:text-gray-900 dark:hover:text-gray-200 border border-transparent'
-              }`}
-            >
-              {tab.icon}
-              {tab.label}
-            </button>
-          ))}
-        </nav>
-      </div>
+      <SectionTabBar
+        ariaLabel={t('profile.tabs.ariaLabel')}
+        activeTab={activeTab}
+        onSelectTab={selectTab}
+        tabs={profileTabs}
+      />
 
       {activeTab === 'personal' && (
       <div role="tabpanel" id="profile-panel-personal" aria-labelledby="profile-tab-personal">

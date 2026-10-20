@@ -25,11 +25,10 @@ use crate::{
 /// two processes using the same instance mint the same id in the same millisecond
 /// and the outbox insert fails. The instance is the process id.
 fn next_outbox_id() -> i64 {
-    static IDS: std::sync::LazyLock<std::sync::Mutex<snowflaked::Generator>> =
-        std::sync::LazyLock::new(|| {
-            let instance = (std::process::id() as u16) & 0x03FF;
-            std::sync::Mutex::new(snowflaked::Generator::new(instance))
-        });
+    static IDS: std::sync::LazyLock<std::sync::Mutex<snowflaked::Generator>> = std::sync::LazyLock::new(|| {
+        let instance = (std::process::id() as u16) & 0x03FF;
+        std::sync::Mutex::new(snowflaked::Generator::new(instance))
+    });
     IDS.lock().unwrap_or_else(|err| err.into_inner()).generate()
 }
 
@@ -50,10 +49,7 @@ pub struct EmailService {
 
 impl EmailService {
     pub fn new(dynamic_config: Arc<DynamicConfig>, pool: Pool<Postgres>) -> Self {
-        Self {
-            dynamic_config,
-            pool,
-        }
+        Self { dynamic_config, pool }
     }
 
     /// Directory containing JSON email templates (e.g. `data/email_templates`).
@@ -73,11 +69,7 @@ impl EmailService {
     /// `lang → french → english`, looking up the DB first then the on-disk fallback.
     ///
     /// Patron notices use [`Self::load_notice_template`] instead.
-    pub async fn load_template(
-        &self,
-        template_id: &str,
-        lang: Option<Language>,
-    ) -> AppResult<EmailTemplate> {
+    pub async fn load_template(&self, template_id: &str, lang: Option<Language>) -> AppResult<EmailTemplate> {
         let dir = self.templates_dir_str();
         email_templates::load_template_async(&self.pool, Path::new(&dir), template_id, lang).await
     }
@@ -87,21 +79,9 @@ impl EmailService {
     /// The returned language is the one the template was found in: the reader's
     /// preference when that template exists, otherwise the library language when
     /// that template exists, otherwise French. Labels must use this language.
-    pub async fn load_notice_template(
-        &self,
-        template_id: &str,
-        patron: Option<Language>,
-        library: Option<Language>,
-    ) -> AppResult<(Language, EmailTemplate)> {
+    pub async fn load_notice_template(&self, template_id: &str, patron: Option<Language>, library: Option<Language>) -> AppResult<(Language, EmailTemplate)> {
         let dir = self.templates_dir_str();
-        email_templates::load_notice_template_async(
-            &self.pool,
-            Path::new(&dir),
-            template_id,
-            patron,
-            library,
-        )
-        .await
+        email_templates::load_notice_template_async(&self.pool, Path::new(&dir), template_id, patron, library).await
     }
 
     /// Library UI language as a notice language. `None` when unset or unreadable.
@@ -130,48 +110,26 @@ impl EmailService {
     }
 
     /// Send a 2FA code via email
-    pub async fn send_2fa_code(
-        &self,
-        to: &str,
-        code: &str,
-        lang: Option<Language>,
-    ) -> AppResult<()> {
+    pub async fn send_2fa_code(&self, to: &str, code: &str, lang: Option<Language>) -> AppResult<()> {
         let template = self.load_template("2fa_code", lang).await?;
-        let (subject, body_plain, body_html) =
-            email_templates::substitute(&template, &[("code", code)]);
-        self.send_email_with_html(to, &subject, &body_plain, &body_html)
-            .await
+        let (subject, body_plain, body_html) = email_templates::substitute(&template, &[("code", code)]);
+        self.send_email_with_html(to, &subject, &body_plain, &body_html).await
     }
 
     /// Send a recovery code via email
-    pub async fn send_recovery_code(
-        &self,
-        to: &str,
-        code: &str,
-        lang: Option<Language>,
-    ) -> AppResult<()> {
+    pub async fn send_recovery_code(&self, to: &str, code: &str, lang: Option<Language>) -> AppResult<()> {
         let template = self.load_template("recovery_code", lang).await?;
-        let (subject, body_plain, body_html) =
-            email_templates::substitute(&template, &[("code", code)]);
-        self.send_email_with_html(to, &subject, &body_plain, &body_html)
-            .await
+        let (subject, body_plain, body_html) = email_templates::substitute(&template, &[("code", code)]);
+        self.send_email_with_html(to, &subject, &body_plain, &body_html).await
     }
 
     /// Render a password-reset message and queue it on `email_outbox`.
     ///
     /// The outbox worker performs SMTP delivery, so this does not contact the relay.
     /// Returns the new outbox row id.
-    pub async fn send_password_reset(
-        &self,
-        to: &str,
-        token: &str,
-        lang: Option<Language>,
-        reset_url: Option<&str>,
-    ) -> AppResult<i64> {
+    pub async fn send_password_reset(&self, to: &str, token: &str, lang: Option<Language>, reset_url: Option<&str>) -> AppResult<i64> {
         let library = self.library_notice_language().await;
-        let (_, template) = self
-            .load_notice_template("password_reset", lang, library)
-            .await?;
+        let (_, template) = self.load_notice_template("password_reset", lang, library).await?;
         let vars: Vec<(&str, &str)> = match reset_url {
             Some(url) => vec![("token", token), ("reset_url", url)],
             None => vec![("token", token), ("reset_url", "")],
@@ -190,18 +148,11 @@ impl EmailService {
             <p>This is a test email from Elidune to verify your SMTP configuration.</p>\
             <p>Ceci est un email de test envoyé par Elidune pour vérifier votre configuration SMTP.</p>\
             </body></html>";
-        self.send_email_with_html(to, subject, body_plain, body_html)
-            .await
+        self.send_email_with_html(to, subject, body_plain, body_html).await
     }
 
     /// Queue an email for asynchronous delivery via the `email_outbox` worker.
-    pub async fn enqueue(
-        &self,
-        to: &str,
-        subject: &str,
-        body_plain: &str,
-        body_html: &str,
-    ) -> AppResult<i64> {
+    pub async fn enqueue(&self, to: &str, subject: &str, body_plain: &str, body_html: &str) -> AppResult<i64> {
         let id = next_outbox_id();
         let body = serde_json::json!({
             "plain": body_plain,
@@ -228,14 +179,7 @@ impl EmailService {
     }
 
     /// Queue an overdue-reminder email and reserve the covered loans until SMTP delivery succeeds.
-    pub async fn enqueue_overdue_reminder(
-        &self,
-        to: &str,
-        subject: &str,
-        body_plain: &str,
-        body_html: &str,
-        loan_ids: &[i64],
-    ) -> AppResult<i64> {
+    pub async fn enqueue_overdue_reminder(&self, to: &str, subject: &str, body_plain: &str, body_html: &str, loan_ids: &[i64]) -> AppResult<i64> {
         let mut tx = self.pool.begin().await.map_err(AppError::from)?;
         let id = next_outbox_id();
         let body = serde_json::json!({
@@ -284,22 +228,10 @@ impl EmailService {
     /// `extras.migration_notice_user_id` is set, `events_consent_notice_at` is stamped
     /// in the same transaction once the row is queued, and only while the source is
     /// still `migration` and the notice timestamp is null.
-    pub async fn enqueue_event_announcement(
-        &self,
-        to: &str,
-        subject: &str,
-        body_plain: &str,
-        body_html: &str,
-        event_id: i64,
-        extras: EventAnnouncementExtras<'_>,
-    ) -> AppResult<i64> {
+    pub async fn enqueue_event_announcement(&self, to: &str, subject: &str, body_plain: &str, body_html: &str, event_id: i64, extras: EventAnnouncementExtras<'_>) -> AppResult<i64> {
         let mut tx = self.pool.begin().await.map_err(AppError::from)?;
         let id = next_outbox_id();
-        let header_json: Vec<serde_json::Value> = extras
-            .headers
-            .iter()
-            .map(|(name, value)| serde_json::json!({ "name": name, "value": value }))
-            .collect();
+        let header_json: Vec<serde_json::Value> = extras.headers.iter().map(|(name, value)| serde_json::json!({ "name": name, "value": value })).collect();
         let body = serde_json::json!({
             "plain": body_plain,
             "html": body_html,
@@ -355,39 +287,20 @@ impl EmailService {
     }
 
     /// Low-level send: builds the SMTP transport from the current live config on each call.
-    pub async fn send_email_with_html(
-        &self,
-        to: &str,
-        subject: &str,
-        body_plain: &str,
-        body_html: &str,
-    ) -> AppResult<()> {
-        self.send_email_with_headers(to, subject, body_plain, body_html, &[])
-            .await
+    pub async fn send_email_with_html(&self, to: &str, subject: &str, body_plain: &str, body_html: &str) -> AppResult<()> {
+        self.send_email_with_headers(to, subject, body_plain, body_html, &[]).await
     }
 
     /// Send with extra headers (announcement `List-Unsubscribe` / one-click post).
-    pub async fn send_email_with_headers(
-        &self,
-        to: &str,
-        subject: &str,
-        body_plain: &str,
-        body_html: &str,
-        headers: &[(String, String)],
-    ) -> AppResult<()> {
+    pub async fn send_email_with_headers(&self, to: &str, subject: &str, body_plain: &str, body_html: &str, headers: &[(String, String)]) -> AppResult<()> {
         let config = self.dynamic_config.read_email();
 
         let from_name = config.smtp_from_name.as_deref().unwrap_or("Elidune");
-        let from_mailbox = Mailbox::from_str(&format!("{} <{}>", from_name, config.smtp_from))
-            .map_err(|e| AppError::Internal(format!("Invalid from address: {}", e)))?;
+        let from_mailbox = Mailbox::from_str(&format!("{} <{}>", from_name, config.smtp_from)).map_err(|e| AppError::Internal(format!("Invalid from address: {}", e)))?;
 
-        let to_mailbox = Mailbox::from_str(to)
-            .map_err(|e| AppError::Internal(format!("Invalid to address: {}", e)))?;
+        let to_mailbox = Mailbox::from_str(to).map_err(|e| AppError::Internal(format!("Invalid to address: {}", e)))?;
 
-        let mut builder = Message::builder()
-            .from(from_mailbox)
-            .to(to_mailbox)
-            .subject(subject);
+        let mut builder = Message::builder().from(from_mailbox).to(to_mailbox).subject(subject);
         for (name, value) in headers {
             builder = match name.as_str() {
                 "List-Unsubscribe" => builder.header(ListUnsubscribe(value.clone())),
@@ -398,31 +311,19 @@ impl EmailService {
         let email = builder
             .multipart(
                 MultiPart::alternative()
-                    .singlepart(
-                        SinglePart::builder()
-                            .header(ContentType::TEXT_PLAIN)
-                            .body(body_plain.to_string()),
-                    )
-                    .singlepart(
-                        SinglePart::builder()
-                            .header(ContentType::TEXT_HTML)
-                            .body(body_html.to_string()),
-                    ),
+                    .singlepart(SinglePart::builder().header(ContentType::TEXT_PLAIN).body(body_plain.to_string()))
+                    .singlepart(SinglePart::builder().header(ContentType::TEXT_HTML).body(body_html.to_string())),
             )
             .map_err(|e| AppError::Internal(format!("Failed to build email: {}", e)))?;
 
         let mailer_builder = if config.smtp_use_tls {
-            SmtpTransport::starttls_relay(&config.smtp_host).map_err(|e| {
-                AppError::Internal(format!("Failed to create SMTP transport: {}", e))
-            })?
+            SmtpTransport::starttls_relay(&config.smtp_host).map_err(|e| AppError::Internal(format!("Failed to create SMTP transport: {}", e)))?
         } else {
             SmtpTransport::builder_dangerous(&config.smtp_host)
         }
         .port(config.smtp_port);
 
-        let mailer_builder = if let Some((username, password)) =
-            smtp_auth_credentials(&config.smtp_username, &config.smtp_password)
-        {
+        let mailer_builder = if let Some((username, password)) = smtp_auth_credentials(&config.smtp_username, &config.smtp_password) {
             mailer_builder.credentials(Credentials::new(username, password))
         } else {
             mailer_builder
@@ -430,9 +331,7 @@ impl EmailService {
 
         let mailer = mailer_builder.timeout(Some(SMTP_TIMEOUT)).build();
 
-        mailer
-            .send(&email)
-            .map_err(|e| AppError::Internal(format!("Failed to send email: {}", e)))?;
+        mailer.send(&email).map_err(|e| AppError::Internal(format!("Failed to send email: {}", e)))?;
 
         Ok(())
     }
@@ -444,18 +343,9 @@ const SMTP_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// SMTP AUTH credentials. Empty or whitespace-only username/password means no AUTH,
 /// so a relay that does not offer authentication can still be used.
-fn smtp_auth_credentials(
-    username: &Option<String>,
-    password: &Option<String>,
-) -> Option<(String, String)> {
-    let username = username
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())?;
-    let password = password
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())?;
+fn smtp_auth_credentials(username: &Option<String>, password: &Option<String>) -> Option<(String, String)> {
+    let username = username.as_deref().map(str::trim).filter(|value| !value.is_empty())?;
+    let password = password.as_deref().map(str::trim).filter(|value| !value.is_empty())?;
     Some((username.to_string(), password.to_string()))
 }
 
@@ -469,10 +359,7 @@ mod tests {
         assert!(smtp_auth_credentials(&Some(String::new()), &Some(String::new())).is_none());
         assert!(smtp_auth_credentials(&Some("  ".into()), &Some("secret".into())).is_none());
         assert!(smtp_auth_credentials(&Some("mailer".into()), &Some(String::new())).is_none());
-        assert_eq!(
-            smtp_auth_credentials(&Some(" mailer ".into()), &Some("secret".into())),
-            Some(("mailer".into(), "secret".into()))
-        );
+        assert_eq!(smtp_auth_credentials(&Some(" mailer ".into()), &Some("secret".into())), Some(("mailer".into(), "secret".into())));
     }
 }
 

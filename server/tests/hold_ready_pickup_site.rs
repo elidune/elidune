@@ -32,9 +32,7 @@ fn dollar_quoted<'a>(sql: &'a str, tag: &str) -> &'a str {
     let marker = format!("${tag}$");
     let start = sql.find(&marker).unwrap_or_else(|| panic!("missing {tag}")) + marker.len();
     let rest = &sql[start..];
-    let end = rest
-        .find(&marker)
-        .unwrap_or_else(|| panic!("unclosed {tag}"));
+    let end = rest.find(&marker).unwrap_or_else(|| panic!("unclosed {tag}"));
     &rest[..end]
 }
 
@@ -49,20 +47,16 @@ async fn email_shows_pickup_site_in_each_notice_language() {
     let pickup_name = format!("PickupAlpha{suffix}");
     let home_name = format!("HomeBeta{suffix}");
 
-    let pickup_id: i64 = sqlx::query_scalar(
-        r#"INSERT INTO sources (name, is_archive, "default") VALUES ($1, 0, FALSE) RETURNING id"#,
-    )
-    .bind(&pickup_name)
-    .fetch_one(&pool)
-    .await
-    .expect("pickup site");
-    let home_id: i64 = sqlx::query_scalar(
-        r#"INSERT INTO sources (name, is_archive, "default") VALUES ($1, 0, FALSE) RETURNING id"#,
-    )
-    .bind(&home_name)
-    .fetch_one(&pool)
-    .await
-    .expect("item site");
+    let pickup_id: i64 = sqlx::query_scalar(r#"INSERT INTO sources (name, is_archive, "default") VALUES ($1, 0, FALSE) RETURNING id"#)
+        .bind(&pickup_name)
+        .fetch_one(&pool)
+        .await
+        .expect("pickup site");
+    let home_id: i64 = sqlx::query_scalar(r#"INSERT INTO sources (name, is_archive, "default") VALUES ($1, 0, FALSE) RETURNING id"#)
+        .bind(&home_name)
+        .fetch_one(&pool)
+        .await
+        .expect("item site");
 
     let user_id: i64 = sqlx::query_scalar(
         r#"
@@ -96,7 +90,7 @@ async fn email_shows_pickup_site_in_each_notice_language() {
 
     let item_id: i64 = sqlx::query_scalar(
         r#"
-        INSERT INTO items (id, biblio_id, barcode, borrowable, source_id)
+        INSERT INTO items (id, biblio_id, barcode, borrowable, site_id)
         VALUES ($1, $2, $3, TRUE, $4)
         RETURNING id
         "#,
@@ -142,12 +136,7 @@ async fn email_shows_pickup_site_in_each_notice_language() {
     };
 
     let email = email_service(&app);
-    let phrases = [
-        ("french", "vous attend à"),
-        ("english", "waiting for you at"),
-        ("german", "wartet in"),
-        ("spanish", "le espera en"),
-    ];
+    let phrases = [("french", "vous attend à"), ("english", "waiting for you at"), ("german", "wartet in"), ("spanish", "le espera en")];
     for (language, phrase) in phrases {
         let to = format!("{language}-{suffix}@test.local");
         elidune_server::hold_email::send_hold_ready_simple(
@@ -166,25 +155,14 @@ async fn email_shows_pickup_site_in_each_notice_language() {
         .await
         .unwrap_or_else(|err| panic!("enqueue {language}: {err}"));
 
-        let body: String = sqlx::query_scalar(
-            "SELECT body FROM email_outbox WHERE to_addr = $1 ORDER BY id DESC LIMIT 1",
-        )
-        .bind(&to)
-        .fetch_one(&pool)
-        .await
-        .unwrap_or_else(|_| panic!("outbox row for {language}"));
-        assert!(
-            body.contains(&pickup_name),
-            "{language} notice omitted the pickup site: {body}"
-        );
-        assert!(
-            !body.contains(&home_name),
-            "{language} notice showed the item site: {body}"
-        );
-        assert!(
-            body.contains(phrase),
-            "{language} notice was not rendered in that language: {body}"
-        );
+        let body: String = sqlx::query_scalar("SELECT body FROM email_outbox WHERE to_addr = $1 ORDER BY id DESC LIMIT 1")
+            .bind(&to)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|_| panic!("outbox row for {language}"));
+        assert!(body.contains(&pickup_name), "{language} notice omitted the pickup site: {body}");
+        assert!(!body.contains(&home_name), "{language} notice showed the item site: {body}");
+        assert!(body.contains(phrase), "{language} notice was not rendered in that language: {body}");
     }
 }
 
@@ -227,18 +205,13 @@ async fn migration_leaves_customised_templates_and_updates_shipped_defaults() {
         .unwrap_or_else(|err| panic!("seed shipped {language}: {err}"));
         assert_eq!(reset.rows_affected(), 1, "missing {language} template row");
 
-        sqlx::raw_sql(sql)
-            .execute(&mut *tx)
-            .await
-            .unwrap_or_else(|err| panic!("apply migration: {err}"));
+        sqlx::raw_sql(sql).execute(&mut *tx).await.unwrap_or_else(|err| panic!("apply migration: {err}"));
 
-        let row = sqlx::query(
-            "SELECT body_plain, body_html FROM email_templates WHERE template_id = 'hold_ready' AND language = $1",
-        )
-        .bind(language)
-        .fetch_one(&mut *tx)
-        .await
-        .expect("template row");
+        let row = sqlx::query("SELECT body_plain, body_html FROM email_templates WHERE template_id = 'hold_ready' AND language = $1")
+            .bind(language)
+            .fetch_one(&mut *tx)
+            .await
+            .expect("template row");
         let plain: String = row.get("body_plain");
         let html: String = row.get("body_html");
         assert_eq!(plain, new_plain, "{language} plain was not rewritten");
@@ -258,18 +231,13 @@ async fn migration_leaves_customised_templates_and_updates_shipped_defaults() {
         .await
         .expect("customise");
 
-        sqlx::raw_sql(sql)
-            .execute(&mut *tx)
-            .await
-            .expect("reapply migration");
+        sqlx::raw_sql(sql).execute(&mut *tx).await.expect("reapply migration");
 
-        let kept = sqlx::query(
-            "SELECT subject, body_plain FROM email_templates WHERE template_id = 'hold_ready' AND language = $1",
-        )
-        .bind(language)
-        .fetch_one(&mut *tx)
-        .await
-        .expect("custom row");
+        let kept = sqlx::query("SELECT subject, body_plain FROM email_templates WHERE template_id = 'hold_ready' AND language = $1")
+            .bind(language)
+            .fetch_one(&mut *tx)
+            .await
+            .expect("custom row");
         let subject: String = kept.get("subject");
         let plain: String = kept.get("body_plain");
         assert_eq!(subject, format!("Custom {language} subject"));
@@ -290,10 +258,7 @@ fn prefix(language: &str) -> &'static str {
 fn shipped_label(language: &str) -> (&'static str, &'static str) {
     match language {
         "french" => ("Réservation disponible", "Votre réservation est disponible"),
-        "english" => (
-            "Hold ready for pickup",
-            "Your library hold is ready for pickup",
-        ),
+        "english" => ("Hold ready for pickup", "Your library hold is ready for pickup"),
         other => panic!("unexpected language {other}"),
     }
 }

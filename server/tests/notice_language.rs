@@ -16,8 +16,7 @@ use elidune_server::AppConfig;
 use serde_json::json;
 use sqlx::Row;
 
-static TEST_LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> =
-    std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));
+static TEST_LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> = std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));
 
 static SNOWFLAKE_WORKER: AtomicU32 = AtomicU32::new(80);
 
@@ -37,15 +36,9 @@ const SPANISH_HOLD: &str = "Su reserva está disponible";
 #[test]
 fn german_and_spanish_hold_ready_templates_include_pickup_site() {
     for language in ["german", "spanish"] {
-        let path = format!(
-            "{}/data/email_templates/hold_ready.{language}.json",
-            env!("CARGO_MANIFEST_DIR")
-        );
+        let path = format!("{}/data/email_templates/hold_ready.{language}.json", env!("CARGO_MANIFEST_DIR"));
         let raw = std::fs::read_to_string(&path).unwrap_or_else(|_| panic!("read {path}"));
-        assert!(
-            raw.contains("{{pickup_site}}"),
-            "{language} hold_ready template must name the pickup site"
-        );
+        assert!(raw.contains("{{pickup_site}}"), "{language} hold_ready template must name the pickup site");
     }
 }
 
@@ -74,20 +67,11 @@ impl Drop for RestoreLibraryLanguage {
             return;
         }
         let joined = std::thread::spawn(move || {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("restore runtime");
+            let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("restore runtime");
             runtime
                 .block_on(async move {
-                    let pool = sqlx::postgres::PgPoolOptions::new()
-                        .max_connections(1)
-                        .connect(&database_url)
-                        .await?;
-                    sqlx::query("UPDATE library_info SET language = $1 WHERE id = 1")
-                        .bind(previous)
-                        .execute(&pool)
-                        .await?;
+                    let pool = sqlx::postgres::PgPoolOptions::new().max_connections(1).connect(&database_url).await?;
+                    sqlx::query("UPDATE library_info SET language = $1 WHERE id = 1").bind(previous).execute(&pool).await?;
                     Ok::<(), sqlx::Error>(())
                 })
                 .expect("restore library language");
@@ -99,9 +83,7 @@ impl Drop for RestoreLibraryLanguage {
 }
 
 async fn spawn() -> Option<(TestApp, String, RestoreLibraryLanguage)> {
-    let app =
-        TestApp::spawn_with_config(test_config(), elidune_server::AppBuildOptions::for_tests())
-            .await?;
+    let app = TestApp::spawn_with_config(test_config(), elidune_server::AppBuildOptions::for_tests()).await?;
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let previous = library_language(&app).await;
     let restore = RestoreLibraryLanguage {
@@ -122,9 +104,7 @@ async fn set_library_language(app: &TestApp, token: &str, language: Option<&str>
         Some(code) => json!({ "language": code }),
         None => json!({ "language": null }),
     };
-    let (status, body) = app
-        .put_json("/api/v1/library-info", &payload, Some(token))
-        .await;
+    let (status, body) = app.put_json("/api/v1/library-info", &payload, Some(token)).await;
     assert_eq!(status, StatusCode::OK, "set library language: {body}");
     match language {
         Some(code) => assert_eq!(body["language"], code, "{body}"),
@@ -143,28 +123,16 @@ async fn set_user_language(app: &TestApp, user_id: i64, language: Option<&str>) 
 
 async fn reader(app: &TestApp, admin_token: &str, prefix: &str) -> (i64, String, String) {
     let (user_id, _) = fixtures::create_reader(app, admin_token, prefix).await;
-    let user = app
-        .state
-        .services
-        .users
-        .get_by_id(user_id)
-        .await
-        .expect("reader");
-    (
-        user_id,
-        user.login.expect("login"),
-        user.email.expect("email"),
-    )
+    let user = app.state.services.users.get_by_id(user_id).await.expect("reader");
+    (user_id, user.login.expect("login"), user.email.expect("email"))
 }
 
 async fn latest_mail(app: &TestApp, to: &str) -> (String, String) {
-    let row = sqlx::query(
-        "SELECT subject, body FROM email_outbox WHERE to_addr = $1 ORDER BY id DESC LIMIT 1",
-    )
-    .bind(to)
-    .fetch_one(app.state.services.repository.pool())
-    .await
-    .unwrap_or_else(|_| panic!("no outbox row for {to}"));
+    let row = sqlx::query("SELECT subject, body FROM email_outbox WHERE to_addr = $1 ORDER BY id DESC LIMIT 1")
+        .bind(to)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .unwrap_or_else(|_| panic!("no outbox row for {to}"));
     (row.get("subject"), row.get("body"))
 }
 
@@ -174,21 +142,12 @@ fn assert_notice(subject: &str, body: &str, present: &[&str], absent: &[&str]) {
         assert!(combined.contains(needle), "missing {needle} in {combined}");
     }
     for needle in absent {
-        assert!(
-            !combined.contains(needle),
-            "unexpected {needle} in {combined}"
-        );
+        assert!(!combined.contains(needle), "unexpected {needle} in {combined}");
     }
 }
 
 async fn request_reset(app: &TestApp, login: &str) {
-    let (status, body) = app
-        .post_json(
-            "/api/v1/auth/request-password-reset",
-            &json!({ "identifier": login }),
-            None,
-        )
-        .await;
+    let (status, body) = app.post_json("/api/v1/auth/request-password-reset", &json!({ "identifier": login }), None).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["message"], "Password reset email sent", "{body}");
 }
@@ -206,36 +165,20 @@ async fn password_reset_follows_reader_then_library_then_french() {
     set_user_language(&app, english_id, Some("english")).await;
     request_reset(&app, &english_login).await;
     let (subject, body) = latest_mail(&app, &english_email).await;
-    assert_notice(
-        &subject,
-        &body,
-        &[ENGLISH_RESET],
-        &[GERMAN_RESET, FRENCH_RESET],
-    );
+    assert_notice(&subject, &body, &[ENGLISH_RESET], &[GERMAN_RESET, FRENCH_RESET]);
 
-    let (german_library_id, german_library_login, german_library_email) =
-        reader(&app, &admin_token, "noticede").await;
+    let (german_library_id, german_library_login, german_library_email) = reader(&app, &admin_token, "noticede").await;
     set_user_language(&app, german_library_id, None).await;
     request_reset(&app, &german_library_login).await;
     let (subject, body) = latest_mail(&app, &german_library_email).await;
-    assert_notice(
-        &subject,
-        &body,
-        &[GERMAN_RESET],
-        &[ENGLISH_RESET, FRENCH_RESET],
-    );
+    assert_notice(&subject, &body, &[GERMAN_RESET], &[ENGLISH_RESET, FRENCH_RESET]);
 
     set_library_language(&app, &admin_token, None).await;
     let (french_id, french_login, french_email) = reader(&app, &admin_token, "noticefr").await;
     set_user_language(&app, french_id, None).await;
     request_reset(&app, &french_login).await;
     let (subject, body) = latest_mail(&app, &french_email).await;
-    assert_notice(
-        &subject,
-        &body,
-        &[FRENCH_RESET],
-        &[ENGLISH_RESET, GERMAN_RESET],
-    );
+    assert_notice(&subject, &body, &[FRENCH_RESET], &[ENGLISH_RESET, GERMAN_RESET]);
 }
 
 #[tokio::test]
@@ -257,10 +200,7 @@ async fn create_without_language_stores_null_and_email_uses_library_language() {
     .fetch_one(app.state.services.repository.pool())
     .await
     .expect("users.language default");
-    assert!(
-        column_default.is_none(),
-        "users.language must have no default, got {column_default:?}"
-    );
+    assert!(column_default.is_none(), "users.language must have no default, got {column_default:?}");
 
     set_library_language(&app, &admin_token, Some("de")).await;
     let (status, body, login) = post_reader(&app, &admin_token, "nolang", None).await;
@@ -273,20 +213,12 @@ async fn create_without_language_stores_null_and_email_uses_library_language() {
         .fetch_one(app.state.services.repository.pool())
         .await
         .expect("stored language");
-    assert!(
-        stored.is_none(),
-        "omitted language must be NULL, got {stored:?}"
-    );
+    assert!(stored.is_none(), "omitted language must be NULL, got {stored:?}");
 
     request_reset(&app, &login).await;
     let email = body["email"].as_str().expect("email");
     let (subject, mail) = latest_mail(&app, email).await;
-    assert_notice(
-        &subject,
-        &mail,
-        &[GERMAN_RESET],
-        &[ENGLISH_RESET, FRENCH_RESET],
-    );
+    assert_notice(&subject, &mail, &[GERMAN_RESET], &[ENGLISH_RESET, FRENCH_RESET]);
 }
 
 #[tokio::test]
@@ -330,12 +262,7 @@ async fn create_with_invalid_language_is_422() {
     assert!(stored.is_none(), "invalid language must not insert a user");
 }
 
-async fn post_reader(
-    app: &TestApp,
-    admin_token: &str,
-    prefix: &str,
-    language: Option<&str>,
-) -> (StatusCode, serde_json::Value, String) {
+async fn post_reader(app: &TestApp, admin_token: &str, prefix: &str, language: Option<&str>) -> (StatusCode, serde_json::Value, String) {
     let public_type = fixtures::public_type_id_by_name(app, admin_token, "adult").await;
     let login = format!("{prefix}_{}", fixtures::unique_suffix());
     let mut payload = json!({
@@ -353,9 +280,7 @@ async fn post_reader(
     if let Some(language) = language {
         payload["language"] = json!(language);
     }
-    let (status, body) = app
-        .post_json("/api/v1/users", &payload, Some(admin_token))
-        .await;
+    let (status, body) = app.post_json("/api/v1/users", &payload, Some(admin_token)).await;
     (status, body, login)
 }
 
@@ -375,12 +300,7 @@ async fn overdue_reminder_follows_reader_then_library_then_french() {
         &subject,
         &body,
         &[ENGLISH_REMINDER, "Due date"],
-        &[
-            GERMAN_REMINDER,
-            "Fälligkeitsdatum",
-            FRENCH_REMINDER,
-            "Date de retour",
-        ],
+        &[GERMAN_REMINDER, "Fälligkeitsdatum", FRENCH_REMINDER, "Date de retour"],
     );
 
     let german_email = seed_overdue(&app, None).await;
@@ -390,13 +310,7 @@ async fn overdue_reminder_follows_reader_then_library_then_french() {
         &subject,
         &body,
         &[GERMAN_REMINDER, "Fälligkeitsdatum", "ausgeliehen"],
-        &[
-            ENGLISH_REMINDER,
-            "Due date",
-            FRENCH_REMINDER,
-            "Date de retour",
-            "emprunté le",
-        ],
+        &[ENGLISH_REMINDER, "Due date", FRENCH_REMINDER, "Date de retour", "emprunté le"],
     );
 
     set_library_language(&app, &admin_token, None).await;
@@ -407,12 +321,7 @@ async fn overdue_reminder_follows_reader_then_library_then_french() {
         &subject,
         &body,
         &[FRENCH_REMINDER, "Date de retour", "emprunté le"],
-        &[
-            ENGLISH_REMINDER,
-            GERMAN_REMINDER,
-            "Fälligkeitsdatum",
-            "Due date",
-        ],
+        &[ENGLISH_REMINDER, GERMAN_REMINDER, "Fälligkeitsdatum", "Due date"],
     );
 }
 
@@ -451,12 +360,7 @@ async fn hold_ready_stays_in_one_language() {
         &subject,
         &body,
         &[ENGLISH_HOLD, "(unknown title)"],
-        &[
-            GERMAN_HOLD,
-            FRENCH_HOLD,
-            "(unbekannter Titel)",
-            "(titre inconnu)",
-        ],
+        &[GERMAN_HOLD, FRENCH_HOLD, "(unbekannter Titel)", "(titre inconnu)"],
     );
 
     let library_german = unique_email("holdde");
@@ -466,15 +370,7 @@ async fn hold_ready_stays_in_one_language() {
         &subject,
         &body,
         &[GERMAN_HOLD, "(unbekannter Titel)", "Barcode: ABC-1"],
-        &[
-            ENGLISH_HOLD,
-            FRENCH_HOLD,
-            SPANISH_HOLD,
-            "Code-barres",
-            "Código de barras",
-            "(unknown title)",
-            "(titre inconnu)",
-        ],
+        &[ENGLISH_HOLD, FRENCH_HOLD, SPANISH_HOLD, "Code-barres", "Código de barras", "(unknown title)", "(titre inconnu)"],
     );
 
     set_library_language(&app, &admin_token, None).await;
@@ -484,20 +380,8 @@ async fn hold_ready_stays_in_one_language() {
     assert_notice(
         &subject,
         &body,
-        &[
-            SPANISH_HOLD,
-            "Código de barras: ABC-1",
-            "(título desconocido)",
-        ],
-        &[
-            FRENCH_HOLD,
-            ENGLISH_HOLD,
-            GERMAN_HOLD,
-            "Code-barres",
-            "(titre inconnu)",
-            "(unknown title)",
-            "(unbekannter Titel)",
-        ],
+        &[SPANISH_HOLD, "Código de barras: ABC-1", "(título desconocido)"],
+        &[FRENCH_HOLD, ENGLISH_HOLD, GERMAN_HOLD, "Code-barres", "(titre inconnu)", "(unknown title)", "(unbekannter Titel)"],
     );
 }
 
@@ -506,9 +390,7 @@ fn unique_email(prefix: &str) -> String {
 }
 
 async fn send_reminders(app: &TestApp, admin_token: &str) {
-    let (status, body) = app
-        .post_empty("/api/v1/loans/send-overdue-reminders", Some(admin_token))
-        .await;
+    let (status, body) = app.post_empty("/api/v1/loans/send-overdue-reminders", Some(admin_token)).await;
     assert_eq!(status, StatusCode::OK, "send reminders: {body}");
 }
 

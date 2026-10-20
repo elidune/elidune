@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Info, Save } from 'lucide-react';
-import { Card, CardHeader, Button, Input } from '@/components/common';
+import { Card, CardHeader, Button, Input, SectionTabBar } from '@/components/common';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLanguage } from '@/contexts/LanguageContext';
 import api from '@/services/api';
@@ -251,26 +251,20 @@ export default function EmailTemplatesSettings() {
           </p>
         ) : null}
 
-        {selectedTemplateId ? (
-          <div className="border-b border-gray-100 dark:border-gray-800 px-4 pb-3">
-            <div className="flex flex-wrap gap-1 pt-1" role="tablist" aria-label={t('settings.emailTemplates.languagesTablist')}>
-              {languagesForTemplate(selectedTemplateId).map((lang) => (
-                <button
-                  key={lang}
-                  type="button"
-                  role="tab"
-                  aria-selected={selectedLanguage === lang}
-                  onClick={() => setSelectedLanguage(lang)}
-                  className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                    selectedLanguage === lang
-                      ? 'bg-gray-900 text-white dark:bg-gray-100 dark:text-gray-900'
-                      : 'text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800'
-                  }`}
-                >
-                  {langLabel(lang)}
-                </button>
-              ))}
-            </div>
+        {selectedTemplateId && selectedLanguage ? (
+          <div className="px-4 pt-1">
+            <SectionTabBar
+              size="compact"
+              ariaLabel={t('settings.emailTemplates.languagesTablist')}
+              activeTab={selectedLanguage}
+              onSelectTab={setSelectedLanguage}
+              scrollable
+              className="border-gray-100 dark:border-gray-800"
+              tabs={languagesForTemplate(selectedTemplateId).map((lang) => ({
+                id: lang,
+                label: langLabel(lang),
+              }))}
+            />
           </div>
         ) : null}
 

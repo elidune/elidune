@@ -18,10 +18,7 @@ use utoipa::{IntoParams, ToSchema};
 use crate::{
     error::{AppError, AppResult},
     models::{
-        catalog_view::{
-            borrower_initials, project_borrower, project_hold_for, HoldPatronSource,
-            LoanDetailsOwn, LoanDetailsStaff,
-        },
+        catalog_view::{borrower_initials, project_borrower, project_hold_for, HoldPatronSource, LoanDetailsOwn, LoanDetailsStaff},
         loan::{CreateLoan, LoanDetails, LoanMarcExportEncoding, LoanMarcExportFormat},
         my_account::MyLoanView,
         user::{Rights, UserRights},
@@ -36,8 +33,7 @@ use crate::{
 use super::{biblios::PaginatedResponse, AuthenticatedUser, ClientIp, OptionalIdempotencyKey};
 
 pub use crate::models::dto::circulation::{
-    CirculationExceptionResponse, ClaimsReturnedQueueItem, LostFineDeskStatus, LostFoundResolution,
-    MarkClaimedReturnedRequest, MarkDamagedRequest, MarkLostRequest, ResolveClaimsReturnedRequest,
+    CirculationExceptionResponse, ClaimsReturnedQueueItem, LostFineDeskStatus, LostFoundResolution, MarkClaimedReturnedRequest, MarkDamagedRequest, MarkLostRequest, ResolveClaimsReturnedRequest,
     ResolveLostFoundRequest,
 };
 pub use crate::models::dto::loans::{LoanSettingsDto as LoanSettings, UpdateLoanSettingsRequest};
@@ -48,29 +44,17 @@ pub fn router() -> axum::Router<crate::AppState> {
     axum::Router::new()
         .route("/me/loans", get(list_my_loans))
         .route("/loans", post(create_loan))
-        .route(
-            "/loans/settings",
-            get(get_loan_settings).put(update_loan_settings),
-        )
+        .route("/loans/settings", get(get_loan_settings).put(update_loan_settings))
         .route("/loans/overdue", get(get_overdue_loans))
-        .route(
-            "/loans/send-overdue-reminders",
-            post(send_overdue_reminders),
-        )
+        .route("/loans/send-overdue-reminders", post(send_overdue_reminders))
         .route("/loans/claims-returned", get(list_claims_returned))
         .route("/loans/:id/user", get(get_loan_borrower))
         .route("/loans/:id/return", post(return_loan))
         .route("/loans/:id/renew", post(renew_loan))
         .route("/loans/:id/lost", post(mark_loan_lost))
         .route("/loans/:id/damaged", post(mark_loan_damaged))
-        .route(
-            "/loans/:id/claimed-returned",
-            post(mark_loan_claimed_returned),
-        )
-        .route(
-            "/loans/:id/claims-returned/resolve",
-            post(resolve_loan_claims_returned),
-        )
+        .route("/loans/:id/claimed-returned", post(mark_loan_claimed_returned))
+        .route("/loans/:id/claims-returned/resolve", post(resolve_loan_claims_returned))
         .route("/loans/items/:barcode/return", post(return_loan_by_item))
         .route("/loans/items/:item_id/lost-found", post(resolve_lost_found))
         .route("/loans/items/:item_id/renew", post(renew_loan_by_item))
@@ -146,23 +130,15 @@ impl LoanDetailsView {
         (status = 404, description = "Loan not found")
     )
 )]
-pub async fn get_loan_borrower(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path(loan_id): Path<i64>,
-) -> AppResult<Json<LoanBorrowerResponse>> {
+pub async fn get_loan_borrower(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(loan_id): Path<i64>) -> AppResult<Json<LoanBorrowerResponse>> {
     if claims.rights.loans_rights.rank() < Rights::Own.rank() {
-        return Err(AppError::Authorization(
-            "Insufficient rights to read this loan borrower".into(),
-        ));
+        return Err(AppError::Authorization("Insufficient rights to read this loan borrower".into()));
     }
     let user = state.services.loans.get_loan_borrower(loan_id).await?;
     let is_self = user.id == claims.user_id;
     // Loans write reads any borrower. Loans own/read reads only the caller's loan.
     if !is_self && claims.rights.loans_rights.rank() < Rights::Write.rank() {
-        return Err(AppError::Authorization(
-            "Insufficient rights to read this loan borrower".into(),
-        ));
+        return Err(AppError::Authorization("Insufficient rights to read this loan borrower".into()));
     }
     // `loans_rights` write is not enough to read another patron's name.
     // The borrower receives their own staff profile.
@@ -196,7 +172,7 @@ pub struct CreateLoanRequest {
     pub force: Option<bool>,
     /// Desk site (`sources.id`) where the loan is made. Stored on `loans.site_id`.
     /// Omit it to leave the column null; due date, renewal, and fines then follow
-    /// the library default site (`sources."default"`). An unknown id is 404 `not_found`.
+    /// the library default site (`sites."default"`). An unknown id is 404 `not_found`.
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub site_id: Option<i64>,
@@ -361,19 +337,11 @@ pub struct ReturnResponse {
 }
 
 /// `holdFor` for a not-on-loan check-in. Loans-only staff get id, card, and initials.
-async fn project_check_in_hold_for(
-    state: &crate::AppState,
-    claims: &crate::models::user::UserClaims,
-    hold: Option<&crate::models::hold::Hold>,
-) -> AppResult<Option<LoanBorrowerResponse>> {
+async fn project_check_in_hold_for(state: &crate::AppState, claims: &crate::models::user::UserClaims, hold: Option<&crate::models::hold::Hold>) -> AppResult<Option<LoanBorrowerResponse>> {
     let Some(hold) = hold else {
         return Ok(None);
     };
-    let users = state
-        .services
-        .repository
-        .users_get_short_by_ids(&[hold.user_id])
-        .await?;
+    let users = state.services.repository.users_get_short_by_ids(&[hold.user_id]).await?;
     let Some(user) = users.get(&hold.user_id).cloned() else {
         return Ok(None);
     };
@@ -391,10 +359,7 @@ async fn project_check_in_hold_for(
     Ok(project_hold_for(source, claims, &full))
 }
 
-fn apply_lost(
-    response: &mut ReturnResponse,
-    lost: Option<crate::models::dto::circulation::LostItemOnReturn>,
-) {
+fn apply_lost(response: &mut ReturnResponse, lost: Option<crate::models::dto::circulation::LostItemOnReturn>) {
     let Some(lost) = lost else {
         return;
     };
@@ -432,10 +397,7 @@ pub struct SendRemindersQuery {
         (status = 403, description = "Insufficient permissions")
     )
 )]
-pub async fn get_loan_settings(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-) -> AppResult<Json<Vec<LoanSettings>>> {
+pub async fn get_loan_settings(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser) -> AppResult<Json<Vec<LoanSettings>>> {
     claims.require_read_settings()?;
     let rows = state.services.loans.get_global_loan_settings().await?;
     Ok(Json(rows))
@@ -460,11 +422,7 @@ pub async fn update_loan_settings(
     Json(body): Json<UpdateLoanSettingsRequest>,
 ) -> AppResult<Json<Vec<LoanSettings>>> {
     claims.require_write_settings()?;
-    let rows = state
-        .services
-        .loans
-        .update_global_loan_settings(body)
-        .await?;
+    let rows = state.services.loans.update_global_loan_settings(body).await?;
 
     state.services.audit.log(
         audit::event::SETTINGS_UPDATED,
@@ -490,10 +448,7 @@ pub enum UserLoanListResponse {
 }
 
 /// Current loans of another patron need loans read. History still needs users read first.
-fn authorize_other_patron_loans(
-    claims: &crate::models::user::UserClaims,
-    archived: bool,
-) -> AppResult<()> {
+fn authorize_other_patron_loans(claims: &crate::models::user::UserClaims, archived: bool) -> AppResult<()> {
     let can_read_loans = claims.rights.loans_rights.rank() >= Rights::Read.rank();
     if !archived && can_read_loans {
         return Ok(());
@@ -502,9 +457,7 @@ fn authorize_other_patron_loans(
     if can_read_loans {
         return Ok(());
     }
-    Err(AppError::Authorization(
-        "Insufficient rights to read loans for another user".into(),
-    ))
+    Err(AppError::Authorization("Insufficient rights to read loans for another user".into()))
 }
 
 /// Get loans for a specific user (paginated).
@@ -543,17 +496,9 @@ pub async fn get_user_loans(
     let per_page = query.per_page.unwrap_or(20).clamp(1, 200);
 
     let (mut items, total) = if archived {
-        state
-            .services
-            .loans
-            .get_user_archived_loans(user_id, page, per_page)
-            .await?
+        state.services.loans.get_user_archived_loans(user_id, page, per_page).await?
     } else {
-        state
-            .services
-            .loans
-            .get_user_loans(user_id, page, per_page)
-            .await?
+        state.services.loans.get_user_loans(user_id, page, per_page).await?
     };
 
     let borrower = state.services.users.get_short(user_id).await?;
@@ -562,19 +507,9 @@ pub async fn get_user_loans(
     }
 
     let body = if claims.rights.users_rights.rank() >= Rights::Read.rank() {
-        UserLoanListResponse::Staff(PaginatedResponse::new(
-            items.into_iter().map(LoanDetailsStaff::from).collect(),
-            total,
-            page,
-            per_page,
-        ))
+        UserLoanListResponse::Staff(PaginatedResponse::new(items.into_iter().map(LoanDetailsStaff::from).collect(), total, page, per_page))
     } else {
-        UserLoanListResponse::Own(PaginatedResponse::new(
-            items.into_iter().map(LoanDetailsOwn::from).collect(),
-            total,
-            page,
-            per_page,
-        ))
+        UserLoanListResponse::Own(PaginatedResponse::new(items.into_iter().map(LoanDetailsOwn::from).collect(), total, page, per_page))
     };
     Ok(Json(body))
 }
@@ -618,11 +553,7 @@ pub async fn export_user_loans_marc(
 ) -> AppResult<Response> {
     claims.require_self_or_staff(user_id)?;
     let archived = query.archived.unwrap_or(false);
-    let (bytes, content_type, filename) = state
-        .services
-        .loans
-        .export_user_loans_marc_file(user_id, archived, query.format, query.encoding)
-        .await?;
+    let (bytes, content_type, filename) = state.services.loans.export_user_loans_marc_file(user_id, archived, query.format, query.encoding).await?;
     let disposition = format!(r#"attachment; filename="{}""#, filename);
     Response::builder()
         .status(StatusCode::OK)
@@ -662,26 +593,14 @@ pub struct MyLoansQuery {
         (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn list_my_loans(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Query(query): Query<MyLoansQuery>,
-) -> AppResult<Json<PaginatedResponse<MyLoanView>>> {
+pub async fn list_my_loans(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<MyLoansQuery>) -> AppResult<Json<PaginatedResponse<MyLoanView>>> {
     let page = query.page.unwrap_or(1).max(1);
     let per_page = query.per_page.unwrap_or(20).clamp(1, 200);
     let archived = query.archived.unwrap_or(false);
     let (items, total) = if archived {
-        state
-            .services
-            .repository
-            .loans_list_archived_for_owner(claims.user_id, page, per_page)
-            .await?
+        state.services.repository.loans_list_archived_for_owner(claims.user_id, page, per_page).await?
     } else {
-        state
-            .services
-            .repository
-            .loans_list_for_owner(claims.user_id, page, per_page)
-            .await?
+        state.services.repository.loans_list_for_owner(claims.user_id, page, per_page).await?
     };
     Ok(Json(PaginatedResponse::new(items, total, page, per_page)))
 }
@@ -737,52 +656,32 @@ pub async fn create_loan(
         "overrideReason": override_reason.clone(),
     });
 
-    let (status, body) = idempotency::execute(
-        state.services.repository.as_ref(),
-        claims.user_id,
-        idempotency_key.as_deref(),
-        "loans.create",
-        &fingerprint,
-        || {
-            let state = state.clone();
-            let ip = ip.clone();
-            let request = CreateLoan {
-                user_id: request.user_id,
-                item_id: request.item_id,
-                item_identification: request.item_identification.clone(),
-                force,
-                site_id: request.site_id,
-                override_reason: override_reason.clone(),
-            };
-            let caller_rights = claims.rights.clone();
-            async move {
-                create_loan_inner(state, claims.user_id, ip, request, caller_rights).await
-            }
-        },
-    )
+    let (status, body) = idempotency::execute(state.services.repository.as_ref(), claims.user_id, idempotency_key.as_deref(), "loans.create", &fingerprint, || {
+        let state = state.clone();
+        let ip = ip.clone();
+        let request = CreateLoan {
+            user_id: request.user_id,
+            item_id: request.item_id,
+            item_identification: request.item_identification.clone(),
+            force,
+            site_id: request.site_id,
+            override_reason: override_reason.clone(),
+        };
+        let caller_rights = claims.rights.clone();
+        async move { create_loan_inner(state, claims.user_id, ip, request, caller_rights).await }
+    })
     .await?;
     Ok((status, Json(body)))
 }
 
-async fn create_loan_inner(
-    state: crate::AppState,
-    actor_id: i64,
-    ip: Option<String>,
-    loan: CreateLoan,
-    caller_rights: crate::models::user::UserRights,
-) -> AppResult<(StatusCode, LoanResponse)> {
+async fn create_loan_inner(state: crate::AppState, actor_id: i64, ip: Option<String>, loan: CreateLoan, caller_rights: crate::models::user::UserRights) -> AppResult<(StatusCode, LoanResponse)> {
     let user_id = loan.user_id;
     let item_id = loan.item_id;
     let item_identification = loan.item_identification.clone();
     let force = loan.force;
     let site_id = loan.site_id;
 
-    let outcome = match state
-        .services
-        .loans
-        .create_loan(loan, Some(actor_id), ip.clone(), &caller_rights)
-        .await
-    {
+    let outcome = match state.services.loans.create_loan(loan, Some(actor_id), ip.clone(), &caller_rights).await {
         Ok(outcome) => outcome,
         Err(e) => {
             state.services.audit.log(
@@ -849,19 +748,9 @@ async fn create_loan_inner(
         (status = 409, description = "Already returned")
     )
 )]
-pub async fn return_loan(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    ClientIp(ip): ClientIp,
-    Path(loan_id): Path<i64>,
-) -> AppResult<Json<ReturnResponse>> {
+pub async fn return_loan(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Path(loan_id): Path<i64>) -> AppResult<Json<ReturnResponse>> {
     claims.require_write_loans()?;
-    let returned = match state
-        .services
-        .loans
-        .return_loan(loan_id, Some(claims.user_id), ip.clone())
-        .await
-    {
+    let returned = match state.services.loans.return_loan(loan_id, Some(claims.user_id), ip.clone()).await {
         Ok(returned) => returned,
         Err(e) => {
             state.services.audit.log(
@@ -890,15 +779,8 @@ pub async fn return_loan(
     }
 
     let mut response = ReturnResponse {
-        status: if returned.loan.is_some() {
-            "returned"
-        } else {
-            "lost_found"
-        }
-        .to_string(),
-        loan: returned
-            .loan
-            .map(|loan| LoanDetailsView::from_loan(loan, &claims)),
+        status: if returned.loan.is_some() { "returned" } else { "lost_found" }.to_string(),
+        loan: returned.loan.map(|loan| LoanDetailsView::from_loan(loan, &claims)),
         hold: None,
         destination_site_id: None,
         destination_site_name: None,
@@ -952,9 +834,7 @@ pub async fn renew_loan(
     let override_reason = query.override_reason.clone();
 
     if claims.rights.loans_rights.rank() < Rights::Write.rank() && user_id != claims.user_id {
-        return Err(AppError::Authorization(
-            "Insufficient rights to read loans for another user".into(),
-        ));
+        return Err(AppError::Authorization("Insufficient rights to read loans for another user".into()));
     }
     if force {
         claims.require_write_loans()?;
@@ -967,30 +847,12 @@ pub async fn renew_loan(
         "overrideReason": override_reason.clone(),
     });
 
-    let (_status, body) = idempotency::execute(
-        state.services.repository.as_ref(),
-        claims.user_id,
-        idempotency_key.as_deref(),
-        "loans.renew",
-        &fingerprint,
-        || {
-            let state = state.clone();
-            let ip = ip.clone();
-            let rights = claims.rights.clone();
-            async move {
-                renew_loan_inner(
-                    state,
-                    claims.user_id,
-                    ip,
-                    loan_id,
-                    force,
-                    override_reason,
-                    rights,
-                )
-                .await
-            }
-        },
-    )
+    let (_status, body) = idempotency::execute(state.services.repository.as_ref(), claims.user_id, idempotency_key.as_deref(), "loans.renew", &fingerprint, || {
+        let state = state.clone();
+        let ip = ip.clone();
+        let rights = claims.rights.clone();
+        async move { renew_loan_inner(state, claims.user_id, ip, loan_id, force, override_reason, rights).await }
+    })
     .await?;
     Ok(Json(body))
 }
@@ -1004,24 +866,8 @@ async fn renew_loan_inner(
     override_reason: Option<String>,
     caller_rights: UserRights,
 ) -> AppResult<(StatusCode, LoanResponse)> {
-    let (new_expiry_date, renew_count, due_date_capped_by_deposit) = state
-        .services
-        .loans
-        .renew_loan(
-            loan_id,
-            force,
-            override_reason,
-            Some(actor_id),
-            ip.clone(),
-            &caller_rights,
-        )
-        .await?;
-    let site_id = state
-        .services
-        .repository
-        .loans_get_by_id(loan_id)
-        .await?
-        .site_id;
+    let (new_expiry_date, renew_count, due_date_capped_by_deposit) = state.services.loans.renew_loan(loan_id, force, override_reason, Some(actor_id), ip.clone(), &caller_rights).await?;
+    let site_id = state.services.repository.loans_get_by_id(loan_id).await?.site_id;
 
     state.services.audit.log(
         audit::event::LOAN_RENEWED,
@@ -1078,18 +924,12 @@ where
 {
     type Rejection = AppError;
 
-    async fn from_request(
-        req: axum::http::Request<Body>,
-        state: &S,
-    ) -> Result<Self, Self::Rejection> {
-        let bytes = Bytes::from_request(req, state)
-            .await
-            .map_err(|_| AppError::Validation("Invalid request body".into()))?;
+    async fn from_request(req: axum::http::Request<Body>, state: &S) -> Result<Self, Self::Rejection> {
+        let bytes = Bytes::from_request(req, state).await.map_err(|_| AppError::Validation("Invalid request body".into()))?;
         if bytes.iter().all(u8::is_ascii_whitespace) {
             return Ok(Self(None));
         }
-        let parsed = serde_json::from_slice::<ShelfSetAsideRequest>(&bytes)
-            .map_err(|err| AppError::Validation(format!("Invalid set-aside body: {err}")))?;
+        let parsed = serde_json::from_slice::<ShelfSetAsideRequest>(&bytes).map_err(|err| AppError::Validation(format!("Invalid set-aside body: {err}")))?;
         Ok(Self(Some(parsed)))
     }
 }
@@ -1131,12 +971,7 @@ pub async fn return_loan_by_item(
         hold_id: body.hold_id,
         item_id: body.item_id,
     });
-    match state
-        .services
-        .loans
-        .return_loan_by_item(&barcode, Some(claims.user_id), ip.clone(), set_aside)
-        .await
-    {
+    match state.services.loans.return_loan_by_item(&barcode, Some(claims.user_id), ip.clone(), set_aside).await {
         Ok(check_in) => {
             if let Some(ref loan) = check_in.loan {
                 let loan_id = loan.id;
@@ -1150,9 +985,7 @@ pub async fn return_loan_by_item(
                     audit::AuditLogMeta::success(),
                 );
             }
-            let blocked = check_in.notice.as_ref().is_some_and(|notice| {
-                notice.code == crate::error::error_code::ITEM_NOT_AVAILABLE_STATUS
-            });
+            let blocked = check_in.notice.as_ref().is_some_and(|notice| notice.code == crate::error::error_code::ITEM_NOT_AVAILABLE_STATUS);
             let status = if blocked {
                 "unchanged"
             } else if check_in.lost.is_some() && check_in.loan.is_none() {
@@ -1173,9 +1006,7 @@ pub async fn return_loan_by_item(
             };
             let mut response = ReturnResponse {
                 status: status.to_string(),
-                loan: check_in
-                    .loan
-                    .map(|loan| LoanDetailsView::from_loan(loan, &claims)),
+                loan: check_in.loan.map(|loan| LoanDetailsView::from_loan(loan, &claims)),
                 hold: check_in.hold,
                 destination_site_id: check_in.destination_site_id,
                 destination_site_name: check_in.destination_site_name,
@@ -1188,18 +1019,9 @@ pub async fn return_loan_by_item(
                 hold_for,
                 circulation_status: check_in.circulation_status,
                 weeding_status: check_in.weeding_status,
-                hold_status: check_in
-                    .set_aside
-                    .as_ref()
-                    .map(|outcome| outcome.hold_status),
-                transit_id: check_in
-                    .set_aside
-                    .as_ref()
-                    .map(|outcome| outcome.transit_id.map(|id| id.to_string())),
-                pickup_site_id: check_in
-                    .set_aside
-                    .as_ref()
-                    .map(|outcome| outcome.pickup_site_id.map(|id| id.to_string())),
+                hold_status: check_in.set_aside.as_ref().map(|outcome| outcome.hold_status),
+                transit_id: check_in.set_aside.as_ref().map(|outcome| outcome.transit_id.map(|id| id.to_string())),
+                pickup_site_id: check_in.set_aside.as_ref().map(|outcome| outcome.pickup_site_id.map(|id| id.to_string())),
                 return_to_lender: check_in.return_to_lender,
             };
             apply_lost(&mut response, check_in.lost);
@@ -1253,11 +1075,7 @@ pub async fn resolve_lost_found(
     Json(body): Json<ResolveLostFoundRequest>,
 ) -> AppResult<Json<LostFoundResolution>> {
     claims.require_write_loans()?;
-    let result = state
-        .services
-        .circulation
-        .resolve_lost_found(item_id, body, Some(claims.user_id), ip)
-        .await?;
+    let result = state.services.circulation.resolve_lost_found(item_id, body, Some(claims.user_id), ip).await?;
     Ok(Json(result))
 }
 
@@ -1308,18 +1126,7 @@ pub async fn renew_loan_by_item(
             let ip = ip.clone();
             let item_id = item_id.clone();
             let rights = claims.rights.clone();
-            async move {
-                renew_loan_by_item_inner(
-                    state,
-                    claims.user_id,
-                    ip,
-                    item_id,
-                    force,
-                    override_reason,
-                    rights,
-                )
-                .await
-            }
+            async move { renew_loan_by_item_inner(state, claims.user_id, ip, item_id, force, override_reason, rights).await }
         },
     )
     .await?;
@@ -1338,21 +1145,9 @@ async fn renew_loan_by_item_inner(
     let (loan_id, new_expiry_date, renew_count, due_date_capped_by_deposit) = state
         .services
         .loans
-        .renew_loan_by_item(
-            &item_id,
-            force,
-            override_reason,
-            Some(actor_id),
-            ip.clone(),
-            &caller_rights,
-        )
+        .renew_loan_by_item(&item_id, force, override_reason, Some(actor_id), ip.clone(), &caller_rights)
         .await?;
-    let site_id = state
-        .services
-        .repository
-        .loans_get_by_id(loan_id)
-        .await?
-        .site_id;
+    let site_id = state.services.repository.loans_get_by_id(loan_id).await?.site_id;
 
     state.services.audit.log(
         audit::event::LOAN_RENEWED,
@@ -1436,11 +1231,7 @@ pub struct OverdueLoansView {
 impl OverdueLoansView {
     fn from_page(page: OverdueLoansPage, claims: &crate::models::user::UserClaims) -> Self {
         let users_read = claims.rights.users_rights.rank() >= Rights::Read.rank();
-        let loans = page
-            .loans
-            .into_iter()
-            .map(|row| OverdueLoanView::from_info(row, users_read))
-            .collect();
+        let loans = page.loans.into_iter().map(|row| OverdueLoanView::from_info(row, users_read)).collect();
         Self {
             loans,
             total: page.total,
@@ -1495,18 +1286,10 @@ impl OverdueLoanView {
         (status = 403, description = "Insufficient permissions")
     )
 )]
-pub async fn get_overdue_loans(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Query(query): Query<OverdueLoansQuery>,
-) -> AppResult<Json<OverdueLoansView>> {
+pub async fn get_overdue_loans(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<OverdueLoansQuery>) -> AppResult<Json<OverdueLoansView>> {
     claims.require_read_loans()?;
 
-    let page = state
-        .services
-        .reminders
-        .get_overdue_loans(query.page.unwrap_or(1), query.per_page.unwrap_or(50))
-        .await?;
+    let page = state.services.reminders.get_overdue_loans(query.page.unwrap_or(1), query.per_page.unwrap_or(50)).await?;
 
     Ok(Json(OverdueLoansView::from_page(page, &claims)))
 }
@@ -1533,11 +1316,7 @@ pub async fn send_overdue_reminders(
 
     let dry_run = query.dry_run.unwrap_or(false);
 
-    let report = state
-        .services
-        .reminders
-        .send_overdue_reminders(dry_run, Some(claims.user_id), ip.clone())
-        .await?;
+    let report = state.services.reminders.send_overdue_reminders(dry_run, Some(claims.user_id), ip.clone()).await?;
 
     if !dry_run {
         state.services.audit.log(
@@ -1581,11 +1360,7 @@ pub async fn mark_loan_lost(
     Json(body): Json<MarkLostRequest>,
 ) -> AppResult<Json<CirculationExceptionResponse>> {
     claims.require_write_loans()?;
-    let result = state
-        .services
-        .circulation
-        .mark_lost(loan_id, body, Some(claims.user_id), ip)
-        .await?;
+    let result = state.services.circulation.mark_lost(loan_id, body, Some(claims.user_id), ip).await?;
     Ok(Json(result))
 }
 
@@ -1611,11 +1386,7 @@ pub async fn mark_loan_damaged(
     Json(body): Json<MarkDamagedRequest>,
 ) -> AppResult<Json<CirculationExceptionResponse>> {
     claims.require_write_loans()?;
-    let result = state
-        .services
-        .circulation
-        .mark_damaged(loan_id, body, Some(claims.user_id), ip)
-        .await?;
+    let result = state.services.circulation.mark_damaged(loan_id, body, Some(claims.user_id), ip).await?;
     Ok(Json(result))
 }
 
@@ -1641,11 +1412,7 @@ pub async fn mark_loan_claimed_returned(
     Json(body): Json<MarkClaimedReturnedRequest>,
 ) -> AppResult<Json<CirculationExceptionResponse>> {
     claims.require_write_loans()?;
-    let result = state
-        .services
-        .circulation
-        .mark_claimed_returned(loan_id, body, Some(claims.user_id), ip)
-        .await?;
+    let result = state.services.circulation.mark_claimed_returned(loan_id, body, Some(claims.user_id), ip).await?;
     Ok(Json(result))
 }
 
@@ -1671,11 +1438,7 @@ pub async fn resolve_loan_claims_returned(
     Json(body): Json<ResolveClaimsReturnedRequest>,
 ) -> AppResult<Json<CirculationExceptionResponse>> {
     claims.require_write_loans()?;
-    let result = state
-        .services
-        .circulation
-        .resolve_claims_returned(loan_id, body, Some(claims.user_id), ip)
-        .await?;
+    let result = state.services.circulation.resolve_claims_returned(loan_id, body, Some(claims.user_id), ip).await?;
     Ok(Json(result))
 }
 
@@ -1699,11 +1462,7 @@ pub async fn list_claims_returned(
     claims.require_write_loans()?;
     let page = query.page.unwrap_or(1).max(1);
     let per_page = query.per_page.unwrap_or(20).clamp(1, 200);
-    let (items, total) = state
-        .services
-        .circulation
-        .list_claims_returned(page, per_page)
-        .await?;
+    let (items, total) = state.services.circulation.list_claims_returned(page, per_page).await?;
     Ok(Json(PaginatedResponse::new(items, total, page, per_page)))
 }
 
@@ -1767,26 +1526,14 @@ mod user_loans_access_tests {
     fn archived_loans_without_users_read_keep_the_users_denial() {
         let message = denial(Rights::None, Rights::Write, true);
         assert_eq!(message, "Insufficient rights to read users");
-        assert_eq!(
-            denial(Rights::None, Rights::None, false),
-            "Insufficient rights to read users"
-        );
-        assert_eq!(
-            denial(Rights::Own, Rights::Read, true),
-            "Insufficient rights to read users"
-        );
+        assert_eq!(denial(Rights::None, Rights::None, false), "Insufficient rights to read users");
+        assert_eq!(denial(Rights::Own, Rights::Read, true), "Insufficient rights to read users");
     }
 
     #[test]
     fn users_read_still_requires_loans_read() {
-        assert_eq!(
-            denial(Rights::Read, Rights::None, false),
-            "Insufficient rights to read loans for another user"
-        );
-        assert_eq!(
-            denial(Rights::Write, Rights::Own, true),
-            "Insufficient rights to read loans for another user"
-        );
+        assert_eq!(denial(Rights::Read, Rights::None, false), "Insufficient rights to read loans for another user");
+        assert_eq!(denial(Rights::Write, Rights::Own, true), "Insufficient rights to read loans for another user");
         assert!(authorize_other_patron_loans(&claims(Rights::Read, Rights::Read), true).is_ok());
         assert!(authorize_other_patron_loans(&claims(Rights::Write, Rights::Write), false).is_ok());
     }

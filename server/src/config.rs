@@ -472,17 +472,10 @@ impl AppConfig {
     pub fn load(path: Option<impl AsRef<Path>>) -> Result<Self, ConfigError> {
         let mut builder = Config::builder();
         if let Some(path) = path {
-            builder = builder
-                .add_source(File::from(path.as_ref().to_path_buf().as_path()).required(false));
+            builder = builder.add_source(File::from(path.as_ref().to_path_buf().as_path()).required(false));
         }
 
-        let config = builder
-            .add_source(
-                Environment::with_prefix("ELIDUNE")
-                    .prefix_separator("_")
-                    .separator("__"),
-            )
-            .build()?;
+        let config = builder.add_source(Environment::with_prefix("ELIDUNE").prefix_separator("_").separator("__")).build()?;
 
         config.try_deserialize()
     }
@@ -496,9 +489,7 @@ impl AppConfig {
             return Err("users.jwt_secret is the sample default — set a strong secret via config or ELIDUNE_USERS__JWT_SECRET".into());
         }
         if self.users.jwt_secret.len() < MIN_SECRET_LEN {
-            return Err(format!(
-                "users.jwt_secret must be at least {MIN_SECRET_LEN} characters"
-            ));
+            return Err(format!("users.jwt_secret must be at least {MIN_SECRET_LEN} characters"));
         }
 
         let prod_mode = std::env::var("ELIDUNE_PRODUCTION").ok().as_deref() == Some("true");
@@ -519,19 +510,12 @@ impl AppConfig {
         if self.email.smtp_host.trim().is_empty() {
             return None;
         }
-        let configured = self
-            .server
-            .public_base_url
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty());
+        let configured = self.server.public_base_url.as_deref().map(str::trim).filter(|value| !value.is_empty());
         match configured {
-            None => Some(
-                "ELIDUNE_SERVER__PUBLIC_BASE_URL is unset while email is enabled; outgoing links fall back to localhost. Set the public UI origin before sending mail.",
-            ),
-            Some(url) if public_base_url_is_local(url) => Some(
-                "ELIDUNE_SERVER__PUBLIC_BASE_URL points at localhost while email is enabled; mail links will not work for patrons. Set the public UI origin.",
-            ),
+            None => Some("ELIDUNE_SERVER__PUBLIC_BASE_URL is unset while email is enabled; outgoing links fall back to localhost. Set the public UI origin before sending mail."),
+            Some(url) if public_base_url_is_local(url) => {
+                Some("ELIDUNE_SERVER__PUBLIC_BASE_URL points at localhost while email is enabled; mail links will not work for patrons. Set the public UI origin.")
+            }
             Some(_) => None,
         }
     }
@@ -572,10 +556,8 @@ impl AppConfig {
 
     /// Minimal configuration for integration tests (uses `DATABASE_URL` / `REDIS_URL` env vars).
     pub fn for_test() -> Self {
-        let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://elidune:elidune@localhost:5432/elidune_test".into());
-        let redis_url =
-            std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".into());
+        let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "postgres://elidune:elidune@localhost:5432/elidune_test".into());
+        let redis_url = std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".into());
 
         Self {
             server: ServerConfig::default(),
@@ -628,10 +610,7 @@ impl AppConfig {
 
 fn public_base_url_is_local(url: &str) -> bool {
     let lower = url.to_ascii_lowercase();
-    lower.contains("://localhost")
-        || lower.contains("://127.0.0.1")
-        || lower.contains("://[::1]")
-        || lower.contains("://0.0.0.0")
+    lower.contains("://localhost") || lower.contains("://127.0.0.1") || lower.contains("://[::1]") || lower.contains("://0.0.0.0")
 }
 
 impl Default for ServerConfig {
@@ -675,8 +654,7 @@ mod tests {
 
     #[test]
     fn database_pool_sizes_default_when_omitted() {
-        let db: DatabaseConfig =
-            serde_json::from_str(r#"{"url":"postgres://localhost/elidune"}"#).expect("db config");
+        let db: DatabaseConfig = serde_json::from_str(r#"{"url":"postgres://localhost/elidune"}"#).expect("db config");
         assert_eq!(db.max_connections, 10);
         assert_eq!(db.min_connections, 2);
     }
@@ -689,9 +667,7 @@ mod tests {
         let unset = cfg.email_public_base_url_warning().expect("unset warning");
         assert!(unset.contains("unset"));
         cfg.server.public_base_url = Some("http://localhost:8181".into());
-        let local = cfg
-            .email_public_base_url_warning()
-            .expect("localhost warning");
+        let local = cfg.email_public_base_url_warning().expect("localhost warning");
         assert!(local.contains("localhost"));
         cfg.server.public_base_url = Some("https://library.example.org".into());
         assert!(cfg.email_public_base_url_warning().is_none());

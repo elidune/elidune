@@ -48,7 +48,7 @@ import type {
   StatsTableResponse,
   SavedStatsQuery,
   SavedStatsQueryWrite,
-  Source,
+  Site,
   Item,
   CreateBiblioItemInput,
   CreateItem,
@@ -1689,39 +1689,39 @@ class ApiService {
     await this.client.delete(`/account-types/${encodeURIComponent(code)}`);
   }
 
-  // ─── Sources ─────────────────────────────────────────────────────
+  // ─── Sites ─────────────────────────────────────────────────────
 
-  async getSources(includeArchived = false): Promise<Source[]> {
-    const response = await this.client.get('/sources', {
+  async getSites(includeArchived = false): Promise<Site[]> {
+    const response = await this.client.get('/sites', {
       params: { includeArchived },
     });
     const data = response.data;
     if (Array.isArray(data)) return data;
-    return normalizePaginatedResponse<Source>(data).items;
+    return normalizePaginatedResponse<Site>(data).items;
   }
 
-  async createSource(data: { name: string }): Promise<Source> {
-    const response = await this.client.post<Source>('/sources', data);
+  async createSite(data: { name: string }): Promise<Site> {
+    const response = await this.client.post<Site>('/sites', data);
     return response.data;
   }
 
-  async updateSource(id: string, data: Partial<Source>): Promise<Source> {
-    const response = await this.client.put<Source>(`/sources/${id}`, data);
+  async updateSite(id: string, data: Partial<Site>): Promise<Site> {
+    const response = await this.client.put<Site>(`/sites/${id}`, data);
     return response.data;
   }
 
-  async renameSource(id: string, name: string): Promise<Source> {
-    return this.updateSource(id, { name });
+  async renameSite(id: string, name: string): Promise<Site> {
+    return this.updateSite(id, { name });
   }
 
-  async archiveSource(id: string): Promise<Source> {
-    const response = await this.client.post<Source>(`/sources/${id}/archive`);
+  async archiveSite(id: string): Promise<Site> {
+    const response = await this.client.post<Site>(`/sites/${id}/archive`);
     return response.data;
   }
 
-  async mergeSources(sourceIds: string[], name: string): Promise<Source> {
-    const response = await this.client.post<Source>('/sources/merge', {
-      sourceIds,
+  async mergeSites(siteIds: string[], name: string): Promise<Site> {
+    const response = await this.client.post<Site>('/sites/merge', {
+      siteIds,
       name,
     });
     return response.data;
@@ -1846,16 +1846,16 @@ class ApiService {
   async importZ3950(
     biblioId: string,
     items?: { barcode: string; callNumber?: string }[],
-    sourceId?: string,
+    siteId?: string,
     options?: { confirmReplaceExistingId?: string | null }
   ): Promise<ImportResult<Biblio>> {
-    const itemsWithSource =
-      items?.map((item) => itemWritePayload({ ...item, sourceId })) ?? undefined;
+    const itemsWithSite =
+      items?.map((item) => itemWritePayload({ ...item, siteId })) ?? undefined;
 
     const response = await this.client.post<ImportResult<Biblio>>('/z3950/import', {
       biblioId,
-      items: itemsWithSource,
-      sourceId,
+      items: itemsWithSite,
+      siteId,
       ...(options?.confirmReplaceExistingId != null && {
         confirmReplaceExistingId: options.confirmReplaceExistingId,
       }),
@@ -1865,15 +1865,26 @@ class ApiService {
 
   // ─── MARC / UNIMARC ──────────────────────────────────────────────
 
-  async uploadUnimarc(file: File, sourceId?: string | number | null): Promise<EnqueueResult> {
+  async uploadUnimarc(
+    file: File,
+    options?: {
+      siteId?: string | number | null;
+      encoding?: string;
+    },
+  ): Promise<EnqueueResult> {
     const formData = new FormData();
     formData.append('file', file);
+
+    const params: Record<string, string | number> = {};
+    const siteId = options?.siteId;
+    if (siteId != null && String(siteId) !== '') params.siteId = siteId;
+    if (options?.encoding) params.encoding = options.encoding;
 
     const response = await this.client.post<
       EnqueueResult & { biblios?: BiblioShort[] }
     >('/biblios/load-marc', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
-      params: sourceId != null ? { sourceId } : undefined,
+      params: Object.keys(params).length > 0 ? params : undefined,
     });
     return normalizeEnqueueResult(response.data);
   }
@@ -1890,24 +1901,47 @@ class ApiService {
     return normalizeEnqueueResult(response.data);
   }
 
+  async scanDepositMarcDuplicates(
+    batchId: string,
+    depositBatchId: string,
+    options?: { recordId?: number },
+  ) {
+    const response = await this.client.post<import('@/types').DepositDuplicateScanReport>(
+      '/biblios/import-marc-batch/scan-deposit-duplicates',
+      null,
+      {
+        params: {
+          batchId,
+          deposit_batch_id: depositBatchId,
+          ...(options?.recordId != null ? { recordId: options.recordId } : {}),
+        },
+      },
+    );
+    return response.data;
+  }
+
   async importMarcBatch(
     batchId: string,
-    sourceId?: string | number | null,
+    siteId?: string | number | null,
     options?: {
       recordId?: number;
       allowDuplicateIsbn?: boolean;
       confirmReplaceExistingId?: string | number | boolean | null;
       /** Active deposit batch. Official query name is `deposit_batch_id`. */
       depositBatchId?: string | null;
+      depositDuplicateAction?: 'overwrite' | 'relabel' | 'ignore';
+      depositDuplicateApplyAll?: boolean;
     },
   ): Promise<TaskStartResponse> {
     const params = buildMarcBatchImportParams({
       batchId,
-      sourceId,
+      siteId,
       recordId: options?.recordId,
       allowDuplicateIsbn: options?.allowDuplicateIsbn,
       confirmReplaceExistingId: options?.confirmReplaceExistingId,
       depositBatchId: options?.depositBatchId,
+      depositDuplicateAction: options?.depositDuplicateAction,
+      depositDuplicateApplyAll: options?.depositDuplicateApplyAll,
     });
 
     const response = await this.client.post<TaskStartResponse>('/biblios/import-marc-batch', null, {

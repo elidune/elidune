@@ -19,7 +19,7 @@ import {
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { usePublicTypesQuery } from '@/hooks/usePublicTypesQuery';
 import { useAccountTypesQuery } from '@/hooks/useAccountTypesQuery';
-import { Card, Button, Badge, Modal, Input, Table, ConfirmDialog, MessageModal, ScrollableListRegion, BarcodeScanField } from '@/components/common';
+import { Card, Button, Badge, Modal, Input, Table, ConfirmDialog, MessageModal, ScrollableListRegion, BarcodeScanField, SectionTabBar } from '@/components/common';
 import api from '@/services/api';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
 import { deskCheckoutMessage, presentCheckoutRefusal } from '@/utils/deskCheckoutError';
@@ -52,7 +52,7 @@ import HoldPickupCell from '@/components/holds/HoldPickupCell';
 import HoldTransitActions from '@/components/holds/HoldTransitActions';
 import TransitActionModals from '@/components/holds/TransitActionModals';
 import { useActiveTransitsQuery } from '@/hooks/holds/useActiveTransitsQuery';
-import { useSourcesQuery } from '@/hooks/holds/useSourcesQuery';
+import { useSitesQuery } from '@/hooks/holds/useSitesQuery';
 import { useTransitActions } from '@/hooks/holds/useTransitActions';
 import { indexTransitsByHoldId } from '@/utils/transitDisplay';
 import LoansAccessNotice from '@/components/loans/LoansAccessNotice';
@@ -177,8 +177,8 @@ export default function UserDetailPage() {
   const [unlockSignInError, setUnlockSignInError] = useState<string | null>(null);
 
   const [cancellingHoldId, setCancellingHoldId] = useState<string | null>(null);
-  const sourcesQuery = useSourcesQuery();
-  const sources = sourcesQuery.data ?? [];
+  const sitesQuery = useSitesQuery();
+  const sites = sitesQuery.data ?? [];
   const activeTransitsQuery = useActiveTransitsQuery();
   const transitByHoldId = useMemo(
     () => indexTransitsByHoldId(activeTransitsQuery.data ?? []),
@@ -808,7 +808,7 @@ export default function UserDetailPage() {
       key: 'pickup',
       header: t('holds.columnPickup'),
       render: (h: Hold) => (
-        <HoldPickupCell hold={h} sources={sources} transit={transitByHoldId.get(h.id)} />
+        <HoldPickupCell hold={h} sites={sites} transit={transitByHoldId.get(h.id)} />
       ),
     },
     {
@@ -1060,43 +1060,27 @@ export default function UserDetailPage() {
         <Card padding="none" className="flex flex-col flex-1 min-h-0 min-w-0">
           <div className="p-3 sm:p-4 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
             <div className="flex flex-nowrap items-center justify-between gap-3 min-w-0">
-              <div className="overflow-x-auto min-w-0 flex-1 min-h-0 -mx-0.5 px-0.5">
-                <div
-                  className="inline-flex flex-wrap gap-1 rounded-lg border border-gray-200 dark:border-gray-700 p-0.5 bg-gray-50 dark:bg-gray-900"
-                  role="tablist"
-                  aria-label={t('users.title')}
-                >
-                  {(
-                    [
-                      { id: 'info' as UserDetailTab, label: t('users.information') },
-                      { id: 'activeLoans' as UserDetailTab, label: t('loans.activeLoans') },
-                      { id: 'pastLoans' as UserDetailTab, label: t('users.pastLoansTab') },
-                      { id: 'fines' as UserDetailTab, label: t('users.finesTab') },
-                      { id: 'holds' as UserDetailTab, label: t('users.holdsTab') },
-                      { id: 'stats' as UserDetailTab, label: t('users.loanStatistics') },
-                    ].filter((tab) => {
-                      if (tab.id === 'fines') return finesVisible;
-                      if (tab.id === 'pastLoans') return canSeeLoanHistory;
-                      if (tab.id === 'activeLoans') return canListReaderLoans;
-                      return true;
-                    })
-                  ).map((tab) => (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      role="tab"
-                      aria-selected={detailTab === tab.id}
-                      onClick={() => setDetailTab(tab.id)}
-                      className={`px-3 py-1.5 text-sm font-medium rounded-md whitespace-nowrap ${
-                        detailTab === tab.id
-                          ? 'bg-white dark:bg-gray-800 text-amber-700 dark:text-amber-400 shadow-sm'
-                          : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white'
-                      }`}
-                    >
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
+              <div className="min-w-0 flex-1">
+                <SectionTabBar
+                  ariaLabel={t('users.title')}
+                  activeTab={detailTab}
+                  onSelectTab={setDetailTab}
+                  scrollable
+                  className="border-gray-200 dark:border-gray-800"
+                  tabs={[
+                    { id: 'info' as UserDetailTab, label: t('users.information') },
+                    { id: 'activeLoans' as UserDetailTab, label: t('loans.activeLoans') },
+                    { id: 'pastLoans' as UserDetailTab, label: t('users.pastLoansTab') },
+                    { id: 'fines' as UserDetailTab, label: t('users.finesTab') },
+                    { id: 'holds' as UserDetailTab, label: t('users.holdsTab') },
+                    { id: 'stats' as UserDetailTab, label: t('users.loanStatistics') },
+                  ].filter((tab) => {
+                    if (tab.id === 'fines') return finesVisible;
+                    if (tab.id === 'pastLoans') return canSeeLoanHistory;
+                    if (tab.id === 'activeLoans') return canListReaderLoans;
+                    return true;
+                  })}
+                />
               </div>
               {user.createdAt && (
                 <p className="text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2 shrink-0 whitespace-nowrap sm:ml-2">
@@ -1353,14 +1337,14 @@ export default function UserDetailPage() {
                   (s) => (s.barcode != null && ident != null && s.barcode === ident) || s.id === ident
                 );
                 const barcode = spec?.barcode ?? ident ?? '-';
-                const sourceName = spec?.sourceName ?? '-';
+                const siteName = spec?.siteName ?? '-';
                 return (
                   <div className="mt-1 space-y-1">
                     <p className="text-sm text-gray-700 dark:text-gray-300">
                       {t('items.barcode')}: <span className="font-mono">{barcode}</span>
                     </p>
                     <p className="text-sm text-gray-700 dark:text-gray-300">
-                      {t('items.source')}: <span className="font-medium">{sourceName}</span>
+                      {t('items.site')}: <span className="font-medium">{siteName}</span>
                     </p>
                     {spec?.callNumber && (
                       <p className="text-sm text-gray-700 dark:text-gray-300">

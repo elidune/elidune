@@ -1,4 +1,4 @@
-//! Sources API endpoints
+//! Sites API endpoints
 
 use crate::services::audit;
 use axum::{
@@ -11,7 +11,7 @@ use utoipa::{IntoParams, ToSchema};
 
 use crate::{
     error::AppResult,
-    models::source::{CreateSource, MergeSources, Source, UpdateSource},
+    models::site::{CreateSite, MergeSites, Site, UpdateSite},
 };
 
 use super::{AuthenticatedUser, ClientIp};
@@ -20,16 +20,16 @@ use super::{AuthenticatedUser, ClientIp};
 pub fn router() -> axum::Router<crate::AppState> {
     use axum::routing::{get, post};
     axum::Router::new()
-        .route("/sources", get(list_sources).post(create_source))
-        .route("/sources/merge", post(merge_sources))
-        .route("/sources/:id", get(get_source).put(update_source))
-        .route("/sources/:id/archive", post(archive_source))
+        .route("/sites", get(list_sites).post(create_site))
+        .route("/sites/merge", post(merge_sites))
+        .route("/sites/:id", get(get_site).put(update_site))
+        .route("/sites/:id/archive", post(archive_site))
 }
 
 /// Query parameters for listing sources
 #[derive(Debug, Deserialize, IntoParams, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct SourcesQuery {
+pub struct SitesQuery {
     /// Include archived sources (default: false)
     pub include_archived: Option<bool>,
 }
@@ -37,30 +37,30 @@ pub struct SourcesQuery {
 /// Create a source
 #[utoipa::path(
     post,
-    path = "/sources",
-    tag = "sources",
+    path = "/sites",
+    tag = "sites",
     security(("bearer_auth" = [])),
-    request_body = CreateSource,
+    request_body = CreateSite,
     responses(
-        (status = 201, description = "Source created", body = Source),
+        (status = 201, description = "Source created", body = Site),
         (status = 400, description = "Bad request", body = ErrorResponse),
         (status = 401, description = "Not authenticated", body = ErrorResponse),
         (status = 403, description = "Insufficient permissions", body = ErrorResponse),
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn create_source(
+pub async fn create_site(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     ClientIp(ip): ClientIp,
-    Json(data): Json<CreateSource>,
-) -> AppResult<(StatusCode, Json<Source>)> {
+    Json(data): Json<CreateSite>,
+) -> AppResult<(StatusCode, Json<Site>)> {
     claims.require_write_items()?;
-    let source = state.services.sources.create(&data).await?;
+    let source = state.services.sites.create(&data).await?;
     state.services.audit.log(
-        audit::event::SOURCE_CREATED,
+        audit::event::SITE_CREATED,
         Some(claims.user_id),
-        Some("source"),
+        Some("site"),
         Some(source.id),
         ip,
         Some((&data, &source)),
@@ -72,86 +72,74 @@ pub async fn create_source(
 /// List all sources
 #[utoipa::path(
     get,
-    path = "/sources",
-    tag = "sources",
+    path = "/sites",
+    tag = "sites",
     security(("bearer_auth" = [])),
-    params(SourcesQuery),
+    params(SitesQuery),
     responses(
-        (status = 200, description = "Sources list", body = Vec<Source>),
+        (status = 200, description = "Sources list", body = Vec<Site>),
         (status = 400, description = "Bad request", body = ErrorResponse),
         (status = 401, description = "Not authenticated", body = ErrorResponse),
         (status = 403, description = "Insufficient permissions", body = ErrorResponse),
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn list_sources(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Query(query): Query<SourcesQuery>,
-) -> AppResult<Json<Vec<Source>>> {
+pub async fn list_sites(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<SitesQuery>) -> AppResult<Json<Vec<Site>>> {
     claims.require_read_items()?;
-    let sources = state
-        .services
-        .sources
-        .list(query.include_archived.unwrap_or(false))
-        .await?;
+    let sources = state.services.sites.list(query.include_archived.unwrap_or(false)).await?;
     Ok(Json(sources))
 }
 
 /// Get source by ID
 #[utoipa::path(
     get,
-    path = "/sources/{id}",
-    tag = "sources",
+    path = "/sites/{id}",
+    tag = "sites",
     security(("bearer_auth" = [])),
     params(("id" = i32, Path, description = "Source ID")),
     responses(
-        (status = 200, description = "Source details", body = Source),
+        (status = 200, description = "Source details", body = Site),
         (status = 400, description = "Bad request", body = ErrorResponse),
         (status = 401, description = "Not authenticated", body = ErrorResponse),
         (status = 403, description = "Insufficient permissions", body = ErrorResponse),
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn get_source(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path(id): Path<i64>,
-) -> AppResult<Json<Source>> {
+pub async fn get_site(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(id): Path<i64>) -> AppResult<Json<Site>> {
     claims.require_read_items()?;
-    let source = state.services.sources.get_by_id(id).await?;
+    let source = state.services.sites.get_by_id(id).await?;
     Ok(Json(source))
 }
 
 /// Update a source (name and/or default status)
 #[utoipa::path(
     post,
-    path = "/sources/{id}",
-    tag = "sources",
+    path = "/sites/{id}",
+    tag = "sites",
     security(("bearer_auth" = [])),
     params(("id" = i32, Path, description = "Source ID")),
-    request_body = UpdateSource,
+    request_body = UpdateSite,
     responses(
-        (status = 200, description = "Source updated", body = Source),
+        (status = 200, description = "Source updated", body = Site),
         (status = 400, description = "Bad request", body = ErrorResponse),
         (status = 401, description = "Not authenticated", body = ErrorResponse),
         (status = 403, description = "Insufficient permissions", body = ErrorResponse),
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn update_source(
+pub async fn update_site(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     ClientIp(ip): ClientIp,
     Path(id): Path<i64>,
-    Json(data): Json<UpdateSource>,
-) -> AppResult<Json<Source>> {
+    Json(data): Json<UpdateSite>,
+) -> AppResult<Json<Site>> {
     claims.require_write_items()?;
-    let source = state.services.sources.update(id, &data).await?;
+    let source = state.services.sites.update(id, &data).await?;
     state.services.audit.log(
-        audit::event::SOURCE_UPDATED,
+        audit::event::SITE_UPDATED,
         Some(claims.user_id),
-        Some("source"),
+        Some("site"),
         Some(id),
         ip,
         Some((id, &data, &source)),
@@ -163,27 +151,22 @@ pub async fn update_source(
 /// Archive a source (fails if non-archived items are still linked)
 #[utoipa::path(
     post,
-    path = "/sources/{id}/archive",
-    tag = "sources",
+    path = "/sites/{id}/archive",
+    tag = "sites",
     security(("bearer_auth" = [])),
     params(("id" = i32, Path, description = "Source ID")),
     responses(
-        (status = 200, description = "Source archived", body = Source),
+        (status = 200, description = "Source archived", body = Site),
         (status = 422, description = "Cannot archive: active items linked")
     )
 )]
-pub async fn archive_source(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    ClientIp(ip): ClientIp,
-    Path(id): Path<i64>,
-) -> AppResult<Json<Source>> {
+pub async fn archive_site(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Path(id): Path<i64>) -> AppResult<Json<Site>> {
     claims.require_write_items()?;
-    let source = state.services.sources.archive(id).await?;
+    let source = state.services.sites.archive(id).await?;
     state.services.audit.log(
-        audit::event::SOURCE_ARCHIVED,
+        audit::event::SITE_ARCHIVED,
         Some(claims.user_id),
-        Some("source"),
+        Some("site"),
         Some(id),
         ip,
         Some(&source),
@@ -195,30 +178,30 @@ pub async fn archive_source(
 /// Merge multiple sources into a new one
 #[utoipa::path(
     post,
-    path = "/sources/merge",
-    tag = "sources",
+    path = "/sites/merge",
+    tag = "sites",
     security(("bearer_auth" = [])),
-    request_body = MergeSources,
+    request_body = MergeSites,
     responses(
-        (status = 201, description = "New merged source created", body = Source),
+        (status = 201, description = "New merged source created", body = Site),
         (status = 400, description = "Bad request", body = ErrorResponse),
         (status = 401, description = "Not authenticated", body = ErrorResponse),
         (status = 403, description = "Insufficient permissions", body = ErrorResponse),
         (status = 404, description = "Not found", body = ErrorResponse),
     )
 )]
-pub async fn merge_sources(
+pub async fn merge_sites(
     State(state): State<crate::AppState>,
     AuthenticatedUser(claims): AuthenticatedUser,
     ClientIp(ip): ClientIp,
-    Json(data): Json<MergeSources>,
-) -> AppResult<(StatusCode, Json<Source>)> {
+    Json(data): Json<MergeSites>,
+) -> AppResult<(StatusCode, Json<Site>)> {
     claims.require_write_items()?;
-    let source = state.services.sources.merge(&data).await?;
+    let source = state.services.sites.merge(&data).await?;
     state.services.audit.log(
-        audit::event::SOURCE_MERGED,
+        audit::event::SITE_MERGED,
         Some(claims.user_id),
-        Some("source"),
+        Some("site"),
         Some(source.id),
         ip,
         Some((&data, &source)),

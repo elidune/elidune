@@ -37,8 +37,8 @@ import {
   Z3950SearchPage,
   ProfilePage,
   ImportIsoPage,
-  LendersPage,
-  DepositBatchesPage,
+  DepositsPage,
+  DepositsLendersRedirect,
   DepositBatchDetailPage,
   EventsPage,
   UnsubscribeEventsPage,
@@ -420,7 +420,7 @@ function AppRoutes() {
                 return access.internalCatalog && access.itemsRead;
               }}
             >
-              <LendersPage />
+              <DepositsLendersRedirect />
             </RightsRoute>
           </ProtectedRoute>
         }
@@ -450,7 +450,7 @@ function AppRoutes() {
                 return access.internalCatalog && access.itemsRead;
               }}
             >
-              <DepositBatchesPage />
+              <DepositsPage />
             </RightsRoute>
           </ProtectedRoute>
         }

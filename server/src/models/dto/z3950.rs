@@ -54,5 +54,5 @@ pub struct ImportItem {
     pub price: Option<String>,
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
-    pub source_id: Option<i64>,
+    pub site_id: Option<i64>,
 }

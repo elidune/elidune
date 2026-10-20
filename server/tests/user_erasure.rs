@@ -19,9 +19,7 @@ async fn create_borrowable_item(app: &TestApp, admin_token: &str, prefix: &str) 
             "borrowable": true
         }]
     });
-    let (status, body) = app
-        .post_json("/api/v1/biblios", &payload, Some(admin_token))
-        .await;
+    let (status, body) = app.post_json("/api/v1/biblios", &payload, Some(admin_token)).await;
     assert_eq!(status, StatusCode::CREATED, "create biblio: {body}");
     fixtures::json_id(&body["biblio"]["items"][0]["id"])
 }
@@ -127,28 +125,25 @@ async fn assert_users_row_scrubbed(app: &TestApp, user_id: i64) {
 }
 
 async fn assert_history_unlinked(app: &TestApp, user_id: i64) {
-    let archive_links: i64 =
-        sqlx::query_scalar("SELECT COUNT(*)::bigint FROM loans_archives WHERE user_id = $1")
-            .bind(user_id)
-            .fetch_one(app.state.services.repository.pool())
-            .await
-            .expect("count archive links");
+    let archive_links: i64 = sqlx::query_scalar("SELECT COUNT(*)::bigint FROM loans_archives WHERE user_id = $1")
+        .bind(user_id)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .expect("count archive links");
     assert_eq!(archive_links, 0, "archives must not keep user_id");
 
-    let loan_links: i64 =
-        sqlx::query_scalar("SELECT COUNT(*)::bigint FROM loans WHERE user_id = $1")
-            .bind(user_id)
-            .fetch_one(app.state.services.repository.pool())
-            .await
-            .expect("count loan links");
+    let loan_links: i64 = sqlx::query_scalar("SELECT COUNT(*)::bigint FROM loans WHERE user_id = $1")
+        .bind(user_id)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .expect("count loan links");
     assert_eq!(loan_links, 0, "active loans must not keep user_id");
 
-    let fine_links: i64 =
-        sqlx::query_scalar("SELECT COUNT(*)::bigint FROM fines WHERE user_id = $1")
-            .bind(user_id)
-            .fetch_one(app.state.services.repository.pool())
-            .await
-            .expect("count fine links");
+    let fine_links: i64 = sqlx::query_scalar("SELECT COUNT(*)::bigint FROM fines WHERE user_id = $1")
+        .bind(user_id)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .expect("count fine links");
     assert_eq!(fine_links, 0, "fines must not keep user_id");
 
     let holds: i64 = sqlx::query_scalar("SELECT COUNT(*)::bigint FROM holds WHERE user_id = $1")
@@ -159,18 +154,9 @@ async fn assert_history_unlinked(app: &TestApp, user_id: i64) {
     assert_eq!(holds, 0, "holds must be cancelled");
 }
 
-async fn latest_user_deleted_audit(
-    app: &TestApp,
-    admin_token: &str,
-    user_id: i64,
-) -> serde_json::Value {
+async fn latest_user_deleted_audit(app: &TestApp, admin_token: &str, user_id: i64) -> serde_json::Value {
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-    let (status, audit) = app
-        .get_json_with_auth(
-            &format!("/api/v1/audit?eventType=user.deleted&entityId={user_id}"),
-            admin_token,
-        )
-        .await;
+    let (status, audit) = app.get_json_with_auth(&format!("/api/v1/audit?eventType=user.deleted&entityId={user_id}"), admin_token).await;
     assert_eq!(status, StatusCode::OK, "audit query: {audit}");
     let entries = audit["entries"].as_array().cloned().unwrap_or_default();
     entries
@@ -182,20 +168,8 @@ async fn latest_user_deleted_audit(
 fn assert_audit_has_no_erased_pii(entry: &serde_json::Value) {
     let payload = &entry["payload"];
     let dumped = payload.to_string().to_lowercase();
-    for forbidden in [
-        "readerpass",
-        "test.local",
-        "private medical",
-        "secret-totp",
-        "recovery-one",
-        "+33600000000",
-        "1 rue test",
-        "bc-",
-    ] {
-        assert!(
-            !dumped.contains(forbidden),
-            "audit payload must not store erased PII: {payload}"
-        );
+    for forbidden in ["readerpass", "test.local", "private medical", "secret-totp", "recovery-one", "+33600000000", "1 rue test", "bc-"] {
+        assert!(!dumped.contains(forbidden), "audit payload must not store erased PII: {payload}");
     }
     assert_eq!(payload["anonymized"], true);
 }
@@ -207,12 +181,7 @@ async fn delete_without_loans_scrubs_pii_and_unlinks_history() {
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (reader_id, reader_token) = fixtures::create_reader(&app, &admin_token, "eraseok").await;
-    seed_direct_identifiers(
-        &app,
-        reader_id,
-        &format!("ok-{}", fixtures::unique_suffix()),
-    )
-    .await;
+    seed_direct_identifiers(&app, reader_id, &format!("ok-{}", fixtures::unique_suffix())).await;
 
     let item_id = create_borrowable_item(&app, &admin_token, "ERSOK").await;
     let (status, body) = app
@@ -228,17 +197,10 @@ async fn delete_without_loans_scrubs_pii_and_unlinks_history() {
     assert_eq!(status, StatusCode::CREATED, "checkout: {body}");
     let loan_id = fixtures::json_id(&body["id"]);
 
-    let (status, body) = app
-        .post_empty(
-            &format!("/api/v1/loans/{loan_id}/return"),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, body) = app.post_empty(&format!("/api/v1/loans/{loan_id}/return"), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::OK, "return: {body}");
 
-    let (status, body) = app
-        .delete_with_auth(&format!("/api/v1/users/{reader_id}"), &admin_token)
-        .await;
+    let (status, body) = app.delete_with_auth(&format!("/api/v1/users/{reader_id}"), &admin_token).await;
     assert_eq!(status, StatusCode::NO_CONTENT, "delete: {body}");
 
     assert_users_row_scrubbed(&app, reader_id).await;
@@ -271,14 +233,8 @@ async fn delete_without_loans_scrubs_pii_and_unlinks_history() {
     let loan_year: Option<i16> = archive.get("loan_year");
     assert_eq!(loan_year, Some(chrono::Utc::now().year() as i16));
 
-    let (status, me) = app
-        .get_json_with_auth("/api/v1/auth/me", &reader_token)
-        .await;
-    assert_eq!(
-        status,
-        StatusCode::UNAUTHORIZED,
-        "erased patron JWT must be revoked: {me}"
-    );
+    let (status, me) = app.get_json_with_auth("/api/v1/auth/me", &reader_token).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "erased patron JWT must be revoked: {me}");
 
     let audit = latest_user_deleted_audit(&app, &admin_token, reader_id).await;
     assert_audit_has_no_erased_pii(&audit);
@@ -306,14 +262,8 @@ async fn delete_with_active_loans_is_refused_without_force() {
         .await;
     assert_eq!(status, StatusCode::CREATED, "checkout: {body}");
 
-    let (status, body) = app
-        .delete_with_auth(&format!("/api/v1/users/{reader_id}"), &admin_token)
-        .await;
-    assert_eq!(
-        status,
-        StatusCode::UNPROCESSABLE_ENTITY,
-        "expected active-loan refusal: {body}"
-    );
+    let (status, body) = app.delete_with_auth(&format!("/api/v1/users/{reader_id}"), &admin_token).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "expected active-loan refusal: {body}");
 
     let login: Option<String> = sqlx::query_scalar("SELECT login FROM users WHERE id = $1")
         .bind(reader_id)
@@ -330,12 +280,7 @@ async fn force_delete_with_loans_and_fines_snapshots_then_cuts_identity() {
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (reader_id, _) = fixtures::create_reader(&app, &admin_token, "eraseforce").await;
-    seed_direct_identifiers(
-        &app,
-        reader_id,
-        &format!("force-{}", fixtures::unique_suffix()),
-    )
-    .await;
+    seed_direct_identifiers(&app, reader_id, &format!("force-{}", fixtures::unique_suffix())).await;
 
     let item_id = create_borrowable_item(&app, &admin_token, "ERFOR").await;
     let (status, body) = app
@@ -354,21 +299,11 @@ async fn force_delete_with_loans_and_fines_snapshots_then_cuts_identity() {
     app.state
         .services
         .repository
-        .fines_create(
-            loan_id,
-            reader_id,
-            elidune_server::models::fine::Cents(350),
-            Some("overdue"),
-        )
+        .fines_create(loan_id, reader_id, elidune_server::models::fine::Cents(350), Some("overdue"))
         .await
         .expect("create fine");
 
-    let (status, body) = app
-        .delete_with_auth(
-            &format!("/api/v1/users/{reader_id}?force=true"),
-            &admin_token,
-        )
-        .await;
+    let (status, body) = app.delete_with_auth(&format!("/api/v1/users/{reader_id}?force=true"), &admin_token).await;
     assert_eq!(status, StatusCode::NO_CONTENT, "force delete: {body}");
 
     assert_users_row_scrubbed(&app, reader_id).await;

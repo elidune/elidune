@@ -54,32 +54,32 @@ function transit(patch: Partial<ItemTransit> = {}): ItemTransit {
     id: 't1',
     itemId: 'i1',
     holdId: 'h1',
-    fromSourceId: 'site-annex',
-    toSourceId: 'site-main',
+    fromSiteId: 'site-annex',
+    toSiteId: 'site-main',
     status: 'requested',
     createdAt: '2026-10-01T00:00:00Z',
     barcode: 'EX-1',
     title: 'Privacy',
-    sourceId: 'site-annex',
-    sourceName: 'Annex',
+    siteId: 'site-annex',
+    siteName: 'Annex',
     patron: { cardNumber: 'CARD-3', initials: 'HH' },
     ...patch,
   };
 }
 
 describe('start transit when the copy site id equals the pickup site', () => {
-  it('hides the action when sourceId is the pickup site', () => {
+  it('hides the action when siteId is the pickup site', () => {
     assert.equal(copyAlreadyAtPickupSite('site-main', 'site-main'), true);
     assert.equal(canStartHoldTransit(hold(), null, 'site-main'), false);
-    assert.equal(canStartHoldTransit(hold(), transit({ sourceId: 'site-main', status: 'received' })), false);
+    assert.equal(canStartHoldTransit(hold(), transit({ siteId: 'site-main', status: 'received' })), false);
   });
 
-  it('keeps the action when sourceId is another site', () => {
+  it('keeps the action when siteId is another site', () => {
     assert.equal(canStartHoldTransit(hold(), null, 'site-annex'), true);
   });
 
-  it('does not guess from a site name when sourceId is missing', () => {
-    assert.equal(canStartHoldTransit(hold(), transit({ sourceId: undefined, sourceName: 'Main', status: 'received' })), true);
+  it('does not guess from a site name when siteId is missing', () => {
+    assert.equal(canStartHoldTransit(hold(), transit({ siteId: undefined, siteName: 'Main', status: 'received' })), true);
     assert.equal(copyAlreadyAtPickupSite('site-main', null), false);
   });
 });
@@ -155,11 +155,11 @@ describe('transit list fields on the transit', () => {
       "holdId": "7001",
       "barcode": "EX-1",
       "title": "Privacy",
-      "sourceId": "10",
-      "sourceName": "Annex",
+      "siteId": "10",
+      "siteName": "Annex",
       "patron": { "cardNumber": "CARD-42", "initials": "JD" },
-      "fromSourceId": "11",
-      "toSourceId": "10",
+      "fromSiteId": "11",
+      "toSiteId": "10",
       "status": "inTransit",
       "notes": null,
       "createdAt": "2026-10-14T08:00:00Z",
@@ -181,16 +181,16 @@ describe('transit list fields on the transit', () => {
       "holdId": "7001",
       "barcode": "EX-2",
       "title": "Privacy",
-      "sourceId": "10",
-      "sourceName": "Annex",
+      "siteId": "10",
+      "siteName": "Annex",
       "patron": {
         "cardNumber": "CARD-42",
         "initials": "J. D.",
         "firstname": "Jean",
         "lastname": "Dupont"
       },
-      "fromSourceId": "11",
-      "toSourceId": "10",
+      "fromSiteId": "11",
+      "toSiteId": "10",
       "status": "requested",
       "createdAt": "2026-10-14T08:00:00Z"
     }`) as ItemTransit;
@@ -217,11 +217,11 @@ describe('transit list fields on the transit', () => {
       "holdId": "7002",
       "barcode": "RC-B5TE-101229",
       "title": "Return copy",
-      "sourceId": "10",
-      "sourceName": "Annex",
+      "siteId": "10",
+      "siteName": "Annex",
       "patron": null,
-      "fromSourceId": "11",
-      "toSourceId": "10",
+      "fromSiteId": "11",
+      "toSiteId": "10",
       "status": "inTransit",
       "createdAt": "2026-10-14T08:00:00Z"
     }`) as ItemTransit;
@@ -236,8 +236,8 @@ describe('transit list fields on the transit', () => {
       "barcode": "RC-B5TE-101229",
       "title": "Return copy",
       "patron": null,
-      "fromSourceId": "10",
-      "toSourceId": "11",
+      "fromSiteId": "10",
+      "toSiteId": "11",
       "status": "requested",
       "createdAt": "2026-10-14T08:00:00Z",
       "reversedFromId": "9003"

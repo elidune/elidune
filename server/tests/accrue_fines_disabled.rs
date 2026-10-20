@@ -16,18 +16,11 @@ fn next_fine_id() -> i64 {
 }
 
 fn set_accrue_fines(app: &TestApp, accrue: bool) {
-    let mut value = serde_json::to_value(app.state.dynamic_config.read_reminders())
-        .expect("serialize reminders");
+    let mut value = serde_json::to_value(app.state.dynamic_config.read_reminders()).expect("serialize reminders");
     value["accrue_fines"] = json!(accrue);
     value["enabled"] = json!(true);
-    app.state
-        .dynamic_config
-        .update_section("reminders", value)
-        .expect("update reminders");
-    assert_eq!(
-        app.state.dynamic_config.read_reminders().accrue_fines,
-        accrue
-    );
+    app.state.dynamic_config.update_section("reminders", value).expect("update reminders");
+    assert_eq!(app.state.dynamic_config.read_reminders().accrue_fines, accrue);
 }
 
 async fn create_copy(app: &TestApp, admin_token: &str, title: &str) -> (i64, String) {
@@ -68,9 +61,7 @@ async fn amount_audience(app: &TestApp, admin_token: &str, cents: i64) -> i64 {
 }
 
 async fn public_type_threshold(app: &TestApp, admin_token: &str, id: i64) -> Value {
-    let (status, body) = app
-        .get_json_with_auth("/api/v1/public-types", admin_token)
-        .await;
+    let (status, body) = app.get_json_with_auth("/api/v1/public-types", admin_token).await;
     assert_eq!(status, StatusCode::OK, "public types: {body}");
     let row = body
         .as_array()
@@ -85,19 +76,12 @@ async fn public_type_threshold(app: &TestApp, admin_token: &str, id: i64) -> Val
 }
 
 async fn global_threshold(app: &TestApp, admin_token: &str) -> Value {
-    let (status, body) = app
-        .get_json_with_auth("/api/v1/fines/policy", admin_token)
-        .await;
+    let (status, body) = app.get_json_with_auth("/api/v1/fines/policy", admin_token).await;
     assert_eq!(status, StatusCode::OK, "fine policy: {body}");
     body
 }
 
-async fn checkout(
-    app: &TestApp,
-    admin_token: &str,
-    user_id: i64,
-    item_id: i64,
-) -> (StatusCode, Value) {
+async fn checkout(app: &TestApp, admin_token: &str, user_id: i64, item_id: i64) -> (StatusCode, Value) {
     app.post_json(
         "/api/v1/loans",
         &json!({
@@ -146,13 +130,7 @@ async fn disabled_accrual_ignores_public_type_threshold_until_reenabled() {
     assert_eq!(stored_type["unpaidThresholdMode"], "amount");
     assert_eq!(stored_type["unpaidThresholdCents"], cents);
 
-    let (reader_id, reader_token) = fixtures::create_reader_with_public_type(
-        &app,
-        &admin_token,
-        "afdreader",
-        Some(public_type_id),
-    )
-    .await;
+    let (reader_id, reader_token) = fixtures::create_reader_with_public_type(&app, &admin_token, "afdreader", Some(public_type_id)).await;
 
     let (seed_item, _) = create_copy(&app, &admin_token, "Accrue Fines Seed").await;
     let (status, created) = checkout(&app, &admin_token, reader_id, seed_item).await;
@@ -160,9 +138,7 @@ async fn disabled_accrual_ignores_public_type_threshold_until_reenabled() {
     let seed_loan_id = fixtures::json_id(&created["id"]);
     insert_replacement_fine(&app, seed_loan_id, reader_id).await;
 
-    let (status, fines) = app
-        .get_json_with_auth(&format!("/api/v1/users/{reader_id}/fines"), &admin_token)
-        .await;
+    let (status, fines) = app.get_json_with_auth(&format!("/api/v1/users/{reader_id}/fines"), &admin_token).await;
     assert_eq!(status, StatusCode::OK, "fines: {fines}");
     let listed = fines["fines"]
         .as_array()
@@ -173,11 +149,7 @@ async fn disabled_accrual_ignores_public_type_threshold_until_reenabled() {
 
     let (second_item, _) = create_copy(&app, &admin_token, "Accrue Fines Checkout").await;
     let (status, body) = checkout(&app, &admin_token, reader_id, second_item).await;
-    assert_eq!(
-        status,
-        StatusCode::CREATED,
-        "checkout while fines off: {body}"
-    );
+    assert_eq!(status, StatusCode::CREATED, "checkout while fines off: {body}");
     assert!(body.get("code").is_none(), "{body}");
     let second_loan_id = fixtures::json_id(&body["id"]);
 
@@ -203,29 +175,17 @@ async fn disabled_accrual_ignores_public_type_threshold_until_reenabled() {
     fixtures::pull_loan_into_renewal_window(&app, seed_loan_id).await;
     fixtures::pull_loan_into_renewal_window(&app, second_loan_id).await;
 
-    let (status, mine) = app
-        .get_json_with_auth("/api/v1/me/loans?perPage=50", &reader_token)
-        .await;
+    let (status, mine) = app.get_json_with_auth("/api/v1/me/loans?perPage=50", &reader_token).await;
     assert_eq!(status, StatusCode::OK, "me loans: {mine}");
     let row = loan_row(mine["items"].as_array().expect("items"), second_loan_id);
     assert_eq!(row["canRenew"], true, "{row}");
     assert!(row["renewalRefusalCode"].is_null(), "{row}");
 
-    let (status, renewed) = app
-        .post_empty(
-            &format!("/api/v1/loans/{seed_loan_id}/renew"),
-            Some(&reader_token),
-        )
-        .await;
+    let (status, renewed) = app.post_empty(&format!("/api/v1/loans/{seed_loan_id}/renew"), Some(&reader_token)).await;
     assert_eq!(status, StatusCode::OK, "renew while fines off: {renewed}");
     assert_ne!(renewed["code"], "fines_over_threshold", "{renewed}");
 
-    let (status, returned) = app
-        .post_empty(
-            &format!("/api/v1/loans/{batch_loan_id}/return"),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, returned) = app.post_empty(&format!("/api/v1/loans/{batch_loan_id}/return"), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::OK, "return batch loan: {returned}");
 
     assert_eq!(
@@ -237,15 +197,8 @@ async fn disabled_accrual_ignores_public_type_threshold_until_reenabled() {
 
     set_accrue_fines(&app, true);
 
-    assert_eq!(
-        public_type_threshold(&app, &admin_token, public_type_id).await,
-        stored_type
-    );
-    assert_eq!(
-        global_threshold(&app, &admin_token).await,
-        global_while_off,
-        "re-enabling fines must not rewrite the global threshold"
-    );
+    assert_eq!(public_type_threshold(&app, &admin_token, public_type_id).await, stored_type);
+    assert_eq!(global_threshold(&app, &admin_token).await, global_while_off, "re-enabling fines must not rewrite the global threshold");
 
     let (blocked_item, _) = create_copy(&app, &admin_token, "Accrue Fines Blocked").await;
     let (status, refused) = checkout(&app, &admin_token, reader_id, blocked_item).await;
@@ -253,29 +206,17 @@ async fn disabled_accrual_ignores_public_type_threshold_until_reenabled() {
     assert_eq!(refused["code"], "fines_over_threshold", "{refused}");
     assert_eq!(refused["forceable"], true, "{refused}");
 
-    let (status, renew_refused) = app
-        .post_empty(
-            &format!("/api/v1/loans/{second_loan_id}/renew"),
-            Some(&reader_token),
-        )
-        .await;
+    let (status, renew_refused) = app.post_empty(&format!("/api/v1/loans/{second_loan_id}/renew"), Some(&reader_token)).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{renew_refused}");
-    assert_eq!(
-        renew_refused["code"], "fines_over_threshold",
-        "{renew_refused}"
-    );
+    assert_eq!(renew_refused["code"], "fines_over_threshold", "{renew_refused}");
 
-    let (status, mine) = app
-        .get_json_with_auth("/api/v1/me/loans?perPage=50", &reader_token)
-        .await;
+    let (status, mine) = app.get_json_with_auth("/api/v1/me/loans?perPage=50", &reader_token).await;
     assert_eq!(status, StatusCode::OK, "me loans after re-enable: {mine}");
     let row = loan_row(mine["items"].as_array().expect("items"), second_loan_id);
     assert_eq!(row["canRenew"], false, "{row}");
     assert_eq!(row["renewalRefusalCode"], "fines_over_threshold", "{row}");
 
-    let (status, fines) = app
-        .get_json_with_auth(&format!("/api/v1/users/{reader_id}/fines"), &admin_token)
-        .await;
+    let (status, fines) = app.get_json_with_auth(&format!("/api/v1/users/{reader_id}/fines"), &admin_token).await;
     assert_eq!(status, StatusCode::OK, "fines after re-enable: {fines}");
     let still_listed = fines["fines"]
         .as_array()
@@ -310,9 +251,7 @@ async fn disabled_accrual_still_queues_overdue_reminder_without_a_fine() {
         .await
         .expect("backdate loan");
 
-    let (status, body) = app
-        .post_empty("/api/v1/loans/send-overdue-reminders", Some(&admin_token))
-        .await;
+    let (status, body) = app.post_empty("/api/v1/loans/send-overdue-reminders", Some(&admin_token)).await;
     assert_eq!(status, StatusCode::OK, "send reminders: {body}");
     let detail = body["details"]
         .as_array()
@@ -321,13 +260,11 @@ async fn disabled_accrual_still_queues_overdue_reminder_without_a_fine() {
         .find(|row| row["email"] == email)
         .unwrap_or_else(|| panic!("reminder for {email} missing: {body}"));
     assert_eq!(detail["tier"], "first", "{detail}");
-    let queued: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM email_outbox WHERE to_addr = $1 AND status = 'pending'",
-    )
-    .bind(&email)
-    .fetch_one(app.state.services.repository.pool())
-    .await
-    .expect("outbox count");
+    let queued: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM email_outbox WHERE to_addr = $1 AND status = 'pending'")
+        .bind(&email)
+        .fetch_one(app.state.services.repository.pool())
+        .await
+        .expect("outbox count");
     assert!(queued >= 1, "reminder must be queued, pending={queued}");
 
     let fines: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM fines WHERE user_id = $1")

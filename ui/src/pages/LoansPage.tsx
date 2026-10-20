@@ -17,7 +17,7 @@ import {
   ClipboardList,
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { Card, CardHeader, Button, Badge, Table, MessageModal, ConfirmDialog, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, BarcodeScanField } from '@/components/common';
+import { Card, CardHeader, Button, Badge, Table, MessageModal, ConfirmDialog, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, BarcodeScanField, SectionTabBar } from '@/components/common';
 import ItemAvailabilityBadge from '@/components/items/ItemAvailabilityBadge';
 import ActiveLoanCard from '@/components/loans/ActiveLoanCard';
 import CirculationExceptionDialog from '@/components/loans/CirculationExceptionDialog';
@@ -1407,86 +1407,34 @@ export default function LoansPage() {
         </p>
       </div>
 
-      {/* Tabs */}
-      <div className="border-b border-gray-200 dark:border-gray-800">
-        <nav className="-mb-px flex space-x-8 overflow-x-auto">
-          <button
-            onClick={() => {
-              setActiveTab('borrow');
-              setReturnResult(null);
-              setReturnError('');
-              setReminderReport(null);
-            }}
-            className={`py-4 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'borrow'
-                ? 'border-amber-500 text-amber-700 dark:text-amber-400'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <BookMarked className="h-5 w-5" />
-              {t('loans.tabBorrow')}
-            </div>
-          </button>
-          <button
-            onClick={() => {
-              setActiveTab('return');
-              setReturnResult(null);
-              setReturnError('');
-              setReminderReport(null);
-            }}
-            className={`py-4 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'return'
-                ? 'border-amber-500 text-amber-700 dark:text-amber-400'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <Check className="h-5 w-5" />
-              {t('loans.tabReturn')}
-            </div>
-          </button>
-          <button
-            onClick={() => {
-              setActiveTab('overdue');
-              setReturnResult(null);
-              setReturnError('');
-              setReminderReport(null);
-            }}
-            className={`py-4 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'overdue'
-                ? 'border-amber-500 text-amber-700 dark:text-amber-400'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <Bell className="h-5 w-5" />
-              {t('loans.overdueTab')}
-            </div>
-          </button>
-          <button
-            onClick={() => {
-              setActiveTab('claims');
-              setReturnResult(null);
-              setReturnError('');
-              setReminderReport(null);
-            }}
-            className={`py-4 px-1 border-b-2 font-medium text-sm ${
-              activeTab === 'claims'
-                ? 'border-amber-500 text-amber-700 dark:text-amber-400'
-                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <ClipboardList className="h-5 w-5" />
-              {t('loans.exceptions.tabClaims')}
-              {(claimsIdPage?.total ?? 0) > 0 ? (
-                <Badge variant="warning" size="sm">{claimsIdPage?.total}</Badge>
-              ) : null}
-            </div>
-          </button>
-        </nav>
-      </div>
+      <SectionTabBar
+        ariaLabel={t('loans.title')}
+        activeTab={activeTab}
+        scrollable
+        onSelectTab={(tab) => {
+          setActiveTab(tab);
+          setReturnResult(null);
+          setReturnError('');
+          setReminderReport(null);
+        }}
+        tabs={[
+          { id: 'borrow', label: t('loans.tabBorrow'), icon: BookMarked },
+          { id: 'return', label: t('loans.tabReturn'), icon: Check },
+          { id: 'overdue', label: t('loans.overdueTab'), icon: Bell },
+          {
+            id: 'claims',
+            label: (
+              <>
+                {t('loans.exceptions.tabClaims')}
+                {(claimsIdPage?.total ?? 0) > 0 ? (
+                  <Badge variant="warning" size="sm">{claimsIdPage?.total}</Badge>
+                ) : null}
+              </>
+            ),
+            icon: ClipboardList,
+          },
+        ]}
+      />
 
       {/* Borrow Tab */}
       {activeTab === 'borrow' && (
@@ -2551,8 +2499,8 @@ async function resolvePickNotice(notice: PickCheckInNotice): Promise<PickCheckIn
   }
   if (notice.kind === 'transit' && !siteName && notice.siteId) {
     try {
-      const sources = await api.getSources(false);
-      siteName = sourceLabel(sources, notice.siteId);
+      const sites = await api.getSites(false);
+      siteName = sourceLabel(sites, notice.siteId);
     } catch {
       siteName = null;
     }

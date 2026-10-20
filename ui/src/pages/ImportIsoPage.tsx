@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, Fragment, useEffect } from 'react';
+import { useState, useRef, useCallback, Fragment, useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
@@ -15,26 +15,47 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronLeft,
-  Plus,
   Server,
   RefreshCw,
   Clock,
   CheckCircle,
 } from 'lucide-react';
-import { Card, Button, Badge, Input, Modal, BarcodeScanField } from '@/components/common';
+import { Card, Button, Badge, Modal, BarcodeScanField, SectionTabBar } from '@/components/common';
+import MarcImportTargetSection, { marcImportTargetRequiredMessage } from '@/components/marc/MarcImportTargetSection';
+import DepositMarcDuplicateDialog, {
+  type DepositMarcDuplicateResolution,
+} from '@/components/marc/DepositMarcDuplicateDialog';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import {
   marcImportFailureMessage,
+  depositMarcRelabelNotices,
   summarizeDepositImportReport,
   type DepositImportSummary,
 } from '@/utils/deposits';
 import { useBackgroundTask, restoreTaskId } from '@/hooks/common/useBackgroundTask';
+import { formatMarcTaskProgressMessage } from '@/utils/backgroundTaskDisplay';
+import {
+  marcImportAllowsDuplicateIsbn,
+  marcImportApiSiteId,
+  marcImportDepositBatchId,
+  marcImportTargetReady,
+  type MarcImportTargetVariant,
+} from '@/utils/marcImportTarget';
+import { APP_PAGE_CLASS } from '@/utils/appPageLayout';
+import {
+  DEFAULT_MARC_FILE_ENCODING,
+  MARC_FILE_ENCODINGS,
+  marcFileEncodingLabelKey,
+  type MarcFileEncoding,
+} from '@/utils/marcImportEncoding';
+import { formControlClass, formLabelClass } from '@/utils/formControl';
+import { deferFromEffect } from '@/utils/deferFromEffect';
 import type {
   Author,
   MediaType,
-  Source,
+  Site,
   ImportReport,
   DuplicateConfirmationRequired,
   BiblioShort,
@@ -43,7 +64,6 @@ import type {
   MarcBatchInfo,
   BackgroundTask,
   MarcBatchImportError,
-  DepositBatch,
 } from '@/types';
 import type { AxiosError } from 'axios';
 
@@ -292,9 +312,6 @@ function getDuplicateExistingIdFromFailure(failure: MarcBatchImportError): strin
 
 type MarcImportTaskContext = { mode: 'all' };
 
-import { formatMarcTaskProgressMessage } from '@/utils/backgroundTaskDisplay';
-import { formControlClass, formLabelClass } from '@/utils/formControl';
-import { deferFromEffect } from '@/utils/deferFromEffect';
 function getSubfield(fieldData: string, code: string, delimiter = SUBFIELD_DELIMITER): string | undefined {
   const parts = fieldData.split(delimiter);
   for (const part of parts) {
@@ -596,9 +613,26 @@ function parseMARCXML(content: string): ParsedRecord[] {
   return records;
 }
 
-export default function ImportIsoPage() {
+export type MarcImportDepositContext = {
+  batchId: string;
+  siteId: string;
+  reference?: string;
+};
+
+export type MarcImportWorkflowProps = {
+  layout?: 'page' | 'embedded';
+  depositContext?: MarcImportDepositContext;
+  onDepositItemsChanged?: () => void;
+};
+
+export function MarcImportWorkflow({
+  layout = 'page',
+  depositContext,
+  onDepositItemsChanged,
+}: MarcImportWorkflowProps = {}) {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const fixedDeposit = depositContext != null;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const scanInputRef = useRef<HTMLInputElement>(null);
   const seenImportedIdsRef = useRef<Set<string>>(new Set());
@@ -606,24 +640,174 @@ export default function ImportIsoPage() {
   const marcImportTaskContextRef = useRef<Map<string, MarcImportTaskContext>>(new Map());
 
   // Sources (for specimen creation) — no default selection
-  const [sources, setSources] = useState<Source[]>([]);
-  const [selectedSourceId, setSelectedSourceId] = useState<string | null>(null);
-  const [stockMode, setStockMode] = useState<'own' | 'deposit'>('own');
-  const [selectedDepositBatchId, setSelectedDepositBatchId] = useState<string>('');
+  const [sites, setSites] = useState<Site[]>([]);
+  const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
+  const [fileEncoding, setFileEncoding] = useState<MarcFileEncoding>(DEFAULT_MARC_FILE_ENCODING);
+  const [stockMode, setStockMode] = useState<'own' | 'deposit'>(fixedDeposit ? 'deposit' : 'own');
+  const [selectedDepositBatchId, setSelectedDepositBatchId] = useState<string>(depositContext?.batchId ?? '');
+  const [depositMarcSiteId, setDepositMarcSiteId] = useState<string | null>(depositContext?.siteId ?? null);
   const [depositSummary, setDepositSummary] = useState<DepositImportSummary | null>(null);
+  const [depositRelabelNotices, setDepositRelabelNotices] = useState<string[]>([]);
+  const [depositDuplicateModal, setDepositDuplicateModal] = useState<{
+    conflicts: import('@/types').DepositDuplicateConflict[];
+  } | null>(null);
+  const [depositDuplicateLoading, setDepositDuplicateLoading] = useState(false);
+  const depositImportWaitRef = useRef<{
+    resolve: (value: Awaited<ReturnType<typeof api.importMarcBatch>>) => void;
+    reject: (reason?: unknown) => void;
+    batchId: string;
+    opts?: {
+      recordId?: number;
+      allowDuplicateIsbn?: boolean;
+      confirmReplaceExistingId?: string;
+      depositDuplicateAction?: 'overwrite' | 'relabel' | 'ignore';
+      depositDuplicateApplyAll?: boolean;
+    };
+  } | null>(null);
   const depositBatchesQuery = useQuery({
     queryKey: ['deposit-batches', 'active-import'],
     queryFn: () => api.listDepositBatches({ status: 'active' }),
-    enabled: stockMode === 'deposit',
+    enabled: !fixedDeposit && stockMode === 'deposit',
   });
   const selectedDepositBatch = (depositBatchesQuery.data ?? []).find(
     (batch) => batch.id === selectedDepositBatchId,
   ) ?? null;
-  const importTargetReady = stockMode === 'deposit' ? Boolean(selectedDepositBatchId) : Boolean(selectedSourceId);
+
+  useEffect(() => {
+    if (!depositContext) return;
+    setStockMode('deposit');
+    setSelectedDepositBatchId(depositContext.batchId);
+    setDepositMarcSiteId(depositContext.siteId);
+  }, [depositContext?.batchId, depositContext?.siteId]);
+
+  const targetVariant = useMemo((): MarcImportTargetVariant => {
+    if (depositContext) {
+      return {
+        kind: 'depositBatch',
+        depositBatchId: depositContext.batchId,
+        batchSiteId: depositContext.siteId,
+        selectedSiteId: depositMarcSiteId,
+        sites,
+      };
+    }
+    return {
+      kind: 'catalog',
+      stockMode,
+      selectedSiteId,
+      selectedDepositBatchId,
+    };
+  }, [
+    depositContext,
+    depositMarcSiteId,
+    selectedDepositBatchId,
+    selectedSiteId,
+    sites,
+    stockMode,
+  ]);
+
+  const importTargetReady = marcImportTargetReady(targetVariant);
+
+  const notifyDepositImport = useCallback(
+    (report: unknown) => {
+      const summary = summarizeDepositImportReport(report);
+      if (summary) {
+        setDepositSummary(summary);
+        onDepositItemsChanged?.();
+      }
+      const relabels = depositMarcRelabelNotices(report, t);
+      if (relabels.length > 0) setDepositRelabelNotices(relabels);
+    },
+    [onDepositItemsChanged, t],
+  );
+
+  const postMarcBatchImport = useCallback(
+    (
+      marcBatchId: string,
+      opts?: {
+        recordId?: number;
+        allowDuplicateIsbn?: boolean;
+        confirmReplaceExistingId?: string;
+        depositDuplicateAction?: 'overwrite' | 'relabel' | 'ignore';
+        depositDuplicateApplyAll?: boolean;
+      },
+    ) =>
+      api.importMarcBatch(marcBatchId, marcImportApiSiteId(targetVariant), {
+        depositBatchId: marcImportDepositBatchId(targetVariant),
+        recordId: opts?.recordId,
+        allowDuplicateIsbn: marcImportAllowsDuplicateIsbn(targetVariant) ? opts?.allowDuplicateIsbn : undefined,
+        confirmReplaceExistingId: marcImportAllowsDuplicateIsbn(targetVariant)
+          ? opts?.confirmReplaceExistingId
+          : undefined,
+        depositDuplicateAction: opts?.depositDuplicateAction,
+        depositDuplicateApplyAll: opts?.depositDuplicateApplyAll,
+      }),
+    [targetVariant],
+  );
+
+  const startMarcBatchImport = useCallback(
+    async (
+      marcBatchId: string,
+      opts?: {
+        recordId?: number;
+        allowDuplicateIsbn?: boolean;
+        confirmReplaceExistingId?: string;
+      },
+    ) => {
+      const depositId = marcImportDepositBatchId(targetVariant);
+      if (!depositId) {
+        return postMarcBatchImport(marcBatchId, opts);
+      }
+      const scan = await api.scanDepositMarcDuplicates(marcBatchId, depositId, {
+        recordId: opts?.recordId,
+      });
+      if (!scan.conflicts?.length) {
+        return postMarcBatchImport(marcBatchId, opts);
+      }
+      return new Promise<Awaited<ReturnType<typeof api.importMarcBatch>>>((resolve, reject) => {
+        depositImportWaitRef.current = { resolve, reject, batchId: marcBatchId, opts };
+        setDepositDuplicateModal({ conflicts: scan.conflicts });
+      });
+    },
+    [postMarcBatchImport, targetVariant],
+  );
+
+  const cancelDepositDuplicateModal = useCallback(() => {
+    depositImportWaitRef.current?.reject(new Error('deposit_duplicate_cancelled'));
+    depositImportWaitRef.current = null;
+    setDepositDuplicateModal(null);
+    setDepositDuplicateLoading(false);
+  }, []);
+
+  const confirmDepositDuplicateModal = useCallback(
+    async ({ action, applyToAll }: DepositMarcDuplicateResolution) => {
+      const pending = depositImportWaitRef.current;
+      if (!pending) return;
+      setDepositDuplicateLoading(true);
+      try {
+        const result = await postMarcBatchImport(pending.batchId, {
+          ...pending.opts,
+          depositDuplicateAction: action,
+          depositDuplicateApplyAll: applyToAll,
+        });
+        pending.resolve(result);
+        depositImportWaitRef.current = null;
+        setDepositDuplicateModal(null);
+      } catch (error) {
+        pending.reject(error);
+        depositImportWaitRef.current = null;
+        setDepositDuplicateModal(null);
+        throw error;
+      } finally {
+        setDepositDuplicateLoading(false);
+      }
+    },
+    [postMarcBatchImport],
+  );
+
   const [showAddSource, setShowAddSource] = useState(false);
   const [newSourceName, setNewSourceName] = useState('');
   const [addSourceLoading, setAddSourceLoading] = useState(false);
-  const [sourcesError, setSourcesError] = useState('');
+  const [sitesError, setSitesError] = useState('');
 
   // File state
   const [fileName, setFileName] = useState<string>('');
@@ -722,11 +906,10 @@ export default function ImportIsoPage() {
       } else if (importedCount > 0) {
         setSuccessCount((c) => c + 1);
         setReplaceConfirmModal(null);
-        const summary = summarizeDepositImportReport(report);
-        if (summary) setDepositSummary(summary);
+        notifyDepositImport(report);
       }
     },
-    [records, t, setReplaceConfirmError, setReplaceConfirmModal, setSingleErrorModal],
+    [records, t, notifyDepositImport, setReplaceConfirmError, setReplaceConfirmModal, setSingleErrorModal],
   );
 
   const marcImportHandlersRef = useRef<{
@@ -814,8 +997,7 @@ export default function ImportIsoPage() {
           }
           return next;
         });
-        const summary = summarizeDepositImportReport(report);
-        if (summary) setDepositSummary(summary);
+        notifyDepositImport(report);
         const failedCount = getMarcBatchFailedCount(report);
         setSuccessCount((prev) => {
           const importingCount = records.filter((r) => r.status === 'importing').length;
@@ -840,12 +1022,12 @@ export default function ImportIsoPage() {
 
   const fetchSources = useCallback(async () => {
     try {
-      setSourcesError('');
-      const data = await api.getSources(false);
-      setSources(data.map((s) => ({ ...s, id: String(s.id) })));
+      setSitesError('');
+      const data = await api.getSites(false);
+      setSites(data.map((s) => ({ ...s, id: String(s.id) })));
       // Do not preselect any source; user must choose for import
     } catch {
-      setSourcesError(t('importMarc.sourcesError'));
+      setSitesError(t('importMarc.sitesError'));
     }
   }, [t]);
 
@@ -951,13 +1133,13 @@ export default function ImportIsoPage() {
     if (!name) return;
     setAddSourceLoading(true);
     try {
-      const created = await api.createSource({ name });
-      setSources((prev) => [...prev, created]);
-      setSelectedSourceId(String(created.id));
+      const created = await api.createSite({ name });
+      setSites((prev) => [...prev, created]);
+      setSelectedSiteId(String(created.id));
       setNewSourceName('');
       setShowAddSource(false);
     } catch {
-      setSourcesError(t('importMarc.sourceCreateError'));
+      setSitesError(t('importMarc.siteCreateError'));
     } finally {
       setAddSourceLoading(false);
     }
@@ -966,7 +1148,7 @@ export default function ImportIsoPage() {
   const parseFile = useCallback(
     async (
       file: File,
-      sourceId: string | null
+      siteId: string | null
     ): Promise<{ records: ParsedRecord[]; detectedFormat: MarcFormat | null; batchId?: string | null }> => {
       // Detect MARCXML by content sniffing (preserve existing behavior)
       const arrayBuffer = await file.arrayBuffer();
@@ -992,8 +1174,11 @@ export default function ImportIsoPage() {
         return { records: parseMARCXML(content), detectedFormat: null };
       }
 
-      // For UNIMARC ISO 2709 we delegate parsing to the backend (sourceId optional for load)
-      const enqueueResult = await api.uploadUnimarc(file, sourceId ?? undefined);
+      // For UNIMARC ISO 2709 we delegate parsing to the backend (siteId optional for load)
+      const enqueueResult = await api.uploadUnimarc(file, {
+        siteId: siteId ?? undefined,
+        encoding: fileEncoding,
+      });
 
       const recordsFromItems: ParsedRecord[] = enqueueResult.previews.map((item, index) =>
         marcPreviewToParsedRecord(item, index),
@@ -1001,7 +1186,7 @@ export default function ImportIsoPage() {
 
       return { records: recordsFromItems, detectedFormat: 'UNIMARC', batchId: enqueueResult.batchId };
     },
-    []
+    [fileEncoding],
   );
 
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1016,7 +1201,7 @@ export default function ImportIsoPage() {
     try {
       const { records: parsed, detectedFormat, batchId: newBatchId } = await parseFile(
         file,
-        selectedSourceId
+        selectedSiteId
       );
 
       if (parsed.length === 0) {
@@ -1034,7 +1219,7 @@ export default function ImportIsoPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [parseFile, selectedSourceId, t]);
+  }, [parseFile, selectedSiteId, t]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -1049,7 +1234,7 @@ export default function ImportIsoPage() {
 
   const handleImportAll = async () => {
     if (!importTargetReady) {
-      setParseError(stockMode === 'deposit' ? t('deposits.import.batchRequired') : t('z3950.sourceRequired'));
+      setParseError(marcImportTargetRequiredMessage(targetVariant, t));
       return;
     }
     if (records.some((r) => r.status === 'pending' && shouldBlockImportForValidation(r, batchId))) {
@@ -1072,16 +1257,18 @@ export default function ImportIsoPage() {
       );
 
       try {
-        const { taskId } = await api.importMarcBatch(batchId, stockMode === 'deposit' ? null : selectedSourceId, {
-          depositBatchId: stockMode === 'deposit' ? selectedDepositBatchId : null,
-        });
+        const { taskId } = await startMarcBatchImport(batchId);
         marcImportTaskContextRef.current.set(String(taskId), { mode: 'all' });
         importTask.startTask(taskId);
       } catch (error) {
         setRecords((prev) =>
           prev.map((r) => (pendingIds.has(r.id) ? { ...r, status: 'pending' as const } : r))
         );
-        setParseError(getApiErrorMessage(error, t));
+        const message =
+          error instanceof Error && error.message === 'deposit_duplicate_cancelled'
+            ? ''
+            : getApiErrorMessage(error, t);
+        if (message) setParseError(message);
         setIsImporting(false);
       }
 
@@ -1131,7 +1318,7 @@ export default function ImportIsoPage() {
       const specimenData = buildSpecimenFrom9xx(record);
       await api.createItem(itemId, {
         ...specimenData,
-        ...(selectedSourceId != null && { sourceId: selectedSourceId }),
+        ...(selectedSiteId != null && { siteId: selectedSiteId }),
       });
     }
     setRecords(prev => prev.filter(r => r.id !== record.id));
@@ -1149,7 +1336,7 @@ export default function ImportIsoPage() {
     }
   ) => {
     if (!importTargetReady) {
-      setParseError(stockMode === 'deposit' ? t('deposits.import.batchRequired') : t('z3950.sourceRequired'));
+      setParseError(marcImportTargetRequiredMessage(targetVariant, t));
       return;
     }
     if (shouldBlockImportForValidation(record, batchId)) {
@@ -1167,11 +1354,10 @@ export default function ImportIsoPage() {
     if (batchId != null && record.recordIndex != null) {
       setIsImporting(true);
       try {
-        const { taskId } = await api.importMarcBatch(batchId, stockMode === 'deposit' ? null : selectedSourceId, {
+        const { taskId } = await startMarcBatchImport(batchId, {
           recordId: record.recordIndex,
-          allowDuplicateIsbn: stockMode === 'deposit' ? undefined : options?.allowDuplicateIsbn,
-          confirmReplaceExistingId: stockMode === 'deposit' ? undefined : options?.confirmReplaceExistingId,
-          depositBatchId: stockMode === 'deposit' ? selectedDepositBatchId : null,
+          allowDuplicateIsbn: options?.allowDuplicateIsbn,
+          confirmReplaceExistingId: options?.confirmReplaceExistingId,
         });
         const report = await api.waitForMarcBatchImportTask(taskId);
         applySingleMarcImportResult(
@@ -1180,15 +1366,25 @@ export default function ImportIsoPage() {
           { showDuplicateModal },
         );
       } catch (error) {
-        const errorMessage = getApiErrorMessage(error, t);
-        setRecords(prev => prev.map(r =>
-          r.id === record.id ? { ...r, status: 'error' as const, error: errorMessage } : r
-        ));
-        if (showErrorModal) {
-          setSingleErrorModal({
-            title: record.title1 || record.identification || t('items.notSpecified'),
-            message: errorMessage,
-          });
+        if (error instanceof Error && error.message === 'deposit_duplicate_cancelled') {
+          setRecords((prev) =>
+            prev.map((r) =>
+              r.id === record.id ? { ...r, status: 'pending' as const, error: undefined } : r,
+            ),
+          );
+        } else {
+          const errorMessage = getApiErrorMessage(error, t);
+          setRecords((prev) =>
+            prev.map((r) =>
+              r.id === record.id ? { ...r, status: 'error' as const, error: errorMessage } : r,
+            ),
+          );
+          if (showErrorModal) {
+            setSingleErrorModal({
+              title: record.title1 || record.identification || t('items.notSpecified'),
+              message: errorMessage,
+            });
+          }
         }
       } finally {
         setIsImporting(false);
@@ -1599,17 +1795,23 @@ export default function ImportIsoPage() {
   ];
 
   return (
-    <div className="space-y-6 min-w-0 overflow-x-hidden">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
-          <Upload className="h-7 w-7 text-amber-600 dark:text-amber-400" />
-          {t('importMarc.title')}
-        </h1>
-        <p className="text-gray-500 dark:text-gray-400 mt-1">
-          {t('importMarc.subtitle')}
-        </p>
-      </div>
+    <div className={`space-y-6 min-w-0 overflow-x-hidden ${layout === 'embedded' ? '' : ''}`}>
+      {layout === 'page' ? (
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
+            <Upload className="h-7 w-7 text-amber-600 dark:text-amber-400" />
+            {t('importMarc.title')}
+          </h1>
+          <p className="text-gray-500 dark:text-gray-400 mt-1">
+            {t('importMarc.subtitle')}
+          </p>
+        </div>
+      ) : fixedDeposit ? (
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{t('deposits.batch.marcImportTitle')}</h2>
+          <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">{t('deposits.batch.marcImportSubtitle')}</p>
+        </div>
+      ) : null}
 
       {/* Recovered background task banner */}
       {recoveredTask && !importTask.task && (
@@ -1674,36 +1876,44 @@ export default function ImportIsoPage() {
       {/* Import section — file upload or existing batch */}
       {records.length === 0 && (
         <Card>
-          {/* Mode tabs */}
-          <div className="flex gap-1 p-1 rounded-lg bg-gray-100 dark:bg-gray-800 mb-5 w-fit">
-            <button
-              type="button"
-              onClick={() => setImportMode('file')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                importMode === 'file'
-                  ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-              }`}
-            >
-              <Upload className="h-4 w-4" />
-              {t('importMarc.uploadFile')}
-            </button>
-            <button
-              type="button"
-              onClick={() => setImportMode('batch')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                importMode === 'batch'
-                  ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
-                  : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
-              }`}
-            >
-              <Server className="h-4 w-4" />
-              {t('importMarc.existingBatch')}
-            </button>
-          </div>
+          <SectionTabBar
+            className="mb-5"
+            ariaLabel={t('importMarc.title')}
+            activeTab={importMode}
+            onSelectTab={setImportMode}
+            tabs={[
+              { id: 'file', label: t('importMarc.uploadFile'), icon: Upload },
+              { id: 'batch', label: t('importMarc.existingBatch'), icon: Server },
+            ]}
+          />
 
           {/* File upload */}
           {importMode === 'file' && (
+            <div className="space-y-4">
+              <div
+                className="max-w-md text-left"
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => e.stopPropagation()}
+              >
+                <label htmlFor="marc-file-encoding" className={formLabelClass()}>
+                  {t('importMarc.fileEncoding')}
+                </label>
+                <select
+                  id="marc-file-encoding"
+                  className={formControlClass({ className: 'w-full max-w-md' })}
+                  value={fileEncoding}
+                  onChange={(e) => setFileEncoding(e.target.value as MarcFileEncoding)}
+                >
+                  {MARC_FILE_ENCODINGS.map((enc) => (
+                    <option key={enc} value={enc}>
+                      {t(marcFileEncodingLabelKey(enc))}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {t('importMarc.fileEncodingHint')}
+                </p>
+              </div>
             <div
               onDrop={handleDrop}
               onDragOver={(e) => e.preventDefault()}
@@ -1735,6 +1945,7 @@ export default function ImportIsoPage() {
                   </p>
                 </>
               )}
+            </div>
             </div>
           )}
 
@@ -1860,113 +2071,51 @@ export default function ImportIsoPage() {
             </div>
 
             <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 space-y-3">
-              <fieldset className="flex flex-wrap gap-4">
-                <legend className={formLabelClass({ marginBottom: false })}>{t('deposits.import.mode')}</legend>
-                <label className="flex items-center gap-2 text-sm text-gray-800 dark:text-gray-200">
-                  <input
-                    type="radio"
-                    name="stock-mode"
-                    checked={stockMode === 'own'}
-                    onChange={() => setStockMode('own')}
-                  />
-                  {t('deposits.import.ownStock')}
-                </label>
-                <label className="flex items-center gap-2 text-sm text-gray-800 dark:text-gray-200">
-                  <input
-                    type="radio"
-                    name="stock-mode"
-                    checked={stockMode === 'deposit'}
-                    onChange={() => setStockMode('deposit')}
-                  />
-                  {t('deposits.import.deposit')}
-                </label>
-              </fieldset>
-              {stockMode === 'deposit' ? (
-                <div className="space-y-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <label className={formLabelClass({ marginBottom: false, inline: true, className: 'shrink-0' })} htmlFor="deposit-batch-select">
-                      {t('deposits.import.batch')}
-                    </label>
-                    <select
-                      id="deposit-batch-select"
-                      value={selectedDepositBatchId}
-                      onChange={(event) => setSelectedDepositBatchId(event.target.value)}
-                      className={formControlClass({ className: 'flex-1 min-w-[200px]' })}
-                    >
-                      <option value="">{t('deposits.import.chooseBatch')}</option>
-                      {(depositBatchesQuery.data ?? []).map((batch: DepositBatch) => (
-                        <option key={batch.id} value={batch.id}>
-                          {batch.reference}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  {depositBatchesQuery.isError ? (
-                    <p className="text-sm text-red-600 dark:text-red-400">{t('deposits.import.batchesError')}</p>
-                  ) : null}
-                  <p className="text-sm text-gray-600 dark:text-gray-300">
-                    {t('deposits.site')}: {selectedDepositBatch
-                      ? (sources.find((source) => source.id === selectedDepositBatch.siteId)?.name
-                        || selectedDepositBatch.siteId)
-                      : '—'}
-                  </p>
-                </div>
+              {targetVariant.kind === 'depositBatch' ? (
+                <MarcImportTargetSection
+                  mode="depositBatch"
+                  variant={targetVariant}
+                  sites={ sites }
+                  onSiteId={setDepositMarcSiteId}
+                />
               ) : (
-              <div className="flex flex-wrap items-center gap-2">
-                <label className={formLabelClass({ marginBottom: false, inline: true, className: 'shrink-0' })}>
-                  {t('importMarc.source')} :
-                </label>
-                <select
-                  value={selectedSourceId ?? ''}
-                  onChange={(e) => setSelectedSourceId(e.target.value || null)}
-                  className={formControlClass({ className: 'flex-1 min-w-[200px]' })}
-                >
-                  <option value="">{t('importMarc.noSource')}</option>
-                  {sources.map((source) => (
-                    <option key={source.id} value={source.id}>
-                      {source.name || source.key || `Source ${source.id}`}
-                      {source.default ? ` (${t('importMarc.default')})` : ''}
-                    </option>
-                  ))}
-                </select>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setShowAddSource((v) => !v)}
-                  leftIcon={<Plus className="h-4 w-4" />}
-                >
-                  {t('importMarc.addSource')}
-                </Button>
-              </div>
+                <MarcImportTargetSection
+                  mode="catalog"
+                  variant={targetVariant}
+                  sites={ sites }
+                  depositBatches={depositBatchesQuery.data ?? []}
+                  depositBatchesError={depositBatchesQuery.isError}
+                  selectedDepositBatch={selectedDepositBatch}
+                  showAddSource={showAddSource}
+                  newSourceName={newSourceName}
+                  addSourceLoading={addSourceLoading}
+                  sitesError={sitesError}
+                  onStockMode={setStockMode}
+                  onSourceId={setSelectedSiteId}
+                  onDepositBatchId={setSelectedDepositBatchId}
+                  onToggleAddSource={() => setShowAddSource((v) => !v)}
+                  onNewSourceName={setNewSourceName}
+                  onAddSource={handleAddSource}
+                  onCancelAddSource={() => {
+                    setShowAddSource(false);
+                    setNewSourceName('');
+                  }}
+                />
               )}
-              {stockMode === 'own' && showAddSource && (
-                <form onSubmit={handleAddSource} className="mt-3 flex flex-wrap items-end gap-2">
-                  <Input
-                    value={newSourceName}
-                    onChange={(e) => setNewSourceName(e.target.value)}
-                    placeholder={t('importMarc.newSourceName')}
-                    className="flex-1 min-w-[180px]"
-                    autoFocus
-                  />
-                  <Button type="submit" size="sm" isLoading={addSourceLoading} disabled={!newSourceName.trim()}>
-                    {t('common.add')}
-                  </Button>
-                  <Button type="button" size="sm" variant="ghost" onClick={() => { setShowAddSource(false); setNewSourceName(''); }}>
-                    {t('common.cancel')}
-                  </Button>
-                </form>
-              )}
-              {sourcesError && (
-                <p className="mt-1 text-sm text-red-600 dark:text-red-400">{sourcesError}</p>
-              )}
-              {!importTargetReady && pendingCount > 0 && !scanMode && (
+              {!importTargetReady && pendingCount > 0 && !scanMode ? (
                 <p className="mt-2 text-sm text-amber-600 dark:text-amber-400">
-                  {stockMode === 'deposit' ? t('deposits.import.batchRequired') : t('z3950.sourceRequired')}
+                  {marcImportTargetRequiredMessage(targetVariant, t)}
                 </p>
-              )}
+              ) : null}
             </div>
 
+            {depositRelabelNotices.length > 0 ? (
+              <div className="mt-4 space-y-1 text-sm text-amber-800 dark:text-amber-200">
+                {depositRelabelNotices.map((line) => (
+                  <p key={line}>{line}</p>
+                ))}
+              </div>
+            ) : null}
             {depositSummary && (
               <div className="mt-4 space-y-2 text-sm text-gray-700 dark:text-gray-300">
                 <p>{t('deposits.import.created', { count: depositSummary.created.length })}</p>
@@ -2000,7 +2149,7 @@ export default function ImportIsoPage() {
                     disabled={!importTargetReady || pendingHasValidationErrors}
                     title={
                       !importTargetReady
-                        ? (stockMode === 'deposit' ? t('deposits.import.batchRequired') : t('z3950.sourceRequired'))
+                        ? marcImportTargetRequiredMessage(targetVariant, t)
                         : pendingHasValidationErrors
                           ? t('importMarc.cannotImportWithValidationErrors')
                           : undefined
@@ -2015,7 +2164,7 @@ export default function ImportIsoPage() {
                     disabled={!importTargetReady || pendingHasValidationErrors}
                     title={
                       !importTargetReady
-                        ? (stockMode === 'deposit' ? t('deposits.import.batchRequired') : t('z3950.sourceRequired'))
+                        ? marcImportTargetRequiredMessage(targetVariant, t)
                         : pendingHasValidationErrors
                           ? t('importMarc.cannotImportWithValidationErrors')
                           : undefined
@@ -2190,8 +2339,8 @@ export default function ImportIsoPage() {
                               const itemPayload = buildItemPayload(record);
                               const specimenPreview = has9xxFields(record) ? buildSpecimenFrom9xx(record) : null;
                               const selectedSource =
-                                specimenPreview && selectedSourceId
-                                  ? sources.find((s) => s.id === selectedSourceId)
+                                specimenPreview && selectedSiteId
+                                  ? sites.find((s) => s.id === selectedSiteId)
                                   : null;
 
                               return (
@@ -2360,7 +2509,7 @@ export default function ImportIsoPage() {
                                                   {spec.callNumber || '-'}
                                                 </td>
                                                 <td className="py-2 text-gray-700 dark:text-gray-300">
-                                                  {spec.sourceName || '-'}
+                                                  {spec.siteName || '-'}
                                                 </td>
                                               </tr>
                                             ))}
@@ -2371,10 +2520,10 @@ export default function ImportIsoPage() {
                                   )}
                                   {specimenPreview && (
                                     <div className="text-xs text-gray-500 dark:text-gray-400">
-                                      {t('importMarc.source')}:{' '}
+                                      {t('importMarc.site')}:{' '}
                                       {selectedSource
                                         ? selectedSource.name || selectedSource.key || selectedSource.id
-                                        : t('importMarc.noSource')}
+                                        : t('importMarc.noSite')}
                                     </div>
                                   )}
                                 </div>
@@ -2468,6 +2617,23 @@ export default function ImportIsoPage() {
         )}
       </Modal>
 
+      <DepositMarcDuplicateDialog
+        isOpen={!!depositDuplicateModal}
+        conflicts={depositDuplicateModal?.conflicts ?? []}
+        isLoading={depositDuplicateLoading}
+        onCancel={cancelDepositDuplicateModal}
+        onConfirm={(resolution) => {
+          void confirmDepositDuplicateModal(resolution).catch((error) => {
+            if (error instanceof Error && error.message === 'deposit_duplicate_cancelled') return;
+            setParseError(getApiErrorMessage(error, t));
+            setIsImporting(false);
+            setRecords((prev) =>
+              prev.map((r) => (r.status === 'importing' ? { ...r, status: 'pending' as const } : r)),
+            );
+          });
+        }}
+      />
+
       {/* Duplicate ISBN: 3-choice dialog (single import / scan mode only) */}
       <Modal
         isOpen={!!replaceConfirmModal}
@@ -2546,6 +2712,14 @@ export default function ImportIsoPage() {
           </div>
         )}
       </Modal>
+    </div>
+  );
+}
+
+export default function ImportIsoPage() {
+  return (
+    <div className={APP_PAGE_CLASS}>
+      <MarcImportWorkflow layout="page" />
     </div>
   );
 }

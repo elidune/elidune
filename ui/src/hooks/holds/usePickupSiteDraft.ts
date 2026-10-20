@@ -1,13 +1,13 @@
 import { useState } from 'react';
-import { useSourcesQuery } from '@/hooks/holds/useSourcesQuery';
-import type { Source } from '@/types';
+import { useSitesQuery } from '@/hooks/holds/useSitesQuery';
+import type { Site } from '@/types';
 import { defaultPickupSiteId, pickupSiteRequired } from '@/utils/transitDisplay';
 
-const EMPTY_SOURCES: Source[] = [];
+const EMPTY_SOURCES: Site[] = [];
 
 export function usePickupSiteDraft(active: boolean) {
-  const sourcesQuery = useSourcesQuery(true);
-  const sources = sourcesQuery.data ?? EMPTY_SOURCES;
+  const sitesQuery = useSitesQuery(true);
+  const sites = sitesQuery.data ?? EMPTY_SOURCES;
   const [pickupSiteId, setPickupSiteId] = useState('');
   const [wasActive, setWasActive] = useState(active);
   const [seededKey, setSeededKey] = useState('');
@@ -20,14 +20,14 @@ export function usePickupSiteDraft(active: boolean) {
     }
   }
 
-  const sourceKey = sources.map((s) => s.id).join(',');
-  if (active && sources.length > 0 && !pickupSiteId && seededKey !== sourceKey) {
-    setPickupSiteId(defaultPickupSiteId(sources));
-    setSeededKey(sourceKey);
+  const siteKey = sites.map((s) => s.id).join(',');
+  if (active && sites.length > 0 && !pickupSiteId && seededKey !== siteKey) {
+    setPickupSiteId(defaultPickupSiteId(sites));
+    setSeededKey(siteKey);
   }
 
-  const required = pickupSiteRequired(sources);
+  const required = pickupSiteRequired(sites);
   const missing = required && !pickupSiteId.trim();
 
-  return { sources, pickupSiteId, setPickupSiteId, required, missing, sourcesQuery };
+  return { sites, pickupSiteId, setPickupSiteId, required, missing, sitesQuery };
 }

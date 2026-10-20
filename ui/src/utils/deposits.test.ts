@@ -100,17 +100,34 @@ describe('deposit catalog filter', () => {
 });
 
 describe('deposit import payload', () => {
-  it('sends deposit_batch_id and drops site and duplicate options', () => {
+  it('sends deposit_batch_id and drops duplicate options', () => {
     assert.deepEqual(
       buildMarcBatchImportParams({
         batchId: '42',
-        sourceId: '7',
+        siteId: '7',
         depositBatchId: '99',
         recordId: 3,
         allowDuplicateIsbn: true,
         confirmReplaceExistingId: '5',
       }),
-      { batchId: '42', recordId: 3, deposit_batch_id: '99' },
+      { batchId: '42', recordId: 3, deposit_batch_id: '99', siteId: '7' },
+    );
+  });
+
+  it('forwards duplicate resolution params in deposit mode', () => {
+    assert.deepEqual(
+      buildMarcBatchImportParams({
+        batchId: '42',
+        depositBatchId: '99',
+        depositDuplicateAction: 'overwrite',
+        depositDuplicateApplyAll: true,
+      }),
+      {
+        batchId: '42',
+        deposit_batch_id: '99',
+        depositDuplicateAction: 'overwrite',
+        depositDuplicateApplyAll: true,
+      },
     );
   });
 
@@ -118,11 +135,11 @@ describe('deposit import payload', () => {
     assert.deepEqual(
       buildMarcBatchImportParams({
         batchId: '42',
-        sourceId: '7',
+        siteId: '7',
         allowDuplicateIsbn: true,
         confirmReplaceExistingId: '5',
       }),
-      { batchId: '42', sourceId: '7', allowDuplicateIsbn: true, confirmReplaceExistingId: '5' },
+      { batchId: '42', siteId: '7', allowDuplicateIsbn: true, confirmReplaceExistingId: '5' },
     );
   });
 

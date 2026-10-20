@@ -1,7 +1,7 @@
 //! Lenders and incoming deposit batches.
 //!
 //! A deposit batch is a set of copies lent to us. `items.deposit_batch_id`
-//! NULL means own stock. `items.source_id` stays the site where the copy sits.
+//! NULL means own stock. `items.site_id` stays the site where the copy sits.
 
 use crate::models::fine::Cents;
 use chrono::{DateTime, NaiveDate, Utc};
@@ -53,9 +53,7 @@ impl sqlx::Type<sqlx::Postgres> for DepositBatchStatus {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for DepositBatchStatus {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
         Self::from_db_str(&s).ok_or_else(|| format!("unknown deposit batch status: {s}").into())
     }
@@ -131,15 +129,13 @@ impl sqlx::Type<sqlx::Postgres> for DepositCopyState {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for DepositCopyState {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
         Self::from_db_str(&s).ok_or_else(|| format!("unknown deposit copy state: {s}").into())
     }
 }
 
-/// Library that lends copies to us. Not a [`crate::models::source::Source`].
+/// Library that lends copies to us. Not a [`crate::models::site::Site`].
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 #[serde(rename_all = "camelCase")]
@@ -442,9 +438,7 @@ impl sqlx::Type<sqlx::Postgres> for DepositLossKind {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for DepositLossKind {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
         Self::from_db_str(&s).ok_or_else(|| format!("unknown deposit loss kind: {s}").into())
     }
@@ -528,9 +522,7 @@ where
     if let Ok(date) = NaiveDate::parse_from_str(trimmed, "%Y-%m-%d") {
         return Ok(Some(NotifiedOn::Date(date)));
     }
-    Err(serde::de::Error::custom(
-        "notifiedOn must be a YYYY-MM-DD date or an RFC 3339 timestamp",
-    ))
+    Err(serde::de::Error::custom("notifiedOn must be a YYYY-MM-DD date or an RFC 3339 timestamp"))
 }
 
 /// JSON object for [`ItemDeposit`], or JSON null for own stock.
@@ -572,9 +564,7 @@ pub fn item_deposit_join(item_alias: &str) -> String {
 
 /// Decode a `deposit` jsonb column. NULL and a decode failure are own-stock `None`
 /// only for NULL; a present object that does not match [`ItemDeposit`] is an error.
-pub fn item_deposit_from_value(
-    value: Option<serde_json::Value>,
-) -> Result<Option<ItemDeposit>, serde_json::Error> {
+pub fn item_deposit_from_value(value: Option<serde_json::Value>) -> Result<Option<ItemDeposit>, serde_json::Error> {
     match value {
         None | Some(serde_json::Value::Null) => Ok(None),
         Some(value) => serde_json::from_value(value).map(Some),
@@ -591,8 +581,7 @@ mod tests {
         let absent: UpdateLender = serde_json::from_str(r#"{"name":"A"}"#).unwrap();
         assert!(absent.replacement_rate_cents.is_none());
 
-        let cleared: UpdateLender =
-            serde_json::from_str(r#"{"replacementRateCents":null}"#).unwrap();
+        let cleared: UpdateLender = serde_json::from_str(r#"{"replacementRateCents":null}"#).unwrap();
         assert_eq!(cleared.replacement_rate_cents, Some(None));
 
         let set: UpdateLender = serde_json::from_str(r#"{"replacementRateCents":1500}"#).unwrap();

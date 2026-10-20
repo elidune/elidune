@@ -60,38 +60,20 @@ pub struct CoverQuery {
         (status = 404, description = "No cover available for this ISBN")
     )
 )]
-pub async fn get_cover_by_isbn(
-    Path(isbn): Path<String>,
-    Query(query): Query<CoverQuery>,
-) -> Result<Response, StatusCode> {
-    proxy_cover(&format!(
-        "https://covers.openlibrary.org/b/isbn/{}-{}.jpg",
-        isbn,
-        query.size.as_str()
-    ))
-    .await
+pub async fn get_cover_by_isbn(Path(isbn): Path<String>, Query(query): Query<CoverQuery>) -> Result<Response, StatusCode> {
+    proxy_cover(&format!("https://covers.openlibrary.org/b/isbn/{}-{}.jpg", isbn, query.size.as_str())).await
 }
 
 async fn proxy_cover(url: &str) -> Result<Response, StatusCode> {
-    let response = reqwest::get(url)
-        .await
-        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+    let response = reqwest::get(url).await.map_err(|_| StatusCode::BAD_GATEWAY)?;
 
     if !response.status().is_success() {
         return Err(StatusCode::NOT_FOUND);
     }
 
-    let content_type = response
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("image/jpeg")
-        .to_string();
+    let content_type = response.headers().get(reqwest::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or("image/jpeg").to_string();
 
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+    let bytes = response.bytes().await.map_err(|_| StatusCode::BAD_GATEWAY)?;
 
     // Open Library returns a 1x1 GIF when no cover is available — treat as 404
     if bytes.len() < 100 {

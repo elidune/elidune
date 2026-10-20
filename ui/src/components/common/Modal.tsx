@@ -70,8 +70,9 @@ export default function Modal({
     >
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+        className="absolute inset-0 cursor-pointer bg-black/50 backdrop-blur-sm"
         onClick={onClose}
+        aria-hidden
       />
 
       {/* Modal — full viewport on narrow screens for usability */}

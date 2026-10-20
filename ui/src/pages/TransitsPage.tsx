@@ -20,7 +20,7 @@ import {
 } from '@/components/holds/TransitQueueCells';
 import TransitStatusBadge from '@/components/holds/TransitStatusBadge';
 import { useActiveTransitsQuery } from '@/hooks/holds/useActiveTransitsQuery';
-import { useSourcesQuery } from '@/hooks/holds/useSourcesQuery';
+import { useSitesQuery } from '@/hooks/holds/useSitesQuery';
 import { useTransitActions } from '@/hooks/holds/useTransitActions';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
@@ -47,8 +47,8 @@ export default function TransitsPage() {
   }
 
   const actions = useTransitActions();
-  const sourcesQuery = useSourcesQuery();
-  const sources = sourcesQuery.data ?? [];
+  const sitesQuery = useSitesQuery();
+  const sites = sitesQuery.data ?? [];
 
   const activeQuery = useActiveTransitsQuery(filter === 'active');
   const pagedQuery = useQuery({
@@ -130,12 +130,12 @@ export default function TransitsPage() {
     {
       key: 'from',
       header: t('transits.columnFrom'),
-      render: (r: ItemTransit) => sourceLabel(sources, r.fromSourceId) ?? r.fromSourceId,
+      render: (r: ItemTransit) => sourceLabel(sites, r.fromSiteId) ?? r.fromSiteId,
     },
     {
       key: 'to',
       header: t('transits.columnTo'),
-      render: (r: ItemTransit) => sourceLabel(sources, r.toSourceId) ?? r.toSourceId,
+      render: (r: ItemTransit) => sourceLabel(sites, r.toSiteId) ?? r.toSiteId,
     },
     {
       key: 'status',
@@ -255,10 +255,10 @@ export default function TransitsPage() {
                           </div>
                           <div className="text-xs text-gray-600 dark:text-gray-300 space-y-1">
                             <div>
-                              {t('transits.columnFrom')}: {sourceLabel(sources, r.fromSourceId) ?? r.fromSourceId}
+                              {t('transits.columnFrom')}: {sourceLabel(sites, r.fromSiteId) ?? r.fromSiteId}
                             </div>
                             <div>
-                              {t('transits.columnTo')}: {sourceLabel(sources, r.toSourceId) ?? r.toSourceId}
+                              {t('transits.columnTo')}: {sourceLabel(sites, r.toSiteId) ?? r.toSiteId}
                             </div>
                           </div>
                           <div className="flex flex-wrap gap-2">{rowActions(r)}</div>

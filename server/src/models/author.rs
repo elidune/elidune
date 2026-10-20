@@ -75,9 +75,7 @@ impl sqlx::Type<sqlx::Postgres> for Function {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for Function {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, Box<dyn std::error::Error + 'static + Send + Sync>> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + 'static + Send + Sync>> {
         let s: String = <String as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
         Ok(Function::from(s.as_str()))
     }

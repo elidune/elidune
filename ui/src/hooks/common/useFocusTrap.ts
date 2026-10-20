@@ -1,4 +1,4 @@
-import { useEffect, type RefObject } from 'react';
+import { useEffect, useRef, type RefObject } from 'react';
 
 const FOCUSABLE_SELECTOR = [
   'a[href]',
@@ -46,6 +46,11 @@ export function useFocusTrap({
   shouldHandle,
   skipCloseControl = false,
 }: UseFocusTrapOptions) {
+  const onEscapeRef = useRef(onEscape);
+  onEscapeRef.current = onEscape;
+  const shouldHandleRef = useRef(shouldHandle);
+  shouldHandleRef.current = shouldHandle;
+
   useEffect(() => {
     if (!enabled) return;
 
@@ -66,12 +71,12 @@ export function useFocusTrap({
     const frame = requestAnimationFrame(focusInitial);
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (shouldHandle && !shouldHandle(root)) return;
+      if (shouldHandleRef.current && !shouldHandleRef.current(root)) return;
 
       if (e.key === 'Escape') {
-        if (onEscape) {
+        if (onEscapeRef.current) {
           e.preventDefault();
-          onEscape();
+          onEscapeRef.current();
         }
         return;
       }
@@ -108,5 +113,5 @@ export function useFocusTrap({
         previouslyFocused.focus();
       }
     };
-  }, [enabled, containerRef, onEscape, shouldHandle, skipCloseControl]);
+  }, [enabled, containerRef, skipCloseControl]);
 }

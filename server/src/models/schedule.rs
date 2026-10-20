@@ -107,7 +107,7 @@ pub struct ScheduleClosure {
     /// Site (`sources.id`). Null means the closure applies to every site.
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
-    pub source_id: Option<i64>,
+    pub site_id: Option<i64>,
     pub created_at: Option<DateTime<Utc>>,
 }
 
@@ -123,7 +123,7 @@ pub struct CreateScheduleClosure {
     #[serde(default)]
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
-    pub source_id: Option<i64>,
+    pub site_id: Option<i64>,
 }
 
 /// Query parameters for schedule closures

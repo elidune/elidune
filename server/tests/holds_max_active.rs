@@ -18,9 +18,7 @@ async fn create_borrowable_item(app: &TestApp, admin_token: &str, prefix: &str) 
             "borrowable": true
         }]
     });
-    let (status, body) = app
-        .post_json("/api/v1/biblios", &payload, Some(admin_token))
-        .await;
+    let (status, body) = app.post_json("/api/v1/biblios", &payload, Some(admin_token)).await;
     assert_eq!(status, StatusCode::CREATED, "create biblio: {body}");
     fixtures::json_id(&body["biblio"]["items"][0]["id"])
 }
@@ -43,13 +41,7 @@ async fn create_capped_public_type(app: &TestApp, admin_token: &str, cap: i16) -
     fixtures::json_id(&body["id"])
 }
 
-async fn place_hold(
-    app: &TestApp,
-    token: &str,
-    user_id: i64,
-    item_id: i64,
-    force: bool,
-) -> (StatusCode, serde_json::Value) {
+async fn place_hold(app: &TestApp, token: &str, user_id: i64, item_id: i64, force: bool) -> (StatusCode, serde_json::Value) {
     app.post_json(
         "/api/v1/holds",
         &json!({
@@ -70,28 +62,17 @@ async fn policy_is_readable_by_desk_and_opac() {
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let (_, reader_token) = fixtures::create_reader(&app, &admin_token, "holdpol").await;
 
-    let (status, body) = app
-        .get_json_with_auth("/api/v1/holds/policy", &admin_token)
-        .await;
+    let (status, body) = app.get_json_with_auth("/api/v1/holds/policy", &admin_token).await;
     assert_eq!(status, StatusCode::OK, "desk policy: {body}");
-    assert!(
-        body["maxActiveHolds"].as_i64().unwrap_or(0) >= 1,
-        "global cap: {body}"
-    );
+    assert!(body["maxActiveHolds"].as_i64().unwrap_or(0) >= 1, "global cap: {body}");
 
-    let (status, body) = app
-        .get_json_with_auth("/api/v1/holds/policy", &reader_token)
-        .await;
+    let (status, body) = app.get_json_with_auth("/api/v1/holds/policy", &reader_token).await;
     assert_eq!(status, StatusCode::OK, "opac policy: {body}");
 
-    let (status, types) = app
-        .get_json_with_auth("/api/v1/public-types", &reader_token)
-        .await;
+    let (status, types) = app.get_json_with_auth("/api/v1/public-types", &reader_token).await;
     assert_eq!(status, StatusCode::OK, "public types: {types}");
     assert!(
-        types
-            .as_array()
-            .is_some_and(|rows| rows.iter().all(|row| row.get("maxActiveHolds").is_some())),
+        types.as_array().is_some_and(|rows| rows.iter().all(|row| row.get("maxActiveHolds").is_some())),
         "each public type exposes maxActiveHolds: {types}"
     );
 }
@@ -103,21 +84,13 @@ async fn place_hold_under_public_type_cap_succeeds() {
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let public_type_id = create_capped_public_type(&app, &admin_token, 2).await;
-    let (reader_id, reader_token) = fixtures::create_reader_with_public_type(
-        &app,
-        &admin_token,
-        "holdunder",
-        Some(public_type_id),
-    )
-    .await;
+    let (reader_id, reader_token) = fixtures::create_reader_with_public_type(&app, &admin_token, "holdunder", Some(public_type_id)).await;
 
     let item_id = create_borrowable_item(&app, &admin_token, "UNDER").await;
     let (status, body) = place_hold(&app, &reader_token, reader_id, item_id, false).await;
     assert_eq!(status, StatusCode::CREATED, "under cap: {body}");
 
-    let (status, quota) = app
-        .get_json_with_auth("/api/v1/holds/quota", &reader_token)
-        .await;
+    let (status, quota) = app.get_json_with_auth("/api/v1/holds/quota", &reader_token).await;
     assert_eq!(status, StatusCode::OK, "quota: {quota}");
     assert_eq!(quota["maxActiveHolds"], 2);
     assert_eq!(quota["activeHolds"], 1);
@@ -131,13 +104,7 @@ async fn place_hold_at_public_type_cap_is_rejected() {
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let public_type_id = create_capped_public_type(&app, &admin_token, 2).await;
-    let (reader_id, reader_token) = fixtures::create_reader_with_public_type(
-        &app,
-        &admin_token,
-        "holdat",
-        Some(public_type_id),
-    )
-    .await;
+    let (reader_id, reader_token) = fixtures::create_reader_with_public_type(&app, &admin_token, "holdat", Some(public_type_id)).await;
 
     let first = create_borrowable_item(&app, &admin_token, "AT1").await;
     let second = create_borrowable_item(&app, &admin_token, "AT2").await;
@@ -163,37 +130,17 @@ async fn place_hold_over_cap_is_rejected() {
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let public_type_id = create_capped_public_type(&app, &admin_token, 2).await;
-    let (reader_id, reader_token) = fixtures::create_reader_with_public_type(
-        &app,
-        &admin_token,
-        "holdover",
-        Some(public_type_id),
-    )
-    .await;
+    let (reader_id, reader_token) = fixtures::create_reader_with_public_type(&app, &admin_token, "holdover", Some(public_type_id)).await;
 
     let first = create_borrowable_item(&app, &admin_token, "OV1").await;
     let second = create_borrowable_item(&app, &admin_token, "OV2").await;
     let third = create_borrowable_item(&app, &admin_token, "OV3").await;
 
-    app.state
-        .services
-        .repository
-        .holds_create(&CreateHold::for_item(reader_id, first))
-        .await
-        .expect("seed hold 1");
-    app.state
-        .services
-        .repository
-        .holds_create(&CreateHold::for_item(reader_id, second))
-        .await
-        .expect("seed hold 2");
+    app.state.services.repository.holds_create(&CreateHold::for_item(reader_id, first)).await.expect("seed hold 1");
+    app.state.services.repository.holds_create(&CreateHold::for_item(reader_id, second)).await.expect("seed hold 2");
 
     let (status, body) = app
-        .put_json(
-            &format!("/api/v1/public-types/{public_type_id}"),
-            &json!({ "maxActiveHolds": 1 }),
-            Some(&admin_token),
-        )
+        .put_json(&format!("/api/v1/public-types/{public_type_id}"), &json!({ "maxActiveHolds": 1 }), Some(&admin_token))
         .await;
     assert_eq!(status, StatusCode::OK, "tighten cap: {body}");
 
@@ -208,13 +155,7 @@ async fn staff_force_override_is_audited() {
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let public_type_id = create_capped_public_type(&app, &admin_token, 1).await;
-    let (reader_id, _) = fixtures::create_reader_with_public_type(
-        &app,
-        &admin_token,
-        "holdforce",
-        Some(public_type_id),
-    )
-    .await;
+    let (reader_id, _) = fixtures::create_reader_with_public_type(&app, &admin_token, "holdforce", Some(public_type_id)).await;
 
     let first = create_borrowable_item(&app, &admin_token, "FRC1").await;
     let second = create_borrowable_item(&app, &admin_token, "FRC2").await;
@@ -229,20 +170,13 @@ async fn staff_force_override_is_audited() {
     assert_eq!(status, StatusCode::CREATED, "force: {body}");
 
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-    let (status, audit) = app
-        .get_json_with_auth(
-            &format!("/api/v1/audit?eventType=hold.max_overridden&entityId={reader_id}"),
-            &admin_token,
-        )
-        .await;
+    let (status, audit) = app.get_json_with_auth(&format!("/api/v1/audit?eventType=hold.max_overridden&entityId={reader_id}"), &admin_token).await;
     assert_eq!(status, StatusCode::OK, "audit query: {audit}");
     let entries = audit["entries"].as_array().cloned().unwrap_or_default();
     assert!(
         entries
             .iter()
-            .any(|row| row["payload"]["operation"] == "place_hold"
-                && row["payload"]["max"] == 1
-                && row["entityId"] == reader_id),
+            .any(|row| row["payload"]["operation"] == "place_hold" && row["payload"]["max"] == 1 && row["entityId"] == reader_id),
         "expected override audit, got {audit}"
     );
 }
@@ -254,13 +188,7 @@ async fn reader_cannot_force_the_holds_cap() {
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let public_type_id = create_capped_public_type(&app, &admin_token, 1).await;
-    let (reader_id, reader_token) = fixtures::create_reader_with_public_type(
-        &app,
-        &admin_token,
-        "holdnoforce",
-        Some(public_type_id),
-    )
-    .await;
+    let (reader_id, reader_token) = fixtures::create_reader_with_public_type(&app, &admin_token, "holdnoforce", Some(public_type_id)).await;
 
     let first = create_borrowable_item(&app, &admin_token, "NF1").await;
     let second = create_borrowable_item(&app, &admin_token, "NF2").await;
@@ -278,34 +206,19 @@ async fn public_type_override_is_tighter_than_global() {
     };
     let admin_token = fixtures::ensure_first_setup(&app).await;
     let public_type_id = create_capped_public_type(&app, &admin_token, 1).await;
-    let (reader_id, reader_token) = fixtures::create_reader_with_public_type(
-        &app,
-        &admin_token,
-        "holdpt",
-        Some(public_type_id),
-    )
-    .await;
+    let (reader_id, reader_token) = fixtures::create_reader_with_public_type(&app, &admin_token, "holdpt", Some(public_type_id)).await;
 
-    let (status, policy) = app
-        .get_json_with_auth("/api/v1/holds/policy", &admin_token)
-        .await;
+    let (status, policy) = app.get_json_with_auth("/api/v1/holds/policy", &admin_token).await;
     assert_eq!(status, StatusCode::OK, "policy: {policy}");
     let global = policy["maxActiveHolds"].as_i64().unwrap_or(0);
-    assert!(
-        global > 1,
-        "global default should exceed override: {policy}"
-    );
+    assert!(global > 1, "global default should exceed override: {policy}");
 
     let first = create_borrowable_item(&app, &admin_token, "PT1").await;
     let second = create_borrowable_item(&app, &admin_token, "PT2").await;
     let (status, body) = place_hold(&app, &reader_token, reader_id, first, false).await;
     assert_eq!(status, StatusCode::CREATED, "first: {body}");
     let (status, body) = place_hold(&app, &reader_token, reader_id, second, false).await;
-    assert_eq!(
-        status,
-        StatusCode::UNPROCESSABLE_ENTITY,
-        "public-type cap: {body}"
-    );
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "public-type cap: {body}");
 }
 
 #[tokio::test]
@@ -329,11 +242,7 @@ async fn explicit_null_clears_public_type_hold_cap_and_fine_threshold() {
     assert_eq!(body["unpaidThresholdCents"], 450);
 
     let (status, body) = app
-        .put_json(
-            &format!("/api/v1/public-types/{public_type_id}"),
-            &json!({ "name": body["name"] }),
-            Some(&admin_token),
-        )
+        .put_json(&format!("/api/v1/public-types/{public_type_id}"), &json!({ "name": body["name"] }), Some(&admin_token))
         .await;
     assert_eq!(status, StatusCode::OK, "omit overrides: {body}");
     assert_eq!(body["maxActiveHolds"], 7, "omitted field must stay: {body}");
@@ -348,12 +257,6 @@ async fn explicit_null_clears_public_type_hold_cap_and_fine_threshold() {
         )
         .await;
     assert_eq!(status, StatusCode::OK, "clear overrides: {cleared}");
-    assert!(
-        cleared["maxActiveHolds"].is_null(),
-        "maxActiveHolds should inherit the global cap: {cleared}"
-    );
-    assert_eq!(
-        cleared["unpaidThresholdMode"], "inherit",
-        "unpaid threshold should inherit the global policy: {cleared}"
-    );
+    assert!(cleared["maxActiveHolds"].is_null(), "maxActiveHolds should inherit the global cap: {cleared}");
+    assert_eq!(cleared["unpaidThresholdMode"], "inherit", "unpaid threshold should inherit the global policy: {cleared}");
 }

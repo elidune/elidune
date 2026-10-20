@@ -11,10 +11,7 @@ use utoipa::ToSchema;
 use crate::{
     error::{AppError, AppResult},
     models::{
-        dto::fines::{
-            AccrueBatchReport, AccrueFinesRequest, AccrueLoanResult, AccrueOutcome,
-            CirculationFinePolicy, UpdateCirculationFinePolicy,
-        },
+        dto::fines::{AccrueBatchReport, AccrueFinesRequest, AccrueLoanResult, AccrueOutcome, CirculationFinePolicy, UpdateCirculationFinePolicy},
         fine::{euro_string, Cents, Fine, FineRule, PayFineRequest, WaiveFineRequest},
     },
     services::audit,
@@ -61,18 +58,11 @@ pub struct UnpaidFinesSummary {
         (status = 404, description = "User not found", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn list_user_fines(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    Path(user_id): Path<i64>,
-) -> AppResult<Json<UnpaidFinesSummary>> {
+pub async fn list_user_fines(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(user_id): Path<i64>) -> AppResult<Json<UnpaidFinesSummary>> {
     claims.require_read_users()?;
     let fines = state.services.fines.list_for_user(user_id).await?;
     let total_unpaid = state.services.fines.total_unpaid(user_id).await?;
-    Ok(Json(UnpaidFinesSummary {
-        total_unpaid,
-        fines,
-    }))
+    Ok(Json(UnpaidFinesSummary { total_unpaid, fines }))
 }
 
 /// Pay a fine (record payment)
@@ -91,18 +81,8 @@ pub async fn list_user_fines(
         (status = 422, description = "Payment is greater than the unpaid balance (`amount - paid_amount`). `code` is `payment_exceeds_balance`. `remainingCents` is that balance in euro cents.", body = crate::error::PaymentExceedsBalanceBody)
     )
 )]
-pub async fn pay_fine(
-    State(state): State<crate::AppState>,
-    StaffUser(claims): StaffUser,
-    ClientIp(ip): ClientIp,
-    Path(id): Path<i64>,
-    Json(req): Json<PayFineRequest>,
-) -> AppResult<Json<Fine>> {
-    let fine = state
-        .services
-        .fines
-        .pay(id, req.amount, req.notes.as_deref(), claims.user_id, ip)
-        .await?;
+pub async fn pay_fine(State(state): State<crate::AppState>, StaffUser(claims): StaffUser, ClientIp(ip): ClientIp, Path(id): Path<i64>, Json(req): Json<PayFineRequest>) -> AppResult<Json<Fine>> {
+    let fine = state.services.fines.pay(id, req.amount, req.notes.as_deref(), claims.user_id, ip).await?;
 
     Ok(Json(fine))
 }
@@ -122,18 +102,8 @@ pub async fn pay_fine(
         (status = 404, description = "Fine not found", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn waive_fine(
-    State(state): State<crate::AppState>,
-    StaffUser(claims): StaffUser,
-    ClientIp(ip): ClientIp,
-    Path(id): Path<i64>,
-    Json(req): Json<WaiveFineRequest>,
-) -> AppResult<Json<Fine>> {
-    let fine = state
-        .services
-        .fines
-        .waive(id, req.notes.as_deref(), claims.user_id, ip)
-        .await?;
+pub async fn waive_fine(State(state): State<crate::AppState>, StaffUser(claims): StaffUser, ClientIp(ip): ClientIp, Path(id): Path<i64>, Json(req): Json<WaiveFineRequest>) -> AppResult<Json<Fine>> {
+    let fine = state.services.fines.waive(id, req.notes.as_deref(), claims.user_id, ip).await?;
 
     Ok(Json(fine))
 }
@@ -150,10 +120,7 @@ pub async fn waive_fine(
         (status = 403, description = "Insufficient permissions", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn list_fine_rules(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-) -> AppResult<Json<Vec<FineRule>>> {
+pub async fn list_fine_rules(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser) -> AppResult<Json<Vec<FineRule>>> {
     claims.require_read_settings()?;
     Ok(Json(state.services.fines.list_rules().await?))
 }
@@ -171,23 +138,8 @@ pub async fn list_fine_rules(
         (status = 403, description = "Staff access required", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn upsert_fine_rule(
-    State(state): State<crate::AppState>,
-    StaffUser(claims): StaffUser,
-    ClientIp(ip): ClientIp,
-    Json(req): Json<UpsertFineRuleRequest>,
-) -> AppResult<Json<FineRule>> {
-    match state
-        .services
-        .fines
-        .upsert_rule(
-            req.media_type.as_deref(),
-            req.daily_rate,
-            req.max_amount,
-            req.grace_days,
-        )
-        .await
-    {
+pub async fn upsert_fine_rule(State(state): State<crate::AppState>, StaffUser(claims): StaffUser, ClientIp(ip): ClientIp, Json(req): Json<UpsertFineRuleRequest>) -> AppResult<Json<FineRule>> {
+    match state.services.fines.upsert_rule(req.media_type.as_deref(), req.daily_rate, req.max_amount, req.grace_days).await {
         Ok(rule) => {
             state.services.audit.log(
                 audit::event::FINE_RULE_UPDATED,
@@ -237,10 +189,7 @@ pub async fn upsert_fine_rule(
         (status = 403, description = "Insufficient permissions", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn get_fine_policy(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-) -> AppResult<Json<CirculationFinePolicy>> {
+pub async fn get_fine_policy(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser) -> AppResult<Json<CirculationFinePolicy>> {
     claims.require_read_settings()?;
     Ok(Json(state.services.fines.get_policy().await?))
 }
@@ -319,12 +268,7 @@ pub async fn update_fine_policy(
         (status = 422, description = "Not overdue, within grace, or deleted patron", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn accrue_loan_fine(
-    State(state): State<crate::AppState>,
-    StaffUser(claims): StaffUser,
-    ClientIp(ip): ClientIp,
-    Path(loan_id): Path<i64>,
-) -> AppResult<Json<AccrueLoanResult>> {
+pub async fn accrue_loan_fine(State(state): State<crate::AppState>, StaffUser(claims): StaffUser, ClientIp(ip): ClientIp, Path(loan_id): Path<i64>) -> AppResult<Json<AccrueLoanResult>> {
     let result = state.services.fines.accrue_loan(loan_id).await?;
     audit_single_accrue(&state, claims.user_id, ip, &result);
     accrue_loan_response(result)
@@ -343,12 +287,7 @@ pub async fn accrue_loan_fine(
         (status = 403, description = "Staff access required", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn accrue_user_fines(
-    State(state): State<crate::AppState>,
-    StaffUser(claims): StaffUser,
-    ClientIp(ip): ClientIp,
-    Path(user_id): Path<i64>,
-) -> AppResult<Json<AccrueBatchReport>> {
+pub async fn accrue_user_fines(State(state): State<crate::AppState>, StaffUser(claims): StaffUser, ClientIp(ip): ClientIp, Path(user_id): Path<i64>) -> AppResult<Json<AccrueBatchReport>> {
     let report = state.services.fines.accrue_overdue(Some(user_id)).await?;
     audit_batch_accrue(&state, Some(claims.user_id), ip, Some(user_id), &report);
     Ok(Json(report))
@@ -380,30 +319,15 @@ pub async fn accrue_overdue_fines(
 
 fn accrue_loan_response(result: AccrueLoanResult) -> AppResult<Json<AccrueLoanResult>> {
     match result.outcome {
-        AccrueOutcome::Created | AccrueOutcome::Updated | AccrueOutcome::Unchanged => {
-            Ok(Json(result))
-        }
-        AccrueOutcome::SkippedGrace => Err(AppError::BusinessRule(
-            "Fine amount is zero — within grace period".to_string(),
-        )),
-        AccrueOutcome::SkippedNotOverdue => {
-            Err(AppError::BusinessRule("Loan is not overdue".to_string()))
-        }
-        AccrueOutcome::SkippedReturned => {
-            Err(AppError::BusinessRule("Loan has been returned".to_string()))
-        }
-        AccrueOutcome::SkippedDeletedUser => Err(AppError::BusinessRule(
-            "Cannot accrue fines for a deleted patron".to_string(),
-        )),
+        AccrueOutcome::Created | AccrueOutcome::Updated | AccrueOutcome::Unchanged => Ok(Json(result)),
+        AccrueOutcome::SkippedGrace => Err(AppError::BusinessRule("Fine amount is zero — within grace period".to_string())),
+        AccrueOutcome::SkippedNotOverdue => Err(AppError::BusinessRule("Loan is not overdue".to_string())),
+        AccrueOutcome::SkippedReturned => Err(AppError::BusinessRule("Loan has been returned".to_string())),
+        AccrueOutcome::SkippedDeletedUser => Err(AppError::BusinessRule("Cannot accrue fines for a deleted patron".to_string())),
     }
 }
 
-fn audit_single_accrue(
-    state: &crate::AppState,
-    actor_id: i64,
-    ip: Option<String>,
-    result: &AccrueLoanResult,
-) {
+fn audit_single_accrue(state: &crate::AppState, actor_id: i64, ip: Option<String>, result: &AccrueLoanResult) {
     let event = if result.outcome == AccrueOutcome::Created {
         audit::event::FINE_CREATED
     } else {
@@ -427,13 +351,7 @@ fn audit_single_accrue(
     );
 }
 
-fn audit_batch_accrue(
-    state: &crate::AppState,
-    actor_id: Option<i64>,
-    ip: Option<String>,
-    user_id: Option<i64>,
-    report: &AccrueBatchReport,
-) {
+fn audit_batch_accrue(state: &crate::AppState, actor_id: Option<i64>, ip: Option<String>, user_id: Option<i64>, report: &AccrueBatchReport) {
     state.services.audit.log(
         audit::event::SYSTEM_FINES_ACCRUAL_BATCH_COMPLETED,
         actor_id,
@@ -460,10 +378,7 @@ pub fn router() -> axum::Router<crate::AppState> {
         .route("/loans/:id/fines/accrue", post(accrue_loan_fine))
         .route("/fines/accrue", post(accrue_overdue_fines))
         .route("/fines/rules", get(list_fine_rules).put(upsert_fine_rule))
-        .route(
-            "/fines/policy",
-            get(get_fine_policy).put(update_fine_policy),
-        )
+        .route("/fines/policy", get(get_fine_policy).put(update_fine_policy))
         .route("/fines/:id/pay", post(pay_fine))
         .route("/fines/:id/waive", post(waive_fine))
 }

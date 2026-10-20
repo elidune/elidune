@@ -13,7 +13,7 @@ import {
   TrendingUp,
   Table2,
 } from 'lucide-react';
-import { Card, CardHeader, Input, ScrollableListRegion } from '@/components/common';
+import { Card, CardHeader, Input, ScrollableListRegion, SectionTabBar } from '@/components/common';
 import api from '@/services/api';
 import type { Stats, AdvancedStatsParams, MediaType, MediaTypeOption, StatsInterval, UserAggregateStats, CatalogStats, CatalogStatsBreakdown } from '@/types';
 import { translateStatLabel } from '@/utils/codeLabels';
@@ -339,66 +339,18 @@ export default function StatsPage() {
       </div>
 
       <div>
-        <div className="border-b border-gray-200 dark:border-gray-800">
-          <nav className="-mb-px flex flex-wrap gap-x-2 sm:gap-x-8" aria-label={t('stats.title')}>
-            <button
-              type="button"
-              onClick={() => setStatsDetailTab('catalog')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                statsDetailTab === 'catalog'
-                  ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <Library className="h-5 w-5 shrink-0" />
-                {t('stats.catalogSection.title')}
-              </div>
-            </button>
-            <button
-              type="button"
-              onClick={() => setStatsDetailTab('users')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                statsDetailTab === 'users'
-                  ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <User className="h-5 w-5 shrink-0" />
-                {t('stats.usersSection.title')}
-              </div>
-            </button>
-            <button
-              type="button"
-              onClick={() => setStatsDetailTab('loans')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                statsDetailTab === 'loans'
-                  ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <TrendingUp className="h-5 w-5 shrink-0" />
-                {t('stats.loansEvolution')}
-              </div>
-            </button>
-            <button
-              type="button"
-              onClick={() => setStatsDetailTab('advanced')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm ${
-                statsDetailTab === 'advanced'
-                  ? 'border-indigo-500 text-indigo-600 dark:text-indigo-400'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <Table2 className="h-5 w-5 shrink-0" />
-                {t('stats.advanced.tabLabel')}
-              </div>
-            </button>
-          </nav>
-        </div>
+        <SectionTabBar
+          ariaLabel={t('stats.title')}
+          activeTab={statsDetailTab}
+          onSelectTab={setStatsDetailTab}
+          scrollable
+          tabs={[
+            { id: 'catalog', label: t('stats.catalogSection.title'), icon: Library },
+            { id: 'users', label: t('stats.usersSection.title'), icon: User },
+            { id: 'loans', label: t('stats.loansEvolution'), icon: TrendingUp },
+            { id: 'advanced', label: t('stats.advanced.tabLabel'), icon: Table2 },
+          ]}
+        />
 
         <div className="pt-4">
       {statsDetailTab === 'catalog' && (
@@ -721,27 +673,27 @@ function CatalogBreakdowns({ catalogStats, t }: { catalogStats: CatalogStats; t:
           </h3>
           <div className="space-y-2">
             {(() => {
-              const sourcesTotal = sources!.length > 0 
+              const sitesTotal = sources!.length > 0 
                 ? sources!.reduce((sum, s) => sum + s.activeItems, 0)
                 : undefined;
               
-              return sources!.map((source, idx) => {
-                const sourceLabel = source.sourceName || `Source ${source.sourceId}`;
-                const hasNestedMedia = (source.byMediaType?.length ?? 0) > 0;
-                const hasNestedPublic = !hasNestedMedia && (source.byPublicType?.length ?? 0) > 0;
-                const nestedMediaTotal = hasNestedMedia && source.byMediaType!.length > 0
-                  ? source.byMediaType!.reduce((sum, m) => sum + m.activeItems, 0)
+              return sources!.map((siteRow, idx) => {
+                const sourceLabel = siteRow.siteName || `Site ${siteRow.siteId}`;
+                const hasNestedMedia = (siteRow.byMediaType?.length ?? 0) > 0;
+                const hasNestedPublic = !hasNestedMedia && (siteRow.byPublicType?.length ?? 0) > 0;
+                const nestedMediaTotal = hasNestedMedia && siteRow.byMediaType!.length > 0
+                  ? siteRow.byMediaType!.reduce((sum, m) => sum + m.activeItems, 0)
                   : undefined;
 
                 if (!hasNestedMedia && !hasNestedPublic) {
-                  return <CatalogFlatItem key={source.sourceId ?? idx} label={sourceLabel} item={source} t={t} totalValue={sourcesTotal} />;
+                  return <CatalogFlatItem key={siteRow.siteId ?? idx} label={sourceLabel} item={siteRow} t={t} totalValue={sitesTotal} />;
                 }
 
                 return (
-                  <CatalogAccordionItem key={source.sourceId ?? idx} label={sourceLabel} item={source} t={t} totalValue={sourcesTotal}>
+                  <CatalogAccordionItem key={siteRow.siteId ?? idx} label={sourceLabel} item={siteRow} t={t} totalValue={sitesTotal}>
                     {hasNestedMedia && (
                       <div className="space-y-2">
-                        {source.byMediaType!.map((media, mIdx) => {
+                        {siteRow.byMediaType!.map((media, mIdx) => {
                           const mediaLabel = translateStatLabel(t, media.label || '', 'mediaType');
                           const hasNestedPub = (media.byPublicType?.length ?? 0) > 0;
 
@@ -758,7 +710,7 @@ function CatalogBreakdowns({ catalogStats, t }: { catalogStats: CatalogStats; t:
                       </div>
                     )}
                     {hasNestedPublic && (
-                      <CatalogPublicTypeList items={source.byPublicType!} t={t} />
+                      <CatalogPublicTypeList items={siteRow.byPublicType!} t={t} />
                     )}
                   </CatalogAccordionItem>
                 );

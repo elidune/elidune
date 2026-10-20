@@ -26,7 +26,7 @@ import {
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLibrary } from '@/contexts/LibraryContext';
-import { Card, Input, Button, LibraryInfoSection } from '@/components/common';
+import { Card, Input, Button, LibraryInfoSection, SectionTabBar } from '@/components/common';
 import NoticeHoldsWaiting from '@/components/holds/NoticeHoldsWaiting';
 import { CopyNotes } from '@/components/items/CopyNotes';
 import ItemAvailabilityBadge from '@/components/items/ItemAvailabilityBadge';
@@ -390,9 +390,9 @@ function BiblioDetailPane({
                             </span>
                           )}
                         </div>
-                        {item.sourceName && (
+                        {item.siteName && (
                           <p className="text-xs text-gray-600 dark:text-gray-300">
-                            {t('opac.site')}: {item.sourceName}
+                            {t('opac.site')}: {item.siteName}
                           </p>
                         )}
                         <PublicCopyReturnLine
@@ -690,42 +690,19 @@ export default function LoginPage() {
             padding="none"
             className="order-2 flex min-h-[min(60vh,32rem)] flex-1 flex-col overflow-hidden border-gray-200/80 shadow-md dark:border-gray-800 dark:shadow-none lg:order-1 lg:min-h-0"
           >
-            <div
-              className="flex flex-shrink-0 gap-0 border-b border-gray-200 bg-gray-50/80 px-2 dark:border-gray-800 dark:bg-gray-900/50"
-              role="tablist"
-            >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={resultsTab === 'events'}
-                onClick={() => {
-                  setResultsTab('events');
-                  setSelectedBiblioId(null);
-                }}
-                className={`relative px-4 py-3 text-sm font-semibold transition-colors ${
-                  resultsTab === 'events'
-                    ? 'text-amber-800 after:absolute after:bottom-0 after:left-2 after:right-2 after:h-0.5 after:rounded-full after:bg-amber-500 dark:text-amber-300 dark:after:bg-amber-400'
-                    : 'text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'
-                }`}
-              >
-                {t('opac.tabEvents')}
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={resultsTab === 'catalog'}
-                onClick={() => {
-                  setResultsTab('catalog');
-                }}
-                className={`relative px-4 py-3 text-sm font-semibold transition-colors ${
-                  resultsTab === 'catalog'
-                    ? 'text-amber-800 after:absolute after:bottom-0 after:left-2 after:right-2 after:h-0.5 after:rounded-full after:bg-amber-500 dark:text-amber-300 dark:after:bg-amber-400'
-                    : 'text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'
-                }`}
-              >
-                {t('opac.tabCatalog')}
-              </button>
-            </div>
+            <SectionTabBar
+              className="flex-shrink-0 border-gray-200 bg-gray-50/80 px-2 dark:border-gray-800 dark:bg-gray-900/50"
+              ariaLabel={t('opac.searchResults')}
+              activeTab={resultsTab}
+              onSelectTab={(tab) => {
+                setResultsTab(tab);
+                if (tab === 'events') setSelectedBiblioId(null);
+              }}
+              tabs={[
+                { id: 'events', label: t('opac.tabEvents') },
+                { id: 'catalog', label: t('opac.tabCatalog') },
+              ]}
+            />
 
             <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
               {resultsTab === 'catalog' && (

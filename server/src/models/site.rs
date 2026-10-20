@@ -1,4 +1,4 @@
-//! Source model
+//! Site model (physical catalog location)
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -6,11 +6,11 @@ use serde_with::{serde_as, DisplayFromStr};
 use sqlx::FromRow;
 use utoipa::ToSchema;
 
-/// Source record
+/// Physical site record
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct Source {
+pub struct Site {
     #[serde_as(as = "DisplayFromStr")]
     #[schema(value_type = String)]
     pub id: i64,
@@ -21,33 +21,33 @@ pub struct Source {
     pub default: Option<bool>,
 }
 
-/// Create source request
+/// Create site request
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct CreateSource {
-    /// Source name
+pub struct CreateSite {
+    /// Site name
     pub name: String,
-    /// Set as default source
+    /// Set as default site
     pub default: Option<bool>,
 }
 
-/// Update source request
+/// Update site request
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
-pub struct UpdateSource {
-    /// New name for the source
+pub struct UpdateSite {
+    /// New name for the site
     pub name: Option<String>,
-    /// Set as default source
+    /// Set as default site
     pub default: Option<bool>,
 }
 
-/// Merge sources request
+/// Merge sites request
 #[serde_as]
 #[derive(Debug, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
-pub struct MergeSources {
-    /// IDs of sources to merge
+pub struct MergeSites {
+    /// IDs of sites to merge
     #[serde_as(as = "Vec<DisplayFromStr>")]
     #[schema(value_type = Vec<String>)]
-    pub source_ids: Vec<i64>,
-    /// Name for the new merged source
+    pub site_ids: Vec<i64>,
+    /// Name for the new merged site
     pub name: String,
 }

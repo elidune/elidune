@@ -36,7 +36,7 @@ import api from '@/services/api';
 import { CopyNoteFields, CopyNotes } from '@/components/items/CopyNotes';
 import DepositBadge from '@/components/items/DepositBadge';
 import ItemAvailabilityBadge, { ItemHoldPatronLine } from '@/components/items/ItemAvailabilityBadge';
-import type { Author, AuthorPublic, BiblioStaffView, ItemPublicView, ItemStaffView, Source } from '@/types';
+import type { Author, AuthorPublic, BiblioStaffView, ItemPublicView, ItemStaffView, Site } from '@/types';
 import { isBiblioStaffView, isItemStaffView } from '@/utils/catalogView';
 import { isItemWithdrawn, isTitleWithdrawn } from '@/utils/weeding';
 import { isCatalogDeletionRefusal } from '@/utils/withdrawals';
@@ -115,8 +115,8 @@ function hasNonEmptyText(value: string | null | undefined): boolean {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
-function defaultSourceIdFromList(sources: Source[]): string {
-  return sources.find((s) => s.default)?.id ?? sources[0]?.id ?? '';
+function defaultSiteIdFromList(sites: Site[]): string {
+  return sites.find((s) => s.default)?.id ?? sites[0]?.id ?? '';
 }
 
 export default function BiblioDetailPage() {
@@ -1056,6 +1056,13 @@ function SpecimenCard({
             <p className="font-medium text-gray-900 dark:text-white truncate">
               {specimen.barcode || t('items.noBarcode')}
             </p>
+            {staffCopy?.lenderBarcode &&
+            staffCopy.lenderBarcode.trim() !== '' &&
+            staffCopy.lenderBarcode !== (specimen.barcode ?? '') ? (
+              <p className="text-xs text-gray-500 dark:text-gray-400 font-mono truncate">
+                {t('deposits.lenderBarcode')}: {staffCopy.lenderBarcode}
+              </p>
+            ) : null}
             <DepositBadge deposit={specimen.deposit} />
           </div>
         </div>
@@ -1100,7 +1107,7 @@ function SpecimenCard({
       />
 
       <p className="text-sm text-gray-500 dark:text-gray-400">
-        {t('items.source')}: {specimen.sourceName ?? '—'}
+        {t('items.site')}: {specimen.siteName ?? '—'}
       </p>
 
       {staffCopy ? (
@@ -1182,25 +1189,25 @@ interface AddSpecimenFormProps {
 function AddSpecimenForm({ formId, item, onLoadingChange, onSuccess }: AddSpecimenFormProps) {
   const { t } = useTranslation();
   const [error, setError] = useState<string | null>(null);
-  const [sources, setSources] = useState<Source[]>([]);
+  const [sites, setSites] = useState<Site[]>([]);
   const suggestedCallNumber = getSuggestedCallNumberFromItem(item);
   const [formData, setFormData] = useState({
     barcode: '',
     callNumber: '',
     volumeDesignation: '',
     borrowable: 'true' as 'true' | 'false',
-    sourceId: '',
+    siteId: '',
   });
 
   useEffect(() => {
     api
-      .getSources(false)
+      .getSites(false)
       .then((list) => {
-        setSources(list);
+        setSites(list);
         setFormData((prev) => {
-          if (prev.sourceId.trim() !== '') return prev;
-          const id = defaultSourceIdFromList(list);
-          return id ? { ...prev, sourceId: id } : prev;
+          if (prev.siteId.trim() !== '') return prev;
+          const id = defaultSiteIdFromList(list);
+          return id ? { ...prev, siteId: id } : prev;
         });
       })
       .catch(() => {});
@@ -1222,7 +1229,7 @@ function AddSpecimenForm({ formId, item, onLoadingChange, onSuccess }: AddSpecim
         callNumber: formData.callNumber || undefined,
         volumeDesignation: formData.volumeDesignation || undefined,
         borrowable: formData.borrowable === 'true',
-        sourceId: formData.sourceId || undefined,
+        siteId: formData.siteId || undefined,
       });
       onSuccess();
     } catch (error) {
@@ -1268,15 +1275,15 @@ function AddSpecimenForm({ formId, item, onLoadingChange, onSuccess }: AddSpecim
       />
       <div>
         <label className={formLabelClass()}>
-          {t('items.source')}
+          {t('items.site')}
         </label>
         <select
-          value={formData.sourceId}
-          onChange={(e) => setFormData({ ...formData, sourceId: e.target.value })}
+          value={formData.siteId}
+          onChange={(e) => setFormData({ ...formData, siteId: e.target.value })}
           className={formControlClass({ className: 'w-full' })}
         >
-          <option value="">{t('items.selectSource')}</option>
-          {sources.map((src) => (
+          <option value="">{t('items.selectSite')}</option>
+          {sites.map((src) => (
             <option key={src.id} value={src.id}>
               {src.name || src.id}
               {src.default ? ` (${t('importMarc.default')})` : ''}
@@ -1314,7 +1321,7 @@ interface EditSpecimenFormProps {
 function EditSpecimenForm({ formId, item, specimen, onLoadingChange, onSuccess }: EditSpecimenFormProps) {
   const { t } = useTranslation();
   const [error, setError] = useState<string | null>(null);
-  const [sources, setSources] = useState<Source[]>([]);
+  const [sites, setSites] = useState<Site[]>([]);
   const suggestedCallNumber = getSuggestedCallNumberFromItem(item);
   const [formData, setFormData] = useState({
     barcode: specimen.barcode || '',
@@ -1325,30 +1332,30 @@ function EditSpecimenForm({ formId, item, specimen, onLoadingChange, onSuccess }
     internalNote: specimen.internalNote ?? '',
     price: specimen.price || '',
     priceDeferred: false,
-    sourceId: specimen.sourceId || '',
+    siteId: specimen.siteId || '',
   });
   const draftReady = isReadyToCirculate({
     barcode: formData.barcode,
-    sourceId: formData.sourceId,
+    siteId: formData.siteId,
     price: formData.price,
     priceDeferred: formData.priceDeferred,
   });
   const draftMissing = missingCirculationFields({
     barcode: formData.barcode,
-    sourceId: formData.sourceId,
+    siteId: formData.siteId,
     price: formData.price,
     priceDeferred: formData.priceDeferred,
   });
 
   useEffect(() => {
     api
-      .getSources(false)
+      .getSites(false)
       .then((list) => {
-        setSources(list);
+        setSites(list);
         setFormData((prev) => {
-          if (prev.sourceId.trim() !== '') return prev;
-          const id = defaultSourceIdFromList(list);
-          return id ? { ...prev, sourceId: id } : prev;
+          if (prev.siteId.trim() !== '') return prev;
+          const id = defaultSiteIdFromList(list);
+          return id ? { ...prev, siteId: id } : prev;
         });
       })
       .catch(() => {});
@@ -1372,7 +1379,7 @@ function EditSpecimenForm({ formId, item, specimen, onLoadingChange, onSuccess }
     try {
       const ready = isReadyToCirculate({
         barcode: formData.barcode,
-        sourceId: formData.sourceId,
+        siteId: formData.siteId,
         price: formData.price,
         priceDeferred: formData.priceDeferred,
       });
@@ -1388,7 +1395,7 @@ function EditSpecimenForm({ formId, item, specimen, onLoadingChange, onSuccess }
         }),
         price: formData.priceDeferred ? null : formData.price || undefined,
         priceDeferred: formData.priceDeferred || undefined,
-        sourceId: formData.sourceId || undefined,
+        siteId: formData.siteId || undefined,
       });
       onSuccess();
     } catch (error) {
@@ -1436,15 +1443,15 @@ function EditSpecimenForm({ formId, item, specimen, onLoadingChange, onSuccess }
       />
       <div>
         <label className={formLabelClass()}>
-          {t('items.source')}
+          {t('items.site')}
         </label>
         <select
-          value={formData.sourceId}
-          onChange={(e) => setFormData({ ...formData, sourceId: e.target.value })}
+          value={formData.siteId}
+          onChange={(e) => setFormData({ ...formData, siteId: e.target.value })}
           className={formControlClass({ className: 'w-full' })}
         >
-          <option value="">{t('items.selectSource')}</option>
-          {sources.map((src) => (
+          <option value="">{t('items.selectSite')}</option>
+          {sites.map((src) => (
             <option key={src.id} value={src.id}>
               {src.name || src.id}
               {src.default ? ` (${t('importMarc.default')})` : ''}

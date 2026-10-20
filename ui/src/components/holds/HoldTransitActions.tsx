@@ -31,12 +31,12 @@ export default function HoldTransitActions({
   const siteQuery = useQuery({
     queryKey: ['biblio', hold.biblioId],
     queryFn: () => api.getBiblio(hold.biblioId),
-    enabled: resolveCopySite && !!hold.biblioId && !transit?.sourceId,
+    enabled: resolveCopySite && !!hold.biblioId && !transit?.siteId,
     staleTime: 60 * 1000,
   });
   const copySourceId =
-    transit?.sourceId ??
-    siteQuery.data?.items.find((item) => item.id === hold.itemId)?.sourceId;
+    transit?.siteId ??
+    siteQuery.data?.items.find((item) => item.id === hold.itemId)?.siteId;
 
   if (transit && canShipTransit(transit)) {
     return (

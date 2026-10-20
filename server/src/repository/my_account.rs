@@ -64,19 +64,12 @@ struct OwnerHoldRow {
 
 impl Repository {
     /// Active loans for this patron. `user_id` is the caller; the statement filters on it.
-    pub async fn loans_list_for_owner(
-        &self,
-        user_id: i64,
-        page: i64,
-        per_page: i64,
-    ) -> AppResult<(Vec<MyLoanView>, i64)> {
+    pub async fn loans_list_for_owner(&self, user_id: i64, page: i64, per_page: i64) -> AppResult<(Vec<MyLoanView>, i64)> {
         let offset = (page - 1) * per_page;
-        let total: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*)::bigint FROM loans l WHERE l.user_id = $1 AND l.returned_at IS NULL",
-        )
-        .bind(user_id)
-        .fetch_one(&self.pool)
-        .await?;
+        let total: i64 = sqlx::query_scalar("SELECT COUNT(*)::bigint FROM loans l WHERE l.user_id = $1 AND l.returned_at IS NULL")
+            .bind(user_id)
+            .fetch_one(&self.pool)
+            .await?;
 
         let rows = sqlx::query_as::<_, OwnerLoanRow>(
             r#"
@@ -122,9 +115,7 @@ impl Repository {
         let owner = self.users_get_by_id(user_id).await?;
         let unpaid = self.fines_total_unpaid(user_id).await?;
         let threshold = self.fines_get_unpaid_threshold(owner.public_type).await?;
-        let fines_over_threshold =
-            UnpaidThresholdCheck::new(unpaid, threshold, self.accrue_fines_enabled())
-                .blocks_circulation();
+        let fines_over_threshold = UnpaidThresholdCheck::new(unpaid, threshold, self.accrue_fines_enabled()).blocks_circulation();
         let renewal_user = RenewalUser {
             can_borrow: owner.can_borrow(),
             card_lost: self.users_card_lost(user_id).await?,
@@ -137,12 +128,8 @@ impl Repository {
             let (max_renews, window_days) = if let Some(cached) = settings.get(&row.media_type) {
                 *cached
             } else {
-                let (_, _, _, max_renews, _) = self
-                    .resolve_loan_settings(owner.public_type, Some(row.media_type.as_str()))
-                    .await?;
-                let window_days = self
-                    .resolve_renew_window_days(Some(row.media_type.as_str()))
-                    .await?;
+                let (_, _, _, max_renews, _) = self.resolve_loan_settings(owner.public_type, Some(row.media_type.as_str())).await?;
+                let window_days = self.resolve_renew_window_days(Some(row.media_type.as_str())).await?;
                 settings.insert(row.media_type.clone(), (max_renews, window_days));
                 (max_renews, window_days)
             };
@@ -151,8 +138,7 @@ impl Repository {
                 renewal_count: row.renewal_count,
                 due_at: due,
                 withdrawn: WeedingStatus::from_db_str(&row.weeding_status).blocks_circulation(),
-                claimed_returned: CirculationStatus::from_db(row.circulation_status)
-                    == CirculationStatus::ClaimedReturned,
+                claimed_returned: CirculationStatus::from_db(row.circulation_status) == CirculationStatus::ClaimedReturned,
                 hold_waiting: row.hold_waiting,
             };
             let ctx = RenewalContext {
@@ -187,19 +173,12 @@ impl Repository {
     }
 
     /// Closed loans for this patron. `user_id` is the caller; the statement filters on it.
-    pub async fn loans_list_archived_for_owner(
-        &self,
-        user_id: i64,
-        page: i64,
-        per_page: i64,
-    ) -> AppResult<(Vec<MyLoanView>, i64)> {
+    pub async fn loans_list_archived_for_owner(&self, user_id: i64, page: i64, per_page: i64) -> AppResult<(Vec<MyLoanView>, i64)> {
         let offset = (page - 1) * per_page;
-        let total: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*)::bigint FROM loans_archives la WHERE la.user_id = $1",
-        )
-        .bind(user_id)
-        .fetch_one(&self.pool)
-        .await?;
+        let total: i64 = sqlx::query_scalar("SELECT COUNT(*)::bigint FROM loans_archives la WHERE la.user_id = $1")
+            .bind(user_id)
+            .fetch_one(&self.pool)
+            .await?;
 
         let rows = sqlx::query_as::<_, OwnerArchivedLoanRow>(
             r#"
@@ -228,13 +207,7 @@ impl Repository {
 
         let mut items = Vec::with_capacity(rows.len());
         for row in rows {
-            let closure_reason =
-                LoanClosureReason::parse(&row.closure_reason).ok_or_else(|| {
-                    AppError::Internal(format!(
-                        "unknown loan closure reason {}",
-                        row.closure_reason
-                    ))
-                })?;
+            let closure_reason = LoanClosureReason::parse(&row.closure_reason).ok_or_else(|| AppError::Internal(format!("unknown loan closure reason {}", row.closure_reason)))?;
             items.push(MyLoanView {
                 id: row.id,
                 barcode: row.barcode,
@@ -255,21 +228,13 @@ impl Repository {
     }
 
     /// Holds for this patron. `user_id` is the caller; the statement filters on it.
-    pub async fn holds_list_for_owner(
-        &self,
-        user_id: i64,
-        page: i64,
-        per_page: i64,
-        active_only: bool,
-    ) -> AppResult<(Vec<MyHoldView>, i64)> {
+    pub async fn holds_list_for_owner(&self, user_id: i64, page: i64, per_page: i64, active_only: bool) -> AppResult<(Vec<MyHoldView>, i64)> {
         let offset = (page - 1) * per_page;
         let (total, rows) = if active_only {
-            let total: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*)::bigint FROM holds WHERE user_id = $1 AND status IN ('pending','to_pick','ready')",
-            )
-            .bind(user_id)
-            .fetch_one(&self.pool)
-            .await?;
+            let total: i64 = sqlx::query_scalar("SELECT COUNT(*)::bigint FROM holds WHERE user_id = $1 AND status IN ('pending','to_pick','ready')")
+                .bind(user_id)
+                .fetch_one(&self.pool)
+                .await?;
             let rows = sqlx::query_as::<_, OwnerHoldRow>(
                 r#"
                 SELECT h.id,
@@ -289,7 +254,7 @@ impl Repository {
                        ) AS in_transit
                 FROM holds h
                 JOIN biblios b ON b.id = h.biblio_id
-                LEFT JOIN sources so ON so.id = h.pickup_site_id
+                LEFT JOIN sites so ON so.id = h.pickup_site_id
                 WHERE h.user_id = $1
                   AND h.status IN ('pending','to_pick','ready')
                 ORDER BY h.created_at ASC
@@ -303,11 +268,7 @@ impl Repository {
             .await?;
             (total, rows)
         } else {
-            let total: i64 =
-                sqlx::query_scalar("SELECT COUNT(*)::bigint FROM holds WHERE user_id = $1")
-                    .bind(user_id)
-                    .fetch_one(&self.pool)
-                    .await?;
+            let total: i64 = sqlx::query_scalar("SELECT COUNT(*)::bigint FROM holds WHERE user_id = $1").bind(user_id).fetch_one(&self.pool).await?;
             let rows = sqlx::query_as::<_, OwnerHoldRow>(
                 r#"
                 SELECT h.id,
@@ -327,7 +288,7 @@ impl Repository {
                        ) AS in_transit
                 FROM holds h
                 JOIN biblios b ON b.id = h.biblio_id
-                LEFT JOIN sources so ON so.id = h.pickup_site_id
+                LEFT JOIN sites so ON so.id = h.pickup_site_id
                 WHERE h.user_id = $1
                 ORDER BY h.created_at ASC
                 LIMIT $2 OFFSET $3
@@ -359,11 +320,7 @@ fn owner_hold_view(row: OwnerHoldRow) -> MyHoldView {
             _ => MyHoldStatus::Pending,
         }
     };
-    let pickup_deadline = if status == MyHoldStatus::Ready {
-        row.expires_at
-    } else {
-        None
-    };
+    let pickup_deadline = if status == MyHoldStatus::Ready { row.expires_at } else { None };
     MyHoldView {
         id: row.id,
         biblio_id: row.biblio_id,

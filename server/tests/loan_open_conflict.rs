@@ -27,8 +27,7 @@ async fn post_loan(router: axum::Router, token: &str, body: &Value) -> (StatusCo
         .header("Content-Type", "application/json")
         .body(Body::from(body.to_string()))
         .unwrap();
-    req.extensions_mut()
-        .insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 3000))));
+    req.extensions_mut().insert(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 3000))));
     let response = router.oneshot(req).await.expect("router oneshot");
     let status = response.status();
     let bytes = response.into_body().collect().await.unwrap().to_bytes();
@@ -52,10 +51,7 @@ fn assert_conflict(status: StatusCode, body: &Value, code: &str) {
     let message = body["message"].as_str().unwrap_or("");
     assert!(!message.is_empty(), "{body}");
     if code == SAME {
-        assert!(
-            message.to_lowercase().contains("renew"),
-            "message should point at renewal: {message}"
-        );
+        assert!(message.to_lowercase().contains("renew"), "message should point at renewal: {message}");
     }
 }
 
@@ -66,20 +62,13 @@ async fn seed_item(app: &TestApp, token: &str, barcode: &str) -> i64 {
         "lang": "french",
         "items": [{ "barcode": barcode, "borrowable": true }]
     });
-    let (status, body) = app
-        .post_json("/api/v1/biblios", &payload, Some(token))
-        .await;
+    let (status, body) = app.post_json("/api/v1/biblios", &payload, Some(token)).await;
     assert_eq!(status, StatusCode::CREATED, "create biblio: {body}");
     fixtures::json_id(&body["biblio"]["items"][0]["id"])
 }
 
 async fn loan_row(app: &TestApp, loan_id: i64) -> Loan {
-    app.state
-        .services
-        .repository
-        .loans_get_by_id(loan_id)
-        .await
-        .expect("active loan")
+    app.state.services.repository.loans_get_by_id(loan_id).await.expect("active loan")
 }
 
 async fn archive_count(app: &TestApp, item_id: i64) -> i64 {
@@ -136,46 +125,22 @@ async fn open_loan_is_409_for_other_and_same_borrower_including_admin_and_barcod
     let barcode = format!("OPEN-{suffix}");
     let item_id = seed_item(&app, &admin_token, &barcode).await;
 
-    let (status, created) = app
-        .post_json(
-            "/api/v1/loans",
-            &loan_body(reader_a, Some(item_id), None, false),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, created) = app.post_json("/api/v1/loans", &loan_body(reader_a, Some(item_id), None, false), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::CREATED, "{created}");
     let loan_id = fixtures::json_id(&created["id"]);
     let before = loan_row(&app, loan_id).await;
     assert_eq!(archive_count(&app, item_id).await, 0);
 
     for force in [false, true] {
-        let (status, body) = app
-            .post_json(
-                "/api/v1/loans",
-                &loan_body(reader_b, Some(item_id), None, force),
-                Some(&admin_token),
-            )
-            .await;
+        let (status, body) = app.post_json("/api/v1/loans", &loan_body(reader_b, Some(item_id), None, force), Some(&admin_token)).await;
         assert_conflict(status, &body, OTHER);
     }
 
-    let (status, body) = app
-        .post_json(
-            "/api/v1/loans",
-            &loan_body(admin_id, None, Some(&barcode), true),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, body) = app.post_json("/api/v1/loans", &loan_body(admin_id, None, Some(&barcode), true), Some(&admin_token)).await;
     assert_conflict(status, &body, OTHER);
 
     for force in [false, true] {
-        let (status, body) = app
-            .post_json(
-                "/api/v1/loans",
-                &loan_body(reader_a, None, Some(&barcode), force),
-                Some(&admin_token),
-            )
-            .await;
+        let (status, body) = app.post_json("/api/v1/loans", &loan_body(reader_a, None, Some(&barcode), force), Some(&admin_token)).await;
         assert_conflict(status, &body, SAME);
     }
 
@@ -183,32 +148,13 @@ async fn open_loan_is_409_for_other_and_same_borrower_including_admin_and_barcod
     assert_eq!(format!("{before:?}"), format!("{after:?}"));
     assert!(after.returned_at.is_none());
     assert_eq!(after.user_id, reader_a);
-    assert_eq!(
-        app.state
-            .services
-            .repository
-            .loans_get_active_ids_for_item(item_id)
-            .await
-            .unwrap(),
-        vec![loan_id]
-    );
+    assert_eq!(app.state.services.repository.loans_get_active_ids_for_item(item_id).await.unwrap(), vec![loan_id]);
     assert_eq!(archive_count(&app, item_id).await, 0);
 }
 
-async fn burst(
-    app: &TestApp,
-    token: &str,
-    item_id: i64,
-    users: &[i64],
-    force: bool,
-) -> Vec<(StatusCode, Value)> {
+async fn burst(app: &TestApp, token: &str, item_id: i64, users: &[i64], force: bool) -> Vec<(StatusCode, Value)> {
     assert_eq!(
-        app.state
-            .services
-            .repository
-            .pool()
-            .options()
-            .get_max_connections(),
+        app.state.services.repository.pool().options().get_max_connections(),
         5,
         "burst must run against the 5-connection test pool"
     );
@@ -225,11 +171,7 @@ async fn burst(
         results.push(joined.expect("loan task"));
     }
     let elapsed = started.elapsed();
-    assert!(
-        elapsed < Duration::from_secs(20),
-        "burst of {} took {elapsed:?}; a pool deadlock shows up near 30s",
-        users.len()
-    );
+    assert!(elapsed < Duration::from_secs(20), "burst of {} took {elapsed:?}; a pool deadlock shows up near 30s", users.len());
     results
 }
 
@@ -247,42 +189,17 @@ async fn burst_of_twenty_checkouts_one_loan_no_500() {
         let item_id = seed_item(&app, &admin_token, &barcode).await;
         let results = burst(&app, &admin_token, item_id, &users, force).await;
 
-        let created = results
-            .iter()
-            .filter(|(status, _)| *status == StatusCode::CREATED)
-            .count();
-        let conflicts = results
-            .iter()
-            .filter(|(status, body)| *status == StatusCode::CONFLICT && body["code"] == OTHER)
-            .count();
+        let created = results.iter().filter(|(status, _)| *status == StatusCode::CREATED).count();
+        let conflicts = results.iter().filter(|(status, body)| *status == StatusCode::CONFLICT && body["code"] == OTHER).count();
         let failures: Vec<_> = results
             .iter()
-            .filter(|(status, body)| {
-                *status != StatusCode::CREATED
-                    && !(*status == StatusCode::CONFLICT && body["code"] == OTHER)
-            })
+            .filter(|(status, body)| *status != StatusCode::CREATED && !(*status == StatusCode::CONFLICT && body["code"] == OTHER))
             .collect();
-        assert!(
-            failures.is_empty(),
-            "force={force}: unexpected responses {failures:?}"
-        );
+        assert!(failures.is_empty(), "force={force}: unexpected responses {failures:?}");
         assert_eq!(created, 1, "force={force}: {results:?}");
         assert_eq!(conflicts, 19, "force={force}");
-        assert!(
-            results
-                .iter()
-                .all(|(status, _)| *status != StatusCode::INTERNAL_SERVER_ERROR),
-            "force={force}: 500 in {results:?}"
-        );
-        assert_eq!(
-            app.state
-                .services
-                .repository
-                .loans_count_active_for_item(item_id)
-                .await
-                .unwrap(),
-            1
-        );
+        assert!(results.iter().all(|(status, _)| *status != StatusCode::INTERNAL_SERVER_ERROR), "force={force}: 500 in {results:?}");
+        assert_eq!(app.state.services.repository.loans_count_active_for_item(item_id).await.unwrap(), 1);
     }
 }
 
@@ -311,13 +228,7 @@ async fn batch_create_reports_open_loan_codes() {
     let same_item = seed_item(&app, &admin_token, &same_barcode).await;
 
     for (user_id, item_id) in [(reader_a, other_item), (reader_b, same_item)] {
-        let (status, body) = app
-            .post_json(
-                "/api/v1/loans",
-                &loan_body(user_id, Some(item_id), None, false),
-                Some(&admin_token),
-            )
-            .await;
+        let (status, body) = app.post_json("/api/v1/loans", &loan_body(user_id, Some(item_id), None, false), Some(&admin_token)).await;
         assert_eq!(status, StatusCode::CREATED, "{body}");
     }
 
@@ -340,44 +251,19 @@ async fn batch_create_reports_open_loan_codes() {
     assert_eq!(other["success"], false);
     assert_eq!(other["code"], OTHER);
     let other_error = other["error"].as_str().expect("error string");
-    assert!(
-        other_error.contains("another borrower"),
-        "error text should stay the human message: {other_error}"
-    );
+    assert!(other_error.contains("another borrower"), "error text should stay the human message: {other_error}");
 
     let same = batch_item(&body, &same_barcode);
     assert_eq!(same["success"], false);
     assert_eq!(same["code"], SAME);
     let same_error = same["error"].as_str().expect("error string");
-    assert!(
-        same_error.to_lowercase().contains("renew"),
-        "error text should still point at renewal: {same_error}"
-    );
+    assert!(same_error.to_lowercase().contains("renew"), "error text should still point at renewal: {same_error}");
 
     let missing = batch_item(&body, &missing_barcode);
     assert_eq!(missing["success"], false);
     assert_eq!(missing["code"], "not_found");
-    assert!(missing["error"]
-        .as_str()
-        .unwrap_or("")
-        .contains("Not found"));
+    assert!(missing["error"].as_str().unwrap_or("").contains("Not found"));
 
-    assert_eq!(
-        app.state
-            .services
-            .repository
-            .loans_count_active_for_item(other_item)
-            .await
-            .unwrap(),
-        1
-    );
-    assert_eq!(
-        app.state
-            .services
-            .repository
-            .loans_count_active_for_item(same_item)
-            .await
-            .unwrap(),
-        1
-    );
+    assert_eq!(app.state.services.repository.loans_count_active_for_item(other_item).await.unwrap(), 1);
+    assert_eq!(app.state.services.repository.loans_count_active_for_item(same_item).await.unwrap(), 1);
 }

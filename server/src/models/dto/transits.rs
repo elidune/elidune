@@ -20,7 +20,7 @@ pub struct ListTransitsQuery {
     pub hold_id: Option<i64>,
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
-    pub to_source_id: Option<i64>,
+    pub to_site_id: Option<i64>,
     /// Page number (1-based, default 1).
     pub page: Option<i64>,
     /// Page size (default 50, max 200).

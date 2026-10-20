@@ -39,30 +39,14 @@ fn copy(barcode: &str, borrowable: bool) -> Value {
 
 async fn create_site(app: &TestApp, admin_token: &str, name: &str) -> i64 {
     let (status, body) = app
-        .post_json(
-            "/api/v1/sources",
-            &json!({ "name": format!("{name}-{}", fixtures::unique_suffix()) }),
-            Some(admin_token),
-        )
+        .post_json("/api/v1/sites", &json!({ "name": format!("{name}-{}", fixtures::unique_suffix()) }), Some(admin_token))
         .await;
     assert_eq!(status, StatusCode::CREATED, "create site: {body}");
     fixtures::json_id(&body["id"])
 }
 
-async fn add_copy(
-    app: &TestApp,
-    admin_token: &str,
-    biblio_id: i64,
-    barcode: &str,
-    borrowable: bool,
-) -> i64 {
-    let (status, body) = app
-        .post_json(
-            &format!("/api/v1/biblios/{biblio_id}/items"),
-            &copy(barcode, borrowable),
-            Some(admin_token),
-        )
-        .await;
+async fn add_copy(app: &TestApp, admin_token: &str, biblio_id: i64, barcode: &str, borrowable: bool) -> i64 {
+    let (status, body) = app.post_json(&format!("/api/v1/biblios/{biblio_id}/items"), &copy(barcode, borrowable), Some(admin_token)).await;
     assert_eq!(status, StatusCode::CREATED, "add copy: {body}");
     fixtures::json_id(&body["id"])
 }
@@ -77,11 +61,7 @@ fn find_copy(body: &Value, item_id: i64) -> &Value {
 }
 
 fn absent(body: &Value, item_id: i64) {
-    let present = body["items"]
-        .as_array()
-        .expect("items")
-        .iter()
-        .any(|item| fixtures::json_id(&item["id"]) == item_id);
+    let present = body["items"].as_array().expect("items").iter().any(|item| fixtures::json_id(&item["id"]) == item_id);
     assert!(!present, "copy {item_id} should be omitted: {body}");
 }
 
@@ -129,7 +109,7 @@ async fn seed(app: &TestApp) -> (String, String, Copies) {
                 "items": [{
                     "barcode": transit_barcode,
                     "borrowable": true,
-                    "sourceId": origin.to_string()
+                    "siteId": origin.to_string()
                 }]
             }),
             Some(&admin_token),
@@ -157,81 +137,20 @@ async fn seed(app: &TestApp) -> (String, String, Copies) {
         .execute(app.state.services.repository.pool())
         .await
         .expect("pickup site");
-    let (status, scan) = app
-        .post_empty(
-            &format!("/api/v1/loans/items/{transit_barcode}/return"),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, scan) = app.post_empty(&format!("/api/v1/loans/items/{transit_barcode}/return"), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::OK, "transit scan: {scan}");
     assert_eq!(scan["status"], "in_transit");
 
-    let available = add_copy(
-        app,
-        &admin_token,
-        biblio_id,
-        &format!("PUB-AV-{suffix}"),
-        true,
-    )
-    .await;
-    let on_loan = add_copy(
-        app,
-        &admin_token,
-        biblio_id,
-        &format!("PUB-LN-{suffix}"),
-        true,
-    )
-    .await;
-    let on_site = add_copy(
-        app,
-        &admin_token,
-        biblio_id,
-        &format!("PUB-OS-{suffix}"),
-        false,
-    )
-    .await;
-    let damaged = add_copy(
-        app,
-        &admin_token,
-        biblio_id,
-        &format!("PUB-DM-{suffix}"),
-        true,
-    )
-    .await;
-    let to_search = add_copy(
-        app,
-        &admin_token,
-        biblio_id,
-        &format!("PUB-TS-{suffix}"),
-        true,
-    )
-    .await;
+    let available = add_copy(app, &admin_token, biblio_id, &format!("PUB-AV-{suffix}"), true).await;
+    let on_loan = add_copy(app, &admin_token, biblio_id, &format!("PUB-LN-{suffix}"), true).await;
+    let on_site = add_copy(app, &admin_token, biblio_id, &format!("PUB-OS-{suffix}"), false).await;
+    let damaged = add_copy(app, &admin_token, biblio_id, &format!("PUB-DM-{suffix}"), true).await;
+    let to_search = add_copy(app, &admin_token, biblio_id, &format!("PUB-TS-{suffix}"), true).await;
     let lost_barcode = format!("PUB-LO-{suffix}");
     let lost = add_copy(app, &admin_token, biblio_id, &lost_barcode, true).await;
-    let missing = add_copy(
-        app,
-        &admin_token,
-        biblio_id,
-        &format!("PUB-MI-{suffix}"),
-        true,
-    )
-    .await;
-    let weeding = add_copy(
-        app,
-        &admin_token,
-        biblio_id,
-        &format!("PUB-WD-{suffix}"),
-        true,
-    )
-    .await;
-    let withdrawn = add_copy(
-        app,
-        &admin_token,
-        biblio_id,
-        &format!("PUB-WN-{suffix}"),
-        true,
-    )
-    .await;
+    let missing = add_copy(app, &admin_token, biblio_id, &format!("PUB-MI-{suffix}"), true).await;
+    let weeding = add_copy(app, &admin_token, biblio_id, &format!("PUB-WD-{suffix}"), true).await;
+    let withdrawn = add_copy(app, &admin_token, biblio_id, &format!("PUB-WN-{suffix}"), true).await;
 
     let (status, loan) = app
         .post_json(
@@ -296,47 +215,20 @@ async fn seed(app: &TestApp) -> (String, String, Copies) {
 fn assert_public_copies(body: &Value, copies: &Copies) {
     let items = body["items"].as_array().expect("items");
     assert_eq!(items.len(), 6, "public count is the filtered list: {body}");
-    assert_eq!(
-        find_copy(body, copies.available)["availability"],
-        "available"
-    );
+    assert_eq!(find_copy(body, copies.available)["availability"], "available");
     assert_eq!(find_copy(body, copies.on_loan)["availability"], "onLoan");
-    assert_eq!(
-        find_copy(body, copies.on_site)["availability"],
-        "onSiteOnly"
-    );
-    assert_eq!(
-        find_copy(body, copies.damaged)["availability"],
-        "unavailable"
-    );
-    assert_eq!(
-        find_copy(body, copies.to_search)["availability"],
-        "unavailable"
-    );
-    assert_eq!(
-        find_copy(body, copies.in_transit)["availability"],
-        "unavailable"
-    );
+    assert_eq!(find_copy(body, copies.on_site)["availability"], "onSiteOnly");
+    assert_eq!(find_copy(body, copies.damaged)["availability"], "unavailable");
+    assert_eq!(find_copy(body, copies.to_search)["availability"], "unavailable");
+    assert_eq!(find_copy(body, copies.in_transit)["availability"], "unavailable");
     assert_eq!(find_copy(body, copies.available)["canHoldItem"], true);
     assert_eq!(find_copy(body, copies.on_loan)["canHoldItem"], true);
     assert_eq!(find_copy(body, copies.on_site)["canHoldItem"], false);
     assert_eq!(find_copy(body, copies.damaged)["canHoldItem"], false);
-    for id in [
-        copies.available,
-        copies.on_loan,
-        copies.on_site,
-        copies.damaged,
-        copies.to_search,
-        copies.in_transit,
-    ] {
+    for id in [copies.available, copies.on_loan, copies.on_site, copies.damaged, copies.to_search, copies.in_transit] {
         assert_public_shape(find_copy(body, id));
     }
-    for id in [
-        copies.lost,
-        copies.missing,
-        copies.weeding,
-        copies.withdrawn,
-    ] {
+    for id in [copies.lost, copies.missing, copies.weeding, copies.withdrawn] {
         absent(body, id);
     }
     let raw = body.to_string();
@@ -349,37 +241,16 @@ fn assert_public_copies(body: &Value, copies: &Copies) {
 fn assert_staff_copies(body: &Value, copies: &Copies) {
     let items = body["items"].as_array().expect("items");
     assert_eq!(items.len(), 10, "staff keep the real total: {body}");
-    assert_eq!(
-        find_copy(body, copies.available)["availability"],
-        "available"
-    );
+    assert_eq!(find_copy(body, copies.available)["availability"], "available");
     assert_eq!(find_copy(body, copies.on_loan)["availability"], "onLoan");
-    assert_eq!(
-        find_copy(body, copies.on_site)["availability"],
-        "unavailable"
-    );
-    assert_eq!(
-        find_copy(body, copies.damaged)["availability"],
-        "unavailable"
-    );
-    assert_eq!(
-        find_copy(body, copies.to_search)["availability"],
-        "toSearch"
-    );
-    assert_eq!(
-        find_copy(body, copies.in_transit)["availability"],
-        "inTransit"
-    );
+    assert_eq!(find_copy(body, copies.on_site)["availability"], "unavailable");
+    assert_eq!(find_copy(body, copies.damaged)["availability"], "unavailable");
+    assert_eq!(find_copy(body, copies.to_search)["availability"], "toSearch");
+    assert_eq!(find_copy(body, copies.in_transit)["availability"], "inTransit");
     assert_eq!(find_copy(body, copies.lost)["availability"], "unavailable");
-    assert_eq!(
-        find_copy(body, copies.missing)["availability"],
-        "unavailable"
-    );
+    assert_eq!(find_copy(body, copies.missing)["availability"], "unavailable");
     assert_eq!(find_copy(body, copies.weeding)["availability"], "available");
-    assert_eq!(
-        find_copy(body, copies.withdrawn)["availability"],
-        "unavailable"
-    );
+    assert_eq!(find_copy(body, copies.withdrawn)["availability"], "unavailable");
     assert!(find_copy(body, copies.available)["circulationStatus"].is_null());
     assert_eq!(find_copy(body, copies.lost)["circulationStatus"], 1);
     assert_eq!(find_copy(body, copies.damaged)["circulationStatus"], 2);
@@ -403,18 +274,11 @@ async fn public_opac_omits_lost_missing_and_weeding_copies() {
     };
     let (_admin, _patron, copies) = seed(&app).await;
 
-    let (status, detail) = app
-        .get_json(&format!("/api/v1/opac/biblios/{}", copies.biblio_id))
-        .await;
+    let (status, detail) = app.get_json(&format!("/api/v1/opac/biblios/{}", copies.biblio_id)).await;
     assert_eq!(status, StatusCode::OK, "opac detail: {detail}");
     assert_public_copies(&detail, &copies);
 
-    let (status, search) = app
-        .get_json(&format!(
-            "/api/v1/opac/biblios?title={}&perPage=5",
-            copies.title.replace(' ', "%20")
-        ))
-        .await;
+    let (status, search) = app.get_json(&format!("/api/v1/opac/biblios?title={}&perPage=5", copies.title.replace(' ', "%20"))).await;
     assert_eq!(status, StatusCode::OK, "opac search: {search}");
     assert_public_copies(search_hit(&search, copies.biblio_id), &copies);
 }
@@ -426,64 +290,29 @@ async fn patron_catalog_omits_lost_missing_and_weeding_copies() {
     };
     let (_admin_token, patron_token, copies) = seed(&app).await;
 
-    let (status, detail) = app
-        .get_json_with_auth(
-            &format!("/api/v1/biblios/{}", copies.biblio_id),
-            &patron_token,
-        )
-        .await;
+    let (status, detail) = app.get_json_with_auth(&format!("/api/v1/biblios/{}", copies.biblio_id), &patron_token).await;
     assert_eq!(status, StatusCode::OK, "patron detail: {detail}");
     assert_public_copies(&detail, &copies);
 
     let (status, search) = app
-        .get_json_with_auth(
-            &format!(
-                "/api/v1/biblios?title={}&perPage=5",
-                copies.title.replace(' ', "%20")
-            ),
-            &patron_token,
-        )
+        .get_json_with_auth(&format!("/api/v1/biblios?title={}&perPage=5", copies.title.replace(' ', "%20")), &patron_token)
         .await;
     assert_eq!(status, StatusCode::OK, "patron search: {search}");
     assert_public_copies(search_hit(&search, copies.biblio_id), &copies);
 
-    let (status, listed) = app
-        .get_json_with_auth(
-            &format!("/api/v1/biblios/{}/items", copies.biblio_id),
-            &patron_token,
-        )
-        .await;
+    let (status, listed) = app.get_json_with_auth(&format!("/api/v1/biblios/{}/items", copies.biblio_id), &patron_token).await;
     assert_eq!(status, StatusCode::OK, "patron items: {listed}");
     let wrapped = json!({ "items": listed });
     assert_public_copies(&wrapped, &copies);
 
-    let (status, hidden) = app
-        .get_json_with_auth(&format!("/api/v1/items/{}", copies.lost), &patron_token)
-        .await;
+    let (status, hidden) = app.get_json_with_auth(&format!("/api/v1/items/{}", copies.lost), &patron_token).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "lost item: {hidden}");
-    let (status, hidden_barcode) = app
-        .get_json_with_auth(
-            &format!("/api/v1/items/barcode/{}", copies.lost_barcode),
-            &patron_token,
-        )
-        .await;
-    assert_eq!(
-        status,
-        StatusCode::NOT_FOUND,
-        "lost barcode: {hidden_barcode}"
-    );
+    let (status, hidden_barcode) = app.get_json_with_auth(&format!("/api/v1/items/barcode/{}", copies.lost_barcode), &patron_token).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "lost barcode: {hidden_barcode}");
 
-    let (status, visible) = app
-        .get_json_with_auth(
-            &format!("/api/v1/items/{}", copies.available),
-            &patron_token,
-        )
-        .await;
+    let (status, visible) = app.get_json_with_auth(&format!("/api/v1/items/{}", copies.available), &patron_token).await;
     assert_eq!(status, StatusCode::OK, "available item: {visible}");
-    assert_eq!(
-        find_copy(&visible, copies.available)["availability"],
-        "available"
-    );
+    assert_eq!(find_copy(&visible, copies.available)["availability"], "available");
     assert_public_shape(find_copy(&visible, copies.available));
 }
 
@@ -494,39 +323,21 @@ async fn staff_catalog_keeps_every_copy_and_circulation_status() {
     };
     let (admin_token, _patron, copies) = seed(&app).await;
 
-    let (status, detail) = app
-        .get_json_with_auth(
-            &format!("/api/v1/biblios/{}", copies.biblio_id),
-            &admin_token,
-        )
-        .await;
+    let (status, detail) = app.get_json_with_auth(&format!("/api/v1/biblios/{}", copies.biblio_id), &admin_token).await;
     assert_eq!(status, StatusCode::OK, "staff detail: {detail}");
     assert_staff_copies(&detail, &copies);
 
     let (status, search) = app
-        .get_json_with_auth(
-            &format!(
-                "/api/v1/biblios?title={}&perPage=5",
-                copies.title.replace(' ', "%20")
-            ),
-            &admin_token,
-        )
+        .get_json_with_auth(&format!("/api/v1/biblios?title={}&perPage=5", copies.title.replace(' ', "%20")), &admin_token)
         .await;
     assert_eq!(status, StatusCode::OK, "staff search: {search}");
     assert_staff_copies(search_hit(&search, copies.biblio_id), &copies);
 
-    let (status, listed) = app
-        .get_json_with_auth(
-            &format!("/api/v1/biblios/{}/items", copies.biblio_id),
-            &admin_token,
-        )
-        .await;
+    let (status, listed) = app.get_json_with_auth(&format!("/api/v1/biblios/{}/items", copies.biblio_id), &admin_token).await;
     assert_eq!(status, StatusCode::OK, "staff items: {listed}");
     assert_staff_copies(&json!({ "items": listed }), &copies);
 
-    let (status, lost) = app
-        .get_json_with_auth(&format!("/api/v1/items/{}", copies.lost), &admin_token)
-        .await;
+    let (status, lost) = app.get_json_with_auth(&format!("/api/v1/items/{}", copies.lost), &admin_token).await;
     assert_eq!(status, StatusCode::OK, "staff lost item: {lost}");
     assert_eq!(find_copy(&lost, copies.lost)["circulationStatus"], 1);
     assert_eq!(find_copy(&lost, copies.lost)["availability"], "unavailable");

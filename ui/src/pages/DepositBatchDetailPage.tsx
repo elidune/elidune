@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Library } from 'lucide-react';
 import { Badge, Button, Card, CardHeader, ConfirmDialog, Input, Modal, QueryErrorBanner, Table } from '@/components/common';
+import { MarcImportWorkflow } from '@/pages/ImportIsoPage';
 import ReturnToLenderNotice from '@/components/items/ReturnToLenderNotice';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
@@ -12,7 +13,7 @@ import {
   canManageItems,
   type DepositBatchItem,
   type DepositCopyState,
-  type Source,
+  type Site,
 } from '@/types';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { APP_PAGE_CLASS } from '@/utils/appPageLayout';
@@ -97,9 +98,9 @@ export default function DepositBatchDetailPage() {
     queryKey: ['lenders', 'names'],
     queryFn: () => api.listLenders(true),
   });
-  const sourcesQuery = useQuery({
-    queryKey: ['sources', 'active'],
-    queryFn: () => api.getSources(false),
+  const sitesQuery = useQuery({
+    queryKey: ['sites', 'active'],
+    queryFn: () => api.getSites(false),
   });
   const onLoanQuery = useQuery({
     queryKey: ['deposit-batch', id, 'items', 'onLoan'],
@@ -121,7 +122,7 @@ export default function DepositBatchDetailPage() {
   const lenderRecordName = lendersQuery.data?.find((lender) => lender.id === batch?.lenderId)?.name ?? null;
   const lenderName = lenderRecordName ?? batch?.lenderId;
   const siteName = (site: string | undefined) =>
-    sourcesQuery.data?.find((source) => String(source.id) === site)?.name ?? site ?? '—';
+    sitesQuery.data?.find((source) => String(source.id) === site)?.name ?? site ?? '—';
 
   useEffect(() => {
     if (batch?.status === 'returning') {
@@ -281,6 +282,23 @@ export default function DepositBatchDetailPage() {
             {t('deposits.batch.startReturn')}
           </Button>
         </div>
+      ) : null}
+
+      {canWrite && batch?.status === 'active' ? (
+        <Card>
+          <MarcImportWorkflow
+            layout="embedded"
+            depositContext={{
+              batchId: batch.id,
+              siteId: batch.siteId,
+              reference: batch.reference,
+            }}
+            onDepositItemsChanged={() => {
+              void queryClient.invalidateQueries({ queryKey: ['deposit-batch', id] });
+              void queryClient.invalidateQueries({ queryKey: ['deposit-batch', id, 'items'] });
+            }}
+          />
+        </Card>
       ) : null}
 
       {canWrite && batch?.status === 'returning' ? (
@@ -446,7 +464,7 @@ export default function DepositBatchDetailPage() {
           <div>
             <label htmlFor="edit-site" className={formLabelClass()}>{t('deposits.site')}</label>
             <select id="edit-site" className={formControlClass()} value={siteId} onChange={(event) => setSiteId(event.target.value)}>
-              {(sourcesQuery.data ?? []).map((source: Source) => (
+              {(sitesQuery.data ?? []).map((source: Site) => (
                 <option key={source.id} value={String(source.id)}>{source.name || source.id}</option>
               ))}
             </select>

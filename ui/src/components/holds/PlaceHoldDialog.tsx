@@ -68,7 +68,7 @@ export default function PlaceHoldDialog({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { sources, pickupSiteId, setPickupSiteId, missing: pickupMissing } = usePickupSiteDraft(open);
+  const { sites, pickupSiteId, setPickupSiteId, missing: pickupMissing } = usePickupSiteDraft(open);
   const [userSearchDraft, setUserSearchDraft] = useState('');
   const [userSearchResults, setUserSearchResults] = useState<UserShort[]>([]);
   const [isSearchingUsers, setIsSearchingUsers] = useState(false);
@@ -368,7 +368,7 @@ export default function PlaceHoldDialog({
         )}
 
         <PickupSiteSelect
-          sources={sources}
+          sites={ sites }
           value={pickupSiteId}
           onChange={setPickupSiteId}
           disabled={submitting}

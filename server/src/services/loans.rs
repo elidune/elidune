@@ -5,26 +5,16 @@ use chrono::{DateTime, Utc};
 use std::sync::Arc;
 
 use crate::{
-    checkout_refusal::{
-        force_skips_checkout_refusal, normalized_override_reason, push_checkout_refusal,
-        CheckoutProgress, CheckoutRefusal,
-    },
+    checkout_refusal::{force_skips_checkout_refusal, normalized_override_reason, push_checkout_refusal, CheckoutProgress, CheckoutRefusal},
     error::{error_code, AppError, AppResult},
     marc::{marc_record_for_loan_export, MarcRecord},
     models::{
         dto::loans::{LoanSettingsDto, UpdateLoanSettingsRequest},
-        loan::{
-            CreateLoan, HoldReadyEmailOutcome, LoanCreateOutcome, LoanDetails,
-            LoanMarcExportEncoding, LoanMarcExportFormat, LoanReturnOutcome, LoanSettingsRenewAt,
-            LOANS_MARC_EXPORT_MAX,
-        },
+        loan::{CreateLoan, HoldReadyEmailOutcome, LoanCreateOutcome, LoanDetails, LoanMarcExportEncoding, LoanMarcExportFormat, LoanReturnOutcome, LoanSettingsRenewAt, LOANS_MARC_EXPORT_MAX},
         user::{UserRights, UserStatus},
         Loan,
     },
-    renewal::{
-        renewal_eligibility, subscription_expired_message, RenewalContext, RenewalOverride,
-        RenewalRefusal, RenewalUser,
-    },
+    renewal::{renewal_eligibility, subscription_expired_message, RenewalContext, RenewalOverride, RenewalRefusal, RenewalUser},
     repository::LoansServiceRepository,
     services::{
         audit::{self, AuditLogMeta, AuditService},
@@ -108,8 +98,7 @@ pub struct LoansService {
 impl LoansService {
     async fn library_zone(&self) -> chrono_tz::Tz {
         match self.repository.library_timezone_name().await {
-            Ok(name) => crate::services::calendar::parse_timezone(&name)
-                .unwrap_or_else(|_| crate::services::calendar::default_zone()),
+            Ok(name) => crate::services::calendar::parse_timezone(&name).unwrap_or_else(|_| crate::services::calendar::default_zone()),
             Err(err) => {
                 tracing::warn!(
                     error = %err,
@@ -120,13 +109,7 @@ impl LoansService {
         }
     }
 
-    pub fn new(
-        repository: Arc<dyn LoansServiceRepository>,
-        fines: FinesService,
-        audit: AuditService,
-        email: EmailService,
-        events: EventBus,
-    ) -> Self {
+    pub fn new(repository: Arc<dyn LoansServiceRepository>, fines: FinesService, audit: AuditService, email: EmailService, events: EventBus) -> Self {
         Self {
             repository,
             fines,
@@ -137,46 +120,23 @@ impl LoansService {
     }
 
     /// Get active loans for a user (paginated). `page` and `per_page` must be valid (≥1, capped by caller).
-    pub async fn get_user_loans(
-        &self,
-        user_id: i64,
-        page: i64,
-        per_page: i64,
-    ) -> AppResult<(Vec<LoanDetails>, i64)> {
+    pub async fn get_user_loans(&self, user_id: i64, page: i64, per_page: i64) -> AppResult<(Vec<LoanDetails>, i64)> {
         self.repository.users_get_by_id(user_id).await?;
-        self.repository
-            .loans_get_for_user(user_id, page, per_page)
-            .await
+        self.repository.loans_get_for_user(user_id, page, per_page).await
     }
 
     /// Get archived (returned) loans for a user (paginated).
-    pub async fn get_user_archived_loans(
-        &self,
-        user_id: i64,
-        page: i64,
-        per_page: i64,
-    ) -> AppResult<(Vec<LoanDetails>, i64)> {
+    pub async fn get_user_archived_loans(&self, user_id: i64, page: i64, per_page: i64) -> AppResult<(Vec<LoanDetails>, i64)> {
         self.repository.users_get_by_id(user_id).await?;
-        self.repository
-            .loans_archives_get_for_user(user_id, page, per_page)
-            .await
+        self.repository.loans_archives_get_for_user(user_id, page, per_page).await
     }
 
     /// Unpaid fines strictly above the effective threshold.
     /// A null threshold (`none`, or inherit of a global `none`) does not block.
     /// `Overridden` means this call may skip the gate. The audit is written only
     /// after the loan commits, and only for that loan.
-    async fn checkout_fine_refusal(
-        &self,
-        user_id: i64,
-        public_type_id: Option<i64>,
-        force: bool,
-        caller_rights: &UserRights,
-    ) -> AppResult<CheckoutFineGate> {
-        let check = self
-            .fines
-            .check_unpaid_threshold(user_id, public_type_id)
-            .await?;
+    async fn checkout_fine_refusal(&self, user_id: i64, public_type_id: Option<i64>, force: bool, caller_rights: &UserRights) -> AppResult<CheckoutFineGate> {
+        let check = self.fines.check_unpaid_threshold(user_id, public_type_id).await?;
         if !check.blocks_circulation() {
             return Ok(CheckoutFineGate::Clear);
         }
@@ -208,85 +168,42 @@ impl LoansService {
     /// Forceable patron refusals are passed into the repository. A later non-forceable item
     /// gate (another patron's hold, a circulation status that needs a desk action, a withdrawn
     /// copy, transit) is returned first. `force` never closes or replaces an open loan.
-    pub async fn create_loan(
-        &self,
-        loan: CreateLoan,
-        audit_actor: Option<i64>,
-        client_ip: Option<String>,
-        caller_rights: &UserRights,
-    ) -> AppResult<LoanCreateOutcome> {
+    pub async fn create_loan(&self, loan: CreateLoan, audit_actor: Option<i64>, client_ip: Option<String>, caller_rights: &UserRights) -> AppResult<LoanCreateOutcome> {
         let user = self.repository.users_get_by_id(loan.user_id).await?;
 
-        let mut progress =
-            CheckoutProgress::new(normalized_override_reason(loan.override_reason.as_deref()));
+        let mut progress = CheckoutProgress::new(normalized_override_reason(loan.override_reason.as_deref()));
         let mut subscription_overridden = false;
         let mut fine_overridden = false;
         let status = user.status.unwrap_or(UserStatus::Active);
         if status == UserStatus::Deleted {
-            push_checkout_refusal(
-                &mut progress,
-                loan.force,
-                CheckoutRefusal::business(
-                    "Cannot create a loan for a deleted user account",
-                    caller_rights,
-                ),
-            )?;
+            push_checkout_refusal(&mut progress, loan.force, CheckoutRefusal::business("Cannot create a loan for a deleted user account", caller_rights))?;
         }
 
         if !user.can_borrow() {
-            push_checkout_refusal(
-                &mut progress,
-                loan.force,
-                CheckoutRefusal::business(
-                    "User account is not active or cannot borrow",
-                    caller_rights,
-                ),
-            )?;
+            push_checkout_refusal(&mut progress, loan.force, CheckoutRefusal::business("User account is not active or cannot borrow", caller_rights))?;
         }
 
         if self.repository.users_card_lost(user.id).await? {
-            push_checkout_refusal(
-                &mut progress,
-                loan.force,
-                CheckoutRefusal::new(
-                    error_code::CARD_LOST,
-                    error_code::CARD_LOST_MESSAGE,
-                    caller_rights,
-                ),
-            )?;
+            push_checkout_refusal(&mut progress, loan.force, CheckoutRefusal::new(error_code::CARD_LOST, error_code::CARD_LOST_MESSAGE, caller_rights))?;
         }
 
         if let Some(expiry_at) = user.expiry_at {
             if expiry_at < Utc::now() {
-                let skipped = force_skips_checkout_refusal(
-                    loan.force,
-                    error_code::SUBSCRIPTION_EXPIRED,
-                    caller_rights,
-                );
+                let skipped = force_skips_checkout_refusal(loan.force, error_code::SUBSCRIPTION_EXPIRED, caller_rights);
                 if skipped && progress.override_reason.is_some() {
                     subscription_overridden = true;
                 } else {
-                    let zone = crate::services::calendar::parse_timezone(
-                        &self.repository.library_timezone_name().await?,
-                    )
-                    .unwrap_or_else(|_| crate::services::calendar::default_zone());
+                    let zone = crate::services::calendar::parse_timezone(&self.repository.library_timezone_name().await?).unwrap_or_else(|_| crate::services::calendar::default_zone());
                     push_checkout_refusal(
                         &mut progress,
                         loan.force,
-                        CheckoutRefusal::new(
-                            error_code::SUBSCRIPTION_EXPIRED,
-                            subscription_expired_message(Some(expiry_at), zone),
-                            caller_rights,
-                        ),
+                        CheckoutRefusal::new(error_code::SUBSCRIPTION_EXPIRED, subscription_expired_message(Some(expiry_at), zone), caller_rights),
                     )?;
                 }
             }
         }
 
-        match self
-            .checkout_fine_refusal(loan.user_id, user.public_type, loan.force, caller_rights)
-            .await?
-        {
+        match self.checkout_fine_refusal(loan.user_id, user.public_type, loan.force, caller_rights).await? {
             CheckoutFineGate::Clear => {}
             CheckoutFineGate::Overridden => fine_overridden = true,
             CheckoutFineGate::Refused(fine_refusal) => {
@@ -294,10 +211,7 @@ impl LoansService {
             }
         }
 
-        let outcome = self
-            .repository
-            .loans_create(&loan, &mut progress, caller_rights)
-            .await?;
+        let outcome = self.repository.loans_create(&loan, &mut progress, caller_rights).await?;
         if fine_overridden {
             self.audit.log(
                 audit::event::LOAN_FINE_THRESHOLD_OVERRIDDEN,
@@ -349,8 +263,7 @@ impl LoansService {
             );
         }
         if let Some(item_id) = loan.item_id {
-            self.events
-                .loan_created(outcome.loan_id, loan.user_id, item_id);
+            self.events.loan_created(outcome.loan_id, loan.user_id, item_id);
         }
         if let Some(hold_id) = outcome.fulfilled_hold_id {
             self.audit.log(
@@ -374,12 +287,7 @@ impl LoansService {
     /// Return a borrowed item. A lost copy is reported and left lost.
     /// When the loan was already closed by the lost declaration, the same alert
     /// is returned without writing the item.
-    pub async fn return_loan(
-        &self,
-        loan_id: i64,
-        audit_actor: Option<i64>,
-        client_ip: Option<String>,
-    ) -> AppResult<DeskReturn> {
+    pub async fn return_loan(&self, loan_id: i64, audit_actor: Option<i64>, client_ip: Option<String>) -> AppResult<DeskReturn> {
         match self.repository.loans_return(loan_id).await {
             Ok(mut outcome) => {
                 outcome.hold_ready_email = self.send_hold_ready_email(&outcome).await;
@@ -394,17 +302,8 @@ impl LoansService {
                 })
             }
             Err(AppError::NotFound(_)) => {
-                if let Some(found) = self
-                    .repository
-                    .loans_lost_notice_for_closed_loan(loan_id)
-                    .await?
-                {
-                    self.audit_lost_seen(
-                        audit_actor,
-                        client_ip,
-                        found.item_id,
-                        Some(&found.notice),
-                    );
+                if let Some(found) = self.repository.loans_lost_notice_for_closed_loan(loan_id).await? {
+                    self.audit_lost_seen(audit_actor, client_ip, found.item_id, Some(&found.notice));
                     return Ok(DeskReturn {
                         loan: None,
                         lost: Some(found.notice),
@@ -425,18 +324,8 @@ impl LoansService {
     /// is that queue head. A newer hold is refused. Same site becomes `ready`;
     /// a different pickup site starts transit and stays pending until arrival.
     /// A lost, damaged, missing, to-search, or withdrawn copy is left unchanged.
-    pub async fn return_loan_by_item(
-        &self,
-        item_identification: &str,
-        audit_actor: Option<i64>,
-        client_ip: Option<String>,
-        set_aside: Option<TitleHoldSetAside>,
-    ) -> AppResult<ItemCheckIn> {
-        if let Some(copy) = self
-            .repository
-            .loans_return_scan_copy(item_identification)
-            .await?
-        {
+    pub async fn return_loan_by_item(&self, item_identification: &str, audit_actor: Option<i64>, client_ip: Option<String>, set_aside: Option<TitleHoldSetAside>) -> AppResult<ItemCheckIn> {
+        if let Some(copy) = self.repository.loans_return_scan_copy(item_identification).await? {
             if copy.blocks_return_scan() {
                 self.audit.log(
                     audit::event::ITEM_RETURN_BLOCKED_STATUS,
@@ -459,9 +348,7 @@ impl LoansService {
                     destination_site_id: None,
                     destination_site_name: None,
                     lost: None,
-                    notice: Some(
-                        crate::models::dto::circulation::DeskNotice::item_not_available_status(),
-                    ),
+                    notice: Some(crate::models::dto::circulation::DeskNotice::item_not_available_status()),
                     circulation_status: Some(copy.circulation_status),
                     weeding_status: Some(copy.weeding_status),
                     set_aside: None,
@@ -469,11 +356,7 @@ impl LoansService {
                 });
             }
         }
-        match self
-            .repository
-            .loans_get_by_item_identification(item_identification)
-            .await
-        {
+        match self.repository.loans_get_by_item_identification(item_identification).await {
             Ok(loan) => {
                 let mut outcome = self.repository.loans_return(loan.id).await?;
                 outcome.hold_ready_email = self.send_hold_ready_email(&outcome).await;
@@ -496,17 +379,8 @@ impl LoansService {
                 })
             }
             Err(AppError::NotFound(_)) => {
-                if let Some(found) = self
-                    .repository
-                    .loans_lost_scan_by_barcode(item_identification)
-                    .await?
-                {
-                    self.audit_lost_seen(
-                        audit_actor,
-                        client_ip,
-                        found.item_id,
-                        Some(&found.notice),
-                    );
+                if let Some(found) = self.repository.loans_lost_scan_by_barcode(item_identification).await? {
+                    self.audit_lost_seen(audit_actor, client_ip, found.item_id, Some(&found.notice));
                     return Ok(ItemCheckIn {
                         loan: None,
                         hold: None,
@@ -522,23 +396,10 @@ impl LoansService {
                     });
                 }
                 if let Some(target) = set_aside {
-                    let done = self
-                        .repository
-                        .loans_set_aside_unassigned_title_hold(
-                            item_identification,
-                            target.hold_id,
-                            target.item_id,
-                        )
-                        .await?;
-                    return Ok(self
-                        .not_on_loan_check_in(done, item_identification, audit_actor, client_ip)
-                        .await);
+                    let done = self.repository.loans_set_aside_unassigned_title_hold(item_identification, target.hold_id, target.item_id).await?;
+                    return Ok(self.not_on_loan_check_in(done, item_identification, audit_actor, client_ip).await);
                 }
-                if let Some(done) = self
-                    .repository
-                    .loans_complete_to_pick_by_identification(item_identification)
-                    .await?
-                {
+                if let Some(done) = self.repository.loans_complete_to_pick_by_identification(item_identification).await? {
                     if !done.transit_started {
                         self.notify_picked_hold_ready(
                             &done.hold,
@@ -564,30 +425,16 @@ impl LoansService {
                         return_to_lender: false,
                     });
                 }
-                if let Some(done) = self
-                    .repository
-                    .loans_check_in_shelf_copy(item_identification)
-                    .await?
-                {
-                    return Ok(self
-                        .not_on_loan_check_in(done, item_identification, audit_actor, client_ip)
-                        .await);
+                if let Some(done) = self.repository.loans_check_in_shelf_copy(item_identification).await? {
+                    return Ok(self.not_on_loan_check_in(done, item_identification, audit_actor, client_ip).await);
                 }
-                Err(AppError::NotFound(format!(
-                    "No active loan found for item {item_identification}"
-                )))
+                Err(AppError::NotFound(format!("No active loan found for item {item_identification}")))
             }
             Err(e) => Err(e),
         }
     }
 
-    async fn not_on_loan_check_in(
-        &self,
-        done: crate::models::dto::holds::ShelfCheckIn,
-        item_identification: &str,
-        audit_actor: Option<i64>,
-        client_ip: Option<String>,
-    ) -> ItemCheckIn {
+    async fn not_on_loan_check_in(&self, done: crate::models::dto::holds::ShelfCheckIn, item_identification: &str, audit_actor: Option<i64>, client_ip: Option<String>) -> ItemCheckIn {
         if done.newly_ready {
             if let Some(hold) = done.hold.as_ref() {
                 if !done.transit_started && hold.status == crate::models::hold::HoldStatus::Ready {
@@ -618,11 +465,7 @@ impl LoansService {
             AuditLogMeta::success(),
         );
         let set_aside = done.report_set_aside.then(|| SetAsideOutcome {
-            hold_status: done
-                .hold
-                .as_ref()
-                .map(|hold| hold.status)
-                .unwrap_or(crate::models::hold::HoldStatus::Pending),
+            hold_status: done.hold.as_ref().map(|hold| hold.status).unwrap_or(crate::models::hold::HoldStatus::Pending),
             transit_id: done.transit_id,
             pickup_site_id: done.pickup_site_id,
         });
@@ -641,15 +484,7 @@ impl LoansService {
         }
     }
 
-    async fn notify_picked_hold_ready(
-        &self,
-        hold: &crate::models::hold::Hold,
-        title: &str,
-        barcode: Option<&str>,
-        audit_actor: Option<i64>,
-        client_ip: Option<String>,
-        trigger: &'static str,
-    ) {
+    async fn notify_picked_hold_ready(&self, hold: &crate::models::hold::Hold, title: &str, barcode: Option<&str>, audit_actor: Option<i64>, client_ip: Option<String>, trigger: &'static str) {
         self.audit.log(
             audit::event::HOLD_READY,
             audit_actor,
@@ -667,23 +502,9 @@ impl LoansService {
         if let Some(item_id) = hold.item_id {
             self.events.hold_ready(hold.id, hold.user_id, item_id);
         }
-        let contact = self
-            .repository
-            .users_hold_ready_contact(hold.user_id)
-            .await
-            .ok()
-            .flatten();
+        let contact = self.repository.users_hold_ready_contact(hold.user_id).await.ok().flatten();
         let zone = self.library_zone().await;
-        if let Err(e) = crate::hold_email::send_hold_ready_simple(
-            &self.email,
-            contact,
-            hold,
-            title,
-            barcode,
-            zone,
-        )
-        .await
-        {
+        if let Err(e) = crate::hold_email::send_hold_ready_simple(&self.email, contact, hold, title, barcode, zone).await {
             tracing::warn!(
                 target: "loans",
                 error = %e,
@@ -693,31 +514,12 @@ impl LoansService {
         }
     }
 
-    async fn send_hold_ready_email(
-        &self,
-        outcome: &LoanReturnOutcome,
-    ) -> Option<HoldReadyEmailOutcome> {
+    async fn send_hold_ready_email(&self, outcome: &LoanReturnOutcome) -> Option<HoldReadyEmailOutcome> {
         let hold = outcome.readied_hold.as_ref()?;
-        let contact = self
-            .repository
-            .users_hold_ready_contact(hold.user_id)
-            .await
-            .ok()
-            .flatten();
-        let to = contact
-            .as_ref()
-            .and_then(|c| c.email.as_deref().map(str::trim))
-            .filter(|s| !s.is_empty())?;
+        let contact = self.repository.users_hold_ready_contact(hold.user_id).await.ok().flatten();
+        let to = contact.as_ref().and_then(|c| c.email.as_deref().map(str::trim)).filter(|s| !s.is_empty())?;
         let zone = self.library_zone().await;
-        match crate::hold_email::send_hold_ready(
-            &self.email,
-            contact.clone(),
-            hold,
-            &outcome.details,
-            zone,
-        )
-        .await
-        {
+        match crate::hold_email::send_hold_ready(&self.email, contact.clone(), hold, &outcome.details, zone).await {
             Ok(()) => Some(HoldReadyEmailOutcome {
                 email: Some(to.to_string()),
                 send_error: None,
@@ -739,8 +541,7 @@ impl LoansService {
 
     fn publish_return_events(&self, outcome: &LoanReturnOutcome) {
         let user_id = outcome.details.user.as_ref().map(|u| u.id).unwrap_or(0);
-        self.events
-            .loan_returned(outcome.details.id, user_id, outcome.details.item_id);
+        self.events.loan_returned(outcome.details.id, user_id, outcome.details.item_id);
         if let Some(ref hold) = outcome.readied_hold {
             if let Some(item_id) = hold.item_id {
                 self.events.hold_ready(hold.id, hold.user_id, item_id);
@@ -748,13 +549,7 @@ impl LoansService {
         }
     }
 
-    fn audit_lost_seen(
-        &self,
-        audit_actor: Option<i64>,
-        client_ip: Option<String>,
-        item_id: i64,
-        lost: Option<&crate::models::dto::circulation::LostItemOnReturn>,
-    ) {
+    fn audit_lost_seen(&self, audit_actor: Option<i64>, client_ip: Option<String>, item_id: i64, lost: Option<&crate::models::dto::circulation::LostItemOnReturn>) {
         let Some(lost) = lost else {
             return;
         };
@@ -775,12 +570,7 @@ impl LoansService {
         );
     }
 
-    fn audit_return_side_effects(
-        &self,
-        audit_actor: Option<i64>,
-        client_ip: Option<String>,
-        outcome: &LoanReturnOutcome,
-    ) {
+    fn audit_return_side_effects(&self, audit_actor: Option<i64>, client_ip: Option<String>, outcome: &LoanReturnOutcome) {
         let Some(ref hold) = outcome.readied_hold else {
             return;
         };
@@ -805,12 +595,7 @@ impl LoansService {
         };
 
         let biblio_id = outcome.details.biblio.id;
-        let title = outcome
-            .details
-            .biblio
-            .title
-            .as_deref()
-            .unwrap_or("(unknown title)");
+        let title = outcome.details.biblio.title.as_deref().unwrap_or("(unknown title)");
 
         if let Some(ref err) = email_outcome.send_error {
             self.audit.log(
@@ -853,21 +638,13 @@ impl LoansService {
     }
 
     /// Patron linked to an active loan (for circulation desk lookups).
-    pub async fn get_loan_borrower(
-        &self,
-        loan_id: i64,
-    ) -> AppResult<crate::models::user::UserShort> {
+    pub async fn get_loan_borrower(&self, loan_id: i64) -> AppResult<crate::models::user::UserShort> {
         self.repository.loans_get_borrower_for_loan(loan_id).await
     }
 
     /// Borrowers of open loans, keyed by item id.
-    pub async fn active_borrowers_by_item_ids(
-        &self,
-        item_ids: &[i64],
-    ) -> AppResult<std::collections::HashMap<i64, crate::models::user::UserShort>> {
-        self.repository
-            .loans_active_borrowers_by_item_ids(item_ids)
-            .await
+    pub async fn active_borrowers_by_item_ids(&self, item_ids: &[i64]) -> AppResult<std::collections::HashMap<i64, crate::models::user::UserShort>> {
+        self.repository.loans_active_borrowers_by_item_ids(item_ids).await
     }
 
     /// Renew a loan. `force` skips a gate only when
@@ -890,16 +667,9 @@ impl LoansService {
         client_ip: Option<String>,
         caller_rights: &UserRights,
     ) -> AppResult<(DateTime<Utc>, i16, bool)> {
-        self.perform_renewal(
-            loan_id,
-            force,
-            override_reason,
-            audit_actor,
-            client_ip,
-            caller_rights,
-        )
-        .await
-        .map_err(|err| crate::renewal::with_renewal_forceable(err, caller_rights))
+        self.perform_renewal(loan_id, force, override_reason, audit_actor, client_ip, caller_rights)
+            .await
+            .map_err(|err| crate::renewal::with_renewal_forceable(err, caller_rights))
     }
 
     async fn perform_renewal(
@@ -913,23 +683,14 @@ impl LoansService {
     ) -> AppResult<(DateTime<Utc>, i16, bool)> {
         let snapshot = self.repository.loans_renewal_snapshot(loan_id).await?;
         if snapshot.returned {
-            return Err(AppError::BusinessRule(
-                "Cannot renew a returned loan".to_string(),
-            ));
+            return Err(AppError::BusinessRule("Cannot renew a returned loan".to_string()));
         }
         let user = self.repository.users_get_by_id(snapshot.user_id).await?;
         let card_lost = self.repository.users_card_lost(user.id).await?;
         if card_lost {
-            return Err(AppError::coded(
-                422,
-                crate::error::error_code::CARD_LOST,
-                crate::error::error_code::CARD_LOST_MESSAGE,
-            ));
+            return Err(AppError::coded(422, crate::error::error_code::CARD_LOST, crate::error::error_code::CARD_LOST_MESSAGE));
         }
-        let check = self
-            .fines
-            .check_unpaid_threshold(user.id, user.public_type)
-            .await?;
+        let check = self.fines.check_unpaid_threshold(user.id, user.public_type).await?;
         let renewal_override = RenewalOverride::from_force(force, caller_rights);
         let ctx = RenewalContext {
             bypass_account_gates: renewal_override.account_gates,
@@ -951,16 +712,11 @@ impl LoansService {
             return Err(refusal.into_app_error(&snapshot.loan, &renewal_user, &ctx));
         }
         let override_reason = normalized_override_reason(override_reason.as_deref());
-        let subscription_applies = renewal_user
-            .subscription_expiry
-            .is_some_and(|expiry| expiry < ctx.now);
+        let subscription_applies = renewal_user.subscription_expiry.is_some_and(|expiry| expiry < ctx.now);
         if ctx.bypass_subscription_expired && subscription_applies && override_reason.is_none() {
             return Err(crate::checkout_refusal::override_reason_required());
         }
-        let renewed = self
-            .repository
-            .loans_renew(loan_id, renewal_override)
-            .await?;
+        let renewed = self.repository.loans_renew(loan_id, renewal_override).await?;
         for refusal in renewed.lifted {
             let mut payload = serde_json::json!({
                 "reason": refusal.code(),
@@ -980,19 +736,13 @@ impl LoansService {
                 AuditLogMeta::success(),
             );
         }
-        Ok((
-            renewed.expiry_at,
-            renewed.renew_count,
-            renewed.due_date_capped_by_deposit,
-        ))
+        Ok((renewed.expiry_at, renewed.renew_count, renewed.due_date_capped_by_deposit))
     }
 
     /// Audit event for a renewal gate this call skipped.
     fn renewal_lift_event(refusal: RenewalRefusal) -> &'static str {
         match refusal {
-            RenewalRefusal::SubscriptionExpired => {
-                audit::event::LOAN_SUBSCRIPTION_EXPIRED_OVERRIDDEN
-            }
+            RenewalRefusal::SubscriptionExpired => audit::event::LOAN_SUBSCRIPTION_EXPIRED_OVERRIDDEN,
             RenewalRefusal::FinesOverThreshold => audit::event::LOAN_FINE_THRESHOLD_OVERRIDDEN,
             RenewalRefusal::AccountBlocked
             | RenewalRefusal::MaxRenewals
@@ -1014,26 +764,9 @@ impl LoansService {
         client_ip: Option<String>,
         caller_rights: &UserRights,
     ) -> AppResult<(i64, DateTime<Utc>, i16, bool)> {
-        let loan = self
-            .repository
-            .loans_get_by_item_identification(item_identification)
-            .await?;
-        let (new_expiry_date, renew_count, due_date_capped_by_deposit) = self
-            .renew_loan(
-                loan.id,
-                force,
-                override_reason,
-                audit_actor,
-                client_ip,
-                caller_rights,
-            )
-            .await?;
-        Ok((
-            loan.id,
-            new_expiry_date,
-            renew_count,
-            due_date_capped_by_deposit,
-        ))
+        let loan = self.repository.loans_get_by_item_identification(item_identification).await?;
+        let (new_expiry_date, renew_count, due_date_capped_by_deposit) = self.renew_loan(loan.id, force, override_reason, audit_actor, client_ip, caller_rights).await?;
+        Ok((loan.id, new_expiry_date, renew_count, due_date_capped_by_deposit))
     }
 
     /// Count active loans
@@ -1053,9 +786,7 @@ impl LoansService {
 
     /// Count active loans across all physical items of a biblio (used by OPAC availability)
     pub async fn count_active_for_biblio(&self, biblio_id: i64) -> AppResult<i64> {
-        self.repository
-            .loans_count_active_for_biblio(biblio_id)
-            .await
+        self.repository.loans_count_active_for_biblio(biblio_id).await
     }
 
     /// Global loan rules per media type (`loans_settings` table).
@@ -1075,16 +806,11 @@ impl LoansService {
     }
 
     /// Update global loan rules per media type.
-    pub async fn update_global_loan_settings(
-        &self,
-        request: UpdateLoanSettingsRequest,
-    ) -> AppResult<Vec<LoanSettingsDto>> {
+    pub async fn update_global_loan_settings(&self, request: UpdateLoanSettingsRequest) -> AppResult<Vec<LoanSettingsDto>> {
         if let Some(loan_settings) = &request.loan_settings {
             for setting in loan_settings {
                 if !(0..=366).contains(&setting.renew_window_days) {
-                    return Err(AppError::Validation(
-                        "renewWindowDays must be between 0 and 366".to_string(),
-                    ));
+                    return Err(AppError::Validation("renewWindowDays must be between 0 and 366".to_string()));
                 }
             }
         }
@@ -1093,19 +819,9 @@ impl LoansService {
 
         if let Some(loan_settings) = request.loan_settings {
             for setting in loan_settings {
-                let media_key = setting
-                    .media_type
-                    .as_ref()
-                    .map(|m| m.as_db_str().to_string());
+                let media_key = setting.media_type.as_ref().map(|m| m.as_db_str().to_string());
                 self.repository
-                    .loans_settings_upsert_row(
-                        media_key,
-                        setting.max_loans,
-                        setting.max_renewals,
-                        setting.duration_days,
-                        setting.renew_at,
-                        setting.renew_window_days,
-                    )
+                    .loans_settings_upsert_row(media_key, setting.max_loans, setting.max_renewals, setting.duration_days, setting.renew_at, setting.renew_window_days)
                     .await?;
             }
         }
@@ -1114,33 +830,15 @@ impl LoansService {
 
     /// Build a downloadable MARC export for all active or archived loans of a user (no pagination).
     /// Caller must enforce `require_self_or_staff`; this method only checks the user exists.
-    pub async fn export_user_loans_marc_file(
-        &self,
-        user_id: i64,
-        archived: bool,
-        format: LoanMarcExportFormat,
-        encoding: LoanMarcExportEncoding,
-    ) -> AppResult<(Vec<u8>, &'static str, &'static str)> {
+    pub async fn export_user_loans_marc_file(&self, user_id: i64, archived: bool, format: LoanMarcExportFormat, encoding: LoanMarcExportEncoding) -> AppResult<(Vec<u8>, &'static str, &'static str)> {
         self.repository.users_get_by_id(user_id).await?;
-        let rows = self
-            .repository
-            .loans_get_for_marc_export(user_id, archived)
-            .await?;
+        let rows = self.repository.loans_get_for_marc_export(user_id, archived).await?;
         if rows.len() > LOANS_MARC_EXPORT_MAX {
-            return Err(AppError::Validation(format!(
-                "Too many loans to export ({} > max {})",
-                rows.len(),
-                LOANS_MARC_EXPORT_MAX
-            )));
+            return Err(AppError::Validation(format!("Too many loans to export ({} > max {})", rows.len(), LOANS_MARC_EXPORT_MAX)));
         }
         let mut records: Vec<MarcRecord> = Vec::with_capacity(rows.len());
         for row in rows {
-            records.push(marc_record_for_loan_export(
-                &row.biblio,
-                row.start_date,
-                row.expiry_at,
-                row.returned_at,
-            ));
+            records.push(marc_record_for_loan_export(&row.biblio, row.start_date, row.expiry_at, row.returned_at));
         }
         let bytes = serialize_marc_export_records(&records, format, encoding)?;
         let (ct, name) = export_marc_content_type_filename(format);
@@ -1157,18 +855,13 @@ fn export_marc_content_type_filename(format: LoanMarcExportFormat) -> (&'static 
     }
 }
 
-fn serialize_marc_export_records(
-    records: &[MarcRecord],
-    format: LoanMarcExportFormat,
-    encoding: LoanMarcExportEncoding,
-) -> AppResult<Vec<u8>> {
+fn serialize_marc_export_records(records: &[MarcRecord], format: LoanMarcExportFormat, encoding: LoanMarcExportEncoding) -> AppResult<Vec<u8>> {
     let marc_enc = match encoding {
         LoanMarcExportEncoding::Utf8 => MarcEncoding::Utf8,
         LoanMarcExportEncoding::Marc8 => MarcEncoding::Marc8,
     };
     match format {
-        LoanMarcExportFormat::Json => serde_json::to_vec(records)
-            .map_err(|e| AppError::Internal(format!("MARC JSON export serialization: {}", e))),
+        LoanMarcExportFormat::Json => serde_json::to_vec(records).map_err(|e| AppError::Internal(format!("MARC JSON export serialization: {}", e))),
         LoanMarcExportFormat::Marc21 => {
             let mut buf = Vec::new();
             let fmt = MarcFormat::Marc21(marc_enc);
@@ -1176,11 +869,9 @@ fn serialize_marc_export_records(
                 let mut w = BinaryWriter::new(&mut buf);
                 for r in records {
                     let mut rec = r.clone();
-                    w.write_record(&fmt, &mut rec)
-                        .map_err(|e| AppError::Internal(format!("MARC21 binary write: {}", e)))?;
+                    w.write_record(&fmt, &mut rec).map_err(|e| AppError::Internal(format!("MARC21 binary write: {}", e)))?;
                 }
-                w.flush()
-                    .map_err(|e| AppError::Internal(format!("MARC21 binary flush: {}", e)))?;
+                w.flush().map_err(|e| AppError::Internal(format!("MARC21 binary flush: {}", e)))?;
             }
             Ok(buf)
         }
@@ -1191,11 +882,9 @@ fn serialize_marc_export_records(
                 let mut w = BinaryWriter::new(&mut buf);
                 for r in records {
                     let mut rec = r.clone();
-                    w.write_record(&fmt, &mut rec)
-                        .map_err(|e| AppError::Internal(format!("UNIMARC binary write: {}", e)))?;
+                    w.write_record(&fmt, &mut rec).map_err(|e| AppError::Internal(format!("UNIMARC binary write: {}", e)))?;
                 }
-                w.flush()
-                    .map_err(|e| AppError::Internal(format!("UNIMARC binary flush: {}", e)))?;
+                w.flush().map_err(|e| AppError::Internal(format!("UNIMARC binary flush: {}", e)))?;
             }
             Ok(buf)
         }
@@ -1205,16 +894,12 @@ fn serialize_marc_export_records(
             let fmt = MarcFormat::Marc21(MarcEncoding::Utf8);
             {
                 let mut w = XmlWriter::new(&mut buf);
-                w.start_collection()
-                    .map_err(|e| AppError::Internal(format!("MARC-XML collection start: {}", e)))?;
+                w.start_collection().map_err(|e| AppError::Internal(format!("MARC-XML collection start: {}", e)))?;
                 for r in records {
-                    w.write_record(&fmt, r)
-                        .map_err(|e| AppError::Internal(format!("MARC-XML record: {}", e)))?;
+                    w.write_record(&fmt, r).map_err(|e| AppError::Internal(format!("MARC-XML record: {}", e)))?;
                 }
-                w.end_collection()
-                    .map_err(|e| AppError::Internal(format!("MARC-XML collection end: {}", e)))?;
-                w.flush()
-                    .map_err(|e| AppError::Internal(format!("MARC-XML flush: {}", e)))?;
+                w.end_collection().map_err(|e| AppError::Internal(format!("MARC-XML collection end: {}", e)))?;
+                w.flush().map_err(|e| AppError::Internal(format!("MARC-XML flush: {}", e)))?;
             }
             Ok(buf)
         }
@@ -1261,11 +946,7 @@ mod tests {
         }
     }
 
-    fn make_user(
-        id: i64,
-        status: Option<UserStatus>,
-        expiry_at: Option<chrono::DateTime<Utc>>,
-    ) -> User {
+    fn make_user(id: i64, status: Option<UserStatus>, expiry_at: Option<chrono::DateTime<Utc>>) -> User {
         User {
             id,
             // NULL status in DB is treated as active; tests pass None for the default happy path.
@@ -1321,59 +1002,27 @@ mod tests {
             Ok(crate::services::calendar::DEFAULT_TIMEZONE.to_string())
         }
         async fn loans_get_by_id(&self, _: i64) -> AppResult<crate::models::loan::Loan> {
-            self.loan
-                .clone()
-                .ok_or_else(|| AppError::NotFound("loan not found".into()))
+            self.loan.clone().ok_or_else(|| AppError::NotFound("loan not found".into()))
         }
-        async fn loans_get_borrower_for_loan(
-            &self,
-            _: i64,
-        ) -> AppResult<crate::models::user::UserShort> {
+        async fn loans_get_borrower_for_loan(&self, _: i64) -> AppResult<crate::models::user::UserShort> {
             unimplemented!()
         }
-        async fn loans_active_borrowers_by_item_ids(
-            &self,
-            _: &[i64],
-        ) -> AppResult<std::collections::HashMap<i64, crate::models::user::UserShort>> {
+        async fn loans_active_borrowers_by_item_ids(&self, _: &[i64]) -> AppResult<std::collections::HashMap<i64, crate::models::user::UserShort>> {
             Ok(std::collections::HashMap::new())
         }
-        async fn loans_get_by_item_identification(
-            &self,
-            _: &str,
-        ) -> AppResult<crate::models::loan::Loan> {
-            self.loan
-                .clone()
-                .ok_or_else(|| AppError::NotFound("loan not found".into()))
+        async fn loans_get_by_item_identification(&self, _: &str) -> AppResult<crate::models::loan::Loan> {
+            self.loan.clone().ok_or_else(|| AppError::NotFound("loan not found".into()))
         }
-        async fn loans_get_for_user(
-            &self,
-            _: i64,
-            _: i64,
-            _: i64,
-        ) -> AppResult<(Vec<LoanDetails>, i64)> {
+        async fn loans_get_for_user(&self, _: i64, _: i64, _: i64) -> AppResult<(Vec<LoanDetails>, i64)> {
             Ok((vec![], 0))
         }
-        async fn loans_archives_get_for_user(
-            &self,
-            _: i64,
-            _: i64,
-            _: i64,
-        ) -> AppResult<(Vec<LoanDetails>, i64)> {
+        async fn loans_archives_get_for_user(&self, _: i64, _: i64, _: i64) -> AppResult<(Vec<LoanDetails>, i64)> {
             Ok((vec![], 0))
         }
-        async fn loans_get_for_marc_export(
-            &self,
-            _: i64,
-            _: bool,
-        ) -> AppResult<Vec<crate::models::loan::LoanMarcExportRow>> {
+        async fn loans_get_for_marc_export(&self, _: i64, _: bool) -> AppResult<Vec<crate::models::loan::LoanMarcExportRow>> {
             Ok(vec![])
         }
-        async fn loans_create(
-            &self,
-            _: &CreateLoan,
-            progress: &mut crate::checkout_refusal::CheckoutProgress,
-            _: &crate::models::user::UserRights,
-        ) -> AppResult<LoanCreateOutcome> {
+        async fn loans_create(&self, _: &CreateLoan, progress: &mut crate::checkout_refusal::CheckoutProgress, _: &crate::models::user::UserRights) -> AppResult<LoanCreateOutcome> {
             crate::checkout_refusal::finish_checkout_refusals(progress)?;
             Ok(LoanCreateOutcome {
                 loan_id: self.loan_id,
@@ -1387,64 +1036,33 @@ mod tests {
         async fn loans_return(&self, _: i64) -> AppResult<LoanReturnOutcome> {
             unimplemented!()
         }
-        async fn loans_lost_notice_for_closed_loan(
-            &self,
-            _: i64,
-        ) -> AppResult<Option<crate::models::dto::circulation::ClosedLostLoan>> {
+        async fn loans_lost_notice_for_closed_loan(&self, _: i64) -> AppResult<Option<crate::models::dto::circulation::ClosedLostLoan>> {
             Ok(None)
         }
-        async fn loans_lost_scan_by_barcode(
-            &self,
-            _: &str,
-        ) -> AppResult<Option<crate::models::dto::circulation::ClosedLostLoan>> {
+        async fn loans_lost_scan_by_barcode(&self, _: &str) -> AppResult<Option<crate::models::dto::circulation::ClosedLostLoan>> {
             Ok(None)
         }
-        async fn loans_complete_to_pick_by_identification(
-            &self,
-            _: &str,
-        ) -> AppResult<Option<crate::models::dto::holds::ToPickCompletion>> {
+        async fn loans_complete_to_pick_by_identification(&self, _: &str) -> AppResult<Option<crate::models::dto::holds::ToPickCompletion>> {
             Ok(None)
         }
-        async fn loans_recover_to_search_by_identification(
-            &self,
-            _: &str,
-        ) -> AppResult<Option<crate::models::dto::holds::ShelfFound>> {
+        async fn loans_recover_to_search_by_identification(&self, _: &str) -> AppResult<Option<crate::models::dto::holds::ShelfFound>> {
             Ok(None)
         }
         async fn loans_item_exists_by_barcode(&self, _: &str) -> AppResult<bool> {
             Ok(false)
         }
-        async fn loans_return_scan_copy(
-            &self,
-            _: &str,
-        ) -> AppResult<Option<crate::models::item::ReturnScanCopy>> {
+        async fn loans_return_scan_copy(&self, _: &str) -> AppResult<Option<crate::models::item::ReturnScanCopy>> {
             Ok(None)
         }
-        async fn loans_check_in_shelf_copy(
-            &self,
-            _: &str,
-        ) -> AppResult<Option<crate::models::dto::holds::ShelfCheckIn>> {
+        async fn loans_check_in_shelf_copy(&self, _: &str) -> AppResult<Option<crate::models::dto::holds::ShelfCheckIn>> {
             Ok(None)
         }
-        async fn loans_set_aside_unassigned_title_hold(
-            &self,
-            _: &str,
-            _: i64,
-            _: i64,
-        ) -> AppResult<crate::models::dto::holds::ShelfCheckIn> {
+        async fn loans_set_aside_unassigned_title_hold(&self, _: &str, _: i64, _: i64) -> AppResult<crate::models::dto::holds::ShelfCheckIn> {
             unimplemented!("set aside is not used by these service tests")
         }
-        async fn loans_renewal_snapshot(
-            &self,
-            loan_id: i64,
-        ) -> AppResult<crate::renewal::LoanRenewalSnapshot> {
-            let loan = self
-                .loan
-                .clone()
-                .ok_or_else(|| AppError::NotFound(format!("Loan with id {loan_id} not found")))?;
-            let due_at = loan
-                .expiry_at
-                .unwrap_or_else(|| Utc::now() + chrono::Duration::days(7));
+        async fn loans_renewal_snapshot(&self, loan_id: i64) -> AppResult<crate::renewal::LoanRenewalSnapshot> {
+            let loan = self.loan.clone().ok_or_else(|| AppError::NotFound(format!("Loan with id {loan_id} not found")))?;
+            let due_at = loan.expiry_at.unwrap_or_else(|| Utc::now() + chrono::Duration::days(7));
             Ok(crate::renewal::LoanRenewalSnapshot {
                 user_id: loan.user_id,
                 returned: loan.returned_at.is_some(),
@@ -1459,11 +1077,7 @@ mod tests {
                 renew_window_days: 7,
             })
         }
-        async fn loans_renew(
-            &self,
-            _: i64,
-            _: crate::renewal::RenewalOverride,
-        ) -> AppResult<crate::renewal::LoanRenewalResult> {
+        async fn loans_renew(&self, _: i64, _: crate::renewal::RenewalOverride) -> AppResult<crate::renewal::LoanRenewalResult> {
             Ok(crate::renewal::LoanRenewalResult {
                 expiry_at: Utc::now() + chrono::Duration::days(21),
                 renew_count: 1,
@@ -1498,31 +1112,16 @@ mod tests {
         async fn loans_count_active_for_user(&self, _: i64) -> AppResult<i64> {
             Ok(0)
         }
-        async fn loans_get_overdue_for_reminders(
-            &self,
-            _: crate::repository::loans::ReminderTierDelays,
-        ) -> AppResult<Vec<crate::repository::loans::OverdueLoanRow>> {
+        async fn loans_get_overdue_for_reminders(&self, _: crate::repository::loans::ReminderTierDelays) -> AppResult<Vec<crate::repository::loans::OverdueLoanRow>> {
             Ok(vec![])
         }
-        async fn loans_get_overdue(
-            &self,
-            _: i64,
-            _: i64,
-        ) -> AppResult<(Vec<crate::repository::loans::OverdueLoanRow>, i64)> {
+        async fn loans_get_overdue(&self, _: i64, _: i64) -> AppResult<(Vec<crate::repository::loans::OverdueLoanRow>, i64)> {
             Ok((vec![], 0))
         }
         async fn loans_update_reminder_sent(&self, _: &[i64]) -> AppResult<()> {
             Ok(())
         }
-        async fn loans_settings_upsert_row(
-            &self,
-            _: Option<String>,
-            _: i16,
-            _: i16,
-            _: i16,
-            _: LoanSettingsRenewAt,
-            _: i16,
-        ) -> AppResult<()> {
+        async fn loans_settings_upsert_row(&self, _: Option<String>, _: i16, _: i16, _: i16, _: LoanSettingsRenewAt, _: i16) -> AppResult<()> {
             Ok(())
         }
     }
@@ -1536,9 +1135,7 @@ mod tests {
             Ok(())
         }
         async fn users_get_by_id(&self, _: i64) -> AppResult<User> {
-            self.user
-                .clone()
-                .ok_or_else(|| AppError::NotFound("user not found".into()))
+            self.user.clone().ok_or_else(|| AppError::NotFound("user not found".into()))
         }
         async fn users_get_token_version(&self, _: i64) -> AppResult<i64> {
             Ok(0)
@@ -1558,38 +1155,19 @@ mod tests {
         async fn users_login_exists(&self, _: &str, _: Option<i64>) -> AppResult<bool> {
             Ok(false)
         }
-        async fn users_get_rights(
-            &self,
-            _: &AccountTypeSlug,
-        ) -> AppResult<crate::models::user::UserRights> {
+        async fn users_get_rights(&self, _: &AccountTypeSlug) -> AppResult<crate::models::user::UserRights> {
             unimplemented!()
         }
-        async fn users_search(
-            &self,
-            _: &crate::models::user::UserQuery,
-        ) -> AppResult<(Vec<crate::models::user::UserShort>, i64)> {
+        async fn users_search(&self, _: &crate::models::user::UserQuery) -> AppResult<(Vec<crate::models::user::UserShort>, i64)> {
             Ok((vec![], 0))
         }
-        async fn users_create(
-            &self,
-            _: &crate::models::user::UserPayload,
-            _: Option<String>,
-        ) -> AppResult<User> {
+        async fn users_create(&self, _: &crate::models::user::UserPayload, _: Option<String>) -> AppResult<User> {
             unimplemented!()
         }
-        async fn users_update(
-            &self,
-            _: i64,
-            _: &crate::models::user::UserPayload,
-            _: Option<String>,
-        ) -> AppResult<User> {
+        async fn users_update(&self, _: i64, _: &crate::models::user::UserPayload, _: Option<String>) -> AppResult<User> {
             unimplemented!()
         }
-        async fn users_delete(
-            &self,
-            _: i64,
-            _: bool,
-        ) -> AppResult<crate::models::user::UserErasureResult> {
+        async fn users_delete(&self, _: i64, _: bool) -> AppResult<crate::models::user::UserErasureResult> {
             Ok(crate::models::user::UserErasureResult::default())
         }
         async fn users_list_due_for_auto_erasure(&self, _: u32) -> AppResult<Vec<i64>> {
@@ -1601,47 +1179,25 @@ mod tests {
         async fn users_unblock(&self, _: i64) -> AppResult<User> {
             unimplemented!()
         }
-        async fn users_update_profile(
-            &self,
-            _: i64,
-            _: &crate::models::user::UpdateProfile,
-            _: Option<String>,
-        ) -> AppResult<User> {
+        async fn users_update_profile(&self, _: i64, _: &crate::models::user::UpdateProfile, _: Option<String>) -> AppResult<User> {
             unimplemented!()
         }
         async fn users_update_account_type(&self, _: i64, _: &AccountTypeSlug) -> AppResult<User> {
             unimplemented!()
         }
-        async fn users_update_2fa_settings(
-            &self,
-            _: i64,
-            _: bool,
-            _: Option<&str>,
-            _: Option<&str>,
-            _: Option<&str>,
-        ) -> AppResult<()> {
+        async fn users_update_2fa_settings(&self, _: i64, _: bool, _: Option<&str>, _: Option<&str>, _: Option<&str>) -> AppResult<()> {
             Ok(())
         }
         async fn users_mark_recovery_code_used(&self, _: i64, _: &str) -> AppResult<()> {
             Ok(())
         }
-        async fn users_get_emails_by_public_type(
-            &self,
-            _: Option<i64>,
-        ) -> AppResult<Vec<crate::repository::users::UserEmailTarget>> {
+        async fn users_get_emails_by_public_type(&self, _: Option<i64>) -> AppResult<Vec<crate::repository::users::UserEmailTarget>> {
             Ok(vec![])
         }
-        async fn users_list_announcement_recipients(
-            &self,
-            _: bool,
-            _: &[String],
-        ) -> AppResult<Vec<crate::repository::users::AnnouncementRecipient>> {
+        async fn users_list_announcement_recipients(&self, _: bool, _: &[String]) -> AppResult<Vec<crate::repository::users::AnnouncementRecipient>> {
             Ok(vec![])
         }
-        async fn users_hold_ready_contact(
-            &self,
-            _: i64,
-        ) -> AppResult<Option<crate::repository::users::HoldReadyUserContact>> {
+        async fn users_hold_ready_contact(&self, _: i64) -> AppResult<Option<crate::repository::users::HoldReadyUserContact>> {
             Ok(None)
         }
         async fn users_card_lost(&self, _: i64) -> AppResult<bool> {
@@ -1660,57 +1216,31 @@ mod tests {
         async fn fines_get_by_id(&self, _: i64) -> AppResult<crate::models::fine::Fine> {
             unimplemented!()
         }
-        async fn fines_create(
-            &self,
-            _: i64,
-            _: i64,
-            _: crate::models::fine::Cents,
-            _: Option<&str>,
-        ) -> AppResult<crate::models::fine::Fine> {
+        async fn fines_create(&self, _: i64, _: i64, _: crate::models::fine::Cents, _: Option<&str>) -> AppResult<crate::models::fine::Fine> {
             unimplemented!()
         }
-        async fn fines_pay(
-            &self,
-            _: i64,
-            _: crate::models::fine::Cents,
-            _: Option<&str>,
-        ) -> AppResult<crate::models::fine::Fine> {
+        async fn fines_pay(&self, _: i64, _: crate::models::fine::Cents, _: Option<&str>) -> AppResult<crate::models::fine::Fine> {
             unimplemented!()
         }
-        async fn fines_waive(
-            &self,
-            _: i64,
-            _: Option<&str>,
-        ) -> AppResult<crate::models::fine::Fine> {
+        async fn fines_waive(&self, _: i64, _: Option<&str>) -> AppResult<crate::models::fine::Fine> {
             unimplemented!()
         }
         async fn fines_list_rules(&self) -> AppResult<Vec<crate::models::fine::FineRule>> {
             Ok(vec![])
         }
-        async fn fines_upsert_rule(
-            &self,
-            _: Option<&str>,
-            _: crate::models::fine::Cents,
-            _: Option<crate::models::fine::Cents>,
-            _: i32,
-        ) -> AppResult<crate::models::fine::FineRule> {
+        async fn fines_upsert_rule(&self, _: Option<&str>, _: crate::models::fine::Cents, _: Option<crate::models::fine::Cents>, _: i32) -> AppResult<crate::models::fine::FineRule> {
             unimplemented!()
         }
         async fn fines_total_unpaid(&self, _: i64) -> AppResult<crate::models::fine::Cents> {
             Ok(self.unpaid)
         }
-        async fn fines_get_unpaid_threshold(
-            &self,
-            _: Option<i64>,
-        ) -> AppResult<Option<crate::models::fine::Cents>> {
+        async fn fines_get_unpaid_threshold(&self, _: Option<i64>) -> AppResult<Option<crate::models::fine::Cents>> {
             Ok(self.threshold)
         }
         fn accrue_fines_enabled(&self) -> bool {
             true
         }
-        async fn fines_get_global_unpaid_threshold(
-            &self,
-        ) -> AppResult<crate::models::fine::StoredGlobalUnpaidThreshold> {
+        async fn fines_get_global_unpaid_threshold(&self) -> AppResult<crate::models::fine::StoredGlobalUnpaidThreshold> {
             Ok(crate::models::fine::StoredGlobalUnpaidThreshold {
                 mode: crate::models::fine::GlobalUnpaidThresholdMode::None,
                 amount: self.threshold.unwrap_or(crate::models::fine::Cents::ZERO),
@@ -1726,34 +1256,16 @@ mod tests {
                 amount: amount.unwrap_or(crate::models::fine::Cents::ZERO),
             })
         }
-        async fn fines_get_open_for_loan(
-            &self,
-            _: i64,
-        ) -> AppResult<Option<crate::models::fine::Fine>> {
+        async fn fines_get_open_for_loan(&self, _: i64) -> AppResult<Option<crate::models::fine::Fine>> {
             unimplemented!()
         }
-        async fn fines_upsert_open(
-            &self,
-            _: i64,
-            _: i64,
-            _: crate::models::fine::Cents,
-            _: Option<&str>,
-        ) -> AppResult<(
-            crate::models::fine::Fine,
-            crate::models::dto::fines::AccrueOutcome,
-        )> {
+        async fn fines_upsert_open(&self, _: i64, _: i64, _: crate::models::fine::Cents, _: Option<&str>) -> AppResult<(crate::models::fine::Fine, crate::models::dto::fines::AccrueOutcome)> {
             unimplemented!()
         }
-        async fn fines_get_accrual_loan(
-            &self,
-            _: i64,
-        ) -> AppResult<crate::models::fine::FineAccrualLoan> {
+        async fn fines_get_accrual_loan(&self, _: i64) -> AppResult<crate::models::fine::FineAccrualLoan> {
             unimplemented!()
         }
-        async fn fines_list_accrual_loans(
-            &self,
-            _: Option<i64>,
-        ) -> AppResult<Vec<crate::models::fine::FineAccrualLoan>> {
+        async fn fines_list_accrual_loans(&self, _: Option<i64>) -> AppResult<Vec<crate::models::fine::FineAccrualLoan>> {
             unimplemented!()
         }
     }
@@ -1762,12 +1274,7 @@ mod tests {
         make_service_with_fines(user, loan_id, FakeFinesRepo::default(), None)
     }
 
-    fn make_service_with_fines(
-        user: Option<User>,
-        loan_id: i64,
-        fines: FakeFinesRepo,
-        loan: Option<crate::models::loan::Loan>,
-    ) -> LoansService {
+    fn make_service_with_fines(user: Option<User>, loan_id: i64, fines: FakeFinesRepo, loan: Option<crate::models::loan::Loan>) -> LoansService {
         let pool = sqlx::Pool::connect_lazy("postgres://localhost/unused").unwrap();
         let audit = AuditService::new(crate::repository::Repository::new(pool.clone(), None));
         let dynamic_config = crate::DynamicConfig::new(crate::AppConfig::for_test());
@@ -1775,15 +1282,8 @@ mod tests {
         let (tx, _) = tokio::sync::broadcast::channel(1);
         let events = crate::services::event_bus::EventBus::new(tx);
         LoansService::new(
-            Arc::new(FakeRepo {
-                user,
-                loan_id,
-                loan,
-            }),
-            FinesService::new(
-                Arc::new(fines),
-                Arc::new(crate::services::calendar::AlwaysOpenCalendar),
-            ),
+            Arc::new(FakeRepo { user, loan_id, loan }),
+            FinesService::new(Arc::new(fines), Arc::new(crate::services::calendar::AlwaysOpenCalendar)),
             audit,
             email,
             events,
@@ -1808,9 +1308,7 @@ mod tests {
     }
 
     fn decimal(s: &str) -> crate::models::fine::Cents {
-        crate::models::fine::Cents::parse_euro_text(s)
-            .expect("euro")
-            .expect("present")
+        crate::models::fine::Cents::parse_euro_text(s).expect("euro").expect("present")
     }
 
     fn make_loan(user_id: i64, force: bool) -> CreateLoan {
@@ -1836,15 +1334,7 @@ mod tests {
     async fn test_create_loan_active_user_succeeds() {
         let user = make_user(1, None, None);
         let svc = make_service(Some(user), 100);
-        assert!(svc
-            .create_loan(
-                make_loan(1, false),
-                None,
-                None,
-                &crate::models::user::UserRights::default()
-            )
-            .await
-            .is_ok());
+        assert!(svc.create_loan(make_loan(1, false), None, None, &crate::models::user::UserRights::default()).await.is_ok());
     }
 
     fn assert_checkout_refusal(err: AppError, code: &str, forceable: bool) -> String {
@@ -1863,12 +1353,7 @@ mod tests {
         let user = make_user(2, Some(UserStatus::Blocked), None);
         let svc = make_service(Some(user), 0);
         let err = svc
-            .create_loan(
-                make_loan(2, false),
-                None,
-                None,
-                &crate::models::user::UserRights::default(),
-            )
+            .create_loan(make_loan(2, false), None, None, &crate::models::user::UserRights::default())
             .await
             .expect_err("blocked");
         assert_checkout_refusal(err, "business_rule_violation", false);
@@ -1879,12 +1364,7 @@ mod tests {
         let user = make_user(3, Some(UserStatus::Blocked), None);
         let svc = make_service(Some(user), 101);
         let err = svc
-            .create_loan(
-                make_loan(3, true),
-                None,
-                None,
-                &crate::models::user::UserRights::default(),
-            )
+            .create_loan(make_loan(3, true), None, None, &crate::models::user::UserRights::default())
             .await
             .expect_err("force does not skip an inactive account");
         assert_checkout_refusal(err, "business_rule_violation", false);
@@ -1894,15 +1374,7 @@ mod tests {
     async fn test_create_loan_deleted_user_always_rejected() {
         let user = make_user(4, Some(UserStatus::Deleted), None);
         let svc = make_service(Some(user), 0);
-        let err = svc
-            .create_loan(
-                make_loan(4, true),
-                None,
-                None,
-                &crate::models::user::UserRights::default(),
-            )
-            .await
-            .expect_err("deleted");
+        let err = svc.create_loan(make_loan(4, true), None, None, &crate::models::user::UserRights::default()).await.expect_err("deleted");
         assert_checkout_refusal(err, "business_rule_violation", false);
     }
 
@@ -1919,10 +1391,7 @@ mod tests {
         let expired = Utc::now() - chrono::Duration::days(1);
         let user = make_user(5, None, Some(expired));
         let svc = make_service(Some(user), 0);
-        let err = svc
-            .create_loan(make_loan(5, false), None, None, &override_rights())
-            .await
-            .expect_err("expired");
+        let err = svc.create_loan(make_loan(5, false), None, None, &override_rights()).await.expect_err("expired");
         let message = assert_checkout_refusal(err, "subscription_expired", true);
         assert!(message.contains("force=true"), "{message}");
     }
@@ -1933,12 +1402,7 @@ mod tests {
         let user = make_user(6, None, Some(expired));
         let svc = make_service(Some(user), 102);
         assert!(svc
-            .create_loan(
-                make_loan_with_reason(6, true, "membership renewal pending"),
-                None,
-                None,
-                &override_rights()
-            )
+            .create_loan(make_loan_with_reason(6, true, "membership renewal pending"), None, None, &override_rights())
             .await
             .is_ok());
     }
@@ -1948,10 +1412,7 @@ mod tests {
         let expired = Utc::now() - chrono::Duration::days(1);
         let user = make_user(18, None, Some(expired));
         let svc = make_service(Some(user), 0);
-        let err = svc
-            .create_loan(make_loan(18, true), None, None, &override_rights())
-            .await
-            .expect_err("reason");
+        let err = svc.create_loan(make_loan(18, true), None, None, &override_rights()).await.expect_err("reason");
         match err {
             AppError::Coded { status, code, .. } => {
                 assert_eq!(status, 422);
@@ -1967,12 +1428,7 @@ mod tests {
         let user = make_user(17, None, Some(expired));
         let svc = make_service(Some(user), 0);
         let err = svc
-            .create_loan(
-                make_loan(17, true),
-                None,
-                None,
-                &crate::models::user::UserRights::default(),
-            )
+            .create_loan(make_loan(17, true), None, None, &crate::models::user::UserRights::default())
             .await
             .expect_err("desk force");
         assert_checkout_refusal(err, "subscription_expired", false);
@@ -1982,13 +1438,7 @@ mod tests {
     async fn test_create_loan_user_not_found() {
         let svc = make_service(None, 0); // no user pre-loaded
         assert!(matches!(
-            svc.create_loan(
-                make_loan(99, false),
-                None,
-                None,
-                &crate::models::user::UserRights::default()
-            )
-            .await,
+            svc.create_loan(make_loan(99, false), None, None, &crate::models::user::UserRights::default()).await,
             Err(AppError::NotFound(_))
         ));
     }
@@ -1998,15 +1448,7 @@ mod tests {
         let future_date = Utc::now() + chrono::Duration::days(30);
         let user = make_user(7, None, Some(future_date)); // subscription valid
         let svc = make_service(Some(user), 103);
-        assert!(svc
-            .create_loan(
-                make_loan(7, false),
-                None,
-                None,
-                &crate::models::user::UserRights::default()
-            )
-            .await
-            .is_ok());
+        assert!(svc.create_loan(make_loan(7, false), None, None, &crate::models::user::UserRights::default()).await.is_ok());
     }
 
     #[tokio::test]
@@ -2021,15 +1463,7 @@ mod tests {
             },
             None,
         );
-        assert!(svc
-            .create_loan(
-                make_loan(15, false),
-                None,
-                None,
-                &crate::models::user::UserRights::default()
-            )
-            .await
-            .is_ok());
+        assert!(svc.create_loan(make_loan(15, false), None, None, &crate::models::user::UserRights::default()).await.is_ok());
     }
 
     #[tokio::test]
@@ -2044,15 +1478,7 @@ mod tests {
             },
             None,
         );
-        assert!(svc
-            .create_loan(
-                make_loan(8, false),
-                None,
-                None,
-                &crate::models::user::UserRights::default()
-            )
-            .await
-            .is_ok());
+        assert!(svc.create_loan(make_loan(8, false), None, None, &crate::models::user::UserRights::default()).await.is_ok());
     }
 
     #[tokio::test]
@@ -2068,12 +1494,7 @@ mod tests {
             None,
         );
         let err = svc
-            .create_loan(
-                make_loan(9, false),
-                None,
-                None,
-                &crate::models::user::UserRights::default(),
-            )
+            .create_loan(make_loan(9, false), None, None, &crate::models::user::UserRights::default())
             .await
             .expect_err("over-threshold checkout must fail");
         let message = assert_checkout_refusal(err, "fines_over_threshold", false);
@@ -2114,12 +1535,7 @@ mod tests {
             None,
         );
         let err = svc
-            .create_loan(
-                make_loan(18, true),
-                Some(99),
-                None,
-                &settings_write_rights(),
-            )
+            .create_loan(make_loan(18, true), Some(99), None, &settings_write_rights())
             .await
             .expect_err("settings write must not lift the fine gate");
         assert_checkout_refusal(err, "fines_over_threshold", false);
@@ -2137,15 +1553,7 @@ mod tests {
             },
             None,
         );
-        assert!(svc
-            .create_loan(
-                make_loan(10, true),
-                Some(99),
-                Some("127.0.0.1".into()),
-                &loans_write_rights()
-            )
-            .await
-            .is_ok());
+        assert!(svc.create_loan(make_loan(10, true), Some(99), Some("127.0.0.1".into()), &loans_write_rights()).await.is_ok());
     }
 
     #[tokio::test]
@@ -2160,15 +1568,7 @@ mod tests {
             },
             None,
         );
-        assert!(svc
-            .create_loan(
-                make_loan(11, false),
-                None,
-                None,
-                &crate::models::user::UserRights::default()
-            )
-            .await
-            .is_ok());
+        assert!(svc.create_loan(make_loan(11, false), None, None, &crate::models::user::UserRights::default()).await.is_ok());
     }
 
     #[tokio::test]
@@ -2184,17 +1584,7 @@ mod tests {
             },
             Some(loan),
         );
-        assert!(svc
-            .renew_loan(
-                200,
-                false,
-                None,
-                None,
-                None,
-                &crate::models::user::UserRights::default()
-            )
-            .await
-            .is_ok());
+        assert!(svc.renew_loan(200, false, None, None, None, &crate::models::user::UserRights::default()).await.is_ok());
     }
 
     #[tokio::test]
@@ -2210,22 +1600,8 @@ mod tests {
             },
             Some(loan),
         );
-        match svc
-            .renew_loan(
-                201,
-                false,
-                None,
-                None,
-                None,
-                &crate::models::user::UserRights::default(),
-            )
-            .await
-        {
-            Err(AppError::RenewalDenied {
-                code,
-                message,
-                forceable,
-            }) => {
+        match svc.renew_loan(201, false, None, None, None, &crate::models::user::UserRights::default()).await {
+            Err(AppError::RenewalDenied { code, message, forceable }) => {
                 assert_eq!(code, "fines_over_threshold");
                 assert!(!forceable);
                 assert!(message.contains("20"), "{message}");
@@ -2238,9 +1614,7 @@ mod tests {
             ..crate::models::user::UserRights::default()
         };
         match svc.renew_loan(201, false, None, None, None, &desk).await {
-            Err(AppError::RenewalDenied {
-                code, forceable, ..
-            }) => {
+            Err(AppError::RenewalDenied { code, forceable, .. }) => {
                 assert_eq!(code, "fines_over_threshold");
                 assert!(forceable);
             }
@@ -2265,10 +1639,7 @@ mod tests {
             loans_rights: crate::models::user::Rights::Write,
             ..crate::models::user::UserRights::default()
         };
-        assert!(svc
-            .renew_loan(202, true, None, Some(99), Some("127.0.0.1".into()), &desk)
-            .await
-            .is_ok());
+        assert!(svc.renew_loan(202, true, None, Some(99), Some("127.0.0.1".into()), &desk).await.is_ok());
     }
 
     #[tokio::test]
@@ -2277,22 +1648,8 @@ mod tests {
         let user = make_user(15, None, Some(expired));
         let loan = make_active_loan(203, 15);
         let svc = make_service_with_fines(Some(user), 203, FakeFinesRepo::default(), Some(loan));
-        match svc
-            .renew_loan(
-                203,
-                false,
-                None,
-                None,
-                None,
-                &crate::models::user::UserRights::default(),
-            )
-            .await
-        {
-            Err(AppError::RenewalDenied {
-                code,
-                message,
-                forceable,
-            }) => {
+        match svc.renew_loan(203, false, None, None, None, &crate::models::user::UserRights::default()).await {
+            Err(AppError::RenewalDenied { code, message, forceable }) => {
                 assert_eq!(code, "subscription_expired");
                 assert!(!forceable);
                 assert!(message.contains("force=true"), "{message}");
@@ -2304,9 +1661,7 @@ mod tests {
             ..crate::models::user::UserRights::default()
         };
         match svc.renew_loan(203, true, None, Some(99), None, &desk).await {
-            Err(AppError::RenewalDenied {
-                code, forceable, ..
-            }) => {
+            Err(AppError::RenewalDenied { code, forceable, .. }) => {
                 assert_eq!(code, "subscription_expired");
                 assert!(!forceable);
             }
@@ -2326,24 +1681,11 @@ mod tests {
             circulation_override_rights: crate::models::user::Rights::Write,
             ..crate::models::user::UserRights::default()
         };
-        let missing = svc
-            .renew_loan(204, true, None, Some(99), None, &settings)
-            .await
-            .expect_err("reason");
+        let missing = svc.renew_loan(204, true, None, Some(99), None, &settings).await.expect_err("reason");
         match missing {
             AppError::Coded { code, .. } => assert_eq!(code, "override_reason_required"),
             other => panic!("expected override_reason_required, got {other:?}"),
         }
-        assert!(svc
-            .renew_loan(
-                204,
-                true,
-                Some("still enrolled".into()),
-                Some(99),
-                None,
-                &settings
-            )
-            .await
-            .is_ok());
+        assert!(svc.renew_loan(204, true, Some("still enrolled".into()), Some(99), None, &settings).await.is_ok());
     }
 }

@@ -25,8 +25,7 @@ where
 }
 
 /// Returned as 400 `validation_error` when an item write still sends `notes`.
-pub const LEGACY_ITEM_NOTES_MESSAGE: &str =
-    "notes is no longer accepted on item writes. Use publicNote and internalNote.";
+pub const LEGACY_ITEM_NOTES_MESSAGE: &str = "notes is no longer accepted on item writes. Use publicNote and internalNote.";
 
 /// Item weeding lifecycle. Stored as snake_case strings; serialized as camelCase.
 ///
@@ -109,9 +108,7 @@ impl sqlx::Type<sqlx::Postgres> for WeedingStatus {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for WeedingStatus {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
         Ok(Self::from_db_str(&s))
     }
@@ -216,17 +213,11 @@ impl ItemAvailability {
     /// An open loan wins, then `toSearch`, then other non-borrowable states.
     /// Holds and transits are visible only to the catalog SQL.
     #[must_use]
-    pub fn from_local_flags(
-        borrowed: bool,
-        borrowable: bool,
-        circulation_status: Option<i16>,
-        weeding: WeedingStatus,
-    ) -> Self {
+    pub fn from_local_flags(borrowed: bool, borrowable: bool, circulation_status: Option<i16>, weeding: WeedingStatus) -> Self {
         if borrowed {
             return Self::OnLoan;
         }
-        let circulation =
-            crate::models::circulation::CirculationStatus::from_db(circulation_status);
+        let circulation = crate::models::circulation::CirculationStatus::from_db(circulation_status);
         if circulation == crate::models::circulation::CirculationStatus::ToSearch {
             return Self::ToSearch;
         }
@@ -243,14 +234,8 @@ impl ItemAvailability {
 
     /// `(availability, canHoldItem)` for a copy that was not loaded by the catalog query.
     #[must_use]
-    pub fn local_pair(
-        borrowed: bool,
-        borrowable: bool,
-        circulation_status: Option<i16>,
-        weeding: WeedingStatus,
-    ) -> (Self, bool) {
-        let availability =
-            Self::from_local_flags(borrowed, borrowable, circulation_status, weeding);
+    pub fn local_pair(borrowed: bool, borrowable: bool, circulation_status: Option<i16>, weeding: WeedingStatus) -> (Self, bool) {
+        let availability = Self::from_local_flags(borrowed, borrowable, circulation_status, weeding);
         (availability, availability.can_hold_item(weeding))
     }
 }
@@ -268,8 +253,7 @@ pub fn included_in_public_catalog(weeding: WeedingStatus, circulation_status: Op
     }
     !matches!(
         crate::models::circulation::CirculationStatus::from_db(circulation_status),
-        crate::models::circulation::CirculationStatus::Lost
-            | crate::models::circulation::CirculationStatus::Missing
+        crate::models::circulation::CirculationStatus::Lost | crate::models::circulation::CirculationStatus::Missing
     )
 }
 
@@ -284,9 +268,7 @@ impl sqlx::Type<sqlx::Postgres> for ItemAvailability {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for ItemAvailability {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
         Ok(Self::from_api_str(&s))
     }
@@ -306,15 +288,17 @@ pub struct Item {
     pub biblio_id: Option<i64>,
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
-    pub source_id: Option<i64>,
+    pub site_id: Option<i64>,
     #[validate(length(max = 100, message = "Barcode must be at most 100 characters"))]
     pub barcode: Option<String>,
+    /// Lender's barcode on deposit copies (`items.lender_barcode`). Omitted when null.
+    #[validate(length(max = 100, message = "Lender barcode must be at most 100 characters"))]
+    #[sqlx(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lender_barcode: Option<String>,
     #[validate(length(max = 200, message = "Call number must be at most 200 characters"))]
     pub call_number: Option<String>,
-    #[validate(length(
-        max = 100,
-        message = "Volume designation must be at most 100 characters"
-    ))]
+    #[validate(length(max = 100, message = "Volume designation must be at most 100 characters"))]
     pub volume_designation: Option<String>,
     pub place: Option<i16>,
     #[serde(default = "default_borrowable")]
@@ -348,12 +332,7 @@ pub struct Item {
     ///
     /// Item writes reject that key with 400 `validation_error` and write nothing.
     /// Omitted from responses and from the OpenAPI schema.
-    #[serde(
-        default,
-        rename = "notes",
-        skip_serializing,
-        deserialize_with = "deserialize_legacy_notes_present"
-    )]
+    #[serde(default, rename = "notes", skip_serializing, deserialize_with = "deserialize_legacy_notes_present")]
     #[sqlx(default)]
     pub legacy_notes_present: bool,
     /// Purchase price as a decimal-euro string (`"12.50"`). Stored as integer cents.
@@ -372,7 +351,7 @@ pub struct Item {
     pub updated_at: Option<DateTime<Utc>>,
     pub archived_at: Option<DateTime<Utc>>,
     #[serde(default)]
-    pub source_name: Option<String>,
+    pub site_name: Option<String>,
     #[serde(default)]
     pub borrowed: bool,
     /// Active loan id when `borrowed` is true (staff circulation lookup).
@@ -479,15 +458,9 @@ impl Item {
     ///
     /// Used for acquisitions receipt and when enabling circulation on an incomplete copy.
     #[must_use]
-    pub fn ready_to_circulate(
-        barcode: Option<&str>,
-        source_id: Option<i64>,
-        source_name: Option<&str>,
-        price: Option<crate::models::fine::Cents>,
-        price_deferred: bool,
-    ) -> bool {
+    pub fn ready_to_circulate(barcode: Option<&str>, site_id: Option<i64>, site_name: Option<&str>, price: Option<crate::models::fine::Cents>, price_deferred: bool) -> bool {
         let barcode_ok = nonempty(barcode).is_some();
-        let site_ok = source_id.is_some() || nonempty(source_name).is_some();
+        let site_ok = site_id.is_some() || nonempty(site_name).is_some();
         let price_ok = price_deferred || price.is_some();
         barcode_ok && site_ok && price_ok
     }
@@ -536,9 +509,7 @@ pub fn validate_copy_note(label: &str, value: Option<&str>) -> Result<(), String
         return Ok(());
     };
     if text.chars().count() > COPY_NOTE_MAX_CHARS {
-        return Err(format!(
-            "{label} must be at most {COPY_NOTE_MAX_CHARS} characters"
-        ));
+        return Err(format!("{label} must be at most {COPY_NOTE_MAX_CHARS} characters"));
     }
     Ok(())
 }
@@ -562,7 +533,7 @@ pub struct ItemShort {
     #[serde(default)]
     #[sqlx(default)]
     pub weeding_status: WeedingStatus,
-    pub source_name: Option<String>,
+    pub site_name: Option<String>,
     #[sqlx(skip)]
     #[serde(default)]
     pub borrowed: bool,
@@ -613,7 +584,7 @@ impl From<Item> for ItemShort {
             borrowable: item.borrowable,
             circulation_status: item.circulation_status,
             weeding_status: item.weeding_status,
-            source_name: item.source_name,
+            site_name: item.site_name,
             borrowed: item.borrowed,
             availability: item.availability,
             can_hold_item: item.can_hold_item,
@@ -628,77 +599,29 @@ impl From<Item> for ItemShort {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        included_in_public_catalog, note_stored_value, note_write_value, Item, ItemAvailability,
-        WeedingStatus, COPY_NOTE_MAX_CHARS,
-    };
+    use super::{included_in_public_catalog, note_stored_value, note_write_value, Item, ItemAvailability, WeedingStatus, COPY_NOTE_MAX_CHARS};
 
     #[test]
     fn weeding_candidate_circulates_withdrawn_blocks() {
         assert!(!WeedingStatus::OnShelf.blocks_circulation());
         assert!(!WeedingStatus::Candidate.blocks_circulation());
         assert!(WeedingStatus::Withdrawn.blocks_circulation());
-        assert_eq!(
-            WeedingStatus::for_copies([WeedingStatus::OnShelf, WeedingStatus::Withdrawn]),
-            WeedingStatus::OnShelf
-        );
-        assert_eq!(
-            WeedingStatus::for_copies([WeedingStatus::Withdrawn, WeedingStatus::Withdrawn]),
-            WeedingStatus::Withdrawn
-        );
+        assert_eq!(WeedingStatus::for_copies([WeedingStatus::OnShelf, WeedingStatus::Withdrawn]), WeedingStatus::OnShelf);
+        assert_eq!(WeedingStatus::for_copies([WeedingStatus::Withdrawn, WeedingStatus::Withdrawn]), WeedingStatus::Withdrawn);
         assert_eq!(WeedingStatus::for_copies([]), WeedingStatus::OnShelf);
-        assert_eq!(
-            WeedingStatus::from_db_str("withdrawn"),
-            WeedingStatus::Withdrawn
-        );
+        assert_eq!(WeedingStatus::from_db_str("withdrawn"), WeedingStatus::Withdrawn);
         assert_eq!(WeedingStatus::Candidate.as_db_str(), "candidate");
     }
 
     #[test]
     fn ready_to_circulate_requires_barcode_site_and_price_or_deferral() {
         assert!(!Item::ready_to_circulate(None, None, None, None, false));
-        assert!(!Item::ready_to_circulate(
-            Some("B1"),
-            None,
-            None,
-            Some(crate::models::fine::Cents(1000)),
-            false
-        ));
-        assert!(!Item::ready_to_circulate(
-            Some("B1"),
-            Some(1),
-            None,
-            None,
-            false
-        ));
-        assert!(!Item::ready_to_circulate(
-            None,
-            Some(1),
-            None,
-            Some(crate::models::fine::Cents(1000)),
-            false
-        ));
-        assert!(Item::ready_to_circulate(
-            Some("B1"),
-            Some(1),
-            None,
-            Some(crate::models::fine::Cents(1000)),
-            false
-        ));
-        assert!(Item::ready_to_circulate(
-            Some("B1"),
-            None,
-            Some("Main"),
-            None,
-            true
-        ));
-        assert!(!Item::ready_to_circulate(
-            Some("  "),
-            Some(1),
-            None,
-            Some(crate::models::fine::Cents(1000)),
-            false
-        ));
+        assert!(!Item::ready_to_circulate(Some("B1"), None, None, Some(crate::models::fine::Cents(1000)), false));
+        assert!(!Item::ready_to_circulate(Some("B1"), Some(1), None, None, false));
+        assert!(!Item::ready_to_circulate(None, Some(1), None, Some(crate::models::fine::Cents(1000)), false));
+        assert!(Item::ready_to_circulate(Some("B1"), Some(1), None, Some(crate::models::fine::Cents(1000)), false));
+        assert!(Item::ready_to_circulate(Some("B1"), None, Some("Main"), None, true));
+        assert!(!Item::ready_to_circulate(Some("  "), Some(1), None, Some(crate::models::fine::Cents(1000)), false));
     }
 
     #[test]
@@ -709,48 +632,21 @@ mod tests {
         assert_eq!(ItemAvailability::OnLoan.as_api_str(), "onLoan");
         assert_eq!(ItemAvailability::ToSearch.as_api_str(), "toSearch");
         assert_eq!(ItemAvailability::Unavailable.as_api_str(), "unavailable");
-        assert_eq!(
-            ItemAvailability::from_api_str("onHold"),
-            ItemAvailability::OnHold
-        );
-        assert_eq!(
-            ItemAvailability::from_api_str("mystery"),
-            ItemAvailability::Unavailable
-        );
+        assert_eq!(ItemAvailability::from_api_str("onHold"), ItemAvailability::OnHold);
+        assert_eq!(ItemAvailability::from_api_str("mystery"), ItemAvailability::Unavailable);
 
         let shelf = WeedingStatus::OnShelf;
-        assert_eq!(
-            ItemAvailability::from_local_flags(false, true, None, shelf),
-            ItemAvailability::Available
-        );
+        assert_eq!(ItemAvailability::from_local_flags(false, true, None, shelf), ItemAvailability::Available);
         assert!(ItemAvailability::Available.can_hold_item(shelf));
-        assert_eq!(
-            ItemAvailability::from_local_flags(true, true, None, shelf),
-            ItemAvailability::OnLoan
-        );
+        assert_eq!(ItemAvailability::from_local_flags(true, true, None, shelf), ItemAvailability::OnLoan);
         assert!(ItemAvailability::OnLoan.allows_item_hold());
-        assert_eq!(
-            ItemAvailability::from_local_flags(false, true, Some(4), shelf),
-            ItemAvailability::ToSearch
-        );
+        assert_eq!(ItemAvailability::from_local_flags(false, true, Some(4), shelf), ItemAvailability::ToSearch);
         assert!(!ItemAvailability::ToSearch.allows_item_hold());
-        assert_eq!(
-            ItemAvailability::from_local_flags(false, true, Some(1), shelf),
-            ItemAvailability::Unavailable
-        );
-        assert_eq!(
-            ItemAvailability::from_local_flags(false, false, Some(0), shelf),
-            ItemAvailability::Unavailable
-        );
-        assert_eq!(
-            ItemAvailability::from_local_flags(false, true, Some(0), WeedingStatus::Withdrawn),
-            ItemAvailability::Unavailable
-        );
+        assert_eq!(ItemAvailability::from_local_flags(false, true, Some(1), shelf), ItemAvailability::Unavailable);
+        assert_eq!(ItemAvailability::from_local_flags(false, false, Some(0), shelf), ItemAvailability::Unavailable);
+        assert_eq!(ItemAvailability::from_local_flags(false, true, Some(0), WeedingStatus::Withdrawn), ItemAvailability::Unavailable);
         assert!(!ItemAvailability::OnLoan.can_hold_item(WeedingStatus::Withdrawn));
-        assert_eq!(
-            ItemAvailability::from_local_flags(false, true, Some(0), WeedingStatus::Candidate),
-            ItemAvailability::Available
-        );
+        assert_eq!(ItemAvailability::from_local_flags(false, true, Some(0), WeedingStatus::Candidate), ItemAvailability::Available);
         assert!(!ItemAvailability::OnHold.allows_item_hold());
         assert!(!ItemAvailability::InTransit.allows_item_hold());
         assert!(!ItemAvailability::Unavailable.allows_item_hold());
@@ -769,25 +665,16 @@ mod tests {
         assert!(!included_in_public_catalog(shelf, Some(1)));
         assert!(!included_in_public_catalog(shelf, Some(5)));
         assert!(!included_in_public_catalog(WeedingStatus::Candidate, None));
-        assert!(!included_in_public_catalog(
-            WeedingStatus::Withdrawn,
-            Some(0)
-        ));
+        assert!(!included_in_public_catalog(WeedingStatus::Withdrawn, Some(0)));
     }
 
     #[test]
     fn copy_note_write_trims_and_blank_clears() {
         assert_eq!(note_write_value(None), None);
         assert_eq!(note_write_value(Some("  ".into())), Some(String::new()));
-        assert_eq!(
-            note_write_value(Some("  CD missing  ".into())),
-            Some("CD missing".into())
-        );
+        assert_eq!(note_write_value(Some("  CD missing  ".into())), Some("CD missing".into()));
         assert_eq!(note_stored_value(Some("  ".into())), None);
-        assert_eq!(
-            note_stored_value(Some(" 2-disc box set ".into())),
-            Some("2-disc box set".into())
-        );
+        assert_eq!(note_stored_value(Some(" 2-disc box set ".into())), Some("2-disc box set".into()));
         assert!(Item {
             public_note: Some("x".repeat(4001)),
             internal_note: None,
@@ -845,8 +732,9 @@ mod tests {
         Item {
             id: None,
             biblio_id: None,
-            source_id: None,
+            site_id: None,
             barcode: None,
+            lender_barcode: None,
             call_number: None,
             volume_designation: None,
             place: None,
@@ -861,7 +749,7 @@ mod tests {
             created_at: None,
             updated_at: None,
             archived_at: None,
-            source_name: None,
+            site_name: None,
             borrowed: false,
             loan_id: None,
             availability: ItemAvailability::Available,

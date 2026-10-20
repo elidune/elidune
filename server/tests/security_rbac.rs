@@ -28,22 +28,14 @@ const LOANS_RIGHTS_DOC_ROWS: &[(&str, &str)] = &[
     ("POST /loans/:id/lost", "require_write_loans()"),
     ("POST /loans/:id/damaged", "require_write_loans()"),
     ("POST /loans/:id/claimed-returned", "require_write_loans()"),
-    (
-        "POST /loans/:id/claims-returned/resolve",
-        "require_write_loans()",
-    ),
-    (
-        "POST /loans/items/:item_id/lost-found",
-        "require_write_loans()",
-    ),
+    ("POST /loans/:id/claims-returned/resolve", "require_write_loans()"),
+    ("POST /loans/items/:item_id/lost-found", "require_write_loans()"),
     ("GET /stats/loans", "require_read_loans()"),
     ("GET /stats/users", "require_read_loans()"),
 ];
 
 fn markdown_section<'a>(doc: &'a str, heading: &str) -> &'a str {
-    let start = doc
-        .find(heading)
-        .unwrap_or_else(|| panic!("missing heading {heading}"));
+    let start = doc.find(heading).unwrap_or_else(|| panic!("missing heading {heading}"));
     let rest = &doc[start..];
     let body = rest.get(heading.len()..).unwrap_or("");
     let end = body.find("\n## ").unwrap_or(body.len());
@@ -56,11 +48,7 @@ fn table_cell_for(doc: &str, endpoint: &str) -> String {
         if !line.starts_with('|') {
             continue;
         }
-        let cols: Vec<&str> = line
-            .split('|')
-            .map(str::trim)
-            .filter(|c| !c.is_empty())
-            .collect();
+        let cols: Vec<&str> = line.split('|').map(str::trim).filter(|c| !c.is_empty()).collect();
         if cols.first().copied() == Some(needle.as_str()) {
             return cols.get(1).copied().unwrap_or("").to_string();
         }
@@ -70,14 +58,9 @@ fn table_cell_for(doc: &str, endpoint: &str) -> String {
 
 fn helper_fn_src<'a>(src: &'a str, name: &str) -> &'a str {
     let needle = format!("pub fn {name}(");
-    let start = src
-        .find(&needle)
-        .unwrap_or_else(|| panic!("missing helper {name}"));
+    let start = src.find(&needle).unwrap_or_else(|| panic!("missing helper {name}"));
     let after = &src[start..];
-    let rel = after
-        .find("\n    pub fn ")
-        .or_else(|| after.find("\n    /// "))
-        .unwrap_or(after.len());
+    let rel = after.find("\n    pub fn ").or_else(|| after.find("\n    /// ")).unwrap_or(after.len());
     &after[..rel]
 }
 
@@ -88,10 +71,7 @@ fn loans_access_rights_doc_matches_loans_rights_matrix() {
         !loans_section.contains("require_write_holds()"),
         "loans docs still gate circulation on holds_rights / require_write_holds()"
     );
-    assert!(
-        loans_section.contains("loans_rights"),
-        "loans section must describe loans_rights"
-    );
+    assert!(loans_section.contains("loans_rights"), "loans section must describe loans_rights");
 
     let helpers = markdown_section(ACCESS_RIGHTS_DOC, "Helpers on `UserClaims`:");
     let write_loans = table_cell_for(helpers, "require_write_loans()");
@@ -101,21 +81,14 @@ fn loans_access_rights_doc_matches_loans_rights_matrix() {
     );
     let write_holds = table_cell_for(helpers, "require_write_holds()");
     assert!(
-        !write_holds.to_lowercase().contains("checkout")
-            && !write_holds.to_lowercase().contains("loan batch"),
+        !write_holds.to_lowercase().contains("checkout") && !write_holds.to_lowercase().contains("loan batch"),
         "require_write_holds() must not be documented as the loans write gate, got {write_holds:?}"
     );
 
     for (endpoint, helper) in LOANS_RIGHTS_DOC_ROWS {
         let auth = table_cell_for(ACCESS_RIGHTS_DOC, endpoint);
-        assert!(
-            auth.contains(helper),
-            "{endpoint} docs must mention {helper}, got {auth:?}"
-        );
-        assert!(
-            !auth.contains("require_write_holds()"),
-            "{endpoint} docs still use require_write_holds()"
-        );
+        assert!(auth.contains(helper), "{endpoint} docs must mention {helper}, got {auth:?}");
+        assert!(!auth.contains("require_write_holds()"), "{endpoint} docs still use require_write_holds()");
     }
 
     let renew = table_cell_for(ACCESS_RIGHTS_DOC, "POST /loans/:id/renew");
@@ -123,10 +96,7 @@ fn loans_access_rights_doc_matches_loans_rights_matrix() {
         renew.contains("loans_rights") || renew.contains("require_write_loans()"),
         "POST /loans/:id/renew must be documented against loans_rights, got {renew:?}"
     );
-    assert!(
-        !renew.contains("require_write_holds()"),
-        "POST /loans/:id/renew docs still use require_write_holds()"
-    );
+    assert!(!renew.contains("require_write_holds()"), "POST /loans/:id/renew docs still use require_write_holds()");
 
     let user_loans = table_cell_for(ACCESS_RIGHTS_DOC, "GET /users/:id/loans");
     assert!(
@@ -141,39 +111,18 @@ fn loans_handlers_enforce_loans_rights_not_holds_rights() {
         !LOANS_API.contains("require_write_holds"),
         "loans.rs must not call require_write_holds(); circulation writes use loans_rights"
     );
-    assert!(
-        LOANS_API.contains("require_write_loans()"),
-        "loans.rs must call require_write_loans()"
-    );
-    assert!(
-        LOANS_API.contains("require_read_loans()"),
-        "loans.rs must call require_read_loans()"
-    );
+    assert!(LOANS_API.contains("require_write_loans()"), "loans.rs must call require_write_loans()");
+    assert!(LOANS_API.contains("require_read_loans()"), "loans.rs must call require_read_loans()");
 
-    assert!(
-        !BATCH_API.contains("require_write_holds"),
-        "batch loan endpoints must not call require_write_holds()"
-    );
-    assert!(
-        BATCH_API.contains("require_write_loans()"),
-        "batch loan endpoints must call require_write_loans()"
-    );
+    assert!(!BATCH_API.contains("require_write_holds"), "batch loan endpoints must not call require_write_holds()");
+    assert!(BATCH_API.contains("require_write_loans()"), "batch loan endpoints must call require_write_loans()");
 
     let write_loans = helper_fn_src(USER_MODEL, "require_write_loans");
-    assert!(
-        write_loans.contains("loans_rights"),
-        "require_write_loans must inspect loans_rights"
-    );
-    assert!(
-        !write_loans.contains("holds_rights"),
-        "require_write_loans must not inspect holds_rights"
-    );
+    assert!(write_loans.contains("loans_rights"), "require_write_loans must inspect loans_rights");
+    assert!(!write_loans.contains("holds_rights"), "require_write_loans must not inspect holds_rights");
 
     let read_loans = helper_fn_src(USER_MODEL, "require_read_loans");
-    assert!(
-        read_loans.contains("loans_rights"),
-        "require_read_loans must inspect loans_rights"
-    );
+    assert!(read_loans.contains("loans_rights"), "require_read_loans must inspect loans_rights");
 }
 
 #[tokio::test]
@@ -186,18 +135,10 @@ async fn admin_can_access_audit_log_reader_cannot() {
     let (_, reader_token) = fixtures::create_reader(&app, &admin_token, "rbacreader").await;
 
     let (admin_status, _) = app.get_json_with_auth("/api/v1/audit", &admin_token).await;
-    assert_eq!(
-        admin_status,
-        StatusCode::OK,
-        "admin should access audit log"
-    );
+    assert_eq!(admin_status, StatusCode::OK, "admin should access audit log");
 
     let (reader_status, _) = app.get_json_with_auth("/api/v1/audit", &reader_token).await;
-    assert_eq!(
-        reader_status,
-        StatusCode::FORBIDDEN,
-        "reader must not access audit log"
-    );
+    assert_eq!(reader_status, StatusCode::FORBIDDEN, "reader must not access audit log");
 }
 
 fn retarget_loan_holds_rights(token: &str, secret: &str, loans: Rights, holds: Rights) -> String {
@@ -222,18 +163,9 @@ async fn full_admin_token(app: &TestApp) -> String {
         .set_must_change_password(claims.user_id, false)
         .await
         .expect("clear must_change_password on test admin");
-    let (status, body) = app
-        .post_json(
-            "/api/v1/auth/login",
-            &json!({ "username": "testadmin", "password": "testadmin1234" }),
-            None,
-        )
-        .await;
+    let (status, body) = app.post_json("/api/v1/auth/login", &json!({ "username": "testadmin", "password": "testadmin1234" }), None).await;
     assert_eq!(status, StatusCode::OK, "admin re-login: {body}");
-    body["token"]
-        .as_str()
-        .expect("token in login response")
-        .to_string()
+    body["token"].as_str().expect("token in login response").to_string()
 }
 
 #[tokio::test]
@@ -251,46 +183,24 @@ async fn loans_writes_follow_loans_rights_not_holds_rights() {
     });
     let batch_body = json!({ "barcodes": ["NO-SUCH-BARCODE"] });
 
-    let (admin_overdue, _) = app
-        .get_json_with_auth("/api/v1/loans/overdue", &admin_token)
-        .await;
-    assert_eq!(
-        admin_overdue,
-        StatusCode::OK,
-        "admin with loans_rights write must list overdue loans"
-    );
+    let (admin_overdue, _) = app.get_json_with_auth("/api/v1/loans/overdue", &admin_token).await;
+    assert_eq!(admin_overdue, StatusCode::OK, "admin with loans_rights write must list overdue loans");
 
     let below_write = retarget_loan_holds_rights(&admin_token, secret, Rights::Own, Rights::Write);
-    let (own_create, _) = app
-        .post_json("/api/v1/loans", &loan_body, Some(&below_write))
-        .await;
-    assert_eq!(
-        own_create,
-        StatusCode::FORBIDDEN,
-        "loans_rights=own must not checkout"
-    );
-    let (own_overdue, _) = app
-        .get_json_with_auth("/api/v1/loans/overdue", &below_write)
-        .await;
-    assert_eq!(
-        own_overdue,
-        StatusCode::FORBIDDEN,
-        "loans_rights=own must not list overdue loans"
-    );
+    let (own_create, _) = app.post_json("/api/v1/loans", &loan_body, Some(&below_write)).await;
+    assert_eq!(own_create, StatusCode::FORBIDDEN, "loans_rights=own must not checkout");
+    let (own_overdue, _) = app.get_json_with_auth("/api/v1/loans/overdue", &below_write).await;
+    assert_eq!(own_overdue, StatusCode::FORBIDDEN, "loans_rights=own must not list overdue loans");
 
     let loans_only = retarget_loan_holds_rights(&admin_token, secret, Rights::Write, Rights::None);
-    let (loans_only_create, loans_only_body) = app
-        .post_json("/api/v1/loans", &loan_body, Some(&loans_only))
-        .await;
+    let (loans_only_create, loans_only_body) = app.post_json("/api/v1/loans", &loan_body, Some(&loans_only)).await;
     assert_ne!(
         loans_only_create,
         StatusCode::FORBIDDEN,
         "loans_rights=write must pass checkout even when holds_rights=none: {loans_only_body}"
     );
 
-    let (loans_only_batch, loans_only_batch_body) = app
-        .post_json("/api/v1/loans/batch-return", &batch_body, Some(&loans_only))
-        .await;
+    let (loans_only_batch, loans_only_batch_body) = app.post_json("/api/v1/loans/batch-return", &batch_body, Some(&loans_only)).await;
     assert_ne!(
         loans_only_batch,
         StatusCode::FORBIDDEN,
@@ -298,38 +208,16 @@ async fn loans_writes_follow_loans_rights_not_holds_rights() {
     );
 
     let holds_only = retarget_loan_holds_rights(&admin_token, secret, Rights::None, Rights::Write);
-    let (holds_only_create, _) = app
-        .post_json("/api/v1/loans", &loan_body, Some(&holds_only))
-        .await;
-    assert_eq!(
-        holds_only_create,
-        StatusCode::FORBIDDEN,
-        "holds_rights=write must not checkout when loans_rights=none"
-    );
+    let (holds_only_create, _) = app.post_json("/api/v1/loans", &loan_body, Some(&holds_only)).await;
+    assert_eq!(holds_only_create, StatusCode::FORBIDDEN, "holds_rights=write must not checkout when loans_rights=none");
 
-    let (holds_only_batch, _) = app
-        .post_json("/api/v1/loans/batch-return", &batch_body, Some(&holds_only))
-        .await;
-    assert_eq!(
-        holds_only_batch,
-        StatusCode::FORBIDDEN,
-        "holds_rights=write must not batch-return when loans_rights=none"
-    );
+    let (holds_only_batch, _) = app.post_json("/api/v1/loans/batch-return", &batch_body, Some(&holds_only)).await;
+    assert_eq!(holds_only_batch, StatusCode::FORBIDDEN, "holds_rights=write must not batch-return when loans_rights=none");
 
-    let (types_status, reader_type) = app
-        .get_json_with_auth("/api/v1/account-types/reader", &admin_token)
-        .await;
+    let (types_status, reader_type) = app.get_json_with_auth("/api/v1/account-types/reader", &admin_token).await;
     assert_eq!(types_status, StatusCode::OK);
-    assert_eq!(
-        reader_type["loansRights"], "o",
-        "seeded reader loans_rights must stay own (below read/write)"
-    );
-    let (admin_type_status, admin_type) = app
-        .get_json_with_auth("/api/v1/account-types/admin", &admin_token)
-        .await;
+    assert_eq!(reader_type["loansRights"], "o", "seeded reader loans_rights must stay own (below read/write)");
+    let (admin_type_status, admin_type) = app.get_json_with_auth("/api/v1/account-types/admin", &admin_token).await;
     assert_eq!(admin_type_status, StatusCode::OK);
-    assert_eq!(
-        admin_type["loansRights"], "w",
-        "seeded admin loans_rights must be write"
-    );
+    assert_eq!(admin_type["loansRights"], "w", "seeded admin loans_rights must be write");
 }

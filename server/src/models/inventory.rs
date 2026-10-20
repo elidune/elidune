@@ -51,9 +51,7 @@ impl sqlx::Type<sqlx::Postgres> for InventoryScanResult {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for InventoryScanResult {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
         Ok(Self::from(s))
     }
@@ -110,9 +108,7 @@ impl sqlx::Type<sqlx::Postgres> for InventoryStatus {
 }
 
 impl<'r> sqlx::Decode<'r, sqlx::Postgres> for InventoryStatus {
-    fn decode(
-        value: sqlx::postgres::PgValueRef<'r>,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let s: String = sqlx::Decode::<sqlx::Postgres>::decode(value)?;
         Ok(Self::from(s))
     }
@@ -140,14 +136,14 @@ pub struct InventorySession {
     pub notes: Option<String>,
     /// When set, report and missing list only include active items with this `items.place`.
     pub scope_place: Option<i16>,
-    /// When set, scope is limited to active items with this `items.source_id`.
+    /// When set, scope is limited to active items with this `items.site_id`.
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
-    pub scope_source_id: Option<i64>,
-    /// Resolved from `sources.name` when `scope_source_id` is set (not stored).
+    pub scope_site_id: Option<i64>,
+    /// Resolved from `sources.name` when `scope_site_id` is set (not stored).
     #[serde(default)]
     #[sqlx(default)]
-    pub scope_source_name: Option<String>,
+    pub scope_site_name: Option<String>,
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub created_by: Option<i64>,
@@ -167,10 +163,10 @@ pub struct CreateInventorySession {
     pub location_filter: Option<String>,
     pub notes: Option<String>,
     pub scope_place: Option<i16>,
-    /// When set, only active items with this `items.source_id` are in scope.
+    /// When set, only active items with this `items.site_id` are in scope.
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
-    pub scope_source_id: Option<i64>,
+    pub scope_site_id: Option<i64>,
 }
 
 /// Response for `POST /inventory/sessions` (includes optional warnings).
@@ -232,14 +228,14 @@ pub struct InventoryMissingRow {
     pub biblio_title: Option<String>,
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
-    pub source_id: Option<i64>,
-    pub source_name: Option<String>,
+    pub site_id: Option<i64>,
+    pub site_name: Option<String>,
 }
 
 /// Discrepancy report for a session (enriched).
 ///
 /// Count formulas (session `S`):
-/// - `expectedInScope`: active items where scope predicates on `items.source_id` and `items.place` match.
+/// - `expectedInScope`: active items where scope predicates on `items.site_id` and `items.place` match.
 /// - `missingCount`: in-scope active items with no scan row having `item_id = item.id` and `result = found`.
 /// - `missingScannable`: subset of `missingCount` with non-null barcode.
 /// - `missingWithoutBarcode`: in-scope active with `barcode IS NULL` (cannot be captured by barcode scan).
@@ -367,8 +363,8 @@ pub struct InventoryConsolidationPreviewRow {
     pub place: Option<i16>,
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
-    pub source_id: Option<i64>,
-    pub source_name: Option<String>,
+    pub site_id: Option<i64>,
+    pub site_name: Option<String>,
     #[serde_as(as = "Option<DisplayFromStr>")]
     #[schema(value_type = Option<String>)]
     pub biblio_id: Option<i64>,

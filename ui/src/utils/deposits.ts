@@ -14,11 +14,13 @@ export interface DepositCopyRef {
 
 export interface MarcBatchImportParamsInput {
   batchId: string;
-  sourceId?: string | number | null;
+  siteId?: string | number | null;
   depositBatchId?: string | null;
   recordId?: number;
   allowDuplicateIsbn?: boolean;
   confirmReplaceExistingId?: string | number | boolean | null;
+  depositDuplicateAction?: 'overwrite' | 'relabel' | 'ignore';
+  depositDuplicateApplyAll?: boolean;
 }
 
 export interface DepositImportAttached {
@@ -131,9 +133,14 @@ export function buildMarcBatchImportParams(input: MarcBatchImportParamsInput): R
   const depositId = input.depositBatchId?.toString().trim() ?? '';
   if (depositId) {
     params.deposit_batch_id = depositId;
+    if (input.siteId != null && String(input.siteId) !== '') {
+      params.siteId = input.siteId;
+    }
+    if (input.depositDuplicateAction) params.depositDuplicateAction = input.depositDuplicateAction;
+    if (input.depositDuplicateApplyAll === true) params.depositDuplicateApplyAll = true;
     return params;
   }
-  if (input.sourceId != null && String(input.sourceId) !== '') params.sourceId = input.sourceId;
+  if (input.siteId != null && String(input.siteId) !== '') params.siteId = input.siteId;
   if (input.allowDuplicateIsbn) params.allowDuplicateIsbn = true;
   const confirm = input.confirmReplaceExistingId;
   if (confirm === true) params.confirmReplaceExistingId = true;
@@ -141,6 +148,21 @@ export function buildMarcBatchImportParams(input: MarcBatchImportParamsInput): R
     params.confirmReplaceExistingId = confirm;
   }
   return params;
+}
+
+/** Staff messages after deposit MARC import when copies were relabeled. */
+export function depositMarcRelabelNotices(report: unknown, t: TFunction): string[] {
+  if (!report || typeof report !== 'object') return [];
+  const relabeled = (report as Record<string, unknown>).copiesRelabeled;
+  if (!Array.isArray(relabeled)) return [];
+  return relabeled.flatMap((raw) => {
+    if (!raw || typeof raw !== 'object') return [];
+    const row = raw as Record<string, unknown>;
+    const lender = String(row.lenderBarcode ?? '').trim();
+    const local = String(row.localBarcode ?? '').trim();
+    if (!lender || !local) return [];
+    return [t('deposits.import.relabelNotice', { lender, local })];
+  });
 }
 
 export function summarizeDepositImportReport(result: unknown): DepositImportSummary | null {

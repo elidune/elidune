@@ -152,12 +152,7 @@ mod tests {
     #[test]
     fn every_supported_language_has_a_label() {
         for key in KEYS {
-            for lang in [
-                Language::French,
-                Language::English,
-                Language::German,
-                Language::Spanish,
-            ] {
+            for lang in [Language::French, Language::English, Language::German, Language::Spanish] {
                 assert!(!label(Some(lang), key).is_empty(), "{lang:?} {key:?}");
             }
         }
@@ -168,59 +163,29 @@ mod tests {
         assert_eq!(label(Some(Language::French), Label::Barcode), "Code-barres");
         assert_eq!(label(Some(Language::English), Label::Barcode), "Barcode");
         assert_eq!(label(Some(Language::German), Label::Barcode), "Barcode");
-        assert_eq!(
-            label(Some(Language::Spanish), Label::Barcode),
-            "Código de barras"
-        );
-        assert_eq!(
-            labeled(Some(Language::French), Label::Barcode, "ABC-1"),
-            "Code-barres : ABC-1"
-        );
-        assert_eq!(
-            labeled(Some(Language::English), Label::Barcode, "ABC-1"),
-            "Barcode: ABC-1"
-        );
-        assert_eq!(
-            labeled(Some(Language::Spanish), Label::Barcode, "ABC-1"),
-            "Código de barras: ABC-1"
-        );
+        assert_eq!(label(Some(Language::Spanish), Label::Barcode), "Código de barras");
+        assert_eq!(labeled(Some(Language::French), Label::Barcode, "ABC-1"), "Code-barres : ABC-1");
+        assert_eq!(labeled(Some(Language::English), Label::Barcode, "ABC-1"), "Barcode: ABC-1");
+        assert_eq!(labeled(Some(Language::Spanish), Label::Barcode, "ABC-1"), "Código de barras: ABC-1");
         // German is translated (French is the fallback); "Barcode" matches the UI catalog.
-        assert_ne!(
-            label(Some(Language::German), Label::Barcode),
-            label(Some(Language::French), Label::Barcode)
-        );
+        assert_ne!(label(Some(Language::German), Label::Barcode), label(Some(Language::French), Label::Barcode));
     }
 
     #[test]
     fn missing_and_untranslated_languages_use_french() {
-        assert_eq!(
-            label(None, Label::InvitationConcerns),
-            "Cette invitation concerne :"
-        );
+        assert_eq!(label(None, Label::InvitationConcerns), "Cette invitation concerne :");
         for lang in [Language::Unknown, Language::Italian, Language::Portuguese] {
             assert_eq!(label(Some(lang), Label::Barcode), "Code-barres", "{lang:?}");
-            assert_eq!(
-                labeled(Some(lang), Label::DueOn, "01/02/2026"),
-                "à rendre le 01/02/2026"
-            );
-            assert_eq!(
-                labeled(Some(lang), Label::BorrowedOn, "10/01/2026"),
-                "emprunté le 10/01/2026"
-            );
+            assert_eq!(labeled(Some(lang), Label::DueOn, "01/02/2026"), "à rendre le 01/02/2026");
+            assert_eq!(labeled(Some(lang), Label::BorrowedOn, "10/01/2026"), "emprunté le 10/01/2026");
         }
     }
 
     #[test]
     fn language_aliases_resolve_before_lookup() {
         assert_eq!(label(Some(Language::from("deu")), Label::Title), "Titel");
-        assert_eq!(
-            label(Some(Language::from("spa")), Label::DueDate),
-            "Fecha de devolución"
-        );
+        assert_eq!(label(Some(Language::from("spa")), Label::DueDate), "Fecha de devolución");
         assert_eq!(label(Some(Language::from("eng")), Label::Title), "Title");
-        assert_eq!(
-            label(Some(Language::from("fra")), Label::Authors),
-            "Auteur(s)"
-        );
+        assert_eq!(label(Some(Language::from("fra")), Label::Authors), "Auteur(s)");
     }
 }
