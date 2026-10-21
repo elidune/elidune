@@ -30,6 +30,7 @@ pub fn router() -> axum::Router<crate::AppState> {
         .route("/deposit-batches/:id", get(get_deposit_batch).patch(update_deposit_batch))
         .route("/deposit-batches/:id/items", get(list_deposit_batch_items))
         .route("/deposit-batches/:id/start-return", post(start_deposit_return))
+        .route("/deposit-batches/:id/cancel-return", post(cancel_deposit_return))
         .route("/deposit-batches/:id/scan-out", post(scan_out_deposit_copy))
         .route("/deposit-batches/:id/close", post(close_deposit_batch))
 }
@@ -291,6 +292,40 @@ pub async fn start_deposit_return(State(state): State<crate::AppState>, Authenti
     let batch = state.services.deposits.start_return(id).await?;
     state.services.audit.log(
         audit::event::DEPOSIT_BATCH_RETURN_STARTED,
+        Some(claims.user_id),
+        Some("deposit_batch"),
+        Some(id),
+        ip,
+        Some(&batch),
+        audit::AuditLogMeta::success(),
+    );
+    Ok(Json(batch))
+}
+
+#[utoipa::path(
+    post,
+    path = "/deposit-batches/{id}/cancel-return",
+    tag = "deposits",
+    security(("bearer_auth" = [])),
+    params(("id" = i64, Path, description = "Deposit batch ID")),
+    responses(
+        (status = 200, description = "Batch is `active` again. Scan-out timestamps on its copies are cleared. Holds detached when the return started are not restored. Calling this while the batch is already `active` is a no-op.", body = DepositBatch),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
+        (status = 403, description = "Insufficient permissions", body = crate::error::ErrorResponse),
+        (status = 404, description = "Deposit batch not found", body = crate::error::ErrorResponse),
+        (status = 422, description = "Batch is closed (`deposit_batch_not_active`)", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn cancel_deposit_return(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    Path(id): Path<i64>,
+) -> AppResult<Json<DepositBatch>> {
+    claims.require_write_items()?;
+    let batch = state.services.deposits.cancel_return(id).await?;
+    state.services.audit.log(
+        audit::event::DEPOSIT_BATCH_RETURN_CANCELLED,
         Some(claims.user_id),
         Some("deposit_batch"),
         Some(id),

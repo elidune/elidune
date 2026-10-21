@@ -110,6 +110,7 @@
     "pageSubtitle": "Eingehende Leihlose und Partner-Verleiher.",
     "sectionNav": "Depot-Bereiche",
     "badge": "Depot · {{lender}} · Rückgabe am {{date}}",
+    "badgePermanent": "Depot · {{lender}} · kein Rückgabedatum",
     "dueDateCapped": "Fälligkeit auf {{date}} vorgezogen (Rückgabe des Depots)",
     "dueDateCappedUnknown": "Fälligkeit auf das Rückgabedatum des Depots vorgezogen",
     "returnToLender": "An den Verleiher zurücksenden ({{lender}}) — nicht wieder ins Regal stellen",
@@ -122,6 +123,8 @@
     "reference": "Referenz",
     "arrivedOn": "Eingangsdatum",
     "returnDueOn": "Rückgabedatum",
+    "returnDueOpen": "Nicht festgelegt",
+    "returnDueOnOptionalHint": "Leer lassen für ein dauerhaftes Depot. Das Datum kann später gesetzt werden.",
     "notes": "Notizen",
     "filter": {
       "label": "Depots",
@@ -186,6 +189,9 @@
     "batch": {
       "startReturn": "Rückgabe starten",
       "returnStarted": "Rückgabe gestartet",
+      "cancelReturn": "Rückgabe abbrechen",
+      "cancelReturnConfirm": "Dieses Los wieder auf aktiv setzen? Ausbuchungszeitstempel der Exemplare werden gelöscht. Beim Start der Rückgabe gelöste Vormerkungen werden nicht automatisch wiederhergestellt.",
+      "returnCancelled": "Rückgabe abgebrochen",
       "scanTitle": "Exemplare ausbuchen",
       "scanHint": "Jedes Exemplar scannen. Ein bereits gescanntes Exemplar bleibt gescannt.",
       "scanOut": "Ausbuchen",
@@ -203,6 +209,7 @@
       "missingCopies": "Fehlend",
       "print": "Drucken",
       "openRecord": "Aufnahme öffnen",
+      "importNotices": "Aufnahmen importieren",
       "marcImportTitle": "MARC-Import",
       "marcImportSubtitle": "Aufnahmen und Exemplare zu diesem Los hinzufügen. ISBN-Dubletten werden angehängt, ohne den Eigenbestand zu ersetzen."
     },

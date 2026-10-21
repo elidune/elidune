@@ -217,9 +217,11 @@ impl Repository {
         if existing.status != DepositBatchStatus::Active {
             return Err(AppError::coded(422, error_code::DEPOSIT_BATCH_NOT_ACTIVE, "Only an active deposit batch can be updated"));
         }
-        let return_due_on = data.return_due_on.unwrap_or(existing.return_due_on);
-        if return_due_on < existing.arrived_on {
-            return Err(AppError::Validation("returnDueOn must be on or after arrivedOn".into()));
+        let return_due_on = data.return_due_on.or(existing.return_due_on);
+        if let Some(return_due_on) = return_due_on {
+            if return_due_on < existing.arrived_on {
+                return Err(AppError::Validation("returnDueOn must be on or after arrivedOn".into()));
+            }
         }
         let site_id = data.site_id.unwrap_or(existing.site_id);
         let notes = match &data.notes {
@@ -419,10 +421,20 @@ impl Repository {
         };
         let zone = self.library_zone_conn(conn).await?;
         let today = crate::services::calendar::local_date(zone, now);
-        if block_closed && (row.archived_at.is_some() || row.status == DepositBatchStatus::Closed) && row.return_due_on > today {
-            return Err(AppError::coded(422, error_code::ITEM_NOT_LOANABLE, "This deposit copy has been returned to the lender"));
+        if block_closed && (row.archived_at.is_some() || row.status == DepositBatchStatus::Closed) {
+            let still_with_lender = row.return_due_on.is_none_or(|due| due > today);
+            if still_with_lender {
+                return Err(AppError::coded(422, error_code::ITEM_NOT_LOANABLE, "This deposit copy has been returned to the lender"));
+            }
         }
-        match crate::services::calendar::cap_loan_due_date(expiry, row.return_due_on, today, zone) {
+        let Some(return_due_on) = row.return_due_on else {
+            return Ok(DepositDueDecision {
+                expiry_at: expiry,
+                capped: false,
+                is_deposit: true,
+            });
+        };
+        match crate::services::calendar::cap_loan_due_date(expiry, return_due_on, today, zone) {
             Some(capped) => Ok(DepositDueDecision {
                 expiry_at: capped.expiry_at,
                 capped: capped.capped,
@@ -464,6 +476,50 @@ impl Repository {
         }
         let item_ids: Vec<i64> = sqlx::query_scalar("SELECT id FROM items WHERE deposit_batch_id = $1").bind(id).fetch_all(&mut *tx).await?;
         self.holds_release_deposit_copies_tx(&mut tx, &item_ids).await?;
+        tx.commit().await?;
+        self.deposit_batches_get(id).await
+    }
+
+    /// `returning` → `active`. Clears `deposit_returned_at` on every copy in the batch.
+    /// Already `active` is a no-op. Holds detached at start-return are not restored.
+    pub async fn deposit_batches_cancel_return(&self, id: i64) -> AppResult<DepositBatch> {
+        let mut tx = self.pool.begin().await?;
+        let status: Option<String> = sqlx::query_scalar("SELECT status FROM deposit_batches WHERE id = $1 FOR UPDATE")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        let Some(status) = status else {
+            return Err(AppError::NotFound(format!("Deposit batch {id} not found")));
+        };
+        if status == DepositBatchStatus::Closed.as_db_str() {
+            return Err(AppError::coded(
+                422,
+                error_code::DEPOSIT_BATCH_NOT_ACTIVE,
+                "A closed deposit batch cannot cancel its return",
+            ));
+        }
+        if status == DepositBatchStatus::Returning.as_db_str() {
+            sqlx::query(
+                r#"
+                UPDATE deposit_batches
+                SET status = 'active', updated_at = now()
+                WHERE id = $1 AND status = 'returning'
+                "#,
+            )
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(
+                r#"
+                UPDATE items
+                SET deposit_returned_at = NULL, updated_at = now()
+                WHERE deposit_batch_id = $1 AND deposit_returned_at IS NOT NULL
+                "#,
+            )
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        }
         tx.commit().await?;
         self.deposit_batches_get(id).await
     }
@@ -761,7 +817,7 @@ pub struct DepositReplacement {
 
 #[derive(Debug, sqlx::FromRow)]
 struct DepositDueRow {
-    return_due_on: chrono::NaiveDate,
+    return_due_on: Option<chrono::NaiveDate>,
     status: DepositBatchStatus,
     archived_at: Option<chrono::DateTime<chrono::Utc>>,
 }

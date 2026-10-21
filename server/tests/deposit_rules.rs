@@ -1078,3 +1078,55 @@ async fn deposit_loss_notice_is_per_copy() {
     assert_eq!(status, StatusCode::OK, "{item}");
     assert_eq!(item["items"][0]["deposit"]["depositLossNotifiedAt"], "2026-05-02T15:04:05Z", "{item}");
 }
+
+#[tokio::test]
+async fn cancel_deposit_return_restores_active_and_clears_scan_out() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let token = fixtures::ensure_first_setup(&app).await;
+    let site_id = site(&app, &token).await;
+    let lender_id = lender(&app, &token, None).await;
+    let batch_id = batch(&app, &token, lender_id, site_id).await;
+    let (_, items) = copies(&app, &token, 2, None).await;
+    for (item_id, _) in &items {
+        attach(&app, batch_id, site_id, *item_id).await;
+    }
+
+    let (status, _) = app.post_empty(&format!("/api/v1/deposit-batches/{batch_id}/start-return"), Some(&token)).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, scanned) = app
+        .post_json(
+            &format!("/api/v1/deposit-batches/{batch_id}/scan-out"),
+            &json!({"barcode": items[0].1}),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{scanned}");
+
+    let (status, cancelled) = app.post_empty(&format!("/api/v1/deposit-batches/{batch_id}/cancel-return"), Some(&token)).await;
+    assert_eq!(status, StatusCode::OK, "{cancelled}");
+    assert_eq!(cancelled["status"], "active", "{cancelled}");
+
+    let pool = app.state.services.repository.pool();
+    let stamped: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar("SELECT deposit_returned_at FROM items WHERE id = $1")
+        .bind(items[0].0)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert!(stamped.is_none(), "{stamped:?}");
+
+    let (status, noop) = app.post_empty(&format!("/api/v1/deposit-batches/{batch_id}/cancel-return"), Some(&token)).await;
+    assert_eq!(status, StatusCode::OK, "{noop}");
+    assert_eq!(noop["status"], "active", "{noop}");
+
+    let (status, scan_again) = app
+        .post_json(
+            &format!("/api/v1/deposit-batches/{batch_id}/scan-out"),
+            &json!({"barcode": items[0].1}),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{scan_again}");
+    assert_error(&scan_again, "deposit_batch_not_returning");
+}

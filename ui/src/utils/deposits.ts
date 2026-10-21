@@ -86,6 +86,9 @@ export function depositBadgeText(
   language: string,
 ): string | null {
   if (!isDepositCopy(deposit)) return null;
+  if (!deposit.returnDueOn?.trim()) {
+    return t('deposits.badgePermanent', { lender: deposit.lenderName });
+  }
   return t('deposits.badge', {
     lender: deposit.lenderName,
     date: formatCatalogDate(deposit.returnDueOn, language),

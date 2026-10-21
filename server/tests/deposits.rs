@@ -94,6 +94,15 @@ async fn deposit_migration_and_batch_api() {
     .unwrap();
     assert_eq!(nullable, "YES");
 
+    let return_due_nullable: String = sqlx::query_scalar(
+        "SELECT is_nullable FROM information_schema.columns
+         WHERE table_name = 'deposit_batches' AND column_name = 'return_due_on'",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(return_due_nullable, "YES");
+
     let delete_action: String = sqlx::query_scalar(
         "SELECT confdeltype::text
          FROM pg_constraint
@@ -140,6 +149,21 @@ async fn deposit_migration_and_batch_api() {
         .unwrap()
         .iter()
         .any(|row| fixtures::json_id(&row["id"]) == spare_id && row["archivedAt"].is_string()));
+
+    let (status, permanent) = app
+        .post_json(
+            "/api/v1/deposit-batches",
+            &json!({
+                "lenderId": lender_id.to_string(),
+                "reference": format!("PERM-{}", fixtures::unique_token()),
+                "siteId": site_id.to_string(),
+                "arrivedOn": "2026-03-01"
+            }),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{permanent}");
+    assert!(permanent["returnDueOn"].is_null(), "{permanent}");
 
     let batch_id = batch(&app, &token, lender_id, site_id).await;
     let (status, detail) = app.get_json_with_auth(&format!("/api/v1/deposit-batches/{batch_id}"), &token).await;

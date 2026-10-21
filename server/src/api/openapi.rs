@@ -215,6 +215,7 @@ use crate::api::{
         deposits::update_deposit_batch,
         deposits::list_deposit_batch_items,
         deposits::start_deposit_return,
+        deposits::cancel_deposit_return,
         deposits::scan_out_deposit_copy,
         deposits::close_deposit_batch,
         // Equipment

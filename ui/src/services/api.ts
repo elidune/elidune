@@ -1796,6 +1796,12 @@ class ApiService {
     return response.data;
   }
 
+  /** `returning` → `active`. Clears scan-out timestamps on the batch copies. */
+  async cancelDepositReturn(id: string): Promise<DepositBatch> {
+    const response = await this.client.post<DepositBatch>(`/deposit-batches/${id}/cancel-return`);
+    return response.data;
+  }
+
   /**
    * Marks one copy returned. Idempotent. Provided by server PR 2.
    * `alreadyScanned` is assumed when the copy was already scanned out.

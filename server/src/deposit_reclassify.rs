@@ -291,7 +291,7 @@ pub struct Report {
     #[serde_as(as = "DisplayFromStr")]
     pub site_id: i64,
     pub arrived_on: NaiveDate,
-    pub return_due_on: NaiveDate,
+    pub return_due_on: Option<NaiveDate>,
     pub notes: Option<String>,
     pub warnings: Vec<ReportWarning>,
     /// Copies whose `source_id` is still `--from-site` after this run.
@@ -383,7 +383,7 @@ struct BatchRow {
     status: String,
     site_id: i64,
     arrived_on: NaiveDate,
-    return_due_on: NaiveDate,
+    return_due_on: Option<NaiveDate>,
     notes: Option<String>,
 }
 
@@ -391,13 +391,13 @@ struct ResolvedBatch {
     id: Option<i64>,
     action: BatchAction,
     arrived_on: NaiveDate,
-    return_due_on: NaiveDate,
+    return_due_on: Option<NaiveDate>,
     notes: Option<String>,
 }
 
 struct NewBatch {
     arrived_on: NaiveDate,
-    return_due_on: NaiveDate,
+    return_due_on: Option<NaiveDate>,
     notes: Option<String>,
 }
 
@@ -753,7 +753,7 @@ async fn execute_in_tx(tx: &mut Tx<'_>, command: &ReclassifyCommand) -> Result<R
         let batch_id = batch.id.ok_or_else(|| ReclassifyFailure::failed("batch id missing during apply"))?;
         apply_updates(tx, command, batch_id, &planned).await?;
     }
-    let mut warnings = report_warnings(batch.return_due_on);
+    let mut warnings = report_warnings(batch.return_due_on.as_ref());
     if let Some(warning) = from_site_warning(tx, command).await? {
         warnings.push(warning);
     }
@@ -925,9 +925,12 @@ async fn from_site_warning(tx: &mut Tx<'_>, command: &ReclassifyCommand) -> Resu
 /// The date that will apply is the new batch's `--return-due-on`, or the stored
 /// date when an existing batch is reused. Today is the UTC date, matching
 /// `cap_loan_due_date`: a due date of today already blocks checkout.
-fn report_warnings(return_due_on: NaiveDate) -> Vec<ReportWarning> {
+fn report_warnings(return_due_on: Option<&NaiveDate>) -> Vec<ReportWarning> {
     let mut warnings = Vec::new();
-    if return_due_on <= Utc::now().date_naive() {
+    let Some(return_due_on) = return_due_on else {
+        return warnings;
+    };
+    if *return_due_on <= Utc::now().date_naive() {
         warnings.push(ReportWarning {
             code: RETURN_DUE_ON_PAST.to_string(),
             message: format!("return due date {return_due_on} is today or in the past; copies will immediately be refused for loans (deposit_return_due) and holds"),
@@ -957,16 +960,17 @@ async fn remaining_on_old_site(tx: &mut Tx<'_>, command: &ReclassifyCommand, pla
 }
 
 fn plan_new_batch(command: &ReclassifyCommand) -> Result<NewBatch, ReclassifyFailure> {
-    let return_due_on = command
-        .return_due_on
-        .ok_or_else(|| ReclassifyFailure::invalid("--return-due-on is required when the deposit batch does not already exist"))?;
     let arrived_on = command.received_on.unwrap_or_else(|| Utc::now().date_naive());
-    if return_due_on < arrived_on {
-        return Err(ReclassifyFailure::invalid("return-due-on must be on or after received-on (today when --received-on is omitted)"));
+    if let Some(return_due_on) = command.return_due_on {
+        if return_due_on < arrived_on {
+            return Err(ReclassifyFailure::invalid(
+                "return-due-on must be on or after received-on (today when --received-on is omitted)",
+            ));
+        }
     }
     Ok(NewBatch {
         arrived_on,
-        return_due_on,
+        return_due_on: command.return_due_on,
         notes: command.notes.clone(),
     })
 }
@@ -1256,7 +1260,16 @@ fn render_text(report: &Report) -> String {
     push_line(&mut out, format!("batch_id={}", report.batch_id.map(|id| id.to_string()).unwrap_or_default()));
     push_line(&mut out, format!("site_id={}", report.site_id));
     push_line(&mut out, format!("arrived_on={}", report.arrived_on));
-    push_line(&mut out, format!("return_due_on={}", report.return_due_on));
+    push_line(
+        &mut out,
+        format!(
+            "return_due_on={}",
+            report
+                .return_due_on
+                .map(|date| date.to_string())
+                .unwrap_or_default()
+        ),
+    );
     for line in &report.items {
         push_line(&mut out, format_line(line));
     }
@@ -1436,7 +1449,7 @@ mod tests {
             batch_action: super::BatchAction::Create,
             site_id: 4,
             arrived_on: NaiveDate::from_ymd_opt(2026, 3, 1).unwrap(),
-            return_due_on: NaiveDate::from_ymd_opt(2026, 9, 1).unwrap(),
+            return_due_on: Some(NaiveDate::from_ymd_opt(2026, 9, 1).unwrap()),
             notes: None,
             warnings: Vec::new(),
             remaining_on_old_site: None,
@@ -1475,7 +1488,7 @@ mod tests {
         assert!(json.contains("\"barcode_unknown\""));
         assert!(json.contains("\"possible_duplicate_record\""));
         assert!(json.contains("\"warnings\": []"));
-        assert!(json.contains("\"remainingOnOldSource\": null"));
+        assert!(json.contains("\"remainingOnOldSite\": null"));
     }
 
     #[test]
@@ -1489,7 +1502,7 @@ mod tests {
             batch_action: super::BatchAction::Create,
             site_id: 4,
             arrived_on: NaiveDate::from_ymd_opt(2020, 1, 1).unwrap(),
-            return_due_on: NaiveDate::from_ymd_opt(2020, 6, 1).unwrap(),
+            return_due_on: Some(NaiveDate::from_ymd_opt(2020, 6, 1).unwrap()),
             notes: None,
             warnings: vec![super::ReportWarning {
                 code: "return_due_on_past".into(),

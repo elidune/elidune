@@ -247,14 +247,14 @@ async fn dry_run_writes_nothing_apply_is_idempotent_and_reports_duplicates() {
     assert!(applied.applied);
     assert_eq!(applied.batch_action, BatchAction::Create);
     let batch_id = applied.batch_id.expect("created batch");
-    let (arrived, due_on, notes, status, batch_site): (chrono::NaiveDate, chrono::NaiveDate, Option<String>, String, i64) =
+    let (arrived, due_on, notes, status, batch_site): (chrono::NaiveDate, Option<chrono::NaiveDate>, Option<String>, String, i64) =
         sqlx::query_as("SELECT arrived_on, return_due_on, notes, status, site_id FROM deposit_batches WHERE id = $1")
             .bind(batch_id)
             .fetch_one(pool)
             .await
             .unwrap();
     assert_eq!(arrived, chrono::NaiveDate::from_ymd_opt(2027, 3, 1).unwrap());
-    assert_eq!(due_on, chrono::NaiveDate::from_ymd_opt(2027, 9, 1).unwrap());
+    assert_eq!(due_on, Some(chrono::NaiveDate::from_ymd_opt(2027, 9, 1).unwrap()));
     assert_eq!(notes.as_deref(), Some("historical import"));
     assert_eq!(status, "active");
     assert_eq!(batch_site, site_id);
@@ -623,18 +623,18 @@ async fn batch_reuse_creation_and_invalid_arguments_write_nothing() {
         .expect_err("unknown lender");
     assert!(err.to_string().contains("does not exist"));
 
-    let mut missing_date = command(lender_id, &format!("NODATE-{token}"), site_id, Selection::Barcodes(vec![format!("FRESH-{token}")]), true);
-    missing_date.return_due_on = None;
-    let err = execute(pool, &missing_date).await.expect_err("missing date");
-    assert!(err.to_string().contains("return-due-on"));
-    let created: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM deposit_batches WHERE lender_id = $1 AND reference = $2")
-        .bind(lender_id)
-        .bind(format!("NODATE-{token}"))
+    let mut permanent = command(lender_id, &format!("NODATE-{token}"), site_id, Selection::Barcodes(vec![format!("FRESH-{token}")]), true);
+    permanent.return_due_on = None;
+    let report = execute(pool, &permanent).await.expect("permanent batch without return date");
+    assert_eq!(report.batch_action, BatchAction::Create);
+    assert!(report.return_due_on.is_none());
+    let stored: Option<chrono::NaiveDate> = sqlx::query_scalar("SELECT return_due_on FROM deposit_batches WHERE id = $1")
+        .bind(report.batch_id.unwrap())
         .fetch_one(pool)
         .await
         .unwrap();
-    assert_eq!(created, 0);
-    assert_eq!(item_place(pool, fresh).await.1, Some(old_source));
+    assert!(stored.is_none());
+    assert_eq!(item_place(pool, fresh).await.0, report.batch_id);
 
     let err = execute(
         pool,
@@ -785,7 +785,7 @@ async fn past_or_today_return_due_warns_and_still_applies() {
     assert_eq!(warning_codes(&reuse_report), vec!["return_due_on_past"]);
     assert!(reuse_report.warnings[0].message.contains("2024-08-01"));
     assert!(!reuse_report.warnings[0].message.contains("2027-09-01"));
-    assert_eq!(reuse_report.return_due_on, chrono::NaiveDate::from_ymd_opt(2024, 8, 1).unwrap());
+    assert_eq!(reuse_report.return_due_on, Some(chrono::NaiveDate::from_ymd_opt(2024, 8, 1).unwrap()));
     assert_eq!(item_place(pool, reuse_item).await.1, Some(site_id));
 
     let future_barcode = format!("FUTURE-{token}");

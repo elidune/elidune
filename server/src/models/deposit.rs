@@ -200,7 +200,8 @@ pub struct DepositBatch {
     #[schema(value_type = String)]
     pub site_id: i64,
     pub arrived_on: NaiveDate,
-    pub return_due_on: NaiveDate,
+    /// Null means the batch has no fixed return date yet (permanent deposit).
+    pub return_due_on: Option<NaiveDate>,
     pub status: DepositBatchStatus,
     pub closed_at: Option<DateTime<Utc>>,
     pub notes: Option<String>,
@@ -242,7 +243,8 @@ pub struct CreateDepositBatch {
     #[schema(value_type = String)]
     pub site_id: i64,
     pub arrived_on: NaiveDate,
-    pub return_due_on: NaiveDate,
+    /// Omit for a permanent deposit; set later via `PATCH /deposit-batches/{id}`.
+    pub return_due_on: Option<NaiveDate>,
     #[validate(length(max = 4000))]
     pub notes: Option<String>,
 }
@@ -311,7 +313,7 @@ pub struct ItemDeposit {
     pub lender_id: i64,
     pub lender_name: String,
     pub reference: String,
-    pub return_due_on: NaiveDate,
+    pub return_due_on: Option<NaiveDate>,
     pub batch_status: DepositBatchStatus,
     /// When staff recorded that the lender was told this copy was lost or damaged.
     /// Null until `POST /items/{id}/deposit-loss-notified`.
@@ -329,19 +331,23 @@ pub fn own_stock_sql(item_alias: &str) -> String {
 /// True when copy alias `i` must not be assigned to a hold.
 ///
 /// The batch is `returning` or `closed`, or `return_due_on` is before today
-/// in the library timezone. Own stock (`deposit_batch_id` NULL) is holdable.
+/// in the library timezone. Batches without a return date are holdable while active.
+/// Own stock (`deposit_batch_id` NULL) is holdable.
 pub const DEPOSIT_COPY_NOT_HOLDABLE_SQL: &str = r#"
 EXISTS (
     SELECT 1 FROM deposit_batches deposit_hold_batch
     WHERE deposit_hold_batch.id = i.deposit_batch_id
       AND (
           deposit_hold_batch.status IN ('returning', 'closed')
-          OR deposit_hold_batch.return_due_on < (
-              CURRENT_TIMESTAMP AT TIME ZONE COALESCE(
-                  (SELECT li.timezone FROM library_info li WHERE li.id = 1),
-                  'Europe/Paris'
-              )
-          )::date
+          OR (
+              deposit_hold_batch.return_due_on IS NOT NULL
+              AND deposit_hold_batch.return_due_on < (
+                  CURRENT_TIMESTAMP AT TIME ZONE COALESCE(
+                      (SELECT li.timezone FROM library_info li WHERE li.id = 1),
+                      'Europe/Paris'
+                  )
+              )::date
+          )
       )
 )
 "#;
@@ -539,7 +545,10 @@ ELSE jsonb_build_object(
     'lenderId', deposit_batch.lender_id::text,
     'lenderName', deposit_lender.name,
     'reference', deposit_batch.reference,
-    'returnDueOn', to_char(deposit_batch.return_due_on, 'YYYY-MM-DD'),
+    'returnDueOn', CASE
+        WHEN deposit_batch.return_due_on IS NULL THEN NULL
+        ELSE to_char(deposit_batch.return_due_on, 'YYYY-MM-DD')
+    END,
     'batchStatus', deposit_batch.status,
     'depositLossNotifiedAt', CASE
         WHEN {alias}.deposit_loss_notified_at IS NULL THEN NULL

@@ -266,6 +266,7 @@ pub mod event {
     pub const DEPOSIT_BATCH_CREATED: &str = "deposit_batch.created";
     pub const DEPOSIT_BATCH_UPDATED: &str = "deposit_batch.updated";
     pub const DEPOSIT_BATCH_RETURN_STARTED: &str = "deposit_batch.return_started";
+    pub const DEPOSIT_BATCH_RETURN_CANCELLED: &str = "deposit_batch.return_cancelled";
     pub const DEPOSIT_BATCH_SCANNED_OUT: &str = "deposit_batch.scanned_out";
     pub const DEPOSIT_BATCH_CLOSED: &str = "deposit_batch.closed";
     /// One historical copy moved onto a deposit batch by the `reclassify-deposits` script.

@@ -81,7 +81,7 @@ export function DepositBatchesPanel() {
         reference: reference.trim(),
         siteId,
         arrivedOn,
-        returnDueOn,
+        returnDueOn: returnDueOn.trim() || null,
         notes: notes.trim() || null,
       }),
     onSuccess: (batch) => {
@@ -160,7 +160,10 @@ export function DepositBatchesPanel() {
             {
               key: 'return',
               header: t('deposits.returnDueOn'),
-              render: (batch: DepositBatch) => formatCatalogDate(batch.returnDueOn, i18n.language),
+              render: (batch: DepositBatch) =>
+                batch.returnDueOn
+                  ? formatCatalogDate(batch.returnDueOn, i18n.language)
+                  : t('deposits.returnDueOpen'),
             },
             {
               key: 'status',
@@ -192,7 +195,7 @@ export function DepositBatchesPanel() {
             <Button
               type="button"
               isLoading={createMutation.isPending}
-              disabled={!lenderId || !reference.trim() || !siteId || !arrivedOn || !returnDueOn}
+              disabled={!lenderId || !reference.trim() || !siteId || !arrivedOn}
               onClick={() => createMutation.mutate()}
             >
               {t('common.create')}
@@ -211,7 +214,13 @@ export function DepositBatchesPanel() {
           />
           <Input label={t('deposits.reference')} value={reference} onChange={(event) => setReference(event.target.value)} required />
           <Input label={t('deposits.arrivedOn')} type="date" value={arrivedOn} onChange={(event) => setArrivedOn(event.target.value)} required />
-          <Input label={t('deposits.returnDueOn')} type="date" value={returnDueOn} onChange={(event) => setReturnDueOn(event.target.value)} required />
+          <Input
+            label={t('deposits.returnDueOn')}
+            type="date"
+            value={returnDueOn}
+            onChange={(event) => setReturnDueOn(event.target.value)}
+            hint={t('deposits.returnDueOnOptionalHint')}
+          />
           <Input label={t('deposits.notes')} value={notes} onChange={(event) => setNotes(event.target.value)} />
           {formError ? <p className="text-sm text-red-600 dark:text-red-400">{formError}</p> : null}
         </div>

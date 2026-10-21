@@ -110,6 +110,7 @@
     "pageSubtitle": "Lots reçus en prêt et prêteurs partenaires.",
     "sectionNav": "Sections dépôts",
     "badge": "Dépôt · {{lender}} · retour le {{date}}",
+    "badgePermanent": "Dépôt · {{lender}} · sans date de retour",
     "dueDateCapped": "Échéance ramenée au {{date}} (retour du dépôt)",
     "dueDateCappedUnknown": "Échéance ramenée à la date de retour du dépôt",
     "returnToLender": "À renvoyer au prêteur ({{lender}}) — ne pas remettre en rayon",
@@ -122,6 +123,8 @@
     "reference": "Référence",
     "arrivedOn": "Date d’arrivée",
     "returnDueOn": "Date de retour",
+    "returnDueOpen": "Non définie",
+    "returnDueOnOptionalHint": "Laisser vide pour un dépôt permanent. La date pourra être ajoutée plus tard.",
     "notes": "Notes",
     "filter": {
       "label": "Dépôts",
@@ -186,6 +189,9 @@
     "batch": {
       "startReturn": "Lancer le retour",
       "returnStarted": "Retour lancé",
+      "cancelReturn": "Annuler le retour",
+      "cancelReturnConfirm": "Remettre ce lot en actif ? Les horodatages de sortie des exemplaires sont effacés. Les réservations détachées au lancement du retour ne sont pas rétablies automatiquement.",
+      "returnCancelled": "Retour annulé",
       "scanTitle": "Sortie des exemplaires",
       "scanHint": "Scanner chaque exemplaire. Un exemplaire déjà scanné le reste.",
       "scanOut": "Scanner la sortie",
@@ -203,6 +209,7 @@
       "missingCopies": "Manquants",
       "print": "Imprimer",
       "openRecord": "Ouvrir la notice",
+      "importNotices": "Import de notices",
       "marcImportTitle": "Import MARC",
       "marcImportSubtitle": "Ajoutez des notices et des exemplaires à ce lot. Les doublons ISBN sont rattachés sans remplacer le fonds propre."
     },

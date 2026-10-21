@@ -165,8 +165,10 @@ impl DepositsService {
         if data.reference.trim().is_empty() {
             return Err(AppError::Validation("Deposit batch reference is required".into()));
         }
-        if data.return_due_on < data.arrived_on {
-            return Err(AppError::Validation("returnDueOn must be on or after arrivedOn".into()));
+        if let Some(return_due_on) = data.return_due_on {
+            if return_due_on < data.arrived_on {
+                return Err(AppError::Validation("returnDueOn must be on or after arrivedOn".into()));
+            }
         }
         self.repository.lenders_get(data.lender_id).await?;
         self.require_site(data.site_id).await?;
@@ -183,6 +185,10 @@ impl DepositsService {
 
     pub async fn start_return(&self, id: i64) -> AppResult<DepositBatch> {
         self.repository.deposit_batches_start_return(id).await
+    }
+
+    pub async fn cancel_return(&self, id: i64) -> AppResult<DepositBatch> {
+        self.repository.deposit_batches_cancel_return(id).await
     }
 
     pub async fn scan_out(&self, id: i64, barcode: &str) -> AppResult<crate::models::deposit::DepositScanOut> {

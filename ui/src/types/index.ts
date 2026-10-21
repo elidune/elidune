@@ -685,7 +685,7 @@ export interface ItemDeposit {
   lenderId: string;
   lenderName: string;
   reference: string;
-  returnDueOn: string;
+  returnDueOn: string | null;
   batchStatus: DepositBatchStatus;
 }
 
@@ -719,7 +719,7 @@ export interface DepositBatch {
   reference: string;
   siteId: string;
   arrivedOn: string;
-  returnDueOn: string;
+  returnDueOn: string | null;
   status: DepositBatchStatus;
   closedAt: string | null;
   notes: string | null;
@@ -745,7 +745,7 @@ export interface CreateDepositBatch {
   reference: string;
   siteId: string;
   arrivedOn: string;
-  returnDueOn: string;
+  returnDueOn?: string | null;
   notes?: string | null;
 }
 

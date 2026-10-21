@@ -110,6 +110,7 @@
     "pageSubtitle": "Lotes recibidos en préstamo y prestamistas asociados.",
     "sectionNav": "Secciones de depósitos",
     "badge": "Depósito · {{lender}} · devolución el {{date}}",
+    "badgePermanent": "Depósito · {{lender}} · sin fecha de devolución",
     "dueDateCapped": "Vencimiento adelantado al {{date}} (devolución del depósito)",
     "dueDateCappedUnknown": "Vencimiento adelantado a la fecha de devolución del depósito",
     "returnToLender": "Devolver al prestamista ({{lender}}) — no reponer en la estantería",
@@ -122,6 +123,8 @@
     "reference": "Referencia",
     "arrivedOn": "Fecha de llegada",
     "returnDueOn": "Fecha de devolución",
+    "returnDueOpen": "Sin definir",
+    "returnDueOnOptionalHint": "Dejar vacío para un depósito permanente. La fecha se puede fijar más tarde.",
     "notes": "Notas",
     "filter": {
       "label": "Depósitos",
@@ -186,6 +189,9 @@
     "batch": {
       "startReturn": "Iniciar la devolución",
       "returnStarted": "Devolución iniciada",
+      "cancelReturn": "Cancelar la devolución",
+      "cancelReturnConfirm": "¿Volver a dejar este lote activo? Se borran las marcas de salida de los ejemplares. Las reservas desvinculadas al iniciar la devolución no se restauran automáticamente.",
+      "returnCancelled": "Devolución cancelada",
       "scanTitle": "Salida de ejemplares",
       "scanHint": "Escanee cada ejemplar. Un ejemplar ya escaneado sigue escaneado.",
       "scanOut": "Registrar salida",
@@ -203,6 +209,7 @@
       "missingCopies": "Faltantes",
       "print": "Imprimir",
       "openRecord": "Abrir el registro",
+      "importNotices": "Importar registros",
       "marcImportTitle": "Importación MARC",
       "marcImportSubtitle": "Añada registros y ejemplares a este lote. Los ISBN duplicados se vinculan sin reemplazar el fondo propio."
     },

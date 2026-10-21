@@ -110,6 +110,7 @@
     "pageSubtitle": "Incoming loan batches and partner lenders.",
     "sectionNav": "Deposit sections",
     "badge": "Deposit · {{lender}} · return on {{date}}",
+    "badgePermanent": "Deposit · {{lender}} · no return date",
     "dueDateCapped": "Due date brought forward to {{date}} (deposit return)",
     "dueDateCappedUnknown": "Due date brought forward to the deposit return date",
     "returnToLender": "Send back to the lender ({{lender}}) — do not shelve",
@@ -122,6 +123,8 @@
     "reference": "Reference",
     "arrivedOn": "Arrival date",
     "returnDueOn": "Return date",
+    "returnDueOpen": "Not set",
+    "returnDueOnOptionalHint": "Leave empty for a permanent deposit. You can set the date later.",
     "notes": "Notes",
     "filter": {
       "label": "Deposits",
@@ -186,6 +189,9 @@
     "batch": {
       "startReturn": "Start the return",
       "returnStarted": "Return started",
+      "cancelReturn": "Cancel the return",
+      "cancelReturnConfirm": "Put this batch back to active? Scan-out timestamps on its copies are cleared. Holds detached when the return started are not restored automatically.",
+      "returnCancelled": "Return cancelled",
       "scanTitle": "Scan copies out",
       "scanHint": "Scan each copy. A copy already scanned stays scanned.",
       "scanOut": "Scan out",
@@ -203,6 +209,7 @@
       "missingCopies": "Missing",
       "print": "Print",
       "openRecord": "Open record",
+      "importNotices": "Import records",
       "marcImportTitle": "MARC import",
       "marcImportSubtitle": "Add records and copies to this batch. Duplicate ISBNs attach without replacing own stock."
     },

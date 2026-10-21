@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Library } from 'lucide-react';
+import { ChevronDown, Library } from 'lucide-react';
 import { Badge, Button, Card, CardHeader, ConfirmDialog, Input, Modal, QueryErrorBanner, Table } from '@/components/common';
 import { MarcImportWorkflow } from '@/pages/ImportIsoPage';
 import ReturnToLenderNotice from '@/components/items/ReturnToLenderNotice';
@@ -83,6 +83,8 @@ export default function DepositBatchDetailPage() {
   const [closeRefusal, setCloseRefusal] = useState<{ message: string; copies: DepositActiveLoanCopy[] } | null>(null);
   const [returnToLenderMessage, setReturnToLenderMessage] = useState<string | null>(null);
   const [returnedBarcodes, setReturnedBarcodes] = useState<Set<string>>(new Set());
+  const [marcImportOpen, setMarcImportOpen] = useState(false);
+  const marcImportPanelId = `deposit-marc-import-${id}`;
 
   const detailQuery = useQuery({
     queryKey: ['deposit-batch', id],
@@ -137,7 +139,7 @@ export default function DepositBatchDetailPage() {
   const updateMutation = useMutation({
     mutationFn: () =>
       api.updateDepositBatch(id, {
-        returnDueOn,
+        ...(returnDueOn.trim() ? { returnDueOn: returnDueOn.trim() } : {}),
         siteId,
         notes: notes.trim() || null,
       }),
@@ -155,6 +157,22 @@ export default function DepositBatchDetailPage() {
       void refresh();
       showToast({ variant: 'success', message: t('deposits.batch.returnStarted') });
       requestAnimationFrame(() => scanRef.current?.focus());
+    },
+    onError: (error: unknown) => showToast({ variant: 'error', message: getApiErrorMessage(error, t) }),
+  });
+
+  const [confirmCancelReturn, setConfirmCancelReturn] = useState(false);
+
+  const cancelReturnMutation = useMutation({
+    mutationFn: () => api.cancelDepositReturn(id),
+    onSuccess: () => {
+      setConfirmCancelReturn(false);
+      setScanNotice(null);
+      setReturnToLenderMessage(null);
+      setReturnedBarcodes(new Set());
+      void refresh();
+      void queryClient.invalidateQueries({ queryKey: ['deposit-batch', id, 'items'] });
+      showToast({ variant: 'success', message: t('deposits.batch.returnCancelled') });
     },
     onError: (error: unknown) => showToast({ variant: 'error', message: getApiErrorMessage(error, t) }),
   });
@@ -208,7 +226,7 @@ export default function DepositBatchDetailPage() {
 
   const openEdit = () => {
     if (!batch) return;
-    setReturnDueOn(batch.returnDueOn);
+    setReturnDueOn(batch.returnDueOn ?? '');
     setSiteId(batch.siteId);
     setNotes(batch.notes ?? '');
     setFormError(null);
@@ -219,32 +237,88 @@ export default function DepositBatchDetailPage() {
 
   return (
     <div className={APP_PAGE_CLASS}>
-      <div className="flex items-start gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-800">
-          <Library className="h-6 w-6 text-gray-700 dark:text-gray-200" aria-hidden />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm">
-            <Link to="/deposits" className="text-indigo-700 hover:underline dark:text-indigo-300">
-              {t('deposits.batches.title')}
-            </Link>
-          </p>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-            {batch?.reference ?? t('deposits.batches.title')}
-          </h1>
-          {batch ? (
-            <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
-              {lenderName} · {siteName(batch.siteId)} · {t('deposits.returnDueOn')}{' '}
-              {formatCatalogDate(batch.returnDueOn, i18n.language)}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-800">
+            <Library className="h-6 w-6 text-gray-700 dark:text-gray-200" aria-hidden />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm">
+              <Link to="/deposits" className="text-indigo-700 hover:underline dark:text-indigo-300">
+                {t('deposits.batches.title')}
+              </Link>
             </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+                {batch?.reference ?? t('deposits.batches.title')}
+              </h1>
+              {batch ? (
+                <Badge variant={batch.status === 'active' ? 'success' : batch.status === 'returning' ? 'warning' : 'default'}>
+                  {t(`deposits.status.${batch.status}`)}
+                </Badge>
+              ) : null}
+            </div>
+            {batch ? (
+              <p className="mt-1 text-sm text-gray-600 dark:text-gray-300">
+                {lenderName} · {siteName(batch.siteId)} · {t('deposits.returnDueOn')}{' '}
+                {batch.returnDueOn
+                  ? formatCatalogDate(batch.returnDueOn, i18n.language)
+                  : t('deposits.returnDueOpen')}
+              </p>
+            ) : null}
+          </div>
+        </div>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          {canWrite && batch?.status === 'active' ? (
+            <>
+              <Button type="button" variant="secondary" onClick={openEdit}>
+                {t('common.edit')}
+              </Button>
+              <Button
+                type="button"
+                variant={marcImportOpen ? 'primary' : 'secondary'}
+                aria-expanded={marcImportOpen}
+                aria-pressed={marcImportOpen}
+                aria-controls={marcImportPanelId}
+                rightIcon={
+                  <ChevronDown
+                    className={`h-4 w-4 transition-transform duration-200 ${marcImportOpen ? 'rotate-180' : ''}`}
+                    aria-hidden
+                  />
+                }
+                onClick={() => setMarcImportOpen((open) => !open)}
+              >
+                {t('deposits.batch.importNotices')}
+              </Button>
+              <Button type="button" onClick={() => startReturnMutation.mutate()} isLoading={startReturnMutation.isPending}>
+                {t('deposits.batch.startReturn')}
+              </Button>
+            </>
           ) : null}
         </div>
-        {batch ? (
-          <Badge variant={batch.status === 'active' ? 'success' : batch.status === 'returning' ? 'warning' : 'default'}>
-            {t(`deposits.status.${batch.status}`)}
-          </Badge>
-        ) : null}
       </div>
+
+      {canWrite && batch?.status === 'active' && marcImportOpen ? (
+        <div
+          id={marcImportPanelId}
+          className="w-full rounded-lg border border-amber-200/80 bg-white p-4 shadow-sm dark:border-amber-900/50 dark:bg-gray-900"
+        >
+          <p className="mb-3 text-sm text-gray-600 dark:text-gray-300">{t('deposits.batch.marcImportSubtitle')}</p>
+          <MarcImportWorkflow
+            layout="embedded"
+            showDepositHeader={false}
+            depositContext={{
+              batchId: batch.id,
+              siteId: batch.siteId,
+              reference: batch.reference,
+            }}
+            onDepositItemsChanged={() => {
+              void queryClient.invalidateQueries({ queryKey: ['deposit-batch', id] });
+              void queryClient.invalidateQueries({ queryKey: ['deposit-batch', id, 'items'] });
+            }}
+          />
+        </div>
+      ) : null}
 
       {detailQuery.isError ? (
         <QueryErrorBanner message={getApiErrorMessage(detailQuery.error, t)} onRetry={() => void detailQuery.refetch()} />
@@ -272,32 +346,6 @@ export default function DepositBatchDetailPage() {
         <Card>
           <CardHeader title={t('deposits.notes')} />
           <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap">{batch.notes}</p>
-        </Card>
-      ) : null}
-
-      {canWrite && batch?.status === 'active' ? (
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="secondary" onClick={openEdit}>{t('common.edit')}</Button>
-          <Button type="button" onClick={() => startReturnMutation.mutate()} isLoading={startReturnMutation.isPending}>
-            {t('deposits.batch.startReturn')}
-          </Button>
-        </div>
-      ) : null}
-
-      {canWrite && batch?.status === 'active' ? (
-        <Card>
-          <MarcImportWorkflow
-            layout="embedded"
-            depositContext={{
-              batchId: batch.id,
-              siteId: batch.siteId,
-              reference: batch.reference,
-            }}
-            onDepositItemsChanged={() => {
-              void queryClient.invalidateQueries({ queryKey: ['deposit-batch', id] });
-              void queryClient.invalidateQueries({ queryKey: ['deposit-batch', id, 'items'] });
-            }}
-          />
         </Card>
       ) : null}
 
@@ -367,7 +415,15 @@ export default function DepositBatchDetailPage() {
               ) : null}
             </div>
           ) : null}
-          <div className="mt-4">
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              isLoading={cancelReturnMutation.isPending}
+              onClick={() => setConfirmCancelReturn(true)}
+            >
+              {t('deposits.batch.cancelReturn')}
+            </Button>
             <Button
               type="button"
               variant="danger"
@@ -469,7 +525,13 @@ export default function DepositBatchDetailPage() {
               ))}
             </select>
           </div>
-          <Input label={t('deposits.returnDueOn')} type="date" value={returnDueOn} onChange={(event) => setReturnDueOn(event.target.value)} />
+          <Input
+            label={t('deposits.returnDueOn')}
+            type="date"
+            value={returnDueOn}
+            onChange={(event) => setReturnDueOn(event.target.value)}
+            hint={t('deposits.returnDueOnOptionalHint')}
+          />
           <Input label={t('deposits.notes')} value={notes} onChange={(event) => setNotes(event.target.value)} />
           {formError ? <p className="text-sm text-red-600 dark:text-red-400">{formError}</p> : null}
         </div>
@@ -484,6 +546,16 @@ export default function DepositBatchDetailPage() {
         confirmLabel={t('deposits.batch.close')}
         confirmVariant="danger"
         isLoading={closeMutation.isPending}
+      />
+
+      <ConfirmDialog
+        isOpen={confirmCancelReturn}
+        onClose={() => setConfirmCancelReturn(false)}
+        onConfirm={() => cancelReturnMutation.mutate()}
+        title={t('deposits.batch.cancelReturn')}
+        message={t('deposits.batch.cancelReturnConfirm')}
+        confirmLabel={t('deposits.batch.cancelReturn')}
+        isLoading={cancelReturnMutation.isPending}
       />
     </div>
   );

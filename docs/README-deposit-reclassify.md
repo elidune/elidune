@@ -41,9 +41,9 @@ elidune-server reclassify-deposits \
 
 When `--from-source` holds copies in more than one deposit batch, or copies with an open loan checked out at a site other than `--site`, the report adds a `from_source_mixed` warning with the total number of those copies. A loan with no site is not counted. The command still reclassifies.
 
-`--return-due-on` is required only when no batch with that reference exists for the lender. `--received-on` maps to `arrived_on` and defaults to today (UTC) when the batch is created. When the reference already exists and the batch is `active`, it is reused and those fields are left unchanged. A batch in any other status is refused and nothing is written. When that existing batch's site is not `--site`, the command exits non-zero with `deposit_site_mismatch` and writes nothing.
+`--return-due-on` is optional when no batch with that reference exists for the lender (permanent deposit until staff set a date in the UI). `--received-on` maps to `arrived_on` and defaults to today (UTC) when the batch is created. When the reference already exists and the batch is `active`, it is reused and those fields are left unchanged. A batch in any other status is refused and nothing is written. When that existing batch's site is not `--site`, the command exits non-zero with `deposit_site_mismatch` and writes nothing.
 
-Use a return date after today. If `--return-due-on` (or the reused batch's `return_due_on`) is today or earlier, the report still runs, and a `return_due_on_past` warning at the top explains that the copies will immediately be refused for loans (`deposit_return_due`) and holds.
+When a return date is set, use a date after today. If `--return-due-on` (or the reused batch's `return_due_on`) is today or earlier, the report still runs, and a `return_due_on_past` warning at the top explains that the copies will immediately be refused for loans (`deposit_return_due`) and holds. Batches with no return date skip that warning and are not capped by a deposit return date.
 
 `--format json` prints the same report as camelCase JSON. Ids in that JSON are decimal strings.
 
