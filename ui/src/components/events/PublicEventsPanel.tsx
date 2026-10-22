@@ -5,7 +5,7 @@ import EventAttachmentLead from './EventAttachmentLead';
 import EventPublicOverlay from './EventPublicOverlay';
 import PublicEventDetailsContent from './PublicEventDetailsContent';
 import { formatEventListWhenCaption } from './eventDateFormat';
-import { APP_LIST_SCROLL_ROOT_CLASS } from '@/components/common';
+import { APP_LIST_SCROLL_ROOT_CLASS, Button } from '@/components/common';
 import { usePublicEventsInfiniteQuery } from '@/hooks/events/usePublicEventsInfiniteQuery';
 import { eventTimesFromRow, isPastEventDate } from '@/utils/eventTimes';
 import { usePublicTypesQuery } from '@/hooks/usePublicTypesQuery';
@@ -13,6 +13,8 @@ import { usePublicTypesQuery } from '@/hooks/usePublicTypesQuery';
 export interface PublicEventsPanelProps {
   queryKey?: readonly unknown[];
   emptyMessage: string;
+  onEdit?: (event: Event) => void;
+  onDelete?: (event: Event) => void;
 }
 
 function compareUpcomingEvents(a: Event, b: Event): number {
@@ -59,10 +61,18 @@ interface PublicEventCardProps {
   event: Event;
   publicTypes: PublicType[];
   dimmed?: boolean;
+  onEdit?: (event: Event) => void;
+  onDelete?: (event: Event) => void;
 }
 
-function PublicEventCard({ event, publicTypes, dimmed = false }: PublicEventCardProps) {
-  const { i18n } = useTranslation();
+function PublicEventCard({
+  event,
+  publicTypes,
+  dimmed = false,
+  onEdit,
+  onDelete,
+}: PublicEventCardProps) {
+  const { t, i18n } = useTranslation();
   const [overlayOpen, setOverlayOpen] = useState(false);
   const { startTime, endTime } = eventTimesFromRow(event);
   const whenLine = formatEventListWhenCaption(
@@ -77,32 +87,55 @@ function PublicEventCard({ event, publicTypes, dimmed = false }: PublicEventCard
   return (
     <>
       <article
-        role="button"
-        tabIndex={0}
-        aria-label={`${event.name} - ${whenLine}`}
-        onClick={openOverlay}
-        onKeyDown={(eventKey) => {
-          if (eventKey.key === 'Enter' || eventKey.key === ' ') {
-            eventKey.preventDefault();
-            openOverlay();
-          }
-        }}
-        className={`w-full cursor-pointer rounded-2xl border border-gray-200/90 bg-white text-left shadow-sm transition-shadow hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-50 dark:border-gray-800 dark:bg-gray-900/60 dark:hover:shadow-black/20 dark:focus-visible:ring-offset-gray-950 ${
+        className={`w-full rounded-2xl border border-gray-200/90 bg-white text-left shadow-sm transition-shadow hover:shadow-md dark:border-gray-800 dark:bg-gray-900/60 dark:hover:shadow-black/20 ${
           dimmed ? 'opacity-70 saturate-[0.75]' : ''
         }`}
       >
-        <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-stretch sm:gap-5 sm:p-5">
-          <div className="flex shrink-0 justify-center sm:justify-start">
-            <EventAttachmentLead
-              event={event}
-              isSelected={false}
-              layout="card"
-              interactive={false}
-            />
-          </div>
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label={`${event.name} - ${whenLine}`}
+          onClick={openOverlay}
+          onKeyDown={(eventKey) => {
+            if (eventKey.key === 'Enter' || eventKey.key === ' ') {
+              eventKey.preventDefault();
+              openOverlay();
+            }
+          }}
+          className="w-full cursor-pointer rounded-2xl text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 focus-visible:ring-offset-gray-50 dark:focus-visible:ring-offset-gray-950"
+        >
+          <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-stretch sm:gap-5 sm:p-5">
+            <div className="flex shrink-0 justify-center sm:justify-start">
+              <EventAttachmentLead
+                event={event}
+                isSelected={false}
+                layout="card"
+                interactive={false}
+              />
+            </div>
 
-          <PublicEventDetailsContent event={event} publicTypes={publicTypes} variant="card" />
+            <PublicEventDetailsContent event={event} publicTypes={publicTypes} variant="card" />
+          </div>
         </div>
+        {(onEdit || onDelete) && (
+          <div
+            className="flex flex-wrap gap-2 border-t border-gray-100 px-4 py-3 sm:px-5 dark:border-gray-800"
+            data-row-action
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            {onEdit && (
+              <Button type="button" variant="secondary" size="sm" onClick={() => onEdit(event)}>
+                {t('common.edit')}
+              </Button>
+            )}
+            {onDelete && (
+              <Button type="button" variant="danger" size="sm" onClick={() => onDelete(event)}>
+                {t('common.delete')}
+              </Button>
+            )}
+          </div>
+        )}
       </article>
 
       <EventPublicOverlay
@@ -131,6 +164,8 @@ function PastEventsSeparator() {
 export default function PublicEventsPanel({
   queryKey = ['public-events'],
   emptyMessage,
+  onEdit,
+  onDelete,
 }: PublicEventsPanelProps) {
   const { t } = useTranslation();
   const { data: publicTypes = [] } = usePublicTypesQuery();
@@ -213,7 +248,12 @@ export default function PublicEventsPanel({
             )}
             {upcoming.map((event) => (
               <li key={event.id}>
-                <PublicEventCard event={event} publicTypes={publicTypes} />
+                <PublicEventCard
+                  event={event}
+                  publicTypes={publicTypes}
+                  onEdit={onEdit}
+                  onDelete={onDelete}
+                />
               </li>
             ))}
             {past.length > 0 && (
@@ -221,7 +261,13 @@ export default function PublicEventsPanel({
                 <PastEventsSeparator />
                 {past.map((event) => (
                   <li key={event.id}>
-                    <PublicEventCard event={event} publicTypes={publicTypes} dimmed />
+                    <PublicEventCard
+                      event={event}
+                      publicTypes={publicTypes}
+                      dimmed
+                      onEdit={onEdit}
+                      onDelete={onDelete}
+                    />
                   </li>
                 ))}
               </>

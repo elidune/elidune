@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { KeyRound, ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import axios from 'axios';
@@ -7,6 +7,7 @@ import { useLibrary } from '@/contexts/LibraryContext';
 import api from '@/services/api';
 import { Button, Input, Card } from '@/components/common';
 import { getApiErrorMessage } from '@/utils/apiError';
+import { navigateBack } from '@/utils/navigateBack';
 
 export default function ResetPasswordPage() {
   const { t } = useTranslation();
@@ -70,13 +71,14 @@ export default function ResetPasswordPage() {
 
       <Card className="w-full max-w-md relative">
         <div className="mb-6">
-          <Link
-            to="/"
+          <button
+            type="button"
+            onClick={() => navigateBack(navigate, '/')}
             className="inline-flex items-center gap-1.5 text-sm font-medium text-amber-600 dark:text-amber-400 hover:underline"
           >
             <ArrowLeft className="h-4 w-4" />
             {t('auth.2fa.backToLogin')}
-          </Link>
+          </button>
         </div>
 
         <div className="text-center mb-8">

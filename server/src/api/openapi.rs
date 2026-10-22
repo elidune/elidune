@@ -6,8 +6,8 @@ use utoipa::{Modify, OpenApi};
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::api::{
-    account_types, acquisitions, admin_config, audit, auth, batch, biblios, collections, deposits, email_templates, equipment, events, fines, first_setup, health, holds, inventory, items,
-    library_info, loans, maintenance, metrics, opac, public_types, schedules, series, sites, stats, suggestions, tasks, transits, users, visitor_counts, withdrawals, z3950,
+    account_types, acquisitions, admin_config, audit, auth, batch, biblios, collections, deposits, email_templates, equipment, events, fines, first_setup, genres, health, holds, inventory,
+    items, library_info, loans, maintenance, metrics, opac, public_types, schedules, series, sites, stats, suggestions, tasks, transits, users, visitor_counts, withdrawals, z3950,
 };
 
 #[derive(OpenApi)]
@@ -65,6 +65,7 @@ use crate::api::{
         withdrawals::dispose_withdrawals,
         withdrawals::complete_legacy_withdrawal,
         withdrawals::list_withdrawals,
+        withdrawals::list_weeding_candidates,
         withdrawals::export_withdrawals_csv,
         // Users
         users::list_users,
@@ -287,6 +288,9 @@ use crate::api::{
         public_types::update_public_type,
         public_types::delete_public_type,
         public_types::update_loan_settings,
+        // Genres
+        genres::list_genres,
+        genres::reload_genres,
         // Opac
         opac::opac_search,
         opac::opac_get_biblio,
@@ -371,6 +375,9 @@ use crate::api::{
             biblios::PaginatedResponse<crate::models::my_account::MyLoanView>,
             biblios::PaginatedResponse<crate::models::my_account::MyHoldView>,
             crate::models::dto::weeding::SetWeedingRequest,
+            crate::models::dto::weeding::WeedingCandidate,
+            crate::models::dto::weeding::WeedingCandidateList,
+            crate::models::dto::weeding::WeedingCandidateQuery,
             crate::models::withdrawal::WithdrawalReason,
             crate::models::withdrawal::WithdrawalDestination,
             crate::models::withdrawal::WithdrawalQuery,
@@ -550,6 +557,8 @@ use crate::api::{
             library_info::LibraryInfo,
             library_info::LibraryUiLanguage,
             library_info::UpdateLibraryInfoRequest,
+            crate::features::EnabledFeatures,
+            crate::features::FeaturesConfig,
             // Email templates
             email_templates::EmailTemplate,
             email_templates::UpdateEmailTemplateRequest,
@@ -685,6 +694,8 @@ use crate::api::{
             crate::models::audit::AuditLogPage,
             crate::models::audit::AuditLogEntry,
             // Public types
+            crate::services::genre_catalog::GenreApiRow,
+            crate::models::Genre,
             crate::models::public_type::PublicType,
             crate::models::loan::LoanSettingsRenewAt,
             crate::models::public_type::PublicTypeLoanSettings,
@@ -743,6 +754,7 @@ use crate::api::{
         (name = "series", description = "Series management"),
         (name = "collections", description = "Collections management"),
         (name = "public_types", description = "Borrower public types (child, adult, school, staff, senior)"),
+        (name = "genres", description = "Bibliographic genre catalog (shelf codes, labels, MARC synonyms); edit via SQL then POST /genres/reload"),
         (name = "admin", description = "Admin runtime configuration"),
         (name = "audit", description = "Audit log"),
         (name = "maintenance", description = "Data-quality maintenance operations (admin only)"),

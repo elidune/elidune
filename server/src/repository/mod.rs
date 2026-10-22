@@ -33,6 +33,7 @@ pub mod stats;
 pub mod transits;
 pub mod users;
 pub mod visitor_counts;
+pub mod weeding;
 pub mod withdrawals;
 pub mod z3950;
 

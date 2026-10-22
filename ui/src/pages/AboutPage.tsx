@@ -5,6 +5,7 @@ import { Info, ArrowLeft, Code2, Bug, Shield, User, ExternalLink, Package } from
 import { Card } from '@/components/common';
 import api from '@/services/api';
 import { APP_PAGE_CLASS } from '@/utils/appPageLayout';
+import { navigateBack } from '@/utils/navigateBack';
 import { deferFromEffect } from '@/utils/deferFromEffect';
 import { version as uiVersion, author as devAuthor, email as devEmail, license as uiLicense, bugs as bugsUrl } from '../../package.json';
 
@@ -138,7 +139,7 @@ export default function AboutPage() {
       {/* Header */}
       <div>
         <button
-          onClick={() => navigate(-1)}
+          onClick={() => navigateBack(navigate, '/home')}
           className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 mb-4"
         >
           <ArrowLeft className="h-4 w-4" />

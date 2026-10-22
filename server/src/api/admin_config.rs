@@ -25,7 +25,7 @@ use super::{AuthenticatedUser, ClientIp, ValidatedJson};
 #[derive(Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigSectionInfo {
-    /// Section key (e.g. "email", "logging", "reminders", "audit", "holds", "circulation")
+    /// Section key (e.g. "email", "logging", "reminders", "audit", "holds", "circulation", "features")
     pub key: String,
     /// Current effective value (merged file + DB override)
     pub value: Value,
@@ -98,7 +98,7 @@ pub async fn get_config(State(state): State<AppState>, AuthenticatedUser(claims)
     security(("bearer_auth" = [])),
     request_body = UpdateConfigSectionRequest,
     params(
-        ("section" = String, Path, description = "Config section key: email | logging | reminders | audit | holds")
+        ("section" = String, Path, description = "Config section key: email | logging | reminders | audit | holds | circulation | features")
     ),
     responses(
         (status = 200, description = "Updated config section", body = ConfigSectionInfo),

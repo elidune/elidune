@@ -9,7 +9,8 @@ use crate::{
     models::{
         acquisition::{
             AcquisitionFund, CreateFund, CreateOrderLine, CreatePurchaseOrder, CreatePurchaseSuggestion, CreateVendor, FundQuery, PurchaseOrder, PurchaseOrderDetail, PurchaseOrderLine,
-            PurchaseOrderQuery, PurchaseSuggestion, PurchaseSuggestionQuery, ReceiptLineResult, ReceiveItemSpec, ReceivePurchaseOrder, ReceivePurchaseOrderResult, ReviewPurchaseSuggestion,
+            PurchaseOrderQuery, PurchaseSuggestion, PurchaseSuggestionQuery, ReceiptLineResult, ReceiveItemSpec, ReceiveOrderLine, ReceivePurchaseOrder, ReceivePurchaseOrderResult,
+            ReviewPurchaseSuggestion,
             UpdateFund, UpdateOrderLine, UpdatePurchaseOrder, UpdateVendor, Vendor, VendorQuery,
         },
         biblio::{Biblio, Isbn, MediaType},
@@ -136,6 +137,10 @@ impl AcquisitionsService {
             return Err(AppError::BusinessRule("Only ordered or partially received purchase orders can be received".into()));
         }
 
+        if purchase_order_fully_received_after(&detail.lines, &data.lines) {
+            self.ensure_purchase_order_closure_pricing(order_id, &detail, data).await?;
+        }
+
         let mut created: Vec<(i64, Vec<i64>, Option<Decimal>)> = Vec::with_capacity(data.lines.len());
 
         for req in &data.lines {
@@ -189,7 +194,7 @@ impl AcquisitionsService {
             for spec in specs.iter() {
                 let barcode = spec.barcode.clone().filter(|s| !s.trim().is_empty());
                 let price = copy_price(spec, unit_price)?;
-                let borrowable = Item::ready_to_circulate(barcode.as_deref(), spec.site_id, spec.site_name.as_deref(), price, spec.price_deferred);
+                let borrowable = Item::ready_to_circulate(barcode.as_deref(), spec.site_id, spec.site_name.as_deref());
 
                 let weeding_status = crate::models::item::WeedingStatus::OnShelf;
                 let (availability, can_hold_item) = crate::models::item::ItemAvailability::local_pair(false, borrowable, None, weeding_status);
@@ -305,6 +310,51 @@ impl AcquisitionsService {
     pub async fn refuse_suggestion(&self, id: i64, reviewed_by: i64, data: &ReviewPurchaseSuggestion) -> AppResult<PurchaseSuggestion> {
         self.repository.suggestions_refuse(id, reviewed_by, data).await
     }
+
+    async fn ensure_purchase_order_closure_pricing(
+        &self,
+        order_id: i64,
+        detail: &PurchaseOrderDetail,
+        data: &ReceivePurchaseOrder,
+    ) -> AppResult<()> {
+        for req in &data.lines {
+            let line = detail
+                .lines
+                .iter()
+                .find(|l| l.id == req.line_id)
+                .ok_or_else(|| AppError::Validation(format!("Line {} does not belong to purchase order {order_id}", req.line_id)))?;
+            let unit_price = req.unit_price.or(line.unit_price);
+            let specs: Vec<ReceiveItemSpec> = match req.items.as_ref() {
+                Some(items) => items.clone(),
+                None => (0..req.quantity)
+                    .map(|_| ReceiveItemSpec {
+                        barcode: None,
+                        site_id: None,
+                        site_name: None,
+                        price: None,
+                        price_deferred: false,
+                        call_number: None,
+                    })
+                    .collect(),
+            };
+            for spec in &specs {
+                let price = copy_price(spec, unit_price)?;
+                if !Item::has_price_for_acquisition_closure(price, spec.price_deferred) {
+                    return Err(AppError::BusinessRule(
+                        "Cannot fully receive this purchase order until every copy has a price, a line unit price, or an explicit price deferral".into(),
+                    ));
+                }
+            }
+        }
+
+        let missing = self.repository.orders_items_missing_price_for_closure(order_id).await?;
+        if missing > 0 {
+            return Err(AppError::BusinessRule(
+                "Cannot fully receive this purchase order until every previously received copy has a price or an explicit price deferral".into(),
+            ));
+        }
+        Ok(())
+    }
 }
 
 fn stub_biblio(title: String, isbn: Option<Isbn>) -> Biblio {
@@ -315,6 +365,7 @@ fn stub_biblio(title: String, isbn: Option<Isbn>) -> Biblio {
         title: Some(title),
         subject: None,
         dewey: None,
+        genre: None,
         audience_type: None,
         lang: None,
         lang_orig: None,
@@ -344,6 +395,13 @@ fn stub_biblio(title: String, isbn: Option<Isbn>) -> Biblio {
         items: Vec::new(),
         marc_record: None,
     }
+}
+
+fn purchase_order_fully_received_after(lines: &[PurchaseOrderLine], receipt_lines: &[ReceiveOrderLine]) -> bool {
+    lines.iter().all(|line| {
+        let receive_qty = receipt_lines.iter().find(|req| req.line_id == line.id).map(|req| req.quantity).unwrap_or(0);
+        line.quantity_received + receive_qty >= line.quantity_ordered
+    })
 }
 
 /// Item price at the receipt boundary: an explicit copy price, otherwise the line's major-unit price.

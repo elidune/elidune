@@ -22,7 +22,11 @@ import {
 } from 'lucide-react';
 import { Card, CardHeader, Button, Badge, Modal, Input, BarcodeScanField } from '@/components/common';
 import CallNumberField from '@/components/specimen/CallNumberField';
-import { buildSuggestedCallNumber, validateCallNumber } from '@/utils/callNumber';
+import {
+  buildCallNumberOptions,
+  type CallNumberOption,
+  validateCallNumber,
+} from '@/utils/callNumber';
 import { formChoiceControlClass, formControlClass, formLabelClass } from '@/utils/formControl';
 import { useAuth } from '@/contexts/AuthContext';
 import { canArchiveItems, canCreateHold, canDeleteBiblios, canManageItems, canManageWeeding, canReadUsers, seesInternalCatalog, type MediaType } from '@/types';
@@ -39,10 +43,12 @@ import ItemAvailabilityBadge, { ItemHoldPatronLine } from '@/components/items/It
 import type { Author, AuthorPublic, BiblioStaffView, ItemPublicView, ItemStaffView, Site } from '@/types';
 import { isBiblioStaffView, isItemStaffView } from '@/utils/catalogView';
 import { isItemWithdrawn, isTitleWithdrawn } from '@/utils/weeding';
+import { isDepositCopy } from '@/utils/deposits';
 import { isCatalogDeletionRefusal } from '@/utils/withdrawals';
 import { staffUnavailableDetailKey, type AvailabilityAudience } from '@/utils/itemAvailability';
 import { useTranslation } from 'react-i18next';
 import { FUNCTION_OPTIONS, PUBLIC_TYPE_OPTIONS, getCodeLabel } from '@/utils/codeLabels';
+import { useGenreLabel, useGenreShelfCodes } from '@/hooks/useGenresQuery';
 import { formatCatalogLanguage } from '@/utils/catalogLanguage';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
@@ -50,9 +56,14 @@ import {
   isCirculationReadinessError,
   isReadyToCirculate,
   missingCirculationFields,
+  recommendedCirculationFields,
   type CirculationField,
 } from '@/utils/circulationReadiness';
 import { COPY_NOTE_MAX_CHARS, copyNoteUpdate, copyNoteWithinLimit } from '@/utils/itemNotes';
+import { catalogListPath, type CatalogSavedSearch } from '@/utils/catalogSearchState';
+import { navigateBack } from '@/utils/navigateBack';
+import ItemQuickCreateForm from '@/components/items/ItemQuickCreateForm';
+
 interface BibliosListCache {
   pages?: Array<{
     items?: Array<{ id?: string | null }>;
@@ -85,25 +96,28 @@ function getMediaTypeTranslationKey(mediaType: MediaType | string | null | undef
   return legacyMap[String(mediaType)] ?? String(mediaType);
 }
 
-/** Derive suggested call number from biblio: [CATEGORY]-[YEAR]-[AUTHOR]. */
-function getSuggestedCallNumberFromItem(item: {
-  mediaType?: string | null;
-  publicationDate?: string | null;
-  edition?: { date?: string | null } | null;
-  authors?: Array<{ lastname?: string | null }> | null;
-}): string {
-  const categoryCode = item.mediaType
-    ? String(item.mediaType).toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4) || 'GEN'
-    : 'GEN';
-  const year =
-    item.publicationDate?.trim().slice(0, 4) ||
-    item.edition?.date?.trim().slice(0, 4) ||
-    undefined;
-  const authorName = item.authors?.[0]?.lastname?.trim();
-  return buildSuggestedCallNumber({
-    categoryCode: categoryCode || 'GEN',
-    year: year ? parseInt(year, 10) : undefined,
-    authorOrCollectorName: authorName,
+/** Call-number format options: Dewey / genre / legacy when constructible. */
+function getCallNumberOptionsFromItem(
+  item: {
+    dewey?: string | null;
+    genre?: string | null;
+    mediaType?: string | null;
+    publicationDate?: string | null;
+    edition?: { date?: string | null } | null;
+    authors?: Array<{ lastname?: string | null; firstname?: string | null; function?: string | null }> | null;
+  },
+  genreShelfCodes?: Record<string, string> | null,
+): CallNumberOption[] {
+  return buildCallNumberOptions({
+    dewey: item.dewey,
+    genre: item.genre,
+    authors: item.authors,
+    mediaType: item.mediaType,
+    publicationDate:
+      item.publicationDate?.trim().slice(0, 4) ||
+      item.edition?.date?.trim().slice(0, 4) ||
+      undefined,
+    genreShelfCodes,
   });
 }
 
@@ -123,6 +137,8 @@ export default function BiblioDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const { t, i18n } = useTranslation();
+  const genreLabel = useGenreLabel();
+  const genreShelfCodes = useGenreShelfCodes();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -141,7 +157,7 @@ export default function BiblioDetailPage() {
   });
 
   // Search state saved by BibliosPage when navigating here; used to restore on back
-  const savedSearch = (location.state as { savedSearch?: unknown } | null)?.savedSearch;
+  const savedSearch = (location.state as { savedSearch?: CatalogSavedSearch } | null)?.savedSearch;
   const [showAddSpecimenModal, setShowAddSpecimenModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showEditSpecimenModal, setShowEditSpecimenModal] = useState(false);
@@ -289,6 +305,12 @@ export default function BiblioDetailPage() {
     );
   }
 
+  const biblioBackFallback = seesInternalCatalog(user, api.getToken())
+    ? savedSearch !== undefined
+      ? catalogListPath(savedSearch)
+      : '/biblios'
+    : '/catalog';
+
   if (isBiblioQueryError) {
     return (
       <div className="max-w-xl mx-auto px-4 py-12">
@@ -305,7 +327,7 @@ export default function BiblioDetailPage() {
                 >
                   {t('common.retry')}
                 </Button>
-                <Button type="button" variant="secondary" onClick={() => navigate('/biblios')}>
+                <Button type="button" variant="secondary" onClick={() => navigateBack(navigate, biblioBackFallback)}>
                   {t('common.back')}
                 </Button>
               </div>
@@ -358,24 +380,10 @@ export default function BiblioDetailPage() {
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div className="flex items-start gap-4">
           <button
-            onClick={() => {
-              if (savedSearch === undefined) {
-                navigate('/biblios');
-                return;
-              }
-              const s = savedSearch as { serieId?: string; serieName?: string; collectionId?: string; collectionName?: string };
-              const params = new URLSearchParams();
-              if (s.serieId) {
-                params.set('serie_id', s.serieId);
-                if (s.serieName) params.set('serie_name', s.serieName);
-              } else if (s.collectionId) {
-                params.set('collection_id', s.collectionId);
-                if (s.collectionName) params.set('collection_name', s.collectionName);
-              }
-              const search = params.toString() ? `?${params.toString()}` : '';
-              navigate(`/biblios${search}`, { state: { restoredSearch: savedSearch } });
-            }}
+            type="button"
+            onClick={() => navigateBack(navigate, biblioBackFallback)}
             className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800"
+            aria-label={t('common.back')}
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
@@ -515,7 +523,7 @@ export default function BiblioDetailPage() {
             </Card>
           )}
 
-          {(item.keywords || item.subject || item.dewey) && (
+          {(item.keywords || item.subject || item.dewey || ('genre' in item && item.genre)) && (
             <Card>
               <CardHeader title={t('items.keywordsAndSubject')} />
               <div className="space-y-3">
@@ -540,6 +548,17 @@ export default function BiblioDetailPage() {
                     </p>
                   </div>
                 </div>
+                {'genre' in item && item.genre ? (
+                  <div className="flex items-start gap-2">
+                    <Tag className="h-4 w-4 mt-1 text-gray-400" />
+                    <div>
+                      <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{t('items.genre')}</p>
+                      <p className="text-gray-600 dark:text-gray-300">
+                        {genreLabel(item.genre)}
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
               </div>
             </Card>
           )}
@@ -593,7 +612,8 @@ export default function BiblioDetailPage() {
                       canWeed &&
                       isItemStaffView(specimen) &&
                       specimen.id != null &&
-                      !isItemWithdrawn(specimen)
+                      !isItemWithdrawn(specimen) &&
+                      !isDepositCopy(specimen.deposit)
                     }
                     selected={specimen.id != null && selectedCopyIds.includes(specimen.id)}
                     onToggleSelect={() => {
@@ -834,16 +854,17 @@ export default function BiblioDetailPage() {
           </div>
         }
       >
-        {staffNotice ? (
-        <AddSpecimenForm
-          formId="add-specimen-form"
-          item={staffNotice}
-          onLoadingChange={setIsAddSpecimenLoading}
-          onSuccess={() => {
-            setShowAddSpecimenModal(false);
-            invalidateBiblio();
-          }}
-        />
+        {staffNotice?.id ? (
+          <ItemQuickCreateForm
+            formId="add-specimen-form"
+            biblioId={String(staffNotice.id)}
+            callNumberSuggestions={getCallNumberOptionsFromItem(staffNotice, genreShelfCodes)}
+            onLoadingChange={setIsAddSpecimenLoading}
+            onSuccess={() => {
+              setShowAddSpecimenModal(false);
+              invalidateBiblio();
+            }}
+          />
         ) : null}
       </Modal>
 
@@ -1012,8 +1033,7 @@ interface SpecimenCardProps {
 
 function missingFieldLabel(t: (key: string) => string, field: CirculationField): string {
   if (field === 'barcode') return t('items.missingBarcode');
-  if (field === 'site') return t('items.missingSite');
-  return t('items.missingPrice');
+  return t('items.missingSite');
 }
 
 function SpecimenCard({
@@ -1037,6 +1057,10 @@ function SpecimenCard({
   const ready = isReadyToCirculate(specimen);
   const incomplete = specimen.borrowable === false && !ready;
   const missing = audience === 'staff' && incomplete ? missingCirculationFields(specimen) : [];
+  const recommended =
+    audience === 'staff' && (specimen.borrowable !== false || ready)
+      ? recommendedCirculationFields(specimen)
+      : [];
   const staffDetailKey = staffCopy ? staffUnavailableDetailKey(staffCopy) : null;
 
   return (
@@ -1155,6 +1179,9 @@ function SpecimenCard({
           })}
         </p>
       ) : null}
+      {recommended.length > 0 ? (
+        <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">{t('items.recommendedPrice')}</p>
+      ) : null}
 
       {canManage && incomplete ? (
         <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-600">
@@ -1172,141 +1199,10 @@ function SpecimenCard({
         </div>
       )}
 
-      {audience === 'staff' && staffCopy ? (
+      {audience === 'staff' && staffCopy && !isDepositCopy(staffCopy.deposit) ? (
         <WeedingStatusControl item={staffCopy} onUpdated={onUpdated} />
       ) : null}
     </div>
-  );
-}
-
-interface AddSpecimenFormProps {
-  formId: string;
-  item: BiblioStaffView;
-  onLoadingChange: (loading: boolean) => void;
-  onSuccess: () => void;
-}
-
-function AddSpecimenForm({ formId, item, onLoadingChange, onSuccess }: AddSpecimenFormProps) {
-  const { t } = useTranslation();
-  const [error, setError] = useState<string | null>(null);
-  const [sites, setSites] = useState<Site[]>([]);
-  const suggestedCallNumber = getSuggestedCallNumberFromItem(item);
-  const [formData, setFormData] = useState({
-    barcode: '',
-    callNumber: '',
-    volumeDesignation: '',
-    borrowable: 'true' as 'true' | 'false',
-    siteId: '',
-  });
-
-  useEffect(() => {
-    api
-      .getSites(false)
-      .then((list) => {
-        setSites(list);
-        setFormData((prev) => {
-          if (prev.siteId.trim() !== '') return prev;
-          const id = defaultSiteIdFromList(list);
-          return id ? { ...prev, siteId: id } : prev;
-        });
-      })
-      .catch(() => {});
-  }, []);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (item.id == null) return;
-    if (formData.barcode.trim() === '') {
-      setError(t('items.specimenBarcodeRequired'));
-      return;
-    }
-    if (!validateCallNumber(formData.callNumber)) return;
-    onLoadingChange(true);
-    setError(null);
-    try {
-      await api.createItem(item.id, {
-        barcode: formData.barcode.trim(),
-        callNumber: formData.callNumber || undefined,
-        volumeDesignation: formData.volumeDesignation || undefined,
-        borrowable: formData.borrowable === 'true',
-        siteId: formData.siteId || undefined,
-      });
-      onSuccess();
-    } catch (error) {
-      setError(getApiErrorMessage(error, t));
-    } finally {
-      onLoadingChange(false);
-    }
-  };
-
-  return (
-    <form id={formId} onSubmit={handleSubmit} className="space-y-4">
-      <BarcodeScanField
-        label={t('items.specimenBarcode')}
-        value={formData.barcode}
-        onChange={(e) => {
-          setError(null);
-          setFormData({ ...formData, barcode: e.target.value });
-        }}
-        scannerTitle={t('items.specimenBarcode')}
-        onCameraScan={(code) => {
-          setError(null);
-          setFormData({ ...formData, barcode: code });
-        }}
-      />
-      {error && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 text-sm">
-          <AlertCircle className="h-4 w-4 flex-shrink-0" />
-          {error}
-        </div>
-      )}
-      <CallNumberField
-        label={t('items.callNumber')}
-        value={formData.callNumber}
-        onChange={(v) => setFormData({ ...formData, callNumber: v })}
-        suggestedValue={suggestedCallNumber}
-        placeholder={suggestedCallNumber}
-      />
-      <Input
-        label={t('items.volumeDesignation')}
-        value={formData.volumeDesignation}
-        onChange={(e) => setFormData({ ...formData, volumeDesignation: e.target.value })}
-        placeholder={t('items.volumeDesignationPlaceholder')}
-      />
-      <div>
-        <label className={formLabelClass()}>
-          {t('items.site')}
-        </label>
-        <select
-          value={formData.siteId}
-          onChange={(e) => setFormData({ ...formData, siteId: e.target.value })}
-          className={formControlClass({ className: 'w-full' })}
-        >
-          <option value="">{t('items.selectSite')}</option>
-          {sites.map((src) => (
-            <option key={src.id} value={src.id}>
-              {src.name || src.id}
-              {src.default ? ` (${t('importMarc.default')})` : ''}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div>
-        <label className={formLabelClass()}>
-          {t('items.borrowable')}
-        </label>
-        <select
-          value={formData.borrowable}
-          onChange={(e) =>
-            setFormData({ ...formData, borrowable: e.target.value as 'true' | 'false' })
-          }
-          className={formControlClass({ className: 'w-full' })}
-        >
-          <option value="true">{t('items.borrowableYes')}</option>
-          <option value="false">{t('items.borrowableNo')}</option>
-        </select>
-      </div>
-    </form>
   );
 }
 
@@ -1320,9 +1216,10 @@ interface EditSpecimenFormProps {
 
 function EditSpecimenForm({ formId, item, specimen, onLoadingChange, onSuccess }: EditSpecimenFormProps) {
   const { t } = useTranslation();
+  const genreShelfCodes = useGenreShelfCodes();
   const [error, setError] = useState<string | null>(null);
   const [sites, setSites] = useState<Site[]>([]);
-  const suggestedCallNumber = getSuggestedCallNumberFromItem(item);
+  const callNumberSuggestions = getCallNumberOptionsFromItem(item, genreShelfCodes);
   const [formData, setFormData] = useState({
     barcode: specimen.barcode || '',
     callNumber: specimen.callNumber || '',
@@ -1331,7 +1228,7 @@ function EditSpecimenForm({ formId, item, specimen, onLoadingChange, onSuccess }
     publicNote: specimen.publicNote ?? '',
     internalNote: specimen.internalNote ?? '',
     price: specimen.price || '',
-    priceDeferred: false,
+    priceDeferred: specimen.priceDeferred === true,
     siteId: specimen.siteId || '',
   });
   const draftReady = isReadyToCirculate({
@@ -1341,6 +1238,12 @@ function EditSpecimenForm({ formId, item, specimen, onLoadingChange, onSuccess }
     priceDeferred: formData.priceDeferred,
   });
   const draftMissing = missingCirculationFields({
+    barcode: formData.barcode,
+    siteId: formData.siteId,
+    price: formData.price,
+    priceDeferred: formData.priceDeferred,
+  });
+  const draftRecommended = recommendedCirculationFields({
     barcode: formData.barcode,
     siteId: formData.siteId,
     price: formData.price,
@@ -1431,9 +1334,9 @@ function EditSpecimenForm({ formId, item, specimen, onLoadingChange, onSuccess }
         label={t('items.callNumber')}
         value={formData.callNumber}
         onChange={(v) => setFormData({ ...formData, callNumber: v })}
-        suggestedValue={suggestedCallNumber}
+        suggestions={callNumberSuggestions}
         excludeSpecimenId={specimen.id ?? undefined}
-        placeholder={suggestedCallNumber}
+        placeholder={t('items.callNumber')}
       />
       <Input
         label={t('items.volumeDesignation')}
@@ -1477,9 +1380,7 @@ function EditSpecimenForm({ formId, item, specimen, onLoadingChange, onSuccess }
           <span className="mt-0.5 block text-xs text-gray-500">{t('items.priceDeferredHelp')}</span>
         </span>
       </label>
-      {draftReady ? (
-        <p className="text-sm text-green-700 dark:text-green-400">{t('items.willBecomeCirculable')}</p>
-      ) : (
+      {!draftReady ? (
         <div className="space-y-1">
           <p className="text-sm text-amber-800 dark:text-amber-300">{t('items.circulationRequirements')}</p>
           <p className="text-xs text-amber-700 dark:text-amber-400">
@@ -1489,7 +1390,10 @@ function EditSpecimenForm({ formId, item, specimen, onLoadingChange, onSuccess }
           </p>
           <p className="text-sm text-gray-600 dark:text-gray-400">{t('items.stillIncomplete')}</p>
         </div>
-      )}
+      ) : null}
+      {draftRecommended.length > 0 ? (
+        <p className="text-sm text-red-700 dark:text-red-400">{t('items.recommendedPrice')}</p>
+      ) : null}
       <CopyNoteFields
         publicNote={formData.publicNote}
         internalNote={formData.internalNote}

@@ -343,7 +343,6 @@ export default function StatsPage() {
           ariaLabel={t('stats.title')}
           activeTab={statsDetailTab}
           onSelectTab={setStatsDetailTab}
-          scrollable
           tabs={[
             { id: 'catalog', label: t('stats.catalogSection.title'), icon: Library },
             { id: 'users', label: t('stats.usersSection.title'), icon: User },

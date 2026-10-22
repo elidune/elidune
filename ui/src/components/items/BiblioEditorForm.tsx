@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Plus,
@@ -12,13 +12,22 @@ import {
   ChevronDown,
   Import,
 } from 'lucide-react';
-import { Input, Button, ConfirmDialog, BarcodeScanField } from '@/components/common';
-import CallNumberField from '@/components/specimen/CallNumberField';
-import { buildSuggestedCallNumber, validateCallNumber } from '@/utils/callNumber';
+import { Input, Button } from '@/components/common';
 import { formControlClass, formTextareaClass, formLabelClass } from '@/utils/formControl';
 import api from '@/services/api';
-import type { Author, Biblio, BiblioStaffView, CreateBiblioItemInput, MediaType, MediaTypeOption, Site, Z3950Server, Serie, Collection } from '@/types';
+import type {
+  Author,
+  Biblio,
+  BiblioStaffView,
+  CreateBiblioItemInput,
+  MediaType,
+  MediaTypeOption,
+  Z3950Server,
+  Serie,
+  Collection,
+} from '@/types';
 import { LANG_OPTIONS, FUNCTION_OPTIONS, PUBLIC_TYPE_OPTIONS } from '@/utils/codeLabels';
+import { useGenreSelectOptions } from '@/hooks/useGenresQuery';
 import { formatIsbnDisplay, stripIsbnForZ3950Query } from '@/utils/isbnDisplay';
 import { EntityLinker, type LinkedEntry } from './EntityLinker';
 
@@ -26,9 +35,28 @@ export type CreateBiblioPayload = Omit<Partial<Biblio>, 'items'> & { items?: Cre
 
 export type AuthorFormRow = { id: string; lastname: string; firstname: string; function: string };
 
-export type SpecimenFormRow = { barcode: string; callNumber: string; siteId: string };
+/** Draft fields useful for call-number suggestions on the create page item panel. */
+export type BiblioCatalogDraft = {
+  dewey: string;
+  genre: string;
+  authors: AuthorFormRow[];
+  mediaType: MediaType;
+  publicationDate: string;
+};
 
 const Z3950_PICK_PAGE_SIZE = 8;
+
+const BIBLIO_FORM_SECTION =
+  'rounded-lg border border-gray-200 dark:border-gray-700 p-3 sm:p-3.5 space-y-2.5 bg-gray-50 dark:bg-gray-800/60';
+
+const BIBLIO_SECTION_TITLE =
+  'text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider';
+
+const BIBLIO_FORM_SELECT = formControlClass({ className: 'w-full' });
+
+const BIBLIO_FORM_SELECT_COMPACT = formControlClass({
+  className: 'w-full min-w-0 sm:w-[min(100%,11rem)]',
+});
 
 function primaryAuthorLine(b: Biblio): string {
   const a = b.authors?.[0];
@@ -46,6 +74,7 @@ function applyZ3950BiblioToForm(
     publicationDate: string;
     subject: string;
     dewey: string;
+    genre: string;
     abstract: string;
     keywords: string;
     audienceType: string;
@@ -54,7 +83,7 @@ function applyZ3950BiblioToForm(
     editionPlace: string;
     editionDate: string;
     authors: AuthorFormRow[];
-  }
+  },
 ) {
   return {
     ...prev,
@@ -64,8 +93,9 @@ function applyZ3950BiblioToForm(
     publicationDate: item.publicationDate || prev.publicationDate,
     subject: item.subject || prev.subject,
     dewey: item.dewey || prev.dewey,
+    genre: item.genre || prev.genre,
     abstract: item.abstract || prev.abstract,
-    keywords: Array.isArray(item.keywords) ? item.keywords.join(', ') : (item.keywords || prev.keywords),
+    keywords: Array.isArray(item.keywords) ? item.keywords.join(', ') : item.keywords || prev.keywords,
     audienceType: item.audienceType || prev.audienceType,
     lang: item.lang || prev.lang,
     editionPublisher: item.edition?.publisherName || prev.editionPublisher,
@@ -82,15 +112,6 @@ function applyZ3950BiblioToForm(
         : prev.authors,
   };
 }
-
-type CollapsibleSectionId =
-  | 'typeAndPublication'
-  | 'abstractAndIndexing'
-  | 'audienceAndLanguage'
-  | 'edition'
-  | 'authors'
-  | 'collections'
-  | 'series';
 
 function linkedCollectionsAfterZ3950(item: Biblio, prev: LinkedEntry[]): LinkedEntry[] {
   const firstColl = item.collections?.[0] ?? item.collection;
@@ -117,117 +138,16 @@ function linkedSeriesAfterZ3950(item: Biblio, prev: LinkedEntry[]): LinkedEntry[
   return prev;
 }
 
-function computeZ3950OpenedSections(
-  prevForm: Parameters<typeof applyZ3950BiblioToForm>[1],
-  nextForm: ReturnType<typeof applyZ3950BiblioToForm>,
-  prevColl: LinkedEntry[],
-  nextColl: LinkedEntry[],
-  prevSer: LinkedEntry[],
-  nextSer: LinkedEntry[],
-): CollapsibleSectionId[] {
-  const opened: CollapsibleSectionId[] = [];
-  if (nextForm.publicationDate !== prevForm.publicationDate || nextForm.mediaType !== prevForm.mediaType) {
-    opened.push('typeAndPublication');
-  }
-  if (
-    nextForm.abstract !== prevForm.abstract ||
-    nextForm.keywords !== prevForm.keywords ||
-    nextForm.subject !== prevForm.subject ||
-    nextForm.dewey !== prevForm.dewey
-  ) {
-    opened.push('abstractAndIndexing');
-  }
-  if (nextForm.audienceType !== prevForm.audienceType || nextForm.lang !== prevForm.lang) {
-    opened.push('audienceAndLanguage');
-  }
-  if (
-    nextForm.editionPublisher !== prevForm.editionPublisher ||
-    nextForm.editionPlace !== prevForm.editionPlace ||
-    nextForm.editionDate !== prevForm.editionDate
-  ) {
-    opened.push('edition');
-  }
-  if (JSON.stringify(nextForm.authors) !== JSON.stringify(prevForm.authors)) {
-    opened.push('authors');
-  }
-  if (JSON.stringify(nextColl) !== JSON.stringify(prevColl)) {
-    opened.push('collections');
-  }
-  if (JSON.stringify(nextSer) !== JSON.stringify(prevSer)) {
-    opened.push('series');
-  }
-  return opened;
-}
-
-const BIBLIO_FORM_SECTION =
-  'rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-4 bg-gray-100 dark:bg-gray-800/50';
-
-const BIBLIO_SPECIMENS_SECTION =
-  'rounded-lg border border-amber-300/80 dark:border-amber-700/50 p-4 space-y-4 bg-amber-100/90 dark:bg-amber-950/35 shadow-sm';
-
-/** Matches common `Input` control height */
-const BIBLIO_FORM_SELECT = formControlClass({ className: 'w-full' });
-
-const BIBLIO_FORM_SELECT_COMPACT = formControlClass({
-  className: 'shrink-0 w-[min(100%,11rem)]',
-});
-
-function BiblioFormCollapsibleSection({
-  sectionId,
-  title,
-  open,
-  onToggle,
-  children,
-  headerRight,
-}: {
-  sectionId: CollapsibleSectionId;
-  title: string;
-  open: boolean;
-  onToggle: () => void;
-  children: ReactNode;
-  headerRight?: ReactNode;
-}) {
-  const { t } = useTranslation();
-  const panelId = `biblio-section-${sectionId}`;
-  const triggerId = `biblio-section-trigger-${sectionId}`;
-  return (
-    <section className={BIBLIO_FORM_SECTION}>
-      <div className="flex items-center gap-2 min-w-0">
-        <button
-          type="button"
-          onClick={onToggle}
-          className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md text-left hover:bg-gray-200/60 dark:hover:bg-gray-700/40 -m-1 p-1"
-          aria-expanded={open}
-          aria-controls={panelId}
-          id={triggerId}
-          title={open ? t('common.collapseSection') : t('common.expandSection')}
-        >
-          <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200 truncate">{title}</h3>
-          <ChevronDown
-            className={`h-5 w-5 shrink-0 text-gray-500 transition-transform ${open ? 'rotate-180' : ''}`}
-            aria-hidden
-          />
-        </button>
-        {headerRight != null ? <div className="shrink-0 flex items-center">{headerRight}</div> : null}
-      </div>
-      {open ? (
-        <div id={panelId} role="region" aria-labelledby={triggerId} className="space-y-4 pt-4">
-          {children}
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
 export interface BiblioEditorFormProps {
   mode: 'create' | 'edit';
   formId: string;
   /** Required when mode is edit */
   initialBiblio?: Biblio | BiblioStaffView | null;
-  /** Edit mode: wired to modal save button loading state */
   onLoadingChange?: (loading: boolean) => void;
   onSubmitCreate?: (payload: CreateBiblioPayload) => void | Promise<void>;
   onSubmitEdit?: (update: Partial<Biblio>) => void | Promise<void>;
+  /** Create page: feed call-number suggestions for the separate item panel. */
+  onCatalogDraftChange?: (draft: BiblioCatalogDraft) => void;
 }
 
 export default function BiblioEditorForm({
@@ -237,9 +157,11 @@ export default function BiblioEditorForm({
   onLoadingChange,
   onSubmitCreate,
   onSubmitEdit,
+  onCatalogDraftChange,
 }: BiblioEditorFormProps) {
   const { t } = useTranslation();
-  const showSpecimens = mode === 'create';
+  const genreOptions = useGenreSelectOptions();
+  const formTopRef = useRef<HTMLFormElement>(null);
 
   const toAuthorForm = (a: Author): AuthorFormRow => ({
     id: a.id,
@@ -259,11 +181,13 @@ export default function BiblioEditorForm({
     }
     const legacy = 'collection' in b ? b.collection : undefined;
     if (legacy?.id || legacy?.name) {
-      return [{
-        id: legacy.id ?? undefined,
-        name: legacy.name ?? '',
-        volumeNumber: '',
-      }];
+      return [
+        {
+          id: legacy.id ?? undefined,
+          name: legacy.name ?? '',
+          volumeNumber: '',
+        },
+      ];
     }
     return [];
   };
@@ -280,12 +204,13 @@ export default function BiblioEditorForm({
       const b = initialBiblio;
       return {
         title: b.title || '',
-        isbn: formatIsbnDisplay(b.isbn || '') || (b.isbn || ''),
+        isbn: formatIsbnDisplay(b.isbn || '') || b.isbn || '',
         publicationDate: b.publicationDate || '',
         abstract: b.abstract || '',
-        keywords: Array.isArray(b.keywords) ? b.keywords.join(', ') : (b.keywords || ''),
+        keywords: Array.isArray(b.keywords) ? b.keywords.join(', ') : b.keywords || '',
         subject: b.subject || '',
         dewey: b.dewey || '',
+        genre: b.genre || '',
         mediaType: (b.mediaType || 'printedText') as MediaType,
         audienceType: b.audienceType ?? '',
         lang: b.lang ?? '',
@@ -303,6 +228,7 @@ export default function BiblioEditorForm({
       keywords: '',
       subject: '',
       dewey: '',
+      genre: '',
       mediaType: 'printedText' as MediaType,
       audienceType: '',
       lang: '',
@@ -314,10 +240,10 @@ export default function BiblioEditorForm({
   });
 
   const [linkedCollections, setLinkedCollections] = useState<LinkedEntry[]>(() =>
-    mode === 'edit' && initialBiblio ? initialCollections(initialBiblio) : []
+    mode === 'edit' && initialBiblio ? initialCollections(initialBiblio) : [],
   );
   const [linkedSeries, setLinkedSeries] = useState<LinkedEntry[]>(() =>
-    mode === 'edit' && initialBiblio ? initialSeries(initialBiblio) : []
+    mode === 'edit' && initialBiblio ? initialSeries(initialBiblio) : [],
   );
 
   const [z3950Servers, setZ3950Servers] = useState<Z3950Server[]>([]);
@@ -325,17 +251,11 @@ export default function BiblioEditorForm({
   const [z3950ServerMenuOpen, setZ3950ServerMenuOpen] = useState(false);
   const z3950MenuRef = useRef<HTMLDivElement>(null);
   const [isSearchingZ3950, setIsSearchingZ3950] = useState(false);
-  const [z3950Message, setZ3950Message] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [z3950Message, setZ3950Message] = useState<{ type: 'success' | 'error'; text: string } | null>(
+    null,
+  );
   const [z3950PickList, setZ3950PickList] = useState<Biblio[] | null>(null);
   const [z3950PickPage, setZ3950PickPage] = useState(0);
-
-  const [openSections, setOpenSections] = useState<Partial<Record<CollapsibleSectionId, boolean>>>({});
-  const [noSpecimensConfirmOpen, setNoSpecimensConfirmOpen] = useState(false);
-
-  const [sites, setSites] = useState<Site[]>([]);
-  const [specimens, setSpecimens] = useState<SpecimenFormRow[]>([
-    { barcode: '', callNumber: '', siteId: '' },
-  ]);
 
   const formDataRef = useRef(formData);
   const linkedCollectionsRef = useRef(linkedCollections);
@@ -346,10 +266,22 @@ export default function BiblioEditorForm({
     linkedSeriesRef.current = linkedSeries;
   }, [formData, linkedCollections, linkedSeries]);
 
-  const sectionOpen = (id: CollapsibleSectionId) => openSections[id] === true;
-  const toggleSection = (id: CollapsibleSectionId) => {
-    setOpenSections((s) => ({ ...s, [id]: !s[id] }));
-  };
+  useEffect(() => {
+    onCatalogDraftChange?.({
+      dewey: formData.dewey,
+      genre: formData.genre,
+      authors: formData.authors,
+      mediaType: formData.mediaType,
+      publicationDate: formData.publicationDate,
+    });
+  }, [
+    formData.dewey,
+    formData.genre,
+    formData.authors,
+    formData.mediaType,
+    formData.publicationDate,
+    onCatalogDraftChange,
+  ]);
 
   useEffect(() => {
     const fetchServers = async () => {
@@ -379,25 +311,6 @@ export default function BiblioEditorForm({
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
   }, [z3950ServerMenuOpen]);
-
-  useEffect(() => {
-    if (!showSpecimens) return;
-    const load = async () => {
-      try {
-        const list = await api.getSites(false);
-        setSites(list);
-        const defaultId = list.find((s) => s.default)?.id ?? list[0]?.id ?? '';
-        setSpecimens((prev) =>
-          prev.length === 1 && prev[0].siteId === '' && defaultId
-            ? [{ ...prev[0], siteId: defaultId }]
-            : prev
-        );
-      } catch {
-        /* ignore */
-      }
-    };
-    load();
-  }, [showSpecimens]);
 
   const searchCollections = useCallback(async (q: string) => {
     const res = await api.getCollections({ name: q, perPage: 10 });
@@ -460,18 +373,7 @@ export default function BiblioEditorForm({
     return { series, collections };
   };
 
-  const buildSpecimensPayload = (): CreateBiblioItemInput[] | undefined => {
-    if (!showSpecimens) return undefined;
-    const filled = specimens.filter((s) => s.siteId.trim() !== '' && s.barcode.trim() !== '');
-    if (filled.length === 0) return undefined;
-    return filled.map((s) => ({
-      barcode: s.barcode.trim(),
-      callNumber: s.callNumber.trim() || undefined,
-      siteId: s.siteId,
-    }));
-  };
-
-  const buildCreatePayload = (specimenItems: CreateBiblioItemInput[] | undefined): CreateBiblioPayload => {
+  const buildCreatePayload = (): CreateBiblioPayload => {
     const authorsPayload: Author[] = formData.authors.map((a) => ({
       id: a.id,
       lastname: a.lastname || undefined,
@@ -488,6 +390,7 @@ export default function BiblioEditorForm({
       keywords: formData.keywords || undefined,
       subject: formData.subject || undefined,
       dewey: formData.dewey || undefined,
+      genre: formData.genre || undefined,
       audienceType: formData.audienceType || undefined,
       lang: formData.lang || undefined,
       edition:
@@ -502,55 +405,35 @@ export default function BiblioEditorForm({
       authors: authorsPayload,
       series: series as Serie[],
       collections: collections as Collection[],
-      ...(specimenItems?.length ? { items: specimenItems } : {}),
     };
   };
 
-  const handleAddSpecimen = () => {
-    const defaultId = sites.find((s) => s.default)?.id ?? sites[0]?.id ?? '';
-    setSpecimens([...specimens, { barcode: '', callNumber: '', siteId: defaultId }]);
-  };
+  const applyZ3950Record = useCallback(
+    (item: Biblio) => {
+      const prevForm = formDataRef.current;
+      const prevColl = linkedCollectionsRef.current;
+      const prevSer = linkedSeriesRef.current;
+      const nextForm = applyZ3950BiblioToForm(item, prevForm);
+      const nextColl = linkedCollectionsAfterZ3950(item, prevColl);
+      const nextSer = linkedSeriesAfterZ3950(item, prevSer);
 
-  const handleRemoveSpecimen = (index: number) => {
-    if (specimens.length <= 1) return;
-    setSpecimens(specimens.filter((_, i) => i !== index));
-  };
-
-  const handleSpecimenChange = (index: number, field: keyof SpecimenFormRow, value: string) => {
-    const next = [...specimens];
-    next[index] = { ...next[index], [field]: value };
-    setSpecimens(next);
-  };
-
-  const applyZ3950Record = useCallback((item: Biblio) => {
-    const prevForm = formDataRef.current;
-    const prevColl = linkedCollectionsRef.current;
-    const prevSer = linkedSeriesRef.current;
-    const nextForm = applyZ3950BiblioToForm(item, prevForm);
-    const nextColl = linkedCollectionsAfterZ3950(item, prevColl);
-    const nextSer = linkedSeriesAfterZ3950(item, prevSer);
-    const toOpen = computeZ3950OpenedSections(prevForm, nextForm, prevColl, nextColl, prevSer, nextSer);
-
-    setOpenSections((s) => {
-      const next = { ...s };
-      for (const id of toOpen) {
-        next[id] = true;
+      setFormData(nextForm);
+      if (item.series && item.series.length > 0) {
+        setLinkedSeries(nextSer);
       }
-      return next;
-    });
-
-    setFormData(nextForm);
-    if (item.series && item.series.length > 0) {
-      setLinkedSeries(nextSer);
-    }
-    const firstColl = item.collections?.[0] ?? item.collection;
-    if (firstColl) {
-      setLinkedCollections(nextColl);
-    }
-    setZ3950PickList(null);
-    setZ3950PickPage(0);
-    setZ3950Message({ type: 'success', text: t('z3950.dataFound') });
-  }, [t]);
+      const firstColl = item.collections?.[0] ?? item.collection;
+      if (firstColl) {
+        setLinkedCollections(nextColl);
+      }
+      setZ3950PickList(null);
+      setZ3950PickPage(0);
+      setZ3950Message({ type: 'success', text: t('z3950.dataFound') });
+      requestAnimationFrame(() => {
+        formTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    },
+    [t],
+  );
 
   const handleZ3950Search = async () => {
     const isbnTrim = formData.isbn.trim();
@@ -577,7 +460,7 @@ export default function BiblioEditorForm({
     setZ3950PickPage(0);
     try {
       const response = await api.searchZ3950(
-        isbnTrim !== '' ? { isbn: isbnQuery, serverId } : { title: titleTrim, serverId }
+        isbnTrim !== '' ? { isbn: isbnQuery, serverId } : { title: titleTrim, serverId },
       );
       const list = response.biblios ?? [];
       if (list.length === 0) {
@@ -597,9 +480,7 @@ export default function BiblioEditorForm({
     }
   };
 
-  const z3950CanSearch =
-    formData.isbn.trim() !== '' || formData.title.trim() !== '';
-
+  const z3950CanSearch = formData.isbn.trim() !== '' || formData.title.trim() !== '';
   const z3950AutocompleteDisabled = isSearchingZ3950 || !z3950CanSearch;
 
   if (z3950AutocompleteDisabled && z3950ServerMenuOpen) {
@@ -619,10 +500,8 @@ export default function BiblioEditorForm({
   }, [z3950PickList, z3950PickPage]);
 
   const z3950AutocompleteButtonText = useMemo(() => {
-    const s =
-      z3950Servers.find((x) => x.id === z3950SelectedServerId) ?? z3950Servers[0];
-    const serverName =
-      s == null ? '—' : s.name?.trim() || s.address?.trim() || '—';
+    const s = z3950Servers.find((x) => x.id === z3950SelectedServerId) ?? z3950Servers[0];
+    const serverName = s == null ? '—' : s.name?.trim() || s.address?.trim() || '—';
     return t('z3950.autocompleteWithSearch', { serverName });
   }, [t, z3950Servers, z3950SelectedServerId]);
 
@@ -631,20 +510,7 @@ export default function BiblioEditorForm({
     if (formData.title.trim() === '') return;
 
     if (mode === 'create') {
-      const invalidCallNumber = specimens.find(
-        (s) => s.barcode.trim() !== '' && s.callNumber.trim() !== '' && !validateCallNumber(s.callNumber)
-      );
-      if (invalidCallNumber) return;
-      const specimenPayload = buildSpecimensPayload();
-      if (specimenPayload?.some((s) => !s.siteId)) return;
-
-      if (!specimenPayload?.length) {
-        setNoSpecimensConfirmOpen(true);
-        return;
-      }
-
-      const payload = buildCreatePayload(specimenPayload);
-      await onSubmitCreate?.(payload);
+      await onSubmitCreate?.(buildCreatePayload());
       return;
     }
 
@@ -664,6 +530,7 @@ export default function BiblioEditorForm({
         keywords: formData.keywords || undefined,
         subject: formData.subject || undefined,
         dewey: formData.dewey || undefined,
+        genre: formData.genre || undefined,
         mediaType: formData.mediaType,
         audienceType: formData.audienceType || undefined,
         lang: formData.lang || undefined,
@@ -686,24 +553,11 @@ export default function BiblioEditorForm({
     }
   };
 
-  const handleConfirmCreateWithoutSpecimens = async () => {
-    setNoSpecimensConfirmOpen(false);
-    const invalidCallNumber = specimens.find(
-      (s) => s.barcode.trim() !== '' && s.callNumber.trim() !== '' && !validateCallNumber(s.callNumber)
-    );
-    if (invalidCallNumber) return;
-    const specimenPayload = buildSpecimensPayload();
-    if (specimenPayload?.some((s) => !s.siteId)) return;
-    const payload = buildCreatePayload(specimenPayload);
-    await onSubmitCreate?.(payload);
-  };
-
   return (
-    <>
-      <form id={formId} onSubmit={handleSubmit} className="space-y-4">
+    <form id={formId} ref={formTopRef} onSubmit={handleSubmit} className="space-y-3">
       <section className={BIBLIO_FORM_SECTION}>
-        <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">{t('items.identification')}</h3>
-        <div className="grid grid-cols-1 lg:grid-cols-[minmax(12rem,1fr)_minmax(0,2fr)] gap-4">
+        <h3 className={BIBLIO_SECTION_TITLE}>{t('items.identification')}</h3>
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(12rem,1fr)_minmax(0,2fr)] gap-2.5">
           <Input
             label={t('items.isbn')}
             value={formData.isbn}
@@ -741,7 +595,13 @@ export default function BiblioEditorForm({
                 variant="primary"
                 onClick={handleZ3950Search}
                 disabled={z3950AutocompleteDisabled}
-                leftIcon={isSearchingZ3950 ? <Loader2 className="h-4 w-4 animate-spin" /> : <Globe className="h-4 w-4" />}
+                leftIcon={
+                  isSearchingZ3950 ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Globe className="h-4 w-4" />
+                  )
+                }
                 title={z3950AutocompleteButtonText}
               >
                 {z3950AutocompleteButtonText}
@@ -754,7 +614,13 @@ export default function BiblioEditorForm({
                   className="rounded-r-none border-r border-amber-500/30 h-auto"
                   onClick={handleZ3950Search}
                   disabled={z3950AutocompleteDisabled}
-                  leftIcon={isSearchingZ3950 ? <Loader2 className="h-4 w-4 animate-spin" /> : <Globe className="h-4 w-4" />}
+                  leftIcon={
+                    isSearchingZ3950 ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Globe className="h-4 w-4" />
+                    )
+                  }
                   title={z3950AutocompleteButtonText}
                 >
                   {z3950AutocompleteButtonText}
@@ -782,7 +648,9 @@ export default function BiblioEditorForm({
                           role="option"
                           aria-selected={s.id === z3950SelectedServerId}
                           className={`w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 ${
-                            s.id === z3950SelectedServerId ? 'bg-amber-50 dark:bg-amber-900/20 font-medium' : ''
+                            s.id === z3950SelectedServerId
+                              ? 'bg-amber-50 dark:bg-amber-900/20 font-medium'
+                              : ''
                           }`}
                           onClick={() => {
                             setZ3950SelectedServerId(s.id);
@@ -798,7 +666,7 @@ export default function BiblioEditorForm({
               </div>
             )}
             {z3950PickList && z3950PickList.length > 1 && (
-              <div className="mt-3 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-950/40 p-3 space-y-3 shadow-inner">
+              <div className="mt-2 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-950/40 p-3 space-y-3 shadow-inner">
                 <p className="text-xs font-medium text-gray-700 dark:text-gray-300">
                   {t('items.z3950PickFromList', { count: z3950PickList.length })}
                 </p>
@@ -811,7 +679,9 @@ export default function BiblioEditorForm({
                       <p className="min-w-0 flex-1 text-sm text-gray-800 dark:text-gray-100 truncate">
                         <span className="font-medium">{b.title?.trim() || '—'}</span>
                         <span className="text-gray-400 dark:text-gray-500"> · </span>
-                        <span className="font-mono text-xs">{formatIsbnDisplay(b.isbn || '') || '—'}</span>
+                        <span className="font-mono text-xs">
+                          {formatIsbnDisplay(b.isbn || '') || '—'}
+                        </span>
                         <span className="text-gray-400 dark:text-gray-500"> · </span>
                         <span>{primaryAuthorLine(b)}</span>
                       </p>
@@ -883,307 +753,222 @@ export default function BiblioEditorForm({
         )}
       </section>
 
-      <BiblioFormCollapsibleSection
-        sectionId="typeAndPublication"
-        title={t('items.formSectionTypeAndPublication')}
-        open={sectionOpen('typeAndPublication')}
-        onToggle={() => toggleSection('typeAndPublication')}
-      >
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className={formLabelClass()}>
-              {t('items.mediaTypeLabel')}
-            </label>
-            <select
-              value={formData.mediaType}
-              onChange={(e) => setFormData({ ...formData, mediaType: e.target.value as MediaType })}
-              className={BIBLIO_FORM_SELECT}
-            >
-              {MEDIA_TYPES.map((type) => (
-                <option key={type.value} value={type.value}>
-                  {type.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <Input
-            label={t('items.publicationDate')}
-            value={formData.publicationDate}
-            onChange={(e) => setFormData({ ...formData, publicationDate: e.target.value })}
-            placeholder="YYYY"
-          />
-        </div>
-      </BiblioFormCollapsibleSection>
-
-      <BiblioFormCollapsibleSection
-        sectionId="abstractAndIndexing"
-        title={t('items.formSectionAbstractAndIndexing')}
-        open={sectionOpen('abstractAndIndexing')}
-        onToggle={() => toggleSection('abstractAndIndexing')}
-      >
-        <div>
-             <Input
-          label={t('items.subject')}
-          value={formData.subject}
-          onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
-        />
-        <Input
-          label={t('items.keywords')}
-          value={formData.keywords}
-          onChange={(e) => setFormData({ ...formData, keywords: e.target.value })}
-          placeholder={t('items.keywordsHint')}
-        />
-        <Input
-          label={t('items.dewey')}
-          value={formData.dewey}
-          onChange={(e) => setFormData({ ...formData, dewey: e.target.value })}
-          placeholder={t('items.deweyPlaceholder')}
-          className="font-mono"
-        />
-
-          <label className={formLabelClass()}>
-            {t('items.abstract')}
-          </label>
-          <textarea
-            value={formData.abstract}
-            onChange={(e) => setFormData({ ...formData, abstract: e.target.value })}
-            rows={6}
-            className={formTextareaClass({ className: 'min-h-[9rem]' })}
-          />
-        </div>
-             
-      </BiblioFormCollapsibleSection>
-
-      <BiblioFormCollapsibleSection
-        sectionId="audienceAndLanguage"
-        title={t('items.formSectionAudienceAndLanguage')}
-        open={sectionOpen('audienceAndLanguage')}
-        onToggle={() => toggleSection('audienceAndLanguage')}
-      >
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className={formLabelClass()}>
-              {t('items.publicType')}
-            </label>
-            <select
-              value={formData.audienceType}
-              onChange={(e) => setFormData({ ...formData, audienceType: e.target.value })}
-              className={BIBLIO_FORM_SELECT}
-            >
-              <option value="">{t('items.notSpecified')}</option>
-              {PUBLIC_TYPE_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {t(opt.labelKey)}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className={formLabelClass()}>
-              {t('items.language')}
-            </label>
-            <select
-              value={formData.lang}
-              onChange={(e) => setFormData({ ...formData, lang: e.target.value })}
-              className={BIBLIO_FORM_SELECT}
-            >
-              <option value="">{t('items.notSpecified')}</option>
-              {LANG_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {t(opt.labelKey)}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </BiblioFormCollapsibleSection>
-
-      <BiblioFormCollapsibleSection
-        sectionId="edition"
-        title={t('items.editionInfo')}
-        open={sectionOpen('edition')}
-        onToggle={() => toggleSection('edition')}
-      >
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <Input
-            label={t('items.publisher')}
-            value={formData.editionPublisher}
-            onChange={(e) => setFormData({ ...formData, editionPublisher: e.target.value })}
-          />
-          <Input
-            label={t('items.publicationPlace')}
-            value={formData.editionPlace}
-            onChange={(e) => setFormData({ ...formData, editionPlace: e.target.value })}
-          />
-          <Input
-            label={t('items.editionDate')}
-            value={formData.editionDate}
-            onChange={(e) => setFormData({ ...formData, editionDate: e.target.value })}
-          />
-        </div>
-      </BiblioFormCollapsibleSection>
-
-      <BiblioFormCollapsibleSection
-        sectionId="authors"
-        title={t('items.authors')}
-        open={sectionOpen('authors')}
-        onToggle={() => toggleSection('authors')}
-        headerRight={
-          sectionOpen('authors') ? (
-            <Button type="button" size="sm" variant="secondary" onClick={addAuthor} leftIcon={<Plus className="h-3 w-3" />}>
-              {t('common.add')}
-            </Button>
-          ) : null
-        }
-      >
-        {formData.authors.length === 0 ? (
-          <p className="text-xs text-gray-500 dark:text-gray-400">{t('items.notSpecified')}</p>
-        ) : (
-          formData.authors.map((author, index) => (
-            <div
-              key={index}
-              className="flex flex-nowrap items-center gap-2 p-2 rounded-lg bg-white/80 dark:bg-gray-900/50 min-w-0 overflow-x-auto border border-gray-200/80 dark:border-gray-600/50"
-            >
-              <Input
-                placeholder={t('items.authorLastname')}
-                value={author.lastname}
-                onChange={(e) => updateAuthor(index, 'lastname', e.target.value)}
-                className="min-w-[6rem] flex-1 shrink"
-              />
-              <Input
-                placeholder={t('items.authorFirstname')}
-                value={author.firstname}
-                onChange={(e) => updateAuthor(index, 'firstname', e.target.value)}
-                className="min-w-[6rem] flex-1 shrink"
-              />
-              <select
-                value={author.function}
-                onChange={(e) => updateAuthor(index, 'function', e.target.value)}
-                className={BIBLIO_FORM_SELECT_COMPACT}
-              >
-                <option value="">{t('items.notSpecified')}</option>
-                {FUNCTION_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {t(opt.labelKey)}
-                  </option>
-                ))}
-              </select>
-              <button
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+        <div className="space-y-3 min-w-0">
+          <section className={BIBLIO_FORM_SECTION}>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className={BIBLIO_SECTION_TITLE}>{t('items.authors')}</h3>
+              <Button
                 type="button"
-                onClick={() => removeAuthor(index)}
-                className="shrink-0 p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500"
-                title={t('common.delete')}
+                size="sm"
+                variant="secondary"
+                onClick={addAuthor}
+                leftIcon={<Plus className="h-3 w-3" />}
               >
-                <Trash2 className="h-4 w-4" />
-              </button>
+                {t('common.add')}
+              </Button>
             </div>
-          ))
-        )}
-      </BiblioFormCollapsibleSection>
-
-      <BiblioFormCollapsibleSection
-        sectionId="collections"
-        title={t('items.collection')}
-        open={sectionOpen('collections')}
-        onToggle={() => toggleSection('collections')}
-      >
-        <EntityLinker
-          label={t('items.collection')}
-          addLabel={t('catalog.searchOrCreateCollection')}
-          entries={linkedCollections}
-          onChange={setLinkedCollections}
-          onSearch={searchCollections}
-          volumeLabel={t('catalog.volumeNumber')}
-          hideLabel
-        />
-      </BiblioFormCollapsibleSection>
-
-      <BiblioFormCollapsibleSection
-        sectionId="series"
-        title={t('items.series')}
-        open={sectionOpen('series')}
-        onToggle={() => toggleSection('series')}
-      >
-        <EntityLinker
-          label={t('items.series')}
-          addLabel={t('catalog.searchOrCreateSerie')}
-          entries={linkedSeries}
-          onChange={setLinkedSeries}
-          onSearch={searchSeries}
-          volumeLabel={t('catalog.volumeNumber')}
-          hideLabel
-        />
-      </BiblioFormCollapsibleSection>
-
-      {showSpecimens && (
-        <section className={BIBLIO_SPECIMENS_SECTION}>
-          <h3 className="text-sm font-semibold text-amber-950 dark:text-amber-100">{t('items.specimens')}</h3>
-          <p className="text-xs text-amber-900/80 dark:text-amber-200/80">{t('items.specimensOptionalHint')}</p>
-          <div className="space-y-3">
-            {specimens.map((specimen, index) => (
-              <div key={index} className="flex items-start gap-2 p-3 rounded-lg border border-amber-200/70 dark:border-amber-800/50 bg-white/70 dark:bg-gray-900/40">
-                <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <BarcodeScanField
-                    placeholder={t('items.specimenBarcode')}
-                    value={specimen.barcode}
-                    onChange={(e) => handleSpecimenChange(index, 'barcode', e.target.value)}
-                    scannerTitle={t('items.specimenBarcode')}
-                    onCameraScan={(code) => handleSpecimenChange(index, 'barcode', code)}
+            {formData.authors.length === 0 ? (
+              <p className="text-xs text-gray-500 dark:text-gray-400">{t('items.notSpecified')}</p>
+            ) : (
+              formData.authors.map((author, index) => (
+                <div
+                  key={index}
+                  className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_minmax(7rem,auto)_auto] gap-2 items-end p-2 rounded-lg bg-white/80 dark:bg-gray-900/50 border border-gray-200/80 dark:border-gray-600/50"
+                >
+                  <Input
+                    placeholder={t('items.authorLastname')}
+                    value={author.lastname}
+                    onChange={(e) => updateAuthor(index, 'lastname', e.target.value)}
                   />
-                  <CallNumberField
-                    value={specimen.callNumber}
-                    onChange={(v) => handleSpecimenChange(index, 'callNumber', v)}
-                    suggestedValue={buildSuggestedCallNumber({
-                      categoryCode: 'GEN',
-                      year: formData.publicationDate,
-                    })}
-                    placeholder={t('items.callNumber')}
-                    inputId={`biblio-editor-specimen-call-${index}`}
+                  <Input
+                    placeholder={t('items.authorFirstname')}
+                    value={author.firstname}
+                    onChange={(e) => updateAuthor(index, 'firstname', e.target.value)}
                   />
-                  <div className="min-w-0">
-                    <select
-                      value={specimen.siteId}
-                      onChange={(e) => handleSpecimenChange(index, 'siteId', e.target.value)}
-                      className={BIBLIO_FORM_SELECT}
-                    >
-                      <option value="">{t('items.selectSite')}</option>
-                      {sites.map((src) => (
-                        <option key={src.id} value={src.id}>
-                          {src.name || src.id}
-                          {src.default ? ` (${t('importMarc.default')})` : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                {specimens.length > 1 && (
-                  <Button
+                  <select
+                    value={author.function}
+                    onChange={(e) => updateAuthor(index, 'function', e.target.value)}
+                    className={BIBLIO_FORM_SELECT_COMPACT}
+                    aria-label={t('items.authors')}
+                  >
+                    <option value="">{t('items.notSpecified')}</option>
+                    {FUNCTION_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>
+                        {t(opt.labelKey)}
+                      </option>
+                    ))}
+                  </select>
+                  <button
                     type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleRemoveSpecimen(index)}
-                    className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 shrink-0"
+                    onClick={() => removeAuthor(index)}
+                    className="shrink-0 p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 justify-self-end"
+                    title={t('common.delete')}
                   >
                     <Trash2 className="h-4 w-4" />
-                  </Button>
-                )}
+                  </button>
+                </div>
+              ))
+            )}
+          </section>
+
+          <section className={BIBLIO_FORM_SECTION}>
+            <h3 className={BIBLIO_SECTION_TITLE}>{t('items.editionInfo')}</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+              <Input
+                label={t('items.publisher')}
+                value={formData.editionPublisher}
+                onChange={(e) => setFormData({ ...formData, editionPublisher: e.target.value })}
+              />
+              <Input
+                label={t('items.publicationPlace')}
+                value={formData.editionPlace}
+                onChange={(e) => setFormData({ ...formData, editionPlace: e.target.value })}
+              />
+              <Input
+                label={t('items.editionDate')}
+                value={formData.editionDate}
+                onChange={(e) => setFormData({ ...formData, editionDate: e.target.value })}
+              />
+            </div>
+          </section>
+        </div>
+
+        <div className="space-y-3 min-w-0">
+          <section className={BIBLIO_FORM_SECTION}>
+            <h3 className={BIBLIO_SECTION_TITLE}>{t('items.formSectionTypeAndPublication')}</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div>
+                <label className={formLabelClass()}>{t('items.mediaTypeLabel')}</label>
+                <select
+                  value={formData.mediaType}
+                  onChange={(e) =>
+                    setFormData({ ...formData, mediaType: e.target.value as MediaType })
+                  }
+                  className={BIBLIO_FORM_SELECT}
+                >
+                  {MEDIA_TYPES.map((type) => (
+                    <option key={type.value} value={type.value}>
+                      {type.label}
+                    </option>
+                  ))}
+                </select>
               </div>
-            ))}
-          </div>
-          <Button type="button" variant="secondary" size="sm" onClick={handleAddSpecimen} leftIcon={<Plus className="h-4 w-4" />}>
-            {t('items.addSpecimen')}
-          </Button>
+              <Input
+                label={t('items.publicationDate')}
+                value={formData.publicationDate}
+                onChange={(e) => setFormData({ ...formData, publicationDate: e.target.value })}
+                placeholder="YYYY"
+              />
+              <div>
+                <label className={formLabelClass()}>{t('items.language')}</label>
+                <select
+                  value={formData.lang}
+                  onChange={(e) => setFormData({ ...formData, lang: e.target.value })}
+                  className={BIBLIO_FORM_SELECT}
+                >
+                  <option value="">{t('items.notSpecified')}</option>
+                  {LANG_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {t(opt.labelKey)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className={formLabelClass()}>{t('items.publicType')}</label>
+                <select
+                  value={formData.audienceType}
+                  onChange={(e) => setFormData({ ...formData, audienceType: e.target.value })}
+                  className={BIBLIO_FORM_SELECT}
+                >
+                  <option value="">{t('items.notSpecified')}</option>
+                  {PUBLIC_TYPE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {t(opt.labelKey)}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </section>
+
+          <section className={BIBLIO_FORM_SECTION}>
+            <h3 className={BIBLIO_SECTION_TITLE}>{t('items.formSectionAbstractAndIndexing')}</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <Input
+                label={t('items.dewey')}
+                value={formData.dewey}
+                onChange={(e) => setFormData({ ...formData, dewey: e.target.value })}
+                placeholder={t('items.deweyPlaceholder')}
+                className="font-mono"
+              />
+              <div>
+                <label className={formLabelClass()}>{t('items.genre')}</label>
+                <select
+                  value={formData.genre}
+                  onChange={(e) => setFormData({ ...formData, genre: e.target.value })}
+                  className={BIBLIO_FORM_SELECT}
+                >
+                  <option value="">{t('items.notSpecified')}</option>
+                  {genreOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <Input
+                label={t('items.subject')}
+                value={formData.subject}
+                onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
+              />
+              <Input
+                label={t('items.keywords')}
+                value={formData.keywords}
+                onChange={(e) => setFormData({ ...formData, keywords: e.target.value })}
+                placeholder={t('items.keywordsHint')}
+              />
+            </div>
+            <div>
+              <label className={formLabelClass()}>{t('items.abstract')}</label>
+              <textarea
+                value={formData.abstract}
+                onChange={(e) => setFormData({ ...formData, abstract: e.target.value })}
+                rows={3}
+                className={formTextareaClass({ className: 'min-h-[4.5rem]' })}
+              />
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+        <section className={BIBLIO_FORM_SECTION}>
+          <h3 className={BIBLIO_SECTION_TITLE}>{t('items.collection')}</h3>
+          <EntityLinker
+            label={t('items.collection')}
+            addLabel={t('catalog.searchOrCreateCollection')}
+            entries={linkedCollections}
+            onChange={setLinkedCollections}
+            onSearch={searchCollections}
+            volumeLabel={t('catalog.volumeNumber')}
+            hideLabel
+          />
         </section>
-      )}
+        <section className={BIBLIO_FORM_SECTION}>
+          <h3 className={BIBLIO_SECTION_TITLE}>{t('items.series')}</h3>
+          <EntityLinker
+            label={t('items.series')}
+            addLabel={t('catalog.searchOrCreateSerie')}
+            entries={linkedSeries}
+            onChange={setLinkedSeries}
+            onSearch={searchSeries}
+            volumeLabel={t('catalog.volumeNumber')}
+            hideLabel
+          />
+        </section>
+      </div>
     </form>
-      <ConfirmDialog
-        isOpen={noSpecimensConfirmOpen}
-        onClose={() => setNoSpecimensConfirmOpen(false)}
-        onConfirm={() => {
-          void handleConfirmCreateWithoutSpecimens();
-        }}
-        message={t('items.createBiblioNoSpecimensConfirm')}
-      />
-    </>
   );
 }

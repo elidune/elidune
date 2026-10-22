@@ -14,6 +14,7 @@ pub mod equipment;
 pub mod event_bus;
 pub mod events;
 pub mod fines;
+pub mod genre_catalog;
 pub mod holds;
 pub mod i18n;
 pub mod idempotency;
@@ -70,6 +71,7 @@ pub struct Services {
     pub equipment: equipment::EquipmentService,
     pub events: events::EventsService,
     pub fines: fines::FinesService,
+    pub genre_catalog: genre_catalog::GenreCatalogService,
     pub inventory: inventory::InventoryService,
     pub library_info: library_info::LibraryInfoService,
     pub loans: loans::LoansService,
@@ -135,6 +137,12 @@ impl Services {
             catalog::CatalogService::new(biblios_repo, entities_repo, audit_service.clone())
         };
 
+        let genre_catalog = genre_catalog::GenreCatalogService::new(repo.clone());
+        // Best-effort load so MARC import/export can resolve genres without per-request DB hits.
+        if let Err(e) = genre_catalog.reload().await {
+            tracing::warn!("genre catalog not loaded at startup (run migrations?): {e}");
+        }
+
         let deposits = deposits::DepositsService::new(repository.clone(), catalog.clone(), audit_service.clone());
         let marc_service = marc::MarcService::new(catalog.clone(), redis_service.clone(), deposits.clone());
 
@@ -169,6 +177,7 @@ impl Services {
                 public_base_url,
             ),
             fines: fines_service.clone(),
+            genre_catalog: genre_catalog.clone(),
             inventory: inventory::InventoryService::new(
                 repo.clone() as Arc<dyn InventoryRepository>,
                 repo.clone() as Arc<dyn SitesRepository>,

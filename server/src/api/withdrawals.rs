@@ -22,6 +22,7 @@ pub fn router() -> axum::Router<crate::AppState> {
         .route("/items/:id/withdrawals", post(withdraw_item).get(get_active_item_withdrawal))
         .route("/item-withdrawals/export.csv", get(export_withdrawals_csv))
         .route("/item-withdrawals/dispose", post(dispose_withdrawals))
+        .route("/weeding-candidates", get(list_weeding_candidates))
         .route("/item-withdrawals", get(list_withdrawals))
         .route("/item-withdrawals/:id/cancel", post(cancel_withdrawal))
         .route("/item-withdrawals/:id", get(get_withdrawal).patch(complete_legacy_withdrawal))
@@ -349,6 +350,27 @@ pub async fn get_withdrawal(State(state): State<crate::AppState>, AuthenticatedU
 pub async fn list_withdrawals(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Query(query): Query<WithdrawalQuery>) -> AppResult<Json<WithdrawalList>> {
     claims.require_read_weeding()?;
     let list = state.services.catalog.list_withdrawals(&query).await?;
+    Ok(Json(list))
+}
+
+#[utoipa::path(
+    get,
+    path = "/weeding-candidates",
+    tag = "items",
+    security(("bearer_auth" = [])),
+    params(crate::models::dto::weeding::WeedingCandidateQuery),
+    responses(
+        (status = 200, description = "Copies marked for weeding but not yet withdrawn", body = crate::models::dto::weeding::WeedingCandidateList),
+        (status = 403, description = "Missing weeding right", body = crate::error::ErrorResponse)
+    )
+)]
+pub async fn list_weeding_candidates(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    Query(query): Query<crate::models::dto::weeding::WeedingCandidateQuery>,
+) -> AppResult<Json<crate::models::dto::weeding::WeedingCandidateList>> {
+    claims.require_read_weeding()?;
+    let list = state.services.catalog.list_weeding_candidates(&query).await?;
     Ok(Json(list))
 }
 

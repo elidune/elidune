@@ -17,7 +17,7 @@ import {
   type User,
 } from '@/types';
 
-type AccessUser = Pick<
+export type AccessUser = Pick<
   User,
   | 'itemsRights'
   | 'usersRights'

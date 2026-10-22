@@ -150,7 +150,9 @@ describe('account type settings screen', () => {
     assert.match(html, /Lecteurs/);
     assert.match(html, /Forcer les dérogations au comptoir \(exemplaire réservé pour un autre lecteur, abonnement expiré\)/);
     assert.equal(html.toLowerCase().includes('spécimen'), false);
-    assert.match(html, /aria-label="Supprimer Agent de prêt"/);
+    assert.match(html, /Agent de prêt/);
+    assert.match(html, /loan_agent/);
+    assert.match(html, /Catalogue &amp; exemplaires/);
     assert.equal(html.includes('Supprimer Reader'), false);
     assert.equal(html.includes('Supprimer Lecteur'), false);
     assert.match(html, /id="account-type-create-code"/);

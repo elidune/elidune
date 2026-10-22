@@ -2,6 +2,7 @@ import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
 import api from '@/services/api';
+import { invalidateCirculationCaches } from '@/hooks/loans/invalidateCirculationCaches';
 import { useToast } from '@/contexts/ToastContext';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { depositReplacementAmountRequired } from '@/utils/deposits';
@@ -126,9 +127,7 @@ export function useCirculationExceptionAction(options: UseCirculationExceptionAc
         const result = await applyException(target.loanId, target.kind, payload);
         showToast({ variant: 'success', message: t(successKeyForOutcome(result.outcome)) });
         setTarget(null);
-        await queryClient.invalidateQueries({ queryKey: ['loans-claims-returned'] });
-        await queryClient.invalidateQueries({ queryKey: ['user-active-loans'] });
-        await queryClient.invalidateQueries({ queryKey: ['user-past-loans'] });
+        await invalidateCirculationCaches(queryClient);
         await onSuccess?.();
       } catch (err: unknown) {
         const msg = getApiErrorMessage(err, t) || t('loans.exceptions.error');

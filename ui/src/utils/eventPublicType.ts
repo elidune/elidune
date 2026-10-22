@@ -13,6 +13,24 @@ export interface EventAudienceSelection {
   publicTypes: readonly string[];
 }
 
+/** Multi-select option value for « all audiences » (not a catalog public type name). */
+export const EVENT_ALL_AUDIENCES_VALUE = '__all_audiences__';
+
+export function eventAudienceMultiSelectValue(selection: EventAudienceSelection): string[] {
+  if (selection.allAudiences) return [EVENT_ALL_AUDIENCES_VALUE];
+  return [...selection.publicTypes];
+}
+
+export function eventAudienceFromMultiSelect(
+  next: readonly string[],
+  current: EventAudienceSelection,
+): EventAudienceSelection {
+  if (next.includes(EVENT_ALL_AUDIENCES_VALUE)) {
+    return applyAllAudiencesToggle(current, true);
+  }
+  return { allAudiences: false, publicTypes: normalizeAudienceNames(next) };
+}
+
 /** Fields written on create and update. Legacy `publicType` is never included. */
 export interface EventAudienceWrite {
   allAudiences: boolean;

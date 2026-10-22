@@ -5,6 +5,7 @@ import {
   completeItemHref,
   isReadyToCirculate,
   missingCirculationFields,
+  recommendedCirculationFields,
   type CirculationField,
 } from '@/utils/circulationReadiness';
 
@@ -26,8 +27,7 @@ interface ReceivedCopiesPanelProps {
 
 function fieldLabel(t: (key: string) => string, field: CirculationField): string {
   if (field === 'barcode') return t('items.missingBarcode');
-  if (field === 'site') return t('items.missingSite');
-  return t('items.missingPrice');
+  return t('items.missingSite');
 }
 
 export default function ReceivedCopiesPanel({ copies, onDismiss }: ReceivedCopiesPanelProps) {
@@ -51,6 +51,7 @@ export default function ReceivedCopiesPanel({ copies, onDismiss }: ReceivedCopie
         {copies.map((copy) => {
           const ready = isReadyToCirculate(copy) && copy.borrowable;
           const missing = missingCirculationFields(copy);
+          const recommended = ready ? recommendedCirculationFields(copy) : [];
           const href = copy.biblioId
             ? ready
               ? `/biblios/${copy.biblioId}`
@@ -83,6 +84,9 @@ export default function ReceivedCopiesPanel({ copies, onDismiss }: ReceivedCopie
                       fields: missing.map((field) => fieldLabel(t, field)).join(', '),
                     })}
                   </p>
+                ) : null}
+                {recommended.length > 0 ? (
+                  <p className="text-xs text-gray-600 dark:text-gray-400">{t('items.recommendedPrice')}</p>
                 ) : null}
               </div>
               {href ? (

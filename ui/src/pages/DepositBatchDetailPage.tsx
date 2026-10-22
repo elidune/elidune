@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, Library } from 'lucide-react';
+import { ArrowLeft, BookOpen, ChevronDown, Library, Loader2 } from 'lucide-react';
 import { Badge, Button, Card, CardHeader, ConfirmDialog, Input, Modal, QueryErrorBanner, Table } from '@/components/common';
 import { MarcImportWorkflow } from '@/pages/ImportIsoPage';
 import ReturnToLenderNotice from '@/components/items/ReturnToLenderNotice';
@@ -29,6 +29,8 @@ import {
   type DepositCloseReport,
 } from '@/utils/deposits';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
+import { navigateBack } from '@/utils/navigateBack';
+import { LIST_ROW_ICON_BTN } from '@/utils/listRowActionIconClass';
 
 const STATES: DepositCopyState[] = ['onShelf', 'onLoan', 'onHold', 'inTransit', 'returned', 'missing'];
 
@@ -239,15 +241,18 @@ export default function DepositBatchDetailPage() {
     <div className={APP_PAGE_CLASS}>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 flex-1 items-start gap-3">
+          <button
+            type="button"
+            onClick={() => navigateBack(navigate, '/deposits')}
+            className="shrink-0 rounded-lg p-2 hover:bg-gray-100 dark:hover:bg-gray-800"
+            aria-label={t('common.back')}
+          >
+            <ArrowLeft className="h-5 w-5" aria-hidden />
+          </button>
           <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-800">
             <Library className="h-6 w-6 text-gray-700 dark:text-gray-200" aria-hidden />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-sm">
-              <Link to="/deposits" className="text-indigo-700 hover:underline dark:text-indigo-300">
-                {t('deposits.batches.title')}
-              </Link>
-            </p>
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
                 {batch?.reference ?? t('deposits.batches.title')}
@@ -404,7 +409,7 @@ export default function DepositBatchDetailPage() {
                         <ItemRecordLink
                           itemId={line.itemId}
                           biblioId={known.biblioId}
-                          label={t('deposits.batch.openRecord')}
+                          recordAriaLabel={t('deposits.batch.openRecord')}
                           onOpen={(biblioId) => navigate(`/biblios/${biblioId}`)}
                           onError={(error) => showToast({ variant: 'error', message: getApiErrorMessage(error, t) })}
                         />
@@ -489,9 +494,13 @@ export default function DepositBatchDetailPage() {
               header: '',
               align: 'right',
               render: (item: DepositBatchItem) => (
-                <Link to={`/biblios/${item.biblioId}`} className="text-sm text-indigo-700 hover:underline dark:text-indigo-300" data-row-action>
-                  {t('deposits.batch.openRecord')}
-                </Link>
+                <ItemRecordLink
+                  itemId={item.itemId}
+                  biblioId={item.biblioId}
+                  recordAriaLabel={t('deposits.batch.openRecord')}
+                  onOpen={(biblioId) => navigate(`/biblios/${biblioId}`)}
+                  onError={(error) => showToast({ variant: 'error', message: getApiErrorMessage(error, t) })}
+                />
               ),
             },
           ]}
@@ -564,36 +573,56 @@ export default function DepositBatchDetailPage() {
 function ItemRecordLink({
   itemId,
   biblioId,
-  label,
+  recordAriaLabel,
   onOpen,
   onError,
 }: {
   itemId: string;
   biblioId: string | null;
-  label: string;
+  recordAriaLabel: string;
   onOpen: (biblioId: string) => void;
   onError: (error: unknown) => void;
 }) {
   const [pending, setPending] = useState(false);
-  const className = 'text-indigo-800 underline hover:no-underline dark:text-indigo-200';
+  const icon = pending ? (
+    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+  ) : (
+    <BookOpen className="h-4 w-4" aria-hidden />
+  );
   if (biblioId) {
-    return <Link to={`/biblios/${biblioId}`} className={className}>{label}</Link>;
+    return (
+      <Link
+        to={`/biblios/${biblioId}`}
+        className={LIST_ROW_ICON_BTN}
+        aria-label={recordAriaLabel}
+        title={recordAriaLabel}
+        data-row-action
+      >
+        {icon}
+      </Link>
+    );
   }
   return (
     <button
       type="button"
-      className={className}
+      className={LIST_ROW_ICON_BTN}
+      aria-label={recordAriaLabel}
+      title={recordAriaLabel}
       disabled={pending}
+      data-row-action
       onClick={() => {
         setPending(true);
-        void api.getItem(itemId).then((notice) => {
-          if (notice.id) onOpen(String(notice.id));
-        }).catch((error: unknown) => {
-          onError(error);
-        }).finally(() => setPending(false));
+        void api.getItem(itemId)
+          .then((notice) => {
+            if (notice.id) onOpen(String(notice.id));
+          })
+          .catch((error: unknown) => {
+            onError(error);
+          })
+          .finally(() => setPending(false));
       }}
     >
-      {label}
+      {icon}
     </button>
   );
 }

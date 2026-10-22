@@ -461,6 +461,9 @@ pub struct AppConfig {
     /// Due-date calendar policy. Defaults to skipping closed days (public library).
     #[serde(default)]
     pub circulation: CirculationConfig,
+    /// Optional LMS modules (acquisitions, weeding, …). Defaults all enabled.
+    #[serde(default)]
+    pub features: crate::features::FeaturesConfig,
     #[serde(default)]
     pub meilisearch: Option<MeilisearchConfig>,
     #[serde(default)]
@@ -477,7 +480,9 @@ impl AppConfig {
 
         let config = builder.add_source(Environment::with_prefix("ELIDUNE").prefix_separator("_").separator("__")).build()?;
 
-        config.try_deserialize()
+        let mut cfg: Self = config.try_deserialize()?;
+        cfg.features.apply_profile();
+        Ok(cfg)
     }
 
     /// Reject insecure defaults before serving traffic.
@@ -601,6 +606,10 @@ impl AppConfig {
             circulation: CirculationConfig {
                 overridable: true,
                 ..CirculationConfig::default()
+            },
+            features: crate::features::FeaturesConfig {
+                overridable: true,
+                ..crate::features::FeaturesConfig::default()
             },
             meilisearch: None,
             privacy: PrivacyConfig::default(),

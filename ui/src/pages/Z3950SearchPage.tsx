@@ -17,7 +17,8 @@ import { Card, CardHeader, Button, Table, Modal, Input, ScrollableListRegion, Re
 import CallNumberField from '@/components/specimen/CallNumberField';
 import api from '@/services/api';
 import type { Biblio, Author, Z3950Server, Site, ImportReport, DuplicateConfirmationRequired } from '@/types';
-import { buildSuggestedCallNumber, validateCallNumber } from '@/utils/callNumber';
+import { buildCallNumberOptions, validateCallNumber } from '@/utils/callNumber';
+import { useGenreShelfCodes } from '@/hooks/useGenresQuery';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 import type { AxiosError } from 'axios';
@@ -52,6 +53,7 @@ interface SpecimenToAdd {
 export default function Z3950SearchPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const genreShelfCodes = useGenreShelfCodes();
 
   // Servers state
   const [servers, setServers] = useState<Z3950Server[]>([]);
@@ -150,7 +152,6 @@ export default function Z3950SearchPage() {
 
     setIsSearching(true);
     setSearchError('');
-    setHasSearched(true);
 
     try {
       const response: Z3950SearchResponse = await api.searchZ3950({
@@ -170,6 +171,7 @@ export default function Z3950SearchPage() {
       setTotalResults(0);
     } finally {
       setIsSearching(false);
+      setHasSearched(true);
     }
   };
 
@@ -467,7 +469,7 @@ export default function Z3950SearchPage() {
       </Card>
 
       {/* Results */}
-      {hasSearched && (
+      {(isSearching || hasSearched) && (
         <Card padding="none" className="flex flex-col min-h-0">
           <div className="p-4 sm:p-6 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
             <div className="flex items-center justify-between">
@@ -475,10 +477,12 @@ export default function Z3950SearchPage() {
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
                   {t('z3950.results')}
                 </h2>
-                <p className="text-sm text-gray-500 dark:text-gray-400">
-                  {t('z3950.documentsFound', { count: totalResults })}
-                  {source && ` • ${t('z3950.source', { source })}`}
-                </p>
+                {!isSearching ? (
+                  <p className="text-sm text-gray-500 dark:text-gray-400">
+                    {t('z3950.documentsFound', { count: totalResults })}
+                    {source ? ` • ${t('z3950.source', { source })}` : ''}
+                  </p>
+                ) : null}
               </div>
             </div>
           </div>
@@ -649,7 +653,7 @@ export default function Z3950SearchPage() {
                   <option value="">{t('z3950.selectSite')}</option>
                   {sites.map((source) => (
                     <option key={source.id} value={source.id}>
-                      {source.name || `Source ${source.id}`}
+                      {source.name || source.id}
                       {source.default ? ` (${t('importMarc.default')})` : ''}
                     </option>
                   ))}
@@ -687,14 +691,17 @@ export default function Z3950SearchPage() {
                       <CallNumberField
                         value={specimen.callNumber}
                         onChange={(v) => handleSpecimenChange(index, 'callNumber', v)}
-                        suggestedValue={
+                        suggestions={
                           selectedItem
-                            ? buildSuggestedCallNumber({
-                                categoryCode: 'IMP',
-                                year: selectedItem.publicationDate,
-                                authorOrCollectorName: selectedItem.authors?.[0]?.lastname,
+                            ? buildCallNumberOptions({
+                                dewey: selectedItem.dewey,
+                                genre: selectedItem.genre,
+                                authors: selectedItem.authors,
+                                mediaType: selectedItem.mediaType,
+                                publicationDate: selectedItem.publicationDate,
+                                genreShelfCodes,
                               })
-                            : undefined
+                            : []
                         }
                         placeholder={t('items.callNumber')}
                         inputId={`z3950-call-${index}`}

@@ -1,7 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Plus, BookOpen, SlidersHorizontal, Loader2, AlertCircle, Trash2, Layers, BookMarked, Edit, ChevronLeft, ChevronRight, ScanLine } from 'lucide-react';
+import { Plus, BookOpen, SlidersHorizontal, Loader2, AlertCircle, Trash2, Layers, BookMarked, Edit, ChevronLeft, ChevronRight, ScanLine, Upload } from 'lucide-react';
+import { MarcImportWorkflow } from '@/pages/ImportIsoPage';
+import { useLibrary } from '@/contexts/LibraryContext';
+import { isFeatureEnabled } from '@/utils/featureAccess';
 import { Card, Button, Table, SearchInput, Modal, Input, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, SectionTabBar } from '@/components/common';
 import BiblioCatalogItemCard from '@/components/items/BiblioCatalogItemCard';
 import BatchDeleteSpecimensDialog from '@/components/specimen/BatchDeleteSpecimensDialog';
@@ -18,23 +21,28 @@ import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
 import { mediaTypeIconBadgeBgClass, renderMediaTypeIcon } from '@/utils/mediaTypeIconUtils';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
-import { deferFromEffect } from '@/utils/deferFromEffect';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CopyDepositBadges } from '@/components/items/DepositBadge';
 import { filterLoadedBiblios, type DepositStockFilter } from '@/utils/deposits';
-type CatalogTab = 'catalog' | 'collections' | 'series';
+type CatalogTab = 'catalog' | 'collections' | 'series' | 'import';
 
-type SavedSearch = {
-  searchQuery: string;
-  mediaType: MediaType | '';
-  audienceType: string;
-  showFilters: boolean;
-  includeWithoutActiveItems: boolean;
-  serieId: string;
-  serieName: string;
-  collectionId: string;
-  collectionName: string;
-};
+function resolveCatalogTab(tab: string | null, importIsoEnabled: boolean): CatalogTab {
+  if (tab === 'collections') return 'collections';
+  if (tab === 'series') return 'series';
+  if (tab === 'import' && importIsoEnabled) return 'import';
+  return 'catalog';
+}
+
+import {
+  buildCatalogSearchParams,
+  catalogListPath,
+  clearCatalogRestoreSession,
+  readCatalogRestoreSession,
+  readCatalogScrollTop,
+  restoreCatalogScrollTop,
+  writeCatalogRestoreSession,
+  type CatalogSavedSearch,
+} from '@/utils/catalogSearchState';
 
 const PAGE_SIZE = 20;
 
@@ -45,11 +53,15 @@ export default function BibliosPage() {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
+  const { libraryInfo } = useLibrary();
+  const importIsoEnabled = isFeatureEnabled(libraryInfo?.enabledFeatures, 'importIso');
 
-  // Search state passed back from BiblioDetailPage when the user clicks "back"
-  const restoredSearch = (location.state as { restoredSearch?: SavedSearch } | null)?.restoredSearch;
+  const restoredFromState = (location.state as { restoredSearch?: CatalogSavedSearch } | null)
+    ?.restoredSearch;
+  /** Filter snapshot when returning via the in-app back button (browser back uses URL params). */
+  const restoredSearch = restoredFromState;
 
-  const activeTab = (searchParams.get('tab') as CatalogTab) || 'catalog';
+  const activeTab = resolveCatalogTab(searchParams.get('tab'), importIsoEnabled);
   const setActiveTab = useCallback(
     (tab: CatalogTab) => {
       setSearchParams(
@@ -195,7 +207,10 @@ export default function BibliosPage() {
         perPage: PAGE_SIZE,
       });
     },
-    staleTime: 0,
+    staleTime: 5 * 60 * 1000,
+    /** Refetch when stale (e.g. after edit invalidates); skip when cache is still fresh (back from detail). */
+    refetchOnMount: true,
+    refetchOnWindowFocus: false,
     initialPageParam: 1,
     getNextPageParam: (lastPage) => {
       if (!lastPage?.items?.length) return undefined;
@@ -232,6 +247,14 @@ export default function BibliosPage() {
   const [showBatchDeleteSpecimens, setShowBatchDeleteSpecimens] = useState(false);
 
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  const initialScrollTop = useMemo(() => {
+    const fromState = restoredFromState?.scrollTop;
+    if (typeof fromState === 'number' && fromState > 0) return fromState;
+    const fromSession = readCatalogRestoreSession()?.scrollTop;
+    if (typeof fromSession === 'number' && fromSession > 0) return fromSession;
+    return null;
+  }, []);
+  const pendingScrollTop = useRef<number | null>(initialScrollTop);
 
   useEffect(() => {
     const el = loadMoreRef.current;
@@ -247,32 +270,50 @@ export default function BibliosPage() {
     return () => obs.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage, data?.pages?.length]);
 
-  // Clear location state after reading so a page refresh doesn't re-apply it
   useEffect(() => {
-    if (restoredSearch) {
+    if (pendingScrollTop.current == null || isItemsLoading || !data?.pages?.length) return;
+    const top = pendingScrollTop.current;
+    const scrollRoot = loadMoreRef.current?.closest('.app-list-scroll');
+    if (scrollRoot instanceof HTMLElement && top + scrollRoot.clientHeight > scrollRoot.scrollHeight) {
+      if (hasNextPage && !isFetchingNextPage) {
+        void fetchNextPage();
+      }
+      if (hasNextPage) return;
+    }
+    pendingScrollTop.current = null;
+    restoreCatalogScrollTop(loadMoreRef.current, top);
+  }, [
+    isItemsLoading,
+    data?.pages?.length,
+    visibleItems.length,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  ]);
+
+  // Clear one-shot restore hints so refresh does not re-apply scroll/state
+  useEffect(() => {
+    if (restoredFromState) {
       navigate('.', { replace: true, state: null });
     }
+    clearCatalogRestoreSession();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Persist search state in URL so it survives navigation
+  // Persist search state in URL so browser back restores filters without re-fetch churn
   useEffect(() => {
     if (activeTab !== 'catalog') return;
-    const next = new URLSearchParams();
-    if (searchQuery) next.set('freesearch', searchQuery);
-    if (mediaType) next.set('media_type', mediaType);
-    if (audienceType) next.set('audience_type', audienceType);
-    if (showFilters) next.set('show_filters', '1');
-    if (includeWithoutActiveItems) next.set('include_without_items', '1');
-    // Preserve active collection/series filter set by tab row click
-    if (activeFilterSerieId) {
-      next.set('serie_id', activeFilterSerieId);
-      if (activeFilterSerieName) next.set('serie_name', activeFilterSerieName);
-    }
-    if (activeFilterCollectionId) {
-      next.set('collection_id', activeFilterCollectionId);
-      if (activeFilterCollectionName) next.set('collection_name', activeFilterCollectionName);
-    }
+    const next = buildCatalogSearchParams({
+      searchQuery,
+      mediaType,
+      audienceType,
+      showFilters,
+      includeWithoutActiveItems,
+      serieId: activeFilterSerieId,
+      serieName: activeFilterSerieName,
+      collectionId: activeFilterCollectionId,
+      collectionName: activeFilterCollectionName,
+    });
     setSearchParams(next, { replace: true });
   }, [
     searchQuery,
@@ -293,7 +334,7 @@ export default function BibliosPage() {
     queryClient.invalidateQueries({ queryKey: ['biblios'] });
   };
 
-  const getSavedSearch = useCallback((): SavedSearch => ({
+  const getSavedSearch = useCallback((): CatalogSavedSearch => ({
     searchQuery,
     mediaType,
     audienceType,
@@ -303,6 +344,7 @@ export default function BibliosPage() {
     serieName: activeFilterSerieName,
     collectionId: activeFilterCollectionId,
     collectionName: activeFilterCollectionName,
+    scrollTop: readCatalogScrollTop(loadMoreRef.current),
   }), [
     searchQuery,
     mediaType,
@@ -316,7 +358,11 @@ export default function BibliosPage() {
   ]);
 
   const handleRowClick = (item: BiblioShort) => {
-    navigate(`/biblios/${item.id}`, { state: { savedSearch: getSavedSearch() } });
+    const savedSearch = getSavedSearch();
+    writeCatalogRestoreSession(savedSearch);
+    const listPath = catalogListPath(savedSearch);
+    navigate(listPath, { replace: true });
+    navigate(`/biblios/${item.id}`, { state: { savedSearch } });
   };
 
   const handleCatalogBiblioDelete = async (force: boolean) => {
@@ -462,8 +508,8 @@ export default function BibliosPage() {
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('catalog.pageTitle')}</h1>
       </div>
 
-      {/* Tab navigation — staff cataloging only */}
-      {canManage ? (
+      {/* Tab navigation — staff cataloging only (hidden on MARC import view) */}
+      {canManage && activeTab !== 'import' ? (
         <SectionTabBar
           ariaLabel={t('catalog.pageTitle')}
           activeTab={activeTab}
@@ -474,6 +520,15 @@ export default function BibliosPage() {
             { id: 'series', label: t('catalog.tabSeries'), icon: BookMarked },
           ]}
         />
+      ) : null}
+
+      {activeTab === 'import' && importIsoEnabled ? (
+        <div className="space-y-4">
+          <Button type="button" variant="secondary" size="sm" onClick={() => setActiveTab('catalog')}>
+            {t('catalog.backToCatalog')}
+          </Button>
+          <MarcImportWorkflow layout="embedded" />
+        </div>
       ) : null}
 
       {/* Collections tab */}
@@ -544,6 +599,15 @@ export default function BibliosPage() {
             >
               {t('items.batchDeleteScan.openButton')}
             </Button>
+            {importIsoEnabled ? (
+              <Button
+                variant="secondary"
+                onClick={() => setActiveTab('import')}
+                leftIcon={<Upload className="h-4 w-4" />}
+              >
+                {t('nav.importIso')}
+              </Button>
+            ) : null}
             <Button onClick={() => navigate('/biblios/new')} leftIcon={<Plus className="h-4 w-4" />}>
               {t('items.add')}
             </Button>
@@ -870,46 +934,38 @@ interface CollectionsTabProps {
   onSelect?: (id: string, name: string) => void;
 }
 
+async function fetchCollectionsPage(q: string, p: number): Promise<PaginatedResponse<Collection>> {
+  const trimmed = q.trim();
+  if (looksLikeEntityUuid(trimmed)) {
+    const one = await api.getCollection(trimmed).catch(() => null);
+    if (one) {
+      return {
+        items: [one],
+        total: 1,
+        page: 1,
+        perPage: COLL_PAGE_SIZE,
+        pageCount: 1,
+      };
+    }
+  }
+  return api.getCollections({ name: q || undefined, page: p, perPage: COLL_PAGE_SIZE });
+}
+
 function CollectionsTab({ canManage, onSelect }: CollectionsTabProps) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const [searchDraft, setSearchDraft] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [data, setData] = useState<PaginatedResponse<Collection> | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const { data = null, isLoading, refetch } = useQuery({
+    queryKey: ['collections', search, page],
+    queryFn: () => fetchCollectionsPage(search, page),
+  });
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editItem, setEditItem] = useState<Collection | null>(null);
   const [deleteItem, setDeleteItem] = useState<Collection | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-
-  const load = useCallback(async (q: string, p: number) => {
-    setIsLoading(true);
-    try {
-      const trimmed = q.trim();
-      if (looksLikeEntityUuid(trimmed)) {
-        const one = await api.getCollection(trimmed).catch(() => null);
-        if (one) {
-          setData({
-            items: [one],
-            total: 1,
-            page: 1,
-            perPage: COLL_PAGE_SIZE,
-            pageCount: 1,
-          });
-          return;
-        }
-      }
-      const res = await api.getCollections({ name: q || undefined, page: p, perPage: COLL_PAGE_SIZE });
-      setData(res);
-    } catch {
-      // ignore
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => deferFromEffect(() => { void load(search, page); }), [search, page, load]);
 
   const handleSearch = () => { setPage(1); setSearch(searchDraft); };
 
@@ -920,7 +976,8 @@ function CollectionsTab({ canManage, onSelect }: CollectionsTabProps) {
     try {
       await api.deleteCollection(deleteItem.id);
       setDeleteItem(null);
-      load(search, page);
+      void queryClient.invalidateQueries({ queryKey: ['collections'] });
+      void refetch();
     } catch (err) {
       setDeleteError(getApiErrorMessage(err, t));
     } finally {
@@ -1121,7 +1178,7 @@ function CollectionsTab({ canManage, onSelect }: CollectionsTabProps) {
       {/* Create modal */}
       <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title={t('catalog.addCollection')} size="md">
         <CollectionForm
-          onSuccess={() => { setShowCreateModal(false); load(search, page); }}
+          onSuccess={() => { setShowCreateModal(false); void queryClient.invalidateQueries({ queryKey: ['collections'] }); }}
           onCancel={() => setShowCreateModal(false)}
         />
       </Modal>
@@ -1131,7 +1188,7 @@ function CollectionsTab({ canManage, onSelect }: CollectionsTabProps) {
         {editItem && (
           <CollectionForm
             initial={editItem}
-            onSuccess={() => { setEditItem(null); load(search, page); }}
+            onSuccess={() => { setEditItem(null); void queryClient.invalidateQueries({ queryKey: ['collections'] }); }}
             onCancel={() => setEditItem(null)}
           />
         )}
@@ -1257,46 +1314,38 @@ interface SeriesTabProps {
   onSelect?: (id: string, name: string) => void;
 }
 
+async function fetchSeriesPage(q: string, p: number): Promise<PaginatedResponse<Serie>> {
+  const trimmed = q.trim();
+  if (looksLikeEntityUuid(trimmed)) {
+    const one = await api.getSerie(trimmed).catch(() => null);
+    if (one) {
+      return {
+        items: [one],
+        total: 1,
+        page: 1,
+        perPage: SERIES_PAGE_SIZE,
+        pageCount: 1,
+      };
+    }
+  }
+  return api.getSeries({ name: q || undefined, page: p, perPage: SERIES_PAGE_SIZE });
+}
+
 function SeriesTab({ canManage, onSelect }: SeriesTabProps) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const [searchDraft, setSearchDraft] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [data, setData] = useState<PaginatedResponse<Serie> | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const { data = null, isLoading, refetch } = useQuery({
+    queryKey: ['series', search, page],
+    queryFn: () => fetchSeriesPage(search, page),
+  });
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editItem, setEditItem] = useState<Serie | null>(null);
   const [deleteItem, setDeleteItem] = useState<Serie | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-
-  const load = useCallback(async (q: string, p: number) => {
-    setIsLoading(true);
-    try {
-      const trimmed = q.trim();
-      if (looksLikeEntityUuid(trimmed)) {
-        const one = await api.getSerie(trimmed).catch(() => null);
-        if (one) {
-          setData({
-            items: [one],
-            total: 1,
-            page: 1,
-            perPage: SERIES_PAGE_SIZE,
-            pageCount: 1,
-          });
-          return;
-        }
-      }
-      const res = await api.getSeries({ name: q || undefined, page: p, perPage: SERIES_PAGE_SIZE });
-      setData(res);
-    } catch {
-      // ignore
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => deferFromEffect(() => { void load(search, page); }), [search, page, load]);
 
   const handleSearch = () => { setPage(1); setSearch(searchDraft); };
 
@@ -1307,7 +1356,8 @@ function SeriesTab({ canManage, onSelect }: SeriesTabProps) {
     try {
       await api.deleteSerie(deleteItem.id);
       setDeleteItem(null);
-      load(search, page);
+      void queryClient.invalidateQueries({ queryKey: ['series'] });
+      void refetch();
     } catch (err) {
       setDeleteError(getApiErrorMessage(err, t));
     } finally {
@@ -1496,7 +1546,7 @@ function SeriesTab({ canManage, onSelect }: SeriesTabProps) {
       {/* Create modal */}
       <Modal isOpen={showCreateModal} onClose={() => setShowCreateModal(false)} title={t('catalog.addSerie')} size="md">
         <SerieForm
-          onSuccess={() => { setShowCreateModal(false); load(search, page); }}
+          onSuccess={() => { setShowCreateModal(false); void queryClient.invalidateQueries({ queryKey: ['series'] }); }}
           onCancel={() => setShowCreateModal(false)}
         />
       </Modal>
@@ -1506,7 +1556,7 @@ function SeriesTab({ canManage, onSelect }: SeriesTabProps) {
         {editItem && (
           <SerieForm
             initial={editItem}
-            onSuccess={() => { setEditItem(null); load(search, page); }}
+            onSuccess={() => { setEditItem(null); void queryClient.invalidateQueries({ queryKey: ['series'] }); }}
             onCancel={() => setEditItem(null)}
           />
         )}

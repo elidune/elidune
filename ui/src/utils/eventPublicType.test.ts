@@ -9,8 +9,11 @@ import type { PublicType } from '../types/index.ts';
 import { getApiErrorMessage } from './apiError.ts';
 import {
   applyAllAudiencesToggle,
+  EVENT_ALL_AUDIENCES_VALUE,
   eventAudienceDisplayLabel,
   eventAudienceErrorKey,
+  eventAudienceFromMultiSelect,
+  eventAudienceMultiSelectValue,
   eventSaveErrorMessage,
   resolveEventAudiences,
 } from './eventPublicType.ts';
@@ -71,6 +74,24 @@ describe('event audiences', () => {
     assert.deepEqual(Object.keys(named.payload).sort(), ['allAudiences', 'publicTypes']);
   });
 
+  it('maps multiselect values to and from allAudiences', () => {
+    assert.deepEqual(eventAudienceMultiSelectValue({ allAudiences: true, publicTypes: [] }), [
+      EVENT_ALL_AUDIENCES_VALUE,
+    ]);
+    assert.deepEqual(eventAudienceMultiSelectValue({ allAudiences: false, publicTypes: ['adult'] }), ['adult']);
+    assert.deepEqual(
+      eventAudienceFromMultiSelect([EVENT_ALL_AUDIENCES_VALUE], {
+        allAudiences: false,
+        publicTypes: ['child'],
+      }),
+      { allAudiences: true, publicTypes: [] },
+    );
+    assert.deepEqual(
+      eventAudienceFromMultiSelect(['adult', 'child'], { allAudiences: true, publicTypes: [] }),
+      { allAudiences: false, publicTypes: ['adult', 'child'] },
+    );
+  });
+
   it('clears the list when All audiences is turned on', () => {
     assert.deepEqual(
       applyAllAudiencesToggle({ allAudiences: false, publicTypes: ['child', 'adult'] }, true),
@@ -113,6 +134,7 @@ describe('event audiences', () => {
   it('has audience strings in French, English, German, and Spanish', () => {
     for (const catalog of Object.values(catalogs)) {
       assert.ok(catalog.events.targetPublic.all.trim());
+      assert.ok(catalog.events.targetPublic.selectAll.trim());
       assert.ok(catalog.events.targetPublicHint.trim());
       assert.ok(catalog.events.targetPublicRequired.trim());
       assert.ok(catalog.events.targetPublicCombined.trim());

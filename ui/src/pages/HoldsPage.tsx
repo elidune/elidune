@@ -2,8 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Ban, Bookmark, Plus, Search, AlertCircle, Truck } from 'lucide-react';
+import { Ban, Bookmark, Check, Plus, Search, AlertCircle, Truck, ListChecks } from 'lucide-react';
 import { Card, CardHeader, Button, Table, Pagination, Modal, ConfirmDialog, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, BarcodeScanField, Typeahead } from '@/components/common';
+import HoldPickCheckInPanel from '@/components/holds/HoldPickCheckInPanel';
 import HoldMobileCard from '@/components/holds/HoldMobileCard';
 import HoldDocumentCell from '@/components/holds/HoldDocumentCell';
 import HoldExpiresCell from '@/components/holds/HoldExpiresCell';
@@ -13,6 +14,8 @@ import PickupSiteSelect from '@/components/holds/PickupSiteSelect';
 import TransitActionModals from '@/components/holds/TransitActionModals';
 import { useActiveTransitsQuery } from '@/hooks/holds/useActiveTransitsQuery';
 import { usePickupSiteDraft } from '@/hooks/holds/usePickupSiteDraft';
+import { ACTIVE_HOLDS_QUERY_ROOT, deskHoldListQueryOptions } from '@/hooks/holds/deskHoldQueryOptions';
+import { refreshHoldDeskQueries } from '@/hooks/holds/useRefreshHoldDeskQueries';
 import { useTransitActions } from '@/hooks/holds/useTransitActions';
 import api from '@/services/api';
 import { getApiErrorMessage } from '@/utils/apiError';
@@ -29,10 +32,12 @@ import { formChoiceLabelClass, formControlClass, formLabelClass } from '@/utils/
 import {
   applyStaffHoldList,
   buildCreateHold,
+  holdPickCheckInBind,
   STAFF_HOLDS_FETCH_CAP,
   type HoldPlacementScope,
   type StaffHoldStatusFilter,
 } from '@/utils/holdDisplay';
+import type { PickCheckInBind } from '@/utils/pickCheckInFlow';
 import HoldScopeBadge from '@/components/holds/HoldScopeBadge';
 import HoldStatusBadge from '@/components/holds/HoldStatusBadge';
 import { HoldNoteFields, HoldNotes } from '@/components/holds/HoldNotes';
@@ -85,6 +90,7 @@ export default function HoldsPage() {
   const [prevHoldListControls, setPrevHoldListControls] = useState({ statusFilter, listPerPage });
   const [cancelHoldId, setCancelHoldId] = useState<string | null>(null);
   const [biblioPickError, setBiblioPickError] = useState<string | null>(null);
+  const [checkInBind, setCheckInBind] = useState<PickCheckInBind | null>(null);
 
   if (statusFilter !== prevHoldListControls.statusFilter || listPerPage !== prevHoldListControls.listPerPage) {
     setPrevHoldListControls({ statusFilter, listPerPage });
@@ -231,14 +237,14 @@ export default function HoldsPage() {
   };
 
   const activeHoldsQuery = useQuery({
-    queryKey: ['activeHolds'],
+    queryKey: ACTIVE_HOLDS_QUERY_ROOT,
     queryFn: () =>
       api.getHolds({
         page: 1,
         perPage: STAFF_HOLDS_FETCH_CAP,
         activeOnly: true,
       }),
-    staleTime: 30 * 1000,
+    ...deskHoldListQueryOptions,
   });
 
   const selectedBiblioId = selectedBiblio?.id ?? null;
@@ -294,7 +300,8 @@ export default function HoldsPage() {
       });
       resetCreateForm();
       setShowCreateModal(false);
-      void queryClient.invalidateQueries({ queryKey: ['activeHolds'] });
+      void queryClient.invalidateQueries({ queryKey: ACTIVE_HOLDS_QUERY_ROOT });
+      void queryClient.invalidateQueries({ queryKey: ['pickList'] });
       void queryClient.invalidateQueries({ queryKey: ['biblioHolds'] });
       void queryClient.invalidateQueries({ queryKey: ['holdsQuota'] });
     },
@@ -303,9 +310,33 @@ export default function HoldsPage() {
   const cancelMutation = useMutation({
     mutationFn: (id: string) => api.cancelHold(id),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['activeHolds'] });
+      void queryClient.invalidateQueries({ queryKey: ACTIVE_HOLDS_QUERY_ROOT });
+      void queryClient.invalidateQueries({ queryKey: ['pickList'] });
     },
   });
+
+  const focusCheckInPanel = () => {
+    document.getElementById('hold-pick-check-in')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const pickCheckInCell = (r: HoldListItem) => {
+    const bind = holdPickCheckInBind(r);
+    if (!bind) return null;
+    return (
+      <Button
+        size="sm"
+        variant="primary"
+        className="bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500"
+        leftIcon={<Check className="h-4 w-4" />}
+        onClick={() => {
+          setCheckInBind(bind);
+          focusCheckInPanel();
+        }}
+      >
+        {t('holds.checkInAction')}
+      </Button>
+    );
+  };
 
   const cancelCell = (r: HoldListItem) =>
     r.status === 'pending' || r.status === 'ready' ? (
@@ -320,12 +351,15 @@ export default function HoldsPage() {
       </Button>
     ) : null;
 
-  const actionCell = (r: HoldListItem) => (
+  const holdRowActions = (r: HoldListItem, includeCancel: boolean) => (
     <div className="flex flex-wrap justify-end gap-2">
+      {pickCheckInCell(r)}
       <HoldTransitActions hold={r} transit={transitByHoldId.get(r.id)} actions={transitActions} />
-      {cancelCell(r)}
+      {includeCancel ? cancelCell(r) : null}
     </div>
   );
+
+  const actionCell = (r: HoldListItem) => holdRowActions(r, true);
 
   const columns = [
     {
@@ -347,7 +381,9 @@ export default function HoldsPage() {
     {
       key: 'status',
       header: t('holds.status'),
-      render: (r: HoldListItem) => statusBadge(t, r.status),
+      render: (r: HoldListItem) => (
+        <div className="whitespace-nowrap">{statusBadge(t, r.status)}</div>
+      ),
     },
     {
       key: 'pickup',
@@ -369,7 +405,7 @@ export default function HoldsPage() {
     {
       key: 'expires',
       header: t('holds.expiresAt'),
-      render: (r: HoldListItem) => <HoldExpiresCell hold={r} emphasizePickup />,
+      render: (r: HoldListItem) => <HoldExpiresCell hold={r} />,
     },
     {
       key: 'actions',
@@ -400,6 +436,11 @@ export default function HoldsPage() {
           <p className="text-gray-500 dark:text-gray-400 mt-1">{t('holds.subtitle')}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Link to="/pick-list">
+            <Button variant="secondary" leftIcon={<ListChecks className="h-4 w-4" />}>
+              {t('holds.openPickList')}
+            </Button>
+          </Link>
           <Link to="/transits">
             <Button variant="secondary" leftIcon={<Truck className="h-4 w-4" />}>
               {t('transits.openQueue')}
@@ -435,31 +476,53 @@ export default function HoldsPage() {
             }
           />
         </div>
-        <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 flex flex-wrap items-end gap-3 flex-shrink-0">
-          <fieldset className="flex flex-wrap gap-4">
-            <legend className="sr-only">{t('holds.staffFilterLegend')}</legend>
-            {(
-              [
-                ['all', 'holds.filterAllActive'],
-                ['ready', 'holds.filterReady'],
-                ['pending', 'holds.filterPending'],
-                ['toPick', 'holds.filterToPick'],
-                ['expiringSoon', 'holds.filterExpiringSoon'],
-              ] as const
-            ).map(([value, key]) => (
-              <label key={value} className={formChoiceLabelClass()}>
-                <input
-                  type="radio"
-                  name="staff-holds-filter"
-                  className="text-indigo-600"
-                  checked={statusFilter === value}
-                  onChange={() => setStatusFilter(value)}
-                />
-                {t(key)}
-              </label>
-            ))}
-          </fieldset>
-          <div className="flex flex-col gap-1">
+        <div
+          id="hold-pick-check-in"
+          className="px-4 sm:px-6 py-4 border-b border-gray-200 dark:border-gray-800 flex-shrink-0"
+        >
+          <HoldPickCheckInPanel
+            bind={checkInBind}
+            onSuccess={() => void refreshHoldDeskQueries(queryClient)}
+          />
+          {checkInBind ? (
+            <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+              <button
+                type="button"
+                className="underline hover:text-gray-700 dark:hover:text-gray-200"
+                onClick={() => setCheckInBind(null)}
+              >
+                {t('holds.checkInClearBind')}
+              </button>
+            </p>
+          ) : null}
+        </div>
+        <div className="px-4 sm:px-6 py-3 border-b border-gray-200 dark:border-gray-800 flex flex-wrap items-center justify-between gap-x-4 gap-y-3 flex-shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <label className={formLabelClass({ marginBottom: false })} htmlFor="staff-holds-filter">
+              {t('holds.status')}
+            </label>
+            <select
+              id="staff-holds-filter"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as StaffHoldStatusFilter)}
+              className={formControlClass({ className: 'min-w-[12rem] max-w-full' })}
+            >
+              {(
+                [
+                  ['all', 'holds.filterAllActive'],
+                  ['ready', 'holds.filterReady'],
+                  ['pending', 'holds.filterPending'],
+                  ['toPick', 'holds.filterToPick'],
+                  ['expiringSoon', 'holds.filterExpiringSoon'],
+                ] as const
+              ).map(([value, key]) => (
+                <option key={value} value={value}>
+                  {t(key)}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-center gap-2 ml-auto shrink-0">
             <label className={formLabelClass({ marginBottom: false })} htmlFor="staff-holds-per-page">
               {t('common.perPage')}
             </label>
@@ -506,17 +569,10 @@ export default function HoldsPage() {
                         key={r.id}
                         hold={r}
                         linked={canOpenReader}
-                        emphasizePickup
                         statusBadge={(s) => statusBadge(t, s)}
                         pickupSources={ sites }
                         transit={transitByHoldId.get(r.id)}
-                        extraActions={
-                          <HoldTransitActions
-                            hold={r}
-                            transit={transitByHoldId.get(r.id)}
-                            actions={transitActions}
-                          />
-                        }
+                        extraActions={holdRowActions(r, false)}
                         onCancel={() => setCancelHoldId(r.id)}
                         cancelPending={cancelMutation.isPending && cancelMutation.variables === r.id}
                       />

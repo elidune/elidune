@@ -258,7 +258,6 @@ export default function EmailTemplatesSettings() {
               ariaLabel={t('settings.emailTemplates.languagesTablist')}
               activeTab={selectedLanguage}
               onSelectTab={setSelectedLanguage}
-              scrollable
               className="border-gray-100 dark:border-gray-800"
               tabs={languagesForTemplate(selectedTemplateId).map((lang) => ({
                 id: lang,

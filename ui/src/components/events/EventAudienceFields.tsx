@@ -1,8 +1,10 @@
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import MultiSelect, { type MultiSelectOption } from '@/components/common/MultiSelect';
-import { formChoiceControlClass, formChoiceLabelClass } from '@/utils/formControl';
 import {
-  applyAllAudiencesToggle,
+  EVENT_ALL_AUDIENCES_VALUE,
+  eventAudienceFromMultiSelect,
+  eventAudienceMultiSelectValue,
   type EventAudienceSelection,
 } from '@/utils/eventPublicType';
 
@@ -24,37 +26,28 @@ export default function EventAudienceFields({
   note,
 }: EventAudienceFieldsProps) {
   const { t } = useTranslation();
-  const allAudiences = selection.allAudiences === true;
+
+  const selectOptions = useMemo(
+    () => [
+      { value: EVENT_ALL_AUDIENCES_VALUE, label: t('events.targetPublic.selectAll') },
+      ...options,
+    ],
+    [options, t],
+  );
 
   return (
-    <div className="space-y-2">
-      <label className={formChoiceLabelClass()} htmlFor={`${id}-all`}>
-        <input
-          id={`${id}-all`}
-          type="checkbox"
-          checked={allAudiences}
-          className={formChoiceControlClass('rounded')}
-          onChange={(event) => {
-            onSelectionChange(applyAllAudiencesToggle(selection, event.target.checked));
-          }}
-        />
-        {t('events.targetPublic.all')}
-      </label>
-      <MultiSelect
-        id={id}
-        label={t('events.targetPublicLabel')}
-        placeholder={t('events.targetPublicPlaceholder')}
-        hint={t('events.targetPublicHint')}
-        note={note}
-        error={error}
-        required={!allAudiences}
-        disabled={allAudiences}
-        options={options}
-        value={allAudiences ? [] : [...selection.publicTypes]}
-        onChange={(next) => {
-          onSelectionChange({ allAudiences: false, publicTypes: next });
-        }}
-      />
-    </div>
+    <MultiSelect
+      id={id}
+      label={t('events.targetPublicLabel')}
+      placeholder={t('events.targetPublicPlaceholder')}
+      hint={t('events.targetPublicHint')}
+      note={note}
+      error={error}
+      required
+      exclusiveValue={EVENT_ALL_AUDIENCES_VALUE}
+      options={selectOptions}
+      value={eventAudienceMultiSelectValue(selection)}
+      onChange={(next) => onSelectionChange(eventAudienceFromMultiSelect(next, selection))}
+    />
   );
 }

@@ -374,6 +374,7 @@ pub async fn load_marc(
     Query(query): Query<LoadMarcQuery>,
     mut multipart: Multipart,
 ) -> AppResult<Json<EnqueueResult>> {
+    crate::features::require_feature(&state, crate::features::Feature::ImportIso)?;
     claims.require_read_items()?;
 
     let mut data = Vec::new();
@@ -434,6 +435,7 @@ pub async fn scan_deposit_marc_duplicates(
     AuthenticatedUser(claims): AuthenticatedUser,
     Query(params): Query<ScanDepositDuplicatesQuery>,
 ) -> AppResult<Json<DepositDuplicateScanReport>> {
+    crate::features::require_feature(&state, crate::features::Feature::ImportIso)?;
     claims.require_write_items()?;
     let report = state
         .services
@@ -474,6 +476,7 @@ pub async fn import_marc_batch(
     ClientIp(ip): ClientIp,
     Query(params): Query<ImportMarcBatchQuery>,
 ) -> AppResult<(StatusCode, Json<TaskAcceptedResponse>)> {
+    crate::features::require_feature(&state, crate::features::Feature::ImportIso)?;
     claims.require_write_items()?;
 
     let prepared = state
@@ -769,6 +772,7 @@ pub async fn create_item(
     )
 )]
 pub async fn list_marc_batches(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser) -> AppResult<Json<Vec<MarcBatchInfo>>> {
+    crate::features::require_feature(&state, crate::features::Feature::ImportIso)?;
     claims.require_read_items()?;
     let batches = state.services.marc.list_marc_batches().await?;
     Ok(Json(batches))
@@ -790,6 +794,7 @@ pub async fn list_marc_batches(State(state): State<crate::AppState>, Authenticat
     )
 )]
 pub async fn load_marc_batch(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, Path(batch_id): Path<i64>) -> AppResult<Json<EnqueueResult>> {
+    crate::features::require_feature(&state, crate::features::Feature::ImportIso)?;
     claims.require_read_items()?;
     let result = state.services.marc.load_marc_batch(batch_id).await?;
     Ok(Json(result))

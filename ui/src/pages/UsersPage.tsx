@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Plus, BookMarked, RefreshCw, Loader2, Edit, Trash2, AlertCircle } from 'lucide-react';
 import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { invalidateUsersListQueries, USERS_LIST_QUERY_ROOT } from '@/hooks/users/queryKeys';
 import { usePublicTypesQuery } from '@/hooks/usePublicTypesQuery';
 import { useAccountTypesQuery } from '@/hooks/useAccountTypesQuery';
 import {
@@ -11,7 +12,6 @@ import {
   Table,
   Badge,
   SearchInput,
-  Modal,
   ConfirmDialog,
   ScrollableListRegion,
   ResponsiveRecordList,
@@ -20,9 +20,10 @@ import {
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
 import { patronId } from '@/utils/patronLink';
 import { LIST_ROW_ICON_BTN, LIST_ROW_ICON_BTN_DANGER, LIST_ROW_ICON_BTN_MUTED } from '@/utils/listRowActionIconClass';
-import { RenewSubscriptionModal, UserEditorForm, UserListCard } from '@/components/users';
+import { RenewSubscriptionModal, UserListCard } from '@/components/users';
 import api from '@/services/api';
-import type { UserShort } from '@/types';
+import { canManageUsers, type UserShort } from '@/types';
+import { useAuth } from '@/contexts/AuthContext';
 import { isSubscriptionExpired } from '@/utils/userSubscription';
 import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
 import { localizedPublicTypeById } from '@/utils/publicTypeDisplay';
@@ -32,15 +33,14 @@ export default function UsersPage() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user: currentUser } = useAuth();
+  const canCreateUser = canManageUsers(currentUser, api.getToken());
   const { data: publicTypes = [] } = usePublicTypesQuery();
   const accountTypesQuery = useAccountTypesQuery();
   const accountTypes = accountTypesQuery.data ?? [];
-  const accountTypesError = accountTypesQuery.isError ? t('settings.accountTypes.errorLoad') : null;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [searchDraft, setSearchDraft] = useState('');
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [isCreateLoading, setIsCreateLoading] = useState(false);
   const [renewModalUser, setRenewModalUser] = useState<UserShort | null>(null);
   const [deleteModalUser, setDeleteModalUser] = useState<UserShort | null>(null);
   const [deleteUserForce, setDeleteUserForce] = useState(false);
@@ -58,7 +58,7 @@ export default function UsersPage() {
     error: usersQueryError,
     refetch: refetchUsers,
   } = useInfiniteQuery({
-    queryKey: ['users', searchQuery],
+    queryKey: [...USERS_LIST_QUERY_ROOT, searchQuery],
     queryFn: async ({ pageParam }) =>
       api.getUsers({
         name: searchQuery || undefined,
@@ -118,7 +118,7 @@ export default function UsersPage() {
       await api.deleteUser(deleteModalUser.id, deleteUserForce);
       setDeleteModalUser(null);
       setDeleteUserForce(false);
-      await queryClient.invalidateQueries({ queryKey: ['users'] });
+      await invalidateUsersListQueries(queryClient);
     } catch (error: unknown) {
       const code = getApiErrorCode(error);
       const msg =
@@ -140,7 +140,7 @@ export default function UsersPage() {
   };
 
   const handleRefreshList = () => {
-    void queryClient.invalidateQueries({ queryKey: ['users'] });
+    void invalidateUsersListQueries(queryClient);
   };
 
   const columns = [
@@ -288,9 +288,11 @@ export default function UsersPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('users.title')}</h1>
         </div>
-        <Button onClick={() => setShowCreateModal(true)} leftIcon={<Plus className="h-4 w-4" />}>
-          {t('users.newUser')}
-        </Button>
+        {canCreateUser && (
+          <Button onClick={() => navigate('/users/new')} leftIcon={<Plus className="h-4 w-4" />}>
+            {t('users.newUser')}
+          </Button>
+        )}
       </div>
 
       <Card>
@@ -423,36 +425,10 @@ export default function UsersPage() {
         isOpen={renewModalUser !== null}
         onClose={() => setRenewModalUser(null)}
         onSuccess={async () => {
-          await queryClient.invalidateQueries({ queryKey: ['users'] });
+          await invalidateUsersListQueries(queryClient);
         }}
       />
 
-      <Modal
-        isOpen={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
-        title={t('users.newUser')}
-        size="2xl"
-        footer={
-          <div className="flex justify-end gap-2">
-            <Button type="submit" form="create-user-form" isLoading={isCreateLoading}>
-              {t('common.create')}
-            </Button>
-          </div>
-        }
-      >
-        <UserEditorForm
-          mode="create"
-          formId="create-user-form"
-          publicTypes={publicTypes}
-          accountTypes={accountTypes}
-          accountTypesError={accountTypesError}
-          onLoadingChange={setIsCreateLoading}
-          onSuccess={() => {
-            setShowCreateModal(false);
-            void queryClient.invalidateQueries({ queryKey: ['users'] });
-          }}
-        />
-      </Modal>
     </div>
   );
 }

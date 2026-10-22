@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Printer, SearchX } from 'lucide-react';
+import { Check, Printer, SearchX } from 'lucide-react';
 import {
   Badge,
   Button,
@@ -22,8 +22,12 @@ import {
   resolvePickListSiteId,
   writePickListSiteChoice,
 } from '@/utils/pickList';
+import HoldPickCheckInPanel from '@/components/holds/HoldPickCheckInPanel';
 import HoldShelfSlip, { HoldShelfPatron } from '@/components/holds/HoldShelfSlip';
+import { deskHoldListQueryOptions } from '@/hooks/holds/deskHoldQueryOptions';
+import { refreshHoldDeskQueries } from '@/hooks/holds/useRefreshHoldDeskQueries';
 import type { HoldPickListRow } from '@/types';
+import type { PickCheckInBind } from '@/utils/pickCheckInFlow';
 import { useToast } from '@/contexts/ToastContext';
 
 function browserStorage(): Pick<Storage, 'getItem' | 'setItem'> | null {
@@ -45,6 +49,11 @@ export default function PickListPage() {
     readPickListSiteChoice(browserStorage()),
   );
   const [pending, setPending] = useState<HoldPickListRow | null>(null);
+  const [checkInBind, setCheckInBind] = useState<PickCheckInBind | null>(null);
+
+  const afterCheckIn = useCallback(async () => {
+    await refreshHoldDeskQueries(queryClient);
+  }, [queryClient]);
   const siteId =
     siteChoice == null || siteChoice.trim() === ''
       ? PICK_LIST_ALL_SITES
@@ -56,6 +65,7 @@ export default function PickListPage() {
     queryKey: ['pickList', siteId],
     queryFn: () => api.getHoldPickList(pickListRequestSiteId(siteId ?? '')),
     enabled: siteId !== null,
+    ...deskHoldListQueryOptions,
   });
 
   const notFoundMutation = useMutation({
@@ -138,16 +148,34 @@ export default function PickListPage() {
       align: 'right' as const,
       className: 'print:hidden',
       render: (row: HoldPickListRow) => (
-        <Button
-          size="sm"
-          variant="secondary"
-          className="print:hidden"
-          leftIcon={<SearchX className="h-4 w-4" />}
-          isLoading={notFoundMutation.isPending && notFoundMutation.variables === row.holdId}
-          onClick={() => setPending(row)}
-        >
-          {t('pickList.notFound')}
-        </Button>
+        <div className="flex flex-wrap justify-end gap-2 print:hidden">
+          <Button
+            size="sm"
+            variant="primary"
+            className="bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-500"
+            leftIcon={<Check className="h-4 w-4" />}
+            onClick={() => {
+              setCheckInBind({
+                holdId: row.holdId,
+                itemId: row.itemId,
+                barcode: row.barcode,
+                title: row.title,
+              });
+              document.getElementById('pick-list-check-in')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }}
+          >
+            {t('holds.checkInAction')}
+          </Button>
+          <Button
+            size="sm"
+            variant="secondary"
+            leftIcon={<SearchX className="h-4 w-4" />}
+            isLoading={notFoundMutation.isPending && notFoundMutation.variables === row.holdId}
+            onClick={() => setPending(row)}
+          >
+            {t('pickList.notFound')}
+          </Button>
+        </div>
       ),
     },
   ];
@@ -170,6 +198,25 @@ export default function PickListPage() {
       </div>
 
       <h1 className="hidden print:block text-xl font-bold">{t('pickList.pageTitle')}</h1>
+
+      <div id="pick-list-check-in">
+      <Card padding="none" className="overflow-hidden print:hidden">
+        <div className="p-4 sm:p-6 border-b border-gray-200 dark:border-gray-800">
+          <HoldPickCheckInPanel bind={checkInBind} onSuccess={() => void afterCheckIn()} />
+          {checkInBind ? (
+            <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+              <button
+                type="button"
+                className="underline hover:text-gray-700 dark:hover:text-gray-200"
+                onClick={() => setCheckInBind(null)}
+              >
+                {t('holds.checkInClearBind')}
+              </button>
+            </p>
+          ) : null}
+        </div>
+      </Card>
+      </div>
 
       <Card padding="none" className="overflow-hidden">
         <div className="p-4 sm:p-6 border-b border-gray-200 dark:border-gray-800 space-y-4 print:border-0 print:p-0">

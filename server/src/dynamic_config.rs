@@ -15,6 +15,7 @@ use crate::{
     bootstrap::logging::{self, TracingGuard},
     config::{AppConfig, AuditConfig, CirculationConfig, EmailConfig, HoldsConfig, LoggingConfig, RemindersConfig},
     error::{AppError, AppResult},
+    features::FeaturesConfig,
     repository::Repository,
 };
 
@@ -27,10 +28,11 @@ enum Section {
     Audit,
     Holds,
     Circulation,
+    Features,
 }
 
 impl Section {
-    const ALL: [Self; 6] = [Self::Email, Self::Logging, Self::Reminders, Self::Audit, Self::Holds, Self::Circulation];
+    const ALL: [Self; 7] = [Self::Email, Self::Logging, Self::Reminders, Self::Audit, Self::Holds, Self::Circulation, Self::Features];
 
     fn key(self) -> &'static str {
         match self {
@@ -40,6 +42,7 @@ impl Section {
             Self::Audit => "audit",
             Self::Holds => "holds",
             Self::Circulation => "circulation",
+            Self::Features => "features",
         }
     }
 
@@ -51,6 +54,7 @@ impl Section {
             "audit" => Some(Self::Audit),
             "holds" => Some(Self::Holds),
             "circulation" => Some(Self::Circulation),
+            "features" => Some(Self::Features),
             _ => None,
         }
     }
@@ -63,6 +67,7 @@ impl Section {
             Self::Audit => config.audit.overridable,
             Self::Holds => config.holds.overridable,
             Self::Circulation => config.circulation.overridable,
+            Self::Features => config.features.overridable,
         }
     }
 
@@ -110,6 +115,13 @@ impl Section {
                     true
                 })
                 .unwrap_or(false),
+            Self::Features => serde_json::from_value(value)
+                .ok()
+                .map(|v| {
+                    config.features = v;
+                    true
+                })
+                .unwrap_or(false),
         }
     }
 }
@@ -123,6 +135,7 @@ struct DynamicConfigInner {
     pub audit: AuditConfig,
     pub holds: HoldsConfig,
     pub circulation: CirculationConfig,
+    pub features: FeaturesConfig,
 }
 
 /// Guard returned by [`DynamicConfig::apply`]; must be kept alive for the process lifetime.
@@ -152,6 +165,7 @@ impl DynamicConfig {
                 audit: config.audit.clone(),
                 holds: config.holds.clone(),
                 circulation: config.circulation.clone(),
+                features: config.features.clone(),
             }),
             file_config: config,
             db_overrides: Vec::new(),
@@ -189,6 +203,7 @@ impl DynamicConfig {
                 audit: effective.audit.clone(),
                 holds: effective.holds.clone(),
                 circulation: effective.circulation.clone(),
+                features: effective.features.clone(),
             }),
             file_config: original_file,
             db_overrides,
@@ -266,6 +281,10 @@ impl DynamicConfig {
         self.inner.read().unwrap().circulation.clone()
     }
 
+    pub fn read_features(&self) -> FeaturesConfig {
+        self.inner.read().unwrap().features.clone()
+    }
+
     /// Returns true if the given section is marked overridable in the file config.
     pub fn is_overridable(&self, section: &str) -> bool {
         Section::try_from_key(section).map(|s| s.overridable(&self.file_config)).unwrap_or(false)
@@ -311,6 +330,10 @@ impl DynamicConfig {
                 let cfg: CirculationConfig = serde_json::from_value(value).map_err(|e| AppError::BadRequest(format!("Invalid circulation config: {e}")))?;
                 self.inner.write().unwrap().circulation = cfg;
             }
+            Section::Features => {
+                let cfg: FeaturesConfig = serde_json::from_value(value).map_err(|e| AppError::BadRequest(format!("Invalid features config: {e}")))?;
+                self.inner.write().unwrap().features = cfg;
+            }
         }
         Ok(())
     }
@@ -343,6 +366,9 @@ impl DynamicConfig {
             Section::Circulation => {
                 self.inner.write().unwrap().circulation = self.file_config.circulation.clone();
             }
+            Section::Features => {
+                self.inner.write().unwrap().features = self.file_config.features.clone();
+            }
         }
         Ok(())
     }
@@ -356,6 +382,7 @@ impl DynamicConfig {
             Some(Section::Audit) => serde_json::to_value(self.read_audit()),
             Some(Section::Holds) => serde_json::to_value(self.read_holds()),
             Some(Section::Circulation) => serde_json::to_value(self.read_circulation()),
+            Some(Section::Features) => serde_json::to_value(self.read_features()),
             None => {
                 return Err(AppError::NotFound(format!("Unknown config section '{section}'")));
             }

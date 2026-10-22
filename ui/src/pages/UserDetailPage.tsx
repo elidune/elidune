@@ -17,11 +17,14 @@ import {
   LockOpen,
 } from 'lucide-react';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
+import { invalidateCirculationCaches } from '@/hooks/loans/invalidateCirculationCaches';
+import { invalidateUsersListQueries, userDetailQueryKey } from '@/hooks/users/queryKeys';
 import { usePublicTypesQuery } from '@/hooks/usePublicTypesQuery';
 import { useAccountTypesQuery } from '@/hooks/useAccountTypesQuery';
 import { Card, Button, Badge, Modal, Input, Table, ConfirmDialog, MessageModal, ScrollableListRegion, BarcodeScanField, SectionTabBar } from '@/components/common';
 import api from '@/services/api';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
+import { navigateBack } from '@/utils/navigateBack';
 import { deskCheckoutMessage, presentCheckoutRefusal } from '@/utils/deskCheckoutError';
 import { overrideReasonRefusalMessage, trimmedOverrideReason } from '@/utils/circulationForce';
 import ForceCirculationDialog from '@/components/loans/ForceCirculationDialog';
@@ -63,7 +66,7 @@ import { useCirculationExceptionAction, type CirculationExceptionKind } from '@/
 import { RenewSubscriptionModal, UserEditorForm } from '@/components/users';
 import { useAuth } from '@/contexts/AuthContext';
 import { useToast } from '@/contexts/ToastContext';
-import { canForceLoans, canManageUsers, canReadLoans, canReadUsers, type User as UserType, type LoanListItem, type LoanStatsResponse, type AdvancedStatsParams, type StatsInterval, type Author, type Hold } from '@/types';
+import { canForceLoans, canManageUsers, canReadLoans, canReadUsers, type LoanListItem, type LoanStatsResponse, type AdvancedStatsParams, type StatsInterval, type Author, type Hold } from '@/types';
 import PatronFinesPanel from '@/components/users/PatronFinesPanel';
 import { useUserFinesQuery } from '@/hooks/users/useUserFinesQuery';
 import { mayLoadPatronFines } from '@/utils/patronFines';
@@ -83,7 +86,7 @@ import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
 import { localizedPublicTypeById } from '@/utils/publicTypeDisplay';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 import { deferFromEffect } from '@/utils/deferFromEffect';
-import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
+import LoanDocumentRow from '@/components/loans/LoanDocumentRow';
 
 const LoansAreaChart = lazy(() => import('@/components/stats/LoansAreaChart'));
 
@@ -327,8 +330,7 @@ export default function UserDetailPage() {
 
   const refreshLoans = () => {
     if (!user?.id) return;
-    void queryClient.invalidateQueries({ queryKey: ['user-active-loans', user.id] });
-    void queryClient.invalidateQueries({ queryKey: ['user-past-loans', user.id] });
+    void invalidateCirculationCaches(queryClient, user.id);
     void queryClient.invalidateQueries({ queryKey: ['user-holds', user.id] });
   };
 
@@ -618,7 +620,7 @@ export default function UserDetailPage() {
                     {t('common.retry')}
                   </Button>
                 )}
-                <Button type="button" variant="secondary" onClick={() => navigate('/users')}>
+                <Button type="button" variant="secondary" onClick={() => navigateBack(navigate, '/users')}>
                   {t('common.back')}
                 </Button>
               </div>
@@ -672,13 +674,11 @@ export default function UserDetailPage() {
       key: 'title',
       header: t('loans.document'),
       render: (loan: LoanListItem) => (
-        <div className="flex items-start gap-3 min-w-0">
-          <LoanMediaTypeBadge mediaType={loan.biblio.mediaType} size="table" />
-          <div className="min-w-0">
-            {renderLoanTitle(loan)}
-            <UserRecordLoanIdentity loan={loan} linked={canReadBorrowers} placement="row" />
-          </div>
-        </div>
+        <LoanDocumentRow
+          mediaType={loan.biblio.mediaType}
+          title={renderLoanTitle(loan)}
+          details={<UserRecordLoanIdentity loan={loan} linked={canReadBorrowers} placement="row" />}
+        />
       ),
     },
     {
@@ -759,13 +759,11 @@ export default function UserDetailPage() {
       key: 'title',
       header: t('loans.document'),
       render: (loan: LoanListItem) => (
-        <div className="flex items-start gap-3 min-w-0">
-          <LoanMediaTypeBadge mediaType={loan.biblio.mediaType} size="table" />
-          <div className="min-w-0">
-            {renderLoanTitle(loan)}
-            <UserRecordLoanIdentity loan={loan} linked={canReadBorrowers} placement="row" />
-          </div>
-        </div>
+        <LoanDocumentRow
+          mediaType={loan.biblio.mediaType}
+          title={renderLoanTitle(loan)}
+          details={<UserRecordLoanIdentity loan={loan} linked={canReadBorrowers} placement="row" />}
+        />
       ),
     },
     {
@@ -989,7 +987,7 @@ export default function UserDetailPage() {
             type="button"
             variant="ghost"
             size="icon"
-            onClick={() => navigate('/users')}
+            onClick={() => navigateBack(navigate, '/users')}
             aria-label={t('common.back')}
             title={t('common.back')}
           >
@@ -1059,13 +1057,12 @@ export default function UserDetailPage() {
       <div className="flex flex-col flex-1 min-h-0 min-w-0">
         <Card padding="none" className="flex flex-col flex-1 min-h-0 min-w-0">
           <div className="p-3 sm:p-4 border-b border-gray-200 dark:border-gray-800 flex-shrink-0">
-            <div className="flex flex-nowrap items-center justify-between gap-3 min-w-0">
-              <div className="min-w-0 flex-1">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between min-w-0">
+              <div className="min-w-0 w-full sm:flex-1">
                 <SectionTabBar
                   ariaLabel={t('users.title')}
                   activeTab={detailTab}
                   onSelectTab={setDetailTab}
-                  scrollable
                   className="border-gray-200 dark:border-gray-800"
                   tabs={[
                     { id: 'info' as UserDetailTab, label: t('users.information') },
@@ -1136,7 +1133,8 @@ export default function UserDetailPage() {
                 accountTypesError={accountTypesError}
                 onLoadingChange={setIsEditLoading}
                 onSuccess={(updatedUser) => {
-                  if (updatedUser) queryClient.setQueryData<UserType>(['user', id], updatedUser);
+                  if (!updatedUser || !id) return;
+                  queryClient.setQueryData(userDetailQueryKey(id), updatedUser);
                 }}
               />
             </ScrollableListRegion>
@@ -1280,21 +1278,25 @@ export default function UserDetailPage() {
           <div className="space-y-4">
             <div>
               <p className="text-xs text-gray-500 dark:text-gray-400">{t('loans.document')}</p>
-              <div className="flex items-start gap-3 mt-1">
-                <LoanMediaTypeBadge mediaType={loanDetails.biblio.mediaType} size="table" />
-                <div className="min-w-0">
-                  <p className="text-gray-900 dark:text-white font-medium">
-                    {loanDetails.biblio.title || t('items.noTitle')}
-                  </p>
-                  <p className="text-sm text-gray-600 dark:text-gray-300">
-                    {formatAuthor(loanDetails.biblio.author)}
-                  </p>
-                  {loanDetails.biblio.isbn && (
-                    <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
-                      {t('items.isbn')}: <span className="font-mono">{formatIsbnDisplay(loanDetails.biblio.isbn)}</span>
+              <div className="mt-1">
+                <LoanDocumentRow
+                  mediaType={loanDetails.biblio.mediaType}
+                  title={
+                    <p className="text-gray-900 dark:text-white font-medium">
+                      {loanDetails.biblio.title || t('items.noTitle')}
                     </p>
-                  )}
-                </div>
+                  }
+                  details={
+                    <>
+                      <p className="text-sm text-gray-600 dark:text-gray-300">{formatAuthor(loanDetails.biblio.author)}</p>
+                      {loanDetails.biblio.isbn && (
+                        <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
+                          {t('items.isbn')}: <span className="font-mono">{formatIsbnDisplay(loanDetails.biblio.isbn)}</span>
+                        </p>
+                      )}
+                    </>
+                  }
+                />
               </div>
             </div>
 
@@ -1406,8 +1408,9 @@ export default function UserDetailPage() {
         user={showRenewSubscriptionModal && user ? user : null}
         isOpen={showRenewSubscriptionModal}
         onClose={() => setShowRenewSubscriptionModal(false)}
-        onSuccess={(updated) => {
-          queryClient.setQueryData<UserType>(['user', id], updated);
+        onSuccess={async (updated) => {
+          if (id) queryClient.setQueryData(userDetailQueryKey(id), updated);
+          await invalidateUsersListQueries(queryClient);
         }}
       />
 

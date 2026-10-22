@@ -318,6 +318,7 @@ pub async fn set_item_weeding(
     Path(item_id): Path<i64>,
     ValidatedJson(body): ValidatedJson<SetWeedingRequest>,
 ) -> AppResult<Json<Item>> {
+    crate::features::require_feature(&state, crate::features::Feature::Weeding)?;
     claims.require_weeding()?;
     match state.services.catalog.set_item_weeding(item_id, body.status, body.reason.clone()).await {
         Ok(item) => {

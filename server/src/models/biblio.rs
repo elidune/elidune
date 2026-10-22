@@ -5,7 +5,7 @@
 //! from marc-rs types are provided where applicable.
 
 use crate::models::item::ItemShort;
-use crate::models::{Author, Language};
+use crate::models::{Author, Genre, Language};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
@@ -407,6 +407,9 @@ pub struct Biblio {
     pub title: Option<String>,
     pub subject: Option<String>,
     pub dewey: Option<String>,
+    /// Legacy genre classification (SMALLINT). `None` / `Unknown` = unset.
+    #[serde(default)]
+    pub genre: Option<Genre>,
     pub audience_type: Option<AudienceType>,
     pub lang: Option<Language>,
     pub lang_orig: Option<Language>,

@@ -2,13 +2,14 @@ import { useMemo, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
+import { useMyLoansQuery } from '@/hooks/loans/useMyLoansQuery';
 import { BookOpen, Users, BookMarked, TrendingUp, ArrowRight, AlertTriangle, Lightbulb } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLibrary } from '@/contexts/LibraryContext';
 import { Card, CardHeader, Badge, LibraryInfoSection, ListSkeleton, QueryErrorBanner } from '@/components/common';
 import { useLibrarySchedule } from '@/hooks/common/useLibrarySchedule';
 import api from '@/services/api';
-import { staffAccess } from '@/utils/staffAccess';
+import { effectiveStaffAccess, isFeatureEnabled } from '@/utils/featureAccess';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
@@ -18,8 +19,10 @@ export default function HomePage() {
   const { user } = useAuth();
   const { libraryName, libraryInfo } = useLibrary();
   const { scheduleSlots } = useLibrarySchedule();
-  const access = staffAccess(user, api.getToken());
+  const features = libraryInfo?.enabledFeatures;
+  const access = effectiveStaffAccess(user, api.getToken(), features);
   const staff = access.homeStats;
+  const showSuggestions = isFeatureEnabled(features, 'purchaseSuggestions');
 
   const statsQuery = useQuery({
     queryKey: ['home-stats'],
@@ -28,12 +31,7 @@ export default function HomePage() {
     staleTime: 60 * 1000,
   });
 
-  const loansQuery = useQuery({
-    queryKey: ['home-my-loans', user?.id],
-    queryFn: () => api.getMyLoans({ page: 1, perPage: 20 }),
-    enabled: Boolean(user?.id),
-    staleTime: 60 * 1000,
-  });
+  const loansQuery = useMyLoansQuery(user?.id, { page: 1, perPage: 20 });
 
   const stats = statsQuery.data ?? null;
   const myLoans = useMemo(() => loansQuery.data?.items ?? [], [loansQuery.data?.items]);
@@ -137,24 +135,26 @@ export default function HomePage() {
         </div>
       )}
 
-      <HomeLinkCard
-        to="/my-suggestions"
-        ariaLabel={t('home.openSection', { section: t('acquisitions.suggestions.patronTitle') })}
-      >
-        <CardHeader
-          title={t('acquisitions.suggestions.patronTitle')}
-          subtitle={t('acquisitions.suggestions.homeHelp')}
-          action={
-            <span className="text-sm text-amber-600 dark:text-amber-400 flex items-center gap-1" aria-hidden>
-              {t('common.view')} <ArrowRight className="h-4 w-4" />
-            </span>
-          }
-        />
-        <div className="flex items-start gap-3 text-sm text-gray-600 dark:text-gray-400">
-          <Lightbulb className="h-5 w-5 shrink-0 text-amber-600" />
-          <p>{t('acquisitions.suggestions.patronSubtitle')}</p>
-        </div>
-      </HomeLinkCard>
+      {showSuggestions ? (
+        <HomeLinkCard
+          to="/my-suggestions"
+          ariaLabel={t('home.openSection', { section: t('acquisitions.suggestions.patronTitle') })}
+        >
+          <CardHeader
+            title={t('acquisitions.suggestions.patronTitle')}
+            subtitle={t('acquisitions.suggestions.homeHelp')}
+            action={
+              <span className="text-sm text-amber-600 dark:text-amber-400 flex items-center gap-1" aria-hidden>
+                {t('common.view')} <ArrowRight className="h-4 w-4" />
+              </span>
+            }
+          />
+          <div className="flex items-start gap-3 text-sm text-gray-600 dark:text-gray-400">
+            <Lightbulb className="h-5 w-5 shrink-0 text-amber-600" />
+            <p>{t('acquisitions.suggestions.patronSubtitle')}</p>
+          </div>
+        </HomeLinkCard>
+      ) : null}
 
       {/* My loans */}
       <HomeLinkCard

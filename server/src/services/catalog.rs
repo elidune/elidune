@@ -591,7 +591,7 @@ fn nonempty_text(value: Option<&str>) -> Option<&str> {
     value.map(str::trim).filter(|s| !s.is_empty())
 }
 
-/// Incomplete received copies stay non-circulable until barcode + site + price/deferral.
+/// Incomplete copies stay non-circulable until barcode and site are set.
 /// Completing those fields enables circulation. Exception statuses stay non-borrowable.
 fn apply_circulation_readiness(item: &mut Item, existing: &Item) -> AppResult<()> {
     if existing.circulation_state().blocks_circulation() {
@@ -602,8 +602,7 @@ fn apply_circulation_readiness(item: &mut Item, existing: &Item) -> AppResult<()
     let barcode = nonempty_text(item.barcode.as_deref()).or_else(|| nonempty_text(existing.barcode.as_deref()));
     let site_id = item.site_id.or(existing.site_id);
     let site_name = nonempty_text(item.site_name.as_deref()).or_else(|| nonempty_text(existing.site_name.as_deref()));
-    let price = item.price.or(existing.price);
-    let ready = Item::ready_to_circulate(barcode, site_id, site_name, price, item.price_deferred);
+    let ready = Item::ready_to_circulate(barcode, site_id, site_name);
 
     if ready {
         item.borrowable = true;
@@ -612,7 +611,7 @@ fn apply_circulation_readiness(item: &mut Item, existing: &Item) -> AppResult<()
 
     if item.borrowable && !existing.borrowable {
         return Err(AppError::BusinessRule(
-            "Item cannot be made borrowable until barcode, site, and price (or an explicit price deferral) are set".into(),
+            "Item cannot be made borrowable until barcode and site are set".into(),
         ));
     }
     if !existing.borrowable {

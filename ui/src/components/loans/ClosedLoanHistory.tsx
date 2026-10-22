@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import type { MyLoan } from '@/types';
 import { closureReasonText } from '@/utils/loanClosure';
-import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
+import LoanDocumentRow from '@/components/loans/LoanDocumentRow';
 
 interface ClosedLoanHistoryProps {
   loans: MyLoan[];
@@ -19,15 +19,22 @@ export default function ClosedLoanHistory({ loans }: ClosedLoanHistoryProps) {
             key={loan.id}
             className="flex flex-col sm:flex-row sm:items-center gap-4 p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50"
           >
-            <LoanMediaTypeBadge mediaType={loan.mediaType} size="comfortable" />
             <div className="flex-1 min-w-0">
-              <p className="font-medium text-gray-900 dark:text-white truncate">
-                {loan.title || t('items.notSpecified')}
-              </p>
-              <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">{loan.barcode || '-'}</p>
+              <LoanDocumentRow
+                mediaType={loan.mediaType}
+                size="comfortable"
+                title={
+                  <p className="font-medium text-gray-900 dark:text-white truncate">
+                    {loan.title || t('items.notSpecified')}
+                  </p>
+                }
+                details={
+                  <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">{loan.barcode || '-'}</p>
+                }
+              />
             </div>
             {reason ? (
-              <p className="text-sm font-medium text-gray-900 dark:text-white" data-closure-reason={loan.closureReason ?? ''}>
+              <p className="text-sm font-medium text-gray-900 dark:text-white shrink-0" data-closure-reason={loan.closureReason ?? ''}>
                 {reason}
               </p>
             ) : null}

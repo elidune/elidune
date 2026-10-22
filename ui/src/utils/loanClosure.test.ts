@@ -69,7 +69,8 @@ describe('closed loan closure reason', () => {
       archived: true,
     });
     const page = readFileSync(new URL('../pages/MyLoansPage.tsx', import.meta.url), 'utf8');
-    assert.match(page, /getMyLoans\(\{\s*archived:\s*true/);
+    assert.match(page, /archived:\s*true/);
+    assert.match(page, /useMyLoansQuery/);
     assert.equal(page.includes('getUserLoans'), false);
   });
 

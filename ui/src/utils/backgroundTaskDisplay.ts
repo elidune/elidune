@@ -140,7 +140,7 @@ export function isTaskActive(task: BackgroundTask): boolean {
 export function taskDeepLink(task: BackgroundTask): string | null {
   switch (task.kind) {
     case 'marcBatchImport':
-      return '/import-iso';
+      return '/biblios?tab=import';
     case 'maintenance':
       return '/settings';
     case 'inventoryBatchScan':

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { invalidateUsersListQueries, userDetailQueryKey } from '@/hooks/users/queryKeys';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, Loader2, Mail, MapPin, Phone } from 'lucide-react';
 import { Input } from '@/components/common';
@@ -161,6 +162,7 @@ export default function UserEditorForm({
   onSuccess,
 }: UserEditorFormProps) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const [formData, setFormData] = useState<UserFormData>(() =>
     mode === 'edit' && user ? formDataFromUser(user) : emptyFormData(accountTypes)
   );
@@ -364,6 +366,7 @@ export default function UserEditorForm({
           publicType: created.publicType,
           birthDateMissing: created.birthDateMissing === true,
         });
+        await invalidateUsersListQueries(queryClient);
         await onSuccess(created);
       } else {
         if (!user) return;
@@ -376,6 +379,8 @@ export default function UserEditorForm({
           publicType: updated.publicType,
           birthDateMissing: updated.birthDateMissing === true,
         });
+        queryClient.setQueryData(userDetailQueryKey(user.id), updated);
+        await invalidateUsersListQueries(queryClient);
         await onSuccess(updated);
       }
     } catch (error) {

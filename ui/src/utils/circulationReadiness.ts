@@ -1,4 +1,4 @@
-/** Mirrors server `Item::ready_to_circulate`: barcode + site + (price or deferral). */
+/** Mirrors server `Item::ready_to_circulate`: barcode + site. */
 
 export type CirculationReadinessInput = {
   barcode?: string | null;
@@ -8,7 +8,8 @@ export type CirculationReadinessInput = {
   priceDeferred?: boolean | null;
 };
 
-export type CirculationField = 'barcode' | 'site' | 'price';
+export type CirculationField = 'barcode' | 'site';
+export type RecommendedCirculationField = 'price';
 
 export function nonemptyText(value?: string | null): string | undefined {
   const trimmed = value?.trim();
@@ -21,8 +22,14 @@ export function missingCirculationFields(input: CirculationReadinessInput): Circ
   if (nonemptyText(input.siteId) == null && nonemptyText(input.siteName) == null) {
     missing.push('site');
   }
-  if (!input.priceDeferred && nonemptyText(input.price) == null) missing.push('price');
   return missing;
+}
+
+/** Staff hint when a copy can circulate but price is still unknown. */
+export function recommendedCirculationFields(input: CirculationReadinessInput): RecommendedCirculationField[] {
+  if (input.priceDeferred) return [];
+  if (nonemptyText(input.price) == null) return ['price'];
+  return [];
 }
 
 export function isReadyToCirculate(input: CirculationReadinessInput): boolean {
@@ -34,5 +41,5 @@ export function completeItemHref(biblioId: string, itemId: string): string {
 }
 
 export function isCirculationReadinessError(message: string): boolean {
-  return /cannot be made borrowable|price deferral|barcode, site/i.test(message);
+  return /cannot be made borrowable|barcode and site/i.test(message);
 }

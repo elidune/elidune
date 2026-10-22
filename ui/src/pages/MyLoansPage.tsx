@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { BookOpen, Calendar, AlertTriangle } from 'lucide-react';
 import { Card, CardHeader, Badge, Pagination, ListSkeleton, QueryErrorBanner } from '@/components/common';
@@ -7,14 +7,13 @@ import AccountRenewalBanner from '@/components/loans/AccountRenewalBanner';
 import LoansMarcExportButton from '@/components/loans/LoansMarcExportButton';
 import MyLoanRenewActions from '@/components/loans/MyLoanRenewActions';
 import { useAuth } from '@/contexts/AuthContext';
-import api from '@/services/api';
 import type { MyLoan } from '@/types';
 import ClosedLoanHistory from '@/components/loans/ClosedLoanHistory';
 import { accountRenewalRefusal, getApiErrorCode, getApiErrorMessage, renewalRefusalText } from '@/utils/apiError';
 import { renewedUntilMessage } from '@/utils/localeDate';
-import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
+import LoanDocumentRow from '@/components/loans/LoanDocumentRow';
 import { sortLoansByStartDateAsc } from '@/utils/sortLoans';
-import { newIdempotencyKey } from '@/utils/idempotency';
+import { useMyLoansQuery, useRenewMyLoanMutation } from '@/hooks/loans/useMyLoansQuery';
 
 const MY_LOANS_PAGE_SIZE = 20;
 
@@ -22,18 +21,9 @@ export default function MyLoansPage() {
   const { t, i18n } = useTranslation();
   const { showToast } = useToast();
   const { user } = useAuth();
-  const [loans, setLoans] = useState<MyLoan[]>([]);
   const [loansPage, setLoansPage] = useState(1);
-  const [loansTotal, setLoansTotal] = useState(0);
-  const [isLoading, setIsLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [renewError, setRenewError] = useState('');
-  const [reloadToken, setReloadToken] = useState(0);
-  const [closedLoans, setClosedLoans] = useState<MyLoan[]>([]);
   const [closedPage, setClosedPage] = useState(1);
-  const [closedTotal, setClosedTotal] = useState(0);
-  const [isLoadingClosed, setIsLoadingClosed] = useState(true);
-  const [closedError, setClosedError] = useState<string | null>(null);
+  const [renewError, setRenewError] = useState('');
 
   const [prevLoansUserId, setPrevLoansUserId] = useState(user?.id);
   if (user?.id !== prevLoansUserId) {
@@ -42,71 +32,41 @@ export default function MyLoansPage() {
     setClosedPage(1);
   }
 
-  useEffect(() => {
-    const fetchLoans = async () => {
-      if (!user?.id) return;
-      setIsLoading(true);
-      setLoadError(null);
-      try {
-        const res = await api.getMyLoans({
-          page: loansPage,
-          perPage: MY_LOANS_PAGE_SIZE,
-        });
-        setLoans(res.items);
-        setLoansTotal(res.total);
-      } catch (error) {
-        setLoadError(getApiErrorMessage(error, t) || t('loans.loansLoadError'));
-      } finally {
-        setIsLoading(false);
-      }
-    };
+  const activeLoansQuery = useMyLoansQuery(user?.id, {
+    page: loansPage,
+    perPage: MY_LOANS_PAGE_SIZE,
+  });
+  const closedLoansQuery = useMyLoansQuery(user?.id, {
+    page: closedPage,
+    perPage: MY_LOANS_PAGE_SIZE,
+    archived: true,
+  });
 
-    fetchLoans();
-  }, [user?.id, loansPage, reloadToken, t]);
+  const renewMutation = useRenewMyLoanMutation();
 
-  useEffect(() => {
-    const fetchClosed = async () => {
-      if (!user?.id) return;
-      setIsLoadingClosed(true);
-      setClosedError(null);
-      try {
-        const res = await api.getMyLoans({
-          archived: true,
-          page: closedPage,
-          perPage: MY_LOANS_PAGE_SIZE,
-        });
-        setClosedLoans(res.items);
-        setClosedTotal(res.total);
-      } catch (error) {
-        setClosedError(getApiErrorMessage(error, t) || t('loans.loansLoadError'));
-      } finally {
-        setIsLoadingClosed(false);
-      }
-    };
+  const loans = activeLoansQuery.data?.items ?? [];
+  const loansTotal = activeLoansQuery.data?.total ?? 0;
+  const closedLoans = closedLoansQuery.data?.items ?? [];
+  const closedTotal = closedLoansQuery.data?.total ?? 0;
 
-    fetchClosed();
-  }, [user?.id, closedPage, reloadToken, t]);
-
-  const renewInFlightRef = useRef(false);
+  const loadError =
+    activeLoansQuery.isError
+      ? getApiErrorMessage(activeLoansQuery.error, t) || t('loans.loansLoadError')
+      : null;
+  const closedError =
+    closedLoansQuery.isError
+      ? getApiErrorMessage(closedLoansQuery.error, t) || t('loans.loansLoadError')
+      : null;
 
   const handleRenewLoan = async (loanId: string) => {
-    if (renewInFlightRef.current) return;
-    renewInFlightRef.current = true;
+    if (renewMutation.isPending) return;
     setRenewError('');
     try {
-      const renewed = await api.renewLoan(loanId, newIdempotencyKey());
+      const renewed = await renewMutation.mutateAsync(loanId);
       showToast({
         variant: 'success',
         message: renewedUntilMessage(renewed.expiryAt, t, i18n.language),
       });
-      if (user?.id) {
-        const res = await api.getMyLoans({
-          page: loansPage,
-          perPage: MY_LOANS_PAGE_SIZE,
-        });
-        setLoans(res.items);
-        setLoansTotal(res.total);
-      }
     } catch (error) {
       console.error('Error renewing loan:', error);
       const code = getApiErrorCode(error);
@@ -115,8 +75,6 @@ export default function MyLoansPage() {
           ? renewalRefusalText(t, code, null, i18n.language)
           : getApiErrorMessage(error, t) || t('loans.errorRenewingLoan');
       setRenewError(msg ?? t('loans.errorRenewingLoan'));
-    } finally {
-      renewInFlightRef.current = false;
     }
   };
 
@@ -128,7 +86,6 @@ export default function MyLoansPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{t('loans.myLoans')}</h1>
@@ -144,13 +101,9 @@ export default function MyLoansPage() {
       </div>
 
       {loadError && (
-        <QueryErrorBanner
-          message={loadError}
-          onRetry={() => setReloadToken((n) => n + 1)}
-        />
+        <QueryErrorBanner message={loadError} onRetry={() => void activeLoansQuery.refetch()} />
       )}
 
-      {/* Renew error */}
       {renewError && (
         <div className="flex items-start gap-3 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl">
           <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-500 flex-shrink-0 mt-0.5" />
@@ -165,7 +118,7 @@ export default function MyLoansPage() {
           title={t('loans.activeLoans')}
           subtitle={t('items.count', { count: loansTotal })}
         />
-        {isLoading ? (
+        {activeLoansQuery.isLoading ? (
           <ListSkeleton rows={6} />
         ) : loadError ? null : loans.length === 0 ? (
           <div className="text-center py-8 text-gray-500 dark:text-gray-400">
@@ -197,10 +150,10 @@ export default function MyLoansPage() {
         />
         {closedError && (
           <div className="px-4 pb-4">
-            <QueryErrorBanner message={closedError} onRetry={() => setReloadToken((n) => n + 1)} />
+            <QueryErrorBanner message={closedError} onRetry={() => void closedLoansQuery.refetch()} />
           </div>
         )}
-        {isLoadingClosed ? (
+        {closedLoansQuery.isLoading ? (
           <ListSkeleton rows={4} />
         ) : closedError ? null : closedLoans.length === 0 ? (
           <div className="text-center py-8 text-gray-500 dark:text-gray-400">
@@ -243,21 +196,29 @@ function LoanCard({ loan, onRenew, isOverdue = false }: LoanCardProps) {
           : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50'
       }`}
     >
-      <LoanMediaTypeBadge mediaType={loan.mediaType} size="comfortable" />
-
       <div className="flex-1 min-w-0">
-        <p className="font-medium text-gray-900 dark:text-white truncate">
-          {loan.title || t('items.notSpecified')}
-        </p>
-        <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">
-          {loan.barcode || '-'}
-        </p>
-        <div className="flex items-center gap-4 mt-2 text-sm">
-          <div className="flex items-center gap-1 text-gray-500 dark:text-gray-400">
-            <Calendar className="h-4 w-4" />
-            <span>{t('loans.loanDate')}: {new Date(loan.startDate).toLocaleDateString(i18n.language)}</span>
-          </div>
-        </div>
+        <LoanDocumentRow
+          mediaType={loan.mediaType}
+          size="comfortable"
+          title={
+            <p className="font-medium text-gray-900 dark:text-white truncate">
+              {loan.title || t('items.notSpecified')}
+            </p>
+          }
+          details={
+            <>
+              <p className="text-sm text-gray-500 dark:text-gray-400 font-mono">{loan.barcode || '-'}</p>
+              <div className="flex items-center gap-4 mt-2 text-sm">
+                <div className="flex items-center gap-1 text-gray-500 dark:text-gray-400">
+                  <Calendar className="h-4 w-4" />
+                  <span>
+                    {t('loans.loanDate')}: {new Date(loan.startDate).toLocaleDateString(i18n.language)}
+                  </span>
+                </div>
+              </div>
+            </>
+          }
+        />
       </div>
 
       <div className="flex flex-col sm:items-end gap-2">
@@ -285,4 +246,3 @@ function LoanCard({ loan, onRenew, isOverdue = false }: LoanCardProps) {
     </div>
   );
 }
-

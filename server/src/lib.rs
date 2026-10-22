@@ -19,6 +19,7 @@ pub mod dynamic_config;
 pub mod email;
 pub mod email_templates;
 pub mod error;
+pub mod features;
 pub mod events_consent;
 pub mod hold_email;
 pub mod inventory_email;

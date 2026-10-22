@@ -454,15 +454,19 @@ impl Item {
         included_in_public_catalog(self.weeding_status, self.circulation_status)
     }
 
-    /// Whether barcode, site, and price (or an explicit deferral) are present.
+    /// Whether barcode and site are present so a copy may circulate.
     ///
-    /// Used for acquisitions receipt and when enabling circulation on an incomplete copy.
+    /// Price is recommended for staff but not required here; acquisition closure and
+    /// lost billing enforce price (or deferral / explicit amount) separately.
     #[must_use]
-    pub fn ready_to_circulate(barcode: Option<&str>, site_id: Option<i64>, site_name: Option<&str>, price: Option<crate::models::fine::Cents>, price_deferred: bool) -> bool {
-        let barcode_ok = nonempty(barcode).is_some();
-        let site_ok = site_id.is_some() || nonempty(site_name).is_some();
-        let price_ok = price_deferred || price.is_some();
-        barcode_ok && site_ok && price_ok
+    pub fn ready_to_circulate(barcode: Option<&str>, site_id: Option<i64>, site_name: Option<&str>) -> bool {
+        nonempty(barcode).is_some() && (site_id.is_some() || nonempty(site_name).is_some())
+    }
+
+    /// Price recorded for acquisition closure: explicit cents, or an explicit deferral.
+    #[must_use]
+    pub fn has_price_for_acquisition_closure(price: Option<crate::models::fine::Cents>, price_deferred: bool) -> bool {
+        price_deferred || price.is_some()
     }
 
     /// Check both copy notes. Blank values are empty, not over the limit.
@@ -614,14 +618,20 @@ mod tests {
     }
 
     #[test]
-    fn ready_to_circulate_requires_barcode_site_and_price_or_deferral() {
-        assert!(!Item::ready_to_circulate(None, None, None, None, false));
-        assert!(!Item::ready_to_circulate(Some("B1"), None, None, Some(crate::models::fine::Cents(1000)), false));
-        assert!(!Item::ready_to_circulate(Some("B1"), Some(1), None, None, false));
-        assert!(!Item::ready_to_circulate(None, Some(1), None, Some(crate::models::fine::Cents(1000)), false));
-        assert!(Item::ready_to_circulate(Some("B1"), Some(1), None, Some(crate::models::fine::Cents(1000)), false));
-        assert!(Item::ready_to_circulate(Some("B1"), None, Some("Main"), None, true));
-        assert!(!Item::ready_to_circulate(Some("  "), Some(1), None, Some(crate::models::fine::Cents(1000)), false));
+    fn ready_to_circulate_requires_barcode_and_site() {
+        assert!(!Item::ready_to_circulate(None, None, None));
+        assert!(!Item::ready_to_circulate(Some("B1"), None, None));
+        assert!(!Item::ready_to_circulate(None, Some(1), None));
+        assert!(Item::ready_to_circulate(Some("B1"), Some(1), None));
+        assert!(Item::ready_to_circulate(Some("B1"), None, Some("Main")));
+        assert!(!Item::ready_to_circulate(Some("  "), Some(1), None));
+    }
+
+    #[test]
+    fn acquisition_closure_accepts_price_or_deferral() {
+        assert!(Item::has_price_for_acquisition_closure(Some(crate::models::fine::Cents(0)), false));
+        assert!(Item::has_price_for_acquisition_closure(None, true));
+        assert!(!Item::has_price_for_acquisition_closure(None, false));
     }
 
     #[test]

@@ -636,16 +636,26 @@ impl Repository {
             .await?
             .ok_or_else(|| AppError::NotFound("Biblio not found".to_string()))?;
 
+        // A pinned copy that is already on the shelf enters `to_pick`, same as title capture.
+        let shelf_pick = self.holds_item_eligible_for_to_pick_tx(&mut tx, item_id).await?;
+        let status = if shelf_pick {
+            HoldStatus::ToPick.as_str()
+        } else {
+            HoldStatus::Pending.as_str()
+        };
+
         let row = match sqlx::query_as::<_, Hold>(
             r#"
             INSERT INTO holds (
-                id, user_id, item_id, biblio_id, pickup_site_id, position, patron_note, internal_note
+                id, user_id, item_id, biblio_id, pickup_site_id, position,
+                patron_note, internal_note, status, pick_started_at
             )
             VALUES (
                 $1, $2, $3, $4, $5,
                 COALESCE((SELECT MAX(position) FROM holds
                           WHERE biblio_id = $4 AND status IN ('pending','to_pick','ready')), 0) + 1,
-                $6, $7
+                $6, $7, $8,
+                CASE WHEN $8 = 'to_pick' THEN NOW() ELSE NULL END
             )
             RETURNING *
             "#,
@@ -657,6 +667,7 @@ impl Repository {
         .bind(data.pickup_site_id)
         .bind(&data.patron_note)
         .bind(&data.internal_note)
+        .bind(status)
         .fetch_one(&mut *tx)
         .await
         {
@@ -805,6 +816,39 @@ impl Repository {
         .bind(status)
         .fetch_one(&mut **tx)
         .await
+    }
+
+    /// Whether a copy is on the shelf and can be assigned as `to_pick`.
+    async fn holds_item_eligible_for_to_pick_tx(&self, tx: &mut sqlx::Transaction<'_, Postgres>, item_id: i64) -> AppResult<bool> {
+        let sql = format!(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 FROM items i
+                WHERE i.id = $1
+                  AND i.archived_at IS NULL
+                  AND i.weeding_status <> 'withdrawn'
+                  AND i.borrowable = TRUE
+                  AND COALESCE(i.circulation_status, 0) = 0
+                  AND NOT ({})
+                  AND NOT EXISTS (
+                      SELECT 1 FROM loans l
+                      WHERE l.item_id = i.id AND l.returned_at IS NULL
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM holds h
+                      WHERE h.item_id = i.id
+                        AND h.status IN ('pending','to_pick','ready')
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM item_transits t
+                      WHERE t.item_id = i.id AND t.status IN ('requested', 'in_transit')
+                  )
+            )
+            "#,
+            crate::models::deposit::DEPOSIT_COPY_NOT_HOLDABLE_SQL
+        );
+        let eligible: bool = sqlx::query_scalar(&sql).bind(item_id).fetch_one(&mut **tx).await?;
+        Ok(eligible)
     }
 
     /// Lock one shelf copy that can be assigned to a title hold.

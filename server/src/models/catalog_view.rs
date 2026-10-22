@@ -22,7 +22,7 @@ use super::hold::{HoldDetails, HoldStatus};
 use super::item::{Item, ItemAvailability, ItemShort, WeedingStatus};
 use super::loan::LoanDetails;
 use super::user::{AccountTypeSlug, Rights, UserClaims, UserRights, UserShort, UserStatus};
-use super::Language;
+use super::{Genre, Language};
 
 /// Staff catalog JSON (internal copy data) versus the public projection.
 ///
@@ -415,6 +415,9 @@ pub struct BiblioStaffView {
     pub title: Option<String>,
     pub subject: Option<String>,
     pub dewey: Option<String>,
+    /// Staff-only genre for cataloguing / call-number suggestions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub genre: Option<Genre>,
     pub audience_type: Option<AudienceType>,
     pub lang: Option<Language>,
     pub lang_orig: Option<Language>,
@@ -462,6 +465,7 @@ impl From<Biblio> for BiblioStaffView {
             title: biblio.title,
             subject: biblio.subject,
             dewey: biblio.dewey,
+            genre: biblio.genre,
             audience_type: biblio.audience_type,
             lang: biblio.lang,
             lang_orig: biblio.lang_orig,

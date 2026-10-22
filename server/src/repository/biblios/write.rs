@@ -123,16 +123,16 @@ impl Repository {
             r#"
             INSERT INTO biblios (
                 media_type, isbn, publication_date,
-                lang, lang_orig, title, subject, dewey,
+                lang, lang_orig, title, subject, dewey, genre,
                 audience_type, page_extent, format, table_of_contents, accompanying_material,
                 abstract, notes, keywords, is_valid,
                 edition_id, created_at, updated_at
             ) VALUES (
                 $1, $2, $3,
-                $4, $5, $6, $7, $8,
-                $9, $10, $11, $12, $13,
-                $14, $15, $16, $17,
-                $18, $19, $20
+                $4, $5, $6, $7, $8, $9,
+                $10, $11, $12, $13, $14,
+                $15, $16, $17, $18,
+                $19, $20, $21
             ) RETURNING id
             "#,
         )
@@ -144,6 +144,7 @@ impl Repository {
         .bind(&biblio.title)
         .bind(&biblio.subject)
         .bind(&biblio.dewey)
+        .bind(biblio.genre)
         .bind(&biblio.audience_type)
         .bind(&biblio.page_extent)
         .bind(&biblio.format)
@@ -289,19 +290,20 @@ impl Repository {
                 title = $6,
                 subject = $7,
                 dewey = $8,
-                audience_type = $9,
-                page_extent = $10,
-                format = $11,
-                table_of_contents = $12,
-                accompanying_material = $13,
-                abstract = $14,
-                notes = $15,
-                keywords = $16,
-                is_valid = $17,
-                edition_id = $18,
-                updated_at = $19,
-                marc_record = $20
-            WHERE id = $21 AND archived_at IS NULL
+                genre = $9,
+                audience_type = $10,
+                page_extent = $11,
+                format = $12,
+                table_of_contents = $13,
+                accompanying_material = $14,
+                abstract = $15,
+                notes = $16,
+                keywords = $17,
+                is_valid = $18,
+                edition_id = $19,
+                updated_at = $20,
+                marc_record = $21
+            WHERE id = $22 AND archived_at IS NULL
             "#,
         )
         .bind(&biblio.media_type)
@@ -312,6 +314,7 @@ impl Repository {
         .bind(&biblio.title)
         .bind(&biblio.subject)
         .bind(&biblio.dewey)
+        .bind(biblio.genre)
         .bind(&biblio.audience_type)
         .bind(&biblio.page_extent)
         .bind(&biblio.format)

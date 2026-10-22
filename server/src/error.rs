@@ -170,6 +170,8 @@ pub mod error_code {
     pub const DEPOSIT_LOSS_NOT_DECLARED: &str = "deposit_loss_not_declared";
     /// That route when `items.deposit_loss_notified_at` is already set. No second audit row is written.
     pub const DEPOSIT_LOSS_ALREADY_NOTIFIED: &str = "deposit_loss_already_notified";
+    /// Instance feature flag is off (HTTP 403). Distinct from RBAC `authorization_failed`.
+    pub const FEATURE_DISABLED: &str = "feature_disabled";
 }
 
 /// Main application error type
@@ -180,6 +182,10 @@ pub enum AppError {
 
     #[error("Authorization failed: {0}")]
     Authorization(String),
+
+    /// Instance module is disabled (HTTP 403, `feature_disabled`).
+    #[error("Feature disabled: {0}")]
+    FeatureDisabled(String),
 
     #[error("Not found: {0}")]
     NotFound(String),
@@ -477,6 +483,12 @@ impl AppError {
                 code: ec::AUTHORIZATION,
                 label: "Forbidden",
                 message: msg.clone(),
+            },
+            AppError::FeatureDisabled(feature) => HttpErrorFields {
+                status: StatusCode::FORBIDDEN,
+                code: ec::FEATURE_DISABLED,
+                label: "Forbidden",
+                message: format!("Feature '{feature}' is disabled on this instance"),
             },
             AppError::NotFound(msg) => HttpErrorFields {
                 status: StatusCode::NOT_FOUND,

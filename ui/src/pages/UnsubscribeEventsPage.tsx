@@ -1,16 +1,18 @@
 import { useState } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import axios from 'axios';
 import { ArrowLeft, MailX } from 'lucide-react';
 import { Button, Card } from '@/components/common';
 import { useLibrary } from '@/contexts/LibraryContext';
 import api from '@/services/api';
+import { navigateBack } from '@/utils/navigateBack';
 
 type UnsubscribeState = 'ready' | 'submitting' | 'success' | 'invalid' | 'error';
 
 export default function UnsubscribeEventsPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { libraryName } = useLibrary();
   const [searchParams] = useSearchParams();
   const token = (searchParams.get('token') ?? '').trim();
@@ -43,13 +45,14 @@ export default function UnsubscribeEventsPage() {
 
       <Card className="w-full max-w-md relative">
         <div className="mb-6">
-          <Link
-            to="/"
+          <button
+            type="button"
+            onClick={() => navigateBack(navigate, '/')}
             className="inline-flex items-center gap-1.5 text-sm font-medium text-amber-600 dark:text-amber-400 hover:underline"
           >
             <ArrowLeft className="h-4 w-4" />
             {t('eventsConsent.unsubscribe.backHome')}
-          </Link>
+          </button>
         </div>
 
         <div className="text-center mb-6">

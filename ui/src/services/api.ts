@@ -60,6 +60,8 @@ import type {
   BatchWithdrawalResponse,
   WithdrawalList,
   WithdrawalListParams,
+  WeedingCandidateList,
+  WeedingCandidateListParams,
   EnqueueResult,
   MarcImportPreview,
   RecordValidationIssue,
@@ -77,6 +79,7 @@ import type {
   LoanMutationResult,
   TaskStartResponse,
   BackgroundTask,
+  GenreCatalogEntry,
   PublicType,
   PublicTypeLoanSettings,
   PublicTypeLoanSettingInput,
@@ -748,6 +751,11 @@ class ApiService {
 
   async listItemWithdrawals(params: WithdrawalListParams): Promise<WithdrawalList> {
     const response = await this.client.get<WithdrawalList>('/item-withdrawals', { params });
+    return response.data;
+  }
+
+  async listWeedingCandidates(params: WeedingCandidateListParams): Promise<WeedingCandidateList> {
+    const response = await this.client.get<WeedingCandidateList>('/weeding-candidates', { params });
     return response.data;
   }
 
@@ -1613,6 +1621,13 @@ class ApiService {
     const response = await this.client.put<unknown>('/z3950/servers', { z3950Servers: servers });
     const next = normalizeZ3950ServersPayload(response.data);
     return next.length > 0 ? next : servers;
+  }
+
+  // ─── Genres (catalog) ────────────────────────────────────────────
+
+  async getGenres(): Promise<GenreCatalogEntry[]> {
+    const response = await this.client.get<GenreCatalogEntry[]>('/genres');
+    return Array.isArray(response.data) ? response.data : [];
   }
 
   // ─── Public types ────────────────────────────────────────────────

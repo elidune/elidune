@@ -1,18 +1,38 @@
+import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
 import AcquisitionsTabBar from '@/components/acquisitions/AcquisitionsTabBar';
+import { useLibrary } from '@/contexts/LibraryContext';
 import { AcquisitionsFundsPanel } from '@/pages/AcquisitionsFundsPage';
 import { AcquisitionsOrdersPanel } from '@/pages/AcquisitionsOrdersPage';
 import { AcquisitionsSuggestionsPanel } from '@/pages/AcquisitionsSuggestionsPage';
 import { AcquisitionsVendorsPanel } from '@/pages/AcquisitionsVendorsPage';
 import { APP_PAGE_CLASS } from '@/utils/appPageLayout';
+import { isFeatureEnabled } from '@/utils/featureAccess';
 import { type AcquisitionsTab, isAcquisitionsTab } from '@/utils/acquisitionsTabs';
 
 export default function AcquisitionsPage() {
   const { t } = useTranslation();
+  const { libraryInfo } = useLibrary();
+  const showSuggestions = isFeatureEnabled(libraryInfo?.enabledFeatures, 'purchaseSuggestions');
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
-  const activeTab: AcquisitionsTab = isAcquisitionsTab(tabParam) ? tabParam : 'orders';
+  const requested: AcquisitionsTab = isAcquisitionsTab(tabParam) ? tabParam : 'orders';
+  const activeTab: AcquisitionsTab =
+    requested === 'suggestions' && !showSuggestions ? 'orders' : requested;
+
+  useEffect(() => {
+    if (requested === 'suggestions' && !showSuggestions) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set('tab', 'orders');
+          return next;
+        },
+        { replace: true },
+      );
+    }
+  }, [requested, showSuggestions, setSearchParams]);
 
   const selectTab = (tab: AcquisitionsTab) => {
     setSearchParams(

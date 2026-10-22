@@ -74,6 +74,9 @@ pub struct LibraryInfo {
     /// Default public UI language. `null` means unset; clients fall back to `fr`.
     pub language: Option<LibraryUiLanguage>,
     pub updated_at: Option<DateTime<Utc>>,
+    /// Instance-level module flags (same for every user). Absent modules default to enabled on older servers.
+    #[serde(default)]
+    pub enabled_features: crate::features::EnabledFeatures,
 }
 
 #[derive(Debug, Clone, Deserialize, ToSchema)]
@@ -152,6 +155,7 @@ mod tests {
             timezone: "Europe/Paris".into(),
             language: Some(LibraryUiLanguage::Es),
             updated_at: None,
+            enabled_features: Default::default(),
         };
         let json = serde_json::to_value(info).expect("json");
         assert_eq!(json["language"], "es");

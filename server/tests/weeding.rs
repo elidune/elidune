@@ -124,6 +124,30 @@ async fn candidate_stays_circulable_for_checkout_renew_and_holds() {
 }
 
 #[tokio::test]
+async fn weeding_candidates_list_returns_marked_copies() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    unlock_admin(&app, &admin_token).await;
+    let (_, item_ids) = create_title_with_copies(&app, &admin_token, "List Candidates", 2).await;
+    let item_id = item_ids[0];
+
+    let (status, empty) = app.get_json_with_auth("/api/v1/weeding-candidates", &admin_token).await;
+    assert_eq!(status, StatusCode::OK, "list before candidate: {empty}");
+
+    let (status, body) = set_weeding(&app, &admin_token, item_id, "candidate", "review shelf").await;
+    assert_eq!(status, StatusCode::OK, "mark candidate: {body}");
+
+    let (status, list) = app.get_json_with_auth("/api/v1/weeding-candidates", &admin_token).await;
+    assert_eq!(status, StatusCode::OK, "list candidates: {list}");
+    assert_eq!(list["total"], 1);
+    let row = &list["items"][0];
+    assert_eq!(row["itemId"], item_id.to_string());
+    assert_eq!(row["weedingReason"], "review shelf");
+}
+
+#[tokio::test]
 async fn withdrawn_blocks_checkout_renew_and_new_holds() {
     let Some(app) = TestApp::spawn().await else {
         return;

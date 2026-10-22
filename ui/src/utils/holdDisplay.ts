@@ -1,4 +1,5 @@
 import type { CreateHold, HoldListItem } from '@/types';
+import type { PickCheckInBind } from '@/utils/pickCheckInFlow';
 import { holdNotePayload, type HoldNoteStored } from '@/utils/holdNotes';
 
 /** Staff `/holds` status chips. List is already active-only from the API. */
@@ -70,6 +71,18 @@ export function buildCreateHold(input: {
 /** The held specimen: empty for an unassigned title-level hold. */
 export function holdSpecimenItem(h: HoldListItem): { barcode: string | null; callNumber: string | null } | undefined {
   return h.biblio.items[0];
+}
+
+/** Bind target for shelf check-in when the hold is `to_pick`. */
+export function holdPickCheckInBind(h: HoldListItem): PickCheckInBind | null {
+  if (h.status !== 'to_pick' || !h.itemId) return null;
+  const spec = holdSpecimenItem(h);
+  return {
+    holdId: h.id,
+    itemId: h.itemId,
+    barcode: spec?.barcode ?? null,
+    title: h.biblio?.title ?? null,
+  };
 }
 
 export function holdPrimaryDocumentLabel(h: HoldListItem): string {

@@ -1,4 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { invalidateScheduleQueries, useScheduleAdminQuery } from '@/hooks/common/useScheduleQueries';
 import { useTranslation } from 'react-i18next';
 import {
   Building2,
@@ -18,7 +20,6 @@ import { useLibraryInfoQuery, useUpdateLibraryInfoMutation } from '@/hooks/commo
 import { LANGUAGE_NAMES, PUBLIC_LANGUAGE_OPTIONS } from '@/locales';
 import api from '@/services/api';
 import { getApiErrorMessage, libraryInfoLanguageFieldError, libraryInfoTimezoneFieldError } from '@/utils/apiError';
-import { deferFromEffect } from '@/utils/deferFromEffect';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 import { libraryLanguageChoice, libraryLanguageForUpdate } from '@/utils/uiLanguage';
 import {
@@ -29,8 +30,6 @@ import {
 import type {
   LibraryInfo,
   SchedulePeriod,
-  ScheduleSlot,
-  ScheduleClosure,
   CreateSchedulePeriod,
   UpdateSchedulePeriod,
   CreateScheduleSlot,
@@ -351,15 +350,16 @@ function GeneralTab() {
 
 function HoursTab() {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const scheduleQuery = useScheduleAdminQuery();
+  const periods = scheduleQuery.data?.periods ?? [];
+  const slots = scheduleQuery.data?.slots ?? {};
+  const closures = scheduleQuery.data?.closures ?? [];
+  const loading = scheduleQuery.isLoading;
+  const error = scheduleQuery.isError ? t('errors.generic') : null;
 
   const dayNames = DAYS_OF_WEEK.map((d) => t(`library.hours.days.${d}`));
 
-  // Data
-  const [periods, setPeriods] = useState<SchedulePeriod[]>([]);
-  const [slots, setSlots] = useState<Record<string, ScheduleSlot[]>>({});
-  const [closures, setClosures] = useState<ScheduleClosure[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [expandedPeriods, setExpandedPeriods] = useState<Set<string>>(new Set());
 
   // Period modal
@@ -401,36 +401,15 @@ function HoursTab() {
   const [deletingSlot, setDeletingSlot] = useState<string | null>(null);
   const [deletingClosure, setDeletingClosure] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const [perList, closList] = await Promise.all([
-        api.getSchedulePeriods(),
-        api.getScheduleClosures(),
-      ]);
-      setPeriods(perList);
-      setClosures(closList.sort((a, b) => a.closureDate.localeCompare(b.closureDate)));
-
-      const slotMap: Record<string, ScheduleSlot[]> = {};
-      await Promise.all(
-        perList.map(async (p) => {
-          slotMap[p.id] = await api.getScheduleSlots(p.id);
-        })
-      );
-      setSlots(slotMap);
-
-      if (perList.length > 0) {
-        setExpandedPeriods(new Set(perList.map((p) => p.id)));
-      }
-    } catch {
-      setError(t('errors.generic'));
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    if (periods.length > 0 && expandedPeriods.size === 0) {
+      setExpandedPeriods(new Set(periods.map((p) => p.id)));
     }
-  }, [t]);
+  }, [periods, expandedPeriods.size]);
 
-  useEffect(() => deferFromEffect(() => { void load(); }), [load]);
+  const refreshScheduleAdmin = async () => {
+    await invalidateScheduleQueries(queryClient);
+  };
 
   // ── Period handlers ──────────────────────────────────────────────────────
 
@@ -463,8 +442,7 @@ function HoursTab() {
         notes: periodForm.notes || null,
       };
       if (periodModal.editing) {
-        const updated = await api.updateSchedulePeriod(periodModal.editing.id, payload);
-        setPeriods((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+        await api.updateSchedulePeriod(periodModal.editing.id, payload);
       } else {
         const created = await api.createSchedulePeriod({
           name: periodForm.name,
@@ -472,10 +450,9 @@ function HoursTab() {
           endDate: periodForm.endDate,
           notes: periodForm.notes || null,
         });
-        setPeriods((prev) => [...prev, created]);
-        setSlots((prev) => ({ ...prev, [created.id]: [] }));
         setExpandedPeriods((prev) => new Set([...prev, created.id]));
       }
+      await refreshScheduleAdmin();
       setPeriodModal({ open: false });
     } catch {
       setPeriodError(t('errors.generic'));
@@ -488,12 +465,7 @@ function HoursTab() {
     setDeletingPeriod(id);
     try {
       await api.deleteSchedulePeriod(id);
-      setPeriods((prev) => prev.filter((p) => p.id !== id));
-      setSlots((prev) => {
-        const next = { ...prev };
-        delete next[id];
-        return next;
-      });
+      await refreshScheduleAdmin();
     } catch {
       // silently ignore
     } finally {
@@ -514,11 +486,8 @@ function HoursTab() {
     setSavingSlot(true);
     setSlotError(null);
     try {
-      const created = await api.createScheduleSlot(slotModal.periodId, slotForm);
-      setSlots((prev) => ({
-        ...prev,
-        [slotModal.periodId!]: [...(prev[slotModal.periodId!] ?? []), created],
-      }));
+      await api.createScheduleSlot(slotModal.periodId, slotForm);
+      await refreshScheduleAdmin();
       setSlotModal({ open: false });
     } catch {
       setSlotError(t('errors.generic'));
@@ -527,14 +496,11 @@ function HoursTab() {
     }
   };
 
-  const deleteSlot = async (slotId: string, periodId: string) => {
+  const deleteSlot = async (slotId: string, _periodId: string) => {
     setDeletingSlot(slotId);
     try {
       await api.deleteScheduleSlot(slotId);
-      setSlots((prev) => ({
-        ...prev,
-        [periodId]: (prev[periodId] ?? []).filter((s) => s.id !== slotId),
-      }));
+      await refreshScheduleAdmin();
     } catch {
       // silently ignore
     } finally {
@@ -555,13 +521,11 @@ function HoursTab() {
     setSavingClosure(true);
     setClosureError(null);
     try {
-      const created = await api.createScheduleClosure({
+      await api.createScheduleClosure({
         closureDate: closureForm.closureDate,
         reason: (closureForm.reason as string) || null,
       });
-      setClosures((prev) =>
-        [...prev, created].sort((a, b) => a.closureDate.localeCompare(b.closureDate))
-      );
+      await refreshScheduleAdmin();
       setClosureModal(false);
     } catch {
       setClosureError(t('errors.generic'));
@@ -574,7 +538,7 @@ function HoursTab() {
     setDeletingClosure(id);
     try {
       await api.deleteScheduleClosure(id);
-      setClosures((prev) => prev.filter((c) => c.id !== id));
+      await refreshScheduleAdmin();
     } catch {
       // silently ignore
     } finally {

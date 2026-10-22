@@ -15,8 +15,8 @@ import { APP_PAGE_CLASS } from '@/utils/appPageLayout';
 import { useAuth } from '@/contexts/AuthContext';
 import { useSitesQuery } from '@/hooks/holds/useSitesQuery';
 import api from '@/services/api';
-import { canManageWeeding } from '@/types';
-import type { Collection, ItemWithdrawal } from '@/types';
+import { canManageWeeding, canViewWeeding } from '@/types';
+import type { Collection, ItemWithdrawal, WeedingCandidate } from '@/types';
 import { disposeBatchErrorMessage, getApiErrorMessage } from '@/utils/apiError';
 import WithdrawalDialog from '@/components/items/WithdrawalDialog';
 import { formChoiceControlClass, formChoiceLabelClass, formControlClass, formLabelClass } from '@/utils/formControl';
@@ -28,6 +28,7 @@ import {
   csvExportLanguage,
   emptyWithdrawalFilters,
   exportPeriodError,
+  toWeedingCandidateListParams,
   toWithdrawalListParams,
   withdrawalActorName,
   withdrawalAgentName,
@@ -56,8 +57,12 @@ export default function WeedingPage() {
   const { t, i18n } = useTranslation();
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const canDispose = canManageWeeding(user, api.getToken());
+  const token = api.getToken();
+  const canDispose = canManageWeeding(user, token);
+  const canSeeCandidates = canViewWeeding(user, token);
   const [filters, setFilters] = useState<WithdrawalListFilters>(emptyWithdrawalFilters);
+  const [candidatePage, setCandidatePage] = useState(1);
+  const [candidateWithdrawId, setCandidateWithdrawId] = useState<string | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
   const [confirmDispose, setConfirmDispose] = useState(false);
   const [disposeError, setDisposeError] = useState<string | null>(null);
@@ -70,9 +75,18 @@ export default function WeedingPage() {
   const [batchOpen, setBatchOpen] = useState(false);
 
   const params = useMemo(() => toWithdrawalListParams(filters), [filters]);
+  const candidateParams = useMemo(
+    () => toWeedingCandidateListParams(filters, candidatePage, filters.perPage),
+    [filters, candidatePage],
+  );
   const listQuery = useQuery({
     queryKey: ['item-withdrawals', params],
     queryFn: () => api.listItemWithdrawals(params),
+  });
+  const candidatesQuery = useQuery({
+    queryKey: ['weeding-candidates', candidateParams],
+    queryFn: () => api.listWeedingCandidates(candidateParams),
+    enabled: canSeeCandidates,
   });
   const sitesQuery = useSitesQuery();
   const collectionsQuery = useQuery({
@@ -87,6 +101,14 @@ export default function WeedingPage() {
   const patchFilters = (patch: Partial<WithdrawalListFilters>) => {
     setFilters((prev) => ({ ...prev, ...patch, page: patch.page ?? 1 }));
     setSelected([]);
+    if (patch.page === undefined) {
+      setCandidatePage(1);
+    }
+  };
+
+  const refreshWeedingLists = () => {
+    void queryClient.invalidateQueries({ queryKey: ['item-withdrawals'] });
+    void queryClient.invalidateQueries({ queryKey: ['weeding-candidates'] });
   };
 
   const exportMutation = useMutation({
@@ -138,10 +160,15 @@ export default function WeedingPage() {
       setConfirmDispose(false);
       setDisposeError(null);
       setSelected([]);
-      void queryClient.invalidateQueries({ queryKey: ['item-withdrawals'] });
+      refreshWeedingLists();
     },
     onError: (err) => setDisposeError(disposeBatchErrorMessage(err, t)),
   });
+
+  const candidates = candidatesQuery.data?.items ?? [];
+  const candidateTotal = candidatesQuery.data?.total ?? 0;
+  const candidatePerPage = candidatesQuery.data?.perPage || filters.perPage;
+  const candidateTotalPages = Math.max(1, Math.ceil(candidateTotal / candidatePerPage));
 
   const total = listQuery.data?.total ?? 0;
   const perPage = listQuery.data?.perPage || filters.perPage;
@@ -345,6 +372,7 @@ export default function WeedingPage() {
             onClick={() => {
               setFilters(emptyWithdrawalFilters());
               setSelected([]);
+              setCandidatePage(1);
               setCollectionSearch('');
               setExportError(null);
             }}
@@ -358,6 +386,61 @@ export default function WeedingPage() {
           </p>
         ) : null}
       </Card>
+
+      {canSeeCandidates ? (
+        <Card>
+          <CardHeader
+            title={t('weeding.candidatesListTitle')}
+            subtitle={t('weeding.candidatesListCount', { count: candidateTotal })}
+          />
+          {candidatesQuery.isLoading ? (
+            <div className="flex justify-center py-8">
+              <div className="h-8 w-8 border-2 border-amber-600 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : null}
+          {candidatesQuery.isError ? (
+            <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+              {getApiErrorMessage(candidatesQuery.error, t)}
+            </p>
+          ) : null}
+          {!candidatesQuery.isLoading && !candidatesQuery.isError && candidates.length === 0 ? (
+            <p className="text-sm text-gray-500 dark:text-gray-400">{t('weeding.candidatesEmpty')}</p>
+          ) : null}
+          <ul className="space-y-3">
+            {candidates.map((row) => (
+              <CandidateRow
+                key={row.itemId}
+                row={row}
+                language={i18n.language}
+                canManage={canDispose}
+                onWithdraw={() => setCandidateWithdrawId(row.itemId)}
+                onChanged={refreshWeedingLists}
+              />
+            ))}
+          </ul>
+          {candidateTotal > 0 ? (
+            <div className="mt-4 border-t border-gray-200 dark:border-gray-700 pt-4">
+              <Pagination
+                currentPage={candidatePage}
+                totalPages={candidateTotalPages}
+                onPageChange={setCandidatePage}
+              />
+            </div>
+          ) : null}
+          {candidateWithdrawId ? (
+            <WithdrawalDialog
+              open
+              mode="create"
+              itemIds={[candidateWithdrawId]}
+              onClose={() => setCandidateWithdrawId(null)}
+              onSuccess={() => {
+                setCandidateWithdrawId(null);
+                refreshWeedingLists();
+              }}
+            />
+          ) : null}
+        </Card>
+      ) : null}
 
       {canDispose ? (
         <Card>
@@ -429,7 +512,7 @@ export default function WeedingPage() {
               scanListRef.current = [];
               setScanList([]);
               setScanError(null);
-              void queryClient.invalidateQueries({ queryKey: ['item-withdrawals'] });
+              refreshWeedingLists();
             }}
           />
         </Card>
@@ -564,6 +647,89 @@ function Totals({
         </div>
       </Card>
     </div>
+  );
+}
+
+function CandidateRow({
+  row,
+  language,
+  canManage,
+  onWithdraw,
+  onChanged,
+}: {
+  row: WeedingCandidate;
+  language: string;
+  canManage: boolean;
+  onWithdraw: () => void;
+  onChanged: () => void;
+}) {
+  const { t } = useTranslation();
+  const [clearError, setClearError] = useState<string | null>(null);
+  const clearMutation = useMutation({
+    mutationFn: () => api.setItemWeeding(row.itemId, { status: 'onShelf' }),
+    onSuccess: () => {
+      setClearError(null);
+      onChanged();
+    },
+    onError: (err) => setClearError(getApiErrorMessage(err, t)),
+  });
+  const title = row.biblioTitle?.trim() || t('items.noTitle');
+  const detail = [row.callNumber?.trim(), row.siteName?.trim()].filter(Boolean).join(' · ');
+
+  return (
+    <li className="flex flex-col gap-2 rounded-lg border border-amber-200/80 bg-amber-50/40 p-3 dark:border-amber-900/50 dark:bg-amber-950/20 sm:flex-row sm:items-start sm:justify-between">
+      <div className="min-w-0 space-y-1">
+        <div className="flex flex-wrap items-center gap-2">
+          {row.biblioId ? (
+            <Link
+              to={`/biblios/${row.biblioId}`}
+              className="font-medium text-gray-900 hover:underline dark:text-white"
+            >
+              {title}
+            </Link>
+          ) : (
+            <span className="font-medium text-gray-900 dark:text-white">{title}</span>
+          )}
+          <Badge size="sm" variant="warning">
+            {t('weeding.status.candidate')}
+          </Badge>
+        </div>
+        <p className="text-sm text-gray-600 dark:text-gray-300">
+          {row.barcode?.trim() || '—'}
+          {detail ? ` · ${detail}` : ''}
+        </p>
+        {row.weedingReason?.trim() ? (
+          <p className="text-xs text-gray-600 dark:text-gray-400">
+            {t('weeding.reason')}: {row.weedingReason}
+          </p>
+        ) : null}
+        <p className="text-xs text-gray-500 dark:text-gray-500">
+          {t('weeding.candidateMarkedAt', { date: formatWhen(row.markedAt, language) })}
+        </p>
+        {clearError ? (
+          <p role="alert" className="text-xs text-red-600 dark:text-red-400">
+            {clearError}
+          </p>
+        ) : null}
+      </div>
+      {canManage ? (
+        <div className="flex shrink-0 flex-wrap gap-2 sm:flex-col sm:items-stretch">
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            disabled={clearMutation.isPending}
+            isLoading={clearMutation.isPending}
+            onClick={() => clearMutation.mutate()}
+          >
+            {t('weeding.actionOnShelf')}
+          </Button>
+          <Button type="button" size="sm" variant="danger" disabled={clearMutation.isPending} onClick={onWithdraw}>
+            {t('weeding.actionWithdrawn')}
+          </Button>
+        </div>
+      ) : null}
+    </li>
   );
 }
 

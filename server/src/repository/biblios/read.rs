@@ -21,7 +21,7 @@ impl Repository {
         let query = r#"
             SELECT id, media_type, isbn,
                    publication_date, lang, lang_orig, title,
-                   subject, dewey, audience_type, page_extent, format,
+                   subject, dewey, genre, audience_type, page_extent, format,
                    table_of_contents, accompanying_material,
                    abstract as abstract_, notes, keywords,
                    edition_id,

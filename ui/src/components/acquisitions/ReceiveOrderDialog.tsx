@@ -177,7 +177,7 @@ export default function ReceiveOrderDialog({
           <p className="text-sm text-amber-800 dark:text-amber-300">{t('acquisitions.receive.incompleteHint')}</p>
           {sitesQuery.isError ? (
             <p role="alert" className="text-sm text-red-600 dark:text-red-400">
-              {getApiErrorMessage(sitesQuery.error, t) || t('acquisitions.receive.sourcesLoadError')}
+              {getApiErrorMessage(sitesQuery.error, t) || t('settings.sites.errorLoad')}
             </p>
           ) : null}
           {receivable.length === 0 ? (
@@ -249,7 +249,7 @@ export default function ReceiveOrderDialog({
                         />
                         <div>
                           <label className={formLabelClass()} htmlFor={`src-${line.id}-${idx}`}>
-                            {t('acquisitions.receive.source')}
+                            {t('items.site')}
                           </label>
                           <select
                             id={`src-${line.id}-${idx}`}
@@ -257,7 +257,7 @@ export default function ReceiveOrderDialog({
                             value={item.siteId}
                             onChange={(e) => patchItem(line.id, idx, { siteId: e.target.value })}
                           >
-                            <option value="">{t('acquisitions.receive.sourceNone')}</option>
+                            <option value="">{t('items.selectSite')}</option>
                             {(sitesQuery.data ?? []).map((s) => (
                               <option key={s.id} value={s.id}>
                                 {s.name ?? s.key ?? s.id}

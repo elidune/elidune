@@ -119,6 +119,7 @@ pub trait AcquisitionsRepository: Send + Sync {
     async fn orders_cancel(&self, id: i64) -> AppResult<PurchaseOrder>;
     async fn orders_receive(&self, order_id: i64, received_by: i64, notes: Option<String>, lines: &[ReceiveOrderLine], created_items: &[(i64, Vec<i64>, Option<Decimal>)]) -> AppResult<Receipt>;
     async fn orders_set_line_biblio(&self, line_id: i64, biblio_id: i64) -> AppResult<()>;
+    async fn orders_items_missing_price_for_closure(&self, order_id: i64) -> AppResult<i64>;
     async fn receipt_line_results(&self, receipt_id: i64) -> AppResult<Vec<ReceiptLinePersist>>;
 
     async fn suggestions_list(&self, query: &PurchaseSuggestionQuery, proposed_by: Option<i64>) -> AppResult<(Vec<PurchaseSuggestion>, i64)>;
@@ -192,6 +193,9 @@ impl AcquisitionsRepository for Repository {
     }
     async fn orders_set_line_biblio(&self, line_id: i64, biblio_id: i64) -> AppResult<()> {
         Repository::orders_set_line_biblio(self, line_id, biblio_id).await
+    }
+    async fn orders_items_missing_price_for_closure(&self, order_id: i64) -> AppResult<i64> {
+        Repository::orders_items_missing_price_for_closure(self, order_id).await
     }
     async fn receipt_line_results(&self, receipt_id: i64) -> AppResult<Vec<ReceiptLinePersist>> {
         Repository::receipt_line_ids_for_receipt(self, receipt_id).await
@@ -823,6 +827,26 @@ impl Repository {
             .fetch_one(&self.pool)
             .await
             .map_err(Into::into)
+    }
+
+    pub async fn orders_items_missing_price_for_closure(&self, order_id: i64) -> AppResult<i64> {
+        let count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(DISTINCT i.id)
+            FROM items i
+            INNER JOIN receipt_items ri ON ri.item_id = i.id
+            INNER JOIN receipt_lines rl ON rl.id = ri.receipt_line_id
+            INNER JOIN purchase_order_lines pol ON pol.id = rl.purchase_order_line_id
+            WHERE pol.purchase_order_id = $1
+              AND i.archived_at IS NULL
+              AND i.price IS NULL
+              AND i.price_deferred = FALSE
+            "#,
+        )
+        .bind(order_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count)
     }
 
     pub async fn orders_set_line_biblio(&self, line_id: i64, biblio_id: i64) -> AppResult<()> {

@@ -11,6 +11,38 @@ import {
   readWeedingRightsFromJwt,
 } from '@/utils/jwtRights';
 
+/** Instance module flags from `GET /library-info` (`enabledFeatures`, camelCase). Missing = enabled. */
+export interface EnabledFeatures {
+  acquisitions: boolean;
+  purchaseSuggestions: boolean;
+  weeding: boolean;
+  transits: boolean;
+  deposits: boolean;
+  events: boolean;
+  inventory: boolean;
+  z3950: boolean;
+  importIso: boolean;
+  stats: boolean;
+  visitorCounts: boolean;
+}
+
+/** Admin `PUT /admin/config/features` body (snake_case on the wire, like reminders). */
+export interface FeaturesConfig {
+  overridable?: boolean;
+  profile?: string | null;
+  acquisitions: boolean;
+  purchase_suggestions: boolean;
+  weeding: boolean;
+  transits: boolean;
+  deposits: boolean;
+  events: boolean;
+  inventory: boolean;
+  z3950: boolean;
+  import_iso: boolean;
+  stats: boolean;
+  visitor_counts: boolean;
+}
+
 // Library info types
 export interface LibraryInfo {
   name?: string | null;
@@ -30,6 +62,8 @@ export interface LibraryInfo {
    */
   language?: string | null;
   updatedAt?: string | null;
+  /** Optional modules for this instance. Absent keys are treated as enabled. */
+  enabledFeatures?: Partial<EnabledFeatures> | null;
 }
 
 export interface UpdateLibraryInfoRequest {
@@ -644,6 +678,34 @@ export interface WithdrawalList {
   totalsByDestination: WithdrawalDestinationTotal[];
 }
 
+/** One copy in `candidate` weeding status (`GET /weeding-candidates`). */
+export interface WeedingCandidate {
+  itemId: string;
+  biblioId: string | null;
+  barcode: string | null;
+  callNumber: string | null;
+  biblioTitle: string | null;
+  siteId: string | null;
+  siteName: string | null;
+  weedingReason: string | null;
+  markedAt: string;
+}
+
+export interface WeedingCandidateList {
+  items: WeedingCandidate[];
+  total: number;
+  page: number;
+  perPage: number;
+}
+
+export interface WeedingCandidateListParams {
+  siteId?: string;
+  collectionId?: string;
+  callNumber?: string;
+  page?: number;
+  perPage?: number;
+}
+
 /** Query for `GET /item-withdrawals` and the CSV export. */
 export interface WithdrawalListParams {
   from?: string;
@@ -1026,7 +1088,8 @@ export interface Biblio {
   callNumber?: string | null;
   price?: string | null;
   title?: string | null;
-  genre?: number | null;
+  /** Genre enum camelCase (e.g. `litteratureFiction`). */
+  genre?: string | null;
   subject?: string | null;
   dewey?: string | null;
   audienceType?: string | null;
@@ -1075,6 +1138,8 @@ export interface BiblioStaffView {
   title: string | null;
   subject: string | null;
   dewey: string | null;
+  /** Staff-only genre for cataloguing / call-number suggestions. */
+  genre?: string | null;
   audienceType: string | null;
   lang: string | null;
   langOrig: string | null;
@@ -1856,6 +1921,17 @@ export interface Z3950Server {
 }
 
 // Public types (audience types for users)
+/** Row from GET /genres (DB catalog). */
+export interface GenreCatalogEntry {
+  /** Enum camelCase (e.g. `litteratureFiction`). */
+  code: string;
+  shelfCode?: string | null;
+  /** Language code → label (`fr` / `en` / `de` / `es`). */
+  labels: Record<string, string>;
+  synonyms: string[];
+  sortOrder: number;
+}
+
 export interface PublicType {
   id: string;
   name: string;
@@ -2341,7 +2417,14 @@ export type EmailTemplateDetail = EmailTemplateListItem & {
 };
 
 // Admin dynamic config (GET/PUT/DELETE /admin/config)
-export type AdminConfigSectionKey = 'email' | 'logging' | 'reminders' | 'audit' | 'holds';
+export type AdminConfigSectionKey =
+  | 'email'
+  | 'logging'
+  | 'reminders'
+  | 'audit'
+  | 'holds'
+  | 'circulation'
+  | 'features';
 
 export type LogRotation = 'daily' | 'weekly' | 'monthly' | 'never';
 

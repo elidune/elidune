@@ -1,12 +1,12 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Shield, ArrowLeft, Mail, Phone, MapPin, Building2 } from 'lucide-react';
 import { Card } from '@/components/common';
-import api from '@/services/api';
 import type { LibraryInfo } from '@/types';
 import { APP_PAGE_CLASS } from '@/utils/appPageLayout';
 import { formatCountryName } from '@/utils/countryTimezone';
+import { useLibraryInfoQuery } from '@/hooks/common/useLibraryInfoQuery';
+import { navigateBack } from '@/utils/navigateBack';
 
 function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -19,15 +19,8 @@ function SectionCard({ title, children }: { title: string; children: React.React
 
 export default function PrivacyPage() {
   const { t, i18n } = useTranslation();
-  const [libraryInfo, setLibraryInfo] = useState<LibraryInfo | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    api.getLibraryInfo()
-      .then(setLibraryInfo)
-      .catch(() => setLibraryInfo(null))
-      .finally(() => setLoading(false));
-  }, []);
+  const navigate = useNavigate();
+  const { data: libraryInfo, isLoading: loading } = useLibraryInfoQuery();
 
   const formatAddress = (info: LibraryInfo) => {
     const parts = [
@@ -49,15 +42,15 @@ export default function PrivacyPage() {
 
   return (
     <div className={APP_PAGE_CLASS}>
-      {/* Header */}
       <div>
-        <Link
-          to="/"
+        <button
+          type="button"
+          onClick={() => navigateBack(navigate, '/')}
           className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 mb-4"
         >
           <ArrowLeft className="h-4 w-4" />
           {t('common.back')}
-        </Link>
+        </button>
         <div className="flex items-center gap-3">
           <div className="p-2 bg-indigo-100 dark:bg-indigo-900/40 rounded-lg">
             <Shield className="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
@@ -78,7 +71,6 @@ export default function PrivacyPage() {
 
       <Card>
         <div className="p-6 space-y-6">
-          {/* Data controller */}
           <SectionCard title={t('privacy.dataController.title')}>
             <p>{t('privacy.dataController.description')}</p>
             {loading ? (
@@ -136,7 +128,6 @@ export default function PrivacyPage() {
 
           <div className="border-t border-gray-100 dark:border-gray-800" />
 
-          {/* Data collected */}
           <SectionCard title={t('privacy.dataCollected.title')}>
             <p>{t('privacy.dataCollected.description')}</p>
             <p className="mt-1">{t('privacy.dataCollected.items')}</p>
@@ -144,7 +135,6 @@ export default function PrivacyPage() {
 
           <div className="border-t border-gray-100 dark:border-gray-800" />
 
-          {/* Purpose */}
           <SectionCard title={t('privacy.purpose.title')}>
             <p>{t('privacy.purpose.description')}</p>
             <p className="mt-1">{t('privacy.purpose.items')}</p>
@@ -152,21 +142,18 @@ export default function PrivacyPage() {
 
           <div className="border-t border-gray-100 dark:border-gray-800" />
 
-          {/* Legal basis */}
           <SectionCard title={t('privacy.legalBasis.title')}>
             <p>{t('privacy.legalBasis.description')}</p>
           </SectionCard>
 
           <div className="border-t border-gray-100 dark:border-gray-800" />
 
-          {/* Retention */}
           <SectionCard title={t('privacy.retention.title')}>
             <p>{t('privacy.retention.description')}</p>
           </SectionCard>
 
           <div className="border-t border-gray-100 dark:border-gray-800" />
 
-          {/* Rights */}
           <SectionCard title={t('privacy.rights.title')}>
             <p>{t('privacy.rights.description')}</p>
             <p className="mt-1">{t('privacy.rights.items')}</p>
@@ -174,7 +161,6 @@ export default function PrivacyPage() {
 
           <div className="border-t border-gray-100 dark:border-gray-800" />
 
-          {/* Contact to exercise rights */}
           <SectionCard title={t('privacy.contact.title')}>
             <p>{t('privacy.contact.description')}</p>
             {!loading && libraryInfo?.email && (
@@ -190,14 +176,12 @@ export default function PrivacyPage() {
 
           <div className="border-t border-gray-100 dark:border-gray-800" />
 
-          {/* Security */}
           <SectionCard title={t('privacy.security.title')}>
             <p>{t('privacy.security.description')}</p>
           </SectionCard>
 
           <div className="border-t border-gray-100 dark:border-gray-800" />
 
-          {/* No third party */}
           <SectionCard title={t('privacy.noThirdParty.title')}>
             <p>{t('privacy.noThirdParty.description')}</p>
           </SectionCard>

@@ -1,13 +1,18 @@
-import { useState } from 'react';
-import { RotateCcw } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { validateCallNumber } from '@/utils/callNumber';
+import {
+  type CallNumberOption,
+  validateCallNumber,
+} from '@/utils/callNumber';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
+
+const CUSTOM_VALUE = '__custom__';
 
 interface CallNumberFieldProps {
   value: string;
   onChange: (value: string) => void;
-  suggestedValue?: string | null;
+  /** Generated formats (Dewey / genre / legacy). */
+  suggestions?: CallNumberOption[];
   label?: string;
   placeholder?: string;
   excludeSpecimenId?: string;
@@ -15,79 +20,119 @@ interface CallNumberFieldProps {
   inputId?: string;
 }
 
+function optionLabel(
+  t: (key: string, opts?: Record<string, string>) => string,
+  opt: CallNumberOption,
+): string {
+  const key =
+    opt.kind === 'dewey'
+      ? 'items.callNumberOptionDewey'
+      : opt.kind === 'genre'
+        ? 'items.callNumberOptionGenre'
+        : 'items.callNumberOptionLegacy';
+  return t(key, { value: opt.value });
+}
+
 export default function CallNumberField({
   value,
   onChange,
-  suggestedValue,
+  suggestions = [],
   label,
   placeholder,
   disabled,
   inputId,
 }: CallNumberFieldProps) {
   const { t } = useTranslation();
-  const [isManual, setIsManual] = useState(false);
+  const [forceCustom, setForceCustom] = useState(false);
+  /** Once the user picks an option or types, stop following suggestion updates. */
+  const lockedByUser = useRef(false);
+  const initialized = useRef(false);
 
-  const isAutoFillMode = !isManual && suggestedValue != null && suggestedValue !== '';
-  const displayValue = value;
+  const matchingSuggestion = useMemo(
+    () => suggestions.find((s) => s.value === value) ?? null,
+    [suggestions, value],
+  );
+
+  const isCustom = forceCustom || !matchingSuggestion;
+  const selectValue = isCustom ? CUSTOM_VALUE : matchingSuggestion!.value;
+
+  // Keep the preferred suggestion (first in list) while the field is still automatic.
+  useEffect(() => {
+    if (disabled || suggestions.length === 0) return;
+
+    if (!initialized.current) {
+      initialized.current = true;
+      // Preserve an existing value (edit copy / restored draft).
+      if (value.trim() !== '') {
+        lockedByUser.current = true;
+        return;
+      }
+    }
+
+    if (lockedByUser.current || forceCustom) return;
+
+    const preferred = suggestions[0]!.value;
+    if (value === preferred) return;
+    setForceCustom(false);
+    onChange(preferred);
+  }, [suggestions, value, disabled, onChange, forceCustom]);
 
   const validationError =
-    displayValue !== '' && !validateCallNumber(displayValue)
-      ? t('items.callNumberInvalid')
-      : undefined;
+    value !== '' && !validateCallNumber(value) ? t('items.callNumberInvalid') : undefined;
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    lockedByUser.current = true;
     const next = e.target.value;
+    if (next === CUSTOM_VALUE) {
+      setForceCustom(true);
+      return;
+    }
+    setForceCustom(false);
     onChange(next);
-    if (suggestedValue != null && next !== suggestedValue) {
-      setIsManual(true);
-    }
   };
 
-  const handleResetToSuggestion = () => {
-    if (suggestedValue != null) {
-      onChange(suggestedValue);
-      setIsManual(false);
-    }
+  const handleCustomChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    lockedByUser.current = true;
+    setForceCustom(true);
+    onChange(e.target.value);
   };
 
-  const showAutofillButton =
-    suggestedValue != null && suggestedValue !== '' && (value === '' || isManual) && !disabled;
+  const selectId = inputId ? `${inputId}-select` : undefined;
+  const customId = inputId ?? undefined;
 
   return (
-    <div className="w-full">
-      {label && (
-        <label className={formLabelClass()}>
-          {label}
-        </label>
-      )}
-      <div className="relative">
+    <div className="w-full space-y-2">
+      {label && <label className={formLabelClass()}>{label}</label>}
+      <select
+        id={selectId}
+        value={selectValue}
+        onChange={handleSelectChange}
+        disabled={disabled}
+        className={formControlClass({ className: 'w-full' })}
+        aria-label={label ?? t('items.callNumber')}
+      >
+        {suggestions.map((opt) => (
+          <option key={`${opt.kind}:${opt.value}`} value={opt.value}>
+            {optionLabel(t, opt)}
+          </option>
+        ))}
+        <option value={CUSTOM_VALUE}>{t('items.callNumberCustom')}</option>
+      </select>
+      {isCustom && (
         <input
-          id={inputId}
-          value={displayValue}
-          onChange={handleChange}
-          onBlur={() => {}}
+          id={customId}
+          value={value}
+          onChange={handleCustomChange}
           placeholder={placeholder}
           disabled={disabled}
           className={formControlClass({
             error: !!validationError,
-            className: `w-full flex-1 pr-10 ${
-              isAutoFillMode ? 'bg-sky-50 dark:bg-sky-900/20 border-sky-200 dark:border-sky-700' : ''
-            }`,
+            className: 'w-full',
           })}
         />
-        {showAutofillButton && (
-          <button
-            type="button"
-            onClick={handleResetToSuggestion}
-            className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-gray-500 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-gray-100 dark:hover:bg-gray-800"
-            title={value === '' ? t('items.fillCallNumber') : t('items.resetCallNumber')}
-          >
-            <RotateCcw className="h-4 w-4" />
-          </button>
-        )}
-      </div>
+      )}
       {validationError && (
-        <p className="mt-1 text-sm text-red-600 dark:text-red-400">{validationError}</p>
+        <p className="text-sm text-red-600 dark:text-red-400">{validationError}</p>
       )}
     </div>
   );

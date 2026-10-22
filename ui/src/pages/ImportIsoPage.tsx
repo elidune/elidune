@@ -683,6 +683,11 @@ export function MarcImportWorkflow({
     setDepositMarcSiteId(depositContext.siteId);
   }, [depositContext?.batchId, depositContext?.siteId]);
 
+  useEffect(() => {
+    if (!depositContext || sites.length <= 1) return;
+    setDepositMarcSiteId((prev) => prev ?? depositContext.siteId);
+  }, [depositContext, sites.length, depositContext?.siteId]);
+
   const targetVariant = useMemo((): MarcImportTargetVariant => {
     if (depositContext) {
       return {
@@ -1027,14 +1032,26 @@ export function MarcImportWorkflow({
     try {
       setSitesError('');
       const data = await api.getSites(false);
-      setSites(data.map((s) => ({ ...s, id: String(s.id) })));
-      // Do not preselect any source; user must choose for import
+      const normalized = data.map((s) => ({ ...s, id: String(s.id) }));
+      setSites(normalized);
+      if (normalized.length === 1) {
+        const onlyId = normalized[0].id;
+        setSelectedSiteId((prev) => prev ?? onlyId);
+        setDepositMarcSiteId((prev) => prev ?? onlyId);
+      }
     } catch {
       setSitesError(t('importMarc.sitesError'));
     }
   }, [t]);
 
   useEffect(() => deferFromEffect(() => { void fetchSources(); }), [fetchSources]);
+
+  useEffect(() => {
+    if (sites.length !== 1) return;
+    const onlyId = sites[0].id;
+    setSelectedSiteId((prev) => prev ?? onlyId);
+    setDepositMarcSiteId((prev) => prev ?? onlyId);
+  }, [sites]);
 
   // Restore any in-progress batch import task from localStorage
   useEffect(() => {
@@ -1137,8 +1154,10 @@ export function MarcImportWorkflow({
     setAddSourceLoading(true);
     try {
       const created = await api.createSite({ name });
-      setSites((prev) => [...prev, created]);
-      setSelectedSiteId(String(created.id));
+      const normalized = { ...created, id: String(created.id) };
+      setSites((prev) => [...prev, normalized]);
+      setSelectedSiteId(normalized.id);
+      setDepositMarcSiteId(normalized.id);
       setNewSourceName('');
       setShowAddSource(false);
     } catch {
@@ -2498,7 +2517,7 @@ export function MarcImportWorkflow({
                                                 cote
                                               </th>
                                               <th className="py-2 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                                                source
+                                                {t('importMarc.site')}
                                               </th>
                                             </tr>
                                           </thead>

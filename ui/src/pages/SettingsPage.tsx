@@ -1,15 +1,21 @@
 import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { invalidateSitesQueries, useSitesQuery } from '@/hooks/holds/useSitesQuery';
+import { PUBLIC_TYPES_QUERY_KEY, usePublicTypesQuery } from '@/hooks/usePublicTypesQuery';
+import { LOAN_SETTINGS_QUERY_KEY, useLoanSettingsQuery } from '@/hooks/settings/useLoanSettingsQuery';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router-dom';
-import { Save, Plus, Trash2, Server, Archive, Pencil, Merge, Package, Check, X, AlertTriangle, Users, ChevronDown, BookOpen, Cog, ScrollText, Shield, Mail, Library } from 'lucide-react';
+import { Save, Plus, Trash2, Server, Archive, Pencil, Merge, Package, Check, X, AlertTriangle, Users, ChevronDown, BookOpen, Cog, ScrollText, Shield, Mail, Library, Puzzle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useLibrary } from '@/contexts/LibraryContext';
 import FinePolicySettings from '@/components/settings/FinePolicySettings';
 import HoldsPolicySettings from '@/components/settings/HoldsPolicySettings';
+import ModulesSettings from '@/components/settings/ModulesSettings';
 import OverdueRemindersSettings from '@/components/settings/OverdueRemindersSettings';
+import { isFeatureEnabled } from '@/utils/featureAccess';
 import { Card, CardHeader, Button, Input, Badge, ConfirmDialog, SectionTabBar } from '@/components/common';
 import api from '@/services/api';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
-import { deferFromEffect } from '@/utils/deferFromEffect';
 import { formControlClass, formLabelClass, formChoiceLabelClass, formChoiceControlClass } from '@/utils/formControl';
 import {
   audienceUnpaidThresholdForCreate,
@@ -117,9 +123,13 @@ function globalRenewInheritLabel(
 // ─── Source Editor Component ───────────────────────────────────────────────────
 function SourceEditor() {
   const { t } = useTranslation();
-  const [sources, setSources] = useState<Site[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [showArchived, setShowArchived] = useState(false);
+  const {
+    data: sources = [],
+    isLoading,
+    refetch: refetchSources,
+  } = useSitesQuery(showArchived);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
@@ -138,20 +148,6 @@ function SourceEditor() {
   const clearMessages = () => { setError(null); setSuccessMsg(null); };
   const showSuccess = (msg: string) => { setSuccessMsg(msg); setTimeout(() => setSuccessMsg(null), 3000); };
 
-  const fetchSources = useCallback(async () => {
-    try {
-      const data = await api.getSites(showArchived);
-      setSources(data);
-      setError(null);
-    } catch {
-      setError(t('settings.sites.errorLoad'));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [showArchived, t]);
-
-  useEffect(() => deferFromEffect(() => { void fetchSources(); }), [fetchSources]);
-
   const handleRenameStart = (source: Site) => {
     clearMessages();
     setRenamingId(source.id);
@@ -164,7 +160,8 @@ function SourceEditor() {
       await api.renameSite(id, renameValue.trim());
       setRenamingId(null);
       showSuccess(t('settings.sites.renameSuccess'));
-      fetchSources();
+      void refetchSources();
+      void invalidateSitesQueries(queryClient);
     } catch {
       setError(t('settings.sites.errorRename'));
     }
@@ -183,7 +180,8 @@ function SourceEditor() {
       }
       await api.updateSite(source.id, { default: newDefaultValue });
       showSuccess(t('settings.sites.defaultUpdated'));
-      fetchSources();
+      void refetchSources();
+      void invalidateSitesQueries(queryClient);
     } catch {
       setError(t('settings.sites.errorUpdateDefault'));
     }
@@ -196,7 +194,8 @@ function SourceEditor() {
     try {
       await api.archiveSite(source.id);
       showSuccess(t('settings.sites.archiveSuccess'));
-      fetchSources();
+      void refetchSources();
+      void invalidateSitesQueries(queryClient);
     } catch (err: unknown) {
       const axiosErr = err as { response?: { status?: number; data?: { message?: string } } };
       if (axiosErr.response?.status === 422) {
@@ -231,7 +230,8 @@ function SourceEditor() {
       setSelectedIds(new Set());
       setMergeMode(false);
       setShowMergeDialog(false);
-      fetchSources();
+      void refetchSources();
+      void invalidateSitesQueries(queryClient);
     } catch {
       setError(t('settings.sites.errorMerge'));
     } finally {
@@ -533,12 +533,13 @@ function SourceEditor() {
 // ─── Public Types Editor ───────────────────────────────────────────────────────
 function PublicTypesEditor() {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const { data: finePolicy } = useFinePolicyQuery();
   const { data: remindersConfig } = useRemindersConfigQuery();
   const globalFinesEnabled = remindersConfig ? remindersConfig.config.accrueFines : true;
   const { data: holdsPolicy } = useHoldsPolicyQuery();
-  const [publicTypes, setPublicTypes] = useState<PublicType[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { data: publicTypes = [], isLoading, refetch: refetchPublicTypes } = usePublicTypesQuery();
+  const { data: globalLoanSettings = [] } = useLoanSettingsQuery();
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -546,7 +547,6 @@ function PublicTypesEditor() {
   const [detailsTab, setDetailsTab] = useState<'general' | 'overrides'>('general');
   const [loanOverrides, setLoanOverrides] = useState<Record<string, PublicTypeLoanSettings[]>>({});
   const [publicTypeToDelete, setPublicTypeToDelete] = useState<PublicType | null>(null);
-  const [globalLoanSettings, setGlobalLoanSettings] = useState<LoanSettings[]>([]);
 
   const clearMessages = () => {
     setError(null);
@@ -556,30 +556,6 @@ function PublicTypesEditor() {
     setSuccessMsg(msg);
     setTimeout(() => setSuccessMsg(null), 3000);
   };
-
-  const fetchPublicTypes = useCallback(async () => {
-    try {
-      const data = await api.getPublicTypes();
-      setPublicTypes(data);
-      setError(null);
-    } catch {
-      setError(t('settings.publicTypes.errorLoad'));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [t]);
-
-  useEffect(() => deferFromEffect(() => { void fetchPublicTypes(); }), [fetchPublicTypes]);
-
-  useEffect(() => {
-    let cancelled = false;
-    void api.getLoanSettings().then((r) => {
-      if (!cancelled) setGlobalLoanSettings(r.loanSettings ?? []);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const fetchOverrides = useCallback(async (id: string) => {
     try {
@@ -604,7 +580,8 @@ function PublicTypesEditor() {
       await api.createPublicType(data);
       showSuccess(t('settings.publicTypes.createSuccess'));
       setShowCreateModal(false);
-      fetchPublicTypes();
+      void refetchPublicTypes();
+      void queryClient.invalidateQueries({ queryKey: PUBLIC_TYPES_QUERY_KEY });
     } catch (err: unknown) {
       setError(getApiErrorMessage(err, t));
     }
@@ -614,7 +591,8 @@ function PublicTypesEditor() {
     try {
       await api.updatePublicType(id, data);
       showSuccess(t('settings.publicTypes.updateSuccess'));
-      fetchPublicTypes();
+      void refetchPublicTypes();
+      void queryClient.invalidateQueries({ queryKey: PUBLIC_TYPES_QUERY_KEY });
     } catch (err: unknown) {
       setError(getApiErrorMessage(err, t));
     }
@@ -626,7 +604,8 @@ function PublicTypesEditor() {
       await api.deletePublicType(pt.id);
       showSuccess(t('settings.publicTypes.deleteSuccess'));
       setExpandedId((prev) => (prev === pt.id ? null : prev));
-      fetchPublicTypes();
+      void refetchPublicTypes();
+      void queryClient.invalidateQueries({ queryKey: PUBLIC_TYPES_QUERY_KEY });
     } catch (err: unknown) {
       if (getApiErrorCode(err) === 'business_rule_violation') {
         setError(t('settings.publicTypes.deleteError'));
@@ -1706,7 +1685,8 @@ type SettingsTab =
   | 'publicTypes'
   | 'accountTypes'
   | 'emailTemplates'
-  | 'z3950';
+  | 'z3950'
+  | 'modules';
 
 const SETTINGS_TAB_IDS: SettingsTab[] = [
   'library',
@@ -1716,6 +1696,7 @@ const SETTINGS_TAB_IDS: SettingsTab[] = [
   'emailTemplates',
   'sites',
   'z3950',
+  'modules',
   'server',
   'audit',
 ];
@@ -1724,8 +1705,11 @@ const SETTINGS_TAB_IDS: SettingsTab[] = [
 export default function SettingsPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const { libraryInfo } = useLibrary();
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const canEditAllSettings = canWriteSettings(user, api.getToken());
+  const z3950Enabled = isFeatureEnabled(libraryInfo?.enabledFeatures, 'z3950');
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('library');
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -1746,7 +1730,7 @@ export default function SettingsPage() {
   };
 
   const tabParam = searchParams.get('tab');
-  const nextSettingsTab: SettingsTab | null =
+  let nextSettingsTab: SettingsTab | null =
     tabParam === 'maintenance'
       ? 'server'
       : tabParam && SETTINGS_TAB_IDS.includes(tabParam as SettingsTab)
@@ -1754,6 +1738,9 @@ export default function SettingsPage() {
         : !canEditAllSettings || !tabParam
           ? 'library'
           : null;
+  if (nextSettingsTab === 'z3950' && !z3950Enabled) {
+    nextSettingsTab = 'library';
+  }
   if (nextSettingsTab && nextSettingsTab !== activeTab) {
     setActiveTab(nextSettingsTab);
   }
@@ -1777,39 +1764,39 @@ export default function SettingsPage() {
     setIsLoading(false);
   }
 
+  const loanSettingsQuery = useLoanSettingsQuery(canEditAllSettings);
+  const z3950ServersQuery = useQuery({
+    queryKey: ['z3950-servers'],
+    queryFn: () => api.getZ3950Servers(),
+    enabled: canEditAllSettings,
+  });
+
   useEffect(() => {
     if (!canEditAllSettings) {
       return;
     }
-    const fetchSettings = async () => {
-      try {
-        const [loanResult, z3950Result] = await Promise.allSettled([
-          api.getLoanSettings(),
-          api.getZ3950Servers(),
-        ]);
-
-        if (loanResult.status === 'rejected') {
-          console.error('Error fetching loan settings:', loanResult.reason);
-        }
-        if (z3950Result.status === 'rejected') {
-          console.error('Error fetching Z39.50 servers:', z3950Result.reason);
-        }
-
-        const loanSettings =
-          loanResult.status === 'fulfilled' ? loanResult.value.loanSettings ?? [] : [];
-        const z3950Servers =
-          z3950Result.status === 'fulfilled' ? z3950Result.value ?? [] : [];
-
-        setSettings({ loanSettings, z3950Servers });
-      } catch (error) {
-        console.error('Error fetching settings:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    return deferFromEffect(() => { void fetchSettings(); });
-  }, [canEditAllSettings]);
+    if (loanSettingsQuery.isError) {
+      console.error('Error fetching loan settings:', loanSettingsQuery.error);
+    }
+    if (z3950ServersQuery.isError) {
+      console.error('Error fetching Z39.50 servers:', z3950ServersQuery.error);
+    }
+    if (loanSettingsQuery.data !== undefined && z3950ServersQuery.data !== undefined) {
+      setSettings({
+        loanSettings: loanSettingsQuery.data,
+        z3950Servers: z3950ServersQuery.data,
+      });
+      setIsLoading(false);
+    }
+  }, [
+    canEditAllSettings,
+    loanSettingsQuery.data,
+    loanSettingsQuery.isError,
+    loanSettingsQuery.error,
+    z3950ServersQuery.data,
+    z3950ServersQuery.isError,
+    z3950ServersQuery.error,
+  ]);
 
   const handleSave = async () => {
     if (!settings) return;
@@ -1820,6 +1807,7 @@ export default function SettingsPage() {
         setSettings((prev) =>
           prev ? { ...prev, loanSettings: data.loanSettings ?? prev.loanSettings ?? [] } : prev
         );
+        queryClient.setQueryData(LOAN_SETTINGS_QUERY_KEY, data);
       } else if (activeTab === 'z3950') {
         const z3950Servers = await api.updateZ3950Servers(settings.z3950Servers ?? []);
         setSettings((prev) => (prev ? { ...prev, z3950Servers } : prev));
@@ -1921,11 +1909,14 @@ export default function SettingsPage() {
     { id: 'emailTemplates', label: t('settings.emailTemplates.title'), icon: Mail },
     { id: 'sites', label: t('settings.sites.title'), icon: Package },
     { id: 'z3950', label: t('settings.z3950Servers'), icon: Server },
+    { id: 'modules', label: t('settings.modules.title'), icon: Puzzle },
     { id: 'server', label: t('settings.server.title'), icon: Cog },
     { id: 'audit', label: t('settings.audit.title'), icon: ScrollText },
   ];
 
-  const tabs = canEditAllSettings ? allTabs : allTabs.filter((tab) => tab.id === 'library');
+  const tabs = (canEditAllSettings ? allTabs : allTabs.filter((tab) => tab.id === 'library')).filter(
+    (tab) => tab.id !== 'z3950' || z3950Enabled,
+  );
 
   return (
     <div className="space-y-6 min-w-0">
@@ -1945,7 +1936,6 @@ export default function SettingsPage() {
         ariaLabel={t('settings.title')}
         activeTab={activeTab}
         onSelectTab={selectTab}
-        scrollable
         tabs={tabs.map((tab) => ({ id: tab.id, label: tab.label, icon: tab.icon }))}
       />
 
@@ -1960,6 +1950,8 @@ export default function SettingsPage() {
           </div>
         </Card>
       )}
+
+      {activeTab === 'modules' && canEditAllSettings && <ModulesSettings />}
 
       {activeTab === 'loans' && <HoldsPolicySettings />}
       {activeTab === 'loans' && <OverdueRemindersSettings />}

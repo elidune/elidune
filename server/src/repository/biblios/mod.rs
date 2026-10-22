@@ -109,6 +109,7 @@ pub trait BibliosRepository: Send + Sync {
     async fn item_withdrawals_get(&self, id: i64) -> AppResult<ItemWithdrawal>;
     async fn item_withdrawals_active_for_item(&self, item_id: i64) -> AppResult<ItemWithdrawal>;
     async fn item_withdrawals_export_rows(&self, query: &WithdrawalQuery) -> AppResult<Vec<WithdrawalCsvSource>>;
+    async fn weeding_candidates_list(&self, query: &crate::models::dto::weeding::WeedingCandidateQuery) -> AppResult<crate::models::dto::weeding::WeedingCandidateList>;
     async fn user_preferred_language(&self, user_id: i64) -> AppResult<Option<String>>;
     async fn library_zone(&self) -> AppResult<chrono_tz::Tz>;
 }
@@ -246,6 +247,12 @@ impl BibliosRepository for Repository {
     }
     async fn item_withdrawals_export_rows(&self, query: &WithdrawalQuery) -> AppResult<Vec<WithdrawalCsvSource>> {
         Repository::item_withdrawals_export_rows(self, query).await
+    }
+    async fn weeding_candidates_list(
+        &self,
+        query: &crate::models::dto::weeding::WeedingCandidateQuery,
+    ) -> AppResult<crate::models::dto::weeding::WeedingCandidateList> {
+        Repository::weeding_candidates_list(self, query).await
     }
     async fn user_preferred_language(&self, user_id: i64) -> AppResult<Option<String>> {
         Repository::user_preferred_language(self, user_id).await

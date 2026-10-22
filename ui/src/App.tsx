@@ -27,6 +27,7 @@ import {
   WeedingPage,
   WithdrawalDetailPage,
   UsersPage,
+  UserCreatePage,
   MyLoansPage,
   MyHoldsPage,
   MyPurchaseSuggestionsPage,
@@ -36,7 +37,6 @@ import {
   TransitsPage,
   Z3950SearchPage,
   ProfilePage,
-  ImportIsoPage,
   DepositsPage,
   DepositsLendersRedirect,
   DepositBatchDetailPage,
@@ -48,9 +48,10 @@ import {
   AcquisitionsPage,
   AcquisitionsOrderDetailPage,
 } from '@/pages';
-import type { User } from '@/types';
 import api from '@/services/api';
-import { readerRecordFallback, staffAccess } from '@/utils/staffAccess';
+import { useLibrary } from '@/contexts/LibraryContext';
+import { effectiveStaffAccess, isFeatureEnabled, type FeatureKey } from '@/utils/featureAccess';
+import { readerRecordFallback, type StaffAccess } from '@/utils/staffAccess';
 import { FirstSetupGate } from '@/components/first-setup/FirstSetupGate';
 
 const UserDetailPage = lazy(() => import('@/pages/UserDetailPage'));
@@ -103,30 +104,48 @@ function RootPage() {
   return <LoginPage />;
 }
 
+function useAppAccess() {
+  const { user } = useAuth();
+  const { libraryInfo } = useLibrary();
+  return effectiveStaffAccess(user, api.getToken(), libraryInfo?.enabledFeatures);
+}
+
 function RightsRoute({
   allow,
   fallback = '/home',
   children,
 }: {
-  allow: (user: User | null, token: string | null) => boolean;
+  allow: (access: StaffAccess) => boolean;
   fallback?: string;
   children: React.ReactNode;
 }) {
-  const { user } = useAuth();
-  if (!allow(user, api.getToken())) {
+  const access = useAppAccess();
+  if (!allow(access)) {
     return <Navigate to={fallback} replace />;
   }
   return <>{children}</>;
 }
 
-function accessOf(user: User | null, token: string | null) {
-  return staffAccess(user, token);
+/** Redirect when an instance module is disabled (same UI for everyone). */
+function FeatureRoute({
+  feature,
+  fallback = '/home',
+  children,
+}: {
+  feature: FeatureKey;
+  fallback?: string;
+  children: React.ReactNode;
+}) {
+  const { libraryInfo } = useLibrary();
+  if (!isFeatureEnabled(libraryInfo?.enabledFeatures, feature)) {
+    return <Navigate to={fallback} replace />;
+  }
+  return <>{children}</>;
 }
 
 /** Reader records need users read. A desk agent is sent back to circulation. */
 function UsersRecordRoute({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
-  const access = accessOf(user, api.getToken());
+  const access = useAppAccess();
   if (!access.usersRead) {
     return <Navigate to={readerRecordFallback(access)} replace />;
   }
@@ -136,9 +155,14 @@ function UsersRecordRoute({ children }: { children: React.ReactNode }) {
 /** Shareable `/events`: guests get public chrome; staff EventsPage stays at `/events/manage`. */
 function EventsEntryPage() {
   const { isAuthenticated, isLoading } = useAuth();
+  const { libraryInfo } = useLibrary();
 
   if (isLoading) {
     return <FullPageSpinner />;
+  }
+
+  if (!isFeatureEnabled(libraryInfo?.enabledFeatures, 'events')) {
+    return <Navigate to={isAuthenticated ? '/home' : '/'} replace />;
   }
 
   if (isAuthenticated) {
@@ -190,7 +214,7 @@ function AppRoutes() {
         path="/biblios"
         element={
           <ProtectedRoute>
-            <RightsRoute allow={(user, token) => accessOf(user, token).internalCatalog} fallback="/catalog">
+            <RightsRoute allow={(access) => access.internalCatalog} fallback="/catalog">
               <BibliosPage />
             </RightsRoute>
           </ProtectedRoute>
@@ -201,7 +225,7 @@ function AppRoutes() {
         path="/biblios/new"
         element={
           <ProtectedRoute>
-            <RightsRoute allow={(user, token) => accessOf(user, token).itemsWrite}>
+            <RightsRoute allow={(access) => access.itemsWrite}>
               <BiblioCreatePage />
             </RightsRoute>
           </ProtectedRoute>
@@ -212,7 +236,7 @@ function AppRoutes() {
         path="/biblios/:id/edit"
         element={
           <ProtectedRoute>
-            <RightsRoute allow={(user, token) => accessOf(user, token).itemsWrite}>
+            <RightsRoute allow={(access) => access.itemsWrite}>
               <BiblioEditPage />
             </RightsRoute>
           </ProtectedRoute>
@@ -232,9 +256,11 @@ function AppRoutes() {
         path="/inventory"
         element={
           <ProtectedRoute>
-            <RightsRoute allow={(user, token) => accessOf(user, token).itemsWrite}>
-              <InventoryPage />
-            </RightsRoute>
+            <FeatureRoute feature="inventory">
+              <RightsRoute allow={(access) => access.itemsWrite}>
+                <InventoryPage />
+              </RightsRoute>
+            </FeatureRoute>
           </ProtectedRoute>
         }
       />
@@ -242,7 +268,7 @@ function AppRoutes() {
         path="/weeding"
         element={
           <ProtectedRoute>
-            <RightsRoute allow={(user, token) => accessOf(user, token).weeding}>
+            <RightsRoute allow={(access) => access.weeding}>
               <WeedingPage />
             </RightsRoute>
           </ProtectedRoute>
@@ -252,7 +278,7 @@ function AppRoutes() {
         path="/weeding/:id"
         element={
           <ProtectedRoute>
-            <RightsRoute allow={(user, token) => accessOf(user, token).weeding}>
+            <RightsRoute allow={(access) => access.weeding}>
               <WithdrawalDetailPage />
             </RightsRoute>
           </ProtectedRoute>
@@ -281,7 +307,9 @@ function AppRoutes() {
         path="/my-suggestions"
         element={
           <ProtectedRoute>
-            <MyPurchaseSuggestionsPage />
+            <FeatureRoute feature="purchaseSuggestions">
+              <MyPurchaseSuggestionsPage />
+            </FeatureRoute>
           </ProtectedRoute>
         }
       />
@@ -290,7 +318,7 @@ function AppRoutes() {
         path="/loans"
         element={
           <ProtectedRoute>
-            <RightsRoute allow={(user, token) => accessOf(user, token).loansRead}>
+            <RightsRoute allow={(access) => access.loansRead}>
               <LoansPage />
             </RightsRoute>
           </ProtectedRoute>
@@ -301,7 +329,7 @@ function AppRoutes() {
         path="/holds"
         element={
           <ProtectedRoute>
-            <RightsRoute allow={(user, token) => accessOf(user, token).holdsStaff}>
+            <RightsRoute allow={(access) => access.holdsStaff}>
               <HoldsPage />
             </RightsRoute>
           </ProtectedRoute>
@@ -312,7 +340,7 @@ function AppRoutes() {
         path="/pick-list"
         element={
           <ProtectedRoute>
-            <RightsRoute allow={(user, token) => accessOf(user, token).holdsStaff}>
+            <RightsRoute allow={(access) => access.holdsStaff}>
               <PickListPage />
             </RightsRoute>
           </ProtectedRoute>
@@ -323,9 +351,11 @@ function AppRoutes() {
         path="/transits"
         element={
           <ProtectedRoute>
-            <RightsRoute allow={(user, token) => accessOf(user, token).holdsStaff}>
-              <TransitsPage />
-            </RightsRoute>
+            <FeatureRoute feature="transits">
+              <RightsRoute allow={(access) => access.holdsStaff}>
+                <TransitsPage />
+              </RightsRoute>
+            </FeatureRoute>
           </ProtectedRoute>
         }
       />
@@ -351,6 +381,17 @@ function AppRoutes() {
       />
 
       <Route
+        path="/users/new"
+        element={
+          <ProtectedRoute>
+            <UsersRecordRoute>
+              <UserCreatePage />
+            </UsersRecordRoute>
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
         path="/users/:id"
         element={
           <ProtectedRoute>
@@ -365,7 +406,7 @@ function AppRoutes() {
         path="/stats"
         element={
           <ProtectedRoute>
-            <RightsRoute allow={(user, token) => accessOf(user, token).stats}>
+            <RightsRoute allow={(access) => access.stats}>
               <StatsPage />
             </RightsRoute>
           </ProtectedRoute>
@@ -376,12 +417,7 @@ function AppRoutes() {
         path="/settings"
         element={
           <ProtectedRoute>
-            <RightsRoute
-              allow={(user, token) => {
-                const access = accessOf(user, token);
-                return access.fullSettings || access.librarySettings;
-              }}
-            >
+            <RightsRoute allow={(access) => access.fullSettings || access.librarySettings}>
               <SettingsPage />
             </RightsRoute>
           </ProtectedRoute>
@@ -392,9 +428,11 @@ function AppRoutes() {
         path="/z3950"
         element={
           <ProtectedRoute>
-            <RightsRoute allow={(user, token) => accessOf(user, token).itemsWrite}>
-              <Z3950SearchPage />
-            </RightsRoute>
+            <FeatureRoute feature="z3950">
+              <RightsRoute allow={(access) => access.itemsWrite}>
+                <Z3950SearchPage />
+              </RightsRoute>
+            </FeatureRoute>
           </ProtectedRoute>
         }
       />
@@ -403,9 +441,11 @@ function AppRoutes() {
         path="/import-iso"
         element={
           <ProtectedRoute>
-            <RightsRoute allow={(user, token) => accessOf(user, token).itemsWrite}>
-              <ImportIsoPage />
-            </RightsRoute>
+            <FeatureRoute feature="importIso">
+              <RightsRoute allow={(access) => access.itemsWrite}>
+                <Navigate to="/biblios?tab=import" replace />
+              </RightsRoute>
+            </FeatureRoute>
           </ProtectedRoute>
         }
       />
@@ -414,14 +454,11 @@ function AppRoutes() {
         path="/deposits/lenders"
         element={
           <ProtectedRoute>
-            <RightsRoute
-              allow={(user, token) => {
-                const access = accessOf(user, token);
-                return access.internalCatalog && access.itemsRead;
-              }}
-            >
-              <DepositsLendersRedirect />
-            </RightsRoute>
+            <FeatureRoute feature="deposits">
+              <RightsRoute allow={(access) => access.internalCatalog && access.itemsRead}>
+                <DepositsLendersRedirect />
+              </RightsRoute>
+            </FeatureRoute>
           </ProtectedRoute>
         }
       />
@@ -429,14 +466,11 @@ function AppRoutes() {
         path="/deposits/:id"
         element={
           <ProtectedRoute>
-            <RightsRoute
-              allow={(user, token) => {
-                const access = accessOf(user, token);
-                return access.internalCatalog && access.itemsRead;
-              }}
-            >
-              <DepositBatchDetailPage />
-            </RightsRoute>
+            <FeatureRoute feature="deposits">
+              <RightsRoute allow={(access) => access.internalCatalog && access.itemsRead}>
+                <DepositBatchDetailPage />
+              </RightsRoute>
+            </FeatureRoute>
           </ProtectedRoute>
         }
       />
@@ -444,14 +478,11 @@ function AppRoutes() {
         path="/deposits"
         element={
           <ProtectedRoute>
-            <RightsRoute
-              allow={(user, token) => {
-                const access = accessOf(user, token);
-                return access.internalCatalog && access.itemsRead;
-              }}
-            >
-              <DepositsPage />
-            </RightsRoute>
+            <FeatureRoute feature="deposits">
+              <RightsRoute allow={(access) => access.internalCatalog && access.itemsRead}>
+                <DepositsPage />
+              </RightsRoute>
+            </FeatureRoute>
           </ProtectedRoute>
         }
       />
@@ -460,7 +491,7 @@ function AppRoutes() {
         path="/acquisitions/orders/:id"
         element={
           <ProtectedRoute>
-            <RightsRoute allow={(user, token) => accessOf(user, token).acquisitions}>
+            <RightsRoute allow={(access) => access.acquisitions}>
               <AcquisitionsOrderDetailPage />
             </RightsRoute>
           </ProtectedRoute>
@@ -471,7 +502,7 @@ function AppRoutes() {
         path="/acquisitions/orders"
         element={
           <ProtectedRoute>
-            <RightsRoute allow={(user, token) => accessOf(user, token).acquisitions}>
+            <RightsRoute allow={(access) => access.acquisitions}>
               <Navigate to="/acquisitions?tab=orders" replace />
             </RightsRoute>
           </ProtectedRoute>
@@ -482,7 +513,7 @@ function AppRoutes() {
         path="/acquisitions/vendors"
         element={
           <ProtectedRoute>
-            <RightsRoute allow={(user, token) => accessOf(user, token).acquisitions}>
+            <RightsRoute allow={(access) => access.acquisitions}>
               <Navigate to="/acquisitions?tab=vendors" replace />
             </RightsRoute>
           </ProtectedRoute>
@@ -493,7 +524,7 @@ function AppRoutes() {
         path="/acquisitions/funds"
         element={
           <ProtectedRoute>
-            <RightsRoute allow={(user, token) => accessOf(user, token).acquisitions}>
+            <RightsRoute allow={(access) => access.acquisitions}>
               <Navigate to="/acquisitions?tab=funds" replace />
             </RightsRoute>
           </ProtectedRoute>
@@ -504,7 +535,7 @@ function AppRoutes() {
         path="/acquisitions/suggestions"
         element={
           <ProtectedRoute>
-            <RightsRoute allow={(user, token) => accessOf(user, token).acquisitions}>
+            <RightsRoute allow={(access) => access.acquisitions}>
               <Navigate to="/acquisitions?tab=suggestions" replace />
             </RightsRoute>
           </ProtectedRoute>
@@ -515,7 +546,7 @@ function AppRoutes() {
         path="/acquisitions"
         element={
           <ProtectedRoute>
-            <RightsRoute allow={(user, token) => accessOf(user, token).acquisitions}>
+            <RightsRoute allow={(access) => access.acquisitions}>
               <AcquisitionsPage />
             </RightsRoute>
           </ProtectedRoute>
@@ -526,9 +557,11 @@ function AppRoutes() {
         path="/events/manage"
         element={
           <ProtectedRoute>
-            <RightsRoute allow={(user, token) => accessOf(user, token).eventsWrite}>
-              <EventsPage />
-            </RightsRoute>
+            <FeatureRoute feature="events">
+              <RightsRoute allow={(access) => access.eventsWrite}>
+                <EventsPage />
+              </RightsRoute>
+            </FeatureRoute>
           </ProtectedRoute>
         }
       />
@@ -541,7 +574,7 @@ function AppRoutes() {
         path="/library"
         element={
           <ProtectedRoute>
-            <RightsRoute allow={(user, token) => accessOf(user, token).librarySettings}>
+            <RightsRoute allow={(access) => access.librarySettings}>
               <Navigate to="/settings?tab=library" replace />
             </RightsRoute>
           </ProtectedRoute>

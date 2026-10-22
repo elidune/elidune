@@ -40,22 +40,20 @@ const options = [
 ];
 
 describe('EventAudienceFields', () => {
-  it('disables and clears the public-type list while All audiences is on', async () => {
+  it('shows the All option in the multiselect when all audiences is selected', async () => {
     const html = renderFields(await i18nFor('en'), {
       id: 'event-audience',
       selection: { allAudiences: true, publicTypes: ['child'] },
       options,
       onSelectionChange: () => undefined,
     });
-    assert.match(html, /id="event-audience-all"/);
-    assert.match(html, /type="checkbox"/);
-    assert.match(html, /checked/);
-    assert.match(html, /All audiences/);
-    assert.match(html, /id="event-audience"[^>]*disabled/);
+    assert.equal(html.includes('type="checkbox"'), false);
+    assert.match(html, />All</);
     assert.equal(html.includes('>Child<'), false);
+    assert.equal(/id="event-audience"[^>]*disabled/.test(html), false);
   });
 
-  it('keeps the public-type list enabled for a specific selection', async () => {
+  it('keeps specific public types in the multiselect', async () => {
     const html = renderFields(await i18nFor('fr'), {
       id: 'event-audience',
       selection: { allAudiences: false, publicTypes: ['child'] },
@@ -63,15 +61,12 @@ describe('EventAudienceFields', () => {
       error: fr.events.targetPublicRequired,
       onSelectionChange: () => undefined,
     });
-    assert.match(html, /Tous les publics/);
-    assert.equal(html.includes('checked'), false);
-    assert.equal(/id="event-audience"[^>]*disabled/.test(html), false);
     assert.match(html, />Child</);
     assert.match(html, new RegExp(fr.events.targetPublicRequired));
-    assert.equal(html.includes(fr.events.targetPublicHint), false);
+    assert.equal(html.includes('type="checkbox"'), false);
   });
 
-  it('renders the toggle hint in German and Spanish', async () => {
+  it('renders localized All option and hint in German and Spanish', async () => {
     const deHtml = renderFields(await i18nFor('de'), {
       id: 'audience-de',
       selection: { allAudiences: false, publicTypes: [] },
@@ -84,9 +79,9 @@ describe('EventAudienceFields', () => {
       options,
       onSelectionChange: () => undefined,
     });
-    assert.match(deHtml, /Alle Zielgruppen/);
+    assert.match(deHtml, new RegExp(de.events.targetPublic.selectAll));
     assert.match(deHtml, new RegExp(de.events.targetPublicHint));
-    assert.match(esHtml, /Todas las audiencias/);
+    assert.match(esHtml, new RegExp(es.events.targetPublic.selectAll));
     assert.match(esHtml, new RegExp(es.events.targetPublicHint));
   });
 });

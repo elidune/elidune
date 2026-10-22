@@ -108,7 +108,9 @@ function pickSection(sections: ConfigSectionInfo[], key: AdminConfigSectionKey):
 const SERVER_SUB_TABS = ['general', 'catalog', 'database'] as const;
 type ServerSubTab = (typeof SERVER_SUB_TABS)[number];
 
-const GENERAL_SECTION_ICONS: Record<AdminConfigSectionKey, LucideIcon> = {
+type GeneralServerSectionKey = 'email' | 'logging' | 'reminders' | 'audit' | 'holds';
+
+const GENERAL_SECTION_ICONS: Record<GeneralServerSectionKey, LucideIcon> = {
   reminders: Bell,
   holds: Bookmark,
   logging: FileText,
@@ -154,7 +156,7 @@ export default function AdminServerSettings() {
   const [auditValue, setAuditValue] = useState<Record<string, unknown>>({});
   const [holdsValue, setHoldsValue] = useState<Record<string, unknown>>({});
 
-  const [generalBlocksOpen, setGeneralBlocksOpen] = useState<Record<AdminConfigSectionKey, boolean>>(() => ({
+  const [generalBlocksOpen, setGeneralBlocksOpen] = useState<Record<GeneralServerSectionKey, boolean>>(() => ({
     reminders: false,
     holds: false,
     logging: false,
@@ -162,7 +164,7 @@ export default function AdminServerSettings() {
     email: false,
   }));
 
-  const toggleGeneralBlock = (key: AdminConfigSectionKey) => {
+  const toggleGeneralBlock = (key: GeneralServerSectionKey) => {
     setGeneralBlocksOpen((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 

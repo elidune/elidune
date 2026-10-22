@@ -16,7 +16,11 @@ import {
   ChevronDown,
   ClipboardList,
 } from 'lucide-react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useDeskPatronLoansQuery } from '@/hooks/loans/useDeskPatronLoansQuery';
+import { invalidateCirculationCaches } from '@/hooks/loans/invalidateCirculationCaches';
+import { OVERDUE_LOANS_QUERY_ROOT } from '@/hooks/loans/queryKeys';
+import { useOverdueLoansQuery } from '@/hooks/loans/useOverdueLoansQuery';
 import { Card, CardHeader, Button, Badge, Table, MessageModal, ConfirmDialog, ScrollableListRegion, ResponsiveRecordList, ListSkeleton, BarcodeScanField, SectionTabBar } from '@/components/common';
 import ItemAvailabilityBadge from '@/components/items/ItemAvailabilityBadge';
 import ActiveLoanCard from '@/components/loans/ActiveLoanCard';
@@ -70,6 +74,7 @@ import {
   isCheckoutDeclined,
   type PickCheckInNotice,
 } from '@/utils/toPickDesk';
+import { pickCheckInBannerMessage, resolvePickNotice } from '@/utils/pickCheckInFlow';
 import { overrideReasonRefusalMessage, trimmedOverrideReason } from '@/utils/circulationForce';
 import { copyIdForBarcode } from '@/utils/copyId';
 import {
@@ -85,11 +90,9 @@ import {
   returnScanFeedback,
   type ReturnDeskNotice as ReturnDeskNoticeModel,
 } from '@/utils/returnNotice';
-import { sourceLabel } from '@/utils/transitDisplay';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';
 import { LoanMediaTypeBadge } from '@/utils/mediaTypeIcon';
 import { formControlClass, formLabelClass, formChoiceLabelClass } from '@/utils/formControl';
-import { deferFromEffect } from '@/utils/deferFromEffect';
 import { newIdempotencyKey } from '@/utils/idempotency';
 import { nextReminderTierFromCount } from '@/utils/reminderPolicy';
 import { useCirculationExceptionAction, type CirculationExceptionKind } from '@/hooks/loans/useCirculationExceptionAction';
@@ -109,12 +112,7 @@ import RenewalRefusalNotice from '@/components/loans/RenewalRefusalNotice';
 import { presentRenewalRefusal, type RenewalDeskView } from '@/utils/renewalDesk';
 import { deskNameSearchVisible, deskPatronIdentity, patronFromCardScan, presentCardScanError } from '@/utils/deskPatron';
 import { readerIdentifierText, type BorrowerRef } from '@/utils/readerIdentifier';
-import {
-  checkoutRecap,
-  currentUserLoansQuery,
-  deskBorrower,
-  readPatronLoans,
-} from '@/utils/loanListAccess';
+import { checkoutRecap, deskBorrower } from '@/utils/loanListAccess';
 
 type TabType = 'borrow' | 'return' | 'overdue' | 'claims';
 
@@ -183,6 +181,7 @@ export default function LoansPage() {
   const { user: authUser } = useAuth();
   const canReadBorrowers = canReadUsers(authUser, api.getToken());
   const canForceLoan = canForceLoans(authUser, api.getToken());
+  const queryClient = useQueryClient();
   const { showToast, dismissPersistentErrors } = useToast();
   const userIsAdmin = isAdmin(authUser?.accountType);
   const tabFromUrl = searchParams.get('tab');
@@ -198,10 +197,7 @@ export default function LoansPage() {
   
   // Borrow section state
   const [selectedUser, setSelectedUser] = useState<UserType | null>(null);
-  const [loans, setLoans] = useState<LoanListItem[]>([]);
   const [loansPage, setLoansPage] = useState(1);
-  const [loansTotal, setLoansTotal] = useState(0);
-  const [isLoadingLoans, setIsLoadingLoans] = useState(false);
   const [userSearchDraft, setUserSearchDraft] = useState('');
   const [userSearchResults, setUserSearchResults] = useState<UserShort[]>([]);
   const [isSearchingUsers, setIsSearchingUsers] = useState(false);
@@ -215,10 +211,7 @@ export default function LoansPage() {
   );
   const [userSearchError, setUserSearchError] = useState<string | null>(null);
   const [userSelectError, setUserSelectError] = useState<string | null>(null);
-  const [loansLoadError, setLoansLoadError] = useState<string | null>(null);
-  const [loansAccessDenied, setLoansAccessDenied] = useState(false);
   const [userSearchRetry, setUserSearchRetry] = useState(0);
-  const [loansReloadToken, setLoansReloadToken] = useState(0);
   const [isPatronLookupBusy, setIsPatronLookupBusy] = useState(false);
   const [deskLoanStatus, setDeskLoanStatus] = useState<PatronLoanStatus | null>(null);
   const [patronIdentity, setPatronIdentity] = useState<BorrowerRef | null>(null);
@@ -256,9 +249,46 @@ export default function LoansPage() {
 
   const [overduePage, setOverduePage] = useState(1);
   const [overduePerPage, setOverduePerPage] = useState(50);
-  const [overdueData, setOverdueData] = useState<{ loans: OverdueLoanInfo[]; total: number } | null>(null);
-  const [overdueLoading, setOverdueLoading] = useState(false);
-  const [overdueError, setOverdueError] = useState<string | null>(null);
+  const [overdueActionError, setOverdueActionError] = useState<string | null>(null);
+  const overdueQuery = useOverdueLoansQuery(overduePage, overduePerPage, activeTab === 'overdue');
+  const overdueData = overdueQuery.data ?? null;
+  const overdueLoading = overdueQuery.isLoading || overdueQuery.isFetching;
+  const overdueError =
+    overdueActionError ??
+    (overdueQuery.isError
+      ? getApiErrorMessage(overdueQuery.error, t) || t('loans.overdueLoadError')
+      : null);
+
+  const deskPatronLoansQuery = useDeskPatronLoansQuery(
+    selectedUser?.id,
+    loansPage,
+    BORROW_LOANS_PAGE_SIZE,
+    Boolean(selectedUser) && canReadBorrowers,
+  );
+  const loans = useMemo(() => {
+    const data = deskPatronLoansQuery.data;
+    if (!data || data.status === 'denied') return [];
+    return data.items.filter(isUserRecordLoan).map((loan) =>
+      canReadBorrowers
+        ? loan
+        : { ...loan, user: deskBorrower(loan.user, false) },
+    ) as LoanListItem[];
+  }, [canReadBorrowers, deskPatronLoansQuery.data]);
+  const loansTotal = deskPatronLoansQuery.data?.status === 'ok' ? deskPatronLoansQuery.data.total : 0;
+  const loansAccessDenied = deskPatronLoansQuery.data?.status === 'denied';
+  const isLoadingLoans = deskPatronLoansQuery.isLoading || deskPatronLoansQuery.isFetching;
+  const loansLoadError = deskPatronLoansQuery.isError
+    ? getApiErrorMessage(deskPatronLoansQuery.error, t) || t('loans.loansLoadError')
+    : null;
+
+  const refreshOverdueLoans = useCallback(async () => {
+    await queryClient.invalidateQueries({ queryKey: OVERDUE_LOANS_QUERY_ROOT });
+  }, [queryClient]);
+
+  const refreshDeskPatronLoans = useCallback(async () => {
+    await invalidateCirculationCaches(queryClient, selectedUser?.id);
+  }, [queryClient, selectedUser?.id]);
+
   const [overdueLoanAction, setOverdueLoanAction] = useState<{ loanId: string; op: DeskLoanOp } | null>(
     null,
   );
@@ -329,10 +359,7 @@ export default function LoansPage() {
     setRenewalPrompt(null);
     renewalRetryRef.current = null;
     renewalSetAsideRef.current = null;
-    setLoans([]);
-    setLoansTotal(0);
     setLoansPage(1);
-    setLoansAccessDenied(false);
     setUserSearchDraft('');
     setUserSearchResults([]);
     setBarcodeInput('');
@@ -340,7 +367,6 @@ export default function LoansPage() {
     setLastCheckout(null);
     setUserSearchError(null);
     setUserSelectError(null);
-    setLoansLoadError(null);
     if (userBarcodeInputRef.current) {
       userBarcodeInputRef.current.value = '';
     }
@@ -552,20 +578,6 @@ export default function LoansPage() {
     [i18n.language, lostFound, showToast, t],
   );
 
-  const loadOverdue = useCallback(async () => {
-    setOverdueLoading(true);
-    setOverdueError(null);
-    try {
-      const data = await api.getOverdueLoans({ page: overduePage, perPage: overduePerPage });
-      setOverdueData({ loans: data.loans, total: Number(data.total) });
-    } catch (e: unknown) {
-      setOverdueError(getApiErrorMessage(e, t) || t('loans.overdueLoadError'));
-      setOverdueData(null);
-    } finally {
-      setOverdueLoading(false);
-    }
-  }, [t, overduePage, overduePerPage]);
-
   const handleOverdueReturn = useCallback(
     async (loanId: string) => {
       if (overdueLoanActionInFlightRef.current) return;
@@ -574,7 +586,7 @@ export default function LoansPage() {
       try {
         const known = overdueData?.loans.find((loan) => loan.loanId === loanId);
         const result = await api.returnLoan(loanId);
-        setOverdueError(null);
+        setOverdueActionError(null);
         setCheckoutScanAlert((current) =>
           checkoutAlertAfterSuccessfulReturn(current, {
             barcode: known?.itemBarcode,
@@ -586,7 +598,7 @@ export default function LoansPage() {
             ? null
             : current,
         );
-        await loadOverdue();
+        await refreshOverdueLoans();
         if (await openLostFound(result, { barcode: known?.itemBarcode })) return;
         const notice = returnToLenderNotice(result, t);
         setReturnToLenderMessage(notice);
@@ -596,14 +608,14 @@ export default function LoansPage() {
         });
       } catch (e: unknown) {
         const msg = getApiErrorMessage(e, t) || t('loans.errorReturningLoan');
-        setOverdueError(msg);
+        setOverdueActionError(msg);
         showToast({ variant: 'error', message: msg });
       } finally {
         overdueLoanActionInFlightRef.current = false;
         setOverdueLoanAction(null);
       }
     },
-    [loadOverdue, openLostFound, overdueData, returnBarcodeInput, showToast, t],
+    [refreshOverdueLoans, openLostFound, overdueData, returnBarcodeInput, showToast, t],
   );
 
   const rememberRenewalSetAside = (
@@ -623,13 +635,13 @@ export default function LoansPage() {
     if (overdueLoanActionInFlightRef.current) return;
     overdueLoanActionInFlightRef.current = true;
     setOverdueLoanAction({ loanId, op: 'renew' });
-    setOverdueError(null);
+    setOverdueActionError(null);
     if (!force) setRenewalPrompt(null);
     renewalRetryRef.current = null;
     try {
       const renewed = await api.renewLoan(loanId, newIdempotencyKey(), { force: force || undefined, overrideReason });
       setRenewalPrompt(null);
-      await loadOverdue();
+      await refreshOverdueLoans();
       showToast({
         variant: 'success',
         message: withDepositDueNotice(
@@ -655,7 +667,7 @@ export default function LoansPage() {
       const next = presentRenewalRefusal(e, { alreadyForced: force, t });
       if (next.kind === 'sentence') {
         setRenewalPrompt(null);
-        setOverdueError(next.message);
+        setOverdueActionError(next.message);
         showToast({ variant: 'error', message: next.message });
       } else {
         rememberRenewalSetAside(barcode, e);
@@ -669,47 +681,6 @@ export default function LoansPage() {
       setOverdueLoanAction(null);
     }
   };
-
-  const applyPatronLoans = useCallback(
-    async (options: { notify: boolean }) => {
-      if (!selectedUser) return { ok: false as const, denied: false };
-      const result = await readPatronLoans(() =>
-        api.getUserLoans(selectedUser.id, currentUserLoansQuery(loansPage, BORROW_LOANS_PAGE_SIZE)),
-      );
-      if (result.ok) {
-        setLoans(
-          result.page.items.filter(isUserRecordLoan).map((loan) =>
-            canReadBorrowers
-              ? loan
-              : { ...loan, user: deskBorrower(loan.user, false) },
-          ) as LoanListItem[],
-        );
-        setLoansTotal(result.page.total);
-        setLoansLoadError(null);
-        setLoansAccessDenied(false);
-        return result;
-      }
-      if (result.denied) {
-        setLoans([]);
-        setLoansTotal(0);
-        setLoansLoadError(null);
-        setLoansAccessDenied(true);
-        return result;
-      }
-      setLoansAccessDenied(false);
-      const msg = getApiErrorMessage(result.error, t) || t('loans.loansLoadError');
-      setLoansLoadError(msg);
-      if (options.notify) {
-        showToast({ variant: 'error', message: msg });
-      }
-      return result;
-    },
-    [canReadBorrowers, loansPage, selectedUser, showToast, t],
-  );
-
-  const reloadSelectedUserLoans = useCallback(async () => {
-    await applyPatronLoans({ notify: false });
-  }, [applyPatronLoans]);
 
   const { data: claimsIdPage } = useQuery({
     queryKey: ['loans-claims-returned', 'ids'],
@@ -729,20 +700,15 @@ export default function LoansPage() {
       }
     },
     onSuccess: async () => {
-      await reloadSelectedUserLoans();
+      await refreshDeskPatronLoans();
       if (activeTab === 'overdue') {
-        await loadOverdue();
+        await refreshOverdueLoans();
       }
     },
   });
   const exceptionOpen = exceptionAction.target != null;
   const borrowDeskBusy = borrowLoanAction != null || exceptionOpen;
   const overdueDeskBusy = overdueLoanAction != null || exceptionOpen;
-
-  useEffect(() => {
-    if (activeTab !== 'overdue') return;
-    return deferFromEffect(() => { void loadOverdue(); });
-  }, [activeTab, loadOverdue]);
 
   const overdueByUser = useMemo(() => {
     const loans = overdueData?.loans;
@@ -783,13 +749,13 @@ export default function LoansPage() {
   const executeSendReminders = async (dryRun: boolean) => {
     setReminderSending(true);
     setReminderReport(null);
-    setOverdueError(null);
+    setOverdueActionError(null);
     try {
       const report = await api.sendOverdueReminders({ dryRun: dryRun });
       setReminderReport(report);
-      if (!dryRun) void loadOverdue();
+      if (!dryRun) void refreshOverdueLoans();
     } catch (e: unknown) {
-      setOverdueError(getApiErrorMessage(e, t) || t('loans.sendRemindersError'));
+      setOverdueActionError(getApiErrorMessage(e, t) || t('loans.sendRemindersError'));
     } finally {
       setReminderSending(false);
     }
@@ -844,35 +810,6 @@ export default function LoansPage() {
 
     return () => window.clearTimeout(timer);
   }, [canReadBorrowers, userSearchDraft, userSearchRetry, showToast, t]);
-
-  useEffect(() => {
-    if (!selectedUser) {
-      return;
-    }
-
-    const loadUserLoans = async () => {
-      setIsLoadingLoans(true);
-      try {
-        await applyPatronLoans({ notify: true });
-      } finally {
-        setIsLoadingLoans(false);
-      }
-    };
-
-    return deferFromEffect(() => { void loadUserLoans(); });
-  }, [selectedUser, loansPage, loansReloadToken, applyPatronLoans]);
-
-  const [prevSelectedUser, setPrevSelectedUser] = useState(selectedUser);
-  if (selectedUser !== prevSelectedUser) {
-    setPrevSelectedUser(selectedUser);
-    setLoansAccessDenied(false);
-    if (selectedUser) setIsLoadingLoans(true);
-    if (!selectedUser) {
-      setLoans([]);
-      setLoansTotal(0);
-      setLoansLoadError(null);
-    }
-  }
 
   const handleUserSelect = async (user: UserShort) => {
     if (patronLookupInFlightRef.current) return;
@@ -930,12 +867,6 @@ export default function LoansPage() {
       setPatronIdentity(scanned.identity);
       setDeskLoanStatus(scanned.loanStatus);
       setCardScanError(null);
-      if (!canReadBorrowers) {
-        setLoans([]);
-        setLoansTotal(0);
-        setLoansLoadError(null);
-        setLoansAccessDenied(false);
-      }
       setLoansPage(1);
       setLastCheckout(null);
       setUserSearchDraft('');
@@ -997,10 +928,11 @@ export default function LoansPage() {
         force: forceFlag,
         ...(reason ? { overrideReason: reason } : {}),
       }, newIdempotencyKey());
-      const loaded = await applyPatronLoans({ notify: false });
-      const matched = loaded.ok
-        ? loaded.page.items.find((loan) => loan.id === created.id)
-        : undefined;
+      const { data: refreshedLoans } = await deskPatronLoansQuery.refetch();
+      const matched =
+        refreshedLoans?.status === 'ok'
+          ? refreshedLoans.items.find((loan) => loan.id === created.id)
+          : undefined;
       const recap = checkoutRecap({
         created,
         barcode,
@@ -1085,7 +1017,7 @@ export default function LoansPage() {
         }),
       );
       if (selectedUser) {
-        await applyPatronLoans({ notify: false });
+        await refreshDeskPatronLoans();
       }
       if (
         await openLostFound(result, {
@@ -1318,7 +1250,7 @@ export default function LoansPage() {
       const renewed = await request(force, overrideReason);
       setRenewalPrompt(null);
       if (selectedUser) {
-        await applyPatronLoans({ notify: false });
+        await refreshDeskPatronLoans();
       }
       showToast({
         variant: 'success',
@@ -1410,7 +1342,6 @@ export default function LoansPage() {
       <SectionTabBar
         ariaLabel={t('loans.title')}
         activeTab={activeTab}
-        scrollable
         onSelectTab={(tab) => {
           setActiveTab(tab);
           setReturnResult(null);
@@ -1563,16 +1494,12 @@ export default function LoansPage() {
                         setRenewalPrompt(null);
                         renewalRetryRef.current = null;
                         renewalSetAsideRef.current = null;
-                        setLoans([]);
-                        setLoansTotal(0);
                         setLoansPage(1);
-                        setLoansAccessDenied(false);
                         setUserSearchDraft('');
                         setBarcodeInput('');
                         setLastCheckout(null);
                         setCheckoutScanAlert(null);
                         setRenewError('');
-                        setLoansLoadError(null);
                       }}
                       leftIcon={<X className="h-4 w-4" />}
                     >
@@ -1668,7 +1595,7 @@ export default function LoansPage() {
                         type="button"
                         size="sm"
                         variant="secondary"
-                        onClick={() => setLoansReloadToken((n) => n + 1)}
+                        onClick={() => void deskPatronLoansQuery.refetch()}
                       >
                         {t('common.retry')}
                       </Button>
@@ -2407,7 +2334,7 @@ export default function LoansPage() {
             closeDialog: () => {
               setRenewalPrompt(null);
               renewalRetryRef.current = null;
-              if (selectedUser) void applyPatronLoans({ notify: false });
+              if (selectedUser) void refreshDeskPatronLoans();
             },
             clearBarcode: () => setBarcodeInput(''),
             refocusBarcode: () => focusScanInput(),
@@ -2485,34 +2412,9 @@ async function readDeskCopy(barcode: string): Promise<DeskCopySnapshot | null> {
   }
 }
 
-async function resolvePickNotice(notice: PickCheckInNotice): Promise<PickCheckInNotice> {
-  let patronName = notice.patronName;
-  let siteName = notice.siteName;
-  if (notice.kind === 'ready' && !patronName && notice.userId && canReadUsers(null, api.getToken())) {
-    try {
-      const user = await api.getUser(notice.userId);
-      const joined = [user.firstname, user.lastname].filter(Boolean).join(' ').trim();
-      patronName = joined || null;
-    } catch {
-      patronName = null;
-    }
-  }
-  if (notice.kind === 'transit' && !siteName && notice.siteId) {
-    try {
-      const sites = await api.getSites(false);
-      siteName = sourceLabel(sites, notice.siteId);
-    } catch {
-      siteName = null;
-    }
-  }
-  return { ...notice, patronName, siteName };
-}
-
 function PickCheckInBanner({ notice, t }: { notice: PickCheckInNotice; t: TFunction }) {
   const ready = notice.kind === 'ready';
-  const message = ready
-    ? t('loans.pickReady', { patron: notice.patronName?.trim() || t('loans.pickPatronUnknown') })
-    : t('loans.pickTransit', { site: notice.siteName?.trim() || t('loans.pickSiteUnknown') });
+  const message = pickCheckInBannerMessage(notice, t);
   return (
     <div
       role="status"

@@ -13,7 +13,6 @@ import {
   Home,
   BookMarked,
   Globe,
-  Upload,
   Library,
   ArrowLeftRight,
   CalendarDays,
@@ -31,7 +30,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import Button from './Button';
 import { useLibrary } from '@/contexts/LibraryContext';
 import { canPatronSelfServiceHolds, canWriteSettings } from '@/types';
-import { staffAccess } from '@/utils/staffAccess';
+import { effectiveStaffAccess, isFeatureEnabled } from '@/utils/featureAccess';
 import { useAccountTypesQuery } from '@/hooks/useAccountTypesQuery';
 import { localizedAccountTypeLabel } from '@/utils/accountTypeDisplay';
 import api from '@/services/api';
@@ -60,10 +59,11 @@ export default function Layout({ children }: LayoutProps) {
   const { user, logout, profileWarning, dismissProfileWarning, refreshProfile } = useAuth();
   const settingsWrite = canWriteSettings(user, api.getToken());
   const { data: accountTypes = [] } = useAccountTypesQuery({ enabled: settingsWrite });
-  const access = staffAccess(user, api.getToken());
+  const { libraryName, libraryInfo } = useLibrary();
+  const features = libraryInfo?.enabledFeatures;
+  const access = effectiveStaffAccess(user, api.getToken(), features);
   const showAcquisitions = access.acquisitions;
   const showWeeding = access.weeding;
-  const { libraryName } = useLibrary();
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -99,7 +99,12 @@ export default function Layout({ children }: LayoutProps) {
         { name: t('nav.loans'), href: '/loans', icon: ArrowLeftRight, show: access.loansRead },
         { name: t('nav.holds'), href: '/holds', icon: Bookmark, show: access.holdsStaff },
         { name: t('nav.pickList'), href: '/pick-list', icon: ListChecks, show: access.holdsStaff },
-        { name: t('nav.transits'), href: '/transits', icon: Truck, show: access.holdsStaff },
+        {
+          name: t('nav.transits'),
+          href: '/transits',
+          icon: Truck,
+          show: access.holdsStaff && isFeatureEnabled(features, 'transits'),
+        },
         { name: t('nav.users'), href: '/users', icon: Users, show: access.usersRead },
       ],
     },
@@ -108,7 +113,12 @@ export default function Layout({ children }: LayoutProps) {
       label: t('nav.sectionCataloging'),
       items: [
         { name: t('nav.catalog'), href: '/biblios', icon: BookOpen, show: access.internalCatalog },
-        { name: t('nav.inventory'), href: '/inventory', icon: ClipboardList, show: access.itemsWrite },
+        {
+          name: t('nav.inventory'),
+          href: '/inventory',
+          icon: ClipboardList,
+          show: access.itemsWrite && isFeatureEnabled(features, 'inventory'),
+        },
         {
           name: t('nav.sectionAcquisitions'),
           href: '/acquisitions',
@@ -116,13 +126,17 @@ export default function Layout({ children }: LayoutProps) {
           show: showAcquisitions,
         },
         { name: t('nav.weeding'), href: '/weeding', icon: Leaf, show: showWeeding },
-        { name: t('nav.z3950Search'), href: '/z3950', icon: Globe, show: access.itemsWrite },
-        { name: t('nav.importIso'), href: '/import-iso', icon: Upload, show: access.itemsWrite },
+        {
+          name: t('nav.z3950Search'),
+          href: '/z3950',
+          icon: Globe,
+          show: access.itemsWrite && isFeatureEnabled(features, 'z3950'),
+        },
         {
           name: t('nav.deposits'),
           href: '/deposits',
           icon: Library,
-          show: access.internalCatalog && access.itemsRead,
+          show: access.internalCatalog && access.itemsRead && isFeatureEnabled(features, 'deposits'),
         },
       ],
     },
@@ -137,12 +151,17 @@ export default function Layout({ children }: LayoutProps) {
           icon: BookmarkCheck,
           show: canPatronSelfServiceHolds(user, api.getToken()),
         },
-        { name: t('nav.events'), href: '/events', icon: CalendarDays, show: true },
+        {
+          name: t('nav.events'),
+          href: '/events',
+          icon: CalendarDays,
+          show: isFeatureEnabled(features, 'events'),
+        },
         {
           name: t('nav.suggestions'),
           href: '/my-suggestions',
           icon: Lightbulb,
-          show: true,
+          show: isFeatureEnabled(features, 'purchaseSuggestions'),
         },
       ],
     },
@@ -300,29 +319,35 @@ export default function Layout({ children }: LayoutProps) {
         <main
           id="main-content"
           tabIndex={-1}
-          className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4 lg:p-6 outline-none"
+          className="flex min-h-0 flex-1 flex-col overflow-y-auto outline-none"
         >
-          {profileWarning ? (
-            <div
-              role="status"
-              className="mb-4 flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 sm:flex-row sm:items-center dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100"
-            >
-              <p className="min-w-0 flex-1">
-                {profileWarning.seconds != null
-                  ? rateLimitWaitMessage(profileWarning.seconds, t, i18n.language)
-                  : t(profileWarning.messageKey)}
-              </p>
-              <div className="flex shrink-0 gap-2">
-                <Button type="button" size="sm" variant="secondary" onClick={() => void refreshProfile()}>
-                  {t('common.retry')}
-                </Button>
-                <Button type="button" size="sm" variant="ghost" onClick={dismissProfileWarning}>
-                  {t('common.close')}
-                </Button>
+          {/*
+            Padding lives on an inner wrapper (not on the scrollport) so sticky page
+            headers can sit flush at top:0 without a gap above the bar.
+          */}
+          <div className="flex min-h-0 flex-1 flex-col p-4 lg:p-6">
+            {profileWarning ? (
+              <div
+                role="status"
+                className="mb-4 flex flex-col gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 sm:flex-row sm:items-center dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-100"
+              >
+                <p className="min-w-0 flex-1">
+                  {profileWarning.seconds != null
+                    ? rateLimitWaitMessage(profileWarning.seconds, t, i18n.language)
+                    : t(profileWarning.messageKey)}
+                </p>
+                <div className="flex shrink-0 gap-2">
+                  <Button type="button" size="sm" variant="secondary" onClick={() => void refreshProfile()}>
+                    {t('common.retry')}
+                  </Button>
+                  <Button type="button" size="sm" variant="ghost" onClick={dismissProfileWarning}>
+                    {t('common.close')}
+                  </Button>
+                </div>
               </div>
-            </div>
-          ) : null}
-          {children}
+            ) : null}
+            {children}
+          </div>
         </main>
 
         {/* Footer */}

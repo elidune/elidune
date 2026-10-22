@@ -41,6 +41,7 @@ impl LibraryInfoService {
                     timezone,
                     language: stored_language(language)?,
                     updated_at,
+                    enabled_features: Default::default(),
                 })
             }
             None => Ok(LibraryInfo {
@@ -55,6 +56,7 @@ impl LibraryInfoService {
                 timezone: DEFAULT_TIMEZONE.to_string(),
                 language: None,
                 updated_at: None,
+                enabled_features: Default::default(),
             }),
         }
     }

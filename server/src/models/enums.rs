@@ -59,11 +59,13 @@ impl std::fmt::Display for Lang {
 // Genre
 // ---------------------------------------------------------------------------
 
-/// Item genre classification
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+/// Item genre classification (stored as SMALLINT on `biblios.genre`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 #[repr(i16)]
 pub enum Genre {
     // Literature genres
+    #[default]
     Unknown = 0,
     LitteratureGeneral = 1,
     LitteratureFiction = 2,
@@ -138,6 +140,29 @@ impl From<i16> for Genre {
 impl From<Genre> for i16 {
     fn from(g: Genre) -> Self {
         g as i16
+    }
+}
+
+impl sqlx::Type<sqlx::Postgres> for Genre {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        <i16 as sqlx::Type<sqlx::Postgres>>::type_info()
+    }
+
+    fn compatible(ty: &sqlx::postgres::PgTypeInfo) -> bool {
+        <i16 as sqlx::Type<sqlx::Postgres>>::compatible(ty)
+    }
+}
+
+impl<'r> sqlx::Decode<'r, sqlx::Postgres> for Genre {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let n = <i16 as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
+        Ok(Genre::from(n))
+    }
+}
+
+impl sqlx::Encode<'_, sqlx::Postgres> for Genre {
+    fn encode_by_ref(&self, buf: &mut sqlx::postgres::PgArgumentBuffer) -> sqlx::encode::IsNull {
+        <i16 as sqlx::Encode<sqlx::Postgres>>::encode(i16::from(*self), buf)
     }
 }
 

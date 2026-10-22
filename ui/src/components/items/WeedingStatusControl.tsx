@@ -9,6 +9,7 @@ import type { ItemStaffView, ItemWeedingStatus } from '@/types';
 import { canManageWeeding, canViewWeeding } from '@/types';
 import { getApiErrorMessage, getHttpStatus } from '@/utils/apiError';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
+import { isDepositCopy } from '@/utils/deposits';
 import { ITEM_WEEDING_STATUSES, itemWeedingStatus } from '@/utils/weeding';
 import WithdrawalDialog from './WithdrawalDialog';
 import WithdrawalRecord from './WithdrawalRecord';
@@ -143,7 +144,7 @@ export default function WeedingStatusControl({ item, onUpdated }: WeedingStatusC
       status !== 'withdrawn' && status !== current,
   );
 
-  if (!canRead && !canWrite) {
+  if ((!canRead && !canWrite) || isDepositCopy(item.deposit)) {
     return null;
   }
 

@@ -9,6 +9,16 @@ export const EVENT_TYPE_COLORS: Record<number, string> = {
   6: 'bg-gray-100 text-gray-900 ring-1 ring-gray-300/70 dark:bg-gray-700 dark:text-gray-100 dark:ring-gray-600',
 };
 
+export const EVENT_TYPES = [
+  { value: 0, labelKey: 'events.types.animation' },
+  { value: 1, labelKey: 'events.types.schoolVisit' },
+  { value: 2, labelKey: 'events.types.exhibition' },
+  { value: 3, labelKey: 'events.types.conference' },
+  { value: 4, labelKey: 'events.types.workshop' },
+  { value: 5, labelKey: 'events.types.show' },
+  { value: 6, labelKey: 'events.types.other' },
+] as const;
+
 export const EVENT_TYPE_KEYS: Record<number, string> = {
   0: 'events.types.animation',
   1: 'events.types.schoolVisit',

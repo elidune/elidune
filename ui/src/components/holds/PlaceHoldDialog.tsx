@@ -17,6 +17,7 @@ import HoldPatronLabel from '@/components/holds/HoldPatronLabel';
 import { formChoiceLabelClass } from '@/utils/formControl';
 import { buildCreateHold, type HoldPlacementScope } from '@/utils/holdDisplay';
 import { useResetWhenInactive } from '@/hooks/common/useResetWhenInactive';
+import { ACTIVE_HOLDS_QUERY_ROOT, PICK_LIST_QUERY_ROOT } from '@/hooks/holds/deskHoldQueryOptions';
 import { usePickupSiteDraft } from '@/hooks/holds/usePickupSiteDraft';
 import PickupSiteSelect from '@/components/holds/PickupSiteSelect';
 
@@ -177,6 +178,8 @@ export default function PlaceHoldDialog({
         }),
       );
       void queryClient.invalidateQueries({ queryKey: ['biblioHolds', biblioId] });
+      void queryClient.invalidateQueries({ queryKey: PICK_LIST_QUERY_ROOT });
+      void queryClient.invalidateQueries({ queryKey: ACTIVE_HOLDS_QUERY_ROOT });
       void queryClient.invalidateQueries({ queryKey: ['holdsQuota'] });
       showToast({
         variant: 'success',
@@ -281,6 +284,9 @@ export default function PlaceHoldDialog({
             <p>{t('holds.hintNotifyWhenReadyTitle')}</p>
           )}
           {pinning && !(staff && queueAhead > 0) && !borrowed && (
+            <p>{t('holds.hintPinnedShelfPick')}</p>
+          )}
+          {pinning && !(staff && queueAhead > 0) && borrowed && (
             <p>{t('holds.hintNotifyWhenReady')}</p>
           )}
           {quota && quota.remaining > 0 && (

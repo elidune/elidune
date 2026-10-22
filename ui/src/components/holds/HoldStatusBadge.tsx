@@ -14,5 +14,9 @@ function variantFor(status: HoldBadgeStatus): 'default' | 'success' | 'warning' 
 /** Shared hold-status pill (holds list, patron holds, user file). */
 export default function HoldStatusBadge({ status }: { status: HoldBadgeStatus }) {
   const { t } = useTranslation();
-  return <Badge variant={variantFor(status)}>{t(`holds.statuses.${status}`)}</Badge>;
+  return (
+    <Badge variant={variantFor(status)} size="sm">
+      <span className="whitespace-nowrap">{t(`holds.statuses.${status}`)}</span>
+    </Badge>
+  );
 }

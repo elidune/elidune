@@ -209,6 +209,34 @@ async fn unassigned_copies_stay_lendable_and_to_pick_copy_is_reserved() {
 }
 
 #[tokio::test]
+async fn pinned_hold_on_free_shelf_copy_is_to_pick() {
+    let Some(app) = TestApp::spawn().await else {
+        return;
+    };
+    let admin_token = fixtures::ensure_first_setup(&app).await;
+    let (reader_id, reader_token) = fixtures::create_reader(&app, &admin_token, "pinchelf").await;
+    let barcode = format!("PIN-SHELF-{}", fixtures::unique_suffix());
+    let (biblio_id, copies) = create_title(&app, &admin_token, "Pinned Shelf Pick", vec![shelf_copy(&barcode)]).await;
+    let item_id = copies[0].id;
+
+    let (status, hold) = app
+        .post_json(
+            "/api/v1/holds",
+            &json!({
+                "userId": reader_id.to_string(),
+                "biblioId": biblio_id.to_string(),
+                "itemId": item_id.to_string()
+            }),
+            Some(&reader_token),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "pinned shelf hold: {hold}");
+    assert_eq!(hold["status"], "to_pick", "{hold}");
+    assert_eq!(fixtures::json_id(&hold["itemId"]), item_id);
+    assert!(hold["notifiedAt"].is_null(), "{hold}");
+}
+
+#[tokio::test]
 async fn force_does_not_check_out_a_copy_to_pick_for_another_patron() {
     let Some(app) = TestApp::spawn().await else {
         return;

@@ -2,6 +2,7 @@ import type {
   ItemWithdrawal,
   WithdrawalDestination,
   WithdrawalListParams,
+  WeedingCandidateListParams,
   WithdrawalReason,
   WithdrawalWrite,
 } from '@/types';
@@ -212,6 +213,20 @@ export function addScannedWithdrawalCopy(
     return { list, duplicate: true };
   }
   return { list: [...list, next], duplicate: false };
+}
+
+/** Shared site / collection / call-number filters for the weeding desk. */
+export function toWeedingCandidateListParams(
+  filters: WithdrawalListFilters,
+  candidatePage: number,
+  perPage = 20,
+): WeedingCandidateListParams {
+  const params: WeedingCandidateListParams = { page: candidatePage, perPage };
+  if (filters.siteId) params.siteId = filters.siteId;
+  if (filters.collectionId) params.collectionId = filters.collectionId;
+  const callNumber = filters.callNumber.trim();
+  if (callNumber) params.callNumber = callNumber;
+  return params;
 }
 
 export function toWithdrawalListParams(

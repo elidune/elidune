@@ -10,7 +10,7 @@ The hold **queue** is the bibliographic record (notice). There is one reservatio
 | `itemId` | Allocation. `null` while waiting for any copy; set when staff pin a specimen or when fulfillment assigns one. |
 | `pickupSiteId` | Lives on the hold itself (not a second reservation). Transit moves the allocated copy toward this site, then the hold becomes `ready`. |
 
-`POST /api/v1/holds` with `biblioId` (OPAC / desk title hold) or `itemId` (staff pin a copy). Both create the same row type on the same biblio queue.
+`POST /api/v1/holds` with `biblioId` (OPAC / desk title hold) or `itemId` (staff pin a copy). Both create the same row type on the same biblio queue. A pinned copy that is already on the shelf is stored as `to_pick`, same as title capture.
 
 ## Shelf capture (`to_pick`)
 

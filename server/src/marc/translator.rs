@@ -11,7 +11,7 @@ use crate::{
         author::{Author, Function},
         biblio::{AudienceType, Biblio, Collection, Edition, Isbn, Serie},
         item::Item,
-        Language, MediaType,
+        Genre, Language, MediaType,
     },
 };
 
@@ -41,6 +41,23 @@ fn dewey_from_classifications(classifications: &[Classification]) -> Option<Stri
         .map(|c| c.number.trim())
         .filter(|n| !n.is_empty())
         .map(str::to_owned)
+}
+
+/// Resolve genre using the process-wide [`GenreCatalogSnapshot`] when loaded;
+/// otherwise Dewey / comics fallbacks only.
+fn genre_from_marc(record: &MarcRecord, media_type: &MediaType, dewey: Option<&str>) -> Option<Genre> {
+    if let Some(snap) = crate::services::genre_catalog::snapshot() {
+        return snap.resolve_genre(record, media_type, dewey);
+    }
+    if matches!(media_type, MediaType::Comics) {
+        return Some(Genre::LitteratureComic);
+    }
+    dewey.and_then(crate::services::genre_catalog::genre_from_dewey)
+}
+
+/// Localized form heading for MARC 655 from the genre catalog (fallback: English label key).
+fn genre_to_heading(genre: Genre, lang: Option<Language>) -> Option<String> {
+    crate::services::genre_catalog::snapshot().and_then(|snap| snap.label(genre, lang).map(str::to_owned))
 }
 
 /// Parse "vol. 5", "tome 12", "no. 3", or bare "5" → Some(5). Returns None if no digit found.
@@ -288,9 +305,10 @@ impl From<MarcRecord> for Biblio {
             })
             .collect();
 
-        // --- Subject / keywords / Dewey ---
+        // --- Subject / keywords / Dewey / genre ---
         let subject = record.subject_main().map(|s| s.to_string());
         let dewey = dewey_from_classifications(&record.indexing.classifications);
+        let genre = genre_from_marc(&record, &media_type, dewey.as_deref());
         let kws = record.keywords();
         let keywords = if kws.is_empty() { None } else { Some(kws.to_vec()) };
 
@@ -398,6 +416,7 @@ impl From<MarcRecord> for Biblio {
             title,
             subject,
             dewey,
+            genre,
             audience_type,
             lang,
             lang_orig,
@@ -653,6 +672,14 @@ impl From<&Biblio> for MarcRecord {
                 });
             }
         }
+        if let Some(genre) = item.genre {
+            if let Some(heading) = genre_to_heading(genre, item.lang) {
+                record.indexing.subjects.push(Subject {
+                    heading_type: SubjectType::Genre,
+                    value: heading,
+                });
+            }
+        }
 
         // Languages
         if let Some(ref lang) = item.lang {
@@ -762,7 +789,61 @@ pub fn marc_record_with_copies(isbn: &str, title: &str, barcodes: &[&str]) -> Ma
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::genre_catalog::{install_snapshot, GenreCatalogEntry, GenreCatalogSnapshot};
+    use std::collections::HashMap;
+    use std::sync::Arc;
     use z3950_rs::marc_rs::record::{Classification, ClassificationScheme, Indexing};
+
+    fn install_test_catalog() {
+        let mut exact = HashMap::new();
+        for (term, g) in [
+            ("romans", Genre::LitteratureFiction),
+            ("fiction", Genre::LitteratureFiction),
+            ("fiktion", Genre::LitteratureFiction),
+            ("ficcion", Genre::LitteratureFiction),
+            ("novelas", Genre::LitteratureFiction),
+            ("bandes dessinees", Genre::LitteratureComic),
+            ("comics", Genre::LitteratureComic),
+            ("comic", Genre::LitteratureComic),
+            ("manga", Genre::LitteratureComic),
+        ] {
+            exact.insert(term.to_string(), g);
+        }
+        let contains = vec![
+            ("bandes dessinees".into(), Genre::LitteratureComic),
+            ("roman".into(), Genre::LitteratureFiction),
+        ];
+        let mut labels_fiction = HashMap::new();
+        labels_fiction.insert("fr".into(), "Romans".into());
+        labels_fiction.insert("en".into(), "Fiction".into());
+        labels_fiction.insert("de".into(), "Fiktion".into());
+        labels_fiction.insert("es".into(), "Ficción".into());
+        let fiction = GenreCatalogEntry {
+            code: Genre::LitteratureFiction,
+            shelf_code: Some("ROM".into()),
+            active: true,
+            sort_order: 20,
+            labels: labels_fiction,
+            synonyms: vec![],
+        };
+        let comic = GenreCatalogEntry {
+            code: Genre::LitteratureComic,
+            shelf_code: Some("BD".into()),
+            active: true,
+            sort_order: 30,
+            labels: HashMap::new(),
+            synonyms: vec![],
+        };
+        let mut by_code = HashMap::new();
+        by_code.insert(Genre::LitteratureFiction as i16, 0);
+        by_code.insert(Genre::LitteratureComic as i16, 1);
+        install_snapshot(Arc::new(GenreCatalogSnapshot {
+            entries: vec![fiction, comic],
+            by_code,
+            exact,
+            contains,
+        }));
+    }
 
     #[test]
     fn test_extract_volume_number() {
@@ -789,10 +870,80 @@ mod tests {
 
         let biblio = Biblio::from(record);
         assert_eq!(biblio.dewey.as_deref(), Some("843.914"));
+        // Dewey 800s map to literature when no 655 genre heading is present.
+        assert_eq!(biblio.genre, Some(Genre::LitteratureLitterature));
     }
 
     #[test]
-    fn test_dewey_round_trip_to_marc_record() {
+    fn test_genre_from_marc_655_multilingual() {
+        install_test_catalog();
+        for heading in ["Romans", "Fiction", "Fiktion", "Ficción", "Novelas"] {
+            let record = MarcRecord {
+                indexing: Indexing {
+                    subjects: vec![Subject {
+                        heading_type: SubjectType::Genre,
+                        value: heading.to_string(),
+                    }],
+                    ..Default::default()
+                },
+                ..Default::default()
+            };
+            let biblio = Biblio::from(record);
+            assert_eq!(biblio.genre, Some(Genre::LitteratureFiction), "heading={heading}");
+        }
+        let snap = crate::services::genre_catalog::snapshot().expect("catalog");
+        for heading in ["Bandes dessinées", "Comics", "Comic", "Manga"] {
+            assert_eq!(snap.match_heading(heading), Some(Genre::LitteratureComic), "heading={heading}");
+        }
+    }
+
+    #[test]
+    fn test_genre_to_heading_follows_biblio_language() {
+        install_test_catalog();
+        assert_eq!(genre_to_heading(Genre::LitteratureFiction, Some(Language::French)).as_deref(), Some("Romans"));
+        assert_eq!(genre_to_heading(Genre::LitteratureFiction, Some(Language::English)).as_deref(), Some("Fiction"));
+        assert_eq!(genre_to_heading(Genre::LitteratureFiction, Some(Language::German)).as_deref(), Some("Fiktion"));
+        assert_eq!(genre_to_heading(Genre::LitteratureFiction, Some(Language::Spanish)).as_deref(), Some("Ficción"));
+        assert_eq!(genre_to_heading(Genre::LitteratureFiction, None).as_deref(), Some("Fiction"));
+    }
+
+    #[test]
+    fn test_genre_655_overrides_dewey() {
+        install_test_catalog();
+        let record = MarcRecord {
+            indexing: Indexing {
+                subjects: vec![Subject {
+                    heading_type: SubjectType::Genre,
+                    value: "Romans policiers".to_string(),
+                }],
+                classifications: vec![Classification {
+                    scheme: ClassificationScheme::Dewey,
+                    number: "843.914".to_string(),
+                }],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let biblio = Biblio::from(record);
+        assert_eq!(biblio.genre, Some(Genre::LitteratureFiction));
+    }
+
+    #[test]
+    fn test_genre_from_comics_media_type() {
+        use z3950_rs::marc_rs::record::Leader;
+        let record = MarcRecord {
+            leader: Leader {
+                record_type: RecordType::LanguageMaterial,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert_eq!(genre_from_marc(&record, &MediaType::Comics, None), Some(Genre::LitteratureComic));
+    }
+
+    #[test]
+    fn test_dewey_and_genre_round_trip_to_marc_record() {
+        install_test_catalog();
         let biblio = Biblio {
             id: None,
             media_type: MediaType::PrintedText,
@@ -800,8 +951,9 @@ mod tests {
             title: None,
             subject: None,
             dewey: Some("843.914".to_string()),
+            genre: Some(Genre::LitteratureFiction),
             audience_type: None,
-            lang: None,
+            lang: Some(Language::French),
             lang_orig: None,
             publication_date: None,
             page_extent: None,
@@ -832,5 +984,16 @@ mod tests {
 
         let record = MarcRecord::from(&biblio);
         assert_eq!(dewey_from_classifications(&record.indexing.classifications).as_deref(), Some("843.914"));
+        let genre_heading = record
+            .indexing
+            .subjects
+            .iter()
+            .find(|s| matches!(s.heading_type, SubjectType::Genre))
+            .map(|s| s.value.as_str());
+        assert_eq!(genre_heading, Some("Romans"));
+
+        let round_trip = Biblio::from(record);
+        assert_eq!(round_trip.genre, Some(Genre::LitteratureFiction));
+        assert_eq!(round_trip.dewey.as_deref(), Some("843.914"));
     }
 }

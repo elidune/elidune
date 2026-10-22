@@ -28,6 +28,26 @@ export const ACCOUNT_TYPE_RIGHT_FIELDS = [
   'weedingCancelRights',
 ] as const satisfies readonly AccountTypeRightField[];
 
+/** UI grouping for settings (every field appears exactly once). */
+export const ACCOUNT_TYPE_RIGHT_GROUPS = [
+  {
+    key: 'catalog',
+    fields: ['itemsRights', 'itemsArchiveRights', 'weedingRights', 'weedingCancelRights'],
+  },
+  {
+    key: 'circulation',
+    fields: ['loansRights', 'holdsRights', 'circulationOverrideRights'],
+  },
+  { key: 'patrons', fields: ['usersRights'] },
+  {
+    key: 'administration',
+    fields: ['settingsRights', 'eventsRights', 'acquisitionsRights'],
+  },
+] as const satisfies ReadonlyArray<{
+  key: string;
+  fields: readonly AccountTypeRightField[];
+}>;
+
 type ListedAccountTypeRight = (typeof ACCOUNT_TYPE_RIGHT_FIELDS)[number];
 type MissingAccountTypeRight = Exclude<AccountTypeRightField, ListedAccountTypeRight>;
 type AccountTypeRightsListComplete = [MissingAccountTypeRight] extends [never] ? true : never;

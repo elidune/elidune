@@ -1185,7 +1185,7 @@ export default function InventoryPage() {
                 <option value="">{t('inventory.scopeAllSites')}</option>
                 {(sitesQuery.data ?? []).map((source: Site) => (
                   <option key={source.id} value={source.id}>
-                    {source.name || source.key || `Source ${source.id}`}
+                    {source.name || source.key || source.id}
                     {source.default ? ` (${t('inventory.defaultSite')})` : ''}
                   </option>
                 ))}

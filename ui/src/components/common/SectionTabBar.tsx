@@ -14,7 +14,6 @@ export type SectionTabBarProps<T extends string = string> = {
   ariaLabel: string;
   /** Nested panels (e.g. public type editor). */
   size?: 'default' | 'compact';
-  scrollable?: boolean;
   className?: string;
 };
 
@@ -36,13 +35,10 @@ export default function SectionTabBar<T extends string>({
   onSelectTab,
   ariaLabel,
   size = 'default',
-  scrollable = false,
   className,
 }: SectionTabBarProps<T>) {
-  const gap = size === 'compact' ? 'gap-4' : 'gap-6';
-  const navClass = scrollable
-    ? `-mb-px flex ${gap} overflow-x-auto`
-    : `-mb-px flex flex-wrap ${gap}`;
+  const gap = size === 'compact' ? 'gap-x-4 gap-y-1' : 'gap-x-6 gap-y-1';
+  const navClass = `-mb-px flex flex-wrap ${gap}`;
 
   return (
     <div className={['border-b border-gray-200 dark:border-gray-700', className].filter(Boolean).join(' ')}>

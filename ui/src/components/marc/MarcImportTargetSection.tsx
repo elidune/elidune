@@ -34,9 +34,9 @@ type MarcImportTargetSectionProps =
   | ({ mode: 'catalog' } & CatalogProps)
   | ({ mode: 'depositBatch' } & DepositBatchProps);
 
-function sourceLabel(source: Site, t: (key: string) => string): string {
-  const name = source.name || source.key || `Source ${source.id}`;
-  return source.default ? `${name} (${t('importMarc.default')})` : name;
+function siteLabel(site: Site, t: (key: string) => string): string {
+  const name = site.name || site.key || site.id;
+  return site.default ? `${name} (${t('importMarc.default')})` : name;
 }
 
 export default function MarcImportTargetSection(props: MarcImportTargetSectionProps) {
@@ -48,7 +48,7 @@ export default function MarcImportTargetSection(props: MarcImportTargetSectionPr
       const only = sites[0];
       return (
         <p className="text-sm text-gray-600 dark:text-gray-300">
-          {t('deposits.site')}: {only ? sourceLabel(only, t) : variant.batchSiteId}
+          {t('deposits.site')}: {only ? siteLabel(only, t) : variant.batchSiteId}
         </p>
       );
     }
@@ -64,9 +64,9 @@ export default function MarcImportTargetSection(props: MarcImportTargetSectionPr
           className={formControlClass({ className: 'flex-1 min-w-[200px]' })}
         >
           <option value="">{t('common.select')}</option>
-          {sites.map((source) => (
-            <option key={source.id} value={String(source.id)}>
-              {sourceLabel(source, t)}
+          {sites.map((site) => (
+            <option key={site.id} value={String(site.id)}>
+              {siteLabel(site, t)}
             </option>
           ))}
         </select>
@@ -143,25 +143,30 @@ export default function MarcImportTargetSection(props: MarcImportTargetSectionPr
           <p className="text-sm text-gray-600 dark:text-gray-300">
             {t('deposits.site')}:{' '}
             {selectedDepositBatch
-              ? sites.find((source) => String(source.id) === selectedDepositBatch.siteId)?.name
+              ? sites.find((site) => String(site.id) === selectedDepositBatch.siteId)?.name
                 || selectedDepositBatch.siteId
               : '—'}
           </p>
         </div>
+      ) : sites.length <= 1 ? (
+        <p className="text-sm text-gray-600 dark:text-gray-300">
+          {t('importMarc.site')}: {sites[0] ? siteLabel(sites[0], t) : '—'}
+        </p>
       ) : (
         <div className="flex flex-wrap items-center gap-2">
-          <label className={formLabelClass({ marginBottom: false, inline: true, className: 'shrink-0' })}>
+          <label className={formLabelClass({ marginBottom: false, inline: true, className: 'shrink-0' })} htmlFor="marc-import-site">
             {t('importMarc.site')} :
           </label>
           <select
+            id="marc-import-site"
             value={variant.selectedSiteId ?? ''}
             onChange={(e) => onSourceId(e.target.value || null)}
             className={formControlClass({ className: 'flex-1 min-w-[200px]' })}
           >
             <option value="">{t('importMarc.noSite')}</option>
-            {sites.map((source) => (
-              <option key={source.id} value={source.id}>
-                {sourceLabel(source, t)}
+            {sites.map((site) => (
+              <option key={site.id} value={site.id}>
+                {siteLabel(site, t)}
               </option>
             ))}
           </select>
@@ -205,5 +210,5 @@ export function marcImportTargetRequiredMessage(
   if (variant.kind === 'depositBatch') {
     return variant.sites.length > 1 ? t('deposits.import.targetSiteRequired') : '';
   }
-  return variant.stockMode === 'deposit' ? t('deposits.import.batchRequired') : t('z3950.sourceRequired');
+  return variant.stockMode === 'deposit' ? t('deposits.import.batchRequired') : t('importMarc.siteRequired');
 }

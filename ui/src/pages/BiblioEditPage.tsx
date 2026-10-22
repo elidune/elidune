@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useParams, useNavigate, useLocation, Navigate } from 'react-router-dom';
-import { ArrowLeft, AlertCircle, RefreshCw } from 'lucide-react';
+import { AlertCircle, RefreshCw } from 'lucide-react';
 import { Button, Card } from '@/components/common';
 import { useAuth } from '@/contexts/AuthContext';
 import { canManageItems } from '@/types';
@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import BiblioEditorForm from '@/components/items/BiblioEditorForm';
 import { getApiErrorMessage } from '@/utils/apiError';
+import { navigateBack } from '@/utils/navigateBack';
 
 export default function BiblioEditPage() {
   const { id } = useParams<{ id: string }>();
@@ -58,7 +59,11 @@ export default function BiblioEditPage() {
                 <Button type="button" leftIcon={<RefreshCw className="h-4 w-4" />} onClick={() => void refetchBiblio()}>
                   {t('common.retry')}
                 </Button>
-                <Button type="button" variant="secondary" onClick={() => navigate(id ? `/biblios/${id}` : '/biblios')}>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => navigateBack(navigate, id ? `/biblios/${id}` : '/biblios')}
+                >
                   {t('common.back')}
                 </Button>
               </div>
@@ -78,22 +83,14 @@ export default function BiblioEditPage() {
   }
 
   const backToDetail = () => {
-    navigate(`/biblios/${id}`, { state: savedSearch !== undefined ? { savedSearch } : undefined });
+    navigateBack(navigate, `/biblios/${id}`);
   };
 
   return (
     <div className="pb-12">
-      <div className="sticky top-0 z-10 -mx-4 lg:-mx-6 px-4 lg:px-6 py-4 mb-6 bg-gray-50/95 dark:bg-gray-950/95 backdrop-blur border-b border-gray-200/80 dark:border-gray-800/80">
+      <div className="sticky top-0 z-10 -mx-4 -mt-4 lg:-mx-6 lg:-mt-6 px-4 pt-4 pb-4 lg:px-6 lg:pt-6 mb-6 bg-gray-50 dark:bg-gray-950 border-b border-gray-200/80 dark:border-gray-800/80">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-start sm:items-center gap-3 min-w-0">
-            <button
-              type="button"
-              onClick={backToDetail}
-              className="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-800 shrink-0"
-              aria-label={t('common.back')}
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </button>
             <div className="min-w-0">
               <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white truncate">
                 {t('items.editDocument')}

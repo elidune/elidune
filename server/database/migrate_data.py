@@ -898,7 +898,8 @@ def migrate_items(src, dst):
         is_archive, archived_timestamp, is_valid, created_at, update_at
 
     Target columns (new schema):
-        id, media_type (camelCase), isbn, title, subject, dewey, audience_type (camelCase),
+        id, media_type (camelCase), isbn, title, subject, dewey, genre (SMALLINT),
+        audience_type (camelCase),
         lang (camelCase), lang_orig (camelCase), publication_date,
         collection_id, collection_sequence_number,
         collection_volume_number, source_id, edition_id, page_extent, format,
@@ -933,7 +934,7 @@ def migrate_items(src, dst):
                    author3_ids, author3_functions,
                    serie_id, serie_vol_number,
                    collection_id, collection_number_sub, collection_vol_number,
-                   source_id, subject, public_type,
+                   source_id, genre, subject, public_type,
                    edition_id, nb_pages, format, content, addon,
                    abstract, notes, keywords, is_valid,
                    is_archive, archived_timestamp, crea_date, modif_date
@@ -948,7 +949,7 @@ def migrate_items(src, dst):
              author3_ids, author3_functions,
              serie_id, serie_vol_number,
              collection_id, collection_number_sub, collection_vol_number,
-             source_id, subject, public_type_raw,
+             source_id, genre, subject, public_type_raw,
              edition_id, nb_pages, fmt, content, addon,
              abstract_, notes, keywords, is_valid,
              is_archive, archived_timestamp, crea_date_raw, modif_date_raw) = row
@@ -992,16 +993,18 @@ def migrate_items(src, dst):
                 elif isinstance(keywords, str) and keywords.strip():
                     keywords_arr = [k.strip() for k in re.split(r'\s*,\s*', keywords) if k.strip()]
 
+            genre_val = int(genre) if genre is not None else None
+
             dst_cur.execute("""
                 INSERT INTO biblios (
-                    id, media_type, isbn, title, subject, dewey, audience_type,
+                    id, media_type, isbn, title, subject, dewey, genre, audience_type,
                     lang, lang_orig, publication_date,
                     source_id, edition_id, page_extent, format,
                     table_of_contents, accompanying_material, abstract, notes,
                     keywords, is_valid,
                     created_at, updated_at, archived_at
                 ) VALUES (
-                    %s,%s,%s,%s,%s,%s,%s,
+                    %s,%s,%s,%s,%s,%s,%s,%s,
                     %s,%s,%s,
                     %s,%s,%s,%s,
                     %s,%s,%s,%s,
@@ -1009,7 +1012,7 @@ def migrate_items(src, dst):
                     %s,%s,%s
                 ) ON CONFLICT (id) DO NOTHING
             """, (
-                iid, media_type, isbn_norm, title_for_biblio, subject, dewey, audience_type,
+                iid, media_type, isbn_norm, title_for_biblio, subject, dewey, genre_val, audience_type,
                 lang, lang_orig, publication_date,
                 source_id, edition_id, nb_pages, fmt,
                 content, addon, abstract_, notes,

@@ -35,7 +35,8 @@ pub use crate::models::dto::library_info::{LibraryInfo, LibraryUiLanguage, Updat
     )
 )]
 pub async fn get_library_info(State(state): State<crate::AppState>) -> AppResult<Json<LibraryInfo>> {
-    let info = state.services.library_info.get().await?;
+    let mut info = state.services.library_info.get().await?;
+    info.enabled_features = state.dynamic_config.read_features().enabled_flags();
     Ok(Json(info))
 }
 
@@ -60,7 +61,8 @@ pub async fn update_library_info(
 ) -> AppResult<Json<LibraryInfo>> {
     claims.require_write_settings()?;
 
-    let info = state.services.library_info.update(request).await?;
+    let mut info = state.services.library_info.update(request).await?;
+    info.enabled_features = state.dynamic_config.read_features().enabled_flags();
 
     state
         .services

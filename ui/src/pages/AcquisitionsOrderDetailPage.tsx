@@ -47,6 +47,7 @@ import {
 } from '@/utils/acquisitionDisplay';
 import { formControlClass, formLabelClass, formTextareaClass } from '@/utils/formControl';
 import { getApiErrorMessage } from '@/utils/apiError';
+import { navigateBack } from '@/utils/navigateBack';
 import { isReadyToCirculate } from '@/utils/circulationReadiness';
 
 export default function AcquisitionsOrderDetailPage() {
@@ -230,7 +231,13 @@ export default function AcquisitionsOrderDetailPage() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3">
-        <Button type="button" variant="secondary" size="sm" leftIcon={<ChevronLeft className="h-4 w-4" />} onClick={() => navigate('/acquisitions?tab=orders')}>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          leftIcon={<ChevronLeft className="h-4 w-4" />}
+          onClick={() => navigateBack(navigate, '/acquisitions?tab=orders')}
+        >
           {t('common.back')}
         </Button>
       </div>

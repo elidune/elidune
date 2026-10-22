@@ -86,6 +86,40 @@ export const FUNCTION_OPTIONS: CodeOption[] = [
   { value: 'composer', labelKey: 'codes.function.composer' },
 ];
 
+// Genre (Genre enum from server, serialized as camelCase)
+export const GENRE_OPTIONS: CodeOption[] = [
+  { value: 'unknown', labelKey: 'codes.genre.unknown' },
+  { value: 'litteratureGeneral', labelKey: 'codes.genre.litteratureGeneral' },
+  { value: 'litteratureFiction', labelKey: 'codes.genre.litteratureFiction' },
+  { value: 'litteratureComic', labelKey: 'codes.genre.litteratureComic' },
+  { value: 'litteratureTheatre', labelKey: 'codes.genre.litteratureTheatre' },
+  { value: 'litteraturePoem', labelKey: 'codes.genre.litteraturePoem' },
+  { value: 'litteraturePhilosophy', labelKey: 'codes.genre.litteraturePhilosophy' },
+  { value: 'litteratureReligion', labelKey: 'codes.genre.litteratureReligion' },
+  { value: 'litteratureSocialSciences', labelKey: 'codes.genre.litteratureSocialSciences' },
+  { value: 'litteratureLanguages', labelKey: 'codes.genre.litteratureLanguages' },
+  { value: 'litteratureSciences', labelKey: 'codes.genre.litteratureSciences' },
+  { value: 'litteratureTechnical', labelKey: 'codes.genre.litteratureTechnical' },
+  { value: 'litteratureArt', labelKey: 'codes.genre.litteratureArt' },
+  { value: 'litteratureSport', labelKey: 'codes.genre.litteratureSport' },
+  { value: 'litteratureLitterature', labelKey: 'codes.genre.litteratureLitterature' },
+  { value: 'litteratureHistory', labelKey: 'codes.genre.litteratureHistory' },
+  { value: 'litteratureGeography', labelKey: 'codes.genre.litteratureGeography' },
+  { value: 'litteratureOther', labelKey: 'codes.genre.litteratureOther' },
+  { value: 'audioUnknown', labelKey: 'codes.genre.audioUnknown' },
+  { value: 'audioJazz', labelKey: 'codes.genre.audioJazz' },
+  { value: 'audioBlues', labelKey: 'codes.genre.audioBlues' },
+  { value: 'audioRock', labelKey: 'codes.genre.audioRock' },
+  { value: 'audioWorld', labelKey: 'codes.genre.audioWorld' },
+  { value: 'audioClassical', labelKey: 'codes.genre.audioClassical' },
+  { value: 'videoUnknown', labelKey: 'codes.genre.videoUnknown' },
+  { value: 'videoFiction', labelKey: 'codes.genre.videoFiction' },
+  { value: 'videoHistory', labelKey: 'codes.genre.videoHistory' },
+  { value: 'videoArt', labelKey: 'codes.genre.videoArt' },
+  { value: 'videoDocumentary', labelKey: 'codes.genre.videoDocumentary' },
+  { value: 'videoMusical', labelKey: 'codes.genre.videoMusical' },
+];
+
 /**
  * Find the translation key for a given code value in a CodeOption array.
  * Returns the labelKey or undefined if not found.
