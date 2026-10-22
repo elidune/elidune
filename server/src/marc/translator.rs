@@ -809,10 +809,7 @@ mod tests {
         ] {
             exact.insert(term.to_string(), g);
         }
-        let contains = vec![
-            ("bandes dessinees".into(), Genre::LitteratureComic),
-            ("roman".into(), Genre::LitteratureFiction),
-        ];
+        let contains = vec![("bandes dessinees".into(), Genre::LitteratureComic), ("roman".into(), Genre::LitteratureFiction)];
         let mut labels_fiction = HashMap::new();
         labels_fiction.insert("fr".into(), "Romans".into());
         labels_fiction.insert("en".into(), "Fiction".into());
@@ -984,12 +981,7 @@ mod tests {
 
         let record = MarcRecord::from(&biblio);
         assert_eq!(dewey_from_classifications(&record.indexing.classifications).as_deref(), Some("843.914"));
-        let genre_heading = record
-            .indexing
-            .subjects
-            .iter()
-            .find(|s| matches!(s.heading_type, SubjectType::Genre))
-            .map(|s| s.value.as_str());
+        let genre_heading = record.indexing.subjects.iter().find(|s| matches!(s.heading_type, SubjectType::Genre)).map(|s| s.value.as_str());
         assert_eq!(genre_heading, Some("Romans"));
 
         let round_trip = Biblio::from(record);

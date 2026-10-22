@@ -8,22 +8,7 @@ import { validateCallNumber, type CallNumberOption } from '@/utils/callNumber';
 import { getApiErrorMessage } from '@/utils/apiError';
 import api from '@/services/api';
 import type { Site } from '@/types';
-
-export type ItemQuickCreateValues = {
-  barcode: string;
-  callNumber: string;
-  siteId: string;
-  volumeDesignation: string;
-  borrowable: 'true' | 'false';
-};
-
-export const emptyItemQuickCreateValues = (): ItemQuickCreateValues => ({
-  barcode: '',
-  callNumber: '',
-  siteId: '',
-  volumeDesignation: '',
-  borrowable: 'true',
-});
+import { emptyItemQuickCreateValues, type ItemQuickCreateValues } from '@/components/items/itemQuickCreateValues';
 
 function defaultSiteIdFromList(sites: Site[]): string {
   return sites.find((s) => s.default)?.id ?? sites[0]?.id ?? '';

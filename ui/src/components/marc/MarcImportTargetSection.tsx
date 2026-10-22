@@ -203,12 +203,3 @@ export default function MarcImportTargetSection(props: MarcImportTargetSectionPr
   );
 }
 
-export function marcImportTargetRequiredMessage(
-  variant: MarcImportTargetVariant,
-  t: (key: string) => string,
-): string {
-  if (variant.kind === 'depositBatch') {
-    return variant.sites.length > 1 ? t('deposits.import.targetSiteRequired') : '';
-  }
-  return variant.stockMode === 'deposit' ? t('deposits.import.batchRequired') : t('importMarc.siteRequired');
-}

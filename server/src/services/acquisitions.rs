@@ -10,8 +10,7 @@ use crate::{
         acquisition::{
             AcquisitionFund, CreateFund, CreateOrderLine, CreatePurchaseOrder, CreatePurchaseSuggestion, CreateVendor, FundQuery, PurchaseOrder, PurchaseOrderDetail, PurchaseOrderLine,
             PurchaseOrderQuery, PurchaseSuggestion, PurchaseSuggestionQuery, ReceiptLineResult, ReceiveItemSpec, ReceiveOrderLine, ReceivePurchaseOrder, ReceivePurchaseOrderResult,
-            ReviewPurchaseSuggestion,
-            UpdateFund, UpdateOrderLine, UpdatePurchaseOrder, UpdateVendor, Vendor, VendorQuery,
+            ReviewPurchaseSuggestion, UpdateFund, UpdateOrderLine, UpdatePurchaseOrder, UpdateVendor, Vendor, VendorQuery,
         },
         biblio::{Biblio, Isbn, MediaType},
         fine::Cents,
@@ -311,12 +310,7 @@ impl AcquisitionsService {
         self.repository.suggestions_refuse(id, reviewed_by, data).await
     }
 
-    async fn ensure_purchase_order_closure_pricing(
-        &self,
-        order_id: i64,
-        detail: &PurchaseOrderDetail,
-        data: &ReceivePurchaseOrder,
-    ) -> AppResult<()> {
+    async fn ensure_purchase_order_closure_pricing(&self, order_id: i64, detail: &PurchaseOrderDetail, data: &ReceivePurchaseOrder) -> AppResult<()> {
         for req in &data.lines {
             let line = detail
                 .lines

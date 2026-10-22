@@ -563,7 +563,7 @@ async fn notice_timestamp(app: &TestApp, user_id: i64) -> Option<chrono::DateTim
 fn token_after(text: &str, marker: &str) -> String {
     let start = text.find(marker).expect("marker") + marker.len();
     let rest = &text[start..];
-    let end = rest.find(|ch: char| ch == '"' || ch == '\\' || ch == '<' || ch == ' ' || ch == '\n' || ch == '>').unwrap_or(rest.len());
+    let end = rest.find(|ch| ['"', '\\', '<', ' ', '\n', '>'].contains(&ch)).unwrap_or(rest.len());
     rest[..end].to_string()
 }
 

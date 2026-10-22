@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { rateLimitWaitMessage } from '@/utils/apiError';
 import { Link, useNavigate } from 'react-router-dom';
+import LegalModalLink from '@/components/legal/LegalModalLink';
 import { useTranslation } from 'react-i18next';
 import {
   BookOpen,
@@ -356,27 +357,27 @@ export default function Layout({ children }: LayoutProps) {
             <span className="font-mono">UI v{uiVersion}</span>
             <span className="font-mono">Server v{serverVersion ?? '—'}</span>
             <span className="flex-1" />
-            <Link
-              to="/about"
+            <LegalModalLink
+              modal="about"
               className="hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
             >
               {t('nav.about')}
-            </Link>
-            <Link
-              to="/privacy"
+            </LegalModalLink>
+            <LegalModalLink
+              modal="privacy"
               className="hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
             >
               {t('nav.privacy')}
-            </Link>
+            </LegalModalLink>
           </div>
           <div className="text-center mt-1">
             {t('common.poweredBy')}{' '}
-            <Link
-              to="/about"
+            <LegalModalLink
+              modal="about"
               className="font-semibold text-amber-600 dark:text-amber-400 hover:underline transition-colors"
             >
               Elidune
-            </Link>
+            </LegalModalLink>
           </div>
         </footer>
       </div>

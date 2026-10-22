@@ -36,7 +36,7 @@ async fn active_barcode_unique_archived_may_duplicate() {
     assert_eq!(status, StatusCode::CREATED, "{first}");
     let first_id = fixtures::json_id(&first["biblio"]["items"][0]["id"]);
 
-    app.delete_with_auth(&format!("/api/v1/items/{first_id}"), &token).await.0;
+    app.delete_with_auth(&format!("/api/v1/items/{first_id}"), &token).await;
 
     let stored: String = sqlx::query_scalar("SELECT barcode FROM items WHERE id = $1")
         .bind(first_id)

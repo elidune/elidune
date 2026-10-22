@@ -3,8 +3,8 @@
 use crate::{
     error::{AppError, AppResult},
     models::deposit::{
-        CreateDepositBatch, CreateLender, DepositBatch, DepositBatchDetail, DepositBatchItem, DepositBatchItemsQuery, DepositBatchListQuery, DepositCloseReport, DepositLoss, DepositLossListQuery,
-        DepositGlobalScanOut, DepositScanOut, DepositScanOutRequest, Lender, MarkDepositLossNotified, UpdateDepositBatch, UpdateLender,
+        CreateDepositBatch, CreateLender, DepositBatch, DepositBatchDetail, DepositBatchItem, DepositBatchItemsQuery, DepositBatchListQuery, DepositCloseReport, DepositGlobalScanOut, DepositLoss,
+        DepositLossListQuery, DepositScanOut, DepositScanOutRequest, Lender, MarkDepositLossNotified, UpdateDepositBatch, UpdateLender,
     },
     services::audit,
 };
@@ -317,12 +317,7 @@ pub async fn start_deposit_return(State(state): State<crate::AppState>, Authenti
         (status = 422, description = "Batch is closed (`deposit_batch_not_active`)", body = crate::error::ErrorResponse)
     )
 )]
-pub async fn cancel_deposit_return(
-    State(state): State<crate::AppState>,
-    AuthenticatedUser(claims): AuthenticatedUser,
-    ClientIp(ip): ClientIp,
-    Path(id): Path<i64>,
-) -> AppResult<Json<DepositBatch>> {
+pub async fn cancel_deposit_return(State(state): State<crate::AppState>, AuthenticatedUser(claims): AuthenticatedUser, ClientIp(ip): ClientIp, Path(id): Path<i64>) -> AppResult<Json<DepositBatch>> {
     claims.require_write_items()?;
     let batch = state.services.deposits.cancel_return(id).await?;
     state.services.audit.log(

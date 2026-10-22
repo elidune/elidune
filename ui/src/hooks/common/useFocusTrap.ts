@@ -47,9 +47,15 @@ export function useFocusTrap({
   skipCloseControl = false,
 }: UseFocusTrapOptions) {
   const onEscapeRef = useRef(onEscape);
-  onEscapeRef.current = onEscape;
   const shouldHandleRef = useRef(shouldHandle);
-  shouldHandleRef.current = shouldHandle;
+
+  useEffect(() => {
+    onEscapeRef.current = onEscape;
+  }, [onEscape]);
+
+  useEffect(() => {
+    shouldHandleRef.current = shouldHandle;
+  }, [shouldHandle]);
 
   useEffect(() => {
     if (!enabled) return;

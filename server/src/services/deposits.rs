@@ -11,9 +11,7 @@ use crate::{
             CreateDepositBatch, CreateLender, DepositBatch, DepositBatchDetail, DepositBatchItem, DepositBatchStatus, DepositCopyState, DepositLoss, Lender, NotifiedOn, UpdateDepositBatch,
             UpdateLender,
         },
-        dto::deposit_import::{
-            DepositDuplicateAction, DepositDuplicateConflict, DepositDuplicateConflictKind, DepositDuplicatePolicyRuntime, DepositDuplicateScanReport,
-        },
+        dto::deposit_import::{DepositDuplicateAction, DepositDuplicateConflict, DepositDuplicateConflictKind, DepositDuplicatePolicyRuntime, DepositDuplicateScanReport},
     },
     repository::Repository,
     services::{
@@ -251,12 +249,7 @@ impl DepositsService {
     }
 
     /// Scan cached MARC copies for lender-barcode conflicts before import.
-    pub async fn scan_marc_duplicates(
-        &self,
-        batch_id: i64,
-        batch: &DepositBatch,
-        records: &[(String, Biblio)],
-    ) -> AppResult<DepositDuplicateScanReport> {
+    pub async fn scan_marc_duplicates(&self, batch_id: i64, batch: &DepositBatch, records: &[(String, Biblio)]) -> AppResult<DepositDuplicateScanReport> {
         let mut conflicts = Vec::new();
         for (record_key, biblio) in records {
             conflicts.extend(self.scan_biblio_duplicates(record_key, biblio, batch).await?);
@@ -320,12 +313,7 @@ impl DepositsService {
     /// Attach copies to the active record with the same ISBN, or create the record.
     ///
     /// The bibliographic record is not modified when the ISBN already exists.
-    pub async fn import_marc_record(
-        &self,
-        mut biblio: Biblio,
-        batch: &DepositBatch,
-        policy: &mut Option<DepositDuplicatePolicyRuntime>,
-    ) -> AppResult<DepositMarcRecordOutcome> {
+    pub async fn import_marc_record(&self, mut biblio: Biblio, batch: &DepositBatch, policy: &mut Option<DepositDuplicatePolicyRuntime>) -> AppResult<DepositMarcRecordOutcome> {
         use super::item_barcode::allocate_local_item_barcode;
 
         let mut report = DepositImportCopyReport::default();
@@ -394,9 +382,7 @@ impl DepositsService {
                         pending.push(DepositImportPending {
                             item,
                             lender_barcode,
-                            action: PendingCopyAction::OverwriteActive {
-                                item_id: info.existing_item_id,
-                            },
+                            action: PendingCopyAction::OverwriteActive { item_id: info.existing_item_id },
                         });
                         continue;
                     }
@@ -627,11 +613,7 @@ struct DepositImportPending {
 }
 
 fn report_has_entries(report: &DepositImportCopyReport) -> bool {
-    !report.created.is_empty()
-        || !report.reactivated.is_empty()
-        || !report.relabeled.is_empty()
-        || !report.overwritten.is_empty()
-        || !report.refused.is_empty()
+    !report.created.is_empty() || !report.reactivated.is_empty() || !report.relabeled.is_empty() || !report.overwritten.is_empty() || !report.refused.is_empty()
 }
 
 fn is_unique_violation(error: &AppError) -> bool {

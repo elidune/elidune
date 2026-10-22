@@ -13,11 +13,11 @@ import BiblioEditorForm, {
   type BiblioCatalogDraft,
   type CreateBiblioPayload,
 } from '@/components/items/BiblioEditorForm';
+import { ItemQuickCreateDraftPanel } from '@/components/items/ItemQuickCreateForm';
 import {
   emptyItemQuickCreateValues,
-  ItemQuickCreateDraftPanel,
   type ItemQuickCreateValues,
-} from '@/components/items/ItemQuickCreateForm';
+} from '@/components/items/itemQuickCreateValues';
 import { getApiErrorMessage } from '@/utils/apiError';
 import { navigateBack } from '@/utils/navigateBack';
 import { formatIsbnDisplay } from '@/utils/isbnDisplay';

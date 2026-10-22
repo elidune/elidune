@@ -663,14 +663,7 @@ async fn fully_received_order_requires_price_or_deferral_on_every_copy() {
         )
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{blocked}");
-    assert!(
-        blocked["message"]
-            .as_str()
-            .unwrap_or_default()
-            .to_lowercase()
-            .contains("fully receive"),
-        "{blocked}"
-    );
+    assert!(blocked["message"].as_str().unwrap_or_default().to_lowercase().contains("fully receive"), "{blocked}");
 
     let (status, received) = app
         .post_json(

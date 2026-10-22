@@ -227,19 +227,21 @@ function installDom(): () => void {
   g.document = doc;
   g.HTMLIFrameElement = class HTMLIFrameElement {};
   g.IS_REACT_ACT_ENVIRONMENT = true;
-  if (!had.localStorage) {
-    g.localStorage = {
-      getItem: (key: string) => memory.get(key) ?? null,
-      setItem: (key: string, value: string) => {
-        memory.set(key, value);
-      },
-      removeItem: (key: string) => {
-        memory.delete(key);
-      },
-      clear: () => {
-        memory.clear();
-      },
-    };
+  const storage = {
+    getItem: (key: string) => memory.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      memory.set(key, value);
+    },
+    removeItem: (key: string) => {
+      memory.delete(key);
+    },
+    clear: () => {
+      memory.clear();
+    },
+  };
+  // Node may expose a broken `localStorage` stub; always use an in-memory store for these tests.
+  if (!had.localStorage || typeof (g.localStorage as typeof storage | undefined)?.getItem !== 'function') {
+    g.localStorage = storage;
   }
   g.matchMedia = (query: string) => ({
     matches: false,

@@ -35,9 +35,7 @@ pub fn marc_upload_encoding_from_param(value: &str) -> AppResult<MarcFileEncodin
         "iso8859-2" | "iso-8859-2" => Ok(MarcFileEncoding::Other(encoding_rs::ISO_8859_2)),
         "iso8859-3" | "iso-8859-3" => Ok(MarcFileEncoding::Other(encoding_rs::ISO_8859_3)),
         "iso8859-5" | "iso-8859-5" => Ok(MarcFileEncoding::Other(encoding_rs::ISO_8859_5)),
-        other => Err(AppError::Validation(format!(
-            "encoding must be utf8, marc8, iso5426, iso8859-2, iso8859-3, or iso8859-5 (got {other})"
-        ))),
+        other => Err(AppError::Validation(format!("encoding must be utf8, marc8, iso5426, iso8859-2, iso8859-3, or iso8859-5 (got {other})"))),
     }
 }
 
@@ -669,10 +667,7 @@ mod encoding_param_tests {
     #[test]
     fn maps_known_params() {
         assert!(matches!(marc_upload_encoding_from_param("marc8").unwrap(), MarcFileEncoding::Marc8));
-        assert!(matches!(
-            marc_upload_encoding_from_param("iso8859-2").unwrap(),
-            MarcFileEncoding::Other(_)
-        ));
+        assert!(matches!(marc_upload_encoding_from_param("iso8859-2").unwrap(), MarcFileEncoding::Other(_)));
     }
 
     #[test]

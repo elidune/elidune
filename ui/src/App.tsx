@@ -43,8 +43,6 @@ import {
   EventsPage,
   UnsubscribeEventsPage,
   PublicEventsPage,
-  AboutPage,
-  PrivacyPage,
   AcquisitionsPage,
   AcquisitionsOrderDetailPage,
 } from '@/pages';
@@ -53,6 +51,10 @@ import { useLibrary } from '@/contexts/LibraryContext';
 import { effectiveStaffAccess, isFeatureEnabled, type FeatureKey } from '@/utils/featureAccess';
 import { readerRecordFallback, type StaffAccess } from '@/utils/staffAccess';
 import { FirstSetupGate } from '@/components/first-setup/FirstSetupGate';
+import LegalInfoModalHost, {
+  LegalModalAboutRedirect,
+  LegalModalPrivacyRedirect,
+} from '@/components/legal/LegalInfoModalHost';
 
 const UserDetailPage = lazy(() => import('@/pages/UserDetailPage'));
 const StatsPage = lazy(() => import('@/pages/StatsPage'));
@@ -581,8 +583,8 @@ function AppRoutes() {
         }
       />
 
-      <Route path="/about" element={<AboutPage />} />
-      <Route path="/privacy" element={<PrivacyPage />} />
+      <Route path="/about" element={<LegalModalAboutRedirect />} />
+      <Route path="/privacy" element={<LegalModalPrivacyRedirect />} />
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
@@ -604,6 +606,7 @@ export default function App() {
                       <Suspense fallback={<FullPageSpinner />}>
                         <AppRoutes />
                       </Suspense>
+                      <LegalInfoModalHost />
                       <ToastContainer />
                     </FirstSetupGate>
                   </BrowserRouter>

@@ -74,12 +74,7 @@ impl GenreCatalogSnapshot {
     pub fn label(&self, genre: Genre, lang: Option<Language>) -> Option<&str> {
         let entry = self.get(genre)?;
         let key = language_key(lang.unwrap_or(Language::English));
-        entry
-            .labels
-            .get(key)
-            .or_else(|| entry.labels.get("en"))
-            .or_else(|| entry.labels.values().next())
-            .map(String::as_str)
+        entry.labels.get(key).or_else(|| entry.labels.get("en")).or_else(|| entry.labels.values().next()).map(String::as_str)
     }
 
     #[must_use]
@@ -207,26 +202,20 @@ impl GenreCatalogService {
     async fn load(&self) -> AppResult<GenreCatalogSnapshot> {
         let pool = self.repository.pool();
 
-        let genre_rows = sqlx::query_as::<_, (i16, Option<String>, bool, i32)>(
-            r#"SELECT code, shelf_code, active, sort_order FROM genres ORDER BY sort_order, code"#,
-        )
-        .fetch_all(pool)
-        .await
-        .map_err(|e| AppError::Internal(format!("load genres: {e}")))?;
+        let genre_rows = sqlx::query_as::<_, (i16, Option<String>, bool, i32)>(r#"SELECT code, shelf_code, active, sort_order FROM genres ORDER BY sort_order, code"#)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| AppError::Internal(format!("load genres: {e}")))?;
 
-        let label_rows = sqlx::query_as::<_, (i16, String, String)>(
-            r#"SELECT genre_code, language, label FROM genre_labels"#,
-        )
-        .fetch_all(pool)
-        .await
-        .map_err(|e| AppError::Internal(format!("load genre_labels: {e}")))?;
+        let label_rows = sqlx::query_as::<_, (i16, String, String)>(r#"SELECT genre_code, language, label FROM genre_labels"#)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| AppError::Internal(format!("load genre_labels: {e}")))?;
 
-        let syn_rows = sqlx::query_as::<_, (i16, String, String, String)>(
-            r#"SELECT genre_code, term, term_normalized, match_kind FROM genre_synonyms"#,
-        )
-        .fetch_all(pool)
-        .await
-        .map_err(|e| AppError::Internal(format!("load genre_synonyms: {e}")))?;
+        let syn_rows = sqlx::query_as::<_, (i16, String, String, String)>(r#"SELECT genre_code, term, term_normalized, match_kind FROM genre_synonyms"#)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| AppError::Internal(format!("load genre_synonyms: {e}")))?;
 
         let mut labels_by_code: HashMap<i16, HashMap<String, String>> = HashMap::new();
         for (code, lang, label) in label_rows {
@@ -265,12 +254,7 @@ impl GenreCatalogService {
             });
         }
 
-        Ok(GenreCatalogSnapshot {
-            entries,
-            by_code,
-            exact,
-            contains,
-        })
+        Ok(GenreCatalogSnapshot { entries, by_code, exact, contains })
     }
 }
 

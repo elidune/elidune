@@ -73,7 +73,6 @@ export default function CallNumberField({
 
     const preferred = suggestions[0]!.value;
     if (value === preferred) return;
-    setForceCustom(false);
     onChange(preferred);
   }, [suggestions, value, disabled, onChange, forceCustom]);
 

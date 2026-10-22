@@ -963,9 +963,7 @@ fn plan_new_batch(command: &ReclassifyCommand) -> Result<NewBatch, ReclassifyFai
     let arrived_on = command.received_on.unwrap_or_else(|| Utc::now().date_naive());
     if let Some(return_due_on) = command.return_due_on {
         if return_due_on < arrived_on {
-            return Err(ReclassifyFailure::invalid(
-                "return-due-on must be on or after received-on (today when --received-on is omitted)",
-            ));
+            return Err(ReclassifyFailure::invalid("return-due-on must be on or after received-on (today when --received-on is omitted)"));
         }
     }
     Ok(NewBatch {
@@ -1260,16 +1258,7 @@ fn render_text(report: &Report) -> String {
     push_line(&mut out, format!("batch_id={}", report.batch_id.map(|id| id.to_string()).unwrap_or_default()));
     push_line(&mut out, format!("site_id={}", report.site_id));
     push_line(&mut out, format!("arrived_on={}", report.arrived_on));
-    push_line(
-        &mut out,
-        format!(
-            "return_due_on={}",
-            report
-                .return_due_on
-                .map(|date| date.to_string())
-                .unwrap_or_default()
-        ),
-    );
+    push_line(&mut out, format!("return_due_on={}", report.return_due_on.map(|date| date.to_string()).unwrap_or_default()));
     for line in &report.items {
         push_line(&mut out, format_line(line));
     }

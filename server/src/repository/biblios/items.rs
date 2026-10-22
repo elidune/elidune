@@ -668,15 +668,7 @@ impl Repository {
     /// Replace fields on an active copy during deposit MARC import (overwrite duplicate).
     #[allow(clippy::too_many_arguments)]
     #[tracing::instrument(skip(self, item), err)]
-    pub async fn items_deposit_overwrite_from_import(
-        &self,
-        item_id: i64,
-        biblio_id: i64,
-        deposit_batch_id: i64,
-        site_id: i64,
-        lender_barcode: &str,
-        item: &Item,
-    ) -> AppResult<Item> {
+    pub async fn items_deposit_overwrite_from_import(&self, item_id: i64, biblio_id: i64, deposit_batch_id: i64, site_id: i64, lender_barcode: &str, item: &Item) -> AppResult<Item> {
         let now = Utc::now();
         let public_note = note_stored_value(item.public_note.clone());
         let internal_note = note_stored_value(item.internal_note.clone());

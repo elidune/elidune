@@ -14,6 +14,7 @@ use utoipa::ToSchema;
 use crate::{
     error::{AppError, AppResult},
     models::catalog_view::{project_borrower, sees_internal_catalog, BiblioPublicView, BiblioShortPublic, BiblioShortStaff, BiblioStaffView, ItemPublicView, ItemStaffView},
+    models::dto::deposit_import::{DepositDuplicateAction, DepositDuplicatePolicy, DepositDuplicateScanReport, ScanDepositDuplicatesQuery},
     models::task::TaskKind,
     models::user::Rights,
     models::{
@@ -21,7 +22,6 @@ use crate::{
         import_report::ImportReport,
         item::Item,
     },
-    models::dto::deposit_import::{DepositDuplicateAction, DepositDuplicatePolicy, DepositDuplicateScanReport, ScanDepositDuplicatesQuery},
     services::{
         audit::{self},
         marc::{EnqueueResult, MarcBatchInfo},
@@ -390,11 +390,7 @@ pub async fn load_marc(
     }
 
     let file_encoding = crate::services::marc::resolve_marc_upload_encoding(query.encoding.as_deref())?;
-    let enqueue_result = state
-        .services
-        .marc
-        .enqueue_unimarc_batch(&data, file_encoding)
-        .await?;
+    let enqueue_result = state.services.marc.enqueue_unimarc_batch(&data, file_encoding).await?;
 
     state.services.audit.log(
         audit::event::IMPORT_MARC_UPLOAD,
@@ -437,11 +433,7 @@ pub async fn scan_deposit_marc_duplicates(
 ) -> AppResult<Json<DepositDuplicateScanReport>> {
     crate::features::require_feature(&state, crate::features::Feature::ImportIso)?;
     claims.require_write_items()?;
-    let report = state
-        .services
-        .marc
-        .scan_deposit_duplicates(params.batch_id, params.deposit_batch_id, params.record_id)
-        .await?;
+    let report = state.services.marc.scan_deposit_duplicates(params.batch_id, params.deposit_batch_id, params.record_id).await?;
     Ok(Json(report))
 }
 

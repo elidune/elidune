@@ -20,6 +20,7 @@ import { useLibraryInfoQuery, useUpdateLibraryInfoMutation } from '@/hooks/commo
 import { LANGUAGE_NAMES, PUBLIC_LANGUAGE_OPTIONS } from '@/locales';
 import api from '@/services/api';
 import { getApiErrorMessage, libraryInfoLanguageFieldError, libraryInfoTimezoneFieldError } from '@/utils/apiError';
+import { deferFromEffect } from '@/utils/deferFromEffect';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 import { libraryLanguageChoice, libraryLanguageForUpdate } from '@/utils/uiLanguage';
 import {
@@ -402,9 +403,10 @@ function HoursTab() {
   const [deletingClosure, setDeletingClosure] = useState<string | null>(null);
 
   useEffect(() => {
-    if (periods.length > 0 && expandedPeriods.size === 0) {
+    if (periods.length === 0 || expandedPeriods.size > 0) return;
+    return deferFromEffect(() => {
       setExpandedPeriods(new Set(periods.map((p) => p.id)));
-    }
+    });
   }, [periods, expandedPeriods.size]);
 
   const refreshScheduleAdmin = async () => {
@@ -496,7 +498,7 @@ function HoursTab() {
     }
   };
 
-  const deleteSlot = async (slotId: string, _periodId: string) => {
+  const deleteSlot = async (slotId: string) => {
     setDeletingSlot(slotId);
     try {
       await api.deleteScheduleSlot(slotId);
@@ -664,7 +666,7 @@ function HoursTab() {
                                   >
                                     {slot.openTime} – {slot.closeTime}
                                     <button
-                                      onClick={() => deleteSlot(slot.id, period.id)}
+                                      onClick={() => deleteSlot(slot.id)}
                                       disabled={deletingSlot === slot.id}
                                       className="ml-0.5 rounded-full p-0.5 hover:bg-indigo-200 dark:hover:bg-indigo-700 transition-colors disabled:opacity-50"
                                     >

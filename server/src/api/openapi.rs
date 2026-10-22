@@ -6,8 +6,8 @@ use utoipa::{Modify, OpenApi};
 use utoipa_swagger_ui::SwaggerUi;
 
 use crate::api::{
-    account_types, acquisitions, admin_config, audit, auth, batch, biblios, collections, deposits, email_templates, equipment, events, fines, first_setup, genres, health, holds, inventory,
-    items, library_info, loans, maintenance, metrics, opac, public_types, schedules, series, sites, stats, suggestions, tasks, transits, users, visitor_counts, withdrawals, z3950,
+    account_types, acquisitions, admin_config, audit, auth, batch, biblios, collections, deposits, email_templates, equipment, events, fines, first_setup, genres, health, holds, inventory, items,
+    library_info, loans, maintenance, metrics, opac, public_types, schedules, series, sites, stats, suggestions, tasks, transits, users, visitor_counts, withdrawals, z3950,
 };
 
 #[derive(OpenApi)]

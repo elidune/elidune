@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import LegalModalLink from '@/components/legal/LegalModalLink';
 import { useTranslation } from 'react-i18next';
 import { useLibrary } from '@/contexts/LibraryContext';
 
@@ -33,12 +34,12 @@ export default function PublicPageChrome({ children }: PublicPageChromeProps) {
       <footer className="shrink-0 border-t border-gray-200 dark:border-gray-800 py-3 px-4 text-xs text-gray-400 dark:text-gray-500">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-4 gap-y-1">
           <span className="flex-1" />
-          <Link to="/about" className="hover:text-gray-600 dark:hover:text-gray-300">
+          <LegalModalLink modal="about" className="hover:text-gray-600 dark:hover:text-gray-300">
             {t('nav.about')}
-          </Link>
-          <Link to="/privacy" className="hover:text-gray-600 dark:hover:text-gray-300">
+          </LegalModalLink>
+          <LegalModalLink modal="privacy" className="hover:text-gray-600 dark:hover:text-gray-300">
             {t('nav.privacy')}
-          </Link>
+          </LegalModalLink>
         </div>
       </footer>
     </div>

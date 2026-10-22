@@ -610,9 +610,7 @@ fn apply_circulation_readiness(item: &mut Item, existing: &Item) -> AppResult<()
     }
 
     if item.borrowable && !existing.borrowable {
-        return Err(AppError::BusinessRule(
-            "Item cannot be made borrowable until barcode and site are set".into(),
-        ));
+        return Err(AppError::BusinessRule("Item cannot be made borrowable until barcode and site are set".into()));
     }
     if !existing.borrowable {
         item.borrowable = false;

@@ -384,18 +384,14 @@ async fn close_archives_without_delete_and_reports_missing_and_loans() {
     assert_eq!(status, StatusCode::OK, "{scanned}");
     assert_eq!(scanned["alreadyScanned"], false);
 
-    let (status, global) = app
-        .post_json("/api/v1/deposit-batches/scan-out", &json!({"barcode": items[1].1}), Some(&token))
-        .await;
+    let (status, global) = app.post_json("/api/v1/deposit-batches/scan-out", &json!({"barcode": items[1].1}), Some(&token)).await;
     assert_eq!(status, StatusCode::OK, "{global}");
     assert_eq!(global["depositBatchId"], batch_id.to_string(), "{global}");
     assert_eq!(global["alreadyScanned"], false, "{global}");
     assert!(global["batchReference"].is_string(), "{global}");
     assert!(global["lenderName"].is_string(), "{global}");
 
-    let (status, global_again) = app
-        .post_json("/api/v1/deposit-batches/scan-out", &json!({"barcode": items[1].1}), Some(&token))
-        .await;
+    let (status, global_again) = app.post_json("/api/v1/deposit-batches/scan-out", &json!({"barcode": items[1].1}), Some(&token)).await;
     assert_eq!(status, StatusCode::OK, "{global_again}");
     assert_eq!(global_again["alreadyScanned"], true, "{global_again}");
     assert_eq!(global_again["depositReturnedAt"], global["depositReturnedAt"], "{global_again}");
@@ -1112,11 +1108,7 @@ async fn cancel_deposit_return_restores_active_and_clears_scan_out() {
     let (status, _) = app.post_empty(&format!("/api/v1/deposit-batches/{batch_id}/start-return"), Some(&token)).await;
     assert_eq!(status, StatusCode::OK);
     let (status, scanned) = app
-        .post_json(
-            &format!("/api/v1/deposit-batches/{batch_id}/scan-out"),
-            &json!({"barcode": items[0].1}),
-            Some(&token),
-        )
+        .post_json(&format!("/api/v1/deposit-batches/{batch_id}/scan-out"), &json!({"barcode": items[0].1}), Some(&token))
         .await;
     assert_eq!(status, StatusCode::OK, "{scanned}");
 
@@ -1137,11 +1129,7 @@ async fn cancel_deposit_return_restores_active_and_clears_scan_out() {
     assert_eq!(noop["status"], "active", "{noop}");
 
     let (status, scan_again) = app
-        .post_json(
-            &format!("/api/v1/deposit-batches/{batch_id}/scan-out"),
-            &json!({"barcode": items[0].1}),
-            Some(&token),
-        )
+        .post_json(&format!("/api/v1/deposit-batches/{batch_id}/scan-out"), &json!({"barcode": items[0].1}), Some(&token))
         .await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{scan_again}");
     assert_error(&scan_again, "deposit_batch_not_returning");

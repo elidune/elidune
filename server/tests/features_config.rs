@@ -37,9 +37,7 @@ async fn disabling_purchase_suggestions_blocks_api_and_updates_library_info() {
     let mut value = serde_json::to_value(app.state.dynamic_config.read_features()).unwrap();
     value["purchase_suggestions"] = json!(false);
 
-    let (status, body) = app
-        .put_json("/api/v1/admin/config/features", &json!({ "value": value }), Some(&admin_token))
-        .await;
+    let (status, body) = app.put_json("/api/v1/admin/config/features", &json!({ "value": value }), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::OK, "put features: {body}");
     assert_eq!(body["value"]["purchase_suggestions"], false);
 
@@ -48,20 +46,12 @@ async fn disabling_purchase_suggestions_blocks_api_and_updates_library_info() {
     assert_eq!(info["enabledFeatures"]["purchaseSuggestions"], false);
     assert_eq!(info["enabledFeatures"]["acquisitions"], true);
 
-    let (status, body) = app
-        .post_json(
-            "/api/v1/suggestions",
-            &json!({ "title": "Hidden Book", "author": "Nobody" }),
-            Some(&admin_token),
-        )
-        .await;
+    let (status, body) = app.post_json("/api/v1/suggestions", &json!({ "title": "Hidden Book", "author": "Nobody" }), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
     assert_eq!(body["code"], "feature_disabled");
 
     value["purchase_suggestions"] = json!(true);
-    let (status, _) = app
-        .put_json("/api/v1/admin/config/features", &json!({ "value": value }), Some(&admin_token))
-        .await;
+    let (status, _) = app.put_json("/api/v1/admin/config/features", &json!({ "value": value }), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::OK);
 }
 
@@ -76,9 +66,7 @@ async fn disabling_acquisitions_blocks_vendors_list() {
     let mut value = serde_json::to_value(app.state.dynamic_config.read_features()).unwrap();
     value["acquisitions"] = json!(false);
 
-    let (status, body) = app
-        .put_json("/api/v1/admin/config/features", &json!({ "value": value }), Some(&admin_token))
-        .await;
+    let (status, body) = app.put_json("/api/v1/admin/config/features", &json!({ "value": value }), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::OK, "put features: {body}");
 
     let (status, body) = app.get_json_with_auth("/api/v1/acquisitions/vendors", &admin_token).await;
@@ -86,8 +74,6 @@ async fn disabling_acquisitions_blocks_vendors_list() {
     assert_eq!(body["code"], "feature_disabled");
 
     value["acquisitions"] = json!(true);
-    let (status, _) = app
-        .put_json("/api/v1/admin/config/features", &json!({ "value": value }), Some(&admin_token))
-        .await;
+    let (status, _) = app.put_json("/api/v1/admin/config/features", &json!({ "value": value }), Some(&admin_token)).await;
     assert_eq!(status, StatusCode::OK);
 }

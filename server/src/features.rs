@@ -27,7 +27,6 @@ fn default_overridable() -> bool {
     true
 }
 
-
 /// Runtime feature toggles for optional LMS modules.
 ///
 /// TOML and `PUT /admin/config/features` use **snake_case** (same as reminders/holds).
@@ -243,7 +242,6 @@ pub fn gated(router: axum::Router<AppState>, state: AppState, feature: Feature) 
         Feature::VisitorCounts => router.route_layer(axum::middleware::from_fn_with_state(state, gate_visitor_counts)),
     }
 }
-
 
 #[cfg(test)]
 mod tests {

@@ -279,7 +279,7 @@ async fn closure_on(app: &TestApp, date: NaiveDate, site_id: Option<i64>, reason
         .schedules_create_closure(&CreateScheduleClosure {
             closure_date: date.to_string(),
             reason: Some(reason.into()),
-            site_id: site_id,
+            site_id,
         })
         .await
         .expect("create closure")

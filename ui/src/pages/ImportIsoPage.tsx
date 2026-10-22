@@ -21,7 +21,7 @@ import {
   CheckCircle,
 } from 'lucide-react';
 import { Card, Button, Badge, Modal, BarcodeScanField, SectionTabBar } from '@/components/common';
-import MarcImportTargetSection, { marcImportTargetRequiredMessage } from '@/components/marc/MarcImportTargetSection';
+import MarcImportTargetSection from '@/components/marc/MarcImportTargetSection';
 import DepositMarcDuplicateDialog, {
   type DepositMarcDuplicateResolution,
 } from '@/components/marc/DepositMarcDuplicateDialog';
@@ -41,6 +41,7 @@ import {
   marcImportApiSiteId,
   marcImportDepositBatchId,
   marcImportTargetReady,
+  marcImportTargetRequiredMessage,
   type MarcImportTargetVariant,
 } from '@/utils/marcImportTarget';
 import { APP_PAGE_CLASS } from '@/utils/appPageLayout';
@@ -678,15 +679,19 @@ export function MarcImportWorkflow({
 
   useEffect(() => {
     if (!depositContext) return;
-    setStockMode('deposit');
-    setSelectedDepositBatchId(depositContext.batchId);
-    setDepositMarcSiteId(depositContext.siteId);
-  }, [depositContext?.batchId, depositContext?.siteId]);
+    return deferFromEffect(() => {
+      setStockMode('deposit');
+      setSelectedDepositBatchId(depositContext.batchId);
+      setDepositMarcSiteId(depositContext.siteId);
+    });
+  }, [depositContext]);
 
   useEffect(() => {
     if (!depositContext || sites.length <= 1) return;
-    setDepositMarcSiteId((prev) => prev ?? depositContext.siteId);
-  }, [depositContext, sites.length, depositContext?.siteId]);
+    return deferFromEffect(() => {
+      setDepositMarcSiteId((prev) => prev ?? depositContext.siteId);
+    });
+  }, [depositContext, sites.length]);
 
   const targetVariant = useMemo((): MarcImportTargetVariant => {
     if (depositContext) {
@@ -1049,8 +1054,10 @@ export function MarcImportWorkflow({
   useEffect(() => {
     if (sites.length !== 1) return;
     const onlyId = sites[0].id;
-    setSelectedSiteId((prev) => prev ?? onlyId);
-    setDepositMarcSiteId((prev) => prev ?? onlyId);
+    return deferFromEffect(() => {
+      setSelectedSiteId((prev) => prev ?? onlyId);
+      setDepositMarcSiteId((prev) => prev ?? onlyId);
+    });
   }, [sites]);
 
   // Restore any in-progress batch import task from localStorage

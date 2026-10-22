@@ -1,11 +1,13 @@
 //! Genre catalog API (read-only + admin reload).
 
-use axum::{extract::State, http::StatusCode, routing::{get, post}, Json, Router};
-
-use crate::{
-    error::AppResult,
-    services::genre_catalog::GenreApiRow,
+use axum::{
+    extract::State,
+    http::StatusCode,
+    routing::{get, post},
+    Json, Router,
 };
+
+use crate::{error::AppResult, services::genre_catalog::GenreApiRow};
 
 use super::{AdminUser, AuthenticatedUser, StaffUser};
 
@@ -44,7 +46,5 @@ pub async fn reload_genres(State(state): State<crate::AppState>, _admin: AdminUs
 }
 
 pub fn router() -> Router<crate::AppState> {
-    Router::new()
-        .route("/genres", get(list_genres))
-        .route("/genres/reload", post(reload_genres))
+    Router::new().route("/genres", get(list_genres)).route("/genres/reload", post(reload_genres))
 }

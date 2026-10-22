@@ -101,9 +101,7 @@ impl Repository {
             "#,
             prepared.where_sql
         );
-        let total: i64 = sqlx::query_scalar_with(&count_sql, bind_params(&prepared.params))
-            .fetch_one(&self.pool)
-            .await?;
+        let total: i64 = sqlx::query_scalar_with(&count_sql, bind_params(&prepared.params)).fetch_one(&self.pool).await?;
 
         let mut page_params = Vec::new();
         page_params.extend(prepared.params.iter().map(|param| match param {
@@ -119,15 +117,8 @@ impl Repository {
             "{SELECT_CANDIDATE} WHERE {} ORDER BY i.updated_at DESC, i.id DESC LIMIT ${limit_idx} OFFSET ${offset_idx}",
             prepared.where_sql
         );
-        let items = sqlx::query_as_with::<_, WeedingCandidate, _>(&page_sql, bind_params(&page_params))
-            .fetch_all(&self.pool)
-            .await?;
+        let items = sqlx::query_as_with::<_, WeedingCandidate, _>(&page_sql, bind_params(&page_params)).fetch_all(&self.pool).await?;
 
-        Ok(WeedingCandidateList {
-            items,
-            total,
-            page,
-            per_page,
-        })
+        Ok(WeedingCandidateList { items, total, page, per_page })
     }
 }

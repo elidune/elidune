@@ -638,11 +638,7 @@ impl Repository {
 
         // A pinned copy that is already on the shelf enters `to_pick`, same as title capture.
         let shelf_pick = self.holds_item_eligible_for_to_pick_tx(&mut tx, item_id).await?;
-        let status = if shelf_pick {
-            HoldStatus::ToPick.as_str()
-        } else {
-            HoldStatus::Pending.as_str()
-        };
+        let status = if shelf_pick { HoldStatus::ToPick.as_str() } else { HoldStatus::Pending.as_str() };
 
         let row = match sqlx::query_as::<_, Hold>(
             r#"

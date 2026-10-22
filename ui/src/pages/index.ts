@@ -33,7 +33,5 @@ export { default as DepositBatchDetailPage } from './DepositBatchDetailPage';
 export { default as EventsPage } from './EventsPage';
 export { default as UnsubscribeEventsPage } from './UnsubscribeEventsPage';
 export { default as PublicEventsPage } from './PublicEventsPage';
-export { default as AboutPage } from './AboutPage';
-export { default as PrivacyPage } from './PrivacyPage';
 export { default as AcquisitionsPage } from './AcquisitionsPage';
 export { default as AcquisitionsOrderDetailPage } from './AcquisitionsOrderDetailPage';

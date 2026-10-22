@@ -34,8 +34,7 @@ pub trait TransitsRepository: Send + Sync {
     async fn transits_get_by_id(&self, id: i64) -> AppResult<ItemTransit>;
     async fn transits_get_active_for_item(&self, item_id: i64) -> AppResult<Option<ItemTransit>>;
     async fn transits_get_active_for_hold(&self, hold_id: i64) -> AppResult<Option<ItemTransit>>;
-    async fn transits_list(&self, status: Option<TransitStatus>, item_id: Option<i64>, hold_id: Option<i64>, to_site_id: Option<i64>, page: i64, per_page: i64)
-        -> AppResult<(Vec<ItemTransit>, i64)>;
+    async fn transits_list(&self, status: Option<TransitStatus>, item_id: Option<i64>, hold_id: Option<i64>, to_site_id: Option<i64>, page: i64, per_page: i64) -> AppResult<(Vec<ItemTransit>, i64)>;
 }
 
 #[async_trait::async_trait]
@@ -49,15 +48,7 @@ impl TransitsRepository for Repository {
     async fn transits_get_active_for_hold(&self, hold_id: i64) -> AppResult<Option<ItemTransit>> {
         Repository::transits_get_active_for_hold(self, hold_id).await
     }
-    async fn transits_list(
-        &self,
-        status: Option<TransitStatus>,
-        item_id: Option<i64>,
-        hold_id: Option<i64>,
-        to_site_id: Option<i64>,
-        page: i64,
-        per_page: i64,
-    ) -> AppResult<(Vec<ItemTransit>, i64)> {
+    async fn transits_list(&self, status: Option<TransitStatus>, item_id: Option<i64>, hold_id: Option<i64>, to_site_id: Option<i64>, page: i64, per_page: i64) -> AppResult<(Vec<ItemTransit>, i64)> {
         Repository::transits_list(self, status, item_id, hold_id, to_site_id, page, per_page).await
     }
 }

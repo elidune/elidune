@@ -165,7 +165,7 @@ describe('deposit import payload', () => {
     }
     assert.equal(calls.length, 1);
     assert.equal(calls[0].url, '/biblios/import-marc-batch');
-    assert.deepEqual(calls[0].params, { batchId: '42', recordId: 3, deposit_batch_id: '99' });
+    assert.deepEqual(calls[0].params, { batchId: '42', recordId: 3, deposit_batch_id: '99', siteId: '7' });
   });
 });
 

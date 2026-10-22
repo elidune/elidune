@@ -492,11 +492,7 @@ impl Repository {
             return Err(AppError::NotFound(format!("Deposit batch {id} not found")));
         };
         if status == DepositBatchStatus::Closed.as_db_str() {
-            return Err(AppError::coded(
-                422,
-                error_code::DEPOSIT_BATCH_NOT_ACTIVE,
-                "A closed deposit batch cannot cancel its return",
-            ));
+            return Err(AppError::coded(422, error_code::DEPOSIT_BATCH_NOT_ACTIVE, "A closed deposit batch cannot cancel its return"));
         }
         if status == DepositBatchStatus::Returning.as_db_str() {
             sqlx::query(
@@ -618,11 +614,7 @@ impl Repository {
             return Err(AppError::NotFound("No active copy with this barcode".into()));
         };
         let Some(batch_id) = batch_id else {
-            return Err(AppError::coded(
-                422,
-                error_code::ITEM_NOT_DEPOSIT_COPY,
-                "This copy is not part of a deposit batch",
-            ));
+            return Err(AppError::coded(422, error_code::ITEM_NOT_DEPOSIT_COPY, "This copy is not part of a deposit batch"));
         };
         let scanned = self.deposit_batches_scan_out(batch_id, barcode).await?;
         let meta = sqlx::query_as::<_, (String, String)>(

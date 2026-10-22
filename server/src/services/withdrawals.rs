@@ -90,10 +90,7 @@ impl CatalogService {
         self.repository.item_withdrawals_list(query).await
     }
 
-    pub async fn list_weeding_candidates(
-        &self,
-        query: &crate::models::dto::weeding::WeedingCandidateQuery,
-    ) -> AppResult<crate::models::dto::weeding::WeedingCandidateList> {
+    pub async fn list_weeding_candidates(&self, query: &crate::models::dto::weeding::WeedingCandidateQuery) -> AppResult<crate::models::dto::weeding::WeedingCandidateList> {
         self.repository.weeding_candidates_list(query).await
     }
 

@@ -40,3 +40,13 @@ export function marcImportDepositBatchId(variant: MarcImportTargetVariant): stri
 export function marcImportAllowsDuplicateIsbn(variant: MarcImportTargetVariant): boolean {
   return variant.kind === 'catalog' && variant.stockMode === 'own';
 }
+
+export function marcImportTargetRequiredMessage(
+  variant: MarcImportTargetVariant,
+  t: (key: string) => string,
+): string {
+  if (variant.kind === 'depositBatch') {
+    return variant.sites.length > 1 ? t('deposits.import.targetSiteRequired') : '';
+  }
+  return variant.stockMode === 'deposit' ? t('deposits.import.batchRequired') : t('importMarc.siteRequired');
+}

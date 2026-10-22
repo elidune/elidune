@@ -16,6 +16,7 @@ import { isFeatureEnabled } from '@/utils/featureAccess';
 import { Card, CardHeader, Button, Input, Badge, ConfirmDialog, SectionTabBar } from '@/components/common';
 import api from '@/services/api';
 import { getApiErrorCode, getApiErrorMessage } from '@/utils/apiError';
+import { deferFromEffect } from '@/utils/deferFromEffect';
 import { formControlClass, formLabelClass, formChoiceLabelClass, formChoiceControlClass } from '@/utils/formControl';
 import {
   audienceUnpaidThresholdForCreate,
@@ -1782,11 +1783,12 @@ export default function SettingsPage() {
       console.error('Error fetching Z39.50 servers:', z3950ServersQuery.error);
     }
     if (loanSettingsQuery.data !== undefined && z3950ServersQuery.data !== undefined) {
-      setSettings({
-        loanSettings: loanSettingsQuery.data,
-        z3950Servers: z3950ServersQuery.data,
+      const loanSettings = loanSettingsQuery.data;
+      const z3950Servers = z3950ServersQuery.data;
+      return deferFromEffect(() => {
+        setSettings({ loanSettings, z3950Servers });
+        setIsLoading(false);
       });
-      setIsLoading(false);
     }
   }, [
     canEditAllSettings,
