@@ -186,6 +186,13 @@
       "allStatuses": "Alle Status",
       "siteDoesNotMoveCopies": "Ein Standortwechsel verschiebt die Exemplare nicht."
     },
+    "globalScan": {
+      "title": "Rückgabe-Scan (alle Chargen)",
+      "hint": "Scannen Sie ein Exemplar, solange seine Charge in Rückgabe ist. Die Charge wird anhand des Barcodes ermittelt.",
+      "scanned": "{{barcode}} ausgebucht — Charge {{batch}} ({{lender}}).",
+      "alreadyScanned": "{{barcode}} war bereits gescannt — Charge {{batch}} ({{lender}}).",
+      "openBatch": "Charge öffnen"
+    },
     "batch": {
       "startReturn": "Rückgabe starten",
       "returnStarted": "Rückgabe gestartet",
@@ -2484,7 +2491,8 @@
       "barcode_already_exists": "Dieser Strichcode wird bereits von einem anderen Exemplar verwendet.",
       "deposit_batch_has_active_loans": "Das Los bleibt in Rückgabe: Exemplare sind noch ausgeliehen.",
       "deposit_batch_not_returning": "Dieses Los ist nicht in Rückgabe. Starten Sie die Rückgabe, bevor Sie Exemplare ausbuchen oder das Los schließen.",
-      "deposit_replacement_amount_required": "Geben Sie den Ersatzbetrag ein. Reihenfolge: Tarif des Verleihers, dann Exemplarpreis wenn größer als null, sonst der eingegebene Betrag. Null wird nicht akzeptiert."
+      "deposit_replacement_amount_required": "Geben Sie den Ersatzbetrag ein. Reihenfolge: Tarif des Verleihers, dann Exemplarpreis wenn größer als null, sonst der eingegebene Betrag. Null wird nicht akzeptiert.",
+      "item_not_deposit_copy": "Dieses Exemplar gehört zu keiner Depot-Charge."
     }
   },
   "inventory": {

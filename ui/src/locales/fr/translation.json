@@ -186,6 +186,13 @@
       "allStatuses": "Tous les statuts",
       "siteDoesNotMoveCopies": "Changer le site ne déplace pas les exemplaires."
     },
+    "globalScan": {
+      "title": "Scan retour (tous lots)",
+      "hint": "Scannez un exemplaire dont le lot est en retour. Le système retrouve le lot à partir du code-barres.",
+      "scanned": "{{barcode}} scanné — lot {{batch}} ({{lender}}).",
+      "alreadyScanned": "{{barcode}} était déjà scanné — lot {{batch}} ({{lender}}).",
+      "openBatch": "Ouvrir le lot"
+    },
     "batch": {
       "startReturn": "Lancer le retour",
       "returnStarted": "Retour lancé",
@@ -2484,7 +2491,8 @@
       "barcode_already_exists": "Ce code-barres est déjà utilisé par un autre exemplaire.",
       "deposit_batch_has_active_loans": "Le lot reste en retour : des exemplaires sont encore en prêt.",
       "deposit_batch_not_returning": "Le lot n’est pas en retour. Lancez le retour avant de scanner une sortie ou de clôturer.",
-      "deposit_replacement_amount_required": "Indiquez le montant de remplacement. Ordre : tarif du prêteur, puis prix de l’exemplaire s’il est supérieur à zéro, sinon le montant saisi. Zéro n’est pas accepté."
+      "deposit_replacement_amount_required": "Indiquez le montant de remplacement. Ordre : tarif du prêteur, puis prix de l’exemplaire s’il est supérieur à zéro, sinon le montant saisi. Zéro n’est pas accepté.",
+      "item_not_deposit_copy": "Cet exemplaire ne fait pas partie d’un lot de dépôt."
     }
   },
   "inventory": {

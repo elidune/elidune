@@ -73,6 +73,7 @@ import type {
   DepositBatchDetail,
   DepositBatchItem,
   DepositBatchStatus,
+  DepositGlobalScanOut,
   DepositCopyState,
   CreateDepositBatch,
   UpdateDepositBatch,
@@ -1823,6 +1824,12 @@ class ApiService {
    */
   async scanOutDepositCopy(id: string, barcode: string): Promise<unknown> {
     const response = await this.client.post(`/deposit-batches/${id}/scan-out`, { barcode });
+    return response.data;
+  }
+
+  /** Scan-out while a return is in progress; the batch is resolved from the barcode. */
+  async scanOutDepositCopyGlobal(barcode: string): Promise<DepositGlobalScanOut> {
+    const response = await this.client.post<DepositGlobalScanOut>('/deposit-batches/scan-out', { barcode });
     return response.data;
   }
 

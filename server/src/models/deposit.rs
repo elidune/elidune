@@ -406,6 +406,24 @@ pub struct DepositScanOut {
     pub already_scanned: bool,
 }
 
+/// `POST /deposit-batches/scan-out` — same as [`DepositScanOut`] plus resolved batch context.
+#[serde_as]
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct DepositGlobalScanOut {
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub item_id: i64,
+    pub barcode: String,
+    pub deposit_returned_at: DateTime<Utc>,
+    pub already_scanned: bool,
+    #[serde_as(as = "DisplayFromStr")]
+    #[schema(value_type = String)]
+    pub deposit_batch_id: i64,
+    pub batch_reference: String,
+    pub lender_name: String,
+}
+
 /// Why a deposit copy was billed back to the lender.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "camelCase")]

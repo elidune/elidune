@@ -4,7 +4,7 @@ use crate::{
     error::{AppError, AppResult},
     models::deposit::{
         CreateDepositBatch, CreateLender, DepositBatch, DepositBatchDetail, DepositBatchItem, DepositBatchItemsQuery, DepositBatchListQuery, DepositCloseReport, DepositLoss, DepositLossListQuery,
-        DepositScanOut, DepositScanOutRequest, Lender, MarkDepositLossNotified, UpdateDepositBatch, UpdateLender,
+        DepositGlobalScanOut, DepositScanOut, DepositScanOutRequest, Lender, MarkDepositLossNotified, UpdateDepositBatch, UpdateLender,
     },
     services::audit,
 };
@@ -27,6 +27,7 @@ pub fn router() -> axum::Router<crate::AppState> {
         .route("/deposit-losses", get(list_deposit_losses))
         .route("/items/:id/deposit-loss-notified", post(mark_deposit_loss_notified))
         .route("/deposit-batches", get(list_deposit_batches).post(create_deposit_batch))
+        .route("/deposit-batches/scan-out", post(scan_out_deposit_copy_global))
         .route("/deposit-batches/:id", get(get_deposit_batch).patch(update_deposit_batch))
         .route("/deposit-batches/:id/items", get(list_deposit_batch_items))
         .route("/deposit-batches/:id/start-return", post(start_deposit_return))
@@ -368,6 +369,45 @@ pub async fn scan_out_deposit_copy(
         Some(scanned.item_id),
         ip,
         Some(&scanned),
+        audit::AuditLogMeta::success(),
+    );
+    Ok(Json(scanned))
+}
+
+#[utoipa::path(
+    post,
+    path = "/deposit-batches/scan-out",
+    tag = "deposits",
+    security(("bearer_auth" = [])),
+    request_body = DepositScanOutRequest,
+    responses(
+        (status = 200, description = "Copy marked returned to the lender. The batch is resolved from the barcode. A second scan keeps the first timestamp.", body = DepositGlobalScanOut),
+        (status = 400, description = "Validation error", body = crate::error::ErrorResponse),
+        (status = 401, description = "Not authenticated", body = crate::error::ErrorResponse),
+        (status = 403, description = "Insufficient permissions", body = crate::error::ErrorResponse),
+        (status = 404, description = "No active copy with this barcode", body = crate::error::ErrorResponse),
+        (status = 422, description = "Copy is not on a deposit batch (`item_not_deposit_copy`), its batch is not `returning` (`deposit_batch_not_returning`), or it still has an open loan (`deposit_item_on_loan`)", body = crate::error::DepositItemOnLoanBody)
+    )
+)]
+pub async fn scan_out_deposit_copy_global(
+    State(state): State<crate::AppState>,
+    AuthenticatedUser(claims): AuthenticatedUser,
+    ClientIp(ip): ClientIp,
+    ValidatedJson(body): ValidatedJson<DepositScanOutRequest>,
+) -> AppResult<Json<DepositGlobalScanOut>> {
+    claims.require_write_items()?;
+    let scanned = state.services.deposits.scan_out_by_barcode(&body.barcode).await?;
+    state.services.audit.log(
+        audit::event::DEPOSIT_BATCH_SCANNED_OUT,
+        Some(claims.user_id),
+        Some("item"),
+        Some(scanned.item_id),
+        ip,
+        Some(serde_json::json!({
+            "barcode": scanned.barcode,
+            "depositBatchId": scanned.deposit_batch_id,
+            "globalScan": true,
+        })),
         audit::AuditLogMeta::success(),
     );
     Ok(Json(scanned))

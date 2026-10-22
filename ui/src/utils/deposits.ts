@@ -231,6 +231,7 @@ const DEPOSIT_ERROR_CODES = [
   'deposit_batch_has_active_loans',
   'deposit_batch_not_returning',
   'deposit_replacement_amount_required',
+  'item_not_deposit_copy',
 ] as const;
 
 

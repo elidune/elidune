@@ -186,6 +186,13 @@
       "allStatuses": "Todos los estados",
       "siteDoesNotMoveCopies": "Cambiar la sede no mueve los ejemplares."
     },
+    "globalScan": {
+      "title": "Escaneo de devolución (cualquier lote)",
+      "hint": "Escanee un ejemplar mientras su lote está en devolución. El sistema encuentra el lote a partir del código de barras.",
+      "scanned": "{{barcode}} registrado — lote {{batch}} ({{lender}}).",
+      "alreadyScanned": "{{barcode}} ya estaba registrado — lote {{batch}} ({{lender}}).",
+      "openBatch": "Abrir lote"
+    },
     "batch": {
       "startReturn": "Iniciar la devolución",
       "returnStarted": "Devolución iniciada",
@@ -2484,7 +2491,8 @@
       "barcode_already_exists": "Este código de barras ya lo usa otro ejemplar.",
       "deposit_batch_has_active_loans": "El lote sigue en devolución: hay ejemplares en préstamo.",
       "deposit_batch_not_returning": "El lote no está en devolución. Inicie la devolución antes de registrar una salida o de cerrarlo.",
-      "deposit_replacement_amount_required": "Indique el importe de reposición. Orden: tarifa del prestamista, luego el precio del ejemplar si es mayor que cero, si no el importe indicado. El cero no se acepta."
+      "deposit_replacement_amount_required": "Indique el importe de reposición. Orden: tarifa del prestamista, luego el precio del ejemplar si es mayor que cero, si no el importe indicado. El cero no se acepta.",
+      "item_not_deposit_copy": "Este ejemplar no forma parte de un lote en depósito."
     }
   },
   "inventory": {

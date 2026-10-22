@@ -826,6 +826,17 @@ export interface DepositBatchItem {
   state: DepositCopyState;
 }
 
+/** `POST /deposit-batches/scan-out` — batch resolved from the barcode. */
+export interface DepositGlobalScanOut {
+  itemId: string;
+  barcode: string;
+  depositReturnedAt: string;
+  alreadyScanned: boolean;
+  depositBatchId: string;
+  batchReference: string;
+  lenderName: string;
+}
+
 /**
  * Checkout and renewal body. `dueDateCappedByDeposit` is added by server PR 2.
  * It is absent until that PR lands.
@@ -1871,7 +1882,8 @@ export type ApiErrorCode =
   | 'barcode_already_exists'
   | 'deposit_batch_has_active_loans'
   | 'deposit_batch_not_returning'
-  | 'deposit_replacement_amount_required';
+  | 'deposit_replacement_amount_required'
+  | 'item_not_deposit_copy';
 
 // Settings — renewal anchoring (serialized wire values: now, at_due_date)
 export type LoanSettingsRenewAt = 'now' | 'at_due_date';

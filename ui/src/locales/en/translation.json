@@ -186,6 +186,13 @@
       "allStatuses": "All statuses",
       "siteDoesNotMoveCopies": "Changing the site does not move the copies."
     },
+    "globalScan": {
+      "title": "Return scan (any batch)",
+      "hint": "Scan a copy while its batch is in return. The system finds the batch from the barcode.",
+      "scanned": "{{barcode}} scanned out — batch {{batch}} ({{lender}}).",
+      "alreadyScanned": "{{barcode}} was already scanned — batch {{batch}} ({{lender}}).",
+      "openBatch": "Open batch"
+    },
     "batch": {
       "startReturn": "Start the return",
       "returnStarted": "Return started",
@@ -2484,7 +2491,8 @@
       "barcode_already_exists": "This barcode is already used by another copy.",
       "deposit_batch_has_active_loans": "The batch stays in return: copies are still on loan.",
       "deposit_batch_not_returning": "This batch is not in return. Start the return before scanning copies out or closing it.",
-      "deposit_replacement_amount_required": "Enter the replacement amount. Order: lender rate, then the copy price when it is greater than zero, otherwise the amount you enter. Zero is not accepted."
+      "deposit_replacement_amount_required": "Enter the replacement amount. Order: lender rate, then the copy price when it is greater than zero, otherwise the amount you enter. Zero is not accepted.",
+      "item_not_deposit_copy": "This copy is not part of a deposit batch."
     }
   },
   "inventory": {

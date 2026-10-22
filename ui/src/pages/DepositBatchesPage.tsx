@@ -17,6 +17,7 @@ import {
 import { getApiErrorMessage } from '@/utils/apiError';
 import { APP_PAGE_CLASS } from '@/utils/appPageLayout';
 import { formatCatalogDate } from '@/utils/deposits';
+import DepositGlobalReturnScan from '@/components/deposits/DepositGlobalReturnScan';
 import { formControlClass, formLabelClass } from '@/utils/formControl';
 
 const BATCHES_KEY = ['deposit-batches'] as const;
@@ -98,6 +99,7 @@ export function DepositBatchesPanel() {
 
   return (
     <div className="space-y-4">
+      <DepositGlobalReturnScan canWrite={canWrite} />
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-gray-600 dark:text-gray-300">{t('deposits.batches.subtitle')}</p>
         {canWrite ? (

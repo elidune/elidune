@@ -195,6 +195,10 @@ impl DepositsService {
         self.repository.deposit_batches_scan_out(id, barcode).await
     }
 
+    pub async fn scan_out_by_barcode(&self, barcode: &str) -> AppResult<crate::models::deposit::DepositGlobalScanOut> {
+        self.repository.deposit_batches_scan_out_by_barcode(barcode).await
+    }
+
     pub async fn close_batch(&self, id: i64) -> AppResult<crate::models::deposit::DepositCloseReport> {
         self.repository.deposit_batches_close(id).await
     }

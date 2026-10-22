@@ -4,7 +4,7 @@ use super::Repository;
 use crate::error::{error_code, AppError, AppResult};
 use crate::models::deposit::{
     own_stock_sql, CreateDepositBatch, CreateLender, DepositActiveLoanCopy, DepositBatch, DepositBatchCounts, DepositBatchItem, DepositBatchStatus, DepositCloseCopy, DepositCloseReport,
-    DepositCopyState, DepositScanOut, Lender, UpdateDepositBatch, UpdateLender,
+    DepositCopyState, DepositGlobalScanOut, DepositScanOut, Lender, UpdateDepositBatch, UpdateLender,
 };
 use crate::models::fine::Cents;
 
@@ -594,6 +594,59 @@ impl Repository {
             barcode: row.barcode.unwrap_or_else(|| barcode.to_string()),
             deposit_returned_at: returned_at,
             already_scanned: false,
+        })
+    }
+
+    /// Resolve the copy's deposit batch and run [`Self::deposit_batches_scan_out`].
+    pub async fn deposit_batches_scan_out_by_barcode(&self, barcode: &str) -> AppResult<DepositGlobalScanOut> {
+        let barcode = barcode.trim();
+        if barcode.is_empty() {
+            return Err(AppError::Validation("barcode is required".into()));
+        }
+        let lookup = sqlx::query_as::<_, (Option<i64>, Option<i64>)>(
+            r#"
+            SELECT id, deposit_batch_id
+            FROM items
+            WHERE barcode = $1 AND archived_at IS NULL
+            LIMIT 1
+            "#,
+        )
+        .bind(barcode)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some((_item_id, batch_id)) = lookup else {
+            return Err(AppError::NotFound("No active copy with this barcode".into()));
+        };
+        let Some(batch_id) = batch_id else {
+            return Err(AppError::coded(
+                422,
+                error_code::ITEM_NOT_DEPOSIT_COPY,
+                "This copy is not part of a deposit batch",
+            ));
+        };
+        let scanned = self.deposit_batches_scan_out(batch_id, barcode).await?;
+        let meta = sqlx::query_as::<_, (String, String)>(
+            r#"
+            SELECT b.reference, l.name
+            FROM deposit_batches b
+            INNER JOIN lenders l ON l.id = b.lender_id
+            WHERE b.id = $1
+            "#,
+        )
+        .bind(batch_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        let Some((batch_reference, lender_name)) = meta else {
+            return Err(AppError::NotFound(format!("Deposit batch {batch_id} not found")));
+        };
+        Ok(DepositGlobalScanOut {
+            item_id: scanned.item_id,
+            barcode: scanned.barcode,
+            deposit_returned_at: scanned.deposit_returned_at,
+            already_scanned: scanned.already_scanned,
+            deposit_batch_id: batch_id,
+            batch_reference,
+            lender_name,
         })
     }
 

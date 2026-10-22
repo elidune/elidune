@@ -218,6 +218,7 @@ use crate::api::{
         deposits::start_deposit_return,
         deposits::cancel_deposit_return,
         deposits::scan_out_deposit_copy,
+        deposits::scan_out_deposit_copy_global,
         deposits::close_deposit_batch,
         // Equipment
         equipment::list_equipment,
@@ -603,6 +604,7 @@ use crate::api::{
             crate::models::deposit::ItemDeposit,
             crate::models::deposit::DepositScanOutRequest,
             crate::models::deposit::DepositScanOut,
+            crate::models::deposit::DepositGlobalScanOut,
             crate::models::deposit::DepositCloseReport,
             crate::models::deposit::DepositCloseCopy,
             crate::models::deposit::DepositActiveLoanCopy,
